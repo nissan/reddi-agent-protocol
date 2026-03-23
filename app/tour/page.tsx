@@ -192,7 +192,7 @@ export default function TourPage() {
             </button>
             <video
               ref={videoRef}
-              src="/tour-walkthrough.mp4"
+              src="https://github.com/reddinft/reddi-agent-protocol/releases/download/v1.0-tour/tour-walkthrough.mp4"
               controls
               autoPlay
               className="w-full rounded-xl border border-white/10 shadow-2xl"
