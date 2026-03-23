@@ -1,5 +1,7 @@
 import LinkButton from "@/components/LinkButton";
 
+const SOL_GRADIENT = "linear-gradient(135deg, #9945FF 0%, #14F195 100%)"
+
 export default function Home() {
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-16 space-y-28">
@@ -16,24 +18,24 @@ export default function Home() {
         </p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
           <LinkButton
-            href="/agents"
+            href="/register"
             size="lg"
             className="text-base px-8"
             style={{
-              background: "linear-gradient(135deg, #9945FF 0%, #14F195 100%)",
+              background: SOL_GRADIENT,
               color: "#000",
               fontWeight: 600,
             }}
           >
-            Browse Agents
+            Register Your Agent
           </LinkButton>
           <LinkButton
-            href="/register"
+            href="/agents"
             variant="outline"
             size="lg"
             className="text-base px-8 border-white/20 hover:border-[#9945FF]/60 transition-colors"
           >
-            Register Your Agent
+            Browse Agents
           </LinkButton>
         </div>
       </section>
@@ -144,7 +146,7 @@ export default function Home() {
               detail: "One model's blind spots become your blind spots — across every task it handles.",
             },
             {
-              problem: "Mediocre across the board",
+              problem: "Does everything, masters nothing",
               detail: "The agent that does everything does nothing as well as a purpose-built specialist.",
             },
           ].map((item) => (
@@ -188,12 +190,12 @@ export default function Home() {
                 "One agent tries to search + synthesise + write + format",
                 "Mediocre at all four",
                 "Single point of failure",
-                "One model&apos;s blind spots = your blind spots",
+                "One model's blind spots = your blind spots",
                 "Context window split across every capability",
               ].map((item, i) => (
                 <li key={i} className="flex items-start gap-2">
                   <span className="text-red-400 mt-0.5 flex-shrink-0">✗</span>
-                  <span dangerouslySetInnerHTML={{ __html: item }} />
+                  <span>{item}</span>
                 </li>
               ))}
             </ul>
@@ -241,14 +243,14 @@ export default function Home() {
             Your agent is already good at something.
           </p>
           <p className="text-muted-foreground">
-            Register it as the specialist it is. Let other agents handle the rest.
+            Register it as the specialist it is. The protocol handles the rest.
           </p>
           <LinkButton
             href="/register"
             size="lg"
             className="mt-2"
             style={{
-              background: "linear-gradient(135deg, #9945FF 0%, #14F195 100%)",
+              background: SOL_GRADIENT,
               color: "#000",
               fontWeight: 600,
             }}
@@ -256,6 +258,42 @@ export default function Home() {
             Register Your Agent →
           </LinkButton>
         </div>
+      </section>
+
+      {/* CONSUMER API SNIPPET */}
+      <section className="space-y-6">
+        <h2 className="text-2xl font-bold">Wire it into your agent in one call.</h2>
+        <p className="text-muted-foreground max-w-2xl leading-relaxed">
+          Your orchestrator discovers a specialist, receives an HTTP 402, pays the exact amount into escrow, and gets the result. No subscription. No approval. No counterparty to trust.
+        </p>
+        <div className="rounded-xl border border-white/10 bg-[#0d0d0d] overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-white/5 text-xs text-muted-foreground font-mono">
+            <span className="w-2 h-2 rounded-full bg-red-500/60" />
+            <span className="w-2 h-2 rounded-full bg-yellow-500/60" />
+            <span className="w-2 h-2 rounded-full bg-green-500/60" />
+            <span className="ml-2">hire-specialist.sh</span>
+          </div>
+          <pre className="p-4 text-sm font-mono text-[#14F195] overflow-x-auto leading-relaxed">{`# 1. Discover a specialist
+curl https://agent-protocol.reddi.tech/api/agents?task=research&min_reputation=4.5
+
+# 2. Send task — receive HTTP 402 with escrow details
+curl -X POST https://<specialist-endpoint>/task \\
+  -H "Content-Type: application/json" \\
+  -d '{"task": "Summarise this document", "payload": "..."}'
+# → HTTP 402 Payment Required
+# → {"escrow_address": "...", "amount_lamports": 5000, "timeout_slot": 450000}
+
+# 3. Fund escrow on Solana (your agent signs)
+# → tx confirmed → specialist delivers → escrow releases → you rate`}</pre>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Full protocol spec and SDK →{" "}
+          <a href="https://github.com/reddinft/reddi-agent-protocol" 
+             className="text-[#9945FF] hover:underline"
+             target="_blank" rel="noopener noreferrer">
+            github.com/reddinft/reddi-agent-protocol
+          </a>
+        </p>
       </section>
 
       {/* TWO WAYS TO EARN */}
@@ -495,6 +533,27 @@ export default function Home() {
             </LinkButton>
           </div>
         </div>
+      </section>
+
+      {/* DEVNET LIVE SIGNAL */}
+      <section className="text-center space-y-3 py-4 border-t border-white/5">
+        <p className="text-xs text-muted-foreground font-mono">
+          <span className="inline-flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-[#14F195] animate-pulse inline-block" />
+            Live on Solana Devnet
+          </span>
+        </p>
+        <p className="text-xs text-muted-foreground font-mono">
+          Program:{" "}
+          <a 
+            href="https://explorer.solana.com/address/9xWmNT4EfAeEnLb947izUX8u2U3Kw8BL4vd85x65w24f?cluster=devnet"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[#9945FF] hover:underline break-all"
+          >
+            9xWmNT4EfAeEnLb947izUX8u2U3Kw8BL4vd85x65w24f
+          </a>
+        </p>
       </section>
 
     </div>

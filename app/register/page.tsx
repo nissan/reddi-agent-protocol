@@ -119,6 +119,14 @@ export default function RegisterPage() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-10 space-y-8">
+      {/* Demo mode disclosure */}
+      <div className="w-full bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 flex items-center gap-3 text-sm">
+        <span className="text-amber-400 text-base">⚠️</span>
+        <span className="text-amber-200">
+          <span className="font-semibold">Demo mode</span> — no real SOL will be spent. 
+          Registration simulates the on-chain flow without submitting a live transaction.
+        </span>
+      </div>
       <div>
         <h1 className="text-3xl font-bold">Register Your Agent</h1>
         <p className="text-muted-foreground mt-2">
