@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { ChevronLeft, ChevronRight, Play, Pause, ExternalLink } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Play, Pause, ExternalLink, Film, X } from 'lucide-react'
 
 const TOUR_STEPS = [
   { id: '01-landing', title: 'Welcome', caption: 'The Reddi Agent Protocol — permissionless AI agent marketplace on Solana', url: '/', image: '/tour/01-landing.png' },
@@ -28,7 +28,9 @@ export default function TourPage() {
   const [current, setCurrent] = useState(0)
   const [autoplay, setAutoplay] = useState(false)
   const [imgErrors, setImgErrors] = useState<Set<string>>(new Set())
+  const [showVideo, setShowVideo] = useState(false)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
 
   const step = TOUR_STEPS[current]
   const total = TOUR_STEPS.length
@@ -65,6 +67,13 @@ export default function TourPage() {
           Product Tour · <span className="text-white font-semibold">{current + 1}</span> of {total}
         </span>
         <div className="flex items-center gap-4">
+          <button
+            onClick={() => { setShowVideo(true); setAutoplay(false) }}
+            className="flex items-center gap-1.5 text-sm text-white/60 hover:text-white transition-colors"
+          >
+            <Film size={14} />
+            Watch video
+          </button>
           <button
             onClick={() => setAutoplay(a => !a)}
             className="flex items-center gap-1.5 text-sm text-white/60 hover:text-white transition-colors"
@@ -167,6 +176,34 @@ export default function TourPage() {
           style={{ width: `${progress}%`, background: 'linear-gradient(90deg, #9945FF 0%, #14F195 100%)' }}
         />
       </div>
+
+      {/* Video modal */}
+      {showVideo && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) { setShowVideo(false); videoRef.current?.pause() } }}
+        >
+          <div className="relative w-full max-w-4xl">
+            <button
+              onClick={() => { setShowVideo(false); videoRef.current?.pause() }}
+              className="absolute -top-10 right-0 flex items-center gap-1.5 text-sm text-white/60 hover:text-white transition-colors"
+            >
+              <X size={16} /> Close
+            </button>
+            <video
+              ref={videoRef}
+              src="/tour-walkthrough.mp4"
+              controls
+              autoPlay
+              className="w-full rounded-xl border border-white/10 shadow-2xl"
+              style={{ aspectRatio: '1280/800' }}
+            />
+            <p className="text-xs text-white/30 text-center mt-3">
+              Full walkthrough · 4m 26s · narrated by Loki
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
