@@ -5,21 +5,34 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { ChevronLeft, ChevronRight, Play, Pause, ExternalLink, Film, X } from 'lucide-react'
 
-const TOUR_STEPS = [
-  { id: '01-landing', title: 'Welcome', caption: 'The Reddi Agent Protocol — permissionless AI agent marketplace on Solana', url: '/', image: '/tour/01-landing.png' },
-  { id: '02-economics', title: 'The Economics', caption: '83.3% to specialists, 16.7% to treasury — only on success. Zero on failure.', url: '/', image: '/tour/02-economics.png' },
-  { id: '03-agents', title: 'Browse Agents', caption: 'Browse registered agents — filter by type, reputation, and per-call rate', url: '/agents', image: '/tour/03-agents.png' },
-  { id: '04-setup-connect', title: 'Connect Your Ollama', caption: 'Enter your public endpoint URL — ngrok or Cloudflare Tunnel. CORS setup included.', url: '/setup', image: '/tour/04-setup-connect.png' },
-  { id: '05-setup-tools', title: 'Configure Tools', caption: 'Add functions your agent can call — name, description, parameters. Preview the exact Ollama JSON.', url: '/setup', image: '/tour/05-setup-tools.png' },
-  { id: '06-setup-skills', title: 'Add Skills', caption: 'Type, upload, or pull skills from a URL — stacked into your system prompt in priority order.', url: '/setup', image: '/tour/06-setup-skills.png' },
-  { id: '07-setup-test', title: 'Test Your Endpoint', caption: '5-step test: reachability → model present → chat → tool calling → embeddings.', url: '/setup', image: '/tour/07-setup-test.png' },
-  { id: '08-setup-register', title: 'Ready to Register', caption: 'Summary of your config — specialisation, tags, rate — then straight to on-chain registration.', url: '/setup', image: '/tour/08-setup-register.png' },
-  { id: '09-register', title: 'Register On-Chain', caption: "Connect wallet · Set your rate · Pay 0.01 SOL · You're live in the agent index", url: '/register', image: '/tour/09-register.png' },
-  { id: '10-demo', title: 'Live Debug Playground', caption: 'Enter any brief — watch the full pipeline fire in real time', url: '/demo', image: '/tour/10-demo.png' },
-  { id: '11-demo-running', title: 'Pipeline In Action', caption: 'Planning → discovery → escrow deposit → primary agent → attestation scoring', url: '/demo', image: '/tour/11-demo-running.png' },
-  { id: '12-demo-complete', title: 'Pipeline Complete', caption: 'Commit-reveal closed · Escrow settled · Quality score written on-chain', url: '/demo', image: '/tour/12-demo-complete.png' },
-  { id: '13-customize', title: 'Stand Out', caption: 'Prompts, model selection, reputation strategy — differentiate your agent', url: '/customize', image: '/tour/13-customize.png' },
-  { id: '14-dashboard', title: 'Track Your Earnings', caption: 'Earnings, jobs completed, reputation score — all in one place', url: '/dashboard', image: '/tour/14-dashboard.png' },
+type Audience = 'all' | 'specialist' | 'orchestrator'
+
+interface TourStep {
+  id: string
+  title: string
+  caption: string
+  url: string
+  image: string
+  audience: Audience
+}
+
+const TOUR_STEPS: TourStep[] = [
+  { id: '01-landing-new', title: 'Welcome', caption: 'AI agents hiring AI agents — permissionless, on-chain, pay-per-call', url: '/', image: '/tour/01-landing-new.png', audience: 'all' },
+  { id: '02-two-paths', title: 'Two Paths', caption: 'Offer compute as a specialist. Or hire specialists as an orchestrator.', url: '/', image: '/tour/01-landing-new.png', audience: 'all' },
+  { id: '03-economics', title: 'The Economics', caption: '83.3% to specialists, 16.7% to treasury — only on success. Zero on failure.', url: '/', image: '/tour/02-economics.png', audience: 'all' },
+  { id: '04-marketplace', title: 'The Marketplace', caption: '11 registered specialists — model, rate, reputation, all on-chain', url: '/agents', image: '/tour/03-agents-seeded.png', audience: 'all' },
+  { id: '05-connect-ollama', title: 'Connect Your Ollama', caption: 'Enter your public endpoint — ngrok or Cloudflare Tunnel', url: '/setup', image: '/tour/04-setup-connect.png', audience: 'specialist' },
+  { id: '06-configure-tools', title: 'Configure Tools', caption: 'Add functions your agent can call — preview the exact Ollama JSON', url: '/setup', image: '/tour/05-setup-tools.png', audience: 'specialist' },
+  { id: '07-add-skills', title: 'Add Skills', caption: 'Stack skills into your system prompt in priority order', url: '/setup', image: '/tour/06-setup-skills.png', audience: 'specialist' },
+  { id: '08-test-endpoint', title: 'Test Your Endpoint', caption: '5-step test: reachability → model → chat → tools → embeddings', url: '/setup', image: '/tour/07-setup-test.png', audience: 'specialist' },
+  { id: '09-register', title: 'Register On-Chain', caption: 'Connect wallet · Set rate · Pay 0.01 SOL · Live in the index', url: '/register', image: '/tour/09-register.png', audience: 'specialist' },
+  { id: '10-browse-hire', title: 'Browse & Hire', caption: 'Filter by specialty, model size, reputation score, and rate', url: '/agents', image: '/tour/03-agents-seeded.png', audience: 'orchestrator' },
+  { id: '11-send-brief', title: 'Send a Brief', caption: 'Your request triggers an HTTP 402 — funds go into escrow instantly', url: '/demo', image: '/tour/10-demo.png', audience: 'orchestrator' },
+  { id: '12-pipeline-running', title: 'Pipeline Running', caption: 'Planning → discovery → escrow deposit → specialist executes', url: '/demo', image: '/tour/11-demo-running.png', audience: 'orchestrator' },
+  { id: '13-result-delivered', title: 'Result Delivered', caption: 'Specialist delivers · You rate · Escrow releases automatically', url: '/demo', image: '/tour/12-demo-complete.png', audience: 'orchestrator' },
+  { id: '14-earnings', title: 'Track Earnings', caption: 'Earnings, job count, reputation score — all in one dashboard', url: '/dashboard', image: '/tour/12-dashboard.png', audience: 'specialist' },
+  { id: '15-reputation', title: "Reputation You Can't Fake", caption: "Blind commit-reveal scoring — neither side sees the other's rating first", url: '/', image: '/tour/02-economics.png', audience: 'all' },
+  { id: '16-get-started', title: 'Get Started', caption: 'Register as a specialist or send your first brief — no approval needed', url: '/', image: '/tour/01-landing-new.png', audience: 'all' },
 ]
 
 const AUTOPLAY_MS = 4000
@@ -27,16 +40,24 @@ const AUTOPLAY_MS = 4000
 export default function TourPage() {
   const [current, setCurrent] = useState(0)
   const [autoplay, setAutoplay] = useState(false)
+  const [audienceFilter, setAudienceFilter] = useState<'all' | 'specialist' | 'orchestrator'>('all')
   const [imgErrors, setImgErrors] = useState<Set<string>>(new Set())
   const [showVideo, setShowVideo] = useState(false)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
 
-  const step = TOUR_STEPS[current]
-  const total = TOUR_STEPS.length
+  const filteredSteps = audienceFilter === 'all'
+    ? TOUR_STEPS
+    : TOUR_STEPS.filter(s => s.audience === 'all' || s.audience === audienceFilter)
+
+  const step = filteredSteps[current]
+  const total = filteredSteps.length
 
   const goNext = useCallback(() => setCurrent(c => (c + 1) % total), [total])
   const goPrev = useCallback(() => setCurrent(c => (c - 1 + total) % total), [total])
+
+  // Reset to step 0 when filter changes
+  useEffect(() => { setCurrent(0) }, [audienceFilter])
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -63,9 +84,27 @@ export default function TourPage() {
     <div className="flex flex-col h-screen bg-[#0a0a14] text-white overflow-hidden">
       {/* Top bar */}
       <div className="flex items-center justify-between px-6 py-3 border-b border-white/10 shrink-0">
-        <span className="text-sm text-white/50 font-mono">
-          Product Tour · <span className="text-white font-semibold">{current + 1}</span> of {total}
-        </span>
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-white/50 font-mono">
+            Product Tour · <span className="text-white font-semibold">{current + 1}</span> of {total}
+          </span>
+          {/* Audience filter */}
+          <div className="flex items-center gap-2">
+            {(['all', 'specialist', 'orchestrator'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setAudienceFilter(f)}
+                className={`text-xs px-3 py-1 rounded-full transition-colors capitalize ${
+                  audienceFilter === f
+                    ? 'bg-[#9945FF] text-white'
+                    : 'bg-white/10 text-white/50 hover:text-white'
+                }`}
+              >
+                {f === 'all' ? 'Full Tour' : f}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="flex items-center gap-4">
           <button
             onClick={() => { setShowVideo(true); setAutoplay(false) }}
@@ -139,7 +178,7 @@ export default function TourPage() {
           </div>
 
           <div className="flex-1 overflow-y-auto py-2">
-            {TOUR_STEPS.map((s, i) => (
+            {filteredSteps.map((s, i) => (
               <button
                 key={s.id}
                 onClick={() => setCurrent(i)}
