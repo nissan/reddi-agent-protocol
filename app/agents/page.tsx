@@ -26,9 +26,10 @@ function SeedAgentCard({ agent }: { agent: SeedAgent }) {
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold truncate">{agent.name}</h3>
-            <span className="text-xs text-muted-foreground">{agent.handle}</span>
+          <div>
+            <h3 className="font-semibold text-base">{agent.name}</h3>
+            <p className="text-xs text-muted-foreground italic">{agent.title}</p>
+            <p className="text-xs font-mono text-muted-foreground/60">{agent.handle}</p>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{agent.specialty}</p>
         </div>
