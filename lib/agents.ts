@@ -1,3 +1,31 @@
+// Helper to decode endpoint from AgentRegistry account data
+// AgentRegistry layout (post-8-byte discriminator):
+// [8..40]   owner (32)
+// [40]      agent_type (1)
+// [41]      privacy_tier (1)
+// [42..50]  rate_lamports (8)
+// [50..58]  attestation_rate_lamports (8)
+// [58]      min_consumer_rep (1)
+// [59]      flags (1)
+// [60..68]  reputation_sum (8)
+// [68..72]  reputation_count (4)
+// [72..76]  attestation_agreements (4)
+// [76..80]  attestation_disagreements (4)
+// [80..84]  completed_jobs (4)
+// [84..88]  failed_jobs (4)
+// [88..152] endpoint (64)
+// [152]     endpoint_len (1)
+// [153]     bump (1)
+export function decodeEndpoint(accountData: Buffer): string {
+  if (accountData.length < 153) {
+    // Old layout (89 bytes) — no endpoint field
+    return "";
+  }
+  const endpointBytes = accountData.slice(88, 152);
+  const endpointLen = accountData[152];
+  return Buffer.from(endpointBytes.slice(0, endpointLen)).toString("utf-8");
+}
+
 export interface SeedAgent {
   id: string;
   name: string;
