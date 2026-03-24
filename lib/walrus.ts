@@ -25,7 +25,7 @@ export async function storeOnWalrus(payload: string): Promise<WalrusStoreResult>
     {
       method: "PUT",
       headers: { "Content-Type": "application/octet-stream" },
-      body: new TextEncoder().encode(payload),
+      body: Buffer.from(payload, "utf8"),
       signal: AbortSignal.timeout(15000),
     }
   );
