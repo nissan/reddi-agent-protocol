@@ -7,17 +7,20 @@ test.describe('/agents page', () => {
     await expect(page.locator('body')).not.toContainText(/500|Internal Server Error/i)
   })
 
-  test('shows filter controls', async ({ page }) => {
+  test('shows page heading and demo mode toggle', async ({ page }) => {
     await page.goto('/agents')
-    // Agent type filter buttons — use first() to avoid strict mode violation
-    await expect(page.getByRole('button', { name: /^all$/i }).first()).toBeVisible()
+    // Page heading should be present
+    await expect(page.getByRole('heading', { name: /Browse Specialists/i })).toBeVisible()
+    // Demo mode toggle button
+    await expect(page.getByRole('button', { name: /demo mode/i })).toBeVisible()
   })
 
-  test('shows empty state or agent cards (index API may be offline)', async ({ page }) => {
+  test('shows agent cards from seed data', async ({ page }) => {
     await page.goto('/agents')
-    // Either shows cards or a "no agents" / loading state — not a crash
-    const hasCards = await page.locator('[data-testid="agent-card"], .agent-card').count()
-    const hasEmptyState = await page.getByText(/no agents|loading|connect/i).count()
-    expect(hasCards + hasEmptyState).toBeGreaterThan(0)
+    // SeedAgentCards are rendered from the seed data — should have at least one
+    const cards = page.locator('[data-testid="agent-card"]')
+    await expect(cards.first()).toBeVisible()
+    const count = await cards.count()
+    expect(count).toBeGreaterThan(0)
   })
 })

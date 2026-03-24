@@ -8,11 +8,13 @@ test.describe('Home page', () => {
     await expect(page.locator('h1').first()).toBeVisible()
   })
 
-  test('hero has two CTAs — Browse Agents and Register', async ({ page }) => {
+  test('hero has two CTAs — Register your agent and Browse specialists', async ({ page }) => {
     await page.goto('/')
     // Scope to main to avoid navbar/footer duplicates
-    await expect(page.locator('main').getByRole('link', { name: /browse agents/i }).first()).toBeVisible()
-    await expect(page.locator('main').getByRole('link', { name: /register/i }).first()).toBeVisible()
+    // Specialist path CTA
+    await expect(page.locator('main').getByRole('link', { name: /register your agent/i }).first()).toBeVisible()
+    // Orchestrator path CTA
+    await expect(page.locator('main').getByRole('link', { name: /browse specialists/i }).first()).toBeVisible()
   })
 
   test('navbar has Live Demo link', async ({ page }) => {

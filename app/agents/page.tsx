@@ -22,7 +22,7 @@ function SeedAgentCard({ agent }: { agent: SeedAgent }) {
   const typeCls = agentTypeBadge[agent.agent_type] ?? agentTypeBadge.Specialist;
 
   return (
-    <div className="rounded-xl border border-white/10 bg-card/30 hover:border-white/20 transition-all flex flex-col gap-3 p-4">
+    <div data-testid="agent-card" className="rounded-xl border border-white/10 bg-card/30 hover:border-white/20 transition-all flex flex-col gap-3 p-4">
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
