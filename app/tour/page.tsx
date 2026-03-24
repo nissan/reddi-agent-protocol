@@ -231,14 +231,18 @@ export default function TourPage() {
             </button>
             <video
               ref={videoRef}
-              src="https://github.com/reddinft/reddi-agent-protocol/releases/download/v1.0-tour/tour-walkthrough.mp4"
               controls
               autoPlay
               className="w-full rounded-xl border border-white/10 shadow-2xl"
               style={{ aspectRatio: '1280/800' }}
-            />
+            >
+              <source
+                type="video/mp4"
+                src="https://github.com/nissan/reddi-agent-protocol/releases/download/demo-videos-v1/demo-c-protocol.mp4"
+              />
+            </video>
             <p className="text-xs text-white/30 text-center mt-3">
-              Full walkthrough · 4m 26s · narrated by Loki
+              The Protocol — Technical Explainer · 2 min
             </p>
           </div>
         </div>
