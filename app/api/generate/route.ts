@@ -1,4 +1,26 @@
-const DEMO_TRACE = [
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
+
+function loadBakedTrace(): {
+  trace: typeof HARDCODED_TRACE;
+  output: string;
+  metadata: Record<string, unknown>;
+} | null {
+  const bakePath = join(process.cwd(), "data", "baked-trace.json");
+  if (existsSync(bakePath)) {
+    try {
+      const baked = JSON.parse(readFileSync(bakePath, "utf-8"));
+      if (baked.trace && baked.output) {
+        return { trace: baked.trace, output: baked.output, metadata: baked.metadata ?? {} };
+      }
+    } catch {
+      /* fall through to hardcoded */
+    }
+  }
+  return null;
+}
+
+const HARDCODED_TRACE = [
   {
     delay: 0,
     icon: "🧠",
@@ -102,6 +124,11 @@ const DEMO_OUTPUT = `<!DOCTYPE html>
 export async function POST(req: Request) {
   const { brief } = await req.json();
 
+  // Use baked trace from a real run if available, otherwise fall back to hardcoded demo
+  const baked = loadBakedTrace();
+  const DEMO_TRACE = baked?.trace ?? HARDCODED_TRACE;
+  const bakedOutput = baked?.output ?? null;
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
@@ -109,13 +136,18 @@ export async function POST(req: Request) {
         await new Promise((r) => setTimeout(r, step.delay));
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(step)}\n\n`));
       }
-      // Final: send the generated HTML
-      const productName = (brief as string)
-        .trim()
-        .split(/\s+/)
-        .slice(0, 3)
-        .join(" ");
-      const html = DEMO_OUTPUT.replace("[PRODUCT NAME]", productName || "Your Product");
+      // Final: send the generated HTML (use baked output if available)
+      let html: string;
+      if (bakedOutput) {
+        html = bakedOutput;
+      } else {
+        const productName = (brief as string)
+          .trim()
+          .split(/\s+/)
+          .slice(0, 3)
+          .join(" ");
+        html = DEMO_OUTPUT.replace("[PRODUCT NAME]", productName || "Your Product");
+      }
       controller.enqueue(
         encoder.encode(`data: ${JSON.stringify({ type: "html", content: html })}\n\n`)
       );
