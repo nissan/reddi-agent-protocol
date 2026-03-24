@@ -31,7 +31,7 @@ const TOUR_STEPS: TourStep[] = [
   { id: '12-pipeline-running', title: 'Pipeline Running', caption: 'Planning → discovery → escrow deposit → specialist executes', url: '/demo', image: '/tour/11-demo-running.png', audience: 'orchestrator' },
   { id: '13-result-delivered', title: 'Result Delivered', caption: 'Specialist delivers · You rate · Escrow releases automatically', url: '/demo', image: '/tour/12-demo-complete.png', audience: 'orchestrator' },
   { id: '14-earnings', title: 'Track Earnings', caption: 'Earnings, job count, reputation score — all in one dashboard', url: '/dashboard', image: '/tour/12-dashboard.png', audience: 'specialist' },
-  { id: '15-reputation', title: "Reputation You Can't Fake", caption: "Blind commit-reveal scoring — neither side sees the other's rating first", url: '/', image: '/tour/02-economics.png', audience: 'all' },
+  { id: '15-reputation', title: "Reputation You Can't Fake", caption: "Blind commit-reveal scoring — neither side sees the other's rating first", url: '/', image: '/tour/15-reputation.png', audience: 'all' },
   { id: '16-get-started', title: 'Get Started', caption: 'Register as a specialist or send your first brief — no approval needed', url: '/', image: '/tour/01-landing-new.png', audience: 'all' },
 ]
 
