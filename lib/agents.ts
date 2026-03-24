@@ -26,6 +26,41 @@ export function decodeEndpoint(accountData: Buffer): string {
   return Buffer.from(endpointBytes.slice(0, endpointLen)).toString("utf-8");
 }
 
+// EscrowState layout (post-discriminator, after storage_ref upgrade):
+// [8..40]    consumer (32)
+// [40..72]   specialist (32)
+// [72..104]  attestation_agent (32)
+// [104..112] amount (8)
+// [112..120] attestation_amount (8)
+// [120..136] nonce (16)
+// [136..144] expires_at (8)
+// [144..152] commit_deadline (8)
+// [152..160] reveal_deadline (8)
+// [160..192] consumer_commit (32)
+// [192..224] specialist_commit (32)
+// [224..256] response_hash (32)
+// [256..288] storage_ref (32)  ← Walrus blob ID (base64url-decoded)
+// [288]      flags (1)
+// ...        consumer_score, specialist_score, attestation_quality_score, consumer_attestation_agree, bump
+
+/**
+ * Decode Walrus blob ID from on-chain EscrowState account data.
+ * Returns URL-safe base64 blob ID for use as Walrus aggregator path,
+ * or "" if the storage_ref field is zeroed (pre-upgrade or not yet delivered).
+ */
+export function decodeStorageRef(accountData: Buffer): string {
+  if (accountData.length < 288) return "";
+  const storageRefBytes = accountData.slice(256, 288);
+  if (storageRefBytes.every((b) => b === 0)) return "";
+  // Re-encode to base64url for use as Walrus aggregator path
+  const b64 = Buffer.from(storageRefBytes)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
+  return b64;
+}
+
 export interface SeedAgent {
   id: string;
   name: string;
