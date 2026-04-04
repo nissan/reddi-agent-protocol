@@ -1,3 +1,5 @@
+#![allow(clippy::diverging_sub_expression)] // Anchor #[program] macro false positive
+
 pub mod constants;
 pub mod error;
 pub mod instructions;
