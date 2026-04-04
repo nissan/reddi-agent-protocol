@@ -1,0 +1,23 @@
+[toolchain]
+anchor_version = "1.0.0"
+package_manager = "npm"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.devnet]
+escrow = "BaDZtpgWpDx6H1y8Dga2cfyxs3RXj5y2fkBo7HoT2pdv"
+
+[programs.localnet]
+escrow = "EscrowXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+
+[provider]
+cluster = "devnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "cargo test"
+
+[hooks]
+

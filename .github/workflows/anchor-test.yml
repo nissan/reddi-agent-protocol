@@ -1,0 +1,58 @@
+name: Anchor Tests
+
+on:
+  push:
+    branches: [main, feature/**]
+  pull_request:
+    branches: [main]
+
+jobs:
+  anchor-test:
+    name: Build & Test (Anchor 1.0.0 / LiteSVM)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (matches rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.89.0"
+          components: rustfmt, clippy
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            programs/escrow/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v2.2.0/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+
+      - name: Install avm
+        run: |
+          cargo install --git https://github.com/solana-foundation/anchor avm --locked --force
+          echo "$HOME/.avm/bin" >> $GITHUB_PATH
+
+      - name: Install Anchor CLI 1.0.0
+        run: |
+          avm install 1.0.0
+          avm use 1.0.0
+          anchor --version
+
+      - name: Build Anchor program
+        run: anchor build --ignore-keys
+
+      - name: Run tests (LiteSVM — no validator required)
+        run: cargo test --manifest-path programs/escrow/Cargo.toml
+
+      - name: Clippy lint
+        run: cargo clippy --manifest-path programs/escrow/Cargo.toml -- -D warnings
