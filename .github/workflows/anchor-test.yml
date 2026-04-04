@@ -49,7 +49,7 @@ jobs:
           anchor --version
 
       - name: Build Anchor program
-        run: anchor build --skip-deploy
+        run: anchor build
 
       - name: Run tests (LiteSVM — no validator required)
         run: cargo test --manifest-path programs/escrow/Cargo.toml
