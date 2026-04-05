@@ -1,11 +1,8 @@
 use anchor_lang::prelude::*;
 
-use crate::constants::ESCROW_SEED;
+use crate::constants::{CANCEL_WINDOW_SLOTS, ESCROW_SEED};
 use crate::error::EscrowError;
 use crate::state::{EscrowAccount, EscrowStatus};
-
-/// Minimum slots before a payer can cancel (~7 days at 400ms/slot)
-const CANCEL_WINDOW_SLOTS: u64 = 50_400;
 
 /// Cancel an escrow and refund the payer.
 /// Can only be called by the payer (Agent A) after the cancel window has elapsed.
