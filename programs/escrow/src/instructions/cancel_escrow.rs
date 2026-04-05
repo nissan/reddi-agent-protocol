@@ -4,13 +4,24 @@ use crate::constants::ESCROW_SEED;
 use crate::error::EscrowError;
 use crate::state::{EscrowAccount, EscrowStatus};
 
+/// Minimum slots before a payer can cancel (~7 days at 400ms/slot)
+const CANCEL_WINDOW_SLOTS: u64 = 50_400;
+
 /// Cancel an escrow and refund the payer.
-/// Can only be called by the payer (Agent A).
+/// Can only be called by the payer (Agent A) after the cancel window has elapsed.
 /// Closes the PDA and returns rent + locked funds to payer.
 pub fn cancel_escrow_handler(ctx: Context<CancelEscrow>) -> Result<()> {
     require!(
         ctx.accounts.escrow.status == EscrowStatus::Locked,
         EscrowError::NotLocked
+    );
+
+    // Enforce 7-day cancel window
+    let current_slot = Clock::get()?.slot;
+    let elapsed = current_slot.saturating_sub(ctx.accounts.escrow.created_slot);
+    require!(
+        elapsed >= CANCEL_WINDOW_SLOTS,
+        EscrowError::CancelWindowNotElapsed
     );
 
     let amount = ctx.accounts.escrow.amount;

@@ -19,4 +19,10 @@ pub enum EscrowError {
 
     #[msg("Arithmetic overflow")]
     Overflow,
+
+    #[msg("Cancel window not elapsed (7 days required)")]
+    CancelWindowNotElapsed,
+
+    #[msg("Invalid payee")]
+    InvalidPayee,
 }

@@ -27,6 +27,8 @@ pub struct EscrowAccount {
     pub status: EscrowStatus,
     /// Unix timestamp when escrow was created
     pub created_at: i64,
+    /// Slot number when escrow was created (for 7-day cancel window)
+    pub created_slot: u64,
     /// PDA bump seed
     pub bump: u8,
 }
@@ -40,5 +42,6 @@ impl EscrowAccount {
         + 16   // nonce
         + 1    // status (enum variant)
         + 8    // created_at
+        + 8    // created_slot
         + 1;   // bump
 }
