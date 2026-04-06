@@ -23,7 +23,9 @@ pub fn lock_escrow_handler(
     escrow.amount = amount;
     escrow.nonce = nonce;
     escrow.status = EscrowStatus::Locked;
-    escrow.created_at = Clock::get()?.unix_timestamp;
+    let clock = Clock::get()?;
+    escrow.created_at = clock.unix_timestamp;
+    escrow.created_slot = clock.slot;
     escrow.bump = ctx.bumps.escrow;
 
     // Transfer lamports from payer to escrow PDA
