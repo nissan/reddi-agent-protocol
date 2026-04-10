@@ -24,7 +24,7 @@ pub fn attest_quality_handler(
 
     // Validate all scores 1-10
     for &s in scores.iter() {
-        require!(s >= 1 && s <= 10, EscrowError::AttestationScoreOutOfRange);
+        require!((1..=10).contains(&s), EscrowError::AttestationScoreOutOfRange);
     }
 
     let attestation = &mut ctx.accounts.attestation;
