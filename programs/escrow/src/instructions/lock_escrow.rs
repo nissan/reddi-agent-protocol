@@ -7,14 +7,10 @@ use crate::state::{EscrowAccount, EscrowStatus};
 
 /// Lock SOL into an escrow PDA.
 /// Called by Agent A (payer) to initiate a payment to Agent B (payee).
-/// 
+///
 /// PDA: seeds = [b"escrow", payer, nonce]
 /// This prevents duplicate nonces for the same payer.
-pub fn lock_escrow_handler(
-    ctx: Context<LockEscrow>,
-    amount: u64,
-    nonce: [u8; 16],
-) -> Result<()> {
+pub fn lock_escrow_handler(ctx: Context<LockEscrow>, amount: u64, nonce: [u8; 16]) -> Result<()> {
     require!(amount > 0, EscrowError::ZeroAmount);
 
     let escrow = &mut ctx.accounts.escrow;

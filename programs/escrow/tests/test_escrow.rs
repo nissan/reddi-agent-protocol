@@ -48,8 +48,7 @@ fn send(
     let payer_pk = signers[0].pubkey();
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&payer_pk), &blockhash);
-    let tx =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg), signers).unwrap();
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), signers).unwrap();
     match svm.send_transaction(tx) {
         Ok(_) => panic!("Expected error but tx succeeded"),
         Err(e) => e,
@@ -60,8 +59,7 @@ fn send_ok(svm: &mut LiteSVM, ix: Instruction, signers: &[&Keypair]) {
     let payer_pk = signers[0].pubkey();
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&payer_pk), &blockhash);
-    let tx =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg), signers).unwrap();
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), signers).unwrap();
     svm.send_transaction(tx)
         .expect("Transaction should succeed");
 }
@@ -96,7 +94,10 @@ fn test_lock_escrow_success() {
     send_ok(&mut svm, ix, &[&payer]);
 
     let escrow_account = svm.get_account(&escrow_pda).unwrap();
-    assert!(escrow_account.lamports >= amount, "Escrow should hold at least the locked amount");
+    assert!(
+        escrow_account.lamports >= amount,
+        "Escrow should hold at least the locked amount"
+    );
 }
 
 /// release_escrow sends funds to payee and closes PDA
@@ -112,7 +113,10 @@ fn test_release_escrow_success() {
     svm.airdrop(&payee.pubkey(), 1_000_000).unwrap(); // min balance
 
     let (escrow_pda, _) = escrow_pda(&payer.pubkey(), &nonce);
-    let payee_balance_before = svm.get_account(&payee.pubkey()).map(|a| a.lamports).unwrap_or(0);
+    let payee_balance_before = svm
+        .get_account(&payee.pubkey())
+        .map(|a| a.lamports)
+        .unwrap_or(0);
 
     // Lock first
     let lock_ix = Instruction::new_with_bytes(
@@ -143,10 +147,16 @@ fn test_release_escrow_success() {
     send_ok(&mut svm, release_ix, &[&payer]);
 
     // Escrow PDA should be closed
-    assert!(svm.get_account(&escrow_pda).is_none(), "Escrow PDA should be closed after release");
+    assert!(
+        svm.get_account(&escrow_pda).is_none(),
+        "Escrow PDA should be closed after release"
+    );
 
     // Payee should have received the funds
-    let payee_balance_after = svm.get_account(&payee.pubkey()).map(|a| a.lamports).unwrap_or(0);
+    let payee_balance_after = svm
+        .get_account(&payee.pubkey())
+        .map(|a| a.lamports)
+        .unwrap_or(0);
     assert_eq!(
         payee_balance_after,
         payee_balance_before + amount,
@@ -181,7 +191,10 @@ fn test_cancel_escrow_refunds_payer() {
     );
     send_ok(&mut svm, lock_ix, &[&payer]);
 
-    let payer_balance_after_lock = svm.get_account(&payer.pubkey()).map(|a| a.lamports).unwrap_or(0);
+    let payer_balance_after_lock = svm
+        .get_account(&payer.pubkey())
+        .map(|a| a.lamports)
+        .unwrap_or(0);
 
     // Warp past the 7-day cancel window (50,400 slots)
     svm.warp_to_slot(60_000);
@@ -200,10 +213,16 @@ fn test_cancel_escrow_refunds_payer() {
     send_ok(&mut svm, cancel_ix, &[&payer]);
 
     // Escrow PDA should be closed
-    assert!(svm.get_account(&escrow_pda).is_none(), "Escrow PDA should be closed after cancel");
+    assert!(
+        svm.get_account(&escrow_pda).is_none(),
+        "Escrow PDA should be closed after cancel"
+    );
 
     // Payer should have been refunded
-    let payer_balance_after_cancel = svm.get_account(&payer.pubkey()).map(|a| a.lamports).unwrap_or(0);
+    let payer_balance_after_cancel = svm
+        .get_account(&payer.pubkey())
+        .map(|a| a.lamports)
+        .unwrap_or(0);
     assert!(
         payer_balance_after_cancel > payer_balance_after_lock,
         "Payer should be refunded after cancel"
@@ -253,7 +272,8 @@ fn test_cancel_window_not_elapsed() {
     let err_str = format!("{:?}", err);
     assert!(
         err_str.contains("CancelWindowNotElapsed") || err_str.contains("6006"),
-        "Expected CancelWindowNotElapsed error, got: {}", err_str
+        "Expected CancelWindowNotElapsed error, got: {}",
+        err_str
     );
 }
 
@@ -292,8 +312,8 @@ fn test_release_payer_constraint() {
         escrow::id(),
         &instruction::ReleaseEscrow {}.data(),
         ReleaseEscrow {
-            escrow: escrow_pda,         // correct PDA
-            payer: attacker.pubkey(),   // wrong payer — has_one = payer should reject
+            escrow: escrow_pda,       // correct PDA
+            payer: attacker.pubkey(), // wrong payer — has_one = payer should reject
             payee: payee.pubkey(),
             system_program: anchor_lang::solana_program::system_program::id(),
         }
@@ -306,7 +326,8 @@ fn test_release_payer_constraint() {
     // to the stored escrow PDA — seeds mismatch is detected before has_one check.
     assert!(
         err_str.contains("ConstraintSeeds") || err_str.contains("2006"),
-        "Expected ConstraintSeeds error, got: {}", err_str
+        "Expected ConstraintSeeds error, got: {}",
+        err_str
     );
 }
 
@@ -323,17 +344,19 @@ fn test_duplicate_nonce() {
 
     let (escrow_pda, _) = escrow_pda(&payer.pubkey(), &nonce);
 
-    let lock_ix = || Instruction::new_with_bytes(
-        escrow::id(),
-        &instruction::LockEscrow { amount, nonce }.data(),
-        LockEscrow {
-            escrow: escrow_pda,
-            payer: payer.pubkey(),
-            payee: payee.pubkey(),
-            system_program: anchor_lang::solana_program::system_program::id(),
-        }
-        .to_account_metas(None),
-    );
+    let lock_ix = || {
+        Instruction::new_with_bytes(
+            escrow::id(),
+            &instruction::LockEscrow { amount, nonce }.data(),
+            LockEscrow {
+                escrow: escrow_pda,
+                payer: payer.pubkey(),
+                payee: payee.pubkey(),
+                system_program: anchor_lang::solana_program::system_program::id(),
+            }
+            .to_account_metas(None),
+        )
+    };
 
     // First lock: should succeed
     send_ok(&mut svm, lock_ix(), &[&payer]);
@@ -344,9 +367,11 @@ fn test_duplicate_nonce() {
     let err = send(&mut svm, lock_ix(), &[&payer]);
     let err_str = format!("{:?}", err);
     assert!(
-        err_str.contains("AlreadyProcessed") || err_str.contains("AlreadyInUse")
+        err_str.contains("AlreadyProcessed")
+            || err_str.contains("AlreadyInUse")
             || err_str.contains("AccountAlreadyInitialized"),
-        "Expected duplicate nonce rejection, got: {}", err_str
+        "Expected duplicate nonce rejection, got: {}",
+        err_str
     );
 }
 

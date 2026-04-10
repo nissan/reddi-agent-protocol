@@ -25,4 +25,28 @@ pub enum EscrowError {
 
     #[msg("Invalid payee")]
     InvalidPayee,
+
+    #[msg("Model string exceeds maximum length")]
+    ModelTooLong,
+
+    #[msg("Agent is not active")]
+    AgentNotActive,
+
+    #[msg("Rating commitment already submitted")]
+    AlreadyCommitted,
+
+    #[msg("Cannot reveal until both parties commit")]
+    BothMustCommitFirst,
+
+    #[msg("Commitment hash mismatch")]
+    CommitmentMismatch,
+
+    #[msg("Score must be 1-10")]
+    InvalidScore,
+
+    #[msg("Rating has not expired")]
+    NotExpired,
+
+    #[msg("Rating already finalised")]
+    AlreadyFinalised,
 }

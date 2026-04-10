@@ -24,7 +24,11 @@ pub fn cancel_escrow_handler(ctx: Context<CancelEscrow>) -> Result<()> {
     let amount = ctx.accounts.escrow.amount;
 
     // Transfer lamports from escrow PDA back to payer
-    **ctx.accounts.escrow.to_account_info().try_borrow_mut_lamports()? -= amount;
+    **ctx
+        .accounts
+        .escrow
+        .to_account_info()
+        .try_borrow_mut_lamports()? -= amount;
     **ctx.accounts.payer.try_borrow_mut_lamports()? += amount;
 
     // Mark cancelled (account will be closed by `close = payer` constraint)

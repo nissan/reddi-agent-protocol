@@ -1,7 +1,19 @@
 pub mod cancel_escrow;
+pub mod commit_rating;
+pub mod deregister_agent;
+pub mod expire_rating;
 pub mod lock_escrow;
+pub mod register_agent;
 pub mod release_escrow;
+pub mod reveal_rating;
+pub mod update_agent;
 
 pub use cancel_escrow::*;
+pub use commit_rating::*;
+pub use deregister_agent::*;
+pub use expire_rating::*;
 pub use lock_escrow::*;
+pub use register_agent::*;
 pub use release_escrow::*;
+pub use reveal_rating::*;
+pub use update_agent::*;

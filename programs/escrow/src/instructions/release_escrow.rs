@@ -16,7 +16,11 @@ pub fn release_escrow_handler(ctx: Context<ReleaseEscrow>) -> Result<()> {
     let amount = ctx.accounts.escrow.amount;
 
     // Transfer lamports from escrow PDA to payee
-    **ctx.accounts.escrow.to_account_info().try_borrow_mut_lamports()? -= amount;
+    **ctx
+        .accounts
+        .escrow
+        .to_account_info()
+        .try_borrow_mut_lamports()? -= amount;
     **ctx.accounts.payee.try_borrow_mut_lamports()? += amount;
 
     // Mark released (account will be closed by `close = payer` constraint)
