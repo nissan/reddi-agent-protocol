@@ -1,0 +1,24 @@
+{
+  "name": "@reddi/per-client",
+  "version": "0.1.0",
+  "description": "MagicBlock PER (Private Ephemeral Rollup) delegation client for Reddi Agent Protocol",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@magicblock-labs/ephemeral-rollups-sdk": ">=0.8.0",
+    "@reddi/x402-solana": "file:../x402-solana",
+    "@solana/web3.js": "^1.95.8"
+  },
+  "devDependencies": {
+    "@types/jest": "^29",
+    "@types/node": "^20",
+    "jest": "^29",
+    "ts-jest": "^29",
+    "typescript": "^5"
+  }
+}

@@ -95,6 +95,21 @@ pub mod escrow {
         instructions::expire_rating::expire_rating_handler(ctx, job_id)
     }
 
+    // ── Phase 5: MagicBlock PER ────────────────────────────────────────────────
+
+    /// Mark a locked escrow as delegated to a MagicBlock PER session.
+    /// TypeScript client calls Permission/Delegation Programs then calls this
+    /// to record the TEE-issued session key on-chain.
+    pub fn delegate_escrow(ctx: Context<DelegateEscrow>, session_key: Pubkey) -> Result<()> {
+        instructions::delegate_escrow::delegate_escrow_handler(ctx, session_key)
+    }
+
+    /// Release an escrow via the PER path (routed through TEE by the TS client).
+    /// Validates the session key and clears delegation state on success.
+    pub fn release_escrow_per(ctx: Context<ReleaseEscrowPer>, session_key: Pubkey) -> Result<()> {
+        instructions::release_escrow_per::release_escrow_per_handler(ctx, session_key)
+    }
+
     // ── Phase 4b: Attestation Judges ─────────────────────────────────────────
 
     pub fn attest_quality(

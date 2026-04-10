@@ -23,11 +23,15 @@ pub fn release_escrow_handler(ctx: Context<ReleaseEscrow>) -> Result<()> {
         .try_borrow_mut_lamports()? -= amount;
     **ctx.accounts.payee.try_borrow_mut_lamports()? += amount;
 
-    // Mark released (account will be closed by `close = payer` constraint)
+    // Mark released and clear any PER delegation (L1 fallback path)
+    // If delegated_to_per was true, this serves as the fallback when the TEE
+    // is unreachable or the PER TTL has expired.
     ctx.accounts.escrow.status = EscrowStatus::Released;
+    ctx.accounts.escrow.delegated_to_per = false;
+    ctx.accounts.escrow.per_session_key = None;
 
     msg!(
-        "Escrow released: payee={}, amount={}",
+        "Escrow released (L1): payee={}, amount={}",
         ctx.accounts.payee.key(),
         amount,
     );

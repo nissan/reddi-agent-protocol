@@ -29,6 +29,10 @@ pub struct EscrowAccount {
     pub created_at: i64,
     /// Slot number when escrow was created (for 7-day cancel window)
     pub created_slot: u64,
+    /// True when this escrow has been delegated to a MagicBlock PER session
+    pub delegated_to_per: bool,
+    /// Session key issued by the TEE for this delegation (None if not delegated)
+    pub per_session_key: Option<Pubkey>,
     /// PDA bump seed
     pub bump: u8,
 }
@@ -43,6 +47,8 @@ impl EscrowAccount {
         + 1    // status (enum variant)
         + 8    // created_at
         + 8    // created_slot
+        + 1    // delegated_to_per
+        + 33   // per_session_key (Option<Pubkey>: 1 + 32)
         + 1; // bump
 }
 
