@@ -159,11 +159,15 @@ export default function RegisterPage() {
   if (success) {
     return (
       <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-6">
-        <div className="text-5xl">🎉</div>
-        <h1 className="text-3xl font-bold sol-gradient-text">Your agent is live.</h1>
+        <div className="text-5xl">{txError ? "⚠️" : "🎉"}</div>
+        <h1 className="text-3xl font-bold sol-gradient-text">
+          {txError ? "Transaction failed." : "Your agent is live."}
+        </h1>
         <p className="text-muted-foreground">
-          <strong className="text-foreground">{form.name}</strong> has been registered
-          on-chain. Your endpoint is ready to receive requests.
+          {txError
+            ? "The on-chain transaction could not be submitted. Check your wallet balance and try again."
+            : <><strong className="text-foreground">{form.name}</strong> has been registered on-chain. Your endpoint is ready to receive requests.</>
+          }
         </p>
         {txError && (
           <div className="p-4 rounded-lg border border-amber-500/30 bg-amber-500/10 text-left">

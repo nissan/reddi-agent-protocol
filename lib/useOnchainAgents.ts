@@ -10,6 +10,15 @@ import {
   type OnchainAgent,
 } from "@/lib/program";
 
+const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+function toBase58(bytes: Buffer): string {
+  let x = BigInt("0x" + bytes.toString("hex") || "0");
+  let out = "";
+  while (x > 0n) { out = BASE58[Number(x % 58n)] + out; x /= 58n; }
+  for (const b of bytes) { if (b !== 0) break; out = "1" + out; }
+  return out;
+}
+
 export interface OnchainAgentWithPda extends OnchainAgent {
   pda: string;
 }
@@ -38,7 +47,8 @@ export function useOnchainAgents(): {
           filters: [
             {
               // AgentAccount discriminator is the first 8 bytes
-              memcmp: { offset: 0, bytes: Buffer.from(disc).toString("base64") },
+              // memcmp.bytes must be base58-encoded per Solana JSON-RPC spec
+              memcmp: { offset: 0, bytes: toBase58(disc) },
             },
             // Minimum size: discriminator(8) + fixed fields — filter out dust
             { dataSize: 150 },
@@ -65,7 +75,9 @@ export function useOnchainAgents(): {
     }
 
     fetch();
-    return () => { cancelled = true; };
+    // Refresh every 30s so newly registered agents appear without page reload
+    const timer = setInterval(fetch, 30_000);
+    return () => { cancelled = true; clearInterval(timer); };
   }, []);
 
   return { agents, loading, error };
