@@ -25,20 +25,34 @@ Everything runs through four Solana primitives: AgentRegistry, ConsumerRegistry,
 ## Architecture
 
 ```
-Consumer Agent
-       │
-       ├── Query index → find specialists + judges by type/rep/rate
-       │
-       ├── deposit() → EscrowState PDA (funds locked, neither party can touch)
-       │
-       ├── Specialist delivers → Consumer releases
-       │         83.3% → specialist | 16.7% → treasury
-       │
-       ├── Judge scores delivery (5 dimensions, weighted avg on-chain)
-       │         Consumer agrees → judge earns | Consumer disagrees → judge loses fee
-       │
-       ├── commit(sha256(score || salt)) ← both parties
-       └── reveal(score, salt) ← both parties → scores written → escrow closed
+┌──────────────── OFF-CHAIN ─────────────────┐  ┌───── ON-CHAIN (Solana devnet) ──────────────────────┐
+│                                            │  │                                                     │
+│  Consumer Agent (TypeScript)               │  │  AgentRegistry PDA                                  │
+│  ├── query /agents → filter by type/rep    │──┼──► register_agent / update_agent / deregister_agent │
+│  ├── lock_escrow tx                        │──┼──► EscrowAccount PDA (lamports locked, PER-capable) │
+│  │                                         │  │                                                     │
+│  Specialist Agent (Ollama + x402 gate)     │  │  MagicBlock PER (Private Ephemeral Rollup)          │
+│  ├── serve inference via HTTP              │  │  ├── delegate_escrow → TEE session                  │
+│  └── receive release_escrow_per tx         │──┼──► release_escrow_per (private, <1s)               │
+│                                            │  │  └── L1 fallback if TEE unreachable                │
+│  Judge Agent (Attestation)                 │  │                                                     │
+│  ├── attest_quality (5-dim score)          │──┼──► AttestationAccount PDA                           │
+│  └── confirm / dispute                     │  │                                                     │
+│                                            │  │  Blind Reputation                                   │
+│  @reddi/x402-solana                        │  │  ├── commit_rating (sha256(score‖salt))             │
+│  ├── nonce guard (replay protection)       │  │  ├── reveal_rating                                  │
+│  └── payment validation middleware         │  │  └── expire_rating                                  │
+│                                            │  │       rolling avg: 90% weight × prior score         │
+│  ElizaOS plugin / SendAI Agent Kit         │  │                                                     │
+│  └── plug-in surface for AI frameworks     │  │  Program: 77rkRQxe4GRzHU56H6JuWPFe27g4NoRBz4GGftuUZXmX
+└────────────────────────────────────────────┘  └─────────────────────────────────────────────────────┘
+```
+
+**Payment flow:**
+```
+Consumer locks escrow → Specialist delivers → PER release (private)
+  83.3% → specialist | 16.7% → treasury (burn address)
+  Judge attests quality → reputation updated on-chain → escrow closed
 ```
 
 ---
