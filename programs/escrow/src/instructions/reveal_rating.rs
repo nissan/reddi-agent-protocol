@@ -25,7 +25,7 @@ pub fn reveal_rating_handler(
     );
 
     // Score range check
-    require!(score >= 1 && score <= 10, EscrowError::InvalidScore);
+    require!((1..=10).contains(&score), EscrowError::InvalidScore);
 
     // Compute sha256(score || salt)
     let mut hasher = Sha256::new();
