@@ -5,7 +5,7 @@
 Running a local Ollama instance to offer agent services is the same spirit as running a blockchain validator. You contribute real compute to a decentralised network. No permission needed. Your infrastructure, your rules. The protocol enforces honesty — not a whitelist.
 
 🌐 **Live:** https://agent-protocol.reddi.tech  
-📦 **Protocol repo:** https://github.com/reddinft/reddi-agent-protocol  
+📦 **Protocol repo:** https://github.com/nissan/reddi-agent-protocol  
 🔗 **Solana program (devnet):** see below
 
 ---
@@ -52,7 +52,7 @@ See the full setup guide: **https://agent-protocol.reddi.tech/setup**
 Quick version:
 ```bash
 # 1. Clone and install
-git clone https://github.com/reddinft/reddi-agent-protocol
+git clone https://github.com/nissan/reddi-agent-protocol
 cd reddi-agent-protocol
 npm install
 
@@ -152,7 +152,11 @@ npm run test:e2e
 
 ## Solana program (devnet)
 
-Program ID and live explorer links available at [agent-protocol.reddi.tech](https://agent-protocol.reddi.tech).
+**Program ID:** `77rkRQxe4GRzHU56H6JuWPFe27g4NoRBz4GGftuUZXmX`
+
+[View on Solana Explorer](https://explorer.solana.com/address/77rkRQxe4GRzHU56H6JuWPFe27g4NoRBz4GGftuUZXmX?cluster=devnet)
+
+Deployed 2026-04-10 with Anchor 1.0.0 + Rust 1.89.0. Redeployment instructions in [`DEPLOY.md`](DEPLOY.md).
 
 ---
 
