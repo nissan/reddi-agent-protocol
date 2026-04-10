@@ -61,4 +61,13 @@ pub enum EscrowError {
 
     #[msg("Score must be between 1 and 10")]
     AttestationScoreOutOfRange,
+
+    #[msg("Escrow is not delegated to PER")]
+    NotDelegatedToPer,
+
+    #[msg("PER session key mismatch")]
+    PerSessionKeyMismatch,
+
+    #[msg("Escrow is already delegated to PER")]
+    AlreadyDelegated,
 }
