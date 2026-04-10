@@ -15,3 +15,7 @@ pub const RATING_SEED: &[u8] = b"rating";
 pub const RATING_EXPIRE_SLOTS: u64 = 1_512_000;
 /// Reputation penalty for non-commitment on expiry (5.00 points)
 pub const RATING_EXPIRE_PENALTY: u16 = 500;
+
+pub const ATTESTATION_SEED: &[u8] = b"attestation";
+/// Weight applied to attestation_accuracy on confirmation (10.00 points)
+pub const ATTESTATION_CONFIRM_WEIGHT: u16 = 1000;

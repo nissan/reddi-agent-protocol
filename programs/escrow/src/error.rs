@@ -49,4 +49,16 @@ pub enum EscrowError {
 
     #[msg("Rating already finalised")]
     AlreadyFinalised,
+
+    #[msg("Agent type does not permit attestation")]
+    NotAttestationAgent,
+
+    #[msg("Attestation already exists for this job")]
+    AttestationAlreadyExists,
+
+    #[msg("Attestation already resolved")]
+    AttestationAlreadyResolved,
+
+    #[msg("Score must be between 1 and 10")]
+    AttestationScoreOutOfRange,
 }

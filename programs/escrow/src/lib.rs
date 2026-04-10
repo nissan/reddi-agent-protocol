@@ -94,4 +94,23 @@ pub mod escrow {
     pub fn expire_rating(ctx: Context<ExpireRating>, job_id: [u8; 16]) -> Result<()> {
         instructions::expire_rating::expire_rating_handler(ctx, job_id)
     }
+
+    // ── Phase 4b: Attestation Judges ─────────────────────────────────────────
+
+    pub fn attest_quality(
+        ctx: Context<AttestQuality>,
+        job_id: [u8; 16],
+        scores: [u8; 5],
+        consumer: Pubkey,
+    ) -> Result<()> {
+        instructions::attest_quality::attest_quality_handler(ctx, job_id, scores, consumer)
+    }
+
+    pub fn confirm_attestation(ctx: Context<ConfirmAttestation>, job_id: [u8; 16]) -> Result<()> {
+        instructions::confirm_attestation::confirm_attestation_handler(ctx, job_id)
+    }
+
+    pub fn dispute_attestation(ctx: Context<DisputeAttestation>, job_id: [u8; 16]) -> Result<()> {
+        instructions::dispute_attestation::dispute_attestation_handler(ctx, job_id)
+    }
 }

@@ -1,6 +1,9 @@
+pub mod attest_quality;
 pub mod cancel_escrow;
 pub mod commit_rating;
+pub mod confirm_attestation;
 pub mod deregister_agent;
+pub mod dispute_attestation;
 pub mod expire_rating;
 pub mod lock_escrow;
 pub mod register_agent;
@@ -8,9 +11,12 @@ pub mod release_escrow;
 pub mod reveal_rating;
 pub mod update_agent;
 
+pub use attest_quality::*;
 pub use cancel_escrow::*;
 pub use commit_rating::*;
+pub use confirm_attestation::*;
 pub use deregister_agent::*;
+pub use dispute_attestation::*;
 pub use expire_rating::*;
 pub use lock_escrow::*;
 pub use register_agent::*;

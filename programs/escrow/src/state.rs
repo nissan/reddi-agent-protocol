@@ -78,13 +78,15 @@ pub struct AgentAccount {
     pub created_at: i64,
     /// Whether this agent can currently accept jobs
     pub active: bool,
+    /// Running attestation accuracy score (confirmed / total, 0–10000)
+    pub attestation_accuracy: u16,
     /// PDA bump seed
     pub bump: u8,
 }
 
 impl AgentAccount {
-    /// 8 (discriminator) + 32 + 1 + 68 (4+64 string) + 8 + 1 + 2 + 8 + 8 + 8 + 1 + 1
-    pub const LEN: usize = 148;
+    /// 8 (discriminator) + 32 + 1 + 68 (4+64 string) + 8 + 1 + 2 + 8 + 8 + 8 + 1 + 2 + 1
+    pub const LEN: usize = 150;
 }
 
 /// Blind commit-reveal rating account.
@@ -150,4 +152,37 @@ pub enum RatingState {
 pub enum RatingRole {
     Consumer,
     Specialist,
+}
+
+/// On-chain attestation record from a judge agent.
+/// PDA seeds: [b"attestation", job_id.as_ref()]
+#[account]
+pub struct AttestationAccount {
+    /// Unique job identifier (UUID bytes)
+    pub job_id: [u8; 16],
+    /// The judge agent's wallet
+    pub judge: Pubkey,
+    /// The consumer who hired (and can confirm/dispute)
+    pub consumer: Pubkey,
+    /// Quality scores: [accuracy, completeness, relevance, format, latency] each 1-10
+    pub scores: [u8; 5],
+    /// None = pending, Some(true) = confirmed, Some(false) = disputed
+    pub confirmed: Option<bool>,
+    /// Unix timestamp when account was created
+    pub created_at: i64,
+    /// PDA bump seed
+    pub bump: u8,
+}
+
+impl AttestationAccount {
+    // 8  discriminator
+    // 16  job_id
+    // 32  judge
+    // 32  consumer
+    // 5   scores ([u8; 5])
+    // 2   confirmed (Option<bool>: 1 discriminant + 1 value)
+    // 8   created_at
+    // 1   bump
+    // = 105
+    pub const LEN: usize = 105;
 }
