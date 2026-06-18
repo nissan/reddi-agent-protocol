@@ -133,6 +133,22 @@ archive.put(record);
 
 EvidenceArchive v1 stores request, response, receipt, source, attestation, and evidence hash references without embedding private payloads in public receipts. The local archive is deterministic for tests and demos. Walrus, Seal, IPFS, and custom archive pointers are represented as future sidecar references, not required product-core dependencies.
 
+## Source-Aware Diagnostics
+
+```typescript
+import { createSourceAwareCandidateDiagnostics } from '@reddi/agent-protocol/source-diagnostics';
+
+const diagnostics = createSourceAwareCandidateDiagnostics(candidate, {
+  policyDecision: decision,
+  reputation: { receiptCount: 2, attestationCount: 1 },
+});
+
+console.log(diagnostics.capabilityMatch.scoreMeaning); // relevance_only_not_trust
+console.log(diagnostics.policyDecision.reasonCodes); // machine-readable allow/deny reasons
+```
+
+Source-aware diagnostics expose separate lanes for capability match, discovery source, publisher identity, trust evidence, policy decision, payment fit, and reputation evidence. ARD and registry relevance scores are always labelled as relevance only; they are never collapsed into trust, policy, payment, or reputation approval.
+
 ## Local Validation
 
 ```bash

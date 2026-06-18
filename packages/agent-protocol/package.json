@@ -38,6 +38,10 @@
       "types": "./dist/evidence-archive.d.ts",
       "import": "./dist/evidence-archive.js"
     },
+    "./source-diagnostics": {
+      "types": "./dist/source-diagnostics.d.ts",
+      "import": "./dist/source-diagnostics.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

@@ -115,5 +115,26 @@ describe('RAP EvidenceArchive v1', () => {
     if (!secretPayload.ok) {
       assert.ok(secretPayload.errors.some((item) => item.code === 'credential_leakage_rejected'));
     }
+
+    const leakyEvidenceRef = validateEvidenceArchiveRecord({
+      ...evidenceArchiveFixtureRecord,
+      evidenceRef: 'https://evidence.example/archive.json?access_token=redacted',
+    }, evidenceArchiveFixtures.evidencePayload);
+    assert.equal(leakyEvidenceRef.ok, false);
+    if (!leakyEvidenceRef.ok) {
+      assert.ok(leakyEvidenceRef.errors.some((item) => item.code === 'credential_leakage_rejected' && item.path === '$.evidenceRef.access_token'));
+    }
+
+    const leakyExternalPointer = validateEvidenceArchiveRecord({
+      ...evidenceArchiveFixtureRecord,
+      externalArchivePointer: {
+        provider: 'custom',
+        uri: 'https://evidence.example/archive.json?api_key=redacted',
+      },
+    });
+    assert.equal(leakyExternalPointer.ok, false);
+    if (!leakyExternalPointer.ok) {
+      assert.ok(leakyExternalPointer.errors.some((item) => item.code === 'credential_leakage_rejected' && item.path === '$.externalArchivePointer.uri.api_key'));
+    }
   });
 });

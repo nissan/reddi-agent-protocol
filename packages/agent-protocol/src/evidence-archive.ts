@@ -112,6 +112,37 @@ function requireHash(value: unknown, path: string, errors: EvidenceArchiveValida
   }
 }
 
+function validatePublicReference(value: unknown, path: string, errors: EvidenceArchiveValidationError[]): void {
+  if (!isNonEmptyString(value)) return;
+  if (SENSITIVE_VALUE_PATTERN.test(value)) {
+    errors.push(error('credential_leakage_rejected', path, 'public evidence references must not include credential-shaped values'));
+    return;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return;
+  }
+
+  if (parsed.username || parsed.password) {
+    errors.push(error('credential_leakage_rejected', path, 'public evidence references must not embed credentials'));
+  }
+
+  for (const key of parsed.searchParams.keys()) {
+    if (SENSITIVE_KEY_PATTERN.test(key)) {
+      errors.push(error('credential_leakage_rejected', `${path}.${key}`, 'public evidence references must not include credential-shaped query keys'));
+    }
+  }
+
+  for (const queryValue of parsed.searchParams.values()) {
+    if (SENSITIVE_VALUE_PATTERN.test(queryValue)) {
+      errors.push(error('credential_leakage_rejected', path, 'public evidence references must not include credential-shaped query values'));
+    }
+  }
+}
+
 function validateExternalPointer(value: unknown, errors: EvidenceArchiveValidationError[]): void {
   if (value === undefined) return;
   if (!isPlainObject(value)) {
@@ -122,6 +153,7 @@ function validateExternalPointer(value: unknown, errors: EvidenceArchiveValidati
     errors.push(error('malformed_evidence_record', '$.externalArchivePointer.provider', 'external archive provider is unsupported'));
   }
   requireString(value.uri, '$.externalArchivePointer.uri', errors);
+  validatePublicReference(value.uri, '$.externalArchivePointer.uri', errors);
   if (value.contentHash !== undefined) requireHash(value.contentHash, '$.externalArchivePointer.contentHash', errors);
 }
 
@@ -146,6 +178,7 @@ export function validateEvidenceArchiveRecord(
   requireHash(record.responseHash, '$.responseHash', errors);
   requireHash(record.evidenceHash, '$.evidenceHash', errors);
   requireString(record.evidenceRef, '$.evidenceRef', errors);
+  validatePublicReference(record.evidenceRef, '$.evidenceRef', errors);
   if (record.attestationId !== undefined) requireString(record.attestationId, '$.attestationId', errors);
   if (!isNonEmptyString(record.createdAt) || Number.isNaN(Date.parse(record.createdAt))) {
     errors.push(error('malformed_evidence_record', '$.createdAt', 'createdAt must be an ISO timestamp'));
