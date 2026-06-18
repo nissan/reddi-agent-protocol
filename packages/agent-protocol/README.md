@@ -108,6 +108,22 @@ if (candidates.ok) {
 
 Discovery candidates are source-neutral buyer-client inputs for local specialists, direct AI Catalogs, ARD registry/search fixtures, source adapters, and future hosted RAP registries. Candidate relevance is informational only; it is never used as a trust, safety, payment, or budget decision. Quotes, policy preflight, payment approval, invocation, receipts, evidence, attestations, and reputation remain separate RAP steps.
 
+## Source-Aware Diagnostics
+
+```typescript
+import { createSourceAwareCandidateDiagnostics } from '@reddi/agent-protocol/source-diagnostics';
+
+const diagnostics = createSourceAwareCandidateDiagnostics(candidate, {
+  policyDecision: decision,
+  reputation: { receiptCount: 2, attestationCount: 1 },
+});
+
+console.log(diagnostics.capabilityMatch.scoreMeaning); // relevance_only_not_trust
+console.log(diagnostics.policyDecision.reasonCodes); // machine-readable allow/deny reasons
+```
+
+Source-aware diagnostics expose separate lanes for capability match, discovery source, publisher identity, trust evidence, policy decision, payment fit, and reputation evidence. ARD and registry relevance scores are always labelled as relevance only; they are never collapsed into trust, policy, payment, or reputation approval.
+
 ## Local Validation
 
 ```bash
