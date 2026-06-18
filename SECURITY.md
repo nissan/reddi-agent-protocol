@@ -102,7 +102,23 @@ Adevar Labs audit credits will be used to fund a pre-mainnet security review cov
 If you identify a security issue:
 
 1. Do not publish exploit details publicly before coordinated remediation.
-2. Report privately to the maintainers with reproduction steps, scope, and impact.
-3. Allow reasonable remediation time before disclosure.
+2. Use GitHub's private vulnerability reporting flow for this repository when the **Security** tab offers **Report a vulnerability**.
+3. If private vulnerability reporting is unavailable, open a public GitHub issue titled `Security contact request` and include only that you need a private channel. Do not include exploit details, private keys, payloads, logs, screenshots, or reproduction steps in the public issue.
+4. Allow reasonable remediation time before disclosure.
 
 We will acknowledge valid reports, prioritize fixes by severity, and coordinate transparent postmortems once patched.
+
+Do not open a public GitHub issue with details for exploitable vulnerabilities, private-key exposure, credential leakage, bypassable payment gates, escrow-release flaws, attestation manipulation, replay attacks, or unauthenticated access to private data.
+
+## Secret Handling
+
+The OSS core must not require private operational secrets to run or validate. Keep production values outside the repository and use local environment variables or a secret manager.
+
+Never commit:
+
+- Wallet private keys, seed phrases, signer keypair arrays, or funded key material.
+- API keys, bearer tokens, x402 payment headers, auth headers, paid-provider credentials, or raw payment payloads.
+- Private deployment URLs when they are required for protocol correctness.
+- Private prompts, private user data, raw logs, or unredacted generated evidence.
+
+Examples and fixtures should use placeholders. Generated artifacts must be redacted before publication. If a credential is committed or appears in a public artifact, assume it is compromised, rotate it, and disclose the rotation in the relevant security follow-up without repeating the secret value.

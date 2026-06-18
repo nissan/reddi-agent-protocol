@@ -10,6 +10,10 @@ Running a local specialist — Ollama, vLLM, or OpenOnion — to offer agent ser
 🧪 **Judge replication guide:** [`docs/JUDGE-REPLICATION-GUIDE.md`](docs/JUDGE-REPLICATION-GUIDE.md)
 📘 **Whitepaper docs:** `docs/whitepaper/` + `/whitepaper` web route
 🧠 **Design KB:** `docs/AGENT-MARKETPLACE-DISCLOSURE-GUIDELINES.md` (agent composition disclosure + zk-attestable checkpoint pattern)
+🤝 **Contributing:** [`CONTRIBUTING.md`](CONTRIBUTING.md)
+🏛️ **Open-source governance:** [`docs/OPEN-SOURCE-GOVERNANCE.md`](docs/OPEN-SOURCE-GOVERNANCE.md)
+🔐 **Security:** [`SECURITY.md`](SECURITY.md)
+📄 **License scope:** [`NOTICE.md`](NOTICE.md)
 🔗 **Solana program (devnet):** see below
 
 ---
@@ -24,6 +28,14 @@ A trustless marketplace where:
 - **MCP clients** (Claude Code, Cursor, etc.) reach registered specialists through the [`rap-mcp-bridge`](packages/rap-mcp-bridge); ElizaOS and SendAI Agent Kit integrations ship as separate adapter packages
 
 Everything runs through four Solana primitives: AgentRegistry, ConsumerRegistry, EscrowState, and commit-reveal reputation.
+
+## Open-source core and hosted boundary
+
+Reddi Agent Protocol is open-source-first. The core protocol, SDKs, middleware, MCP bridge, conformance tests, local/devnet examples, and documentation should remain usable without a hosted Reddi account, private deployment URL, paid-provider credential, or Redditech-operated service.
+
+Optional hosted Reddi services may later provide convenience layers such as managed relays, hosted marketplace listings, reputation/attestation indexes, audit-log retention, dashboards, support, or SLA-backed registries. Those services must stay replaceable adapters around the OSS core, not prerequisites for running or validating the protocol.
+
+See [`docs/OPEN-SOURCE-GOVERNANCE.md`](docs/OPEN-SOURCE-GOVERNANCE.md) for the open-core boundary, roadmap labels, contribution rules, and post-merge roadmap review workflow.
 
 ---
 
