@@ -1,5 +1,6 @@
 import { isReddiPolicyReasonCode } from './policy.js';
 const SUPPORTED_NETWORK_ASSETS = new Set([
+    'solana-devnet:AUDD',
     'solana-devnet:USDC',
     'solana-devnet:SOL',
     'solana-testnet:USDC',

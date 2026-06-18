@@ -1,0 +1,51 @@
+{
+  "specVersion": "1.0",
+  "host": {
+    "identifier": "reddi.local",
+    "displayName": "Reddi Local Fixtures",
+    "domain": "reddi.local"
+  },
+  "entries": [
+    {
+      "identifier": "urn:ai:reddi.local:specialists:listing-writer",
+      "mediaType": "application/rap-specialist+json",
+      "displayName": "Listing Writer Specialist",
+      "description": "Turns a short operator brief into a deterministic marketplace listing draft.",
+      "data": {
+        "endpoint": "fixture://specialists/listing-writer",
+        "inputSchema": {
+          "type": "object",
+          "required": ["brief"],
+          "properties": {
+            "brief": { "type": "string" }
+          }
+        }
+      },
+      "capabilities": ["listing_draft", "marketplace_copy", "operator_review"],
+      "payment": {
+        "protocol": "rap",
+        "quoteMode": "preflight",
+        "asset": "AUDD",
+        "network": "solana-devnet",
+        "amount": "2500000"
+      },
+      "trustManifest": {
+        "identity": "urn:ai:reddi.local:specialists:listing-writer",
+        "provenance": ["file://examples/ard-no-spend-ai-catalog.json"],
+        "attestations": ["fixture://attestations/listing-writer-self-test"],
+        "verification": ["fixture://verification/local-demo"]
+      },
+      "metadata": {
+        "rap": {
+          "sourceId": "source:ard-local-catalog",
+          "specialistId": "specialist:listing-writer",
+          "payment": {
+            "protocol": "rap",
+            "quoteMode": "preflight",
+            "assets": [{ "asset": "AUDD", "network": "solana-devnet" }]
+          }
+        }
+      }
+    }
+  ]
+}

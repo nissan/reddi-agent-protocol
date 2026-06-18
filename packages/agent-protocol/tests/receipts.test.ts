@@ -117,6 +117,35 @@ describe('Reddi receipt v1', () => {
     }
   });
 
+  it('accepts AUDD receipt proof metadata on Solana networks without implying custody', () => {
+    const result = validateReddiReceipt(receipt({
+      payment: {
+        network: 'solana-devnet',
+        asset: 'AUDD',
+        amount: '2500000',
+        paymentProofRef: 'dry-run:audd-receipt-proof',
+      },
+      policyDecision: {
+        ...reddiReceiptFixtures.happyPath.policyDecision,
+        quotedAmount: {
+          amount: '2500000',
+          asset: 'AUDD',
+          network: 'solana-devnet',
+          source: 'source:planning',
+          specialist: 'specialist:coder',
+        },
+        asset: 'AUDD',
+        network: 'solana-devnet',
+      },
+    }));
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.receipt.payment.asset, 'AUDD');
+      assert.equal(result.receipt.payment.paymentProofRef, 'dry-run:audd-receipt-proof');
+    }
+  });
+
   it('rejects malformed receipt envelopes instead of accepting partial protocol records', () => {
     const result = validateReddiReceipt({ ...reddiReceiptFixtures.happyPath, schemaVersion: 'reddi.receipt.v2', evidenceRef: '' });
     assert.equal(result.ok, false);

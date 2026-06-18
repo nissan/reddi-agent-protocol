@@ -268,6 +268,16 @@ const decision = evaluateAuddPaymentPlanPreflight(auddChallenge, {
 
 AUDD/Solana payment plans are metadata and policy-preflight helpers for RAP buyer/seller middleware. They represent AUDD quote amount, Solana network, mint, payee/settlement account, expiry, failure/refund policy, and evidence requirements without submitting transactions or requiring hosted RAP infrastructure. Buyer preflight fails closed unless the caller supplies explicit allowed networks, mints, payees, settlement accounts, evidence policy, operator approval, and either a max amount or budget evaluator. Live payment remains fail-closed unless buyer/operator approval is explicit; actual wallet actions, SPL custody, Quasar escrow, and settlement proof verification belong in payment-rail integrations and the Quasar boundary work.
 
+## ARD No-Spend Quickstart
+
+```bash
+npm run example:ard:no-spend
+```
+
+The ARD no-spend example is a deterministic Discover -> Decide -> Prove workflow. It starts from `examples/ard-no-spend-ai-catalog.json`, validates the AI Catalog fixture, creates a discovery candidate, runs source-aware diagnostics, evaluates local policy/trust/payment gates, executes a bounded dry-run specialist function, and emits receipt, evidence, attestation, and reputation output.
+
+The example also prints expected failure states for policy denial, malformed challenge, missing evidence, and unsupported AUDD/Solana network. It does not start a server, fetch an ARD registry, call hosted Reddi infrastructure, use secrets, invoke a paid provider, access a wallet, submit RPC/SPL transfers, or claim AUDD escrow custody.
+
 ## Local Validation
 
 ```bash

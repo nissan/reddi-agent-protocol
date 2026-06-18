@@ -58,6 +58,7 @@
   },
   "files": [
     "dist",
+    "examples",
     "README.md"
   ],
   "sideEffects": false,
@@ -66,6 +67,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && tsc -p tsconfig.test.json && node --test dist-tests/*.test.js",
     "example:buyer-seller:dry-run": "npm run build && node examples/buyer-seller-dry-run.mjs",
+    "example:ard:no-spend": "npm run build && node examples/ard-no-spend-demo.mjs",
     "release:dry-run": "npm run clean && npm run build && npm test && npm pack --dry-run"
   },
   "devDependencies": {
