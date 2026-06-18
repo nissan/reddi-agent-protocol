@@ -170,6 +170,50 @@ Attestation v1 records include schema version, evidence reference, evidence hash
 
 Reputation updates are deterministic and local-first. Invalid or incomplete rubrics fail closed and return the previous reputation state unchanged. Failed, disputed, and refunded work produce explicit status and routing-impact reason codes. Self-attested and external-attested records are evidence inputs, not verified claims; `reddi_attested` and `verified` boundaries must come from RAP-side verification or operator-controlled attestations.
 
+## Buyer Client And Seller Middleware
+
+```typescript
+import {
+  createPaymentChallenge,
+  evaluateBuyerPaymentChallenge,
+  handlePaidSpecialistRequest,
+} from '@reddi/agent-protocol/buyer-seller';
+
+const challenge = createPaymentChallenge({
+  mode: 'dry-run',
+  quote: {
+    amount: '50000',
+    asset: 'USDC',
+    network: 'solana-devnet',
+    source: 'source:planning',
+    specialist: 'specialist:coder',
+  },
+  payTo: 'solana:seller-demo',
+  nonce: 'unit-001',
+  endpoint: 'http://localhost:4021/specialist',
+});
+
+const buyerDecision = evaluateBuyerPaymentChallenge(challenge, {
+  allowedRails: [{ asset: 'USDC', network: 'solana-devnet' }],
+  paymentProofRef: 'dry-run:unit-001',
+});
+
+const response = await handlePaidSpecialistRequest({
+  challenge,
+  request: { body: { task: 'plan' }, paymentProofRef: buyerDecision.paymentProofRef },
+  policyDecision: buyerDecision.policyDecision,
+  specialist: async (body) => ({ ok: true, body }),
+});
+```
+
+The buyer/seller helpers are local OSS SDK primitives. They do not run a server, submit payment, access a wallet, fetch a hosted registry, or invoke external providers by themselves. Seller middleware can return a structured `402` challenge in dry-run, fixture, or separately approved live mode. Buyer preflight parses the challenge, checks allowed rails, can call the completed local budget evaluator from `@reddi/x402-solana`, and returns machine-readable denial reasons before any payment or invocation. Approved dry-run requests execute only the bounded specialist function supplied by the caller and return a Reddi receipt plus EvidenceArchive record.
+
+Run the local no-spend example:
+
+```bash
+npm run example:buyer-seller:dry-run
+```
+
 ## Local Validation
 
 ```bash
