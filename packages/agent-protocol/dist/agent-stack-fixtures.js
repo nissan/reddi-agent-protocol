@@ -1,5 +1,6 @@
 export const AGENT_STACK_FIXTURE_CORPUS_SCHEMA_VERSION = 'reddi.agent-stack-fixture-corpus.v1';
 const COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/i;
+const RFC3339_UTC_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 const SAFE_PATH_PATTERN = /^[A-Za-z0-9._~@:/+*{}[\], -]+$/;
 const SECRET_KEY_PATTERN = /(^|[_-])(api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|client[_-]?secret|authorization|bearer|cookie|password|secret|seed|session[_-]?token|signature|sig|token)($|[_-])|apiKey|accessToken|refreshToken|sessionToken|privateKey|X-Goog-Signature|X-Amz-Signature/i;
 const SECRET_VALUE_PATTERN = /(authorization:\s*bearer\s+|bearer\s+[a-z0-9._-]{8,}|sk-[a-z0-9_-]{8,}|xox[baprs]-|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i;
@@ -93,8 +94,14 @@ function validateSafeUrl(value, path, errors) {
     }
 }
 function validateTimestamp(value, path, errors) {
-    if (!isNonEmptyString(value) || Number.isNaN(Date.parse(value))) {
+    if (!isNonEmptyString(value) || !RFC3339_UTC_PATTERN.test(value)) {
         errors.push(error('invalid_timestamp', path, 'crawlTimestamp must be an ISO timestamp'));
+        return;
+    }
+    const parsed = new Date(value);
+    const normalized = value.includes('.') ? value : value.replace('Z', '.000Z');
+    if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== normalized) {
+        errors.push(error('invalid_timestamp', path, 'crawlTimestamp must be a valid ISO timestamp'));
     }
 }
 function validateStringArray(value, path, errors) {

@@ -242,4 +242,21 @@ describe('agent-stack fixture corpus', () => {
       }
     }
   });
+
+  it('rejects loose or normalized-invalid crawl timestamps', () => {
+    for (const crawlTimestamp of ['June 18, 2026 10:50', '2026', '2026-02-30T00:00:00Z']) {
+      const malformedTimestamp = validateAgentStackFixtureCorpus({
+        ...agentStackFixtureCorpora.anthropicFinancialServices,
+        source: {
+          ...agentStackFixtureCorpora.anthropicFinancialServices.source,
+          crawlTimestamp,
+        },
+      });
+
+      assert.equal(malformedTimestamp.ok, false, `${crawlTimestamp} should fail`);
+      if (!malformedTimestamp.ok) {
+        assert.ok(malformedTimestamp.errors.some((item) => item.path === '$.source.crawlTimestamp'));
+      }
+    }
+  });
 });
