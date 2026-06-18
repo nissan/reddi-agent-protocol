@@ -34,6 +34,10 @@
       "types": "./dist/discovery-source.d.ts",
       "import": "./dist/discovery-source.js"
     },
+    "./evidence-archive": {
+      "types": "./dist/evidence-archive.d.ts",
+      "import": "./dist/evidence-archive.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

@@ -108,6 +108,31 @@ if (candidates.ok) {
 
 Discovery candidates are source-neutral buyer-client inputs for local specialists, direct AI Catalogs, ARD registry/search fixtures, source adapters, and future hosted RAP registries. Candidate relevance is informational only; it is never used as a trust, safety, payment, or budget decision. Quotes, policy preflight, payment approval, invocation, receipts, evidence, attestations, and reputation remain separate RAP steps.
 
+## EvidenceArchive
+
+```typescript
+import {
+  createEvidenceArchiveRecord,
+  createLocalEvidenceArchive,
+} from '@reddi/agent-protocol/evidence-archive';
+
+const record = createEvidenceArchiveRecord({
+  id: 'evidence:demo:001',
+  receiptId: 'receipt:demo:001',
+  sourceId: 'source:demo',
+  requestHash: 'sha256:7b2d0ef8455d0f0f41a37ea5e6a47f52c0d73d97f426097f159a98f8c8fb6b15',
+  responseHash: 'sha256:8c9d1f1e3d0f02b5afcbb31dfbb3ab3de70ce1b84ff3ca856d272b2f4f7f4501',
+  evidenceRef: 'file://fixtures/evidence/demo-001.json',
+  createdAt: new Date().toISOString(),
+  evidencePayload: { result: 'private payload stays outside the receipt' },
+});
+
+const archive = createLocalEvidenceArchive();
+archive.put(record);
+```
+
+EvidenceArchive v1 stores request, response, receipt, source, attestation, and evidence hash references without embedding private payloads in public receipts. The local archive is deterministic for tests and demos. Walrus, Seal, IPFS, and custom archive pointers are represented as future sidecar references, not required product-core dependencies.
+
 ## Local Validation
 
 ```bash
