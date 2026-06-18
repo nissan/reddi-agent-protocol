@@ -142,6 +142,7 @@ Near-term recommendation:
 
 ## Dependencies
 
+- #339 deployment, operations, and marketplace readiness: frames the hosted services and operational maturity lane.
 - #159 local buyer budget policy evaluator: informs team policy dashboards and spend governance.
 - #341 receipt/policy primitives: provides the public record hosted services index and retain.
 - #342 buyer/seller middleware: creates the first developer workflow that hosted services can simplify.
