@@ -42,6 +42,10 @@
       "types": "./dist/source-diagnostics.d.ts",
       "import": "./dist/source-diagnostics.js"
     },
+    "./attestation-reputation": {
+      "types": "./dist/attestation-reputation.d.ts",
+      "import": "./dist/attestation-reputation.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
