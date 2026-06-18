@@ -47,8 +47,9 @@ describe('AI Catalog ingestion', () => {
       assert.equal(result.catalog.rawSnapshotRef, 'sha256:fixture-happy-path');
       assert.equal(result.catalog.resources.length, 2);
       assert.equal(result.catalog.resources[0].id, 'urn:ai:reddi.tech:specialists:code-review');
-      assert.equal(result.catalog.resources[0].type, 'agent');
-      assert.equal(result.catalog.resources[0].endpoint, 'https://agents.reddi.tech/code-review');
+      assert.equal(result.catalog.resources[0].type, 'application/mcp-server-card+json');
+      assert.equal(result.catalog.resources[0].mediaType, 'application/mcp-server-card+json');
+      assert.equal(result.catalog.resources[0].url, 'https://agents.reddi.tech/code-review/mcp.json');
       assert.deepEqual(result.catalog.resources[0].payment, {
         protocol: 'rap',
         quoteMode: 'preflight',
@@ -59,7 +60,7 @@ describe('AI Catalog ingestion', () => {
         scopes: ['repo:read'],
       });
       assert.deepEqual(result.catalog.resources[0].trustManifest, {
-        url: 'https://agents.reddi.tech/.well-known/trust/code-review.json',
+        identity: 'urn:ai:reddi.tech:specialists:code-review',
         signature: {
           format: 'dsse',
           status: 'claimed',
@@ -72,7 +73,29 @@ describe('AI Catalog ingestion', () => {
     const result = validateAiCatalog(aiCatalogFixtures.localhostFixture);
     assert.equal(result.ok, true);
     if (result.ok) {
-      assert.equal(result.catalog.resources[0].endpoint, 'http://localhost:4317/mcp');
+      assert.equal(result.catalog.resources[0].url, 'http://localhost:4317/mcp');
+    }
+  });
+
+  it('accepts current AI Catalog spec-shaped entries', () => {
+    const result = validateAiCatalog({
+      specVersion: '1.0',
+      entries: [
+        {
+          identifier: 'urn:example:mcp:weather',
+          displayName: 'Weather Service',
+          mediaType: 'application/mcp-server-card+json',
+          url: 'https://api.example.com/.well-known/mcp/server-card.json',
+        },
+      ],
+    });
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.catalog.publisher.id, 'unknown');
+      assert.equal(result.catalog.resources[0].id, 'urn:example:mcp:weather');
+      assert.equal(result.catalog.resources[0].name, 'Weather Service');
+      assert.equal(result.catalog.resources[0].mediaType, 'application/mcp-server-card+json');
     }
   });
 
@@ -95,13 +118,14 @@ describe('AI Catalog ingestion', () => {
       {
         expected: 'unsafe_url',
         catalog: {
-          publisher: 'reddi.tech',
-          resources: [
+          specVersion: '1.0',
+          host: 'reddi.tech',
+          entries: [
             {
-              id: 'urn:ai:reddi.tech:specialists:embedded-creds',
-              type: 'agent',
-              name: 'Embedded Credentials',
-              endpoint: 'https://user:pass@agents.reddi.tech/unsafe',
+              identifier: 'urn:ai:reddi.tech:specialists:embedded-creds',
+              mediaType: 'application/mcp-server-card+json',
+              displayName: 'Embedded Credentials',
+              url: 'https://user:pass@agents.reddi.tech/unsafe',
             },
           ],
         },
@@ -109,13 +133,29 @@ describe('AI Catalog ingestion', () => {
       {
         expected: 'unsafe_url',
         catalog: {
-          publisher: 'reddi.tech',
-          resources: [
+          specVersion: '1.0',
+          host: 'reddi.tech',
+          entries: [
             {
-              id: 'urn:ai:reddi.tech:specialists:http',
-              type: 'agent',
-              name: 'Plain HTTP',
-              endpoint: 'http://agents.reddi.tech/unsafe',
+              identifier: 'urn:ai:reddi.tech:specialists:http',
+              mediaType: 'application/mcp-server-card+json',
+              displayName: 'Plain HTTP',
+              url: 'http://agents.reddi.tech/unsafe',
+            },
+          ],
+        },
+      },
+      {
+        expected: 'credential_leakage_rejected',
+        catalog: {
+          specVersion: '1.0',
+          host: 'reddi.tech',
+          entries: [
+            {
+              identifier: 'urn:ai:reddi.tech:specialists:query-secret',
+              mediaType: 'application/mcp-server-card+json',
+              displayName: 'Query Secret',
+              url: 'https://agents.reddi.tech/unsafe?access_token=redacted',
             },
           ],
         },
@@ -123,13 +163,14 @@ describe('AI Catalog ingestion', () => {
       {
         expected: 'invalid_reference',
         catalog: {
-          publisher: 'reddi.tech',
-          resources: [
+          specVersion: '1.0',
+          host: 'reddi.tech',
+          entries: [
             {
-              id: 'urn:ai:reddi.tech:specialists:not-url',
-              type: 'agent',
-              name: 'Not URL',
-              endpoint: 'not-a-url',
+              identifier: 'urn:ai:reddi.tech:specialists:not-url',
+              mediaType: 'application/mcp-server-card+json',
+              displayName: 'Not URL',
+              url: 'not-a-url',
             },
           ],
         },
@@ -147,12 +188,13 @@ describe('AI Catalog ingestion', () => {
 
   it('enforces nested catalog and value/reference boundaries', () => {
     const catalogWithEndpoint = validateAiCatalog({
-      publisher: 'reddi.tech',
-      resources: [
+      specVersion: '1.0',
+      host: 'reddi.tech',
+      entries: [
         {
-          id: 'urn:ai:reddi.tech:catalogs:bad-boundary',
-          type: 'catalog',
-          name: 'Bad Boundary',
+          identifier: 'urn:ai:reddi.tech:catalogs:bad-boundary',
+          mediaType: 'application/ai-catalog+json',
+          displayName: 'Bad Boundary',
           endpoint: 'https://agents.reddi.tech/catalog-endpoint',
         },
       ],
@@ -179,13 +221,14 @@ describe('AI Catalog ingestion', () => {
     }
 
     const mixedInlineAndReference = validateAiCatalog({
-      publisher: 'reddi.tech',
-      resources: [
+      specVersion: '1.0',
+      host: 'reddi.tech',
+      entries: [
         {
-          id: 'urn:ai:reddi.tech:specialists:mixed',
-          type: 'agent',
-          name: 'Mixed',
-          endpoint: 'https://agents.reddi.tech/mixed',
+          identifier: 'urn:ai:reddi.tech:specialists:mixed',
+          mediaType: 'application/mcp-server-card+json',
+          displayName: 'Mixed',
+          url: 'https://agents.reddi.tech/mixed',
           data: { transport: 'mcp' },
         },
       ],
@@ -196,12 +239,13 @@ describe('AI Catalog ingestion', () => {
     }
 
     const multipleReferences = validateAiCatalog({
-      publisher: 'reddi.tech',
-      resources: [
+      specVersion: '1.0',
+      host: 'reddi.tech',
+      entries: [
         {
-          id: 'urn:ai:reddi.tech:specialists:multi-ref',
-          type: 'agent',
-          name: 'Multi Reference',
+          identifier: 'urn:ai:reddi.tech:specialists:multi-ref',
+          mediaType: 'application/mcp-server-card+json',
+          displayName: 'Multi Reference',
           url: 'https://agents.reddi.tech/multi-ref',
           endpoint: 'https://agents.reddi.tech/multi-ref/invoke',
         },
@@ -210,6 +254,44 @@ describe('AI Catalog ingestion', () => {
     assert.equal(multipleReferences.ok, false);
     if (!multipleReferences.ok) {
       assert.ok(multipleReferences.errors.some((item) => item.code === 'invalid_reference'));
+    }
+  });
+
+  it('rejects credential-shaped keys and non-serializable malformed catalogs without throwing', () => {
+    const bareToken = validateAiCatalog({
+      specVersion: '1.0',
+      host: 'reddi.tech',
+      entries: [
+        {
+          identifier: 'urn:ai:reddi.tech:specialists:token-key',
+          mediaType: 'application/mcp-server-card+json',
+          displayName: 'Token Key',
+          url: 'https://agents.reddi.tech/token-key',
+          metadata: {
+            token: 'redacted',
+          },
+        },
+      ],
+    });
+    assert.equal(bareToken.ok, false);
+    if (!bareToken.ok) {
+      assert.ok(bareToken.errors.some((item) => item.code === 'credential_leakage_rejected'));
+    }
+
+    const circular: Record<string, unknown> = { specVersion: '1.0', entries: [] };
+    circular.self = circular;
+    assert.doesNotThrow(() => validateAiCatalog(circular));
+    const circularResult = validateAiCatalog(circular);
+    assert.equal(circularResult.ok, false);
+    if (!circularResult.ok) {
+      assert.ok(circularResult.errors.some((item) => item.code === 'malformed_catalog'));
+    }
+
+    assert.doesNotThrow(() => validateAiCatalog({ specVersion: '1.0', entries: [], metadata: { count: 1n } }));
+    const bigintResult = validateAiCatalog({ specVersion: '1.0', entries: [], metadata: { count: 1n } });
+    assert.equal(bigintResult.ok, false);
+    if (!bigintResult.ok) {
+      assert.ok(bigintResult.errors.some((item) => item.code === 'malformed_catalog'));
     }
   });
 

@@ -1,17 +1,9 @@
 export const AI_CATALOG_SCHEMA_VERSION = 'ai-catalog.v1';
-const SUPPORTED_RESOURCE_TYPES = new Set([
-    'agent',
-    'api',
-    'mcp_server',
-    'mcp-server',
-    'skill',
-    'tool',
-    'catalog',
-    'a2a_agent',
-    'a2a-agent',
-]);
-const AI_URN_PATTERN = /^urn:ai:[a-z0-9][a-z0-9.-]*:[a-z0-9][a-z0-9._-]*:[a-z0-9][a-z0-9._-]*$/i;
-const SECRET_KEY_PATTERN = /(api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|client[_-]?secret|authorization|bearer|password|secret)/i;
+const AI_CATALOG_MEDIA_TYPE = 'application/ai-catalog+json';
+const AI_IDENTIFIER_PATTERN = /^(urn:[a-z0-9][a-z0-9-]*:.+|https?:\/\/.+)$/i;
+const MEDIA_TYPE_PATTERN = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*(?:\+[a-z0-9][a-z0-9!#$&^_.+-]*)?$/i;
+const LEGACY_TYPE_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
+const SECRET_KEY_PATTERN = /(^|[_-])(api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|client[_-]?secret|authorization|bearer|password|secret|token)($|[_-])/i;
 const SECRET_VALUE_PATTERN = /(authorization:\s*bearer\s+|sk-[a-z0-9_-]{8,}|xox[baprs]-|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i;
 function error(code, path, message) {
     return { code, path, message };
@@ -26,7 +18,12 @@ function asString(value) {
     return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 function byteLength(value) {
-    return new TextEncoder().encode(JSON.stringify(value)).length;
+    try {
+        return new TextEncoder().encode(JSON.stringify(value)).length;
+    }
+    catch {
+        return undefined;
+    }
 }
 function containsCredentialMaterial(value, path = '$') {
     if (typeof value === 'string') {
@@ -67,6 +64,16 @@ function validateSafeUrl(value, path) {
     if (parsed.username || parsed.password) {
         return error('unsafe_url', path, 'Reference URLs must not embed credentials.');
     }
+    for (const key of parsed.searchParams.keys()) {
+        if (SECRET_KEY_PATTERN.test(key)) {
+            return error('credential_leakage_rejected', `${path}.${key}`, 'Reference URLs must not include credential-shaped query parameters.');
+        }
+    }
+    for (const value of parsed.searchParams.values()) {
+        if (SECRET_VALUE_PATTERN.test(value)) {
+            return error('credential_leakage_rejected', path, 'Reference URLs must not include credential-shaped query values.');
+        }
+    }
     if (parsed.protocol === 'https:')
         return undefined;
     const localhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1';
@@ -74,55 +81,58 @@ function validateSafeUrl(value, path) {
         return undefined;
     return error('unsafe_url', path, 'Reference URLs must use HTTPS, except localhost HTTP fixtures.');
 }
-function parsePublisher(value, errors) {
+function parsePublisher(value, path, errors) {
     if (typeof value === 'string' && value.trim())
         return { id: value.trim() };
     if (!isPlainObject(value)) {
-        errors.push(error('malformed_catalog', '$.publisher', 'Catalog publisher must be a string or object.'));
+        errors.push(error('malformed_catalog', path, 'Catalog host/publisher must be a string or object.'));
         return undefined;
     }
-    const id = asString(value.id) ?? asString(value.domain) ?? asString(value.name);
+    const id = asString(value.identifier) ?? asString(value.id) ?? asString(value.domain) ?? asString(value.displayName) ?? asString(value.name);
     if (!id) {
-        errors.push(error('malformed_catalog', '$.publisher.id', 'Catalog publisher must include id, domain, or name.'));
+        errors.push(error('malformed_catalog', `${path}.identifier`, 'Catalog host/publisher must include identifier, id, domain, displayName, or name.'));
         return undefined;
     }
     return {
         id,
-        name: asString(value.name),
+        name: asString(value.displayName) ?? asString(value.name),
         domain: asString(value.domain),
     };
 }
 function parseResources(value, errors) {
-    const rawResources = value.resources ?? value.items;
+    const rawResources = value.entries ?? value.resources ?? value.items;
+    const resourcesPath = Array.isArray(value.entries) ? '$.entries' : Array.isArray(value.resources) ? '$.resources' : '$.items';
     if (!Array.isArray(rawResources)) {
-        errors.push(error('malformed_catalog', '$.resources', 'Catalog must include a resources or items array.'));
+        errors.push(error('malformed_catalog', '$.entries', 'Catalog must include an entries array.'));
         return [];
     }
     const resources = [];
     for (let index = 0; index < rawResources.length; index += 1) {
-        const path = `$.resources[${index}]`;
+        const path = `${resourcesPath}[${index}]`;
         const raw = rawResources[index];
         if (!isPlainObject(raw)) {
             errors.push(error('malformed_catalog', path, 'Catalog resource must be an object.'));
             continue;
         }
-        const id = asString(raw.id);
-        if (!id || !AI_URN_PATTERN.test(id)) {
-            errors.push(error('invalid_identifier', `${path}.id`, 'Resource id must be a domain-anchored urn:ai identifier.'));
+        const id = asString(raw.identifier) ?? asString(raw.id);
+        if (!id || !AI_IDENTIFIER_PATTERN.test(id)) {
+            errors.push(error('invalid_identifier', `${path}.identifier`, 'Catalog entry identifier must be a stable URN or URL.'));
         }
-        const type = asString(raw.type);
-        if (!type || !SUPPORTED_RESOURCE_TYPES.has(type)) {
-            errors.push(error('unsupported_resource_type', `${path}.type`, 'Resource type is not supported by RAP AI Catalog ingestion.'));
+        const mediaType = asString(raw.mediaType) ?? asString(raw.type);
+        if (!mediaType || (!MEDIA_TYPE_PATTERN.test(mediaType) && !LEGACY_TYPE_PATTERN.test(mediaType))) {
+            errors.push(error('unsupported_resource_type', `${path}.mediaType`, 'Catalog entry mediaType must be a valid media type or legacy resource type.'));
         }
-        const name = asString(raw.name);
+        const name = asString(raw.displayName) ?? asString(raw.name);
         if (!name) {
-            errors.push(error('malformed_catalog', `${path}.name`, 'Catalog resource must include a non-empty name.'));
+            errors.push(error('malformed_catalog', `${path}.displayName`, 'Catalog entry must include a non-empty displayName.'));
         }
         const url = asString(raw.url);
         const endpoint = asString(raw.endpoint);
-        const catalogUrl = asString(raw.catalogUrl) ?? asString(raw.catalog_url);
+        const catalogUrlRaw = asString(raw.catalogUrl) ?? asString(raw.catalog_url);
+        const isNestedCatalog = mediaType === AI_CATALOG_MEDIA_TYPE || mediaType === 'catalog';
+        const catalogUrl = isNestedCatalog ? (catalogUrlRaw ?? url) : catalogUrlRaw;
         const hasInlineData = Object.prototype.hasOwnProperty.call(raw, 'data');
-        const referenceCount = [url, endpoint, catalogUrl].filter(Boolean).length;
+        const referenceCount = [url, endpoint, catalogUrlRaw].filter(Boolean).length;
         if (hasInlineData && referenceCount > 0) {
             errors.push(error('invalid_reference', path, 'Catalog resources must not mix inline data with URL references.'));
         }
@@ -139,27 +149,30 @@ function parseResources(value, errors) {
             if (invalidUrl)
                 errors.push(invalidUrl);
         }
-        if (type === 'catalog') {
-            if (!catalogUrl || hasInlineData || url || endpoint) {
-                errors.push(error('nested_catalog_boundary', path, 'Nested catalog resources must use catalogUrl only.'));
+        if (isNestedCatalog) {
+            if (!catalogUrl || hasInlineData || endpoint || (url && catalogUrlRaw)) {
+                errors.push(error('nested_catalog_boundary', path, 'Nested catalog entries must use a single URL reference.'));
             }
         }
         else if (catalogUrl) {
             errors.push(error('nested_catalog_boundary', `${path}.catalogUrl`, 'Only catalog resources may reference nested catalogs.'));
         }
-        if (id && type && SUPPORTED_RESOURCE_TYPES.has(type) && name) {
+        const metadata = isPlainObject(raw.metadata) ? raw.metadata : undefined;
+        const rapMetadata = metadata && isPlainObject(metadata.rap) ? metadata.rap : undefined;
+        if (id && mediaType && name) {
             resources.push({
                 id,
-                type,
+                type: mediaType,
+                mediaType,
                 name,
                 description: asString(raw.description),
                 url,
                 endpoint,
                 catalogUrl,
                 trustManifest: raw.trustManifest,
-                capabilities: raw.capabilities,
-                payment: raw.payment,
-                auth: raw.auth,
+                capabilities: raw.capabilities ?? metadata?.capabilities,
+                payment: raw.payment ?? rapMetadata?.payment ?? metadata?.payment,
+                auth: raw.auth ?? rapMetadata?.auth ?? metadata?.auth,
                 raw,
             });
         }
@@ -172,13 +185,22 @@ export function validateAiCatalog(input, options = {}) {
     if (!isPlainObject(input)) {
         return { ok: false, errors: [error('malformed_catalog', '$', 'AI Catalog must be a plain object.')] };
     }
-    if (byteLength(input) > maxBytes) {
+    const size = byteLength(input);
+    if (size === undefined) {
+        return { ok: false, errors: [error('malformed_catalog', '$', 'AI Catalog must be JSON-serializable.')] };
+    }
+    if (size > maxBytes) {
         return { ok: false, errors: [error('catalog_too_large', '$', `AI Catalog exceeds ${maxBytes} bytes.`)] };
     }
     const credentialLeak = containsCredentialMaterial(input);
     if (credentialLeak)
         return { ok: false, errors: [credentialLeak] };
-    const publisher = parsePublisher(input.publisher, errors);
+    if (!asString(input.specVersion) && Object.prototype.hasOwnProperty.call(input, 'entries')) {
+        errors.push(error('malformed_catalog', '$.specVersion', 'AI Catalog entries require a specVersion string.'));
+    }
+    const hostOrPublisher = input.host ?? input.publisher;
+    const publisherPath = Object.prototype.hasOwnProperty.call(input, 'host') ? '$.host' : '$.publisher';
+    const publisher = hostOrPublisher === undefined ? { id: 'unknown' } : parsePublisher(hostOrPublisher, publisherPath, errors);
     const resources = parseResources(input, errors);
     if (!publisher || errors.length > 0)
         return { ok: false, errors };
@@ -202,64 +224,75 @@ export function createAiCatalogSnapshot(input, options = {}) {
 }
 export const aiCatalogFixtures = {
     happyPath: {
-        publisher: {
-            id: 'reddi.tech',
-            name: 'Reddi',
-            domain: 'reddi.tech',
+        specVersion: '1.0',
+        host: {
+            identifier: 'reddi.tech',
+            displayName: 'Reddi',
         },
-        resources: [
+        entries: [
             {
-                id: 'urn:ai:reddi.tech:specialists:code-review',
-                type: 'agent',
-                name: 'Code Review Specialist',
+                identifier: 'urn:ai:reddi.tech:specialists:code-review',
+                mediaType: 'application/mcp-server-card+json',
+                displayName: 'Code Review Specialist',
                 description: 'Reviews pull requests and emits RAP-compatible evidence.',
-                endpoint: 'https://agents.reddi.tech/code-review',
-                capabilities: ['code_review', 'risk_analysis'],
+                url: 'https://agents.reddi.tech/code-review/mcp.json',
+                metadata: {
+                    capabilities: ['code_review', 'risk_analysis'],
+                    rap: {
+                        payment: {
+                            protocol: 'rap',
+                            quoteMode: 'preflight',
+                            assets: [{ asset: 'AUDD', network: 'solana-devnet' }],
+                        },
+                        auth: {
+                            type: 'oauth',
+                            scopes: ['repo:read'],
+                        },
+                    },
+                },
                 trustManifest: {
-                    url: 'https://agents.reddi.tech/.well-known/trust/code-review.json',
+                    identity: 'urn:ai:reddi.tech:specialists:code-review',
                     signature: {
                         format: 'dsse',
                         status: 'claimed',
                     },
                 },
-                payment: {
-                    protocol: 'rap',
-                    quoteMode: 'preflight',
-                    assets: [{ asset: 'AUDD', network: 'solana-devnet' }],
-                },
-                auth: {
-                    type: 'oauth',
-                    scopes: ['repo:read'],
-                },
             },
             {
-                id: 'urn:ai:reddi.tech:apis:receipt-validator',
-                type: 'api',
-                name: 'Receipt Validator API',
+                identifier: 'urn:ai:reddi.tech:apis:receipt-validator',
+                mediaType: 'application/openapi+json',
+                displayName: 'Receipt Validator API',
                 url: 'https://agents.reddi.tech/apis/receipt-validator',
-                capabilities: ['receipt_validation'],
+                metadata: {
+                    capabilities: ['receipt_validation'],
+                },
             },
         ],
     },
     nestedCatalog: {
-        publisher: 'reddi.tech',
-        resources: [
+        specVersion: '1.0',
+        host: {
+            displayName: 'Reddi',
+            identifier: 'reddi.tech',
+        },
+        entries: [
             {
-                id: 'urn:ai:reddi.tech:catalogs:local-specialists',
-                type: 'catalog',
-                name: 'Local Specialists Catalog',
-                catalogUrl: 'https://agents.reddi.tech/.well-known/local-specialists.ai-catalog.json',
+                identifier: 'urn:ai:reddi.tech:catalogs:local-specialists',
+                mediaType: AI_CATALOG_MEDIA_TYPE,
+                displayName: 'Local Specialists Catalog',
+                url: 'https://agents.reddi.tech/.well-known/local-specialists.ai-catalog.json',
             },
         ],
     },
     localhostFixture: {
-        publisher: 'localhost',
-        resources: [
+        specVersion: '1.0',
+        host: 'localhost',
+        entries: [
             {
-                id: 'urn:ai:localhost:fixtures:demo-specialist',
-                type: 'mcp_server',
-                name: 'Demo MCP Specialist',
-                endpoint: 'http://localhost:4317/mcp',
+                identifier: 'urn:ai:localhost:fixtures:demo-specialist',
+                mediaType: 'application/mcp-server-card+json',
+                displayName: 'Demo MCP Specialist',
+                url: 'http://localhost:4317/mcp',
             },
         ],
     },
@@ -286,13 +319,14 @@ export const aiCatalogFixtureCases = {
     unsupportedResourceType: {
         description: 'Unknown resource types are rejected.',
         catalog: {
-            publisher: 'reddi.tech',
-            resources: [
+            specVersion: '1.0',
+            host: 'reddi.tech',
+            entries: [
                 {
-                    id: 'urn:ai:reddi.tech:unknown:thing',
-                    type: 'model_context_plugin',
-                    name: 'Unsupported Thing',
-                    endpoint: 'https://agents.reddi.tech/unsupported',
+                    identifier: 'urn:ai:reddi.tech:unknown:thing',
+                    mediaType: 'not a media type!',
+                    displayName: 'Unsupported Thing',
+                    url: 'https://agents.reddi.tech/unsupported',
                 },
             ],
         },
@@ -302,13 +336,14 @@ export const aiCatalogFixtureCases = {
     unsafeUrl: {
         description: 'Non-HTTPS non-localhost references are rejected.',
         catalog: {
-            publisher: 'reddi.tech',
-            resources: [
+            specVersion: '1.0',
+            host: 'reddi.tech',
+            entries: [
                 {
-                    id: 'urn:ai:reddi.tech:specialists:unsafe',
-                    type: 'agent',
-                    name: 'Unsafe Specialist',
-                    endpoint: 'http://agents.reddi.tech/unsafe',
+                    identifier: 'urn:ai:reddi.tech:specialists:unsafe',
+                    mediaType: 'application/mcp-server-card+json',
+                    displayName: 'Unsafe Specialist',
+                    url: 'http://agents.reddi.tech/unsafe',
                 },
             ],
         },
@@ -318,13 +353,14 @@ export const aiCatalogFixtureCases = {
     credentialLeakage: {
         description: 'Credential-shaped metadata is rejected before ingestion.',
         catalog: {
-            publisher: 'reddi.tech',
-            resources: [
+            specVersion: '1.0',
+            host: 'reddi.tech',
+            entries: [
                 {
-                    id: 'urn:ai:reddi.tech:specialists:leaky',
-                    type: 'agent',
-                    name: 'Leaky Specialist',
-                    endpoint: 'https://agents.reddi.tech/leaky',
+                    identifier: 'urn:ai:reddi.tech:specialists:leaky',
+                    mediaType: 'application/mcp-server-card+json',
+                    displayName: 'Leaky Specialist',
+                    url: 'https://agents.reddi.tech/leaky',
                     auth: {
                         accessToken: 'tok_should_not_be_in_catalogs',
                     },
