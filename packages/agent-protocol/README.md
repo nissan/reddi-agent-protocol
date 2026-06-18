@@ -38,6 +38,23 @@ const policyDecision = policyDecisionFromBudgetPolicyDecision({
 
 Use payment-rail packages to settle and verify payment-specific proofs. RAP receipts record the policy, payment-proof reference, evidence reference, and trust metadata around the paid agent workflow.
 
+## AI Catalog Ingestion
+
+```typescript
+import { createAiCatalogSnapshot, aiCatalogFixtures } from '@reddi/agent-protocol/ai-catalog';
+
+const snapshot = createAiCatalogSnapshot(aiCatalogFixtures.happyPath, {
+  rawSnapshotRef: 'sha256:catalog-response',
+});
+
+console.log(snapshot.publisher.id); // reddi.tech
+console.log(snapshot.resources[0].type); // agent
+```
+
+AI Catalog ingestion stores discovery results as untrusted external metadata. Validation fails closed for malformed catalogs, unsupported resource types, invalid `urn:ai:*` identifiers, unsafe URLs, credential-bearing metadata, oversized catalogs, and nested-catalog boundary violations.
+
+Catalog ingestion never performs network fetches, paid invocations, wallet actions, or auto-execution. Buyer policy preflight, quote/payment approval, receipts, evidence, attestations, and reputation remain separate RAP steps after discovery.
+
 ## Local Validation
 
 ```bash
