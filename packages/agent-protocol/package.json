@@ -54,6 +54,10 @@
       "types": "./dist/audd-payment-plan.d.ts",
       "import": "./dist/audd-payment-plan.js"
     },
+    "./agent-stack-fixtures": {
+      "types": "./dist/agent-stack-fixtures.d.ts",
+      "import": "./dist/agent-stack-fixtures.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

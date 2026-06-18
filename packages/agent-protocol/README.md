@@ -55,6 +55,26 @@ AI Catalog ingestion stores discovery results as untrusted external metadata. Va
 
 Catalog ingestion never performs network fetches, paid invocations, wallet actions, or auto-execution. Buyer policy preflight, quote/payment approval, receipts, evidence, attestations, and reputation remain separate RAP steps after discovery.
 
+## Agent-Stack Fixture Corpora
+
+```typescript
+import {
+  agentStackFixtureCorpora,
+  createAgentStackFixtureCorpus,
+} from '@reddi/agent-protocol/agent-stack-fixtures';
+
+const corpus = createAgentStackFixtureCorpus(agentStackFixtureCorpora.anthropicFinancialServices);
+
+console.log(corpus.source.checkedCommit); // 4bbabc7cd1a474c1667fa05a2bfe58e411dcf9c1
+console.log(corpus.files.some((file) => file.parseStatus === 'malformed')); // true
+```
+
+Agent-stack fixture corpora are public, static inputs for onboarding-analyser parser and diagnostics work. The built-in Anthropic financial-services fixture records source URL, checked commit, license/source notes, authenticity notes, crawl timestamp, local research artifact path, high-level marketplace/plugin/managed-agent/MCP surfaces, and validation warnings.
+
+Fixture ingestion rejects credential-shaped metadata, unsafe source URLs, invalid commit refs, invalid timestamps, oversized corpora, and malformed corpus shapes. Public prompt, skill, command, and recipe text is always labelled as untrusted fixture content.
+
+The fixture corpus never installs Claude plugins, executes repo scripts, invokes managed agents, contacts MCP servers, fetches paid/provider data, requires credentials, or publishes imported surfaces as payable RAP listings. Parser, connector-diagnostics, draft-profile, and operator-review behavior land in later RAP slices.
+
 ## Provider Trust Records
 
 ```typescript
