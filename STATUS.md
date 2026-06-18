@@ -1,5 +1,19 @@
 # Reddi Agent Protocol — Status
 
+## Latest Update — OSS v0.1 package plan drafted (2026-06-18 13:07 AEST)
+
+Implemented GitHub issue #356 in isolated worktree `projects/reddi-agent-protocol-worktree-356-package-plan` on branch `docs/356-package-plan`.
+
+Delivered:
+- Added `docs/OSS-V0.1-PACKAGE-PLAN.md`, a planning-only release/package plan for `@reddi/agent-protocol` v0.1.
+- Covered package name/path, export surfaces, build/test/release flow, semantic versioning, package README requirements, dry-run publish validation, rollback notes, and guardrails around secrets, live payment, hosted services, and paid provider calls.
+- Added a README pointer to the plan.
+
+Validation:
+- `git diff --check` PASS.
+
+RESUME FROM HERE: Review the package plan and, once #341/#342 land, use it to scaffold `packages/agent-protocol` without adding live payment or hosted Reddi dependencies to the default package validation path.
+
 ## Latest Update — RAP positioning and Solana coupling map drafted (2026-05-13 AEST)
 
 Drafted `docs/RAP-POSITIONING-COUPLING-MAP-2026-05-13.md` for Issue #332. This steps back from specific vendors/chains and frames Reddi Agent Protocol as a trust, policy, receipt, attestation, settlement, and reputation layer for paid agent work.
