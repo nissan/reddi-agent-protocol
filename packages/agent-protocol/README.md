@@ -73,6 +73,41 @@ Provider trust records normalize ARD trust manifests, provenance links, attestat
 
 External ARD trust metadata is treated as a claim until RAP-side verification marks it `verified` or `failed_verification`. Missing metadata remains `unverified`, malformed trust metadata fails closed, and credential-bearing auth/payment/trust metadata is rejected.
 
+## Discovery Source Candidates
+
+```typescript
+import {
+  createAiCatalogDiscoveryCandidates,
+  evaluateDiscoveryCandidatePolicyPreflight,
+} from '@reddi/agent-protocol/discovery-source';
+import { providerTrustFixtures } from '@reddi/agent-protocol/provider-trust';
+
+const candidates = createAiCatalogDiscoveryCandidates(providerTrustFixtures.verifiedCatalog, {
+  relevanceScores: {
+    'urn:ai:reddi.tech:specialists:code-review': 0.91,
+  },
+});
+
+if (candidates.ok) {
+  const decision = evaluateDiscoveryCandidatePolicyPreflight(
+    {
+      ...candidates.candidates[0],
+      quote: { amount: '5000', asset: 'AUDD', network: 'solana-devnet' },
+    },
+    {
+      allowedSourceKinds: ['direct-ai-catalog'],
+      allowedAssets: ['AUDD'],
+      allowedNetworks: ['solana-devnet'],
+      maxQuote: { amount: '10000', asset: 'AUDD', network: 'solana-devnet' },
+    },
+  );
+
+  console.log(decision.allowed); // true only after explicit RAP policy preflight
+}
+```
+
+Discovery candidates are source-neutral buyer-client inputs for local specialists, direct AI Catalogs, ARD registry/search fixtures, source adapters, and future hosted RAP registries. Candidate relevance is informational only; it is never used as a trust, safety, payment, or budget decision. Quotes, policy preflight, payment approval, invocation, receipts, evidence, attestations, and reputation remain separate RAP steps.
+
 ## Local Validation
 
 ```bash

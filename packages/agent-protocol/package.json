@@ -30,6 +30,10 @@
       "types": "./dist/provider-trust.d.ts",
       "import": "./dist/provider-trust.js"
     },
+    "./discovery-source": {
+      "types": "./dist/discovery-source.d.ts",
+      "import": "./dist/discovery-source.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
