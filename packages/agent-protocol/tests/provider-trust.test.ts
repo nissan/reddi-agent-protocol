@@ -124,6 +124,63 @@ describe('RAP provider trust records', () => {
     if (!credentialBearing.ok) assertReasonCodes(credentialBearing.errors.map((item) => item.code), ['credential_leakage_rejected']);
   });
 
+  it('fails closed for malformed child trust metadata', () => {
+    const malformedProvenanceCatalog = {
+      ...providerTrustFixtures.verifiedCatalog,
+      resources: [
+        {
+          ...providerTrustFixtures.verifiedCatalog.resources[0],
+          trustManifest: {
+            identity: 'urn:ai:reddi.tech:specialists:code-review',
+            provenance: 42,
+          },
+          raw: {
+            ...(providerTrustFixtures.verifiedCatalog.resources[0].raw as Record<string, unknown>),
+            trustManifest: {
+              identity: 'urn:ai:reddi.tech:specialists:code-review',
+              provenance: 42,
+            },
+          },
+        },
+      ],
+    };
+
+    const malformedProvenance = normalizeAiCatalogProviderTrustRecord(
+      malformedProvenanceCatalog,
+      'urn:ai:reddi.tech:specialists:code-review',
+    );
+    assert.equal(malformedProvenance.ok, false);
+    if (!malformedProvenance.ok) {
+      assertReasonCodes(malformedProvenance.errors.map((item) => item.code), ['malformed_trust_metadata']);
+    }
+
+    const malformedPublisherIdentityCatalog = {
+      ...providerTrustFixtures.verifiedCatalog,
+      resources: [
+        {
+          ...providerTrustFixtures.verifiedCatalog.resources[0],
+          raw: {
+            ...(providerTrustFixtures.verifiedCatalog.resources[0].raw as Record<string, unknown>),
+            metadata: {
+              trust: {
+                publisherIdentity: 42,
+              },
+            },
+          },
+        },
+      ],
+    };
+
+    const malformedPublisherIdentity = normalizeAiCatalogProviderTrustRecord(
+      malformedPublisherIdentityCatalog,
+      'urn:ai:reddi.tech:specialists:code-review',
+    );
+    assert.equal(malformedPublisherIdentity.ok, false);
+    if (!malformedPublisherIdentity.ok) {
+      assertReasonCodes(malformedPublisherIdentity.errors.map((item) => item.code), ['malformed_trust_metadata']);
+    }
+  });
+
   it('throws when creating an invalid provider trust record', () => {
     assert.throws(
       () => createAiCatalogProviderTrustRecord(providerTrustFixtures.verifiedCatalog, 'urn:ai:missing'),

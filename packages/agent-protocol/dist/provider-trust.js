@@ -11,8 +11,25 @@ function isPlainObject(value) {
 function asString(value) {
     return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
-function asArray(value) {
-    return Array.isArray(value) ? value : value === undefined ? [] : [value];
+function collectTrustList(value, path, errors) {
+    if (value === undefined)
+        return [];
+    const values = Array.isArray(value) ? value : [value];
+    for (let index = 0; index < values.length; index += 1) {
+        const item = values[index];
+        if (typeof item !== 'string' && !isPlainObject(item)) {
+            errors.push(error('malformed_trust_metadata', `${path}${Array.isArray(value) ? `[${index}]` : ''}`, 'trust metadata references must be strings or objects.'));
+        }
+    }
+    return values;
+}
+function validateOptionalStringOrObject(value, path, errors) {
+    if (value === undefined)
+        return undefined;
+    if (typeof value === 'string' || isPlainObject(value))
+        return value;
+    errors.push(error('malformed_trust_metadata', path, 'trust metadata field must be a string or object.'));
+    return undefined;
 }
 function error(code, path, message) {
     return { code, path, message };
@@ -73,28 +90,28 @@ function collectTrustMetadata(resource, errors) {
     return {
         trustManifest,
         provenanceLinks: [
-            ...asArray(manifestObject?.provenance),
-            ...asArray(manifestObject?.provenanceLinks),
-            ...asArray(raw.provenance),
-            ...asArray(raw.provenanceLinks),
-            ...asArray(trust?.provenance),
-            ...asArray(trust?.provenanceLinks),
+            ...collectTrustList(manifestObject?.provenance, '$.trustManifest.provenance', errors),
+            ...collectTrustList(manifestObject?.provenanceLinks, '$.trustManifest.provenanceLinks', errors),
+            ...collectTrustList(raw.provenance, '$.provenance', errors),
+            ...collectTrustList(raw.provenanceLinks, '$.provenanceLinks', errors),
+            ...collectTrustList(trust?.provenance, '$.metadata.trust.provenance', errors),
+            ...collectTrustList(trust?.provenanceLinks, '$.metadata.trust.provenanceLinks', errors),
         ],
         attestations: [
-            ...asArray(manifestObject?.attestations),
-            ...asArray(raw.attestations),
-            ...asArray(trust?.attestations),
+            ...collectTrustList(manifestObject?.attestations, '$.trustManifest.attestations', errors),
+            ...collectTrustList(raw.attestations, '$.attestations', errors),
+            ...collectTrustList(trust?.attestations, '$.metadata.trust.attestations', errors),
         ],
         detachedSignature,
         verificationReferences: [
-            ...asArray(manifestObject?.verification),
-            ...asArray(manifestObject?.verificationReferences),
-            ...asArray(raw.verification),
-            ...asArray(raw.verificationReferences),
-            ...asArray(trust?.verification),
-            ...asArray(trust?.verificationReferences),
+            ...collectTrustList(manifestObject?.verification, '$.trustManifest.verification', errors),
+            ...collectTrustList(manifestObject?.verificationReferences, '$.trustManifest.verificationReferences', errors),
+            ...collectTrustList(raw.verification, '$.verification', errors),
+            ...collectTrustList(raw.verificationReferences, '$.verificationReferences', errors),
+            ...collectTrustList(trust?.verification, '$.metadata.trust.verification', errors),
+            ...collectTrustList(trust?.verificationReferences, '$.metadata.trust.verificationReferences', errors),
         ],
-        publisherIdentity: raw.publisherIdentity ?? trust?.publisherIdentity ?? metadata?.publisherIdentity ?? manifestObject?.publisherIdentity,
+        publisherIdentity: validateOptionalStringOrObject(raw.publisherIdentity ?? trust?.publisherIdentity ?? metadata?.publisherIdentity ?? manifestObject?.publisherIdentity, '$.publisherIdentity', errors),
     };
 }
 function buildVerification(metadata, verification) {
