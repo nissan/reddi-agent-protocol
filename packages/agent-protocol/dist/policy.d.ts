@@ -25,7 +25,9 @@ export type BudgetPolicyDecisionLike = {
     remainingBudget?: Record<string, string | number | boolean | null>;
     auditNotes: string[];
 };
+export declare const REDDI_POLICY_REASON_CODES: readonly ReddiPolicyReasonCode[];
 export declare function policyDecisionFromBudgetPolicyDecision(decision: BudgetPolicyDecisionLike, options?: {
     approvalState?: ReddiPolicyApprovalState;
     operatorNote?: string;
 }): ReddiPolicyDecision;
+export declare function isReddiPolicyReasonCode(code: unknown): code is ReddiPolicyReasonCode;

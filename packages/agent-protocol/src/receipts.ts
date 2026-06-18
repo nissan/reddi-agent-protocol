@@ -1,4 +1,4 @@
-import type { ReddiPolicyDecision } from './policy.js';
+import { isReddiPolicyReasonCode, type ReddiPolicyDecision } from './policy.js';
 
 export type ReddiReceiptAttestationStatus =
   | 'not_requested'
@@ -131,7 +131,10 @@ function validatePolicyDecision(value: unknown, errors: ReddiReceiptValidationEr
   if (typeof decision.allowed !== 'boolean') errors.push(error('malformed_receipt', '$.policyDecision.allowed', 'allowed must be boolean'));
   if (!Array.isArray(decision.reasonCodes) || decision.reasonCodes.some((code) => typeof code !== 'string')) {
     errors.push(error('malformed_receipt', '$.policyDecision.reasonCodes', 'reasonCodes must be string array'));
+  } else if (decision.reasonCodes.some((code) => !isReddiPolicyReasonCode(code))) {
+    errors.push(error('malformed_receipt', '$.policyDecision.reasonCodes', 'reasonCodes contains an unsupported reason code'));
   }
+  validateQuotedAmount(decision.quotedAmount, errors);
   requireString(decision.asset, '$.policyDecision.asset', errors);
   requireString(decision.network, '$.policyDecision.network', errors);
   if (!['approved', 'denied', 'requires_operator_approval'].includes(decision.approvalState)) {
@@ -140,6 +143,17 @@ function validatePolicyDecision(value: unknown, errors: ReddiReceiptValidationEr
   if (!Array.isArray(decision.auditNotes) || decision.auditNotes.some((note) => typeof note !== 'string')) {
     errors.push(error('malformed_receipt', '$.policyDecision.auditNotes', 'auditNotes must be string array'));
   }
+}
+
+function validateQuotedAmount(value: unknown, errors: ReddiReceiptValidationError[]): void {
+  if (value === null) return;
+  if (!isPlainObject(value)) {
+    errors.push(error('malformed_receipt', '$.policyDecision.quotedAmount', 'quotedAmount must be null or a plain object'));
+    return;
+  }
+  requirePositiveIntegerString(value.amount, '$.policyDecision.quotedAmount.amount', errors);
+  requireString(value.asset, '$.policyDecision.quotedAmount.asset', errors);
+  requireString(value.network, '$.policyDecision.quotedAmount.network', errors);
 }
 
 function validateAttestationStatus(value: unknown, errors: ReddiReceiptValidationError[]): void {

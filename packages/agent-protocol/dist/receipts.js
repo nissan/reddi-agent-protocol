@@ -1,3 +1,4 @@
+import { isReddiPolicyReasonCode } from './policy.js';
 const SUPPORTED_NETWORK_ASSETS = new Set([
     'solana-devnet:USDC',
     'solana-devnet:SOL',
@@ -62,6 +63,10 @@ function validatePolicyDecision(value, errors) {
     if (!Array.isArray(decision.reasonCodes) || decision.reasonCodes.some((code) => typeof code !== 'string')) {
         errors.push(error('malformed_receipt', '$.policyDecision.reasonCodes', 'reasonCodes must be string array'));
     }
+    else if (decision.reasonCodes.some((code) => !isReddiPolicyReasonCode(code))) {
+        errors.push(error('malformed_receipt', '$.policyDecision.reasonCodes', 'reasonCodes contains an unsupported reason code'));
+    }
+    validateQuotedAmount(decision.quotedAmount, errors);
     requireString(decision.asset, '$.policyDecision.asset', errors);
     requireString(decision.network, '$.policyDecision.network', errors);
     if (!['approved', 'denied', 'requires_operator_approval'].includes(decision.approvalState)) {
@@ -70,6 +75,17 @@ function validatePolicyDecision(value, errors) {
     if (!Array.isArray(decision.auditNotes) || decision.auditNotes.some((note) => typeof note !== 'string')) {
         errors.push(error('malformed_receipt', '$.policyDecision.auditNotes', 'auditNotes must be string array'));
     }
+}
+function validateQuotedAmount(value, errors) {
+    if (value === null)
+        return;
+    if (!isPlainObject(value)) {
+        errors.push(error('malformed_receipt', '$.policyDecision.quotedAmount', 'quotedAmount must be null or a plain object'));
+        return;
+    }
+    requirePositiveIntegerString(value.amount, '$.policyDecision.quotedAmount.amount', errors);
+    requireString(value.asset, '$.policyDecision.quotedAmount.asset', errors);
+    requireString(value.network, '$.policyDecision.quotedAmount.network', errors);
 }
 function validateAttestationStatus(value, errors) {
     if (!['not_requested', 'pending', 'attested', 'failed', 'rejected'].includes(String(value))) {

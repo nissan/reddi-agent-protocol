@@ -1,4 +1,4 @@
-import type { ReddiPolicyDecision } from './policy.js';
+import { type ReddiPolicyDecision } from './policy.js';
 export type ReddiReceiptAttestationStatus = 'not_requested' | 'pending' | 'attested' | 'failed' | 'rejected';
 export type ReddiReceipt = {
     schemaVersion: 'reddi.receipt.v1';

@@ -79,3 +79,55 @@ export const reddiReceiptFixtures = {
         createdAt: '2026-06-18T03:52:30.000Z',
     },
 };
+export const reddiReceiptFixtureCases = {
+    happyPath: {
+        description: 'Allowed local USDC devnet dry-run receipt.',
+        receipt: reddiReceiptFixtures.happyPath,
+        expectedValid: true,
+        expectedErrorCodes: [],
+    },
+    policyDenial: {
+        description: 'Denied receipt preserving policy reason and audit note.',
+        receipt: reddiReceiptFixtures.policyDenial,
+        expectedValid: true,
+        expectedErrorCodes: [],
+    },
+    missingProofReference: {
+        description: 'Invalid receipt with missing payment proof reference.',
+        receipt: {
+            ...reddiReceiptFixtures.happyPath,
+            payment: { ...reddiReceiptFixtures.happyPath.payment, paymentProofRef: '' },
+        },
+        expectedValid: false,
+        expectedErrorCodes: ['payment_proof_missing'],
+    },
+    unsupportedNetworkAsset: {
+        description: 'Invalid receipt with unsupported network and asset pair.',
+        receipt: {
+            ...reddiReceiptFixtures.happyPath,
+            payment: { ...reddiReceiptFixtures.happyPath.payment, network: 'tempo-testnet', asset: 'USDG' },
+            policyDecision: { ...reddiReceiptFixtures.happyPath.policyDecision, network: 'tempo-testnet', asset: 'USDG' },
+        },
+        expectedValid: false,
+        expectedErrorCodes: ['unsupported_network_asset'],
+    },
+    malformedReceipt: {
+        description: 'Invalid receipt with wrong schema version and missing evidence reference.',
+        receipt: {
+            ...reddiReceiptFixtures.happyPath,
+            schemaVersion: 'reddi.receipt.v2',
+            evidenceRef: '',
+        },
+        expectedValid: false,
+        expectedErrorCodes: ['malformed_receipt'],
+    },
+    credentialLeakage: {
+        description: 'Invalid receipt with credential-bearing metadata.',
+        receipt: {
+            ...reddiReceiptFixtures.happyPath,
+            metadata: { provider: { apiKey: 'sk-redacted-but-still-secret-shaped' } },
+        },
+        expectedValid: false,
+        expectedErrorCodes: ['credential_leakage_rejected'],
+    },
+};

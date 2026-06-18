@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   createReddiReceipt,
   policyDecisionFromBudgetPolicyDecision,
+  reddiReceiptFixtureCases,
   reddiReceiptFixtures,
   validateReddiReceipt,
   type ReddiReceipt,
@@ -34,6 +35,28 @@ describe('Reddi receipt v1', () => {
     }
   });
 
+  it('exports all issue-required fixture cases with expected validation outcomes', () => {
+    const expected = [
+      'happyPath',
+      'policyDenial',
+      'missingProofReference',
+      'unsupportedNetworkAsset',
+      'malformedReceipt',
+      'credentialLeakage',
+    ];
+
+    assert.deepEqual(Object.keys(reddiReceiptFixtureCases).sort(), expected.sort());
+    for (const fixture of Object.values(reddiReceiptFixtureCases)) {
+      const result = validateReddiReceipt(fixture.receipt);
+      assert.equal(result.ok, fixture.expectedValid, fixture.description);
+      if (!result.ok) {
+        for (const code of fixture.expectedErrorCodes) {
+          assert.ok(result.errors.some((item) => item.code === code), `${fixture.description} should include ${code}`);
+        }
+      }
+    }
+  });
+
   it('converts a local budget-policy decision into a public policy-decision primitive', () => {
     const decision = policyDecisionFromBudgetPolicyDecision({
       allowed: true,
@@ -54,6 +77,18 @@ describe('Reddi receipt v1', () => {
     assert.equal(decision.approvalState, 'approved');
     assert.equal(decision.asset, 'USDC');
     assert.equal(decision.network, 'solana-devnet');
+  });
+
+  it('rejects unknown policy reason codes from budget-policy adapters', () => {
+    assert.throws(
+      () => policyDecisionFromBudgetPolicyDecision({
+        allowed: false,
+        reasonCodes: ['totally_not_a_reason'],
+        quotedAmount: { amount: '50000', asset: 'USDC', network: 'solana-devnet' },
+        auditNotes: ['bad reason probe'],
+      }),
+      /unsupported_policy_reason_code:totally_not_a_reason/,
+    );
   });
 
   it('preserves machine-readable denial reasons in the policy-denial fixture', () => {
@@ -88,6 +123,36 @@ describe('Reddi receipt v1', () => {
     if (!result.ok) {
       assert.ok(result.errors.some((item) => item.code === 'malformed_receipt' && item.path === '$.schemaVersion'));
       assert.ok(result.errors.some((item) => item.code === 'malformed_receipt' && item.path === '$.evidenceRef'));
+    }
+  });
+
+  it('rejects missing or malformed policy quoted amounts', () => {
+    const missing = validateReddiReceipt(receipt({
+      // @ts-expect-error exercising runtime validation
+      policyDecision: { ...reddiReceiptFixtures.happyPath.policyDecision, quotedAmount: undefined },
+    }));
+    assert.equal(missing.ok, false);
+    if (!missing.ok) {
+      assert.ok(missing.errors.some((item) => item.code === 'malformed_receipt' && item.path === '$.policyDecision.quotedAmount'));
+    }
+
+    const malformed = validateReddiReceipt(receipt({
+      policyDecision: { ...reddiReceiptFixtures.happyPath.policyDecision, quotedAmount: { amount: '0', asset: '', network: '' } },
+    }));
+    assert.equal(malformed.ok, false);
+    if (!malformed.ok) {
+      assert.ok(malformed.errors.some((item) => item.code === 'malformed_receipt' && item.path === '$.policyDecision.quotedAmount.amount'));
+    }
+  });
+
+  it('rejects unknown policy reason codes in receipt validation', () => {
+    const result = validateReddiReceipt(receipt({
+      // @ts-expect-error exercising runtime validation
+      policyDecision: { ...reddiReceiptFixtures.happyPath.policyDecision, reasonCodes: ['totally_not_a_reason'] },
+    }));
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.ok(result.errors.some((item) => item.code === 'malformed_receipt' && item.path === '$.policyDecision.reasonCodes'));
     }
   });
 

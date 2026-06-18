@@ -49,6 +49,26 @@ export type BudgetPolicyDecisionLike = {
   auditNotes: string[];
 };
 
+export const REDDI_POLICY_REASON_CODES: readonly ReddiPolicyReasonCode[] = [
+  'allowed',
+  'budget_policy_missing',
+  'invalid_quote',
+  'malformed_limit',
+  'request_amount_exceeds_limit',
+  'session_budget_exceeded',
+  'source_budget_exceeded',
+  'specialist_budget_exceeded',
+  'asset_network_budget_exceeded',
+  'call_count_exceeded',
+  'unsupported_asset_network',
+  'operator_denied',
+  'operator_approval_required',
+  'payment_proof_missing',
+  'unsupported_network_asset',
+  'malformed_receipt',
+  'credential_leakage_rejected',
+] as const;
+
 export function policyDecisionFromBudgetPolicyDecision(
   decision: BudgetPolicyDecisionLike,
   options: { approvalState?: ReddiPolicyApprovalState; operatorNote?: string } = {},
@@ -70,5 +90,12 @@ export function policyDecisionFromBudgetPolicyDecision(
 }
 
 function normalizeReasonCodes(codes: string[]): ReddiPolicyReasonCode[] {
-  return codes.map((code) => code as ReddiPolicyReasonCode);
+  return codes.map((code) => {
+    if (isReddiPolicyReasonCode(code)) return code;
+    throw new Error(`unsupported_policy_reason_code:${code}`);
+  });
+}
+
+export function isReddiPolicyReasonCode(code: unknown): code is ReddiPolicyReasonCode {
+  return typeof code === 'string' && REDDI_POLICY_REASON_CODES.includes(code as ReddiPolicyReasonCode);
 }

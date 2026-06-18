@@ -13,10 +13,11 @@ npm install @reddi/agent-protocol
 ## Receipt Validation
 
 ```typescript
-import { createReddiReceipt, reddiReceiptFixtures } from '@reddi/agent-protocol';
+import { createReddiReceipt, reddiReceiptFixtureCases, reddiReceiptFixtures } from '@reddi/agent-protocol';
 
 const receipt = createReddiReceipt(reddiReceiptFixtures.happyPath);
 console.log(receipt.schemaVersion); // reddi.receipt.v1
+console.log(Object.keys(reddiReceiptFixtureCases)); // happy/denial/failure fixture cases
 ```
 
 Receipt validation fails closed for malformed envelopes, missing payment proof references, unsupported v1 network/asset pairs, and credential-bearing metadata.

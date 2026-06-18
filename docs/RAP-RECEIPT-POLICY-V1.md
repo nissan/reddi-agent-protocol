@@ -57,12 +57,21 @@ Unsupported network/asset failures are intentional in v0.1. New rails should be 
 
 ## Fixtures
 
-The package exports deterministic fixtures from `reddiReceiptFixtures`:
+The package exports deterministic valid receipts from `reddiReceiptFixtures`:
 
 - `happyPath`: allowed local USDC devnet dry-run receipt.
 - `policyDenial`: denial receipt preserving the policy reason and audit note.
 
-The test suite also covers missing proof reference, unsupported network/asset, malformed receipt, and credential leakage rejection.
+It also exports `reddiReceiptFixtureCases`, which covers all issue-required conformance scenarios with expected validation outcomes:
+
+- `happyPath`
+- `policyDenial`
+- `missingProofReference`
+- `unsupportedNetworkAsset`
+- `malformedReceipt`
+- `credentialLeakage`
+
+The test suite verifies every exported fixture case.
 
 ## Claim Boundary
 
