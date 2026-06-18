@@ -9,6 +9,7 @@ Running a local specialist — Ollama, vLLM, or OpenOnion — to offer agent ser
 📦 **Protocol repo:** https://github.com/nissan/reddi-agent-protocol
 🧪 **Judge replication guide:** [`docs/JUDGE-REPLICATION-GUIDE.md`](docs/JUDGE-REPLICATION-GUIDE.md)
 📦 **OSS v0.1 package plan:** [`docs/OSS-V0.1-PACKAGE-PLAN.md`](docs/OSS-V0.1-PACKAGE-PLAN.md)
+💸 **Hosted self-funding boundary:** [`docs/HOSTED-SELF-FUNDING-OFFER.md`](docs/HOSTED-SELF-FUNDING-OFFER.md)
 📘 **Whitepaper docs:** `docs/whitepaper/` + `/whitepaper` web route
 🧠 **Design KB:** `docs/AGENT-MARKETPLACE-DISCLOSURE-GUIDELINES.md` (agent composition disclosure + zk-attestable checkpoint pattern)
 🤝 **Contributing:** [`CONTRIBUTING.md`](CONTRIBUTING.md)
