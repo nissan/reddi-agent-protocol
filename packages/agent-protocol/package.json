@@ -46,6 +46,10 @@
       "types": "./dist/attestation-reputation.d.ts",
       "import": "./dist/attestation-reputation.js"
     },
+    "./buyer-seller": {
+      "types": "./dist/buyer-seller.d.ts",
+      "import": "./dist/buyer-seller.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -57,6 +61,7 @@
     "clean": "rm -rf dist dist-tests",
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && tsc -p tsconfig.test.json && node --test dist-tests/*.test.js",
+    "example:buyer-seller:dry-run": "npm run build && node examples/buyer-seller-dry-run.mjs",
     "release:dry-run": "npm run clean && npm run build && npm test && npm pack --dry-run"
   },
   "devDependencies": {
