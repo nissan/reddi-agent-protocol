@@ -84,7 +84,7 @@ Out-of-scope for OSS core:
 - Requiring proprietary hosted services for protocol correctness.
 - Committing private operational URLs as mandatory defaults.
 - Storing API keys, wallet private keys, auth headers, raw payment headers, or private prompts/logs.
-- Treating hosted Reddi marketplace data as the only source of truth.
+- Treating hosted RAP marketplace data as the only source of truth.
 - Adding live spend, mainnet execution, or paid provider calls without explicit approval gates and safe defaults.
 
 ## Security Disclosure and Secret Handling
