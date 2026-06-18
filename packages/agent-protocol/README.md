@@ -214,6 +214,60 @@ Run the local no-spend example:
 npm run example:buyer-seller:dry-run
 ```
 
+## AUDD/Solana Payment Plans
+
+```typescript
+import {
+  createAuddPaymentChallenge,
+  createAuddSolanaPaymentPlan,
+  evaluateAuddPaymentPlanPreflight,
+} from '@reddi/agent-protocol/audd-payment-plan';
+
+const paymentPlan = createAuddSolanaPaymentPlan({
+  network: 'solana-devnet',
+  mint: 'AUDDdev111111111111111111111111111111111111',
+  payee: 'solana:seller-demo',
+  settlementAccount: 'solana:seller-demo',
+  amount: '2500000',
+  quoteExpiresAt: '2026-06-18T15:00:00.000Z',
+  failurePolicy: {
+    mode: 'no_charge_on_failure',
+    description: 'Dry-run jobs do not charge when the specialist fails.',
+  },
+  refundPolicy: {
+    mode: 'manual_review',
+    description: 'Live refunds require operator review before settlement.',
+  },
+  evidenceRequired: true,
+  paymentMode: 'dry-run',
+});
+
+const auddChallenge = createAuddPaymentChallenge({
+  mode: 'dry-run',
+  paymentPlan,
+  quote: {
+    source: 'source:ard-catalog',
+    specialist: 'specialist:listing-writer',
+  },
+  nonce: 'audd-001',
+  endpoint: 'http://localhost:4021/specialist',
+});
+
+const decision = evaluateAuddPaymentPlanPreflight(auddChallenge, {
+  allowedNetworks: ['solana-devnet'],
+  allowedMints: ['AUDDdev111111111111111111111111111111111111'],
+  allowedPayees: ['solana:seller-demo'],
+  allowedSettlementAccounts: ['solana:seller-demo'],
+  maxAmount: '3000000',
+  requireEvidence: true,
+  approvalState: 'approved',
+  paymentProofRef: 'dry-run:audd-001',
+  now: '2026-06-18T14:00:00.000Z',
+});
+```
+
+AUDD/Solana payment plans are metadata and policy-preflight helpers for RAP buyer/seller middleware. They represent AUDD quote amount, Solana network, mint, payee/settlement account, expiry, failure/refund policy, and evidence requirements without submitting transactions or requiring hosted RAP infrastructure. Buyer preflight fails closed unless the caller supplies explicit allowed networks, mints, payees, settlement accounts, evidence policy, operator approval, and either a max amount or budget evaluator. Live payment remains fail-closed unless buyer/operator approval is explicit; actual wallet actions, SPL custody, Quasar escrow, and settlement proof verification belong in payment-rail integrations and the Quasar boundary work.
+
 ## Local Validation
 
 ```bash
