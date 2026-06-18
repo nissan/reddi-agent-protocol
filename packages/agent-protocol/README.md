@@ -48,12 +48,30 @@ const snapshot = createAiCatalogSnapshot(aiCatalogFixtures.happyPath, {
 });
 
 console.log(snapshot.publisher.id); // reddi.tech
-console.log(snapshot.resources[0].type); // agent
+console.log(snapshot.resources[0].mediaType); // application/mcp-server-card+json
 ```
 
 AI Catalog ingestion stores discovery results as untrusted external metadata. Validation fails closed for malformed catalogs, unsupported resource types, invalid `urn:ai:*` identifiers, unsafe URLs, credential-bearing metadata, oversized catalogs, and nested-catalog boundary violations.
 
 Catalog ingestion never performs network fetches, paid invocations, wallet actions, or auto-execution. Buyer policy preflight, quote/payment approval, receipts, evidence, attestations, and reputation remain separate RAP steps after discovery.
+
+## Provider Trust Records
+
+```typescript
+import { createAiCatalogProviderTrustRecord, providerTrustFixtures } from '@reddi/agent-protocol/provider-trust';
+
+const trust = createAiCatalogProviderTrustRecord(
+  providerTrustFixtures.verifiedCatalog,
+  'urn:ai:reddi.tech:specialists:code-review',
+  { verification: { status: 'verified', verifier: 'rap:local-check' } },
+);
+
+console.log(trust.verification.status); // verified
+```
+
+Provider trust records normalize ARD trust manifests, provenance links, attestations, detached-signature metadata, publisher identity, and verification references into a RAP-side trust shape.
+
+External ARD trust metadata is treated as a claim until RAP-side verification marks it `verified` or `failed_verification`. Missing metadata remains `unverified`, malformed trust metadata fails closed, and credential-bearing auth/payment/trust metadata is rejected.
 
 ## Local Validation
 

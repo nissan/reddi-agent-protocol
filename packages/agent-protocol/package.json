@@ -26,6 +26,10 @@
       "types": "./dist/ai-catalog.d.ts",
       "import": "./dist/ai-catalog.js"
     },
+    "./provider-trust": {
+      "types": "./dist/provider-trust.d.ts",
+      "import": "./dist/provider-trust.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
