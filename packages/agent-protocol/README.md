@@ -149,6 +149,27 @@ console.log(diagnostics.policyDecision.reasonCodes); // machine-readable allow/d
 
 Source-aware diagnostics expose separate lanes for capability match, discovery source, publisher identity, trust evidence, policy decision, payment fit, and reputation evidence. ARD and registry relevance scores are always labelled as relevance only; they are never collapsed into trust, policy, payment, or reputation approval.
 
+## Attestation And Reputation
+
+```typescript
+import {
+  applyAttestationToReputation,
+  createInitialReputationState,
+} from '@reddi/agent-protocol/attestation-reputation';
+
+const state = createInitialReputationState({ id: 'specialist:coder', type: 'specialist' });
+const update = applyAttestationToReputation(attestationRecord, state);
+
+if (update.ok) {
+  console.log(update.event.schemaVersion); // reddi.reputation-event.v1
+  console.log(update.state.routingImpact); // eligible / watch / deprioritized / etc.
+}
+```
+
+Attestation v1 records include schema version, evidence reference, evidence hash, rubric dimensions, confidence, verdict, work status, and trust boundary. The required rubric dimensions are `evidence_integrity`, `policy_compliance`, and `delivery_quality`.
+
+Reputation updates are deterministic and local-first. Invalid or incomplete rubrics fail closed and return the previous reputation state unchanged. Failed, disputed, and refunded work produce explicit status and routing-impact reason codes. Self-attested and external-attested records are evidence inputs, not verified claims; `reddi_attested` and `verified` boundaries must come from RAP-side verification or operator-controlled attestations.
+
 ## Local Validation
 
 ```bash
