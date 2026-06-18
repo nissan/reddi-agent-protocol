@@ -9,3 +9,4 @@ export * from './source-diagnostics.js';
 export * from './attestation-reputation.js';
 export * from './buyer-seller.js';
 export * from './audd-payment-plan.js';
+export * from './agent-stack-fixtures.js';
