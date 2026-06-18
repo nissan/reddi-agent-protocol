@@ -107,6 +107,15 @@ function validatePath(value, path, errors) {
         errors.push(error('invalid_source_reference', path, 'path must be a safe static source path'));
         return;
     }
+    if (value.startsWith('/')) {
+        errors.push(error('invalid_source_reference', path, 'path must be relative to the static fixture root'));
+    }
+    if (/^[A-Za-z]:\//.test(value)) {
+        errors.push(error('invalid_source_reference', path, 'path must not use a drive-letter prefix'));
+    }
+    if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)) {
+        errors.push(error('invalid_source_reference', path, 'path must not use a URI scheme'));
+    }
     const segments = value.split(/[/:]+/);
     if (segments.includes('..')) {
         errors.push(error('invalid_source_reference', path, 'path must not include traversal segments'));

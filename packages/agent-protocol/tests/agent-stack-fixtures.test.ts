@@ -168,4 +168,35 @@ describe('agent-stack fixture corpus', () => {
       assert.ok(malformedWarning.errors.some((item) => item.path === '$.validationWarnings[0].message'));
     }
   });
+
+  it('rejects absolute URI and drive-style fixture paths', () => {
+    const unsafePaths = validateAgentStackFixtureCorpus({
+      ...agentStackFixtureCorpora.anthropicFinancialServices,
+      surfaces: [
+        {
+          ...agentStackFixtureCorpora.anthropicFinancialServices.surfaces[0],
+          path: '/etc/passwd',
+        },
+      ],
+      files: [
+        {
+          ...agentStackFixtureCorpora.anthropicFinancialServices.files[0],
+          path: 'file:/etc/passwd',
+        },
+      ],
+      validationWarnings: [
+        {
+          ...agentStackFixtureCorpora.anthropicFinancialServices.validationWarnings[0],
+          path: 'C:/Users/loki/secret',
+        },
+      ],
+    });
+
+    assert.equal(unsafePaths.ok, false);
+    if (!unsafePaths.ok) {
+      assert.ok(unsafePaths.errors.some((item) => item.path === '$.surfaces[0].path'));
+      assert.ok(unsafePaths.errors.some((item) => item.path === '$.files[0].path'));
+      assert.ok(unsafePaths.errors.some((item) => item.path === '$.validationWarnings[0].path'));
+    }
+  });
 });
