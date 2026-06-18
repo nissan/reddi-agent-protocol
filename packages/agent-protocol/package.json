@@ -34,6 +34,10 @@
       "types": "./dist/discovery-source.d.ts",
       "import": "./dist/discovery-source.js"
     },
+    "./source-diagnostics": {
+      "types": "./dist/source-diagnostics.d.ts",
+      "import": "./dist/source-diagnostics.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
