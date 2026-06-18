@@ -122,4 +122,50 @@ describe('agent-stack fixture corpus', () => {
       assert.ok(nonSerializable.errors.some((item) => item.code === 'malformed_fixture_corpus'));
     }
   });
+
+  it('rejects unsupported surface and file kinds at runtime', () => {
+    const unsupportedKinds = validateAgentStackFixtureCorpus({
+      ...agentStackFixtureCorpora.anthropicFinancialServices,
+      surfaces: [
+        {
+          ...agentStackFixtureCorpora.anthropicFinancialServices.surfaces[0],
+          kind: 'wallet-payment-executor',
+        },
+      ],
+      files: [
+        {
+          ...agentStackFixtureCorpora.anthropicFinancialServices.files[0],
+          kind: 'network-installer',
+        },
+      ],
+    });
+
+    assert.equal(unsupportedKinds.ok, false);
+    if (!unsupportedKinds.ok) {
+      assert.ok(unsupportedKinds.errors.some((item) => item.path === '$.surfaces[0].kind'));
+      assert.ok(unsupportedKinds.errors.some((item) => item.path === '$.files[0].kind'));
+    }
+  });
+
+  it('rejects malformed validation warning entries before exposing typed warnings', () => {
+    const malformedWarning = validateAgentStackFixtureCorpus({
+      ...agentStackFixtureCorpora.anthropicFinancialServices,
+      validationWarnings: [
+        {
+          code: '',
+          severity: 'approved',
+          path: '../escape',
+          message: '',
+        },
+      ],
+    });
+
+    assert.equal(malformedWarning.ok, false);
+    if (!malformedWarning.ok) {
+      assert.ok(malformedWarning.errors.some((item) => item.path === '$.validationWarnings[0].code'));
+      assert.ok(malformedWarning.errors.some((item) => item.path === '$.validationWarnings[0].severity'));
+      assert.ok(malformedWarning.errors.some((item) => item.path === '$.validationWarnings[0].path'));
+      assert.ok(malformedWarning.errors.some((item) => item.path === '$.validationWarnings[0].message'));
+    }
+  });
 });

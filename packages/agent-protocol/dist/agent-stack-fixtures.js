@@ -3,6 +3,19 @@ const COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/i;
 const SAFE_PATH_PATTERN = /^[A-Za-z0-9._~@:/+*{}[\], -]+$/;
 const SECRET_KEY_PATTERN = /(^|[_-])(api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|client[_-]?secret|authorization|bearer|cookie|password|secret|seed|session[_-]?token|signature|sig|token)($|[_-])|apiKey|accessToken|refreshToken|sessionToken|privateKey|X-Goog-Signature|X-Amz-Signature/i;
 const SECRET_VALUE_PATTERN = /(authorization:\s*bearer\s+|bearer\s+[a-z0-9._-]{8,}|sk-[a-z0-9_-]{8,}|xox[baprs]-|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i;
+const SUPPORTED_SURFACE_KINDS = [
+    'repo-marketplace-metadata',
+    'claude-plugin',
+    'managed-agent-cookbook',
+    'mcp-connector-config',
+    'skill',
+    'command',
+    'subagent',
+    'partner-plugin',
+    'vertical-plugin',
+    'validation-warning',
+];
+const WARNING_SEVERITIES = ['info', 'warning', 'blocked'];
 function error(code, path, message) {
     return { code, path, message };
 }
@@ -92,6 +105,11 @@ function validateStringArray(value, path, errors) {
 function validatePath(value, path, errors) {
     if (!isNonEmptyString(value) || !SAFE_PATH_PATTERN.test(value)) {
         errors.push(error('invalid_source_reference', path, 'path must be a safe static source path'));
+        return;
+    }
+    const segments = value.split(/[/:]+/);
+    if (segments.includes('..')) {
+        errors.push(error('invalid_source_reference', path, 'path must not include traversal segments'));
     }
 }
 function validateSurface(value, path, errors) {
@@ -103,6 +121,9 @@ function validateSurface(value, path, errors) {
         if (!isNonEmptyString(value[key])) {
             errors.push(error('malformed_fixture_corpus', `${path}.${key}`, 'surface field must be a non-empty string'));
         }
+    }
+    if (isNonEmptyString(value.kind) && !SUPPORTED_SURFACE_KINDS.includes(value.kind)) {
+        errors.push(error('malformed_fixture_corpus', `${path}.kind`, 'surface kind is unsupported'));
     }
     validatePath(value.path, `${path}.path`, errors);
     if (!['untrusted_public_text', 'metadata_only'].includes(String(value.contentTrustBoundary))) {
@@ -118,11 +139,30 @@ function validateFile(value, path, errors) {
     if (!isNonEmptyString(value.kind)) {
         errors.push(error('malformed_fixture_corpus', `${path}.kind`, 'file kind must be a non-empty string'));
     }
+    else if (!SUPPORTED_SURFACE_KINDS.includes(value.kind)) {
+        errors.push(error('malformed_fixture_corpus', `${path}.kind`, 'file kind is unsupported'));
+    }
     if (typeof value.present !== 'boolean') {
         errors.push(error('malformed_fixture_corpus', `${path}.present`, 'file present must be a boolean'));
     }
     if (!['valid', 'malformed', 'not_parsed', 'missing'].includes(String(value.parseStatus))) {
         errors.push(error('malformed_fixture_corpus', `${path}.parseStatus`, 'file parseStatus is unsupported'));
+    }
+}
+function validateWarning(value, path, errors) {
+    if (!isPlainObject(value)) {
+        errors.push(error('malformed_fixture_corpus', path, 'validation warning must be an object'));
+        return;
+    }
+    if (!isNonEmptyString(value.code)) {
+        errors.push(error('malformed_fixture_corpus', `${path}.code`, 'warning code must be a non-empty string'));
+    }
+    if (!WARNING_SEVERITIES.includes(value.severity)) {
+        errors.push(error('malformed_fixture_corpus', `${path}.severity`, 'warning severity is unsupported'));
+    }
+    validatePath(value.path, `${path}.path`, errors);
+    if (!isNonEmptyString(value.message)) {
+        errors.push(error('malformed_fixture_corpus', `${path}.message`, 'warning message must be a non-empty string'));
     }
 }
 export function validateAgentStackFixtureCorpus(input, options = {}) {
@@ -184,6 +224,9 @@ export function validateAgentStackFixtureCorpus(input, options = {}) {
     }
     if (!Array.isArray(input.validationWarnings)) {
         errors.push(error('malformed_fixture_corpus', '$.validationWarnings', 'validationWarnings must be an array'));
+    }
+    else {
+        input.validationWarnings.forEach((warning, index) => validateWarning(warning, `$.validationWarnings[${index}]`, errors));
     }
     return errors.length === 0
         ? {
