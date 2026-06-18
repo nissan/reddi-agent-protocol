@@ -199,4 +199,47 @@ describe('agent-stack fixture corpus', () => {
       assert.ok(unsafePaths.errors.some((item) => item.path === '$.validationWarnings[0].path'));
     }
   });
+
+  it('rejects malformed optional typed fields before returning a typed corpus', () => {
+    const malformedOptionals = validateAgentStackFixtureCorpus({
+      ...agentStackFixtureCorpora.anthropicFinancialServices,
+      source: {
+        ...agentStackFixtureCorpora.anthropicFinancialServices.source,
+        checkedRef: 123,
+        license: ['Apache-2.0'],
+      },
+      surfaces: [
+        {
+          ...agentStackFixtureCorpora.anthropicFinancialServices.surfaces[1],
+          commands: [42],
+          writeCapable: 'yes',
+          notes: [false],
+        },
+      ],
+      files: [
+        {
+          ...agentStackFixtureCorpora.anthropicFinancialServices.files[0],
+          mediaType: {},
+          summary: [],
+          warningCodes: [1],
+        },
+      ],
+    });
+
+    assert.equal(malformedOptionals.ok, false);
+    if (!malformedOptionals.ok) {
+      for (const path of [
+        '$.source.checkedRef',
+        '$.source.license',
+        '$.surfaces[0].commands',
+        '$.surfaces[0].writeCapable',
+        '$.surfaces[0].notes',
+        '$.files[0].mediaType',
+        '$.files[0].summary',
+        '$.files[0].warningCodes',
+      ]) {
+        assert.ok(malformedOptionals.errors.some((item) => item.path === path), `${path} should fail validation`);
+      }
+    }
+  });
 });

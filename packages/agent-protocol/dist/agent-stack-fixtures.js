@@ -102,6 +102,21 @@ function validateStringArray(value, path, errors) {
         errors.push(error('malformed_fixture_corpus', path, 'field must be a non-empty string array'));
     }
 }
+function validateOptionalString(value, path, errors) {
+    if (value !== undefined && !isNonEmptyString(value)) {
+        errors.push(error('malformed_fixture_corpus', path, 'field must be a non-empty string when present'));
+    }
+}
+function validateOptionalStringArray(value, path, errors) {
+    if (value !== undefined && (!isStringArray(value) || value.some((item) => !item.trim()))) {
+        errors.push(error('malformed_fixture_corpus', path, 'field must be a string array when present'));
+    }
+}
+function validateOptionalBoolean(value, path, errors) {
+    if (value !== undefined && typeof value !== 'boolean') {
+        errors.push(error('malformed_fixture_corpus', path, 'field must be a boolean when present'));
+    }
+}
 function validatePath(value, path, errors) {
     if (!isNonEmptyString(value) || !SAFE_PATH_PATTERN.test(value)) {
         errors.push(error('invalid_source_reference', path, 'path must be a safe static source path'));
@@ -138,6 +153,17 @@ function validateSurface(value, path, errors) {
     if (!['untrusted_public_text', 'metadata_only'].includes(String(value.contentTrustBoundary))) {
         errors.push(error('malformed_fixture_corpus', `${path}.contentTrustBoundary`, 'surface must declare its content trust boundary'));
     }
+    validateOptionalString(value.category, `${path}.category`, errors);
+    validateOptionalString(value.runtimeSurface, `${path}.runtimeSurface`, errors);
+    validateOptionalStringArray(value.commands, `${path}.commands`, errors);
+    validateOptionalStringArray(value.skills, `${path}.skills`, errors);
+    validateOptionalStringArray(value.toolGrants, `${path}.toolGrants`, errors);
+    validateOptionalStringArray(value.authDependencies, `${path}.authDependencies`, errors);
+    validateOptionalStringArray(value.dataDependencies, `${path}.dataDependencies`, errors);
+    validateOptionalStringArray(value.safetyHints, `${path}.safetyHints`, errors);
+    validateOptionalStringArray(value.humanReviewHints, `${path}.humanReviewHints`, errors);
+    validateOptionalBoolean(value.writeCapable, `${path}.writeCapable`, errors);
+    validateOptionalStringArray(value.notes, `${path}.notes`, errors);
 }
 function validateFile(value, path, errors) {
     if (!isPlainObject(value)) {
@@ -157,6 +183,9 @@ function validateFile(value, path, errors) {
     if (!['valid', 'malformed', 'not_parsed', 'missing'].includes(String(value.parseStatus))) {
         errors.push(error('malformed_fixture_corpus', `${path}.parseStatus`, 'file parseStatus is unsupported'));
     }
+    validateOptionalString(value.mediaType, `${path}.mediaType`, errors);
+    validateOptionalString(value.summary, `${path}.summary`, errors);
+    validateOptionalStringArray(value.warningCodes, `${path}.warningCodes`, errors);
 }
 function validateWarning(value, path, errors) {
     if (!isPlainObject(value)) {
@@ -212,6 +241,8 @@ export function validateAgentStackFixtureCorpus(input, options = {}) {
         if (!isNonEmptyString(input.source.checkedCommit) || !COMMIT_SHA_PATTERN.test(input.source.checkedCommit)) {
             errors.push(error('invalid_commit_ref', '$.source.checkedCommit', 'checkedCommit must be a 40-character commit SHA'));
         }
+        validateOptionalString(input.source.checkedRef, '$.source.checkedRef', errors);
+        validateOptionalString(input.source.license, '$.source.license', errors);
         validateStringArray(input.source.sourceNotes, '$.source.sourceNotes', errors);
         validateStringArray(input.source.authenticityNotes, '$.source.authenticityNotes', errors);
         validateTimestamp(input.source.crawlTimestamp, '$.source.crawlTimestamp', errors);
