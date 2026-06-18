@@ -10,6 +10,7 @@ HTTP 402 Payment Middleware for Solana. Enables trustless micropayment flows bet
 
 - **Nonce-based replay protection** — prevents duplicate payment attempts
 - **x402 standard compliance** — parses/validates x402-request headers
+- **Local buyer budget preflight** — evaluates spend/call limits before payment authorization
 - **Modular design** — nonce store, payment logic, and middleware are separately testable
 - **Mock-friendly** — tests don't require Solana devnet access
 
@@ -102,6 +103,50 @@ Sends the payment and returns a receipt.
 const receipt = await sendPayment(request);
 // { txSignature: '...', slot: 12345, lamports: 1000, nonce: '...' }
 ```
+
+### `evaluateBudgetPolicy({ policy, quote, usage }): BudgetPolicyDecision`
+
+Runs a pure local buyer preflight check before any signer, hosted facilitator, or downstream x402/OpenRouter call is used. Amounts are represented in the payment asset's smallest unit.
+
+```typescript
+import { assetNetworkKey, evaluateBudgetPolicy } from '@reddi/x402-solana';
+
+const decision = evaluateBudgetPolicy({
+  policy: {
+    schemaVersion: 'reddi.budget-policy.v1',
+    limits: {
+      perRequest: { maxAmount: '100000' },
+      perSession: { maxAmount: '500000' },
+      perSource: { 'source:planning': { maxAmount: '250000' } },
+      perSpecialist: { 'specialist:coder': { maxAmount: '300000' } },
+      perAssetNetwork: [
+        { asset: 'USDC', network: 'solana-devnet', maxAmount: '400000' },
+      ],
+      callCount: { maxCalls: 5 },
+    },
+  },
+  quote: {
+    amount: '50000',
+    asset: 'USDC',
+    network: 'solana-devnet',
+    source: 'source:planning',
+    specialist: 'specialist:coder',
+  },
+  usage: {
+    sessionSpent: '100000',
+    sourceSpent: { 'source:planning': '25000' },
+    specialistSpent: { 'specialist:coder': '50000' },
+    assetNetworkSpent: { [assetNetworkKey('USDC', 'solana-devnet')]: '100000' },
+    callCount: 2,
+  },
+});
+
+if (!decision.allowed) {
+  throw new Error(`budget_preflight_denied:${decision.reasonCodes.join(',')}`);
+}
+```
+
+Buyer-client integration for #342: parse the x402 quote/challenge, call `evaluateBudgetPolicy` with the operator's local policy and current local usage ledger, persist the returned audit notes with the receipt attempt, and only then continue to payment preparation. Hosted/live delegation paths should stay fail-closed until they combine this local decision with explicit operator approval.
 
 ## Testing
 
