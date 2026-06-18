@@ -22,6 +22,10 @@
       "types": "./dist/fixtures.d.ts",
       "import": "./dist/fixtures.js"
     },
+    "./ai-catalog": {
+      "types": "./dist/ai-catalog.d.ts",
+      "import": "./dist/ai-catalog.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
