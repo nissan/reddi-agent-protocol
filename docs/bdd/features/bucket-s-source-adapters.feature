@@ -130,3 +130,19 @@ Feature: Bucket S Source Adapter Onboarding
     Then sandbox plans prefer provider sandbox service URLs when declared
     And devnet plans require declared or challenge-detected devnet support
     And mainnet plans require candidate service URL compatibility plus explicit allowlisting
+
+  @S5.13 @conformance @static-agent-stack @mcp-sandbox
+  Scenario: Static agent-stack ingestion reports malformed MCP config without execution
+    When a public agent-stack fixture contains a malformed Anthropic `.mcp.json`
+    Then static inventory continues for safe repository files
+    And connector diagnostics identify the malformed MCP config precisely
+    And no plugin install command execution MCP call payment activation or marketplace publication occurs
+    And the operator review payload blocks publication until the config and review gates are resolved
+
+  @S5.14 @conformance @static-agent-stack @solana-readiness
+  Scenario: Solana AI Kit static ingestion feeds readiness without live chain actions
+    When a Solana AI Kit fixture declares hooks MCP tools wallet RPC SPL transfer or deploy capability
+    Then static inventory records those signals as review risks
+    And the draft recipe and profile distinguish declared Solana capability from reviewed RAP readiness
+    And payment readiness remains disabled pending operator review
+    And no wallet RPC SPL transfer live payment AUDD custody Quasar custody or marketplace publication is implied

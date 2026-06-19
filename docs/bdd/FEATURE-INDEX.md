@@ -48,6 +48,7 @@ Purpose: single lookup from BDD feature file -> bucket -> executable verificatio
 
 ### Bucket S — Source Adapter Onboarding
 - Feature: `docs/bdd/features/bucket-s-source-adapters.feature`
+- Static agent-stack conformance reference: `docs/conformance/static-agent-stack/README.md`
 - Verify:
   - `npm run check:rap:naming`
   - `npx jest lib/__tests__/source-adapter-schema.test.ts lib/__tests__/register-probe-route.test.ts lib/__tests__/source-adapter-openclaw-profile.test.ts lib/__tests__/source-adapter-openclaw-connector.test.ts lib/__tests__/source-adapter-hermes-profile.test.ts lib/__tests__/source-adapter-hermes-attestor.test.ts lib/__tests__/source-adapter-pi-profile.test.ts lib/__tests__/source-adapter-pi-extension-bundle.test.ts lib/__tests__/source-adapter-circle-x402-profile.test.ts lib/__tests__/circle-x402-catalog-route.test.ts lib/__tests__/circle-x402-quote-preview-route.test.ts lib/__tests__/source-adapter-pay-sh-profile.test.ts lib/__tests__/pay-sh-catalog-route.test.ts lib/__tests__/pay-sh-quote-preview-route.test.ts lib/__tests__/pay-sh-mcp-inspection.test.ts lib/__tests__/pay-sh-policy-plan.test.ts lib/__tests__/pay-sh-policy-plan-route.test.ts lib/__tests__/source-adapter-routing-policy.test.ts lib/__tests__/planner-resolve-route.test.ts --runInBand`
