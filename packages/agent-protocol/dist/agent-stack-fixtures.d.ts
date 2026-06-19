@@ -22,6 +22,7 @@ export type AgentStackFixtureFile = {
     kind: AgentStackFixtureSurfaceKind;
     present: boolean;
     parseStatus: 'valid' | 'malformed' | 'not_parsed' | 'missing';
+    parseErrorLocation?: string;
     mediaType?: string;
     summary?: string;
     warningCodes?: string[];
@@ -100,9 +101,14 @@ export type StaticAgentStackInventoryEntry = {
 };
 export type StaticAgentStackConnectorDiagnostic = {
     path: string;
+    sourceKind: 'mcp-connector-config';
+    diagnosticLane: 'mcp_connector_metadata';
     parseStatus: AgentStackFixtureFile['parseStatus'];
+    parseErrorLocation?: string;
     severity: AgentStackFixtureValidationWarning['severity'];
     warningCodes: string[];
+    blocksDraftPayload: boolean;
+    operatorReviewRequired: boolean;
     message: string;
 };
 export type StaticAgentStackRejectedEntry = {
@@ -224,6 +230,7 @@ export declare const agentStackFixtureCorpora: {
             readonly kind: "mcp-connector-config";
             readonly present: true;
             readonly parseStatus: "malformed";
+            readonly parseErrorLocation: "line 1 column 1";
             readonly mediaType: "application/json";
             readonly warningCodes: ["malformed_mcp_json"];
             readonly summary: "Known malformed connector manifest from local analysis; full diagnostics belong to #404.";

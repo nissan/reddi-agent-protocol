@@ -191,6 +191,7 @@ function validateFile(value, path, errors) {
     if (!['valid', 'malformed', 'not_parsed', 'missing'].includes(String(value.parseStatus))) {
         errors.push(error('malformed_fixture_corpus', `${path}.parseStatus`, 'file parseStatus is unsupported'));
     }
+    validateOptionalString(value.parseErrorLocation, `${path}.parseErrorLocation`, errors);
     validateOptionalString(value.mediaType, `${path}.mediaType`, errors);
     validateOptionalString(value.summary, `${path}.summary`, errors);
     validateOptionalStringArray(value.warningCodes, `${path}.warningCodes`, errors);
@@ -306,6 +307,12 @@ function connectorMessage(file, warning) {
             return 'Connector metadata is recorded but not parsed yet.';
     }
 }
+function connectorBlocksDraftPayload(diagnostic) {
+    return diagnostic.parseStatus === 'malformed' || diagnostic.parseStatus === 'missing';
+}
+function connectorRequiresOperatorReview(file, warning) {
+    return file.parseStatus !== 'valid' || (file.warningCodes?.length ?? 0) > 0 || warning !== undefined;
+}
 function readinessFromCorpus(corpus, connectorDiagnostics, rejectedEntries) {
     const blockers = [
         ...rejectedEntries.map((entry) => entry.reasonCode),
@@ -344,9 +351,14 @@ export function createStaticAgentStackIngestionResult(input, options = {}) {
         const warning = warningByPath.get(file.path);
         return {
             path: file.path,
+            sourceKind: 'mcp-connector-config',
+            diagnosticLane: 'mcp_connector_metadata',
             parseStatus: file.parseStatus,
+            ...(file.parseStatus === 'malformed' && file.parseErrorLocation ? { parseErrorLocation: file.parseErrorLocation } : {}),
             severity: warning?.severity ?? (file.parseStatus === 'valid' ? 'info' : 'warning'),
             warningCodes: file.warningCodes ?? [],
+            blocksDraftPayload: connectorBlocksDraftPayload(file),
+            operatorReviewRequired: connectorRequiresOperatorReview(file, warning),
             message: connectorMessage(file, warning),
         };
     })
@@ -354,9 +366,13 @@ export function createStaticAgentStackIngestionResult(input, options = {}) {
         .filter((surface) => surface.kind === 'mcp-connector-config' && !connectorFilesByPath.has(surface.path))
         .map((surface) => ({
         path: surface.path,
+        sourceKind: 'mcp-connector-config',
+        diagnosticLane: 'mcp_connector_metadata',
         parseStatus: 'missing',
         severity: 'blocked',
         warningCodes: ['missing_mcp_connector_config'],
+        blocksDraftPayload: true,
+        operatorReviewRequired: true,
         message: 'MCP connector surface has no matching static connector metadata file.',
     })));
     const rejectedEntries = corpus.validationWarnings
@@ -515,6 +531,7 @@ export const agentStackFixtureCorpora = {
                 kind: 'mcp-connector-config',
                 present: true,
                 parseStatus: 'malformed',
+                parseErrorLocation: 'line 1 column 1',
                 mediaType: 'application/json',
                 warningCodes: ['malformed_mcp_json'],
                 summary: 'Known malformed connector manifest from local analysis; full diagnostics belong to #404.',

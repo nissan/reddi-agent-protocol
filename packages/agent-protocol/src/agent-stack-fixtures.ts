@@ -44,6 +44,7 @@ export type AgentStackFixtureFile = {
   kind: AgentStackFixtureSurfaceKind;
   present: boolean;
   parseStatus: 'valid' | 'malformed' | 'not_parsed' | 'missing';
+  parseErrorLocation?: string;
   mediaType?: string;
   summary?: string;
   warningCodes?: string[];
@@ -138,9 +139,14 @@ export type StaticAgentStackInventoryEntry = {
 
 export type StaticAgentStackConnectorDiagnostic = {
   path: string;
+  sourceKind: 'mcp-connector-config';
+  diagnosticLane: 'mcp_connector_metadata';
   parseStatus: AgentStackFixtureFile['parseStatus'];
+  parseErrorLocation?: string;
   severity: AgentStackFixtureValidationWarning['severity'];
   warningCodes: string[];
+  blocksDraftPayload: boolean;
+  operatorReviewRequired: boolean;
   message: string;
 };
 
@@ -380,6 +386,7 @@ function validateFile(value: unknown, path: string, errors: AgentStackFixtureVal
   if (!['valid', 'malformed', 'not_parsed', 'missing'].includes(String(value.parseStatus))) {
     errors.push(error('malformed_fixture_corpus', `${path}.parseStatus`, 'file parseStatus is unsupported'));
   }
+  validateOptionalString(value.parseErrorLocation, `${path}.parseErrorLocation`, errors);
   validateOptionalString(value.mediaType, `${path}.mediaType`, errors);
   validateOptionalString(value.summary, `${path}.summary`, errors);
   validateOptionalStringArray(value.warningCodes, `${path}.warningCodes`, errors);
@@ -504,6 +511,14 @@ function connectorMessage(file: AgentStackFixtureFile, warning?: AgentStackFixtu
   }
 }
 
+function connectorBlocksDraftPayload(diagnostic: Pick<StaticAgentStackConnectorDiagnostic, 'parseStatus'>): boolean {
+  return diagnostic.parseStatus === 'malformed' || diagnostic.parseStatus === 'missing';
+}
+
+function connectorRequiresOperatorReview(file: AgentStackFixtureFile, warning?: AgentStackFixtureValidationWarning): boolean {
+  return file.parseStatus !== 'valid' || (file.warningCodes?.length ?? 0) > 0 || warning !== undefined;
+}
+
 function readinessFromCorpus(
   corpus: AgentStackFixtureCorpus,
   connectorDiagnostics: StaticAgentStackConnectorDiagnostic[],
@@ -555,9 +570,14 @@ export function createStaticAgentStackIngestionResult(
       const warning = warningByPath.get(file.path);
       return {
         path: file.path,
+        sourceKind: 'mcp-connector-config',
+        diagnosticLane: 'mcp_connector_metadata',
         parseStatus: file.parseStatus,
+        ...(file.parseStatus === 'malformed' && file.parseErrorLocation ? { parseErrorLocation: file.parseErrorLocation } : {}),
         severity: warning?.severity ?? (file.parseStatus === 'valid' ? 'info' : 'warning'),
         warningCodes: file.warningCodes ?? [],
+        blocksDraftPayload: connectorBlocksDraftPayload(file),
+        operatorReviewRequired: connectorRequiresOperatorReview(file, warning),
         message: connectorMessage(file, warning),
       };
     })
@@ -565,9 +585,13 @@ export function createStaticAgentStackIngestionResult(
       .filter((surface) => surface.kind === 'mcp-connector-config' && !connectorFilesByPath.has(surface.path))
       .map((surface): StaticAgentStackConnectorDiagnostic => ({
         path: surface.path,
+        sourceKind: 'mcp-connector-config',
+        diagnosticLane: 'mcp_connector_metadata',
         parseStatus: 'missing',
         severity: 'blocked',
         warningCodes: ['missing_mcp_connector_config'],
+        blocksDraftPayload: true,
+        operatorReviewRequired: true,
         message: 'MCP connector surface has no matching static connector metadata file.',
       })));
   const rejectedEntries = corpus.validationWarnings
@@ -728,6 +752,7 @@ export const agentStackFixtureCorpora = {
         kind: 'mcp-connector-config',
         present: true,
         parseStatus: 'malformed',
+        parseErrorLocation: 'line 1 column 1',
         mediaType: 'application/json',
         warningCodes: ['malformed_mcp_json'],
         summary: 'Known malformed connector manifest from local analysis; full diagnostics belong to #404.',
