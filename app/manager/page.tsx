@@ -79,12 +79,20 @@ export default function ManagerPage() {
         <p className="max-w-3xl text-sm text-muted-foreground">
           One human-facing launchpad for the four roles: Specialist, Attestor, Consumer, and Agent Manager. Use it to clear setup blockers before demos or live marketplace use.
         </p>
-        <Link
-          href="/manager/discovery"
-          className="inline-flex rounded-lg border border-[#14F195]/40 bg-[#14F195]/10 px-3 py-2 text-sm font-medium text-[#14F195] hover:border-[#14F195]/70 hover:text-emerald-100"
-        >
-          Open static discovery review
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/manager/discovery"
+            className="inline-flex min-h-10 items-center rounded-lg border border-[#14F195]/40 bg-[#14F195]/10 px-3 py-2 text-sm font-medium text-[#14F195] hover:border-[#14F195]/70 hover:text-emerald-100"
+          >
+            Open static discovery review
+          </Link>
+          <Link
+            href="/manager/listings"
+            className="inline-flex min-h-10 items-center rounded-lg border border-[#9945FF]/40 bg-[#9945FF]/10 px-3 py-2 text-sm font-medium text-violet-200 hover:border-[#9945FF]/70 hover:text-white"
+          >
+            Open listing approval queue
+          </Link>
+        </div>
       </header>
 
       {error && (
@@ -195,5 +203,5 @@ const fallbackRoles: ManagerRole[] = [
   { id: "specialist", label: "Specialist", href: "/onboarding", count: 0, status: "action_needed", nextAction: "Register and verify the first specialist.", signals: ["runtime", "endpoint", "x402"] },
   { id: "attestor", label: "Attestor", href: "/attestation", count: 0, status: "action_needed", nextAction: "Configure attestation operator and submit first attestation.", signals: ["operator", "audit", "release gate"] },
   { id: "consumer", label: "Consumer", href: "/consumer", count: 0, status: "action_needed", nextAction: "Register a consumer profile and run paid invocation.", signals: ["policy", "payment", "feedback"] },
-  { id: "manager", label: "Agent Manager", href: "/manager", count: 1, status: "action_needed", nextAction: "Clear role blockers and generate evidence.", signals: ["readiness", "recovery", "BDD"] },
+  { id: "manager", label: "Agent Manager", href: "/manager/listings", count: 1, status: "action_needed", nextAction: "Clear role blockers, review imported listings, and generate evidence.", signals: ["readiness", "listing queue", "BDD"] },
 ];
