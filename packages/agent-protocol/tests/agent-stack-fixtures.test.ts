@@ -862,6 +862,97 @@ describe('agent-stack fixture corpus', () => {
     assert.equal(connectorRiskResult.draftPayloadReadiness.blockers.includes('solana_deploy_command_requires_operator_review'), true);
   });
 
+  it('generates blocked draft RAP profile and listing payloads for malformed connector fixtures', () => {
+    const result = createStaticAgentStackIngestionResult(agentStackFixtureCorpora.anthropicFinancialServices);
+    const resource = result.draftPayloads.aiCatalogFragment.resources[0];
+
+    assert.equal(result.draftPayloads.schemaVersion, 'reddi.static-agent-stack-draft-payloads.v1');
+    assert.equal(result.draftPayloads.profile.schemaVersion, 'reddi.agent-profile.draft.v1');
+    assert.equal(result.draftPayloads.profile.profileId, 'draft-profile:agent-stack-fixture:anthropic-financial-services:2026-06-18');
+    assert.equal(result.draftPayloads.profile.sourceType, 'static-agent-stack-fixture');
+    assert.equal(result.draftPayloads.profile.capabilities.length, 4);
+    assert.deepEqual(result.draftPayloads.profile.payment, {
+      status: 'missing_payment_setup',
+      activation: 'disabled',
+    });
+    assert.deepEqual(result.draftPayloads.profile.invocation, {
+      endpointType: 'static-fixture-only',
+      missingEndpoint: true,
+    });
+    assert.deepEqual(result.draftPayloads.profile.trust, {
+      sourceAuthenticity: 'verified_source_snapshot',
+      contentTrust: 'untrusted_imported_content',
+      verifiedProviderTrust: false,
+    });
+    assert.deepEqual(result.draftPayloads.profile.rawSnapshotRefs, [
+      'source:https://github.com/anthropics/financial-services#4bbabc7cd1a474c1667fa05a2bfe58e411dcf9c1',
+      'local:projects/reddi-agent-protocol/research/ANTHROPIC-FINANCIAL-SERVICES-REPO-ANALYSIS-2026-06-18.md',
+    ]);
+    assert.equal(resource.id, 'urn:reddi:agent-stack-draft:agent-stack-fixture:anthropic-financial-services:2026-06-18');
+    assert.equal(resource.type, 'agent-stack-draft');
+    assert.equal(resource.trust.status, 'unverified');
+    assert.equal(resource.payment.status, 'missing_payment_setup');
+    assert.ok(resource.capabilities.includes('Financial services Claude plugins'));
+    assert.ok(resource.capabilities.includes('statically discovered command metadata'));
+    assert.ok(!resource.capabilities.some((capability) => capability.includes('pending #403 parser')));
+    assert.equal(result.draftPayloads.listing.status, 'blocked');
+    assert.equal(result.draftPayloads.listing.publicationDisabled, true);
+    assert.equal(result.draftPayloads.listing.operatorReviewRequired, true);
+    assert.deepEqual(
+      result.draftPayloads.listing.states.map((state) => [state.code, state.severity, state.path]),
+      [
+        ['listing_draft', 'info', undefined],
+        ['missing_payment', 'warning', undefined],
+        ['missing_endpoint', 'warning', undefined],
+        ['malformed_connector', 'blocked', 'plugins/vertical-plugins/financial-analysis/.mcp.json'],
+        ['unsafe_metadata_warning', 'warning', 'plugins/vertical-plugins/financial-analysis/.mcp.json'],
+        ['unsafe_metadata_warning', 'info', 'plugins/'],
+      ],
+    );
+  });
+
+  it('carries Solana static risk blockers into draft listing states without enabling publication or payment', () => {
+    const result = createStaticAgentStackIngestionResult(agentStackFixtureCorpora.solanaAiKit);
+    const resource = result.draftPayloads.aiCatalogFragment.resources[0];
+    const stateTriples = result.draftPayloads.listing.states.map((state) => [state.code, state.severity, state.path]);
+
+    assert.equal(result.draftPayloads.profile.profileId, 'draft-profile:agent-stack-fixture:solanabr-solana-ai-kit:2026-06-19');
+    assert.equal(result.draftPayloads.profile.payment.activation, 'disabled');
+    assert.equal(result.draftPayloads.profile.invocation.missingEndpoint, true);
+    assert.equal(result.draftPayloads.profile.trust.verifiedProviderTrust, false);
+    assert.equal(result.draftPayloads.profile.capabilities.length, 8);
+    assert.ok(
+      result.draftPayloads.profile.capabilities.every((capability) => (
+        capability.contentTrustBoundary === 'metadata_only' || capability.contentTrustBoundary === 'untrusted_public_text'
+      )),
+    );
+    assert.equal(resource.trust.status, 'unverified');
+    assert.equal(resource.payment.status, 'missing_payment_setup');
+    assert.ok(resource.capabilities.includes('Solana workflow commands'));
+    assert.ok(resource.capabilities.includes('deploy'));
+    assert.ok(resource.capabilities.includes('plugin skill hub'));
+    assert.ok(!resource.capabilities.some((capability) => capability.includes('pending #403 parser')));
+    assert.equal(result.draftPayloads.listing.status, 'blocked');
+    assert.equal(result.draftPayloads.listing.publicationDisabled, true);
+    assert.ok(stateTriples.some((state) => (
+      state[0] === 'static_risk_review_required'
+      && state[1] === 'blocked'
+      && state[2] === 'plugin/hooks/hooks.json'
+    )));
+    assert.ok(stateTriples.some((state) => (
+      state[0] === 'static_risk_review_required'
+      && state[1] === 'blocked'
+      && state[2] === '.mcp.json'
+    )));
+    assert.ok(stateTriples.some((state) => (
+      state[0] === 'rejected_entry'
+      && state[1] === 'blocked'
+      && state[2] === '.claude/commands/deploy.md'
+    )));
+    assert.ok(stateTriples.some((state) => state[0] === 'missing_payment' && state[1] === 'warning'));
+    assert.ok(stateTriples.some((state) => state[0] === 'missing_endpoint' && state[1] === 'warning'));
+  });
+
   it('does not expose a static ingestion result for invalid or credential-shaped corpora', () => {
     assert.throws(
       () => createStaticAgentStackIngestionResult({

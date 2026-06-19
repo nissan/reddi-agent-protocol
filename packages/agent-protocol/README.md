@@ -74,6 +74,7 @@ console.log(result.status); // partial_success while malformed connector diagnos
 console.log(solanaKit.draftPayloadReadiness.status); // blocked until hooks, deploy commands, and MCPs are reviewed
 console.log(solanaKit.riskDiagnostics.map((diagnostic) => diagnostic.category)); // static risk taxonomy for operator review
 console.log(solanaKit.capabilityInventory.entries.map((entry) => entry.runtimeSurface)); // parsed static inventory handoff
+console.log(solanaKit.draftPayloads.listing.publicationDisabled); // true until payment, endpoint, review, and readiness gates pass
 ```
 
 Agent-stack fixture corpora are public, static inputs for onboarding-analyser parser and diagnostics work. The built-in Anthropic financial-services fixture records source URL, checked commit, license/source notes, authenticity notes, crawl timestamp, local research artifact path, high-level marketplace/plugin/managed-agent/MCP surfaces, and validation warnings. The built-in Solana AI Kit fixture records the same source provenance for a Solana-heavy agent-stack toolkit with plugin metadata, agent definitions, commands, MCP declarations, hooks, rules, skills, installer/update/test scripts, and external submodule declarations.
@@ -85,6 +86,8 @@ Static ingestion results are deterministic handoff envelopes for later parser, c
 The capability inventory bundle is the static #371/#403 handoff. It maps fixture surfaces into source paths, runtime surfaces, commands, skills, tool grants, auth/data dependencies, safety hints, human-review hints, write-capable flags, side-effect risk, content-trust boundaries, parser diagnostics, and fixture provenance. It does not parse or execute imported prompt/skill/command text; those remain untrusted metadata for later operator review.
 
 Risk diagnostics normalize executable hooks, installer/update/test scripts, deploy-capable commands, wallet/RPC-capable command metadata, local binary requirements, env-required connector metadata, MCP launcher execution, permission policies, and external submodule declarations into the same static ingestion result. They are review payloads only; connector parsing still belongs to the MCP connector diagnostics lane.
+
+Draft payloads produce a RAP agent profile draft, AI Catalog fragment, and registry/listing draft from static fixture metadata. They carry missing-payment, missing-endpoint, malformed-connector, rejected-entry, unsafe-metadata, and static-risk states forward while keeping publication disabled, payment activation disabled, provider trust unverified, and imported content untrusted until later operator and readiness gates pass.
 
 The fixture corpus never installs Claude plugins, executes repo scripts, invokes managed agents, contacts MCP servers, fetches paid/provider data, requires credentials, starts local services, calls wallets/RPC endpoints, or publishes imported surfaces as payable RAP listings. Parser, connector-diagnostics, draft-profile, and operator-review behavior land in later RAP slices.
 

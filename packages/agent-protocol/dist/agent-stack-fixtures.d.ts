@@ -1,6 +1,7 @@
 export declare const AGENT_STACK_FIXTURE_CORPUS_SCHEMA_VERSION: "reddi.agent-stack-fixture-corpus.v1";
 export declare const STATIC_AGENT_STACK_INGESTION_RESULT_SCHEMA_VERSION: "reddi.static-agent-stack-ingestion-result.v1";
 export declare const STATIC_AGENT_STACK_CAPABILITY_INVENTORY_SCHEMA_VERSION: "reddi.static-agent-stack-capability-inventory.v1";
+export declare const STATIC_AGENT_STACK_DRAFT_PAYLOADS_SCHEMA_VERSION: "reddi.static-agent-stack-draft-payloads.v1";
 export type AgentStackFixtureSurfaceKind = 'repo-marketplace-metadata' | 'claude-plugin' | 'managed-agent-cookbook' | 'mcp-connector-config' | 'skill' | 'command' | 'subagent' | 'partner-plugin' | 'vertical-plugin' | 'validation-warning';
 export type AgentStackFixtureValidationErrorCode = 'malformed_fixture_corpus' | 'invalid_source_reference' | 'credential_leakage_rejected' | 'invalid_commit_ref' | 'invalid_timestamp' | 'unsafe_url' | 'corpus_too_large';
 export type AgentStackFixtureValidationError = {
@@ -174,6 +175,76 @@ export type StaticAgentStackDraftPayloadReadiness = {
     blockers: string[];
     payloadRefs: string[];
 };
+export type StaticAgentStackDraftStateCode = 'listing_draft' | 'missing_payment' | 'missing_endpoint' | 'malformed_connector' | 'missing_connector' | 'static_risk_review_required' | 'rejected_entry' | 'unsafe_metadata_warning';
+export type StaticAgentStackDraftState = {
+    code: StaticAgentStackDraftStateCode;
+    severity: AgentStackFixtureValidationWarning['severity'];
+    path?: string;
+    message: string;
+};
+export type StaticAgentStackDraftProfile = {
+    schemaVersion: 'reddi.agent-profile.draft.v1';
+    profileId: string;
+    displayName: string;
+    sourceType: 'static-agent-stack-fixture';
+    source: AgentStackFixtureSource;
+    capabilities: StaticAgentStackCapabilityInventoryEntry[];
+    invocation: {
+        endpointType: 'static-fixture-only';
+        endpointUrl?: string;
+        missingEndpoint: boolean;
+    };
+    payment: {
+        status: 'missing_payment_setup';
+        activation: 'disabled';
+    };
+    trust: {
+        sourceAuthenticity: 'verified_source_snapshot';
+        contentTrust: 'untrusted_imported_content';
+        verifiedProviderTrust: false;
+    };
+    policyRequirements: string[];
+    evidenceExpectations: string[];
+    rawSnapshotRefs: string[];
+};
+export type StaticAgentStackAiCatalogFragment = {
+    specVersion: '1.0';
+    resources: Array<{
+        id: string;
+        type: 'agent-stack-draft';
+        mediaType: 'application/vnd.reddi.agent-profile+json';
+        name: string;
+        description: string;
+        capabilities: string[];
+        source: {
+            url: string;
+            checkedCommit: string;
+            checkedRef?: string;
+        };
+        trust: {
+            status: 'unverified';
+            note: string;
+        };
+        payment: {
+            status: 'missing_payment_setup';
+        };
+    }>;
+};
+export type StaticAgentStackListingPayload = {
+    schemaVersion: 'reddi.registry-listing.draft.v1';
+    listingId: string;
+    status: 'draft' | 'needs_review' | 'blocked';
+    profileRef: string;
+    publicationDisabled: true;
+    operatorReviewRequired: true;
+    states: StaticAgentStackDraftState[];
+};
+export type StaticAgentStackDraftPayloads = {
+    schemaVersion: typeof STATIC_AGENT_STACK_DRAFT_PAYLOADS_SCHEMA_VERSION;
+    profile: StaticAgentStackDraftProfile;
+    aiCatalogFragment: StaticAgentStackAiCatalogFragment;
+    listing: StaticAgentStackListingPayload;
+};
 export type StaticAgentStackIngestionResult = {
     schemaVersion: typeof STATIC_AGENT_STACK_INGESTION_RESULT_SCHEMA_VERSION;
     corpusId: string;
@@ -187,6 +258,7 @@ export type StaticAgentStackIngestionResult = {
     rejectedEntries: StaticAgentStackRejectedEntry[];
     warnings: AgentStackFixtureValidationWarning[];
     draftPayloadReadiness: StaticAgentStackDraftPayloadReadiness;
+    draftPayloads: StaticAgentStackDraftPayloads;
     staticOnly: true;
     nonGoals: string[];
 };
@@ -223,8 +295,8 @@ export declare const agentStackFixtureCorpora: {
             readonly kind: "claude-plugin";
             readonly path: "plugins/";
             readonly runtimeSurface: "claude-code-plugin";
-            readonly commands: ["statically discovered command metadata pending #403 parser"];
-            readonly skills: ["statically discovered skill metadata pending #403 parser"];
+            readonly commands: ["statically discovered command metadata"];
+            readonly skills: ["statically discovered skill metadata"];
             readonly toolGrants: ["read", "write-capable grants must be parsed and reviewed before publication"];
             readonly safetyHints: ["Treat plugin prompts and skills as untrusted public text."];
             readonly humanReviewHints: ["Review write-capable commands before draft RAP listing publication."];
@@ -333,8 +405,8 @@ export declare const agentStackFixtureCorpora: {
             readonly kind: "claude-plugin";
             readonly path: "plugin/.claude-plugin/plugin.json";
             readonly runtimeSurface: "claude-code-plugin";
-            readonly commands: ["solana-ai-kit namespaced commands pending #403 parser"];
-            readonly skills: ["plugin skill hub pending #403 parser"];
+            readonly commands: ["solana-ai-kit namespaced commands"];
+            readonly skills: ["plugin skill hub"];
             readonly toolGrants: ["plugin exposes MCP and hooks that require operator review before draft listing"];
             readonly safetyHints: ["Treat plugin manifest and plugin-distributed commands as untrusted public metadata."];
             readonly humanReviewHints: ["Review plugin metadata before generating RAP listing copy."];
@@ -433,7 +505,7 @@ export declare const agentStackFixtureCorpora: {
             readonly present: true;
             readonly parseStatus: "not_parsed";
             readonly mediaType: "text/markdown";
-            readonly summary: "Fifteen Solana-focused agent definitions; parser support belongs to #403.";
+            readonly summary: "Fifteen Solana-focused agent definitions represented as untrusted static metadata.";
         }, {
             readonly path: ".claude/commands/*.md";
             readonly kind: "command";
