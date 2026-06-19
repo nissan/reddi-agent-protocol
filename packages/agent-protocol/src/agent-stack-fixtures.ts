@@ -514,6 +514,9 @@ function readinessFromCorpus(
     ...connectorDiagnostics
       .filter((diagnostic) => diagnostic.parseStatus === 'malformed')
       .map((diagnostic) => `malformed_connector:${diagnostic.path}`),
+    ...connectorDiagnostics
+      .filter((diagnostic) => diagnostic.parseStatus === 'missing')
+      .map((diagnostic) => `missing_connector:${diagnostic.path}`),
   ];
 
   if (blockers.length > 0) {
@@ -541,6 +544,11 @@ export function createStaticAgentStackIngestionResult(
 ): StaticAgentStackIngestionResult {
   const corpus = createAgentStackFixtureCorpus(input, options);
   const warningByPath = new Map(corpus.validationWarnings.map((warning) => [warning.path, warning]));
+  const connectorFilesByPath = new Map(
+    corpus.files
+      .filter((file) => file.kind === 'mcp-connector-config')
+      .map((file) => [file.path, file]),
+  );
   const connectorDiagnostics = corpus.files
     .filter((file) => file.kind === 'mcp-connector-config')
     .map((file): StaticAgentStackConnectorDiagnostic => {
@@ -552,7 +560,16 @@ export function createStaticAgentStackIngestionResult(
         warningCodes: file.warningCodes ?? [],
         message: connectorMessage(file, warning),
       };
-    });
+    })
+    .concat(corpus.surfaces
+      .filter((surface) => surface.kind === 'mcp-connector-config' && !connectorFilesByPath.has(surface.path))
+      .map((surface): StaticAgentStackConnectorDiagnostic => ({
+        path: surface.path,
+        parseStatus: 'missing',
+        severity: 'blocked',
+        warningCodes: ['missing_mcp_connector_config'],
+        message: 'MCP connector surface has no matching static connector metadata file.',
+      })));
   const rejectedEntries = corpus.validationWarnings
     .filter((warning) => warning.severity === 'blocked')
     .map((warning): StaticAgentStackRejectedEntry => ({

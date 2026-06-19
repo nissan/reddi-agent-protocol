@@ -327,6 +327,39 @@ describe('agent-stack fixture corpus', () => {
     ]);
   });
 
+  it('blocks draft readiness when an MCP connector surface has no matching connector file diagnostic', () => {
+    const missingConnectorFileResult = createStaticAgentStackIngestionResult({
+      ...agentStackFixtureCorpora.anthropicFinancialServices,
+      files: agentStackFixtureCorpora.anthropicFinancialServices.files.filter((file) => file.kind !== 'mcp-connector-config'),
+      validationWarnings: [],
+    });
+
+    assert.equal(missingConnectorFileResult.status, 'partial_success');
+    assert.deepEqual(
+      missingConnectorFileResult.connectorDiagnostics.map((diagnostic) => [
+        diagnostic.path,
+        diagnostic.parseStatus,
+        diagnostic.severity,
+        diagnostic.warningCodes,
+      ]),
+      [
+        [
+          'plugins/vertical-plugins/financial-analysis/.mcp.json',
+          'missing',
+          'blocked',
+          ['missing_mcp_connector_config'],
+        ],
+      ],
+    );
+    assert.equal(missingConnectorFileResult.draftPayloadReadiness.status, 'blocked');
+    assert.ok(
+      missingConnectorFileResult.draftPayloadReadiness.blockers.includes(
+        'missing_connector:plugins/vertical-plugins/financial-analysis/.mcp.json',
+      ),
+    );
+    assert.deepEqual(missingConnectorFileResult.draftPayloadReadiness.payloadRefs, []);
+  });
+
   it('does not expose a static ingestion result for invalid or credential-shaped corpora', () => {
     assert.throws(
       () => createStaticAgentStackIngestionResult({
