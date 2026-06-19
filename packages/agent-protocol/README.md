@@ -61,17 +61,22 @@ Catalog ingestion never performs network fetches, paid invocations, wallet actio
 import {
   agentStackFixtureCorpora,
   createAgentStackFixtureCorpus,
+  createStaticAgentStackIngestionResult,
 } from '@reddi/agent-protocol/agent-stack-fixtures';
 
 const corpus = createAgentStackFixtureCorpus(agentStackFixtureCorpora.anthropicFinancialServices);
+const result = createStaticAgentStackIngestionResult(corpus);
 
 console.log(corpus.source.checkedCommit); // 4bbabc7cd1a474c1667fa05a2bfe58e411dcf9c1
 console.log(corpus.files.some((file) => file.parseStatus === 'malformed')); // true
+console.log(result.status); // blocked until malformed connector diagnostics are handled
 ```
 
 Agent-stack fixture corpora are public, static inputs for onboarding-analyser parser and diagnostics work. The built-in Anthropic financial-services fixture records source URL, checked commit, license/source notes, authenticity notes, crawl timestamp, local research artifact path, high-level marketplace/plugin/managed-agent/MCP surfaces, and validation warnings.
 
 Fixture ingestion rejects credential-shaped metadata, unsafe source URLs, invalid commit refs, invalid timestamps, oversized corpora, and malformed corpus shapes. Public prompt, skill, command, and recipe text is always labelled as untrusted fixture content.
+
+Static ingestion results are deterministic handoff envelopes for later parser, connector-diagnostics, draft-profile, and operator-review work. They combine fixture source metadata, normalized inventory entries, connector diagnostics, rejected entries, validation warnings, and draft-payload readiness without fetching the network or executing imported code.
 
 The fixture corpus never installs Claude plugins, executes repo scripts, invokes managed agents, contacts MCP servers, fetches paid/provider data, requires credentials, or publishes imported surfaces as payable RAP listings. Parser, connector-diagnostics, draft-profile, and operator-review behavior land in later RAP slices.
 

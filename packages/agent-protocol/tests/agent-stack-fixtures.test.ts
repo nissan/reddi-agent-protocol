@@ -4,6 +4,7 @@ import {
   agentStackFixtureCases,
   agentStackFixtureCorpora,
   createAgentStackFixtureCorpus,
+  createStaticAgentStackIngestionResult,
   validateAgentStackFixtureCorpus,
   type AgentStackFixtureValidationErrorCode,
 } from '../dist/index.js';
@@ -258,5 +259,99 @@ describe('agent-stack fixture corpus', () => {
         assert.ok(malformedTimestamp.errors.some((item) => item.path === '$.source.crawlTimestamp'));
       }
     }
+  });
+
+  it('creates a deterministic static ingestion result envelope with partial success diagnostics', () => {
+    const result = createStaticAgentStackIngestionResult(agentStackFixtureCorpora.anthropicFinancialServices);
+
+    assert.equal(result.schemaVersion, 'reddi.static-agent-stack-ingestion-result.v1');
+    assert.equal(result.corpusId, agentStackFixtureCorpora.anthropicFinancialServices.id);
+    assert.equal(result.status, 'partial_success');
+    assert.equal(result.staticOnly, true);
+    assert.equal(result.inventory.some((entry) => entry.kind === 'claude-plugin'), true);
+    assert.equal(result.inventory.some((entry) => entry.kind === 'validation-warning'), false);
+    assert.equal(result.inventory.find((entry) => entry.kind === 'claude-plugin')?.writeCapable, true);
+    assert.deepEqual(
+      result.connectorDiagnostics.map((diagnostic) => [diagnostic.path, diagnostic.parseStatus, diagnostic.warningCodes]),
+      [['plugins/vertical-plugins/financial-analysis/.mcp.json', 'malformed', ['malformed_mcp_json']]],
+    );
+    assert.equal(result.rejectedEntries.length, 0);
+    assert.equal(result.draftPayloadReadiness.status, 'blocked');
+    assert.ok(result.draftPayloadReadiness.blockers.includes('malformed_connector:plugins/vertical-plugins/financial-analysis/.mcp.json'));
+    assert.deepEqual(result.draftPayloadReadiness.payloadRefs, []);
+    assert.doesNotThrow(() => JSON.stringify(result));
+  });
+
+  it('marks blocked validation warnings as rejected entries without losing unrelated inventory', () => {
+    const blockedResult = createStaticAgentStackIngestionResult({
+      ...agentStackFixtureCorpora.anthropicFinancialServices,
+      validationWarnings: [
+        ...agentStackFixtureCorpora.anthropicFinancialServices.validationWarnings,
+        {
+          code: 'unsafe_metadata',
+          severity: 'blocked',
+          path: 'plugins/partner-plugins/example/plugin.json',
+          message: 'Unsafe imported metadata must not be exposed to draft publication.',
+        },
+      ],
+    });
+
+    assert.equal(blockedResult.status, 'blocked');
+    assert.equal(blockedResult.rejectedEntries.length, 1);
+    assert.deepEqual(blockedResult.rejectedEntries[0], {
+      path: 'plugins/partner-plugins/example/plugin.json',
+      reasonCode: 'unsafe_metadata',
+      message: 'Unsafe imported metadata must not be exposed to draft publication.',
+    });
+    assert.ok(blockedResult.inventory.some((entry) => entry.kind === 'managed-agent-cookbook'));
+  });
+
+  it('creates ready payload references only when the corpus has no warnings or connector blockers', () => {
+    const readyResult = createStaticAgentStackIngestionResult({
+      ...agentStackFixtureCorpora.anthropicFinancialServices,
+      files: agentStackFixtureCorpora.anthropicFinancialServices.files.map((file) => file.kind === 'mcp-connector-config'
+        ? {
+          ...file,
+          parseStatus: 'valid',
+          warningCodes: [],
+        }
+        : file),
+      validationWarnings: [],
+    });
+
+    assert.equal(readyResult.status, 'ready_for_draft');
+    assert.equal(readyResult.draftPayloadReadiness.status, 'ready');
+    assert.deepEqual(readyResult.draftPayloadReadiness.payloadRefs, [
+      'static-ingestion:agent-stack-fixture:anthropic-financial-services:2026-06-18:draft-profile',
+      'static-ingestion:agent-stack-fixture:anthropic-financial-services:2026-06-18:draft-listing',
+    ]);
+  });
+
+  it('does not expose a static ingestion result for invalid or credential-shaped corpora', () => {
+    assert.throws(
+      () => createStaticAgentStackIngestionResult({
+        ...agentStackFixtureCorpora.anthropicFinancialServices,
+        surfaces: [
+          {
+            ...agentStackFixtureCorpora.anthropicFinancialServices.surfaces[0],
+            apiKey: 'sk-not-real-but-secret-shaped',
+          },
+        ],
+      }),
+      /invalid_agent_stack_fixture_corpus:credential_leakage_rejected/,
+    );
+
+    assert.throws(
+      () => createStaticAgentStackIngestionResult({
+        ...agentStackFixtureCorpora.anthropicFinancialServices,
+        files: [
+          {
+            ...agentStackFixtureCorpora.anthropicFinancialServices.files[0],
+            path: '/tmp/secret',
+          },
+        ],
+      }),
+      /invalid_agent_stack_fixture_corpus:invalid_source_reference/,
+    );
   });
 });
