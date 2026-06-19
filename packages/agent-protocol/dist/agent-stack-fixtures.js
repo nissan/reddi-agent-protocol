@@ -1398,3 +1398,157 @@ export const agentStackFixtureCases = {
         expectedErrorCodes: ['credential_leakage_rejected'],
     },
 };
+const operatorReviewFixtureGuardrails = [
+    'Static fixture only: do not execute imported hooks, commands, skills, installers, tests, or agent instructions.',
+    'Do not fetch repositories, submodules, MCP servers, RPC endpoints, wallets, paid providers, or payment rails.',
+    'Do not store secrets, private operational metadata, credential-shaped values, wallet keys, or provider tokens.',
+    'Do not activate live payment, publication, provider trust, reputation, registry listing, or endpoint binding from this fixture.',
+];
+const operatorReviewViewportCoverage = (requiredStates, requiredGroupKinds) => [
+    {
+        name: 'mobile',
+        width: 390,
+        height: 844,
+        requiredStates,
+        requiredGroupKinds,
+    },
+    {
+        name: 'tablet',
+        width: 834,
+        height: 1112,
+        requiredStates,
+        requiredGroupKinds,
+    },
+    {
+        name: 'desktop',
+        width: 1440,
+        height: 900,
+        requiredStates,
+        requiredGroupKinds,
+    },
+];
+const createReadyAnthropicOperatorReviewPayload = () => (createStaticAgentStackIngestionResult({
+    ...agentStackFixtureCorpora.anthropicFinancialServices,
+    files: agentStackFixtureCorpora.anthropicFinancialServices.files.map((file) => file.kind === 'mcp-connector-config'
+        ? {
+            ...file,
+            parseStatus: 'valid',
+            parseErrorLocation: undefined,
+            warningCodes: [],
+        }
+        : file),
+    validationWarnings: [],
+}).operatorReviewPayload);
+const createSuspendedAnthropicOperatorReviewPayload = () => (createStaticAgentStackIngestionResult({
+    ...agentStackFixtureCorpora.anthropicFinancialServices,
+    validationWarnings: [
+        ...agentStackFixtureCorpora.anthropicFinancialServices.validationWarnings,
+        {
+            code: 'unsafe_metadata',
+            severity: 'blocked',
+            path: 'plugins/partner-plugins/example/plugin.json',
+            message: 'Unsafe imported metadata must stay suspended until operator review replaces or removes it.',
+        },
+    ],
+}).operatorReviewPayload);
+const approveReadyDraftPayload = createReadyAnthropicOperatorReviewPayload();
+const rejectedDraftPayload = createStaticAgentStackIngestionResult(agentStackFixtureCorpora.anthropicFinancialServices).operatorReviewPayload;
+const suspendedDraftPayload = createSuspendedAnthropicOperatorReviewPayload();
+const solanaBlockedPayload = createStaticAgentStackIngestionResult(agentStackFixtureCorpora.solanaAiKit).operatorReviewPayload;
+export const agentStackOperatorReviewFixtureStates = {
+    approveReadyDraft: {
+        fixtureId: 'agent-stack-operator-review-fixture:approve-ready-draft',
+        description: 'Approve-ready draft review frame for imported repo and plugin groups; publication and payment stay disabled.',
+        fixtureState: 'approve_ready_draft',
+        queueState: approveReadyDraftPayload.status,
+        uiTestRefs: [
+            'storybook:agent-stack/operator-review/approve-ready-draft',
+            'playwright:agent-stack-operator-review-approve-ready-draft',
+        ],
+        operatorReviewPayload: approveReadyDraftPayload,
+        requiredReviewItemStates: ['approve_ready_draft'],
+        requiredGroupKinds: ['repo-marketplace-metadata', 'claude-plugin'],
+        requiredRiskCategories: [],
+        viewportCoverage: operatorReviewViewportCoverage(['approve_ready_draft'], ['repo-marketplace-metadata', 'claude-plugin']),
+        staticOnly: true,
+        guardrails: operatorReviewFixtureGuardrails,
+    },
+    requestChangesMissingPayment: {
+        fixtureId: 'agent-stack-operator-review-fixture:request-changes-missing-payment',
+        description: 'Request-changes draft review frame for missing payment and endpoint setup.',
+        fixtureState: 'request_changes_draft',
+        queueState: approveReadyDraftPayload.status,
+        uiTestRefs: [
+            'storybook:agent-stack/operator-review/request-changes-missing-payment',
+            'playwright:agent-stack-operator-review-request-changes-missing-payment',
+        ],
+        operatorReviewPayload: approveReadyDraftPayload,
+        requiredReviewItemStates: ['request_changes_missing_payment'],
+        requiredGroupKinds: ['repo-marketplace-metadata', 'claude-plugin'],
+        requiredRiskCategories: [],
+        viewportCoverage: operatorReviewViewportCoverage(['request_changes_missing_payment'], ['repo-marketplace-metadata', 'claude-plugin']),
+        staticOnly: true,
+        guardrails: operatorReviewFixtureGuardrails,
+    },
+    rejectedMalformedConnector: {
+        fixtureId: 'agent-stack-operator-review-fixture:rejected-malformed-connector',
+        description: 'Rejected draft review frame for malformed connector and unsafe metadata warnings.',
+        fixtureState: 'rejected_draft',
+        queueState: rejectedDraftPayload.status,
+        uiTestRefs: [
+            'storybook:agent-stack/operator-review/rejected-malformed-connector',
+            'playwright:agent-stack-operator-review-rejected-malformed-connector',
+        ],
+        operatorReviewPayload: rejectedDraftPayload,
+        requiredReviewItemStates: [
+            'rejected_malformed_connector',
+            'unsafe_metadata_warning',
+            'request_changes_missing_payment',
+        ],
+        requiredGroupKinds: ['repo-marketplace-metadata', 'claude-plugin', 'mcp-connector-config'],
+        requiredRiskCategories: [],
+        viewportCoverage: operatorReviewViewportCoverage(['rejected_malformed_connector', 'unsafe_metadata_warning', 'request_changes_missing_payment'], ['repo-marketplace-metadata', 'claude-plugin', 'mcp-connector-config']),
+        staticOnly: true,
+        guardrails: operatorReviewFixtureGuardrails,
+    },
+    suspendedUnsafeMetadata: {
+        fixtureId: 'agent-stack-operator-review-fixture:suspended-unsafe-metadata',
+        description: 'Suspended draft review frame for blocked unsafe imported metadata.',
+        fixtureState: 'suspended_draft',
+        queueState: suspendedDraftPayload.status,
+        uiTestRefs: [
+            'storybook:agent-stack/operator-review/suspended-unsafe-metadata',
+            'playwright:agent-stack-operator-review-suspended-unsafe-metadata',
+        ],
+        operatorReviewPayload: suspendedDraftPayload,
+        requiredReviewItemStates: ['suspended_imported_listing', 'unsafe_metadata_warning'],
+        requiredGroupKinds: ['repo-marketplace-metadata', 'claude-plugin', 'mcp-connector-config'],
+        requiredRiskCategories: [],
+        viewportCoverage: operatorReviewViewportCoverage(['suspended_imported_listing', 'unsafe_metadata_warning'], ['repo-marketplace-metadata', 'claude-plugin', 'mcp-connector-config']),
+        staticOnly: true,
+        guardrails: operatorReviewFixtureGuardrails,
+    },
+    solanaAiKitBlocked: {
+        fixtureId: 'agent-stack-operator-review-fixture:solana-ai-kit-blocked',
+        description: 'Solana AI Kit blocked review frame for hooks, deploy commands, env-required MCPs, local binaries, and submodules.',
+        fixtureState: 'suspended_draft',
+        queueState: solanaBlockedPayload.status,
+        uiTestRefs: [
+            'storybook:agent-stack/operator-review/solana-ai-kit-blocked',
+            'playwright:agent-stack-operator-review-solana-ai-kit-blocked',
+        ],
+        operatorReviewPayload: solanaBlockedPayload,
+        requiredReviewItemStates: ['static_risk_blocker', 'suspended_imported_listing'],
+        requiredGroupKinds: ['repo-marketplace-metadata', 'claude-plugin', 'command', 'mcp-connector-config', 'skill'],
+        requiredRiskCategories: [
+            'executable_hook',
+            'deploy_capable_command',
+            'env_required_connector',
+            'local_binary_requirement',
+            'external_submodule',
+        ],
+        viewportCoverage: operatorReviewViewportCoverage(['static_risk_blocker', 'suspended_imported_listing'], ['repo-marketplace-metadata', 'claude-plugin', 'command', 'mcp-connector-config', 'skill']),
+        staticOnly: true,
+        guardrails: operatorReviewFixtureGuardrails,
+    },
+};

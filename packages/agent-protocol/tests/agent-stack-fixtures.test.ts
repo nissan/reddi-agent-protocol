@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   agentStackFixtureCases,
   agentStackFixtureCorpora,
+  agentStackOperatorReviewFixtureStates,
   createAgentStackFixtureCorpus,
   createStaticAgentStackIngestionResult,
   validateAgentStackFixtureCorpus,
@@ -1075,6 +1076,146 @@ describe('agent-stack fixture corpus', () => {
     )), true);
     assert.equal(result.operatorReviewPayload.publication.disabled, true);
     assert.equal(result.operatorReviewPayload.payment.activation, 'disabled');
+  });
+
+  it('exports frontend-safe operator review fixture states for deterministic UI tests', () => {
+    const expectedFixtures = [
+      'approveReadyDraft',
+      'rejectedMalformedConnector',
+      'requestChangesMissingPayment',
+      'solanaAiKitBlocked',
+      'suspendedUnsafeMetadata',
+    ];
+
+    assert.deepEqual(Object.keys(agentStackOperatorReviewFixtureStates).sort(), expectedFixtures.sort());
+    for (const fixture of Object.values(agentStackOperatorReviewFixtureStates)) {
+      const payload = fixture.operatorReviewPayload;
+      const itemStates = new Set(payload.reviewItems.map((item) => item.state));
+      const groupKinds = new Set(payload.groups.map((group) => group.sourceKind));
+      const serialized = JSON.stringify(fixture);
+
+      assert.equal(fixture.staticOnly, true);
+      assert.equal(payload.schemaVersion, 'reddi.static-agent-stack-operator-review-payload.v1');
+      assert.equal(payload.publication.disabled, true);
+      assert.equal(payload.publication.requiresOperatorApproval, true);
+      assert.deepEqual(payload.publication.readinessGateRefs, ['#373', '#377']);
+      assert.equal(payload.payment.activation, 'disabled');
+      assert.equal(payload.source.providerTrust, 'unverified');
+      assert.equal(payload.source.importedContentTrust, 'untrusted');
+      assert.equal(payload.buyerPreview.paymentReadiness, 'missing_payment_setup');
+      assert.equal(payload.buyerPreview.safetyRisk, 'operator_review_required');
+      assert.equal(fixture.queueState, payload.status);
+      assert.ok(fixture.uiTestRefs.some((ref) => ref.startsWith('storybook:')));
+      assert.ok(fixture.uiTestRefs.some((ref) => ref.startsWith('playwright:')));
+      assert.ok(fixture.guardrails.some((guardrail) => guardrail.includes('Do not fetch repositories')));
+      assert.ok(fixture.guardrails.some((guardrail) => guardrail.includes('Do not activate live payment')));
+      for (const requiredState of fixture.requiredReviewItemStates) {
+        assert.ok(itemStates.has(requiredState), `${fixture.fixtureId} should expose ${requiredState}`);
+      }
+      for (const requiredKind of fixture.requiredGroupKinds) {
+        assert.ok(groupKinds.has(requiredKind), `${fixture.fixtureId} should expose ${requiredKind}`);
+      }
+      assert.deepEqual(fixture.viewportCoverage.map((viewport) => viewport.name), ['mobile', 'tablet', 'desktop']);
+      for (const viewport of fixture.viewportCoverage) {
+        assert.ok(viewport.width > 0);
+        assert.ok(viewport.height > 0);
+        assert.deepEqual(viewport.requiredStates, fixture.requiredReviewItemStates);
+        assert.deepEqual(viewport.requiredGroupKinds, fixture.requiredGroupKinds);
+      }
+      assert.doesNotMatch(serialized, /sk-[A-Za-z0-9_-]{8,}|authorization:\s*bearer|PRIVATE KEY/i);
+      assert.doesNotMatch(serialized, /live_payment_activation|wallet_private_key|provider_api_key/i);
+    }
+  });
+
+  it('maps operator review fixture scenarios to imported groups and queue states', () => {
+    const fixtures = agentStackOperatorReviewFixtureStates;
+
+    assert.equal(fixtures.approveReadyDraft.fixtureState, 'approve_ready_draft');
+    assert.equal(fixtures.approveReadyDraft.queueState, 'request_changes');
+    assert.ok(fixtures.approveReadyDraft.operatorReviewPayload.groups.some((group) => (
+      group.sourceKind === 'repo-marketplace-metadata'
+      && group.sourcePath === '.claude-plugin/marketplace.json'
+    )));
+    assert.ok(fixtures.approveReadyDraft.operatorReviewPayload.groups.some((group) => (
+      group.sourceKind === 'claude-plugin'
+      && group.runtimeSurface === 'claude-code-plugin'
+    )));
+    assert.ok(fixtures.approveReadyDraft.operatorReviewPayload.reviewItems.some((item) => (
+      item.state === 'approve_ready_draft'
+      && item.recommendedAction === 'approve_after_readiness_gates'
+    )));
+
+    assert.equal(fixtures.requestChangesMissingPayment.fixtureState, 'request_changes_draft');
+    assert.equal(fixtures.requestChangesMissingPayment.queueState, 'request_changes');
+    assert.ok(fixtures.requestChangesMissingPayment.operatorReviewPayload.reviewItems.some((item) => (
+      item.state === 'request_changes_missing_payment'
+      && item.reasonCodes.includes('missing_payment_setup')
+      && item.recommendedAction === 'request_payment_setup'
+    )));
+    assert.ok(fixtures.requestChangesMissingPayment.operatorReviewPayload.reviewItems.some((item) => (
+      item.state === 'request_changes_missing_payment'
+      && item.reasonCodes.includes('missing_endpoint_binding')
+      && item.recommendedAction === 'request_endpoint_binding'
+    )));
+
+    assert.equal(fixtures.rejectedMalformedConnector.fixtureState, 'rejected_draft');
+    assert.equal(fixtures.rejectedMalformedConnector.queueState, 'rejected');
+    assert.ok(fixtures.rejectedMalformedConnector.operatorReviewPayload.reviewItems.some((item) => (
+      item.state === 'rejected_malformed_connector'
+      && item.path === 'plugins/vertical-plugins/financial-analysis/.mcp.json'
+      && item.recommendedAction === 'reject_or_fix_malformed_connector'
+    )));
+    assert.ok(fixtures.rejectedMalformedConnector.operatorReviewPayload.reviewItems.some((item) => (
+      item.state === 'unsafe_metadata_warning'
+      && item.path === 'plugins/vertical-plugins/financial-analysis/.mcp.json'
+    )));
+
+    assert.equal(fixtures.suspendedUnsafeMetadata.fixtureState, 'suspended_draft');
+    assert.equal(fixtures.suspendedUnsafeMetadata.queueState, 'suspended');
+    assert.ok(fixtures.suspendedUnsafeMetadata.operatorReviewPayload.reviewItems.some((item) => (
+      item.state === 'suspended_imported_listing'
+      && item.reasonCodes.includes('unsafe_metadata')
+      && item.recommendedAction === 'keep_suspended'
+    )));
+  });
+
+  it('includes Solana AI Kit blocked operator review fixture coverage for static-only frontend states', () => {
+    const fixture = agentStackOperatorReviewFixtureStates.solanaAiKitBlocked;
+    const payload = fixture.operatorReviewPayload;
+    const riskItems = payload.reviewItems.filter((item) => item.state === 'static_risk_blocker');
+    const riskReasonCodes = new Set(riskItems.flatMap((item) => item.reasonCodes));
+
+    assert.equal(fixture.queueState, 'suspended');
+    assert.deepEqual(fixture.requiredRiskCategories, [
+      'executable_hook',
+      'deploy_capable_command',
+      'env_required_connector',
+      'local_binary_requirement',
+      'external_submodule',
+    ]);
+    assert.ok(riskItems.some((item) => item.path === 'plugin/hooks/hooks.json' && item.reasonCodes.includes('executable_hooks')));
+    assert.ok(riskItems.some((item) => item.path === '.claude/commands/*.md' && item.reasonCodes.includes('deploy_capable_commands')));
+    assert.ok(riskItems.some((item) => item.path === '.mcp.json' && item.reasonCodes.includes('env_required_connector')));
+    assert.ok(riskItems.some((item) => item.path === '.mcp.json' && item.reasonCodes.includes('local_binary_required')));
+    assert.ok(riskItems.some((item) => item.path === '.gitmodules' && item.reasonCodes.includes('external_submodules_declared')));
+    assert.ok(riskReasonCodes.has('executable_hooks_require_operator_review'));
+    assert.ok(riskReasonCodes.has('solana_deploy_command_requires_operator_review'));
+    assert.equal(payload.groups.some((group) => (
+      group.sourceKind === 'command'
+      && group.sourcePath === '.claude/commands/*.md'
+      && group.capabilityRefs.includes('deploy')
+      && group.humanReviewRequired
+    )), true);
+    assert.equal(payload.groups.some((group) => (
+      group.sourceKind === 'mcp-connector-config'
+      && group.sourcePath === '.mcp.json'
+      && group.humanReviewRequired
+    )), true);
+    assert.equal(payload.groups.some((group) => (
+      group.sourceKind === 'skill'
+      && group.sourcePath === '.gitmodules'
+    )), true);
+    assert.ok(fixture.guardrails.every((guardrail) => !guardrail.includes('Helius') && !guardrail.includes('private key')));
   });
 
   it('does not expose a static ingestion result for invalid or credential-shaped corpora', () => {
