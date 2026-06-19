@@ -22,6 +22,7 @@ describe('agent-stack fixture corpus', () => {
   it('validates fixture-backed corpus cases with expected outcomes', () => {
     const expectedCases = [
       'anthropicFinancialServices',
+      'solanaAiKit',
       'malformedCorpus',
       'invalidCommit',
       'unsafeSourceUrl',
@@ -35,6 +36,25 @@ describe('agent-stack fixture corpus', () => {
       if (!result.ok) {
         assertErrorCodes(result.errors.map((item) => item.code), fixture.expectedErrorCodes);
       }
+    }
+  });
+
+  it('records public source provenance for the Solana AI Kit fixture', () => {
+    const result = validateAgentStackFixtureCorpus(agentStackFixtureCorpora.solanaAiKit);
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.corpus.schemaVersion, 'reddi.agent-stack-fixture-corpus.v1');
+      assert.equal(result.corpus.source.sourceUrl, 'https://github.com/solanabr/solana-ai-kit');
+      assert.equal(result.corpus.source.checkedCommit, '4fb9d3d619467e068c1cf3120d3933aa933aeb21');
+      assert.equal(result.corpus.source.checkedRef, 'main');
+      assert.equal(result.corpus.source.license, 'MIT');
+      assert.equal(
+        result.corpus.source.localResearchArtifactPath,
+        'projects/reddi-agent-protocol/research/SOLANABR-SOLANA-AI-KIT-ANALYSIS-2026-06-19.md',
+      );
+      assert.ok(result.corpus.source.authenticityNotes.some((note) => note.includes('solanabr')));
+      assert.equal(result.corpus.staticOnly, true);
     }
   });
 
@@ -72,6 +92,30 @@ describe('agent-stack fixture corpus', () => {
     assert.ok(fileKinds.has('mcp-connector-config'));
   });
 
+  it('represents Solana AI Kit plugin, agent, command, MCP, hook, and submodule surfaces statically', () => {
+    const corpus = createAgentStackFixtureCorpus(agentStackFixtureCorpora.solanaAiKit);
+    const filesByPath = new Map(corpus.files.map((file) => [file.path, file]));
+    const surfaceKindForPath = (path: string, kind: string): boolean => corpus.surfaces.some((surface) => (
+      surface.path === path && surface.kind === kind
+    ));
+
+    assert.equal(surfaceKindForPath('.claude-plugin/marketplace.json', 'repo-marketplace-metadata'), true);
+    assert.equal(surfaceKindForPath('plugin/.claude-plugin/plugin.json', 'claude-plugin'), true);
+    assert.equal(surfaceKindForPath('.claude/agents/*.md', 'subagent'), true);
+    assert.equal(surfaceKindForPath('.claude/commands/*.md', 'command'), true);
+    assert.equal(surfaceKindForPath('.mcp.json', 'mcp-connector-config'), true);
+    assert.equal(surfaceKindForPath('plugin/hooks/hooks.json', 'command'), true);
+    assert.equal(surfaceKindForPath('plugin/hooks/hooks.json', 'validation-warning'), true);
+    assert.equal(surfaceKindForPath('.gitmodules', 'skill'), true);
+    assert.equal(filesByPath.get('.mcp.json')?.parseStatus, 'valid');
+    assert.deepEqual(filesByPath.get('.mcp.json')?.warningCodes, [
+      'npx_mcp_execution',
+      'env_required_connector',
+      'local_binary_required',
+    ]);
+    assert.equal(filesByPath.get('install.sh')?.warningCodes?.includes('installer_script_non_executable_fixture'), true);
+  });
+
   it('preserves the known malformed MCP config as a static warning without blocking unrelated surfaces', () => {
     const corpus = createAgentStackFixtureCorpus(agentStackFixtureCorpora.anthropicFinancialServices);
     const malformedFile = corpus.files.find((file) => file.path === 'plugins/vertical-plugins/financial-analysis/.mcp.json');
@@ -104,6 +148,17 @@ describe('agent-stack fixture corpus', () => {
     assert.match(nonGoals, /Do not execute repository scripts/);
     assert.match(nonGoals, /Do not fetch paid\/provider data or require credentials/);
     assert.match(nonGoals, /Do not publish imported surfaces as payable RAP listings/);
+  });
+
+  it('documents Solana AI Kit non-goals so tests never imply installation, MCP contact, wallet, RPC, or payment behavior', () => {
+    const corpus = createAgentStackFixtureCorpus(agentStackFixtureCorpora.solanaAiKit);
+    const nonGoals = corpus.nonGoals.join(' ');
+
+    assert.match(nonGoals, /Do not install Solana AI Kit/);
+    assert.match(nonGoals, /Do not execute install\.sh/);
+    assert.match(nonGoals, /Do not contact MCP servers, Solana RPC, wallets/);
+    assert.match(nonGoals, /Do not add Helius, QuickNode, Pyth, Nansen/);
+    assert.match(nonGoals, /Do not implement AUDD, x402, Quasar, receipt, or payment behavior/);
   });
 
   it('rejects oversized or non-serializable fixture corpora before persistence', () => {
@@ -280,6 +335,44 @@ describe('agent-stack fixture corpus', () => {
     assert.ok(result.draftPayloadReadiness.blockers.includes('malformed_connector:plugins/vertical-plugins/financial-analysis/.mcp.json'));
     assert.deepEqual(result.draftPayloadReadiness.payloadRefs, []);
     assert.doesNotThrow(() => JSON.stringify(result));
+  });
+
+  it('keeps Solana AI Kit ingestion blocked for executable hooks and deploy-capable command metadata', () => {
+    const result = createStaticAgentStackIngestionResult(agentStackFixtureCorpora.solanaAiKit);
+    const inventoryKinds = new Set(result.inventory.map((entry) => entry.kind));
+
+    assert.equal(result.schemaVersion, 'reddi.static-agent-stack-ingestion-result.v1');
+    assert.equal(result.corpusId, agentStackFixtureCorpora.solanaAiKit.id);
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.staticOnly, true);
+    assert.ok(inventoryKinds.has('subagent'));
+    assert.ok(inventoryKinds.has('command'));
+    assert.ok(inventoryKinds.has('mcp-connector-config'));
+    assert.equal(result.inventory.find((entry) => entry.sourcePath === 'plugin/hooks/hooks.json')?.writeCapable, true);
+    assert.deepEqual(
+      result.connectorDiagnostics.map((diagnostic) => [
+        diagnostic.path,
+        diagnostic.parseStatus,
+        diagnostic.severity,
+        diagnostic.warningCodes,
+      ]),
+      [
+        [
+          '.mcp.json',
+          'valid',
+          'warning',
+          ['npx_mcp_execution', 'env_required_connector', 'local_binary_required'],
+        ],
+      ],
+    );
+    assert.deepEqual(
+      result.rejectedEntries.map((entry) => entry.reasonCode).sort(),
+      ['executable_hooks_require_operator_review', 'solana_deploy_command_requires_operator_review'],
+    );
+    assert.equal(result.draftPayloadReadiness.status, 'blocked');
+    assert.ok(result.draftPayloadReadiness.blockers.includes('executable_hooks_require_operator_review'));
+    assert.ok(result.draftPayloadReadiness.blockers.includes('solana_deploy_command_requires_operator_review'));
+    assert.deepEqual(result.draftPayloadReadiness.payloadRefs, []);
   });
 
   it('marks blocked validation warnings as rejected entries without losing unrelated inventory', () => {

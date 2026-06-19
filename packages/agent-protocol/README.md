@@ -66,19 +66,21 @@ import {
 
 const corpus = createAgentStackFixtureCorpus(agentStackFixtureCorpora.anthropicFinancialServices);
 const result = createStaticAgentStackIngestionResult(corpus);
+const solanaKit = createStaticAgentStackIngestionResult(agentStackFixtureCorpora.solanaAiKit);
 
 console.log(corpus.source.checkedCommit); // 4bbabc7cd1a474c1667fa05a2bfe58e411dcf9c1
 console.log(corpus.files.some((file) => file.parseStatus === 'malformed')); // true
-console.log(result.status); // blocked until malformed connector diagnostics are handled
+console.log(result.status); // partial_success while malformed connector diagnostics block draft readiness
+console.log(solanaKit.draftPayloadReadiness.status); // blocked until hooks, deploy commands, and MCPs are reviewed
 ```
 
-Agent-stack fixture corpora are public, static inputs for onboarding-analyser parser and diagnostics work. The built-in Anthropic financial-services fixture records source URL, checked commit, license/source notes, authenticity notes, crawl timestamp, local research artifact path, high-level marketplace/plugin/managed-agent/MCP surfaces, and validation warnings.
+Agent-stack fixture corpora are public, static inputs for onboarding-analyser parser and diagnostics work. The built-in Anthropic financial-services fixture records source URL, checked commit, license/source notes, authenticity notes, crawl timestamp, local research artifact path, high-level marketplace/plugin/managed-agent/MCP surfaces, and validation warnings. The built-in Solana AI Kit fixture records the same source provenance for a Solana-heavy agent-stack toolkit with plugin metadata, agent definitions, commands, MCP declarations, hooks, rules, skills, installer/update/test scripts, and external submodule declarations.
 
 Fixture ingestion rejects credential-shaped metadata, unsafe source URLs, invalid commit refs, invalid timestamps, oversized corpora, and malformed corpus shapes. Public prompt, skill, command, and recipe text is always labelled as untrusted fixture content.
 
 Static ingestion results are deterministic handoff envelopes for later parser, connector-diagnostics, draft-profile, and operator-review work. They combine fixture source metadata, normalized inventory entries, connector diagnostics, rejected entries, validation warnings, and draft-payload readiness without fetching the network or executing imported code.
 
-The fixture corpus never installs Claude plugins, executes repo scripts, invokes managed agents, contacts MCP servers, fetches paid/provider data, requires credentials, or publishes imported surfaces as payable RAP listings. Parser, connector-diagnostics, draft-profile, and operator-review behavior land in later RAP slices.
+The fixture corpus never installs Claude plugins, executes repo scripts, invokes managed agents, contacts MCP servers, fetches paid/provider data, requires credentials, starts local services, calls wallets/RPC endpoints, or publishes imported surfaces as payable RAP listings. Parser, connector-diagnostics, draft-profile, and operator-review behavior land in later RAP slices.
 
 ## Provider Trust Records
 
