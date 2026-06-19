@@ -150,6 +150,29 @@ export type StaticAgentStackConnectorDiagnostic = {
   message: string;
 };
 
+export type StaticAgentStackRiskCategory =
+  | 'executable_hook'
+  | 'installer_or_update_script'
+  | 'deploy_capable_command'
+  | 'wallet_rpc_capable_metadata'
+  | 'local_binary_requirement'
+  | 'env_required_connector'
+  | 'mcp_launcher_execution'
+  | 'external_submodule'
+  | 'permission_policy';
+
+export type StaticAgentStackRiskDiagnostic = {
+  path: string;
+  sourceKind: AgentStackFixtureSurfaceKind | 'validation-warning';
+  diagnosticLane: 'static_fixture_risk_taxonomy';
+  category: StaticAgentStackRiskCategory;
+  severity: AgentStackFixtureValidationWarning['severity'];
+  warningCodes: string[];
+  blocksDraftPayload: boolean;
+  operatorReviewRequired: boolean;
+  message: string;
+};
+
 export type StaticAgentStackRejectedEntry = {
   path: string;
   reasonCode: string;
@@ -170,6 +193,7 @@ export type StaticAgentStackIngestionResult = {
   status: StaticAgentStackIngestionStatus;
   inventory: StaticAgentStackInventoryEntry[];
   connectorDiagnostics: StaticAgentStackConnectorDiagnostic[];
+  riskDiagnostics: StaticAgentStackRiskDiagnostic[];
   rejectedEntries: StaticAgentStackRejectedEntry[];
   warnings: AgentStackFixtureValidationWarning[];
   draftPayloadReadiness: StaticAgentStackDraftPayloadReadiness;
@@ -195,6 +219,103 @@ const SUPPORTED_SURFACE_KINDS: readonly AgentStackFixtureSurfaceKind[] = [
   'validation-warning',
 ];
 const WARNING_SEVERITIES: readonly AgentStackFixtureValidationWarning['severity'][] = ['info', 'warning', 'blocked'];
+const STATIC_RISK_CODE_MAP: Record<string, {
+  category: StaticAgentStackRiskCategory;
+  severity: AgentStackFixtureValidationWarning['severity'];
+  blocksDraftPayload: boolean;
+  message: string;
+}> = {
+  deploy_capable_commands: {
+    category: 'deploy_capable_command',
+    severity: 'blocked',
+    blocksDraftPayload: true,
+    message: 'Deploy-capable command metadata must be reviewed before draft publication.',
+  },
+  wallet_rpc_adjacent_commands: {
+    category: 'wallet_rpc_capable_metadata',
+    severity: 'blocked',
+    blocksDraftPayload: true,
+    message: 'Wallet, signing, or RPC-capable command metadata must be reviewed before draft publication.',
+  },
+  npx_mcp_execution: {
+    category: 'mcp_launcher_execution',
+    severity: 'warning',
+    blocksDraftPayload: true,
+    message: 'npx-launched MCP metadata must be reviewed before draft publication.',
+  },
+  env_required_connector: {
+    category: 'env_required_connector',
+    severity: 'warning',
+    blocksDraftPayload: true,
+    message: 'Environment-required connector metadata must be reviewed before draft publication.',
+  },
+  local_binary_required: {
+    category: 'local_binary_requirement',
+    severity: 'warning',
+    blocksDraftPayload: true,
+    message: 'Local-binary connector metadata must be reviewed before draft publication.',
+  },
+  executable_hooks: {
+    category: 'executable_hook',
+    severity: 'blocked',
+    blocksDraftPayload: true,
+    message: 'Executable hook metadata must be reviewed before draft publication.',
+  },
+  mainnet_deploy_guard_required: {
+    category: 'deploy_capable_command',
+    severity: 'blocked',
+    blocksDraftPayload: true,
+    message: 'Mainnet deploy guard metadata must be reviewed before draft publication.',
+  },
+  permission_policy: {
+    category: 'permission_policy',
+    severity: 'warning',
+    blocksDraftPayload: false,
+    message: 'Permission policy metadata requires operator review before enablement.',
+  },
+  private_path_denylist: {
+    category: 'permission_policy',
+    severity: 'warning',
+    blocksDraftPayload: false,
+    message: 'Private-path denylist metadata requires operator review before enablement.',
+  },
+  external_submodules_declared: {
+    category: 'external_submodule',
+    severity: 'blocked',
+    blocksDraftPayload: true,
+    message: 'External submodule declarations must be reviewed before draft publication.',
+  },
+  installer_script_non_executable_fixture: {
+    category: 'installer_or_update_script',
+    severity: 'blocked',
+    blocksDraftPayload: true,
+    message: 'Installer, update, or test script metadata must be reviewed before draft publication.',
+  },
+  mcp_connector_requires_operator_review: {
+    category: 'env_required_connector',
+    severity: 'warning',
+    blocksDraftPayload: true,
+    message: 'Connector metadata that requires credentials, hosted services, or local binaries must be reviewed before draft publication.',
+  },
+  executable_hooks_require_operator_review: {
+    category: 'executable_hook',
+    severity: 'blocked',
+    blocksDraftPayload: true,
+    message: 'Executable hook metadata must be reviewed before draft publication.',
+  },
+  solana_deploy_command_requires_operator_review: {
+    category: 'deploy_capable_command',
+    severity: 'blocked',
+    blocksDraftPayload: true,
+    message: 'Deploy-capable Solana command metadata must be reviewed before draft publication.',
+  },
+  external_submodules_not_initialized: {
+    category: 'external_submodule',
+    severity: 'warning',
+    blocksDraftPayload: true,
+    message: 'External submodule declarations must be reviewed before draft publication.',
+  },
+};
 
 function error(
   code: AgentStackFixtureValidationErrorCode,
@@ -519,13 +640,80 @@ function connectorRequiresOperatorReview(file: AgentStackFixtureFile, warning?: 
   return file.parseStatus !== 'valid' || (file.warningCodes?.length ?? 0) > 0 || warning !== undefined;
 }
 
+function maxSeverity(
+  left: AgentStackFixtureValidationWarning['severity'],
+  right: AgentStackFixtureValidationWarning['severity'],
+): AgentStackFixtureValidationWarning['severity'] {
+  if (left === 'blocked' || right === 'blocked') return 'blocked';
+  if (left === 'warning' || right === 'warning') return 'warning';
+  return 'info';
+}
+
+function createRiskDiagnostics(corpus: AgentStackFixtureCorpus): StaticAgentStackRiskDiagnostic[] {
+  const byPathAndCategory = new Map<string, StaticAgentStackRiskDiagnostic>();
+  const addRisk = (
+    path: string,
+    sourceKind: StaticAgentStackRiskDiagnostic['sourceKind'],
+    code: string,
+    severityOverride?: AgentStackFixtureValidationWarning['severity'],
+  ): void => {
+    const mapped = STATIC_RISK_CODE_MAP[code];
+    if (!mapped) return;
+
+    const key = `${path}:${mapped.category}`;
+    const severity = severityOverride ? maxSeverity(mapped.severity, severityOverride) : mapped.severity;
+    const existing = byPathAndCategory.get(key);
+    if (existing) {
+      byPathAndCategory.set(key, {
+        ...existing,
+        severity: maxSeverity(existing.severity, severity),
+        warningCodes: existing.warningCodes.includes(code) ? existing.warningCodes : [...existing.warningCodes, code],
+        blocksDraftPayload: existing.blocksDraftPayload || mapped.blocksDraftPayload,
+        operatorReviewRequired: true,
+      });
+      return;
+    }
+
+    byPathAndCategory.set(key, {
+      path,
+      sourceKind,
+      diagnosticLane: 'static_fixture_risk_taxonomy',
+      category: mapped.category,
+      severity,
+      warningCodes: [code],
+      blocksDraftPayload: mapped.blocksDraftPayload,
+      operatorReviewRequired: true,
+      message: mapped.message,
+    });
+  };
+
+  for (const file of corpus.files) {
+    for (const code of file.warningCodes ?? []) {
+      addRisk(file.path, file.kind, code);
+    }
+  }
+
+  for (const warning of corpus.validationWarnings) {
+    addRisk(warning.path, 'validation-warning', warning.code, warning.severity);
+  }
+
+  return [...byPathAndCategory.values()].sort((left, right) => (
+    left.path.localeCompare(right.path)
+    || left.category.localeCompare(right.category)
+  ));
+}
+
 function readinessFromCorpus(
   corpus: AgentStackFixtureCorpus,
   connectorDiagnostics: StaticAgentStackConnectorDiagnostic[],
+  riskDiagnostics: StaticAgentStackRiskDiagnostic[],
   rejectedEntries: StaticAgentStackRejectedEntry[],
 ): StaticAgentStackDraftPayloadReadiness {
   const blockers = [
     ...rejectedEntries.map((entry) => entry.reasonCode),
+    ...riskDiagnostics
+      .filter((diagnostic) => diagnostic.blocksDraftPayload)
+      .map((diagnostic) => `static_risk:${diagnostic.category}:${diagnostic.path}`),
     ...connectorDiagnostics
       .filter((diagnostic) => diagnostic.parseStatus === 'malformed')
       .map((diagnostic) => `malformed_connector:${diagnostic.path}`),
@@ -538,7 +726,11 @@ function readinessFromCorpus(
     return { status: 'blocked', blockers, payloadRefs: [] };
   }
 
-  if (corpus.validationWarnings.length > 0 || connectorDiagnostics.some((diagnostic) => diagnostic.parseStatus !== 'valid')) {
+  if (
+    corpus.validationWarnings.length > 0
+    || connectorDiagnostics.some((diagnostic) => diagnostic.parseStatus !== 'valid')
+    || riskDiagnostics.some((diagnostic) => diagnostic.operatorReviewRequired)
+  ) {
     return {
       status: 'needs_review',
       blockers: ['operator_review_required'],
@@ -594,6 +786,7 @@ export function createStaticAgentStackIngestionResult(
         operatorReviewRequired: true,
         message: 'MCP connector surface has no matching static connector metadata file.',
       })));
+  const riskDiagnostics = createRiskDiagnostics(corpus);
   const rejectedEntries = corpus.validationWarnings
     .filter((warning) => warning.severity === 'blocked')
     .map((warning): StaticAgentStackRejectedEntry => ({
@@ -620,7 +813,7 @@ export function createStaticAgentStackIngestionResult(
       writeCapable: surface.writeCapable ?? false,
       contentTrustBoundary: surface.contentTrustBoundary,
     }));
-  const draftPayloadReadiness = readinessFromCorpus(corpus, connectorDiagnostics, rejectedEntries);
+  const draftPayloadReadiness = readinessFromCorpus(corpus, connectorDiagnostics, riskDiagnostics, rejectedEntries);
   const status: StaticAgentStackIngestionStatus = rejectedEntries.length > 0
     ? 'blocked'
     : draftPayloadReadiness.status !== 'ready'
@@ -635,6 +828,7 @@ export function createStaticAgentStackIngestionResult(
     status,
     inventory,
     connectorDiagnostics,
+    riskDiagnostics,
     rejectedEntries,
     warnings: corpus.validationWarnings,
     draftPayloadReadiness,

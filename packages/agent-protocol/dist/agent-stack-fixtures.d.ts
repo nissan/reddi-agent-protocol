@@ -111,6 +111,18 @@ export type StaticAgentStackConnectorDiagnostic = {
     operatorReviewRequired: boolean;
     message: string;
 };
+export type StaticAgentStackRiskCategory = 'executable_hook' | 'installer_or_update_script' | 'deploy_capable_command' | 'wallet_rpc_capable_metadata' | 'local_binary_requirement' | 'env_required_connector' | 'mcp_launcher_execution' | 'external_submodule' | 'permission_policy';
+export type StaticAgentStackRiskDiagnostic = {
+    path: string;
+    sourceKind: AgentStackFixtureSurfaceKind | 'validation-warning';
+    diagnosticLane: 'static_fixture_risk_taxonomy';
+    category: StaticAgentStackRiskCategory;
+    severity: AgentStackFixtureValidationWarning['severity'];
+    warningCodes: string[];
+    blocksDraftPayload: boolean;
+    operatorReviewRequired: boolean;
+    message: string;
+};
 export type StaticAgentStackRejectedEntry = {
     path: string;
     reasonCode: string;
@@ -129,6 +141,7 @@ export type StaticAgentStackIngestionResult = {
     status: StaticAgentStackIngestionStatus;
     inventory: StaticAgentStackInventoryEntry[];
     connectorDiagnostics: StaticAgentStackConnectorDiagnostic[];
+    riskDiagnostics: StaticAgentStackRiskDiagnostic[];
     rejectedEntries: StaticAgentStackRejectedEntry[];
     warnings: AgentStackFixtureValidationWarning[];
     draftPayloadReadiness: StaticAgentStackDraftPayloadReadiness;

@@ -396,9 +396,139 @@ describe('agent-stack fixture corpus', () => {
       result.rejectedEntries.map((entry) => entry.reasonCode).sort(),
       ['executable_hooks_require_operator_review', 'solana_deploy_command_requires_operator_review'],
     );
+    assert.deepEqual(
+      result.riskDiagnostics.map((diagnostic) => [
+        diagnostic.path,
+        diagnostic.sourceKind,
+        diagnostic.diagnosticLane,
+        diagnostic.category,
+        diagnostic.severity,
+        diagnostic.warningCodes,
+        diagnostic.blocksDraftPayload,
+        diagnostic.operatorReviewRequired,
+      ]),
+      [
+        [
+          '.claude/commands/*.md',
+          'command',
+          'static_fixture_risk_taxonomy',
+          'deploy_capable_command',
+          'blocked',
+          ['deploy_capable_commands'],
+          true,
+          true,
+        ],
+        [
+          '.claude/commands/*.md',
+          'command',
+          'static_fixture_risk_taxonomy',
+          'wallet_rpc_capable_metadata',
+          'blocked',
+          ['wallet_rpc_adjacent_commands'],
+          true,
+          true,
+        ],
+        [
+          '.claude/commands/deploy.md',
+          'validation-warning',
+          'static_fixture_risk_taxonomy',
+          'deploy_capable_command',
+          'blocked',
+          ['solana_deploy_command_requires_operator_review'],
+          true,
+          true,
+        ],
+        [
+          '.claude/settings.json',
+          'command',
+          'static_fixture_risk_taxonomy',
+          'permission_policy',
+          'warning',
+          ['permission_policy', 'private_path_denylist'],
+          false,
+          true,
+        ],
+        [
+          '.gitmodules',
+          'skill',
+          'static_fixture_risk_taxonomy',
+          'external_submodule',
+          'blocked',
+          ['external_submodules_declared', 'external_submodules_not_initialized'],
+          true,
+          true,
+        ],
+        [
+          '.mcp.json',
+          'mcp-connector-config',
+          'static_fixture_risk_taxonomy',
+          'env_required_connector',
+          'warning',
+          ['env_required_connector', 'mcp_connector_requires_operator_review'],
+          true,
+          true,
+        ],
+        [
+          '.mcp.json',
+          'mcp-connector-config',
+          'static_fixture_risk_taxonomy',
+          'local_binary_requirement',
+          'warning',
+          ['local_binary_required'],
+          true,
+          true,
+        ],
+        [
+          '.mcp.json',
+          'mcp-connector-config',
+          'static_fixture_risk_taxonomy',
+          'mcp_launcher_execution',
+          'warning',
+          ['npx_mcp_execution'],
+          true,
+          true,
+        ],
+        [
+          'install.sh',
+          'command',
+          'static_fixture_risk_taxonomy',
+          'installer_or_update_script',
+          'blocked',
+          ['installer_script_non_executable_fixture'],
+          true,
+          true,
+        ],
+        [
+          'plugin/hooks/hooks.json',
+          'command',
+          'static_fixture_risk_taxonomy',
+          'deploy_capable_command',
+          'blocked',
+          ['mainnet_deploy_guard_required'],
+          true,
+          true,
+        ],
+        [
+          'plugin/hooks/hooks.json',
+          'command',
+          'static_fixture_risk_taxonomy',
+          'executable_hook',
+          'blocked',
+          ['executable_hooks', 'executable_hooks_require_operator_review'],
+          true,
+          true,
+        ],
+      ],
+    );
     assert.equal(result.draftPayloadReadiness.status, 'blocked');
     assert.ok(result.draftPayloadReadiness.blockers.includes('executable_hooks_require_operator_review'));
     assert.ok(result.draftPayloadReadiness.blockers.includes('solana_deploy_command_requires_operator_review'));
+    assert.ok(result.draftPayloadReadiness.blockers.includes('static_risk:executable_hook:plugin/hooks/hooks.json'));
+    assert.ok(result.draftPayloadReadiness.blockers.includes('static_risk:deploy_capable_command:.claude/commands/*.md'));
+    assert.ok(result.draftPayloadReadiness.blockers.includes('static_risk:wallet_rpc_capable_metadata:.claude/commands/*.md'));
+    assert.ok(result.draftPayloadReadiness.blockers.includes('static_risk:local_binary_requirement:.mcp.json'));
+    assert.ok(result.draftPayloadReadiness.blockers.includes('static_risk:env_required_connector:.mcp.json'));
+    assert.ok(result.draftPayloadReadiness.blockers.includes('static_risk:external_submodule:.gitmodules'));
     assert.deepEqual(result.draftPayloadReadiness.payloadRefs, []);
   });
 
@@ -459,6 +589,7 @@ describe('agent-stack fixture corpus', () => {
       ]],
     );
     assert.equal(readyResult.draftPayloadReadiness.status, 'ready');
+    assert.deepEqual(readyResult.riskDiagnostics, []);
     assert.deepEqual(readyResult.draftPayloadReadiness.payloadRefs, [
       'static-ingestion:agent-stack-fixture:anthropic-financial-services:2026-06-18:draft-profile',
       'static-ingestion:agent-stack-fixture:anthropic-financial-services:2026-06-18:draft-listing',
@@ -535,6 +666,16 @@ describe('agent-stack fixture corpus', () => {
     assert.ok(!diagnostic.warningCodes.includes('executable_hooks'));
     assert.ok(!diagnostic.warningCodes.includes('mainnet_deploy_guard_required'));
     assert.ok(!diagnostic.warningCodes.includes('external_submodules_declared'));
+    assert.deepEqual(
+      connectorRiskResult.riskDiagnostics
+        .filter((item) => item.path === '.mcp.json')
+        .map((item) => item.category),
+      [],
+    );
+    assert.equal(
+      connectorRiskResult.riskDiagnostics.some((item) => item.category === 'executable_hook' && item.path === '.mcp.json'),
+      false,
+    );
     assert.equal(connectorRiskResult.draftPayloadReadiness.blockers.includes('executable_hooks_require_operator_review'), true);
     assert.equal(connectorRiskResult.draftPayloadReadiness.blockers.includes('solana_deploy_command_requires_operator_review'), true);
   });
