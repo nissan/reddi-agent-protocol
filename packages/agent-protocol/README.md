@@ -75,6 +75,7 @@ console.log(solanaKit.draftPayloadReadiness.status); // blocked until hooks, dep
 console.log(solanaKit.riskDiagnostics.map((diagnostic) => diagnostic.category)); // static risk taxonomy for operator review
 console.log(solanaKit.capabilityInventory.entries.map((entry) => entry.runtimeSurface)); // parsed static inventory handoff
 console.log(solanaKit.draftPayloads.listing.publicationDisabled); // true until payment, endpoint, review, and readiness gates pass
+console.log(solanaKit.operatorReviewPayload.publication.disabled); // true until operator approval and readiness gates pass
 ```
 
 Agent-stack fixture corpora are public, static inputs for onboarding-analyser parser and diagnostics work. The built-in Anthropic financial-services fixture records source URL, checked commit, license/source notes, authenticity notes, crawl timestamp, local research artifact path, high-level marketplace/plugin/managed-agent/MCP surfaces, and validation warnings. The built-in Solana AI Kit fixture records the same source provenance for a Solana-heavy agent-stack toolkit with plugin metadata, agent definitions, commands, MCP declarations, hooks, rules, skills, installer/update/test scripts, and external submodule declarations.
@@ -89,7 +90,9 @@ Risk diagnostics normalize executable hooks, installer/update/test scripts, depl
 
 Draft payloads produce a RAP agent profile draft, AI Catalog fragment, and registry/listing draft from static fixture metadata. They carry missing-payment, missing-endpoint, malformed-connector, rejected-entry, unsafe-metadata, and static-risk states forward while keeping publication disabled, payment activation disabled, provider trust unverified, and imported content untrusted until later operator and readiness gates pass.
 
-The fixture corpus never installs Claude plugins, executes repo scripts, invokes managed agents, contacts MCP servers, fetches paid/provider data, requires credentials, starts local services, calls wallets/RPC endpoints, or publishes imported surfaces as payable RAP listings. Parser, connector-diagnostics, draft-profile, and operator-review behavior land in later RAP slices.
+Operator review payloads expose deterministic backend hooks for imported agent-stack review queues. They group parsed repo/plugin surfaces, validation warnings, rejected entries, raw snapshot references, missing payment and endpoint setup, malformed connector states, static risk blockers, and buyer-preview lanes for capability relevance, source authenticity, trust evidence, payment readiness, safety risk, and reputation. They are payloads only: approval, publication, payment activation, provider trust, and reputation remain disabled or unverified until explicit operator approval and #373/#377 readiness gates pass.
+
+The fixture corpus never installs Claude plugins, executes repo scripts, invokes managed agents, contacts MCP servers, fetches paid/provider data, requires credentials, starts local services, calls wallets/RPC endpoints, or publishes imported surfaces as payable RAP listings. Parser, connector-diagnostics, draft-profile, and operator-review behavior are static metadata transformations only.
 
 ## Provider Trust Records
 

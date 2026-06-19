@@ -2,6 +2,7 @@ export declare const AGENT_STACK_FIXTURE_CORPUS_SCHEMA_VERSION: "reddi.agent-sta
 export declare const STATIC_AGENT_STACK_INGESTION_RESULT_SCHEMA_VERSION: "reddi.static-agent-stack-ingestion-result.v1";
 export declare const STATIC_AGENT_STACK_CAPABILITY_INVENTORY_SCHEMA_VERSION: "reddi.static-agent-stack-capability-inventory.v1";
 export declare const STATIC_AGENT_STACK_DRAFT_PAYLOADS_SCHEMA_VERSION: "reddi.static-agent-stack-draft-payloads.v1";
+export declare const STATIC_AGENT_STACK_OPERATOR_REVIEW_PAYLOAD_SCHEMA_VERSION: "reddi.static-agent-stack-operator-review-payload.v1";
 export type AgentStackFixtureSurfaceKind = 'repo-marketplace-metadata' | 'claude-plugin' | 'managed-agent-cookbook' | 'mcp-connector-config' | 'skill' | 'command' | 'subagent' | 'partner-plugin' | 'vertical-plugin' | 'validation-warning';
 export type AgentStackFixtureValidationErrorCode = 'malformed_fixture_corpus' | 'invalid_source_reference' | 'credential_leakage_rejected' | 'invalid_commit_ref' | 'invalid_timestamp' | 'unsafe_url' | 'corpus_too_large';
 export type AgentStackFixtureValidationError = {
@@ -245,6 +246,65 @@ export type StaticAgentStackDraftPayloads = {
     aiCatalogFragment: StaticAgentStackAiCatalogFragment;
     listing: StaticAgentStackListingPayload;
 };
+export type StaticAgentStackOperatorReviewStatus = 'approve_ready' | 'request_changes' | 'rejected' | 'suspended';
+export type StaticAgentStackOperatorReviewStateCode = 'approve_ready_draft' | 'rejected_malformed_connector' | 'request_changes_missing_payment' | 'unsafe_metadata_warning' | 'suspended_imported_listing' | 'static_risk_blocker';
+export type StaticAgentStackOperatorReviewItem = {
+    id: string;
+    state: StaticAgentStackOperatorReviewStateCode;
+    severity: AgentStackFixtureValidationWarning['severity'];
+    path?: string;
+    source: 'draft_payload' | 'connector_diagnostic' | 'risk_diagnostic' | 'rejected_entry' | 'validation_warning';
+    reasonCodes: string[];
+    message: string;
+    blocksPublication: boolean;
+    recommendedAction: 'approve_after_readiness_gates' | 'request_payment_setup' | 'request_endpoint_binding' | 'reject_or_fix_malformed_connector' | 'review_static_risk' | 'review_unsafe_metadata' | 'keep_suspended';
+};
+export type StaticAgentStackOperatorReviewGroup = {
+    groupId: string;
+    name: string;
+    sourceKind: AgentStackFixtureSurfaceKind;
+    sourcePath: string;
+    runtimeSurface?: string;
+    capabilityRefs: string[];
+    writeCapable: boolean;
+    humanReviewRequired: boolean;
+    rawSnapshotRefs: string[];
+};
+export type StaticAgentStackOperatorReviewPayload = {
+    schemaVersion: typeof STATIC_AGENT_STACK_OPERATOR_REVIEW_PAYLOAD_SCHEMA_VERSION;
+    reviewId: string;
+    corpusId: string;
+    status: StaticAgentStackOperatorReviewStatus;
+    source: {
+        sourceUrl: string;
+        checkedCommit: string;
+        checkedRef?: string;
+        sourceAuthenticity: 'source_snapshot_recorded';
+        providerTrust: 'unverified';
+        importedContentTrust: 'untrusted';
+    };
+    publication: {
+        disabled: true;
+        requiresOperatorApproval: true;
+        readinessGateRefs: ['#373', '#377'];
+    };
+    payment: {
+        status: 'missing_payment_setup';
+        activation: 'disabled';
+        operatorAction: 'request_payment_setup';
+    };
+    groups: StaticAgentStackOperatorReviewGroup[];
+    reviewItems: StaticAgentStackOperatorReviewItem[];
+    buyerPreview: {
+        capabilityRelevance: 'static_capability_inventory_only';
+        sourceAuthenticity: 'snapshot_recorded_not_provider_trust';
+        trustEvidence: 'unverified_until_operator_review';
+        paymentReadiness: 'missing_payment_setup';
+        safetyRisk: 'operator_review_required';
+        reputation: 'none_for_imported_fixture';
+    };
+    rawSnapshotRefs: string[];
+};
 export type StaticAgentStackIngestionResult = {
     schemaVersion: typeof STATIC_AGENT_STACK_INGESTION_RESULT_SCHEMA_VERSION;
     corpusId: string;
@@ -259,6 +319,7 @@ export type StaticAgentStackIngestionResult = {
     warnings: AgentStackFixtureValidationWarning[];
     draftPayloadReadiness: StaticAgentStackDraftPayloadReadiness;
     draftPayloads: StaticAgentStackDraftPayloads;
+    operatorReviewPayload: StaticAgentStackOperatorReviewPayload;
     staticOnly: true;
     nonGoals: string[];
 };

@@ -953,6 +953,130 @@ describe('agent-stack fixture corpus', () => {
     assert.ok(stateTriples.some((state) => state[0] === 'missing_endpoint' && state[1] === 'warning'));
   });
 
+  it('creates operator review hooks for malformed connectors and missing payment without enabling publication', () => {
+    const result = createStaticAgentStackIngestionResult(agentStackFixtureCorpora.anthropicFinancialServices);
+    const itemStates = result.operatorReviewPayload.reviewItems.map((item) => [item.state, item.severity, item.path]);
+
+    assert.equal(result.operatorReviewPayload.schemaVersion, 'reddi.static-agent-stack-operator-review-payload.v1');
+    assert.equal(result.operatorReviewPayload.reviewId, 'operator-review:agent-stack-fixture:anthropic-financial-services:2026-06-18');
+    assert.equal(result.operatorReviewPayload.status, 'rejected');
+    assert.deepEqual(result.operatorReviewPayload.publication, {
+      disabled: true,
+      requiresOperatorApproval: true,
+      readinessGateRefs: ['#373', '#377'],
+    });
+    assert.deepEqual(result.operatorReviewPayload.payment, {
+      status: 'missing_payment_setup',
+      activation: 'disabled',
+      operatorAction: 'request_payment_setup',
+    });
+    assert.deepEqual(result.operatorReviewPayload.source, {
+      sourceUrl: 'https://github.com/anthropics/financial-services',
+      checkedCommit: '4bbabc7cd1a474c1667fa05a2bfe58e411dcf9c1',
+      checkedRef: 'main',
+      sourceAuthenticity: 'source_snapshot_recorded',
+      providerTrust: 'unverified',
+      importedContentTrust: 'untrusted',
+    });
+    assert.deepEqual(result.operatorReviewPayload.buyerPreview, {
+      capabilityRelevance: 'static_capability_inventory_only',
+      sourceAuthenticity: 'snapshot_recorded_not_provider_trust',
+      trustEvidence: 'unverified_until_operator_review',
+      paymentReadiness: 'missing_payment_setup',
+      safetyRisk: 'operator_review_required',
+      reputation: 'none_for_imported_fixture',
+    });
+    assert.ok(result.operatorReviewPayload.groups.some((group) => (
+      group.sourceKind === 'claude-plugin'
+      && group.writeCapable
+      && group.humanReviewRequired
+      && group.rawSnapshotRefs.includes('source:https://github.com/anthropics/financial-services#4bbabc7cd1a474c1667fa05a2bfe58e411dcf9c1')
+    )));
+    assert.ok(itemStates.some((state) => state[0] === 'approve_ready_draft' && state[1] === 'info' && state[2] === undefined));
+    assert.ok(itemStates.some((state) => state[0] === 'request_changes_missing_payment' && state[1] === 'warning' && state[2] === undefined));
+    assert.ok(itemStates.some((state) => state[0] === 'request_changes_missing_payment' && state[2] === 'invocation-endpoint'));
+    assert.ok(itemStates.some((state) => (
+      state[0] === 'rejected_malformed_connector'
+      && state[1] === 'blocked'
+      && state[2] === 'plugins/vertical-plugins/financial-analysis/.mcp.json'
+    )));
+    assert.ok(itemStates.some((state) => (
+      state[0] === 'unsafe_metadata_warning'
+      && state[1] === 'warning'
+      && state[2] === 'plugins/vertical-plugins/financial-analysis/.mcp.json'
+    )));
+    assert.equal(result.operatorReviewPayload.reviewItems.every((item) => item.blocksPublication || item.severity === 'info'), true);
+  });
+
+  it('carries rejected and suspended imported listing states into operator review payloads', () => {
+    const result = createStaticAgentStackIngestionResult({
+      ...agentStackFixtureCorpora.anthropicFinancialServices,
+      validationWarnings: [
+        ...agentStackFixtureCorpora.anthropicFinancialServices.validationWarnings,
+        {
+          code: 'unsafe_metadata',
+          severity: 'blocked',
+          path: 'plugins/partner-plugins/example/plugin.json',
+          message: 'Unsafe imported metadata must not be exposed to operator approval.',
+        },
+      ],
+    });
+    const suspendedItem = result.operatorReviewPayload.reviewItems.find((item) => (
+      item.state === 'suspended_imported_listing'
+      && item.path === 'plugins/partner-plugins/example/plugin.json'
+    ));
+
+    assert.equal(result.operatorReviewPayload.status, 'suspended');
+    assert.deepEqual(suspendedItem?.reasonCodes, ['unsafe_metadata']);
+    assert.equal(suspendedItem?.recommendedAction, 'keep_suspended');
+    assert.equal(suspendedItem?.blocksPublication, true);
+  });
+
+  it('keeps approve-ready operator review payloads gated on payment, endpoint, and readiness approval', () => {
+    const result = createStaticAgentStackIngestionResult({
+      ...agentStackFixtureCorpora.anthropicFinancialServices,
+      files: agentStackFixtureCorpora.anthropicFinancialServices.files.map((file) => file.kind === 'mcp-connector-config'
+        ? {
+          ...file,
+          parseStatus: 'valid',
+          warningCodes: [],
+        }
+        : file),
+      validationWarnings: [],
+    });
+    const reviewStates = result.operatorReviewPayload.reviewItems.map((item) => item.state);
+
+    assert.equal(result.status, 'ready_for_draft');
+    assert.equal(result.operatorReviewPayload.status, 'request_changes');
+    assert.ok(reviewStates.includes('approve_ready_draft'));
+    assert.ok(reviewStates.includes('request_changes_missing_payment'));
+    assert.ok(!reviewStates.includes('rejected_malformed_connector'));
+    assert.ok(!reviewStates.includes('static_risk_blocker'));
+    assert.equal(result.operatorReviewPayload.publication.disabled, true);
+    assert.equal(result.operatorReviewPayload.payment.activation, 'disabled');
+    assert.equal(result.operatorReviewPayload.source.providerTrust, 'unverified');
+    assert.equal(result.operatorReviewPayload.source.importedContentTrust, 'untrusted');
+  });
+
+  it('exposes Solana static risk blockers as operator review items without executing imported metadata', () => {
+    const result = createStaticAgentStackIngestionResult(agentStackFixtureCorpora.solanaAiKit);
+    const riskItems = result.operatorReviewPayload.reviewItems.filter((item) => item.state === 'static_risk_blocker');
+
+    assert.equal(result.operatorReviewPayload.status, 'suspended');
+    assert.ok(riskItems.some((item) => item.path === 'plugin/hooks/hooks.json' && item.reasonCodes.includes('executable_hooks')));
+    assert.ok(riskItems.some((item) => item.path === '.claude/commands/*.md' && item.reasonCodes.includes('deploy_capable_commands')));
+    assert.ok(riskItems.some((item) => item.path === '.mcp.json' && item.reasonCodes.includes('env_required_connector')));
+    assert.ok(riskItems.some((item) => item.path === '.mcp.json' && item.reasonCodes.includes('local_binary_required')));
+    assert.ok(riskItems.some((item) => item.path === '.gitmodules' && item.reasonCodes.includes('external_submodules_declared')));
+    assert.equal(result.operatorReviewPayload.groups.some((group) => (
+      group.sourcePath === '.claude/commands/*.md'
+      && group.capabilityRefs.includes('deploy')
+      && group.humanReviewRequired
+    )), true);
+    assert.equal(result.operatorReviewPayload.publication.disabled, true);
+    assert.equal(result.operatorReviewPayload.payment.activation, 'disabled');
+  });
+
   it('does not expose a static ingestion result for invalid or credential-shaped corpora', () => {
     assert.throws(
       () => createStaticAgentStackIngestionResult({

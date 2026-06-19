@@ -2,6 +2,7 @@ export const AGENT_STACK_FIXTURE_CORPUS_SCHEMA_VERSION = 'reddi.agent-stack-fixt
 export const STATIC_AGENT_STACK_INGESTION_RESULT_SCHEMA_VERSION = 'reddi.static-agent-stack-ingestion-result.v1';
 export const STATIC_AGENT_STACK_CAPABILITY_INVENTORY_SCHEMA_VERSION = 'reddi.static-agent-stack-capability-inventory.v1';
 export const STATIC_AGENT_STACK_DRAFT_PAYLOADS_SCHEMA_VERSION = 'reddi.static-agent-stack-draft-payloads.v1';
+export const STATIC_AGENT_STACK_OPERATOR_REVIEW_PAYLOAD_SCHEMA_VERSION = 'reddi.static-agent-stack-operator-review-payload.v1';
 const COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/i;
 const RFC3339_UTC_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 const SAFE_PATH_PATTERN = /^[A-Za-z0-9._~@:/+*{}[\], -]+$/;
@@ -704,6 +705,153 @@ function createDraftPayloads(corpus, capabilityInventory, connectorDiagnostics, 
         },
     };
 }
+function reviewItemId(corpusId, state, path) {
+    return `operator-review:${corpusId}:${state}${path ? `:${path}` : ''}`;
+}
+function statusFromReviewItems(reviewItems) {
+    if (reviewItems.some((item) => item.state === 'suspended_imported_listing'))
+        return 'suspended';
+    if (reviewItems.some((item) => item.state === 'rejected_malformed_connector' || item.state === 'static_risk_blocker'))
+        return 'rejected';
+    if (reviewItems.some((item) => item.state === 'request_changes_missing_payment' || item.state === 'unsafe_metadata_warning')) {
+        return 'request_changes';
+    }
+    return 'approve_ready';
+}
+function createOperatorReviewPayload(corpus, capabilityInventory, connectorDiagnostics, riskDiagnostics, rejectedEntries, warnings, draftPayloads) {
+    const rawSnapshotRefs = rawSnapshotRefsForCorpus(corpus);
+    const reviewItems = [
+        {
+            id: reviewItemId(corpus.id, 'approve_ready_draft'),
+            state: 'approve_ready_draft',
+            severity: 'info',
+            source: 'draft_payload',
+            reasonCodes: ['operator_approval_required', 'readiness_gates_required'],
+            message: 'Draft listing cannot become public until operator approval and readiness gates pass.',
+            blocksPublication: true,
+            recommendedAction: 'approve_after_readiness_gates',
+        },
+        {
+            id: reviewItemId(corpus.id, 'request_changes_missing_payment'),
+            state: 'request_changes_missing_payment',
+            severity: 'warning',
+            source: 'draft_payload',
+            reasonCodes: ['missing_payment_setup'],
+            message: 'Payment setup is missing; payment activation remains disabled.',
+            blocksPublication: true,
+            recommendedAction: 'request_payment_setup',
+        },
+        {
+            id: reviewItemId(corpus.id, 'request_changes_missing_payment', 'invocation-endpoint'),
+            state: 'request_changes_missing_payment',
+            severity: 'warning',
+            path: 'invocation-endpoint',
+            source: 'draft_payload',
+            reasonCodes: ['missing_endpoint_binding'],
+            message: 'Invocation endpoint binding is missing and must be supplied before publication.',
+            blocksPublication: true,
+            recommendedAction: 'request_endpoint_binding',
+        },
+        ...connectorDiagnostics
+            .filter((diagnostic) => diagnostic.parseStatus === 'malformed' || diagnostic.parseStatus === 'missing')
+            .map((diagnostic) => ({
+            id: reviewItemId(corpus.id, 'rejected_malformed_connector', diagnostic.path),
+            state: 'rejected_malformed_connector',
+            severity: 'blocked',
+            path: diagnostic.path,
+            source: 'connector_diagnostic',
+            reasonCodes: diagnostic.warningCodes,
+            message: diagnostic.message,
+            blocksPublication: true,
+            recommendedAction: 'reject_or_fix_malformed_connector',
+        })),
+        ...riskDiagnostics
+            .filter((diagnostic) => diagnostic.operatorReviewRequired)
+            .map((diagnostic) => ({
+            id: reviewItemId(corpus.id, 'static_risk_blocker', diagnostic.path),
+            state: 'static_risk_blocker',
+            severity: diagnostic.blocksDraftPayload ? 'blocked' : diagnostic.severity,
+            path: diagnostic.path,
+            source: 'risk_diagnostic',
+            reasonCodes: diagnostic.warningCodes,
+            message: diagnostic.message,
+            blocksPublication: true,
+            recommendedAction: 'review_static_risk',
+        })),
+        ...rejectedEntries.map((entry) => ({
+            id: reviewItemId(corpus.id, 'suspended_imported_listing', entry.path),
+            state: 'suspended_imported_listing',
+            severity: 'blocked',
+            path: entry.path,
+            source: 'rejected_entry',
+            reasonCodes: [entry.reasonCode],
+            message: entry.message,
+            blocksPublication: true,
+            recommendedAction: 'keep_suspended',
+        })),
+        ...warnings
+            .filter((warning) => warning.severity !== 'blocked')
+            .map((warning) => ({
+            id: reviewItemId(corpus.id, 'unsafe_metadata_warning', warning.path),
+            state: 'unsafe_metadata_warning',
+            severity: warning.severity,
+            path: warning.path,
+            source: 'validation_warning',
+            reasonCodes: [warning.code],
+            message: warning.message,
+            blocksPublication: warning.severity === 'warning',
+            recommendedAction: 'review_unsafe_metadata',
+        })),
+    ];
+    return {
+        schemaVersion: STATIC_AGENT_STACK_OPERATOR_REVIEW_PAYLOAD_SCHEMA_VERSION,
+        reviewId: `operator-review:${corpus.id}`,
+        corpusId: corpus.id,
+        status: statusFromReviewItems(reviewItems),
+        source: {
+            sourceUrl: corpus.source.sourceUrl,
+            checkedCommit: corpus.source.checkedCommit,
+            checkedRef: corpus.source.checkedRef,
+            sourceAuthenticity: 'source_snapshot_recorded',
+            providerTrust: 'unverified',
+            importedContentTrust: 'untrusted',
+        },
+        publication: {
+            disabled: true,
+            requiresOperatorApproval: true,
+            readinessGateRefs: ['#373', '#377'],
+        },
+        payment: {
+            status: 'missing_payment_setup',
+            activation: 'disabled',
+            operatorAction: 'request_payment_setup',
+        },
+        groups: capabilityInventory.entries.map((entry) => ({
+            groupId: `operator-review-group:${entry.capabilityId}`,
+            name: entry.capabilityName,
+            sourceKind: entry.sourceKind,
+            sourcePath: entry.sourcePath,
+            runtimeSurface: entry.runtimeSurface,
+            capabilityRefs: [entry.capabilityId, ...entry.commands, ...entry.skills],
+            writeCapable: entry.writeCapable,
+            humanReviewRequired: (entry.humanReviewHints.length > 0
+                || entry.writeCapable
+                || entry.sideEffectRisk === 'write'
+                || entry.sideEffectRisk === 'execute'),
+            rawSnapshotRefs,
+        })),
+        reviewItems,
+        buyerPreview: {
+            capabilityRelevance: 'static_capability_inventory_only',
+            sourceAuthenticity: 'snapshot_recorded_not_provider_trust',
+            trustEvidence: 'unverified_until_operator_review',
+            paymentReadiness: 'missing_payment_setup',
+            safetyRisk: 'operator_review_required',
+            reputation: 'none_for_imported_fixture',
+        },
+        rawSnapshotRefs: draftPayloads.profile.rawSnapshotRefs,
+    };
+}
 export function createStaticAgentStackIngestionResult(input, options = {}) {
     const corpus = createAgentStackFixtureCorpus(input, options);
     const warningByPath = new Map(corpus.validationWarnings.map((warning) => [warning.path, warning]));
@@ -770,6 +918,7 @@ export function createStaticAgentStackIngestionResult(input, options = {}) {
     const capabilityInventory = createCapabilityInventoryBundle(corpus, inventory, rejectedEntries);
     const draftPayloadReadiness = readinessFromCorpus(corpus, connectorDiagnostics, riskDiagnostics, rejectedEntries);
     const draftPayloads = createDraftPayloads(corpus, capabilityInventory, connectorDiagnostics, riskDiagnostics, rejectedEntries, corpus.validationWarnings, draftPayloadReadiness);
+    const operatorReviewPayload = createOperatorReviewPayload(corpus, capabilityInventory, connectorDiagnostics, riskDiagnostics, rejectedEntries, corpus.validationWarnings, draftPayloads);
     const status = rejectedEntries.length > 0
         ? 'blocked'
         : draftPayloadReadiness.status !== 'ready'
@@ -789,6 +938,7 @@ export function createStaticAgentStackIngestionResult(input, options = {}) {
         warnings: corpus.validationWarnings,
         draftPayloadReadiness,
         draftPayloads,
+        operatorReviewPayload,
         staticOnly: true,
         nonGoals: corpus.nonGoals,
     };
