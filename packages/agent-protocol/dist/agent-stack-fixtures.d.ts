@@ -1,5 +1,6 @@
 export declare const AGENT_STACK_FIXTURE_CORPUS_SCHEMA_VERSION: "reddi.agent-stack-fixture-corpus.v1";
 export declare const STATIC_AGENT_STACK_INGESTION_RESULT_SCHEMA_VERSION: "reddi.static-agent-stack-ingestion-result.v1";
+export declare const STATIC_AGENT_STACK_CAPABILITY_INVENTORY_SCHEMA_VERSION: "reddi.static-agent-stack-capability-inventory.v1";
 export type AgentStackFixtureSurfaceKind = 'repo-marketplace-metadata' | 'claude-plugin' | 'managed-agent-cookbook' | 'mcp-connector-config' | 'skill' | 'command' | 'subagent' | 'partner-plugin' | 'vertical-plugin' | 'validation-warning';
 export type AgentStackFixtureValidationErrorCode = 'malformed_fixture_corpus' | 'invalid_source_reference' | 'credential_leakage_rejected' | 'invalid_commit_ref' | 'invalid_timestamp' | 'unsafe_url' | 'corpus_too_large';
 export type AgentStackFixtureValidationError = {
@@ -99,6 +100,46 @@ export type StaticAgentStackInventoryEntry = {
     writeCapable: boolean;
     contentTrustBoundary: AgentStackFixtureSurface['contentTrustBoundary'];
 };
+export type StaticAgentStackCapabilityInventoryEntry = {
+    capabilityId: string;
+    capabilityName: string;
+    sourceKind: AgentStackFixtureSurfaceKind;
+    sourcePath: string;
+    runtimeSurface?: string;
+    category?: string;
+    commands: string[];
+    skills: string[];
+    toolGrants: string[];
+    authDependencies: string[];
+    dataDependencies: string[];
+    safetyHints: string[];
+    humanReviewHints: string[];
+    writeCapable: boolean;
+    sideEffectRisk: 'none' | 'read' | 'write' | 'execute';
+    contentTrustBoundary: AgentStackFixtureSurface['contentTrustBoundary'];
+    provenance: {
+        corpusId: string;
+        sourceUrl: string;
+        checkedCommit: string;
+        checkedRef?: string;
+        license?: string;
+    };
+};
+export type StaticAgentStackParserDiagnostic = {
+    path: string;
+    sourceKind: AgentStackFixtureSurfaceKind | 'validation-warning';
+    severity: AgentStackFixtureValidationWarning['severity'];
+    code: string;
+    message: string;
+};
+export type StaticAgentStackCapabilityInventoryBundle = {
+    schemaVersion: typeof STATIC_AGENT_STACK_CAPABILITY_INVENTORY_SCHEMA_VERSION;
+    corpusId: string;
+    source: AgentStackFixtureSource;
+    entries: StaticAgentStackCapabilityInventoryEntry[];
+    parserDiagnostics: StaticAgentStackParserDiagnostic[];
+    rejectedEntries: StaticAgentStackRejectedEntry[];
+};
 export type StaticAgentStackConnectorDiagnostic = {
     path: string;
     sourceKind: 'mcp-connector-config';
@@ -140,6 +181,7 @@ export type StaticAgentStackIngestionResult = {
     source: AgentStackFixtureSource;
     status: StaticAgentStackIngestionStatus;
     inventory: StaticAgentStackInventoryEntry[];
+    capabilityInventory: StaticAgentStackCapabilityInventoryBundle;
     connectorDiagnostics: StaticAgentStackConnectorDiagnostic[];
     riskDiagnostics: StaticAgentStackRiskDiagnostic[];
     rejectedEntries: StaticAgentStackRejectedEntry[];

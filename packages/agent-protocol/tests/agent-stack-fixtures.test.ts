@@ -327,6 +327,71 @@ describe('agent-stack fixture corpus', () => {
     assert.equal(result.inventory.some((entry) => entry.kind === 'claude-plugin'), true);
     assert.equal(result.inventory.some((entry) => entry.kind === 'validation-warning'), false);
     assert.equal(result.inventory.find((entry) => entry.kind === 'claude-plugin')?.writeCapable, true);
+    assert.equal(result.capabilityInventory.schemaVersion, 'reddi.static-agent-stack-capability-inventory.v1');
+    assert.equal(result.capabilityInventory.corpusId, agentStackFixtureCorpora.anthropicFinancialServices.id);
+    assert.equal(result.capabilityInventory.entries.length, 4);
+    assert.deepEqual(
+      result.capabilityInventory.entries.map((entry) => [
+        entry.capabilityId,
+        entry.sourceKind,
+        entry.sourcePath,
+        entry.runtimeSurface,
+        entry.sideEffectRisk,
+        entry.contentTrustBoundary,
+        entry.provenance.checkedCommit,
+      ]),
+      [
+        [
+          'surface:anthropic-financial-services:marketplace',
+          'repo-marketplace-metadata',
+          '.claude-plugin/marketplace.json',
+          'claude-plugin-marketplace',
+          'none',
+          'metadata_only',
+          '4bbabc7cd1a474c1667fa05a2bfe58e411dcf9c1',
+        ],
+        [
+          'surface:anthropic-financial-services:plugins',
+          'claude-plugin',
+          'plugins/',
+          'claude-code-plugin',
+          'write',
+          'untrusted_public_text',
+          '4bbabc7cd1a474c1667fa05a2bfe58e411dcf9c1',
+        ],
+        [
+          'surface:anthropic-financial-services:managed-agents',
+          'managed-agent-cookbook',
+          'managed-agents/',
+          'claude-managed-agent',
+          'none',
+          'untrusted_public_text',
+          '4bbabc7cd1a474c1667fa05a2bfe58e411dcf9c1',
+        ],
+        [
+          'surface:anthropic-financial-services:mcp-connectors',
+          'mcp-connector-config',
+          'plugins/vertical-plugins/financial-analysis/.mcp.json',
+          'mcp-connector-config',
+          'none',
+          'metadata_only',
+          '4bbabc7cd1a474c1667fa05a2bfe58e411dcf9c1',
+        ],
+      ],
+    );
+    assert.deepEqual(
+      result.capabilityInventory.parserDiagnostics.map((diagnostic) => [
+        diagnostic.path,
+        diagnostic.sourceKind,
+        diagnostic.severity,
+        diagnostic.code,
+      ]),
+      [
+        ['plugins/', 'validation-warning', 'info', 'untrusted_prompt_text'],
+        ['plugins/vertical-plugins/financial-analysis/.mcp.json', 'validation-warning', 'warning', 'malformed_mcp_json'],
+        ['plugins/vertical-plugins/financial-analysis/.mcp.json', 'mcp-connector-config', 'blocked', 'malformed_static_metadata'],
+      ],
+    );
     assert.deepEqual(
       result.connectorDiagnostics.map((diagnostic) => [
         diagnostic.path,
@@ -368,6 +433,123 @@ describe('agent-stack fixture corpus', () => {
     assert.ok(inventoryKinds.has('command'));
     assert.ok(inventoryKinds.has('mcp-connector-config'));
     assert.equal(result.inventory.find((entry) => entry.sourcePath === 'plugin/hooks/hooks.json')?.writeCapable, true);
+    assert.equal(result.capabilityInventory.entries.length, 8);
+    assert.deepEqual(
+      result.capabilityInventory.entries.map((entry) => [
+        entry.capabilityId,
+        entry.sourceKind,
+        entry.sourcePath,
+        entry.runtimeSurface,
+        entry.sideEffectRisk,
+        entry.writeCapable,
+        entry.contentTrustBoundary,
+      ]),
+      [
+        [
+          'surface:solana-ai-kit:marketplace',
+          'repo-marketplace-metadata',
+          '.claude-plugin/marketplace.json',
+          'claude-plugin-marketplace',
+          'none',
+          false,
+          'metadata_only',
+        ],
+        [
+          'surface:solana-ai-kit:plugin',
+          'claude-plugin',
+          'plugin/.claude-plugin/plugin.json',
+          'claude-code-plugin',
+          'execute',
+          true,
+          'untrusted_public_text',
+        ],
+        [
+          'surface:solana-ai-kit:agents',
+          'subagent',
+          '.claude/agents/*.md',
+          'claude-subagent',
+          'none',
+          false,
+          'untrusted_public_text',
+        ],
+        [
+          'surface:solana-ai-kit:commands',
+          'command',
+          '.claude/commands/*.md',
+          'claude-code-command',
+          'execute',
+          true,
+          'untrusted_public_text',
+        ],
+        [
+          'surface:solana-ai-kit:mcp',
+          'mcp-connector-config',
+          '.mcp.json',
+          'mcp-connector-config',
+          'execute',
+          false,
+          'metadata_only',
+        ],
+        [
+          'surface:solana-ai-kit:hooks',
+          'command',
+          'plugin/hooks/hooks.json',
+          'claude-code-hooks',
+          'execute',
+          true,
+          'untrusted_public_text',
+        ],
+        [
+          'surface:solana-ai-kit:rules-skills',
+          'skill',
+          '.claude/skills/*.md',
+          'claude-skill',
+          'none',
+          false,
+          'untrusted_public_text',
+        ],
+        [
+          'surface:solana-ai-kit:external-submodules',
+          'skill',
+          '.gitmodules',
+          'git-submodule-declarations',
+          'none',
+          false,
+          'metadata_only',
+        ],
+      ],
+    );
+    assert.deepEqual(
+      result.capabilityInventory.entries.find((entry) => entry.sourcePath === '.claude/commands/*.md')?.commands,
+      ['audit-solana', 'build-program', 'debug-user-tx', 'deploy', 'generate-idl-client', 'profile-cu'],
+    );
+    assert.deepEqual(
+      result.capabilityInventory.entries.find((entry) => entry.sourcePath === '.claude/commands/*.md')?.toolGrants,
+      ['bash', 'git', 'solana-cli', 'anchor', 'cargo', 'npx'],
+    );
+    assert.deepEqual(
+      result.capabilityInventory.entries.find((entry) => entry.sourcePath === '.claude/agents/*.md')?.skills,
+      ['solana architecture', 'anchor', 'pinocchio', 'token-2022', 'qa', 'mobile', 'frontend'],
+    );
+    assert.equal(
+      result.capabilityInventory.entries.every((entry) => entry.provenance.checkedCommit === '4fb9d3d619467e068c1cf3120d3933aa933aeb21'),
+      true,
+    );
+    assert.deepEqual(
+      result.capabilityInventory.parserDiagnostics.map((diagnostic) => [
+        diagnostic.path,
+        diagnostic.sourceKind,
+        diagnostic.severity,
+        diagnostic.code,
+      ]),
+      [
+        ['.claude/agents/*.md', 'validation-warning', 'info', 'untrusted_solana_agent_text'],
+        ['.claude/commands/deploy.md', 'validation-warning', 'blocked', 'solana_deploy_command_requires_operator_review'],
+        ['.gitmodules', 'validation-warning', 'info', 'external_submodules_not_initialized'],
+        ['.mcp.json', 'validation-warning', 'warning', 'mcp_connector_requires_operator_review'],
+        ['plugin/hooks/hooks.json', 'validation-warning', 'blocked', 'executable_hooks_require_operator_review'],
+      ],
+    );
     assert.deepEqual(
       result.connectorDiagnostics.map((diagnostic) => [
         diagnostic.path,

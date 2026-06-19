@@ -73,13 +73,16 @@ console.log(corpus.files.some((file) => file.parseStatus === 'malformed')); // t
 console.log(result.status); // partial_success while malformed connector diagnostics block draft readiness
 console.log(solanaKit.draftPayloadReadiness.status); // blocked until hooks, deploy commands, and MCPs are reviewed
 console.log(solanaKit.riskDiagnostics.map((diagnostic) => diagnostic.category)); // static risk taxonomy for operator review
+console.log(solanaKit.capabilityInventory.entries.map((entry) => entry.runtimeSurface)); // parsed static inventory handoff
 ```
 
 Agent-stack fixture corpora are public, static inputs for onboarding-analyser parser and diagnostics work. The built-in Anthropic financial-services fixture records source URL, checked commit, license/source notes, authenticity notes, crawl timestamp, local research artifact path, high-level marketplace/plugin/managed-agent/MCP surfaces, and validation warnings. The built-in Solana AI Kit fixture records the same source provenance for a Solana-heavy agent-stack toolkit with plugin metadata, agent definitions, commands, MCP declarations, hooks, rules, skills, installer/update/test scripts, and external submodule declarations.
 
 Fixture ingestion rejects credential-shaped metadata, unsafe source URLs, invalid commit refs, invalid timestamps, oversized corpora, and malformed corpus shapes. Public prompt, skill, command, and recipe text is always labelled as untrusted fixture content.
 
-Static ingestion results are deterministic handoff envelopes for later parser, connector-diagnostics, draft-profile, and operator-review work. They combine fixture source metadata, normalized inventory entries, MCP connector diagnostics, non-MCP static risk diagnostics, rejected entries, validation warnings, and draft-payload readiness without fetching the network or executing imported code.
+Static ingestion results are deterministic handoff envelopes for later parser, connector-diagnostics, draft-profile, and operator-review work. They combine fixture source metadata, normalized inventory entries, a parsed capability inventory bundle, MCP connector diagnostics, non-MCP static risk diagnostics, rejected entries, validation warnings, and draft-payload readiness without fetching the network or executing imported code.
+
+The capability inventory bundle is the static #371/#403 handoff. It maps fixture surfaces into source paths, runtime surfaces, commands, skills, tool grants, auth/data dependencies, safety hints, human-review hints, write-capable flags, side-effect risk, content-trust boundaries, parser diagnostics, and fixture provenance. It does not parse or execute imported prompt/skill/command text; those remain untrusted metadata for later operator review.
 
 Risk diagnostics normalize executable hooks, installer/update/test scripts, deploy-capable commands, wallet/RPC-capable command metadata, local binary requirements, env-required connector metadata, MCP launcher execution, permission policies, and external submodule declarations into the same static ingestion result. They are review payloads only; connector parsing still belongs to the MCP connector diagnostics lane.
 

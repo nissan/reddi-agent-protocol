@@ -1,5 +1,6 @@
 export const AGENT_STACK_FIXTURE_CORPUS_SCHEMA_VERSION = 'reddi.agent-stack-fixture-corpus.v1';
 export const STATIC_AGENT_STACK_INGESTION_RESULT_SCHEMA_VERSION = 'reddi.static-agent-stack-ingestion-result.v1';
+export const STATIC_AGENT_STACK_CAPABILITY_INVENTORY_SCHEMA_VERSION = 'reddi.static-agent-stack-capability-inventory.v1';
 const COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/i;
 const RFC3339_UTC_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 const SAFE_PATH_PATTERN = /^[A-Za-z0-9._~@:/+*{}[\], -]+$/;
@@ -454,6 +455,87 @@ function createRiskDiagnostics(corpus) {
     return [...byPathAndCategory.values()].sort((left, right) => (left.path.localeCompare(right.path)
         || left.category.localeCompare(right.category)));
 }
+function sideEffectRiskFromSurface(surface) {
+    const combinedHints = [
+        ...(surface.commands ?? []),
+        ...(surface.toolGrants ?? []),
+        ...(surface.safetyHints ?? []),
+        surface.runtimeSurface ?? '',
+    ].join(' ').toLowerCase();
+    if (combinedHints.includes('hook')
+        || combinedHints.includes('bash')
+        || combinedHints.includes('shell')
+        || combinedHints.includes('deploy')
+        || combinedHints.includes('install')
+        || combinedHints.includes('npx')) {
+        return 'execute';
+    }
+    if (surface.writeCapable)
+        return 'write';
+    if (combinedHints.includes('rpc') || combinedHints.includes('browser') || combinedHints.includes('api'))
+        return 'read';
+    return 'none';
+}
+function createCapabilityInventoryBundle(corpus, inventory, rejectedEntries) {
+    const inventoryById = new Map(inventory.map((entry) => [entry.id, entry]));
+    const entries = corpus.surfaces
+        .filter((surface) => surface.kind !== 'validation-warning')
+        .map((surface) => {
+        const inventoryEntry = inventoryById.get(surface.id);
+        return {
+            capabilityId: surface.id,
+            capabilityName: surface.name,
+            sourceKind: surface.kind,
+            sourcePath: surface.path,
+            runtimeSurface: surface.runtimeSurface,
+            category: surface.category,
+            commands: inventoryEntry?.commands ?? [],
+            skills: inventoryEntry?.skills ?? [],
+            toolGrants: inventoryEntry?.toolGrants ?? [],
+            authDependencies: inventoryEntry?.authDependencies ?? [],
+            dataDependencies: inventoryEntry?.dataDependencies ?? [],
+            safetyHints: inventoryEntry?.safetyHints ?? [],
+            humanReviewHints: inventoryEntry?.humanReviewHints ?? [],
+            writeCapable: inventoryEntry?.writeCapable ?? false,
+            sideEffectRisk: sideEffectRiskFromSurface(surface),
+            contentTrustBoundary: surface.contentTrustBoundary,
+            provenance: {
+                corpusId: corpus.id,
+                sourceUrl: corpus.source.sourceUrl,
+                checkedCommit: corpus.source.checkedCommit,
+                checkedRef: corpus.source.checkedRef,
+                license: corpus.source.license,
+            },
+        };
+    });
+    const malformedFileDiagnostics = corpus.files
+        .filter((file) => file.parseStatus === 'malformed')
+        .map((file) => ({
+        path: file.path,
+        sourceKind: file.kind,
+        severity: 'blocked',
+        code: 'malformed_static_metadata',
+        message: file.parseErrorLocation
+            ? `Static metadata is malformed at ${file.parseErrorLocation}.`
+            : 'Static metadata is malformed.',
+    }));
+    const warningDiagnostics = corpus.validationWarnings.map((warning) => ({
+        path: warning.path,
+        sourceKind: 'validation-warning',
+        severity: warning.severity,
+        code: warning.code,
+        message: warning.message,
+    }));
+    return {
+        schemaVersion: STATIC_AGENT_STACK_CAPABILITY_INVENTORY_SCHEMA_VERSION,
+        corpusId: corpus.id,
+        source: corpus.source,
+        entries,
+        parserDiagnostics: [...malformedFileDiagnostics, ...warningDiagnostics].sort((left, right) => (left.path.localeCompare(right.path)
+            || left.code.localeCompare(right.code))),
+        rejectedEntries,
+    };
+}
 function readinessFromCorpus(corpus, connectorDiagnostics, riskDiagnostics, rejectedEntries) {
     const blockers = [
         ...rejectedEntries.map((entry) => entry.reasonCode),
@@ -548,6 +630,7 @@ export function createStaticAgentStackIngestionResult(input, options = {}) {
         writeCapable: surface.writeCapable ?? false,
         contentTrustBoundary: surface.contentTrustBoundary,
     }));
+    const capabilityInventory = createCapabilityInventoryBundle(corpus, inventory, rejectedEntries);
     const draftPayloadReadiness = readinessFromCorpus(corpus, connectorDiagnostics, riskDiagnostics, rejectedEntries);
     const status = rejectedEntries.length > 0
         ? 'blocked'
@@ -561,6 +644,7 @@ export function createStaticAgentStackIngestionResult(input, options = {}) {
         source: corpus.source,
         status,
         inventory,
+        capabilityInventory,
         connectorDiagnostics,
         riskDiagnostics,
         rejectedEntries,
