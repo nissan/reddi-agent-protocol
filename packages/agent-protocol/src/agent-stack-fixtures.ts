@@ -1,6 +1,7 @@
 export const AGENT_STACK_FIXTURE_CORPUS_SCHEMA_VERSION = 'reddi.agent-stack-fixture-corpus.v1' as const;
 export const STATIC_AGENT_STACK_INGESTION_RESULT_SCHEMA_VERSION = 'reddi.static-agent-stack-ingestion-result.v1' as const;
 export const STATIC_AGENT_STACK_CAPABILITY_INVENTORY_SCHEMA_VERSION = 'reddi.static-agent-stack-capability-inventory.v1' as const;
+export const STATIC_AGENT_STACK_DRAFT_PAYLOADS_SCHEMA_VERSION = 'reddi.static-agent-stack-draft-payloads.v1' as const;
 
 export type AgentStackFixtureSurfaceKind =
   | 'repo-marketplace-metadata'
@@ -229,6 +230,90 @@ export type StaticAgentStackDraftPayloadReadiness = {
   payloadRefs: string[];
 };
 
+export type StaticAgentStackDraftStateCode =
+  | 'listing_draft'
+  | 'missing_payment'
+  | 'missing_endpoint'
+  | 'malformed_connector'
+  | 'missing_connector'
+  | 'static_risk_review_required'
+  | 'rejected_entry'
+  | 'unsafe_metadata_warning';
+
+export type StaticAgentStackDraftState = {
+  code: StaticAgentStackDraftStateCode;
+  severity: AgentStackFixtureValidationWarning['severity'];
+  path?: string;
+  message: string;
+};
+
+export type StaticAgentStackDraftProfile = {
+  schemaVersion: 'reddi.agent-profile.draft.v1';
+  profileId: string;
+  displayName: string;
+  sourceType: 'static-agent-stack-fixture';
+  source: AgentStackFixtureSource;
+  capabilities: StaticAgentStackCapabilityInventoryEntry[];
+  invocation: {
+    endpointType: 'static-fixture-only';
+    endpointUrl?: string;
+    missingEndpoint: boolean;
+  };
+  payment: {
+    status: 'missing_payment_setup';
+    activation: 'disabled';
+  };
+  trust: {
+    sourceAuthenticity: 'verified_source_snapshot';
+    contentTrust: 'untrusted_imported_content';
+    verifiedProviderTrust: false;
+  };
+  policyRequirements: string[];
+  evidenceExpectations: string[];
+  rawSnapshotRefs: string[];
+};
+
+export type StaticAgentStackAiCatalogFragment = {
+  specVersion: '1.0';
+  resources: Array<{
+    id: string;
+    type: 'agent-stack-draft';
+    mediaType: 'application/vnd.reddi.agent-profile+json';
+    name: string;
+    description: string;
+    capabilities: string[];
+    source: {
+      url: string;
+      checkedCommit: string;
+      checkedRef?: string;
+    };
+    trust: {
+      status: 'unverified';
+      note: string;
+    };
+    payment: {
+      status: 'missing_payment_setup';
+    };
+  }>;
+};
+
+export type StaticAgentStackListingPayload = {
+  schemaVersion: 'reddi.registry-listing.draft.v1';
+  listingId: string;
+  status: 'draft' | 'needs_review' | 'blocked';
+  profileRef: string;
+  publicationDisabled: true;
+  operatorReviewRequired: true;
+  states: StaticAgentStackDraftState[];
+};
+
+export type StaticAgentStackDraftPayloads = {
+  schemaVersion: typeof STATIC_AGENT_STACK_DRAFT_PAYLOADS_SCHEMA_VERSION;
+  profile: StaticAgentStackDraftProfile;
+  aiCatalogFragment: StaticAgentStackAiCatalogFragment;
+  listing: StaticAgentStackListingPayload;
+};
+
 export type StaticAgentStackIngestionResult = {
   schemaVersion: typeof STATIC_AGENT_STACK_INGESTION_RESULT_SCHEMA_VERSION;
   corpusId: string;
@@ -242,6 +327,7 @@ export type StaticAgentStackIngestionResult = {
   rejectedEntries: StaticAgentStackRejectedEntry[];
   warnings: AgentStackFixtureValidationWarning[];
   draftPayloadReadiness: StaticAgentStackDraftPayloadReadiness;
+  draftPayloads: StaticAgentStackDraftPayloads;
   staticOnly: true;
   nonGoals: string[];
 };
@@ -880,6 +966,152 @@ function readinessFromCorpus(
   };
 }
 
+function draftStateSeverityFromReadiness(status: StaticAgentStackDraftPayloadReadiness['status']): StaticAgentStackListingPayload['status'] {
+  if (status === 'blocked') return 'blocked';
+  if (status === 'needs_review') return 'needs_review';
+  return 'draft';
+}
+
+function rawSnapshotRefsForCorpus(corpus: AgentStackFixtureCorpus): string[] {
+  return [
+    `source:${corpus.source.sourceUrl}#${corpus.source.checkedCommit}`,
+    ...(corpus.source.localResearchArtifactPath ? [`local:${corpus.source.localResearchArtifactPath}`] : []),
+  ];
+}
+
+function createDraftPayloads(
+  corpus: AgentStackFixtureCorpus,
+  capabilityInventory: StaticAgentStackCapabilityInventoryBundle,
+  connectorDiagnostics: StaticAgentStackConnectorDiagnostic[],
+  riskDiagnostics: StaticAgentStackRiskDiagnostic[],
+  rejectedEntries: StaticAgentStackRejectedEntry[],
+  warnings: AgentStackFixtureValidationWarning[],
+  draftPayloadReadiness: StaticAgentStackDraftPayloadReadiness,
+): StaticAgentStackDraftPayloads {
+  const draftStates: StaticAgentStackDraftState[] = [
+    {
+      code: 'listing_draft',
+      severity: 'info',
+      message: 'Imported static fixture is a draft only until operator approval and readiness gates pass.',
+    },
+    {
+      code: 'missing_payment',
+      severity: 'warning',
+      message: 'Imported static fixture has no payment setup; payment activation is disabled.',
+    },
+    {
+      code: 'missing_endpoint',
+      severity: 'warning',
+      message: 'Imported static fixture has no invocation endpoint; endpoint binding must be supplied before publication.',
+    },
+    ...connectorDiagnostics
+      .filter((diagnostic) => diagnostic.parseStatus === 'malformed' || diagnostic.parseStatus === 'missing')
+      .map((diagnostic): StaticAgentStackDraftState => ({
+        code: diagnostic.parseStatus === 'missing' ? 'missing_connector' : 'malformed_connector',
+        severity: 'blocked',
+        path: diagnostic.path,
+        message: diagnostic.message,
+      })),
+    ...riskDiagnostics
+      .filter((diagnostic) => diagnostic.operatorReviewRequired)
+      .map((diagnostic): StaticAgentStackDraftState => ({
+        code: 'static_risk_review_required',
+        severity: diagnostic.blocksDraftPayload ? 'blocked' : diagnostic.severity,
+        path: diagnostic.path,
+        message: diagnostic.message,
+      })),
+    ...rejectedEntries.map((entry): StaticAgentStackDraftState => ({
+      code: 'rejected_entry',
+      severity: 'blocked',
+      path: entry.path,
+      message: entry.message,
+    })),
+    ...warnings
+      .filter((warning) => warning.severity !== 'blocked')
+      .map((warning): StaticAgentStackDraftState => ({
+        code: 'unsafe_metadata_warning',
+        severity: warning.severity,
+        path: warning.path,
+        message: warning.message,
+      })),
+  ];
+  const profileId = `draft-profile:${corpus.id}`;
+  const listingId = `draft-listing:${corpus.id}`;
+  const capabilityLabels = capabilityInventory.entries.flatMap((entry) => [
+    entry.capabilityName,
+    ...entry.commands,
+    ...entry.skills,
+  ]);
+
+  return {
+    schemaVersion: STATIC_AGENT_STACK_DRAFT_PAYLOADS_SCHEMA_VERSION,
+    profile: {
+      schemaVersion: 'reddi.agent-profile.draft.v1',
+      profileId,
+      displayName: corpus.title,
+      sourceType: 'static-agent-stack-fixture',
+      source: corpus.source,
+      capabilities: capabilityInventory.entries,
+      invocation: {
+        endpointType: 'static-fixture-only',
+        missingEndpoint: true,
+      },
+      payment: {
+        status: 'missing_payment_setup',
+        activation: 'disabled',
+      },
+      trust: {
+        sourceAuthenticity: 'verified_source_snapshot',
+        contentTrust: 'untrusted_imported_content',
+        verifiedProviderTrust: false,
+      },
+      policyRequirements: [
+        'operator_review_required',
+        'payment_setup_required',
+        'endpoint_binding_required',
+      ],
+      evidenceExpectations: [
+        'source_snapshot_reference',
+        'operator_review_record',
+        'readiness_gate_result',
+      ],
+      rawSnapshotRefs: rawSnapshotRefsForCorpus(corpus),
+    },
+    aiCatalogFragment: {
+      specVersion: '1.0',
+      resources: [{
+        id: `urn:reddi:agent-stack-draft:${corpus.id}`,
+        type: 'agent-stack-draft',
+        mediaType: 'application/vnd.reddi.agent-profile+json',
+        name: corpus.title,
+        description: 'Draft RAP profile generated from an untrusted static agent-stack fixture.',
+        capabilities: [...new Set(capabilityLabels)].sort(),
+        source: {
+          url: corpus.source.sourceUrl,
+          checkedCommit: corpus.source.checkedCommit,
+          checkedRef: corpus.source.checkedRef,
+        },
+        trust: {
+          status: 'unverified',
+          note: 'Source snapshot is recorded, but imported content and provider trust are unverified until RAP review.',
+        },
+        payment: {
+          status: 'missing_payment_setup',
+        },
+      }],
+    },
+    listing: {
+      schemaVersion: 'reddi.registry-listing.draft.v1',
+      listingId,
+      status: draftStateSeverityFromReadiness(draftPayloadReadiness.status),
+      profileRef: profileId,
+      publicationDisabled: true,
+      operatorReviewRequired: true,
+      states: draftStates,
+    },
+  };
+}
+
 export function createStaticAgentStackIngestionResult(
   input: unknown,
   options: AgentStackFixtureValidationOptions = {},
@@ -950,6 +1182,15 @@ export function createStaticAgentStackIngestionResult(
     }));
   const capabilityInventory = createCapabilityInventoryBundle(corpus, inventory, rejectedEntries);
   const draftPayloadReadiness = readinessFromCorpus(corpus, connectorDiagnostics, riskDiagnostics, rejectedEntries);
+  const draftPayloads = createDraftPayloads(
+    corpus,
+    capabilityInventory,
+    connectorDiagnostics,
+    riskDiagnostics,
+    rejectedEntries,
+    corpus.validationWarnings,
+    draftPayloadReadiness,
+  );
   const status: StaticAgentStackIngestionStatus = rejectedEntries.length > 0
     ? 'blocked'
     : draftPayloadReadiness.status !== 'ready'
@@ -969,6 +1210,7 @@ export function createStaticAgentStackIngestionResult(
     rejectedEntries,
     warnings: corpus.validationWarnings,
     draftPayloadReadiness,
+    draftPayloads,
     staticOnly: true,
     nonGoals: corpus.nonGoals,
   };
@@ -1013,8 +1255,8 @@ export const agentStackFixtureCorpora = {
         kind: 'claude-plugin',
         path: 'plugins/',
         runtimeSurface: 'claude-code-plugin',
-        commands: ['statically discovered command metadata pending #403 parser'],
-        skills: ['statically discovered skill metadata pending #403 parser'],
+        commands: ['statically discovered command metadata'],
+        skills: ['statically discovered skill metadata'],
         toolGrants: ['read', 'write-capable grants must be parsed and reviewed before publication'],
         safetyHints: ['Treat plugin prompts and skills as untrusted public text.'],
         humanReviewHints: ['Review write-capable commands before draft RAP listing publication.'],
@@ -1149,8 +1391,8 @@ export const agentStackFixtureCorpora = {
         kind: 'claude-plugin',
         path: 'plugin/.claude-plugin/plugin.json',
         runtimeSurface: 'claude-code-plugin',
-        commands: ['solana-ai-kit namespaced commands pending #403 parser'],
-        skills: ['plugin skill hub pending #403 parser'],
+        commands: ['solana-ai-kit namespaced commands'],
+        skills: ['plugin skill hub'],
         toolGrants: ['plugin exposes MCP and hooks that require operator review before draft listing'],
         safetyHints: ['Treat plugin manifest and plugin-distributed commands as untrusted public metadata.'],
         humanReviewHints: ['Review plugin metadata before generating RAP listing copy.'],
@@ -1260,7 +1502,7 @@ export const agentStackFixtureCorpora = {
         present: true,
         parseStatus: 'not_parsed',
         mediaType: 'text/markdown',
-        summary: 'Fifteen Solana-focused agent definitions; parser support belongs to #403.',
+        summary: 'Fifteen Solana-focused agent definitions represented as untrusted static metadata.',
       },
       {
         path: '.claude/commands/*.md',
