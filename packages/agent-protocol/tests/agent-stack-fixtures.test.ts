@@ -122,6 +122,7 @@ describe('agent-stack fixture corpus', () => {
     const pluginSurface = corpus.surfaces.find((surface) => surface.kind === 'claude-plugin');
 
     assert.equal(malformedFile?.parseStatus, 'malformed');
+    assert.equal(malformedFile?.parseErrorLocation, 'line 1 column 1');
     assert.deepEqual(malformedFile?.warningCodes, ['malformed_mcp_json']);
     assert.equal(pluginSurface?.path, 'plugins/');
     assert.equal(corpus.validationWarnings[0].code, 'malformed_mcp_json');
@@ -327,8 +328,26 @@ describe('agent-stack fixture corpus', () => {
     assert.equal(result.inventory.some((entry) => entry.kind === 'validation-warning'), false);
     assert.equal(result.inventory.find((entry) => entry.kind === 'claude-plugin')?.writeCapable, true);
     assert.deepEqual(
-      result.connectorDiagnostics.map((diagnostic) => [diagnostic.path, diagnostic.parseStatus, diagnostic.warningCodes]),
-      [['plugins/vertical-plugins/financial-analysis/.mcp.json', 'malformed', ['malformed_mcp_json']]],
+      result.connectorDiagnostics.map((diagnostic) => [
+        diagnostic.path,
+        diagnostic.sourceKind,
+        diagnostic.diagnosticLane,
+        diagnostic.parseStatus,
+        diagnostic.parseErrorLocation,
+        diagnostic.warningCodes,
+        diagnostic.blocksDraftPayload,
+        diagnostic.operatorReviewRequired,
+      ]),
+      [[
+        'plugins/vertical-plugins/financial-analysis/.mcp.json',
+        'mcp-connector-config',
+        'mcp_connector_metadata',
+        'malformed',
+        'line 1 column 1',
+        ['malformed_mcp_json'],
+        true,
+        true,
+      ]],
     );
     assert.equal(result.rejectedEntries.length, 0);
     assert.equal(result.draftPayloadReadiness.status, 'blocked');
@@ -352,16 +371,24 @@ describe('agent-stack fixture corpus', () => {
     assert.deepEqual(
       result.connectorDiagnostics.map((diagnostic) => [
         diagnostic.path,
+        diagnostic.sourceKind,
+        diagnostic.diagnosticLane,
         diagnostic.parseStatus,
         diagnostic.severity,
         diagnostic.warningCodes,
+        diagnostic.blocksDraftPayload,
+        diagnostic.operatorReviewRequired,
       ]),
       [
         [
           '.mcp.json',
+          'mcp-connector-config',
+          'mcp_connector_metadata',
           'valid',
           'warning',
           ['npx_mcp_execution', 'env_required_connector', 'local_binary_required'],
+          false,
+          true,
         ],
       ],
     );
@@ -431,16 +458,24 @@ describe('agent-stack fixture corpus', () => {
     assert.deepEqual(
       missingConnectorFileResult.connectorDiagnostics.map((diagnostic) => [
         diagnostic.path,
+        diagnostic.sourceKind,
+        diagnostic.diagnosticLane,
         diagnostic.parseStatus,
         diagnostic.severity,
         diagnostic.warningCodes,
+        diagnostic.blocksDraftPayload,
+        diagnostic.operatorReviewRequired,
       ]),
       [
         [
           'plugins/vertical-plugins/financial-analysis/.mcp.json',
+          'mcp-connector-config',
+          'mcp_connector_metadata',
           'missing',
           'blocked',
           ['missing_mcp_connector_config'],
+          true,
+          true,
         ],
       ],
     );
@@ -451,6 +486,39 @@ describe('agent-stack fixture corpus', () => {
       ),
     );
     assert.deepEqual(missingConnectorFileResult.draftPayloadReadiness.payloadRefs, []);
+  });
+
+  it('keeps #404 diagnostics scoped to MCP connector metadata and leaves non-MCP risk taxonomy to #421', () => {
+    const connectorRiskResult = createStaticAgentStackIngestionResult({
+      ...agentStackFixtureCorpora.solanaAiKit,
+      files: agentStackFixtureCorpora.solanaAiKit.files.map((file) => file.path === '.mcp.json'
+        ? {
+          ...file,
+          warningCodes: ['unsafe_connector_url', 'credential_shaped_connector_value', 'write_capable_connector_claim'],
+        }
+        : file),
+      validationWarnings: agentStackFixtureCorpora.solanaAiKit.validationWarnings.filter((warning) => (
+        warning.path !== '.mcp.json'
+      )),
+    });
+    const diagnostic = connectorRiskResult.connectorDiagnostics.find((item) => item.path === '.mcp.json');
+
+    assert.deepEqual(diagnostic, {
+      path: '.mcp.json',
+      sourceKind: 'mcp-connector-config',
+      diagnosticLane: 'mcp_connector_metadata',
+      parseStatus: 'valid',
+      severity: 'info',
+      warningCodes: ['unsafe_connector_url', 'credential_shaped_connector_value', 'write_capable_connector_claim'],
+      blocksDraftPayload: false,
+      operatorReviewRequired: true,
+      message: 'Connector metadata is statically valid.',
+    });
+    assert.ok(!diagnostic.warningCodes.includes('executable_hooks'));
+    assert.ok(!diagnostic.warningCodes.includes('mainnet_deploy_guard_required'));
+    assert.ok(!diagnostic.warningCodes.includes('external_submodules_declared'));
+    assert.equal(connectorRiskResult.draftPayloadReadiness.blockers.includes('executable_hooks_require_operator_review'), true);
+    assert.equal(connectorRiskResult.draftPayloadReadiness.blockers.includes('solana_deploy_command_requires_operator_review'), true);
   });
 
   it('does not expose a static ingestion result for invalid or credential-shaped corpora', () => {
