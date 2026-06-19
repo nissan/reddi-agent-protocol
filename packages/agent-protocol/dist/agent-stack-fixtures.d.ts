@@ -305,6 +305,28 @@ export type StaticAgentStackOperatorReviewPayload = {
     };
     rawSnapshotRefs: string[];
 };
+export type StaticAgentStackOperatorReviewFixtureState = 'approve_ready_draft' | 'request_changes_draft' | 'rejected_draft' | 'suspended_draft';
+export type StaticAgentStackOperatorReviewFixtureViewport = {
+    name: 'mobile' | 'tablet' | 'desktop';
+    width: number;
+    height: number;
+    requiredStates: StaticAgentStackOperatorReviewStateCode[];
+    requiredGroupKinds: AgentStackFixtureSurfaceKind[];
+};
+export type StaticAgentStackOperatorReviewFixture = {
+    fixtureId: string;
+    description: string;
+    fixtureState: StaticAgentStackOperatorReviewFixtureState;
+    queueState: StaticAgentStackOperatorReviewStatus;
+    uiTestRefs: string[];
+    operatorReviewPayload: StaticAgentStackOperatorReviewPayload;
+    requiredReviewItemStates: StaticAgentStackOperatorReviewStateCode[];
+    requiredGroupKinds: AgentStackFixtureSurfaceKind[];
+    requiredRiskCategories: StaticAgentStackRiskCategory[];
+    viewportCoverage: StaticAgentStackOperatorReviewFixtureViewport[];
+    staticOnly: true;
+    guardrails: readonly string[];
+};
 export type StaticAgentStackIngestionResult = {
     schemaVersion: typeof STATIC_AGENT_STACK_INGESTION_RESULT_SCHEMA_VERSION;
     corpusId: string;
@@ -647,3 +669,75 @@ export declare const agentStackFixtureCorpora: {
     };
 };
 export declare const agentStackFixtureCases: Record<string, AgentStackFixtureCase>;
+export declare const agentStackOperatorReviewFixtureStates: {
+    readonly approveReadyDraft: {
+        readonly fixtureId: "agent-stack-operator-review-fixture:approve-ready-draft";
+        readonly description: "Approve-ready draft review frame for imported repo and plugin groups; publication and payment stay disabled.";
+        readonly fixtureState: "approve_ready_draft";
+        readonly queueState: StaticAgentStackOperatorReviewStatus;
+        readonly uiTestRefs: ["storybook:agent-stack/operator-review/approve-ready-draft", "playwright:agent-stack-operator-review-approve-ready-draft"];
+        readonly operatorReviewPayload: StaticAgentStackOperatorReviewPayload;
+        readonly requiredReviewItemStates: ["approve_ready_draft"];
+        readonly requiredGroupKinds: ["repo-marketplace-metadata", "claude-plugin"];
+        readonly requiredRiskCategories: [];
+        readonly viewportCoverage: StaticAgentStackOperatorReviewFixtureViewport[];
+        readonly staticOnly: true;
+        readonly guardrails: readonly ["Static fixture only: do not execute imported hooks, commands, skills, installers, tests, or agent instructions.", "Do not fetch repositories, submodules, MCP servers, RPC endpoints, wallets, paid providers, or payment rails.", "Do not store secrets, private operational metadata, credential-shaped values, wallet keys, or provider tokens.", "Do not activate live payment, publication, provider trust, reputation, registry listing, or endpoint binding from this fixture."];
+    };
+    readonly requestChangesMissingPayment: {
+        readonly fixtureId: "agent-stack-operator-review-fixture:request-changes-missing-payment";
+        readonly description: "Request-changes draft review frame for missing payment and endpoint setup.";
+        readonly fixtureState: "request_changes_draft";
+        readonly queueState: StaticAgentStackOperatorReviewStatus;
+        readonly uiTestRefs: ["storybook:agent-stack/operator-review/request-changes-missing-payment", "playwright:agent-stack-operator-review-request-changes-missing-payment"];
+        readonly operatorReviewPayload: StaticAgentStackOperatorReviewPayload;
+        readonly requiredReviewItemStates: ["request_changes_missing_payment"];
+        readonly requiredGroupKinds: ["repo-marketplace-metadata", "claude-plugin"];
+        readonly requiredRiskCategories: [];
+        readonly viewportCoverage: StaticAgentStackOperatorReviewFixtureViewport[];
+        readonly staticOnly: true;
+        readonly guardrails: readonly ["Static fixture only: do not execute imported hooks, commands, skills, installers, tests, or agent instructions.", "Do not fetch repositories, submodules, MCP servers, RPC endpoints, wallets, paid providers, or payment rails.", "Do not store secrets, private operational metadata, credential-shaped values, wallet keys, or provider tokens.", "Do not activate live payment, publication, provider trust, reputation, registry listing, or endpoint binding from this fixture."];
+    };
+    readonly rejectedMalformedConnector: {
+        readonly fixtureId: "agent-stack-operator-review-fixture:rejected-malformed-connector";
+        readonly description: "Rejected draft review frame for malformed connector and unsafe metadata warnings.";
+        readonly fixtureState: "rejected_draft";
+        readonly queueState: StaticAgentStackOperatorReviewStatus;
+        readonly uiTestRefs: ["storybook:agent-stack/operator-review/rejected-malformed-connector", "playwright:agent-stack-operator-review-rejected-malformed-connector"];
+        readonly operatorReviewPayload: StaticAgentStackOperatorReviewPayload;
+        readonly requiredReviewItemStates: ["rejected_malformed_connector", "unsafe_metadata_warning", "request_changes_missing_payment"];
+        readonly requiredGroupKinds: ["repo-marketplace-metadata", "claude-plugin", "mcp-connector-config"];
+        readonly requiredRiskCategories: [];
+        readonly viewportCoverage: StaticAgentStackOperatorReviewFixtureViewport[];
+        readonly staticOnly: true;
+        readonly guardrails: readonly ["Static fixture only: do not execute imported hooks, commands, skills, installers, tests, or agent instructions.", "Do not fetch repositories, submodules, MCP servers, RPC endpoints, wallets, paid providers, or payment rails.", "Do not store secrets, private operational metadata, credential-shaped values, wallet keys, or provider tokens.", "Do not activate live payment, publication, provider trust, reputation, registry listing, or endpoint binding from this fixture."];
+    };
+    readonly suspendedUnsafeMetadata: {
+        readonly fixtureId: "agent-stack-operator-review-fixture:suspended-unsafe-metadata";
+        readonly description: "Suspended draft review frame for blocked unsafe imported metadata.";
+        readonly fixtureState: "suspended_draft";
+        readonly queueState: StaticAgentStackOperatorReviewStatus;
+        readonly uiTestRefs: ["storybook:agent-stack/operator-review/suspended-unsafe-metadata", "playwright:agent-stack-operator-review-suspended-unsafe-metadata"];
+        readonly operatorReviewPayload: StaticAgentStackOperatorReviewPayload;
+        readonly requiredReviewItemStates: ["suspended_imported_listing", "unsafe_metadata_warning"];
+        readonly requiredGroupKinds: ["repo-marketplace-metadata", "claude-plugin", "mcp-connector-config"];
+        readonly requiredRiskCategories: [];
+        readonly viewportCoverage: StaticAgentStackOperatorReviewFixtureViewport[];
+        readonly staticOnly: true;
+        readonly guardrails: readonly ["Static fixture only: do not execute imported hooks, commands, skills, installers, tests, or agent instructions.", "Do not fetch repositories, submodules, MCP servers, RPC endpoints, wallets, paid providers, or payment rails.", "Do not store secrets, private operational metadata, credential-shaped values, wallet keys, or provider tokens.", "Do not activate live payment, publication, provider trust, reputation, registry listing, or endpoint binding from this fixture."];
+    };
+    readonly solanaAiKitBlocked: {
+        readonly fixtureId: "agent-stack-operator-review-fixture:solana-ai-kit-blocked";
+        readonly description: "Solana AI Kit blocked review frame for hooks, deploy commands, env-required MCPs, local binaries, and submodules.";
+        readonly fixtureState: "suspended_draft";
+        readonly queueState: StaticAgentStackOperatorReviewStatus;
+        readonly uiTestRefs: ["storybook:agent-stack/operator-review/solana-ai-kit-blocked", "playwright:agent-stack-operator-review-solana-ai-kit-blocked"];
+        readonly operatorReviewPayload: StaticAgentStackOperatorReviewPayload;
+        readonly requiredReviewItemStates: ["static_risk_blocker", "suspended_imported_listing"];
+        readonly requiredGroupKinds: ["repo-marketplace-metadata", "claude-plugin", "command", "mcp-connector-config", "skill"];
+        readonly requiredRiskCategories: ["executable_hook", "deploy_capable_command", "env_required_connector", "local_binary_requirement", "external_submodule"];
+        readonly viewportCoverage: StaticAgentStackOperatorReviewFixtureViewport[];
+        readonly staticOnly: true;
+        readonly guardrails: readonly ["Static fixture only: do not execute imported hooks, commands, skills, installers, tests, or agent instructions.", "Do not fetch repositories, submodules, MCP servers, RPC endpoints, wallets, paid providers, or payment rails.", "Do not store secrets, private operational metadata, credential-shaped values, wallet keys, or provider tokens.", "Do not activate live payment, publication, provider trust, reputation, registry listing, or endpoint binding from this fixture."];
+    };
+};
