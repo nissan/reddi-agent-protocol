@@ -516,7 +516,7 @@ function connectorBlocksDraftPayload(diagnostic: Pick<StaticAgentStackConnectorD
 }
 
 function connectorRequiresOperatorReview(file: AgentStackFixtureFile, warning?: AgentStackFixtureValidationWarning): boolean {
-  return file.parseStatus !== 'valid' || file.warningCodes !== undefined || warning !== undefined;
+  return file.parseStatus !== 'valid' || (file.warningCodes?.length ?? 0) > 0 || warning !== undefined;
 }
 
 function readinessFromCorpus(
@@ -573,7 +573,7 @@ export function createStaticAgentStackIngestionResult(
         sourceKind: 'mcp-connector-config',
         diagnosticLane: 'mcp_connector_metadata',
         parseStatus: file.parseStatus,
-        ...(file.parseErrorLocation ? { parseErrorLocation: file.parseErrorLocation } : {}),
+        ...(file.parseStatus === 'malformed' && file.parseErrorLocation ? { parseErrorLocation: file.parseErrorLocation } : {}),
         severity: warning?.severity ?? (file.parseStatus === 'valid' ? 'info' : 'warning'),
         warningCodes: file.warningCodes ?? [],
         blocksDraftPayload: connectorBlocksDraftPayload(file),

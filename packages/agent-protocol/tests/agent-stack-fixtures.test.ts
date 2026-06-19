@@ -440,6 +440,24 @@ describe('agent-stack fixture corpus', () => {
     });
 
     assert.equal(readyResult.status, 'ready_for_draft');
+    assert.deepEqual(
+      readyResult.connectorDiagnostics.map((diagnostic) => [
+        diagnostic.path,
+        diagnostic.parseStatus,
+        diagnostic.parseErrorLocation,
+        diagnostic.warningCodes,
+        diagnostic.blocksDraftPayload,
+        diagnostic.operatorReviewRequired,
+      ]),
+      [[
+        'plugins/vertical-plugins/financial-analysis/.mcp.json',
+        'valid',
+        undefined,
+        [],
+        false,
+        false,
+      ]],
+    );
     assert.equal(readyResult.draftPayloadReadiness.status, 'ready');
     assert.deepEqual(readyResult.draftPayloadReadiness.payloadRefs, [
       'static-ingestion:agent-stack-fixture:anthropic-financial-services:2026-06-18:draft-profile',

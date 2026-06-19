@@ -311,7 +311,7 @@ function connectorBlocksDraftPayload(diagnostic) {
     return diagnostic.parseStatus === 'malformed' || diagnostic.parseStatus === 'missing';
 }
 function connectorRequiresOperatorReview(file, warning) {
-    return file.parseStatus !== 'valid' || file.warningCodes !== undefined || warning !== undefined;
+    return file.parseStatus !== 'valid' || (file.warningCodes?.length ?? 0) > 0 || warning !== undefined;
 }
 function readinessFromCorpus(corpus, connectorDiagnostics, rejectedEntries) {
     const blockers = [
@@ -354,7 +354,7 @@ export function createStaticAgentStackIngestionResult(input, options = {}) {
             sourceKind: 'mcp-connector-config',
             diagnosticLane: 'mcp_connector_metadata',
             parseStatus: file.parseStatus,
-            ...(file.parseErrorLocation ? { parseErrorLocation: file.parseErrorLocation } : {}),
+            ...(file.parseStatus === 'malformed' && file.parseErrorLocation ? { parseErrorLocation: file.parseErrorLocation } : {}),
             severity: warning?.severity ?? (file.parseStatus === 'valid' ? 'info' : 'warning'),
             warningCodes: file.warningCodes ?? [],
             blocksDraftPayload: connectorBlocksDraftPayload(file),
