@@ -20,6 +20,8 @@
     ],
     "paths": {
       "@/*": ["./*"],
+      "@reddi/agent-protocol": ["./packages/agent-protocol/src/index.ts"],
+      "@reddi/agent-protocol/*": ["./packages/agent-protocol/src/*"],
       "@reddi/x402-solana": ["./packages/x402-solana/src/index.ts"],
       "@reddi/x402-solana/*": ["./packages/x402-solana/src/*"]
     }

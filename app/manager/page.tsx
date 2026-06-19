@@ -79,6 +79,12 @@ export default function ManagerPage() {
         <p className="max-w-3xl text-sm text-muted-foreground">
           One human-facing launchpad for the four roles: Specialist, Attestor, Consumer, and Agent Manager. Use it to clear setup blockers before demos or live marketplace use.
         </p>
+        <Link
+          href="/manager/discovery"
+          className="inline-flex rounded-lg border border-[#14F195]/40 bg-[#14F195]/10 px-3 py-2 text-sm font-medium text-[#14F195] hover:border-[#14F195]/70 hover:text-emerald-100"
+        >
+          Open static discovery review
+        </Link>
       </header>
 
       {error && (
