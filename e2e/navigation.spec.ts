@@ -11,6 +11,7 @@ test.describe('Navigation', () => {
       '/customize',
       '/dashboard',
       '/manager',
+      '/manager/discovery',
       '/specialist',
       '/planner',
       '/attestation',

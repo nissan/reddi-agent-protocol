@@ -3,6 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3010";
 const useExternalBaseURL = Boolean(process.env.PLAYWRIGHT_BASE_URL);
+const browserChannel = process.env.PLAYWRIGHT_BROWSER_CHANNEL;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -15,7 +16,15 @@ export default defineConfig({
     screenshot: "on",
     video: "on",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        ...(browserChannel ? { channel: browserChannel } : {}),
+      },
+    },
+  ],
   webServer: useExternalBaseURL
     ? undefined
     : {
