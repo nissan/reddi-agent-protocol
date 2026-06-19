@@ -1,5 +1,6 @@
 export const AGENT_STACK_FIXTURE_CORPUS_SCHEMA_VERSION = 'reddi.agent-stack-fixture-corpus.v1' as const;
 export const STATIC_AGENT_STACK_INGESTION_RESULT_SCHEMA_VERSION = 'reddi.static-agent-stack-ingestion-result.v1' as const;
+export const STATIC_AGENT_STACK_CAPABILITY_INVENTORY_SCHEMA_VERSION = 'reddi.static-agent-stack-capability-inventory.v1' as const;
 
 export type AgentStackFixtureSurfaceKind =
   | 'repo-marketplace-metadata'
@@ -137,6 +138,49 @@ export type StaticAgentStackInventoryEntry = {
   contentTrustBoundary: AgentStackFixtureSurface['contentTrustBoundary'];
 };
 
+export type StaticAgentStackCapabilityInventoryEntry = {
+  capabilityId: string;
+  capabilityName: string;
+  sourceKind: AgentStackFixtureSurfaceKind;
+  sourcePath: string;
+  runtimeSurface?: string;
+  category?: string;
+  commands: string[];
+  skills: string[];
+  toolGrants: string[];
+  authDependencies: string[];
+  dataDependencies: string[];
+  safetyHints: string[];
+  humanReviewHints: string[];
+  writeCapable: boolean;
+  sideEffectRisk: 'none' | 'read' | 'write' | 'execute';
+  contentTrustBoundary: AgentStackFixtureSurface['contentTrustBoundary'];
+  provenance: {
+    corpusId: string;
+    sourceUrl: string;
+    checkedCommit: string;
+    checkedRef?: string;
+    license?: string;
+  };
+};
+
+export type StaticAgentStackParserDiagnostic = {
+  path: string;
+  sourceKind: AgentStackFixtureSurfaceKind | 'validation-warning';
+  severity: AgentStackFixtureValidationWarning['severity'];
+  code: string;
+  message: string;
+};
+
+export type StaticAgentStackCapabilityInventoryBundle = {
+  schemaVersion: typeof STATIC_AGENT_STACK_CAPABILITY_INVENTORY_SCHEMA_VERSION;
+  corpusId: string;
+  source: AgentStackFixtureSource;
+  entries: StaticAgentStackCapabilityInventoryEntry[];
+  parserDiagnostics: StaticAgentStackParserDiagnostic[];
+  rejectedEntries: StaticAgentStackRejectedEntry[];
+};
+
 export type StaticAgentStackConnectorDiagnostic = {
   path: string;
   sourceKind: 'mcp-connector-config';
@@ -192,6 +236,7 @@ export type StaticAgentStackIngestionResult = {
   source: AgentStackFixtureSource;
   status: StaticAgentStackIngestionStatus;
   inventory: StaticAgentStackInventoryEntry[];
+  capabilityInventory: StaticAgentStackCapabilityInventoryBundle;
   connectorDiagnostics: StaticAgentStackConnectorDiagnostic[];
   riskDiagnostics: StaticAgentStackRiskDiagnostic[];
   rejectedEntries: StaticAgentStackRejectedEntry[];
@@ -703,6 +748,96 @@ function createRiskDiagnostics(corpus: AgentStackFixtureCorpus): StaticAgentStac
   ));
 }
 
+function sideEffectRiskFromSurface(surface: AgentStackFixtureSurface): StaticAgentStackCapabilityInventoryEntry['sideEffectRisk'] {
+  const combinedHints = [
+    ...(surface.commands ?? []),
+    ...(surface.toolGrants ?? []),
+    ...(surface.safetyHints ?? []),
+    surface.runtimeSurface ?? '',
+  ].join(' ').toLowerCase();
+  if (
+    combinedHints.includes('hook')
+    || combinedHints.includes('bash')
+    || combinedHints.includes('shell')
+    || combinedHints.includes('deploy')
+    || combinedHints.includes('install')
+    || combinedHints.includes('npx')
+  ) {
+    return 'execute';
+  }
+  if (surface.writeCapable) return 'write';
+  if (combinedHints.includes('rpc') || combinedHints.includes('browser') || combinedHints.includes('api')) return 'read';
+  return 'none';
+}
+
+function createCapabilityInventoryBundle(
+  corpus: AgentStackFixtureCorpus,
+  inventory: StaticAgentStackInventoryEntry[],
+  rejectedEntries: StaticAgentStackRejectedEntry[],
+): StaticAgentStackCapabilityInventoryBundle {
+  const inventoryById = new Map(inventory.map((entry) => [entry.id, entry]));
+  const entries = corpus.surfaces
+    .filter((surface) => surface.kind !== 'validation-warning')
+    .map((surface): StaticAgentStackCapabilityInventoryEntry => {
+      const inventoryEntry = inventoryById.get(surface.id);
+      return {
+        capabilityId: surface.id,
+        capabilityName: surface.name,
+        sourceKind: surface.kind,
+        sourcePath: surface.path,
+        runtimeSurface: surface.runtimeSurface,
+        category: surface.category,
+        commands: inventoryEntry?.commands ?? [],
+        skills: inventoryEntry?.skills ?? [],
+        toolGrants: inventoryEntry?.toolGrants ?? [],
+        authDependencies: inventoryEntry?.authDependencies ?? [],
+        dataDependencies: inventoryEntry?.dataDependencies ?? [],
+        safetyHints: inventoryEntry?.safetyHints ?? [],
+        humanReviewHints: inventoryEntry?.humanReviewHints ?? [],
+        writeCapable: inventoryEntry?.writeCapable ?? false,
+        sideEffectRisk: sideEffectRiskFromSurface(surface),
+        contentTrustBoundary: surface.contentTrustBoundary,
+        provenance: {
+          corpusId: corpus.id,
+          sourceUrl: corpus.source.sourceUrl,
+          checkedCommit: corpus.source.checkedCommit,
+          checkedRef: corpus.source.checkedRef,
+          license: corpus.source.license,
+        },
+      };
+    });
+  const malformedFileDiagnostics = corpus.files
+    .filter((file) => file.parseStatus === 'malformed')
+    .map((file): StaticAgentStackParserDiagnostic => ({
+      path: file.path,
+      sourceKind: file.kind,
+      severity: 'blocked',
+      code: 'malformed_static_metadata',
+      message: file.parseErrorLocation
+        ? `Static metadata is malformed at ${file.parseErrorLocation}.`
+        : 'Static metadata is malformed.',
+    }));
+  const warningDiagnostics = corpus.validationWarnings.map((warning): StaticAgentStackParserDiagnostic => ({
+    path: warning.path,
+    sourceKind: 'validation-warning',
+    severity: warning.severity,
+    code: warning.code,
+    message: warning.message,
+  }));
+
+  return {
+    schemaVersion: STATIC_AGENT_STACK_CAPABILITY_INVENTORY_SCHEMA_VERSION,
+    corpusId: corpus.id,
+    source: corpus.source,
+    entries,
+    parserDiagnostics: [...malformedFileDiagnostics, ...warningDiagnostics].sort((left, right) => (
+      left.path.localeCompare(right.path)
+      || left.code.localeCompare(right.code)
+    )),
+    rejectedEntries,
+  };
+}
+
 function readinessFromCorpus(
   corpus: AgentStackFixtureCorpus,
   connectorDiagnostics: StaticAgentStackConnectorDiagnostic[],
@@ -813,6 +948,7 @@ export function createStaticAgentStackIngestionResult(
       writeCapable: surface.writeCapable ?? false,
       contentTrustBoundary: surface.contentTrustBoundary,
     }));
+  const capabilityInventory = createCapabilityInventoryBundle(corpus, inventory, rejectedEntries);
   const draftPayloadReadiness = readinessFromCorpus(corpus, connectorDiagnostics, riskDiagnostics, rejectedEntries);
   const status: StaticAgentStackIngestionStatus = rejectedEntries.length > 0
     ? 'blocked'
@@ -827,6 +963,7 @@ export function createStaticAgentStackIngestionResult(
     source: corpus.source,
     status,
     inventory,
+    capabilityInventory,
     connectorDiagnostics,
     riskDiagnostics,
     rejectedEntries,
