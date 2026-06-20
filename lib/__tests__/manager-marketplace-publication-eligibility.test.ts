@@ -170,6 +170,22 @@ describe("marketplace publication eligibility matrix", () => {
       },
       "hosted_claim_operator_evidence_mismatch",
     ],
+    [
+      "hosted claim listing mismatch",
+      {
+        ...fixturePublishReadyProof,
+        hostedAttestationClaim: {
+          ...fixturePublishReadyProof.hostedAttestationClaim!,
+          subject: { id: "draft-listing:other-listing", type: "listing" },
+          source: {
+            ...fixturePublishReadyProof.hostedAttestationClaim!.source,
+            listingId: "draft-listing:other-listing",
+            sourceId: "source:other-listing",
+          },
+        },
+      },
+      "hosted_claim_listing_mismatch",
+    ],
   ] as Array<[string, MarketplacePublicationEligibilityProof, string]>)(
     "blocks %s",
     (_label, proof, reasonCode) => {
