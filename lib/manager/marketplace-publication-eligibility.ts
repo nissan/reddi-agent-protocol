@@ -49,6 +49,7 @@ export type MarketplacePublicationEligibilityReasonCode =
   | "hosted_claim_buyer_facing_enabled"
   | "hosted_claim_evidence_mismatch"
   | "hosted_claim_operator_evidence_mismatch"
+  | "hosted_claim_listing_mismatch"
   | "missing_quasar_compatibility"
   | "quasar_compatibility_blocked"
   | "quasar_instruction_built"
@@ -117,6 +118,9 @@ export function deriveMarketplacePublicationEligibility(
       : undefined,
     proof.hostedAttestationClaim && !hostedClaimOperatorEvidenceMatchesProof(proof.hostedAttestationClaim, proof)
       ? "hosted_claim_operator_evidence_mismatch"
+      : undefined,
+    proof.hostedAttestationClaim && !hostedClaimMatchesRecord(proof.hostedAttestationClaim, record)
+      ? "hosted_claim_listing_mismatch"
       : undefined,
     proof.quasarCompatibility ? undefined : "missing_quasar_compatibility",
     proof.quasarCompatibility?.status === "blocked" ? "quasar_compatibility_blocked" : undefined,
@@ -219,6 +223,38 @@ function hostedClaimOperatorEvidenceMatchesProof(
   return claim.evidenceSummary.operatorApprovalEvidenceRef === proof.operatorApproval?.evidenceRef;
 }
 
+function hostedClaimMatchesRecord(
+  claim: HostedAttestationClaim,
+  record: MarketplaceApprovalRecord,
+) {
+  const expectedListingId = expectedHostedListingId(record);
+  const expectedSourceId = expectedHostedSourceId(record);
+  return isNonEmptyString(expectedListingId)
+    && isNonEmptyString(expectedSourceId)
+    && claim.subject.type === "listing"
+    && claim.subject.id === expectedListingId
+    && claim.source.listingId === expectedListingId
+    && claim.source.sourceId === expectedSourceId
+    && isNonEmptyString(claim.source.catalogRef);
+}
+
+function expectedHostedListingId(record: MarketplaceApprovalRecord) {
+  const corpusId = candidateCorpusId(record);
+  return corpusId ? `draft-listing:${corpusId}` : undefined;
+}
+
+function expectedHostedSourceId(record: MarketplaceApprovalRecord) {
+  const corpusId = candidateCorpusId(record);
+  return corpusId ? `source:${corpusId}` : undefined;
+}
+
+function candidateCorpusId(record: MarketplaceApprovalRecord) {
+  const prefix = "operator-review:";
+  const suffix = `:${record.fixtureKey}`;
+  if (!record.candidate.id.startsWith(prefix) || !record.candidate.id.endsWith(suffix)) return undefined;
+  return record.candidate.id.slice(prefix.length, -suffix.length);
+}
+
 function liveEscalationRequested(
   boundaries: MarketplaceReadinessBoundary,
   compatibility?: MarketplacePublicationQuasarCompatibility,
@@ -272,6 +308,7 @@ const reasonText: Partial<Record<MarketplacePublicationEligibilityReasonCode, st
   hosted_claim_buyer_facing_enabled: "Hosted attestation claim attempted to enable buyer-facing trust/reputation copy.",
   hosted_claim_evidence_mismatch: "Hosted attestation claim evidence refs do not match local proof inputs.",
   hosted_claim_operator_evidence_mismatch: "Hosted attestation claim operator approval evidence does not match local proof inputs.",
+  hosted_claim_listing_mismatch: "Hosted attestation claim subject/source does not match the exported listing.",
   missing_quasar_compatibility: "Quasar compatibility metadata is missing.",
   quasar_compatibility_blocked: "Quasar compatibility metadata is blocked.",
   quasar_instruction_built: "Quasar instruction output is not allowed in this eligibility matrix.",

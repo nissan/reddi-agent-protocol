@@ -43,12 +43,12 @@ export const fixturePublishReadyProof: MarketplacePublicationEligibilityProof = 
     schemaVersion: "reddi.hosted-attestation-claim.v1",
     id: "hosted-claim:approve-ready",
     status: "hosted_attestation_ready",
-    subject: { id: "listing:approve-ready", type: "listing" },
+    subject: { id: "draft-listing:agent-stack-fixture:anthropic-financial-services:2026-06-18", type: "listing" },
     source: {
       kind: "hosted-rap-registry",
-      sourceId: "source:approve-ready",
+      sourceId: "source:agent-stack-fixture:anthropic-financial-services:2026-06-18",
       catalogRef: "/.well-known/ai-catalog.json",
-      listingId: "listing:approve-ready",
+      listingId: "draft-listing:agent-stack-fixture:anthropic-financial-services:2026-06-18",
       rawSnapshotRef: "snapshot:approve-ready",
     },
     backing: {
