@@ -8,34 +8,12 @@ import {
   deriveMarketplacePublicExportItem,
   deriveMarketplacePublicExportSnapshot,
 } from "@/lib/manager/marketplace-public-export";
-import type { MarketplaceReadinessProofMetadata } from "@/lib/manager/marketplace-readiness-gate";
+import { fixturePublishReadyProof as publishReadyProof } from "@/lib/manager/marketplace-public-export-fixtures";
 import { getStaticAgentStackReviewWorkspace } from "@/lib/manager/static-agent-stack-review";
 import { validateAiCatalog } from "@reddi/agent-protocol/ai-catalog";
 
 const timestamp = "2026-06-20T00:00:00Z";
 const operatorId = "operator:test";
-
-const publishReadyProof: MarketplaceReadinessProofMetadata = {
-  endpointBindingRef: "endpoint-binding:anthropic-financial-services:dry-run",
-  paymentPlan: {
-    schemaVersion: "marketplace-payment-plan-proof:v1",
-    planId: "plan:anthropic-financial-services:dry-run",
-    currency: "USD",
-    amount: 0,
-    activation: "disabled",
-    settlement: "dry_run_only",
-    evidenceRef: "evidence:payment-plan:dry-run",
-  },
-  dryRunReceiptRefs: ["receipt:dry-run:approve-ready"],
-  evidenceRefs: ["evidence:static-review:approve-ready"],
-  attestationDraftRef: "attestation-draft:approve-ready",
-  operatorApproval: {
-    approved: true,
-    approvedBy: operatorId,
-    approvedAt: timestamp,
-    evidenceRef: "evidence:operator-approval:approve-ready",
-  },
-};
 
 describe("manager marketplace public export", () => {
   it("exports a published listing into hosted and ARD-compatible catalog snapshots", () => {

@@ -3,11 +3,14 @@ import type {
   MarketplaceApprovalRecord,
 } from "@/lib/manager/marketplace-approval-actions";
 import {
-  evaluateMarketplaceReadiness,
   type MarketplaceReadinessBoundary,
-  type MarketplaceReadinessProofMetadata,
   type MarketplaceReadinessResult,
 } from "@/lib/manager/marketplace-readiness-gate";
+import {
+  deriveMarketplacePublicationEligibility,
+  type MarketplacePublicationEligibilityDecision,
+  type MarketplacePublicationEligibilityProof,
+} from "@/lib/manager/marketplace-publication-eligibility";
 
 export const MARKETPLACE_PUBLIC_EXPORT_SCHEMA_VERSION = "reddi.marketplace-public-export.v1" as const;
 
@@ -90,6 +93,7 @@ export type MarketplacePublicExportSuccess = {
   catalogResource: MarketplacePublicCatalogResource;
   readiness: MarketplaceReadinessResult;
   publishAudit: MarketplaceApprovalAuditEntry;
+  eligibility: MarketplacePublicationEligibilityDecision;
   boundaries: MarketplacePublicExportBoundary;
 };
 
@@ -139,20 +143,20 @@ const disclosureLabels = [
 
 export function deriveMarketplacePublicExportItem(
   record: MarketplaceApprovalRecord,
-  proof: MarketplaceReadinessProofMetadata = {},
+  proof: MarketplacePublicationEligibilityProof = {},
 ): MarketplacePublicExportItem {
-  const readiness = evaluateMarketplaceReadiness(record.id, record.fixtureKey, record.candidate, proof);
+  const eligibility = deriveMarketplacePublicationEligibility(record, proof);
+  const readiness = eligibility.readiness;
   const boundaries = publicExportBoundaries(readiness.boundaries, false);
-  const reasons = publicExportBlockReasons(record, proof, readiness);
-  if (reasons.length > 0) {
+  if (eligibility.status !== "eligible") {
     return {
       ok: false,
       listingId: record.id,
       fixtureKey: record.fixtureKey,
       recordState: record.state,
       readinessStatus: readiness.status,
-      reasons,
-      blockReasons: readiness.blockReasons,
+      reasons: publicExportReasonCodes(record, eligibility),
+      blockReasons: eligibility.blockedReasons,
       boundaries,
     };
   }
@@ -169,6 +173,7 @@ export function deriveMarketplacePublicExportItem(
     listing,
     catalogResource: buildCatalogResource(listing, allowedBoundaries),
     readiness,
+    eligibility,
     publishAudit,
     boundaries: allowedBoundaries,
   };
@@ -176,7 +181,7 @@ export function deriveMarketplacePublicExportItem(
 
 export function deriveMarketplacePublicExportSnapshot(
   records: MarketplaceApprovalRecord[],
-  proofByListingId: Record<string, MarketplaceReadinessProofMetadata> = {},
+  proofByListingId: Record<string, MarketplacePublicationEligibilityProof> = {},
   options: MarketplacePublicExportOptions = {},
 ): MarketplacePublicExportSnapshot {
   const items = records.map((record) => deriveMarketplacePublicExportItem(record, proofByListingId[record.id] ?? {}));
@@ -198,27 +203,24 @@ export function deriveMarketplacePublicExportSnapshot(
   };
 }
 
-function publicExportBlockReasons(
+function publicExportReasonCodes(
   record: MarketplaceApprovalRecord,
-  proof: MarketplaceReadinessProofMetadata,
-  readiness: MarketplaceReadinessResult,
+  eligibility: MarketplacePublicationEligibilityDecision,
 ) {
-  const reasons = [
-    record.state === "published" ? undefined : `record_state_not_published:${record.state}`,
-    record.publicVisible === true ? undefined : "public_visibility_false",
-    readiness.status === "publish_ready" ? undefined : `readiness_not_publish_ready:${readiness.status}`,
-    readiness.boundaries.publicationAllowed === true ? undefined : "publication_not_allowed",
-    proof.operatorApproval?.approved === true ? undefined : "operator_approval_missing",
-    isNonEmptyString(proof.operatorApproval?.evidenceRef) ? undefined : "operator_approval_evidence_missing",
-    latestPublishAudit(record) ? undefined : "publish_audit_missing",
-  ];
-
-  return reasons.filter(isNonEmptyString);
+  return eligibility.reasonCodes.map((code) => {
+    if (code === "record_state_not_published") {
+      return `record_state_not_published:${record.state}`;
+    }
+    if (code === "readiness_not_publish_ready") {
+      return `readiness_not_publish_ready:${eligibility.readiness.status}`;
+    }
+    return code;
+  });
 }
 
 function buildListing(
   record: MarketplaceApprovalRecord,
-  proof: MarketplaceReadinessProofMetadata,
+  proof: MarketplacePublicationEligibilityProof,
   readiness: MarketplaceReadinessResult,
   publishAudit: MarketplaceApprovalAuditEntry,
 ): MarketplacePublicListingSnapshot {
