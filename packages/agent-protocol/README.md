@@ -233,6 +233,42 @@ Off-chain reputation preview consumes `reddi.receipt-evidence-binding.v1` record
 
 This preview is not Quasar-backed and does not build instruction flows while #390 compatibility is pending. It never performs wallet signing, RPC calls, hosted registry writes, marketplace publication, live payment execution, provider calls, or reputation mutation, and it never allows buyer-facing trust/reputation claims from preview data alone.
 
+## Hosted Attestation Claim
+
+```typescript
+import {
+  deriveHostedAttestationClaim,
+} from '@reddi/agent-protocol/hosted-attestation-claim';
+
+const result = deriveHostedAttestationClaim({
+  id: 'hosted-claim:listing:research-agent',
+  binding,
+  preview,
+  hostedAttestationProof: {
+    sourceProofRef: 'source-proof:research-agent',
+    attestationProofRef: 'hosted-attestation-proof:research-agent',
+    hostedBy: 'reddi',
+  },
+  operatorApproval: {
+    approved: true,
+    evidenceRef: 'operator-approval:research-agent',
+  },
+  publicationGate: {
+    issue: 395,
+    state: 'claim_contract_ready',
+    evidenceRef: 'publication-gate:research-agent',
+  },
+  createdAt: new Date().toISOString(),
+});
+
+console.log(result.claim.status); // hosted_attestation_ready / publication_gate_pending / insufficient_evidence / blocked
+console.log(result.claim.display.buyerFacingClaimAllowed); // false
+```
+
+Hosted attestation claims consume `reddi.receipt-evidence-binding.v1` records plus `reddi.offchain-reputation-preview.v1` previews. A hosted-backed claim requires matching evidence, passed attestation, preview-ready reputation draft, explicit hosted source/attestation proof refs, operator approval evidence, and #395 publication-gate metadata. Missing hosted proof, operator approval, or publication-gate metadata remains `publication_gate_pending`; malformed, failed, disputed, refunded, mismatched, unsafe, or blocked evidence fails closed.
+
+This is a claim contract for downstream publication gates, not marketplace publication itself. It does not mutate reputation, build Quasar instructions, sign wallets, call RPC, write hosted registries, execute live payments, call providers, or permit buyer-facing trust/reputation claims. Quasar-backed instruction fixtures remain separate work after the Surfpool/devnet promotion checklist.
+
 ## Quasar Registry Compatibility
 
 ```typescript

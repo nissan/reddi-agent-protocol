@@ -70,6 +70,10 @@
       "types": "./dist/quasar-registry-compatibility.d.ts",
       "import": "./dist/quasar-registry-compatibility.js"
     },
+    "./hosted-attestation-claim": {
+      "types": "./dist/hosted-attestation-claim.d.ts",
+      "import": "./dist/hosted-attestation-claim.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

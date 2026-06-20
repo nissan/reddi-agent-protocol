@@ -13,3 +13,4 @@ export * from './agent-stack-fixtures.js';
 export * from './receipt-evidence-binding.js';
 export * from './offchain-reputation-preview.js';
 export * from './quasar-registry-compatibility.js';
+export * from './hosted-attestation-claim.js';
