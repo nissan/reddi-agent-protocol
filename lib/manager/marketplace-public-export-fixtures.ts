@@ -15,6 +15,7 @@ const fixtureTimestamp = "2026-06-20T00:00:00Z";
 const fixtureOperatorId = "operator:fixture";
 
 export const fixturePublishReadyProof: MarketplacePublicationEligibilityProof = {
+  readinessProofRef: "readiness-proof:approve-ready",
   endpointBindingRef: "endpoint-binding:anthropic-financial-services:dry-run",
   paymentPlan: {
     schemaVersion: "marketplace-payment-plan-proof:v1",
@@ -136,6 +137,9 @@ export function getFixtureBackedMarketplacePublicExportSnapshot(): MarketplacePu
       timestamp: fixtureTimestamp,
       previousState: "approved" as const,
       nextState: "published" as const,
+      sourceListingRef: "draft-listing:agent-stack-fixture:anthropic-financial-services:2026-06-18",
+      readinessProofRef: "readiness-proof:forged",
+      operatorApprovalRef: "evidence:operator-approval:approve-ready",
       evidenceRefs: ["evidence:forged:publish"],
     }],
   };
@@ -159,6 +163,7 @@ function action(
     type,
     operatorId: fixtureOperatorId,
     timestamp: fixtureTimestamp,
+    ...(type === "publish" || type === "restore" ? { readinessProofRef: "readiness-proof:approve-ready" } : {}),
     ...overrides,
   };
 }

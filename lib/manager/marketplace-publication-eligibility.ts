@@ -22,6 +22,7 @@ export type MarketplacePublicationQuasarCompatibility = {
 };
 
 export type MarketplacePublicationEligibilityProof = MarketplaceReadinessProofMetadata & {
+  readinessProofRef?: string;
   hostedAttestationClaim?: HostedAttestationClaim;
   hostedSourceProofRef?: string;
   hostedAttestationProofRef?: string;
@@ -38,6 +39,7 @@ export type MarketplacePublicationEligibilityReasonCode =
   | "operator_approval_missing"
   | "operator_approval_evidence_missing"
   | "publish_audit_missing"
+  | "publish_audit_malformed"
   | "unsafe_metadata"
   | "endpoint_binding_missing"
   | "suspended_or_unpublished_state"
@@ -88,6 +90,8 @@ export function deriveMarketplacePublicationEligibility(
   proof: MarketplacePublicationEligibilityProof = {},
 ): MarketplacePublicationEligibilityDecision {
   const readiness = evaluateMarketplaceReadiness(record.id, record.fixtureKey, record.candidate, proof);
+  const latestLifecycleAudit = latestPublicationLifecycleAudit(record);
+  const currentPublicationAudit = selectCurrentPublicationAudit(record, proof);
   const reasonCodes = uniqueReasonCodes([
     record.state === "published" ? undefined : "record_state_not_published",
     record.publicVisible === true ? undefined : "public_visibility_false",
@@ -95,7 +99,8 @@ export function deriveMarketplacePublicationEligibility(
     readiness.boundaries.publicationAllowed === true ? undefined : "publication_not_allowed",
     proof.operatorApproval?.approved === true ? undefined : "operator_approval_missing",
     isNonEmptyString(proof.operatorApproval?.evidenceRef) ? undefined : "operator_approval_evidence_missing",
-    latestPublishAuditEvidenceRefs(record).length > 0 ? undefined : "publish_audit_missing",
+    latestLifecycleAudit ? undefined : "publish_audit_missing",
+    latestLifecycleAudit && !currentPublicationAudit ? "publish_audit_malformed" : undefined,
     readiness.gates.find((gate) => gate.id === "safe_metadata")?.passed === false ? "unsafe_metadata" : undefined,
     isNonEmptyString(proof.endpointBindingRef) ? undefined : "endpoint_binding_missing",
     ["suspended", "rejected", "needs_changes", "draft", "approved", "internal", "blocked"].includes(record.state)
@@ -143,7 +148,7 @@ export function deriveMarketplacePublicationEligibility(
     reasonCodes: normalizedReasonCodes,
     blockedReasons: blockedReasonsFor(normalizedReasonCodes, readiness),
     evidenceRefs: uniqueRefs([
-      ...latestPublishAuditEvidenceRefs(record),
+      ...(currentPublicationAudit?.evidenceRefs ?? []),
       ...readiness.gates.flatMap((gate) => gate.evidenceRefs),
       proof.hostedSourceProofRef,
       proof.hostedAttestationProofRef,
@@ -171,14 +176,34 @@ export function deriveMarketplacePublicationEligibility(
   };
 }
 
-function latestPublishAuditEvidenceRefs(record: MarketplaceApprovalRecord) {
+export function selectCurrentPublicationAudit(
+  record: MarketplaceApprovalRecord,
+  proof: MarketplacePublicationEligibilityProof = {},
+) {
+  const audit = latestPublicationLifecycleAudit(record);
+  if (!audit || (audit.action !== "publish" && audit.action !== "restore")) return undefined;
+  return publishAuditMatchesProof(audit, record, proof) ? audit : undefined;
+}
+
+function latestPublicationLifecycleAudit(record: MarketplaceApprovalRecord) {
   return [...record.auditHistory]
     .reverse()
-    .find((entry) =>
-      entry.action === "publish"
-      && entry.nextState === "published"
-      && entry.evidenceRefs.some(isNonEmptyString)
-    )?.evidenceRefs ?? [];
+    .find((entry) => ["publish", "restore", "unpublish", "suspend"].includes(entry.action));
+}
+
+function publishAuditMatchesProof(
+  audit: NonNullable<ReturnType<typeof latestPublicationLifecycleAudit>>,
+  record: MarketplaceApprovalRecord,
+  proof: MarketplacePublicationEligibilityProof,
+) {
+  return audit.nextState === "published"
+    && audit.sourceListingRef === expectedHostedListingId(record)
+    && audit.readinessProofRef === proof.readinessProofRef
+    && audit.operatorApprovalRef === proof.operatorApproval?.evidenceRef
+    && Array.isArray(audit.evidenceRefs)
+    && audit.evidenceRefs.some(isNonEmptyString)
+    && isNonEmptyString(audit.timestamp)
+    && !Number.isNaN(Date.parse(audit.timestamp));
 }
 
 function hasReceiptEvidence(proof: MarketplacePublicationEligibilityProof) {
@@ -297,6 +322,7 @@ const reasonText: Partial<Record<MarketplacePublicationEligibilityReasonCode, st
   operator_approval_missing: "Operator approval proof is missing.",
   operator_approval_evidence_missing: "Operator approval evidence ref is missing.",
   publish_audit_missing: "Publish audit evidence is missing.",
+  publish_audit_malformed: "Publish audit evidence is malformed or does not match current proof inputs.",
   unsafe_metadata: "Imported metadata is unsafe or unresolved.",
   endpoint_binding_missing: "Endpoint binding proof is missing.",
   suspended_or_unpublished_state: "Listing is suspended, unpublished, or not in a publishable state.",

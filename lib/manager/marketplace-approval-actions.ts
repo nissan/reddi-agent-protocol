@@ -22,7 +22,8 @@ export type MarketplaceApprovalActionType =
   | "reject"
   | "suspend"
   | "publish"
-  | "unpublish";
+  | "unpublish"
+  | "restore";
 
 export type MarketplaceApprovalAuditEntry = {
   operatorId: string;
@@ -31,6 +32,9 @@ export type MarketplaceApprovalAuditEntry = {
   timestamp: string;
   previousState: MarketplaceApprovalRecordState;
   nextState: MarketplaceApprovalRecordState;
+  sourceListingRef: string;
+  readinessProofRef: string | null;
+  operatorApprovalRef: string | null;
   evidenceRefs: string[];
 };
 
@@ -50,6 +54,9 @@ export type MarketplaceApprovalAction = {
   reason?: string;
   evidenceRefs?: string[];
   readinessProof?: MarketplaceReadinessProofMetadata;
+  readinessProofRef?: string;
+  operatorApprovalRef?: string;
+  sourceListingRef?: string;
 };
 
 export type MarketplaceApprovalActionResult =
@@ -98,6 +105,8 @@ export function applyMarketplaceApprovalAction(
       return publish(record, action);
     case "unpublish":
       return unpublish(record, action);
+    case "restore":
+      return restore(record, action);
   }
 }
 
@@ -149,6 +158,21 @@ function publish(record: MarketplaceApprovalRecord, action: MarketplaceApprovalA
   if (record.state !== "approved") {
     return fail(record, `Publish requires approved state; got ${record.state}.`);
   }
+  return publishWithProof(record, action, "published");
+}
+
+function restore(record: MarketplaceApprovalRecord, action: MarketplaceApprovalAction): MarketplaceApprovalActionResult {
+  if (record.state !== "suspended") {
+    return fail(record, `Restore requires suspended state; got ${record.state}.`);
+  }
+  return publishWithProof(record, action, "published");
+}
+
+function publishWithProof(
+  record: MarketplaceApprovalRecord,
+  action: MarketplaceApprovalAction,
+  nextState: MarketplaceApprovalRecordState,
+): MarketplaceApprovalActionResult {
   const readiness = evaluateMarketplaceReadiness(
     record.id,
     record.fixtureKey,
@@ -165,12 +189,25 @@ function publish(record: MarketplaceApprovalRecord, action: MarketplaceApprovalA
   if (!action.readinessProof?.operatorApproval?.approved || !isNonEmptyString(action.readinessProof.operatorApproval.evidenceRef)) {
     return fail(record, "Publish requires explicit operator approval evidence.", readiness);
   }
+  if (!isNonEmptyString(action.readinessProofRef)) {
+    return fail(record, "Publish requires explicit readiness proof evidence.", readiness);
+  }
 
   const evidenceRefs = uniqueRefs([
     ...(action.evidenceRefs ?? []),
     ...readiness.gates.flatMap((gate) => gate.evidenceRefs),
   ]);
-  return transition(record, { ...action, evidenceRefs }, "published", true, readiness);
+  return transition(
+    record,
+    {
+      ...action,
+      evidenceRefs,
+      operatorApprovalRef: action.readinessProof.operatorApproval.evidenceRef,
+    },
+    nextState,
+    true,
+    readiness,
+  );
 }
 
 function unpublish(record: MarketplaceApprovalRecord, action: MarketplaceApprovalAction): MarketplaceApprovalActionResult {
@@ -192,6 +229,9 @@ function transition(
     timestamp: action.timestamp,
     previousState: record.state,
     nextState,
+    sourceListingRef: action.sourceListingRef?.trim() || sourceListingRefFor(record),
+    readinessProofRef: action.readinessProofRef?.trim() || null,
+    operatorApprovalRef: action.operatorApprovalRef?.trim() || null,
     evidenceRefs: uniqueRefs(action.evidenceRefs ?? []),
   };
 
@@ -236,7 +276,19 @@ function defaultReasonFor(action: MarketplaceApprovalActionType) {
       return "Operator published after local readiness evidence passed.";
     case "unpublish":
       return "Operator forced public visibility off.";
+    case "restore":
+      return "Operator restored publication after current readiness evidence passed.";
   }
+}
+
+function sourceListingRefFor(record: MarketplaceApprovalRecord) {
+  const prefix = "operator-review:";
+  const suffix = `:${record.fixtureKey}`;
+  if (!record.candidate.id.startsWith(prefix) || !record.candidate.id.endsWith(suffix)) {
+    return record.candidate.id;
+  }
+  const corpusId = record.candidate.id.slice(prefix.length, -suffix.length);
+  return `draft-listing:${corpusId}`;
 }
 
 function uniqueRefs(refs: string[]) {
