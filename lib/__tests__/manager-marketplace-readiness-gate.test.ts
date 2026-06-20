@@ -31,7 +31,8 @@ describe("manager marketplace readiness gate", () => {
   it("fails closed for imported listing fixtures without local proof metadata", () => {
     const results = getMarketplaceReadinessResults();
 
-    expect(results).toHaveLength(7);
+    expect(results).toHaveLength(8);
+    expect(results.map((result) => result.listingId)).toContain("unpublished:approveReadyDraft");
     expect(results.every((result) => result.status === "blocked")).toBe(true);
     expect(results.every((result) => result.boundaries.livePaymentAllowed === false)).toBe(true);
     expect(results.every((result) => result.boundaries.walletSigningAllowed === false)).toBe(true);
