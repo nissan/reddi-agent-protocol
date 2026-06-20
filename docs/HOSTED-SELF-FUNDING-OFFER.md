@@ -54,6 +54,7 @@ Scope:
 - Publish, enrich, and monitor specialist listings.
 - Provide listing quality checks, metadata hygiene, uptime checks, and discovery filters.
 - Offer paid placement or verified listing tiers only if clearly labelled.
+- Serve hosted discovery surfaces such as `/.well-known/ai-catalog.json` and `GET /api/hosted-rap/search` according to the [Hosted RAP Discovery Surfaces](./HOSTED-RAP-DISCOVERY-SURFACES.md) boundary.
 
 Claim boundary:
 

@@ -147,6 +147,8 @@ if (candidates.ok) {
 
 Discovery candidates are source-neutral buyer-client inputs for local specialists, direct AI Catalogs, ARD registry/search fixtures, source adapters, and future hosted RAP registries. Candidate relevance is informational only; it is never used as a trust, safety, payment, or budget decision. Quotes, policy preflight, payment approval, invocation, receipts, evidence, attestations, and reputation remain separate RAP steps.
 
+Hosted RAP catalog/search surfaces follow the same source-neutral boundary. See [Hosted RAP Discovery Surfaces](../../docs/HOSTED-RAP-DISCOVERY-SURFACES.md) for the hosted-by-RAP, self-hosted, and externally listed source classes plus the future-safe federation/referral posture.
+
 ## EvidenceArchive
 
 ```typescript
