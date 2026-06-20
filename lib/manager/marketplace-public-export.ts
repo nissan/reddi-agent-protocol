@@ -8,6 +8,7 @@ import {
 } from "@/lib/manager/marketplace-readiness-gate";
 import {
   deriveMarketplacePublicationEligibility,
+  selectCurrentPublicationAudit,
   type MarketplacePublicationEligibilityDecision,
   type MarketplacePublicationEligibilityProof,
 } from "@/lib/manager/marketplace-publication-eligibility";
@@ -161,7 +162,7 @@ export function deriveMarketplacePublicExportItem(
     };
   }
 
-  const publishAudit = latestPublishAudit(record);
+  const publishAudit = selectCurrentPublicationAudit(record, proof);
   if (!publishAudit) {
     throw new Error("invariant: public export requires publish audit evidence");
   }
@@ -296,16 +297,6 @@ function buildCatalogResource(
       capabilities: listing.capabilities.tags,
     },
   };
-}
-
-function latestPublishAudit(record: MarketplaceApprovalRecord) {
-  return [...record.auditHistory]
-    .reverse()
-    .find((entry) =>
-      entry.action === "publish"
-      && entry.nextState === "published"
-      && entry.evidenceRefs.some(isNonEmptyString)
-    );
 }
 
 function publicExportBoundaries(

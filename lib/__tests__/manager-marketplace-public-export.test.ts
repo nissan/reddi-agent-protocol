@@ -161,7 +161,7 @@ describe("manager marketplace public export", () => {
     ]));
   });
 
-  it("blocks export when publish audit evidence is missing", () => {
+  it("blocks export when publish audit evidence is malformed", () => {
     const publishedWithoutAuditEvidence: MarketplaceApprovalRecord = {
       ...publishedRecord(),
       auditHistory: [
@@ -172,6 +172,9 @@ describe("manager marketplace public export", () => {
           timestamp,
           previousState: "approved",
           nextState: "published",
+          sourceListingRef: "draft-listing:agent-stack-fixture:anthropic-financial-services:2026-06-18",
+          readinessProofRef: "readiness-proof:approve-ready",
+          operatorApprovalRef: "evidence:operator-approval:approve-ready",
           evidenceRefs: [],
         },
       ],
@@ -181,7 +184,33 @@ describe("manager marketplace public export", () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected blocked export");
-    expect(result.reasons).toContain("publish_audit_missing");
+    expect(result.reasons).toContain("publish_audit_malformed");
+  });
+
+  it("blocks export when publish audit evidence mismatches the listing", () => {
+    const publishedWithMalformedAudit: MarketplaceApprovalRecord = {
+      ...publishedRecord(),
+      auditHistory: [
+        {
+          operatorId,
+          action: "publish",
+          reason: "Manual fixture with mismatched source listing evidence.",
+          timestamp,
+          previousState: "approved",
+          nextState: "published",
+          sourceListingRef: "draft-listing:other-listing",
+          readinessProofRef: "readiness-proof:approve-ready",
+          operatorApprovalRef: "evidence:operator-approval:approve-ready",
+          evidenceRefs: ["evidence:operator-action:publish"],
+        },
+      ],
+    };
+
+    const result = deriveMarketplacePublicExportItem(publishedWithMalformedAudit, publishReadyProof);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected blocked export");
+    expect(result.reasons).toContain("publish_audit_malformed");
   });
 
   it("does not export unsafe imported metadata even with forged published state and proof", () => {
@@ -194,6 +223,9 @@ describe("manager marketplace public export", () => {
         timestamp,
         previousState: "approved",
         nextState: "published",
+        sourceListingRef: "draft-listing:agent-stack-fixture:anthropic-financial-services:2026-06-18",
+        readinessProofRef: "readiness-proof:forged",
+        operatorApprovalRef: "evidence:operator-approval:approve-ready",
         evidenceRefs: ["evidence:forged:publish"],
       }],
     };
@@ -215,6 +247,7 @@ function action(
     type,
     operatorId,
     timestamp,
+    ...(type === "publish" || type === "restore" ? { readinessProofRef: "readiness-proof:approve-ready" } : {}),
     ...overrides,
   };
 }

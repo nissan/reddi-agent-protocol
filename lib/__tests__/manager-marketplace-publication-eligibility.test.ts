@@ -199,6 +199,95 @@ describe("marketplace publication eligibility matrix", () => {
     },
   );
 
+  it("accepts a restore audit only when current proof still matches", () => {
+    const restore = applyMarketplaceApprovalAction(recordFor("suspended", "approveReadyDraft"), action("restore", {
+      readinessProof: fixturePublishReadyProof,
+      evidenceRefs: ["evidence:operator-action:restore"],
+    }));
+    if (!restore.ok) throw new Error(restore.reason);
+
+    const decision = deriveMarketplacePublicationEligibility(restore.record, fixturePublishReadyProof);
+
+    expect(decision.status).toBe("eligible");
+    expect(decision.reasonCodes).toEqual(["eligible"]);
+    expect(decision.evidenceRefs).toEqual(expect.arrayContaining([
+      "evidence:operator-action:restore",
+      "evidence:operator-approval:approve-ready",
+    ]));
+  });
+
+  it.each([
+    [
+      "latest lifecycle audit unpublishes",
+      {
+        ...publishedRecord(),
+        auditHistory: [
+          ...publishedRecord().auditHistory,
+          {
+            operatorId,
+            action: "unpublish" as const,
+            reason: "Operator removed public visibility.",
+            timestamp,
+            previousState: "published" as const,
+            nextState: "approved" as const,
+            sourceListingRef: "draft-listing:agent-stack-fixture:anthropic-financial-services:2026-06-18",
+            readinessProofRef: null,
+            operatorApprovalRef: null,
+            evidenceRefs: ["evidence:operator-action:unpublish"],
+          },
+        ],
+      },
+    ],
+    [
+      "latest lifecycle audit unpublishes without evidence",
+      {
+        ...publishedRecord(),
+        auditHistory: [
+          ...publishedRecord().auditHistory,
+          {
+            operatorId,
+            action: "unpublish" as const,
+            reason: "Malformed operator unpublish evidence.",
+            timestamp,
+            previousState: "published" as const,
+            nextState: "approved" as const,
+            sourceListingRef: "draft-listing:agent-stack-fixture:anthropic-financial-services:2026-06-18",
+            readinessProofRef: null,
+            operatorApprovalRef: null,
+            evidenceRefs: [],
+          },
+        ],
+      },
+    ],
+    [
+      "readiness proof ref is stale",
+      {
+        ...publishedRecord(),
+        auditHistory: publishedRecord().auditHistory.map((entry) => entry.action === "publish"
+          ? { ...entry, readinessProofRef: "readiness-proof:stale" }
+          : entry),
+      },
+    ],
+    [
+      "operator approval ref is stale",
+      {
+        ...publishedRecord(),
+        auditHistory: publishedRecord().auditHistory.map((entry) => entry.action === "publish"
+          ? { ...entry, operatorApprovalRef: "evidence:operator-approval:stale" }
+          : entry),
+      },
+    ],
+  ] as Array<[string, MarketplaceApprovalRecord]>)(
+    "blocks when %s",
+    (_label, record) => {
+      const decision = deriveMarketplacePublicationEligibility(record, fixturePublishReadyProof);
+
+      expect(decision.status).toBe("blocked");
+      expect(decision.reasonCodes).toContain("publish_audit_malformed");
+      expect(decision.boundaries.hostedExportAllowed).toBe(false);
+    },
+  );
+
   it("blocks live escalation or Quasar-backed claims", () => {
     const decision = deriveMarketplacePublicationEligibility(publishedRecord(), {
       ...fixturePublishReadyProof,
@@ -229,6 +318,7 @@ function action(
     type,
     operatorId,
     timestamp,
+    ...(type === "publish" || type === "restore" ? { readinessProofRef: "readiness-proof:approve-ready" } : {}),
     ...overrides,
   };
 }
@@ -256,6 +346,9 @@ function publishedUnsafeRecord() {
       timestamp,
       previousState: "approved" as const,
       nextState: "published" as const,
+      sourceListingRef: "draft-listing:agent-stack-fixture:anthropic-financial-services:2026-06-18",
+      readinessProofRef: "readiness-proof:forged",
+      operatorApprovalRef: "evidence:operator-approval:approve-ready",
       evidenceRefs: ["evidence:forged:publish"],
     }],
   };

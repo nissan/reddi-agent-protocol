@@ -64,6 +64,9 @@ describe("manager marketplace approval actions", () => {
         action: "publish",
         previousState: "approved",
         nextState: "published",
+        sourceListingRef: "draft-listing:agent-stack-fixture:anthropic-financial-services:2026-06-18",
+        readinessProofRef: "readiness-proof:approve-ready",
+        operatorApprovalRef: "evidence:operator-approval:approve-ready",
         evidenceRefs: expect.arrayContaining([
           "evidence:operator-action:publish",
           "evidence:operator-approval:approve-ready",
@@ -183,9 +186,54 @@ describe("manager marketplace approval actions", () => {
     expect(fromPublished.ok).toBe(true);
     expect(fromPublished.record.state).toBe("approved");
     expect(fromPublished.record.publicVisible).toBe(false);
+    expect(fromPublished.record.auditHistory[0]).toMatchObject({
+      action: "unpublish",
+      sourceListingRef: "draft-listing:agent-stack-fixture:anthropic-financial-services:2026-06-18",
+      readinessProofRef: null,
+      operatorApprovalRef: null,
+    });
     expect(fromApproved.ok).toBe(true);
     expect(fromApproved.record.state).toBe("approved");
     expect(fromApproved.record.publicVisible).toBe(false);
+  });
+
+  it("restores suspended listings only with current publish-ready evidence", () => {
+    const result = applyMarketplaceApprovalAction(recordFor("suspended", "approveReadyDraft", false), action("restore", {
+      readinessProof: publishReadyProof,
+      evidenceRefs: ["evidence:operator-action:restore"],
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(result.record.state).toBe("published");
+    expect(result.record.publicVisible).toBe(true);
+    expect(result.record.auditHistory[0]).toMatchObject({
+      action: "restore",
+      previousState: "suspended",
+      nextState: "published",
+      sourceListingRef: "draft-listing:agent-stack-fixture:anthropic-financial-services:2026-06-18",
+      readinessProofRef: "readiness-proof:approve-ready",
+      operatorApprovalRef: "evidence:operator-approval:approve-ready",
+      evidenceRefs: expect.arrayContaining([
+        "evidence:operator-action:restore",
+        "evidence:operator-approval:approve-ready",
+        "receipt:dry-run:approve-ready",
+      ]),
+    });
+  });
+
+  it("blocks restore when current readiness is stale or incomplete", () => {
+    const { operatorApproval, ...staleProof } = publishReadyProof;
+    expect(operatorApproval).toBeDefined();
+
+    const result = applyMarketplaceApprovalAction(recordFor("suspended", "approveReadyDraft", false), action("restore", {
+      readinessProof: staleProof,
+    }));
+
+    expect(result.ok).toBe(false);
+    expect(result.readiness?.status).toBe("dry_run_ready");
+    expect(result.record.state).toBe("suspended");
+    expect(result.record.publicVisible).toBe(false);
+    expect(result.record.auditHistory).toEqual([]);
   });
 
   it.each([
@@ -247,6 +295,7 @@ function action(
     type,
     operatorId,
     timestamp,
+    ...(type === "publish" || type === "restore" ? { readinessProofRef: "readiness-proof:approve-ready" } : {}),
     ...overrides,
   };
 }
