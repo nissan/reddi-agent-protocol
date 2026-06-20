@@ -61,3 +61,5 @@ The read-only catalog/search surfaces do not perform:
 - reputation assignment
 
 Publication claims that mention payment proof, receipt/evidence, trust, or reputation belong to later publication-gate work and depend on the receipt/evidence and attestation/reputation lanes.
+
+If a future publication or reputation lane moves from read-only metadata into Quasar instructions, transaction assembly, wallet signing, RPC, or devnet proof, it must first pass the [Quasar Surfpool and devnet promotion checklist](./QUASAR-SURFPOOL-DEVNET-PROMOTION-CHECKLIST.md).

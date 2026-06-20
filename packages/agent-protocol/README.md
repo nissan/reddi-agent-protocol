@@ -261,6 +261,8 @@ Quasar registry compatibility separates compact on-chain `AgentAccount` fields f
 
 The mapper is a compatibility report only. It does not build Quasar instructions, sign wallets, call RPC, deploy programs, activate live payments, or publish hosted listings. Imported/static listings without an explicit owner and native SOL lamport rate stay `metadata_only` rather than becoming register instructions.
 
+Future PRs that move from compatibility reports into instruction builders, transaction assembly, Surfpool validation, or devnet wallet use must follow the Quasar Surfpool/devnet promotion checklist in [`../../docs/QUASAR-SURFPOOL-DEVNET-PROMOTION-CHECKLIST.md`](../../docs/QUASAR-SURFPOOL-DEVNET-PROMOTION-CHECKLIST.md). Package/read-model work like this mapper does not require Surfpool or devnet.
+
 ## Buyer Client And Seller Middleware
 
 ```typescript
