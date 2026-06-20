@@ -1,6 +1,8 @@
 import {
   buildPayShEnvironmentCapabilities,
   buildPayShSourceManifest,
+  getPayShCatalogDiagnostics,
+  getPayShCatalogSupportStates,
   mapPayShCategoryToTaskTypes,
   payShCatalogProviderToCandidate,
   PAY_SH_SOURCE_PROFILE,
@@ -62,6 +64,20 @@ describe("source adapter pay-sh profile", () => {
       sourceHash: "2858c649a49c995a",
       rawProviderFqn: "merit-systems/stablecrypto/market-data",
     });
+    expect(candidate.supportStates).toEqual([
+      "catalog_visible",
+      "pay_sh_compatible_unknown",
+      "sandbox_untested",
+      "dry_run_only",
+      "live_disabled",
+    ]);
+    expect(candidate.diagnostics).toEqual([
+      {
+        code: "missing_openapi_detail",
+        severity: "warning",
+        detail: "Pay.sh catalog provider does not expose OpenAPI, detail, or docs metadata in the fixture.",
+      },
+    ]);
     expect(candidate.taskTypes).toEqual(["market-data", "financial-analysis"]);
     expect(candidate.pricing).toMatchObject({
       currency: "USDC",
@@ -109,9 +125,98 @@ describe("source adapter pay-sh profile", () => {
       sourceHash: undefined,
       rawProviderFqn: "unsafe/provider",
     });
+    expect(candidate.diagnostics.map((item) => item.code)).toEqual([
+      "missing_price",
+      "zero_endpoints",
+      "missing_openapi_detail",
+      "unstable_provider_url",
+    ]);
     expect(candidate.attestationState).toBe("externally_listed_unattested");
+    expect(candidate.supportStates).toContain("live_disabled");
     expect(candidate.trustNotes.join(" ")).toContain("non-HTTPS");
     expect(candidate.trustNotes.join(" ")).toContain("source hash is missing");
+    expect(candidate.trustNotes.join(" ")).toContain("do not upgrade trust");
+  });
+
+  it("emits explicit support states without implying live payment or trust readiness", () => {
+    expect(getPayShCatalogSupportStates()).toEqual([
+      "catalog_visible",
+      "pay_sh_compatible_unknown",
+      "sandbox_untested",
+      "dry_run_only",
+      "live_disabled",
+    ]);
+  });
+
+  it("flags unsupported rails and networks before marketplace publication use", () => {
+    const diagnostics = getPayShCatalogDiagnostics({
+      fqn: "unsupported/provider",
+      title: "Unsupported Provider",
+      category: "data",
+      service_url: "https://unsupported.example.com",
+      endpoint_count: 1,
+      min_price_usd: 0.01,
+      openapi_url: "https://unsupported.example.com/openapi.json",
+      payment_rails: ["stripe"],
+      networks: ["ethereum"],
+    });
+
+    expect(diagnostics).toContainEqual({
+      code: "unsupported_rail_network",
+      severity: "blocker",
+      detail: "Pay.sh catalog provider declares payment rail or network metadata outside RAP's Pay.sh x402/MPP Solana boundary.",
+    });
+  });
+
+  it("flags mixed supported and unsupported rail or network metadata", () => {
+    const diagnostics = getPayShCatalogDiagnostics({
+      fqn: "mixed/provider",
+      title: "Mixed Provider",
+      category: "data",
+      service_url: "https://mixed.example.com",
+      endpoint_count: 1,
+      min_price_usd: 0.01,
+      openapi_url: "https://mixed.example.com/openapi.json",
+      payment_rails: ["x402", "stripe"],
+      networks: ["solana", "ethereum"],
+    });
+
+    expect(diagnostics.map((item) => item.code)).toContain("unsupported_rail_network");
+  });
+
+  it("flags unsafe categories and malformed provider identity as blockers", () => {
+    const diagnostics = getPayShCatalogDiagnostics({
+      fqn: "",
+      title: "",
+      category: "credential_tools",
+      use_case: "Automation",
+      service_url: "https://unsafe.example.com",
+      endpoint_count: 1,
+      min_price_usd: 0.01,
+      docs_url: "https://unsafe.example.com/docs",
+    });
+
+    expect(diagnostics.map((item) => item.code)).toEqual([
+      "malformed_provider_identity",
+      "unsafe_category_use_case",
+    ]);
+  });
+
+  it("flags underscore-delimited unsafe categories", () => {
+    for (const category of ["credential_tools", "adult_content", "gambling_services"]) {
+      const diagnostics = getPayShCatalogDiagnostics({
+        fqn: `unsafe/${category}`,
+        title: "Unsafe Provider",
+        category,
+        use_case: "Automation",
+        service_url: "https://unsafe.example.com",
+        endpoint_count: 1,
+        min_price_usd: 0.01,
+        docs_url: "https://unsafe.example.com/docs",
+      });
+
+      expect(diagnostics.map((item) => item.code)).toContain("unsafe_category_use_case");
+    }
   });
 
   it("preserves provider sandbox URLs for Pay.sh sandbox/localnet testing", () => {

@@ -21,6 +21,11 @@ export type PayShCatalogProvider = {
   category?: PayShProviderCategory;
   service_url?: string;
   sandbox_service_url?: string;
+  detail_url?: string;
+  docs_url?: string;
+  openapi_url?: string;
+  payment_rails?: string[];
+  networks?: string[];
   endpoint_count?: number;
   has_metering?: boolean;
   has_free_tier?: boolean;
@@ -30,6 +35,26 @@ export type PayShCatalogProvider = {
 };
 
 export type PayShDevnetSupportState = "provider_declared" | "challenge_detected" | "unknown";
+export type PayShCatalogSupportState =
+  | "catalog_visible"
+  | "pay_sh_compatible_unknown"
+  | "sandbox_untested"
+  | "dry_run_only"
+  | "live_disabled";
+export type PayShCatalogDiagnosticCode =
+  | "missing_price"
+  | "zero_endpoints"
+  | "missing_openapi_detail"
+  | "unsupported_rail_network"
+  | "unstable_provider_url"
+  | "unsafe_category_use_case"
+  | "malformed_provider_identity";
+
+export type PayShCatalogDiagnostic = {
+  code: PayShCatalogDiagnosticCode;
+  severity: "warning" | "blocker";
+  detail: string;
+};
 
 export type PayShEnvironmentCapabilities = {
   sandbox: {
@@ -79,6 +104,8 @@ export type ReddiPayShCandidate = {
     hasMetering: boolean;
   };
   environmentCapabilities: PayShEnvironmentCapabilities;
+  supportStates: PayShCatalogSupportState[];
+  diagnostics: PayShCatalogDiagnostic[];
   sourceAdapter: SourceAdapterManifest;
   attestationState: "externally_listed_unattested";
   trustNotes: string[];
@@ -126,10 +153,103 @@ function validHttpsUrl(value: string | undefined) {
   }
 }
 
+function hasNonEmptyString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 function providerMentionsDevnet(provider: PayShCatalogProvider) {
   return [provider.fqn, provider.title, provider.description, provider.use_case, provider.category, provider.service_url]
     .filter(Boolean)
     .some((value) => String(value).toLowerCase().includes("devnet"));
+}
+
+function declaresUnsupportedRailOrNetwork(provider: PayShCatalogProvider) {
+  const rails = provider.payment_rails?.map((item) => item.toLowerCase().trim()).filter(Boolean) ?? [];
+  const networks = provider.networks?.map((item) => item.toLowerCase().trim()).filter(Boolean) ?? [];
+  const unsupportedRails = rails.some((rail) => rail !== "x402" && rail !== "mpp");
+  const unsupportedNetworks =
+    networks.length > 0 && networks.some((network) => network !== "solana" && network !== "localnet" && network !== "devnet" && network !== "mainnet");
+  return unsupportedRails || unsupportedNetworks;
+}
+
+function hasUnsafePayShCategoryOrUseCase(provider: PayShCatalogProvider) {
+  const haystack = [provider.category, provider.use_case, provider.description, provider.title]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return /(^|[^a-z0-9])(adult|gambling|credential|credentials|surveillance|weapon|exploit|malware|phishing)([^a-z0-9]|$)/.test(
+    haystack
+  );
+}
+
+export function getPayShCatalogDiagnostics(provider: PayShCatalogProvider): PayShCatalogDiagnostic[] {
+  const diagnostics: PayShCatalogDiagnostic[] = [];
+  const hasPrice =
+    provider.has_free_tier === true ||
+    Number.isFinite(provider.min_price_usd) ||
+    Number.isFinite(provider.max_price_usd);
+
+  if (!hasNonEmptyString(provider.fqn) || !hasNonEmptyString(provider.title)) {
+    diagnostics.push({
+      code: "malformed_provider_identity",
+      severity: "blocker",
+      detail: "Pay.sh catalog provider requires non-empty fqn and title before RAP can use it as a source candidate.",
+    });
+  }
+
+  if (!hasPrice) {
+    diagnostics.push({
+      code: "missing_price",
+      severity: "blocker",
+      detail: "Pay.sh catalog provider does not declare price or free-tier metadata.",
+    });
+  }
+
+  if (!Number.isFinite(provider.endpoint_count) || (provider.endpoint_count ?? 0) <= 0) {
+    diagnostics.push({
+      code: "zero_endpoints",
+      severity: "blocker",
+      detail: "Pay.sh catalog provider does not declare at least one callable endpoint.",
+    });
+  }
+
+  if (!hasNonEmptyString(provider.openapi_url) && !hasNonEmptyString(provider.detail_url) && !hasNonEmptyString(provider.docs_url)) {
+    diagnostics.push({
+      code: "missing_openapi_detail",
+      severity: "warning",
+      detail: "Pay.sh catalog provider does not expose OpenAPI, detail, or docs metadata in the fixture.",
+    });
+  }
+
+  if (declaresUnsupportedRailOrNetwork(provider)) {
+    diagnostics.push({
+      code: "unsupported_rail_network",
+      severity: "blocker",
+      detail: "Pay.sh catalog provider declares payment rail or network metadata outside RAP's Pay.sh x402/MPP Solana boundary.",
+    });
+  }
+
+  if (!validHttpsUrl(provider.service_url)) {
+    diagnostics.push({
+      code: "unstable_provider_url",
+      severity: "blocker",
+      detail: "Pay.sh catalog provider service URL is missing, malformed, or non-HTTPS.",
+    });
+  }
+
+  if (hasUnsafePayShCategoryOrUseCase(provider)) {
+    diagnostics.push({
+      code: "unsafe_category_use_case",
+      severity: "blocker",
+      detail: "Pay.sh catalog provider category or use case is unsafe for marketplace publication without separate review.",
+    });
+  }
+
+  return diagnostics;
+}
+
+export function getPayShCatalogSupportStates(): PayShCatalogSupportState[] {
+  return ["catalog_visible", "pay_sh_compatible_unknown", "sandbox_untested", "dry_run_only", "live_disabled"];
 }
 
 export function buildPayShEnvironmentCapabilities(provider: PayShCatalogProvider): PayShEnvironmentCapabilities {
@@ -214,6 +334,7 @@ export function payShCatalogProviderToCandidate(provider: PayShCatalogProvider):
   const maxUsd = Math.max(minUsd, provider.max_price_usd ?? minUsd);
   const serviceUrl = validHttpsUrl(provider.service_url);
   const sourceHash = provider.sha?.trim() || undefined;
+  const diagnostics = getPayShCatalogDiagnostics(provider);
 
   return {
     candidateId: stableCandidateId(provider.fqn),
@@ -238,6 +359,8 @@ export function payShCatalogProviderToCandidate(provider: PayShCatalogProvider):
       hasMetering: provider.has_metering === true,
     },
     environmentCapabilities: buildPayShEnvironmentCapabilities(provider),
+    supportStates: getPayShCatalogSupportStates(),
+    diagnostics,
     sourceAdapter: buildPayShSourceManifest({
       role: "specialist",
       runtime: "http",
@@ -248,6 +371,8 @@ export function payShCatalogProviderToCandidate(provider: PayShCatalogProvider):
       "Imported from Pay.sh catalog as external Solana x402/MPP metadata.",
       "Not RAP-attested until a RAP attestor verifies output, receipt, and evidence.",
       "Preview only: RAP has not created a Pay.sh wallet, top-up, or paid API call for this candidate.",
+      "Pay.sh support state is catalog-visible/dry-run-only/live-disabled until RAP evidence gates approve a narrower claim.",
+      ...(diagnostics.length ? ["Pay.sh catalog diagnostics do not upgrade trust, settlement, reputation, or publication readiness."] : []),
       ...(serviceUrl ? [] : ["Provider service URL is missing or non-HTTPS, so live probing stays disabled."]),
       ...(sourceHash ? [] : ["Pay.sh catalog source hash is missing, so fixture provenance is incomplete."]),
     ],
