@@ -56,6 +56,12 @@ describe("source adapter pay-sh profile", () => {
 
     expect(candidate.candidateId).toBe("pay-sh:merit-systems:stablecrypto:market-data");
     expect(candidate.providerName).toBe("StableCrypto");
+    expect(candidate.serviceUrl).toBe("https://stablecrypto.dev/");
+    expect(candidate.sourceMetadata).toEqual({
+      sourceUrl: "https://pay.sh/api/catalog",
+      sourceHash: "2858c649a49c995a",
+      rawProviderFqn: "merit-systems/stablecrypto/market-data",
+    });
     expect(candidate.taskTypes).toEqual(["market-data", "financial-analysis"]);
     expect(candidate.pricing).toMatchObject({
       currency: "USDC",
@@ -80,6 +86,32 @@ describe("source adapter pay-sh profile", () => {
     expect(candidate.attestationState).toBe("externally_listed_unattested");
     expect(validateSourceAdapterManifest(candidate.sourceAdapter).ok).toBe(true);
     expect(candidate.trustNotes.join(" ")).toContain("Not RAP-attested");
+  });
+
+  it("fails closed for missing source hash, missing price, missing endpoint count, and non-HTTPS service URLs", () => {
+    const candidate = payShCatalogProviderToCandidate({
+      fqn: "unsafe/provider",
+      title: "Unsafe Provider",
+      category: "data",
+      service_url: "http://unsafe.example.com",
+    });
+
+    expect(candidate.serviceUrl).toBeUndefined();
+    expect(candidate.endpointCount).toBe(0);
+    expect(candidate.pricing).toMatchObject({
+      minUsd: 0,
+      maxUsd: 0,
+      hasFreeTier: true,
+      hasMetering: false,
+    });
+    expect(candidate.sourceMetadata).toEqual({
+      sourceUrl: "https://pay.sh/api/catalog",
+      sourceHash: undefined,
+      rawProviderFqn: "unsafe/provider",
+    });
+    expect(candidate.attestationState).toBe("externally_listed_unattested");
+    expect(candidate.trustNotes.join(" ")).toContain("non-HTTPS");
+    expect(candidate.trustNotes.join(" ")).toContain("source hash is missing");
   });
 
   it("preserves provider sandbox URLs for Pay.sh sandbox/localnet testing", () => {

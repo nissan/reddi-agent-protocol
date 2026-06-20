@@ -62,6 +62,11 @@ export type ReddiPayShCandidate = {
   providerFqn: string;
   providerName: string;
   serviceUrl?: string;
+  sourceMetadata: {
+    sourceUrl: "https://pay.sh/api/catalog";
+    sourceHash?: string;
+    rawProviderFqn: string;
+  };
   category: string;
   taskTypes: string[];
   endpointCount: number;
@@ -109,6 +114,16 @@ export function mapPayShCategoryToTaskTypes(category: PayShProviderCategory | un
 
 function stableCandidateId(fqn: string) {
   return `${PAY_SH_SOURCE_ID}:${fqn.replace(/\//g, ":").replace(/[^a-zA-Z0-9:-]+/g, "-").replace(/^[:\-]+|[:\-]+$/g, "").toLowerCase()}`;
+}
+
+function validHttpsUrl(value: string | undefined) {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function providerMentionsDevnet(provider: PayShCatalogProvider) {
@@ -197,13 +212,20 @@ export function payShCatalogProviderToCandidate(provider: PayShCatalogProvider):
   const taskTypes = mapPayShCategoryToTaskTypes(category);
   const minUsd = Math.max(0, provider.min_price_usd ?? 0);
   const maxUsd = Math.max(minUsd, provider.max_price_usd ?? minUsd);
+  const serviceUrl = validHttpsUrl(provider.service_url);
+  const sourceHash = provider.sha?.trim() || undefined;
 
   return {
     candidateId: stableCandidateId(provider.fqn),
     source: PAY_SH_SOURCE_ID,
     providerFqn: provider.fqn,
     providerName: provider.title,
-    serviceUrl: provider.service_url,
+    serviceUrl,
+    sourceMetadata: {
+      sourceUrl: "https://pay.sh/api/catalog",
+      sourceHash,
+      rawProviderFqn: provider.fqn,
+    },
     category,
     taskTypes,
     endpointCount: provider.endpoint_count ?? 0,
@@ -226,6 +248,8 @@ export function payShCatalogProviderToCandidate(provider: PayShCatalogProvider):
       "Imported from Pay.sh catalog as external Solana x402/MPP metadata.",
       "Not RAP-attested until a RAP attestor verifies output, receipt, and evidence.",
       "Preview only: RAP has not created a Pay.sh wallet, top-up, or paid API call for this candidate.",
+      ...(serviceUrl ? [] : ["Provider service URL is missing or non-HTTPS, so live probing stays disabled."]),
+      ...(sourceHash ? [] : ["Pay.sh catalog source hash is missing, so fixture provenance is incomplete."]),
     ],
   };
 }
