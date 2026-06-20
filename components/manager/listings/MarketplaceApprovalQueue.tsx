@@ -28,6 +28,7 @@ const stateOrder: MarketplaceApprovalQueueState[] = [
   "needs_changes",
   "approve_ready",
   "published_placeholder",
+  "unpublished",
   "rejected",
   "blocked",
   "suspended",
@@ -185,6 +186,8 @@ function ListingPreview({
                 ))}
               </ul>
             </section>
+
+            <PublicationEvidencePanel item={item} />
           </div>
 
           <aside className="space-y-4">
@@ -235,6 +238,79 @@ function ListingPreview({
   );
 }
 
+function PublicationEvidencePanel({ item }: { item: MarketplaceApprovalQueueItem }) {
+  const evidence = item.publicationEvidence;
+
+  return (
+    <section className="rounded-lg border border-border bg-page/50 p-4" data-testid="marketplace-publication-evidence">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Publication claim evidence</p>
+          <h3 className="mt-1 font-display text-lg font-semibold text-white">{evidence.label}</h3>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{evidence.description}</p>
+        </div>
+        <Badge variant="outline" className={cn("w-fit", publicationStatusClass(evidence.status))}>
+          {evidence.status.replaceAll("_", " ")}
+        </Badge>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <ClaimMetric label="Off-chain preview" value={evidence.offchainPreview} />
+        <ClaimMetric label="Hosted attestation" value={evidence.hostedAttestation} />
+        <ClaimMetric label="Quasar" value={evidence.quasar} />
+        <ClaimMetric label="Activation" value={evidence.activationMode} />
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className="rounded-lg border border-border bg-surface/60 p-3">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Evidence refs</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {evidence.evidenceRefs.map((ref) => (
+              <code key={ref} className="rounded-md border border-white/10 bg-black/20 px-2 py-1 text-xs text-gray-200">
+                {ref}
+              </code>
+            ))}
+          </div>
+        </div>
+        <div className="rounded-lg border border-border bg-surface/60 p-3">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Claim boundary</p>
+          <ul className="mt-2 space-y-2 text-sm text-muted-foreground">
+            <li>Buyer-facing trust/reputation claims: {evidence.buyerFacingClaimsAllowed ? "enabled" : "disabled"}</li>
+            <li>Live publication: {evidence.livePublication}</li>
+            {evidence.blockedReasons.length ? (
+              evidence.blockedReasons.slice(0, 3).map((reason) => <li key={reason}>{reason}</li>)
+            ) : (
+              <li>Dry-run activation only; no hosted registry write.</li>
+            )}
+          </ul>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ClaimMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-surface/60 p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 break-words text-sm font-medium text-white">{value.replaceAll("_", " ")}</p>
+    </div>
+  );
+}
+
+function publicationStatusClass(status: MarketplaceApprovalQueueItem["publicationEvidence"]["status"]) {
+  if (status === "published_dry_run" || status === "dry_run_activation_ready" || status === "hosted_attestation_ready") {
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-200";
+  }
+  if (status === "hosted_attestation_pending" || status === "quasar_pending" || status === "live_unavailable") {
+    return "border-amber-500/30 bg-amber-500/10 text-amber-200";
+  }
+  if (status === "blocked_evidence" || status === "suspended") {
+    return "border-red-500/30 bg-red-500/10 text-red-200";
+  }
+  return "border-white/10 bg-white/5 text-gray-300";
+}
+
 function StateBadge({ state }: { state: MarketplaceApprovalQueueState }) {
   const label = state.replaceAll("_", " ");
   const className =
@@ -242,6 +318,8 @@ function StateBadge({ state }: { state: MarketplaceApprovalQueueState }) {
       ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
       : state === "published_placeholder"
         ? "border-sky-500/30 bg-sky-500/10 text-sky-200"
+        : state === "unpublished"
+          ? "border-slate-400/30 bg-slate-400/10 text-slate-200"
         : state === "needs_changes"
           ? "border-amber-500/30 bg-amber-500/10 text-amber-200"
           : state === "rejected" || state === "blocked" || state === "suspended"
