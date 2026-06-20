@@ -211,6 +211,28 @@ Attestation v1 records include schema version, evidence reference, evidence hash
 
 Reputation updates are deterministic and local-first. Invalid or incomplete rubrics fail closed and return the previous reputation state unchanged. Failed, disputed, and refunded work produce explicit status and routing-impact reason codes. Self-attested and external-attested records are evidence inputs, not verified claims; `reddi_attested` and `verified` boundaries must come from RAP-side verification or operator-controlled attestations.
 
+## Off-Chain Reputation Preview
+
+```typescript
+import {
+  deriveOffchainReputationPreview,
+} from '@reddi/agent-protocol/offchain-reputation-preview';
+
+const result = deriveOffchainReputationPreview({
+  id: 'preview:listing:planning-001',
+  binding: receiptEvidenceBinding,
+  subject: { id: 'listing:planning-001', type: 'listing' },
+  createdAt: new Date().toISOString(),
+});
+
+console.log(result.preview.status); // preview_ready / insufficient_evidence / blocked
+console.log(result.preview.display.buyerFacingClaimAllowed); // false
+```
+
+Off-chain reputation preview consumes `reddi.receipt-evidence-binding.v1` records and projects an explanatory reputation preview without mutating reputation state. It requires safe binding guardrails, allowed policy/payment preflight metadata, evidence refs, attestation evidence, and matching reputation-event drafts before returning a score preview. Missing attestation or reputation draft data stays `insufficient_evidence`; denied policy/payment, malformed evidence, unsafe live guardrails, failed attestations, or mismatched event ids are blocked.
+
+This preview is not Quasar-backed and does not build instruction flows while #390 compatibility is pending. It never performs wallet signing, RPC calls, hosted registry writes, marketplace publication, live payment execution, provider calls, or reputation mutation, and it never allows buyer-facing trust/reputation claims from preview data alone.
+
 ## Buyer Client And Seller Middleware
 
 ```typescript

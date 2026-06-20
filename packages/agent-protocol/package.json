@@ -58,6 +58,14 @@
       "types": "./dist/agent-stack-fixtures.d.ts",
       "import": "./dist/agent-stack-fixtures.js"
     },
+    "./receipt-evidence-binding": {
+      "types": "./dist/receipt-evidence-binding.d.ts",
+      "import": "./dist/receipt-evidence-binding.js"
+    },
+    "./offchain-reputation-preview": {
+      "types": "./dist/offchain-reputation-preview.d.ts",
+      "import": "./dist/offchain-reputation-preview.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
