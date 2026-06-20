@@ -66,6 +66,10 @@
       "types": "./dist/offchain-reputation-preview.d.ts",
       "import": "./dist/offchain-reputation-preview.js"
     },
+    "./quasar-registry-compatibility": {
+      "types": "./dist/quasar-registry-compatibility.d.ts",
+      "import": "./dist/quasar-registry-compatibility.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
