@@ -8,13 +8,13 @@ import {
   deriveMarketplacePublicExportSnapshot,
   type MarketplacePublicExportSnapshot,
 } from "@/lib/manager/marketplace-public-export";
-import type { MarketplaceReadinessProofMetadata } from "@/lib/manager/marketplace-readiness-gate";
+import type { MarketplacePublicationEligibilityProof } from "@/lib/manager/marketplace-publication-eligibility";
 import { getStaticAgentStackReviewWorkspace } from "@/lib/manager/static-agent-stack-review";
 
 const fixtureTimestamp = "2026-06-20T00:00:00Z";
 const fixtureOperatorId = "operator:fixture";
 
-export const fixturePublishReadyProof: MarketplaceReadinessProofMetadata = {
+export const fixturePublishReadyProof: MarketplacePublicationEligibilityProof = {
   endpointBindingRef: "endpoint-binding:anthropic-financial-services:dry-run",
   paymentPlan: {
     schemaVersion: "marketplace-payment-plan-proof:v1",
@@ -26,13 +26,101 @@ export const fixturePublishReadyProof: MarketplaceReadinessProofMetadata = {
     evidenceRef: "evidence:payment-plan:dry-run",
   },
   dryRunReceiptRefs: ["receipt:dry-run:approve-ready"],
-  evidenceRefs: ["evidence:static-review:approve-ready"],
+  evidenceRefs: [
+    "evidence:static-review:approve-ready",
+    "source-proof:approve-ready",
+    "hosted-attestation-proof:approve-ready",
+    "publication-gate:approve-ready",
+  ],
   attestationDraftRef: "attestation-draft:approve-ready",
   operatorApproval: {
     approved: true,
     approvedBy: fixtureOperatorId,
     approvedAt: fixtureTimestamp,
     evidenceRef: "evidence:operator-approval:approve-ready",
+  },
+  hostedAttestationClaim: {
+    schemaVersion: "reddi.hosted-attestation-claim.v1",
+    id: "hosted-claim:approve-ready",
+    status: "hosted_attestation_ready",
+    subject: { id: "listing:approve-ready", type: "listing" },
+    source: {
+      kind: "hosted-rap-registry",
+      sourceId: "source:approve-ready",
+      catalogRef: "/.well-known/ai-catalog.json",
+      listingId: "listing:approve-ready",
+      rawSnapshotRef: "snapshot:approve-ready",
+    },
+    backing: {
+      claimKind: "hosted_attestation_backed",
+      attestationKind: "reddi_attested",
+      reputationKind: "offchain_preview",
+      quasarBacking: {
+        status: "not_quasar_backed",
+        instructionFlow: "not_built",
+        promotionChecklistIssue: 441,
+      },
+      hostedAttestationBacking: {
+        status: "ready",
+        sourceProofRef: "source-proof:approve-ready",
+        attestationProofRef: "hosted-attestation-proof:approve-ready",
+        hostedBy: "reddi",
+        operatorApprovalEvidenceRef: "evidence:operator-approval:approve-ready",
+        publicationGateEvidenceRef: "publication-gate:approve-ready",
+        publicationGateIssue: 395,
+      },
+    },
+    evidenceSummary: {
+      bindingId: "binding:approve-ready",
+      receiptId: "receipt:dry-run:approve-ready",
+      evidenceId: "evidence:static-review:approve-ready",
+      evidenceHash: "sha256:approve-ready",
+      evidenceRef: "evidence:static-review:approve-ready",
+      paymentProofRef: "evidence:payment-plan:dry-run",
+      attestationId: "attestation:approve-ready",
+      reputationEventDraftId: "reputation:approve-ready",
+      previewId: "preview:approve-ready",
+      sourceProofRef: "source-proof:approve-ready",
+      attestationProofRef: "hosted-attestation-proof:approve-ready",
+      operatorApprovalEvidenceRef: "evidence:operator-approval:approve-ready",
+      publicationGateEvidenceRef: "publication-gate:approve-ready",
+    },
+    display: {
+      label: "Hosted attestation ready",
+      explanation: "Fixture hosted attestation claim.",
+      buyerFacingClaimAllowed: false,
+    },
+    reasonCodes: [
+      "binding_valid",
+      "preview_ready",
+      "hosted_attestation_evidence_present",
+      "operator_approval_present",
+      "publication_gate_present",
+      "buyer_facing_claim_disabled",
+      "not_quasar_backed",
+    ],
+    guardrails: {
+      reputationMutated: false,
+      quasarInstructionBuilt: false,
+      walletSigning: false,
+      rpcCall: false,
+      hostedRegistryWrite: false,
+      marketplacePublished: false,
+      livePaymentExecuted: false,
+      providerCall: false,
+    },
+    createdAt: fixtureTimestamp,
+  },
+  hostedSourceProofRef: "source-proof:approve-ready",
+  hostedAttestationProofRef: "hosted-attestation-proof:approve-ready",
+  publicationGateEvidenceRef: "publication-gate:approve-ready",
+  quasarCompatibility: {
+    schemaVersion: "reddi.publication-quasar-compatibility.v1",
+    issue: 390,
+    status: "metadata_only",
+    evidenceRef: "quasar-compatibility:metadata-only",
+    quasarBackedClaimAllowed: false,
+    instructionBuilt: false,
   },
 };
 
