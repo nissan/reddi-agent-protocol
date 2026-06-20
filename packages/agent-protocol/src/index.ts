@@ -12,3 +12,4 @@ export * from './audd-payment-plan.js';
 export * from './agent-stack-fixtures.js';
 export * from './receipt-evidence-binding.js';
 export * from './offchain-reputation-preview.js';
+export * from './quasar-registry-compatibility.js';

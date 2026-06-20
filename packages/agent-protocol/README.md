@@ -233,6 +233,34 @@ Off-chain reputation preview consumes `reddi.receipt-evidence-binding.v1` record
 
 This preview is not Quasar-backed and does not build instruction flows while #390 compatibility is pending. It never performs wallet signing, RPC calls, hosted registry writes, marketplace publication, live payment execution, provider calls, or reputation mutation, and it never allows buyer-facing trust/reputation claims from preview data alone.
 
+## Quasar Registry Compatibility
+
+```typescript
+import {
+  deriveQuasarRegistryCompatibility,
+} from '@reddi/agent-protocol/quasar-registry-compatibility';
+
+const report = deriveQuasarRegistryCompatibility({
+  listingId: 'listing:research-agent',
+  displayName: 'Research Agent',
+  role: { callable: true },
+  model: 'qwen3:8b',
+  registrationIntent: 'metadata_only',
+  offchain: {
+    description: 'Rich listing copy remains off-chain.',
+    ardUrl: 'https://agents.example/.well-known/ai-catalog.json',
+    auddTerms: { asset: 'AUDD', network: 'solana-devnet' },
+  },
+});
+
+console.log(report.registrationStatus); // metadata_only / registerable / blocked
+console.log(report.guardrails.instructionBuilt); // false
+```
+
+Quasar registry compatibility separates compact on-chain `AgentAccount` fields from hosted RAP and ARD listing metadata. The compact projection is limited to owner, agent type, model, native lamport rate, minimum reputation, active state, and decoded read-only reputation/attestation aggregates. Rich descriptions, endpoints, ARD/catalog refs, AUDD/x402/payment-plan terms, EvidenceArchive refs, trust badges, capabilities, tags, health checks, review states, and operator approval evidence remain off-chain.
+
+The mapper is a compatibility report only. It does not build Quasar instructions, sign wallets, call RPC, deploy programs, activate live payments, or publish hosted listings. Imported/static listings without an explicit owner and native SOL lamport rate stay `metadata_only` rather than becoming register instructions.
+
 ## Buyer Client And Seller Middleware
 
 ```typescript
