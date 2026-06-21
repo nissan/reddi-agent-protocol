@@ -1,3 +1,5 @@
+import { buildPayShProviderSpecPreview, type PayShProviderSpecPreview } from "@/lib/integrations/source-adapter/pay-sh-provider-spec-preview";
+import { payShCatalogProviderToCandidate, type PayShCatalogProvider } from "@/lib/integrations/source-adapter/profiles/pay-sh";
 import type { OperatorDiscoveryCandidateView } from "@/lib/manager/static-agent-stack-review";
 import { getStaticAgentStackReviewWorkspace } from "@/lib/manager/static-agent-stack-review";
 
@@ -58,8 +60,48 @@ export type MarketplaceApprovalQueueItem = {
   publicationEvidence: MarketplacePublicationEvidenceView;
 };
 
+export type PayShPreviewScenarioState =
+  | "preview_ready"
+  | "missing_pricing"
+  | "invalid_endpoint"
+  | "live_disabled"
+  | "unsafe_metadata";
+
+export type PayShPreviewScenarioView = {
+  id: PayShPreviewScenarioState;
+  label: string;
+  providerFqn: string;
+  status: PayShProviderSpecPreview["status"];
+  summary: string;
+  supportStates: {
+    catalogVisible: "catalog_visible";
+    providerSpecPreview: "ready" | "blocked";
+    sandboxTested: "not_tested";
+    dryRunReady: "ready" | "blocked";
+    livePayment: "disabled";
+  };
+  previewBoundary: {
+    submittedToPaySh: false;
+    listedOnPaySh: false;
+    sandboxTested: false;
+    livePaymentEnabled: false;
+  };
+  disabledControls: {
+    label: string;
+    reason: string;
+  }[];
+  blockers: {
+    code: string;
+    detail: string;
+  }[];
+  evidenceRefs: string[];
+  payMdAvailable: boolean;
+  providerYamlAvailable: boolean;
+};
+
 export type MarketplaceApprovalQueueView = {
   items: MarketplaceApprovalQueueItem[];
+  payShPreviewScenarios: PayShPreviewScenarioView[];
   boundaryLabels: string[];
   emptyState: {
     title: string;
@@ -87,6 +129,7 @@ export function getMarketplaceApprovalQueue(): MarketplaceApprovalQueueView {
 
   return {
     boundaryLabels,
+    payShPreviewScenarios: getPayShPreviewScenarios(),
     items: [
       buildQueueItem("draft", "Draft", approveReady, {
         statusCopy: "Draft listing generated from static fixture metadata.",
@@ -251,6 +294,135 @@ export function getMarketplaceApprovalQueue(): MarketplaceApprovalQueueView {
       message:
         "The approval queue is built from package-owned static fixture states and never fetches repositories, contacts MCP servers, activates payments, or publishes listings.",
     },
+  };
+}
+
+function getPayShPreviewScenarios(): PayShPreviewScenarioView[] {
+  const baseProvider: PayShCatalogProvider = {
+    fqn: "reddi/market-intel/stablecoin-feed",
+    title: "Stablecoin Feed",
+    description: "Reviewed market data feed for Pay.sh provider preview.",
+    category: "finance",
+    service_url: "https://stablecoin-feed.example.com",
+    docs_url: "https://stablecoin-feed.example.com/docs",
+    endpoint_count: 3,
+    has_metering: true,
+    has_free_tier: false,
+    min_price_usd: 0.01,
+    max_price_usd: 0.05,
+    payment_rails: ["x402"],
+    networks: ["solana"],
+    sha: "pay-sh-source-hash-stablecoin-feed",
+  };
+
+  return [
+    payShScenario("preview_ready", "Pay.sh-compatible preview", baseProvider, {
+      summary: "PAY.md and provider YAML preview are available, but nothing has been submitted or paid.",
+    }),
+    payShScenario("missing_pricing", "Missing pricing", {
+      ...baseProvider,
+      fqn: "reddi/market-intel/missing-pricing",
+      title: "Missing Pricing Feed",
+      min_price_usd: undefined,
+      max_price_usd: undefined,
+      has_free_tier: undefined,
+    }, {
+      summary: "Pricing metadata is absent, so the provider spec preview is blocked.",
+    }),
+    payShScenario("invalid_endpoint", "Invalid endpoint", {
+      ...baseProvider,
+      fqn: "reddi/market-intel/invalid-endpoint",
+      title: "Invalid Endpoint Feed",
+      service_url: "http://stablecoin-feed.example.com",
+      endpoint_count: 0,
+    }, {
+      summary: "The provider URL or endpoint count is invalid, so Pay.sh submission and paid calls remain disabled.",
+    }),
+    payShScenario("live_disabled", "Live payment disabled", baseProvider, {
+      summary: "Preview is ready for review, but live Pay.sh payment stays disabled until a later approval/spend-policy issue.",
+    }),
+    payShScenario("unsafe_metadata", "Blocked unsafe metadata", {
+      ...baseProvider,
+      fqn: "reddi/market-intel/credential-tools",
+      title: "Credential Tools Feed",
+      category: "credential_tools",
+    }, {
+      summary: "Unsafe category metadata blocks preview use for marketplace submission.",
+    }),
+  ];
+}
+
+function payShScenario(
+  id: PayShPreviewScenarioState,
+  label: string,
+  provider: PayShCatalogProvider,
+  copy: { summary: string },
+): PayShPreviewScenarioView {
+  const candidate = payShCatalogProviderToCandidate(provider);
+  const preview = buildPayShProviderSpecPreview({
+    candidate,
+    listing: {
+      name: "stablecoin-feed",
+      subdomain: "stablecoin-feed",
+      title: provider.title,
+      description: provider.description,
+      version: "1.0.0",
+      operatorNotes: ["Operator reviewed Pay.sh provider metadata."],
+    },
+    operatorApproval: {
+      approved: true,
+      evidenceRef: "evidence:operator-approval:pay-sh-preview",
+    },
+    publication: {
+      status: "eligible",
+      evidenceRef: "evidence:publication:eligible",
+    },
+  });
+  const ready = preview.status === "preview_ready";
+
+  return {
+    id,
+    label,
+    providerFqn: candidate.providerFqn,
+    status: preview.status,
+    summary: copy.summary,
+    supportStates: {
+      catalogVisible: "catalog_visible",
+      providerSpecPreview: ready ? "ready" : "blocked",
+      sandboxTested: "not_tested",
+      dryRunReady: ready ? "ready" : "blocked",
+      livePayment: "disabled",
+    },
+    previewBoundary: preview.boundaries,
+    disabledControls: [
+      {
+        label: "Submit to Pay.sh",
+        reason: ready ? "Provider preview is review-only and has not been submitted to Pay.sh." : "Provider preview blockers must clear first.",
+      },
+      {
+        label: "Paid call",
+        reason: "Paid calls are unavailable; this UI never invokes Pay.sh providers.",
+      },
+      {
+        label: "Wallet/RPC",
+        reason: "Wallet signing, top-up, and Solana RPC probes are out of scope for this read-only UI.",
+      },
+      {
+        label: "Live activation",
+        reason: "Live Pay.sh activation is disabled until a later spend-policy and operator-approval issue.",
+      },
+    ],
+    blockers: preview.blockers.map((blocker) => ({
+      code: blocker.diagnosticCode ?? blocker.code,
+      detail: blocker.detail,
+    })),
+    evidenceRefs: [
+      candidate.sourceMetadata.sourceHash ? `source:${candidate.sourceMetadata.sourceHash}` : "source:hash-missing",
+      "evidence:operator-approval:pay-sh-preview",
+      "evidence:publication:eligible",
+    ],
+    payMdAvailable: Boolean(preview.payMd),
+    providerYamlAvailable: Boolean(preview.providerYaml),
   };
 }
 

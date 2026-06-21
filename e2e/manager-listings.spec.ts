@@ -22,6 +22,21 @@ const actionLabels = [
   'Publication readiness',
 ]
 
+const payShPreviewStates = [
+  'preview_ready',
+  'missing_pricing',
+  'invalid_endpoint',
+  'live_disabled',
+  'unsafe_metadata',
+]
+
+const payShControlLabels = [
+  'Submit to Pay.sh',
+  'Paid call',
+  'Wallet/RPC',
+  'Live activation',
+]
+
 async function gotoListings(page: Page) {
   await page.goto('/manager/listings', { waitUntil: 'domcontentloaded' })
 }
@@ -56,6 +71,7 @@ test.describe('/manager/listings', () => {
     }
     await expect(preview.getByText(/Placeholder only/i)).toBeVisible()
     await expect(page.getByTestId('marketplace-publication-evidence')).toBeVisible()
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toBeVisible()
     await expect(page.getByTestId('marketplace-static-boundary-note')).toContainText(/not a generic agent builder/i)
   })
 
@@ -68,6 +84,44 @@ test.describe('/manager/listings', () => {
     }
 
     await expect(page.getByText(/no API mutation, live marketplace publication, payment activation, wallet signing, RPC probe, MCP call, repo fetch/i)).toBeVisible()
+
+    const payShActions = page.getByTestId('pay-sh-disabled-controls')
+    for (const label of payShControlLabels) {
+      await expect(payShActions.getByRole('button', { name: new RegExp(`^${label}$`, 'i') })).toBeDisabled()
+    }
+
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/Provider preview is review-only/i)
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/Wallet signing, top-up, and Solana RPC probes are out of scope/i)
+  })
+
+  test('distinguishes Pay.sh preview-ready, blocker, and live-disabled states', async ({ page }) => {
+    await gotoListings(page)
+
+    await page.getByTestId('pay-sh-preview-state-preview_ready').click()
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/Pay.sh-compatible preview/i)
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/Provider spec preview/)
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/ready/)
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/Live payment/)
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/disabled/)
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/Submitted to Pay.sh: no/)
+
+    await page.getByTestId('pay-sh-preview-state-missing_pricing').click()
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/Missing pricing/i)
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/missing_price/)
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/PAY.md preview: blocked/i)
+
+    await page.getByTestId('pay-sh-preview-state-invalid_endpoint').click()
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/Invalid endpoint/i)
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/zero_endpoints/)
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/unstable_provider_url/)
+
+    await page.getByTestId('pay-sh-preview-state-live_disabled').click()
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/Live payment disabled/i)
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/Live payment enabled: no/)
+
+    await page.getByTestId('pay-sh-preview-state-unsafe_metadata').click()
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/Blocked unsafe metadata/i)
+    await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/unsafe_category_use_case/)
   })
 
   test('records preview to approval placeholder to request changes to publish and suspend placeholder path', async ({ page }) => {
@@ -124,20 +178,20 @@ test.describe('/manager/listings', () => {
     { name: 'tablet', width: 834, height: 1112 },
     { name: 'desktop', width: 1440, height: 900 },
   ]) {
-    for (const state of queueStates) {
-      test(`captures ${state} at ${viewport.name} ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    for (const state of payShPreviewStates) {
+      test(`captures Pay.sh ${state} at ${viewport.name} ${viewport.width}x${viewport.height}`, async ({ page }) => {
         await page.setViewportSize({ width: viewport.width, height: viewport.height })
         await gotoListings(page)
         await stabilizeEvidenceScreenshot(page)
-        await page.getByTestId(`marketplace-queue-state-${state}`).click()
+        await page.getByTestId('marketplace-queue-state-published_placeholder').click()
+        await page.getByTestId(`pay-sh-preview-state-${state}`).click()
 
         await expect(page.getByTestId('marketplace-listing-preview')).toBeVisible()
-        await expect(page.getByTestId('marketplace-publication-evidence')).toBeVisible()
-        await expect(page.getByText(/not RAP-attested/i).first()).toBeVisible()
-        await expect(page.getByText(/not published/i).first()).toBeVisible()
-        await page.screenshot({
-          path: `artifacts/manager-listings/${viewport.name}-${state}-${viewport.width}x${viewport.height}.png`,
-          fullPage: true,
+        await expect(page.getByTestId('pay-sh-preview-evidence')).toBeVisible()
+        await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/Submitted to Pay.sh: no/)
+        await expect(page.getByTestId('pay-sh-preview-evidence')).toContainText(/Live payment enabled: no/)
+        await page.getByTestId('pay-sh-preview-evidence').screenshot({
+          path: `artifacts/manager-listings/${viewport.name}-pay-sh-${state}-${viewport.width}x${viewport.height}.png`,
         })
       })
     }
