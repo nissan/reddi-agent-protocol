@@ -61,6 +61,7 @@ Purpose: single lookup from BDD feature file -> bucket -> executable verificatio
 
 ### Bucket I — Agent Manager Operations
 - Feature: `docs/bdd/features/bucket-i-agent-manager-operations.feature`
+- Hosted marketplace operations runbook: `docs/HOSTED-MARKETPLACE-OPERATIONS-READINESS-RUNBOOK.md`
 - Verify:
   - `npx jest lib/__tests__/manager-readiness-route.test.ts lib/__tests__/manager-evidence-pack.test.ts lib/__tests__/manager-evidence-route.test.ts --runInBand`
   - `npm run test:bdd:index`

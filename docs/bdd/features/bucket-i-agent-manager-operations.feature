@@ -39,3 +39,10 @@ Feature: Bucket I Agent Manager Operations
     Given one or more role-critical checks are failing
     When the manager views readiness
     Then the highest priority blocker is surfaced with exact recovery guidance
+
+  @I1.6 @manager @docs
+  Scenario: Hosted marketplace readiness keeps live actions approval-gated
+    When an operator follows the hosted marketplace operations readiness runbook
+    Then local, dry-run, devnet, live-gated, hosted, self-hosted, and externally listed states are separated
+    And live publication, payment activation, wallet or RPC use, provider calls, catalog submissions, hosted registry writes, trust upgrades, and reputation mutations require explicit approval
+    And Pay.sh catalog-only, spec-preview, sandbox-untested, dry-run-ready, and live-payment-disabled support states are documented without implying live activation
