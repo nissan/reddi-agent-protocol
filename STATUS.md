@@ -1,5 +1,22 @@
 # Reddi Agent Protocol — Status
 
+## Latest Update — Pay.sh sandbox evidence normalization in progress (2026-06-21 AEST)
+
+Implementing GitHub issue #454 in isolated worktree `projects/reddi-agent-protocol-worktree-454-pay-sh-evidence` on branch `feat/454-pay-sh-evidence-fixtures`.
+
+Delivered so far:
+- Added `@reddi/agent-protocol/pay-sh-sandbox-evidence` fixture normalization for the historical Pay.sh single-charge sandbox artifact and capped-session/split-payment probe blockers.
+- Added binding-ready references for source, quote, recipient, nonce, session, authorization, receipt, operator approval, request hash, response hash, and evidence ref.
+- Kept every output fixture-only with guardrails disabling live Pay.sh calls, wallet signing, RPC, provider calls, hosted registry writes, marketplace publication, trust upgrades, and reputation mutations.
+- Added fail-closed tests for malformed receipt data and rejected live-path markers.
+
+Validation:
+- `npm test` in `packages/agent-protocol` PASS (142/142).
+- `npm run check:rap:naming` PASS.
+- `git diff --check` PASS.
+
+RESUME FROM HERE: Open PR for #454, run independent review and GitHub CI, then merge only if the review confirms no live Pay.sh/payment/provider/publication/trust/reputation boundary overclaim.
+
 ## Latest Update — OSS v0.1 package plan drafted (2026-06-18 13:07 AEST)
 
 Implemented GitHub issue #356 in isolated worktree `projects/reddi-agent-protocol-worktree-356-package-plan` on branch `docs/356-package-plan`.

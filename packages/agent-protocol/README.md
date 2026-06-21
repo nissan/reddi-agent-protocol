@@ -174,6 +174,26 @@ archive.put(record);
 
 EvidenceArchive v1 stores request, response, receipt, source, attestation, and evidence hash references without embedding private payloads in public receipts. The local archive is deterministic for tests and demos. Walrus, Seal, IPFS, and custom archive pointers are represented as future sidecar references, not required product-core dependencies.
 
+## Pay.sh Sandbox Evidence
+
+```typescript
+import {
+  derivePayShSandboxEvidenceFixture,
+  payShSandboxEvidenceSummaries,
+} from '@reddi/agent-protocol/pay-sh-sandbox-evidence';
+
+const result = derivePayShSandboxEvidenceFixture(payShSandboxEvidenceSummaries.singleCharge);
+
+if (result.ok) {
+  console.log(result.fixture.status); // proven_single_charge
+  console.log(result.fixture.bindingRefs.source.kind); // source-adapter
+}
+```
+
+Pay.sh sandbox evidence fixtures normalize the historical RAP x402 artifact set into receipt/evidence binding references for quote, recipient, nonce, session, authorization, receipt, source service, and operator approval. The proven single-charge fixture records the sandbox 402 challenge and paid retry receipt. Capped-session and split-payment extension fixtures stay `probe_only` with the `pay_sh_0_16_returns_402_after_payment` blocker.
+
+The helper is fixture-only. It does not run Pay.sh setup or CLI commands, call wallets/RPC endpoints, invoke providers, submit catalogs, write hosted registries, publish marketplace listings, upgrade trust, mutate reputation, or activate live payments. Malformed receipts and live-path markers fail closed.
+
 ## Source-Aware Diagnostics
 
 ```typescript
