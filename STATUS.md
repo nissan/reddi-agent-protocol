@@ -1,21 +1,24 @@
 # Reddi Agent Protocol — Status
 
-## Latest Update — Pay.sh sandbox evidence normalization in progress (2026-06-21 AEST)
+## Latest Update — Pay.sh sandbox evidence normalization merged (2026-06-21 AEST)
 
-Implementing GitHub issue #454 in isolated worktree `projects/reddi-agent-protocol-worktree-454-pay-sh-evidence` on branch `feat/454-pay-sh-evidence-fixtures`.
+Merged GitHub issue #454 via PR #483 at `9108d2fd`.
 
-Delivered so far:
+Delivered:
 - Added `@reddi/agent-protocol/pay-sh-sandbox-evidence` fixture normalization for the historical Pay.sh single-charge sandbox artifact and capped-session/split-payment probe blockers.
 - Added binding-ready references for source, quote, recipient, nonce, session, authorization, receipt, operator approval, request hash, response hash, and evidence ref.
 - Kept every output fixture-only with guardrails disabling live Pay.sh calls, wallet signing, RPC, provider calls, hosted registry writes, marketplace publication, trust upgrades, and reputation mutations.
 - Added fail-closed tests for malformed receipt data and rejected live-path markers.
+- Fixed the review-found boundary gap so imported claim text that says marketplace publication was activated, provider calls were performed, catalog submissions completed, or live Pay.sh activation happened is rejected before fixture emission.
 
 Validation:
 - `npm test` in `packages/agent-protocol` PASS (142/142).
 - `npm run check:rap:naming` PASS.
 - `git diff --check` PASS.
+- `npm run build` PASS with existing workspace-root/NFT/localStorage/bigint warnings.
+- Vercel PASS on PR #483.
 
-RESUME FROM HERE: Open PR for #454, run independent review and GitHub CI, then merge only if the review confirms no live Pay.sh/payment/provider/publication/trust/reputation boundary overclaim.
+RESUME FROM HERE: #454 is complete. Next non-live implementation lane is #455 if we want the complementary receipt/payment-plan evidence path, or #456 once #454/#455/#453/#393 are all ready to compose; #476 remains deferred and requires explicit approval before any live Pay.sh activation or spend-policy work.
 
 ## Latest Update — OSS v0.1 package plan drafted (2026-06-18 13:07 AEST)
 
