@@ -26,3 +26,11 @@ Feature: Bucket F Cross-Token Settlement (Jupiter)
     When planner invoke route executes settlement path
     Then swap client wiring remains connected for cross-token calls
     And the behavior is covered by "lib/__tests__/planner-invoke-route.test.ts"
+
+  @F2.1 @package-contract
+  Scenario: MPP Tempo receipt shapes remain fixture-only until a live verifier is approved
+    When MPP Tempo challenge and receipt fixtures are normalized
+    Then single-charge receipt shapes can become binding candidates
+    And session and split shapes remain probe-only without settlement claims
+    And live Tempo receipts are rejected until a separate verifier lane is approved
+    And the behavior is covered by "packages/agent-protocol/tests/mpp-tempo-receipt-shapes.test.ts"

@@ -78,6 +78,10 @@
       "types": "./dist/pay-sh-sandbox-evidence.d.ts",
       "import": "./dist/pay-sh-sandbox-evidence.js"
     },
+    "./mpp-tempo-receipt-shapes": {
+      "types": "./dist/mpp-tempo-receipt-shapes.d.ts",
+      "import": "./dist/mpp-tempo-receipt-shapes.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

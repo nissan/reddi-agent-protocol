@@ -33,6 +33,7 @@ Purpose: single lookup from BDD feature file -> bucket -> executable verificatio
 - Verify:
   - `npx jest lib/__tests__/jupiter-client.test.ts lib/__tests__/planner-invoke-route.test.ts --runInBand`
   - `cd packages/x402-solana && npm test -- --runInBand tests/payment.test.ts`
+  - `cd packages/agent-protocol && npm test -- --test-name-pattern mpp`
 
 ### Bucket G — Torque Retention
 - Feature: `docs/bdd/features/bucket-g-torque-retention.feature`
