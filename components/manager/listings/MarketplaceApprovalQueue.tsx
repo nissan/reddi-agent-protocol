@@ -13,6 +13,7 @@ import {
   Rocket,
   Send,
   ShieldAlert,
+  WalletCards,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,8 @@ import type {
   MarketplaceApprovalQueueItem,
   MarketplaceApprovalQueueState,
   MarketplaceApprovalQueueView,
+  PayShPreviewScenarioState,
+  PayShPreviewScenarioView,
 } from "@/lib/manager/marketplace-listings";
 import { cn } from "@/lib/utils";
 
@@ -34,11 +37,24 @@ const stateOrder: MarketplaceApprovalQueueState[] = [
   "suspended",
 ];
 
+const payShScenarioOrder: PayShPreviewScenarioState[] = [
+  "preview_ready",
+  "missing_pricing",
+  "invalid_endpoint",
+  "live_disabled",
+  "unsafe_metadata",
+];
+
 export function MarketplaceApprovalQueue({ queue }: { queue: MarketplaceApprovalQueueView }) {
   const [selectedState, setSelectedState] = useState<MarketplaceApprovalQueueState>("draft");
+  const [selectedPayShState, setSelectedPayShState] = useState<PayShPreviewScenarioState>("preview_ready");
   const selected = useMemo(
     () => queue.items.find((item) => item.state === selectedState) ?? queue.items[0] ?? null,
     [queue.items, selectedState],
+  );
+  const selectedPayShScenario = useMemo(
+    () => queue.payShPreviewScenarios.find((item) => item.id === selectedPayShState) ?? queue.payShPreviewScenarios[0] ?? null,
+    [queue.payShPreviewScenarios, selectedPayShState],
   );
 
   if (!selected) {
@@ -107,7 +123,13 @@ export function MarketplaceApprovalQueue({ queue }: { queue: MarketplaceApproval
           })}
         </section>
 
-        <ListingPreview item={selected} boundaryLabels={queue.boundaryLabels} />
+        <ListingPreview
+          item={selected}
+          boundaryLabels={queue.boundaryLabels}
+          payShScenarios={queue.payShPreviewScenarios}
+          selectedPayShScenario={selectedPayShScenario}
+          onSelectPayShScenario={setSelectedPayShState}
+        />
       </div>
     </div>
   );
@@ -116,9 +138,15 @@ export function MarketplaceApprovalQueue({ queue }: { queue: MarketplaceApproval
 function ListingPreview({
   item,
   boundaryLabels,
+  payShScenarios,
+  selectedPayShScenario,
+  onSelectPayShScenario,
 }: {
   item: MarketplaceApprovalQueueItem;
   boundaryLabels: string[];
+  payShScenarios: PayShPreviewScenarioView[];
+  selectedPayShScenario: PayShPreviewScenarioView | null;
+  onSelectPayShScenario: (state: PayShPreviewScenarioState) => void;
 }) {
   return (
     <article className="space-y-5" data-testid="marketplace-listing-preview">
@@ -188,6 +216,14 @@ function ListingPreview({
             </section>
 
             <PublicationEvidencePanel item={item} />
+
+            {selectedPayShScenario ? (
+              <PayShPreviewPanel
+                scenarios={payShScenarios}
+                selected={selectedPayShScenario}
+                onSelect={onSelectPayShScenario}
+              />
+            ) : null}
           </div>
 
           <aside className="space-y-4">
@@ -235,6 +271,138 @@ function ListingPreview({
         </p>
       </section>
     </article>
+  );
+}
+
+function PayShPreviewPanel({
+  scenarios,
+  selected,
+  onSelect,
+}: {
+  scenarios: PayShPreviewScenarioView[];
+  selected: PayShPreviewScenarioView;
+  onSelect: (state: PayShPreviewScenarioState) => void;
+}) {
+  return (
+    <section className="rounded-lg border border-border bg-page/50 p-4" data-testid="pay-sh-preview-evidence">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Pay.sh provider preview</p>
+          <h3 className="mt-1 font-display text-lg font-semibold text-white">{selected.label}</h3>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{selected.summary}</p>
+        </div>
+        <Badge variant="outline" className={cn("w-fit", payShPreviewStatusClass(selected.status))}>
+          {selected.status.replaceAll("_", " ")}
+        </Badge>
+      </div>
+
+      <div className="mt-4 grid gap-2" aria-label="Pay.sh preview state selector">
+        {payShScenarioOrder.map((state) => {
+          const scenario = scenarios.find((item) => item.id === state);
+          if (!scenario) return null;
+
+          return (
+            <button
+              key={scenario.id}
+              type="button"
+              data-testid={`pay-sh-preview-state-${scenario.id}`}
+              onClick={() => onSelect(scenario.id)}
+              className={cn(
+                "min-h-10 rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                selected.id === scenario.id
+                  ? "border-accent-green bg-accent-green/10 text-white"
+                  : "border-border bg-surface/60 text-muted-foreground hover:border-muted-foreground/50 hover:text-white",
+              )}
+              aria-pressed={selected.id === scenario.id}
+            >
+              {scenario.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 grid gap-3">
+        <ClaimMetric label="Catalog visible" value={selected.supportStates.catalogVisible} />
+        <ClaimMetric label="Provider spec preview" value={selected.supportStates.providerSpecPreview} />
+        <ClaimMetric label="Sandbox tested" value={selected.supportStates.sandboxTested} />
+        <ClaimMetric label="Dry-run ready" value={selected.supportStates.dryRunReady} />
+        <ClaimMetric label="Live payment" value={selected.supportStates.livePayment} />
+      </div>
+
+      <div className="mt-4 grid gap-3">
+        <div className="rounded-lg border border-border bg-surface/60 p-3">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Disabled Pay.sh controls</p>
+          <div className="mt-3 grid gap-2" data-testid="pay-sh-disabled-controls">
+            {selected.disabledControls.map((control) => (
+              <Button
+                key={control.label}
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled
+                title={control.reason}
+                className="min-h-10 justify-start"
+              >
+                <WalletCards className="size-3.5" aria-hidden="true" />
+                {control.label}
+              </Button>
+            ))}
+          </div>
+          <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+            {selected.disabledControls.map((control) => (
+              <li key={control.reason}>
+                <span className="font-medium text-gray-200">{control.label}:</span> {control.reason}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="rounded-lg border border-border bg-surface/60 p-3">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Preview boundary</p>
+          <ul className="mt-2 space-y-2 text-sm text-muted-foreground">
+            <li>Submitted to Pay.sh: {selected.previewBoundary.submittedToPaySh ? "yes" : "no"}</li>
+            <li>Listed on Pay.sh: {selected.previewBoundary.listedOnPaySh ? "yes" : "no"}</li>
+            <li>Sandbox tested: {selected.previewBoundary.sandboxTested ? "yes" : "no"}</li>
+            <li>Live payment enabled: {selected.previewBoundary.livePaymentEnabled ? "yes" : "no"}</li>
+          </ul>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3">
+        <div className="rounded-lg border border-border bg-surface/60 p-3">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Generated preview artifacts</p>
+          <ul className="mt-2 space-y-2 text-sm text-muted-foreground">
+            <li>PAY.md preview: {selected.payMdAvailable ? "available" : "blocked"}</li>
+            <li>Provider YAML preview: {selected.providerYamlAvailable ? "available" : "blocked"}</li>
+            <li className="break-all">Provider FQN: {selected.providerFqn}</li>
+          </ul>
+        </div>
+
+        <div className="rounded-lg border border-border bg-surface/60 p-3">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Pay.sh blockers and evidence</p>
+          {selected.blockers.length ? (
+            <ul className="mt-2 space-y-2 text-sm text-muted-foreground">
+              {selected.blockers.map((blocker) => (
+                <li key={`${blocker.code}:${blocker.detail}`}>
+                  <span className="font-mono text-xs text-red-200">{blocker.code}</span>: {blocker.detail}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">
+              No blocker diagnostics. Preview remains no-spend and live-payment-disabled.
+            </p>
+          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {selected.evidenceRefs.map((ref) => (
+              <code key={ref} className="rounded-md border border-white/10 bg-black/20 px-2 py-1 text-xs text-gray-200">
+                {ref}
+              </code>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -309,6 +477,13 @@ function publicationStatusClass(status: MarketplaceApprovalQueueItem["publicatio
     return "border-red-500/30 bg-red-500/10 text-red-200";
   }
   return "border-white/10 bg-white/5 text-gray-300";
+}
+
+function payShPreviewStatusClass(status: PayShPreviewScenarioView["status"]) {
+  if (status === "preview_ready") {
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-200";
+  }
+  return "border-red-500/30 bg-red-500/10 text-red-200";
 }
 
 function StateBadge({ state }: { state: MarketplaceApprovalQueueState }) {
