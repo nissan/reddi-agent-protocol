@@ -1,6 +1,6 @@
 # BDD Feature Index
 
-_Last updated: 2026-05-13 AEST_
+_Last updated: 2026-06-21 AEST_
 
 Purpose: single lookup from BDD feature file -> bucket -> executable verification command(s).
 

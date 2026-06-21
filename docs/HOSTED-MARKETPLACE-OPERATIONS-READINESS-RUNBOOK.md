@@ -16,6 +16,11 @@ This runbook applies after static ingestion and operator review have produced a 
 - Marketplace readiness, eligibility, public export, and dry-run activation helpers under `lib/manager/`
 - Pay.sh catalog/spec-preview helpers under `lib/integrations/source-adapter/`
 
+Related roadmap owners:
+
+- [#395](https://github.com/nissan/reddi-agent-protocol/issues/395) owns marketplace publication/export readiness.
+- [#417](https://github.com/nissan/reddi-agent-protocol/issues/417), [#349](https://github.com/nissan/reddi-agent-protocol/issues/349), and [#386](https://github.com/nissan/reddi-agent-protocol/issues/386) are UI/demo proof surfaces that can consume this runbook's states without bypassing approval gates.
+
 ## State Model
 
 Use these states in operator notes, issue comments, and support responses. Do not collapse them into a single "published" or "ready" label.
