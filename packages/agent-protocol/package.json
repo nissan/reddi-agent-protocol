@@ -74,6 +74,10 @@
       "types": "./dist/hosted-attestation-claim.d.ts",
       "import": "./dist/hosted-attestation-claim.js"
     },
+    "./pay-sh-sandbox-evidence": {
+      "types": "./dist/pay-sh-sandbox-evidence.d.ts",
+      "import": "./dist/pay-sh-sandbox-evidence.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
