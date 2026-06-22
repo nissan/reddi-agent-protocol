@@ -200,6 +200,16 @@ Feature: End-user economic workflow demo
     And downstreamCallsExecuted is 0
     And no paid provider request, signing operation, wallet mutation, or devnet transfer occurs
 
+  Scenario: Public local no-spend quickstart links proof contracts without live claims
+    Given the ARD no-spend package quickstart runs from local fixtures
+    When the Discover Decide Prove example emits its JSON output
+    Then it includes receipt, EvidenceArchive, receipt/evidence binding, attestation draft, reputation update, AUDD dry-run preflight, source diagnostics, and rail-neutral proof-chain refs
+    And it links the public proof page data contract and paid workflow proof UI fixture pack schema versions
+    And it labels the output as fixture zero-spend, planned dry-run, simulated, devnet proof metadata, live-gated, and production/live disabled
+    And policy denial, malformed challenge, missing evidence, missing payment setup, unsupported rail/network, and unsafe metadata states fail closed
+    And no hosted service, paid provider request, signing operation, wallet mutation, RPC call, SPL transfer, Quasar custody claim, settlement-finality proof, trust or reputation mutation, marketplace publication, or live payment occurs
+    And the behavior is covered by "packages/agent-protocol/tests/ard-no-spend-demo.test.ts"
+
   Scenario: Public proof page data contract exposes rail-neutral evidence without live claims
     Given the public proof page consumes deterministic economic demo data
     And rail-neutral proof-chain fixtures are available

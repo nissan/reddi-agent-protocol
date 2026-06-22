@@ -419,13 +419,33 @@ AUDD/Solana payment plans are metadata and policy-preflight helpers for RAP buye
 
 ## ARD No-Spend Quickstart
 
+From a fresh checkout, the local proof path should complete in under five minutes:
+
 ```bash
+git clone https://github.com/nissan/reddi-agent-protocol.git
+cd reddi-agent-protocol/packages/agent-protocol
+npm ci
 npm run example:ard:no-spend
 ```
 
-The ARD no-spend example is a deterministic Discover -> Decide -> Prove workflow. It starts from `examples/ard-no-spend-ai-catalog.json`, validates the AI Catalog fixture, creates a discovery candidate, runs source-aware diagnostics, evaluates local policy/trust/payment gates, executes a bounded dry-run specialist function, and emits receipt, evidence, attestation, and reputation output.
+The ARD no-spend example is a deterministic Discover -> Decide -> Prove workflow. It starts from `examples/ard-no-spend-ai-catalog.json`, validates the AI Catalog fixture, creates a discovery candidate, runs source-aware diagnostics, evaluates local policy/trust/payment gates, executes a bounded dry-run specialist function, and emits receipt, EvidenceArchive, attestation draft, reputation update, AUDD dry-run payment-plan/preflight, and source diagnostics output.
 
-The example also prints expected failure states for policy denial, malformed challenge, missing evidence, and unsupported AUDD/Solana network. It does not start a server, fetch an ARD registry, call hosted Reddi infrastructure, use secrets, invoke a paid provider, access a wallet, submit RPC/SPL transfers, or claim AUDD escrow custody.
+The JSON output labels the run as fixture-only and no-spend:
+
+- `payment.mode` is `dry-run`, with `paymentProofRef` set to a local `dry-run:*` ref.
+- `receiptEvidenceBinding` links the receipt, EvidenceArchive record, payment proof ref, request hash, response hash, and evidence ref using `bindingMode: "local_fixture_refs_only"`.
+- `railNeutralProofChain` includes the #489 rail-neutral proof-chain fixture bridge: the Pay.sh sandbox single-charge fixture is `binding_ready` by refs/hashes only, while Tempo unsupported network, unsupported asset/network, malformed receipt, policy denied, and live-path overclaim cases fail closed.
+- `downstreamPublicProofContracts` names the app-level public proof data contract (`reddi.economic-demo.public-proof-page-data.v1`) and paid workflow proof UI fixture pack (`reddi.economic-demo.paid-workflow-proof-ui-fixture-pack.v1`) so downstream pages can consume the same proof states without inventing another schema.
+- `downstreamPublicProofContracts.stateLabels` includes `fixture_zero_spend`, `planned_dry_run`, `simulated`, `devnet_proof_metadata`, `live_gated`, and `production_live_disabled`.
+- `boundaries` keeps hosted service, paid provider, wallet access, RPC call, SPL transfer, Quasar custody, settlement-finality proof, trust upgrade, reputation mutation, and live payment flags false.
+
+The example also prints expected failure states for policy denial, malformed challenge, missing evidence, missing operator/payment setup, unsupported AUDD/Solana network, and unsafe/credential-shaped evidence metadata. It does not start a server, fetch an ARD registry, call hosted Reddi infrastructure, use secrets, invoke a paid provider, access a wallet, submit RPC/SPL transfers, mutate trust or reputation state, publish to a marketplace, claim AUDD escrow custody, prove settlement finality, or perform a live payment.
+
+Run the deterministic conformance check for this quickstart:
+
+```bash
+npm test -- --test-name-pattern "ARD no-spend demo"
+```
 
 ## Local Validation
 
