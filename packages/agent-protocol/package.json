@@ -86,6 +86,10 @@
       "types": "./dist/rail-neutral-payment-receipts.d.ts",
       "import": "./dist/rail-neutral-payment-receipts.js"
     },
+    "./rail-neutral-proof-chain-fixture": {
+      "types": "./dist/rail-neutral-proof-chain-fixture.d.ts",
+      "import": "./dist/rail-neutral-proof-chain-fixture.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

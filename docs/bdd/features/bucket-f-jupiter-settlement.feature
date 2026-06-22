@@ -42,3 +42,11 @@ Feature: Bucket F Cross-Token Settlement (Jupiter)
     And probe-only malformed denied-policy and unsupported network receipts fail closed
     And rail metadata does not imply trust reputation publication custody settlement proof or live payment
     And the behavior is covered by "packages/agent-protocol/tests/rail-neutral-payment-receipts.test.ts"
+
+  @F2.3 @package-contract
+  Scenario: Rail-neutral receipt metadata feeds proof-chain fixtures without live payment claims
+    When rail-neutral payment receipt metadata is bridged into the proof-chain fixture
+    Then Pay.sh sandbox single-charge evidence yields a receipt/evidence binding fixture
+    And Tempo unsupported-network malformed denied-policy unsupported asset and live-path overclaim states stay blocked
+    And the fixture output stores only refs hashes and claim-boundary labels
+    And the behavior is covered by "packages/agent-protocol/tests/rail-neutral-proof-chain-fixture.test.ts"
