@@ -200,6 +200,16 @@ Feature: End-user economic workflow demo
     And downstreamCallsExecuted is 0
     And no paid provider request, signing operation, wallet mutation, or devnet transfer occurs
 
+  Scenario: Public proof page data contract exposes rail-neutral evidence without live claims
+    Given the public proof page consumes deterministic economic demo data
+    And rail-neutral proof-chain fixtures are available
+    When the public proof page data contract is generated
+    Then it includes quote, policy decision, AUDD payment-plan preflight, receipt, EvidenceArchive, attestation draft, reputation draft, source refs, listing refs, and state labels
+    And Pay.sh sandbox single-charge proof is represented as binding-ready refs and hashes only
+    And Tempo unsupported-network, unsupported asset, malformed receipt, policy-denied, and live-path overclaim states fail closed
+    And no paid provider request, signing operation, wallet mutation, RPC call, hosted registry write, trust or reputation mutation, custody claim, settlement-finality proof, or live payment occurs
+    And the behavior is covered by "lib/__tests__/economic-demo-public-proof-page-data.test.ts"
+
   Scenario: Submission readiness follows retrospective-driven BDD loops
     Given the economic demo is being prepared for judge or submission review
     And live research, paid image generation, signing, wallet mutation, devnet transfer, and Coolify mutation are not approved
