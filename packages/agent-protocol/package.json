@@ -82,6 +82,10 @@
       "types": "./dist/mpp-tempo-receipt-shapes.d.ts",
       "import": "./dist/mpp-tempo-receipt-shapes.js"
     },
+    "./rail-neutral-payment-receipts": {
+      "types": "./dist/rail-neutral-payment-receipts.d.ts",
+      "import": "./dist/rail-neutral-payment-receipts.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
