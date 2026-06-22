@@ -29,6 +29,14 @@ export type CircleX402QuotePreview = {
     estimatedUsd?: number;
     payTo?: string;
   } | null;
+  paymentSupport: {
+    supportStates: ReddiCircleX402Candidate["supportStates"];
+    diagnostics: ReddiCircleX402Candidate["diagnostics"];
+    livePaymentAllowed: false;
+    trustUpgradeAllowed: false;
+    reputationMutationAllowed: false;
+    publicationReady: false;
+  } | null;
   requiredGates: string[];
   trustNotes: string[];
   error?: string;
@@ -56,6 +64,7 @@ export function buildCircleX402QuotePreview(input: {
       task,
       routePreview: null,
       quotePreview: null,
+      paymentSupport: null,
       requiredGates: [],
       trustNotes: [],
       error: candidateResult.error ?? `Circle x402 candidate not found: ${input.candidateId}`,
@@ -92,6 +101,14 @@ export function buildCircleX402QuotePreview(input: {
           payTo: payment.payTo,
         }
       : null,
+    paymentSupport: {
+      supportStates: candidate.supportStates,
+      diagnostics: candidate.diagnostics,
+      livePaymentAllowed: false,
+      trustUpgradeAllowed: false,
+      reputationMutationAllowed: false,
+      publicationReady: false,
+    },
     requiredGates: [
       "User explicitly approves live x402 payment experiment.",
       "Tiny spend cap is configured before payment.",

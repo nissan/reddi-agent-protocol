@@ -119,6 +119,9 @@ The preview returns:
 - source-aware route policy with `preferredSource: circle-x402`, `strictSourceMatch: true`
 - `livePaymentAllowed: false`
 - rail/network/estimated USDC amount from Circle Discovery metadata
+- explicit support states: `discovery_visible`, `externally_listed_unattested`, `x402_required`, `dry_run_quote_preview`, `live_payment_disabled`
+- diagnostics for missing payment requirements, missing numeric price, missing payee, unsupported network, and malformed resource URL
 - required gates before paid invocation: explicit user approval, tiny spend cap, runtime-only Circle credentials, receipt capture, and RAP attestor verification
 
 This is still not a payment or invocation path. It creates no x402 payment headers and makes no external service request.
+Diagnostics do not upgrade trust, settlement, reputation, publication readiness, or custody claims.
