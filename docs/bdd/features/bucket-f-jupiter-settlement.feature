@@ -34,3 +34,11 @@ Feature: Bucket F Cross-Token Settlement (Jupiter)
     And session and split shapes remain probe-only without settlement claims
     And live Tempo receipts are rejected until a separate verifier lane is approved
     And the behavior is covered by "packages/agent-protocol/tests/mpp-tempo-receipt-shapes.test.ts"
+
+  @F2.2 @package-contract
+  Scenario: Rail-neutral payment receipts bind only supported fixture evidence
+    When Pay.sh sandbox and MPP Tempo receipt metadata are normalized into rail-neutral payment receipts
+    Then proven Pay.sh single-charge evidence can feed receipt/evidence binding
+    And probe-only malformed denied-policy and unsupported network receipts fail closed
+    And rail metadata does not imply trust reputation publication custody settlement proof or live payment
+    And the behavior is covered by "packages/agent-protocol/tests/rail-neutral-payment-receipts.test.ts"
