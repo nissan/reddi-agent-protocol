@@ -17,3 +17,4 @@ export * from './hosted-attestation-claim.js';
 export * from './pay-sh-sandbox-evidence.js';
 export * from './mpp-tempo-receipt-shapes.js';
 export * from './rail-neutral-payment-receipts.js';
+export * from './rail-neutral-proof-chain-fixture.js';
