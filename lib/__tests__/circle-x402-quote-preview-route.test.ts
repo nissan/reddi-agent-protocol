@@ -49,6 +49,14 @@ describe("Circle x402 quote preview route", () => {
         rail: "circle_gateway",
         estimatedUsd: 0.005,
       },
+      paymentSupport: {
+        supportStates: ["discovery_visible", "externally_listed_unattested", "x402_required", "dry_run_quote_preview", "live_payment_disabled"],
+        diagnostics: [],
+        livePaymentAllowed: false,
+        trustUpgradeAllowed: false,
+        reputationMutationAllowed: false,
+        publicationReady: false,
+      },
       requiredGates: ["User explicitly approves live x402 payment experiment."],
       trustNotes: ["Preview only: no x402 payment header is created and no external endpoint is invoked."],
     });
@@ -70,6 +78,11 @@ describe("Circle x402 quote preview route", () => {
     });
     expect(data.mode).toBe("dry-run-quote-preview");
     expect(data.routePreview.plannerPolicy.livePaymentAllowed).toBe(false);
+    expect(data.paymentSupport.livePaymentAllowed).toBe(false);
+    expect(data.paymentSupport.trustUpgradeAllowed).toBe(false);
+    expect(data.paymentSupport.reputationMutationAllowed).toBe(false);
+    expect(data.paymentSupport.publicationReady).toBe(false);
+    expect(data.paymentSupport.supportStates).toContain("live_payment_disabled");
     expect(data.requiredGates[0]).toContain("approves");
   });
 
@@ -82,6 +95,7 @@ describe("Circle x402 quote preview route", () => {
       task: "Preview",
       routePreview: null,
       quotePreview: null,
+      paymentSupport: null,
       requiredGates: [],
       trustNotes: [],
       error: "Circle x402 candidate not found: missing",

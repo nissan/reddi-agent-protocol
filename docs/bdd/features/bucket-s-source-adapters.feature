@@ -81,6 +81,7 @@ Feature: Bucket S Source Adapter Onboarding
     Then the candidate includes a valid source-adapter specialist manifest
     And the candidate is marked externally listed and not RAP-attested
     And payment options preserve rail network amount and payee fields
+    And support states and diagnostics do not upgrade trust, publication, or reputation readiness
 
   @S5.6 @conformance @circle-x402 @settlement-safety
   Scenario: Circle x402 quote preview remains dry-run until explicit approval
