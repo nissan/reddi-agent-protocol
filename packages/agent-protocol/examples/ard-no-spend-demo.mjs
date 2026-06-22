@@ -25,6 +25,7 @@ import {
   createAttestationRecord,
   createInitialReputationState,
 } from '../dist/attestation-reputation.js';
+import { railNeutralProofChainFixtures } from '../dist/rail-neutral-proof-chain-fixture.js';
 
 const createdAt = '2026-06-19T07:45:00.000Z';
 const nonce = 'ard-no-spend-001';
@@ -221,6 +222,36 @@ const malformedChallenge = evaluateBuyerPaymentChallenge({
   quote: { amount: 2500000 },
 });
 const missingEvidence = validateEvidenceArchiveRecord(specialistResponse.evidence);
+const missingPaymentSetup = evaluateAuddPaymentPlanPreflight(challenge, {
+  allowedNetworks: ['solana-devnet'],
+  allowedMints: [auddMint],
+  allowedPayees: [payee],
+  allowedSettlementAccounts: [settlementAccount],
+  maxAmount: '3000000',
+  requireEvidence: true,
+  approvalState: 'pending',
+  now: '2026-06-19T07:45:01.000Z',
+});
+const unsafeMetadata = validateEvidenceArchiveRecord({
+  ...specialistResponse.evidence,
+  metadata: {
+    publicLabel: 'unsafe metadata fixture',
+    api_key: 'redacted',
+  },
+}, {
+  resultRef: specialistResponse.evidence.evidenceRef,
+});
+
+const railNeutralProofCases = Object.values(railNeutralProofChainFixtures).map((item) => ({
+  case: item.case,
+  status: item.status,
+  rail: item.sourceRef.rail,
+  sourceId: item.sourceRef.sourceId,
+  paymentProofRef: item.bindingRefs.paymentProofRef,
+  evidenceRef: item.bindingRefs.evidenceRef,
+  blockedBy: item.blockedBy?.map((error) => error.code) ?? [],
+  claimBoundaryLabels: item.claimBoundaryLabels,
+}));
 
 console.log(JSON.stringify({
   ok: true,
@@ -270,6 +301,15 @@ console.log(JSON.stringify({
     responseHash: specialistResponse.receipt.responseHash,
     archiveHasEvidence: archive.has(specialistResponse.evidence.id),
   },
+  receiptEvidenceBinding: {
+    receiptId: specialistResponse.receipt.job.id,
+    evidenceId: specialistResponse.evidence.id,
+    paymentProofRef: auddDecision.paymentProofRef,
+    requestHash: specialistResponse.receipt.requestHash,
+    responseHash: specialistResponse.receipt.responseHash,
+    evidenceRef: specialistResponse.evidence.evidenceRef,
+    bindingMode: 'local_fixture_refs_only',
+  },
   attestation: {
     id: attestation.id,
     verdict: attestation.verdict,
@@ -290,10 +330,48 @@ console.log(JSON.stringify({
       ok: missingEvidence.ok,
       errorCodes: missingEvidence.ok ? [] : missingEvidence.errors.map((item) => item.code),
     },
+    missingPaymentSetup: {
+      allowed: missingPaymentSetup.allowed,
+      reasonCodes: missingPaymentSetup.reasonCodes,
+    },
     unsupportedRailNetwork: {
       allowed: unsupportedNetwork.allowed,
       reasonCodes: unsupportedNetwork.reasonCodes,
     },
+    unsafeMetadata: {
+      ok: unsafeMetadata.ok,
+      errorCodes: unsafeMetadata.ok ? [] : unsafeMetadata.errors.map((item) => item.code),
+    },
+  },
+  railNeutralProofChain: {
+    schemaVersion: 'reddi.rail-neutral-proof-chain-fixture.v1',
+    bindingReadyCase: railNeutralProofCases.find((item) => item.status === 'binding_ready')?.case,
+    blockedCases: railNeutralProofCases.filter((item) => item.status === 'blocked').map((item) => item.case),
+    cases: railNeutralProofCases,
+  },
+  downstreamPublicProofContracts: {
+    publicProofPageData: 'reddi.economic-demo.public-proof-page-data.v1',
+    paidWorkflowProofUiFixturePack: 'reddi.economic-demo.paid-workflow-proof-ui-fixture-pack.v1',
+    stateLabels: [
+      'fixture_zero_spend',
+      'planned_dry_run',
+      'simulated',
+      'devnet_proof_metadata',
+      'live_gated',
+      'production_live_disabled',
+    ],
+  },
+  boundaries: {
+    hostedService: false,
+    paidProvider: false,
+    walletAccess: false,
+    rpcCall: false,
+    splTransfer: false,
+    quasarCustody: false,
+    settlementFinalityProof: false,
+    trustUpgrade: false,
+    reputationMutation: false,
+    livePayment: false,
   },
   hashes: {
     request: hashJson(requestBody),
