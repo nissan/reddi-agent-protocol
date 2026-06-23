@@ -46,3 +46,13 @@ Feature: Bucket I Agent Manager Operations
     Then local, dry-run, devnet, live-gated, hosted, self-hosted, and externally listed states are separated
     And live publication, payment activation, wallet or RPC use, provider calls, catalog submissions, hosted registry writes, trust upgrades, and reputation mutations require explicit approval
     And Pay.sh catalog-only, spec-preview, sandbox-untested, dry-run-ready, and live-payment-disabled support states are documented without implying live activation
+
+  @I1.7 @manager @docs @pay-sh
+  Scenario: Pay.sh live activation policy remains docs-only until explicit spend approval
+    Given RAP has Pay.sh catalog metadata, spec previews, fixture receipts, and Superteam devnet gate evidence
+    When the live Pay.sh activation gates and spend policy are reviewed
+    Then production Pay.sh activation, default USDC auto-pay, production AUDD rails, custody, settlement finality, mainnet settlement, and trust or reputation mutation remain unsafe claims
+    And every future paid run requires an approval record naming environment, asset, payer, recipient, endpoint, cap, retry policy, exact command, evidence path, rollback owner, and expiry
+    And payer, recipient or payee, endpoint, network, asset, cap, receipt, and verifier mismatches fail closed
+    And auto-pay remains disabled unless a future issue explicitly approves bounded per-call and per-session caps, endpoint and recipient allowlists, receipt capture, audit rows, and suspension controls
+    And the policy does not authorize Pay.sh setup, wallet setup, wallet top-up, RPC or Solana calls, provider calls, paid requests, catalog submissions, hosted registry writes, trust upgrades, reputation mutation, mainnet, or live payment activation
