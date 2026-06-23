@@ -15,6 +15,7 @@ const maxUsdc = Number(process.env.ECONOMIC_DEMO_LIVE_PAYMENT_MAX_USDC ?? "0");
 const network = process.env.ECONOMIC_DEMO_LIVE_PAYMENT_NETWORK ?? "";
 const payer = process.env.ECONOMIC_DEMO_LIVE_PAYMENT_PAYER ?? "";
 const recipient = process.env.ECONOMIC_DEMO_LIVE_PAYMENT_RECIPIENT ?? "";
+const specialistEndpoint = process.env.ECONOMIC_DEMO_LIVE_PAYMENT_SPECIALIST_ENDPOINT ?? "";
 const jupiterQuote = process.env.ECONOMIC_DEMO_LIVE_PAYMENT_JUPITER_QUOTE ?? "";
 
 const checks = [
@@ -49,6 +50,11 @@ const checks = [
     summary: "ECONOMIC_DEMO_LIVE_PAYMENT_RECIPIENT must identify orchestrator/escrow recipient",
   },
   {
+    id: "specialist_endpoint_present",
+    ok: asset !== "USDC" || /^https:\/\/[^*\s]+$/.test(specialistEndpoint),
+    summary: "USDC x402 route requires ECONOMIC_DEMO_LIVE_PAYMENT_SPECIALIST_ENDPOINT as one exact HTTPS endpoint",
+  },
+  {
     id: "sol_route_has_jupiter_quote",
     ok: asset !== "SOL" || jupiterQuote.length > 0,
     summary: "SOL route requires ECONOMIC_DEMO_LIVE_PAYMENT_JUPITER_QUOTE pointing to a quote-proof artifact",
@@ -64,8 +70,9 @@ const artifact = {
   requestedLane: asset || null,
   network: network || null,
   maxUsdc: Number.isFinite(maxUsdc) && maxUsdc > 0 ? maxUsdc : null,
-  payerReferencePresent: payer.length > 0,
-  recipientPresent: recipient.length > 0,
+  payerReference: payer || null,
+  recipient: recipient || null,
+  specialistEndpoint: specialistEndpoint || null,
   jupiterQuoteReference: jupiterQuote || null,
   checks,
   guardrails: [
@@ -92,6 +99,9 @@ writeFileSync(
     `- Asset: ${asset || "not selected"}`,
     `- Network: ${network || "not selected"}`,
     `- Max USDC cap: ${artifact.maxUsdc ?? "not set"}`,
+    `- Payer: ${artifact.payerReference ?? "not set"}`,
+    `- Recipient: ${artifact.recipient ?? "not set"}`,
+    `- Specialist endpoint: ${artifact.specialistEndpoint ?? "not set"}`,
     "",
     "## Checks",
     "",

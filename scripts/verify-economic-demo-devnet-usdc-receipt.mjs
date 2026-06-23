@@ -57,6 +57,26 @@ function writeArtifact(artifact) {
   console.log(JSON.stringify({ ok: true, status: artifact.status, jsonPath, mdPath, blockers: artifact.checks.filter((check) => !check.ok).map((check) => check.id) }, null, 2));
 }
 
+function accountKeyAt(tx, index) {
+  const key = tx?.transaction?.message?.accountKeys?.[index];
+  return typeof key === "string" ? key : key?.pubkey?.toString?.() ?? key?.toString?.() ?? null;
+}
+
+function tokenAccountBalance(tx, tokenAccount) {
+  const balances = [...(tx?.meta?.preTokenBalances ?? []), ...(tx?.meta?.postTokenBalances ?? [])];
+  return balances.find((balance) => accountKeyAt(tx, balance?.accountIndex) === tokenAccount) ?? null;
+}
+
+function recipientDestinationsForTx(tx, recipientKey, mint) {
+  const destinations = new Set([recipientKey]);
+  for (const balance of tx?.meta?.postTokenBalances ?? []) {
+    if (balance?.owner !== recipientKey || balance?.mint !== mint) continue;
+    const tokenAccount = accountKeyAt(tx, balance.accountIndex);
+    if (tokenAccount) destinations.add(tokenAccount);
+  }
+  return destinations;
+}
+
 const preflightChecks = [
   { id: "explicit_confirmation", ok: confirm === REQUIRED_CONFIRM, summary: `confirmation must equal ${REQUIRED_CONFIRM}` },
   { id: "asset_usdc", ok: asset === "USDC", summary: "asset must be USDC for this direct-payment verifier" },
@@ -106,10 +126,13 @@ const connection = new Connection(rpcUrl, "confirmed");
 const tx = await connection.getParsedTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
 const checks = [...preflightChecks];
 checks.push({ id: "transaction_found", ok: Boolean(tx), summary: "transaction must be retrievable on devnet RPC" });
+checks.push({ id: "transaction_success", ok: Boolean(tx) && tx.meta?.err == null, summary: "transaction must have no on-chain execution error" });
 
 let verifiedTransfer = null;
-if (tx) {
+if (tx && tx.meta?.err == null) {
   const recipientKey = new PublicKey(recipient).toBase58();
+  const payerKey = checkPublicKey(payer) ? new PublicKey(payer).toBase58() : null;
+  const allowedDestinations = recipientDestinationsForTx(tx, recipientKey, DEVNET_USDC_MINT);
   const instructions = tx.transaction.message.instructions;
   for (const instruction of instructions) {
     if (!("parsed" in instruction) || instruction.program !== "spl-token") continue;
@@ -122,9 +145,12 @@ if (tx) {
     const uiAmount = amountRaw / 10 ** decimals;
     const destination = info.destination || null;
     const authority = info.authority || info.owner || null;
-    const destinationMatches = destination === recipientKey || authority === recipientKey;
-    if (mint === DEVNET_USDC_MINT && destinationMatches && uiAmount > 0 && uiAmount <= maxUsdc) {
-      verifiedTransfer = { mint, uiAmount, amountRaw, decimals, destination, authority, instructionType: parsed.type };
+    const destinationBalance = destination ? tokenAccountBalance(tx, destination) : null;
+    const destinationMint = info.mint || destinationBalance?.mint || null;
+    const destinationMatches = Boolean(destination && allowedDestinations.has(destination));
+    const payerMatches = !payerKey || authority === payerKey;
+    if (destinationMint === DEVNET_USDC_MINT && destinationMatches && payerMatches && uiAmount > 0 && uiAmount <= maxUsdc) {
+      verifiedTransfer = { mint: destinationMint, uiAmount, amountRaw, decimals, destination, authority, instructionType: parsed.type };
       break;
     }
   }

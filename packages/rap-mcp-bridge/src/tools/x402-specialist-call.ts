@@ -20,6 +20,7 @@ export type ExecuteX402SpecialistCallArgs = {
   body: Record<string, unknown>;
   idempotencyKey: string;
   maxUsdcMicroUnits: number;
+  expectedPayTo?: string;
   approvalPhrase: "EXECUTE_DEVNET_X402_SPECIALIST_CALL";
 };
 
@@ -76,6 +77,10 @@ export async function executeX402SpecialistCall(args: ExecuteX402SpecialistCallA
   const existing = store.getX402SpecialistReceiptByIdempotency(args.idempotencyKey);
   if (existing) {
     if (existing.requestHash !== requestHash) throw new Error("idempotency_key_conflict");
+    const storedPayTo = String(existing.receipt.paymentReceipt.payTo ?? "");
+    if (args.expectedPayTo && storedPayTo !== args.expectedPayTo) {
+      throw new Error(`x402_stored_receipt_payee_mismatch:${storedPayTo}`);
+    }
     return existing.receipt;
   }
   const fetcher = deps?.fetch ?? (globalThis.fetch as unknown as FetchLike | undefined);
@@ -86,6 +91,9 @@ export async function executeX402SpecialistCall(args: ExecuteX402SpecialistCallA
   const x402RequestHeader = unpaid.headers.get("x402-request");
   if (!x402RequestHeader) throw new Error("missing_x402_request_header");
   const challenge = challengeFromX402RequestHeader(x402RequestHeader);
+  if (args.expectedPayTo && challenge.payTo !== args.expectedPayTo) {
+    throw new Error(`x402_challenge_payee_mismatch:${challenge.payTo}`);
+  }
   const paymentClient = deps?.client ?? createSolanaDevnetUsdcPaymentClient(new Connection(config.devnetRpcUrl, "confirmed"));
   const receipt = await executeDevnetUsdcPayment({ challenge, config: paymentConfig(config, args.maxUsdcMicroUnits), client: paymentClient, approvalPhrase: args.approvalPhrase });
   const paid = await fetcher(args.endpoint, { method: "POST", headers: { "content-type": "application/json", "x402-payment": JSON.stringify(receipt) }, body });

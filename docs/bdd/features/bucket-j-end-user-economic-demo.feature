@@ -245,7 +245,7 @@ Feature: End-user economic workflow demo
     When a reviewer follows the default verification path
     Then it includes public routes, public proof UI, ARD no-spend package output, and recorded Solana devnet transaction checks
     And it separates deterministic no-spend proof, sandbox or local proof, devnet verification, and optional fresh bounded devnet spend
-    And any fresh devnet payment remains behind explicit confirmation, cap, allowlist, signer, recipient, and receipt verification gates
+    And any fresh devnet payment remains behind explicit confirmation, cap, endpoint allowlist, signer, recipient/payee match, gate artifact, and receipt verification gates
     And no mainnet payment, production Pay.sh activation, uncontrolled wallet or RPC call, custody claim, settlement-finality proof, hosted registry write, trust or reputation mutation, or default USDC auto-pay occurs
     And the behavior is covered by "scripts/check-superteam-devnet-demo-readiness.mjs"
 

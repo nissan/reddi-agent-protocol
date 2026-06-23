@@ -65,6 +65,7 @@ export const executeX402SpecialistCallInputSchema = {
   body: z.record(z.unknown()),
   idempotencyKey: z.string().min(1).max(128),
   maxUsdcMicroUnits: z.number().int().positive().max(1_000_000),
+  expectedPayTo: z.string().max(128).optional(),
   approvalPhrase: z.literal("EXECUTE_DEVNET_X402_SPECIALIST_CALL"),
 };
 

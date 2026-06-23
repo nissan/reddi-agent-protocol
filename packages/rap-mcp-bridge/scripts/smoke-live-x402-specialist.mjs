@@ -4,7 +4,7 @@ import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 if (process.env.RAP_MCP_LIVE_X402_SPECIALIST_SMOKE !== '1') {
@@ -12,6 +12,12 @@ if (process.env.RAP_MCP_LIVE_X402_SPECIALIST_SMOKE !== '1') {
 }
 if (!process.env.RAP_MCP_DEVNET_WALLET_KEYPAIR || !existsSync(process.env.RAP_MCP_DEVNET_WALLET_KEYPAIR)) {
   throw new Error('set RAP_MCP_DEVNET_WALLET_KEYPAIR to an explicitly approved funded devnet demo wallet keypair path');
+}
+if (process.env.ECONOMIC_DEMO_LIVE_PAYMENT_CONFIRM !== 'RUN_ECONOMIC_DEMO_LIVE_PAYMENT_RECEIPT_LANE') {
+  throw new Error('set ECONOMIC_DEMO_LIVE_PAYMENT_CONFIRM=RUN_ECONOMIC_DEMO_LIVE_PAYMENT_RECEIPT_LANE for fresh devnet spend');
+}
+if (!process.env.ECONOMIC_DEMO_LIVE_PAYMENT_GATE_SOURCE) {
+  throw new Error('set ECONOMIC_DEMO_LIVE_PAYMENT_GATE_SOURCE to the ready gate.json artifact produced by npm run check:economic-demo:live-payment-gate');
 }
 
 const packageDir = dirname(fileURLToPath(import.meta.url)).replace(/\/scripts$/, '');
@@ -25,6 +31,8 @@ const rpcUrl = process.env.RAP_MCP_DEVNET_RPC_URL ?? 'https://api.devnet.solana.
 const usdcMint = process.env.RAP_MCP_DEVNET_USDC_MINT ?? '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
 const maxUsdcMicroUnits = Number(process.env.RAP_MCP_DEVNET_MAX_USDC_MICRO_UNITS ?? '60000');
 const storeDir = process.env.REDDI_MCP_STORE_DIR || mkdtempSync(join(tmpdir(), 'rap-mcp-live-x402-specialist-'));
+const gateSource = process.env.ECONOMIC_DEMO_LIVE_PAYMENT_GATE_SOURCE;
+const gatePath = isAbsolute(gateSource) ? gateSource : join(repoDir, gateSource);
 
 function loadPublicKey(path) {
   const secret = Uint8Array.from(JSON.parse(readFileSync(path, 'utf8')));
@@ -42,6 +50,17 @@ async function tokenBalance(connection, owner, mint) {
 }
 
 const walletPublicKey = loadPublicKey(process.env.RAP_MCP_DEVNET_WALLET_KEYPAIR);
+if (!existsSync(gatePath)) throw new Error(`live payment gate artifact not found: ${gatePath}`);
+const gate = JSON.parse(readFileSync(gatePath, 'utf8'));
+if (gate.status !== 'ready') throw new Error(`live payment gate is not ready: ${gate.status}`);
+if (gate.requestedLane !== 'USDC') throw new Error(`live payment gate asset must be USDC: ${gate.requestedLane}`);
+if (gate.network !== 'solana-devnet') throw new Error(`live payment gate network must be solana-devnet: ${gate.network}`);
+if (gate.specialistEndpoint !== endpoint) throw new Error(`live payment gate endpoint mismatch: ${gate.specialistEndpoint}`);
+if (gate.payerReference !== walletPublicKey.toBase58()) throw new Error(`live payment gate payer mismatch: ${gate.payerReference}`);
+const expectedPayTo = new PublicKey(String(gate.recipient)).toBase58();
+const gateMaxMicroUnits = Math.floor(Number(gate.maxUsdc) * 1_000_000);
+if (!Number.isFinite(gateMaxMicroUnits) || gateMaxMicroUnits <= 0) throw new Error('live payment gate cap is invalid');
+if (maxUsdcMicroUnits > gateMaxMicroUnits) throw new Error(`live smoke cap exceeds gate cap: ${maxUsdcMicroUnits} > ${gateMaxMicroUnits}`);
 const connection = new Connection(rpcUrl, 'confirmed');
 const mint = new PublicKey(usdcMint);
 const prePayer = await tokenBalance(connection, walletPublicKey, mint);
@@ -88,10 +107,12 @@ try {
       },
       idempotencyKey: `live-x402-specialist-${timestamp}`,
       maxUsdcMicroUnits,
+      expectedPayTo,
       approvalPhrase: 'EXECUTE_DEVNET_X402_SPECIALIST_CALL',
     },
   }), 'execute_x402_specialist_call');
   if (execute.response?.status !== 200) throw new Error(`paid retry did not return 200: ${JSON.stringify(execute.response)}`);
+  if (execute.paymentReceipt?.payTo !== expectedPayTo) throw new Error(`receipt payee mismatch: ${execute.paymentReceipt?.payTo}`);
 
   const verify = parseToolJson(await client.callTool({
     name: 'reddi.verify_x402_specialist_receipt',
@@ -114,6 +135,7 @@ try {
     generatedAt: new Date().toISOString(),
     boundary: 'solana-devnet-only-no-mainnet',
     endpoint,
+    gateArtifactPath: process.env.ECONOMIC_DEMO_LIVE_PAYMENT_GATE_SOURCE,
     rpcUrl,
     payer: walletPublicKey.toBase58(),
     payTo: payTo?.toBase58() ?? null,

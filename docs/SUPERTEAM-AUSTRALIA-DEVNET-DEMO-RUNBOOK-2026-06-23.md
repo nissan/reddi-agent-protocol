@@ -129,16 +129,20 @@ ECONOMIC_DEMO_LIVE_PAYMENT_CONFIRM=RUN_ECONOMIC_DEMO_LIVE_PAYMENT_RECEIPT_LANE \
 ECONOMIC_DEMO_LIVE_PAYMENT_ASSET=USDC \
 ECONOMIC_DEMO_LIVE_PAYMENT_NETWORK=solana-devnet \
 ECONOMIC_DEMO_LIVE_PAYMENT_MAX_USDC=0.06 \
-ECONOMIC_DEMO_LIVE_PAYMENT_PAYER=<devnet-payer-public-key-or-secure-ref> \
+ECONOMIC_DEMO_LIVE_PAYMENT_PAYER=<devnet-payer-public-key> \
 ECONOMIC_DEMO_LIVE_PAYMENT_RECIPIENT=<devnet-recipient-public-key> \
+ECONOMIC_DEMO_LIVE_PAYMENT_SPECIALIST_ENDPOINT=<exact-specialist-endpoint-url> \
 npm run check:economic-demo:live-payment-gate
 ```
 
-If the gate is ready and a fresh x402 specialist smoke is approved:
+If the gate is ready and a fresh x402 specialist smoke is approved, pass the exact gate artifact produced above. The wrapper rejects payer, recipient, endpoint, network, or cap drift before submitting a devnet payment.
 
 ```bash
 RAP_MCP_LIVE_X402_SPECIALIST_SMOKE=1 \
+ECONOMIC_DEMO_LIVE_PAYMENT_CONFIRM=RUN_ECONOMIC_DEMO_LIVE_PAYMENT_RECEIPT_LANE \
+ECONOMIC_DEMO_LIVE_PAYMENT_GATE_SOURCE=<artifacts/economic-demo-live-payment-gate/.../gate.json> \
 RAP_MCP_DEVNET_WALLET_KEYPAIR=<secure-local-devnet-keypair-path> \
+RAP_MCP_LIVE_X402_SPECIALIST_ENDPOINT=<exact-specialist-endpoint-url> \
 RAP_MCP_DEVNET_RPC_URL=https://api.devnet.solana.com \
 RAP_MCP_DEVNET_USDC_MINT=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU \
 RAP_MCP_DEVNET_MAX_USDC_MICRO_UNITS=60000 \
@@ -158,7 +162,7 @@ ECONOMIC_DEMO_LIVE_PAYMENT_SIGNATURE=<devnet-signature> \
 npm run verify:economic-demo:devnet-usdc-receipt
 ```
 
-The verifier does not sign or submit transactions. It only checks an existing devnet transaction against the declared recipient and cap.
+The verifier does not sign or submit transactions. It only checks an existing devnet transaction against the declared recipient and cap. If the recipient is an owner wallet, it resolves token accounts owned by that wallet from the parsed transaction balances; it does not treat the transfer authority as the destination.
 
 ## Demo Script For Superteam
 
@@ -177,7 +181,7 @@ Safe to say:
 - x402 specialist payment evidence exists on Solana devnet for recorded runs.
 - The protocol package emits deterministic no-spend receipt, EvidenceArchive, AUDD dry-run preflight, and rail-neutral proof-chain evidence.
 - The public proof page renders the paid workflow ledger and fail-closed cases without executing spend.
-- Fresh devnet spend is gated by explicit confirmation, cap, allowlist, and receipt verification.
+- Fresh devnet spend is gated by explicit confirmation, cap, endpoint allowlist, signer/payer match, recipient/payee match, and receipt verification.
 
 Not safe to say yet:
 
@@ -197,4 +201,3 @@ The demo passes if a reviewer can independently verify:
 - public proof route and API expose the expected proof state;
 - recorded devnet transaction signatures are present and successful on Solana devnet;
 - any fresh devnet payment was explicitly approved, capped, allowlisted, verified, and documented.
-
