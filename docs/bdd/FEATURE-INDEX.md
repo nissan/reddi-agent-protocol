@@ -63,8 +63,10 @@ Purpose: single lookup from BDD feature file -> bucket -> executable verificatio
 ### Bucket I — Agent Manager Operations
 - Feature: `docs/bdd/features/bucket-i-agent-manager-operations.feature`
 - Hosted marketplace operations runbook: `docs/HOSTED-MARKETPLACE-OPERATIONS-READINESS-RUNBOOK.md`
+- Pay.sh live activation policy: `docs/PAY-SH-LIVE-ACTIVATION-GATES-AND-SPEND-POLICY.md`
 - Verify:
   - `npx jest lib/__tests__/manager-readiness-route.test.ts lib/__tests__/manager-evidence-pack.test.ts lib/__tests__/manager-evidence-route.test.ts --runInBand`
+  - Docs/process safety checks: `npm run check:economic-demo:live-payment-gate`, `npm run verify:economic-demo:devnet-usdc-receipt`
   - `npm run test:bdd:index`
   - Included in representative sweep: `npm run test:bdd:sweep`
 

@@ -20,6 +20,7 @@ Related roadmap owners:
 
 - [#395](https://github.com/nissan/reddi-agent-protocol/issues/395) owns marketplace publication/export readiness.
 - [#417](https://github.com/nissan/reddi-agent-protocol/issues/417), [#349](https://github.com/nissan/reddi-agent-protocol/issues/349), and [#386](https://github.com/nissan/reddi-agent-protocol/issues/386) are UI/demo proof surfaces that can consume this runbook's states without bypassing approval gates.
+- [#476](https://github.com/nissan/reddi-agent-protocol/issues/476) owns live Pay.sh activation gates and spend policy. See [`docs/PAY-SH-LIVE-ACTIVATION-GATES-AND-SPEND-POLICY.md`](PAY-SH-LIVE-ACTIVATION-GATES-AND-SPEND-POLICY.md).
 
 ## State Model
 
@@ -88,6 +89,8 @@ The following actions require explicit approval in the active issue or a linked 
 
 Approval must name the action, actor, environment, spend cap if any, evidence refs, rollback/suspend plan, and the exact command or UI action allowed.
 
+Pay.sh approvals must also name the exact payer, recipient/payee, endpoint, network, asset, cap, retry policy, evidence path, and single-use or expiry boundary from the live activation policy. A generic "enable Pay.sh" or "test stablecoin payments" note is not sufficient approval.
+
 ## Pay.sh Support States
 
 Pay.sh catalog and provider-preview states are especially easy to overstate. Use these support-state labels:
@@ -106,6 +109,7 @@ For the #471 Pay.sh tranche, the current shipped boundary is:
 - Listed on Pay.sh by RAP: no.
 - Sandbox-tested by RAP: no.
 - Live payment enabled: no.
+- Live activation policy exists: yes, as docs/process only in [`docs/PAY-SH-LIVE-ACTIVATION-GATES-AND-SPEND-POLICY.md`](PAY-SH-LIVE-ACTIVATION-GATES-AND-SPEND-POLICY.md).
 
 ## Publication Flow
 
