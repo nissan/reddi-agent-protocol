@@ -230,6 +230,16 @@ Feature: End-user economic workflow demo
     And no UI implementation, paid provider request, signing operation, wallet mutation, RPC call, hosted registry write, trust or reputation mutation, custody claim, settlement-finality proof, or live payment occurs
     And the behavior is covered by "lib/__tests__/economic-demo-paid-workflow-proof-ui-fixtures.test.ts"
 
+  Scenario: Public proof page renders quote to receipt evidence without live claims
+    Given the paid workflow proof-chain UI fixture pack is available
+    When a reviewer opens /economic-demo/public-proof
+    Then the page renders quote, budget ledger, result, receipt, EvidenceArchive, attestation preview, and reputation preview sections
+    And it shows Pay.sh sandbox single-charge proof as a no-network no-spend happy path with refs and hashes only
+    And it shows Tempo unsupported-network, unsupported asset, malformed receipt, policy-denied, and live-path overclaim states as blocked fail-closed cases
+    And it labels fixture zero-spend, planned dry-run, simulated, devnet proof metadata, live-gated, and production/live disabled states
+    And no paid provider request, signing operation, wallet mutation, RPC call, hosted registry write, trust or reputation mutation, custody claim, settlement-finality proof, or live payment occurs
+    And the behavior is covered by "e2e/economic-demo-public-proof.spec.ts"
+
   Scenario: Submission readiness follows retrospective-driven BDD loops
     Given the economic demo is being prepared for judge or submission review
     And live research, paid image generation, signing, wallet mutation, devnet transfer, and Coolify mutation are not approved
