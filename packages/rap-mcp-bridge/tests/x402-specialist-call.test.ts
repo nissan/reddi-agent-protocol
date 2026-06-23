@@ -147,6 +147,43 @@ test("execute_x402_specialist_call performs fake 402 to paid retry flow and stor
   }
 });
 
+test("execute_x402_specialist_call rejects a challenge payee that differs from the approved recipient", async () => {
+  const { dir, path } = walletFile();
+  const storeDir = mkdtempSync(join(tmpdir(), "rap-mcp-x402-store-"));
+  try {
+    const config = loadConfig({
+      HOME: tmpdir(),
+      REDDI_RAP_MCP_MODE: "devnet",
+      RAP_MCP_DEVNET_PROOF_APPROVED: "1",
+      RAP_MCP_ALLOW_SPECIALIST_INVOKE: "1",
+      RAP_MCP_DEVNET_WALLET_KEYPAIR: path,
+      RAP_MCP_DEVNET_USDC_MINT: usdcMint,
+      RAP_MCP_SPECIALIST_ENDPOINT_ALLOWLIST: endpoint,
+      RAP_MCP_DEVNET_MAX_USDC_MICRO_UNITS: "150000",
+    });
+    const fetcher: FetchLike = async (_url, init) => {
+      if (!init.headers["x402-payment"]) {
+        return { status: 402, headers: { get: (name: string) => name === "x402-request" ? header() : null }, async text() { return "payment required"; } };
+      }
+      throw new Error("paid retry must not run after payee mismatch");
+    };
+    await assert.rejects(
+      executeX402SpecialistCall({
+        endpoint,
+        body: { messages: [{ role: "user", content: "help" }] },
+        idempotencyKey: "idem-live-x402-payee-mismatch",
+        maxUsdcMicroUnits: 150_000,
+        expectedPayTo: "4Nd1mDQc7iyQxwkMrMMkRTnYBPVQWuSi7aPdAkM3ccY1",
+        approvalPhrase: "EXECUTE_DEVNET_X402_SPECIALIST_CALL",
+      }, config, new BridgeStore(storeDir), { client: fakeClient({ allowSubmit: true }), fetch: fetcher }),
+      /x402_challenge_payee_mismatch/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(storeDir, { recursive: true, force: true });
+  }
+});
+
 test("prepare_x402_specialist_call rejects missing gates and non-allowlisted endpoints", async () => {
   await assert.rejects(
     prepareX402SpecialistCall({ x402RequestHeader: header() }, loadConfig({ HOME: tmpdir() }), fakeClient()),
