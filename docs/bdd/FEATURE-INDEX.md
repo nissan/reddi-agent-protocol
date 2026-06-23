@@ -78,6 +78,7 @@ Purpose: single lookup from BDD feature file -> bucket -> executable verificatio
   - `npx playwright test e2e/economic-demo.spec.ts e2e/economic-demo-public-proof.spec.ts e2e/judge-replication-onboarding.spec.ts`
   - `npm run smoke:economic-demo:surfpool`
   - `npm run check:economic-demo:submission-prep`
+  - `npm run check:superteam:devnet-demo`
   - `npm run generate:economic-demo:submission-prep`
   - `npm run build`
   - Devnet cycle, when fresh devnet validation is explicitly approved: `npm run run:economic-demo:devnet-signed-action`, `npm run smoke:economic-demo:jupiter-quote`, `npm run check:economic-demo:live-payment-gate`, `npm run verify:economic-demo:devnet-usdc-receipt`, `npm run plan:economic-demo:devnet-usdc-sender`, `node scripts/judge-replication-check.mjs`

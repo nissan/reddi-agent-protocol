@@ -240,6 +240,15 @@ Feature: End-user economic workflow demo
     And no paid provider request, signing operation, wallet mutation, RPC call, hosted registry write, trust or reputation mutation, custody claim, settlement-finality proof, or live payment occurs
     And the behavior is covered by "e2e/economic-demo-public-proof.spec.ts"
 
+  Scenario: Superteam Australia can verify the devnet demo without production payment activation
+    Given the Superteam Australia devnet verification runbook is available
+    When a reviewer follows the default verification path
+    Then it includes public routes, public proof UI, ARD no-spend package output, and recorded Solana devnet transaction checks
+    And it separates deterministic no-spend proof, sandbox or local proof, devnet verification, and optional fresh bounded devnet spend
+    And any fresh devnet payment remains behind explicit confirmation, cap, allowlist, signer, recipient, and receipt verification gates
+    And no mainnet payment, production Pay.sh activation, uncontrolled wallet or RPC call, custody claim, settlement-finality proof, hosted registry write, trust or reputation mutation, or default USDC auto-pay occurs
+    And the behavior is covered by "scripts/check-superteam-devnet-demo-readiness.mjs"
+
   Scenario: Submission readiness follows retrospective-driven BDD loops
     Given the economic demo is being prepared for judge or submission review
     And live research, paid image generation, signing, wallet mutation, devnet transfer, and Coolify mutation are not approved

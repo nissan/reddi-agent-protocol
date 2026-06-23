@@ -58,6 +58,7 @@
     "check:economic-demo:live-payment-gate": "node ./scripts/check-economic-demo-live-payment-gate.mjs",
     "verify:economic-demo:devnet-usdc-receipt": "node ./scripts/verify-economic-demo-devnet-usdc-receipt.mjs",
     "plan:economic-demo:devnet-usdc-sender": "node ./scripts/plan-economic-demo-devnet-usdc-sender.mjs",
+    "check:superteam:devnet-demo": "node ./scripts/check-superteam-devnet-demo-readiness.mjs",
     "generate:economic-demo:submission-prep": "node ./scripts/generate-economic-demo-submission-prep.mjs",
     "report:economic-demo:run": "node ./scripts/generate-economic-demo-run-report.mjs",
     "run:economic-demo:devnet-signed-action": "node ./scripts/run-economic-demo-devnet-signed-action.mjs",
