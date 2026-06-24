@@ -90,6 +90,10 @@
       "types": "./dist/rail-neutral-proof-chain-fixture.d.ts",
       "import": "./dist/rail-neutral-proof-chain-fixture.js"
     },
+    "./seller-wrapper-rail-fixtures": {
+      "types": "./dist/seller-wrapper-rail-fixtures.d.ts",
+      "import": "./dist/seller-wrapper-rail-fixtures.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
