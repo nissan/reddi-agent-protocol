@@ -19,3 +19,4 @@ export * from './mpp-tempo-receipt-shapes.js';
 export * from './rail-neutral-payment-receipts.js';
 export * from './rail-neutral-proof-chain-fixture.js';
 export * from './seller-wrapper-rail-fixtures.js';
+export * from './seller-wrapper-config.js';
