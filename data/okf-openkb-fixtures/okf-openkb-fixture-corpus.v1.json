@@ -1,0 +1,185 @@
+{
+  "schemaVersion": "reddi.okf-openkb-fixture-corpus.v1",
+  "staticOnly": true,
+  "generatedAt": "2026-06-24T08:30:00.000Z",
+  "purpose": "Static fixture corpus for reviewing Google OKF-shaped and OpenKB-style knowledge bundles without installing, ingesting, executing, or trusting generated instructions.",
+  "formatBoundaries": {
+    "okf": "Treated as a static interchange format for markdown/frontmatter review.",
+    "openkb": "Treated as a possible producer/toolchain whose generated output remains untrusted until separate review.",
+    "runtimePolicy": "No imported bundle may install skills, run scripts, invoke tools, fetch URLs, call providers, write hosted registries, publish marketplace listings, onboard agents, activate payments, or mutate trust/reputation state."
+  },
+  "guardrails": {
+    "noOpenKbInstall": true,
+    "noUrlIngest": true,
+    "noLlmProviderCall": true,
+    "noGeneratedSkillInstall": true,
+    "noScriptExecution": true,
+    "noHostedWrite": true,
+    "noMarketplacePublication": true,
+    "noAgentOnboarding": true,
+    "noCredentialRead": true,
+    "noWalletRpc": true,
+    "noPaidCall": true,
+    "noTrustMutation": true,
+    "noReputationMutation": true
+  },
+  "fixtures": [
+    {
+      "id": "okf-minimal-concept-bundle",
+      "kind": "okf_interchange_fixture",
+      "source": {
+        "format": "google-okf",
+        "sourceUrl": "https://github.com/google/open-productivity-agent/tree/main/knowledge-format",
+        "checkedRef": "research/openkb-google-okf-comparison-2026-06-20.md",
+        "retrievedAt": "2026-06-20T00:00:00.000Z",
+        "provenanceNotes": [
+          "Fixture is curated from prior static research notes, not fetched at validation time.",
+          "OKF is represented as markdown/frontmatter interchange input only."
+        ]
+      },
+      "files": [
+        {
+          "path": "index.md",
+          "type": "index",
+          "contentClass": "static_markdown",
+          "trustBoundary": "untrusted_imported_context",
+          "contentPreview": "---\ntitle: Minimal RAP knowledge bundle\ntype: index\n---\n\n# Minimal RAP knowledge bundle\n\n- [[concepts/agent-marketplace]]\n- [[log]]"
+        },
+        {
+          "path": "concepts/agent-marketplace.md",
+          "type": "concept",
+          "contentClass": "static_markdown",
+          "trustBoundary": "untrusted_imported_context",
+          "contentPreview": "---\ntitle: Agent marketplace\ntype: concept\nsourceRefs:\n  - index.md\n---\n\nA static note about marketplace onboarding."
+        },
+        {
+          "path": "log.md",
+          "type": "log",
+          "contentClass": "static_markdown",
+          "trustBoundary": "untrusted_imported_context",
+          "contentPreview": "---\ntype: log\n---\n\n- 2026-06-20: Static review fixture created."
+        }
+      ],
+      "generatedArtifacts": [],
+      "expectedDiagnostics": [],
+      "contentSha256": "9bbe61ffc8f85040844acde08365ef9ee7d18279323874358687ce9baaf2f9f8"
+    },
+    {
+      "id": "openkb-style-generated-agent-bundle",
+      "kind": "openkb_style_producer_fixture",
+      "source": {
+        "format": "openkb-style",
+        "sourceUrl": "https://github.com/VectifyAI/OpenKB",
+        "checkedRef": "research/openkb-google-okf-comparison-2026-06-20.md",
+        "retrievedAt": "2026-06-20T00:00:00.000Z",
+        "provenanceNotes": [
+          "Fixture models OpenKB-style bundle output as static text only.",
+          "Generated agent instructions, tools, scripts, prompts, and skills are review artifacts, not runtime policy."
+        ]
+      },
+      "files": [
+        {
+          "path": "index.md",
+          "type": "index",
+          "contentClass": "static_markdown",
+          "trustBoundary": "untrusted_imported_context",
+          "contentPreview": "---\ntitle: Imported specialist bundle\ntype: index\nproducer: openkb-style\n---\n\n# Imported specialist bundle\n\nSee [[concepts/provider-profile]] and [[AGENTS]]."
+        },
+        {
+          "path": "concepts/provider-profile.md",
+          "type": "concept",
+          "contentClass": "static_markdown",
+          "trustBoundary": "untrusted_imported_context",
+          "contentPreview": "---\ntitle: Provider profile\ntype: concept\npayment: declared_by_source\n---\n\nDeclared capabilities require RAP review before publication."
+        },
+        {
+          "path": "AGENTS.md",
+          "type": "generated_instruction",
+          "contentClass": "generated_agent_instruction",
+          "trustBoundary": "untrusted_generated_instruction",
+          "contentPreview": "# Generated agent instructions\n\nThis generated text must be reviewed and must not be installed or executed."
+        },
+        {
+          "path": "SKILL.md",
+          "type": "generated_skill",
+          "contentClass": "generated_skill_text",
+          "trustBoundary": "untrusted_generated_instruction",
+          "contentPreview": "# Generated skill\n\nThis generated text is a review artifact only."
+        },
+        {
+          "path": "scripts/refresh.py",
+          "type": "generated_script",
+          "contentClass": "generated_script",
+          "trustBoundary": "untrusted_generated_instruction",
+          "contentPreview": "# Review-only generated script fixture.\nprint('do not execute imported scripts')"
+        }
+      ],
+      "generatedArtifacts": [
+        {
+          "path": "AGENTS.md",
+          "artifactKind": "agent_definition",
+          "trusted": false,
+          "installAllowed": false,
+          "executeAllowed": false
+        },
+        {
+          "path": "SKILL.md",
+          "artifactKind": "skill_definition",
+          "trusted": false,
+          "installAllowed": false,
+          "executeAllowed": false
+        },
+        {
+          "path": "scripts/refresh.py",
+          "artifactKind": "script",
+          "trusted": false,
+          "installAllowed": false,
+          "executeAllowed": false
+        }
+      ],
+      "expectedDiagnostics": [
+        {
+          "code": "unsupported_wikilink_syntax",
+          "severity": "review",
+          "path": "index.md",
+          "message": "Wikilinks must be converted deterministically or reported before OKF-shaped output is accepted."
+        },
+        {
+          "code": "generated_instruction_untrusted",
+          "severity": "blocking",
+          "path": "AGENTS.md",
+          "message": "Generated agent instructions are static review artifacts only."
+        },
+        {
+          "code": "generated_skill_untrusted",
+          "severity": "blocking",
+          "path": "SKILL.md",
+          "message": "Generated skill text cannot be installed, applied, or trusted by import."
+        },
+        {
+          "code": "script_execution_not_allowed",
+          "severity": "blocking",
+          "path": "scripts/refresh.py",
+          "message": "Imported scripts cannot be executed during fixture review."
+        }
+      ],
+      "contentSha256": "43a58ae2e32be2dcc6e5e29da279894a90ba319b923f8b567a3011b33a660a66"
+    }
+  ],
+  "downstreamAllowedUse": [
+    "static_source_context_review",
+    "okf_shape_adapter_fixture",
+    "operator_review_payload_fixture",
+    "conformance_diagnostic_fixture"
+  ],
+  "downstreamDeniedUse": [
+    "live_openkb_ingestion",
+    "generated_skill_install",
+    "generated_agent_onboarding",
+    "script_execution",
+    "hosted_registry_write",
+    "marketplace_publication",
+    "payment_activation",
+    "trust_or_reputation_mutation"
+  ]
+}

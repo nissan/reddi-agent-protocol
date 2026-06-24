@@ -147,3 +147,11 @@ Feature: Bucket S Source Adapter Onboarding
     And the draft recipe and profile distinguish declared Solana capability from reviewed RAP readiness
     And payment readiness remains disabled pending operator review
     And no wallet RPC SPL transfer live payment AUDD custody Quasar custody or marketplace publication is implied
+
+  @S5.15 @conformance @okf-openkb @static-fixture
+  Scenario: OKF and OpenKB-style knowledge bundles remain static review fixtures
+    When an OKF-shaped or OpenKB-style knowledge bundle fixture is added for RAP review
+    Then source provenance and imported-context trust boundaries are recorded
+    And generated AGENTS SKILL prompt tool script and agent definition artifacts are marked untrusted
+    And fixture validation rejects generated install execution hosted publication payment trust mutation and reputation mutation paths
+    And no OpenKB install URL ingestion provider call MCP call wallet RPC paid call marketplace publication or agent onboarding occurs
