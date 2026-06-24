@@ -56,6 +56,39 @@ describe("onboarding wrapper routes", () => {
     expect(overrideBody.slippage_bps).toBe(80);
   });
 
+  it("GET /api/onboarding/seller-wrapper-config returns no-spend wrapper config", async () => {
+    const { GET } = await import("@/app/api/onboarding/seller-wrapper-config/route");
+
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.result.schemaVersion).toBe("reddi.onboarding-seller-wrapper-config.v1");
+    expect(body.result.mode).toBe("no-spend-config-preview");
+    expect(body.result.validation.valid).toBe(true);
+    expect(body.result.boundaries).toMatchObject({
+      networkCalls: false,
+      livePayment: false,
+      walletSigning: false,
+      rpcCalls: false,
+      providerInvocation: false,
+      hostedWrites: false,
+      custodyExpansion: false,
+      settlementFinalityClaim: false,
+    });
+
+    const endpointKinds = body.result.config.endpoints.map((endpoint: { kind: string }) => endpoint.kind).sort();
+    expect(endpointKinds).toEqual(["http-openapi", "mcp"]);
+
+    const rails = body.result.config.endpoints[0].rails;
+    const audd = rails.find((rail: { asset: string }) => rail.asset === "AUDD");
+    expect(rails.map((rail: { asset: string }) => rail.asset).sort()).toEqual(["AUDD", "SOL", "USDC"]);
+    expect(audd.runtimeState).toBe("proof-metadata-only");
+    expect(audd.audd.mint).toBe("AUDDdev111111111111111111111111111111111111");
+    expect(audd.livePaymentApproved).toBe(false);
+    expect(audd.custodySupported).toBe(false);
+  });
+
   it("/api/onboarding/planner/execute GET lists runs and POST executes", async () => {
     const { listPlannerRuns, executePlannerSpecialistCall } = await import("@/lib/onboarding/planner-execution");
     (listPlannerRuns as jest.Mock).mockReturnValue({ ok: true, runs: [{ runId: "r1" }] });
