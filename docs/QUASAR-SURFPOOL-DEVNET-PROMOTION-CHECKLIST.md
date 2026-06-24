@@ -6,6 +6,8 @@ This checklist is the approval boundary for any future Solana or Quasar instruct
 
 Package/read-model work does not need this gate. Examples include Quasar registry compatibility reports, hosted discovery/search read models, receipt/evidence bindings, off-chain reputation previews, documentation, and UI fixtures that do not build instructions, sign, submit, probe RPC, or mutate program state.
 
+Run `npm run check:quasar:boundary-guard` for package/read-model lanes that claim this metadata-only exemption. The guard runs without wallet, RPC, Surfpool, devnet, or deploy access; it scans configured package read-model paths by default and can also scan touched package/read-model files with `node scripts/check-quasar-boundary-guard.mjs --changed`, `--staged`, or explicit file paths.
+
 ## Promotion States
 
 | State | Allowed work | Required evidence | Wallet/RPC/deploy |
@@ -34,6 +36,22 @@ This checklist is not required for PRs that only:
 - update package docs/types without instruction builders
 - render disabled UI states or fixture-backed screenshots
 - update issue planning, runbooks, or non-live guardrails
+
+Package/read-model-only PRs lose this exemption when the boundary guard finds any forbidden Solana or Quasar mutation surface outside a declared program-boundary handoff. A deliberate handoff must move under a program-boundary path or include the marker `@quasar-program-boundary`, then use this promotion checklist before Surfpool/devnet evidence is requested.
+
+## Package/Read-Model Boundary Guard
+
+The lightweight guard for metadata-only lanes forbids:
+
+- instruction builders and transaction assembly
+- transaction signing, submission, wallet loading, or keypair loading
+- Solana RPC/client construction and account probes
+- Surfpool, devnet, and MagicBlock TEE network calls
+- program deploy, upgrade, and migration commands
+- PDA derivation, account-layout mutation, raw account serialization, and account metas
+- Quasar registry, escrow, reputation, attestation, PER, or vault state mutation
+
+If any of those surfaces are needed, the work is no longer package/read-model-only. Treat it as a program-boundary change, declare the scope explicitly, and follow this checklist before any local Surfpool or approved devnet activity.
 
 ## Program Inventory
 

@@ -29,3 +29,8 @@ Feature: Bucket M - Quasar-native MagicBlock PER escrow
     Then the phase records expected versus observed behavior
     And validation evidence is captured before moving on
     And the next phase plan is refined from the retrospective
+
+  Scenario: Package read models stay outside the Quasar program boundary
+    Given a package or read-model lane claims metadata-only Quasar scope
+    Then the Quasar boundary guard forbids instruction builders, wallet signing, RPC probes, Surfpool/devnet calls, deploy commands, PDA/account-layout mutations, and Quasar state mutation
+    And a forbidden surface requires an explicit program-boundary handoff before using the Surfpool/devnet promotion checklist
