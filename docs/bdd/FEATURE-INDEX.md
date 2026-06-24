@@ -73,6 +73,7 @@ Purpose: single lookup from BDD feature file -> bucket -> executable verificatio
 
 ### Bucket J — End-User Economic Demo
 - Feature: `docs/bdd/features/bucket-j-end-user-economic-demo.feature`
+- Paid workflow route state contract: `docs/PAID-WORKFLOW-ROUTE-STATE-CONTRACT.md`
 - Verify:
   - `npm run lint -- app/economic-demo/page.tsx lib/economic-demo/fixture.ts lib/economic-demo/image-adapter.ts app/api/economic-demo/image/route.ts`
   - `cd packages/agent-protocol && npm test -- --test-name-pattern "ARD no-spend demo"`

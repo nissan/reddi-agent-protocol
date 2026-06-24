@@ -240,6 +240,16 @@ Feature: End-user economic workflow demo
     And no paid provider request, signing operation, wallet mutation, RPC call, hosted registry write, trust or reputation mutation, custody claim, settlement-finality proof, or live payment occurs
     And the behavior is covered by "e2e/economic-demo-public-proof.spec.ts"
 
+  Scenario: Buyer paid-workflow route state contract preserves copy boundaries
+    Given the public proof page data contract and paid workflow proof-chain UI fixture pack are available
+    When the buyer paid-workflow route state contract is reviewed
+    Then it maps quote, budget ledger, execution timeline, result, receipt, EvidenceArchive, attestation preview, and reputation preview states to existing proof contracts
+    And it distinguishes fixture zero-spend, planned dry-run, simulated, devnet proof metadata, live-gated, and production-live-disabled copy
+    And blocked states for missing evidence, unsupported rail or network, malformed receipt, policy denial, live-path overclaim, and approval mismatch fail closed
+    And no paid provider request, signing operation, wallet mutation, RPC call, hosted registry write, marketplace publication, trust or reputation mutation, custody claim, settlement-finality proof, Pay.sh production activation, default USDC auto-pay, production AUDD rail, mainnet settlement, or live payment occurs
+    And downstream UI PRs must include mobile, tablet, and desktop screenshots plus video or Playwright trace for changed flows
+    And the behavior is documented by "docs/PAID-WORKFLOW-ROUTE-STATE-CONTRACT.md"
+
   Scenario: Superteam Australia can verify the devnet demo without production payment activation
     Given the Superteam Australia devnet verification runbook is available
     When a reviewer follows the default verification path
