@@ -60,9 +60,13 @@ Explicitly out of scope unless a later approved issue changes scope:
 
 ## Frozen Handoff Inputs
 
-- Handoff source commit: `3561dc5da0700367ed8ef95ab2dd091560280591`
-- Evidence pack: `docs/SOLANA-CONTRACT-AUDIT-READINESS-2026-06-24.md`
-- Account/PDA/ABI appendix: `docs/SOLANA-CONTRACT-AUDIT-APPENDIX-2026-06-24.md`
+- Input evidence commit: `3561dc5da0700367ed8ef95ab2dd091560280591`
+- Evidence pack at input evidence commit:
+  `docs/SOLANA-CONTRACT-AUDIT-READINESS-2026-06-24.md`
+- Account/PDA/ABI appendix at input evidence commit:
+  `docs/SOLANA-CONTRACT-AUDIT-APPENDIX-2026-06-24.md`
+- Final handoff source commit: the merge commit for PR #534, to be recorded in
+  #530 before any external auditor submission.
 - Current active escrow target for grant handoff: `experiments/quasar-escrow-per`
 - Current legacy escrow reference: `experiments/quasar-escrow`
 - Current Anchor reference: `programs/escrow`
@@ -76,7 +80,7 @@ Explicitly out of scope unless a later approved issue changes scope:
 
 Auditor packet must include:
 
-- Exact commit SHA and source tree pointer.
+- Exact input evidence commit SHA and final handoff source tree pointer.
 - Program ids from the selected source files.
 - Account/PDA/layout matrix.
 - Instruction ABI and discriminator list.

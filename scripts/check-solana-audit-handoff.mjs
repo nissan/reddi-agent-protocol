@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 const repoRoot = process.cwd();
 const handoffPath = path.join(repoRoot, "docs/SOLANA-EXTERNAL-AUDIT-HANDOFF-2026-06-24.md");
@@ -41,7 +42,8 @@ const requiredReferences = [
 ];
 
 const requiredArtifactTerms = [
-  "Exact commit SHA",
+  "Exact input evidence commit SHA",
+  "final handoff source tree pointer",
   "Program ids",
   "Account/PDA/layout matrix",
   "Instruction ABI and discriminator list",
@@ -60,6 +62,12 @@ const requiredBoundaryPhrases = [
   "Settlement-finality proof",
   "Contracts are audited.",
   "Settlement finality is proven.",
+  "Final handoff source commit: the merge commit for PR #534",
+];
+
+const inputEvidencePaths = [
+  "docs/SOLANA-CONTRACT-AUDIT-READINESS-2026-06-24.md",
+  "docs/SOLANA-CONTRACT-AUDIT-APPENDIX-2026-06-24.md",
 ];
 
 function fail(message, details = []) {
@@ -91,4 +99,31 @@ if (missingArtifactTerms.length) fail("required artifact terms are missing", mis
 const missingBoundaryPhrases = requiredBoundaryPhrases.filter((phrase) => !source.includes(phrase));
 if (missingBoundaryPhrases.length) fail("required boundary phrases are missing", missingBoundaryPhrases);
 
-console.log(`[solana-audit-handoff] OK: ${requiredHeadings.length} headings, ${requiredReferences.length} references, ${requiredArtifactTerms.length} artifact terms, and ${requiredBoundaryPhrases.length} boundary phrases verified`);
+const inputCommitMatch = source.match(/Input evidence commit: `([0-9a-f]{40})`/);
+if (!inputCommitMatch) fail("input evidence commit SHA is missing or malformed");
+
+const inputCommit = inputCommitMatch[1];
+try {
+  execFileSync("git", ["cat-file", "-e", `${inputCommit}^{commit}`], { cwd: repoRoot, stdio: "ignore" });
+} catch {
+  fail("input evidence commit does not exist in git", [inputCommit]);
+}
+
+const missingInputEvidence = inputEvidencePaths.filter((sourcePath) => {
+  try {
+    execFileSync("git", ["cat-file", "-e", `${inputCommit}:${sourcePath}`], { cwd: repoRoot, stdio: "ignore" });
+    return false;
+  } catch {
+    return true;
+  }
+});
+if (missingInputEvidence.length) {
+  fail("input evidence commit does not contain required evidence files", missingInputEvidence);
+}
+
+const staleHandoffSha = source.match(/Handoff source commit: `([0-9a-f]{40})`/);
+if (staleHandoffSha) {
+  fail("handoff source commit must not be a pre-merge stale SHA", [staleHandoffSha[1]]);
+}
+
+console.log(`[solana-audit-handoff] OK: ${requiredHeadings.length} headings, ${requiredReferences.length} references, ${requiredArtifactTerms.length} artifact terms, ${requiredBoundaryPhrases.length} boundary phrases, and input evidence commit ${inputCommit} verified`);
