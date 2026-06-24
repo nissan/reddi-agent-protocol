@@ -3,10 +3,59 @@
   "version": "0.1.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    },
+    "./budget-policy": {
+      "types": "./dist/budget-policy.d.ts",
+      "import": "./dist/budget-policy.js",
+      "require": "./dist/budget-policy.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js",
+      "require": "./dist/client.js"
+    },
+    "./jupiter": {
+      "types": "./dist/jupiter.d.ts",
+      "import": "./dist/jupiter.js",
+      "require": "./dist/jupiter.js"
+    },
+    "./middleware": {
+      "types": "./dist/middleware.d.ts",
+      "import": "./dist/middleware.js",
+      "require": "./dist/middleware.js"
+    },
+    "./nonce": {
+      "types": "./dist/nonce.d.ts",
+      "import": "./dist/nonce.js",
+      "require": "./dist/nonce.js"
+    },
+    "./payment": {
+      "types": "./dist/payment.d.ts",
+      "import": "./dist/payment.js",
+      "require": "./dist/payment.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js",
+      "require": "./dist/types.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
   "scripts": {
     "build": "node ./node_modules/typescript/lib/tsc.js",
     "test": "jest",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "release:dry-run": "npm run clean && npm run build && npm test -- --runInBand && npm pack --dry-run"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.14",
