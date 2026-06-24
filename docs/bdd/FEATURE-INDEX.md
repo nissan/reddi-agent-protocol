@@ -90,6 +90,8 @@ Purpose: single lookup from BDD feature file -> bucket -> executable verificatio
 - Feature: `docs/bdd/features/bucket-m-magicblock-per.feature`
 - Verify:
   - `npm run test:bdd:index`
+  - `npm run test:quasar:boundary-guard`
+  - `npm run check:quasar:boundary-guard`
   - `npx jest lib/__tests__/quasar-demo-program-config.test.ts lib/__tests__/quasar-demo-agent-guard.test.ts lib/__tests__/quasar-agent-account-decoder.test.ts lib/__tests__/quasar-instructions.test.ts --runInBand`
   - `cargo test --manifest-path experiments/quasar-escrow-per/Cargo.toml`
   - `npm run test:surfpool:quasar-critical`
