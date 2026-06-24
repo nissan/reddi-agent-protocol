@@ -76,6 +76,7 @@ Purpose: single lookup from BDD feature file -> bucket -> executable verificatio
 ### Bucket J — End-User Economic Demo
 - Feature: `docs/bdd/features/bucket-j-end-user-economic-demo.feature`
 - Paid workflow route state contract: `docs/PAID-WORKFLOW-ROUTE-STATE-CONTRACT.md`
+- Pay.sh/devnet paid-run approval validator maps #502 to #476, #471, #338, and #334.
 - Verify:
   - `npm run lint -- app/economic-demo/page.tsx lib/economic-demo/fixture.ts lib/economic-demo/image-adapter.ts app/api/economic-demo/image/route.ts`
   - `cd packages/agent-protocol && npm test -- --test-name-pattern "ARD no-spend demo"`
@@ -84,6 +85,7 @@ Purpose: single lookup from BDD feature file -> bucket -> executable verificatio
   - `npm run smoke:economic-demo:surfpool`
   - `npm run check:economic-demo:submission-prep`
   - `npm run check:superteam:devnet-demo`
+  - `npm run test:pay-sh:devnet-approval`
   - `npm run generate:economic-demo:submission-prep`
   - `npm run build`
   - Devnet cycle, when fresh devnet validation is explicitly approved: `npm run run:economic-demo:devnet-signed-action`, `npm run smoke:economic-demo:jupiter-quote`, `npm run check:economic-demo:live-payment-gate`, `npm run verify:economic-demo:devnet-usdc-receipt`, `npm run plan:economic-demo:devnet-usdc-sender`, `node scripts/judge-replication-check.mjs`

@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "reddi.pay-sh.devnet-paid-run-approval.v1",
+  "status": "approved",
+  "issue": "https://github.com/nissan/reddi-agent-protocol/issues/502",
+  "approver": "Nissan",
+  "approvedAt": "2026-06-20T00:00:00.000Z",
+  "expiresAt": "2026-06-21T00:00:00.000Z",
+  "environment": "solana-devnet",
+  "network": "solana-devnet",
+  "asset": "USDC",
+  "payer": "11111111111111111111111111111111",
+  "recipientPayee": "22222222222222222222222222222222",
+  "endpoint": "https://pay-sh.example.test/api/economic-demo/reddi-x402/pay-sh-smoke",
+  "caps": {
+    "singleRunUsdc": 0.06,
+    "sessionUsdc": 0.06
+  },
+  "retryPolicy": {
+    "allowed": false,
+    "maxRetries": 0
+  },
+  "exactCommand": "ECONOMIC_DEMO_LIVE_PAYMENT_CONFIRM=RUN_ECONOMIC_DEMO_LIVE_PAYMENT_RECEIPT_LANE npm run check:economic-demo:live-payment-gate",
+  "evidencePath": "artifacts/economic-demo-devnet-usdc-receipt/approval-fixture/receipt-verification.json",
+  "rollbackOwner": "Nissan",
+  "scope": "single-use",
+  "autoPay": false,
+  "defaultLive": false
+}

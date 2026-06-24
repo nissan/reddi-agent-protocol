@@ -1,0 +1,17 @@
+{
+  "environment": "solana-devnet",
+  "network": "solana-devnet",
+  "asset": "USDC",
+  "payer": "11111111111111111111111111111111",
+  "recipientPayee": "22222222222222222222222222222222",
+  "endpoint": "https://pay-sh.example.test/api/economic-demo/reddi-x402/pay-sh-smoke",
+  "capUsdc": 0.06,
+  "retryPolicy": {
+    "allowed": false,
+    "maxRetries": 0
+  },
+  "exactCommand": "PAY_SH_AUTO_PAY=true ECONOMIC_DEMO_LIVE_PAYMENT_CONFIRM=RUN_ECONOMIC_DEMO_LIVE_PAYMENT_RECEIPT_LANE npm run check:economic-demo:live-payment-gate",
+  "evidencePath": "artifacts/economic-demo-devnet-usdc-receipt/approval-fixture/receipt-verification.json",
+  "autoPay": false,
+  "defaultLive": false
+}

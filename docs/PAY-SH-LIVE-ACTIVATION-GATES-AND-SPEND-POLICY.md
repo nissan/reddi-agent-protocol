@@ -58,6 +58,26 @@ The approval record must include:
 
 Missing, stale, or ambiguous approval means no-go.
 
+For Pay.sh/devnet paid-run review, the approval record is machine-checkable with:
+
+```bash
+npm run check:pay-sh:devnet-approval -- --approval <approval.json> --request <request.json> --receipt <receipt.json> --verifier <verifier.json>
+```
+
+The validator is an offline docs/process checker only. It does not run Pay.sh setup, wallet setup, wallet top-up, RPC/Solana/provider calls, paid requests, hosted registry writes, catalog submissions, trust/reputation mutation, mainnet, production activation, or default auto-pay. Passing the validator means only that the supplied approval, request, receipt, and verifier artifacts are internally consistent for review. It does not authorize execution, and Nissan approval is still required before any paid command is run.
+
+The approval JSON must use schema `reddi.pay-sh.devnet-paid-run-approval.v1` and include, at minimum:
+
+- `status: "approved"`, `approver`, `approvedAt`, and `expiresAt`;
+- `environment`, `network: "solana-devnet"`, and `asset: "USDC"`;
+- exact `payer`, `recipientPayee`, and HTTPS `endpoint`;
+- `caps.singleRunUsdc` and `caps.sessionUsdc`;
+- explicit `retryPolicy.allowed` and `retryPolicy.maxRetries`;
+- exact `exactCommand`, `evidencePath`, `rollbackOwner`, and `scope: "single-use"`;
+- `autoPay: false` and `defaultLive: false`.
+
+The checker fails closed when the approval is missing or expired, when payer, payee, endpoint, network, asset, cap, receipt, or verifier artifacts drift from approval, or when the approval/request text implies auto-pay, default-live, production, or mainnet activation.
+
 ## Spend Policy
 
 Default policy:
@@ -194,6 +214,7 @@ No-spend and docs/process validation:
 ```bash
 npm run check:superteam:devnet-demo
 npm run check:economic-demo:live-payment-gate
+npm run test:pay-sh:devnet-approval
 npm run verify:economic-demo:devnet-usdc-receipt
 npm run check:rap:naming
 npm run test:bdd:index
@@ -201,6 +222,8 @@ git diff --check
 ```
 
 The default `check:economic-demo:live-payment-gate` and `verify:economic-demo:devnet-usdc-receipt` modes are expected to fail closed or block without the explicit confirmation inputs. Passing those default blocked modes is safety evidence, not payment evidence.
+
+The default `check:pay-sh:devnet-approval` mode also fails closed without an approval record. Use `test:pay-sh:devnet-approval` for the offline positive and negative fixture suite.
 
 ## Related Documents
 
