@@ -1,10 +1,12 @@
 # @reddi/x402-solana
 
-HTTP 402 Payment Middleware for Solana. Enables trustless micropayment flows between agents using the x402 standard and Solana's on-chain escrow.
+HTTP 402 payment primitives for Solana-oriented RAP workflows.
+
+This package is currently a repo-local v0.1 OSS candidate. It is not yet published on npm, and it should not be treated as production payment, custody, escrow-finality, or mainnet infrastructure.
 
 ## Overview
 
-**x402** is an HTTP status code indicating that payment is required. This package implements the middleware to handle x402 payment flows on Solana, supporting agent-to-agent micropayments without central intermediaries.
+**x402** is an HTTP status code indicating that payment is required. This package implements local parsing, policy, middleware, demo receipt, and gated devnet-helper primitives for Solana/x402 workflows.
 
 ### Core Features
 
@@ -13,11 +15,15 @@ HTTP 402 Payment Middleware for Solana. Enables trustless micropayment flows bet
 - **Local buyer budget preflight** — evaluates spend/call limits before payment authorization
 - **Modular design** — nonce store, payment logic, and middleware are separately testable
 - **Mock-friendly** — tests don't require Solana devnet access
+- **Fail-closed devnet helpers** — any real devnet payment path is explicit, capped, allowlisted, and outside default OSS smoke
 
 ## Installation
 
+The package is repo-local until the OSS release smoke and package-publication gates are complete:
+
 ```bash
-npm install @reddi/x402-solana @solana/web3.js
+npm --prefix packages/x402-solana test -- --runInBand
+npm --prefix packages/x402-solana run build
 ```
 
 ## Usage
@@ -66,8 +72,8 @@ Returns an Express middleware that:
 1. Checks for `x402-request` header
 2. Parses and validates payment details
 3. Checks nonce for replay attacks
-4. Initiates payment transfer
-5. Sets `x402-payment` response header with receipt
+4. Verifies demo or explicitly approved payment receipts according to configured policy
+5. Sets `x402-payment` response header with receipt metadata when verification succeeds
 
 **Errors:**
 - `400` — Invalid request (bad JSON, missing fields)
@@ -97,7 +103,7 @@ if (checkAndStoreNonce(nonce)) {
 
 ### `sendPayment(request: X402Request): Promise<PaymentReceipt>`
 
-Sends the payment and returns a receipt.
+Legacy demo helper for local tests. Do not use it as a production payment path.
 
 ```typescript
 const receipt = await sendPayment(request);
@@ -172,18 +178,22 @@ payment.ts (parse + validate)
     ↓
 nonce.ts (replay check)
     ↓
-sendPayment (transfer SOL)
+payment verifier or explicitly approved devnet helper
     ↓
 x402-payment (response receipt)
 ```
 
 ## Phases
 
-- **Phase 0** (✅ done): Anchor 1.0.0 escrow program on devnet
-- **Phase 1** (this): x402 middleware library (header parsing, nonce, validation)
-- **Phase 2**: Full payment flow (actual Solana transfer via Phase 0 escrow)
-- **Phase 3**: ElizaOS plugin + SendAI integration
-- **Phase 4**: MagicBlock Private Ephemeral Rollup for private settlement
+- **Phase 0**: Historical devnet/escrow research exists, but is not a current release claim
+- **Phase 1**: x402 primitives (header parsing, nonce, validation, demo receipts, local budget preflight)
+- **Phase 2**: Gated devnet USDC helpers behind explicit approval records and spend caps
+- **Phase 3**: Framework adapters only after #519 decides retention/deprecation scope
+- **Phase 4**: Future private/Quasar settlement work only behind separate program-boundary approval
+
+## Boundaries
+
+Clean-checkout OSS success must not require wallet material, RPC calls, Pay.sh activation, hosted Reddi, paid providers, marketplace publication, trust/reputation mutation, mainnet, custody, or settlement-finality claims.
 
 ## License
 
