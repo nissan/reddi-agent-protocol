@@ -1,8 +1,9 @@
 /**
- * @reddi/x402-solana — HTTP 402 Payment Middleware for Solana
+ * @reddi/x402-solana - HTTP 402 primitives for Solana-oriented RAP workflows.
  *
- * Enables trustless micropayment flows between agents using x402 standard
- * and Solana's on-chain escrow (Phase 0: Anchor program)
+ * Repo-local v0.1 OSS candidate. Clean-checkout smoke must stay local and
+ * must not imply npm publication, live payment, custody, mainnet, or
+ * settlement-finality readiness.
  */
 
 export * from './types';
