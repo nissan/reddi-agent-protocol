@@ -60,6 +60,17 @@ Feature: End-user economic workflow demo
     And it rejects missing signatures, mainnet routes, wrong assets, missing recipients, and over-cap transfers
     And it does not sign, submit, swap, transfer, or mutate a wallet
 
+  Scenario: Pay.sh devnet paid-run approval record fails closed before execution
+    Given a Pay.sh/devnet paid-run approval record is supplied for review under #502, #476, #471, #338, and #334
+    When the approval validator compares the approval, request, receipt, and verifier artifacts
+    Then it requires environment, asset, payer, recipient/payee, endpoint, cap, retry policy, exact command, evidence path, rollback owner, and expiry
+    And it rejects missing or expired approval records
+    And it rejects payer, payee, endpoint, network, asset, cap, receipt, and verifier mismatches
+    And it rejects auto-pay or default-live ambiguity
+    And passing validation does not authorize execution without Nissan approval
+    And no payment execution, Pay.sh setup, wallet setup, wallet top-up, RPC call, provider call, hosted write, catalog submission, trust mutation, reputation mutation, mainnet activation, production activation, or default auto-pay occurs
+    And the behavior is covered by "scripts/test-pay-sh-devnet-approval-validator.mjs"
+
   Scenario: Upfront evidence pack preserves proof hierarchy boundaries
     Given local Surfpool evidence, live Jupiter quote proof, and devnet USDC receipt verification artifacts may exist
     When the upfront payment evidence pack is generated

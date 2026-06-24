@@ -65,6 +65,8 @@
     "run:economic-demo:devnet-wallet-backed-jupiter-swap": "node ./scripts/run-economic-demo-devnet-wallet-backed-jupiter-swap.mjs",
     "check:product:naming": "node ./scripts/check-product-naming.mjs",
     "check:pay-sh:provider-spec": "node ./scripts/check-pay-sh-provider-spec.mjs",
+    "check:pay-sh:devnet-approval": "node ./scripts/check-pay-sh-devnet-approval-record.mjs",
+    "test:pay-sh:devnet-approval": "node ./scripts/test-pay-sh-devnet-approval-validator.mjs",
     "evidence:pay-sh:reddi-x402": "node ./scripts/generate-pay-sh-reddi-x402-evidence.mjs",
     "check:pay-skills:registry": "node ./scripts/check-pay-skills-registry.mjs",
     "check:submission:claim-boundaries": "node ./scripts/check-submission-claim-boundaries.mjs",
