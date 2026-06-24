@@ -94,6 +94,10 @@
       "types": "./dist/seller-wrapper-rail-fixtures.d.ts",
       "import": "./dist/seller-wrapper-rail-fixtures.js"
     },
+    "./seller-wrapper-config": {
+      "types": "./dist/seller-wrapper-config.d.ts",
+      "import": "./dist/seller-wrapper-config.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
