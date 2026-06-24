@@ -31,6 +31,7 @@
     "test:surfpool:jupiter-invoke": "./scripts/run-surfpool-jupiter-invoke-smoke.sh",
     "test:source:conformance": "./scripts/run-source-conformance.sh --source openclaw --mode smoke",
     "test:source:matrix": "./scripts/run-source-conformance-matrix.sh",
+    "check:okf-openkb:fixtures": "node ./scripts/check-okf-openkb-fixture-corpus.mjs",
     "test:tunnel:rca": "node ./scripts/run-cloudflare-rca-matrix.mjs",
     "test:tunnel:rca:evaluate": "node ./scripts/evaluate-cloudflare-rca.mjs",
     "dev:rca:x402-fixture": "node ./scripts/run-rca-x402-fixture.mjs",
