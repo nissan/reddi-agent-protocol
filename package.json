@@ -49,6 +49,7 @@
     "check:quasar:demo-readiness": "node ./scripts/check-quasar-demo-readiness.mjs",
     "check:quasar:runtime-compatibility": "node ./scripts/check-quasar-runtime-compatibility.mjs",
     "check:quasar:boundary-guard": "node ./scripts/check-quasar-boundary-guard.mjs",
+    "check:solana:audit-appendix": "node ./scripts/check-solana-audit-appendix.mjs",
     "test:quasar:boundary-guard": "node --test ./scripts/__tests__/check-quasar-boundary-guard.test.mjs",
     "check:quasar:submission": "npm run check:quasar:runtime-compatibility && npm run check:quasar:deployments && npm run check:quasar:demo-readiness && npm run check:quasar:critical-success",
     "check:quasar:critical-success": "node ./scripts/check-quasar-critical-success.mjs",
