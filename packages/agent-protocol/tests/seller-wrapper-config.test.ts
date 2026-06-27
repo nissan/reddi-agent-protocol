@@ -24,6 +24,30 @@ describe('seller-wrapper config examples', () => {
     assert.equal(config.guardrails.noLivePayment, true);
     assert.equal(config.guardrails.noWalletSigning, true);
     assert.equal(config.guardrails.noRpcCall, true);
+    assert.equal(config.buyerAuthorityPolicy.policySchemaVersion, 'reddi.buyer-authority-policy.v1');
+    assert.equal(config.buyerAuthorityPolicy.policyIssue, 549);
+    assert.equal(config.buyerAuthorityPolicy.fixtureMatrixIssue, 550);
+    assert.equal(config.buyerAuthorityPolicy.downstreamIssues.frameworkTemplateContract, 543);
+    assert.equal(config.buyerAuthorityPolicy.boundaries.noPrivateKeys, true);
+    assert.equal(config.buyerAuthorityPolicy.boundaries.noWalletRpcProviderCalls, true);
+    assert.equal(config.buyerAuthorityPolicy.boundaries.noCustodyClaims, true);
+    assert.deepEqual(config.buyerAuthorityPolicy.fields, [
+      'spendCaps',
+      'allowedRails',
+      'allowedCurrencies',
+      'sellerAllowlist',
+      'expiresAt',
+      'receiptEvidence',
+      'refundFailurePolicy',
+      'operatorApproval',
+      'supportStateConstraints',
+    ]);
+    assert.ok(config.buyerAuthorityPolicy.fixtureStates.some((state) => (
+      state.key === 'approvalRequired' && state.expectedReasonCodes.includes('operator_approval_required')
+    )));
+    assert.ok(config.buyerAuthorityPolicy.fixtureStates.some((state) => (
+      state.key === 'refundFailurePolicyMismatch' && state.expectedReasonCodes.includes('refund_failure_policy_mismatch')
+    )));
 
     assert.deepEqual(config.endpoints.map((endpoint) => endpoint.kind).sort(), ['http-openapi', 'mcp']);
 
@@ -92,6 +116,14 @@ describe('seller-wrapper config examples', () => {
     configWithLivePayment.endpoints[0].rails[0].livePaymentApproved = true;
     assert.deepEqual(validateSellerWrapperConfigExamples(configWithLivePayment).reasonCodes, ['live_payment_not_approved']);
 
+    const configWithLiveRuntimeState = structuredClone(generateSellerWrapperConfigExamples());
+    configWithLiveRuntimeState.endpoints[0].rails[0].runtimeState = 'live-payment-approved';
+    assert.deepEqual(validateSellerWrapperConfigExamples(configWithLiveRuntimeState).reasonCodes, ['live_payment_not_approved']);
+
+    const configWithCustodyRuntimeState = structuredClone(generateSellerWrapperConfigExamples());
+    configWithCustodyRuntimeState.endpoints[0].rails[0].runtimeState = 'custody-supported';
+    assert.deepEqual(validateSellerWrapperConfigExamples(configWithCustodyRuntimeState).reasonCodes, ['custody_claim_rejected']);
+
     const configWithRpcInstruction = structuredClone(generateSellerWrapperConfigExamples());
     configWithRpcInstruction.endpoints[0].rails[0].notes.push('Submit the transaction through RPC after wallet sign.');
     assert.deepEqual(validateSellerWrapperConfigExamples(configWithRpcInstruction).reasonCodes, ['live_payment_instruction_rejected']);
@@ -103,5 +135,15 @@ describe('seller-wrapper config examples', () => {
     const configWithoutHook = structuredClone(generateSellerWrapperConfigExamples());
     configWithoutHook.endpoints[0].wrapper.receiptHook = '';
     assert.deepEqual(validateSellerWrapperConfigExamples(configWithoutHook).reasonCodes, ['missing_wrapper_hooks']);
+
+    const configWithoutBuyerAuthority = structuredClone(generateSellerWrapperConfigExamples()) as Partial<SellerWrapperConfigExamples>;
+    delete configWithoutBuyerAuthority.buyerAuthorityPolicy;
+    assert.deepEqual(validateSellerWrapperConfigExamples(configWithoutBuyerAuthority).reasonCodes, ['missing_buyer_authority_policy']);
+
+    const configWithTruncatedMatrix = structuredClone(generateSellerWrapperConfigExamples());
+    const firstFixtureState = configWithTruncatedMatrix.buyerAuthorityPolicy.fixtureStates[0];
+    assert.ok(firstFixtureState);
+    configWithTruncatedMatrix.buyerAuthorityPolicy.fixtureStates = [firstFixtureState];
+    assert.deepEqual(validateSellerWrapperConfigExamples(configWithTruncatedMatrix).reasonCodes, ['missing_buyer_authority_policy']);
   });
 });

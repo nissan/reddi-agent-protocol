@@ -49,6 +49,7 @@ import {
 const config = generateSellerWrapperConfigExamples();
 console.log(config.endpoints[0].wrapper.quoteRoute); // /seller-wrapper/listing-writer-http/quote
 console.log(config.endpoints[0].rails.map((rail) => rail.asset)); // SOL, USDC, AUDD
+console.log(config.buyerAuthorityPolicy.fixtureStates.map((case_) => case_.key));
 
 const check = await runSellerWrapperConfigNoSpendCheck();
 console.log(check.validation.valid); // true
@@ -56,6 +57,8 @@ console.log(check.auddFlow.preflight.allowed); // true for the local no-spend AU
 ```
 
 Seller-wrapper config examples turn the local rail-state fixture into MCP and HTTP/OpenAPI wrapper metadata: quote route, policy preflight route, mocked invocation route, receipt hook, evidence hook, and SOL/USDC/AUDD rail states. AUDD is represented as first-class payment-plan/proof metadata with mint, payee, settlement account, expiry, failure policy, refund policy, and evidence requirements.
+
+Seller-wrapper config also carries buyer-authority policy contract metadata for onboarding and downstream templates. It references the buyer policy schema, #550 fixture matrix states, spend caps, allowed rails/currencies, seller allowlist, expiry, receipt/evidence requirements, refund/failure policy, operator approval, support-state constraints, and the discovery -> quote -> buyer-policy-preflight -> operator-approval -> invocation -> receipt/evidence lifecycle. The config points #543 framework-template conformance and #375 seller-wrapper flows at the same reason-coded matrix instead of creating parallel policy semantics.
 
 The helper is no-spend and non-secret. It rejects credential-shaped metadata, live-payment approval, wallet/RPC/signing/transfer instructions, custody claims, and settlement-finality claims. It does not publish packages, invoke providers, call wallets/RPC endpoints, submit Pay.sh payments, or activate live rails.
 

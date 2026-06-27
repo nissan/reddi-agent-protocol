@@ -1,5 +1,12 @@
 import type { AuddSolanaPaymentPlan } from './audd-payment-plan.js';
 import {
+  BUYER_AUTHORITY_POLICY_SCHEMA_VERSION,
+  listBuyerAuthorityPolicyFixtureMatrix,
+  type BuyerAuthorityPolicyExampleCase,
+  type BuyerAuthorityPolicyExampleKey,
+  type BuyerAuthorityPolicyReasonCode,
+} from './buyer-authority-policy.js';
+import {
   SELLER_WRAPPER_RAIL_FIXTURE_SCHEMA_VERSION,
   getSellerWrapperRail,
   runAuddSellerWrapperNoSpendFlow,
@@ -63,6 +70,40 @@ export type SellerWrapperEndpointConfigExample = {
   rails: SellerWrapperRailConfigExample[];
 };
 
+export type SellerWrapperBuyerAuthorityPolicyCase = {
+  key: BuyerAuthorityPolicyExampleKey;
+  expectedAllowed: boolean;
+  expectedReasonCodes: BuyerAuthorityPolicyReasonCode[];
+};
+
+export type SellerWrapperBuyerAuthorityPolicyContract = {
+  policySchemaVersion: typeof BUYER_AUTHORITY_POLICY_SCHEMA_VERSION;
+  policyIssue: 549;
+  fixtureMatrixIssue: 550;
+  downstreamIssues: {
+    sellerWrapperFeature: 375;
+    frameworkTemplateContract: 543;
+    frameworkTemplatesFeature: 542;
+  };
+  fields: readonly string[];
+  lifecycle: readonly string[];
+  fixtureStates: SellerWrapperBuyerAuthorityPolicyCase[];
+  onboardingSurface: {
+    displayStateLater: true;
+    currentMode: 'api-contract-only';
+    uiEvidenceRequiredWhenVisualized: true;
+  };
+  boundaries: {
+    noPrivateKeys: true;
+    noProviderCredentials: true;
+    noSigningInstructions: true;
+    noWalletRpcProviderCalls: true;
+    noLivePaymentExecution: true;
+    noCustodyClaims: true;
+    noSettlementFinalityClaims: true;
+  };
+};
+
 export type SellerWrapperConfigExamples = {
   schemaVersion: typeof SELLER_WRAPPER_CONFIG_SCHEMA_VERSION;
   issue: 535;
@@ -72,6 +113,7 @@ export type SellerWrapperConfigExamples = {
     railFixtureSchemaVersion: typeof SELLER_WRAPPER_RAIL_FIXTURE_SCHEMA_VERSION;
   };
   generatedMode: 'no-spend-config-examples';
+  buyerAuthorityPolicy: SellerWrapperBuyerAuthorityPolicyContract;
   endpoints: SellerWrapperEndpointConfigExample[];
   guardrails: SellerWrapperRailFixture['guardrails'] & {
     noSecrets: true;
@@ -87,6 +129,7 @@ export type SellerWrapperConfigValidationReasonCode =
   | 'config_contains_credentials'
   | 'missing_audd_rail'
   | 'missing_audd_payment_plan'
+  | 'missing_buyer_authority_policy'
   | 'missing_wrapper_hooks'
   | 'live_payment_not_approved'
   | 'live_payment_instruction_rejected'
@@ -179,6 +222,76 @@ function endpointConfigExample(endpoint: SellerWrapperEndpointFixture): SellerWr
   };
 }
 
+function buyerAuthorityPolicyCase(example: BuyerAuthorityPolicyExampleCase): SellerWrapperBuyerAuthorityPolicyCase {
+  return {
+    key: example.key,
+    expectedAllowed: example.expectedAllowed,
+    expectedReasonCodes: [...example.expectedReasonCodes],
+  };
+}
+
+function buyerAuthorityPolicyContract(): SellerWrapperBuyerAuthorityPolicyContract {
+  return {
+    policySchemaVersion: BUYER_AUTHORITY_POLICY_SCHEMA_VERSION,
+    policyIssue: 549,
+    fixtureMatrixIssue: 550,
+    downstreamIssues: {
+      sellerWrapperFeature: 375,
+      frameworkTemplateContract: 543,
+      frameworkTemplatesFeature: 542,
+    },
+    fields: [
+      'spendCaps',
+      'allowedRails',
+      'allowedCurrencies',
+      'sellerAllowlist',
+      'expiresAt',
+      'receiptEvidence',
+      'refundFailurePolicy',
+      'operatorApproval',
+      'supportStateConstraints',
+    ],
+    lifecycle: [
+      'discovery',
+      'quote',
+      'buyer-policy-preflight',
+      'operator-approval',
+      'seller-wrapper-invocation',
+      'receipt-evidence',
+      'failure-refund',
+    ],
+    fixtureStates: listBuyerAuthorityPolicyFixtureMatrix().map(buyerAuthorityPolicyCase),
+    onboardingSurface: {
+      displayStateLater: true,
+      currentMode: 'api-contract-only',
+      uiEvidenceRequiredWhenVisualized: true,
+    },
+    boundaries: {
+      noPrivateKeys: true,
+      noProviderCredentials: true,
+      noSigningInstructions: true,
+      noWalletRpcProviderCalls: true,
+      noLivePaymentExecution: true,
+      noCustodyClaims: true,
+      noSettlementFinalityClaims: true,
+    },
+  };
+}
+
+function buyerAuthorityFixtureMatrixMatches(contract: SellerWrapperBuyerAuthorityPolicyContract | undefined): boolean {
+  if (!contract) return false;
+  const expectedCases = listBuyerAuthorityPolicyFixtureMatrix().map(buyerAuthorityPolicyCase);
+  if (contract.fixtureStates.length !== expectedCases.length) return false;
+
+  return expectedCases.every((expected) => {
+    const actual = contract.fixtureStates.find((item) => item.key === expected.key);
+    return !!actual
+      && actual.expectedAllowed === expected.expectedAllowed
+      && actual.expectedReasonCodes.length === expected.expectedReasonCodes.length
+      && expected.expectedReasonCodes.every((reason) => actual.expectedReasonCodes.includes(reason));
+  });
+}
+
 function generatedEndpoints(fixture: SellerWrapperRailFixture): SellerWrapperEndpointFixture[] {
   if (fixture.endpoints.some((endpoint) => endpoint.kind === 'mcp')) return fixture.endpoints;
   const first = fixture.endpoints[0];
@@ -238,6 +351,7 @@ export function generateSellerWrapperConfigExamples(input: {
       railFixtureSchemaVersion: SELLER_WRAPPER_RAIL_FIXTURE_SCHEMA_VERSION,
     },
     generatedMode: 'no-spend-config-examples',
+    buyerAuthorityPolicy: buyerAuthorityPolicyContract(),
     endpoints: generatedEndpoints(fixture).map(endpointConfigExample),
     guardrails: {
       ...fixture.guardrails,
@@ -281,6 +395,15 @@ export function validateSellerWrapperConfigExamples(config: unknown): SellerWrap
     auditNotes.push('Denied: AUDD payment-plan metadata is missing from generated config.');
   }
 
+  if (
+    config.buyerAuthorityPolicy?.policySchemaVersion !== BUYER_AUTHORITY_POLICY_SCHEMA_VERSION
+    || config.buyerAuthorityPolicy.fixtureMatrixIssue !== 550
+    || !buyerAuthorityFixtureMatrixMatches(config.buyerAuthorityPolicy)
+  ) {
+    reasonCodes.push('missing_buyer_authority_policy');
+    auditNotes.push('Denied: buyer authority policy contract metadata is missing from generated config.');
+  }
+
   const missingHooks = config.endpoints.some((endpoint) => REQUIRED_WRAPPER_HOOKS.some((hook) => (
     typeof endpoint.wrapper[hook] !== 'string' || endpoint.wrapper[hook].trim().length === 0
   )));
@@ -292,6 +415,14 @@ export function validateSellerWrapperConfigExamples(config: unknown): SellerWrap
   if (config.endpoints.some((endpoint) => endpoint.rails.some((rail) => rail.livePaymentApproved))) {
     reasonCodes.push('live_payment_not_approved');
     auditNotes.push('Denied: generated examples must not approve live payment.');
+  }
+  if (config.endpoints.some((endpoint) => endpoint.rails.some((rail) => rail.runtimeState === 'live-payment-approved'))) {
+    reasonCodes.push('live_payment_not_approved');
+    auditNotes.push('Denied: generated examples must not mark runtime state as live-payment-approved.');
+  }
+  if (config.endpoints.some((endpoint) => endpoint.rails.some((rail) => rail.runtimeState === 'custody-supported'))) {
+    reasonCodes.push('custody_claim_rejected');
+    auditNotes.push('Denied: generated examples must not mark runtime state as custody-supported.');
   }
   if (textContains(config, LIVE_PAYMENT_INSTRUCTION_PATTERN)) {
     reasonCodes.push('live_payment_instruction_rejected');
