@@ -54,6 +54,10 @@
       "types": "./dist/audd-payment-plan.d.ts",
       "import": "./dist/audd-payment-plan.js"
     },
+    "./buyer-authority-policy": {
+      "types": "./dist/buyer-authority-policy.d.ts",
+      "import": "./dist/buyer-authority-policy.js"
+    },
     "./agent-stack-fixtures": {
       "types": "./dist/agent-stack-fixtures.d.ts",
       "import": "./dist/agent-stack-fixtures.js"

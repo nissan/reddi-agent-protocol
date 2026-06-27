@@ -9,6 +9,7 @@ export * from './source-diagnostics.js';
 export * from './attestation-reputation.js';
 export * from './buyer-seller.js';
 export * from './audd-payment-plan.js';
+export * from './buyer-authority-policy.js';
 export * from './agent-stack-fixtures.js';
 export * from './receipt-evidence-binding.js';
 export * from './offchain-reputation-preview.js';
