@@ -65,6 +65,7 @@ The helper is no-spend and non-secret. It rejects credential-shaped metadata, li
 import {
   buyerAuthorityPolicyExamples,
   evaluateBuyerAuthorityPolicy,
+  listBuyerAuthorityPolicyFixtureMatrix,
 } from '@reddi/agent-protocol/buyer-authority-policy';
 
 const example = buyerAuthorityPolicyExamples.allow;
@@ -76,11 +77,14 @@ const denied = evaluateBuyerAuthorityPolicy(
   buyerAuthorityPolicyExamples.missingEvidenceRequirement.request,
 );
 console.log(denied.reasonCodes); // evidence_requirement_missing
+
+const matrix = listBuyerAuthorityPolicyFixtureMatrix();
+console.log(matrix.map((case_) => case_.key));
 ```
 
 Buyer authority policy examples make an agent's spending authority explicit before it discovers, quotes, preflights, invokes, or simulates payment for another agent. The static contract covers spend caps, allowed rails and currencies, seller allowlists, expiry, receipt/evidence requirements, refund/failure policy, operator approval thresholds, and support-state constraints.
 
-The built-in examples cover allow, deny, expired, approval-required, unsupported rail/currency, seller-not-allowlisted, and missing-evidence states. AUDD/SOL/USDC remain proof, preflight, and support metadata only unless a separate audited custody or settlement workstream is approved.
+The built-in fixture matrix covers allow, deny, expired, approval-required, unsupported rail, unsupported currency, seller-not-allowlisted, missing-receipt, missing-evidence, refund/failure-policy mismatch, and spend-cap-exceeded states. Downstream #543 framework-template conformance and #375 seller-wrapper flows should consume these reason-coded cases instead of inventing parallel buyer-authority semantics. AUDD/SOL/USDC remain proof, preflight, and support metadata only unless a separate audited custody or settlement workstream is approved.
 
 The helper is no-spend and non-secret. It rejects credential-shaped metadata, live-payment approval, wallet/RPC/provider-call material, signing/transfer instructions, custody claims, and settlement-finality claims. It does not contact Airwallex, invoke providers, call wallets/RPC endpoints, transfer SPL tokens, activate Pay.sh, or settle funds.
 

@@ -62,15 +62,17 @@ export type BuyerAuthorityPolicyEvaluationRequest = {
     receiptPresented: boolean;
     evidencePresented: boolean;
     now: string;
+    failureMode?: BuyerAuthorityPolicy['refundFailurePolicy']['failureMode'];
+    refundMode?: BuyerAuthorityPolicy['refundFailurePolicy']['refundMode'];
     operatorApprovalState?: BuyerAuthorityOperatorApprovalState;
 };
-export type BuyerAuthorityPolicyReasonCode = 'buyer_authority_policy_valid' | 'policy_malformed' | 'policy_contains_credentials' | 'policy_denied' | 'policy_expired' | 'unsupported_rail_currency' | 'seller_not_allowlisted' | 'spend_cap_exceeded' | 'receipt_requirement_missing' | 'evidence_requirement_missing' | 'operator_approval_required' | 'operator_approval_denied' | 'live_payment_rejected' | 'wallet_rpc_provider_call_rejected' | 'transfer_instruction_rejected' | 'custody_claim_rejected' | 'settlement_finality_claim_rejected';
+export type BuyerAuthorityPolicyReasonCode = 'buyer_authority_policy_valid' | 'policy_malformed' | 'policy_contains_credentials' | 'policy_denied' | 'policy_expired' | 'unsupported_rail_currency' | 'seller_not_allowlisted' | 'spend_cap_exceeded' | 'receipt_requirement_missing' | 'evidence_requirement_missing' | 'refund_failure_policy_mismatch' | 'operator_approval_required' | 'operator_approval_denied' | 'live_payment_rejected' | 'wallet_rpc_provider_call_rejected' | 'transfer_instruction_rejected' | 'custody_claim_rejected' | 'settlement_finality_claim_rejected';
 export type BuyerAuthorityPolicyEvaluation = {
     allowed: boolean;
     reasonCodes: BuyerAuthorityPolicyReasonCode[];
     auditNotes: string[];
 };
-export type BuyerAuthorityPolicyExampleKey = 'allow' | 'deny' | 'expired' | 'approvalRequired' | 'unsupportedRailCurrency' | 'sellerNotAllowlisted' | 'missingEvidenceRequirement';
+export type BuyerAuthorityPolicyExampleKey = 'allow' | 'deny' | 'expired' | 'approvalRequired' | 'unsupportedRail' | 'unsupportedCurrency' | 'sellerNotAllowlisted' | 'missingReceiptRequirement' | 'missingEvidenceRequirement' | 'refundFailurePolicyMismatch' | 'spendCapExceeded';
 export type BuyerAuthorityPolicyExampleCase = {
     key: BuyerAuthorityPolicyExampleKey;
     description: string;
@@ -83,3 +85,4 @@ export declare function validateBuyerAuthorityPolicy(policy: unknown): BuyerAuth
 export declare function evaluateBuyerAuthorityPolicy(policy: unknown, request: BuyerAuthorityPolicyEvaluationRequest): BuyerAuthorityPolicyEvaluation;
 export declare const buyerAuthorityPolicyExamples: Record<BuyerAuthorityPolicyExampleKey, BuyerAuthorityPolicyExampleCase>;
 export declare function listBuyerAuthorityPolicyExamples(): BuyerAuthorityPolicyExampleCase[];
+export declare function listBuyerAuthorityPolicyFixtureMatrix(): BuyerAuthorityPolicyExampleCase[];
