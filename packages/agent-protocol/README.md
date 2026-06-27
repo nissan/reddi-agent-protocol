@@ -91,6 +91,28 @@ The built-in fixture matrix covers allow, deny, expired, approval-required, unsu
 
 The helper is no-spend and non-secret. It rejects credential-shaped metadata, live-payment approval, wallet/RPC/provider-call material, signing/transfer instructions, custody claims, and settlement-finality claims. It does not contact Airwallex, invoke providers, call wallets/RPC endpoints, transfer SPL tokens, activate Pay.sh, or settle funds.
 
+## Framework Template Contract
+
+```typescript
+import {
+  frameworkTemplateFixtures,
+  listFrameworkTemplateFixtures,
+  validateFrameworkTemplateContract,
+} from '@reddi/agent-protocol/framework-template-contract';
+
+const fixtures = listFrameworkTemplateFixtures();
+console.log(fixtures.map((fixture) => fixture.kind)); // discovery, quote, preflight, ...
+
+const result = validateFrameworkTemplateContract(frameworkTemplateFixtures.preflight.contract);
+console.log(result.valid); // true in local static fixture mode
+```
+
+Framework-template contract fixtures define the shared surface that LangGraph, Strands, and ADK templates should consume before they add framework-specific scaffolding. The contract covers buyer-enabled, seller-enabled, and dual-mode profiles; agent identity; framework id; capability tags; invocation modes; seller profile; buyer authority policy matrix; execution result; receipt/evidence references; failure/refund state; and support-state metadata.
+
+The built-in fixtures cover discovery, quote, buyer-policy preflight, operator approval, invocation, receipt/evidence binding, denial, and failure outcomes. They consume the #549 buyer-authority schema, #550 fixture matrix, and #551 seller-wrapper buyer-authority contract. Template implementations for #544/#545/#546 should import this contract instead of inventing framework-specific payment, policy, receipt, failure/refund, or support-state semantics.
+
+The helper is static and no-live. It rejects credential-shaped metadata, truncated buyer-authority matrices, unsafe support states, live-payment approval, wallet/RPC/provider-call material, signing/transfer instructions, custody claims, missing receipt/evidence refs for allowed invocations, and settlement-finality claims.
+
 ## AI Catalog Ingestion
 
 ```typescript

@@ -102,6 +102,10 @@
       "types": "./dist/seller-wrapper-config.d.ts",
       "import": "./dist/seller-wrapper-config.js"
     },
+    "./framework-template-contract": {
+      "types": "./dist/framework-template-contract.d.ts",
+      "import": "./dist/framework-template-contract.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
