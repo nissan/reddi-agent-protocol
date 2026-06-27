@@ -130,6 +130,25 @@ The checker validates required lifecycle fixtures, profile modes, agent identity
 
 This checker is local/static only. It does not install LangGraph, Strands, or ADK packages, scaffold projects, publish packages, call cloud or provider APIs, register hosted agents, access wallets/RPC endpoints, execute live or devnet payments, custody assets, transfer SPL tokens, or claim settlement finality.
 
+## LangGraph RAP Template
+
+```typescript
+import {
+  createLangGraphRapTemplateFixture,
+  validateLangGraphRapTemplate,
+} from '@reddi/agent-protocol/langgraph-rap-template';
+
+const template = createLangGraphRapTemplateFixture();
+const result = validateLangGraphRapTemplate(template);
+console.log(result.valid); // true for the allowed local no-live fixture
+```
+
+The LangGraph template fixture maps RAP lifecycle state onto graph-shaped nodes without installing LangGraph or calling LangSmith, providers, wallets, RPC endpoints, or payment rails. It includes discovery, quote, buyer-policy preflight, operator approval, paid-agent invocation, receipt/evidence binding, and seller-wrapper endpoint helper nodes.
+
+The fixture consumes the shared #552 framework-template contract and #553 no-live conformance checker. It stores framework-neutral RAP refs in graph state instead of inventing LangGraph-specific payment, policy, receipt, failure/refund, support-state, custody, or settlement semantics.
+
+Built-in cases cover allowed no-live invocation, policy denial, missing approval, malformed quote/payment plan, credential-shaped output, and unsafe live/custody/provider claims. The validator fails closed for missing graph nodes, missing middleware, missing seller-wrapper helper routes, missing receipt/evidence refs, malformed shared contracts, credentials, wallet/RPC/provider material, custody claims, transfer instructions, and settlement-finality claims.
+
 ## AI Catalog Ingestion
 
 ```typescript
