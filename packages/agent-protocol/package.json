@@ -106,6 +106,10 @@
       "types": "./dist/framework-template-contract.d.ts",
       "import": "./dist/framework-template-contract.js"
     },
+    "./framework-template-conformance": {
+      "types": "./dist/framework-template-conformance.d.ts",
+      "import": "./dist/framework-template-conformance.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

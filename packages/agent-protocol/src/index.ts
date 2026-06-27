@@ -22,3 +22,4 @@ export * from './rail-neutral-proof-chain-fixture.js';
 export * from './seller-wrapper-rail-fixtures.js';
 export * from './seller-wrapper-config.js';
 export * from './framework-template-contract.js';
+export * from './framework-template-conformance.js';

@@ -113,6 +113,23 @@ The built-in fixtures cover discovery, quote, buyer-policy preflight, operator a
 
 The helper is static and no-live. It rejects credential-shaped metadata, truncated buyer-authority matrices, unsafe support states, live-payment approval, wallet/RPC/provider-call material, signing/transfer instructions, custody claims, missing receipt/evidence refs for allowed invocations, and settlement-finality claims.
 
+## Framework Template Conformance
+
+```typescript
+import {
+  runFrameworkTemplateNoLiveConformanceCheck,
+} from '@reddi/agent-protocol/framework-template-conformance';
+
+const check = runFrameworkTemplateNoLiveConformanceCheck();
+console.log(check.valid); // true for the built-in local/static cases
+```
+
+The conformance checker is the #553 no-live gate for framework templates. It runs the shared #552 lifecycle fixtures plus explicit buyer-enabled, seller-enabled, and dual-mode profile cases before #544 LangGraph, #545 Strands, #546 ADK, or #547 comparison docs claim compatibility.
+
+The checker validates required lifecycle fixtures, profile modes, agent identity, invocation modes, buyer-authority policy metadata, seller profile metadata, receipt/evidence refs for allowed invocations, failure/refund state, support-state metadata, and the same no-secret/no-wallet/no-RPC/no-provider/no-custody/no-transfer/no-settlement-finality boundary enforced by the contract validator.
+
+This checker is local/static only. It does not install LangGraph, Strands, or ADK packages, scaffold projects, publish packages, call cloud or provider APIs, register hosted agents, access wallets/RPC endpoints, execute live or devnet payments, custody assets, transfer SPL tokens, or claim settlement finality.
+
 ## AI Catalog Ingestion
 
 ```typescript
