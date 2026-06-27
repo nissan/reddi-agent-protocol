@@ -66,6 +66,25 @@ describe("onboarding wrapper routes", () => {
     expect(body.result.schemaVersion).toBe("reddi.onboarding-seller-wrapper-config.v1");
     expect(body.result.mode).toBe("no-spend-config-preview");
     expect(body.result.validation.valid).toBe(true);
+    expect(body.result.buyerAuthorityPolicy.policySchemaVersion).toBe("reddi.buyer-authority-policy.v1");
+    expect(body.result.buyerAuthorityPolicy.fixtureMatrixIssue).toBe(550);
+    expect(body.result.buyerAuthorityPolicy.fixtureStates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "approvalRequired",
+          expectedReasonCodes: expect.arrayContaining(["operator_approval_required"]),
+        }),
+        expect.objectContaining({
+          key: "missingReceiptRequirement",
+          expectedReasonCodes: expect.arrayContaining(["receipt_requirement_missing"]),
+        }),
+        expect.objectContaining({
+          key: "refundFailurePolicyMismatch",
+          expectedReasonCodes: expect.arrayContaining(["refund_failure_policy_mismatch"]),
+        }),
+      ])
+    );
+    expect(body.result.buyerAuthorityPolicy.onboardingCopy.boundary).toContain("does not carry private keys");
     expect(body.result.boundaries).toMatchObject({
       networkCalls: false,
       livePayment: false,
