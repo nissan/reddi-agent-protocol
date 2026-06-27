@@ -37,7 +37,15 @@ describe('LangGraph RAP template fixture', () => {
 
     assert.equal(template.expectedAllowed, false);
     assert.deepEqual(template.graphState.denialReasonCodes, ['policy_denied']);
+    assert.equal(template.graphState.operatorApprovalRef, undefined);
+    assert.equal(template.graphState.invocationRef, undefined);
+    assert.equal(template.graphState.receiptRef, undefined);
+    assert.equal(template.graphState.evidenceRef, undefined);
     assert.deepEqual(result.reasonCodes, ['langgraph_rap_template_valid']);
+
+    const unsafeDenied = createLangGraphRapTemplateFixture({ scenario: 'policy-denial' });
+    unsafeDenied.graphState.invocationRef = 'local-fixture:langgraph:invocation';
+    assert.ok(validateLangGraphRapTemplate(unsafeDenied).reasonCodes.includes('missing_operator_approval'));
   });
 
   it('fails closed for missing approval and malformed quote/payment-plan fixtures', () => {

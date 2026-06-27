@@ -181,6 +181,10 @@ export function createLangGraphRapTemplateFixture(input: {
   if (scenario === 'policy-denial') {
     fixture.expectedAllowed = false;
     fixture.graphState.denialReasonCodes = ['policy_denied'];
+    fixture.graphState.operatorApprovalRef = undefined;
+    fixture.graphState.invocationRef = undefined;
+    fixture.graphState.receiptRef = undefined;
+    fixture.graphState.evidenceRef = undefined;
   }
   if (scenario === 'missing-approval') {
     fixture.expectedAllowed = false;
@@ -268,6 +272,18 @@ export function validateLangGraphRapTemplate(template: unknown): LangGraphRapTem
   if (template.scenario === 'allowed-no-live-invocation' && (!template.graphState.receiptRef || !template.graphState.evidenceRef)) {
     reasonCodes.push('missing_receipt_evidence_refs');
     auditNotes.push('Denied: allowed no-live invocation requires receipt and evidence refs.');
+  }
+  if (
+    template.scenario === 'policy-denial'
+    && (
+      template.graphState.operatorApprovalRef
+      || template.graphState.invocationRef
+      || template.graphState.receiptRef
+      || template.graphState.evidenceRef
+    )
+  ) {
+    reasonCodes.push('missing_operator_approval');
+    auditNotes.push('Denied: policy-denial case must stop before approval, invocation, receipt, and evidence refs.');
   }
   if (template.scenario === 'missing-approval' && !template.graphState.operatorApprovalRef) {
     reasonCodes.push('missing_operator_approval');
