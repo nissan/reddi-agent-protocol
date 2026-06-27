@@ -110,6 +110,10 @@
       "types": "./dist/framework-template-conformance.d.ts",
       "import": "./dist/framework-template-conformance.js"
     },
+    "./langgraph-rap-template": {
+      "types": "./dist/langgraph-rap-template.d.ts",
+      "import": "./dist/langgraph-rap-template.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
