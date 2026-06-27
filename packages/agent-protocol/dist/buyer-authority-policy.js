@@ -17,6 +17,13 @@ const UNSAFE_LIVE_PATTERN = /\bhttps?:\/\/[^\s"]*(rpc|alchemy|helius|quicknode|a
 const TRANSFER_INSTRUCTION_PATTERN = /\b(submit|sign|transfer|broadcast)\b.*\b(transaction|payment|audd|usdc|sol)\b/i;
 const CUSTODY_CLAIM_PATTERN = /\b(audd|usdc|sol)\b.*\b(custody|custodied|escrowed|held)\b|\bheld\s+in\s+custody\b/i;
 const SETTLEMENT_FINALITY_PATTERN = /\bsettlement\s+finality\b|\bfinal\s+settlement\b/i;
+const KNOWN_SUPPORT_STATES = [
+    'fixture',
+    'dry-run',
+    'proof-metadata-only',
+    'devnet-gated',
+    'live-gated',
+];
 function basePolicy(overrides = {}) {
     return {
         schemaVersion: BUYER_AUTHORITY_POLICY_SCHEMA_VERSION,
@@ -102,6 +109,9 @@ function isRecord(value) {
 function isStringArray(value) {
     return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
+function hasOnlyKnownSupportStates(value) {
+    return isStringArray(value) && value.every((state) => (KNOWN_SUPPORT_STATES.includes(state)));
+}
 function isStructuredPolicy(value) {
     if (!isRecord(value))
         return false;
@@ -122,7 +132,7 @@ function isStructuredPolicy(value) {
         && candidate.allowedRails.every((rail) => isRecord(rail)
             && ['SOL', 'USDC', 'AUDD'].includes(String(rail.asset))
             && typeof rail.network === 'string'
-            && isStringArray(rail.supportStates))
+            && hasOnlyKnownSupportStates(rail.supportStates))
         && Array.isArray(candidate.allowedCurrencies)
         && candidate.allowedCurrencies.every((asset) => ['SOL', 'USDC', 'AUDD'].includes(asset))
         && Array.isArray(candidate.spendCaps)
@@ -147,7 +157,7 @@ function isStructuredPolicy(value) {
         && ['approved', 'denied', 'requires_operator_approval', 'not_required'].includes(String(operatorApproval.approvalState))
         && isRecord(supportStateConstraints)
         && typeof supportStateConstraints.allowLivePayment === 'boolean'
-        && isStringArray(supportStateConstraints.allowedRuntimeStates)
+        && hasOnlyKnownSupportStates(supportStateConstraints.allowedRuntimeStates)
         && typeof supportStateConstraints.forbidCustody === 'boolean'
         && typeof supportStateConstraints.forbidSettlementFinality === 'boolean'
         && isStringArray(candidate.notes);
@@ -261,6 +271,11 @@ export function evaluateBuyerAuthorityPolicy(policy, request) {
         reasonCodes.push('evidence_requirement_missing');
         auditNotes.push('Denied: evidence requirement was not satisfied.');
     }
+    if ((request.failureMode !== undefined && request.failureMode !== policy.refundFailurePolicy.failureMode)
+        || (request.refundMode !== undefined && request.refundMode !== policy.refundFailurePolicy.refundMode)) {
+        reasonCodes.push('refund_failure_policy_mismatch');
+        auditNotes.push('Denied: requested refund/failure handling does not match the buyer authority policy.');
+    }
     const approvalState = request.operatorApprovalState ?? policy.operatorApproval.approvalState;
     if (policy.mode === 'approval-required' || policy.operatorApproval.required) {
         if (approvalState === 'denied') {
@@ -293,8 +308,12 @@ const approvalRequiredPolicy = basePolicy({
     },
 });
 const unsupportedRailPolicy = basePolicy({ policyId: 'buyer-authority:unsupported-rail' });
+const unsupportedCurrencyPolicy = basePolicy({ policyId: 'buyer-authority:unsupported-currency' });
 const sellerNotAllowlistedPolicy = basePolicy({ policyId: 'buyer-authority:seller-not-allowlisted' });
+const missingReceiptPolicy = basePolicy({ policyId: 'buyer-authority:missing-receipt' });
 const missingEvidencePolicy = basePolicy({ policyId: 'buyer-authority:missing-evidence' });
+const refundFailureMismatchPolicy = basePolicy({ policyId: 'buyer-authority:refund-failure-mismatch' });
+const spendCapExceededPolicy = basePolicy({ policyId: 'buyer-authority:spend-cap-exceeded' });
 export const buyerAuthorityPolicyExamples = {
     allow: {
         key: 'allow',
@@ -331,14 +350,24 @@ export const buyerAuthorityPolicyExamples = {
         expectedAllowed: false,
         expectedReasonCodes: ['operator_approval_required'],
     },
-    unsupportedRailCurrency: {
-        key: 'unsupportedRailCurrency',
-        description: 'Denies unsupported asset/network/support-state combinations.',
+    unsupportedRail: {
+        key: 'unsupportedRail',
+        description: 'Denies unsupported network or support-state combinations for an otherwise allowed currency.',
         policy: unsupportedRailPolicy,
         request: {
             ...DEFAULT_REQUEST,
+            network: 'solana-mainnet',
+        },
+        expectedAllowed: false,
+        expectedReasonCodes: ['unsupported_rail_currency'],
+    },
+    unsupportedCurrency: {
+        key: 'unsupportedCurrency',
+        description: 'Denies unsupported currencies even when the request otherwise resembles an allowed rail.',
+        policy: unsupportedCurrencyPolicy,
+        request: {
+            ...DEFAULT_REQUEST,
             asset: 'EURC',
-            supportState: 'unsupported',
         },
         expectedAllowed: false,
         expectedReasonCodes: ['unsupported_rail_currency'],
@@ -355,6 +384,17 @@ export const buyerAuthorityPolicyExamples = {
         expectedAllowed: false,
         expectedReasonCodes: ['seller_not_allowlisted'],
     },
+    missingReceiptRequirement: {
+        key: 'missingReceiptRequirement',
+        description: 'Denies when receipt requirements are not satisfied.',
+        policy: missingReceiptPolicy,
+        request: {
+            ...DEFAULT_REQUEST,
+            receiptPresented: false,
+        },
+        expectedAllowed: false,
+        expectedReasonCodes: ['receipt_requirement_missing'],
+    },
     missingEvidenceRequirement: {
         key: 'missingEvidenceRequirement',
         description: 'Denies when evidence requirements are not satisfied.',
@@ -366,6 +406,29 @@ export const buyerAuthorityPolicyExamples = {
         expectedAllowed: false,
         expectedReasonCodes: ['evidence_requirement_missing'],
     },
+    refundFailurePolicyMismatch: {
+        key: 'refundFailurePolicyMismatch',
+        description: 'Denies when requested failure/refund semantics do not match the policy.',
+        policy: refundFailureMismatchPolicy,
+        request: {
+            ...DEFAULT_REQUEST,
+            failureMode: 'manual_review_required',
+            refundMode: 'not_applicable',
+        },
+        expectedAllowed: false,
+        expectedReasonCodes: ['refund_failure_policy_mismatch'],
+    },
+    spendCapExceeded: {
+        key: 'spendCapExceeded',
+        description: 'Denies when requested spend exceeds the per-request cap.',
+        policy: spendCapExceededPolicy,
+        request: {
+            ...DEFAULT_REQUEST,
+            amountUnits: '2500001',
+        },
+        expectedAllowed: false,
+        expectedReasonCodes: ['spend_cap_exceeded'],
+    },
 };
 export function listBuyerAuthorityPolicyExamples() {
     return Object.values(buyerAuthorityPolicyExamples).map((example) => ({
@@ -373,4 +436,7 @@ export function listBuyerAuthorityPolicyExamples() {
         policy: clonePolicy(example.policy),
         request: structuredClone(example.request),
     }));
+}
+export function listBuyerAuthorityPolicyFixtureMatrix() {
+    return listBuyerAuthorityPolicyExamples();
 }

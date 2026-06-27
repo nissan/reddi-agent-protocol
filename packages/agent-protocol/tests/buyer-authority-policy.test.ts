@@ -4,6 +4,7 @@ import {
   BUYER_AUTHORITY_POLICY_SCHEMA_VERSION,
   buyerAuthorityPolicyExamples,
   evaluateBuyerAuthorityPolicy,
+  listBuyerAuthorityPolicyFixtureMatrix,
   listBuyerAuthorityPolicyExamples,
   validateBuyerAuthorityPolicy,
   type BuyerAuthorityPolicy,
@@ -13,15 +14,19 @@ describe('buyer authority policy examples', () => {
   it('exports static no-live buyer authority policy examples', () => {
     const examples = listBuyerAuthorityPolicyExamples();
 
-    assert.equal(examples.length, 7);
+    assert.equal(examples.length, 11);
     assert.deepEqual(examples.map((example) => example.key).sort(), [
       'allow',
       'approvalRequired',
       'deny',
       'expired',
       'missingEvidenceRequirement',
+      'missingReceiptRequirement',
+      'refundFailurePolicyMismatch',
       'sellerNotAllowlisted',
-      'unsupportedRailCurrency',
+      'spendCapExceeded',
+      'unsupportedCurrency',
+      'unsupportedRail',
     ]);
 
     for (const example of examples) {
@@ -32,6 +37,13 @@ describe('buyer authority policy examples', () => {
       assert.equal(example.policy.supportStateConstraints.forbidSettlementFinality, true);
       assert.equal(validateBuyerAuthorityPolicy(example.policy).allowed, true);
     }
+  });
+
+  it('exports the same cases through the fixture matrix helper for downstream conformance checks', () => {
+    assert.deepEqual(
+      listBuyerAuthorityPolicyFixtureMatrix().map((example) => example.key),
+      listBuyerAuthorityPolicyExamples().map((example) => example.key),
+    );
   });
 
   it('evaluates allow and fail-closed static policy cases', () => {
@@ -60,6 +72,18 @@ describe('buyer authority policy examples', () => {
     liveGatedPolicy.allowedRails[0]?.supportStates.push('live-gated');
     assert.deepEqual(validateBuyerAuthorityPolicy(liveGatedPolicy).reasonCodes, ['live_payment_rejected']);
 
+    const unsupportedSupportStatePolicy = structuredClone(buyerAuthorityPolicyExamples.allow.policy) as unknown as {
+      allowedRails: { supportStates: string[] }[];
+    };
+    unsupportedSupportStatePolicy.allowedRails[0]?.supportStates.push('live-payment-approved');
+    assert.deepEqual(validateBuyerAuthorityPolicy(unsupportedSupportStatePolicy).reasonCodes, ['policy_malformed']);
+
+    const unsupportedRuntimeStatePolicy = structuredClone(buyerAuthorityPolicyExamples.allow.policy) as unknown as {
+      supportStateConstraints: { allowedRuntimeStates: string[] };
+    };
+    unsupportedRuntimeStatePolicy.supportStateConstraints.allowedRuntimeStates.push('custody-supported');
+    assert.deepEqual(validateBuyerAuthorityPolicy(unsupportedRuntimeStatePolicy).reasonCodes, ['policy_malformed']);
+
     const rpcPolicy = structuredClone(buyerAuthorityPolicyExamples.allow.policy);
     rpcPolicy.notes.push('Use https://api.mainnet-beta.solana.com for the provider call.');
     assert.deepEqual(validateBuyerAuthorityPolicy(rpcPolicy).reasonCodes, ['wallet_rpc_provider_call_rejected']);
@@ -75,5 +99,43 @@ describe('buyer authority policy examples', () => {
     const finalityPolicy = structuredClone(buyerAuthorityPolicyExamples.allow.policy);
     finalityPolicy.notes.push('This policy proves settlement finality.');
     assert.deepEqual(validateBuyerAuthorityPolicy(finalityPolicy).reasonCodes, ['settlement_finality_claim_rejected']);
+  });
+
+  it('keeps matrix denial reasons machine-readable and single-purpose where possible', () => {
+    assert.deepEqual(
+      evaluateBuyerAuthorityPolicy(
+        buyerAuthorityPolicyExamples.unsupportedRail.policy,
+        buyerAuthorityPolicyExamples.unsupportedRail.request,
+      ).reasonCodes,
+      ['unsupported_rail_currency'],
+    );
+    assert.deepEqual(
+      evaluateBuyerAuthorityPolicy(
+        buyerAuthorityPolicyExamples.unsupportedCurrency.policy,
+        buyerAuthorityPolicyExamples.unsupportedCurrency.request,
+      ).reasonCodes,
+      ['unsupported_rail_currency'],
+    );
+    assert.deepEqual(
+      evaluateBuyerAuthorityPolicy(
+        buyerAuthorityPolicyExamples.missingReceiptRequirement.policy,
+        buyerAuthorityPolicyExamples.missingReceiptRequirement.request,
+      ).reasonCodes,
+      ['receipt_requirement_missing'],
+    );
+    assert.deepEqual(
+      evaluateBuyerAuthorityPolicy(
+        buyerAuthorityPolicyExamples.refundFailurePolicyMismatch.policy,
+        buyerAuthorityPolicyExamples.refundFailurePolicyMismatch.request,
+      ).reasonCodes,
+      ['refund_failure_policy_mismatch'],
+    );
+    assert.deepEqual(
+      evaluateBuyerAuthorityPolicy(
+        buyerAuthorityPolicyExamples.spendCapExceeded.policy,
+        buyerAuthorityPolicyExamples.spendCapExceeded.request,
+      ).reasonCodes,
+      ['spend_cap_exceeded'],
+    );
   });
 });
