@@ -25,3 +25,4 @@ export * from './framework-template-contract.js';
 export * from './framework-template-conformance.js';
 export * from './langgraph-rap-template.js';
 export * from './adk-rap-template.js';
+export * from './reputation-credential-export.js';

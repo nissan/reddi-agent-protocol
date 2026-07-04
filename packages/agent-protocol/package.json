@@ -118,6 +118,10 @@
       "types": "./dist/adk-rap-template.d.ts",
       "import": "./dist/adk-rap-template.js"
     },
+    "./reputation-credential-export": {
+      "types": "./dist/reputation-credential-export.d.ts",
+      "import": "./dist/reputation-credential-export.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
