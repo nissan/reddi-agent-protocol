@@ -24,6 +24,7 @@ export * from './seller-wrapper-config.js';
 export * from './framework-template-contract.js';
 export * from './framework-template-conformance.js';
 export * from './langgraph-rap-template.js';
+export * from './erc8004-export.js';
 export * from './adk-rap-template.js';
 export * from './reputation-credential-export.js';
 export * from './ap2-mandate-ingestion.js';
