@@ -24,3 +24,4 @@ export * from './seller-wrapper-config.js';
 export * from './framework-template-contract.js';
 export * from './framework-template-conformance.js';
 export * from './langgraph-rap-template.js';
+export * from './ap2-mandate-ingestion.js';
