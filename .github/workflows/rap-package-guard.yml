@@ -1,0 +1,38 @@
+name: RAP Package Publication Guard
+
+on:
+  pull_request:
+    paths:
+      - "packages/agent-protocol/**"
+  workflow_dispatch:
+
+jobs:
+  rap-package-guard:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: packages/agent-protocol/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: packages/agent-protocol
+
+      - name: Build
+        run: npm run build
+        working-directory: packages/agent-protocol
+
+      - name: Test
+        run: npm test
+        working-directory: packages/agent-protocol
+
+      - name: Verify package exports resolution
+        run: node scripts/check-package-exports.mjs
+        working-directory: packages/agent-protocol
