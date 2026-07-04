@@ -114,6 +114,10 @@
       "types": "./dist/langgraph-rap-template.d.ts",
       "import": "./dist/langgraph-rap-template.js"
     },
+    "./erc8004-export": {
+      "types": "./dist/erc8004-export.d.ts",
+      "import": "./dist/erc8004-export.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
