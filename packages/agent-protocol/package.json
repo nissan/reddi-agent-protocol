@@ -122,6 +122,10 @@
       "types": "./dist/reputation-credential-export.d.ts",
       "import": "./dist/reputation-credential-export.js"
     },
+    "./ap2-mandate-ingestion": {
+      "types": "./dist/ap2-mandate-ingestion.d.ts",
+      "import": "./dist/ap2-mandate-ingestion.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
