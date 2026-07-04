@@ -148,7 +148,9 @@
     "test": "npm run build && tsc -p tsconfig.test.json && node --test dist-tests/*.test.js",
     "example:buyer-seller:dry-run": "npm run build && node examples/buyer-seller-dry-run.mjs",
     "example:ard:no-spend": "npm run build && node examples/ard-no-spend-demo.mjs",
-    "release:dry-run": "npm run clean && npm run build && npm test && npm pack --dry-run"
+    "check:exports": "node scripts/check-package-exports.mjs",
+    "prepublishOnly": "npm run build && node scripts/check-package-exports.mjs",
+    "release:dry-run": "npm run clean && npm run build && npm test && node scripts/check-package-exports.mjs && npm pack --dry-run"
   },
   "devDependencies": {
     "@types/node": "^20",
