@@ -134,6 +134,10 @@
       "types": "./dist/strands-rap-template.d.ts",
       "import": "./dist/strands-rap-template.js"
     },
+    "./okf-adapter": {
+      "types": "./dist/okf-adapter.d.ts",
+      "import": "./dist/okf-adapter.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
