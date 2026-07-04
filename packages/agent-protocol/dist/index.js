@@ -26,4 +26,5 @@ export * from './framework-template-conformance.js';
 export * from './langgraph-rap-template.js';
 export * from './adk-rap-template.js';
 export * from './reputation-credential-export.js';
+export * from './ap2-mandate-ingestion.js';
 export * from './strands-rap-template.js';
