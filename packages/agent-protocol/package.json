@@ -114,6 +114,14 @@
       "types": "./dist/langgraph-rap-template.d.ts",
       "import": "./dist/langgraph-rap-template.js"
     },
+    "./adk-rap-template": {
+      "types": "./dist/adk-rap-template.d.ts",
+      "import": "./dist/adk-rap-template.js"
+    },
+    "./reputation-credential-export": {
+      "types": "./dist/reputation-credential-export.d.ts",
+      "import": "./dist/reputation-credential-export.js"
+    },
     "./strands-rap-template": {
       "types": "./dist/strands-rap-template.d.ts",
       "import": "./dist/strands-rap-template.js"
