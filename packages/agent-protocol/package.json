@@ -146,6 +146,10 @@
       "types": "./dist/onboarding-analyser-handoff.d.ts",
       "import": "./dist/onboarding-analyser-handoff.js"
     },
+    "./onboarding-state-machine": {
+      "types": "./dist/onboarding-state-machine.d.ts",
+      "import": "./dist/onboarding-state-machine.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
