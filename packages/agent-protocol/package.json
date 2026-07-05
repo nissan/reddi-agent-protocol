@@ -142,6 +142,10 @@
       "types": "./dist/okf-adapter.d.ts",
       "import": "./dist/okf-adapter.js"
     },
+    "./onboarding-analyser-handoff": {
+      "types": "./dist/onboarding-analyser-handoff.d.ts",
+      "import": "./dist/onboarding-analyser-handoff.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

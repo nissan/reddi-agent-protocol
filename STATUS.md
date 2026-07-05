@@ -1,5 +1,25 @@
 # Reddi Agent Protocol — Status
 
+## Latest Update — Onboarding analyser handoff contracts + no-network fixture matrix (2026-07-06 AEST)
+
+Implemented GitHub issue #509 in isolated worktree `projects/reddi-agent-protocol-worktree-509-onboarding-handoff-contracts` on branch `feat/509-onboarding-handoff-contracts`.
+
+Delivered:
+- Added `@reddi/agent-protocol/onboarding-analyser-handoff` defining the stable typed handoff contracts for the AI onboarding analyser pipeline: intake descriptor → normalized capability inventory → generated RAP profile draft → readiness result → seller wrapper/payment-plan draft → listing/export draft.
+- Separated field provenance into exactly five categories (discovered, inferred, user_provided, verified, blocked), with `verified` requiring non-empty evidence refs and `blocked` carrying a fail-closed reason.
+- Defined fail-closed reason codes for private URL, credential leakage, command execution request, paid-call request, wallet/RPC request, missing payment metadata, missing evidence, and untrusted imported content (self-asserted trust claims are rejected at intake).
+- Added the no-network golden fixture matrix covering all nine required classes: MCP metadata, OpenAPI, A2A card, ARD/AI Catalog, manual descriptor, static agent-stack snapshot, malformed input, credential-shaped input, and partial metadata — plus negative cases for private URLs, command execution, paid calls, wallet/RPC, and imported trust claims.
+- Kept the module pure and offline-only: zero imports, no async surface, guardrails object with every live boundary (network fetch, plugin install, command execution, MCP call, endpoint invocation, wallet/RPC, paid call, secret read, hosted write, publication, reputation mutation, live auth registration) hard-coded false; a source guard test proves the forbidden-import boundary.
+- Readiness lanes mirror #373 (capability fit, source identity, static source authenticity, imported content trust, trust evidence, payment readiness, policy fit, endpoint safety, auth/scope risk, data retention risk, reputation readiness); the static contract path never emits `publish_ready`.
+
+Validation:
+- `npm test` in `packages/agent-protocol` PASS (293/293, 26 new).
+- `npm run check:exports` in `packages/agent-protocol` PASS (73 targets).
+- `npm run check:rap:naming` PASS.
+- `git diff --check` PASS.
+
+RESUME FROM HERE: #509 contract names are now settled; #459 (live probe adapter), #372 (profile schema), #373 (readiness analysis), #375 (seller wrapper), and the #384/#385/#386 lanes can implement against `onboarding-analyser-handoff` shapes in parallel.
+
 ## Latest Update — Pay.sh sandbox evidence normalization merged (2026-06-21 AEST)
 
 Merged GitHub issue #454 via PR #483 at `9108d2fd`.
