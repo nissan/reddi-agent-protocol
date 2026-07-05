@@ -1,5 +1,26 @@
 # Reddi Agent Protocol — Status
 
+## Latest Update — Onboarding assistant state-machine read model (2026-07-06 AEST)
+
+Implemented GitHub issue #510 in isolated worktree `projects/reddi-agent-protocol-worktree-510-onboarding-state-machine` on branch `feat/510-onboarding-state-machine-read-model`.
+
+Delivered:
+- Added `@reddi/agent-protocol/onboarding-state-machine` — the backend/read-model state machine for AI onboarding assistant drafts, projecting #509 analyser outputs and operator decisions into a local, append-only audit history with no UI, publication side effects, or live execution.
+- Supports all twelve required states: draft, probe_failed, needs_provider_input, payment_setup_required, dry_run_required, risk_review_required, pending_operator_approval, approved_unpublished, changes_requested, rejected, suspended, published_candidate. `rejected` is terminal; `suspended` only reinstates to draft or moves to rejected, operator-driven.
+- Every transition carries the audit reason, actor type (operator/provider/analyser/system), caller-supplied RFC3339 UTC timestamp (deterministic replay), source snapshot reference, readiness result reference (mirroring the #509 `OnboardingOverallReadiness` summary), and the blocking gates still open after the transition; gate-shaped states require their matching open gate on entry.
+- `published_candidate` stays an internal candidate state only: the read model's publication ledger (hosted registry write, public catalog write, trust mutation, reputation mutation, payment activation, endpoint invocation, wallet/RPC) is hard-coded false, guardrails are all false by construction, and any `requestedSideEffects` entry on an event is rejected fail-closed.
+- Invalid transitions fail closed with structured `{code, path, message}` reasons (invalid_transition, terminal_state, missing_audit_reason, operator_action_required, blocked_readiness, unresolved_blocking_gates, missing_blocking_gate, invalid_timestamp, timestamp_regression, missing refs, publication_side_effect_rejected) and never change state.
+- Operator actions (approval, rejection, change requests, suspension, reinstatement, candidate publication) are recorded as local/read-model events only — every audit record carries `scope: 'local_read_model_only'`.
+- Kept the module pure and offline-only in the #509 self-contained pattern: zero imports, no async surface, and a forbidden-import source guard test proving no network/fs/exec/wallet/payment references.
+
+Validation:
+- `npm test` in `packages/agent-protocol` PASS (322/322, 29 new).
+- `npm run check:exports` in `packages/agent-protocol` PASS (75 targets).
+- `npm run check:rap:naming` PASS.
+- `git diff --check` PASS.
+
+RESUME FROM HERE: #510 unblocks the #384/#385/#386 UI flows and future listing preview/approval UI against `onboarding-state-machine` shapes; #374 guided-workflow implementation should build on this read model rather than re-encoding the transition graph.
+
 ## Latest Update — Onboarding analyser handoff contracts + no-network fixture matrix (2026-07-06 AEST)
 
 Implemented GitHub issue #509 in isolated worktree `projects/reddi-agent-protocol-worktree-509-onboarding-handoff-contracts` on branch `feat/509-onboarding-handoff-contracts`.
