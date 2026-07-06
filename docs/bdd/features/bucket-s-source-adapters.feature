@@ -164,3 +164,12 @@ Feature: Bucket S Source Adapter Onboarding
     And script and tool artifacts are additionally reported as execution not allowed
     And a passing verdict permits static review and analysis only with no skill installation agent registration marketplace publication hosted write provider call or execution
     And malformed bundles and any execute install ingest or provider request fail closed
+
+  @S5.17 @conformance @okf-openkb @static-analysis @generated-instruction-safety
+  Scenario: Generated instruction and skill safety review keeps knowledge-bundle artifacts untrusted by default
+    When the safety review runs over an OKF-shaped or OpenKB-style knowledge bundle fixture
+    Then generated AGENTS SKILL prompt script tool and agent definition artifacts are untrusted by default and blocked even with benign content
+    And the deterministic checklist detects prompt injection credential requests tool expansion external calls hidden instructions auto install or apply claims destructive commands paid call instructions wallet RPC mainnet instructions and marketplace publication claims without any provider call
+    And safe documentation content is reported safe and documentation with contextual signals is routed to needs human review
+    And generated instructions may be preserved as evidence or context but are never installed applied registered executed or published without a separate operator approved issue
+    And malformed bundles and any execute install ingest or provider request fail closed
