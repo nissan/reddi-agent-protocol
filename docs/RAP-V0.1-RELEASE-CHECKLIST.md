@@ -26,8 +26,9 @@ Each row is a required PASS. All commands are offline and no-spend.
 | RAP naming guard | `npm run check:rap:naming` (repo root) | no banned standalone-Reddi shorthand in public-facing text |
 | Clean-checkout OSS smoke (#512) | `npm run check:oss-release-smoke` (repo root) | tests + no-spend examples + import smoke + pack inspection + claim-boundary scan for the whole candidate set |
 | x402 package dry-run | `cd packages/x402-solana && npm run release:dry-run` | clean rebuild, jest suite, artifact-contents guard, `npm pack --dry-run` |
+| Paid-workflow copy-boundary gate (#501) | `npm run check:copy:paid-workflow` (repo root) | the buyer paid-workflow route model renders no forbidden live-claim upgrades (custody, settlement finality, production AUDD, default USDC auto-pay, Pay.sh production activation, mainnet settlement, hosted registry writes, live trust/reputation mutation, Airwallex/AP2 overclaims), keeps the dry-run/no-spend/recorded-devnet/optional fresh-devnet/live-gated/production-disabled labels, and its term list stays anchored to `docs/DISCOVER-DECIDE-PROVE-BOUNDARIES.md` (built-in negative control: `--negative-control` must exit 1) |
 
-CI coverage: the `rap-package-guard` workflow (`.github/workflows/rap-package-guard.yml`) runs build + test + exports guard + artifact-contents guard on every PR touching `packages/agent-protocol/**`.
+CI coverage: the `rap-package-guard` workflow (`.github/workflows/rap-package-guard.yml`) runs build + test + exports guard + artifact-contents guard on every PR touching `packages/agent-protocol/**`, plus the #501 paid-workflow copy-boundary gate (static scan + negative control) on PRs touching the paid-workflow route surfaces.
 
 ## 3. Required Package Contents
 
