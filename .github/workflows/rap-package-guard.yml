@@ -4,6 +4,12 @@ on:
   pull_request:
     paths:
       - "packages/agent-protocol/**"
+      - "app/economic-demo/paid-workflow/**"
+      - "lib/economic-demo/**"
+      - "scripts/check-paid-workflow-copy-boundaries.mjs"
+      - "e2e/economic-demo-paid-workflow*.ts"
+      - "docs/DISCOVER-DECIDE-PROVE-BOUNDARIES.md"
+      - ".github/workflows/rap-package-guard.yml"
   workflow_dispatch:
 
 jobs:
@@ -42,3 +48,31 @@ jobs:
 
       - name: Public conformance suite (#353)
         run: node scripts/run-public-conformance.mjs --skip-build
+
+  paid-workflow-copy-boundary-gate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Copy-boundary regression gate (#501)
+        run: node scripts/check-paid-workflow-copy-boundaries.mjs
+
+      - name: Copy-boundary gate negative control (#501, must fail)
+        run: |
+          if node scripts/check-paid-workflow-copy-boundaries.mjs --negative-control; then
+            echo "Negative control did not fail — the gate can no longer catch forbidden copy."
+            exit 1
+          fi
+          echo "Negative control failed as expected (gate exits 1 on injected forbidden copy)."
