@@ -29,6 +29,7 @@ export * from './erc8004-export.js';
 export * from './adk-rap-template.js';
 export * from './reputation-credential-export.js';
 export * from './ap2-mandate-ingestion.js';
+export * from './airwallex-hosted-checkout-rail.js';
 export * from './strands-rap-template.js';
 export * from './okf-adapter.js';
 export * from './okf-conformance.js';
