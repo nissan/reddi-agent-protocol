@@ -19,6 +19,28 @@ Validation:
 
 RESUME FROM HERE: the only remaining #564 step is the live devnet reference run itself — operator-gated per `docs/DEVNET-REFERENCE-RUN-564.md`; after the run, promote real receipt/evidence refs into the #417 lane and flip real metering in a follow-up PR.
 
+## Latest Update — Discovery actionability state matrix for marketplace UI (2026-07-06 AEST)
+
+Implemented GitHub issue #506 in isolated worktree `projects/reddi-agent-protocol-worktree-506-discovery-actionability-matrix` on branch `feat/506-discovery-actionability-matrix`.
+
+Delivered:
+- Added `lib/manager/discovery-actionability-matrix.ts`, a pure typed read model that derives a six-lane actionability matrix (source provenance, identity evidence, payment readiness, reputation/evidence, policy fit, actionability/hireability) with explicit per-lane states: unavailable, self-asserted, claimed, verified, failed verification, blocked, needs human review, dry-run ready, live-gated, production-disabled.
+- Two adapters over existing shapes: `deriveDiscoveryActionabilityMatrix` for the #383 operator discovery candidates (`OperatorDiscoveryCandidateView`) and `deriveHostedDiscoveryActionabilityMatrix` for #381/#382 hosted catalog search candidates (`MarketplaceHostedSearchResultItem`), so future candidate-card surfaces can reuse the same lane vocabulary.
+- Every matrix carries a `discoveryTrustBoundary` block (ARD discovery only; implies neither RAP trust nor authorization), preserved source provenance (origin, origin kind, snapshot ref@commit, crawl/snapshot time or unavailable, metadata self-asserted), and guardrails with every live boundary hard-false (no auto-publish, auto-pay, endpoint invocation, wallet/RPC, hosted registry/trust/reputation mutation).
+- Rendered the matrix in the `/manager/discovery` candidate detail view via new presentational `components/manager/discovery/DiscoveryActionabilityMatrix.tsx`; all existing placeholder actions remain disabled and no mutation path was added.
+- Jest coverage in `lib/__tests__/manager-discovery-actionability-matrix.test.ts` (11 tests): lane order/vocabulary, per-fixture lane states, lane separation (rejected fixture fails identity while provenance stays self-asserted), dry-run-ready gating, provenance preservation, hosted claimed-identity path, and closed guardrails.
+- Playwright coverage in `e2e/manager-discovery-actionability.spec.ts` (6 tests) plus visual evidence committed under `docs/evidence/506/` (mobile/tablet/desktop screenshots + interaction video; Playwright trace finalization hangs with the Chrome browser channel in this environment, documented in the evidence README).
+
+Validation:
+- `npx jest lib/__tests__/manager-discovery-actionability-matrix.test.ts` PASS (11/11).
+- `PLAYWRIGHT_BROWSER_CHANNEL=chrome npx playwright test e2e/manager-discovery-actionability.spec.ts` PASS (6/6).
+- `PLAYWRIGHT_BROWSER_CHANNEL=chrome npx playwright test e2e/manager-discovery.spec.ts` PASS (6/6, no regression).
+- `npm run check:rap:naming` PASS.
+- `npm run build` PASS.
+- `git diff --check` PASS.
+- Known pre-existing failure on origin/main (not touched by this change): `lib/__tests__/manager-marketplace-public-search.test.ts` expects two blocked reasons for `rejectedMalformedConnector` but the fixture now emits four.
+
+RESUME FROM HERE: #506 lane vocabulary is settled; #381 source-facet and #382 candidate-detail surfaces can render the same matrix via `deriveHostedDiscoveryActionabilityMatrix` when those routes land, and any future promote-to-listing flow must consume the `actionability` lane rather than a blended score.
 ## Latest Update — Onboarding assistant state-machine read model (2026-07-06 AEST)
 
 Implemented GitHub issue #510 in isolated worktree `projects/reddi-agent-protocol-worktree-510-onboarding-state-machine` on branch `feat/510-onboarding-state-machine-read-model`.

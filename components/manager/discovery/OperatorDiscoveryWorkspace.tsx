@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DiscoveryActionabilityMatrixPanel } from "@/components/manager/discovery/DiscoveryActionabilityMatrix";
+import { deriveDiscoveryActionabilityMatrix } from "@/lib/manager/discovery-actionability-matrix";
 import type {
   OperatorDiscoveryCandidateView,
   OperatorDiscoveryFilter,
@@ -121,6 +123,8 @@ export function OperatorDiscoveryWorkspace({ workspace }: { workspace: OperatorD
 }
 
 function DiscoveryDetail({ candidate }: { candidate: OperatorDiscoveryCandidateView }) {
+  const actionabilityMatrix = deriveDiscoveryActionabilityMatrix(candidate);
+
   return (
     <article className="space-y-5" data-testid="operator-discovery-detail">
       <section className="rounded-lg border border-border bg-surface/60 p-5">
@@ -147,6 +151,8 @@ function DiscoveryDetail({ candidate }: { candidate: OperatorDiscoveryCandidateV
           <DetailTerm label="Result refs" value={candidate.resultRefs.join(", ")} />
         </dl>
       </section>
+
+      <DiscoveryActionabilityMatrixPanel matrix={actionabilityMatrix} />
 
       <section className="grid gap-4 lg:grid-cols-3">
         <Panel title="Catalog Groups" icon={<FileSearch />}>
