@@ -84,6 +84,10 @@ npm test
 # Deterministic conformance check for the quickstart itself
 npm test -- --test-name-pattern "ARD no-spend demo"
 
+# Consolidated public conformance suite (#353): composes the per-module conformance
+# suites + packed-artifact guard (also `npm run check:conformance:public` from the repo root)
+npm run conformance
+
 # Full release dry-run (clean build + tests + exports guard + artifact guard + pack)
 npm run release:dry-run
 ```
@@ -119,7 +123,7 @@ Live status as of 2026-07-06:
 
 | Input | Scope | Status | Where it landed |
 | --- | --- | --- | --- |
-| #353 | Public developer quickstart, examples, and conformance suite (feature) | 🔶 OPEN | Quickstart + examples landed via #357; the remaining #353 scope is public conformance-suite packaging. Open, but the checklist can exist and run without it. |
+| #353 | Public developer quickstart, examples, and conformance suite (feature) | ✅ CLOSED 2026-07-06 | Quickstart + examples via #357; conformance-suite packaging via `npm run check:conformance:public` (`scripts/run-public-conformance.mjs`, also in the `rap-package-guard` CI lane) + [docs/RAP-V0.1-DEVELOPER-QUICKSTART-AND-CONFORMANCE.md](./RAP-V0.1-DEVELOPER-QUICKSTART-AND-CONFORMANCE.md) |
 | #357 | Final public local no-spend quickstart and conformance polish | ✅ CLOSED 2026-06-22 | `packages/agent-protocol/README.md` § "ARD No-Spend Quickstart"; `npm run example:ard:no-spend` |
 | #416 | Proof-chain fixture Discover → Attestation | ✅ CLOSED 2026-06-24 | `@reddi/agent-protocol/rail-neutral-proof-chain-fixture` export + fixtures |
 | #417 | Public demo proof page data contract | ✅ CLOSED 2026-06-22 | `reddi.economic-demo.public-proof-page-data.v1` (referenced from the no-spend demo output) |
@@ -129,7 +133,7 @@ Live status as of 2026-07-06:
 
 Supporting machinery already landed: #512/#523 clean-checkout OSS smoke gate, #521/#573 exports-resolution guard + `rap-package-guard` CI lane.
 
-**Launch gate:** RAP v0.1 is ready when every §2 gate passes **and** #450 and the remaining #353 scope are closed (per issue #449's dependency clarification). The checklist itself, and every executable gate in it, is complete and runnable today.
+**Launch gate:** RAP v0.1 is ready when every §2 gate passes **and** #450 is closed (per issue #449's dependency clarification; the remaining #353 scope — public conformance-suite packaging — landed with the consolidated suite above). The checklist itself, and every executable gate in it, is complete and runnable today.
 
 ## 11. Executed Dry-Run Record
 
