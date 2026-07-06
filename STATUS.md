@@ -18,6 +18,9 @@ Validation:
 - `npm run check:rap:naming` PASS. `npm run test:bdd:index` PASS. `git diff --check` PASS.
 
 Boundary note: passing conformance permits review/analysis ONLY — no skill installation, agent registration, marketplace publication, hosted writes, LLM/provider calls, or execution of bundle content. The OKF/OpenKB scope decision itself stays with #513.
+## Latest Update — Fix #578: public-search blocked-reason assertion aligned with fixture contract (2026-07-06 AEST)
+
+Fixed GitHub issue #578 in isolated worktree `projects/reddi-agent-protocol-worktree-578-public-search-test-fix` on branch `fix/578-public-search-blocked-reasons`. Pre-existing failure on main: `lib/__tests__/manager-marketplace-public-search.test.ts` expected 2 blocked reasons for the `rejectedMalformedConnector` fixture, but the fixture emits 4. Root cause: intentional contract evolution — `unsafe_metadata` was added by the publication eligibility matrix (`dea92764`) and `publish_audit_malformed` by publication lifecycle audit evidence (#466, `bd649701`); both commits updated the eligibility/export/approval-actions tests but missed the search test. Fix: test-only — assertion now expects the exact 4-reason set. Validation: suite 4/4 PASS, `npm run check:rap:naming` PASS, `git diff --check` PASS.
 
 ## Latest Update — x402 reference workflow no-live rehearsal + operator runbook (2026-07-06 AEST)
 
