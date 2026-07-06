@@ -321,6 +321,27 @@ console.log(diagnostics.policyDecision.reasonCodes); // machine-readable allow/d
 
 Source-aware diagnostics expose separate lanes for capability match, discovery source, publisher identity, trust evidence, policy decision, payment fit, and reputation evidence. ARD and registry relevance scores are always labelled as relevance only; they are never collapsed into trust, policy, payment, or reputation approval.
 
+## Source/Trust Conformance Matrix
+
+```typescript
+import {
+  buildSourceTrustConformanceMatrix,
+  classifySourceTrustCandidate,
+} from '@reddi/agent-protocol/source-trust-conformance-matrix';
+
+const matrix = buildSourceTrustConformanceMatrix();
+console.log(matrix.coverage.complete); // true — all states, all required cases, both source kinds
+
+const row = classifySourceTrustCandidate({
+  candidateId: 'auth-md:example.com',
+  source: { kind: 'auth-md', metadata: parsedAuthMdMetadata },
+});
+console.log(row.entryState); // listed_untrusted — always
+console.log(row.registryProjection.verificationStatus); // provider-trust vocabulary
+```
+
+The source/trust conformance matrix proves that `auth.md` documents and ARD/AI Catalog provider metadata enter RAP as untrusted source metadata until explicit RAP-side trust/evidence gates classify them across `trusted` / `listed_untrusted` / `claimed` / `unverified` / `failed_verification` / `blocked` / `needs_human_review`. Malformed metadata, credential leakage, anonymous write scopes, unsupported credential types, and unsupported identity assertions fail closed — even for maximally relevant candidates. Rows project onto the provider-trust registry vocabulary and the source-diagnostics lanes. See `docs/conformance/source-trust-matrix/README.md` and `docs/DISCOVER-DECIDE-PROVE-BOUNDARIES.md`.
+
 ## Attestation And Reputation
 
 ```typescript

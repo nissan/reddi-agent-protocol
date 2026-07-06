@@ -42,6 +42,10 @@
       "types": "./dist/source-diagnostics.d.ts",
       "import": "./dist/source-diagnostics.js"
     },
+    "./source-trust-conformance-matrix": {
+      "types": "./dist/source-trust-conformance-matrix.d.ts",
+      "import": "./dist/source-trust-conformance-matrix.js"
+    },
     "./attestation-reputation": {
       "types": "./dist/attestation-reputation.d.ts",
       "import": "./dist/attestation-reputation.js"
