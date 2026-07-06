@@ -146,6 +146,10 @@
       "types": "./dist/okf-conformance.d.ts",
       "import": "./dist/okf-conformance.js"
     },
+    "./okf-instruction-safety": {
+      "types": "./dist/okf-instruction-safety.d.ts",
+      "import": "./dist/okf-instruction-safety.js"
+    },
     "./onboarding-analyser-handoff": {
       "types": "./dist/onboarding-analyser-handoff.d.ts",
       "import": "./dist/onboarding-analyser-handoff.js"

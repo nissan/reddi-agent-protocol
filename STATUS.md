@@ -1,5 +1,24 @@
 # Reddi Agent Protocol — Status
 
+## Latest Update — Generated instruction and skill safety review for knowledge bundles (2026-07-06 AEST)
+
+Implemented GitHub issue #505 in isolated worktree `projects/reddi-agent-protocol-worktree-505-generated-instruction-safety` on branch `feat/505-generated-instruction-safety-review`. This is the last evidence blocker for the #513 OKF/OpenKB scope decision (epic #468); it builds on the merged #503 fixture corpus, #504 conformance diagnostics (`okf-conformance.ts`), and the #511 adapter spike, touching only `packages/agent-protocol` (new module + tests + exports + rebuilt dist), `docs/conformance/okf-openkb/README.md`, the bucket-S BDD feature, `docs/bdd/FEATURE-INDEX.md`, and this file.
+
+Delivered:
+- Added `packages/agent-protocol/src/okf-instruction-safety.ts` (`reddi.okf-instruction-safety.v1`, exported as `@reddi/agent-protocol/okf-instruction-safety`) — a deterministic, PURE static-analysis safety review lane for OpenKB/OKF-derived generated instructions, skills, prompts, scripts, tools, and agent definitions. It layers on the #504 conformance run and REUSES its vocabulary (`artifactClass` agent_definition/skill_definition/prompt/script/tool/generated_instruction_other, info/warning/blocked severities, review-only boundary, hard-false guardrails) — no parallel taxonomy.
+- Review model: UNTRUSTED BY DEFAULT — every generated AGENTS.md/SKILL.md/prompt/script/tool/agent-definition artifact is `blocked` even with zero checklist findings (proven by a benign-content fixture); content review can never upgrade a generated instruction to trusted. `operatorGate` (`OKF_GENERATED_ARTIFACT_OPERATOR_GATE`) states machine-readably: preserved-as-evidence only; installed/applied/registered/executed/published hard-false; requires a separate operator-approved issue.
+- Safety checklist: ten deterministic regex categories — prompt_injection, credential_request, tool_expansion, external_call, hidden_instruction (imperative HTML comments, zero-width chars, "do not tell"), auto_install_or_apply, destructive_command, paid_call_instruction, wallet_rpc_mainnet_instruction, marketplace_publication_claim. `always_blocked` categories block anywhere; `contextual` categories block in generated artifacts and downgrade to needs-human-review warnings in documentation. Evidence snippets sanitized (zero-width/control escapes, truncation) and treated as DATA. NO LLM calls, no network, no execution.
+- Dispositions: `safe_documentation` / `needs_human_review` / `blocked`; bundle verdict is worst-of, fail-closed to blocked on malformed bundles and any execute/install/ingestUrl/invokeLlm/generateSkill request. Standalone `scanOkfSafetyChecklist(documentId, text, artifactClass)` exposed for text-level reuse.
+- Fixtures (in-module; #503 corpus untouched, byte-identical): safeDocumentation, blockedGeneratedInstructions, blockedScriptTool, needsHumanReview, benignGeneratedArtifact. Tests: `packages/agent-protocol/tests/okf-instruction-safety.test.ts` (25 tests) — untrusted-by-default model, all ten categories demonstrated, dispositions, determinism, fail-closed, both #503 corpus fixtures consumed read-only with contentSha256 digests proven preserved, offline/no-async source guard, DRAFT-tag guard.
+- Docs: `docs/conformance/okf-openkb/README.md` gained a "#505 Generated Instruction & Skill Safety Review" section including the operator-gate statement (generated instructions may be preserved as evidence/context but must NOT be installed, applied, registered, executed, or published without a separate operator-approved issue) and links to #468, #503/#504/#511, #513, and downstream #370 onboarding safety posture. BDD: new `@S5.17` scenario in `docs/bdd/features/bucket-s-source-adapters.feature` + FEATURE-INDEX bucket-S verify command.
+
+Validation:
+- `cd packages/agent-protocol && npm test` PASS (372 tests, incl. 25 new; exports-resolution guard in-suite). Rebuilt dist committed.
+- `npm run check:exports` PASS (79 targets). `npm run check:okf-openkb:fixtures` PASS (corpus byte-identical).
+- `npm run check:rap:naming` PASS. `npm run test:bdd:index` PASS. `git diff --check` PASS.
+
+Boundary note: passing safety review permits static review/analysis ONLY. Generated instructions remain untrusted by default regardless of content; any install/apply/register/execute/publish path requires a separate operator-approved issue. The OKF/OpenKB scope decision itself stays with #513.
+
 ## Latest Update — OKF/OpenKB knowledge-bundle conformance diagnostics (2026-07-06 AEST)
 
 Implemented GitHub issue #504 in isolated worktree `projects/reddi-agent-protocol-worktree-504-okf-conformance-diagnostics` on branch `feat/504-okf-conformance-diagnostics`.
