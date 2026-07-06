@@ -138,6 +138,10 @@
       "types": "./dist/ap2-mandate-ingestion.d.ts",
       "import": "./dist/ap2-mandate-ingestion.js"
     },
+    "./ap2-mandate-conformance": {
+      "types": "./dist/ap2-mandate-conformance.d.ts",
+      "import": "./dist/ap2-mandate-conformance.js"
+    },
     "./airwallex-hosted-checkout-rail": {
       "types": "./dist/airwallex-hosted-checkout-rail.d.ts",
       "import": "./dist/airwallex-hosted-checkout-rail.js"
