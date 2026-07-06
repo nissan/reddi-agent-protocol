@@ -80,9 +80,10 @@ Purpose: single lookup from BDD feature file -> bucket -> executable verificatio
 - Verify:
   - `npm run lint -- app/economic-demo/page.tsx lib/economic-demo/fixture.ts lib/economic-demo/image-adapter.ts app/api/economic-demo/image/route.ts`
   - `cd packages/agent-protocol && npm test -- --test-name-pattern "ARD no-spend demo"`
-  - `npx jest lib/__tests__/economic-demo-dry-run.test.ts lib/__tests__/economic-demo-balances.test.ts lib/__tests__/economic-demo-payment-readiness.test.ts lib/__tests__/economic-demo-hosted-challenge-probe.test.ts lib/__tests__/economic-demo-live-run.test.ts lib/__tests__/economic-demo-live-paid-devnet-run.test.ts lib/__tests__/economic-demo-ledger-reconciliation.test.ts lib/__tests__/economic-demo-surfpool-rehearsal.test.ts lib/__tests__/economic-demo-webpage-live-workflow-evidence.test.ts lib/__tests__/economic-demo-public-proof-page-data.test.ts lib/__tests__/economic-demo-paid-workflow-proof-ui-fixtures.test.ts --runInBand`
+  - `npx jest lib/__tests__/economic-demo-dry-run.test.ts lib/__tests__/economic-demo-balances.test.ts lib/__tests__/economic-demo-payment-readiness.test.ts lib/__tests__/economic-demo-hosted-challenge-probe.test.ts lib/__tests__/economic-demo-live-run.test.ts lib/__tests__/economic-demo-live-paid-devnet-run.test.ts lib/__tests__/economic-demo-ledger-reconciliation.test.ts lib/__tests__/economic-demo-surfpool-rehearsal.test.ts lib/__tests__/economic-demo-webpage-live-workflow-evidence.test.ts lib/__tests__/economic-demo-public-proof-page-data.test.ts lib/__tests__/economic-demo-paid-workflow-proof-ui-fixtures.test.ts lib/__tests__/economic-demo-x402-reference-workflow-rehearsal.test.ts --runInBand`
   - `npx playwright test e2e/economic-demo.spec.ts e2e/economic-demo-public-proof.spec.ts e2e/judge-replication-onboarding.spec.ts`
   - `npm run smoke:economic-demo:surfpool`
+  - `npm run rehearse:x402-reference-workflow`
   - `npm run check:economic-demo:submission-prep`
   - `npm run check:superteam:devnet-demo`
   - `npm run test:pay-sh:devnet-approval`

@@ -231,6 +231,16 @@ Feature: End-user economic workflow demo
     And no paid provider request, signing operation, wallet mutation, RPC call, hosted registry write, trust or reputation mutation, custody claim, settlement-finality proof, or live payment occurs
     And the behavior is covered by "lib/__tests__/economic-demo-public-proof-page-data.test.ts"
 
+  Scenario: x402 reference workflow rehearsal stays no-live and emits the public proof data contract
+    Given the deterministic economic demo fixtures and the public proof page data contract are available
+    When the x402 reference workflow rehearsal is built for the webpage scenario
+    Then it rehearses discover, quote, policy preflight, dry-run x402 payment plan, receipt, evidence, and proof contract emission in order
+    And the emitted proof artifact validates against the public proof page data contract schema
+    And real metering fields stay at zero while test metering is explicitly marked as test
+    And the live devnet reference run stays live-gated behind explicit operator approval with a committed runbook
+    And no paid provider request, signing operation, wallet mutation, RPC call, devnet transaction, custody claim, or live payment occurs
+    And the behavior is covered by "lib/__tests__/economic-demo-x402-reference-workflow-rehearsal.test.ts"
+
   Scenario: Paid workflow proof-chain UI fixture pack covers responsive render states
     Given the public proof page data contract is available
     When the paid workflow proof-chain UI fixture pack is generated

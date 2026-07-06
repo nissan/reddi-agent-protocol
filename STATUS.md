@@ -1,5 +1,24 @@
 # Reddi Agent Protocol — Status
 
+## Latest Update — x402 reference workflow no-live rehearsal + operator runbook (2026-07-06 AEST)
+
+Prepared GitHub issue #564 up to (but not including) the live devnet run, in isolated worktree `projects/reddi-agent-protocol-worktree-564-devnet-run-prep` on branch `feat/564-devnet-run-prep`.
+
+Delivered:
+- Added `lib/economic-demo/x402-reference-workflow-rehearsal.ts` — a deterministic END-TO-END no-live rehearsal of the full A2A loop (discover → quote → policy preflight → x402 payment plan with dry-run proof ref only → receipt → evidence → #417 public proof page data contract emission), composed from the existing merged primitives (`dry-run`, `public-proof-page-data`, `payment-readiness`, `ledger-reconciliation`, live-lane gate constants).
+- New `npm run rehearse:x402-reference-workflow` (`scripts/run-x402-reference-workflow-rehearsal.mjs`) writes `artifacts/economic-demo-x402-reference-rehearsal/<timestamp>/{rehearsal.json,SUMMARY.md}` (gitignored) and fails closed before writing if any live-gated boundary flag is not false. Runs offline via a small `module.registerHooks` resolver for the `@/` alias + TS sources (Node type stripping); no wallet, RPC, provider, or paid calls.
+- Real-vs-test metering is explicit: `metering.real` is hard-zeroed (`executed:false`, 0 paid requests / signing events / RPC calls / devnet transactions, "0" USDC settled) and `meteringMode:"test"`; test-side values are fixture-planned only.
+- Live gate embedded in the artifact: `live_gated`, `liveStepsExecuted:false`, REQUIRES OPERATOR (Nissan), arm env var names + confirm token bound to the merged `live-paid-devnet-run` constants, runbook + #441 checklist paths.
+- Added `docs/DEVNET-REFERENCE-RUN-564.md` — operator runbook with preconditions (wallet funding, env vars, endpoint 402 spot-check), the #441 Devnet Approval Gate block, exact live commands (`POST /api/economic-demo/live-run` with `mode:"live_paid_devnet"`), expected envelope, receipt verification lane, abort criteria, and post-run publication steps. Every live step marked "REQUIRES OPERATOR (Nissan) — not executable by autonomous agents".
+- Added `lib/__tests__/economic-demo-x402-reference-workflow-rehearsal.test.ts` (6 tests) proving the rehearsal validates against the #417 contract, keeps every boundary flag false, keeps real metering at zero, fails closed on tampering, stays operator-gated, and is deterministic. Bucket J BDD scenario + FEATURE-INDEX updated.
+
+Validation:
+- `npm run rehearse:x402-reference-workflow` PASS (artifact emitted, liveStepsExecuted=false).
+- `npx jest` bucket-J economic-demo sweep PASS (9 suites, 33 tests, incl. 6 new).
+- `npm run check:rap:naming` PASS. `npm run test:bdd:index` PASS. `git diff --check` PASS. eslint on new files PASS.
+
+RESUME FROM HERE: the only remaining #564 step is the live devnet reference run itself — operator-gated per `docs/DEVNET-REFERENCE-RUN-564.md`; after the run, promote real receipt/evidence refs into the #417 lane and flip real metering in a follow-up PR.
+
 ## Latest Update — Onboarding assistant state-machine read model (2026-07-06 AEST)
 
 Implemented GitHub issue #510 in isolated worktree `projects/reddi-agent-protocol-worktree-510-onboarding-state-machine` on branch `feat/510-onboarding-state-machine-read-model`.
