@@ -39,6 +39,7 @@
     "demo:testing-specialist:capture": "node ./scripts/capture-testing-specialist-demo.mjs",
     "smoke:app-adapter": "node ./scripts/run-app-adapter-smoke.mjs",
     "smoke:economic-demo:surfpool": "node ./scripts/run-economic-demo-surfpool-rehearsal.mjs",
+    "rehearse:x402-reference-workflow": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON ./scripts/run-x402-reference-workflow-rehearsal.mjs",
     "smoke:economic-demo:live-x402-readiness": "node ./scripts/run-economic-demo-live-x402-readiness.mjs",
     "smoke:economic-demo:webpage-live-x402-workflow": "node ./scripts/run-economic-demo-webpage-live-x402-workflow.mjs",
     "evidence:economic-demo:webpage": "node ./scripts/generate-economic-demo-evidence-pack.mjs",
