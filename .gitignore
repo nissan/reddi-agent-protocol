@@ -71,6 +71,7 @@ data/onboarding/token-gated-proxy.mjs
 **/node_modules/
 packages/openrouter-specialists/dist/
 packages/rap-mcp-bridge/dist/
+packages/agent-protocol/dist-tests/
 
 # Per-developer Claude Code / Codex local state and skill caches (per-machine, not repo-shared)
 .claude/
