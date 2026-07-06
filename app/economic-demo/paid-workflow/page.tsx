@@ -12,16 +12,18 @@ import {
 import {
   buildBuyerPaidWorkflowRouteModel,
   type BuyerPaidWorkflowBlockedCase,
+  type BuyerPaidWorkflowLedgerRow,
   type BuyerPaidWorkflowRouteModel,
   type BuyerPaidWorkflowRouteModelFailClosed,
   type BuyerPaidWorkflowSection,
+  type BuyerPaidWorkflowTimelineMilestone,
 } from "@/lib/economic-demo/buyer-paid-workflow-route-model";
 import { getPaidWorkflowProofUiFixturePack } from "@/lib/economic-demo/paid-workflow-proof-ui-fixtures";
 
 export const metadata: Metadata = {
   title: "Buyer Paid Workflow (No-Spend Shell)",
   description:
-    "No-spend buyer paid-workflow route shell: quote, budget summary, execution placeholder, result, receipt/proof, evidence, and fail-closed boundary states from deterministic fixtures.",
+    "No-spend buyer paid-workflow route: quote, budget ledger, execution timeline, result, receipt/proof, evidence, and fail-closed boundary states from deterministic fixtures.",
 };
 
 const journeyOrder = [
@@ -140,6 +142,98 @@ function FailClosedPanel({
   );
 }
 
+function ledgerRowTone(row: BuyerPaidWorkflowLedgerRow): "success" | "warning" | "danger" | "neutral" {
+  if (row.availability === "blocked") return "danger";
+  if (row.availability === "unavailable") return "warning";
+  if (row.state === "unspent_zero" || row.state === "remaining_full_budget") return "success";
+  return "neutral";
+}
+
+function LedgerRow({ row }: { row: BuyerPaidWorkflowLedgerRow }) {
+  return (
+    <li
+      className="rounded-md border border-border bg-muted/30 p-3"
+      data-testid={`paid-workflow-ledger-row-${row.id}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">{row.label}</p>
+          {row.party && <p className="mt-0.5 font-mono text-xs text-muted-foreground">{row.party}</p>}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-mono text-sm font-semibold text-foreground">
+            {row.amountUsdc === null ? "unavailable" : `${row.amountUsdc} USDC`}
+          </span>
+          <StatusBadge tone={ledgerRowTone(row)}>{row.state.replaceAll("_", " ")}</StatusBadge>
+        </div>
+      </div>
+      <p className="mt-2 text-xs leading-5 text-muted-foreground">{row.detail}</p>
+      {row.refs.length > 0 ? (
+        <ul className="mt-2 flex flex-wrap gap-1.5" aria-label={`${row.label} source refs`}>
+          {row.refs.slice(0, 3).map((ref) => (
+            <li
+              key={ref}
+              className="break-all rounded-md border border-border bg-background/40 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+            >
+              {compactRef(ref)}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 rounded-md border border-border bg-background/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+          No fixture ref: row is explicitly {row.availability}.
+        </p>
+      )}
+    </li>
+  );
+}
+
+function TimelineMilestone({ milestone }: { milestone: BuyerPaidWorkflowTimelineMilestone }) {
+  return (
+    <li
+      className="relative pb-5 pl-8 last:pb-0"
+      data-testid={`paid-workflow-timeline-${milestone.id}`}
+    >
+      <span
+        className="absolute left-0 top-0.5 inline-flex size-5 items-center justify-center rounded-full border border-border bg-muted/40 font-mono text-[10px] text-muted-foreground"
+        aria-hidden="true"
+      >
+        {milestone.order}
+      </span>
+      <span className="absolute bottom-0 left-2.5 top-6 w-px bg-border last:hidden" aria-hidden="true" />
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-sm font-semibold text-foreground">{milestone.label}</h3>
+        <StatusBadge tone={milestone.status === "preview_only" ? "neutral" : "success"}>
+          {milestone.status.replaceAll("_", " ")}
+        </StatusBadge>
+        <StatusBadge tone="warning">{milestone.stateLabel}</StatusBadge>
+      </div>
+      <p className="mt-1 text-sm leading-6 text-muted-foreground">{milestone.summary}</p>
+      {milestone.refs.length > 0 ? (
+        <ul className="mt-2 flex flex-wrap gap-1.5" aria-label={`${milestone.label} refs`}>
+          {milestone.refs.slice(0, 3).map((ref) => (
+            <li
+              key={ref}
+              className="break-all rounded-md border border-border bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+            >
+              {compactRef(ref)}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 rounded-md border border-border bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+          No public ref: preview-only milestone.
+        </p>
+      )}
+      {milestone.recordedDevnetRef && (
+        <p className="mt-1.5 font-mono text-[10px] text-muted-foreground/80">
+          devnet_proof_metadata: {milestone.recordedDevnetRef}
+        </p>
+      )}
+    </li>
+  );
+}
+
 function BlockedCaseCard({ item }: { item: BuyerPaidWorkflowBlockedCase }) {
   return (
     <article
@@ -163,6 +257,10 @@ function BlockedCaseCard({ item }: { item: BuyerPaidWorkflowBlockedCase }) {
       </ul>
       <p className="mt-3 text-xs text-red-100/70">
         {item.boundaryLabels[item.boundaryLabels.length - 1] ?? "Fail-closed fixture state only."}
+      </p>
+      <p className="mt-2 rounded-md border border-destructive/40 bg-background/20 px-2 py-1 font-mono text-[10px] text-red-100/80">
+        spent {item.spendState.spentUsdc} USDC | refunds {item.spendState.refundsIssued} | spending and
+        mutation stay false
       </p>
     </article>
   );
@@ -194,9 +292,10 @@ export default function BuyerPaidWorkflowPage() {
                 Buyer paid workflow — no-spend shell
               </h1>
               <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
-                The buyer journey from quote to budget to result to receipt and evidence, rendered
-                entirely from deterministic no-network fixtures under the #497 route state contract.
-                Nothing on this page signs, spends, settles, publishes, or mutates trust.
+                The buyer journey from quote to budget ledger to execution timeline to result,
+                receipt, and evidence, rendered entirely from deterministic no-network fixtures under
+                the #497 route state contract. Nothing on this page signs, spends, settles,
+                publishes, or mutates trust.
               </p>
             </div>
             <Link
@@ -287,37 +386,72 @@ export default function BuyerPaidWorkflowPage() {
                     {model.budget.downstreamProfileIds.length} downstream specialist profiles planned;
                     downstream calls executed:{" "}
                     <span className="font-mono text-foreground">{model.budget.downstreamCallsExecuted}</span>.
-                    Detailed budget rows (specialist, attestor, fee/margin, remaining/refund) land with #499.
+                    Row-level allocation, remaining, and refund states are in the budget ledger below.
                   </p>
                 </JourneySection>
               </div>
 
               <article
-                className="rounded-lg border border-dashed border-border bg-muted/20 p-4"
-                data-testid="paid-workflow-timeline-placeholder"
+                className="rounded-lg border border-border bg-card p-4"
+                aria-label="Budget ledger"
+                data-testid="paid-workflow-ledger"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Execution / timeline — placeholder
-                    </h3>
-                    <p className="mt-1 text-sm text-muted-foreground">{model.executionTimeline.placeholderNote}</p>
+                    <h3 className="text-sm font-semibold text-foreground">Budget ledger</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Every row is traced to a fixture/read-model ref or explicitly marked
+                      unavailable/blocked. Planned allocations reconcile exactly to the buyer budget;
+                      spent stays an authoritative zero.
+                    </p>
                   </div>
-                  <StatusBadge tone="neutral">
-                    Pending {model.executionTimeline.pendingIssueRef}
-                  </StatusBadge>
+                  <StatusBadge tone="success">allocations reconciled</StatusBadge>
+                </div>
+                <p className="mt-2 font-mono text-xs text-muted-foreground">{model.ledger.state}</p>
+                <dl
+                  className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4"
+                  data-testid="paid-workflow-ledger-totals"
+                >
+                  {[
+                    { label: "Buyer budget", value: `${model.ledger.buyerBudgetUsdc} ${model.ledger.currency}` },
+                    { label: "Allocated (planned)", value: `${model.ledger.allocatedUsdc} ${model.ledger.currency}` },
+                    { label: "Spent", value: `${model.ledger.spentUsdc} ${model.ledger.currency}` },
+                    { label: "Remaining (unspent)", value: `${model.ledger.remainingIfUnspentUsdc} ${model.ledger.currency}` },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-md border border-border bg-muted/30 px-3 py-2">
+                      <dt className="text-xs text-muted-foreground">{item.label}</dt>
+                      <dd className="mt-0.5 font-mono text-sm font-semibold text-foreground">{item.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <ul className="mt-3 space-y-2" aria-label="Budget ledger rows">
+                  {model.ledger.rows.map((row) => (
+                    <LedgerRow key={row.id} row={row} />
+                  ))}
+                </ul>
+              </article>
+
+              <article
+                className="rounded-lg border border-border bg-card p-4"
+                aria-label="Execution timeline"
+                data-testid="paid-workflow-timeline"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">Execution timeline</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Milestones come from the {model.executionTimeline.recordedDevnetIssueRef} recorded
+                      dry-run rehearsal and the fixture pack; nothing here executed live. Recorded-devnet
+                      metadata labels reference{" "}
+                      <span className="font-mono text-xs">{model.executionTimeline.sourceRunbookPath}</span>.
+                    </p>
+                  </div>
+                  <StatusBadge tone="neutral">no live execution</StatusBadge>
                 </div>
                 <p className="mt-2 font-mono text-xs text-muted-foreground">{model.executionTimeline.state}</p>
-                <ol className="mt-3 flex flex-wrap gap-2" aria-label="Rehearsed milestones">
+                <ol className="mt-4" aria-label="Execution timeline milestones">
                   {model.executionTimeline.milestones.map((milestone) => (
-                    <li key={milestone.id}>
-                      <span className="inline-flex min-h-6 items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground">
-                        <span className="capitalize">{milestone.label}</span>
-                        <span className="font-mono text-[10px] text-muted-foreground/80">
-                          {milestone.status === "rehearsed_dry_run" ? "dry-run" : "preview"}
-                        </span>
-                      </span>
-                    </li>
+                    <TimelineMilestone key={milestone.id} milestone={milestone} />
                   ))}
                 </ol>
               </article>
@@ -498,8 +632,13 @@ export default function BuyerPaidWorkflowPage() {
                   All live flags false
                 </p>
               </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                The full #497 16-flag grid: twelve fixture-pack flags plus the four contract-only
+                flags (production AUDD rail, default USDC auto-pay, mainnet settlement, Pay.sh
+                production activation).
+              </p>
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {Object.keys(model.boundaryFlags).map((key) => (
+                {Object.keys(model.hardBoundaryFlags).map((key) => (
                   <div
                     key={key}
                     className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm"
