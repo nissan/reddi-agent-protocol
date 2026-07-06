@@ -42,7 +42,6 @@ Validation:
 - `git diff --check` PASS.
 
 RESUME FROM HERE: #510 unblocks the #384/#385/#386 UI flows and future listing preview/approval UI against `onboarding-state-machine` shapes; #374 guided-workflow implementation should build on this read model rather than re-encoding the transition graph.
->>>>>>> origin/main
 
 ## Latest Update — Onboarding analyser handoff contracts + no-network fixture matrix (2026-07-06 AEST)
 
