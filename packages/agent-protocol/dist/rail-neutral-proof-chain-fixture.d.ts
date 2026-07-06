@@ -3,7 +3,7 @@ import { type RailNeutralPaymentReceipt, type RailNeutralPaymentReceiptError, ty
 import { type ReceiptEvidenceBinding } from './receipt-evidence-binding.js';
 import { type ReddiReceipt } from './receipts.js';
 export declare const RAIL_NEUTRAL_PROOF_CHAIN_FIXTURE_SCHEMA_VERSION: "reddi.rail-neutral-proof-chain-fixture.v1";
-export type RailNeutralProofChainFixtureCase = 'pay_sh_sandbox_single_charge_binding' | 'mpp_tempo_unsupported_network' | 'unsupported_asset_network' | 'malformed_receipt' | 'policy_denied' | 'live_path_overclaim';
+export type RailNeutralProofChainFixtureCase = 'pay_sh_sandbox_single_charge_binding' | 'mpp_tempo_unsupported_network' | 'unsupported_asset_network' | 'malformed_receipt' | 'policy_denied' | 'live_path_overclaim' | 'airwallex_webhook_probe_only_cap';
 export type RailNeutralProofChainFixtureStatus = 'binding_ready' | 'blocked';
 export type RailNeutralProofChainFixtureGuardrails = {
     fixtureOnly: true;
@@ -72,5 +72,6 @@ export declare const railNeutralProofChainFixtures: {
     readonly unsupportedAssetNetwork: RailNeutralProofChainFixture;
     readonly malformedReceipt: RailNeutralProofChainFixture;
     readonly policyDenied: RailNeutralProofChainFixture;
+    readonly airwallexWebhookProbeOnlyCap: RailNeutralProofChainFixture;
     readonly livePathOverclaim: RailNeutralProofChainFixture;
 };

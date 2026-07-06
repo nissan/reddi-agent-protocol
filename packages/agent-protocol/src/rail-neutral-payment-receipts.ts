@@ -5,10 +5,15 @@ import type {
   MppTempoReceiptShapeFixture,
 } from './mpp-tempo-receipt-shapes.js';
 import type { ReceiptEvidenceSourceRef } from './receipt-evidence-binding.js';
+import {
+  normalizeAirwallexWebhookFixture,
+  type AirwallexWebhookFixture,
+  type AirwallexWebhookNormalizationReasonCode,
+} from './airwallex-webhook-receipt-normalization.js';
 
 export const RAIL_NEUTRAL_PAYMENT_RECEIPT_SCHEMA_VERSION = 'reddi.rail-neutral-payment-receipt.v1' as const;
 
-export type RailNeutralPaymentReceiptRail = 'pay-sh-sandbox' | 'mpp-tempo';
+export type RailNeutralPaymentReceiptRail = 'pay-sh-sandbox' | 'mpp-tempo' | 'airwallex-hosted-checkout';
 
 export type RailNeutralPaymentReceiptSupportState =
   | 'receipt_binding_candidate'
@@ -51,7 +56,7 @@ export type RailNeutralPaymentReceipt = {
     network: string;
     asset: string;
     amount: string;
-    unit: 'microusd' | 'base-units';
+    unit: 'microusd' | 'base-units' | 'fiat-minor-units';
     paymentProofRef: string;
     receiptRef?: string;
   };
@@ -68,25 +73,41 @@ export type RailNeutralPaymentReceipt = {
     reasonCodes: string[];
     auditNotes: string[];
   };
-  bindingIntegration: {
-    schemaVersion: 'reddi.receipt-evidence-binding.v1';
-    compatible: true;
-    requiredReceiptSchemaVersion: 'reddi.receipt.v1';
-  };
+  bindingIntegration:
+    | {
+      schemaVersion: 'reddi.receipt-evidence-binding.v1';
+      compatible: true;
+      requiredReceiptSchemaVersion: 'reddi.receipt.v1';
+    }
+    | {
+      schemaVersion: 'reddi.receipt-evidence-binding.v1';
+      /**
+       * probe_only receipts are NOT receipt-v1 binding candidates. Reasons are
+       * recorded per-rail (e.g. Airwallex: fiat network outside the receipt v1
+       * network table; card receipts revocable with no receipt-v1
+       * revoked/contested state — #338 gap; frozen union not widened here).
+       */
+      compatible: false;
+      requiredReceiptSchemaVersion: 'reddi.receipt.v1';
+      incompatibilityReasons: string[];
+    };
   claimBoundary: string[];
   guardrails: RailNeutralPaymentReceiptGuardrails;
 };
 
 export type RailNeutralPaymentReceiptInput =
   | { rail: 'pay-sh-sandbox'; fixture: PayShSandboxEvidenceFixture }
-  | { rail: 'mpp-tempo'; fixture: MppTempoReceiptShapeFixture };
+  | { rail: 'mpp-tempo'; fixture: MppTempoReceiptShapeFixture }
+  | { rail: 'airwallex-hosted-checkout'; fixture: AirwallexWebhookFixture };
 
 export type RailNeutralPaymentReceiptErrorCode =
   | 'malformed_receipt'
   | 'unsupported_asset_network'
   | 'policy_denied'
   | 'unsupported_fixture_state'
-  | 'live_path_rejected';
+  | 'live_path_rejected'
+  | 'revocable_event_rejected'
+  | 'pii_rejected';
 
 export type RailNeutralPaymentReceiptError = {
   code: RailNeutralPaymentReceiptErrorCode;
@@ -152,13 +173,20 @@ export function deriveRailNeutralPaymentReceipt(
 
   const candidate = input.rail === 'pay-sh-sandbox'
     ? fromPayShSandbox(input.fixture, options, errors)
-    : fromMppTempo(input.fixture, options, errors);
+    : input.rail === 'mpp-tempo'
+      ? fromMppTempo(input.fixture, options, errors)
+      : fromAirwallexWebhook(input.fixture, errors);
 
   if (!candidate) return { ok: false, errors };
 
-  const networkAsset = `${candidate.payment.network}:${candidate.payment.asset}`;
-  if (!RECEIPT_V1_SUPPORTED_NETWORK_ASSETS.has(networkAsset)) {
-    errors.push(error('unsupported_asset_network', '$.payment', `${networkAsset} is not supported by Reddi receipt v1 binding`));
+  // probe_only rails (Airwallex hosted checkout) are deliberately NOT gated on
+  // the receipt v1 network table — being outside it is one of the reasons they
+  // cap at probe_only in the first place. Binding candidates must still pass.
+  if (candidate.supportState === 'receipt_binding_candidate') {
+    const networkAsset = `${candidate.payment.network}:${candidate.payment.asset}`;
+    if (!RECEIPT_V1_SUPPORTED_NETWORK_ASSETS.has(networkAsset)) {
+      errors.push(error('unsupported_asset_network', '$.payment', `${networkAsset} is not supported by Reddi receipt v1 binding`));
+    }
   }
 
   if (errors.length > 0) return { ok: false, errors };
@@ -169,7 +197,7 @@ export function deriveRailNeutralPaymentReceipt(
       schemaVersion: RAIL_NEUTRAL_PAYMENT_RECEIPT_SCHEMA_VERSION,
       rail: candidate.rail,
       case: candidate.case,
-      supportState: 'receipt_binding_candidate',
+      supportState: candidate.supportState,
       source: candidate.source,
       payment: candidate.payment,
       bindingRefs: candidate.bindingRefs,
@@ -178,22 +206,26 @@ export function deriveRailNeutralPaymentReceipt(
         reasonCodes: policy.reasonCodes,
         auditNotes: policy.auditNotes ?? [],
       },
-      bindingIntegration: {
-        schemaVersion: 'reddi.receipt-evidence-binding.v1',
-        compatible: true,
-        requiredReceiptSchemaVersion: 'reddi.receipt.v1',
-      },
+      bindingIntegration: candidate.bindingIntegration,
       claimBoundary: candidate.claimBoundary,
       guardrails: RAIL_NEUTRAL_PAYMENT_RECEIPT_GUARDRAILS,
     },
   };
 }
 
+type RailNeutralPaymentReceiptCandidate = Omit<RailNeutralPaymentReceipt, 'schemaVersion' | 'policy' | 'guardrails'>;
+
+const BINDING_CANDIDATE_INTEGRATION = {
+  schemaVersion: 'reddi.receipt-evidence-binding.v1',
+  compatible: true,
+  requiredReceiptSchemaVersion: 'reddi.receipt.v1',
+} as const;
+
 function fromPayShSandbox(
   fixture: PayShSandboxEvidenceFixture,
   options: RailNeutralPaymentReceiptOptions,
   errors: RailNeutralPaymentReceiptError[],
-): Omit<RailNeutralPaymentReceipt, 'schemaVersion' | 'supportState' | 'policy' | 'bindingIntegration' | 'guardrails'> | undefined {
+): RailNeutralPaymentReceiptCandidate | undefined {
   if (fixture.status !== 'proven_single_charge' || fixture.case !== 'single_charge') {
     errors.push(error('unsupported_fixture_state', '$.fixture.status', 'only proven Pay.sh sandbox single-charge evidence can become a binding candidate'));
     return undefined;
@@ -205,6 +237,8 @@ function fromPayShSandbox(
   return {
     rail: 'pay-sh-sandbox',
     case: fixture.case,
+    supportState: 'receipt_binding_candidate',
+    bindingIntegration: BINDING_CANDIDATE_INTEGRATION,
     source: fixture.bindingRefs.source,
     payment: {
       network: options.networkOverride ?? 'solana-devnet',
@@ -233,7 +267,7 @@ function fromMppTempo(
   fixture: MppTempoReceiptShapeFixture,
   options: RailNeutralPaymentReceiptOptions,
   errors: RailNeutralPaymentReceiptError[],
-): Omit<RailNeutralPaymentReceipt, 'schemaVersion' | 'supportState' | 'policy' | 'bindingIntegration' | 'guardrails'> | undefined {
+): RailNeutralPaymentReceiptCandidate | undefined {
   if (fixture.supportState !== 'binding_candidate' || fixture.case !== 'mpp_single_charge_tempo_candidate') {
     errors.push(error('unsupported_fixture_state', '$.fixture.supportState', 'only MPP Tempo single-charge binding candidates can be normalized'));
     return undefined;
@@ -245,6 +279,8 @@ function fromMppTempo(
   return {
     rail: 'mpp-tempo',
     case: fixture.case,
+    supportState: 'receipt_binding_candidate',
+    bindingIntegration: BINDING_CANDIDATE_INTEGRATION,
     source: {
       kind: 'static-fixture',
       sourceId: fixture.bindingRefs.sourceId,
@@ -270,6 +306,86 @@ function fromMppTempo(
     claimBoundary: [
       ...fixture.claimBoundary,
       'Rail-neutral normalization does not accept Tempo as Reddi receipt v1 settlement proof until a separate verifier and network allowlist lane is approved.',
+    ],
+  };
+}
+
+/**
+ * Rail-neutral error codes for Airwallex webhook-fixture rejections. The
+ * fine-grained reason codes live on `normalizeAirwallexWebhookFixture` (the
+ * primary surface); here they map onto the shared rail-neutral vocabulary.
+ */
+const AIRWALLEX_REASON_TO_ERROR_CODE: Record<AirwallexWebhookNormalizationReasonCode, RailNeutralPaymentReceiptErrorCode> = {
+  airwallex_webhook_probe_only_receipt: 'malformed_receipt', // success code; never mapped on the failure path
+  webhook_fixture_malformed: 'malformed_receipt',
+  non_synthetic_fixture_rejected: 'live_path_rejected',
+  unknown_event_rejected: 'unsupported_fixture_state',
+  revocation_event_not_receipt: 'revocable_event_rejected',
+  signature_missing_or_not_fixture_asserted: 'malformed_receipt',
+  live_signature_verification_rejected: 'live_path_rejected',
+  merchant_secret_material_rejected: 'live_path_rejected',
+  credential_material_rejected: 'live_path_rejected',
+  live_url_rejected: 'live_path_rejected',
+  pan_shaped_string_rejected: 'pii_rejected',
+  email_shaped_string_rejected: 'pii_rejected',
+  custody_claim_rejected: 'live_path_rejected',
+  settlement_finality_claim_rejected: 'live_path_rejected',
+};
+
+/**
+ * Static Airwallex webhook fixtures normalize to AT MOST `probe_only` (#580):
+ * card-rail receipts are revocable and `reddi.receipt.v1` has no
+ * revoked/contested state (#338 gap — the frozen union is not widened here),
+ * the fiat network sits outside the receipt v1 network table, and webhook
+ * HMAC signatures are fixture-asserted (no merchant secret is ever held).
+ * Refund/dispute/reversal events are explicitly NOT receipts and fail closed.
+ */
+function fromAirwallexWebhook(
+  fixture: AirwallexWebhookFixture,
+  errors: RailNeutralPaymentReceiptError[],
+): RailNeutralPaymentReceiptCandidate | undefined {
+  const normalized = normalizeAirwallexWebhookFixture(fixture);
+  if (!normalized.ok) {
+    normalized.reasonCodes.forEach((reasonCode, index) => {
+      errors.push(error(
+        AIRWALLEX_REASON_TO_ERROR_CODE[reasonCode],
+        '$.fixture',
+        `${reasonCode}: ${normalized.auditNotes[index] ?? 'Airwallex webhook fixture rejected (fail closed).'}`,
+      ));
+    });
+    return undefined;
+  }
+  const receipt = normalized.receipt;
+  return {
+    rail: 'airwallex-hosted-checkout',
+    case: 'airwallex_webhook_probe_only',
+    supportState: 'probe_only',
+    bindingIntegration: {
+      schemaVersion: 'reddi.receipt-evidence-binding.v1',
+      compatible: false,
+      requiredReceiptSchemaVersion: 'reddi.receipt.v1',
+      incompatibilityReasons: [
+        `Fiat rail (${receipt.payment.fiatAssetNamespace}) sits outside the Reddi receipt v1 network table (Solana-only).`,
+        'Card-rail receipts are revocable; reddi.receipt.v1 has no revoked/contested state for reversible rails — gap tracked in issue #338; the frozen receipt v1 union is not widened.',
+        'Webhook HMAC signatures are fixture-asserted only; RAP never holds a merchant webhook secret, so no live verification backs this shape.',
+      ],
+    },
+    source: {
+      kind: 'static-fixture',
+      sourceId: `airwallex-webhook-fixture:${receipt.eventRef.eventId}`,
+      fixtureRef: receipt.bindingRefs.evidenceRef,
+    },
+    payment: {
+      network: 'airwallex-hosted-checkout',
+      asset: receipt.payment.currency,
+      amount: receipt.payment.amount,
+      unit: receipt.payment.unit,
+      paymentProofRef: receipt.payment.paymentProofRef,
+    },
+    bindingRefs: { ...receipt.bindingRefs },
+    claimBoundary: [
+      ...receipt.claimBoundary,
+      'Rail-neutral normalization of Airwallex webhook fixtures caps at probe_only and never produces a final, settled, or binding receipt.',
     ],
   };
 }
