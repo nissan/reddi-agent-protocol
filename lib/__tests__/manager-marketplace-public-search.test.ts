@@ -83,6 +83,8 @@ describe("hosted marketplace catalog search", () => {
     expect(result.blocked.find((item) => item.fixtureKey === "rejectedMalformedConnector")?.reasons).toEqual([
       "readiness_not_publish_ready:blocked",
       "publication_not_allowed",
+      "publish_audit_malformed",
+      "unsafe_metadata",
     ]);
   });
 
