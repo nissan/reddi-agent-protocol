@@ -1,29 +1,73 @@
 import { createHash } from 'node:crypto';
 
-import type {
-  BuyerAuthorityAsset,
-  BuyerAuthoritySpendCap,
+import {
+  validateBuyerAuthorityPolicy,
+  type BuyerAuthorityAsset,
+  type BuyerAuthorityPolicy,
+  type BuyerAuthoritySpendCap,
 } from './buyer-authority-policy.js';
-import type { ReddiReceipt } from './receipts.js';
+import { validateReddiReceipt, type ReddiReceipt } from './receipts.js';
 
 /**
- * DRAFT v1 adapter — Google AP2 (Agent Payments Protocol) mandate ingestion.
+ * `reddi.ap2-mandate-ingestion.v1` — Google AP2 (Agent Payments Protocol)
+ * mandate ingestion into the RAP buyer-authority policy gate (#563, promoted
+ * from the PR #571 DRAFT).
  *
  * AP2 is a trust/authorization layer, NOT a settlement rail. This module maps a
- * STATIC signed-mandate fixture onto Reddi buyer-authority-policy constraints and
- * emits a receipt-bindable `mandateRef`, with ZERO settlement-finality claim.
+ * STATIC signed-mandate fixture onto Reddi buyer-authority-policy constraints,
+ * composes those constraints with a LOCAL buyer-authority policy (the mandate
+ * can only narrow local authority, never widen it), and emits a receipt-bindable
+ * `mandateRef` — with ZERO settlement-finality claim by construction.
  *
- * DRAFT DISCIPLINE: every AP2 / FIDO / Visa / Mastercard structural detail below
- * (mandate vocabulary, VDC envelope, field names) is UNVERIFIED against the live
- * standard and is derived from low/medium-confidence research. Each external-standard
- * field is tagged inline. Fixtures are ILLUSTRATIVE, not authoritative. The VDC
- * signature is treated as an OPAQUE, fixture-asserted blob and is NEVER verified
- * against a live key.
+ * SPEC STATUS (promoted by #563, was DRAFT in PR #571): the RAP-side adapter
+ * contract — ingestion rules, fail-closed lanes, reason codes, policy-gate
+ * composition semantics, and the receipt-binding contract — is spec'd and
+ * frozen for v1. See `docs/AP2-MANDATE-INGESTION-SPEC-2026-07-06.md` and the
+ * machine-readable `AP2_MANDATE_FIELD_PROVENANCE` / `AP2_UNSUPPORTED_FIELDS`
+ * tables. Conformance surface: `ap2-mandate-conformance.ts`.
+ *
+ * EXTERNAL-STANDARD PROVENANCE: AP2 itself (and its FIDO / Visa TAP /
+ * Mastercard Verifiable Intent context) is an external draft standard whose
+ * field shapes are UNVERIFIED against any live implementation. Every AP2-side
+ * structural detail below (mandate vocabulary, VDC envelope, field names,
+ * governance lineage) keeps its inline `(DRAFT/unverified — <standard>)` tag,
+ * and every ingestion result carries the `AP2_EXTERNAL_STANDARD` honesty block.
+ * Promoting the RAP-side contract does NOT upgrade confidence in the external
+ * draft.
+ *
+ * HARD BOUNDARY — SIGNATURES AND KEYS: the VDC signature is an OPAQUE,
+ * FIXTURE-ASSERTED blob. There is NO cryptographic verification of any
+ * Visa / Mastercard / FIDO material anywhere in this module, and NO key
+ * handling: signature- or key-shaped material outside the single opaque
+ * `vdc.signatureB64` slot fails closed (`signature_material_rejected`).
+ * No network, no wallet, no RPC, no live call — pure functions over fixtures.
  */
 export const AP2_MANDATE_INGESTION_SCHEMA_VERSION = 'reddi.ap2-mandate-ingestion.v1' as const;
 
-/** Top-level draft flag: this schema signals draft/unverified external-standard shapes. */
-export const AP2_MANDATE_INGESTION_DRAFT = true as const;
+/**
+ * Promoted by #563: the RAP-side adapter contract is no longer a draft.
+ * External AP2 field-shape uncertainty is tracked separately and honestly via
+ * `AP2_EXTERNAL_STANDARD.fieldShapesVerified: false` on every result —
+ * promotion of the RAP contract does NOT fake confidence in the external draft.
+ */
+export const AP2_MANDATE_INGESTION_DRAFT = false as const;
+
+/**
+ * External-standard provenance block carried on every ingestion/composition
+ * result. AP2 field shapes are unverified; the signature model is
+ * fixture-asserted only; AP2 is not a settlement rail and RAP claims none.
+ */
+export const AP2_EXTERNAL_STANDARD = {
+  name: 'Google AP2 (Agent Payments Protocol)',
+  status: 'external-draft-standard',
+  fieldShapesVerified: false,
+  signatureVerification: 'fixture-asserted',
+  /** (DRAFT/unverified — FIDO/Visa/Mastercard) governance lineage unconfirmed. */
+  governanceLineageVerified: false,
+  settlementRail: false,
+} as const;
+
+export type Ap2ExternalStandard = typeof AP2_EXTERNAL_STANDARD;
 
 /**
  * AP2 mandate vocabulary.
@@ -41,11 +85,16 @@ export type Ap2MandateType =
   | 'payment_open'
   | 'payment_closed';
 
+const AP2_MANDATE_TYPE_VOCABULARY: readonly Ap2MandateType[] = [
+  'intent', 'cart', 'payment',
+  'checkout_open', 'checkout_closed', 'payment_open', 'payment_closed',
+];
+
 /**
  * AP2 Verifiable Digital Credential (VDC) envelope.
  * (DRAFT/unverified — AP2 VDC, confirm envelope: JWT vs SD-JWT vs LD-Proof is NOT
  * confirmed against the live spec.) The signature is OPAQUE and fixture-asserted:
- * this adapter never verifies it against a live key.
+ * this adapter never verifies it against a live key and never holds key material.
  */
 export type Ap2VerifiableDigitalCredential = {
   /** (DRAFT/unverified — AP2 VDC) illustrative algorithm label; never used to verify. */
@@ -65,7 +114,7 @@ export type Ap2MandateFixture = {
   mandateType: Ap2MandateType;
   /** (DRAFT/unverified — AP2) human-present vs delegated/not-present authorization semantics. */
   humanPresent?: boolean;
-  /** (DRAFT/unverified — AP2) merchant/seller reference; maps to a seller allowlist addition. */
+  /** (DRAFT/unverified — AP2) merchant/seller reference; maps to namespaced seller refs. */
   merchant?: { id: string; name?: string };
   /** (DRAFT/unverified — AP2) finalized cart (present only for cart/closed mandates). */
   cart?: {
@@ -99,11 +148,12 @@ export type Ap2SupportState =
 
 /**
  * Receipt-bindable AP2 mandate reference. Carries hash + type + support-state only —
- * never the VDC signature, cart contents, or any credential material.
+ * never the VDC signature, cart contents, mandate terms, or any credential material.
  */
 export type Ap2MandateRef = {
   schemaVersion: typeof AP2_MANDATE_INGESTION_SCHEMA_VERSION;
-  draft: true;
+  /** Promoted by #563 — the RAP-side ref contract is v1. External uncertainty lives in AP2_EXTERNAL_STANDARD. */
+  draft: false;
   mandateType: Ap2MandateType;
   /** sha256 over the canonicalized mandate with the VDC signature removed. */
   mandateHash: string;
@@ -117,11 +167,18 @@ export type Ap2MandateRef = {
 
 /**
  * Buyer-authority-policy constraints derived from a mandate.
- * Does NOT itself authorize spend — it only tightens the existing buyer gate.
+ * Does NOT itself authorize spend — constraints only become effective through
+ * `composeAp2MandateWithLocalPolicy`, where the LOCAL policy is the ceiling.
  */
 export type Ap2DerivedPolicyConstraints = {
   allowedCurrencies: BuyerAuthorityAsset[];
   spendCaps: BuyerAuthoritySpendCap[];
+  /**
+   * Namespaced seller refs derived from the mandate merchant. Despite the
+   * historical name these are NEVER added to a local allowlist — composition
+   * INTERSECTS them with the local allowlist and blocks when the merchant is
+   * not already allowlisted locally (a mandate must never widen local authority).
+   */
   sellerAllowlistAdditions: { sellerIds: string[]; endpointIds: string[] };
   expiresAt?: string;
   operatorApprovalRequired: boolean;
@@ -130,7 +187,9 @@ export type Ap2DerivedPolicyConstraints = {
 export type Ap2IngestReasonCode =
   | 'ap2_mandate_ingested'
   | 'mandate_malformed'
+  | 'unsupported_mandate_type'
   | 'mandate_contains_credentials'
+  | 'signature_material_rejected'
   | 'settlement_finality_claim_rejected'
   | 'custody_claim_rejected'
   | 'unsupported_currency_rail'
@@ -141,6 +200,7 @@ export type Ap2IngestReasonCode =
 export type Ap2MandateIngestionGuardrails = {
   fixtureOnly: true;
   vdcSignatureVerifiedLive: false;
+  keyMaterialHeld: false;
   livePaymentExecuted: false;
   walletSigning: false;
   rpcCall: false;
@@ -150,7 +210,10 @@ export type Ap2MandateIngestionGuardrails = {
 
 export type Ap2MandateIngestionResult = {
   schemaVersion: typeof AP2_MANDATE_INGESTION_SCHEMA_VERSION;
-  draft: true;
+  /** Promoted by #563 — RAP-side contract is v1; external uncertainty is in `externalStandard`. */
+  draft: false;
+  /** External-standard honesty: AP2 shapes unverified, signatures fixture-asserted, no settlement rail. */
+  externalStandard: Ap2ExternalStandard;
   supportState: Ap2SupportState;
   mandateRef: Ap2MandateRef;
   derived: Ap2DerivedPolicyConstraints | null;
@@ -164,7 +227,7 @@ export type Ap2MandateIngestionResult = {
  * only — hash + type + support-state, with an explicit no-settlement flag.
  */
 export type Ap2ReceiptMandateBinding = {
-  draft: true;
+  draft: false;
   mandateType: Ap2MandateType;
   mandateHash: string;
   supportState: Ap2SupportState;
@@ -176,6 +239,7 @@ export type Ap2ReceiptMandateBinding = {
 export const AP2_MANDATE_INGESTION_GUARDRAILS: Ap2MandateIngestionGuardrails = {
   fixtureOnly: true,
   vdcSignatureVerifiedLive: false,
+  keyMaterialHeld: false,
   livePaymentExecuted: false,
   walletSigning: false,
   rpcCall: false,
@@ -186,12 +250,67 @@ export const AP2_MANDATE_INGESTION_GUARDRAILS: Ap2MandateIngestionGuardrails = {
 /** Illustrative default `now` for fixtures (fixture-only, no wall-clock dependency). */
 export const AP2_MANDATE_INGESTION_FIXTURE_NOW = '2026-07-05T00:00:00.000Z' as const;
 
+/**
+ * Machine-readable per-field provenance for the AP2 → buyer-authority mapping
+ * (#563, mirrors the ERC-8004 export convention). `rap-native` fields are
+ * adapter-defined; `ap2-draft-interface` marks the AP2-side field NAME as an
+ * unverified reference to the external draft standard. `lossy` documents any
+ * information loss or conservative narrowing in the projection.
+ */
+export const AP2_MANDATE_FIELD_PROVENANCE: ReadonlyArray<{
+  target: string;
+  source: string;
+  confidence: 'rap-native' | 'ap2-draft-interface';
+  lossy?: string;
+}> = [
+  { target: 'derived.allowedCurrencies[0]', source: 'ap2 $.payment.currency, fallback $.cart.total.currency', confidence: 'ap2-draft-interface', lossy: 'only AUDD/USDC/SOL fixture rails map; any other currency fails closed (unsupported_currency_rail)' },
+  { target: 'derived.spendCaps[0].maxAmountUnits', source: 'ap2 $.payment.budgetCap, fallback $.payment.amount, then $.cart.total.amount', confidence: 'ap2-draft-interface', lossy: 'decimal AP2 fixture amounts (≤2 decimals) are normalized losslessly into integer ap2-fixture-centiunits so the BigInt-based buyer-authority gate can compare them; higher precision fails closed; NEVER converted across rails (see AP2_UNSUPPORTED_FIELDS)' },
+  { target: 'derived.spendCaps[0].network', source: "adapter constant 'ap2-authorization-fixture'", confidence: 'rap-native', lossy: 'AP2 is an authorization layer, not a settlement network; the lane label is RAP-internal' },
+  { target: 'derived.spendCaps[0].window', source: "adapter constant 'per_request'", confidence: 'rap-native' },
+  { target: 'derived.sellerAllowlistAdditions.sellerIds[0]', source: "ap2 $.merchant.id, namespaced 'ap2-merchant:'", confidence: 'ap2-draft-interface', lossy: 'namespaced opaque ref; never a raw endpoint URL; only ever INTERSECTED with the local allowlist' },
+  { target: 'derived.sellerAllowlistAdditions.endpointIds[0]', source: "ap2 $.merchant.id, namespaced 'ap2-merchant-endpoint:'", confidence: 'ap2-draft-interface', lossy: 'same intersection-only semantics' },
+  { target: 'derived.expiresAt', source: 'ap2 $.expiresAt', confidence: 'ap2-draft-interface', lossy: 'composition takes the EARLIER of mandate and local expiry' },
+  { target: 'derived.operatorApprovalRequired', source: 'ap2 $.humanPresent === false', confidence: 'ap2-draft-interface', lossy: 'human-not-present semantics unverified; treated conservatively as requiring operator approval, and composition can only escalate approval, never clear it' },
+  { target: 'mandateRef.mandateType', source: 'ap2 $.mandateType', confidence: 'ap2-draft-interface' },
+  { target: 'mandateRef.mandateHash', source: 'sha256 over the canonicalized mandate with $.vdc.signatureB64 removed', confidence: 'rap-native', lossy: 'one-way digest; mandate contents and signature are never reconstructable from the ref' },
+  { target: 'mandateRef.humanPresent', source: 'ap2 $.humanPresent', confidence: 'ap2-draft-interface' },
+  { target: 'mandateRef.vdcVerification', source: "adapter constant 'fixture-asserted'", confidence: 'rap-native' },
+  { target: 'mandateRef.settlementFinalityClaimed', source: 'adapter constant false (literal type)', confidence: 'rap-native' },
+];
+
+/**
+ * AP2 surface RAP cannot (or deliberately will not) handle — documented
+ * fail-closed (#563). `behavior` is what this adapter does about each gap.
+ */
+export const AP2_UNSUPPORTED_FIELDS: ReadonlyArray<{
+  surface: string;
+  behavior: 'blocked' | 'omitted' | 'excluded';
+  reason: string;
+}> = [
+  { surface: 'Live VDC signature verification (JWT / SD-JWT / LD-Proof envelope)', behavior: 'blocked', reason: 'no cryptographic verification exists in this adapter; the VDC signature is opaque and fixture-asserted (vdcSignatureVerifiedLive: false on every result), and the envelope format itself is unverified upstream' },
+  { surface: 'FIDO / Visa TAP / Mastercard Agent Pay key or attestation material', behavior: 'blocked', reason: 'RAP never holds scheme key material; signature- or key-shaped material outside the single opaque vdc.signatureB64 slot fails closed (signature_material_rejected), and guardrails assert keyMaterialHeld: false' },
+  { surface: 'Card instruments / PANs / tokenized payment methods', behavior: 'blocked', reason: 'allowedInstruments stays category labels only; PAN-shaped values fail closed (mandate_contains_credentials); card execution is a downstream scheme rail, not RAP scope' },
+  { surface: 'Settlement finality / custody / live payment execution', behavior: 'blocked', reason: 'AP2 is a trust/authorization layer; settlement-finality and custody claims fail closed into unsupported_live_ap2_settlement, and settlementFinalityClaimed is the literal false on every ref and binding' },
+  { surface: 'Cross-unit amount conversion (AP2 decimal amounts vs RAP minor units)', behavior: 'omitted', reason: 'AP2 amount unit semantics are unverified; decimal fixture amounts normalize only WITHIN the ap2-authorization-fixture lane (to integer centi-units, ≤2 decimals, lossless), composition compares caps only inside that lane, and units are never converted across rails' },
+  { surface: 'Mandate lifecycle (revocation, supersession, refunds, disputes)', behavior: 'omitted', reason: 'one-shot ingestion of a static fixture; revocable-authorization lifecycle semantics route to rail-neutrality epic #338' },
+  { surface: 'Widening local authority from a mandate', behavior: 'blocked', reason: 'composition INTERSECTS: mandate currency and merchant must already be permitted locally (else blocked), caps take the local value when the mandate is wider, expiry takes the earlier bound, and operator approval can only escalate' },
+  { surface: 'Mandate contents / cart items / mandate terms on receipts', behavior: 'omitted', reason: 'receipts carry hash + type + support-state only; contents and signature material never bind (signature-bearing refs fail closed)' },
+  { surface: 'Open/intent mandates as spend authorization', behavior: 'excluded', reason: 'cart-less/open mandates are probe-only: usable for preflight and parser tests, but they derive no constraints, never compose, and never bind to a receipt' },
+];
+
 // Reuse the receipts.ts sensitive-key/value patterns (which deliberately do NOT flag
 // an expected opaque `signature` field). The VDC signature is stripped before scanning.
 const SENSITIVE_KEY_PATTERN = /(^|[_-])(api[_-]?key|authorization|bearer|cookie|credential|mnemonic|password|private[_-]?key|refresh[_-]?token|secret|seed|session[_-]?token|token)([_-]|$)|apiKey|accessToken|refreshToken|sessionToken|privateKey/i;
 const SENSITIVE_VALUE_PATTERN = /(-----BEGIN [A-Z ]*PRIVATE KEY-----|authorization:\s*bearer\s+|bearer\s+[a-z0-9._-]{8,}|sk-[a-z0-9_-]{8,})/i;
 // PAN-shaped: a run of 13–19 digits (optionally space/dash separated). Rejects raw card numbers.
 const PAN_PATTERN = /\b(?:\d[ -]?){13,19}\b/;
+
+// Signature/key material outside the single opaque vdc.signatureB64 slot. RAP does
+// no key handling: any FIDO/Visa/Mastercard signature-, JWS-, or proof-shaped field
+// elsewhere in a mandate (or in a mandate ref) fails closed.
+const SIGNATURE_KEY_PATTERN = /(^|[_-])(sig|jws|jwk|jwt|sd[_-]?jwt)([_-]|$)|signature|proofValue|signedPayload|attestationObject/i;
+// JWS/JWT compact serialization shape (three base64url segments).
+const SIGNATURE_VALUE_PATTERN = /\bey[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\b/;
 
 // Explicit settlement/custody claim markers. AP2 carries no settlement finality, so any
 // mandate asserting one is rejected into the `unsupported_live_ap2_settlement` state.
@@ -226,19 +345,31 @@ const AP2_CURRENCY_TO_RAP_ASSET: Record<string, BuyerAuthorityAsset> = {
   SOL: 'SOL',
 };
 
+/** RAP-internal lane label for AP2-derived constraints. AP2 is not a settlement network. */
+export const AP2_AUTHORIZATION_NETWORK = 'ap2-authorization-fixture' as const;
+
 const FINALIZED_MANDATE_TYPES: Ap2MandateType[] = ['cart', 'payment', 'checkout_closed', 'payment_closed'];
 
 /**
  * Ingest a static AP2 mandate fixture into buyer-authority constraints.
  *
- * Pure function: no network, no wallet, no RPC, no live VDC verification. The VDC
- * signature is treated as opaque. Fails closed on credentials/PAN, settlement/custody
- * claims, expiry, over-cap, and unsupported rails.
+ * Pure function: no network, no wallet, no RPC, no live VDC verification, no key
+ * handling. The VDC signature is treated as opaque. Fails closed on credentials/PAN,
+ * stray signature material, settlement/custody claims, unsupported mandate types,
+ * expiry, over-cap, and unsupported rails.
  */
 export function ingestAp2Mandate(mandate: Ap2MandateFixture, now: string): Ap2MandateIngestionResult {
-  if (!isStructuredMandate(mandate)) {
+  if (!hasVdcEnvelope(mandate)) {
     return failClosed(mandate, 'ap2_mandate_probe_only', ['mandate_malformed'], [
       'Denied: AP2 mandate fixture is malformed.',
+    ]);
+  }
+  if (!isStructuredMandate(mandate)) {
+    // Valid envelope, unknown mandate-type vocabulary — a distinct fail-closed lane
+    // so an unrecognized (possibly newer) mandate stage is never silently coerced.
+    const rawType = String((mandate as Record<string, unknown>).mandateType);
+    return failClosed(mandate, 'ap2_mandate_probe_only', ['unsupported_mandate_type'], [
+      `Denied: AP2 mandate type '${rawType}' is outside the supported vocabulary; unrecognized mandate stages never authorize.`,
     ]);
   }
 
@@ -250,6 +381,10 @@ export function ingestAp2Mandate(mandate: Ap2MandateFixture, now: string): Ap2Ma
   if (mandateContainsCredentialMaterial(stripped)) {
     reasonCodes.push('mandate_contains_credentials');
     auditNotes.push('Denied: AP2 mandate contains credential-, key-, or PAN-shaped material.');
+  }
+  if (containsSignatureMaterial(stripped)) {
+    reasonCodes.push('signature_material_rejected');
+    auditNotes.push('Denied: signature/key material outside the opaque vdc.signatureB64 slot; RAP does no key handling and holds no Visa/Mastercard/FIDO material.');
   }
   if (serializedContainsMarker(stripped, SETTLEMENT_CLAIM_MARKERS)) {
     reasonCodes.push('settlement_finality_claim_rejected');
@@ -271,7 +406,8 @@ export function ingestAp2Mandate(mandate: Ap2MandateFixture, now: string): Ap2Ma
   if (!finalized || !hasCart) {
     return {
       schemaVersion: AP2_MANDATE_INGESTION_SCHEMA_VERSION,
-      draft: true,
+      draft: false,
+      externalStandard: AP2_EXTERNAL_STANDARD,
       supportState: 'ap2_mandate_probe_only',
       mandateRef: buildMandateRef(mandate, 'ap2_mandate_probe_only'),
       derived: null,
@@ -296,32 +432,303 @@ export function ingestAp2Mandate(mandate: Ap2MandateFixture, now: string): Ap2Ma
     auditNotes.push('Denied: AP2 mandate payment amount exceeds its own declared budget cap.');
   }
 
-  if (reasonCodes.length > 0 || currency === null) {
+  // Normalize the cap into the shared fixture unit space (integer centi-units) so
+  // the BigInt-based buyer-authority gate can enforce it. Higher precision than the
+  // fixture unit space supports fails closed — no silent rounding.
+  const rawCapUnits = mandate.payment?.budgetCap ?? mandate.payment?.amount ?? mandate.cart?.total.amount ?? '0';
+  const capCentiUnits = ap2FixtureCentiUnits(rawCapUnits);
+  if (capCentiUnits === null) {
+    reasonCodes.push('mandate_malformed');
+    auditNotes.push('Denied: mandate amount precision is unsupported in the fixture unit space (max 2 decimals).');
+  }
+
+  if (reasonCodes.length > 0 || currency === null || capCentiUnits === null) {
     return failClosed(mandate, 'ap2_mandate_probe_only', reasonCodes, auditNotes);
   }
 
   return {
     schemaVersion: AP2_MANDATE_INGESTION_SCHEMA_VERSION,
-    draft: true,
+    draft: false,
+    externalStandard: AP2_EXTERNAL_STANDARD,
     supportState: 'ap2_mandate_fixture',
     mandateRef: buildMandateRef(mandate, 'ap2_mandate_fixture'),
-    derived: deriveConstraints(mandate, currency),
+    derived: deriveConstraints(mandate, currency, capCentiUnits),
     reasonCodes: ['ap2_mandate_ingested'],
     auditNotes: [
       'AP2 mandate ingested as fixture-asserted buyer-authority constraints.',
       'VDC signature treated as opaque (not verified live); no settlement-finality claim.',
+      'Constraints only take effect through composition with a local buyer-authority policy, which they can narrow but never widen.',
     ],
     guardrails: AP2_MANDATE_INGESTION_GUARDRAILS,
   };
 }
 
+// ---------------------------------------------------------------------------
+// Policy-gate composition (#563): local buyer authority is the ceiling.
+// ---------------------------------------------------------------------------
+
+export type Ap2CompositionReasonCode =
+  | 'ap2_composition_ok'
+  | 'local_policy_invalid'
+  | 'mandate_not_authorizing'
+  | 'mandate_currency_not_permitted_locally'
+  | 'mandate_merchant_not_allowlisted_locally'
+  | 'local_cap_missing_for_mandate_currency'
+  | 'mandate_cap_wider_than_local_cap'
+  | 'mandate_expiry_later_than_local'
+  | 'operator_approval_escalated'
+  | 'composed_policy_invalid';
+
+export type Ap2PolicyComposition = {
+  schemaVersion: typeof AP2_MANDATE_INGESTION_SCHEMA_VERSION;
+  draft: false;
+  externalStandard: Ap2ExternalStandard;
+  ok: boolean;
+  /** The composed (mandate-narrowed) local policy, or null when composition is blocked. */
+  composedPolicy: BuyerAuthorityPolicy | null;
+  /** The mandate ref the composed policy was narrowed by (bindable to receipts). */
+  mandateRef: Ap2MandateRef | null;
+  reasonCodes: Ap2CompositionReasonCode[];
+  auditNotes: string[];
+  guardrails: Ap2MandateIngestionGuardrails;
+};
+
+/**
+ * Compose an ingested AP2 mandate with a LOCAL `reddi.buyer-authority-policy.v1`.
+ *
+ * FAIL-CLOSED INVARIANT (#563): the local policy always wins or the composition
+ * blocks — a mandate must never widen local authority.
+ *
+ * - currency: the mandate currency must already be in the local policy
+ *   (else blocked); the composed policy narrows to that currency.
+ * - merchant: the mandate merchant refs must already be in the local seller
+ *   allowlist (else blocked); the composed allowlist narrows to the mandate
+ *   merchant (intersection).
+ * - spend cap: the local policy must carry a per-request cap for the mandate
+ *   currency on the `ap2-authorization-fixture` lane (absence of a local cap
+ *   never becomes unlimited authority — blocked). The composed cap is the MIN
+ *   of local and mandate caps; a wider mandate cap is recorded and ignored.
+ *   Amounts are compared only inside this lane's shared fixture unit space —
+ *   cross-unit conversion is never attempted (see AP2_UNSUPPORTED_FIELDS).
+ * - expiry: earlier of local and mandate expiry.
+ * - operator approval: escalates when the mandate was human-not-present or the
+ *   local policy requires it; never de-escalates.
+ * - everything else (mode, receipt/evidence requirements, refund/failure
+ *   policy, support-state constraints) is carried verbatim from the local
+ *   policy — a mandate cannot touch them.
+ */
+export function composeAp2MandateWithLocalPolicy(
+  localPolicy: unknown,
+  ingestion: Ap2MandateIngestionResult,
+): Ap2PolicyComposition {
+  const reasonCodes: Ap2CompositionReasonCode[] = [];
+  const auditNotes: string[] = [];
+
+  const blocked = (): Ap2PolicyComposition => ({
+    schemaVersion: AP2_MANDATE_INGESTION_SCHEMA_VERSION,
+    draft: false,
+    externalStandard: AP2_EXTERNAL_STANDARD,
+    ok: false,
+    composedPolicy: null,
+    mandateRef: ingestion?.mandateRef ?? null,
+    reasonCodes: dedupeComposition(reasonCodes),
+    auditNotes,
+    guardrails: AP2_MANDATE_INGESTION_GUARDRAILS,
+  });
+
+  const localValidation = validateBuyerAuthorityPolicy(localPolicy);
+  if (!localValidation.allowed) {
+    reasonCodes.push('local_policy_invalid');
+    auditNotes.push('Blocked: local buyer-authority policy failed validation; nothing composes.');
+    return blocked();
+  }
+  const local = localPolicy as BuyerAuthorityPolicy;
+
+  if (ingestion?.supportState !== 'ap2_mandate_fixture' || ingestion.derived === null) {
+    reasonCodes.push('mandate_not_authorizing');
+    auditNotes.push('Blocked: the mandate did not ingest as an authorizing fixture (probe-only or rejected mandates never compose).');
+    return blocked();
+  }
+  const derived = ingestion.derived;
+  const currency = derived.allowedCurrencies[0];
+
+  if (currency === undefined || !local.allowedCurrencies.includes(currency)) {
+    reasonCodes.push('mandate_currency_not_permitted_locally');
+    auditNotes.push('Blocked: the mandate currency is not permitted by the local policy; a mandate never widens local authority.');
+    return blocked();
+  }
+
+  const sellerIds = derived.sellerAllowlistAdditions.sellerIds;
+  const endpointIds = derived.sellerAllowlistAdditions.endpointIds;
+  const merchantAllowlisted = sellerIds.length > 0
+    && endpointIds.length > 0
+    && sellerIds.every((id) => local.sellerAllowlist.sellerIds.includes(id))
+    && endpointIds.every((id) => local.sellerAllowlist.endpointIds.includes(id));
+  if (!merchantAllowlisted) {
+    reasonCodes.push('mandate_merchant_not_allowlisted_locally');
+    auditNotes.push('Blocked: the mandate merchant is not in the local seller allowlist; a mandate never widens local authority.');
+    return blocked();
+  }
+
+  const localCap = local.spendCaps.find((cap) => (
+    cap.asset === currency && cap.network === AP2_AUTHORIZATION_NETWORK && cap.window === 'per_request'
+  ));
+  if (localCap === undefined) {
+    reasonCodes.push('local_cap_missing_for_mandate_currency');
+    auditNotes.push(`Blocked: the local policy carries no per-request ${currency} cap on the ${AP2_AUTHORIZATION_NETWORK} lane; a missing local cap never becomes unlimited authority.`);
+    return blocked();
+  }
+
+  // Both caps live in the ap2-authorization-fixture lane's integer centi-unit
+  // space, so BigInt comparison is legitimate. Local wins: unparseable or wider
+  // mandate caps fall back to the local cap.
+  const mandateCapRaw = derived.spendCaps[0]?.maxAmountUnits;
+  const comparison = typeof mandateCapRaw === 'string' ? compareUnits(mandateCapRaw, localCap.maxAmountUnits) : null;
+  let composedCapUnits = localCap.maxAmountUnits;
+  if (comparison !== null && comparison < 0) {
+    composedCapUnits = mandateCapRaw as string;
+    auditNotes.push('Composed cap tightened to the mandate cap (below the local ceiling).');
+  } else if (comparison === null || comparison > 0) {
+    reasonCodes.push('mandate_cap_wider_than_local_cap');
+    auditNotes.push('Mandate cap is wider than (or incomparable with) the local cap; the local cap wins — a mandate never widens local authority.');
+  }
+
+  // Expiry: earlier bound wins.
+  let composedExpiresAt = local.expiresAt;
+  const localExpiryMs = Date.parse(local.expiresAt);
+  const mandateExpiryMs = typeof derived.expiresAt === 'string' ? Date.parse(derived.expiresAt) : Number.NaN;
+  if (!Number.isNaN(localExpiryMs) && !Number.isNaN(mandateExpiryMs) && mandateExpiryMs < localExpiryMs) {
+    composedExpiresAt = derived.expiresAt as string;
+    auditNotes.push('Composed expiry tightened to the mandate expiry (before the local expiry).');
+  } else if (Number.isNaN(mandateExpiryMs) || mandateExpiryMs > localExpiryMs) {
+    reasonCodes.push('mandate_expiry_later_than_local');
+    auditNotes.push('Mandate expiry is later than (or missing vs) the local expiry; the local expiry wins.');
+  }
+
+  // Operator approval: escalate-only.
+  let composedApproval = structuredClone(local.operatorApproval) as BuyerAuthorityPolicy['operatorApproval'];
+  if (derived.operatorApprovalRequired && !local.operatorApproval.required) {
+    composedApproval = { ...composedApproval, required: true, approvalState: 'requires_operator_approval' };
+    reasonCodes.push('operator_approval_escalated');
+    auditNotes.push('Mandate was authorized human-not-present; operator approval escalated (approval never de-escalates).');
+  }
+
+  const composedPolicy: BuyerAuthorityPolicy = {
+    ...structuredClone(local) as BuyerAuthorityPolicy,
+    policyId: `${local.policyId}+ap2:${ingestion.mandateRef.mandateHash.slice(7, 15)}`,
+    expiresAt: composedExpiresAt,
+    allowedCurrencies: [currency],
+    allowedRails: local.allowedRails.filter((rail) => rail.asset === currency),
+    spendCaps: [{ ...localCap, maxAmountUnits: composedCapUnits }],
+    sellerAllowlist: {
+      sellerIds: [...sellerIds],
+      endpointIds: [...endpointIds],
+    },
+    operatorApproval: composedApproval,
+    notes: [
+      ...local.notes,
+      `Narrowed by AP2 mandate ${ingestion.mandateRef.mandateHash} (fixture-asserted; local buyer authority is the ceiling).`,
+    ],
+  };
+
+  // Belt-and-suspenders: the composed policy must itself pass the local gate's
+  // structural validation — otherwise the composition blocks.
+  const composedValidation = validateBuyerAuthorityPolicy(composedPolicy);
+  if (!composedValidation.allowed) {
+    reasonCodes.push('composed_policy_invalid');
+    auditNotes.push('Blocked: the composed policy failed buyer-authority validation.');
+    return blocked();
+  }
+
+  return {
+    schemaVersion: AP2_MANDATE_INGESTION_SCHEMA_VERSION,
+    draft: false,
+    externalStandard: AP2_EXTERNAL_STANDARD,
+    ok: true,
+    composedPolicy,
+    mandateRef: ingestion.mandateRef,
+    reasonCodes: dedupeComposition(['ap2_composition_ok', ...reasonCodes]),
+    auditNotes: [
+      ...auditNotes,
+      'Composed policy is the intersection of local authority and mandate constraints; the mandate narrowed, never widened.',
+    ],
+    guardrails: AP2_MANDATE_INGESTION_GUARDRAILS,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Receipt binding (#563): non-secret authorization provenance, fail-closed.
+// ---------------------------------------------------------------------------
+
+export type Ap2BindingReasonCode =
+  | 'ap2_mandate_ref_bound'
+  | 'mandate_ref_malformed'
+  | 'probe_only_ref_not_bindable'
+  | 'rejected_mandate_ref_not_bindable'
+  | 'signature_material_rejected'
+  | 'receipt_invalid_after_binding';
+
+export type Ap2ReceiptBindingResult = {
+  ok: boolean;
+  /** The receipt with `metadata.ap2MandateRef` set, or null when binding fails closed. */
+  receipt: ReddiReceipt | null;
+  reasonCodes: Ap2BindingReasonCode[];
+  auditNotes: string[];
+};
+
+const MANDATE_REF_ALLOWED_KEYS = new Set([
+  'schemaVersion',
+  'draft',
+  'mandateType',
+  'mandateHash',
+  'supportState',
+  'humanPresent',
+  'vdcVerification',
+  'settlementFinalityClaimed',
+]);
+
+const MANDATE_HASH_PATTERN = /^sha256:[a-f0-9]{64}$/;
+
 /**
  * Bind a mandate reference onto a receipt WITHOUT any settlement claim.
- * Sets `receipt.metadata.ap2MandateRef` to hash + type + support-state only.
+ *
+ * FAIL-CLOSED (#563): only an authorizing `ap2_mandate_fixture` ref binds.
+ * Probe-only refs never bind (a probe-only mandate authorized nothing, so
+ * binding it would misrepresent authorization provenance); rejected refs never
+ * bind; refs carrying unexpected keys or signature-shaped material never bind;
+ * and the bound receipt must still pass `validateReddiReceipt`.
+ *
+ * The binding carries hash + type + support-state only — never mandate
+ * contents, cart items, or signature material.
  */
-export function bindMandateToReceipt(receipt: ReddiReceipt, ref: Ap2MandateRef): ReddiReceipt {
+export function bindMandateToReceipt(receipt: ReddiReceipt, ref: Ap2MandateRef): Ap2ReceiptBindingResult {
+  const reasonCodes: Ap2BindingReasonCode[] = [];
+  const auditNotes: string[] = [];
+
+  if (!isBindableRefShape(ref)) {
+    if (refCarriesSignatureMaterial(ref)) {
+      reasonCodes.push('signature_material_rejected');
+      auditNotes.push('Denied: mandate ref carries signature-shaped keys or values; receipts never carry signature material.');
+    } else {
+      reasonCodes.push('mandate_ref_malformed');
+      auditNotes.push('Denied: mandate ref is malformed (unexpected keys, bad hash shape, or claim flags).');
+    }
+    return { ok: false, receipt: null, reasonCodes, auditNotes };
+  }
+
+  if (ref.supportState === 'ap2_mandate_probe_only') {
+    reasonCodes.push('probe_only_ref_not_bindable');
+    auditNotes.push('Denied: probe-only mandate refs never bind — a probe-only mandate authorized nothing.');
+    return { ok: false, receipt: null, reasonCodes, auditNotes };
+  }
+  if (ref.supportState === 'unsupported_live_ap2_settlement') {
+    reasonCodes.push('rejected_mandate_ref_not_bindable');
+    auditNotes.push('Denied: a rejected mandate ref never binds to a receipt.');
+    return { ok: false, receipt: null, reasonCodes, auditNotes };
+  }
+
   const binding: Ap2ReceiptMandateBinding = {
-    draft: true,
+    draft: false,
     mandateType: ref.mandateType,
     mandateHash: ref.mandateHash,
     supportState: ref.supportState,
@@ -329,20 +736,60 @@ export function bindMandateToReceipt(receipt: ReddiReceipt, ref: Ap2MandateRef):
     vdcVerification: 'fixture-asserted',
     settlementFinalityClaimed: false,
   };
-  return {
+  const bound: ReddiReceipt = {
     ...receipt,
     metadata: {
       ...(receipt.metadata ?? {}),
       ap2MandateRef: binding,
     },
   };
+
+  const validation = validateReddiReceipt(bound);
+  if (!validation.ok) {
+    reasonCodes.push('receipt_invalid_after_binding');
+    auditNotes.push('Denied: the receipt failed reddi.receipt.v1 validation after binding; nothing is emitted.');
+    return { ok: false, receipt: null, reasonCodes, auditNotes };
+  }
+
+  return {
+    ok: true,
+    receipt: bound,
+    reasonCodes: ['ap2_mandate_ref_bound'],
+    auditNotes: ['AP2 mandate ref bound as authorization provenance only (hash + type + support-state; no settlement claim).'],
+  };
 }
 
-function deriveConstraints(mandate: Ap2MandateFixture, currency: BuyerAuthorityAsset): Ap2DerivedPolicyConstraints {
-  const maxAmountUnits = mandate.payment?.budgetCap
-    ?? mandate.payment?.amount
-    ?? mandate.cart?.total.amount
-    ?? '0';
+function isBindableRefShape(ref: unknown): ref is Ap2MandateRef {
+  if (!isRecord(ref)) return false;
+  if (!Object.keys(ref).every((key) => MANDATE_REF_ALLOWED_KEYS.has(key))) return false;
+  if (refCarriesSignatureMaterial(ref)) return false;
+  const candidate = ref as Partial<Ap2MandateRef>;
+  return candidate.schemaVersion === AP2_MANDATE_INGESTION_SCHEMA_VERSION
+    && candidate.draft === false
+    && typeof candidate.mandateType === 'string'
+    && AP2_MANDATE_TYPE_VOCABULARY.includes(candidate.mandateType)
+    && typeof candidate.mandateHash === 'string'
+    && MANDATE_HASH_PATTERN.test(candidate.mandateHash)
+    && typeof candidate.supportState === 'string'
+    && ['ap2_mandate_fixture', 'ap2_mandate_probe_only', 'unsupported_live_ap2_settlement'].includes(candidate.supportState)
+    && candidate.vdcVerification === 'fixture-asserted'
+    && candidate.settlementFinalityClaimed === false;
+}
+
+function refCarriesSignatureMaterial(ref: unknown): boolean {
+  if (!isRecord(ref)) return false;
+  for (const [key, value] of Object.entries(ref)) {
+    if (SIGNATURE_KEY_PATTERN.test(key)) return true;
+    if (typeof value === 'string' && (SIGNATURE_VALUE_PATTERN.test(value) || SENSITIVE_VALUE_PATTERN.test(value))) return true;
+  }
+  return false;
+}
+
+function deriveConstraints(
+  mandate: Ap2MandateFixture,
+  currency: BuyerAuthorityAsset,
+  maxAmountUnits: string,
+): Ap2DerivedPolicyConstraints {
   const sellerIds = mandate.merchant?.id ? [`ap2-merchant:${mandate.merchant.id}`] : [];
   const endpointIds = mandate.merchant?.id ? [`ap2-merchant-endpoint:${mandate.merchant.id}`] : [];
   return {
@@ -351,7 +798,7 @@ function deriveConstraints(mandate: Ap2MandateFixture, currency: BuyerAuthorityA
       {
         asset: currency,
         // (DRAFT/unverified — AP2) illustrative rail label; AP2 is not a settlement network.
-        network: 'ap2-authorization-fixture',
+        network: AP2_AUTHORIZATION_NETWORK,
         maxAmountUnits,
         window: 'per_request',
       },
@@ -365,9 +812,9 @@ function deriveConstraints(mandate: Ap2MandateFixture, currency: BuyerAuthorityA
 function buildMandateRef(mandate: Ap2MandateFixture, supportState: Ap2SupportState): Ap2MandateRef {
   return {
     schemaVersion: AP2_MANDATE_INGESTION_SCHEMA_VERSION,
-    draft: true,
+    draft: false,
     mandateType: mandate.mandateType,
-    mandateHash: hashMandate(mandate),
+    mandateHash: hashAp2Mandate(mandate),
     supportState,
     humanPresent: mandate.humanPresent,
     vdcVerification: 'fixture-asserted',
@@ -384,13 +831,14 @@ function failClosed(
   const mandateType: Ap2MandateType = isStructuredMandate(mandate) ? mandate.mandateType : 'intent';
   return {
     schemaVersion: AP2_MANDATE_INGESTION_SCHEMA_VERSION,
-    draft: true,
+    draft: false,
+    externalStandard: AP2_EXTERNAL_STANDARD,
     supportState,
     mandateRef: {
       schemaVersion: AP2_MANDATE_INGESTION_SCHEMA_VERSION,
-      draft: true,
+      draft: false,
       mandateType,
-      mandateHash: hashMandate(mandate),
+      mandateHash: hashAp2Mandate(mandate),
       supportState,
       humanPresent: isStructuredMandate(mandate) ? mandate.humanPresent : undefined,
       vdcVerification: 'fixture-asserted',
@@ -403,19 +851,19 @@ function failClosed(
   };
 }
 
-function isStructuredMandate(value: unknown): value is Ap2MandateFixture {
+/** Record with a well-formed opaque VDC envelope and a string mandateType. */
+function hasVdcEnvelope(value: unknown): value is Record<string, unknown> & { vdc: Ap2VerifiableDigitalCredential } {
   if (!isRecord(value)) return false;
-  const candidate = value as Partial<Ap2MandateFixture>;
-  const validType = typeof candidate.mandateType === 'string'
-    && [
-      'intent', 'cart', 'payment',
-      'checkout_open', 'checkout_closed', 'payment_open', 'payment_closed',
-    ].includes(candidate.mandateType);
-  const vdc = candidate.vdc;
-  const validVdc = isRecord(vdc)
+  if (typeof value.mandateType !== 'string') return false;
+  const vdc = value.vdc;
+  return isRecord(vdc)
     && typeof (vdc as Ap2VerifiableDigitalCredential).signatureB64 === 'string'
     && (vdc as Ap2VerifiableDigitalCredential).verification === 'fixture-asserted';
-  return validType && validVdc;
+}
+
+function isStructuredMandate(value: unknown): value is Ap2MandateFixture {
+  return hasVdcEnvelope(value)
+    && AP2_MANDATE_TYPE_VOCABULARY.includes(value.mandateType as Ap2MandateType);
 }
 
 function stripSignature(mandate: Ap2MandateFixture): Record<string, unknown> {
@@ -427,8 +875,15 @@ function stripSignature(mandate: Ap2MandateFixture): Record<string, unknown> {
   return clone;
 }
 
-function hashMandate(mandate: unknown): string {
-  const source = isStructuredMandate(mandate) ? stripSignature(mandate) : mandate;
+/**
+ * Deterministic sha256 over the canonicalized mandate with the opaque VDC
+ * signature removed. Exported so the conformance surface can recompute it and
+ * detect tampering on either side. One-way: the ref never reveals contents.
+ */
+export function hashAp2Mandate(mandate: unknown): string {
+  const source = isStructuredMandate(mandate) || hasVdcEnvelope(mandate)
+    ? stripSignature(mandate as Ap2MandateFixture)
+    : mandate;
   return `sha256:${createHash('sha256').update(canonicalize(source)).digest('hex')}`;
 }
 
@@ -449,6 +904,20 @@ function mandateContainsCredentialMaterial(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(mandateContainsCredentialMaterial);
   return Object.entries(value).some(([key, nested]) => (
     SENSITIVE_KEY_PATTERN.test(key) || mandateContainsCredentialMaterial(nested)
+  ));
+}
+
+/**
+ * Signature/key material anywhere in the SIGNATURE-STRIPPED mandate — i.e.
+ * outside the single opaque `vdc.signatureB64` slot — fails closed. RAP does no
+ * key handling and never holds Visa / Mastercard / FIDO signature material.
+ */
+function containsSignatureMaterial(value: unknown): boolean {
+  if (typeof value === 'string') return SIGNATURE_VALUE_PATTERN.test(value);
+  if (!value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some(containsSignatureMaterial);
+  return Object.entries(value).some(([key, nested]) => (
+    SIGNATURE_KEY_PATTERN.test(key) || containsSignatureMaterial(nested)
   ));
 }
 
@@ -488,8 +957,37 @@ function parseAmount(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * Lossless normalization of a decimal AP2 fixture amount (≤2 decimals) into an
+ * integer centi-unit string ('50.00' -> '5000'), so caps derived from a mandate
+ * can be enforced by the BigInt-based buyer-authority gate. Returns null (fail
+ * closed upstream) for anything with more precision — no silent rounding.
+ * WITHIN-LANE only: this is never a cross-rail unit conversion.
+ */
+export function ap2FixtureCentiUnits(value: string): string | null {
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(value.trim());
+  if (!match) return null;
+  const frac = (match[2] ?? '').padEnd(2, '0');
+  return String(BigInt(match[1]) * 100n + BigInt(frac === '' ? '0' : frac));
+}
+
+/** BigInt comparison of two integer unit strings; null when incomparable. */
+function compareUnits(a: string, b: string): number | null {
+  try {
+    const left = BigInt(a);
+    const right = BigInt(b);
+    return left < right ? -1 : left > right ? 1 : 0;
+  } catch {
+    return null;
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function dedupeComposition(codes: Ap2CompositionReasonCode[]): Ap2CompositionReasonCode[] {
+  return [...new Set(codes)];
 }
 
 // ---------------------------------------------------------------------------
@@ -499,7 +997,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // `supportState` union rather than a single central matrix object. There is no
 // central matrix table in code, so this fixture adds the AP2 row alongside the
 // existing rails, documenting the AP2 support states, their claim boundary, and
-// their DRAFT/low-confidence status.
+// their status.
+//
+// The rows stay `draft: true` / `confidence: 'low'` DELIBERATELY even though
+// the RAP-side adapter contract is promoted (#563): each row describes AP2's
+// EXTERNAL mandate vocabulary and governance lineage, which remain unverified
+// against any live implementation (see AP2_EXTERNAL_STANDARD).
 // ---------------------------------------------------------------------------
 
 export type Ap2RailSupportStateRow = {
@@ -523,7 +1026,7 @@ export const AP2_RAIL_SUPPORT_STATE_MATRIX: Ap2RailSupportStateRow[] = [
     supportState: 'ap2_mandate_fixture',
     mandateTypes: ['cart', 'payment', 'checkout_closed', 'payment_closed'],
     description:
-      'Finalized Checkout/Cart + Payment mandate present; VDC signature treated as fixture-asserted (opaque, not verified live); buyer-authority constraints derivable; no settlement claim.',
+      'Finalized Checkout/Cart + Payment mandate present; VDC signature treated as fixture-asserted (opaque, not verified live); buyer-authority constraints derivable and composable with a local policy that always wins; no settlement claim.',
     draft: true,
     confidence: 'low',
     governanceNote:
@@ -531,7 +1034,8 @@ export const AP2_RAIL_SUPPORT_STATE_MATRIX: Ap2RailSupportStateRow[] = [
     claimBoundary: [
       'AP2 is a trust/authorization layer, not a settlement rail.',
       'RAP claims no settlement finality, custody, or live payment from an AP2 mandate.',
-      'The VDC signature is opaque and is not verified against any live key.',
+      'The VDC signature is opaque and is not verified against any live key; RAP holds no key material.',
+      'A mandate can only narrow local buyer authority, never widen it.',
     ],
   },
   {
@@ -540,7 +1044,7 @@ export const AP2_RAIL_SUPPORT_STATE_MATRIX: Ap2RailSupportStateRow[] = [
     supportState: 'ap2_mandate_probe_only',
     mandateTypes: ['intent', 'checkout_open', 'payment_open'],
     description:
-      'Only an Open/Intent mandate (constraints, no finalized cart) — usable for preflight/planning and parser tests, not for authorizing a specific spend.',
+      'Only an Open/Intent mandate (constraints, no finalized cart) — usable for preflight/planning and parser tests, not for authorizing a specific spend. Probe-only refs never compose with a policy and never bind to a receipt.',
     draft: true,
     confidence: 'low',
     governanceNote:
@@ -556,7 +1060,7 @@ export const AP2_RAIL_SUPPORT_STATE_MATRIX: Ap2RailSupportStateRow[] = [
     supportState: 'unsupported_live_ap2_settlement',
     mandateTypes: ['cart', 'payment', 'checkout_closed', 'payment_closed'],
     description:
-      'Any mandate asserting completed settlement, custody, or finality is rejected. A future live lane must first define live VDC signature verification, wallet custody, spend limits, replay handling, operator approval, and rollback.',
+      'Any mandate asserting completed settlement, custody, or finality — or carrying credential/PAN/signature material outside the opaque VDC slot — is rejected. A future live lane must first define live VDC signature verification, wallet custody, spend limits, replay handling, operator approval, and rollback.',
     draft: true,
     confidence: 'low',
     governanceNote:
@@ -564,12 +1068,13 @@ export const AP2_RAIL_SUPPORT_STATE_MATRIX: Ap2RailSupportStateRow[] = [
     claimBoundary: [
       'Live AP2 settlement is unsupported in this fixture corpus.',
       'Settlement-finality and custody claims fail closed.',
+      'Rejected mandate refs never bind to a receipt.',
     ],
   },
 ];
 
 // ---------------------------------------------------------------------------
-// Illustrative fixtures (static, no I/O). DRAFT/unverified AP2 shapes.
+// Illustrative fixtures (static, no I/O). AP2 shapes remain DRAFT/unverified.
 // ---------------------------------------------------------------------------
 
 const BASE_VDC: Ap2VerifiableDigitalCredential = {
@@ -667,6 +1172,24 @@ const settlementClaimMandate = {
   settled: true,
 } as unknown as Ap2MandateFixture;
 
+// Mandate-type outside the supported vocabulary (valid VDC envelope) -> fail closed
+// as unsupported_mandate_type, never coerced into an authorizing stage.
+const unsupportedTypeMandate = {
+  ...checkoutClosedPaymentClosedValid,
+  mandateType: 'subscription_recurring',
+} as unknown as Ap2MandateFixture;
+
+// Signature material OUTSIDE the opaque vdc.signatureB64 slot (e.g. a stray
+// scheme-level JWS field) -> rejected: RAP does no key handling.
+const signatureMaterialMandate = {
+  ...checkoutClosedPaymentClosedValid,
+  merchant: {
+    id: 'seller:listing-writer',
+    name: 'Listing Writer',
+    schemeJws: 'eyJhbGciOiJFUzI1NiJ9.eyJtYW5kYXRlIjoibGVhayJ9.c2lnbmF0dXJlLWJ5dGVzLWZpeHR1cmU',
+  },
+} as unknown as Ap2MandateFixture;
+
 export const ap2MandateFixtures = {
   checkoutClosedPaymentClosedValid,
   paymentOpenProbeOnly,
@@ -676,6 +1199,8 @@ export const ap2MandateFixtures = {
   railMismatchMandate,
   panLeakMandate,
   settlementClaimMandate,
+  unsupportedTypeMandate,
+  signatureMaterialMandate,
 } as const;
 
 export function listAp2MandateFixtures(): Array<{ key: string; mandate: Ap2MandateFixture }> {

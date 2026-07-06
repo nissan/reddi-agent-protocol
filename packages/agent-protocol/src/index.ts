@@ -30,6 +30,7 @@ export * from './erc8004-export-conformance.js';
 export * from './adk-rap-template.js';
 export * from './reputation-credential-export.js';
 export * from './ap2-mandate-ingestion.js';
+export * from './ap2-mandate-conformance.js';
 export * from './airwallex-hosted-checkout-rail.js';
 export * from './airwallex-webhook-receipt-normalization.js';
 export * from './strands-rap-template.js';
