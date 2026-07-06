@@ -66,13 +66,14 @@ describe("economic demo paid workflow proof UI fixture pack", () => {
     const blocked = pack.cases.filter((item) => item.status === "blocked");
 
     expect(pack.blockedCaseIds.sort()).toEqual([
+      "airwallex_webhook_probe_only_cap_blocked",
       "live_path_overclaim_blocked",
       "malformed_receipt_blocked",
       "mpp_tempo_unsupported_network_blocked",
       "policy_denied_blocked",
       "unsupported_asset_network_blocked",
     ]);
-    expect(blocked).toHaveLength(5);
+    expect(blocked).toHaveLength(6);
     expect(blocked.every((item) => item.paymentProofLabel === "fail_closed")).toBe(true);
     expect(blocked.every((item) => item.blockedBy.length > 0)).toBe(true);
     expect(blocked.every((item) => item.sections.find((section) => section.key === "receipt")?.state === "blocked")).toBe(true);
