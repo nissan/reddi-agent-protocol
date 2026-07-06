@@ -205,6 +205,39 @@ Operator review payloads expose deterministic backend hooks for imported agent-s
 
 The fixture corpus never installs Claude plugins, executes repo scripts, invokes managed agents, contacts MCP servers, fetches paid/provider data, requires credentials, starts local services, calls wallets/RPC endpoints, or publishes imported surfaces as payable RAP listings. Parser, connector-diagnostics, draft-profile, and operator-review behavior are static metadata transformations only.
 
+## Repo Explorer Evidence Manifests
+
+```typescript
+import {
+  validateRepoExplorerEvidenceManifest,
+  attachRepoExplorerEvidenceToSnapshot,
+  projectRepoExplorerEvidence,
+  repoExplorerEvidenceManifestFixtures,
+} from '@reddi/agent-protocol/repo-explorer-evidence-manifest';
+
+const report = validateRepoExplorerEvidenceManifest(repoExplorerEvidenceManifestFixtures.happyPath);
+console.log(report.verdict); // valid
+console.log(report.manifest?.sourceTrust); // external_untrusted (hard-coded)
+
+const attachment = attachRepoExplorerEvidenceToSnapshot(report);
+console.log(attachment.ok && attachment.attachment.source.snapshotRef); // repo-explorer-evidence:example-agent-stack@a3f18c9d02e1
+
+const projections = projectRepoExplorerEvidence(report);
+console.log(projections.draftReadiness.status); // needs_review — never 'ready' for external_untrusted evidence
+console.log(projections.operatorReview.publication.disabled); // true
+
+const blocked = validateRepoExplorerEvidenceManifest(repoExplorerEvidenceManifestFixtures.pathTraversal);
+console.log(blocked.verdict, blocked.manifest); // blocked null — unsafe paths fail closed
+```
+
+Repo explorer evidence manifests (`reddi.repo-explorer-evidence-manifest.v1`) carry FastContext-style read-only exploration evidence for static fixture ingestion: repo/source URL, resolved commit SHA, task-specific exploration query, read-only explorer contract, file paths with line ranges and short relevance reasons, generated/noisy exclusions, and open questions. The manifest DESCRIBES exploration a caller already performed elsewhere; the module never fetches, clones, ingests, or executes anything, and the source trust boundary is hard-coded `external_untrusted`.
+
+Explorer output is localization evidence, not approval to install, run, or adopt the explored repository. A `valid` verdict permits static review/analysis and by-reference provenance attachment only — installation, execution, full-repo ingestion, dependency install, publication, hosted writes, provider calls, wallet/RPC, and trust mutation stay denied on every report regardless of verdict.
+
+Validation is fail-closed with structured reason codes: malformed paths (backslashes, control characters, empty/`.` segments), unsafe paths (absolute, `..` traversal, `file://`/URI schemes, drive prefixes, home expansion, percent-encoded traversal), invalid line ranges (zero, negative, reversed, non-integer), empty evidence, missing relevance reasons, self-contradictory excluded-path citations, non-https or credentialed source URLs, unresolved commits, self-asserted trust levels, and non-read-only explorer contracts all block; citations into generated/noisy content (node_modules, dist, lockfiles, minified bundles) are accepted but flagged for review.
+
+Accepted manifests attach to the onboarding `static-agent-stack-snapshot` intake surface by reference: the snapshot attachment's `source` block is a structural match for the intake `snapshotRef` contract, and per-citation evidence refs satisfy the provenanced-field rule that `verified` provenance requires non-empty evidence refs — static fixture ingestion preserves explorer evidence as provenance without a full-repo ingest. Projection helpers map accepted evidence toward the shipped static-ingestion vocabularies: capability-inventory provenance (#403), connector-diagnostic records (#404), risk-taxonomy categories (#421), draft-payload readiness (#405, never `ready`), and operator-review payloads (#406, publication disabled).
+
 ## Provider Trust Records
 
 ```typescript
