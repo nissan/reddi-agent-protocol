@@ -36,3 +36,6 @@ jobs:
       - name: Verify package exports resolution
         run: node scripts/check-package-exports.mjs
         working-directory: packages/agent-protocol
+
+      - name: Verify package artifact contents (npm pack dry-run guard)
+        run: node scripts/check-package-artifact-contents.mjs --dir packages/agent-protocol

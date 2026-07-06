@@ -91,7 +91,8 @@
     "ingest:pay-sh": "node ./scripts/ingest-pay-sh-catalog.mjs",
     "inspect:pay-sh:mcp": "node ./scripts/inspect-pay-sh-mcp.mjs",
     "check:rap:naming": "node ./scripts/check-rap-naming.mjs",
-    "check:oss-release-smoke": "node ./scripts/check-oss-release-smoke.mjs"
+    "check:oss-release-smoke": "node ./scripts/check-oss-release-smoke.mjs",
+    "check:package:artifacts": "node ./scripts/check-package-artifact-contents.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",

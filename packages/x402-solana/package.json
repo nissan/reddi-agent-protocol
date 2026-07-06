@@ -1,6 +1,7 @@
 {
   "name": "@reddi/x402-solana",
   "version": "0.1.0",
+  "license": "MIT",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -55,7 +56,8 @@
     "build": "node ./node_modules/typescript/lib/tsc.js",
     "test": "jest",
     "clean": "rm -rf dist",
-    "release:dry-run": "npm run clean && npm run build && npm test -- --runInBand && npm pack --dry-run"
+    "check:artifacts": "node ../../scripts/check-package-artifact-contents.mjs --dir packages/x402-solana",
+    "release:dry-run": "npm run clean && npm run build && npm test -- --runInBand && npm run check:artifacts && npm pack --dry-run"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.14",
