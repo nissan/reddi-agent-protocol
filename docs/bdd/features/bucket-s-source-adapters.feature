@@ -155,3 +155,12 @@ Feature: Bucket S Source Adapter Onboarding
     And generated AGENTS SKILL prompt tool script and agent definition artifacts are marked untrusted
     And fixture validation rejects generated install execution hosted publication payment trust mutation and reputation mutation paths
     And no OpenKB install URL ingestion provider call MCP call wallet RPC paid call marketplace publication or agent onboarding occurs
+
+  @S5.16 @conformance @okf-openkb @static-analysis
+  Scenario: OKF and OpenKB knowledge-bundle conformance diagnostics stay deterministic and review-only
+    When conformance diagnostics run over an OKF-shaped or OpenKB-style knowledge bundle fixture
+    Then frontmatter parseability concept type link syntax index and log semantics unknown frontmatter preservation and provenance completeness are reported deterministically
+    And generated AGENTS SKILL prompt script skill tool and agent definition artifacts are classified untrusted with explicit artifact classes and blocked severity
+    And script and tool artifacts are additionally reported as execution not allowed
+    And a passing verdict permits static review and analysis only with no skill installation agent registration marketplace publication hosted write provider call or execution
+    And malformed bundles and any execute install ingest or provider request fail closed

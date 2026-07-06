@@ -1,5 +1,24 @@
 # Reddi Agent Protocol — Status
 
+## Latest Update — OKF/OpenKB knowledge-bundle conformance diagnostics (2026-07-06 AEST)
+
+Implemented GitHub issue #504 in isolated worktree `projects/reddi-agent-protocol-worktree-504-okf-conformance-diagnostics` on branch `feat/504-okf-conformance-diagnostics`.
+
+Delivered:
+- Added `packages/agent-protocol/src/okf-conformance.ts` (`reddi.okf-conformance.v1`, exported as `@reddi/agent-protocol/okf-conformance`) — deterministic, PURE static-analysis conformance diagnostics for OKF/OpenKB-style knowledge bundles, built directly on the #511 adapter spike (`okf-adapter.ts`) and the #503 fixture corpus vocabulary (no re-invention): parseable YAML frontmatter (conservative subset, fail-closed), non-empty concept `type`, standard markdown links vs Obsidian wikilinks (deterministic wikilinks reported adaptable/info; embeds/heading/block refs unadaptable warnings), `index.md`/`log.md` semantics where applicable, unknown-frontmatter preservation as untrusted review metadata, and source/provenance completeness (escalatable via `requireProvenance`).
+- Explicit unsafe/generated-instruction classes for producer-toolchain artifacts (AGENTS.md, SKILL.md, prompts, scripts, skills, tools, agent definitions) via `artifactClass`, all blocked-severity `generated_instruction_untrusted`; scripts/tools additionally `execution_not_allowed`. Per-document statuses use the #504 vocabulary (valid, warning, blocked, untrusted_generated_instruction, unsupported_link_syntax, missing_provenance, malformed_frontmatter, execution_not_allowed); diagnostic severities stay aligned with the repo static-analysis vocab (info/warning/blocked).
+- Every report carries an identical review-only boundary (permitted: static review/analysis, operator review payload, conformance reporting; denied: skill installation, agent registration/onboarding, marketplace publication, hosted registry write, LLM/provider call, script/tool execution, URL ingestion, payment activation, trust/reputation mutation) plus hard-false guardrails; fail-closed on malformed bundles and on any execute/install/ingestUrl/invokeLlm/generateSkill request.
+- `conformanceInputFromOkfOpenKbFixture` bridges #503 corpus fixtures read-only (contentSha256 digests proven preserved in tests); `OKF_FIXTURE_DIAGNOSTIC_CODE_MAP` maps corpus expectedDiagnostics codes onto the conformance vocabulary. Six in-module conformance fixtures extend corpus coverage (valid OKF, wikilinks needing adaptation, missing provenance, malformed frontmatter, generated instructions, script/tool artifacts).
+- Tests: `packages/agent-protocol/tests/okf-conformance.test.ts` (25 tests) — report shape/boundary, determinism, all diagnostic lanes, both #503 corpus fixtures (minimal bundle valid; generated bundle blocked with every expectedDiagnostic covered), fail-closed cases, offline/no-async source guard, DRAFT-tag guard. Wired into the barrel + package exports with rebuilt dist committed.
+- Docs: `docs/conformance/okf-openkb/README.md` gained a "#504 Conformance Diagnostics" section (coverage, vocabulary, review-only boundary). BDD: new `@S5.16` scenario in `docs/bdd/features/bucket-s-source-adapters.feature` + FEATURE-INDEX bucket-S verify command.
+
+Validation:
+- `cd packages/agent-protocol && npm test` PASS (347 tests, incl. 25 new; exports-resolution guard in-suite).
+- `npm run check:okf-openkb:fixtures` PASS (corpus untouched). `node scripts/check-package-exports.mjs` PASS (77 targets).
+- `npm run check:rap:naming` PASS. `npm run test:bdd:index` PASS. `git diff --check` PASS.
+
+Boundary note: passing conformance permits review/analysis ONLY — no skill installation, agent registration, marketplace publication, hosted writes, LLM/provider calls, or execution of bundle content. The OKF/OpenKB scope decision itself stays with #513.
+
 ## Latest Update — x402 reference workflow no-live rehearsal + operator runbook (2026-07-06 AEST)
 
 Prepared GitHub issue #564 up to (but not including) the live devnet run, in isolated worktree `projects/reddi-agent-protocol-worktree-564-devnet-run-prep` on branch `feat/564-devnet-run-prep`.
