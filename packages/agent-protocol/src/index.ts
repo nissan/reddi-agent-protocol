@@ -40,3 +40,4 @@ export * from './okf-conformance.js';
 export * from './okf-instruction-safety.js';
 export * from './onboarding-analyser-handoff.js';
 export * from './onboarding-state-machine.js';
+export * from './repo-explorer-evidence-manifest.js';

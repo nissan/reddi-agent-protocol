@@ -178,6 +178,10 @@
       "types": "./dist/onboarding-state-machine.d.ts",
       "import": "./dist/onboarding-state-machine.js"
     },
+    "./repo-explorer-evidence-manifest": {
+      "types": "./dist/repo-explorer-evidence-manifest.d.ts",
+      "import": "./dist/repo-explorer-evidence-manifest.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
