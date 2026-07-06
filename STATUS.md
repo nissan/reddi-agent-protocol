@@ -1,5 +1,11 @@
 # Reddi Agent Protocol — Status
 
+## Latest Update — Register quasar-reputation-intent in the public conformance suite (2026-07-07 AEST)
+
+Follow-up wiring from PR #601 (#443): the deferred conformance-suite registration is done. `scripts/run-public-conformance.mjs` now composes `quasar-reputation-intent.test.js` into the existing `interop-conformance-modules` area (same pattern as the ERC-8004 export and AP2 mandate suites — no new area), with the area's `proves` line extended accordingly. Worktree `projects/reddi-agent-protocol-worktree-conformance-quasar-intent`, branch `chore/conformance-register-quasar-intent` from `origin/main` @ `5126302e`; only this script + this file touched.
+
+Validation (offline/no-spend): `npm run check:conformance:public` PASS — all 8 areas + packed-artifact guard; the interop area now runs 157 composed tests (was 119) and the run output shows all 38 quasar-reputation-intent tests (happy paths, fail-closed gates, eligibility evaluator, no-live boundary proofs) executing. Drift-guard negative control verified: temporarily removing the compiled suite from `dist-tests/` makes the runner exit 1 naming `interop-conformance-modules: quasar-reputation-intent.test.js`. `npm run check:rap:naming` PASS; `git diff --check` clean. `docs/RAP-V0.1-RELEASE-CHECKLIST.md` untouched — it never enumerates the suite's area ids, and its fixture-surface list / dated run logs are point-in-time records. The `lib/` preview-flag wiring (marketplace-listings / offchain-reputation-preview consuming the gate) remains deliberately deferred as a product judgment.
+
 ## Latest Update — Quasar-backed reputation instruction fixture gate (#443) (2026-07-07 AEST)
 
 Implemented GitHub issue #443 (parent epics #394 / #388; all hard deps #390/#393/#441/#442 CLOSED per the 2026-07-06 readback audit) in isolated worktree `projects/reddi-agent-protocol-worktree-443-quasar-intent-gate` on branch `feat/443-quasar-reputation-intent-gate`, branched from `origin/main` at `878ca6c9` (post-#599 tip). Touches only `packages/agent-protocol`, one new docs spec page, and this file — scripts/, .github/workflows/, e2e/, app/economic-demo/, docs/evidence/501/, and lib/ deliberately untouched (a concurrent #501 PR owns those surfaces).
