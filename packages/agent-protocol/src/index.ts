@@ -15,6 +15,7 @@ export * from './agent-stack-fixtures.js';
 export * from './receipt-evidence-binding.js';
 export * from './offchain-reputation-preview.js';
 export * from './quasar-registry-compatibility.js';
+export * from './quasar-reputation-intent.js';
 export * from './hosted-attestation-claim.js';
 export * from './pay-sh-sandbox-evidence.js';
 export * from './mpp-tempo-receipt-shapes.js';
