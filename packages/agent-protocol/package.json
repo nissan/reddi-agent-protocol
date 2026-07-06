@@ -78,6 +78,10 @@
       "types": "./dist/quasar-registry-compatibility.d.ts",
       "import": "./dist/quasar-registry-compatibility.js"
     },
+    "./quasar-reputation-intent": {
+      "types": "./dist/quasar-reputation-intent.d.ts",
+      "import": "./dist/quasar-reputation-intent.js"
+    },
     "./hosted-attestation-claim": {
       "types": "./dist/hosted-attestation-claim.d.ts",
       "import": "./dist/hosted-attestation-claim.js"
