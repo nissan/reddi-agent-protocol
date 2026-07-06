@@ -68,6 +68,7 @@ describe("economic demo public proof page data", () => {
     expect(bindingReady).not.toHaveProperty("evidenceArchive.evidencePayload");
 
     expect(data.railNeutralProofChain.blockedCases.sort()).toEqual([
+      "airwallex_webhook_probe_only_cap",
       "live_path_overclaim",
       "malformed_receipt",
       "mpp_tempo_unsupported_network",
