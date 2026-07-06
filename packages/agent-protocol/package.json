@@ -122,6 +122,10 @@
       "types": "./dist/erc8004-export.d.ts",
       "import": "./dist/erc8004-export.js"
     },
+    "./erc8004-export-conformance": {
+      "types": "./dist/erc8004-export-conformance.d.ts",
+      "import": "./dist/erc8004-export-conformance.js"
+    },
     "./adk-rap-template": {
       "types": "./dist/adk-rap-template.d.ts",
       "import": "./dist/adk-rap-template.js"

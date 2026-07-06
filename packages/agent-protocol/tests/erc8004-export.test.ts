@@ -72,14 +72,18 @@ function attestationFixture(overrides: Partial<AttestationRecord> = {}): Attesta
   };
 }
 
-describe('ERC-8004 export (DRAFT v1)', () => {
+describe('ERC-8004 export (reddi.erc8004-export.v1, promoted by #562)', () => {
   it('builds a shape-valid export from a receipt + passed attestation', () => {
     const bundle = exportReceiptToErc8004(receiptFixture(), attestationFixture(), { targetChainHint: 'eip155:8453' });
 
     assert.equal(bundle.schemaVersion, ERC8004_EXPORT_SCHEMA_VERSION);
     assert.equal(bundle.schemaVersion, 'reddi.erc8004-export.v1');
-    assert.equal(bundle.draft, true);
-    assert.equal(ERC8004_EXPORT_IS_DRAFT, true);
+    // Promotion (#562): the RAP-side mapping spec is no longer draft, while the
+    // external ERC-8004 standard stays honestly marked unverified.
+    assert.equal(bundle.draft, false);
+    assert.equal(ERC8004_EXPORT_IS_DRAFT, false);
+    assert.equal(bundle.externalStandard.fieldShapesVerified, false);
+    assert.equal(bundle.externalStandard.deploymentClaim, false);
     assert.equal(bundle.exportIntent, 'exportable');
     assert.deepEqual(bundle.reasonCodes, ['erc8004_export_ok']);
 
@@ -200,6 +204,7 @@ describe('ERC-8004 export (DRAFT v1)', () => {
       rpcCall: false,
       evidencePayloadInlined: false,
       liveSignatureVerified: false,
+      trustImported: false,
     });
 
     // Only URIs + hashes are emitted for evidence — never a raw payload field.
