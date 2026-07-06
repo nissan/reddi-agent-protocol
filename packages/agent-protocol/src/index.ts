@@ -31,5 +31,6 @@ export * from './reputation-credential-export.js';
 export * from './ap2-mandate-ingestion.js';
 export * from './strands-rap-template.js';
 export * from './okf-adapter.js';
+export * from './okf-conformance.js';
 export * from './onboarding-analyser-handoff.js';
 export * from './onboarding-state-machine.js';
