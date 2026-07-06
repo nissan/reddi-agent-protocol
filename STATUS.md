@@ -1,5 +1,21 @@
 # Reddi Agent Protocol — Status
 
+## Latest Update — Per-package LICENSE files + v0.1.0 release notes (#449 §5 follow-ups) (2026-07-06 AEST)
+
+Closed the two remaining §5 pre-publish follow-ups from `docs/RAP-V0.1-RELEASE-CHECKLIST.md` (established in PRs #592/#595) in isolated worktree `projects/reddi-agent-protocol-worktree-license-relnotes` on branch `feat/449-license-release-notes`, branched from `origin/main` at `cca7ec29`.
+
+Delivered:
+- **Per-package `LICENSE`:** copied the root MIT `LICENSE` (Redditech Pty Ltd) into `packages/agent-protocol/` and `packages/x402-solana/` — the two publishable candidates per checklist §1 (`@reddi/sendai-x402` / `@reddi/eliza-plugin-x402` are deferred; `demo-agents` / `testing-specialists` are `private: true`). npm auto-includes `LICENSE*` from the package dir, so no `files` change was needed for it; verified present in both `npm pack --dry-run --json` outputs.
+- **Per-package `CHANGELOG.md` (v0.1.0, dated 2026-07-06):** module areas + subpath-export families (export counts deferred to the exports guard rather than hardcoded), the no-spend/no-custody/no-live-settlement boundary statement, quickstart commands (`npm run example:ard:no-spend`; repo-local test/build for x402-solana), the consolidated conformance command (`npm run check:conformance:public`), and honest draft labels — Airwallex hosted-checkout rail is DRAFT v1 (`AIRWALLEX_HOSTED_CHECKOUT_RAIL_DRAFT = true`); ERC-8004/AP2 RAP-side contracts are promoted (#562/#563) while the external standards remain drafts with inline `(unverified — …)` tags. Added `CHANGELOG.md` to both `files` whitelists so the notes ship in the tarball. Root app-focused `CHANGELOG.md` untouched; no version bump, no publish, no tag.
+- **Checklist updates:** §5 rows flipped to done-with-evidence, §3 required-contents list now includes `LICENSE` + `CHANGELOG.md`, §10 launch-gate line updated, and a second §11 executed dry-run record added (branch/commit/verdicts).
+
+Validation (all offline/no-spend):
+- `packages/agent-protocol` `npm run release:dry-run` PASS — 448 tests 0 fail; exports guard OK (89 targets on disk); artifact guard OK; pack = 93 files (~247 kB) with `LICENSE` + `CHANGELOG.md` at top level.
+- `packages/x402-solana` `npm run release:dry-run` PASS — Jest 3 suites / 45 tests; artifact guard OK; pack = 20 files (~18 kB) with `LICENSE` + `CHANGELOG.md`.
+- Root `npm run check:package:artifacts` PASS (93 + 20 files, bounded); `npm run check:conformance:public` PASS (9 areas, 119 composed tests + packed-artifact guard); `npm run check:rap:naming` PASS; `git diff --check` clean.
+
+RESUME FROM HERE: §5 is fully green. Remaining path to v0.1 publish is operational only: re-run the §2 gates at the release-candidate commit and follow the separate approved publication issue (no publish/tag/version bump happened in this loop).
+
 ## Latest Update — Public developer quickstart + consolidated conformance suite (#353) (2026-07-06 AEST)
 
 Implemented the remaining GitHub issue #353 scope (public conformance-suite packaging, per checklist §10) in isolated worktree `projects/reddi-agent-protocol-worktree-353-public-conformance` on branch `feat/353-public-quickstart-conformance`, branched from `origin/main` at `e1d8dca3` (post-#593 tip).

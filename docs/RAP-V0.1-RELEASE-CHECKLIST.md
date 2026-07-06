@@ -33,8 +33,10 @@ CI coverage: the `rap-package-guard` workflow (`.github/workflows/rap-package-gu
 
 The packed artifact for each candidate package must contain exactly:
 
-- `package.json` — with `name`, `version`, `main`, `types`, `exports`, `files` whitelist (`dist` + `README.md`, plus `examples` for `@reddi/agent-protocol`), declared `license`, and no `private: true`.
+- `package.json` — with `name`, `version`, `main`, `types`, `exports`, `files` whitelist (`dist` + `README.md` + `CHANGELOG.md`, plus `examples` for `@reddi/agent-protocol`), declared `license`, and no `private: true`.
 - `README.md` — coverage requirements in §4.
+- `LICENSE` — per-package MIT copy (npm auto-includes `LICENSE*` from the package directory; the repo-root file never lands in the tarball).
+- `CHANGELOG.md` — per-package v0.1.0 release notes (§5), included via the `files` whitelist.
 - `dist/` — compiled JS + `.d.ts` for every exported subpath. `dist/` is committed for these packages; the exports guard exists precisely because a source-only commit would ship broken subpaths.
 - `examples/` (`@reddi/agent-protocol` only) — the no-spend runnable examples (`ard-no-spend-demo.mjs`, `buyer-seller-dry-run.mjs`, `ard-no-spend-ai-catalog.json`).
 
@@ -52,10 +54,10 @@ Nothing else. Presence is enforced by `scripts/check-package-artifact-contents.m
 | --- | --- | --- |
 | Repo `LICENSE` (MIT) | ✅ present | Root `LICENSE`, MIT, Redditech Pty Ltd |
 | `license` field in each candidate `package.json` | ✅ present | `@reddi/x402-solana` gained its MIT declaration with #449; guard now enforces the field |
-| Per-package `LICENSE` file in tarball | ⬜ open | npm only auto-includes `LICENSE*` from the package directory, not the repo root. Copy `LICENSE` into each package dir before first publish. |
+| Per-package `LICENSE` file in tarball | ✅ done 2026-07-06 | Root MIT `LICENSE` copied into `packages/agent-protocol/` and `packages/x402-solana/`. Verified via `npm pack --dry-run --json`: `LICENSE` present in both tarballs (agent-protocol 93 files, x402-solana 20 files); `npm run check:package:artifacts` PASS. |
 | `SECURITY.md` | ✅ present | Repo root |
 | `CONTRIBUTING.md` | ✅ present | Repo root |
-| Package-level release notes | ⬜ open | Root `CHANGELOG.md` is app-focused and stale (last entry 2026-04-18). Before publish: add a `@reddi/agent-protocol` v0.1.0 changelog section (or per-package `CHANGELOG.md`) summarising the exported surfaces and the no-spend boundary, and keep it consistent with the README boundary claims. |
+| Package-level release notes | ✅ done 2026-07-06 | Per-package `CHANGELOG.md` added for both candidates (v0.1.0, 2026-07-06), added to each `files` whitelist so they ship in the tarball. Content grounded in the package READMEs: module areas + subpath-export families (counts deferred to the exports guard), the no-spend/no-custody/no-live-settlement boundary statement, quickstart commands, `npm run check:conformance:public`, and honest draft/unverified labels (Airwallex rail DRAFT v1; ERC-8004/AP2 external drafts with promoted RAP-side contracts). Root `CHANGELOG.md` remains app-focused and untouched. |
 
 ## 6. Artifact Exclusions (package artifact guard)
 
@@ -133,7 +135,7 @@ Live status as of 2026-07-06:
 
 Supporting machinery already landed: #512/#523 clean-checkout OSS smoke gate, #521/#573 exports-resolution guard + `rap-package-guard` CI lane.
 
-**Launch gate:** every required checklist input (#353/#357/#416/#417/#450/#451/#452) is now CLOSED (2026-07-06). RAP v0.1 is ready when every §2 gate passes and the §5 pre-publish follow-ups land (per-package `LICENSE` files in tarballs, package-level v0.1.0 release notes). The checklist itself, and every executable gate in it, is complete and runnable today.
+**Launch gate:** every required checklist input (#353/#357/#416/#417/#450/#451/#452) is now CLOSED (2026-07-06). The §5 pre-publish follow-ups (per-package `LICENSE` files in tarballs, package-level v0.1.0 release notes) landed 2026-07-06 — see §5 rows and the §11 record. RAP v0.1 is ready when every §2 gate passes. The checklist itself, and every executable gate in it, is complete and runnable today.
 
 ## 11. Executed Dry-Run Record
 
@@ -149,3 +151,15 @@ First executed pass — **2026-07-06 (AEST)**, branch `feat/449-v01-release-chec
 - `npm run check:rap:naming` → PASS. No publish occurred; no network, wallet, RPC, or hosted service was touched.
 
 Record subsequent passes here (date, commit, verdict) whenever the release candidate is re-cut.
+
+Second executed pass — **2026-07-06 (AEST)**, branch `feat/449-license-release-notes`, clean worktree from `origin/main` @ `cca7ec29`, after adding per-package `LICENSE` + `CHANGELOG.md` (§5 follow-ups):
+
+- `cd packages/agent-protocol && npm run release:dry-run` → **PASS**
+  - `npm test`: 448 tests, 0 fail.
+  - `check-package-exports`: OK — all 89 export/main/types targets exist on disk (use the command, not this number).
+  - `check-package-artifact-contents`: OK — dry-run pack = 93 files, all bounded.
+  - `npm pack --dry-run`: 93 files, ~247 kB tarball / ~1.1 MB unpacked; `LICENSE` and `CHANGELOG.md` now present at tarball top level alongside `package.json`, `README.md`, `dist/`, `examples/`.
+- `cd packages/x402-solana && npm run release:dry-run` → **PASS** (Jest: 3 suites, 45 tests, 0 fail; pack = 20 files, ~18 kB, `LICENSE` + `CHANGELOG.md` included).
+- `npm run check:package:artifacts` (root, both candidates) → **PASS** (agent-protocol 93 files; x402-solana 20 files).
+- `npm run check:conformance:public` (root) → **PASS** — all 9 conformance areas passed (119 composed tests), packed-artifact guard OK.
+- `npm run check:rap:naming` → PASS (new `CHANGELOG.md` files scanned). No publish occurred; no network, wallet, RPC, or hosted service was touched.
