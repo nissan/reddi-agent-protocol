@@ -1,3 +1,4 @@
+import { airwallexWebhookFixtures, } from './airwallex-webhook-receipt-normalization.js';
 import { createEvidenceArchiveRecord, } from './evidence-archive.js';
 import { mppTempoReceiptShapeFixtures, } from './mpp-tempo-receipt-shapes.js';
 import { payShSandboxEvidenceFixtures, } from './pay-sh-sandbox-evidence.js';
@@ -34,6 +35,19 @@ export function createRailNeutralProofChainFixture(input) {
         return blockedFixture(input.case, input.receiptInput.fixture, refs, result.errors);
     }
     const receipt = result.receipt;
+    // Fail-closed probe-only cap (#580): only receipt_binding_candidate receipts
+    // may bridge into a redacted reddi.receipt.v1. probe_only receipts (e.g.
+    // Airwallex webhook fixtures — revocable card-rail receipts with no
+    // receipt-v1 revoked/contested state, a documented #338 gap) must NEVER
+    // produce a receipt v1 envelope, an evidence record, or a binding.
+    if (receipt.supportState !== 'receipt_binding_candidate') {
+        return blockedFixture(input.case, input.receiptInput.fixture, refs, [{
+                code: 'unsupported_fixture_state',
+                path: '$.receipt.supportState',
+                message: `rail-neutral receipt supportState '${receipt.supportState}' is capped below receipt_binding_candidate; `
+                    + 'probe_only receipts never bridge into reddi.receipt.v1 (revocable rails have no receipt-v1 revoked/contested state — #338 gap)',
+            }]);
+    }
     const createdAt = input.createdAt ?? CREATED_AT;
     const policyDecision = policyDecisionFromBudgetPolicyDecision({
         allowed: true,
@@ -207,6 +221,10 @@ export const railNeutralProofChainFixtures = {
             },
         },
     }),
+    airwallexWebhookProbeOnlyCap: createRailNeutralProofChainFixture({
+        case: 'airwallex_webhook_probe_only_cap',
+        receiptInput: { rail: 'airwallex-hosted-checkout', fixture: airwallexWebhookFixtures.paymentIntentSucceeded },
+    }),
     livePathOverclaim: createRailNeutralProofChainFixture({
         case: 'live_path_overclaim',
         receiptInput: {
@@ -250,6 +268,14 @@ function sourceRefFromInput(input) {
     return sourceRefFromFixture(refs.sourceRef, input.fixture, input.rail);
 }
 function sourceRefFromFixture(sourceId, fixture, rail) {
+    if (isAirwallexWebhookFixture(fixture)) {
+        return {
+            rail: rail ?? 'airwallex-hosted-checkout',
+            case: fixture.event?.name ?? 'airwallex_webhook_fixture',
+            sourceId,
+            artifactPath: fixture.bindingRefs?.evidenceRef ?? 'fixture:artifact:airwallex-webhook',
+        };
+    }
     return {
         rail: rail ?? (isPayShSandboxEvidenceFixture(fixture) ? 'pay-sh-sandbox' : 'mpp-tempo'),
         case: fixture.case,
@@ -258,6 +284,16 @@ function sourceRefFromFixture(sourceId, fixture, rail) {
     };
 }
 function bindingRefsFromInput(fixture) {
+    if (isAirwallexWebhookFixture(fixture))
+        return {
+            sourceRef: `airwallex-webhook-fixture:${fixture.event?.id ?? 'malformed'}`,
+            requestHash: fixture.bindingRefs?.requestHash,
+            responseHash: fixture.bindingRefs?.responseHash,
+            evidenceRef: fixture.bindingRefs?.evidenceRef,
+            nonceRef: fixture.bindingRefs?.nonceRef,
+            recipientRef: fixture.bindingRefs?.recipientRef,
+            operatorApprovalRef: fixture.bindingRefs?.operatorApprovalRef,
+        };
     if (isPayShSandboxEvidenceFixture(fixture))
         return {
             sourceRef: fixture.bindingRefs.source.sourceId,
@@ -280,6 +316,9 @@ function bindingRefsFromInput(fixture) {
         recipientRef: fixture.bindingRefs.recipientRef,
         operatorApprovalRef: fixture.bindingRefs.operatorApprovalRef,
     };
+}
+function isAirwallexWebhookFixture(fixture) {
+    return fixture?.rail === 'airwallex-hosted-checkout';
 }
 function isPayShSandboxEvidenceFixture(fixture) {
     return 'source' in fixture.bindingRefs;

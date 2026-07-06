@@ -1,5 +1,9 @@
 import type { AuddPaymentPlanPreflightDecision } from './audd-payment-plan.js';
 import {
+  airwallexWebhookFixtures,
+  type AirwallexWebhookFixture,
+} from './airwallex-webhook-receipt-normalization.js';
+import {
   createEvidenceArchiveRecord,
   type EvidenceArchiveRecord,
 } from './evidence-archive.js';
@@ -37,7 +41,8 @@ export type RailNeutralProofChainFixtureCase =
   | 'unsupported_asset_network'
   | 'malformed_receipt'
   | 'policy_denied'
-  | 'live_path_overclaim';
+  | 'live_path_overclaim'
+  | 'airwallex_webhook_probe_only_cap';
 
 export type RailNeutralProofChainFixtureStatus = 'binding_ready' | 'blocked';
 
@@ -137,6 +142,21 @@ export function createRailNeutralProofChainFixture(input: RailNeutralProofChainF
   }
 
   const receipt = result.receipt;
+
+  // Fail-closed probe-only cap (#580): only receipt_binding_candidate receipts
+  // may bridge into a redacted reddi.receipt.v1. probe_only receipts (e.g.
+  // Airwallex webhook fixtures — revocable card-rail receipts with no
+  // receipt-v1 revoked/contested state, a documented #338 gap) must NEVER
+  // produce a receipt v1 envelope, an evidence record, or a binding.
+  if (receipt.supportState !== 'receipt_binding_candidate') {
+    return blockedFixture(input.case, input.receiptInput.fixture, refs, [{
+      code: 'unsupported_fixture_state',
+      path: '$.receipt.supportState',
+      message: `rail-neutral receipt supportState '${receipt.supportState}' is capped below receipt_binding_candidate; `
+        + 'probe_only receipts never bridge into reddi.receipt.v1 (revocable rails have no receipt-v1 revoked/contested state — #338 gap)',
+    }]);
+  }
+
   const createdAt = input.createdAt ?? CREATED_AT;
   const policyDecision = policyDecisionFromBudgetPolicyDecision({
     allowed: true,
@@ -317,6 +337,10 @@ export const railNeutralProofChainFixtures = {
       },
     },
   }),
+  airwallexWebhookProbeOnlyCap: createRailNeutralProofChainFixture({
+    case: 'airwallex_webhook_probe_only_cap',
+    receiptInput: { rail: 'airwallex-hosted-checkout', fixture: airwallexWebhookFixtures.paymentIntentSucceeded },
+  }),
   livePathOverclaim: createRailNeutralProofChainFixture({
     case: 'live_path_overclaim',
     receiptInput: {
@@ -370,9 +394,17 @@ function sourceRefFromInput(input: RailNeutralPaymentReceiptInput): RailNeutralP
 
 function sourceRefFromFixture(
   sourceId: string,
-  fixture: PayShSandboxEvidenceFixture | MppTempoReceiptShapeFixture,
+  fixture: RailNeutralPaymentReceiptInput['fixture'],
   rail?: RailNeutralPaymentReceiptInput['rail'],
 ): RailNeutralProofChainSourceRef {
+  if (isAirwallexWebhookFixture(fixture)) {
+    return {
+      rail: rail ?? 'airwallex-hosted-checkout',
+      case: fixture.event?.name ?? 'airwallex_webhook_fixture',
+      sourceId,
+      artifactPath: fixture.bindingRefs?.evidenceRef ?? 'fixture:artifact:airwallex-webhook',
+    };
+  }
   return {
     rail: rail ?? (isPayShSandboxEvidenceFixture(fixture) ? 'pay-sh-sandbox' : 'mpp-tempo'),
     case: fixture.case,
@@ -382,8 +414,17 @@ function sourceRefFromFixture(
 }
 
 function bindingRefsFromInput(
-  fixture: PayShSandboxEvidenceFixture | MppTempoReceiptShapeFixture,
+  fixture: RailNeutralPaymentReceiptInput['fixture'],
 ): RailNeutralProofChainFixture['bindingRefs'] {
+  if (isAirwallexWebhookFixture(fixture)) return {
+    sourceRef: `airwallex-webhook-fixture:${fixture.event?.id ?? 'malformed'}`,
+    requestHash: fixture.bindingRefs?.requestHash,
+    responseHash: fixture.bindingRefs?.responseHash,
+    evidenceRef: fixture.bindingRefs?.evidenceRef,
+    nonceRef: fixture.bindingRefs?.nonceRef,
+    recipientRef: fixture.bindingRefs?.recipientRef,
+    operatorApprovalRef: fixture.bindingRefs?.operatorApprovalRef,
+  };
   if (isPayShSandboxEvidenceFixture(fixture)) return {
     sourceRef: fixture.bindingRefs.source.sourceId,
     quoteRef: fixture.bindingRefs.quoteRef,
@@ -405,6 +446,12 @@ function bindingRefsFromInput(
     recipientRef: fixture.bindingRefs.recipientRef,
     operatorApprovalRef: fixture.bindingRefs.operatorApprovalRef,
   };
+}
+
+function isAirwallexWebhookFixture(
+  fixture: RailNeutralPaymentReceiptInput['fixture'],
+): fixture is AirwallexWebhookFixture {
+  return (fixture as AirwallexWebhookFixture)?.rail === 'airwallex-hosted-checkout';
 }
 
 function isPayShSandboxEvidenceFixture(

@@ -78,9 +78,11 @@ describe('ARD no-spend demo', () => {
       'unsupported_asset_network',
       'malformed_receipt',
       'policy_denied',
+      // probe_only cap (#580): Airwallex webhook fixtures never bridge into reddi.receipt.v1.
+      'airwallex_webhook_probe_only_cap',
       'live_path_overclaim',
     ]);
-    assert.equal(output.railNeutralProofChain.cases.length, 6);
+    assert.equal(output.railNeutralProofChain.cases.length, 7);
     const bindingReady = (output.railNeutralProofChain.cases as Array<{
       case: string;
       status: string;

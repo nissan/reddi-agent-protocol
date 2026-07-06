@@ -138,6 +138,10 @@
       "types": "./dist/airwallex-hosted-checkout-rail.d.ts",
       "import": "./dist/airwallex-hosted-checkout-rail.js"
     },
+    "./airwallex-webhook-receipt-normalization": {
+      "types": "./dist/airwallex-webhook-receipt-normalization.d.ts",
+      "import": "./dist/airwallex-webhook-receipt-normalization.js"
+    },
     "./strands-rap-template": {
       "types": "./dist/strands-rap-template.d.ts",
       "import": "./dist/strands-rap-template.js"
