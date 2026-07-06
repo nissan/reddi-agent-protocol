@@ -39,3 +39,6 @@ jobs:
 
       - name: Verify package artifact contents (npm pack dry-run guard)
         run: node scripts/check-package-artifact-contents.mjs --dir packages/agent-protocol
+
+      - name: Public conformance suite (#353)
+        run: node scripts/run-public-conformance.mjs --skip-build

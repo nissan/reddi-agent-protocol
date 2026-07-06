@@ -579,6 +579,16 @@ Run the deterministic conformance check for this quickstart:
 npm test -- --test-name-pattern "ARD no-spend demo"
 ```
 
+## Public Conformance Suite
+
+A single deterministic command composes the per-module conformance suites (receipt shape, policy-decision shape, source metadata, 402 challenge handling, evidence binding, secret-leakage rejection, the quickstart workflow, interop conformance modules) and the packed-artifact secret/content guard:
+
+```bash
+npm run conformance
+```
+
+From the repo root the same suite runs as `npm run check:conformance:public`, and CI runs it on every pull request touching this package. See [RAP v0.1 Developer Quickstart and Conformance](https://github.com/nissan/reddi-agent-protocol/blob/main/docs/RAP-V0.1-DEVELOPER-QUICKSTART-AND-CONFORMANCE.md) for the area-by-area breakdown and the fixture coverage matrix.
+
 ## Local Validation
 
 ```bash
