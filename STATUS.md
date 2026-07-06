@@ -1,5 +1,24 @@
 # Reddi Agent Protocol — Status
 
+## Latest Update — Discover/Decide/Prove boundary doc across OSS, hosted, and Quasar lanes (2026-07-06 AEST)
+
+Implemented GitHub issue #452 (docs-only, public-facing) in isolated worktree `projects/reddi-agent-protocol-worktree-452-boundaries-doc` on branch `docs/452-discover-decide-prove-boundaries`, branched from `origin/main` at `2a6d627e` (post-#590 tip). Single new file plus this entry: `docs/DISCOVER-DECIDE-PROVE-BOUNDARIES.md`.
+
+Delivered — one developer-readable boundary doc tying the discovery/policy/proof lanes together, covering all six #452 acceptance criteria:
+- **Discover -> Decide -> Prove model**: stage table (question answered / allowed outputs / hard prohibitions) with the load-bearing ordering rule — discovery relevance is never trust, safety, budget, payment, invocation, or publication approval (#344), and high-relevance candidates still fail closed on any Decide gate.
+- **Component mapping**: ARD / AI Catalog = discovery metadata only (enters as untrusted source metadata per #343); RAP core = policy/payment/evidence (buyer-authority policy, trust states, payment preflight, receipts/EvidenceArchive/binding); Quasar = optional compatibility/on-chain projection.
+- **#369 hosted catalog/search stated read-only and optional**: read-only projections of the gated public-export snapshot; hosted services remain optional for OSS/local developer success (#507 audit posture); source classes self-hosted / hosted-by-rap / externally-listed preserved; links to `docs/HOSTED-RAP-DISCOVERY-SURFACES.md` + operations runbook.
+- **#390 Quasar compatibility stated metadata/read-model only**: on-chain vs off-chain field split per `quasar-registry-compatibility.ts`; no instruction building/signing/submission unless a later issue (e.g. #394 commit/reveal + confirm/dispute mapping) explicitly builds it.
+- **#395 stated as single owner of live publication behavior**: gate list (profile, safety, payment-plan, dry-run receipt/evidence, attestation/reputation readiness, operator approval), same-source-of-truth payload rule, auditable approve/reject/suspend/unpublish, publication claims derive from #393/#394 outputs only.
+- **#353/#357 quickstart + conformance links**: points at the landed `packages/agent-protocol` "ARD No-Spend Quickstart" README section (`npm run example:ard:no-spend`, deterministic check via `npm test -- --test-name-pattern "ARD no-spend demo"`), `docs/conformance/` surfaces, and the open #353 public conformance-suite packaging this doc feeds.
+- Brief Decide/Prove stage detail references tonight's merged context without scope creep: buyer-authority policy never-widen invariant, rail-neutral probe-only receipt cap, receipt/evidence binding (#393), off-chain reputation preview provenance labels (#394).
+
+Validation:
+- `npm run check:rap:naming` PASS (doc deliberately avoids all banned standalone-Reddi shorthands; uses RAP / hosted RAP / Reddi-hosted).
+- `git diff --check` PASS. No BDD index change, so `npm run test:bdd:index` not required.
+
+Boundary note: docs only — no code, schema, fixture, or BDD changes; no live claims (no custody, settlement, live-payment, trust-upgrade, reputation-mutation, or live-publication behavior; publication remains #395's gated scope). The doc's own §6 restates this.
+
 ## Latest Update — AP2 mandate ingestion hardened: adapter promotion + policy-gate composition + fail-closed receipt binding + conformance (2026-07-06 AEST)
 
 Implemented GitHub issue #563 (promoting the PR #571 DRAFT "AP2 mandate ingestion adapter" to a complete, fixture-proven surface) in isolated worktree `projects/reddi-agent-protocol-worktree-563-ap2-hardening` on branch `feat/563-ap2-ingestion-hardening`, branched from `origin/main` at `93a3d528` (post-#589 tip). Mirrors the #589 ERC-8004 promotion pattern. Touches only `packages/agent-protocol`, `docs/AP2-MANDATE-INGESTION-SPEC-2026-07-06.md`, and this file.
