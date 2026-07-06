@@ -78,7 +78,7 @@ const AREAS = [
   },
   {
     id: 'interop-conformance-modules',
-    proves: 'framework-template, OKF, OKF instruction safety, ERC-8004 export, AP2 mandate, agent-stack fixture corpora',
+    proves: 'framework-template, OKF, OKF instruction safety, ERC-8004 export, AP2 mandate, Quasar reputation-intent gate, agent-stack fixture corpora',
     files: [
       'framework-template-contract.test.js',
       'framework-template-conformance.test.js',
@@ -87,6 +87,7 @@ const AREAS = [
       'okf-instruction-safety.test.js',
       'erc8004-export-conformance.test.js',
       'ap2-mandate-conformance.test.js',
+      'quasar-reputation-intent.test.js',
       'agent-stack-fixtures.test.js',
     ],
   },
