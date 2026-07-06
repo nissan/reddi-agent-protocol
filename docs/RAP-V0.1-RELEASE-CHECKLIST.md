@@ -127,13 +127,13 @@ Live status as of 2026-07-06:
 | #357 | Final public local no-spend quickstart and conformance polish | ✅ CLOSED 2026-06-22 | `packages/agent-protocol/README.md` § "ARD No-Spend Quickstart"; `npm run example:ard:no-spend` |
 | #416 | Proof-chain fixture Discover → Attestation | ✅ CLOSED 2026-06-24 | `@reddi/agent-protocol/rail-neutral-proof-chain-fixture` export + fixtures |
 | #417 | Public demo proof page data contract | ✅ CLOSED 2026-06-22 | `reddi.economic-demo.public-proof-page-data.v1` (referenced from the no-spend demo output) |
-| #450 | Source/trust conformance matrix for auth.md and ARD metadata | 🔶 OPEN | Not landed. **Launch-gate blocker**: required checklist input per the 2026-06-20 clarification. |
+| #450 | Source/trust conformance matrix for auth.md and ARD metadata | ✅ CLOSED 2026-07-06 | Landed via PR #593: `reddi.source-trust-conformance-matrix.v1` (`@reddi/agent-protocol/source-trust-conformance-matrix`) — 7 trust states × 7 case classes on both source kinds, #343/#344 projections. |
 | #451 | No-spend RAP conformance runner for public quickstart | ✅ CLOSED 2026-06-24 | Satisfied by #357/#492 (deterministic local path + fail-closed cases); release confidence superseded by the #512 smoke gate |
 | #452 | Discover/Decide/Prove boundaries doc (OSS / hosted / Quasar lanes) | ✅ CLOSED 2026-07-06 | [docs/DISCOVER-DECIDE-PROVE-BOUNDARIES.md](./DISCOVER-DECIDE-PROVE-BOUNDARIES.md) (PR #591) |
 
 Supporting machinery already landed: #512/#523 clean-checkout OSS smoke gate, #521/#573 exports-resolution guard + `rap-package-guard` CI lane.
 
-**Launch gate:** RAP v0.1 is ready when every §2 gate passes **and** #450 is closed (per issue #449's dependency clarification; the remaining #353 scope — public conformance-suite packaging — landed with the consolidated suite above). The checklist itself, and every executable gate in it, is complete and runnable today.
+**Launch gate:** every required checklist input (#353/#357/#416/#417/#450/#451/#452) is now CLOSED (2026-07-06). RAP v0.1 is ready when every §2 gate passes and the §5 pre-publish follow-ups land (per-package `LICENSE` files in tarballs, package-level v0.1.0 release notes). The checklist itself, and every executable gate in it, is complete and runnable today.
 
 ## 11. Executed Dry-Run Record
 
