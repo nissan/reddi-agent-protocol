@@ -623,6 +623,13 @@ export default function OnboardingIntakePage() {
                   Analyze another source
                 </Button>
                 <Link
+                  href="/onboarding/profile-editor"
+                  data-testid="intake-profile-editor-entry"
+                  className="inline-flex min-h-9 items-center rounded-lg border border-[#14F195]/30 bg-[#14F195]/5 px-3 text-sm text-[#14F195] hover:border-[#14F195]/60"
+                >
+                  Review &amp; edit a generated profile draft
+                </Link>
+                <Link
                   href="/register"
                   className="inline-flex min-h-9 items-center rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-muted-foreground hover:border-white/25"
                 >

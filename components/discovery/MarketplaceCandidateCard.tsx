@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import Link from "next/link"
 
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
@@ -12,8 +13,9 @@ import type { MarketplaceCandidateCardModel } from "@/lib/discovery/source-facet
  * (hosted RAP registry, ARD / AI Catalog imports, Circle x402, Pay.sh).
  *
  * Discovery-only: this card intentionally exposes no paid call, wallet
- * action, endpoint invocation, or hire affordance. Its only interaction is a
- * read-only disclosure of the gating reason codes.
+ * action, endpoint invocation, or hire affordance. Its only interactions are
+ * a read-only disclosure of the gating reason codes and internal read-only
+ * navigation to the #382 candidate detail route.
  */
 
 const TONE_BADGE_CLASSES: Record<MarketplaceCandidateCardModel["trust"]["tone"], string> = {
@@ -44,10 +46,18 @@ const RENDER_STATE_STYLES: Record<
   },
 }
 
-export function MarketplaceCandidateCard({ candidate }: { candidate: MarketplaceCandidateCardModel }) {
+export function MarketplaceCandidateCard({
+  candidate,
+  detailQuery = "",
+}: {
+  candidate: MarketplaceCandidateCardModel
+  /** Current `?source=…&task=…` state to carry into the detail deep link (#382). */
+  detailQuery?: string
+}) {
   const [showReasons, setShowReasons] = useState(false)
   const styles = RENDER_STATE_STYLES[candidate.renderState]
   const reasonsId = `candidate-reasons-${candidate.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`
+  const detailHref = `/agents/candidates/${encodeURIComponent(candidate.id)}${detailQuery}`
 
   return (
     <Card
@@ -140,9 +150,16 @@ export function MarketplaceCandidateCard({ candidate }: { candidate: Marketplace
           </div>
         ) : null}
 
-        <p className="mt-auto border-t border-white/10 pt-2 text-[11px] leading-relaxed text-gray-500">
-          {candidate.trustBoundaryNote}
-        </p>
+        <div className="mt-auto space-y-2 border-t border-white/10 pt-2">
+          <Link
+            href={detailHref}
+            data-testid="candidate-detail-link"
+            className="inline-block text-[11px] font-medium text-indigo-300 transition hover:text-indigo-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400"
+          >
+            View details →
+          </Link>
+          <p className="text-[11px] leading-relaxed text-gray-500">{candidate.trustBoundaryNote}</p>
+        </div>
       </div>
     </Card>
   )
