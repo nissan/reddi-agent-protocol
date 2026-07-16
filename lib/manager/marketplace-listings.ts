@@ -258,7 +258,7 @@ export function getMarketplaceApprovalQueue(): MarketplaceApprovalQueueView {
         publicationEvidence: {
           status: "quasar_pending",
           label: "Quasar compatibility pending",
-          description: "Quasar-backed claims are not enabled from static metadata; #443 must provide fixture-only intent before UI can show backed state.",
+          description: "Quasar-backed claims are not enabled from static metadata; the #394 attestation/reputation bridge can label fixture-only intent states, but this listing's static risk blockers leave no eligible intent evidence.",
           activationMode: "blocked",
           offchainPreview: "blocked",
           hostedAttestation: "blocked",
