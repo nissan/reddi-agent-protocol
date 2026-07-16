@@ -86,6 +86,10 @@
       "types": "./dist/hosted-attestation-claim.d.ts",
       "import": "./dist/hosted-attestation-claim.js"
     },
+    "./attestation-reputation-bridge": {
+      "types": "./dist/attestation-reputation-bridge.d.ts",
+      "import": "./dist/attestation-reputation-bridge.js"
+    },
     "./pay-sh-sandbox-evidence": {
       "types": "./dist/pay-sh-sandbox-evidence.d.ts",
       "import": "./dist/pay-sh-sandbox-evidence.js"

@@ -454,6 +454,36 @@ Hosted attestation claims consume `reddi.receipt-evidence-binding.v1` records pl
 
 This is a claim contract for downstream publication gates, not marketplace publication itself. It does not mutate reputation, build Quasar instructions, sign wallets, call RPC, write hosted registries, execute live payments, call providers, or permit buyer-facing trust/reputation claims. Quasar-backed instruction fixtures remain separate work after the Surfpool/devnet promotion checklist.
 
+## Attestation/Reputation Bridge
+
+```typescript
+import {
+  deriveAttestationReputationBridge,
+} from '@reddi/agent-protocol/attestation-reputation-bridge';
+
+const result = deriveAttestationReputationBridge({
+  id: 'reputation-bridge:listing:research-agent',
+  binding,            // reddi.receipt-evidence-binding.v1 (omit for external listings)
+  compatibility,      // reddi.quasar-registry-compatibility.v1 (#390)
+  hosted: {           // optional #442 hosted attestation gate metadata
+    proof: hostedAttestationProof,
+    operatorApproval,
+    publicationGate,
+  },
+  createdAt: new Date().toISOString(),
+});
+
+console.log(result.bridge.status);
+// hosted_attestation_backed / quasar_intent_fixtures / offchain_preview
+// / insufficient_evidence / unverified_external / blocked
+console.log(result.bridge.lanes.quasar.instructionFlow);          // not_built
+console.log(result.bridge.display.buyerFacingClaimAllowed);       // false
+```
+
+The attestation/reputation bridge (`reddi.attestation-reputation-bridge.v1`, #394) composes the off-chain reputation preview, the Quasar reputation-intent fixture gate, and the hosted attestation claim into one read-model per listing/job record set, so a UI/API surface can explain in a single call whether reputation is an off-chain preview, backed by hosted attestation evidence, or has fixture-level Quasar intent records — and if none of those, why. External listings without a receipt/evidence binding are marked `unverified_external` instead of receiving any reputation surface, and `listingProjection` exposes per-lane states in the marketplace evidence vocabulary.
+
+Honesty contract: the Quasar lane never reports "Quasar-backed" reputation. Its strongest state is `quasar_intent_fixtures` with `instructionFlow: 'not_built'` and `quasarBackedReputation: false`, because #443 intent records are data, not instructions. All composed derivations keep their own fail-closed gates, so failed policy, missing evidence, failed attestation, or unverified payment proof never produce a reputation surface, and nothing in the bridge signs, calls RPC, writes hosted registries, executes payments, or mutates reputation.
+
 ## Quasar Registry Compatibility
 
 ```typescript
