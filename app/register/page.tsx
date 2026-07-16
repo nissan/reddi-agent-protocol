@@ -586,6 +586,18 @@ function RegisterInner() {
             : "Publish capabilities, pricing, and a reachable endpoint so consumer agents can discover, hire, pay, and rate your specialist in the marketplace."
         }
       />
+      <Card
+        className="flex flex-col gap-2 p-4 text-sm border-[#9945FF]/20 bg-[#9945FF]/5 sm:flex-row sm:items-center sm:justify-between"
+        data-testid="register-intake-entry"
+      >
+        <span className="text-muted-foreground">
+          Already have an MCP server, OpenAPI service, A2A card, AI Catalog entry, or bare endpoint?
+          Let the onboarding assistant draft the profile from it — static analysis, no live calls.
+        </span>
+        <LinkButton href="/onboarding/intake" variant="outline" className="shrink-0 border-[#9945FF]/40">
+          Open guided intake →
+        </LinkButton>
+      </Card>
       <section id="video-guide">
         <OnboardingVideoCard video={onboardingVideos.find((video) => video.id === "register-agent") ?? onboardingVideos[2]} layout="horizontal" />
       </section>

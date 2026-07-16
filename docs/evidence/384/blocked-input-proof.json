@@ -1,0 +1,93 @@
+{
+  "issue": 384,
+  "generatedBy": "docs/evidence/384/generate-blocked-input-proof.mjs",
+  "validator": "reddi.onboarding-intake-descriptor.v1 (packages/agent-protocol, #575)",
+  "note": "Error messages omitted by design; codes+paths only, so no input material is echoed.",
+  "allBlocked": true,
+  "cases": [
+    {
+      "label": "secret-shaped URL query key (api_key=…) — UI blocked-secret state",
+      "accepted": false,
+      "errors": [
+        {
+          "code": "credential_leakage_rejected",
+          "path": "$.source.sourceUrl"
+        }
+      ]
+    },
+    {
+      "label": "bearer-token material in metadata — UI blocked-secret state",
+      "accepted": false,
+      "errors": [
+        {
+          "code": "credential_leakage_rejected",
+          "path": "$.declaredMetadata.authHints[0]"
+        }
+      ]
+    },
+    {
+      "label": "credentials embedded in URL userinfo — UI blocked-secret state",
+      "accepted": false,
+      "errors": [
+        {
+          "code": "credential_leakage_rejected",
+          "path": "$.source.sourceUrl"
+        }
+      ]
+    },
+    {
+      "label": "malformed URL — UI invalid-url state",
+      "accepted": false,
+      "errors": [
+        {
+          "code": "malformed_intake_descriptor",
+          "path": "$.source.sourceUrl"
+        }
+      ]
+    },
+    {
+      "label": "private/localhost URL — UI invalid-url state",
+      "accepted": false,
+      "errors": [
+        {
+          "code": "private_url_blocked",
+          "path": "$.source.sourceUrl"
+        }
+      ]
+    },
+    {
+      "label": "structurally malformed descriptor — UI blocked state",
+      "accepted": false,
+      "errors": [
+        {
+          "code": "malformed_intake_descriptor",
+          "path": "$.schemaVersion"
+        },
+        {
+          "code": "malformed_intake_descriptor",
+          "path": "$.intakeId"
+        },
+        {
+          "code": "malformed_intake_descriptor",
+          "path": "$.sourceKind"
+        },
+        {
+          "code": "malformed_intake_descriptor",
+          "path": "$.ingestionMode"
+        },
+        {
+          "code": "malformed_intake_descriptor",
+          "path": "$.staticOnly"
+        },
+        {
+          "code": "malformed_intake_descriptor",
+          "path": "$.source"
+        },
+        {
+          "code": "malformed_intake_descriptor",
+          "path": "$.declaredMetadata.capabilities"
+        }
+      ]
+    }
+  ]
+}
