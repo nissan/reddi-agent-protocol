@@ -190,6 +190,10 @@
       "types": "./dist/repo-explorer-evidence-manifest.d.ts",
       "import": "./dist/repo-explorer-evidence-manifest.js"
     },
+    "./ranking-explainability": {
+      "types": "./dist/ranking-explainability.d.ts",
+      "import": "./dist/ranking-explainability.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
