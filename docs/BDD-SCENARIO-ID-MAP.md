@@ -41,6 +41,11 @@ Lanes:
 | B2.1 | Filter by capability tags | ✅ | `lib/__tests__/registry-route.test.ts` (`tag`, `tags` csv) | route-unit |
 | B2.2 | Filter by attestation + health | ✅ | `lib/__tests__/registry-route.test.ts` | route-unit |
 | B2.3 | Sort by fit/reputation/cost/latency | ✅ | `registry-route.test.ts` + ranking tie-break policy (freshness then cost-latency proxy) | route-unit |
+| B3.1 | Ranked candidates carry a typed explainability block (#344) | ✅ | `packages/agent-protocol/tests/ranking-explainability.test.ts` (`reddi.ranking-explainability.v1`) | read-model |
+| B3.2 | High-relevance candidates still fail closed on Decide gates (#344) | ✅ | `packages/agent-protocol/tests/ranking-explainability.test.ts` + `lib/__tests__/manager-ard-candidate-diagnostics.test.ts` | read-model |
+| B3.3 | ARD candidate diagnostics separate relevance from every decision lane (#344) | ✅ | `lib/__tests__/manager-ard-candidate-diagnostics.test.ts` (`reddi.ard-candidate-diagnostics.v1`) | read-model |
+| B3.4 | Supervisor diagnostics: run linkage, child state, failure reason, settlement/audit (#344) | ✅ | `lib/__tests__/manager-supervisor-run-diagnostics.test.ts` (`reddi.supervisor-run-diagnostics.v1`) | read-model |
+| B3.5 | No source silently bypasses settlement/attestation constraints (#344) | ✅ | structural tests in both suites above | read-model |
 
 ## Bucket C — Planner-Native Specialist Consumption
 

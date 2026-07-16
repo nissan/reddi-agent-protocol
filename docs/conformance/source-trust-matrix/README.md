@@ -51,6 +51,32 @@ regression that drops any state/case fails the suite.
   `trust_evidence`, …) and the repo-wide `info`/`warning`/`blocked` severity vocabulary, including
   an explicit `relevance_only_not_trust` capability-match message on every row.
 
+## Explainability requirement (#344, landed)
+
+The #344 source-aware ranking explainability read model consumes this matrix and extends the same
+boundary to resolve/ranking output and supervisor diagnostics:
+
+- Every ranked discovery candidate carries a typed `reddi.ranking-explainability.v1` block
+  (`packages/agent-protocol/src/ranking-explainability.ts`, exported as
+  `@reddi/agent-protocol/ranking-explainability`) with source identity, capability match
+  (`relevance_only_not_trust`), trust state, payment policy fit, health/freshness, and per-gate
+  rejection reasons. All eight gates — trust, policy, quote, evidence, payment, budget,
+  **settlement, attestation** — are structurally present for every source kind; a not-evaluated
+  gate never counts as passed, and a 0.99-relevance candidate with any failed gate stays rejected.
+- ARD candidate diagnostics (`lib/manager/ard-candidate-diagnostics.ts`,
+  `reddi.ard-candidate-diagnostics.v1`) compose this matrix's `diagnosticsProjection`/state with
+  the #577 actionability matrix and the #606 attestation/reputation bridge `listingProjection`,
+  keeping relevance separate from publisher identity, trust evidence, policy decision,
+  budget/payment fit, receipt/evidence history, and reputation state.
+- Supervisor diagnostics (`lib/manager/supervisor-run-diagnostics.ts`,
+  `reddi.supervisor-run-diagnostics.v1`) explain run linkage, child invocation state, failure
+  reasons, and settlement/audit state over the economic-demo fixtures, and surface
+  settlement-without-attestation or blocked-with-settlement as reason-coded constraint violations.
+- Conformance checks: `cd packages/agent-protocol && npm test -- --test-name-pattern "ranking
+  explainability"` and `npx jest lib/__tests__/manager-ard-candidate-diagnostics.test.ts
+  lib/__tests__/manager-supervisor-run-diagnostics.test.ts --runInBand`; BDD scenarios `@B3.1`–`@B3.5`
+  in `docs/bdd/features/bucket-b-discovery.feature`.
+
 ## Vocabulary notes
 
 - Finding codes reuse `provider-trust.ts` reason codes wherever one exists
