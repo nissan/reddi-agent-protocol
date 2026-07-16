@@ -119,7 +119,11 @@ trusted / listed-untrusted / claimed / unverified / failed-verification / blocke
 needs-human-review, with anonymous write scopes and malformed metadata failing closed);
 source-aware ranking explainability and supervisor diagnostics
 ([#344](https://github.com/nissan/reddi-agent-protocol/issues/344)), which separate relevance from
-publisher identity, trust evidence, policy decision, budget/payment fit, and reputation state.
+publisher identity, trust evidence, policy decision, budget/payment fit, and reputation state —
+landed as `reddi.ranking-explainability.v1`
+(`@reddi/agent-protocol/ranking-explainability`), `reddi.ard-candidate-diagnostics.v1`
+(`lib/manager/ard-candidate-diagnostics.ts`), and `reddi.supervisor-run-diagnostics.v1`
+(`lib/manager/supervisor-run-diagnostics.ts`), all read-model only.
 
 **Decide** — buyer-authority policy (`reddi.buyer-authority-policy.v1`: spend caps, allowlists,
 expiry, operator approval — external mandates and rail metadata can only narrow it, never widen

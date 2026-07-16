@@ -1,6 +1,6 @@
 # BDD Feature Index
 
-_Last updated: 2026-06-22 AEST_
+_Last updated: 2026-07-17 AEST_
 
 Purpose: single lookup from BDD feature file -> bucket -> executable verification command(s).
 
@@ -16,6 +16,8 @@ Purpose: single lookup from BDD feature file -> bucket -> executable verificatio
 - Feature: `docs/bdd/features/bucket-b-discovery.feature`
 - Verify:
   - `npx jest lib/__tests__/registry-route.test.ts lib/__tests__/registry-bridge-sort.test.ts lib/__tests__/planner-resolve-route.test.ts --runInBand`
+  - `npx jest lib/__tests__/manager-ard-candidate-diagnostics.test.ts lib/__tests__/manager-supervisor-run-diagnostics.test.ts --runInBand` (#344 source-aware ranking explainability + supervisor diagnostics)
+  - `cd packages/agent-protocol && npm test -- --test-name-pattern "ranking explainability"`
 
 ### Bucket C — Planner-Native Consumption
 - Feature: `docs/bdd/features/bucket-c-planner-consumption.feature`
