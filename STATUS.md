@@ -1,5 +1,21 @@
 # Reddi Agent Protocol — Status
 
+## Latest Update — AUDD/Solana payment and readiness gate UI (2026-07-17 AEST)
+
+Implemented GitHub issue #386 in isolated worktree `projects/reddi-agent-protocol-worktree-386-readiness-gate-ui` on branch `feat/386-payment-readiness-gate-ui`. (Note: the implementing agent completed the code and evidence spec but stopped before commit; the overnight-loop coordinator validated, fixed one over-broad Playwright assertion, captured evidence, and shipped the PR.)
+
+Delivered:
+- Route `app/onboarding/readiness-gate/` (page + client) — read-only readiness gates for a generated listing, linked from the #385 profile editor continue path.
+- Thin adapter `lib/onboarding/readiness-gate.ts` (`reddi.onboarding-readiness-gate-view.v1`): every verdict comes verbatim from shipped validators — #575 profile/readiness lanes, #529/#535 seller-wrapper rails + config validation, #391 AUDD dry-run preflight, #548 buyer-authority compatibility, #393 receipt/evidence binding, #394/PR#606 attestation/reputation backing.
+- Sixteen gates per scenario across five fixture scenarios (ready, blocked-payment, blocked-evidence, blocked-trust, dry-run-receipt); every failed gate carries a concrete next action; live payment controls rendered absent/disabled with #392 boundary copy (AUDD = proof-metadata/payment-plan readiness, never custody or settled escrow); #497-vocabulary hard-boundary flag grid all-false.
+- Tests: `lib/__tests__/onboarding-readiness-gate.test.ts` (28), `e2e/onboarding-readiness-gate.spec.ts` (12; flag-grid assertion now counts value cells, not container text), evidence spec (4).
+- Evidence: `docs/evidence/386/` — 15 screenshots (5 states x 375/768/1280) + transition video + README.
+
+Validation: jest 28/28; Playwright 12/12 + evidence 4/4 (chrome channel, dedicated port); eslint clean; `check:rap:naming` PASS; `npm run build` PASS; `git diff --check` clean.
+
+RESUME FROM HERE: #386 completes the run-2 UI lane (intake -> editor -> readiness gates; discovery facets -> detail). Next UI candidates: listing preview/approval queue; UI adoption of the #609 explainability block and #606 listingProjection in manager surfaces.
+
+
 ## Latest Update — Generated RAP profile review editor (#385) (2026-07-16 AEST)
 
 Implemented GitHub issue #385 (frontend UX epic #380, onboarding-assistant epic #370) in isolated worktree `projects/reddi-agent-protocol-worktree-385-profile-editor` on branch `feat/385-profile-review-editor`, branched from `origin/main` at `0c515617` (post-#604 tip) and fast-forwarded to `d2dc7814` (post-#605/#606) mid-work with zero file overlap. Scope discipline: `/agents` + discovery card surfaces (#381/PR #605) and `packages/agent-protocol` + `lib/economic-demo` + `lib/manager/marketplace-listings` + offchain-reputation-preview (#394/PR #606) untouched.

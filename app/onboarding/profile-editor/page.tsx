@@ -61,6 +61,18 @@ const DIFF_CHIP: Record<string, string> = {
 
 const EMPTY_EDITS: ProfileReviewEdits = {};
 
+/**
+ * #386 continue path: which readiness-gate fixture scenario corresponds to
+ * each editor scenario (complete drafts land on the ready gates; missing
+ * payment fields land on the payment-blocked gates; inferred execute-risk
+ * drafts land on the trust-blocked gates).
+ */
+const READINESS_GATE_SCENARIO_BY_PROFILE: Record<ProfileReviewScenarioId, string> = {
+  complete: "ready",
+  "missing-required": "blocked-payment",
+  "inferred-warnings": "blocked-trust",
+};
+
 function ProvenanceChip({ provenance }: { provenance: string }) {
   return (
     <span
@@ -670,9 +682,18 @@ export default function ProfileReviewEditorPage() {
                   Publication ledger stays hard-false: this decision is a local read-model event with no
                   publication side effects (published_candidate remains internal-only under #395).
                 </p>
-                <Button type="button" variant="outline" data-testid="profile-editor-reset" onClick={() => selectScenario(scenarioId)}>
-                  Start a new review
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link
+                    href={`/onboarding/readiness-gate?scenario=${READINESS_GATE_SCENARIO_BY_PROFILE[scenarioId]}`}
+                    data-testid="profile-editor-readiness-gate-entry"
+                    className="inline-flex min-h-9 items-center rounded-lg border border-[#14F195]/30 bg-[#14F195]/5 px-3 text-sm text-[#14F195] hover:border-[#14F195]/60"
+                  >
+                    Continue to payment &amp; readiness gates →
+                  </Link>
+                  <Button type="button" variant="outline" data-testid="profile-editor-reset" onClick={() => selectScenario(scenarioId)}>
+                    Start a new review
+                  </Button>
+                </div>
               </div>
             )}
           </section>
@@ -695,6 +716,13 @@ export default function ProfileReviewEditorPage() {
               className="inline-flex min-h-9 items-center rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-muted-foreground hover:border-white/25"
             >
               Operator review queue
+            </Link>
+            <Link
+              href="/onboarding/readiness-gate"
+              data-testid="profile-editor-readiness-gate-footer-link"
+              className="inline-flex min-h-9 items-center rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-muted-foreground hover:border-white/25"
+            >
+              Payment &amp; readiness gates
             </Link>
           </div>
         </>
