@@ -201,9 +201,15 @@ test.describe("/agents source facets (#381)", () => {
     const count = await candidateCards.count();
     for (let index = 0; index < count; index += 1) {
       const card = candidateCards.nth(index);
-      // Candidate cards contain no links and no action verbs that could imply
-      // a live path; their only button is the read-only reasons disclosure.
-      expect(await card.locator("a").count()).toBe(0);
+      // Candidate cards contain no external links and no action verbs that
+      // could imply a live path; the only anchor is the internal read-only
+      // #382 detail-view navigation, and the only button is the read-only
+      // reasons disclosure.
+      const anchors = card.locator("a");
+      const anchorCount = await anchors.count();
+      for (let a = 0; a < anchorCount; a += 1) {
+        expect(await anchors.nth(a).getAttribute("href")).toMatch(/^\/agents\/candidates\//);
+      }
       const buttons = card.locator("button");
       const buttonCount = await buttons.count();
       for (let b = 0; b < buttonCount; b += 1) {

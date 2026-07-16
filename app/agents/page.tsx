@@ -185,6 +185,18 @@ function AgentsPageContent() {
     [candidates, sourceMatches, taskFilter],
   )
 
+  // Carry the current facet state into the #382 detail deep links so the
+  // detail route composes with (and can return to) this filter state.
+  const detailQuery = useMemo(() => {
+    const preserved = new URLSearchParams()
+    const source = searchParams.get(DISCOVERY_SOURCE_QUERY_PARAM)
+    const task = searchParams.get(DISCOVERY_TASK_QUERY_PARAM)
+    if (source) preserved.set(DISCOVERY_SOURCE_QUERY_PARAM, source)
+    if (task) preserved.set(DISCOVERY_TASK_QUERY_PARAM, task)
+    const qs = preserved.toString()
+    return qs ? `?${qs}` : ""
+  }, [searchParams])
+
   const totalUnfiltered = agents.length + candidates.length
   const totalVisible = filteredAgents.length + filteredCandidates.length
   const filtersActive = selectedSources.length > 0 || taskFilter !== "All"
@@ -279,7 +291,7 @@ function AgentsPageContent() {
               />
             ))}
             {filteredCandidates.map((candidate) => (
-              <MarketplaceCandidateCard key={candidate.id} candidate={candidate} />
+              <MarketplaceCandidateCard key={candidate.id} candidate={candidate} detailQuery={detailQuery} />
             ))}
           </div>
         )}
