@@ -1,5 +1,20 @@
 # Reddi Agent Protocol — Status
 
+## Latest Update — AUDD/Solana payment and readiness gate UI (2026-07-17 AEST)
+
+Implemented GitHub issue #386 in isolated worktree `projects/reddi-agent-protocol-worktree-386-readiness-gate-ui` on branch `feat/386-payment-readiness-gate-ui`. (Note: the implementing agent completed the code and evidence spec but stopped before commit; the overnight-loop coordinator validated, fixed one over-broad Playwright assertion, captured evidence, and shipped the PR.)
+
+Delivered:
+- Route `app/onboarding/readiness-gate/` (page + client) — read-only readiness gates for a generated listing, linked from the #385 profile editor continue path.
+- Thin adapter `lib/onboarding/readiness-gate.ts` (`reddi.onboarding-readiness-gate-view.v1`): every verdict comes verbatim from shipped validators — #575 profile/readiness lanes, #529/#535 seller-wrapper rails + config validation, #391 AUDD dry-run preflight, #548 buyer-authority compatibility, #393 receipt/evidence binding, #394/PR#606 attestation/reputation backing.
+- Sixteen gates per scenario across five fixture scenarios (ready, blocked-payment, blocked-evidence, blocked-trust, dry-run-receipt); every failed gate carries a concrete next action; live payment controls rendered absent/disabled with #392 boundary copy (AUDD = proof-metadata/payment-plan readiness, never custody or settled escrow); #497-vocabulary hard-boundary flag grid all-false.
+- Tests: `lib/__tests__/onboarding-readiness-gate.test.ts` (28), `e2e/onboarding-readiness-gate.spec.ts` (12; flag-grid assertion now counts value cells, not container text), evidence spec (4).
+- Evidence: `docs/evidence/386/` — 15 screenshots (5 states x 375/768/1280) + transition video + README.
+
+Validation: jest 28/28; Playwright 12/12 + evidence 4/4 (chrome channel, dedicated port); eslint clean; `check:rap:naming` PASS; `npm run build` PASS; `git diff --check` clean.
+
+RESUME FROM HERE: #386 completes the run-2 UI lane (intake -> editor -> readiness gates; discovery facets -> detail). Next UI candidates: listing preview/approval queue; UI adoption of the #609 explainability block and #606 listingProjection in manager surfaces.
+
 ## Latest Update — Source-aware ranking explainability + supervisor diagnostics read model (#344) (2026-07-17 AEST)
 
 Implemented the #344 read-model/API slice (epic #336; UI rendering explicitly deferred to #386, which this feeds) in isolated worktree `projects/reddi-agent-protocol-worktree-344-ranking-explainability` on branch `feat/344-ranking-explainability`, branched from `origin/main` at `d2dc7814` (post-#606 tip). Audit-first outcome: the lane vocabulary (#344's `source-diagnostics.ts` incl. `relevance_only_not_trust`), the #577 actionability matrix, the #593 conformance projections, and the #606 bridge `listingProjection` all existed; the gaps were (a) no typed per-candidate explainability contract on resolve/ranking output, (b) no single ARD-candidate composition of #577/#593/#606, (c) no supervisor run diagnostics, (d) no structural no-settlement/attestation-bypass encoding.
