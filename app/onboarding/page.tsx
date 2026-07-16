@@ -510,6 +510,12 @@ export default function OnboardingPage() {
         <p className="text-sm text-muted-foreground">
           Zero-to-registered flow, consent-first. Installs local runtime, exposes endpoint, then registers and verifies your specialist.
         </p>
+        <p className="text-sm text-muted-foreground" data-testid="onboarding-intake-entry">
+          Onboarding an existing MCP/OpenAPI/A2A/AI-Catalog source instead?{" "}
+          <Link href="/onboarding/intake" className="text-[#14F195] hover:text-emerald-200">
+            Use the guided intake flow →
+          </Link>
+        </p>
       </div>
 
       <div className="space-y-3">
