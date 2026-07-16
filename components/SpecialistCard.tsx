@@ -20,6 +20,11 @@ interface SpecialistCardProps {
   marketplaceAgentCalls?: string[]
   externalMcpServers?: string[]
   nonMarketplaceAgentCalls?: string[]
+  /** #381 discovery source facet badge (e.g. RAP registry / OpenRouter / Local demo). */
+  sourceFacet?: { id: string; label: string }
+  /** Media/resource type line for the discovery card contract (#381). */
+  resourceType?: string
+  mediaType?: string
 }
 
 function shortWallet(wallet: string) {
@@ -58,6 +63,9 @@ export function SpecialistCard({
   marketplaceAgentCalls = [],
   externalMcpServers = [],
   nonMarketplaceAgentCalls = [],
+  sourceFacet,
+  resourceType = "specialist endpoint",
+  mediaType = "http + json manifest",
 }: SpecialistCardProps) {
   const healthTone =
     health === "online"
@@ -78,7 +86,14 @@ export function SpecialistCard({
   const downstreamCount = marketplaceAgentCalls.length + externalMcpServers.length + nonMarketplaceAgentCalls.length
 
   return (
-    <Link href={`/agents/${wallet}`} className="block h-full" data-testid="agent-card">
+    <Link
+      href={`/agents/${wallet}`}
+      className="block h-full rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400"
+      data-testid="agent-card"
+      data-source-facet={sourceFacet?.id}
+      data-render-state="rap-native"
+      data-trust-state={attested ? "trusted" : "unverified"}
+    >
       <Card hover className="h-full overflow-hidden">
         <div className={cn("relative h-36 bg-gradient-to-br", avatarGradient(wallet))}>
           <div className="absolute inset-0 bg-page/55" />
@@ -88,6 +103,15 @@ export function SpecialistCard({
           <div className={cn("absolute right-4 top-4 h-3 w-3 rounded-full ring-4 ring-black/20", healthTone)} />
           <div className="absolute bottom-4 left-4 right-4">
             <div className="flex flex-wrap gap-1.5">
+              {sourceFacet ? (
+                <Badge
+                  variant="outline"
+                  className="border-indigo-400/40 bg-indigo-500/20 text-[10px] uppercase tracking-wide text-indigo-200"
+                  data-testid="candidate-source-badge"
+                >
+                  {sourceFacet.label}
+                </Badge>
+              ) : null}
               {taskTypes[0] ? (
                 <Badge variant="outline" className="border-white/15 bg-black/30 text-white">
                   {taskTypes[0]}
@@ -117,7 +141,11 @@ export function SpecialistCard({
           </div>
 
           <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] text-gray-300">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-2" data-testid="candidate-resource-type">
+              <span>Resource</span>
+              <span className="text-gray-400">{resourceType} · {mediaType}</span>
+            </div>
+            <div className="mt-1 flex items-center justify-between gap-2">
               <span>Manifest</span>
               <span className="text-gray-400">{tools.length} tools · {skills.length} skills</span>
             </div>
