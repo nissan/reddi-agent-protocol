@@ -50,6 +50,9 @@ export default function WhitepaperPage() {
             <Link href="https://github.com/nissan/reddi-agent-protocol/blob/main/docs/whitepaper/GLOSSARY.md" className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-white/90">
               Glossary
             </Link>
+            <Link href="/adl" className="rounded-lg border border-[#14F195]/40 bg-[#14F195]/10 px-4 py-2 text-sm font-medium text-[#14F195]">
+              ADL whitepaper and demo
+            </Link>
           </div>
         </header>
 
