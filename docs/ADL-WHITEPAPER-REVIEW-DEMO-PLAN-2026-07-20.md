@@ -48,4 +48,3 @@ As a builder evaluating Reddi Agent Protocol, I want to read the ADL whitepaper,
 - `npm run build`
 - `git diff --check`
 - Playwright `/adl` smoke when local browser cache is healthy.
-

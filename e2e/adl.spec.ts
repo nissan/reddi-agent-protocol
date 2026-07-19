@@ -23,4 +23,3 @@ test.describe("ADL whitepaper and demo", () => {
     await expect(page.getByRole("status")).toContainText(/accepted|complete|ready/i);
   });
 });
-

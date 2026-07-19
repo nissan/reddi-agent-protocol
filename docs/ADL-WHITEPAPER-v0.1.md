@@ -77,4 +77,3 @@ The public demo defaults to mock mode. Live mode requires the user to provide th
 ## Current Status
 
 ADL v0.1 is a reviewable specification and interoperability contract. It is stable enough to explain, validate, export, and demonstrate. The next improvements should come from real implementer feedback: agent runtimes, payment wrappers, attestors, marketplace builders, and operators trying to map their existing systems into ADL without losing safety or payment semantics.
-
