@@ -8,6 +8,7 @@ test.describe('Navigation', () => {
       '/register',
       '/setup',
       '/onboarding',
+      '/adl',
       '/customize',
       '/dashboard',
       '/manager',

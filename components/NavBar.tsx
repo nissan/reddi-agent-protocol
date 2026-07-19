@@ -38,6 +38,7 @@ const navLinks: { href: string; label: string; badge?: string }[] = [
   { href: "/consumer", label: "Consumer" },
   { href: "/audit", label: "Audit Trail" },
   { href: "/dogfood", label: "Dogfood", badge: "New" },
+  { href: "/adl", label: "ADL", badge: "Docs" },
   { href: "/whitepaper", label: "Whitepaper", badge: "Docs" },
   { href: "/orchestrator", label: "Settings" },
 ];
