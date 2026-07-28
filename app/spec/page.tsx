@@ -104,6 +104,9 @@ export default function SpecPage() {
           </p>
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-sm">
+              <caption className="sr-only">
+                The five protocol layers a receipt binds, and the role of each
+              </caption>
               <tbody>
                 {receiptLayers.map(([layer, role]) => (
                   <tr key={layer}>
@@ -150,7 +153,7 @@ export default function SpecPage() {
               className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#14F195] px-4 py-2 text-sm font-bold text-black hover:opacity-90"
             >
               <Download aria-hidden="true" size={16} />
-              Spec bundle (.zip, 76 KB)
+              Spec bundle (.zip, 75 KB)
             </a>
             <a
               href="/downloads/ADL-v0.2.md"
@@ -174,7 +177,7 @@ export default function SpecPage() {
             examples + v0.1→v0.2 migration guide + the receipt-integrity
             validator and conformance checker (runnable:{" "}
             <code className="rounded border border-white/10 bg-black/30 px-1.5 py-0.5 text-xs">
-              python3 adl_v02_conformance.py examples/simple-agent.yaml
+              python3 scripts/adl_v02_conformance.py examples/v0.2/simple-agent.yaml
             </code>
             ).
           </p>
