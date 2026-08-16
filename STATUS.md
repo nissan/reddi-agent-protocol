@@ -1,5 +1,17 @@
 # Reddi Agent Protocol — Status
 
+## Latest Update — v0.2.0-beta release announcement on /updates + org-link fixes (2026-08-16 AEST)
+
+Release-wave slice for the ADL v0.2.0-beta publish (release artifacts and announcement pack live in `reddiagent-lab` `docs/release/` + `docs/announcements/`; publish runbook: `docs/release/RELEASE-RUNBOOK-v0.2.0-beta.md` there).
+
+Delivered:
+- `/updates` gains the 2026-08-16 entry: beta published, call for v0.3 feedback (anchored on lab issues #440 price discovery, #441 non-monetary currency units, #389 charge-intent authority envelope — all filed from Reddi Arena implementation experience), and Reddi Arena early-access waitlist (live at reddi-arena-production.up.railway.app, dry-run rail).
+- Fixed all four `reddinft/reddiagent-lab` → `nissan/reddiagent-lab` links on `/spec` and `/feedback` — the old org links 404 and would have broken the feedback intake path the announcements point at.
+
+Validation: eslint clean on the three touched pages; jest 125 suites / 597 tests green.
+
+**Merge order:** this PR merges only after the maintainer publishes the `v0.2.0-beta` GitHub release (runbook step 2) — the live site must not announce an unpublished release.
+
 ## Latest Update — Audit-prep hygiene: secret purge, config-drift fixes, CI gates (2026-08-16 AEST)
 
 Implemented priority-matrix items 1–3 from `docs/AUDIT-READINESS-AND-SIGNUP-ASSESSMENT-2026-08-16.md` (merged in PR #638) on branch `claude/protocol-audit-signup-flow-k19szi`.
