@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "jest",
     "test:e2e": "playwright test",
     "test:e2e:dogfood": "playwright test e2e/dogfood.spec.ts",
     "test:e2e:wallet": "playwright test e2e/wallet-mock.spec.ts",
