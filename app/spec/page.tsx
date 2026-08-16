@@ -188,12 +188,12 @@ export default function SpecPage() {
           <p className="max-w-3xl text-sm leading-6 text-gray-300">
             The specification lives at{" "}
             <a
-              href="https://github.com/reddinft/reddiagent-lab"
+              href="https://github.com/nissan/reddiagent-lab"
               target="_blank"
               rel="noopener noreferrer"
               className="text-indigo-300 hover:text-indigo-200"
             >
-              github.com/reddinft/reddiagent-lab
+              github.com/nissan/reddiagent-lab
             </a>{" "}
             — issues and structured review intake included.
           </p>

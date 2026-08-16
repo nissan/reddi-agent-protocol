@@ -17,6 +17,17 @@ type UpdateEntry = {
 // Newest first — prepend new entries to the top of this array.
 const updates: UpdateEntry[] = [
   {
+    date: "2026-08-16",
+    title: "ADL v0.2.0-beta published — call for v0.3 feedback, Reddi Arena early access",
+    items: [
+      "ADL v0.2.0-beta released publicly on GitHub (nissan/reddiagent-lab): canonical spec, JSON Schema, 5-level conformance ladder, receipt-integrity validator, 16 validated examples, v0.1→v0.2 migration guide. Code Apache-2.0, specs CC BY 4.0.",
+      "Reddi Arena is live as the spec's proof use case — a competitive homebrew-bot arena where bots are ADL documents, league tiers are the conformance levels, and purses run on escrow + receipts (dry-run rail). Early-access waitlist signups are open.",
+      "Call for v0.3 feedback is open. Building the Arena against the beta already surfaced three spec findings, filed as the seed of the v0.3 backlog: no price-discovery field (#440), currency enum excludes non-monetary units (#441), seller-side charge intents escape the authority envelope (#389).",
+      "The highest-value contribution is an implementation report: build against the beta, and when you hit a wall the spec should have prevented, file it via the feedback page's open-spec review template.",
+    ],
+    note: "Arena early access: reddi-arena-production.up.railway.app · Release: github.com/nissan/reddiagent-lab/releases/tag/v0.2.0-beta",
+  },
+  {
     date: "2026-07-28",
     title: "ADL v0.2.0-beta staged for public release",
     items: [

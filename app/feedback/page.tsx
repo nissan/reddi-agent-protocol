@@ -56,7 +56,7 @@ export default function FeedbackPage() {
           </p>
           <div className="flex flex-wrap gap-3">
             <a
-              href="https://github.com/reddinft/reddiagent-lab/issues/new?template=open-spec-review.md"
+              href="https://github.com/nissan/reddiagent-lab/issues/new?template=open-spec-review.md"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#14F195] px-4 py-2 text-sm font-bold text-black hover:opacity-90"
@@ -65,7 +65,7 @@ export default function FeedbackPage() {
               Open a spec-review issue
             </a>
             <a
-              href="https://github.com/reddinft/reddiagent-lab/issues"
+              href="https://github.com/nissan/reddiagent-lab/issues"
               target="_blank"
               rel="noopener noreferrer"
               className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-white/90 hover:border-[#14F195]/50"
