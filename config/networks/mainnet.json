@@ -7,7 +7,8 @@
     "explorerClusterParam": "mainnet"
   },
   "programs": {
-    "escrowProgramId": "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD"
+    "escrowProgramId": "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD",
+    "escrowProgramIdNote": "PLACEHOLDER — no mainnet deployment exists. This is the devnet legacy Anchor program id and MUST be replaced (and this note removed) before any mainnet activation. See docs/SOLANA-EXTERNAL-AUDIT-HANDOFF-2026-06-24.md: mainnet is gated on external audit."
   },
   "payments": {
     "jupiterApiBase": "https://api.jup.ag/swap/v2",

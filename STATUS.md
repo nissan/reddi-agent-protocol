@@ -1,5 +1,18 @@
 # Reddi Agent Protocol — Status
 
+## Latest Update — Audit-prep hygiene: secret purge, config-drift fixes, CI gates (2026-08-16 AEST)
+
+Implemented priority-matrix items 1–3 from `docs/AUDIT-READINESS-AND-SIGNUP-ASSESSMENT-2026-08-16.md` (merged in PR #638) on branch `claude/protocol-audit-signup-flow-k19szi`.
+
+Delivered:
+- **Secret purge (item 1):** removed the committed live-format `JUPITER_API_KEY` value from `.env.example` and `packages/demo-agents/.env.devnet.example` (placeholder text now). **The key must still be rotated at developers.jup.ag — treat the old value as compromised** (it remains in git history until a history scrub is approved).
+- **Config drift (item 2):** `DEPLOY.md` rewritten to lead with the Quasar four-program devnet deployment and demote the legacy Anchor id `794nTF…` to its reference role (the phantom `77rkRQxe…` id is now explicitly called out as pre-cutover rot); `config/networks/mainnet.json` `escrowProgramId` annotated as a placeholder that must be replaced before any mainnet activation; the dangling `$schema` pointers in `config/quasar/*.json` now resolve — authored `deployments.schema.json` + `runtime-compatibility.schema.json`, both validated against the live files; `.env.example` documents `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` (code default remains `legacy-anchor` when unset — flipping the code default is a behavior change deliberately left to its own reviewed issue). `third_party/quasar/VERSION.md` upstream-SHA TODO remains open (upstream repo not reachable from this session).
+- **CI gates (item 3):** root `package.json` gains `"test": "jest"`; new `.github/workflows/jest.yml` (blocking, push/PR to main) — validated locally: 125 suites / 597 tests green in ~7s; new `.github/workflows/anchor-program-tests.yml` (path-filtered on `programs/escrow/**`; `cargo build-sbf` before `cargo test -p escrow` because the LiteSVM tests `include_bytes!` the built .so); new `.github/workflows/e2e-funnel.yml` (blocking, 11 signup/onboarding funnel specs; evidence-capture specs stay on the non-blocking nightly lane).
+
+Validation: `npx jest` 125/125 suites, 597/597 tests; `npm run check:quasar:submission` PASS (inventory, demo-readiness, critical-success); both new JSON schemas validate against `deployments.json` / `runtime-compatibility.json`; Playwright funnel subset run locally (see PR for result).
+
+RESUME FROM HERE: priority-matrix item 4 (decide fix-vs-scope for the four open job-binding Criticals) and item 6 (durable store + wallet auth for the signup funnel) are the next unblocked lanes. Key rotation at developers.jup.ag is owed by a human operator.
+
 ## Latest Update — AUDD/Solana payment and readiness gate UI (2026-07-17 AEST)
 
 Implemented GitHub issue #386 in isolated worktree `projects/reddi-agent-protocol-worktree-386-readiness-gate-ui` on branch `feat/386-payment-readiness-gate-ui`. (Note: the implementing agent completed the code and evidence spec but stopped before commit; the overnight-loop coordinator validated, fixed one over-broad Playwright assertion, captured evidence, and shipped the PR.)

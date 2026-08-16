@@ -40,7 +40,10 @@ export type NetworkProfile = {
 const PROFILES: Record<NetworkProfileName, NetworkProfile> = {
   "local-surfpool": localSurfpoolProfile as NetworkProfile,
   devnet: devnetProfile as NetworkProfile,
-  mainnet: mainnetProfile as NetworkProfile,
+  // mainnet.json carries an escrowProgramIdNote annotation key (placeholder
+  // program id, gated on external audit) that is not part of NetworkProfile,
+  // so the direct cast is not assignable in either direction.
+  mainnet: mainnetProfile as unknown as NetworkProfile,
 };
 
 function pickEnv(...keys: string[]): string | undefined {

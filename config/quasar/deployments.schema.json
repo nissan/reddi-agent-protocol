@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "./deployments.schema.json",
+  "title": "Quasar deployments record",
+  "description": "Schema for config/quasar/deployments.json — the source of truth for the Quasar program-set cutover (2026-05-06) and its devnet deployment evidence.",
+  "type": "object",
+  "required": [
+    "updatedAt",
+    "target",
+    "submissionReady",
+    "legacyAnchorReference",
+    "quasarDeployments",
+    "submissionReadyReason",
+    "criticalSuccessFactors"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "updatedAt": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "decisionIssue": { "type": "integer" },
+    "target": { "type": "string" },
+    "submissionReady": { "type": "boolean" },
+    "submissionReadyReason": { "type": "string" },
+    "criticalSuccessFactors": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "legacyAnchorReference": {
+      "type": "object",
+      "required": ["cluster", "programId", "purpose"],
+      "properties": {
+        "cluster": { "$ref": "#/$defs/cluster" },
+        "programId": { "$ref": "#/$defs/pubkey" },
+        "purpose": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "quasarDeployments": {
+      "type": "object",
+      "required": ["devnet"],
+      "properties": {
+        "devnet": { "$ref": "#/$defs/deployment" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/deployment" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "cluster": { "type": "string", "enum": ["devnet", "mainnet-beta", "localnet"] },
+    "pubkey": {
+      "type": "string",
+      "pattern": "^[1-9A-HJ-NP-Za-km-z]{32,44}$",
+      "description": "Base58-encoded Solana public key"
+    },
+    "deployment": {
+      "type": "object",
+      "required": ["cluster", "rpcHttp", "programId", "status", "scope", "knownGaps", "evidence", "programIds"],
+      "properties": {
+        "cluster": { "$ref": "#/$defs/cluster" },
+        "rpcHttp": { "type": "string", "format": "uri" },
+        "programId": { "$ref": "#/$defs/pubkey" },
+        "status": { "type": "string" },
+        "scope": { "type": "array", "items": { "type": "string" } },
+        "knownGaps": { "type": "array", "items": { "type": "string" } },
+        "knownLimitations": { "type": "array", "items": { "type": "string" } },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": { "type": "string" },
+              "checkedAt": { "type": "string" },
+              "command": { "type": "string" },
+              "result": { "type": "string" },
+              "path": { "type": "string" },
+              "program": { "type": "string" },
+              "programId": { "$ref": "#/$defs/pubkey" },
+              "upgradeAuthority": { "$ref": "#/$defs/pubkey" },
+              "tx": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "programIds": {
+          "type": "object",
+          "required": ["escrow", "registry", "reputation", "attestation"],
+          "properties": {
+            "escrow": { "$ref": "#/$defs/pubkey" },
+            "registry": { "$ref": "#/$defs/pubkey" },
+            "reputation": { "$ref": "#/$defs/pubkey" },
+            "attestation": { "$ref": "#/$defs/pubkey" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

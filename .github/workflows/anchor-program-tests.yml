@@ -1,0 +1,59 @@
+name: Anchor Program Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "programs/escrow/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/anchor-program-tests.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "programs/escrow/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/anchor-program-tests.yml"
+  workflow_dispatch:
+
+jobs:
+  anchor-program-tests:
+    name: Legacy Anchor escrow tests (LiteSVM)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain (matches rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.89.0"
+
+      - name: Cache Cargo registry and workspace target
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-anchor-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-anchor-cargo-
+            ${{ runner.os }}-cargo-
+
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.13/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      # The LiteSVM tests embed target/deploy/escrow.so via include_bytes!,
+      # so the SBF build must complete before the test crate compiles.
+      - name: Build escrow program (SBF)
+        run: cargo build-sbf --manifest-path programs/escrow/Cargo.toml
+
+      - name: Run LiteSVM tests
+        run: cargo test -p escrow

@@ -1,14 +1,33 @@
 # Deployment Guide
 
-## Devnet Program
+## Current deployments (devnet)
 
-**Current deployed ID:** `77rkRQxe4GRzHU56H6JuWPFe27g4NoRBz4GGftuUZXmX`
+**Demo target is the Quasar program set** — four programs deployed to devnet per
+`config/quasar/deployments.json` (cutover 2026-05-06):
 
-This ID is set in `packages/demo-agents/src/config.ts` and `Anchor.toml`.
+| Program | ID |
+|---|---|
+| Registry | `Xk7jczJZ1HHJZuE1ZUWDqFmowxYhnom7mWzrNSGf9FU` |
+| Escrow | `VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW` |
+| Reputation | `nb9rLVjoHMibsgfRGgKuPqm6M8GVcH9r6bYNfg7Yiy6` |
+| Attestation | `CRGsWWkptdxsH6N6aWAyahLbuMsT58yM624EopEsv1Ex` |
+
+Quasar sources live under `experiments/quasar-*`; build/test via
+`bash scripts/run-quasar-program-tests.sh`.
+
+## Legacy Anchor reference program
+
+**Deployed ID:** `794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD` (historical
+comparison only — must not be used as the demo target). This ID is set in
+`packages/demo-agents/src/config.ts` (`defaultEscrowProgramId`) and
+`config/networks/devnet.json`.
+
+> Note: the `77rkRQxe…UZXmX` ID that appears in some older `declare_id!`
+> macros and stale docs predates the current deployment — ignore it.
 
 ### When to redeploy
 
-The program was deployed with `anchor deploy --provider.cluster devnet` on 2026-04-10. Redeploy if:
+Redeploy the legacy Anchor program if:
 - On-chain program changes are made (any `programs/escrow/src/` edits)
 - The program account runs out of rent (unlikely for demo scale)
 - A fresh devnet keypair is needed
