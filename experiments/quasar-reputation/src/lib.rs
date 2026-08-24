@@ -26,6 +26,7 @@
 
 use quasar_lang::prelude::*;
 
+pub mod escrow_ref;
 mod instructions;
 pub mod state;
 
