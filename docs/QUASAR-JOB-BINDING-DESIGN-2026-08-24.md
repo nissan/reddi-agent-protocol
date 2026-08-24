@@ -270,3 +270,27 @@ Steps 4–7 are unchanged and not started: TS client + `lib/program.ts` mirrors,
 rating or attestation), devnet redeploy **in place** (maintainer-approved), and
 the audit handoff re-freeze with a regenerated ABI appendix. Note for step 4:
 account order changed in every affected instruction, not just the argument list.
+
+### Steps 4 and 6 must land together
+
+After this change there are three versions of the interface in play:
+
+| Surface | State |
+|---|---|
+| `experiments/quasar-*` source | **new** (escrow-bound) |
+| `lib/quasar/instructions.ts`, demo agents | old — still derives the rating PDA from `jobId` (`instructions.ts:101`) |
+| Devnet programs at `nb9rLV…` / `CRGsWW…` | old — not yet redeployed |
+
+The client and the chain still agree with each other, so **nothing is broken
+today**; the source is simply ahead of both. That stops being true the moment
+either one moves alone:
+
+- TS client updated **before** the redeploy → new-format instructions sent to
+  old programs → the demo fails.
+- Redeploy **before** the TS client → old-format instructions sent to new
+  programs → the demo fails.
+
+So steps 4 and 6 ship as one change, not as two merges. The readiness guard
+(`npm run check:quasar:submission`) will **not** catch this — it validates
+program IDs and config, not ABI against source — so it passing is not evidence
+the demo works.
