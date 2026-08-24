@@ -1416,6 +1416,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "quasar-escrow-ref"
+version = "0.1.0"
+dependencies = [
+ "quasar-lang",
+ "solana-address 2.6.0",
+]
+
+[[package]]
 name = "quasar-lang"
 version = "0.0.0"
 dependencies = [
@@ -1444,6 +1452,7 @@ name = "quasar-reputation"
 version = "0.1.0"
 dependencies = [
  "digest 0.10.7",
+ "quasar-escrow-ref",
  "quasar-lang",
  "quasar-svm",
  "sha2 0.10.9",

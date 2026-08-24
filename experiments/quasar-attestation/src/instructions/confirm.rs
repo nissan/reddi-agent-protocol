@@ -8,6 +8,11 @@
 /// - Rolling average reputation bump treating confirmation as score=10:
 ///   `new = (old * 9 + 10_000) / 10` — mirrors Anchor formula exactly
 ///
+/// Job binding: the attestation PDA is seeded by the escrow address, so
+/// `escrow` is passed as a seed-only account. The consumer authorised to
+/// resolve is `attestation.consumer`, which `attest` read from `escrow.payer`
+/// — a judge can no longer nominate who confirms their work (CRITICAL-2).
+///
 /// Quasar deltas vs Anchor:
 /// - `confirmed: u8` sentinel instead of `Option<bool>`.
 /// - `attestation_accuracy: u16` accessed via PodU16 `.get()` / `PodU16::from()`.
@@ -18,11 +23,17 @@ use {
 };
 
 #[derive(Accounts)]
-#[instruction(job_id: u128)]
 pub struct Confirm<'info> {
+    /// Escrow address this attestation is bound to — used only as a PDA seed.
+    /// CHECK: not dereferenced. The `seeds` constraint on `attestation` proves
+    /// this is the escrow the attestation was bound to at attest time;
+    /// `quasar-escrow` closes the escrow on settlement, so the account itself is
+    /// typically gone by now.
+    pub escrow: &'info UncheckedAccount,
+
     #[account(
         mut,
-        seeds = AttestationAccount::seeds(job_id),
+        seeds = AttestationAccount::seeds(escrow),
         bump,
     )]
     pub attestation: &'info mut Account<AttestationAccount>,
@@ -41,7 +52,7 @@ pub struct Confirm<'info> {
 
 impl<'info> Confirm<'info> {
     #[inline(always)]
-    pub fn confirm(&mut self, _job_id: u128) -> Result<(), ProgramError> {
+    pub fn confirm(&mut self) -> Result<(), ProgramError> {
         // Guard: only the registered consumer can confirm
         if *self.consumer.address() != self.attestation.consumer {
             return Err(ProgramError::InvalidArgument); // UnauthorisedSigner parity

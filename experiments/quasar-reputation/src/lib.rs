@@ -32,7 +32,11 @@
 
 use quasar_lang::prelude::*;
 
-pub mod escrow_ref;
+/// Shared, owner-checked mirror of the `quasar-escrow` escrow account.
+/// Re-exported so the binding primitive has one canonical definition across
+/// `quasar-reputation` and `quasar-attestation`.
+pub use quasar_escrow_ref as escrow_ref;
+
 mod instructions;
 pub mod state;
 

@@ -126,16 +126,29 @@ impl AgentAccount {
 
 /// On-chain attestation record created by a judge agent.
 ///
+/// # Job binding
+///
+/// The attestation is keyed by the **escrow account address**, not by a
+/// judge-chosen `job_id`, and `consumer` is read from `escrow.payer` rather than
+/// supplied by the judge. That closes CRITICAL-2 (judge self-confirmation) and
+/// CRITICAL-3 (unbounded attestation creation): an attestation cannot exist
+/// without a real escrow, there is exactly one per job, and the judge cannot
+/// name the party who will confirm their own work. See
+/// `docs/QUASAR-JOB-BINDING-DESIGN-2026-08-24.md`.
+///
 /// Parity notes vs Anchor `AttestationAccount`:
 /// - `confirmed: u8` instead of `Option<bool>` (1 byte vs 2 bytes; see AttestationStatus)
-/// - `job_id` passed as `u128` for seed compatibility (LE bytes identical to [u8;16])
+/// - `job_id` is derived from `escrow.escrow_id`, not passed by the caller
 /// - `created_at` populated via `Clock::get()` as in Anchor
 ///
-/// PDA seeds: `[b"attestation", job_id: u128]`
+/// PDA seeds: `[b"attestation", escrow_address]`
 #[account(discriminator = 40, set_inner)]
-#[seeds(b"attestation", job_id: u128)]
+#[seeds(b"attestation", escrow: Address)]
 pub struct AttestationAccount {
-    /// Unique job identifier — 16 raw bytes
+    /// The `quasar-escrow` account this attestation is bound to — the canonical
+    /// job record, and the PDA seed.
+    pub escrow: Address,
+    /// Job identifier — derived from `escrow.escrow_id`, not judge-supplied
     pub job_id: [u8; 16],
     /// The judge agent's wallet
     pub judge: Address,

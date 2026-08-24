@@ -1,13 +1,19 @@
-//! Read-only mirror of the `quasar-escrow` `EscrowAccount`, used to bind a
-//! rating to a real job.
+#![no_std]
+//! Read-only mirror of the `quasar-escrow` `EscrowAccount` — the shared
+//! job-binding primitive.
+//!
+//! Both `quasar-reputation` and `quasar-attestation` need to prove that a job
+//! really exists and to learn who its parties are. This crate holds the single
+//! canonical mirror of the escrow layout so the two consumers cannot drift apart
+//! from each other, or from `quasar-escrow`.
 //!
 //! # Why this type exists
 //!
-//! Before the job-binding change, `commit` accepted `consumer_pk` and
-//! `specialist_pk` as instruction arguments and seeded the rating PDA on a
-//! caller-chosen `job_id`. Nothing on-chain tied either to a real job, which is
-//! the shared root cause of CRITICAL-1 (rating-PDA squatting) and CRITICAL-4
-//! (reputation grief) in `docs/QUASAR-PROGRAMS-SECURITY-AUDIT-2026-05-06.md`.
+//! Before the job-binding change, the consuming programs accepted the job's
+//! parties as instruction arguments and seeded their PDAs on a caller-chosen
+//! `job_id`. Nothing on-chain tied either to a real job — the shared root cause
+//! of CRITICAL-1 through CRITICAL-4 in
+//! `docs/QUASAR-PROGRAMS-SECURITY-AUDIT-2026-05-06.md`.
 //!
 //! `quasar-escrow` already holds the facts we were trusting the caller for. Its
 //! `EscrowAccount` is created by `lock`, which requires the payer to sign and to
@@ -17,7 +23,7 @@
 //! # How the binding is enforced
 //!
 //! `EscrowRef` is declared as an `InterfaceAccount<EscrowRef>` field on the
-//! reputation instructions. `InterfaceAccount::from_account_view` checks
+//! consuming programs' instructions. `InterfaceAccount::from_account_view` checks
 //! `view.owner()` against [`EscrowRef::owners`] and returns `IllegalOwner` on a
 //! mismatch, then calls [`AccountCheck::check`], which enforces the escrow
 //! discriminator and minimum data length. An attacker therefore cannot pass a
@@ -33,7 +39,7 @@
 //! reproduces that struct; the tests in this module assert the offsets and total
 //! size so a change upstream fails here rather than silently misreading fields.
 //!
-//! Deliberately **read-only**: reputation never writes to an escrow, so no
+//! Deliberately **read-only**: neither consumer writes to an escrow, so no
 //! `DerefMut`/`deref_from_mut` write path is exposed beyond what the framework
 //! trait requires.
 
