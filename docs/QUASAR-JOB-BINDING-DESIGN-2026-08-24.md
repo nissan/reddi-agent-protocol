@@ -1,8 +1,10 @@
 # Quasar job-binding — design for closing the four Criticals
 
-_Date:_ 2026-08-24 · _Status:_ design, pre-implementation
-_Closes:_ CRITICAL-1, CRITICAL-2, CRITICAL-3, CRITICAL-4 from
-`docs/QUASAR-PROGRAMS-SECURITY-AUDIT-2026-05-06.md`
+_Date:_ 2026-08-24 · _Status:_ **steps 1–3 implemented and verified; steps 4–7 open**
+_Closes:_ CRITICAL-1, CRITICAL-2, CRITICAL-3 from
+`docs/QUASAR-PROGRAMS-SECURITY-AUDIT-2026-05-06.md`; CRITICAL-4 is **mitigated,
+not closed** — see "Implementation outcome" at the end of this document, which
+supersedes the C-4 closure argument in the table below.
 _Blocker list:_ items 1 (job/escrow binding) of the five in
 `docs/QUASAR-PROGRAMS-SECURITY-AUDIT-RESPONSE-2026-05-06.md`
 
