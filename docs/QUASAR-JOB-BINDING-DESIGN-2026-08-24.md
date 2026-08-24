@@ -153,3 +153,118 @@ against. Two options:
 Recommendation: redeploy in place. The demo target is devnet, the evidence is
 regenerable, and carrying two program sets adds exactly the sort of
 config ambiguity the audit-prep work has been removing.
+
+---
+
+# Implementation outcome (2026-08-24)
+
+Steps 1–3 of the sequence are complete and verified. Full loop green via
+`bash scripts/run-quasar-program-tests.sh` — **102 tests**: escrow 8,
+escrow-per 40, registry 10, reputation 20, attestation 19, escrow-ref 5.
+
+## What actually closed
+
+| Finding | Status | Evidence |
+|---|---|---|
+| **C-1** rating-PDA squatting | **Closed** | `test_audit_critical1_attacker_cannot_elect_self_specialist`, `..._forged_escrow_rejected`, `..._wrong_escrow_discriminator_rejected` |
+| **C-2** judge self-confirmation | **Closed** | `test_audit_critical2_judge_as_consumer_rejected`, `..._judge_as_specialist_rejected` |
+| **C-3** unbounded attestation creation | **Closed** | `test_audit_critical3_forged_escrow_rejected`, `..._wrong_escrow_discriminator_rejected`, `..._attestation_is_bound_to_its_escrow` |
+| **C-4** reputation grief | **Mitigated, not closed** | see below |
+
+Every negative test asserts the **exact** `InstructionError` rather than mere
+failure, and the shared-fixture ones are paired with a positive control, so a
+rejection cannot pass for an incidental reason (a missing account would also
+produce `is_err()`). Observed: forged/self-owned escrow → `IllegalOwner`;
+escrow-owned wrong type → `InvalidAccountData`; wrong signer, judge conflict or
+self-dealt escrow → `InvalidArgument`; mismatched escrow/PDA →
+`QuasarError::InvalidPda`.
+
+## Two things the design did not anticipate
+
+**1. The escrow is destroyed at settlement.** `quasar-escrow::release` and
+`::cancel` both carry `close = payer`, so the escrow account only exists while
+`Locked`. Consequences:
+
+- Ratings and attestations must be opened against a *live* escrow. The call
+  order is **lock → commit/attest → release → reveal/confirm**.
+- Only `commit` and `attest` can owner-check the escrow. `reveal`, `expire`,
+  `confirm` and `dispute` take the escrow as a **seed-only** `UncheckedAccount`
+  and place no trust in it — the PDA constraint already proves it is the escrow
+  the record was bound to, and the bound address is stored on-chain.
+- Requiring `status == Released` as proof of settled work is therefore
+  impossible without a receipt account that outlives the escrow. Not attempted
+  here; worth considering separately.
+
+**2. `lock` accepts an unconsented payee — so C-4 survives in reduced form.**
+`quasar-escrow::lock` declares `payee` as an unsigned `UncheckedAccount`, so a
+payer may name any wallet. A griefer can therefore lock an escrow naming a
+victim as payee, commit as consumer, and expire the rating after the window to
+deduct the victim's reputation. The victim never agreed to anything.
+
+Binding raises the cost from rating rent (~1500 lamports) to a funded escrow
+held for the full seven-day window, which is a real improvement, but it does not
+eliminate the path. **The design's original C-4 closure argument — "a third
+party cannot open a rating against them at all" — was wrong on this point**: a
+payer is not a third party to an escrow they created, even when the payee never
+consented.
+
+This is pinned by `test_known_residual_critical4_unconsented_payee_can_be_griefed`,
+which deliberately asserts the grief *succeeds*. It is a tripwire: when the fix
+lands, that test must be inverted.
+
+Two candidate closures, both outside this change's scope:
+
+- **Payee consent at lock time** — require the payee's signature in
+  `quasar-escrow::lock`, or add an explicit accept step. Fixes the root cause,
+  but changes the escrow interface and the demo flow.
+- **Two-signature rating open** — require both parties to sign the call that
+  creates the rating account. The audit's "weaker fix" for C-1, which happens to
+  close this residual too. Cheaper, but splits `commit` into open-then-commit.
+
+Recommendation: payee consent, because the unconsented payee is a defect in its
+own right regardless of reputation — an escrow can currently be created naming
+anyone. This should be filed as a new finding against `quasar-escrow`, not
+carried as reputation debt.
+
+## Deviations from the design as written
+
+- **Commitment pre-image is domain-separated on the escrow address, not
+  `job_id`.** The design said `job_id` would stay in the pre-image and be
+  "checked against the escrow's identity". Implemented as
+  `sha256(score ‖ salt ‖ escrow_address ‖ program_id)` instead: `escrow_id` is
+  only unique *per payer*, so it is a weaker separator than the escrow address,
+  which is globally unique and unforgeable. `job_id` is retained as a derived
+  account field (`escrow.escrow_id` widened) for parity and indexers, but is no
+  longer an instruction argument anywhere.
+- **The escrow mirror is a shared crate**, `experiments/quasar-escrow-ref`, not
+  a per-program type. Two hand-maintained copies of a foreign account layout is
+  exactly the drift risk the layout assertions exist to catch, so there is one
+  canonical definition with one set of offset tests, consumed by both programs
+  and exercised by the test runner.
+- **`#[account]` cannot generate the mirror.** The macro hardcodes
+  `impl Owner { const OWNER: Address = crate::ID; }`, so a mirror declared that
+  way would claim the *consuming* program as owner. The traits are hand-written,
+  following the `quasar-spl` `Token`/`Mint` precedent. `impl_program_account!` is
+  crate-local to `quasar-spl` and not exported, so it could not be reused.
+- **Extra attestation guards.** `judge != escrow.payee` (a judge must not grade
+  their own work) and `payer != payee` were added — both only became checkable
+  once the escrow named the parties.
+
+## Still open after this change
+
+- **HIGH-3 reputation laundering** — a payer can still use a second wallet they
+  control. `payer != payee` blocks only the degenerate case. Needs an economic
+  answer.
+- **HIGH-7 split registries**, **HIGH-2 payee dispute path** — untouched.
+- **C-4 residual** — as above.
+
+Blocker 1 of the five in the audit response is closed for C-1/C-2/C-3 and
+partially for C-4. Blockers 2–4 remain; blocker 5 (re-review) is now due.
+
+## Remaining sequence
+
+Steps 4–7 are unchanged and not started: TS client + `lib/program.ts` mirrors,
+`packages/demo-agents` call ordering (an escrow must now be locked before any
+rating or attestation), devnet redeploy **in place** (maintainer-approved), and
+the audit handoff re-freeze with a regenerated ABI appendix. Note for step 4:
+account order changed in every affected instruction, not just the argument list.
