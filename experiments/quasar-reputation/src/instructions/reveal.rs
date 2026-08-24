@@ -3,12 +3,22 @@
 /// Parity with Anchor version:
 /// - Must be in BothCommitted state
 /// - Score must be 1-10
-/// - Verifies sha256(score || salt) matches stored commitment
+/// - Verifies the domain-separated sha256 commitment matches the stored one
 /// - Records revealed score
 /// - When both parties have revealed: finalises rating, applies rolling reputation update
 ///
+/// Job binding (see `docs/QUASAR-JOB-BINDING-DESIGN-2026-08-24.md`):
+/// - The rating PDA is seeded by the escrow address, so `escrow` is passed here
+///   purely as a seed. It is an `UncheckedAccount`, not an
+///   `InterfaceAccount<EscrowRef>`, because `quasar-escrow::release` closes the
+///   escrow on settlement — by reveal time the account is usually gone. No trust
+///   is placed in it: the PDA constraint proves the passed address is the one
+///   this rating was bound to at commit time, and `rating.escrow` records it.
+/// - The commitment pre-image is domain-separated on the **escrow address**
+///   rather than a caller-chosen `job_id`. The escrow address is globally unique
+///   and unforgeable, so commitments cannot be replayed across jobs.
+///
 /// Quasar deltas vs Anchor:
-/// - `job_id: [u8; 16]` encoded as `u128` for PDA seed compatibility
 /// - `consumer_score`/`specialist_score` use `u8` sentinel (0=unrevealed) instead of `Option<u8>`
 /// - `sha2` crate used for SHA-256 (same as Anchor)
 /// - `Clock` sysvar not required for reveal (matching Anchor)
@@ -19,11 +29,16 @@ use {
 };
 
 #[derive(Accounts)]
-#[instruction(job_id: u128)]
 pub struct Reveal<'info> {
+    /// Escrow address this rating is bound to — used only as a PDA seed.
+    /// CHECK: not dereferenced. The `seeds`/`bump` constraint on `rating` below
+    /// proves this is the escrow the rating was bound to at commit time; the
+    /// account itself is typically closed by then.
+    pub escrow: &'info UncheckedAccount,
+
     #[account(
         mut,
-        seeds = RatingAccount::seeds(job_id),
+        seeds = RatingAccount::seeds(escrow),
         bump = rating.bump,
     )]
     pub rating: &'info mut Account<RatingAccount>,
@@ -49,12 +64,7 @@ pub struct Reveal<'info> {
 
 impl<'info> Reveal<'info> {
     #[inline(always)]
-    pub fn reveal(
-        &mut self,
-        job_id: u128,
-        score: u8,
-        salt: [u8; 32],
-    ) -> Result<(), ProgramError> {
+    pub fn reveal(&mut self, score: u8, salt: [u8; 32]) -> Result<(), ProgramError> {
         let signer_addr = *self.signer.address();
 
         // Guard: must be in BothCommitted state
@@ -67,12 +77,15 @@ impl<'info> Reveal<'info> {
             return Err(ProgramError::InvalidArgument); // InvalidScore
         }
 
-        // Compute a domain-separated commitment: score || salt || job_id || program_id.
-        // This prevents cross-job commitment reuse and binds the reveal to this program.
+        // Domain-separated commitment: score || salt || escrow_address || program_id.
+        // Seeding the pre-image on the escrow address (rather than a caller-chosen
+        // job_id) makes cross-job commitment reuse impossible — the address is
+        // unique per job and cannot be chosen by an attacker. The program id keeps
+        // commitments from being replayed against a different deployment.
         let mut hasher = Sha256::new();
         hasher.update([score]);
         hasher.update(salt);
-        hasher.update(job_id.to_le_bytes());
+        hasher.update(self.escrow.to_account_view().address().as_ref());
         hasher.update(crate::ID.as_ref());
         let computed: [u8; 32] = hasher.finalize().into();
 

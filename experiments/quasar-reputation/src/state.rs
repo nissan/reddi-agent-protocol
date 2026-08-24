@@ -139,12 +139,23 @@ impl AgentAccount {
 
 /// On-chain blind commit-reveal rating record.
 ///
-/// PDA seeds: `[b"rating", job_id_u128]`
+/// PDA seeds: `[b"rating", escrow_address]`
+///
+/// # Job binding
+///
+/// The rating is keyed by the **escrow account address**, not by a
+/// caller-chosen `job_id`. `commit` reads `consumer` and `specialist` from that
+/// escrow rather than accepting them as arguments, which is what closes
+/// CRITICAL-1 (rating-PDA squatting): a rating cannot exist without a real
+/// escrow, and an attacker cannot name themselves a party to someone else's
+/// job. See `docs/QUASAR-JOB-BINDING-DESIGN-2026-08-24.md`.
 ///
 /// Quasar parity notes vs Anchor:
-/// - `job_id` stored as `[u8; 16]` in account; seed key is `u128` (LE bytes of job_id)
-///   because Quasar `#[seeds]` macro handles `u128` natively via `.to_le_bytes()`.
-///   Round-trip: `u128::from_le_bytes(job_id)` → seed → `.to_le_bytes()` = `job_id`. ✅
+/// - `job_id` is stored as `[u8; 16]` but is no longer an instruction argument.
+///   It is derived from `escrow.escrow_id` widened to `u128`, so it identifies
+///   the job without being caller-controlled. The PDA seed is the escrow
+///   address; `job_id` is retained for parity with the Anchor reference and for
+///   off-chain indexers that key jobs by id.
 /// - `consumer_score` / `specialist_score` are `u8` with sentinel 0 = not set.
 ///   Anchor uses `Option<u8>` (2 bytes each); Quasar uses 1 byte each with 0 as None.
 ///   Scores 1-10 are valid; 0 is unambiguously "not revealed". Space saved: 2 bytes.
@@ -153,17 +164,21 @@ impl AgentAccount {
 /// - `created_at` and `created_slot` are populated using `Clock::get()` — unlike the
 ///   registry (which omitted Clock), reputation requires timestamps for expiry.
 #[account(discriminator = 30, set_inner)]
-#[seeds(b"rating", job_id: u128)]
+#[seeds(b"rating", escrow: Address)]
 pub struct RatingAccount {
-    /// Job identifier — 16 raw bytes, stored as-is
+    /// The `quasar-escrow` account this rating is bound to — the canonical job
+    /// record, and the PDA seed. Recorded on-chain so a reader can walk from a
+    /// rating back to its job without inverting the PDA.
+    pub escrow: Address,
+    /// Job identifier — derived from `escrow.escrow_id`, not caller-supplied
     pub job_id: [u8; 16],
     /// The hiring party (consumer)
     pub consumer: Address,
     /// The hired party (specialist)
     pub specialist: Address,
-    /// sha256(consumer_score as u8 || consumer_salt as [u8;32])
+    /// sha256(consumer_score || consumer_salt || escrow_address || program_id)
     pub consumer_commitment: [u8; 32],
-    /// sha256(specialist_score as u8 || specialist_salt as [u8;32])
+    /// sha256(specialist_score || specialist_salt || escrow_address || program_id)
     pub specialist_commitment: [u8; 32],
     /// Consumer's revealed score (0 = not set, 1-10 = valid)
     pub consumer_score: u8,
