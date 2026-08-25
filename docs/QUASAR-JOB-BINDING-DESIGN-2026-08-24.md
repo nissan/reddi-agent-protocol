@@ -1,10 +1,12 @@
 # Quasar job-binding — design for closing the four Criticals
 
-_Date:_ 2026-08-24 · _Status:_ **steps 1–3 implemented and verified; steps 4–7 open**
-_Closes:_ CRITICAL-1, CRITICAL-2, CRITICAL-3 from
-`docs/QUASAR-PROGRAMS-SECURITY-AUDIT-2026-05-06.md`; CRITICAL-4 is **mitigated,
-not closed** — see "Implementation outcome" at the end of this document, which
-supersedes the C-4 closure argument in the table below.
+_Date:_ 2026-08-24, updated 2026-08-25 · _Status:_ **steps 1–3 implemented and
+verified; C-4 closed by payee consent; steps 4–7 open**
+_Closes:_ CRITICAL-1, CRITICAL-2, CRITICAL-3 and CRITICAL-4 from
+`docs/QUASAR-PROGRAMS-SECURITY-AUDIT-2026-05-06.md`. The C-4 closure argument in
+the table below was wrong as originally written; see "Implementation outcome"
+and "C-4 closed by payee consent" at the end of this document, which supersede
+it.
 _Blocker list:_ items 1 (job/escrow binding) of the five in
 `docs/QUASAR-PROGRAMS-SECURITY-AUDIT-RESPONSE-2026-05-06.md`
 
@@ -278,7 +280,7 @@ After this change there are three versions of the interface in play:
 | Surface | State |
 |---|---|
 | `experiments/quasar-*` source | **new** (escrow-bound) |
-| `lib/quasar/instructions.ts`, demo agents | old — still derives the rating PDA from `jobId` (`instructions.ts:101`) |
+| `lib/quasar/instructions.ts`, demo agents | old — still derives the rating PDA from `jobId` (`instructions.ts:101`), and `demo.ts` still locks without the payee signing |
 | Devnet programs at `nb9rLV…` / `CRGsWW…` | old — not yet redeployed |
 
 The client and the chain still agree with each other, so **nothing is broken
@@ -294,3 +296,83 @@ So steps 4 and 6 ship as one change, not as two merges. The readiness guard
 (`npm run check:quasar:submission`) will **not** catch this — it validates
 program IDs and config, not ABI against source — so it passing is not evidence
 the demo works.
+
+
+---
+
+# C-4 closed by payee consent (2026-08-25)
+
+Maintainer accepted the recommendation. `quasar-escrow::lock` now requires the
+**payee's signature**.
+
+## The change
+
+`payee` was an unsigned `UncheckedAccount`; it is now a `Signer`. An escrow is
+therefore a bilateral agreement rather than something a payer can create
+unilaterally naming any wallet. The same change is applied to
+`quasar-escrow-per::lock`, so the weaker of the two escrow programs cannot be
+used as a way around the rule.
+
+## Why this closes CRITICAL-4
+
+The grief required an escrow naming a victim who had never agreed to the job:
+lock naming the victim as payee → open a rating against it → let it expire →
+the victim absorbs the reputation penalty. That escrow can no longer be created,
+so the attack has no starting point.
+
+It also repairs the foundation of the whole job binding. `quasar-reputation` and
+`quasar-attestation` read the job's parties from an escrow and trust it purely
+because `quasar-escrow` owns it. That trust was only ever as strong as the
+weakest escrow the escrow program would create — and before this, that was an
+escrow one party never consented to. Consent at lock time is what makes the
+owner check mean what the binding needs it to mean.
+
+## Where the regression lives
+
+The load-bearing test is with the rule it enforces:
+
+    experiments/quasar-escrow/src/tests.rs
+      -> test_audit_lock_without_payee_signature_rejected
+
+It asserts the unsigned-payee lock fails and pairs it with a positive control on
+the same fixtures.
+
+The reputation-side tripwire that previously asserted the grief *succeeded* has
+been **removed, not inverted**. Inverting it there would have been theatre: the
+reputation tests fabricate escrow byte images directly rather than calling
+`lock`, so no reputation-side test can create or reject an unconsented escrow.
+What reputation still owes the guarantee is the owner check — that a forged
+escrow cannot stand in for a real one — and that half stays pinned by
+`test_audit_critical1_forged_escrow_rejected`,
+`test_audit_critical1_wrong_escrow_discriminator_rejected`, and the
+pinned-program-ID assertions in `quasar-escrow-ref`.
+
+## Verification
+
+`bash scripts/run-quasar-program-tests.sh` — **103 tests green**: escrow 9
+(+1 consent regression), escrow-per 40, registry 10, reputation 20,
+attestation 19, escrow-ref 5.
+
+## Consequence: lock becomes a two-signature transaction
+
+This is a real interface change, not just a guard. Every caller that builds a
+`lock` instruction must now mark `payee` as a signer and have the payee sign.
+
+`packages/demo-agents/src/demo.ts:380` currently signs with `[AGENT_A_KEYPAIR]`
+only, and marks `payee` `isSigner: false`. `AGENT_B_KEYPAIR` is already imported
+in that file, so the fix is small — but it is a **client** change, and per the
+step 4/6 rule below it ships with the redeploy, not before it. Updating it now
+would break the demo against the currently deployed programs.
+
+For any flow where the payee is a remote agent that cannot co-sign
+interactively, the alternative shape is a separate `accept` instruction the
+payee calls after `lock`, with reputation and attestation gated on an
+`accepted` flag. That was not chosen here — "consent at lock time" is the
+stronger and simpler rule — but it is the fallback if a future non-interactive
+hiring flow needs one.
+
+## Still open
+
+Unchanged by this: **HIGH-3** reputation laundering (a payer can still use a
+second wallet they control — `payer != payee` blocks only the degenerate case),
+**HIGH-7** split registries, **HIGH-2** payee dispute path.

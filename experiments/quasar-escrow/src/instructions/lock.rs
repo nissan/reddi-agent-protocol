@@ -6,6 +6,10 @@
 /// - Transfer `amount` lamports payer -> escrow
 /// - Write EscrowAccount state
 ///
+/// Consent (2026-08-25): the payee must sign. See the `payee` field docs — this
+/// is what makes the escrow a sound canonical job record for the reputation and
+/// attestation programs, and it closes the last CRITICAL-4 grief path.
+///
 /// Quasar changes:
 /// - `Context<LockEscrow>` -> `Ctx<Lock>`
 /// - `Result<()>` -> `Result<(), ProgramError>`
@@ -28,9 +32,24 @@ use {
 pub struct Lock<'info> {
     /// Payer (Agent A) — funds the escrow and signs
     pub payer: &'info mut Signer,
-    /// Payee (Agent B) — recipient on release; no signature required
-    /// CHECK: payee is just a target address, validated by application layer
-    pub payee: &'info UncheckedAccount,
+    /// Payee (Agent B) — recipient on release. **Must sign.**
+    ///
+    /// Requiring the payee's signature makes an escrow a bilateral agreement
+    /// rather than something a payer can create unilaterally naming anyone.
+    ///
+    /// Before this, `payee` was an unsigned `UncheckedAccount`, so a payer could
+    /// name a wallet that had never agreed to the job. That is a defect on its
+    /// own — funds and a job record asserting a relationship that one side never
+    /// entered — and it was also the last surviving path for CRITICAL-4
+    /// (reputation grief) in `docs/QUASAR-PROGRAMS-SECURITY-AUDIT-2026-05-06.md`:
+    /// a griefer could lock an escrow naming a victim, open a rating against it,
+    /// and let it expire to deduct the victim's reputation.
+    ///
+    /// `quasar-reputation` and `quasar-attestation` read the job's parties from
+    /// this account and trust it because `quasar-escrow` owns it. That trust is
+    /// only sound if an escrow cannot exist without both parties consenting —
+    /// which this signature is what guarantees.
+    pub payee: &'info Signer,
     /// Per-payer escrow id counter
     #[account(
         init_if_needed,
