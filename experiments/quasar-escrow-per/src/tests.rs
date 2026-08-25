@@ -94,7 +94,7 @@ fn lock_ix(
         program_id: crate::ID,
         accounts: vec![
             AccountMeta::new(payer, true),
-            AccountMeta::new_readonly(payee, false),
+            AccountMeta::new_readonly(payee, true),
             AccountMeta::new(counter, false),
             AccountMeta::new(escrow, false),
             AccountMeta::new_readonly(quasar_svm::system_program::ID, false),

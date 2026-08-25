@@ -32,8 +32,13 @@ pub struct Lock<'info> {
     /// Payer (Agent A) — funds the escrow and signs
     pub payer: &'info mut Signer,
     /// Payee (Agent B) — recipient on release; no signature required
-    /// CHECK: payee is just a target address, validated by application layer
-    pub payee: &'info UncheckedAccount,
+    /// Payee — recipient on release. **Must sign.**
+    ///
+    /// Mirrors the consent requirement added to `quasar-escrow::lock`: an escrow
+    /// is a bilateral agreement, not something a payer can create unilaterally
+    /// naming a wallet that never agreed. Kept identical across both escrow
+    /// programs so the weaker one cannot be used as a way around the rule.
+    pub payee: &'info Signer,
     /// Per-payer escrow id counter
     #[account(
         init_if_needed,

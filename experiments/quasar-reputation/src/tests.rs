@@ -1311,61 +1311,28 @@ fn test_rating_pda_is_bound_to_its_escrow() {
     matched.assert_success();
 }
 
-/// KNOWN RESIDUAL — CRITICAL-4 is mitigated, not eliminated.
-///
-/// `quasar-escrow::lock` takes `payee` as an unsigned `UncheckedAccount`, so a
-/// payer can name a wallet that never agreed to the job. Escrow binding forces a
-/// griefer to be `escrow.payer` and to hold a real locked escrow for the full
-/// seven-day expiry window — the cost rises from rating rent (~1500 lamports) to
-/// a funded escrow plus rent — but the path is still open.
-///
-/// This test asserts the grief **succeeds**, deliberately. It is a tripwire, not
-/// an approval: when payee consent lands in `quasar-escrow::lock` (or the rating
-/// open becomes two-signature), this test must be inverted to an
-/// `assert_failed_with`. Until then it keeps the residual visible in the suite
-/// rather than only in prose.
-///
-/// Tracked in `docs/QUASAR-JOB-BINDING-DESIGN-2026-08-24.md`.
-#[test]
-fn test_known_residual_critical4_unconsented_payee_can_be_griefed() {
-    let mut svm = setup();
-    let griefer = Pubkey::new_unique();
-    let victim = Pubkey::new_unique();
-
-    let (griefer_agent, griefer_agent_acct, griefer_acct) = register_agent(&mut svm, griefer);
-    let (victim_agent, victim_agent_acct, _) = register_agent(&mut svm, victim);
-
-    // The griefer locks an escrow naming the victim as payee. The victim never
-    // consented — `lock` does not require their signature.
-    let (escrow_addr, escrow_acct) = escrow(&griefer, &victim, 60);
-    let rating = rating_pda(&escrow_addr);
-    let salt = [0x5Au8; 32];
-
-    let r1 = svm.process_instruction(
-        &commit_ix(sha256_commitment(&escrow_addr, 1, &salt), 0, griefer, escrow_addr, rating),
-        &[escrow_acct.clone(), empty(rating), funded(griefer)],
-    );
-    r1.assert_success();
-
-    let victim_failed_before = read_jobs_failed(&svm, &victim_agent);
-
-    svm.sysvars.warp_to_slot(1_512_001);
-
-    let expired = svm.process_instruction(
-        &expire_ix(griefer, escrow_addr, rating, victim_agent, griefer_agent),
-        &[
-            escrow_acct,
-            r1.account(&rating).unwrap().clone(),
-            griefer_acct,
-            victim_agent_acct,
-            griefer_agent_acct,
-        ],
-    );
-    expired.assert_success();
-
-    assert_eq!(
-        read_jobs_failed(&svm, &victim_agent),
-        victim_failed_before + 1,
-        "residual documented: an unconsented payee still absorbs the expiry penalty",
-    );
-}
+// ── CRITICAL-4 closure note ──────────────────────────────────────────────────
+//
+// This file previously carried a tripwire test,
+// `test_known_residual_critical4_unconsented_payee_can_be_griefed`, which
+// deliberately asserted that the grief *succeeded*: `quasar-escrow::lock` took
+// an unsigned `payee`, so a payer could lock an escrow naming a wallet that had
+// never agreed to the job, open a rating against it, and let it expire to deduct
+// the victim's reputation.
+//
+// `quasar-escrow::lock` now requires the payee's signature (2026-08-25), so that
+// escrow can no longer be created and the grief has no starting point. The
+// tripwire has been removed rather than inverted, because inverting it here
+// would have been theatre: these tests fabricate escrow byte images directly
+// rather than calling `lock`, so a reputation-side test can neither create nor
+// reject an unconsented escrow. The load-bearing regression therefore lives with
+// the rule it enforces:
+//
+//     experiments/quasar-escrow/src/tests.rs
+//       -> test_audit_lock_without_payee_signature_rejected
+//
+// What this program still owes the guarantee is the owner check: consent is only
+// meaningful if a forged escrow cannot stand in for a real one. That half is
+// pinned by `test_audit_critical1_forged_escrow_rejected` and
+// `test_audit_critical1_wrong_escrow_discriminator_rejected` above, and by the
+// pinned-program-ID assertions in the `quasar-escrow-ref` crate.

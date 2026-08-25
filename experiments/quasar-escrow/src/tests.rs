@@ -77,13 +77,28 @@ fn lock_ix(
         program_id: crate::ID,
         accounts: vec![
             AccountMeta::new(payer, true),
-            AccountMeta::new_readonly(payee, false),
+            AccountMeta::new_readonly(payee, true),
             AccountMeta::new(counter, false),
             AccountMeta::new(escrow, false),
             AccountMeta::new_readonly(quasar_svm::system_program::ID, false),
         ],
         data,
     }
+}
+
+/// `lock` with the payee marked as a non-signer — the pre-consent shape, kept
+/// only so the consent regression can attempt it.
+fn lock_ix_unsigned_payee(
+    payer: Pubkey,
+    payee: Pubkey,
+    counter: Pubkey,
+    escrow: Pubkey,
+    amount: u64,
+    escrow_id: u64,
+) -> Instruction {
+    let mut ix = lock_ix(payer, payee, counter, escrow, amount, escrow_id);
+    ix.accounts[1] = AccountMeta::new_readonly(payee, false);
+    ix
 }
 
 fn release_ix(payer: Pubkey, payee: Pubkey, escrow: Pubkey, escrow_id: u64) -> Instruction {
@@ -376,4 +391,47 @@ fn test_audit_cancel_before_window_rejected() {
         cancel_result.is_err(),
         "audit HIGH-1 regression: cancel before CANCEL_WINDOW_SLOTS must fail"
     );
+}
+
+/// Consent regression (2026-08-25): `lock` must reject an unsigned payee.
+///
+/// This is the load-bearing test for the last CRITICAL-4 grief path. Before the
+/// consent requirement, a payer could lock an escrow naming any wallet, then use
+/// that escrow to open a rating against a victim who had never agreed to the job
+/// and let it expire to deduct their reputation.
+///
+/// It also underwrites the job binding in `quasar-reputation` and
+/// `quasar-attestation`. Those programs read the parties from an escrow and
+/// trust it purely because `quasar-escrow` owns it. That trust is only sound if
+/// an escrow cannot exist without both parties consenting — which is exactly
+/// what this test pins.
+///
+/// Paired with a positive control on the same fixtures so the rejection cannot
+/// pass for an incidental reason.
+#[test]
+fn test_audit_lock_without_payee_signature_rejected() {
+    let mut svm = setup();
+    let payer = Pubkey::new_unique();
+    let victim = Pubkey::new_unique();
+    let amount = 1_000_000u64;
+    let escrow_id = 0u64;
+    let counter = counter_pda(&payer);
+    let escrow = escrow_pda(&payer, escrow_id);
+
+    // The payer names a wallet that never agreed to the job.
+    let griefed = svm.process_instruction(
+        &lock_ix_unsigned_payee(payer, victim, counter, escrow, amount, escrow_id),
+        &[funded(payer), empty(victim), empty(counter), empty(escrow)],
+    );
+    assert!(
+        griefed.is_err(),
+        "CRITICAL-4 closure: lock must reject a payee that has not signed"
+    );
+
+    // Positive control: the identical lock succeeds once the payee consents.
+    let consented = svm.process_instruction(
+        &lock_ix(payer, victim, counter, escrow, amount, escrow_id),
+        &[funded(payer), empty(victim), empty(counter), empty(escrow)],
+    );
+    consented.assert_success();
 }
