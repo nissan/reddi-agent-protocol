@@ -1409,6 +1409,7 @@ name = "quasar-attestation"
 version = "0.1.0"
 dependencies = [
  "digest 0.10.7",
+ "quasar-escrow-ref",
  "quasar-lang",
  "quasar-svm",
  "sha2 0.10.9",
@@ -1426,6 +1427,14 @@ dependencies = [
  "serde",
  "serde_json",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "quasar-escrow-ref"
+version = "0.1.0"
+dependencies = [
+ "quasar-lang",
+ "solana-address 2.6.0",
 ]
 
 [[package]]

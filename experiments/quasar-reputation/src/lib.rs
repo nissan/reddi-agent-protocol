@@ -17,14 +17,25 @@
 //! - `reveal`  — BothCommitted guard, score range 1-10, sha256 commitment verify, rolling avg update
 //! - `expire`  — Pending-only guard, slot-based time-lock, penalty on non-committing party
 //!
+//! Job binding (2026-08-24, closes CRITICAL-1): ratings are keyed by the
+//! `quasar-escrow` escrow account address, and the parties are read from that
+//! escrow. There is no caller-supplied `job_id`, `consumer_pk` or
+//! `specialist_pk` anywhere in this program. See
+//! `docs/QUASAR-JOB-BINDING-DESIGN-2026-08-24.md`.
+//!
 //! Known parity deltas (documented in QUASAR-REPUTATION-PARITY-REPORT.md):
-//! 1. `job_id` passed as `u128` (LE bytes of [u8;16]) for seed compatibility.
+//! 1. `job_id` is derived from `escrow.escrow_id`, not passed by the caller.
 //! 2. `consumer_score`/`specialist_score` use `u8` sentinel (0=unrevealed) vs Anchor `Option<u8>`.
 //! 3. `RatingRole`/`RatingState` passed as `u8` vs typed enums.
 //! 4. Error codes are `ProgramError::InvalidArgument` (stdlib) vs custom Anchor error codes.
 //! 5. `Clock` is now used for reputation (unlike registry which omitted it).
 
 use quasar_lang::prelude::*;
+
+/// Shared, owner-checked mirror of the `quasar-escrow` escrow account.
+/// Re-exported so the binding primitive has one canonical definition across
+/// `quasar-reputation` and `quasar-attestation`.
+pub use quasar_escrow_ref as escrow_ref;
 
 mod instructions;
 pub mod state;
@@ -61,22 +72,21 @@ mod quasar_reputation {
 
     /// Submit a blind commitment for a job rating.
     ///
-    /// First call creates the RatingAccount PDA and records both party pubkeys.
-    /// Second call fills in the remaining commitment.
+    /// Requires the job's `quasar-escrow` escrow account. The rating PDA is
+    /// seeded by the escrow address and both parties are read from
+    /// `escrow.payer` / `escrow.payee` — there are no caller-supplied party
+    /// pubkeys and no caller-chosen `job_id` (closes CRITICAL-1).
+    ///
+    /// First call creates the RatingAccount PDA; the second fills in the
+    /// remaining commitment.
     /// Discriminator 1.
     #[instruction(discriminator = 1)]
     pub fn commit(
         ctx: Ctx<Commit>,
-        job_id: u128,
         commitment: [u8; 32],
         role: u8,
-        consumer_pk: [u8; 32],
-        specialist_pk: [u8; 32],
     ) -> Result<(), ProgramError> {
-        let consumer_addr = Address::new_from_array(consumer_pk);
-        let specialist_addr = Address::new_from_array(specialist_pk);
-        ctx.accounts
-            .commit(job_id, commitment, role, consumer_addr, specialist_addr, &ctx.bumps)
+        ctx.accounts.commit(commitment, role, &ctx.bumps)
     }
 
     /// Reveal a committed rating score.
@@ -85,13 +95,8 @@ mod quasar_reputation {
     /// revealed — applies rolling reputation updates to both AgentAccounts.
     /// Discriminator 2.
     #[instruction(discriminator = 2)]
-    pub fn reveal(
-        ctx: Ctx<Reveal>,
-        job_id: u128,
-        score: u8,
-        salt: [u8; 32],
-    ) -> Result<(), ProgramError> {
-        ctx.accounts.reveal(job_id, score, salt)
+    pub fn reveal(ctx: Ctx<Reveal>, score: u8, salt: [u8; 32]) -> Result<(), ProgramError> {
+        ctx.accounts.reveal(score, salt)
     }
 
     /// Expire a rating where one party committed and the other timed out.
@@ -100,7 +105,7 @@ mod quasar_reputation {
     /// Penalises the non-committing party's reputation.
     /// Discriminator 3.
     #[instruction(discriminator = 3)]
-    pub fn expire(ctx: Ctx<Expire>, job_id: u128) -> Result<(), ProgramError> {
-        ctx.accounts.expire(job_id)
+    pub fn expire(ctx: Ctx<Expire>) -> Result<(), ProgramError> {
+        ctx.accounts.expire()
     }
 }

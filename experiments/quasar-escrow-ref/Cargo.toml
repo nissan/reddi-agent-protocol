@@ -1,0 +1,17 @@
+[package]
+name = "quasar-escrow-ref"
+version = "0.1.0"
+edition = "2021"
+description = "Read-only, owner-checked mirror of quasar-escrow's EscrowAccount — the shared job-binding primitive for quasar-reputation and quasar-attestation"
+
+[lib]
+name = "quasar_escrow_ref"
+
+[dependencies]
+quasar-lang = { path = "../../third_party/quasar/lang" }
+solana-address = { version = "2.2.0" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
+
+[workspace]

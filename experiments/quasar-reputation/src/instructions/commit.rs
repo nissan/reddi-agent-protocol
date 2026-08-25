@@ -1,21 +1,40 @@
-/// commit_rating — Quasar parity port of Anchor `commit_rating_handler`.
+/// commit_rating — Quasar port of Anchor `commit_rating_handler`, hardened with
+/// escrow job binding.
 ///
-/// Parity with Anchor version:
-/// - Creates or reuses `RatingAccount` PDA seeded by `[b"rating", job_id]`
-/// - On first commit: records both party pubkeys, initialises metadata, starts clock
-/// - Validates signer matches the role (consumer or specialist)
-/// - Guards against duplicate commits (AlreadyCommitted)
-/// - Guards against commits to finalized ratings (AlreadyFinalised)
-/// - Advances state to `BothCommitted` when both commitments are set
+/// # What changed and why
 ///
-/// Quasar deltas vs Anchor:
-/// - `job_id: [u8; 16]` encoded as `u128` (LE) for PDA seed compatibility.
-///   The seed bytes are identical; only the encoding in the instruction arg changes.
-/// - `init_if_needed` supported natively in Quasar; first-call detection via `created_slot == 0`.
-/// - `RatingRole` passed as `u8` (0=Consumer, 1=Specialist) instead of enum.
-/// - `consumer_pk` / `specialist_pk` passed as `Address` instead of `Pubkey`.
+/// The pre-binding version took `job_id`, `consumer_pk` and `specialist_pk` as
+/// caller-supplied arguments and seeded the rating PDA on `job_id` alone. That
+/// let anyone create a rating naming any two parties — CRITICAL-1 (rating-PDA
+/// squatting) and, in combination with `expire`, CRITICAL-4 (reputation grief)
+/// in `docs/QUASAR-PROGRAMS-SECURITY-AUDIT-2026-05-06.md`.
+///
+/// This version implements the audit's recommended strong fix:
+/// - the rating PDA is seeded by the **escrow account address**;
+/// - the escrow is passed as an `InterfaceAccount<EscrowRef>`, so the framework
+///   rejects any account not owned by `quasar-escrow` with `IllegalOwner`;
+/// - `consumer` and `specialist` are **read from** `escrow.payer` / `escrow.payee`;
+/// - the `job_id`, `consumer_pk` and `specialist_pk` arguments are gone entirely,
+///   so there is no caller-controlled job identity left to forge.
+///
+/// A rating therefore cannot exist without a real escrow, and a signer can only
+/// take the role that the escrow already assigns them.
+///
+/// # Ordering
+///
+/// `quasar-escrow::release` and `::cancel` both close the escrow account, so the
+/// escrow only exists while `Locked`. Commits are therefore made against a live
+/// escrow — lock → commit → release → reveal. `reveal` and `expire` need the
+/// escrow address only as a PDA seed, not as a live account.
+///
+/// Other Quasar deltas vs Anchor:
+/// - `init_if_needed` supported natively; first-call detection via a zero `escrow` field.
+/// - `RatingRole` passed as `u8` (0=Consumer, 1=Specialist) instead of an enum.
 use {
-    crate::state::{RatingAccount, RatingAccountInner, RatingState},
+    crate::{
+        escrow_ref::EscrowRef,
+        state::{RatingAccount, RatingAccountInner, RatingState},
+    },
     quasar_lang::{
         prelude::*,
         sysvars::{clock::Clock, Sysvar as _},
@@ -23,17 +42,26 @@ use {
 };
 
 #[derive(Accounts)]
-#[instruction(job_id: u128)]
 pub struct Commit<'info> {
-    /// Rating PDA — created on first call, reused on second.
+    /// The `quasar-escrow` escrow account — the canonical job record.
+    ///
+    /// Read-only. `InterfaceAccount` validates the owner against
+    /// `EscrowRef::owners()` (the pinned `quasar-escrow` program ID) and the
+    /// discriminator via `AccountCheck`, so a self-owned look-alike is rejected
+    /// before any field is read.
+    pub escrow: &'info InterfaceAccount<EscrowRef>,
+
+    /// Rating PDA — created on first call, reused on the second.
+    /// Seeded by the escrow address, so exactly one rating exists per job.
     #[account(
         init_if_needed,
         payer = signer,
-        seeds = RatingAccount::seeds(job_id),
+        seeds = RatingAccount::seeds(escrow),
         bump,
     )]
     pub rating: &'info mut Account<RatingAccount>,
 
+    /// Must be the escrow's payer (role 0) or payee (role 1).
     pub signer: &'info mut Signer,
 
     pub system_program: &'info Program<System>,
@@ -43,11 +71,8 @@ impl<'info> Commit<'info> {
     #[inline(always)]
     pub fn commit(
         &mut self,
-        job_id: u128,
         commitment: [u8; 32],
-        role: u8,       // 0 = Consumer, 1 = Specialist
-        consumer_pk: Address,
-        specialist_pk: Address,
+        role: u8, // 0 = Consumer, 1 = Specialist
         bumps: &CommitBumps,
     ) -> Result<(), ProgramError> {
         let signer_addr = *self.signer.address();
@@ -65,25 +90,36 @@ impl<'info> Commit<'info> {
             return Err(ProgramError::InvalidArgument);
         }
 
+        // Parties come from the escrow, never from the caller. This is the
+        // job binding: `escrow` has already been owner- and discriminator-checked
+        // by `InterfaceAccount`, so these are the real job's parties.
+        let consumer_addr = self.escrow.payer;
+        let specialist_addr = self.escrow.payee;
+
+        // Guard: a self-dealt escrow is not a job. Cheap partial mitigation of
+        // HIGH-3 (reputation laundering) — it does not stop a payer using a
+        // second wallet they control, which needs an economic answer.
+        if consumer_addr == specialist_addr {
+            return Err(ProgramError::InvalidArgument);
+        }
+
         // Guard: reject if already finalised (Revealed or Expired)
         let current_state = self.rating.rating_state();
         if current_state == RatingState::Revealed || current_state == RatingState::Expired {
             return Err(ProgramError::InvalidArgument); // AlreadyFinalised
         }
 
-        // On first commit: initialise metadata and record both party pubkeys.
-        // Detection: consumer == Address::default() (all-zero bytes) means account was
-        // just allocated by init_if_needed and not yet initialised. Real pubkeys are
-        // never all-zeros (that would be the system program zero address).
-        // Note: we cannot use created_slot == 0 because the default QuasarSVM clock
-        // starts at slot 0, so that sentinel is ambiguous.
+        // On first commit: initialise metadata from the escrow.
+        // Detection: `escrow` is all-zero only when `init_if_needed` has just
+        // allocated the account. A real escrow address is never all-zero.
         let zero_addr = Address::new_from_array([0u8; 32]);
-        if self.rating.consumer == zero_addr {
-            let job_id_bytes = job_id.to_le_bytes();
+        if self.rating.escrow == zero_addr {
+            let job_id = self.escrow.escrow_id.get() as u128;
             self.rating.set_inner(RatingAccountInner {
-                job_id: job_id_bytes,
-                consumer: consumer_pk,
-                specialist: specialist_pk,
+                escrow: *self.escrow.to_account_view().address(),
+                job_id: job_id.to_le_bytes(),
+                consumer: consumer_addr,
+                specialist: specialist_addr,
                 consumer_commitment: [0u8; 32],
                 specialist_commitment: [0u8; 32],
                 consumer_score: 0,
@@ -97,7 +133,8 @@ impl<'info> Commit<'info> {
             });
         }
 
-        // Apply the commitment for the given role
+        // Apply the commitment for the given role. The signer must hold that
+        // role on the escrow — an attacker cannot elect themselves specialist.
         match role {
             // Consumer
             0 => {
@@ -107,7 +144,7 @@ impl<'info> Commit<'info> {
                 if self.rating.consumer_committed() {
                     return Err(ProgramError::InvalidArgument); // AlreadyCommitted
                 }
-                self.rating.consumer_commitment = commitment; // [u8;32] stays as-is
+                self.rating.consumer_commitment = commitment;
             }
             // Specialist
             1 => {
@@ -117,7 +154,7 @@ impl<'info> Commit<'info> {
                 if self.rating.specialist_committed() {
                     return Err(ProgramError::InvalidArgument); // AlreadyCommitted
                 }
-                self.rating.specialist_commitment = commitment; // [u8;32] stays as-is
+                self.rating.specialist_commitment = commitment;
             }
             _ => unreachable!(),
         }

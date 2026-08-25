@@ -17,8 +17,14 @@
 //! - `confirm`  — consumer-only auth, double-resolve guard, accuracy reward + rep bump
 //! - `dispute`  — consumer-only auth, double-resolve guard, reputation penalty
 //!
+//! Job binding (2026-08-24, closes CRITICAL-2 and CRITICAL-3): attestations are
+//! keyed by the `quasar-escrow` escrow account address, and the confirming
+//! consumer is read from that escrow. There is no judge-supplied `consumer` or
+//! `job_id` anywhere in this program. See
+//! `docs/QUASAR-JOB-BINDING-DESIGN-2026-08-24.md`.
+//!
 //! Known parity deltas (documented in QUASAR-ATTESTATION-PARITY-REPORT.md):
-//! 1. `job_id` passed as `u128` (LE bytes of [u8;16]) for seed compatibility.
+//! 1. `job_id` is derived from `escrow.escrow_id`, not passed by the caller.
 //! 2. `confirmed: u8` sentinel (0=Pending, 1=Confirmed, 2=Disputed) vs Anchor `Option<bool>`.
 //! 3. Error codes are `ProgramError::InvalidArgument` (stdlib) vs custom Anchor error codes.
 //! 4. `attestation_accuracy: u16` field added to AgentAccount (extends quasar-reputation layout).
@@ -60,18 +66,17 @@ mod quasar_attestation {
 
     /// Create an attestation record for a completed job.
     ///
+    /// Requires the job's `quasar-escrow` escrow account. The attestation PDA is
+    /// seeded by the escrow address and `consumer` is read from `escrow.payer` —
+    /// there is no judge-supplied `consumer` and no judge-chosen `job_id`
+    /// (closes CRITICAL-2 and CRITICAL-3).
+    ///
     /// Only agents registered as `Attestation` or `Both` may call this.
-    /// `init` constraint deduplicates: duplicate attestations on the same job_id are rejected.
+    /// `init` deduplicates: a second attestation on the same escrow is rejected.
     /// Discriminator 1.
     #[instruction(discriminator = 1)]
-    pub fn attest(
-        ctx: Ctx<Attest>,
-        job_id: u128,
-        scores: [u8; 5],
-        consumer: [u8; 32],
-    ) -> Result<(), ProgramError> {
-        let consumer_addr = Address::new_from_array(consumer);
-        ctx.accounts.attest(job_id, scores, consumer_addr, &ctx.bumps)
+    pub fn attest(ctx: Ctx<Attest>, scores: [u8; 5]) -> Result<(), ProgramError> {
+        ctx.accounts.attest(scores, &ctx.bumps)
     }
 
     /// Consumer agrees with the judge's assessment.
@@ -79,8 +84,8 @@ mod quasar_attestation {
     /// Rewards judge: `attestation_accuracy += ATTESTATION_CONFIRM_WEIGHT` + reputation bump.
     /// Discriminator 2.
     #[instruction(discriminator = 2)]
-    pub fn confirm(ctx: Ctx<Confirm>, job_id: u128) -> Result<(), ProgramError> {
-        ctx.accounts.confirm(job_id)
+    pub fn confirm(ctx: Ctx<Confirm>) -> Result<(), ProgramError> {
+        ctx.accounts.confirm()
     }
 
     /// Consumer disagrees with the judge's assessment.
@@ -88,7 +93,7 @@ mod quasar_attestation {
     /// Penalises judge: `reputation_score -= RATING_EXPIRE_PENALTY` (saturating).
     /// Discriminator 3.
     #[instruction(discriminator = 3)]
-    pub fn dispute(ctx: Ctx<Dispute>, job_id: u128) -> Result<(), ProgramError> {
-        ctx.accounts.dispute(job_id)
+    pub fn dispute(ctx: Ctx<Dispute>) -> Result<(), ProgramError> {
+        ctx.accounts.dispute()
     }
 }

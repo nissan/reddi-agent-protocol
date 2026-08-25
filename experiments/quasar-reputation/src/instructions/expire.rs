@@ -6,8 +6,19 @@
 /// - Penalises the party that did NOT commit (reputation decrease + jobs_failed++)
 /// - Either party (consumer or specialist) can trigger expiry
 ///
+/// Job binding (see `docs/QUASAR-JOB-BINDING-DESIGN-2026-08-24.md`):
+/// - The rating PDA is seeded by the escrow address, so `escrow` is passed here
+///   purely as a seed and is never dereferenced. `quasar-escrow` closes the
+///   escrow on release or cancel, so by expiry time the account is usually gone.
+///
+/// Residual risk — CRITICAL-4 is mitigated, not eliminated. `quasar-escrow::lock`
+/// accepts an unsigned, unchecked `payee`, so a payer can name a wallet that
+/// never consented and open a rating against it. Binding raises the cost of the
+/// grief from rating rent (~1500 lamports) to a real locked escrow held for the
+/// full expiry window, but does not remove it. Closing it needs payee consent at
+/// lock time or a two-signature rating open — tracked in the design doc.
+///
 /// Quasar deltas vs Anchor:
-/// - `job_id: [u8; 16]` encoded as `u128` for PDA seed compatibility
 /// - Clock acquired via `Clock::get()` syscall (same semantic as Anchor)
 /// - Penalty applied via `saturating_sub` on `u16` score (identical to Anchor)
 use {
@@ -20,11 +31,15 @@ use {
 };
 
 #[derive(Accounts)]
-#[instruction(job_id: u128)]
 pub struct Expire<'info> {
+    /// Escrow address this rating is bound to — used only as a PDA seed.
+    /// CHECK: not dereferenced; the `seeds`/`bump` constraint on `rating` proves
+    /// this is the escrow the rating was bound to at commit time.
+    pub escrow: &'info UncheckedAccount,
+
     #[account(
         mut,
-        seeds = RatingAccount::seeds(job_id),
+        seeds = RatingAccount::seeds(escrow),
         bump = rating.bump,
     )]
     pub rating: &'info mut Account<RatingAccount>,
@@ -51,7 +66,7 @@ pub struct Expire<'info> {
 
 impl<'info> Expire<'info> {
     #[inline(always)]
-    pub fn expire(&mut self, _job_id: u128) -> Result<(), ProgramError> {
+    pub fn expire(&mut self) -> Result<(), ProgramError> {
         let clock = Clock::get()?;
 
         // Guard: only Pending ratings can expire
