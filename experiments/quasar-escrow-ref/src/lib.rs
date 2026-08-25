@@ -36,8 +36,20 @@
 //! upstream `#[account(discriminator = 10)]` macro lays an account out as one
 //! discriminator byte followed by the `#[repr(C)]`, alignment-1 zero-copy
 //! struct, mapping `u64 -> PodU64` and `i64 -> PodI64`. [`EscrowRefData`]
-//! reproduces that struct; the tests in this module assert the offsets and total
-//! size so a change upstream fails here rather than silently misreading fields.
+//! reproduces that struct.
+//!
+//! **This guard is currently circular and does NOT catch upstream drift.** The
+//! layout test below asserts `EscrowRefData` against hardcoded constants — that
+//! is, against itself. This crate has no dependency on `quasar-escrow` (whose
+//! `mod state` is private), so nothing compares the mirror to the real
+//! `EscrowAccountZc`. Add a field upstream and every test here stays green while
+//! both consuming programs read `payer`/`payee` from the wrong offsets. The
+//! layout was verified byte-exact by hand on 2026-08-25, but that verification
+//! is a point-in-time fact, not an enforced invariant.
+//!
+//! Fix: export `quasar-escrow`'s `state` module, add it as a dev-dependency
+//! here, and assert `offset_of!` equality against `EscrowAccountZc` plus
+//! `LEN == <EscrowAccount as Space>::SPACE - 1`.
 //!
 //! Deliberately **read-only**: neither consumer writes to an escrow, so no
 //! `DerefMut`/`deref_from_mut` write path is exposed beyond what the framework
@@ -203,9 +215,11 @@ mod tests {
         assert_eq!(owners[0], QUASAR_ESCROW_PROGRAM_ID);
     }
 
-    /// Locks the mirror layout against `quasar-escrow`'s generated
-    /// `EscrowAccountZc`. If upstream reorders, resizes or repads a field,
-    /// this test fails instead of the program misreading `payer`/`payee`.
+    /// Pins the mirror's own layout. NOTE: this compares `EscrowRefData` to
+    /// hardcoded constants, i.e. to itself — it catches an accidental edit to
+    /// this file, but it CANNOT catch upstream drift in `quasar-escrow`, because
+    /// this crate does not depend on it. See the circularity note in the module
+    /// docs for the fix.
     #[test]
     fn layout_matches_escrow_account() {
         assert_eq!(core::mem::offset_of!(EscrowRefData, payer), 0);

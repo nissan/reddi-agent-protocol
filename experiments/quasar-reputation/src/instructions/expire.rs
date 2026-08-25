@@ -11,12 +11,25 @@
 ///   purely as a seed and is never dereferenced. `quasar-escrow` closes the
 ///   escrow on release or cancel, so by expiry time the account is usually gone.
 ///
-/// Residual risk — CRITICAL-4 is mitigated, not eliminated. `quasar-escrow::lock`
-/// accepts an unsigned, unchecked `payee`, so a payer can name a wallet that
-/// never consented and open a rating against it. Binding raises the cost of the
-/// grief from rating rent (~1500 lamports) to a real locked escrow held for the
-/// full expiry window, but does not remove it. Closing it needs payee consent at
-/// lock time or a two-signature rating open — tracked in the design doc.
+/// CRITICAL-4 IS OPEN — the settlement race. `quasar-escrow::release` is
+/// payer-only, carries `close = payer`, and has no time-lock, so the payer
+/// controls the window in which the payee may open a rating. Lock (payee
+/// consents), commit as consumer, then release — all in one transaction. The
+/// escrow is now dead, so the payee's `commit` fails `IllegalOwner` forever,
+/// while this instruction still works against them because it takes the escrow
+/// as a seed-only account that need not exist.
+///
+/// Cost to the griefer is rating rent alone; the escrow principal returns via
+/// `release` in the same transaction. Payee consent (added 2026-08-25) did NOT
+/// close this — an earlier version of this comment claimed it reduced the
+/// attack to an unconsented payee, which was wrong on both mechanism and cost.
+///
+/// Corollary: reputation coverage is at the payer's discretion — releasing
+/// before the counterparty commits guarantees they can never be rated.
+///
+/// Pinned by `test_known_open_critical4_settlement_race_grief`. Closing it needs
+/// a job record that outlives settlement. See
+/// `docs/QUASAR-JOB-BINDING-DESIGN-2026-08-24.md`.
 ///
 /// Quasar deltas vs Anchor:
 /// - Clock acquired via `Clock::get()` syscall (same semantic as Anchor)

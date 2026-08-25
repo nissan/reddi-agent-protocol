@@ -1311,28 +1311,99 @@ fn test_rating_pda_is_bound_to_its_escrow() {
     matched.assert_success();
 }
 
-// ── CRITICAL-4 closure note ──────────────────────────────────────────────────
+// ── CRITICAL-4 is OPEN — the settlement race ─────────────────────────────────
 //
-// This file previously carried a tripwire test,
-// `test_known_residual_critical4_unconsented_payee_can_be_griefed`, which
-// deliberately asserted that the grief *succeeded*: `quasar-escrow::lock` took
-// an unsigned `payee`, so a payer could lock an escrow naming a wallet that had
-// never agreed to the job, open a rating against it, and let it expire to deduct
-// the victim's reputation.
+// A previous tripwire here asserted a grief that payee consent was believed to
+// close. It did not. `quasar-escrow::lock` requiring the payee's signature
+// (2026-08-25) is real and worth keeping, but an independent review found the
+// load-bearing property was never consent — it is the escrow's *lifetime*.
 //
-// `quasar-escrow::lock` now requires the payee's signature (2026-08-25), so that
-// escrow can no longer be created and the grief has no starting point. The
-// tripwire has been removed rather than inverted, because inverting it here
-// would have been theatre: these tests fabricate escrow byte images directly
-// rather than calling `lock`, so a reputation-side test can neither create nor
-// reject an unconsented escrow. The load-bearing regression therefore lives with
-// the rule it enforces:
+// `quasar-escrow::release` is payer-only, carries `close = payer`, and has no
+// time-lock. So a payer can destroy the escrow after committing but before the
+// counterparty can, permanently locking them out of `commit` (which needs a live
+// escrow) while leaving `expire` fully usable against them (which does not).
 //
-//     experiments/quasar-escrow/src/tests.rs
-//       -> test_audit_lock_without_payee_signature_rejected
-//
-// What this program still owes the guarantee is the owner check: consent is only
-// meaningful if a forged escrow cannot stand in for a real one. That half is
-// pinned by `test_audit_critical1_forged_escrow_rejected` and
-// `test_audit_critical1_wrong_escrow_discriminator_rejected` above, and by the
-// pinned-program-ID assertions in the `quasar-escrow-ref` crate.
+// The test below asserts the grief SUCCEEDS, deliberately, and must be inverted
+// when a job record that outlives settlement lands. Tracked in
+// `docs/QUASAR-JOB-BINDING-DESIGN-2026-08-24.md`.
+
+/// KNOWN OPEN — CRITICAL-4 via the settlement race.
+///
+/// Consented job, ordinary in every way: the payee signs `lock`. The payer
+/// commits first, then releases in the same transaction. The payee can now never
+/// commit, and after the expiry window absorbs the penalty.
+///
+/// Cost to the griefer is rating rent alone — `expire` does not close the rating
+/// — while the escrow rent and principal return via `release`.
+///
+/// This fixture simulates `release` by zeroing the escrow account and
+/// reassigning it to the system program, which is what `close = payer` does.
+#[test]
+fn test_known_open_critical4_settlement_race_grief() {
+    let mut svm = setup();
+    let griefer = Pubkey::new_unique();
+    let victim = Pubkey::new_unique();
+
+    let (griefer_agent, griefer_agent_acct, griefer_acct) = register_agent(&mut svm, griefer);
+    let (victim_agent, victim_agent_acct, victim_acct) = register_agent(&mut svm, victim);
+
+    // A fully consented job: griefer is payer, victim is payee.
+    let (escrow_addr, escrow_acct) = escrow(&griefer, &victim, 70);
+    let rating = rating_pda(&escrow_addr);
+    let salt = [0x5Au8; 32];
+
+    // 1. The payer commits while the escrow is still live.
+    let r1 = svm.process_instruction(
+        &commit_ix(sha256_commitment(&escrow_addr, 1, &salt), 0, griefer, escrow_addr, rating),
+        &[escrow_acct.clone(), empty(rating), funded(griefer)],
+    );
+    r1.assert_success();
+
+    // 2. The payer releases — `close = payer` zeroes the account and hands it
+    //    back to the system program.
+    let closed_escrow = Account {
+        address: escrow_addr,
+        lamports: 0,
+        data: vec![],
+        owner: quasar_svm::system_program::ID,
+        executable: false,
+    };
+    svm.set_account(closed_escrow.clone());
+
+    // 3. The victim can never commit: the owner check rejects the dead escrow.
+    let locked_out = svm.process_instruction(
+        &commit_ix(sha256_commitment(&escrow_addr, 10, &salt), 1, victim, escrow_addr, rating),
+        &[
+            closed_escrow.clone(),
+            r1.account(&rating).unwrap().clone(),
+            victim_acct,
+        ],
+    );
+    assert_failed_with(
+        &locked_out,
+        InstructionError::IllegalOwner,
+        "settlement race: the payee is locked out of commit once the escrow is closed",
+    );
+
+    let victim_failed_before = read_jobs_failed(&svm, &victim_agent);
+    svm.sysvars.warp_to_slot(1_512_001);
+
+    // 4. `expire` still works — it needs only the escrow *address* as a seed.
+    let expired = svm.process_instruction(
+        &expire_ix(griefer, escrow_addr, rating, victim_agent, griefer_agent),
+        &[
+            closed_escrow,
+            r1.account(&rating).unwrap().clone(),
+            griefer_acct,
+            victim_agent_acct,
+            griefer_agent_acct,
+        ],
+    );
+    expired.assert_success();
+
+    assert_eq!(
+        read_jobs_failed(&svm, &victim_agent),
+        victim_failed_before + 1,
+        "CRITICAL-4 is open: the payee absorbs a penalty for a rating they were locked out of",
+    );
+}
