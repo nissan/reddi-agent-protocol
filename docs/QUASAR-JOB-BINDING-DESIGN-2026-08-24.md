@@ -464,19 +464,30 @@ escrow, and `init` then permanently blocks the real judge.
 Binding the PDA to a real escrow narrowed the target set from "all u128" to
 "every real job" — which is the set an attacker actually wants.
 
-## The mirror layout guard is circular
+## The mirror layout guard was circular — FIXED 2026-08-26
 
-`EscrowRefData` is byte-exact today; that was independently re-derived from
-`third_party/quasar/derive/src/account/fixed.rs`. But
-`layout_matches_escrow_account` asserts it against hardcoded integers — against
-itself — and `quasar-escrow-ref` cannot depend on `quasar-escrow` because that
-crate's `mod state` is private. Add a field upstream and every test stays green
-while `payer`/`payee` are read from the wrong offsets. The crate doc claiming
-those tests catch upstream drift is wrong and has been corrected.
+`EscrowRefData` was byte-exact, but `layout_matches_escrow_account` asserted it
+against hardcoded integers — against itself — and `quasar-escrow-ref` could not
+depend on `quasar-escrow` because that crate's `mod state` was private. Adding a
+field upstream would have left every test green while `payer`/`payee` were read
+from the wrong offsets.
 
-**Fix:** export `quasar-escrow`'s `state` module, add it as a dev-dependency of
-`quasar-escrow-ref`, and assert `offset_of!` equality against the real
-`EscrowAccountZc` plus `LEN == <EscrowAccount as Space>::SPACE - 1`.
+**Fixed.** `quasar-escrow`'s `state` is now public, `quasar-escrow-ref` takes it
+as a **dev-dependency** (test-time only — the mirror still links nothing at
+runtime, which is its reason for existing), and
+`layout_matches_real_escrow_account` asserts the mirror against the real
+generated `EscrowAccountZc`: total size against `<EscrowAccount as Space>::SPACE`,
+payload size, the discriminator, per-field `offset_of!` equality, and a
+trailing-field check.
+
+The guard was verified to actually fail, not merely to pass — a passing guard
+proves nothing, which is how the circular version survived. Two drift shapes were
+simulated upstream and both were caught:
+
+| Drift | Caught |
+|---|---|
+| Field inserted mid-struct (shifts `payee`) | ✅ |
+| Field appended after `bump` (all existing offsets still valid) | ✅ |
 
 ## The owner check pins an address, not code
 
@@ -512,7 +523,7 @@ treated an account the attacker can destroy on demand as a durable binding.
 - **C-2 / C-3** — judge nomination recorded on the job record at lock time,
   signed by both parties. Address-distinctness is not a defence against a single
   operator holding two keys.
-- **Mirror guard** — as above; small, independent, and worth doing regardless.
+- ~~**Mirror guard**~~ — **done 2026-08-26**, see above.
 
 Blocker 1 of the five in the audit response is therefore **not** closed for
 C-2/C-3/C-4. Blocker 5 (external re-review) must not be scheduled against the

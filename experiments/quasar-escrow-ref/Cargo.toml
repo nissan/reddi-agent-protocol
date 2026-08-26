@@ -11,6 +11,13 @@ name = "quasar_escrow_ref"
 quasar-lang = { path = "../../third_party/quasar/lang" }
 solana-address = { version = "2.2.0" }
 
+[dev-dependencies]
+# Dev-only, and deliberately so: the mirror must not link the escrow program at
+# runtime — it exists precisely to avoid that dependency. But the layout
+# assertions are worthless unless they compare against the real generated
+# `EscrowAccountZc`, which requires the crate at test time.
+quasar-escrow-poc = { path = "../quasar-escrow" }
+
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
 
