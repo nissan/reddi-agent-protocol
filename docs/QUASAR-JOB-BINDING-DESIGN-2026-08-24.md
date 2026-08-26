@@ -1,12 +1,16 @@
 # Quasar job-binding — design for closing the four Criticals
 
-_Date:_ 2026-08-24, updated 2026-08-25 · _Status:_ **steps 1–3 implemented and
-verified; C-4 closed by payee consent; steps 4–7 open**
-_Closes:_ CRITICAL-1, CRITICAL-2, CRITICAL-3 and CRITICAL-4 from
-`docs/QUASAR-PROGRAMS-SECURITY-AUDIT-2026-05-06.md`. The C-4 closure argument in
-the table below was wrong as originally written; see "Implementation outcome"
-and "C-4 closed by payee consent" at the end of this document, which supersede
-it.
+_Date:_ 2026-08-24, corrected 2026-08-25 after independent review
+_Status:_ **C-1 closed. C-2, C-3 and C-4 remain OPEN — rework required.**
+
+> ⚠️ **Read the final section first.** This document's earlier sections argued
+> that all four Criticals were closed. An independent review reproduced working
+> exploits for C-2, C-3 and C-4 against the merged code. Every closure claim in
+> this document other than C-1 is superseded by
+> "Independent review — corrected status (2026-08-25)" at the end.
+
+_Closes:_ **CRITICAL-1 only**, from
+`docs/QUASAR-PROGRAMS-SECURITY-AUDIT-2026-05-06.md`.
 _Blocker list:_ items 1 (job/escrow binding) of the five in
 `docs/QUASAR-PROGRAMS-SECURITY-AUDIT-RESPONSE-2026-05-06.md`
 
@@ -300,7 +304,12 @@ the demo works.
 
 ---
 
-# C-4 closed by payee consent (2026-08-25)
+# Payee consent at lock time (2026-08-25) — does NOT close C-4
+
+> **Superseded.** This section originally claimed to close CRITICAL-4. It does
+> not; see the final section. The *mechanism* below is real and landed, and it
+> is worth keeping on its own merits — an escrow being a bilateral agreement is
+> correct regardless. Only the closure claim was wrong.
 
 Maintainer accepted the recommendation. `quasar-escrow::lock` now requires the
 **payee's signature**.
@@ -313,7 +322,7 @@ unilaterally naming any wallet. The same change is applied to
 `quasar-escrow-per::lock`, so the weaker of the two escrow programs cannot be
 used as a way around the rule.
 
-## Why this closes CRITICAL-4
+## Why this was believed to close CRITICAL-4 (wrong — see final section)
 
 The grief required an escrow naming a victim who had never agreed to the job:
 lock naming the victim as payee → open a rating against it → let it expire →
@@ -376,3 +385,135 @@ hiring flow needs one.
 Unchanged by this: **HIGH-3** reputation laundering (a payer can still use a
 second wallet they control — `payer != payee` blocks only the degenerate case),
 **HIGH-7** split registries, **HIGH-2** payee dispute path.
+
+
+---
+
+# Independent review — corrected status (2026-08-25)
+
+An independent reviewer, with no part in writing the change, reviewed
+`git diff ee39cdf 2c9e4e3` (PRs #642 and #643 together) and produced runnable
+proof-of-concepts. **All three were re-run against the merged tree and
+reproduce.** This section supersedes every closure claim above except C-1.
+
+| Finding | Previously claimed | Actual |
+|---|---|---|
+| **C-1** rating-PDA squatting | Closed | **Closed** — independently confirmed |
+| **C-2** judge self-confirmation | Closed | **OPEN** |
+| **C-3** unbounded attestation creation | Closed | **HALF OPEN** — creation bounded, squatting untouched |
+| **C-4** reputation grief | Closed | **OPEN** — settlement race |
+
+## C-4 — the settlement race
+
+`quasar-escrow::release` is payer-only, carries `close = payer`, and has no
+time-lock. The payer therefore controls, unilaterally, the window in which the
+payee can open a rating. In a single transaction the payee cannot influence:
+
+1. `lock(payer=P, payee=V)` — V signs; a fully consented, ordinary job.
+2. `commit(role=0)` by P — rating created, `state = Pending`.
+3. `release` by P — escrow closed and reassigned to the system program.
+
+V can then never commit: `commit` requires a live escrow via `InterfaceAccount`,
+which returns `IllegalOwner` on the dead account. `expire` takes the escrow as a
+**seed-only** account and does not need it to exist, so after the window P
+expires the rating and V is penalised.
+
+    specialist commit after release -> Err(IllegalOwner)
+    specialist reputation 1000 -> 500, jobs_failed 1
+
+Cost to the griefer is rating rent alone (~0.00232 SOL, unreclaimable — `expire`
+does not close the rating). The escrow rent and principal return via `release`
+in the same transaction, so the "must hold a real escrow for the full expiry
+window" argument above is wrong on economics as well as mechanism.
+
+**Corollary — a regression this work introduced.** Reputation coverage is now at
+the payer's discretion: any payer can guarantee they are never rated by
+releasing before the counterparty commits. Before the binding, either party
+could open a rating at any time. The original audit does not cover this.
+
+Pinned by `test_known_open_critical4_settlement_race_grief` in
+`experiments/quasar-reputation/src/tests.rs`, which deliberately asserts the
+grief **succeeds**. Invert it when the fix lands.
+
+## C-2 — address distinctness is not actor distinctness
+
+`attest.rs` rejects `escrow.payer == judge` and `escrow.payee == judge`. A judge
+does not need to *be* the payer — only to hold the payer's key. With two
+throwaway keypairs the judge signs `lock` for both (payee consent is satisfied;
+the judge owns that key), attests, and confirms. Every guard passes.
+
+    after 12 cycles: judge reputation_score = 7173, attestation_accuracy = 10000
+
+Marginal cost is attestation rent only; the audit priced pre-fix C-2 at
+~0.002 SOL per cycle, so **the cost is unchanged**.
+
+This is the identical mechanism to **HIGH-3**, which this document already lists
+as open. If HIGH-3 is open, C-2 is open — an internal inconsistency that should
+have been caught before the closure was claimed.
+
+## C-3 — only half the finding was addressed
+
+The audit lists two impacts. "Unbounded creation" is genuinely bounded now.
+"Squatting / DoS on legitimate attestations" is untouched: nothing checks that
+the judge was hired for the job, so any eligible judge can front-run any real
+escrow, and `init` then permanently blocks the real judge.
+
+    squatter attests a job it was never hired for -> Ok
+    legit judge attest -> Err(AccountAlreadyInitialized)
+
+Binding the PDA to a real escrow narrowed the target set from "all u128" to
+"every real job" — which is the set an attacker actually wants.
+
+## The mirror layout guard is circular
+
+`EscrowRefData` is byte-exact today; that was independently re-derived from
+`third_party/quasar/derive/src/account/fixed.rs`. But
+`layout_matches_escrow_account` asserts it against hardcoded integers — against
+itself — and `quasar-escrow-ref` cannot depend on `quasar-escrow` because that
+crate's `mod state` is private. Add a field upstream and every test stays green
+while `payer`/`payee` are read from the wrong offsets. The crate doc claiming
+those tests catch upstream drift is wrong and has been corrected.
+
+**Fix:** export `quasar-escrow`'s `state` module, add it as a dev-dependency of
+`quasar-escrow-ref`, and assert `offset_of!` equality against the real
+`EscrowAccountZc` plus `LEN == <EscrowAccount as Space>::SPACE - 1`.
+
+## The owner check pins an address, not code
+
+`QUASAR_ESCROW_PROGRAM_ID` pins a program deployed under an upgradeable loader.
+Whoever holds the escrow upgrade authority can change what `payer`/`payee` mean
+for both consuming programs. Reputation and attestation therefore carry a trust
+dependency on that upgrade authority, which the external auditor needs told.
+
+Related deployment hazard: the escrow program **currently on devnet still
+accepts an unsigned payee**. Redeploying reputation/attestation before escrow
+would leave the old C-4 variant open with CI fully green.
+
+## Verified sound — not to be re-litigated
+
+The mechanism-level work held up: the `InterfaceAccount` owner and discriminator
+check; PDA binding for seed-only accounts (both `bump` forms reach the same
+`verify_program_address`, so a substituted escrow requires a PDA collision); the
+mirror layout itself; absence of PDA aliasing; `init_if_needed` re-entry; the
+zero-`escrow` sentinel; arithmetic bounds; and that `&Signer` genuinely enforces
+a signature. **C-1 genuinely closes.**
+
+The failures were in the closure *arguments*, not the plumbing: two of them
+treated "is not this address" as equivalent to "is not this actor", and one
+treated an account the attacker can destroy on demand as a durable binding.
+
+## Rework required
+
+- **C-4** — a job record that outlives settlement (have `release` write a
+  receipt rather than closing the escrow, and bind ratings to that), or enrol
+  the rating at `lock` time inside the bilateral transaction. The receipt option
+  also unblocks the `status == Released` check this document earlier concluded
+  was impossible.
+- **C-2 / C-3** — judge nomination recorded on the job record at lock time,
+  signed by both parties. Address-distinctness is not a defence against a single
+  operator holding two keys.
+- **Mirror guard** — as above; small, independent, and worth doing regardless.
+
+Blocker 1 of the five in the audit response is therefore **not** closed for
+C-2/C-3/C-4. Blocker 5 (external re-review) must not be scheduled against the
+current state under a "four Criticals closed" label.
