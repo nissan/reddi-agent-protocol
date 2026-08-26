@@ -6,8 +6,21 @@
 /// - lamports escrow -> payee
 /// - close escrow to payer (rent returned)
 ///
+/// CRITICAL-4 (2026-08-26): this instruction no longer closes the escrow.
+///
+/// It used to carry `close = payer`, which destroyed the account on settlement.
+/// Because `quasar-reputation::commit` needs a live escrow to read the job's
+/// parties while `expire` needs only its address as a PDA seed, a payer could
+/// commit, release in the same transaction, and permanently lock the payee out
+/// of rating them — then expire the rating for the penalty. See
+/// `docs/QUASAR-C4-DURABLE-JOB-RECORD-DESIGN-2026-08-26.md`.
+///
+/// The escrow is now a durable job record: it survives settlement, so neither
+/// party can deny the other the ability to rate them. The cost is the
+/// rent-exempt minimum, which stays in the account permanently instead of being
+/// swept to the payer.
+///
 /// Quasar changes:
-/// - `close = payer` on escrow account in derive
 /// - lamport transfer via `set_lamports` (same pattern as vault withdraw)
 /// - status update before close
 use {
@@ -15,7 +28,10 @@ use {
         events::EscrowReleased,
         state::{EscrowAccount, EscrowStatus},
     },
-    quasar_lang::prelude::*,
+    quasar_lang::{
+        prelude::*,
+        sysvars::{rent::Rent, Sysvar as _},
+    },
 };
 
 #[derive(Accounts)]
@@ -32,7 +48,6 @@ pub struct Release<'info> {
         has_one = payee,
         seeds = EscrowAccount::seeds(payer, escrow_id),
         bump = escrow.bump,
-        close = payer,
     )]
     pub escrow: &'info mut Account<EscrowAccount>,
 }
@@ -64,10 +79,24 @@ impl<'info> Release<'info> {
             .checked_add(amount)
             .ok_or(ProgramError::ArithmeticOverflow)?;
 
+        // The whole CRITICAL-4 fix rests on this account continuing to exist.
+        // An account that drops below rent-exemption is garbage-collected, which
+        // would silently restore the settlement race with every test green.
+        //
+        // `lock` funds the escrow as rent-exempt-minimum + amount, so paying out
+        // `amount` leaves exactly the minimum — but that is an invariant of
+        // `lock`, not something this instruction may assume. Assert it.
+        let rent = Rent::get()?;
+        let minimum = rent.try_minimum_balance(escrow_view.data_len())?;
+        if new_escrow_lamports < minimum {
+            return Err(ProgramError::InsufficientFunds);
+        }
+
         set_lamports(escrow_view, new_escrow_lamports);
         set_lamports(payee_view, new_payee_lamports);
 
-        // Mark released (close = payer clears the rest)
+        // Mark released. The account is deliberately NOT closed — see the
+        // CRITICAL-4 note above.
         self.escrow.status = EscrowStatus::Released as u8;
 
         emit!(EscrowReleased {

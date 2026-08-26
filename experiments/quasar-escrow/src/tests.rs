@@ -10,7 +10,7 @@ extern crate std;
 
 use {
     quasar_lang::traits::HasSeeds,
-    crate::state::CANCEL_WINDOW_SLOTS,
+    crate::state::{EscrowStatus, CANCEL_WINDOW_SLOTS},
     quasar_svm::{Account, AccountMeta, Instruction, Pubkey, QuasarSvm},
     std::{println, vec},
 };
@@ -101,6 +101,51 @@ fn lock_ix_unsigned_payee(
     ix
 }
 
+/// `EscrowAccountZc` layout after the 1-byte discriminator:
+/// payer[32] + payee[32] + escrow_id[8] + amount[8] + status[1]
+const ESCROW_STATUS_OFFSET: usize = 1 + 32 + 32 + 8 + 8; // 81
+
+/// Asserts the escrow survived settlement with the expected status and a
+/// balance at or above rent-exemption.
+///
+/// This is the CRITICAL-4 property, so it is asserted directly rather than
+/// inferred: if the account is ever destroyed or drops below rent-exemption,
+/// `quasar-reputation::commit` starts failing `IllegalOwner` for whichever party
+/// has not yet committed, and the settlement race is back.
+fn assert_escrow_survived(
+    result: &quasar_svm::ExecutionResult,
+    escrow: &Pubkey,
+    expected_status: u8,
+    context: &str,
+) {
+    let acct = result
+        .account(escrow)
+        .unwrap_or_else(|| panic!("{}: escrow account no longer exists", context));
+    assert!(
+        acct.lamports > 0,
+        "{}: escrow has zero lamports — it will be garbage-collected",
+        context,
+    );
+    assert!(
+        !acct.data.is_empty(),
+        "{}: escrow data was zeroed",
+        context,
+    );
+    assert_eq!(
+        acct.data[ESCROW_STATUS_OFFSET], expected_status,
+        "{}: unexpected escrow status",
+        context,
+    );
+    // 99-byte account: comfortably above any plausible rent-exempt minimum for
+    // this size on any cluster, and non-zero is the property that matters.
+    assert!(
+        acct.lamports >= 1_000_000,
+        "{}: escrow balance {} looks below rent-exemption",
+        context,
+        acct.lamports,
+    );
+}
+
 fn release_ix(payer: Pubkey, payee: Pubkey, escrow: Pubkey, escrow_id: u64) -> Instruction {
     let mut data = vec![1u8]; // discriminator = 1
     data.extend_from_slice(&escrow_id.to_le_bytes());
@@ -171,10 +216,13 @@ fn test_lock_and_release() {
 
     let payee_after = release_result.account(&payee).map(|a| a.lamports).unwrap_or(0);
     assert!(payee_after >= payee_before + amount, "payee received funds");
-    let escrow_after = release_result.account(&escrow);
-    assert!(
-        escrow_after.map(|a| a.lamports).unwrap_or(0) == 0,
-        "escrow PDA should be closed (lamports=0) after release"
+    // CRITICAL-4: the escrow is deliberately NOT closed. It is the durable job
+    // record that lets either party rate the other after settlement.
+    assert_escrow_survived(
+        &release_result,
+        &escrow,
+        EscrowStatus::Released as u8,
+        "after release",
     );
 }
 
@@ -216,9 +264,13 @@ fn test_lock_and_cancel() {
         payer_after_cancel > payer_after_lock,
         "payer refunded after cancel"
     );
-    assert!(
-        cancel_result.account(&escrow).map(|a| a.lamports).unwrap_or(0) == 0,
-        "escrow PDA should be closed (lamports=0) after cancel"
+    // CRITICAL-4: same on the cancel path — a cancel-shaped settlement race
+    // would otherwise work identically, just gated behind the cancel window.
+    assert_escrow_survived(
+        &cancel_result,
+        &escrow,
+        EscrowStatus::Cancelled as u8,
+        "after cancel",
     );
 }
 
@@ -307,24 +359,34 @@ fn test_release_after_cancel_fails() {
         ],
     );
     cancel_result.assert_success();
-    assert!(
-        cancel_result.account(&escrow).map(|a| a.lamports).unwrap_or(0) == 0,
-        "escrow should be closed after cancel"
+    assert_escrow_survived(
+        &cancel_result,
+        &escrow,
+        EscrowStatus::Cancelled as u8,
+        "after cancel",
     );
 
-    // Try release on closed/nonexistent escrow
+    // The escrow still exists, so this now tests the thing it was always meant
+    // to test: the status guard, rather than the account merely being absent.
     let release_result = svm.process_instruction(
         &release_ix(payer, payee, escrow, escrow_id),
         &[
             cancel_result.account(&payer).unwrap().clone(),
             cancel_result.account(&payee).cloned().unwrap_or(empty(payee)),
-            cancel_result.account(&escrow).cloned().unwrap_or(empty(escrow)), // closed
+            cancel_result.account(&escrow).unwrap().clone(),
         ],
     );
 
     assert!(
         release_result.is_err(),
-        "release on closed escrow should fail"
+        "release on a Cancelled escrow should fail the status guard"
+    );
+    // And the failed release must not have altered it.
+    assert_escrow_survived(
+        &cancel_result,
+        &escrow,
+        EscrowStatus::Cancelled as u8,
+        "after rejected release",
     );
 }
 
@@ -434,4 +496,58 @@ fn test_audit_lock_without_payee_signature_rejected() {
         &[funded(payer), empty(victim), empty(counter), empty(escrow)],
     );
     consented.assert_success();
+}
+
+/// CRITICAL-4 structural guard: no instruction in this program may destroy an
+/// escrow account.
+///
+/// The whole fix rests on the escrow being permanent. That is a property of the
+/// *absence* of code, which no behavioural test can fully cover — a future
+/// instruction could reintroduce a closing path and every existing test would
+/// still pass. This scans the instruction sources at compile time instead.
+///
+/// It exists specifically because `close = payer` is not the only way to destroy
+/// an account: `quasar-escrow-per::release` closes via a raw
+/// `close_unchecked()`, which a grep for the attribute would miss entirely.
+///
+/// If this fails, do not weaken it — a new closing path means the settlement
+/// race is back. See `docs/QUASAR-C4-DURABLE-JOB-RECORD-DESIGN-2026-08-26.md`.
+#[test]
+fn test_audit_critical4_no_instruction_closes_an_escrow() {
+    // Every instruction in this program, pulled in at compile time so a new
+    // file must be added here deliberately.
+    const SOURCES: &[(&str, &str)] = &[
+        ("lock.rs", include_str!("instructions/lock.rs")),
+        ("release.rs", include_str!("instructions/release.rs")),
+        ("cancel.rs", include_str!("instructions/cancel.rs")),
+    ];
+
+    // Constructs that destroy, empty, or hand away an account.
+    const DESTRUCTIVE: &[&str] = &[
+        "close = ",
+        "close_unchecked",
+        ".close(",
+        "assign(",
+        "realloc_account",
+    ];
+
+    for (name, src) in SOURCES {
+        for line in src.lines() {
+            // Skip doc comments and comments — these files discuss the removed
+            // `close = payer` at length, and that prose is the point.
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("//") {
+                continue;
+            }
+            for needle in DESTRUCTIVE {
+                assert!(
+                    !line.contains(needle),
+                    "CRITICAL-4 regression: `{}` in {} can destroy an escrow — \
+                     the settlement race depends on the escrow being permanent",
+                    needle,
+                    name,
+                );
+            }
+        }
+    }
 }
