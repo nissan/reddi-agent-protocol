@@ -1421,7 +1421,15 @@ fn test_known_open_critical4_reveal_deadlock_denies_rating() {
     // Escrow is and stays LIVE — status Locked, owned by quasar-escrow.
     let (escrow_addr, escrow_acct) = escrow(&griefer, &victim, 77);
     let rating = rating_pda(&escrow_addr);
-    let griefer_rep_before = read_reputation_score(&svm, &griefer_agent);
+
+    // NOTE on what is asserted below. A freshly-registered agent has
+    // `reputation_score: 0`, so asserting the griefer's score is "unchanged"
+    // would be 0 == 0 — vacuous, and it would pass whether or not the victim's
+    // rating landed. `jobs_completed` is the field that actually distinguishes
+    // the two outcomes: `apply_reputation_update` increments it on finalisation,
+    // so 0 here versus 1 in `test_commit_and_reveal_both` is a real difference.
+    let griefer_jobs_before = read_jobs_completed(&svm, &griefer_agent);
+    let victim_jobs_before = read_jobs_completed(&svm, &victim_agent);
 
     // Victim commits an honest 1/10 for the griefer.
     let v_salt = [0x11u8; 32];
@@ -1453,9 +1461,14 @@ fn test_known_open_critical4_reveal_deadlock_denies_rating() {
     r3.assert_success();
     assert_eq!(read_state_byte(&svm, &rating), 1, "still BothCommitted — not finalised");
     assert_eq!(
-        read_reputation_score(&svm, &griefer_agent),
-        griefer_rep_before,
-        "griefer's reputation is untouched by the victim's honest 1/10",
+        read_jobs_completed(&svm, &griefer_agent),
+        griefer_jobs_before,
+        "griefer's rating never landed — the victim's honest 1/10 is inert",
+    );
+    assert_eq!(
+        read_jobs_completed(&svm, &victim_agent),
+        victim_jobs_before,
+        "and neither side's job count moved — nothing finalised",
     );
 
     // Seven days on: expire is refused because the state is not Pending.
