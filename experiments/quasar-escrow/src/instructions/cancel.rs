@@ -4,10 +4,15 @@
 /// - payer authorization
 /// - locked-state guard
 /// - lamports escrow -> payer (refund)
-/// - close escrow to payer
 ///
 /// Restores the Anchor 7-day CANCEL_WINDOW_SLOTS guard so payers cannot lock
 /// work and immediately cancel after the payee begins execution.
+///
+/// CRITICAL-4 (2026-08-26): this instruction no longer closes the escrow either.
+/// `release` carried the same `close = payer` and the same settlement race; a
+/// cancel-shaped variant of it would work identically, just gated behind the
+/// cancel window. The escrow is now a durable job record in both paths. See
+/// `docs/QUASAR-C4-DURABLE-JOB-RECORD-DESIGN-2026-08-26.md`.
 use {
     crate::{
         events::EscrowCancelled,
@@ -15,7 +20,7 @@ use {
     },
     quasar_lang::{
         prelude::*,
-        sysvars::{clock::Clock, Sysvar as _},
+        sysvars::{clock::Clock, rent::Rent, Sysvar as _},
     },
 };
 
@@ -29,7 +34,6 @@ pub struct Cancel<'info> {
         has_one = payer,
         seeds = EscrowAccount::seeds(payer, escrow_id),
         bump = escrow.bump,
-        close = payer,
     )]
     pub escrow: &'info mut Account<EscrowAccount>,
 }
@@ -65,6 +69,13 @@ impl<'info> Cancel<'info> {
             .lamports()
             .checked_add(amount)
             .ok_or(ProgramError::ArithmeticOverflow)?;
+
+        // Same rent-exemption guard as `release` — the account must survive.
+        let rent = Rent::get()?;
+        let minimum = rent.try_minimum_balance(escrow_view.data_len())?;
+        if new_escrow_lamports < minimum {
+            return Err(ProgramError::InsufficientFunds);
+        }
 
         set_lamports(escrow_view, new_escrow_lamports);
         set_lamports(payer_view, new_payer_lamports);

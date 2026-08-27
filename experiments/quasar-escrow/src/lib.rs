@@ -18,7 +18,10 @@ extern crate alloc;
 
 mod events;
 mod instructions;
-mod state;
+/// Public so `quasar-escrow-ref` can assert its mirror of `EscrowAccount`
+/// against the real generated layout. Without this the mirror's layout test is
+/// circular — it can only compare the mirror to itself.
+pub mod state;
 
 use instructions::*;
 

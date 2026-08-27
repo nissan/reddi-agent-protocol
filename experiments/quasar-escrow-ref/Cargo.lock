@@ -145,9 +145,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "quasar-escrow-poc"
+version = "0.1.0"
+dependencies = [
+ "quasar-lang",
+ "solana-address",
+ "solana-instruction",
+]
+
+[[package]]
 name = "quasar-escrow-ref"
 version = "0.1.0"
 dependencies = [
+ "quasar-escrow-poc",
  "quasar-lang",
  "solana-address",
 ]

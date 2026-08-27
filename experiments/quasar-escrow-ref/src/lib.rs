@@ -38,18 +38,20 @@
 //! struct, mapping `u64 -> PodU64` and `i64 -> PodI64`. [`EscrowRefData`]
 //! reproduces that struct.
 //!
-//! **This guard is currently circular and does NOT catch upstream drift.** The
-//! layout test below asserts `EscrowRefData` against hardcoded constants — that
-//! is, against itself. This crate has no dependency on `quasar-escrow` (whose
-//! `mod state` is private), so nothing compares the mirror to the real
-//! `EscrowAccountZc`. Add a field upstream and every test here stays green while
-//! both consuming programs read `payer`/`payee` from the wrong offsets. The
-//! layout was verified byte-exact by hand on 2026-08-25, but that verification
-//! is a point-in-time fact, not an enforced invariant.
+//! # How drift is caught
 //!
-//! Fix: export `quasar-escrow`'s `state` module, add it as a dev-dependency
-//! here, and assert `offset_of!` equality against `EscrowAccountZc` plus
-//! `LEN == <EscrowAccount as Space>::SPACE - 1`.
+//! `quasar-escrow` is a **dev-dependency** of this crate — not a runtime one, so
+//! the mirror still links nothing at runtime — and the tests below assert this
+//! mirror field-by-field against the real generated `EscrowAccountZc`, plus
+//! `ACCOUNT_LEN == <EscrowAccount as Space>::SPACE`. Reorder, resize, repad or
+//! add a field upstream and these tests fail.
+//!
+//! That matters more than it looks. Every test in the consuming programs builds
+//! its escrow fixtures *from this mirror*, so a mirror that silently disagrees
+//! with `quasar-escrow` would leave both programs reading `payer`/`payee` from
+//! the wrong offsets with every test still green. An earlier version of this
+//! guard asserted the mirror against hardcoded constants — against itself — and
+//! could not have caught that.
 //!
 //! Deliberately **read-only**: neither consumer writes to an escrow, so no
 //! `DerefMut`/`deref_from_mut` write path is exposed beyond what the framework
@@ -215,11 +217,11 @@ mod tests {
         assert_eq!(owners[0], QUASAR_ESCROW_PROGRAM_ID);
     }
 
-    /// Pins the mirror's own layout. NOTE: this compares `EscrowRefData` to
-    /// hardcoded constants, i.e. to itself — it catches an accidental edit to
-    /// this file, but it CANNOT catch upstream drift in `quasar-escrow`, because
-    /// this crate does not depend on it. See the circularity note in the module
-    /// docs for the fix.
+    /// Pins the mirror's own layout against hardcoded offsets.
+    ///
+    /// This catches an accidental edit to *this* file. It cannot catch upstream
+    /// drift on its own — `layout_matches_real_escrow_account` below is what
+    /// does that.
     #[test]
     fn layout_matches_escrow_account() {
         assert_eq!(core::mem::offset_of!(EscrowRefData, payer), 0);
@@ -266,5 +268,69 @@ mod tests {
     #[test]
     fn discriminator_distinguishes_escrow_from_counter() {
         assert_ne!(ESCROW_DISCRIMINATOR, 9);
+    }
+
+    /// **The real drift guard.** Asserts this mirror against `quasar-escrow`'s
+    /// own generated zero-copy struct, field by field.
+    ///
+    /// `quasar-escrow` is a dev-dependency, so this comparison exists only at
+    /// test time — the mirror still has no runtime dependency on the program it
+    /// mirrors, which is the whole point of it existing.
+    ///
+    /// If this fails, do not "fix" it by editing the offsets: the mirror is
+    /// wrong and both consuming programs are misreading escrow accounts.
+    #[test]
+    fn layout_matches_real_escrow_account() {
+        use quasar_escrow_poc::state::{__escrow_account_zc::EscrowAccountZc, EscrowAccount};
+        use quasar_lang::traits::{Discriminator, Space};
+
+        // Total on-chain size, discriminator included.
+        assert_eq!(
+            EscrowRefData::ACCOUNT_LEN,
+            <EscrowAccount as Space>::SPACE,
+            "mirror account size disagrees with quasar-escrow",
+        );
+
+        // Payload size, discriminator excluded.
+        assert_eq!(
+            EscrowRefData::LEN,
+            core::mem::size_of::<EscrowAccountZc>(),
+            "mirror payload size disagrees with quasar-escrow",
+        );
+
+        // The discriminator this mirror gates on must be the one upstream writes.
+        assert_eq!(
+            <EscrowAccount as Discriminator>::DISCRIMINATOR,
+            &[ESCROW_DISCRIMINATOR],
+            "mirror discriminator disagrees with quasar-escrow",
+        );
+
+        // Field-by-field offsets. A reorder or repad upstream fails here rather
+        // than silently shifting payer/payee.
+        macro_rules! assert_same_offset {
+            ($field:ident) => {
+                assert_eq!(
+                    core::mem::offset_of!(EscrowRefData, $field),
+                    core::mem::offset_of!(EscrowAccountZc, $field),
+                    concat!("mirror offset for `", stringify!($field), "` disagrees with quasar-escrow"),
+                );
+            };
+        }
+        assert_same_offset!(payer);
+        assert_same_offset!(payee);
+        assert_same_offset!(escrow_id);
+        assert_same_offset!(amount);
+        assert_same_offset!(status);
+        assert_same_offset!(created_at);
+        assert_same_offset!(created_slot);
+        assert_same_offset!(bump);
+
+        // Field count: catches a field APPENDED upstream, which the offset
+        // assertions above would otherwise miss entirely.
+        assert_eq!(
+            core::mem::size_of::<EscrowRefData>(),
+            core::mem::offset_of!(EscrowAccountZc, bump) + 1,
+            "quasar-escrow appears to have fields beyond `bump` that this mirror lacks",
+        );
     }
 }
