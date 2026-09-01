@@ -167,6 +167,7 @@ Complexity notes for Phase 5:
 - `delegate_escrow` marks an escrow as delegated to a MagicBlock PER session, storing a `per_session_key`
 - `release_escrow_per` allows release by the PER session key (not the original payer)
 - The Anchor implementation uses a TypeScript shim (`packages/per-client/`) since the Rust SDK was incompatible with Anchor 1.0.0 — in Quasar this may be simpler to port natively
+  - _Snapshot note (superseded): the Anchor 1.0.0 incompatibility rationale stopped applying with the Anchor 1.1.2 upgrade. `packages/per-client/README.md` owns the current reason PER stays TypeScript-side; the bullet above is retained as the 2026-04-12 record._
 - Key question: does Quasar's CPI model support MagicBlock delegation flows? May need investigation.
 - Alternatively, Phase 5 could be documented as a "shim delta" if the TEE delegation model doesn't translate to Quasar's execution environment
 
