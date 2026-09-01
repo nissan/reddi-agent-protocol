@@ -22,6 +22,7 @@ Branch: `fm/rap-toolchain-baseline`
 - Superseded after install: `artifacts/toolchain/baseline-after-install-20260901T021005Z.md`
 - Current script-generated before install: `artifacts/toolchain/baseline-before-install-20260901T043007Z.md`
 - Current script-generated after install: `artifacts/toolchain/baseline-after-install-20260901T043009Z.md`
+- Current non-installing capture after the Surfpool smoke path fix: `artifacts/toolchain/baseline-manual-20260901T043231Z.md`
 
 ## Verification run
 
