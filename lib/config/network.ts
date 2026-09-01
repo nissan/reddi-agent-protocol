@@ -49,9 +49,39 @@ const PROFILES: Record<NetworkProfileName, NetworkProfile> = {
   mainnet: mainnetProfile as unknown as NetworkProfile,
 };
 
+function readEnv(): Record<string, string | undefined> {
+  return {
+    NETWORK_PROFILE: process.env.NETWORK_PROFILE,
+    NEXT_PUBLIC_NETWORK_PROFILE: process.env.NEXT_PUBLIC_NETWORK_PROFILE,
+    NEXT_PUBLIC_DEMO_PROGRAM_TARGET: process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET,
+    HACKATHON_DEMO_TARGET: process.env.HACKATHON_DEMO_TARGET,
+    DEMO_PROGRAM_TARGET: process.env.DEMO_PROGRAM_TARGET,
+    NEXT_PUBLIC_RPC_ENDPOINT: process.env.NEXT_PUBLIC_RPC_ENDPOINT,
+    NEXT_PUBLIC_RPC_URL: process.env.NEXT_PUBLIC_RPC_URL,
+    NEXT_PUBLIC_RPC_WS_ENDPOINT: process.env.NEXT_PUBLIC_RPC_WS_ENDPOINT,
+    DEMO_DEVNET_RPC: process.env.DEMO_DEVNET_RPC,
+    NEXT_PUBLIC_ESCROW_PROGRAM_ID: process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID,
+    DEMO_ESCROW_PROGRAM_ID: process.env.DEMO_ESCROW_PROGRAM_ID,
+    NEXT_PUBLIC_REGISTRY_PROGRAM_ID: process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID,
+    DEMO_REGISTRY_PROGRAM_ID: process.env.DEMO_REGISTRY_PROGRAM_ID,
+    NEXT_PUBLIC_REPUTATION_PROGRAM_ID: process.env.NEXT_PUBLIC_REPUTATION_PROGRAM_ID,
+    DEMO_REPUTATION_PROGRAM_ID: process.env.DEMO_REPUTATION_PROGRAM_ID,
+    NEXT_PUBLIC_ATTESTATION_PROGRAM_ID: process.env.NEXT_PUBLIC_ATTESTATION_PROGRAM_ID,
+    DEMO_ATTESTATION_PROGRAM_ID: process.env.DEMO_ATTESTATION_PROGRAM_ID,
+    ALLOW_UNSAFE_ESCROW_OVERRIDE: process.env.ALLOW_UNSAFE_ESCROW_OVERRIDE,
+    JUPITER_API_BASE: process.env.JUPITER_API_BASE,
+    NEXT_PUBLIC_PER_RPC: process.env.NEXT_PUBLIC_PER_RPC,
+    DEMO_PER_RPC: process.env.DEMO_PER_RPC,
+    DEMO_PAYMENTS_API_BASE_URL: process.env.DEMO_PAYMENTS_API_BASE_URL,
+    DEMO_ALLOW_FALLBACK: process.env.DEMO_ALLOW_FALLBACK,
+    DEMO_REQUIRE_MINT_READY: process.env.DEMO_REQUIRE_MINT_READY,
+  };
+}
+
 function pickEnv(...keys: string[]): string | undefined {
+  const env = readEnv();
   for (const key of keys) {
-    const value = process.env[key]?.trim();
+    const value = env[key]?.trim();
     if (value) return value;
   }
   return undefined;

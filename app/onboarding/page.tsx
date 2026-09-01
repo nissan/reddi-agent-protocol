@@ -1811,7 +1811,9 @@ export default function OnboardingPage() {
                   }
                 }}
               >
-                Confirm attestation (consumer)
+                {WALLET_SUBMISSION_BLOCKED
+                  ? "Confirm attestation — blocked"
+                  : "Confirm attestation (consumer)"}
               </Button>
               <Button
                 variant="outline"
@@ -1884,9 +1886,16 @@ export default function OnboardingPage() {
                   }
                 }}
               >
-                Dispute attestation (consumer)
+                {WALLET_SUBMISSION_BLOCKED
+                  ? "Dispute attestation — blocked"
+                  : "Dispute attestation (consumer)"}
               </Button>
             </div>
+            {WALLET_SUBMISSION_BLOCKED && (
+              <p className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+                {WALLET_SUBMISSION_BLOCKED_REASON}
+              </p>
+            )}
             {state.attested && state.attestationConsumer && (
               <p className="text-xs text-muted-foreground">
                 Consumer follow-through wallet: <span className="font-mono">{state.attestationConsumer}</span>

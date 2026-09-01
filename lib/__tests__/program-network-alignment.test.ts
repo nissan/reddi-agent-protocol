@@ -10,6 +10,7 @@ describe("program/network alignment", () => {
     delete process.env.HACKATHON_DEMO_TARGET;
     delete process.env.DEMO_PROGRAM_TARGET;
     delete process.env.ALLOW_UNSAFE_ESCROW_OVERRIDE;
+    delete process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID;
   });
 
   it("uses the network profile escrow program by default", async () => {
@@ -69,6 +70,15 @@ describe("program/network alignment", () => {
     const { WALLET_SUBMISSION_BLOCKED } = await import("@/lib/program");
 
     expect(WALLET_SUBMISSION_BLOCKED).toBe(false);
+  });
+
+  it("resolves the mainnet profile from the client-visible NEXT_PUBLIC selector", async () => {
+    process.env.NEXT_PUBLIC_NETWORK_PROFILE = "mainnet";
+
+    const { WALLET_SUBMISSION_BLOCKED, PROGRAM_DEPLOYMENT_STATUS } = await import("@/lib/program");
+
+    expect(PROGRAM_DEPLOYMENT_STATUS).toBe("mainnet-not-deployed");
+    expect(WALLET_SUBMISSION_BLOCKED).toBe(true);
   });
 
   it("keeps wallet submission enabled on the local Surfpool profile", async () => {
