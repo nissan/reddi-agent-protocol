@@ -15,10 +15,19 @@ describe("target-aware onboarding attest_quality instruction", () => {
     expect(ix.data.subarray(0, 8).equals(IX.attest_quality)).toBe(true);
   });
 
-  it("uses Quasar one-byte attestation encoding in Quasar mode", () => {
-    const ix = buildOnboardingAttestQualityInstruction({ target: "quasar", programId, judge, consumer, jobId, scores });
+  it("uses the current escrow-bound Quasar attestation encoding in Quasar mode", () => {
+    const escrow = new PublicKey("11111111111111111111111111111114");
+    const ix = buildOnboardingAttestQualityInstruction({ target: "quasar", programId, judge, consumer, jobId, scores, escrow });
     expect(ix.data[0]).toBe(1);
-    expect(ix.data.length).toBe(54);
+    expect(ix.data.length).toBe(6);
+    expect([...ix.data.subarray(1, 6)]).toEqual(scores);
     expect(ix.data.subarray(0, 8).equals(IX.attest_quality)).toBe(false);
+    expect(ix.keys[0].pubkey.toBase58()).toBe(escrow.toBase58());
+  });
+
+  it("refuses a Quasar attestation with no escrow to bind the job to", () => {
+    expect(() =>
+      buildOnboardingAttestQualityInstruction({ target: "quasar", programId, judge, consumer, jobId, scores }),
+    ).toThrow("quasar_attestation_requires_escrow");
   });
 });

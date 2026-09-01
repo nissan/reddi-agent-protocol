@@ -24,7 +24,6 @@ export const QUASAR_DISC = {
 } as const;
 
 export const QUASAR_MODEL_MAX_BYTES = 64;
-export const QUASAR_JOB_ID_BYTES = 16;
 export const QUASAR_HASH_BYTES = 32;
 
 function writeU64LE(target: Uint8Array, offset: number, value: bigint) {
@@ -43,11 +42,6 @@ function requireFixedBytes(name: string, value: Uint8Array, expected: number) {
 
 function bytesFromUtf8(value: string): Uint8Array {
   return new TextEncoder().encode(value);
-}
-
-export function quasarJobIdToU128Bytes(jobId: Uint8Array): Uint8Array {
-  requireFixedBytes("job_id", jobId, QUASAR_JOB_ID_BYTES);
-  return new Uint8Array(jobId);
 }
 
 export function buildQuasarRegisterData(
@@ -86,68 +80,54 @@ export function buildQuasarDeregisterAgentData(): Buffer {
   return Buffer.from([QUASAR_DISC.deregister]);
 }
 
-export function buildQuasarCommitRatingData(
-  jobId: Uint8Array,
-  commitment: Uint8Array,
-  role: 0 | 1,
-  consumerPk: Uint8Array,
-  specialistPk: Uint8Array,
-): Buffer {
+/**
+ * Post-job-binding reputation/attestation payloads.
+ *
+ * Job identity comes from the escrow account (the rating/attestation PDA is seeded by the escrow
+ * address and the parties are read from `escrow.payer`/`escrow.payee`), so there is no
+ * caller-supplied `job_id`, `consumer_pk`, or `specialist_pk` in any of these instructions.
+ * Sources: experiments/quasar-reputation/src/lib.rs (commit=1, reveal=2, expire=3) and
+ * experiments/quasar-attestation/src/lib.rs (attest=1, confirm=2, dispute=3).
+ */
+export function buildQuasarCommitRatingData(commitment: Uint8Array, role: 0 | 1): Buffer {
   requireFixedBytes("commitment", commitment, QUASAR_HASH_BYTES);
-  requireFixedBytes("consumer_pk", consumerPk, 32);
-  requireFixedBytes("specialist_pk", specialistPk, 32);
-  const job = quasarJobIdToU128Bytes(jobId);
-  const data = new Uint8Array(1 + 16 + 32 + 1 + 32 + 32);
-  let o = 0;
-  data[o++] = QUASAR_DISC.reputationCommit;
-  data.set(job, o); o += 16;
-  data.set(commitment, o); o += 32;
-  data[o++] = role;
-  data.set(consumerPk, o); o += 32;
-  data.set(specialistPk, o); o += 32;
+  if (role !== 0 && role !== 1) throw new Error("invalid_role");
+  const data = new Uint8Array(1 + QUASAR_HASH_BYTES + 1);
+  data[0] = QUASAR_DISC.reputationCommit;
+  data.set(commitment, 1);
+  data[1 + QUASAR_HASH_BYTES] = role;
   return Buffer.from(data);
 }
 
-export function buildQuasarRevealRatingData(jobId: Uint8Array, score: number, salt: Uint8Array): Buffer {
+export function buildQuasarRevealRatingData(score: number, salt: Uint8Array): Buffer {
   if (score < 1 || score > 10) throw new Error("invalid_score");
   requireFixedBytes("salt", salt, QUASAR_HASH_BYTES);
-  const job = quasarJobIdToU128Bytes(jobId);
-  const data = new Uint8Array(1 + 16 + 1 + 32);
-  let o = 0;
-  data[o++] = QUASAR_DISC.reputationReveal;
-  data.set(job, o); o += 16;
-  data[o++] = score;
-  data.set(salt, o); o += 32;
+  const data = new Uint8Array(1 + 1 + QUASAR_HASH_BYTES);
+  data[0] = QUASAR_DISC.reputationReveal;
+  data[1] = score;
+  data.set(salt, 2);
   return Buffer.from(data);
 }
 
-export function buildQuasarExpireRatingData(jobId: Uint8Array): Buffer {
-  const job = quasarJobIdToU128Bytes(jobId);
-  return Buffer.from([QUASAR_DISC.reputationExpire, ...job]);
+export function buildQuasarExpireRatingData(): Buffer {
+  return Buffer.from([QUASAR_DISC.reputationExpire]);
 }
 
-export function buildQuasarAttestQualityData(jobId: Uint8Array, scores: Uint8Array, consumerPk: Uint8Array): Buffer {
+export function buildQuasarAttestQualityData(scores: Uint8Array): Buffer {
   requireFixedBytes("scores", scores, 5);
-  requireFixedBytes("consumer_pk", consumerPk, 32);
   for (const score of scores) {
     if (score < 1 || score > 10) throw new Error("invalid_attestation_score");
   }
-  const job = quasarJobIdToU128Bytes(jobId);
-  const data = new Uint8Array(1 + 16 + 5 + 32);
-  let o = 0;
-  data[o++] = QUASAR_DISC.attest;
-  data.set(job, o); o += 16;
-  data.set(scores, o); o += 5;
-  data.set(consumerPk, o); o += 32;
+  const data = new Uint8Array(1 + 5);
+  data[0] = QUASAR_DISC.attest;
+  data.set(scores, 1);
   return Buffer.from(data);
 }
 
-export function buildQuasarConfirmAttestationData(jobId: Uint8Array): Buffer {
-  const job = quasarJobIdToU128Bytes(jobId);
-  return Buffer.from([QUASAR_DISC.confirmAttestation, ...job]);
+export function buildQuasarConfirmAttestationData(): Buffer {
+  return Buffer.from([QUASAR_DISC.confirmAttestation]);
 }
 
-export function buildQuasarDisputeAttestationData(jobId: Uint8Array): Buffer {
-  const job = quasarJobIdToU128Bytes(jobId);
-  return Buffer.from([QUASAR_DISC.disputeAttestation, ...job]);
+export function buildQuasarDisputeAttestationData(): Buffer {
+  return Buffer.from([QUASAR_DISC.disputeAttestation]);
 }

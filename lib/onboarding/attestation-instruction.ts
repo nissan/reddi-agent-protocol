@@ -19,21 +19,24 @@ export function buildOnboardingAttestQualityInstruction(input: {
   scores: [number, number, number, number, number];
   consumer: PublicKey;
   judge: PublicKey;
+  escrow?: PublicKey;
 }): TransactionInstruction {
-  const attestation = onboardingAttestationPda(input.jobId, input.programId);
   const judgeAgent = quasarAgentPda(input.judge, input.programId);
 
   if (input.target === "quasar") {
+    // Quasar seeds the attestation PDA on the escrow address and reads the consumer from
+    // escrow.payer, so an attestation cannot exist without the escrow that bound the job.
+    if (!input.escrow) throw new Error("quasar_attestation_requires_escrow");
     return buildQuasarAttestQualityInstruction({
       programId: input.programId,
+      escrow: input.escrow,
       judge: input.judge,
-      jobId: input.jobId,
       scores: Uint8Array.from(input.scores),
-      consumer: input.consumer,
-      attestationPda: attestation,
       judgeAgentPda: judgeAgent,
     });
   }
+
+  const attestation = onboardingAttestationPda(input.jobId, input.programId);
 
   return new TransactionInstruction({
     programId: input.programId,

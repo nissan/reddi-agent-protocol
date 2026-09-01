@@ -1,3 +1,5 @@
+import { createHash } from "crypto";
+
 import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 
 import {
@@ -8,11 +10,11 @@ import {
   buildQuasarRevealRatingInstruction,
   quasarAgentPda,
   quasarAttestationPda,
+  quasarRatingCommitment,
   quasarRatingPda,
 } from "@/lib/quasar/instructions";
 
 const programId = new PublicKey("VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW");
-const jobId = Uint8Array.from(Array.from({ length: 16 }, (_, i) => i + 1));
 
 describe("Quasar instruction wrappers", () => {
   it("builds registration with Quasar account order and one-byte discriminator", () => {
@@ -37,67 +39,94 @@ describe("Quasar instruction wrappers", () => {
     ]);
   });
 
-  it("builds reputation commit/reveal with Quasar discriminators and account metas", () => {
+  it("builds reputation commit/reveal with escrow-bound accounts and current payloads", () => {
+    const escrow = Keypair.generate().publicKey;
     const consumer = Keypair.generate().publicKey;
     const specialist = Keypair.generate().publicKey;
     const commitment = Uint8Array.from(Array(32).fill(7));
     const salt = Uint8Array.from(Array(32).fill(9));
 
-    const commitIx = buildQuasarCommitRatingInstruction({
-      programId,
-      signer: consumer,
-      jobId,
-      commitment,
-      role: 0,
-      consumer,
-      specialist,
-    });
+    // experiments/quasar-reputation/src/instructions/commit.rs:
+    //   accounts [escrow (ro), rating (mut, seeds=[b"rating", escrow]), signer (mut), system_program]
+    const commitIx = buildQuasarCommitRatingInstruction({ programId, escrow, signer: consumer, commitment, role: 0 });
     expect(commitIx.data[0]).toBe(1);
-    expect(commitIx.data.length).toBe(114);
+    expect(commitIx.data.length).toBe(34);
     expect(commitIx.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable])).toEqual([
-      [quasarRatingPda(jobId, programId).toBase58(), false, true],
+      [escrow.toBase58(), false, false],
+      [quasarRatingPda(escrow, programId).toBase58(), false, true],
       [consumer.toBase58(), true, true],
       [SystemProgram.programId.toBase58(), false, false],
     ]);
 
+    // reveal.rs: accounts [escrow (ro), rating (mut), signer (ro), specialist_agent (mut), consumer_agent (mut)]
     const specialistAgent = quasarAgentPda(specialist, programId);
     const consumerAgent = quasarAgentPda(consumer, programId);
     const revealIx = buildQuasarRevealRatingInstruction({
-      programId,
-      signer: consumer,
-      jobId,
-      score: 8,
-      salt,
-      specialistAgentPda: specialistAgent,
-      consumerAgentPda: consumerAgent,
+      programId, escrow, signer: consumer, score: 8, salt,
+      specialistAgentPda: specialistAgent, consumerAgentPda: consumerAgent,
     });
     expect(revealIx.data[0]).toBe(2);
-    expect(revealIx.data.length).toBe(50);
+    expect(revealIx.data.length).toBe(34);
     expect(revealIx.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable])).toEqual([
-      [quasarRatingPda(jobId, programId).toBase58(), false, true],
+      [escrow.toBase58(), false, false],
+      [quasarRatingPda(escrow, programId).toBase58(), false, true],
       [consumer.toBase58(), true, false],
       [specialistAgent.toBase58(), false, true],
       [consumerAgent.toBase58(), false, true],
     ]);
   });
 
-  it("builds attestation confirm/dispute with Quasar discriminators", () => {
+  it("builds attestation confirm/dispute with escrow-bound accounts and no arguments", () => {
+    const escrow = Keypair.generate().publicKey;
     const consumer = Keypair.generate().publicKey;
     const judge = Keypair.generate().publicKey;
-    const attestation = quasarAttestationPda(jobId, programId);
+    const attestation = quasarAttestationPda(escrow, programId);
     const judgeAgent = quasarAgentPda(judge, programId);
 
-    const confirmIx = buildQuasarConfirmAttestationInstruction({ programId, consumer, judge, jobId });
-    const disputeIx = buildQuasarDisputeAttestationInstruction({ programId, consumer, judge, jobId });
+    const confirmIx = buildQuasarConfirmAttestationInstruction({ programId, escrow, consumer, judge });
+    const disputeIx = buildQuasarDisputeAttestationInstruction({ programId, escrow, consumer, judge });
 
+    // confirm.rs / dispute.rs: accounts [escrow (ro), attestation (mut), judge_agent (mut), consumer (signer)]
     for (const [ix, disc] of [[confirmIx, 2], [disputeIx, 3]] as const) {
       expect(ix.data[0]).toBe(disc);
-      expect(ix.data.length).toBe(17);
+      expect(ix.data.length).toBe(1);
       expect(ix.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable])).toEqual([
+        [escrow.toBase58(), false, false],
         [attestation.toBase58(), false, true],
         [judgeAgent.toBase58(), false, true],
         [consumer.toBase58(), true, false],
       ]);
     }
+  });
+
+  it("seeds rating and attestation PDAs on the escrow address, not a job id", () => {
+    const escrowA = Keypair.generate().publicKey;
+    const escrowB = Keypair.generate().publicKey;
+
+    expect(quasarRatingPda(escrowA, programId).toBase58()).toBe(
+      PublicKey.findProgramAddressSync([Buffer.from("rating"), escrowA.toBytes()], programId)[0].toBase58(),
+    );
+    expect(quasarAttestationPda(escrowA, programId).toBase58()).toBe(
+      PublicKey.findProgramAddressSync([Buffer.from("attestation"), escrowA.toBytes()], programId)[0].toBase58(),
+    );
+    expect(quasarRatingPda(escrowA, programId).toBase58()).not.toBe(quasarRatingPda(escrowB, programId).toBase58());
+  });
+
+  it("binds the commitment pre-image to score, salt, escrow address, and program id", () => {
+    const escrow = Keypair.generate().publicKey;
+    const salt = Uint8Array.from(Array(32).fill(5));
+
+    // experiments/quasar-reputation/src/instructions/reveal.rs: sha256(score || salt || escrow || crate::ID)
+    const expected = createHash("sha256")
+      .update(Buffer.from([8]))
+      .update(Buffer.from(salt))
+      .update(Buffer.from(escrow.toBytes()))
+      .update(Buffer.from(programId.toBytes()))
+      .digest();
+
+    expect(Buffer.from(quasarRatingCommitment(8, salt, escrow, programId))).toEqual(expected);
+    // The pre-image is job-unique: a different escrow yields a different commitment.
+    const other = quasarRatingCommitment(8, salt, Keypair.generate().publicKey, programId);
+    expect(Buffer.from(other).equals(expected)).toBe(false);
   });
 });

@@ -71,25 +71,30 @@ describe("web Quasar devnet refusal", () => {
   it("refuses every Quasar reputation and attestation builder on the blocked route", async () => {
     const { instructions, PublicKey } = await quasarDevnetModules();
     const someone = new PublicKey("11111111111111111111111111111112");
+    const escrow = new PublicKey("11111111111111111111111111111114");
     const programId = new PublicKey("nb9rLVjoHMibsgfRGgKuPqm6M8GVcH9r6bYNfg7Yiy6");
-    const jobId = new Uint8Array(16);
 
     expect(() =>
       instructions.buildQuasarCommitRatingInstruction({
-        programId, jobId, signer: someone, commitment: new Uint8Array(32), role: 0,
-        consumer: someone, specialist: someone,
+        programId, escrow, signer: someone, commitment: new Uint8Array(32), role: 0,
       }),
     ).toThrow(/refused/);
     expect(() =>
       instructions.buildQuasarRevealRatingInstruction({
-        programId, jobId, signer: someone, score: 8, salt: new Uint8Array(32),
+        programId, escrow, signer: someone, score: 8, salt: new Uint8Array(32),
         specialistAgentPda: someone, consumerAgentPda: someone,
       }),
     ).toThrow(/refused/);
     expect(() =>
       instructions.buildQuasarAttestQualityInstruction({
-        programId, jobId, judge: someone, scores: new Uint8Array([8, 8, 8, 8, 8]), consumer: someone,
+        programId, escrow, judge: someone, scores: new Uint8Array([8, 8, 8, 8, 8]),
       }),
+    ).toThrow(/refused/);
+    expect(() =>
+      instructions.buildQuasarConfirmAttestationInstruction({ programId, escrow, consumer: someone, judge: someone }),
+    ).toThrow(/refused/);
+    expect(() =>
+      instructions.buildQuasarDisputeAttestationInstruction({ programId, escrow, consumer: someone, judge: someone }),
     ).toThrow(/refused/);
   });
 

@@ -19,13 +19,15 @@ import {
 import { createHash, randomBytes } from "crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { DEVNET_RPC, ESCROW_PROGRAM_ID, REGISTRY_PROGRAM_ID, REPUTATION_PROGRAM_ID, RATING_SEED, AGENT_SEED, IX, PROGRAM_TARGET, SUBMISSION_BLOCKED, SUBMISSION_BLOCKED_REASON } from "@/lib/program";
+import { DEVNET_RPC, ESCROW_PROGRAM_ID, REPUTATION_PROGRAM_ID, RATING_SEED, AGENT_SEED, IX, PROGRAM_TARGET } from "@/lib/program";
 import {
   buildQuasarCommitRatingInstruction,
   buildQuasarRevealRatingInstruction,
   quasarAgentPda,
+  quasarRatingCommitment,
   quasarRatingPda,
 } from "@/lib/quasar/instructions";
+import { resolveOnboardingQuasarEscrow } from "@/lib/onboarding/quasar-escrow-binding";
 import { emitTorqueEvent } from "@/lib/torque/client";
 import { TORQUE_EVENTS } from "@/lib/torque/events";
 
@@ -41,6 +43,7 @@ type CommitEntry = {
   saltHex: string;
   commitHashHex: string;
   specialistWallet: string;
+  escrowAddress?: string;
   ratingPda: string;
   commitTx: string;
   createdAt: string;
@@ -82,9 +85,10 @@ function jobIdFromRunId(runId: string): Uint8Array {
  * Rating PDA: seeds = [b"rating", job_id(16)]
  * (matches programs/escrow/src/instructions/commit_rating.rs)
  */
-function ratingPdaFor(jobId: Uint8Array): PublicKey {
+function ratingPdaFor(jobId: Uint8Array, escrow?: PublicKey): PublicKey {
   if (PROGRAM_TARGET === "quasar") {
-    return quasarRatingPda(jobId, REPUTATION_PROGRAM_ID);
+    if (!escrow) throw new Error("quasar_rating_requires_escrow");
+    return quasarRatingPda(escrow, REPUTATION_PROGRAM_ID);
   }
   return PublicKey.findProgramAddressSync(
     [Buffer.from(RATING_SEED), Buffer.from(jobId)],
@@ -92,10 +96,14 @@ function ratingPdaFor(jobId: Uint8Array): PublicKey {
   )[0];
 }
 
-/** AgentAccount PDA: seeds = [b"agent", agent_pubkey(32)] */
+/**
+ * AgentAccount PDA: seeds = [b"agent", agent_pubkey(32)].
+ * Quasar reveal constrains specialist_agent/consumer_agent against the *reputation* program's own
+ * AgentAccount (experiments/quasar-reputation/src/state.rs), a namespace distinct from the registry's.
+ */
 function agentPdaFor(agentPubkey: PublicKey): PublicKey {
   if (PROGRAM_TARGET === "quasar") {
-    return quasarAgentPda(agentPubkey, REGISTRY_PROGRAM_ID);
+    return quasarAgentPda(agentPubkey, REPUTATION_PROGRAM_ID);
   }
   return PublicKey.findProgramAddressSync(
     [Buffer.from(AGENT_SEED), agentPubkey.toBytes()],
@@ -168,11 +176,6 @@ export async function commitReputationRating(
 ): Promise<ReputationCommitResult> {
   const trace: string[] = [];
 
-  if (SUBMISSION_BLOCKED) {
-    trace.push("reputation:submission_blocked");
-    return { ok: false, error: SUBMISSION_BLOCKED_REASON, trace };
-  }
-
   const operator = loadOperatorKeypair();
   if (!operator) {
     trace.push("reputation:operator_key_missing");
@@ -193,34 +196,51 @@ export async function commitReputationRating(
   }
 
   const jobId = jobIdFromRunId(runId);
+
+  // Quasar binds every rating to the escrow account a lock created: the rating PDA is seeded by the
+  // escrow address and both parties are read from escrow.payer/escrow.payee. Onboarding never locks
+  // one, so no verified lock record exists and this refuses until canonical lock output is supplied.
+  let escrow: PublicKey | undefined;
+  if (PROGRAM_TARGET === "quasar") {
+    try {
+      escrow = resolveOnboardingQuasarEscrow({
+        lockRecord: undefined,
+        expected: {
+          consumer: operator.publicKey,
+          specialist: specialistPubkey,
+          escrowProgramId: ESCROW_PROGRAM_ID,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      trace.push(`reputation:quasar_escrow_rejected=${message}`);
+      return { ok: false, error: message, trace };
+    }
+    trace.push(`reputation:escrow=${escrow.toBase58()}`);
+  }
+
   // salt: 32 random bytes
   const salt = randomBytes(32);
-  // Quasar audit hardening binds commitments to job_id and the target program ID.
-  const hasher = createHash("sha256").update(Buffer.from([score])).update(salt);
-  if (PROGRAM_TARGET === "quasar") {
-    hasher.update(Buffer.from(jobId));
-    hasher.update(Buffer.from(REPUTATION_PROGRAM_ID.toBytes()));
-  }
-  const commitHash = hasher.digest();
+  const commitHash = PROGRAM_TARGET === "quasar"
+    ? Buffer.from(quasarRatingCommitment(score, salt, escrow!, REPUTATION_PROGRAM_ID))
+    : createHash("sha256").update(Buffer.from([score])).update(salt).digest();
   const commitHashHex = commitHash.toString("hex");
   const saltHex = salt.toString("hex");
 
   trace.push(`reputation:job_id=${Buffer.from(jobId).toString("hex")}`);
   trace.push(`reputation:commit_hash=${commitHashHex.slice(0, 16)}...`);
 
-  const rPda = ratingPdaFor(jobId);
+  const rPda = ratingPdaFor(jobId, escrow);
   trace.push(`reputation:rating_pda=${rPda.toBase58()}`);
 
   // Role 0 = Consumer (orchestrator/operator commits as consumer side)
   const ix = PROGRAM_TARGET === "quasar"
     ? buildQuasarCommitRatingInstruction({
         programId: REPUTATION_PROGRAM_ID,
+        escrow: escrow!,
         signer: operator.publicKey,
-        jobId,
         commitment: commitHash,
         role: 0,
-        consumer: operator.publicKey,
-        specialist: specialistPubkey,
         ratingPda: rPda,
       })
     : new TransactionInstruction({
@@ -259,6 +279,7 @@ export async function commitReputationRating(
       saltHex,
       commitHashHex,
       specialistWallet,
+      escrowAddress: escrow?.toBase58(),
       ratingPda: rPda.toBase58(),
       commitTx: sig,
       createdAt: new Date().toISOString(),
@@ -297,11 +318,6 @@ export async function commitReputationRating(
 export async function revealReputationRating(runId: string): Promise<ReputationRevealResult> {
   const trace: string[] = [];
 
-  if (SUBMISSION_BLOCKED) {
-    trace.push("reputation:submission_blocked");
-    return { ok: false, error: SUBMISSION_BLOCKED_REASON, trace };
-  }
-
   const operator = loadOperatorKeypair();
   if (!operator) {
     trace.push("reputation:operator_key_missing");
@@ -339,14 +355,32 @@ export async function revealReputationRating(runId: string): Promise<ReputationR
     return { ok: false, error: `Invalid stored wallet in commit entry.`, trace };
   }
 
+  let revealEscrow: PublicKey | undefined;
+  if (PROGRAM_TARGET === "quasar") {
+    try {
+      revealEscrow = resolveOnboardingQuasarEscrow({
+        lockRecord: undefined,
+        expected: {
+          consumer: consumerPubkey,
+          specialist: specialistPubkey,
+          escrowProgramId: ESCROW_PROGRAM_ID,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: message, trace };
+    }
+    trace.push(`reputation:reveal:escrow=${revealEscrow.toBase58()}`);
+  }
+
   const specialistAgentPda = agentPdaFor(specialistPubkey);
   const consumerAgentPda = agentPdaFor(consumerPubkey);
 
   const ix = PROGRAM_TARGET === "quasar"
     ? buildQuasarRevealRatingInstruction({
         programId: REPUTATION_PROGRAM_ID,
+        escrow: revealEscrow!,
         signer: operator.publicKey,
-        jobId,
         score,
         salt,
         specialistAgentPda,

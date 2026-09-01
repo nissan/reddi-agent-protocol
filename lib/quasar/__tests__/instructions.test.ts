@@ -71,33 +71,28 @@ describe("Quasar registry transaction-instruction helpers", () => {
     expect(ix.keys.map((key) => [key.isSigner, key.isWritable])).toEqual([[false, true], [true, true]]);
     expect([...ix.data]).toEqual([2]);
   });
-  it("builds attest_quality with Quasar account order and data", () => {
-    const jobId = Uint8Array.from(Array.from({ length: 16 }, (_, i) => i + 1));
+  it("builds attest_quality with the current escrow-bound account order and payload", () => {
+    const escrow = new PublicKey("11111111111111111111111111111114");
     const scores = Uint8Array.from([8, 8, 9, 9, 10]);
-    const attestation = quasarAttestationPda(jobId, programId);
+    const attestation = quasarAttestationPda(escrow, programId);
     const judgeAgent = quasarAgentPda(owner, programId);
-    const ix = buildQuasarAttestQualityInstruction({
-      programId,
-      judge: owner,
-      jobId,
-      scores,
-      consumer: owner,
-    });
+    const ix = buildQuasarAttestQualityInstruction({ programId, escrow, judge: owner, scores });
 
+    // experiments/quasar-attestation/src/instructions/attest.rs account order.
     expect(ix.keys.map((key) => key.pubkey.toBase58())).toEqual([
+      escrow.toBase58(),
       attestation.toBase58(),
       judgeAgent.toBase58(),
       owner.toBase58(),
       SystemProgram.programId.toBase58(),
     ]);
     expect(ix.keys.map((key) => [key.isSigner, key.isWritable])).toEqual([
+      [false, false],
       [false, true],
       [false, false],
       [true, true],
       [false, false],
     ]);
-    expect(ix.data[0]).toBe(1);
-    expect(ix.data.length).toBe(54);
+    expect([...ix.data]).toEqual([1, 8, 8, 9, 9, 10]);
   });
-
 });

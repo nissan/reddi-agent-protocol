@@ -79,6 +79,7 @@ type WizardState = {
   attestationNote: string;
   attestationJobIdHex: string;
   attestationPda: string;
+  attestationEscrow: string;
   attestationOperator: string;
   attestationConsumer: string;
   attestationResolution: "pending" | "confirmed" | "disputed";
@@ -153,6 +154,7 @@ const INITIAL_STATE: WizardState = {
   attestationNote: "",
   attestationJobIdHex: "",
   attestationPda: "",
+  attestationEscrow: "",
   attestationOperator: "",
   attestationConsumer: "",
   attestationResolution: "pending",
@@ -1776,14 +1778,20 @@ export default function OnboardingPage() {
 
                     const operatorPubkey = new PublicKey(state.attestationOperator);
                     const ix = PROGRAM_TARGET === "quasar"
-                      ? buildQuasarConfirmAttestationInstruction({
-                          programId: ATTESTATION_PROGRAM_ID,
-                          consumer: publicKey,
-                          judge: operatorPubkey,
-                          jobId,
-                          attestationPda: state.attestationPda ? new PublicKey(state.attestationPda) : quasarAttestationPda(jobId, ATTESTATION_PROGRAM_ID),
-                          judgeAgentPda: quasarAgentPda(operatorPubkey, REGISTRY_PROGRAM_ID),
-                        })
+                      ? (() => {
+                          if (!state.attestationEscrow) {
+                            throw new Error("Quasar attestation confirm requires the escrow account that bound this attestation.");
+                          }
+                          const escrow = new PublicKey(state.attestationEscrow);
+                          return buildQuasarConfirmAttestationInstruction({
+                            programId: ATTESTATION_PROGRAM_ID,
+                            escrow,
+                            consumer: publicKey,
+                            judge: operatorPubkey,
+                            attestationPda: state.attestationPda ? new PublicKey(state.attestationPda) : quasarAttestationPda(escrow, ATTESTATION_PROGRAM_ID),
+                            judgeAgentPda: quasarAgentPda(operatorPubkey, REGISTRY_PROGRAM_ID),
+                          });
+                        })()
                       : new TransactionInstruction({
                           programId: ESCROW_PROGRAM_ID,
                           keys: [
@@ -1851,14 +1859,20 @@ export default function OnboardingPage() {
 
                     const operatorPubkey = new PublicKey(state.attestationOperator);
                     const ix = PROGRAM_TARGET === "quasar"
-                      ? buildQuasarDisputeAttestationInstruction({
-                          programId: ATTESTATION_PROGRAM_ID,
-                          consumer: publicKey,
-                          judge: operatorPubkey,
-                          jobId,
-                          attestationPda: state.attestationPda ? new PublicKey(state.attestationPda) : quasarAttestationPda(jobId, ATTESTATION_PROGRAM_ID),
-                          judgeAgentPda: quasarAgentPda(operatorPubkey, REGISTRY_PROGRAM_ID),
-                        })
+                      ? (() => {
+                          if (!state.attestationEscrow) {
+                            throw new Error("Quasar attestation dispute requires the escrow account that bound this attestation.");
+                          }
+                          const escrow = new PublicKey(state.attestationEscrow);
+                          return buildQuasarDisputeAttestationInstruction({
+                            programId: ATTESTATION_PROGRAM_ID,
+                            escrow,
+                            consumer: publicKey,
+                            judge: operatorPubkey,
+                            attestationPda: state.attestationPda ? new PublicKey(state.attestationPda) : quasarAttestationPda(escrow, ATTESTATION_PROGRAM_ID),
+                            judgeAgentPda: quasarAgentPda(operatorPubkey, REGISTRY_PROGRAM_ID),
+                          });
+                        })()
                       : new TransactionInstruction({
                           programId: ESCROW_PROGRAM_ID,
                           keys: [

@@ -15,6 +15,7 @@ import {
   SUBMISSION_BLOCKED_REASON,
 } from "@/lib/program";
 import { buildOnboardingAttestQualityInstruction, onboardingAttestationPda } from "@/lib/onboarding/attestation-instruction";
+import { quasarAttestationPda } from "@/lib/quasar/instructions";
 
 export type SubmitOnchainAttestationInput = {
   walletAddress: string;
@@ -22,6 +23,7 @@ export type SubmitOnchainAttestationInput = {
   rpcUrl?: string;
   operatorSecretKey?: string;
   scores?: [number, number, number, number, number];
+  escrowAddress?: string;
 };
 
 export type SubmitOnchainAttestationResult = {
@@ -98,12 +100,19 @@ export async function submitOnchainOnboardingAttestation(
 
   const scores: [number, number, number, number, number] = input.scores || [8, 8, 8, 8, 8];
   const jobId = randomBytes(16);
-  const attestPda = onboardingAttestationPda(jobId, ESCROW_PROGRAM_ID);
+  const escrow = input.escrowAddress ? new PublicKey(input.escrowAddress) : undefined;
+  if (PROGRAM_TARGET === "quasar" && !escrow) {
+    throw new Error("Quasar attestation requires the escrow account that binds this job; none was supplied.");
+  }
+  const attestPda = PROGRAM_TARGET === "quasar"
+    ? quasarAttestationPda(escrow!, ESCROW_PROGRAM_ID)
+    : onboardingAttestationPda(jobId, ESCROW_PROGRAM_ID);
 
   const ix = buildOnboardingAttestQualityInstruction({
     target: PROGRAM_TARGET,
     programId: ESCROW_PROGRAM_ID,
     jobId,
+    escrow,
     scores,
     consumer: consumerWallet,
     judge: operator.publicKey,
