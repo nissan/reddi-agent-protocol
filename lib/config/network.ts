@@ -1,7 +1,7 @@
-import devnetProfile from "@/config/networks/devnet.json";
-import localSurfpoolProfile from "@/config/networks/local-surfpool.json";
-import mainnetProfile from "@/config/networks/mainnet.json";
-import quasarDeployments from "@/config/quasar/deployments.json";
+import devnetProfile from "@/config/networks/devnet.json" with { type: "json" };
+import localSurfpoolProfile from "@/config/networks/local-surfpool.json" with { type: "json" };
+import mainnetProfile from "@/config/networks/mainnet.json" with { type: "json" };
+import quasarDeployments from "@/config/quasar/deployments.json" with { type: "json" };
 
 export type NetworkProfileName = "local-surfpool" | "devnet" | "mainnet";
 export type ProgramTarget = "legacy-anchor" | "quasar";
