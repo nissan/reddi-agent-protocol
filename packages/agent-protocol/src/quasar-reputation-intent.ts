@@ -243,7 +243,11 @@ export type QuasarReputationIntentRecord = {
    * This module never fabricates them.
    */
   deferredToInstructionBuilder: {
-    /** Instruction-data arguments of the current source ABI. */
+    /**
+     * Instruction-data arguments of the current source ABI, in declaration order:
+     * `commit(commitment, role)`, `reveal(score, salt)`, and empty for the argument-less
+     * `confirm`/`dispute`. A builder may serialize this list positionally.
+     */
     instructionData: readonly string[];
     /** Account and signer inputs, mirroring `onchainAccountNames`. */
     accountInputs: readonly string[];
@@ -635,7 +639,7 @@ function intentRecordFor(
       compactFields: { jobIdRef, score },
       escrowBinding: escrowBindingFor('rating'),
       deferredToInstructionBuilder: {
-        instructionData: ['salt', 'score_u8_encoding'],
+        instructionData: ['score_u8_encoding', 'salt'],
         accountInputs: QUASAR_REPUTATION_INTENT_COMPATIBILITY.onchainAccountNames.reveal,
       },
     };

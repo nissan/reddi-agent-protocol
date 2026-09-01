@@ -395,7 +395,7 @@ function intentRecordFor(kind, binding, preview, compatibility) {
             compactFields: { jobIdRef, score },
             escrowBinding: escrowBindingFor('rating'),
             deferredToInstructionBuilder: {
-                instructionData: ['salt', 'score_u8_encoding'],
+                instructionData: ['score_u8_encoding', 'salt'],
                 accountInputs: QUASAR_REPUTATION_INTENT_COMPATIBILITY.onchainAccountNames.reveal,
             },
         };

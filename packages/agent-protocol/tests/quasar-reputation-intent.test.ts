@@ -271,12 +271,33 @@ describe('deriveQuasarReputationIntentPlan — happy paths', () => {
     assert.equal(revealIntent.compactFields.score, 9); // rubricScore 92 -> 9
     assert.ok(revealIntent.compactFields.score! >= QUASAR_REPUTATION_INTENT_COMPATIBILITY.scoreRange.min);
     assert.ok(revealIntent.compactFields.score! <= QUASAR_REPUTATION_INTENT_COMPATIBILITY.scoreRange.max);
-    assert.deepEqual([...revealIntent.deferredToInstructionBuilder.instructionData], ['salt', 'score_u8_encoding']);
+    assert.deepEqual([...revealIntent.deferredToInstructionBuilder.instructionData], ['score_u8_encoding', 'salt']);
     assert.deepEqual(
       [...revealIntent.deferredToInstructionBuilder.accountInputs],
       ['escrow', 'rating', 'signer', 'specialist_agent', 'consumer_agent'],
     );
     assert.deepEqual(revealIntent.escrowBinding.pdaSeeds, ['rating', 'escrow_address']);
+  });
+
+  it('emits instructionData in the declaration order of the recorded source ABI, for every lane', () => {
+    const result = deriveQuasarReputationIntentPlan(intentInput());
+
+    for (const intent of result.plan.intents) {
+      const abiFields = QUASAR_REPUTATION_INTENT_COMPATIBILITY.onchainFieldNames[intent.kind];
+      const emitted = [...intent.deferredToInstructionBuilder.instructionData];
+
+      assert.equal(
+        emitted.length,
+        abiFields.length,
+        `${intent.kind} must name exactly the current ABI arguments, no derivation-only inputs`,
+      );
+      emitted.forEach((argument, index) => {
+        assert.ok(
+          argument === abiFields[index] || argument.startsWith(`${abiFields[index]}_`),
+          `${intent.kind} argument ${index} is ${argument}, but the ABI declares ${abiFields[index]} there`,
+        );
+      });
+    }
   });
 
   it('routes confirm intents to the attestation program lane', () => {

@@ -91,6 +91,29 @@ describe("Quasar target gate", () => {
     expect(refusal).toContain("non-loopback DEMO_DEVNET_RPC_WS");
   });
 
+  it("refuses an endpoint that only looks like loopback, or carries credentials", () => {
+    const deceptive = [
+      "https://127.0.0.1:41337",
+      "http://127.0.0.1.attacker.example:41337",
+      "http://localhost.attacker.example:41337",
+      "http://user:secret@127.0.0.1:41337",
+      "http://0.0.0.0:41337",
+      "not-a-url",
+    ];
+
+    for (const rpc of deceptive) {
+      expect(describeQuasarTargetRefusal("local-surfpool", lookupFrom({ ...completeLocalEnv, DEMO_DEVNET_RPC: rpc }))).toContain(
+        "non-loopback DEMO_DEVNET_RPC",
+      );
+    }
+  });
+
+  it("accepts every loopback spelling the lane can hand it", () => {
+    for (const rpc of ["http://127.0.0.1:41337", "http://localhost:41337", "http://[::1]:41337", "http://127.9.9.9:41337"]) {
+      expect(describeQuasarTargetRefusal("local-surfpool", lookupFrom({ ...completeLocalEnv, DEMO_DEVNET_RPC: rpc }))).toBeUndefined();
+    }
+  });
+
   it("reports every unmet requirement at once", () => {
     const refusal = describeQuasarTargetRefusal("local-surfpool", lookupFrom({ DEMO_ESCROW_PROGRAM_ID: IDS.DEMO_ESCROW_PROGRAM_ID }));
     expect(refusal).toContain("missing DEMO_REGISTRY_PROGRAM_ID");

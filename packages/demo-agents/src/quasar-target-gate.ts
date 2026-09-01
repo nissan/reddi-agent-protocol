@@ -5,6 +5,10 @@
  * exercised directly. Quasar is only ever routed against locally built current-source programs on a
  * loopback Surfnet; every other request is refused rather than silently downgraded to legacy-anchor.
  */
+import { isLoopbackRpcUrl } from "../../../lib/config/loopback-endpoint";
+
+export { isLoopbackRpcUrl };
+
 export type QuasarTargetProfile = "local-surfpool" | "devnet" | "mainnet";
 
 export type EnvLookup = (...keys: string[]) => string | undefined;
@@ -54,23 +58,6 @@ export function describeMalformedProgramIdRefusal(lookup: EnvLookup): string | u
     "Supplied demo program ids are malformed and must be valid 32-byte base58 Solana public keys:",
     ...malformed.map((entry) => `\n  - ${entry}`),
   ].join(" ");
-}
-
-export function isLoopbackRpcUrl(raw?: string): boolean {
-  if (!raw) return false;
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== "http:" && url.protocol !== "ws:") return false;
-    if (!url.port) return false;
-    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-    if (host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1") return true;
-    const match = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
-    if (!match) return false;
-    const octets = match.slice(1).map((part) => Number.parseInt(part, 10));
-    return octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255) && octets[0] === 127;
-  } catch {
-    return false;
-  }
 }
 
 /**

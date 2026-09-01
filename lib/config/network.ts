@@ -3,6 +3,8 @@ import localSurfpoolProfile from "@/config/networks/local-surfpool.json" with { 
 import mainnetProfile from "@/config/networks/mainnet.json" with { type: "json" };
 import quasarDeployments from "@/config/quasar/deployments.json" with { type: "json" };
 
+import { isLoopbackRpcUrl } from "@/lib/config/loopback-endpoint";
+
 export type NetworkProfileName = "local-surfpool" | "devnet" | "mainnet";
 export type ProgramTarget = "legacy-anchor" | "quasar";
 export type DeploymentStatus = "local-only" | "devnet-deployed" | "mainnet-not-deployed";
@@ -33,13 +35,14 @@ export type NetworkProfile = {
      * Set when the requested target cannot be used to touch chain state. `cause` says which refusal
      * applies, because the remedies differ: a `recorded-deployment` block is about binaries this
      * client no longer matches, an `unregistered-deployment` block is about a profile with no Quasar
-     * deployment at all, and a `local-program-set` block is about the operator's own four local ids.
+     * deployment at all, and a `local-configuration` block is about the operator's own local run —
+     * the four program ids and the loopback endpoints it is pointed at.
      * Resolution stays non-throwing so disclosure surfaces can render the reason; effect sites call
      * assertProgramTargetUsable() to refuse before building instructions, signing, or reaching RPC.
      */
     blocked?: {
       target: ProgramTarget;
-      cause: "recorded-deployment" | "unregistered-deployment" | "local-program-set";
+      cause: "recorded-deployment" | "unregistered-deployment" | "local-configuration";
       reason: string;
       knownGaps: string[];
     };
@@ -177,16 +180,24 @@ export function getNetworkProfile(): NetworkProfile {
     if (owner) duplicateLocalQuasarPrograms.push(`${label} duplicates ${owner}`);
     else localQuasarProgramOwners.set(id, label);
   }
-  const localQuasarProgramSetReady =
+  const resolvedRpcHttp = rpcOverride ?? base.solana.rpcHttp;
+  const resolvedRpcWs = pickEnv("NEXT_PUBLIC_RPC_WS_ENDPOINT") ?? base.solana.rpcWs;
+  const nonLoopbackLocalQuasarEndpoints = [
+    ...(isLoopbackRpcUrl(resolvedRpcHttp) ? [] : ["NEXT_PUBLIC_RPC_ENDPOINT"]),
+    ...(!resolvedRpcWs || isLoopbackRpcUrl(resolvedRpcWs) ? [] : ["NEXT_PUBLIC_RPC_WS_ENDPOINT"]),
+  ];
+
+  const localQuasarConfigReady =
     name === "local-surfpool" &&
     requestedTarget === "quasar" &&
     missingLocalQuasarPrograms.length === 0 &&
     malformedLocalQuasarPrograms.length === 0 &&
-    duplicateLocalQuasarPrograms.length === 0;
+    duplicateLocalQuasarPrograms.length === 0 &&
+    nonLoopbackLocalQuasarEndpoints.length === 0;
 
   const quasarRequestRefused =
     requestedTarget === "quasar" &&
-    (name === "mainnet" || (name === "local-surfpool" && !localQuasarProgramSetReady));
+    (name === "mainnet" || (name === "local-surfpool" && !localQuasarConfigReady));
   const target: ProgramTarget = requestedTarget === "quasar" && !quasarRequestRefused ? "quasar" : "legacy-anchor";
   const quasarDeploymentBlocked = target === "quasar" && name === "devnet" && quasarDeployments.submissionReady !== true;
 
@@ -283,9 +294,12 @@ export function getNetworkProfile(): NetworkProfile {
     ...(missingLocalQuasarPrograms.length ? [`missing ${missingLocalQuasarPrograms.join(", ")} program id${missingLocalQuasarPrograms.length === 1 ? "" : "s"}`] : []),
     ...(malformedLocalQuasarPrograms.length ? [`malformed ${malformedLocalQuasarPrograms.join(", ")} program id${malformedLocalQuasarPrograms.length === 1 ? "" : "s"}`] : []),
     ...(duplicateLocalQuasarPrograms.length ? [`duplicate program ids: ${duplicateLocalQuasarPrograms.join(", ")}`] : []),
+    ...(nonLoopbackLocalQuasarEndpoints.length
+      ? [`non-loopback ${nonLoopbackLocalQuasarEndpoints.join(", ")}`]
+      : []),
   ];
   const localQuasarRefusalReason =
-    "A Quasar program target was requested for local-surfpool, but the profile must provide four distinct valid local program IDs (escrow, registry, reputation, and attestation); the request is refused rather than silently using a legacy Anchor layout.";
+    "A Quasar program target was requested for local-surfpool, but the profile must provide four distinct valid local program IDs (escrow, registry, reputation, and attestation) and loopback-only http/ws endpoints; the request is refused rather than silently using a legacy Anchor layout or sending Quasar-encoded instructions to a live cluster.";
   const localSurfpoolKnownGaps = name === "local-surfpool" && quasarRequestRefused
     ? [
         localQuasarProgramProblems.length
@@ -298,8 +312,8 @@ export function getNetworkProfile(): NetworkProfile {
     ...base,
     solana: {
       ...base.solana,
-      rpcHttp: rpcOverride ?? base.solana.rpcHttp,
-      rpcWs: pickEnv("NEXT_PUBLIC_RPC_WS_ENDPOINT") ?? base.solana.rpcWs,
+      rpcHttp: resolvedRpcHttp,
+      rpcWs: resolvedRpcWs,
     },
     programs: {
       ...base.programs,
@@ -346,7 +360,7 @@ export function getNetworkProfile(): NetworkProfile {
       blocked: quasarRequestRefused
         ? {
             target: "quasar",
-            cause: name === "local-surfpool" ? "local-program-set" : "unregistered-deployment",
+            cause: name === "local-surfpool" ? "local-configuration" : "unregistered-deployment",
             reason: name === "local-surfpool"
               ? localQuasarRefusalReason
               : `A Quasar program target was requested for ${name}, which has no registered Quasar deployment; the request is refused.`,
@@ -392,14 +406,14 @@ export function describeBlockedProgramTarget(profile: NetworkProfile = getNetwor
   const blocked = profile.programs.blocked;
   if (!blocked) return undefined;
   const cause =
-    blocked.cause === "local-program-set"
-      ? "the local program set supplied for this run is incomplete or inconsistent"
+    blocked.cause === "local-configuration"
+      ? "the local configuration supplied for this run is incomplete or inconsistent"
       : blocked.cause === "unregistered-deployment"
         ? "no Quasar deployment is registered for this profile"
         : "the recorded deployment is not usable";
   const remedy =
-    blocked.cause === "local-program-set"
-      ? "Supply four distinct valid local program IDs (NEXT_PUBLIC_ESCROW_PROGRAM_ID, NEXT_PUBLIC_REGISTRY_PROGRAM_ID, NEXT_PUBLIC_REPUTATION_PROGRAM_ID, NEXT_PUBLIC_ATTESTATION_PROGRAM_ID) for the locally built current-source programs, then re-run."
+    blocked.cause === "local-configuration"
+      ? "Supply four distinct valid local program IDs (NEXT_PUBLIC_ESCROW_PROGRAM_ID, NEXT_PUBLIC_REGISTRY_PROGRAM_ID, NEXT_PUBLIC_REPUTATION_PROGRAM_ID, NEXT_PUBLIC_ATTESTATION_PROGRAM_ID) for the locally built current-source programs, keep NEXT_PUBLIC_RPC_ENDPOINT and NEXT_PUBLIC_RPC_WS_ENDPOINT on loopback, then re-run."
       : "Use the local Surfpool Quasar lane (npm run test:surfpool:quasar-critical) against locally built current-source programs instead.";
   return [
     `The "${blocked.target}" program target is refused against the ${profile.name} profile because ${cause}.`,

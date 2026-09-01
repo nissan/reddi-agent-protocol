@@ -22,6 +22,10 @@ describe("Quasar demo program target config", () => {
     delete process.env.ALLOW_UNSAFE_ESCROW_OVERRIDE;
     delete process.env.NEXT_PUBLIC_ALLOW_UNSAFE_ESCROW_OVERRIDE;
     delete process.env.NEXT_PUBLIC_BUILD_ALLOW_UNSAFE_ESCROW_OVERRIDE;
+    delete process.env.NEXT_PUBLIC_RPC_ENDPOINT;
+    delete process.env.NEXT_PUBLIC_RPC_URL;
+    delete process.env.DEMO_DEVNET_RPC;
+    delete process.env.NEXT_PUBLIC_RPC_WS_ENDPOINT;
   });
 
   afterAll(() => {
@@ -84,7 +88,7 @@ describe("Quasar demo program target config", () => {
     expect(profile.programs.submissionReady).toBe(false);
     expect(profile.programs.deploymentStatus).toBe("local-only");
     expect(profile.programs.blocked?.target).toBe("quasar");
-    expect(profile.programs.blocked?.cause).toBe("local-program-set");
+    expect(profile.programs.blocked?.cause).toBe("local-configuration");
     expect(profile.programs.knownGaps.join(" ")).toMatch(
       /four distinct valid local program IDs.*missing escrow, registry, reputation, attestation program ids/,
     );
@@ -101,11 +105,104 @@ describe("Quasar demo program target config", () => {
     const { describeBlockedProgramTarget, getNetworkProfile } = await import("@/lib/config/network");
     const refusal = describeBlockedProgramTarget(getNetworkProfile());
 
-    expect(refusal).toContain("local program set supplied for this run is incomplete");
+    expect(refusal).toContain("local configuration supplied for this run is incomplete");
     expect(refusal).toContain("missing attestation program id");
     expect(refusal).toContain("NEXT_PUBLIC_ATTESTATION_PROGRAM_ID");
     expect(refusal).not.toContain("recorded deployment is not usable");
     expect(refusal).not.toContain("test:surfpool:quasar-critical");
+  });
+
+  it("refuses local-surfpool Quasar pointed at a live cluster even with four valid local program IDs", async () => {
+    process.env.NETWORK_PROFILE = "local-surfpool";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+    process.env.NEXT_PUBLIC_RPC_ENDPOINT = "https://api.devnet.solana.com";
+    process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = QUASAR_PROGRAM_ID;
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = QUASAR_REGISTRY_PROGRAM_ID;
+    process.env.NEXT_PUBLIC_REPUTATION_PROGRAM_ID = QUASAR_REPUTATION_PROGRAM_ID;
+    process.env.NEXT_PUBLIC_ATTESTATION_PROGRAM_ID = QUASAR_ATTESTATION_PROGRAM_ID;
+
+    const { assertProgramTargetUsable, getNetworkProfile } = await import("@/lib/config/network");
+    const profile = getNetworkProfile();
+
+    expect(profile.programs.target).toBe("legacy-anchor");
+    expect(profile.programs.submissionReady).toBe(false);
+    expect(profile.programs.blocked?.cause).toBe("local-configuration");
+    expect(profile.programs.knownGaps.join(" ")).toContain("non-loopback NEXT_PUBLIC_RPC_ENDPOINT");
+    expect(() => assertProgramTargetUsable(profile)).toThrow(/non-loopback NEXT_PUBLIC_RPC_ENDPOINT/);
+  });
+
+  it("refuses local-surfpool Quasar when only the websocket endpoint leaves loopback", async () => {
+    process.env.NETWORK_PROFILE = "local-surfpool";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+    process.env.NEXT_PUBLIC_RPC_ENDPOINT = "http://127.0.0.1:39999";
+    process.env.NEXT_PUBLIC_RPC_WS_ENDPOINT = "wss://api.devnet.solana.com";
+    process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = QUASAR_PROGRAM_ID;
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = QUASAR_REGISTRY_PROGRAM_ID;
+    process.env.NEXT_PUBLIC_REPUTATION_PROGRAM_ID = QUASAR_REPUTATION_PROGRAM_ID;
+    process.env.NEXT_PUBLIC_ATTESTATION_PROGRAM_ID = QUASAR_ATTESTATION_PROGRAM_ID;
+
+    const { getNetworkProfile } = await import("@/lib/config/network");
+    const profile = getNetworkProfile();
+
+    expect(profile.programs.target).toBe("legacy-anchor");
+    expect(profile.programs.blocked?.cause).toBe("local-configuration");
+    expect(profile.programs.knownGaps.join(" ")).toContain("non-loopback NEXT_PUBLIC_RPC_WS_ENDPOINT");
+  });
+
+  it("accepts every loopback spelling for a complete local-surfpool Quasar configuration", async () => {
+    const loopbackEndpoints = [
+      ["http://127.0.0.1:39999", "ws://127.0.0.1:40000"],
+      ["http://localhost:39999", "ws://localhost:40000"],
+      ["http://[::1]:39999", "ws://[::1]:40000"],
+      ["http://127.9.9.9:39999", "ws://127.0.0.2:40000"],
+    ] as const;
+
+    for (const [rpcHttp, rpcWs] of loopbackEndpoints) {
+      jest.resetModules();
+      process.env.NETWORK_PROFILE = "local-surfpool";
+      process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+      process.env.NEXT_PUBLIC_RPC_ENDPOINT = rpcHttp;
+      process.env.NEXT_PUBLIC_RPC_WS_ENDPOINT = rpcWs;
+      process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = QUASAR_PROGRAM_ID;
+      process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = QUASAR_REGISTRY_PROGRAM_ID;
+      process.env.NEXT_PUBLIC_REPUTATION_PROGRAM_ID = QUASAR_REPUTATION_PROGRAM_ID;
+      process.env.NEXT_PUBLIC_ATTESTATION_PROGRAM_ID = QUASAR_ATTESTATION_PROGRAM_ID;
+
+      const { getNetworkProfile } = await import("@/lib/config/network");
+      const profile = getNetworkProfile();
+
+      expect(profile.programs.target).toBe("quasar");
+      expect(profile.programs.blocked).toBeUndefined();
+    }
+  });
+
+  it("refuses hosts that only look like loopback, and endpoints carrying credentials", async () => {
+    const deceptiveEndpoints = [
+      "https://127.0.0.1:39999",
+      "http://127.0.0.1.attacker.example:39999",
+      "http://localhost.attacker.example:39999",
+      "http://user:secret@127.0.0.1:39999",
+      "http://[::ffff:127.0.0.1]:39999",
+      "http://0.0.0.0:39999",
+      "not-a-url",
+    ];
+
+    for (const rpcHttp of deceptiveEndpoints) {
+      jest.resetModules();
+      process.env.NETWORK_PROFILE = "local-surfpool";
+      process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+      process.env.NEXT_PUBLIC_RPC_ENDPOINT = rpcHttp;
+      process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = QUASAR_PROGRAM_ID;
+      process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = QUASAR_REGISTRY_PROGRAM_ID;
+      process.env.NEXT_PUBLIC_REPUTATION_PROGRAM_ID = QUASAR_REPUTATION_PROGRAM_ID;
+      process.env.NEXT_PUBLIC_ATTESTATION_PROGRAM_ID = QUASAR_ATTESTATION_PROGRAM_ID;
+
+      const { getNetworkProfile } = await import("@/lib/config/network");
+      const profile = getNetworkProfile();
+
+      expect(profile.programs.target).toBe("legacy-anchor");
+      expect(profile.programs.blocked?.cause).toBe("local-configuration");
+    }
   });
 
   it("keeps the recorded-deployment wording and lane pointer for the blocked devnet deployment", async () => {

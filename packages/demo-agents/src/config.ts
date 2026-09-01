@@ -6,10 +6,12 @@ import { describeMalformedProgramIdRefusal, describeQuasarTargetRefusal } from "
 // Load devnet env — resolve relative to package root (not transpiled __dirname).
 // DEMO_DISABLE_DOTENV lets a caller that already pins every variable (the local Surfpool lane, and
 // hermetic tests) guarantee a gitignored .env.devnet cannot reintroduce remote endpoints or mints.
+// DEMO_DOTENV_PATH redirects the load at a caller-owned file, so a test can prove the loading
+// behaviour against a fixture instead of whatever .env.devnet a developer happens to have.
 export const DOTENV_DISABLED = process.env.DEMO_DISABLE_DOTENV?.trim() === "true";
+export const DOTENV_PATH = process.env.DEMO_DOTENV_PATH?.trim() || path.resolve(__dirname, "../.env.devnet");
 if (!DOTENV_DISABLED) {
-  const envPath = path.resolve(__dirname, "../.env.devnet");
-  dotenv.config({ path: envPath });
+  dotenv.config({ path: DOTENV_PATH });
 }
 
 function pickEnv(...keys: string[]): string | undefined {

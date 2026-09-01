@@ -52,11 +52,17 @@ NEXT_PUBLIC_ESCROW_PROGRAM_ID=<local-deployed-program-id>
 `local-surfpool` is the only profile on which the Quasar target is usable, and only
 when all four local program ids (`NEXT_PUBLIC_ESCROW_PROGRAM_ID`,
 `NEXT_PUBLIC_REGISTRY_PROGRAM_ID`, `NEXT_PUBLIC_REPUTATION_PROGRAM_ID`,
-`NEXT_PUBLIC_ATTESTATION_PROGRAM_ID`) are supplied, valid, and distinct. Otherwise the
+`NEXT_PUBLIC_ATTESTATION_PROGRAM_ID`) are supplied, valid, and distinct **and** the
+resolved `NEXT_PUBLIC_RPC_ENDPOINT` and `NEXT_PUBLIC_RPC_WS_ENDPOINT` are provably
+loopback — an `http://`/`ws://` URL with an explicit port on `localhost`, `127.0.0.0/8`,
+or `::1`, with no credentials. A hostname that merely looks local, a malformed URL, and a
+live cluster URL are all refused, so a locally built Quasar program set can never be
+addressed with Quasar-encoded instructions sent at devnet or mainnet. Otherwise the
 resolver refuses the request, keeps the legacy Anchor target, marks the profile not
 submission-ready, and records the refusal — naming the missing, malformed, or duplicated
-ids — in `knownGaps`, so an incompletely configured `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar`
-degrades to the amber blocked-readiness banner instead of breaking the app. `.env.example`
+ids and the non-loopback endpoint variable — in `knownGaps`, so an incompletely configured
+`NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` degrades to the amber blocked-readiness banner
+instead of breaking the app. `.env.example`
 therefore ships `legacy-anchor`: `quasar` is an explicit opt-in, never a copied default.
 The Surfpool SDK lane supplies those ids itself against a dynamic loopback port; see
 [`SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`](./SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md).
@@ -110,7 +116,9 @@ offending labels and neither falling back to a registered id:
   it additionally requires all four ids (`DEMO_ESCROW_PROGRAM_ID`,
   `DEMO_REGISTRY_PROGRAM_ID`, `DEMO_REPUTATION_PROGRAM_ID`,
   `DEMO_ATTESTATION_PROGRAM_ID`) to be supplied, valid, and distinct, plus a
-  loopback `DEMO_DEVNET_RPC`. The policy lives in
+  loopback `DEMO_DEVNET_RPC`. The loopback predicate itself lives in
+  `lib/config/loopback-endpoint.ts` and is the same one the web resolver applies, so
+  the two gates cannot drift apart. The policy lives in
   `packages/demo-agents/src/quasar-target-gate.ts` and never downgrades a refused
   Quasar request to `legacy-anchor`.
 

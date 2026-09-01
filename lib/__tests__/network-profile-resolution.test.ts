@@ -1,3 +1,7 @@
+import fs from "fs";
+import os from "os";
+import path from "path";
+
 /**
  * Profile resolution is the boundary that decides whether the web app talks to a loopback Surfnet or
  * to live devnet RPC. Every documented spelling of the local profile — including the canonical name
@@ -78,36 +82,93 @@ describe("network profile resolution", () => {
 
 describe("demo-agent config env isolation", () => {
   const originalEnv = process.env;
+  // Every variable the demo-agent config reads at module scope. Cleared before each case so the
+  // outcome describes the resolver and the fixture, never a developer's gitignored .env.devnet.
+  const CONFIG_ENV_KEYS = [
+    "DEMO_DISABLE_DOTENV",
+    "DEMO_DOTENV_PATH",
+    "NETWORK_PROFILE",
+    "NEXT_PUBLIC_NETWORK_PROFILE",
+    "NEXT_PUBLIC_DEMO_PROGRAM_TARGET",
+    "HACKATHON_DEMO_TARGET",
+    "DEMO_PROGRAM_TARGET",
+    "DEMO_ESCROW_PROGRAM_ID",
+    "NEXT_PUBLIC_ESCROW_PROGRAM_ID",
+    "DEMO_REGISTRY_PROGRAM_ID",
+    "NEXT_PUBLIC_REGISTRY_PROGRAM_ID",
+    "DEMO_REPUTATION_PROGRAM_ID",
+    "NEXT_PUBLIC_REPUTATION_PROGRAM_ID",
+    "DEMO_ATTESTATION_PROGRAM_ID",
+    "NEXT_PUBLIC_ATTESTATION_PROGRAM_ID",
+    "DEMO_DEVNET_RPC",
+    "NEXT_PUBLIC_RPC_ENDPOINT",
+    "DEMO_DEVNET_RPC_WS",
+    "NEXT_PUBLIC_RPC_WS_ENDPOINT",
+    "DEMO_PER_RPC",
+    "NEXT_PUBLIC_PER_RPC",
+  ];
+
+  let fixtureDir: string;
+
+  beforeAll(() => {
+    fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rap-demo-dotenv-"));
+  });
+
+  afterAll(() => {
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+    process.env = originalEnv;
+  });
 
   beforeEach(() => {
     jest.resetModules();
     process.env = { ...originalEnv };
+    for (const key of CONFIG_ENV_KEYS) delete process.env[key];
   });
 
-  afterAll(() => {
-    process.env = originalEnv;
-  });
+  function writeDotenvFixture(name: string, body: string): string {
+    const fixturePath = path.join(fixtureDir, name);
+    fs.writeFileSync(fixturePath, body);
+    return fixturePath;
+  }
 
-  it("honours DEMO_DISABLE_DOTENV so a gitignored .env.devnet cannot supply endpoints", async () => {
+  it("honours DEMO_DISABLE_DOTENV so an env file cannot supply endpoints", async () => {
     process.env.DEMO_DISABLE_DOTENV = "true";
+    process.env.DEMO_DOTENV_PATH = writeDotenvFixture(
+      "disabled.env",
+      "DEMO_DEVNET_RPC=https://api.devnet.solana.com\n",
+    );
     process.env.NETWORK_PROFILE = "local-surfpool";
     const config = await import("../../packages/demo-agents/src/config");
 
     expect(config.DOTENV_DISABLED).toBe(true);
+    expect(config.DEVNET_RPC).not.toMatch(/api\.devnet\.solana\.com/);
     expect(new URL(config.DEVNET_RPC).hostname).toMatch(/^(127\.\d+\.\d+\.\d+|localhost)$/);
   });
 
   it("loads dotenv by default so ordinary demo runs keep their env file", async () => {
-    delete process.env.DEMO_DISABLE_DOTENV;
-    // dotenv never overrides an already-set key, so pinning the target here keeps a developer's
-    // gitignored .env.devnet from selecting quasar and making the module-scope gate throw.
-    process.env.DEMO_PROGRAM_TARGET = "legacy-anchor";
-    process.env.HACKATHON_DEMO_TARGET = "legacy-anchor";
-    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "legacy-anchor";
+    process.env.DEMO_DOTENV_PATH = writeDotenvFixture(
+      "enabled.env",
+      "NETWORK_PROFILE=local-surfpool\nDEMO_DEVNET_RPC=http://127.0.0.1:41337\n",
+    );
 
     const config = await import("../../packages/demo-agents/src/config");
 
     expect(config.DOTENV_DISABLED).toBe(false);
+    expect(config.DEMO_NETWORK_PROFILE).toBe("local-surfpool");
+    expect(config.DEVNET_RPC).toBe("http://127.0.0.1:41337");
     expect(config.PROGRAM_TARGET).toBe("legacy-anchor");
+  });
+
+  it("never lets a loaded env file override a variable the caller already pinned", async () => {
+    process.env.DEMO_DEVNET_RPC = "http://127.0.0.1:19999";
+    process.env.DEMO_DOTENV_PATH = writeDotenvFixture(
+      "precedence.env",
+      "DEMO_DEVNET_RPC=https://api.devnet.solana.com\n",
+    );
+
+    const config = await import("../../packages/demo-agents/src/config");
+
+    expect(config.DOTENV_DISABLED).toBe(false);
+    expect(config.DEVNET_RPC).toBe("http://127.0.0.1:19999");
   });
 });
