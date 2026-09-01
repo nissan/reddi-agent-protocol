@@ -14,8 +14,8 @@ import {
   PROGRAM_KNOWN_GAPS,
   PROGRAM_KNOWN_LIMITATIONS,
   PROGRAM_DEPLOYMENT_STATUS,
-  WALLET_SUBMISSION_BLOCKED,
-  WALLET_SUBMISSION_BLOCKED_REASON,
+  SUBMISSION_BLOCKED,
+  SUBMISSION_BLOCKED_REASON,
   agentPda,
 } from "@/lib/program";
 import { toExplorerTxUrl } from "@/lib/config/explorer";
@@ -373,8 +373,8 @@ function RegisterInner() {
 
   const handleRegister = async () => {
     if (!publicKey || !sendTransaction) return;
-    if (WALLET_SUBMISSION_BLOCKED) {
-      setTxError(WALLET_SUBMISSION_BLOCKED_REASON);
+    if (SUBMISSION_BLOCKED) {
+      setTxError(SUBMISSION_BLOCKED_REASON);
       return;
     }
     if (alreadyRegistered) {
@@ -652,8 +652,8 @@ function RegisterInner() {
             <span className="font-mono">{PROGRAM_DEPLOYMENT_STATUS}</span>.
             {PROGRAM_TARGET === "quasar"
               ? " Registration instruction construction uses the Quasar registry layout, but wallet submission should wait for the full proof chain unless you are deliberately testing this path."
-              : WALLET_SUBMISSION_BLOCKED
-                ? ` ${WALLET_SUBMISSION_BLOCKED_REASON}`
+              : SUBMISSION_BLOCKED
+                ? ` ${SUBMISSION_BLOCKED_REASON}`
                 : " This banner is advisory: it reports the recorded readiness gaps but does not block wallet submission."}
           </p>
           {!PROGRAM_SUBMISSION_READY && PROGRAM_KNOWN_GAPS.length > 0 && (
@@ -1348,7 +1348,7 @@ function RegisterInner() {
                 onClick={handleRegister}
                 disabled={
                   registering ||
-                  WALLET_SUBMISSION_BLOCKED ||
+                  SUBMISSION_BLOCKED ||
                   !endpointCompliancePassed ||
                   existingAgent.status === "checking"
                 }
@@ -1356,7 +1356,7 @@ function RegisterInner() {
               >
                 {registering
                   ? "Registering..."
-                  : WALLET_SUBMISSION_BLOCKED
+                  : SUBMISSION_BLOCKED
                     ? "Blocked: no audited mainnet deployment"
                     : existingAgent.status === "checking"
                       ? "Checking registration..."

@@ -27,8 +27,8 @@ import {
   ATTESTATION_PROGRAM_ID,
   INCINERATOR,
   PROGRAM_TARGET,
-  WALLET_SUBMISSION_BLOCKED,
-  WALLET_SUBMISSION_BLOCKED_REASON,
+  SUBMISSION_BLOCKED,
+  SUBMISSION_BLOCKED_REASON,
 } from "@/lib/program";
 import {
   buildQuasarConfirmAttestationInstruction,
@@ -465,8 +465,8 @@ export default function OnboardingPage() {
 
   const handleRegisterSpecialist = async () => {
     if (!publicKey || !sendTransaction) return;
-    if (WALLET_SUBMISSION_BLOCKED) {
-      setRegisterError(WALLET_SUBMISSION_BLOCKED_REASON);
+    if (SUBMISSION_BLOCKED) {
+      setRegisterError(SUBMISSION_BLOCKED_REASON);
       return;
     }
 
@@ -1152,7 +1152,7 @@ export default function OnboardingPage() {
               onClick={handleRegisterSpecialist}
               disabled={
                 registering ||
-                WALLET_SUBMISSION_BLOCKED ||
+                SUBMISSION_BLOCKED ||
                 !connected ||
                 !state.walletAddress ||
                 state.endpointStatus !== "online" ||
@@ -1160,7 +1160,7 @@ export default function OnboardingPage() {
               }
               style={{ background: "linear-gradient(135deg, #9945FF, #14F195)", color: "#000" }}
             >
-              {WALLET_SUBMISSION_BLOCKED
+              {SUBMISSION_BLOCKED
                 ? "Blocked: no audited mainnet deployment"
                 : registering
                   ? "Registering on-chain..."
@@ -1745,14 +1745,14 @@ export default function OnboardingPage() {
                 disabled={
                   !state.attested ||
                   !state.attestationJobIdHex ||
-                  WALLET_SUBMISSION_BLOCKED ||
+                  SUBMISSION_BLOCKED ||
                   !connected ||
                   !publicKey ||
                   publicKey.toBase58() !== state.attestationConsumer ||
                   state.attestationResolution !== "pending"
                 }
                 onClick={async () => {
-                  if (WALLET_SUBMISSION_BLOCKED) return;
+                  if (SUBMISSION_BLOCKED) return;
                   if (!publicKey || !sendTransaction || !state.attestationJobIdHex || !state.attestationOperator) {
                     return;
                   }
@@ -1811,7 +1811,7 @@ export default function OnboardingPage() {
                   }
                 }}
               >
-                {WALLET_SUBMISSION_BLOCKED
+                {SUBMISSION_BLOCKED
                   ? "Confirm attestation — blocked"
                   : "Confirm attestation (consumer)"}
               </Button>
@@ -1820,14 +1820,14 @@ export default function OnboardingPage() {
                 disabled={
                   !state.attested ||
                   !state.attestationJobIdHex ||
-                  WALLET_SUBMISSION_BLOCKED ||
+                  SUBMISSION_BLOCKED ||
                   !connected ||
                   !publicKey ||
                   publicKey.toBase58() !== state.attestationConsumer ||
                   state.attestationResolution !== "pending"
                 }
                 onClick={async () => {
-                  if (WALLET_SUBMISSION_BLOCKED) return;
+                  if (SUBMISSION_BLOCKED) return;
                   if (!publicKey || !sendTransaction || !state.attestationJobIdHex || !state.attestationOperator) {
                     return;
                   }
@@ -1886,14 +1886,14 @@ export default function OnboardingPage() {
                   }
                 }}
               >
-                {WALLET_SUBMISSION_BLOCKED
+                {SUBMISSION_BLOCKED
                   ? "Dispute attestation — blocked"
                   : "Dispute attestation (consumer)"}
               </Button>
             </div>
-            {WALLET_SUBMISSION_BLOCKED && (
+            {SUBMISSION_BLOCKED && (
               <p className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-xs text-amber-100">
-                {WALLET_SUBMISSION_BLOCKED_REASON}
+                {SUBMISSION_BLOCKED_REASON}
               </p>
             )}
             {state.attested && state.attestationConsumer && (

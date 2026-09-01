@@ -99,13 +99,18 @@ not submission-ready, and records the refusal in `knownGaps` — so `/register` 
 rather than failing to load.
 
 On profiles whose resolved `deploymentStatus` is `mainnet-not-deployed`,
-`lib/program.ts` exports `WALLET_SUBMISSION_BLOCKED = true`, and every
-wallet-submit surface consults it: the register action on `/register`, and the
-register plus confirm/dispute attestation actions on `/onboarding`. No audited
-mainnet deployment is registered, so submitting would spend real mainnet fees on
-a transaction against a program that is not executable on that cluster. On every
-other profile the banner is advisory only — it reports readiness and does not
-disable wallet submission.
+`lib/program.ts` exports `SUBMISSION_BLOCKED = true`, and every
+transaction-signing surface consults it — browser and server alike, because the
+cost it prevents is the same on both. In the browser: the register action on
+`/register`, and the register plus confirm/dispute attestation actions on
+`/onboarding`. On the server, where an operator keypair signs without a wallet
+prompt: `submitOnchainOnboardingAttestation` (behind `/api/onboarding/attestation`)
+throws, and `commitReputationRating` / `revealReputationRating` (behind the
+planner feedback and reveal routes) return `ok: false` with the blocked reason.
+No audited mainnet deployment is registered, so submitting would spend real
+mainnet fees on a transaction against a program that is not executable on that
+cluster. On every other profile the banner is advisory only — it reports
+readiness and does not disable submission.
 
 **Set the profile in the build environment, not just the runtime one.** Next
 inlines every `NEXT_PUBLIC_*` variable present in the build environment as a

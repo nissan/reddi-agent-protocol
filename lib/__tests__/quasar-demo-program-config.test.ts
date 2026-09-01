@@ -247,6 +247,23 @@ describe("Quasar demo program target config", () => {
     );
   });
 
+  it("explains a rejected devnet override without contradicting the resolved program set", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryMainnet11111111111111111111111111111";
+
+    const { getNetworkProfile } = await import("@/lib/config/network");
+    const profile = getNetworkProfile();
+
+    expect(profile.programs.registryProgramId).toBe(QUASAR_REGISTRY_PROGRAM_ID);
+    expect(profile.programs.submissionReady).toBe(false);
+    expect(profile.programs.submissionReadyReason).toMatch(
+      /the registered program id is used instead, so the configured override is not in effect/,
+    );
+    expect(profile.programs.submissionReadyReason).not.toMatch(/resolved program set is not the configured one/);
+    expect(profile.programs.knownGaps.join(" ")).toMatch(/it was ignored and the registered program id is used/);
+  });
+
   it("rejects a non-base58 override on the local-surfpool profile and stays loadable", async () => {
     process.env.NETWORK_PROFILE = "local-surfpool";
     process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = "EscrowLocal000000000000000000000000000000000";

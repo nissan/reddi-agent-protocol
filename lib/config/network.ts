@@ -254,7 +254,7 @@ export function getNetworkProfile(): NetworkProfile {
           : quasarRequestRefused
             ? `A Quasar program target was requested for ${name}, which has no registered Quasar deployment; the request is refused.`
             : malformedOverrides.length > 0
-              ? `A malformed program id override was supplied for ${malformedOverrides.join(", ")}; the resolved program set is not the configured one.`
+              ? `A malformed program id override was supplied for ${malformedOverrides.join(", ")}; it was ignored and the registered program id is used instead, so the configured override is not in effect.`
               : target === "quasar"
                 ? quasarDeployments.submissionReadyReason
                 : undefined,

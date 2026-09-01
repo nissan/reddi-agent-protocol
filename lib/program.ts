@@ -26,10 +26,14 @@ export const PROGRAM_KNOWN_GAPS = network.programs.knownGaps;
 export const PROGRAM_KNOWN_LIMITATIONS = network.programs.knownLimitations ?? [];
 export const PROGRAM_DEPLOYMENT_STATUS = network.programs.deploymentStatus;
 
-/** Wallet submission gate: no audited deployment exists for the resolved profile. */
-export const WALLET_SUBMISSION_BLOCKED = network.programs.deploymentStatus === "mainnet-not-deployed";
-export const WALLET_SUBMISSION_BLOCKED_REASON =
-  "Wallet submission is blocked on this network profile: no audited mainnet deployment is registered, so submitting would spend real mainnet fees on a transaction against a program that is not executable on this cluster.";
+/**
+ * Profile-wide submission gate: no audited deployment exists for the resolved profile.
+ * Every transaction-signing surface consults it — browser wallet submits and server-side
+ * operator signers alike — because the cost it prevents is the same on both.
+ */
+export const SUBMISSION_BLOCKED = network.programs.deploymentStatus === "mainnet-not-deployed";
+export const SUBMISSION_BLOCKED_REASON =
+  "Transaction submission is blocked on this network profile: no audited mainnet deployment is registered, so submitting would spend real mainnet fees on a transaction against a program that is not executable on this cluster.";
 
 /** Solana RPC endpoint from active network profile */
 export const DEVNET_RPC = network.solana.rpcHttp;
