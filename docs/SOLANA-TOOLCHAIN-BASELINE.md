@@ -32,7 +32,7 @@ The script is idempotent and constrained to user-scoped install paths. Re-runnin
 - Surfpool is installed from the verified `v1.5.0` Linux release tarball under `~/.local/share/surfpool/releases/v1.5.0/bin`.
 - Downloaded installer assets are cached in the git-ignored `.tmp/solana-baseline-downloads/` (override with `RAP_BASELINE_DOWNLOAD_DIR`); install roots are overridable with `RAP_BASELINE_SOLANA_INSTALL_DIR` and `RAP_BASELINE_SURFPOOL_ROOT`, which the Surfpool smoke honours too.
 
-The script does not use sudo, Docker, wallets/keypairs, Solana config mutation, live RPC, validators, airdrops, or transactions. It backs up existing shell startup files to a timestamped directory before host changes and records before/after captures under `artifacts/toolchain/`. Installers are run with PATH mutation disabled where supported; any startup-file diffs are appended to the after-install capture.
+The script does not use sudo, Docker, wallets/keypairs, Solana config mutation, live RPC, validators, airdrops, or transactions. It backs up existing shell startup files to a timestamped directory before host changes and records before/after captures under `artifacts/toolchain/`. Installers are run with PATH mutation disabled where supported; any startup-file diffs are appended to the after-install capture. The narrative record of the 2026-09-01 run, including the checks that passed and the one that failed, is manually authored in `docs/SOLANA-BASELINE-VALIDATION-2026-09-01.md`.
 
 ## Verification
 
@@ -41,6 +41,8 @@ scripts/solana-baseline-toolchain.sh verify
 npm run check:toolchain:baseline
 mise exec node@24.20.0 -- npm ci --no-audit --no-fund
 ```
+
+`verify` and `capture` never install anything: both fail or record "not installed" rather than letting `mise exec` pull in a missing `node@24.20.0`.
 
 For repository checks that do not require wallets, live RPC, Docker, external spend, or killing unrelated listeners, prefer:
 

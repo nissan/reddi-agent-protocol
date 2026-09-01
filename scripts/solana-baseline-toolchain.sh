@@ -148,6 +148,13 @@ PINS
   exit 0
 fi
 
+mise_pinned_node_dir() {
+  local dir
+  dir=$(mise where "node@$NODE_VERSION" 2>/dev/null) || return 1
+  [ -n "$dir" ] || return 1
+  printf '%s\n' "$dir"
+}
+
 version_output() {
   local label=$1; shift
   printf '$ %s\n' "$label"
@@ -176,9 +183,15 @@ capture_versions() {
     echo
     echo '```text'
     version_output "mise --version" mise --version
-    version_output "mise exec node@$NODE_VERSION -- node --version" mise exec "node@$NODE_VERSION" -- node --version
-    version_output "mise exec node@$NODE_VERSION -- npm --version" mise exec "node@$NODE_VERSION" -- npm --version
-    for cmd in rustup rustc cargo solana agave-install avm anchor surfpool; do
+    if mise_pinned_node_dir >/dev/null; then
+      version_output "mise exec node@$NODE_VERSION -- node --version" mise exec "node@$NODE_VERSION" -- node --version
+      version_output "mise exec node@$NODE_VERSION -- npm --version" mise exec "node@$NODE_VERSION" -- npm --version
+    else
+      printf '$ mise where node@%s\n' "$NODE_VERSION"
+      echo "node@$NODE_VERSION is not installed through mise (not probed, to avoid installing it)"
+      echo
+    fi
+    for cmd in node npm npx rustup rustc cargo solana agave-install avm anchor surfpool; do
       printf '$ command -v %s\n' "$cmd"
       command -v "$cmd" || true
       "$cmd" --version 2>&1 || true
@@ -207,6 +220,10 @@ expect_exact() {
 
 verify_versions() {
   require_cmd mise
+  if ! mise_pinned_node_dir >/dev/null; then
+    echo "error: node@$NODE_VERSION is not installed through mise; run 'scripts/solana-baseline-toolchain.sh install' (verify never installs)" >&2
+    return 1
+  fi
   expect_exact node "v$NODE_VERSION" mise exec "node@$NODE_VERSION" -- node --version
   expect_exact npm "$NPM_VERSION" mise exec "node@$NODE_VERSION" -- npm --version
   expect_exact rustc "rustc $RUST_VERSION" rustup run "$RUST_VERSION" rustc --version

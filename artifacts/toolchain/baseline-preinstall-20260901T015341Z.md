@@ -1,5 +1,7 @@
 # RAP baseline toolchain capture (before install)
 
+Manually recorded before `scripts/solana-baseline-toolchain.sh` could capture ambient Node itself; the layout therefore differs from `capture_versions` output. Later captures in this directory are script-generated.
+
 Captured: 20260901T015341Z
 Worktree: /home/nissan/.treehouse/reddi-agent-protocol-276f74/5/reddi-agent-protocol
 Git HEAD: 11311a407dcfb3f87a3793d3101b800374b45a91

@@ -1,5 +1,7 @@
 # RAP baseline validation evidence
 
+Manually authored record of the 2026-09-01 baseline install run; no script emits this file. The machine-generated version captures it references live under `artifacts/toolchain/`.
+
 Date: 2026-09-01
 Worktree: `/home/nissan/.treehouse/reddi-agent-protocol-276f74/5/reddi-agent-protocol`
 Branch: `fm/rap-toolchain-baseline`
