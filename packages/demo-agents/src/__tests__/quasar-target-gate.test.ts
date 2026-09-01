@@ -51,6 +51,15 @@ describe("Quasar target gate", () => {
     expect(refusal).toContain("malformed DEMO_REGISTRY_PROGRAM_ID");
   });
 
+  it("refuses a base58-looking program ID that does not decode to a 32-byte public key", () => {
+    const refusal = describeQuasarTargetRefusal(
+      "local-surfpool",
+      lookupFrom({ ...completeLocalEnv, DEMO_REGISTRY_PROGRAM_ID: "22222222222222222222222222222222" }),
+    );
+    expect(refusal).toContain("malformed DEMO_REGISTRY_PROGRAM_ID");
+    expect(refusal).toContain("32-byte");
+  });
+
   it("refuses four program IDs that are not four distinct programs", () => {
     const refusal = describeQuasarTargetRefusal(
       "local-surfpool",

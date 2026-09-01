@@ -19,7 +19,7 @@ import {
 import { createHash, randomBytes } from "crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { DEVNET_RPC, ESCROW_PROGRAM_ID, REPUTATION_PROGRAM_ID, RATING_SEED, AGENT_SEED, IX, PROGRAM_TARGET } from "@/lib/program";
+import { DEVNET_RPC, ESCROW_PROGRAM_ID, REPUTATION_PROGRAM_ID, RATING_SEED, AGENT_SEED, IX, PROGRAM_TARGET, SUBMISSION_BLOCKED, SUBMISSION_BLOCKED_REASON } from "@/lib/program";
 import {
   buildQuasarCommitRatingInstruction,
   buildQuasarRevealRatingInstruction,
@@ -175,6 +175,12 @@ export async function commitReputationRating(
   specialistWallet: string
 ): Promise<ReputationCommitResult> {
   const trace: string[] = [];
+  const isQuasar = PROGRAM_TARGET === "quasar";
+
+  if (SUBMISSION_BLOCKED && !isQuasar) {
+    trace.push("reputation:submission_blocked");
+    return { ok: false, error: SUBMISSION_BLOCKED_REASON, trace };
+  }
 
   const operator = loadOperatorKeypair();
   if (!operator) {
@@ -201,7 +207,7 @@ export async function commitReputationRating(
   // escrow address and both parties are read from escrow.payer/escrow.payee. Onboarding never locks
   // one, so no verified lock record exists and this refuses until canonical lock output is supplied.
   let escrow: PublicKey | undefined;
-  if (PROGRAM_TARGET === "quasar") {
+  if (isQuasar) {
     try {
       escrow = resolveOnboardingQuasarEscrow({
         lockRecord: undefined,
@@ -221,7 +227,7 @@ export async function commitReputationRating(
 
   // salt: 32 random bytes
   const salt = randomBytes(32);
-  const commitHash = PROGRAM_TARGET === "quasar"
+  const commitHash = isQuasar
     ? Buffer.from(quasarRatingCommitment(score, salt, escrow!, REPUTATION_PROGRAM_ID))
     : createHash("sha256").update(Buffer.from([score])).update(salt).digest();
   const commitHashHex = commitHash.toString("hex");
@@ -234,7 +240,7 @@ export async function commitReputationRating(
   trace.push(`reputation:rating_pda=${rPda.toBase58()}`);
 
   // Role 0 = Consumer (orchestrator/operator commits as consumer side)
-  const ix = PROGRAM_TARGET === "quasar"
+  const ix = isQuasar
     ? buildQuasarCommitRatingInstruction({
         programId: REPUTATION_PROGRAM_ID,
         escrow: escrow!,
@@ -317,6 +323,12 @@ export async function commitReputationRating(
  */
 export async function revealReputationRating(runId: string): Promise<ReputationRevealResult> {
   const trace: string[] = [];
+  const isQuasar = PROGRAM_TARGET === "quasar";
+
+  if (SUBMISSION_BLOCKED && !isQuasar) {
+    trace.push("reputation:submission_blocked");
+    return { ok: false, error: SUBMISSION_BLOCKED_REASON, trace };
+  }
 
   const operator = loadOperatorKeypair();
   if (!operator) {
@@ -356,7 +368,7 @@ export async function revealReputationRating(runId: string): Promise<ReputationR
   }
 
   let revealEscrow: PublicKey | undefined;
-  if (PROGRAM_TARGET === "quasar") {
+  if (isQuasar) {
     try {
       revealEscrow = resolveOnboardingQuasarEscrow({
         lockRecord: undefined,
@@ -376,7 +388,7 @@ export async function revealReputationRating(runId: string): Promise<ReputationR
   const specialistAgentPda = agentPdaFor(specialistPubkey);
   const consumerAgentPda = agentPdaFor(consumerPubkey);
 
-  const ix = PROGRAM_TARGET === "quasar"
+  const ix = isQuasar
     ? buildQuasarRevealRatingInstruction({
         programId: REPUTATION_PROGRAM_ID,
         escrow: revealEscrow!,

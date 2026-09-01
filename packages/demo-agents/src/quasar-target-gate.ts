@@ -10,6 +10,22 @@ export type QuasarTargetProfile = "local-surfpool" | "devnet" | "mainnet";
 export type EnvLookup = (...keys: string[]) => string | undefined;
 
 const BASE58_PUBKEY = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+function isValidSolanaProgramId(value: string): boolean {
+  if (!BASE58_PUBKEY.test(value)) return false;
+
+  let leadingZeroBytes = 0;
+  while (leadingZeroBytes < value.length && value[leadingZeroBytes] === "1") leadingZeroBytes += 1;
+
+  let decoded = 0n;
+  for (const char of value) decoded = decoded * 58n + BigInt(BASE58_ALPHABET.indexOf(char));
+
+  let significantBytes = 0;
+  for (let remaining = decoded; remaining > 0n; remaining >>= 8n) significantBytes += 1;
+
+  return leadingZeroBytes + significantBytes === 32;
+}
 
 const QUASAR_PROGRAM_ID_ENV_KEYS: ReadonlyArray<readonly [string, string, string]> = [
   ["escrow", "DEMO_ESCROW_PROGRAM_ID", "NEXT_PUBLIC_ESCROW_PROGRAM_ID"],
@@ -58,8 +74,8 @@ export function describeQuasarTargetRefusal(profile: QuasarTargetProfile, lookup
       problems.push(`missing ${primaryKey} (or ${fallbackKey})`);
       continue;
     }
-    if (!BASE58_PUBKEY.test(value)) {
-      problems.push(`malformed ${primaryKey}: ${JSON.stringify(value)} is not a base58 Solana program ID`);
+    if (!isValidSolanaProgramId(value)) {
+      problems.push(`malformed ${primaryKey}: ${JSON.stringify(value)} is not a valid 32-byte base58 Solana program ID`);
       continue;
     }
     const owner = idOwners.get(value);

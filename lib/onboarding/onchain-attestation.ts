@@ -87,7 +87,8 @@ export function getOnchainAttestationOperatorStatus(
 export async function submitOnchainOnboardingAttestation(
   input: SubmitOnchainAttestationInput
 ): Promise<SubmitOnchainAttestationResult> {
-  if (SUBMISSION_BLOCKED) {
+  const isQuasar = PROGRAM_TARGET === "quasar";
+  if (SUBMISSION_BLOCKED && !isQuasar) {
     throw new Error(SUBMISSION_BLOCKED_REASON);
   }
 
@@ -107,7 +108,6 @@ export async function submitOnchainOnboardingAttestation(
   // is owned by the attestation program and binds to the escrow a lock created. Onboarding never
   // locks one, so this refuses before any instruction, signer, or RPC use until canonical verified
   // lock output is supplied.
-  const isQuasar = PROGRAM_TARGET === "quasar";
   const escrow = isQuasar
     ? resolveOnboardingQuasarEscrow({
         lockRecord: undefined,

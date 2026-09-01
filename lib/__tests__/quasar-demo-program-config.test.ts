@@ -105,7 +105,7 @@ describe("Quasar demo program target config", () => {
     const { PROGRAM_KNOWN_GAPS, PROGRAM_KNOWN_LIMITATIONS, PROGRAM_SUBMISSION_READY } = await import("@/lib/program");
 
     expect(PROGRAM_SUBMISSION_READY).toBe(false);
-    expect(PROGRAM_KNOWN_GAPS.join(" ")).toMatch(/pre-job-binding Quasar programs/);
+    expect(PROGRAM_KNOWN_GAPS.join(" ")).toMatch(/pre-binding layout/);
     expect(PROGRAM_KNOWN_LIMITATIONS.join(" ")).toMatch(/gated off/);
     expect(PROGRAM_KNOWN_LIMITATIONS.join(" ")).toMatch(/Quasar remains experimental/);
   });
