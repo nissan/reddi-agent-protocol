@@ -37,7 +37,7 @@ DEFAULT_ESCROW_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("escrowProg
 DEFAULT_REGISTRY_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("registryProgramId", "")')"
 DEFAULT_REPUTATION_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("reputationProgramId", "")')"
 DEFAULT_ATTESTATION_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("attestationProgramId", "")')"
-KNOWN_PLACEHOLDER_ESCROW_PROGRAM_ID="794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD"
+KNOWN_PLACEHOLDER_PROGRAM_ID="794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD"
 MAINNET_DEPLOYMENT_STATUS_NOTE="$(read_profile_value 'obj["programs"].get("mainnetDeploymentStatusNote", "")')"
 DEFAULT_PER_RPC="$(read_profile_value 'obj["payments"]["perRpc"]')"
 DEFAULT_JUPITER_BASE="$(read_profile_value 'obj["payments"]["jupiterApiBase"]')"
@@ -92,20 +92,45 @@ jup_body="$(curl -sS -w '\n%{http_code}' "$JUPITER_BASE/execute" -X POST -H 'con
 jup_code="$(echo "$jup_body" | tail -n1)"
 jup_body="$(echo "$jup_body" | sed '$d')"
 
-python3 - <<PY
+RPC_HEALTH_CODE="$rpc_health_code" \
+RPC_HEALTH_BODY="$rpc_health_body" \
+RPC_SLOT_CODE="$rpc_slot_code" \
+RPC_SLOT_BODY="$rpc_slot_body" \
+PROG_CODE="$prog_code" \
+PROG_BODY="$prog_body" \
+PER_CODE="$per_code" \
+JUP_CODE="$jup_code" \
+JUP_BODY="$jup_body" \
+ESCROW_PROGRAM_ID="$ESCROW_PROGRAM_ID" \
+REGISTRY_PROGRAM_ID="$REGISTRY_PROGRAM_ID" \
+REPUTATION_PROGRAM_ID="$REPUTATION_PROGRAM_ID" \
+ATTESTATION_PROGRAM_ID="$ATTESTATION_PROGRAM_ID" \
+KNOWN_PLACEHOLDER_PROGRAM_ID="$KNOWN_PLACEHOLDER_PROGRAM_ID" \
+MAINNET_DEPLOYMENT_STATUS_NOTE="$MAINNET_DEPLOYMENT_STATUS_NOTE" \
+NETWORK_PROFILE_EFFECTIVE="$NETWORK_PROFILE_EFFECTIVE" \
+RPC_URL="$RPC_URL" \
+PROGRAM_ID="$PROGRAM_ID" \
+PER_RPC="$PER_RPC" \
+JUPITER_BASE="$JUPITER_BASE" \
+JSON_OUT="$JSON_OUT" \
+SUMMARY_OUT="$SUMMARY_OUT" \
+python3 - <<'PY'
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-rpc_health_code = "${rpc_health_code}".strip()
-rpc_health_body = '''${rpc_health_body}'''.strip()
-rpc_slot_code = "${rpc_slot_code}".strip()
-rpc_slot_body = '''${rpc_slot_body}'''.strip()
-prog_code = "${prog_code}".strip()
-prog_body = '''${prog_body}'''.strip()
-per_code = "${per_code}".strip()
-jup_code = "${jup_code}".strip()
-jup_body = '''${jup_body}'''.strip()
+env = os.environ.get
+
+rpc_health_code = env("RPC_HEALTH_CODE", "").strip()
+rpc_health_body = env("RPC_HEALTH_BODY", "").strip()
+rpc_slot_code = env("RPC_SLOT_CODE", "").strip()
+rpc_slot_body = env("RPC_SLOT_BODY", "").strip()
+prog_code = env("PROG_CODE", "").strip()
+prog_body = env("PROG_BODY", "").strip()
+per_code = env("PER_CODE", "").strip()
+jup_code = env("JUP_CODE", "").strip()
+jup_body = env("JUP_BODY", "").strip()
 
 
 def parse_json(s):
@@ -128,34 +153,34 @@ if prog_code == "200":
         program_exec = bool(value.get("executable"))
 
 program_ids = {
-    "escrow": "${ESCROW_PROGRAM_ID}",
-    "registry": "${REGISTRY_PROGRAM_ID}",
-    "reputation": "${REPUTATION_PROGRAM_ID}",
-    "attestation": "${ATTESTATION_PROGRAM_ID}",
+    "escrow": env("ESCROW_PROGRAM_ID", ""),
+    "registry": env("REGISTRY_PROGRAM_ID", ""),
+    "reputation": env("REPUTATION_PROGRAM_ID", ""),
+    "attestation": env("ATTESTATION_PROGRAM_ID", ""),
 }
-known_placeholder_escrow_program_id = "${KNOWN_PLACEHOLDER_ESCROW_PROGRAM_ID}".strip()
-mainnet_deployment_status_note = "${MAINNET_DEPLOYMENT_STATUS_NOTE}".strip()
+known_placeholder_program_id = env("KNOWN_PLACEHOLDER_PROGRAM_ID", "").strip()
+mainnet_deployment_status_note = env("MAINNET_DEPLOYMENT_STATUS_NOTE", "").strip()
 
 
 def program_id_defect(name, value):
     value = value.strip()
     if not value:
         return "unset"
-    if name != "escrow":
-        return None
-    if value == known_placeholder_escrow_program_id:
+    if value == known_placeholder_program_id:
         return "placeholder (resolves to the known devnet legacy Anchor placeholder id)"
-    if mainnet_deployment_status_note == "not_deployed":
-        return "no deployment recorded (mainnet.json records mainnetDeploymentStatusNote=not_deployed)"
     return None
 
-unconfigured_program_ids = [
+program_set_defects = [
     f"{name}: {defect}"
     for name, value in program_ids.items()
     for defect in [program_id_defect(name, value)]
     if defect
 ]
-program_set_configured = not unconfigured_program_ids
+if mainnet_deployment_status_note == "not_deployed":
+    program_set_defects.append(
+        "profile: no deployment recorded (mainnet.json records mainnetDeploymentStatusNote=not_deployed)"
+    )
+program_set_configured = not program_set_defects
 
 per_ok = per_code.isdigit() and int(per_code) > 0 and int(per_code) < 500
 jup_ok = jup_code in {"200", "400", "401", "403"}
@@ -179,7 +204,7 @@ checks = [
         "id": "mainnet_program_set_configured",
         "blocking": True,
         "ok": program_set_configured,
-        "detail": "all four program ids present; escrow is neither the known placeholder nor flagged not_deployed (this check does not prove audit or deployment)" if program_set_configured else f"unconfigured ids: {'; '.join(unconfigured_program_ids)}",
+        "detail": "all four program ids present and none is the known placeholder; mainnet.json does not record mainnetDeploymentStatusNote=not_deployed (this check does not prove audit or deployment)" if program_set_configured else f"program set defects: {'; '.join(program_set_defects)}",
         "fix": None if program_set_configured else "Record audited mainnet registry, escrow, reputation, and attestation program ids in config/networks/mainnet.json, and clear its escrowProgramIdNote and mainnetDeploymentStatusNote annotations, before mainnet activation.",
     },
     {
@@ -211,12 +236,12 @@ result_ok = len(blocking_failures) == 0
 payload = {
     "ok": result_ok,
     "checkedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-    "networkProfile": "${NETWORK_PROFILE_EFFECTIVE}",
-    "rpcUrl": "${RPC_URL}",
-    "programId": "${PROGRAM_ID}",
+    "networkProfile": env("NETWORK_PROFILE_EFFECTIVE", ""),
+    "rpcUrl": env("RPC_URL", ""),
+    "programId": env("PROGRAM_ID", ""),
     "programIds": program_ids,
-    "perRpc": "${PER_RPC}",
-    "jupiterBase": "${JUPITER_BASE}",
+    "perRpc": env("PER_RPC", ""),
+    "jupiterBase": env("JUPITER_BASE", ""),
     "checks": checks,
     "raw": {
         "rpcHealth": health_json,
@@ -226,7 +251,7 @@ payload = {
     },
 }
 
-Path("${JSON_OUT}").write_text(json.dumps(payload, indent=2))
+Path(env("JSON_OUT", "")).write_text(json.dumps(payload, indent=2))
 
 status = "✅ PASS" if result_ok else "❌ FAIL"
 lines = [
@@ -255,9 +280,9 @@ for c in checks:
 lines += [
     "",
     "## Artifacts",
-    f"- JSON: ${JSON_OUT}",
+    f"- JSON: {env('JSON_OUT', '')}",
 ]
-Path("${SUMMARY_OUT}").write_text("\n".join(lines) + "\n")
+Path(env("SUMMARY_OUT", "")).write_text("\n".join(lines) + "\n")
 print(json.dumps(payload, indent=2))
 PY
 

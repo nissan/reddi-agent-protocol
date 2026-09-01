@@ -300,6 +300,48 @@ describe("Quasar demo program target config", () => {
     expect(profile.programs.registryProgramId).toBe(LEGACY_ANCHOR_PROGRAM_ID);
   });
 
+  it("discloses a discarded well-formed devnet override as a known gap without exposing its value", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryLoca1111111111111111111111111111111";
+
+    const { getNetworkProfile } = await import("@/lib/config/network");
+    const profile = getNetworkProfile();
+
+    expect(profile.programs.registryProgramId).toBe(QUASAR_REGISTRY_PROGRAM_ID);
+    expect(profile.programs.submissionReady).toBe(true);
+    expect(profile.programs.knownGaps.join(" ")).toMatch(
+      /registry program id override does not match the registered devnet program set/,
+    );
+    expect(profile.programs.knownGaps.join(" ")).not.toContain("RegistryLoca1111111111111111111111111111111");
+  });
+
+  it("names every discarded override on the legacy-Anchor devnet profile", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryHijack11111111111111111111111111111";
+    process.env.NEXT_PUBLIC_REPUTATION_PROGRAM_ID = "ReputationHijack111111111111111111111111111";
+
+    const { getNetworkProfile } = await import("@/lib/config/network");
+    const profile = getNetworkProfile();
+
+    expect(profile.programs.registryProgramId).toBe(LEGACY_ANCHOR_PROGRAM_ID);
+    expect(profile.programs.reputationProgramId).toBe(LEGACY_ANCHOR_PROGRAM_ID);
+    expect(profile.programs.knownGaps.join(" ")).toMatch(/registry, reputation program id overrides do not match/);
+  });
+
+  it("records no discarded-override gap when the unsafe flag lets the override through", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+    process.env.ALLOW_UNSAFE_ESCROW_OVERRIDE = "true";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryLoca1111111111111111111111111111111";
+
+    const { getNetworkProfile } = await import("@/lib/config/network");
+    const profile = getNetworkProfile();
+
+    expect(profile.programs.registryProgramId).toBe("RegistryLoca1111111111111111111111111111111");
+    expect(profile.programs.knownGaps.join(" ")).not.toMatch(/were ignored and the registered program id is used/);
+  });
+
   it("refuses to repoint the registered Quasar devnet program set via a stray override", async () => {
     process.env.NETWORK_PROFILE = "devnet";
     process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";

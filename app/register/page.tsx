@@ -634,7 +634,7 @@ function RegisterInner() {
           </Card>
         ))}
       </div>
-      {(PROGRAM_TARGET === "quasar" || !PROGRAM_SUBMISSION_READY) && (
+      {(PROGRAM_TARGET === "quasar" || !PROGRAM_SUBMISSION_READY || PROGRAM_KNOWN_GAPS.length > 0) && (
         <Card
           className={`space-y-2 p-4 text-sm ${PROGRAM_SUBMISSION_READY ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-50" : "border-amber-400/25 bg-amber-500/10 text-amber-50"}`}
         >
@@ -643,7 +643,9 @@ function RegisterInner() {
               ? PROGRAM_SUBMISSION_READY
                 ? "Quasar mode is active and marked submission-ready."
                 : "Quasar mode is active, but submission readiness is still blocked."
-              : "Submission readiness is blocked for the active network profile."}
+              : PROGRAM_SUBMISSION_READY
+                ? "Readiness gaps are recorded for the active network profile."
+                : "Submission readiness is blocked for the active network profile."}
           </p>
           <p className="text-xs opacity-85">
             Target: <span className="font-mono">{PROGRAM_TARGET}</span> ·
@@ -653,9 +655,11 @@ function RegisterInner() {
             <span className="font-mono">{PROGRAM_DEPLOYMENT_STATUS}</span>.
             {SUBMISSION_BLOCKED
               ? ` ${SUBMISSION_BLOCKED_REASON}`
-              : " Registration instruction construction uses the Quasar registry layout, but wallet submission should wait for the full proof chain unless you are deliberately testing this path."}
+              : PROGRAM_TARGET === "quasar"
+                ? " Registration instruction construction uses the Quasar registry layout, but wallet submission should wait for the full proof chain unless you are deliberately testing this path."
+                : " Wallet submission is not blocked on this profile; the gaps listed below are advisory."}
           </p>
-          {!PROGRAM_SUBMISSION_READY && PROGRAM_KNOWN_GAPS.length > 0 && (
+          {PROGRAM_KNOWN_GAPS.length > 0 && (
             <ul className="list-disc space-y-1 pl-4 text-xs opacity-85">
               {PROGRAM_KNOWN_GAPS.slice(0, 3).map((gap) => (
                 <li key={gap}>{gap}</li>

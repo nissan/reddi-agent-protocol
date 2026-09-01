@@ -149,13 +149,18 @@ export function getNetworkProfile(): NetworkProfile {
   const quasarPrograms = quasarDevnet.programIds ?? { escrow: quasarDevnet.programId };
   const targetProgramId = target === "quasar" ? quasarPrograms.escrow : base.programs.escrowProgramId;
   const malformedOverrides: string[] = [];
+  const ignoredOverrides: string[] = [];
   const applyProgramIdOverride = (label: string, override: string | undefined, registered: string): string => {
     if (!override) return registered;
     if (!isValidProgramId(override)) {
       malformedOverrides.push(label);
       return registered;
     }
-    return name === "devnet" && override !== registered && !allowUnsafeDevnetOverride ? registered : override;
+    if (name === "devnet" && override !== registered && !allowUnsafeDevnetOverride) {
+      ignoredOverrides.push(label);
+      return registered;
+    }
+    return override;
   };
 
   const effectiveEscrowProgramId = applyProgramIdOverride("escrow", escrowOverride, targetProgramId);
@@ -181,6 +186,16 @@ export function getNetworkProfile(): NetworkProfile {
           malformedOverrides.length === 1 ? " is" : "s are"
         } not a valid 32-byte base58 Solana address; ${
           malformedOverrides.length === 1 ? "it was" : "they were"
+        } ignored and the registered program id is used instead.`,
+      ]
+    : [];
+
+  const ignoredOverrideKnownGaps = ignoredOverrides.length
+    ? [
+        `The ${ignoredOverrides.join(", ")} program id override${
+          ignoredOverrides.length === 1 ? " does" : "s do"
+        } not match the registered devnet program set and the build-time unsafe-override flag was not set; ${
+          ignoredOverrides.length === 1 ? "it was" : "they were"
         } ignored and the registered program id is used instead.`,
       ]
     : [];
@@ -261,6 +276,7 @@ export function getNetworkProfile(): NetworkProfile {
       knownGaps: [
         ...(target === "quasar" ? quasarDevnet.knownGaps : []),
         ...malformedOverrideKnownGaps,
+        ...ignoredOverrideKnownGaps,
         ...mainnetKnownGaps,
         ...localSurfpoolKnownGaps,
       ],

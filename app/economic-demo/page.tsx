@@ -1332,7 +1332,7 @@ export default function EconomicDemoPage() {
                   </dd>
                 </div>
               </dl>
-              {!PROGRAM_SUBMISSION_READY && PROGRAM_KNOWN_GAPS.length > 0 && (
+              {PROGRAM_KNOWN_GAPS.length > 0 && (
                 <div className="mt-4 rounded-xl border border-yellow-400/30 bg-yellow-400/10 p-4 text-sm text-yellow-50/90">
                   <p className="font-semibold text-yellow-50">
                     {PROGRAM_TARGET === "quasar"
