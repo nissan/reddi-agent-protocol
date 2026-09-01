@@ -4,7 +4,7 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { spawnSync } from "node:child_process";
 
@@ -1126,4 +1126,126 @@ test("an oversized receipt is refused instead of being buffered and parsed", asy
       /larger than the allowed/,
     );
   });
+});
+
+const READER_MODULE_URL = pathToFileURL(
+  path.join(realRepoRoot, "scripts/lib/surfpool-evidence-manifest.mjs"),
+).href;
+
+/**
+ * Runs the receipt reader in a child process with a hard timeout.
+ *
+ * A synchronous open that blocks cannot be interrupted by an in-process timer, so "refused
+ * promptly" is only observable from outside the process: a reader that blocks shows up here as a
+ * child killed by the timeout rather than as a test run that hangs forever.
+ */
+function readReceiptInChild(repoRoot, dir, { target = "quasar", patch = "" } = {}) {
+  const script = `
+import fs from "node:fs";
+import { readAcceptedEvidenceManifest } from ${JSON.stringify(READER_MODULE_URL)};
+${patch}
+try {
+  const result = readAcceptedEvidenceManifest(
+    ${JSON.stringify(repoRoot)},
+    ${JSON.stringify(dir)},
+    { target: ${JSON.stringify(target)}, requiredArtifacts: ["summary", "log"] },
+  );
+  console.log("ACCEPTED " + JSON.stringify(result.manifest.runId));
+} catch (error) {
+  console.log("REFUSED " + error.message);
+}
+`;
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+  return { ...child, outcome: (child.stdout ?? "").trim() };
+}
+
+function makeFifo(absolutePath) {
+  const made = spawnSync("mkfifo", [absolutePath]);
+  return made.status === 0;
+}
+
+test("a named-pipe receipt is refused promptly instead of blocking the reader", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-fifo-receipt");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+    assert.match(readReceiptInChild(repoRoot, dir).outcome, /^ACCEPTED/);
+
+    const manifestPath = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME);
+    await fsp.rm(manifestPath);
+    if (!makeFifo(manifestPath)) return; // platform without mkfifo: nothing to prove here
+
+    const child = readReceiptInChild(repoRoot, dir);
+    assert.equal(child.signal, null, "the reader must not block until it is killed by the timeout");
+    assert.match(child.outcome, /^REFUSED .*must be an ordinary file/);
+  });
+});
+
+test("a named-pipe cited artifact is refused promptly instead of blocking the reader", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-fifo-artifact");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+
+    const summaryPath = path.join(repoRoot, dir, "sdk-quasar-fifo-artifact", "SUMMARY.md");
+    await fsp.rm(summaryPath);
+    if (!makeFifo(summaryPath)) return; // platform without mkfifo: nothing to prove here
+
+    const child = readReceiptInChild(repoRoot, dir);
+    assert.equal(child.signal, null, "the reader must not block until it is killed by the timeout");
+    assert.match(child.outcome, /^REFUSED .*must be an ordinary file/);
+  });
+});
+
+test("a receipt replaced between the type check and the open is refused without consuming it", async () => {
+  const cases = [
+    // A named pipe is the shape that would block the open itself if it were reached.
+    { label: "named pipe", plant: "fifo", expected: /must be an ordinary file/ },
+    // An ordinary file swapped in still fails the descriptor's identity check.
+    { label: "different ordinary file", plant: "file", expected: /was replaced while evidence was being computed/ },
+  ];
+
+  for (const { label, plant, expected } of cases) {
+    await withRepo(async (repoRoot) => {
+      const dir = "artifacts/surfpool-quasar-smoke";
+      const record = await seedRun(repoRoot, dir, `sdk-quasar-receipt-race-${plant}`);
+      await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+
+      const manifestPath = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME);
+      const probe = path.join(repoRoot, ".mkfifo-probe");
+      if (plant === "fifo" && !makeFifo(probe)) return; // platform without mkfifo
+      await fsp.rm(probe, { force: true });
+
+      // The swap happens after the reader's pre-open type check has already seen an ordinary file,
+      // so only the descriptor-bound checks can catch it.
+      const patch = `
+import { spawnSync as spawnSyncInChild } from "node:child_process";
+const manifestPath = ${JSON.stringify(manifestPath)};
+const genuine = fs.readFileSync(manifestPath);
+const originalLstatSync = fs.lstatSync;
+let swapped = false;
+fs.lstatSync = function patchedLstatSync(target, options) {
+  const stat = originalLstatSync.call(this, target, options);
+  if (!swapped && String(target) === manifestPath) {
+    swapped = true;
+    fs.rmSync(manifestPath);
+    if (${JSON.stringify(plant)} === "fifo") {
+      spawnSyncInChild("mkfifo", [manifestPath]);
+    } else {
+      const forged = JSON.parse(genuine.toString("utf8"));
+      forged.runId = "attacker-chosen";
+      fs.writeFileSync(manifestPath, JSON.stringify(forged, null, 2) + "\\n");
+    }
+  }
+  return stat;
+};
+`;
+      const child = readReceiptInChild(repoRoot, dir, { patch });
+      assert.equal(child.signal, null, `${label}: the reader must not block until it is killed by the timeout`);
+      assert.match(child.outcome, new RegExp(`^REFUSED .*${expected.source}`), label);
+    });
+  }
 });

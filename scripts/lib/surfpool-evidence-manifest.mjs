@@ -167,11 +167,17 @@ function assertOpenedDescriptorContained(fd, containmentRootRealPath, label) {
  * device/inode/size the walk validated: a mismatch means the path was re-pointed at a different
  * file between the walk and the read, and the read is refused rather than silently hashed.
  *
+ * The final component is `lstat`ed *before* the open and required to be an ordinary file, because
+ * opening a FIFO for reading blocks until a writer appears — the post-open `fstat` guard would
+ * never be reached. `O_NONBLOCK` makes the open itself non-blocking for anything that slipped in
+ * between the two calls, and the opened descriptor's device/inode must still match what the
+ * `lstat` saw, so a special file swapped in during that window is refused rather than opened.
+ *
  * A platform without `O_NOFOLLOW` or `/proc/self/fd` cannot provide that proof, so it is refused
  * rather than downgraded to a following read.
  */
 function readFingerprintedFile(repoRoot, relativePath, options = {}) {
-  const { O_RDONLY, O_NOFOLLOW } = fs.constants;
+  const { O_RDONLY, O_NOFOLLOW, O_NONBLOCK, O_CLOEXEC } = fs.constants;
   if (typeof O_NOFOLLOW !== "number") {
     throw new EvidenceManifestError(
       `this platform cannot open ${relativePath} without following symbolic links, so evidence cannot be bound to it`,
@@ -181,9 +187,26 @@ function readFingerprintedFile(repoRoot, relativePath, options = {}) {
   const containmentRootRealPath = options.containmentRootRealPath ?? fs.realpathSync(repoRoot);
   const identity = options.identity;
   const absolutePath = path.join(repoRoot, relativePath);
+
+  let beforeOpen;
+  try {
+    beforeOpen = fs.lstatSync(absolutePath);
+  } catch (error) {
+    throw new EvidenceManifestError(`${relativePath} could not be opened: ${error?.message ?? error}`);
+  }
+  if (beforeOpen.isSymbolicLink()) {
+    throw new EvidenceManifestError(`${relativePath} must not be a symbolic link: ${relativePath}`);
+  }
+  if (!beforeOpen.isFile()) {
+    throw new EvidenceManifestError(`${relativePath} must be an ordinary file`);
+  }
+
+  let openFlags = O_RDONLY | O_NOFOLLOW;
+  if (typeof O_NONBLOCK === "number") openFlags |= O_NONBLOCK;
+  if (typeof O_CLOEXEC === "number") openFlags |= O_CLOEXEC;
   let fd;
   try {
-    fd = fs.openSync(absolutePath, O_RDONLY | O_NOFOLLOW);
+    fd = fs.openSync(absolutePath, openFlags);
   } catch (error) {
     if (error?.code === "ELOOP" || error?.code === "EMLINK") {
       throw new EvidenceManifestError(`${relativePath} must not be a symbolic link: ${relativePath}`);
@@ -195,6 +218,9 @@ function readFingerprintedFile(repoRoot, relativePath, options = {}) {
     const opened = fs.fstatSync(fd);
     if (!opened.isFile()) {
       throw new EvidenceManifestError(`${relativePath} must be an ordinary file`);
+    }
+    if (opened.dev !== beforeOpen.dev || opened.ino !== beforeOpen.ino) {
+      throw new EvidenceManifestError(`${relativePath} was replaced while evidence was being computed`);
     }
     assertOpenedDescriptorContained(fd, containmentRootRealPath, relativePath);
     if (Number.isFinite(options.maxBytes) && opened.size > options.maxBytes) {
