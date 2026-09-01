@@ -70,7 +70,8 @@ constructed, any signer is touched, or any RPC call is made. The wizard's confir
 are disabled and show that reason rather than building against an escrow that does not exist. Nothing
 is derived from a job id, no client-supplied address is trusted, and no escrow is synthesized.
 
-The web Quasar route additionally stays blocked on the configured devnet profile: `lib/config/network.ts`
-yields the Quasar target only there, and `assertProgramTargetUsable()` refuses it because the recorded
-deployment is not submission-ready. Current-source Quasar is exercised by the local-surfpool lane with
-four explicit loopback program IDs.
+Among remote profiles, `lib/config/network.ts` resolves the Quasar target only on devnet, and
+`assertProgramTargetUsable()` refuses it there because the recorded deployment is not
+submission-ready; mainnet refuses the request outright. Current-source Quasar resolves as usable only
+on `local-surfpool`, and only for a run that supplies four distinct valid local program IDs and keeps
+its http and websocket endpoints on loopback — the configuration this lane sets up for itself.

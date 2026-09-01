@@ -27,14 +27,18 @@ const REAL_DEMO_CRITICAL_PATHS = Object.freeze(
     .demoCriticalPaths.map((entry) => entry.path),
 );
 
-// The modules that own the onboarding Quasar refusal: without a verified lock-created escrow, every
-// reputation/attestation/confirm/dispute path must refuse here. Editing any of them must invalidate
-// accepted Quasar evidence, otherwise a receipt keeps vouching for a refusal that no longer exists.
+// The modules that own a Quasar refusal: the onboarding paths that must refuse without a verified
+// lock-created escrow, and the loopback predicate that decides whether the local-surfpool Quasar
+// target resolves at all. Editing any of them must invalidate accepted Quasar evidence, otherwise a
+// receipt keeps vouching for a refusal that no longer exists. Which mechanism binds a module — a
+// fingerprint root or the compatibility inventory — is deliberately not asserted here; only that
+// something does.
 const QUASAR_REFUSAL_OWNING_MODULES = Object.freeze([
   "lib/onboarding/quasar-escrow-binding.ts",
   "lib/onboarding/attestation-resolution.ts",
   "lib/onboarding/reputation-signal.ts",
   "lib/onboarding/onchain-attestation.ts",
+  "lib/config/loopback-endpoint.ts",
   "app/onboarding/page.tsx",
 ]);
 
@@ -187,7 +191,7 @@ async function seedFingerprintSources(repoRoot, target = "quasar") {
     await writeRepoFile(repoRoot, relativePath, body);
   }
   if (target !== "quasar") return;
-  for (const relativePath of REAL_DEMO_CRITICAL_PATHS) {
+  for (const relativePath of [...REAL_DEMO_CRITICAL_PATHS, ...QUASAR_REFUSAL_OWNING_MODULES]) {
     if (relativePath in FINGERPRINTED_BUILD_INPUTS.quasar) continue;
     await writeRepoFile(repoRoot, relativePath, `export const declared = ${JSON.stringify(relativePath)};\n`);
   }
@@ -561,11 +565,6 @@ test("a source change after publication invalidates the receipt", async () => {
 
 test("every module owning the onboarding Quasar refusal is bound to the evidence it is cited as proof of", async () => {
   for (const relativePath of QUASAR_REFUSAL_OWNING_MODULES) {
-    assert.ok(
-      REAL_DEMO_CRITICAL_PATHS.includes(relativePath),
-      `${relativePath} owns the Quasar refusal but is not declared demo-critical, so no receipt binds it`,
-    );
-
     await withRepo(async (repoRoot) => {
       const dir = "artifacts/surfpool-quasar-smoke";
       const record = await seedRun(repoRoot, dir, "sdk-quasar-refusal-binding");

@@ -135,6 +135,7 @@ test("the Quasar SDK workflow is triggered by refusal and compatibility surface 
     ".mise.toml",
     "Anchor.toml",
     "config/networks/**",
+    "lib/config/**",
     "app/register/**",
     "app/onboarding/**",
     "app/api/onboarding/**",

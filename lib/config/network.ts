@@ -98,13 +98,17 @@ function readEnv(): Record<string, string | undefined> {
   };
 }
 
-function pickEnv(...keys: string[]): string | undefined {
+function pickEnvEntry(...keys: string[]): { key: string; value: string } | undefined {
   const env = readEnv();
   for (const key of keys) {
     const value = env[key]?.trim();
-    if (value) return value;
+    if (value) return { key, value };
   }
   return undefined;
+}
+
+function pickEnv(...keys: string[]): string | undefined {
+  return pickEnvEntry(...keys)?.value;
 }
 
 const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -154,7 +158,8 @@ export function getNetworkProfile(): NetworkProfile {
   const requestedTarget = resolveProgramTarget();
   const quasarDevnet = quasarDeployments.quasarDeployments.devnet;
 
-  const rpcOverride = pickEnv("NEXT_PUBLIC_RPC_ENDPOINT", "NEXT_PUBLIC_RPC_URL", "DEMO_DEVNET_RPC");
+  const rpcOverride = pickEnvEntry("NEXT_PUBLIC_RPC_ENDPOINT", "NEXT_PUBLIC_RPC_URL", "DEMO_DEVNET_RPC");
+  const rpcWsOverride = pickEnvEntry("NEXT_PUBLIC_RPC_WS_ENDPOINT");
   const escrowOverride = pickEnv("NEXT_PUBLIC_ESCROW_PROGRAM_ID", "DEMO_ESCROW_PROGRAM_ID");
   const registryOverride = pickEnv("NEXT_PUBLIC_REGISTRY_PROGRAM_ID", "DEMO_REGISTRY_PROGRAM_ID");
   const reputationOverride = pickEnv("NEXT_PUBLIC_REPUTATION_PROGRAM_ID", "DEMO_REPUTATION_PROGRAM_ID");
@@ -180,11 +185,15 @@ export function getNetworkProfile(): NetworkProfile {
     if (owner) duplicateLocalQuasarPrograms.push(`${label} duplicates ${owner}`);
     else localQuasarProgramOwners.set(id, label);
   }
-  const resolvedRpcHttp = rpcOverride ?? base.solana.rpcHttp;
-  const resolvedRpcWs = pickEnv("NEXT_PUBLIC_RPC_WS_ENDPOINT") ?? base.solana.rpcWs;
+  const resolvedRpcHttp = rpcOverride?.value ?? base.solana.rpcHttp;
+  const resolvedRpcWs = rpcWsOverride?.value ?? base.solana.rpcWs;
   const nonLoopbackLocalQuasarEndpoints = [
-    ...(isLoopbackRpcUrl(resolvedRpcHttp) ? [] : ["NEXT_PUBLIC_RPC_ENDPOINT"]),
-    ...(!resolvedRpcWs || isLoopbackRpcUrl(resolvedRpcWs) ? [] : ["NEXT_PUBLIC_RPC_WS_ENDPOINT"]),
+    ...(isLoopbackRpcUrl(resolvedRpcHttp)
+      ? []
+      : [rpcOverride ? rpcOverride.key : `${name} profile RPC endpoint`]),
+    ...(!resolvedRpcWs || isLoopbackRpcUrl(resolvedRpcWs)
+      ? []
+      : [rpcWsOverride ? rpcWsOverride.key : `${name} profile websocket endpoint`]),
   ];
 
   const localQuasarConfigReady =

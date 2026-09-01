@@ -131,6 +131,34 @@ describe("Quasar demo program target config", () => {
     expect(() => assertProgramTargetUsable(profile)).toThrow(/non-loopback NEXT_PUBLIC_RPC_ENDPOINT/);
   });
 
+  it("names the environment variable that actually supplied the non-loopback endpoint", async () => {
+    for (const key of ["NEXT_PUBLIC_RPC_ENDPOINT", "NEXT_PUBLIC_RPC_URL", "DEMO_DEVNET_RPC"]) {
+      jest.resetModules();
+      delete process.env.NEXT_PUBLIC_RPC_ENDPOINT;
+      delete process.env.NEXT_PUBLIC_RPC_URL;
+      delete process.env.DEMO_DEVNET_RPC;
+
+      process.env.NETWORK_PROFILE = "local-surfpool";
+      process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+      process.env[key] = "https://api.devnet.solana.com";
+      process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = QUASAR_PROGRAM_ID;
+      process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = QUASAR_REGISTRY_PROGRAM_ID;
+      process.env.NEXT_PUBLIC_REPUTATION_PROGRAM_ID = QUASAR_REPUTATION_PROGRAM_ID;
+      process.env.NEXT_PUBLIC_ATTESTATION_PROGRAM_ID = QUASAR_ATTESTATION_PROGRAM_ID;
+
+      const { assertProgramTargetUsable, getNetworkProfile } = await import("@/lib/config/network");
+      const profile = getNetworkProfile();
+
+      expect(profile.programs.target).toBe("legacy-anchor");
+      expect(profile.programs.knownGaps.join(" ")).toContain(`non-loopback ${key}`);
+      expect(() => assertProgramTargetUsable(profile)).toThrow(new RegExp(`non-loopback ${key}`));
+
+      for (const unset of ["NEXT_PUBLIC_RPC_ENDPOINT", "NEXT_PUBLIC_RPC_URL", "DEMO_DEVNET_RPC"].filter((other) => other !== key)) {
+        expect(profile.programs.knownGaps.join(" ")).not.toContain(`non-loopback ${unset}`);
+      }
+    }
+  });
+
   it("refuses local-surfpool Quasar when only the websocket endpoint leaves loopback", async () => {
     process.env.NETWORK_PROFILE = "local-surfpool";
     process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";

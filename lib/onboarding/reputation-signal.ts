@@ -8,8 +8,13 @@ import "server-only";
  * 2. reveal_rating   — reveal score + salt to finalise and apply reputation update
  *
  * Legacy Anchor commitment hash: sha256(score_u8 || salt_bytes32)
- * Quasar commitment hash: sha256(score_u8 || salt_bytes32 || job_id_bytes16 || reputation_program_id)
- * Rating PDA seeds: [b"rating", job_id_bytes16]
+ * Legacy Anchor rating PDA seeds: [b"rating", job_id_bytes16]
+ *
+ * Quasar binds to the escrow a successful lock created, not to a job id: the commitment hash is
+ * sha256(score_u8 || salt_bytes32 || escrow_address || reputation_program_id) and the rating PDA
+ * seeds are [b"rating", escrow_address], matching
+ * experiments/quasar-reputation/src/instructions/reveal.rs. The pre-job-binding job-id form is the
+ * layout config/quasar/deployments.json records as the incompatible devnet deployment.
  */
 
 import {
