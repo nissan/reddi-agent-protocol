@@ -10,6 +10,8 @@ describe("program/network alignment", () => {
     delete process.env.HACKATHON_DEMO_TARGET;
     delete process.env.DEMO_PROGRAM_TARGET;
     delete process.env.ALLOW_UNSAFE_ESCROW_OVERRIDE;
+    delete process.env.NEXT_PUBLIC_ALLOW_UNSAFE_ESCROW_OVERRIDE;
+    delete process.env.NEXT_PUBLIC_BUILD_ALLOW_UNSAFE_ESCROW_OVERRIDE;
     delete process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID;
     delete process.env.NEXT_PUBLIC_BUILD_NETWORK_PROFILE;
   });
@@ -119,5 +121,27 @@ describe("program/network alignment", () => {
 
     expect(PROGRAM_DEPLOYMENT_STATUS).toBe("local-only");
     expect(SUBMISSION_BLOCKED).toBe(false);
+  });
+
+  it("blocks wallet submission for a refused Quasar local Surfpool profile", async () => {
+    process.env.NETWORK_PROFILE = "surfpool";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+
+    const { SUBMISSION_BLOCKED, SUBMISSION_BLOCKED_REASON, PROGRAM_DEPLOYMENT_STATUS } = await import("@/lib/program");
+
+    expect(PROGRAM_DEPLOYMENT_STATUS).toBe("local-only");
+    expect(SUBMISSION_BLOCKED).toBe(true);
+    expect(SUBMISSION_BLOCKED_REASON).toMatch(/no registered Quasar deployment/);
+  });
+
+  it("blocks wallet submission for a malformed program-id override on devnet", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryMainnet11111111111111111111111111111";
+
+    const { SUBMISSION_BLOCKED, SUBMISSION_BLOCKED_REASON, PROGRAM_DEPLOYMENT_STATUS } = await import("@/lib/program");
+
+    expect(PROGRAM_DEPLOYMENT_STATUS).toBe("devnet-deployed");
+    expect(SUBMISSION_BLOCKED).toBe(true);
+    expect(SUBMISSION_BLOCKED_REASON).toMatch(/malformed program id override/);
   });
 });

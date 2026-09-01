@@ -71,7 +71,7 @@ function readEnv(): Record<string, string | undefined> {
     NEXT_PUBLIC_ATTESTATION_PROGRAM_ID: process.env.NEXT_PUBLIC_ATTESTATION_PROGRAM_ID,
     DEMO_ATTESTATION_PROGRAM_ID: process.env.DEMO_ATTESTATION_PROGRAM_ID,
     ALLOW_UNSAFE_ESCROW_OVERRIDE: process.env.ALLOW_UNSAFE_ESCROW_OVERRIDE,
-    NEXT_PUBLIC_ALLOW_UNSAFE_ESCROW_OVERRIDE: process.env.NEXT_PUBLIC_ALLOW_UNSAFE_ESCROW_OVERRIDE,
+    NEXT_PUBLIC_BUILD_ALLOW_UNSAFE_ESCROW_OVERRIDE: process.env.NEXT_PUBLIC_BUILD_ALLOW_UNSAFE_ESCROW_OVERRIDE,
     JUPITER_API_BASE: process.env.JUPITER_API_BASE,
     NEXT_PUBLIC_PER_RPC: process.env.NEXT_PUBLIC_PER_RPC,
     DEMO_PER_RPC: process.env.DEMO_PER_RPC,
@@ -143,8 +143,8 @@ export function getNetworkProfile(): NetworkProfile {
 
   const rpcOverride = pickEnv("NEXT_PUBLIC_RPC_ENDPOINT", "NEXT_PUBLIC_RPC_URL", "DEMO_DEVNET_RPC");
   const escrowOverride = pickEnv("NEXT_PUBLIC_ESCROW_PROGRAM_ID", "DEMO_ESCROW_PROGRAM_ID");
-  const allowUnsafeDevnetOverride =
-    pickEnv("ALLOW_UNSAFE_ESCROW_OVERRIDE", "NEXT_PUBLIC_ALLOW_UNSAFE_ESCROW_OVERRIDE") === "true";
+  const buildUnsafeOverride = pickEnv("NEXT_PUBLIC_BUILD_ALLOW_UNSAFE_ESCROW_OVERRIDE");
+  const allowUnsafeDevnetOverride = (buildUnsafeOverride ?? pickEnv("ALLOW_UNSAFE_ESCROW_OVERRIDE")) === "true";
 
   const quasarPrograms = quasarDevnet.programIds ?? { escrow: quasarDevnet.programId };
   const targetProgramId = target === "quasar" ? quasarPrograms.escrow : base.programs.escrowProgramId;
@@ -250,7 +250,7 @@ export function getNetworkProfile(): NetworkProfile {
             : true,
       submissionReadyReason:
         name === "mainnet"
-          ? "Mainnet activation is blocked: no audited deployment is registered and the Quasar four-program set cannot be resolved for mainnet."
+          ? "Mainnet activation is blocked: no audited mainnet deployment is registered and the Quasar four-program set cannot be resolved for mainnet."
           : quasarRequestRefused
             ? `A Quasar program target was requested for ${name}, which has no registered Quasar deployment; the request is refused.`
             : malformedOverrides.length > 0

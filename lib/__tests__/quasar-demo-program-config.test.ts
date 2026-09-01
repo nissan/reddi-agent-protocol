@@ -21,6 +21,7 @@ describe("Quasar demo program target config", () => {
     delete process.env.NEXT_PUBLIC_ATTESTATION_PROGRAM_ID;
     delete process.env.ALLOW_UNSAFE_ESCROW_OVERRIDE;
     delete process.env.NEXT_PUBLIC_ALLOW_UNSAFE_ESCROW_OVERRIDE;
+    delete process.env.NEXT_PUBLIC_BUILD_ALLOW_UNSAFE_ESCROW_OVERRIDE;
   });
 
   afterAll(() => {
@@ -276,9 +277,10 @@ describe("Quasar demo program target config", () => {
     expect(PROGRAM_SUBMISSION_READY).toBe(false);
   });
 
-  it("keeps a valid devnet override applied on both sides via the public unsafe flag", async () => {
+  it("keeps a valid devnet override applied on both sides via the immutable build unsafe flag", async () => {
     process.env.NETWORK_PROFILE = "devnet";
-    process.env.NEXT_PUBLIC_ALLOW_UNSAFE_ESCROW_OVERRIDE = "true";
+    process.env.NEXT_PUBLIC_BUILD_ALLOW_UNSAFE_ESCROW_OVERRIDE = "true";
+    process.env.NEXT_PUBLIC_ALLOW_UNSAFE_ESCROW_OVERRIDE = "false";
     process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryLoca1111111111111111111111111111111";
 
     const { getNetworkProfile } = await import("@/lib/config/network");
@@ -328,7 +330,18 @@ describe("Quasar demo program target config", () => {
     expect(profile.programs.escrowProgramId).toBe(QUASAR_PROGRAM_ID);
   });
 
-  it("applies per-program overrides on devnet when the unsafe flag is set", async () => {
+  it("ignores a runtime public unsafe flag that was not mirrored at build time", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_ALLOW_UNSAFE_ESCROW_OVERRIDE = "true";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryLoca1111111111111111111111111111111";
+
+    const { getNetworkProfile } = await import("@/lib/config/network");
+    const profile = getNetworkProfile();
+
+    expect(profile.programs.registryProgramId).not.toBe("RegistryLoca1111111111111111111111111111111");
+  });
+
+  it("applies per-program overrides on devnet when the non-Next tooling fallback flag is set", async () => {
     process.env.NETWORK_PROFILE = "devnet";
     process.env.ALLOW_UNSAFE_ESCROW_OVERRIDE = "true";
     process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryLoca1111111111111111111111111111111";

@@ -1,4 +1,4 @@
-import { Keypair } from "@solana/web3.js";
+import { Connection, Keypair } from "@solana/web3.js";
 
 describe("server-side operator signers honour the profile submission gate", () => {
   const originalEnv = process.env;
@@ -12,7 +12,11 @@ describe("server-side operator signers honour the profile submission gate", () =
     delete process.env.NEXT_PUBLIC_NETWORK_PROFILE;
     delete process.env.NEXT_PUBLIC_BUILD_NETWORK_PROFILE;
     delete process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET;
+    delete process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID;
+    delete process.env.NEXT_PUBLIC_ALLOW_UNSAFE_ESCROW_OVERRIDE;
+    delete process.env.NEXT_PUBLIC_BUILD_ALLOW_UNSAFE_ESCROW_OVERRIDE;
     process.env.ONBOARDING_ATTEST_OPERATOR_SECRET_KEY = operatorSecret;
+    jest.restoreAllMocks();
   });
 
   afterAll(() => {
@@ -49,6 +53,46 @@ describe("server-side operator signers honour the profile submission gate", () =
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.error).toMatch(/real mainnet fees/);
     expect(result.trace).toContain("reputation:submission_blocked");
+  });
+
+  it("refuses a malformed/gapped devnet attestation profile before signer or RPC use", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryMainnet11111111111111111111111111111";
+    process.env.ONBOARDING_ATTEST_OPERATOR_SECRET_KEY = "not-json";
+    const getLatestBlockhash = jest.spyOn(Connection.prototype, "getLatestBlockhash");
+
+    const { submitOnchainOnboardingAttestation } = await import("@/lib/onboarding/onchain-attestation");
+
+    await expect(
+      submitOnchainOnboardingAttestation({ walletAddress: specialistWallet }),
+    ).rejects.toThrow(/malformed program id override/);
+    expect(getLatestBlockhash).not.toHaveBeenCalled();
+  });
+
+  it("refuses a malformed/gapped devnet reputation profile before signer use", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryMainnet11111111111111111111111111111";
+    process.env.ONBOARDING_ATTEST_OPERATOR_SECRET_KEY = "not-json";
+
+    const { commitReputationRating } = await import("@/lib/onboarding/reputation-signal");
+    const result = await commitReputationRating("run-malformed-commit", 8, specialistWallet);
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toMatch(/malformed program id override/);
+    expect(result.trace).toEqual(["reputation:submission_blocked"]);
+  });
+
+  it("refuses a Quasar local Surfpool operator send before signer use", async () => {
+    process.env.NETWORK_PROFILE = "local-surfpool";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+    process.env.ONBOARDING_ATTEST_OPERATOR_SECRET_KEY = "not-json";
+
+    const { commitReputationRating } = await import("@/lib/onboarding/reputation-signal");
+    const result = await commitReputationRating("run-refused-surfpool-commit", 8, specialistWallet);
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toMatch(/no registered Quasar deployment/);
+    expect(result.trace).toEqual(["reputation:submission_blocked"]);
   });
 
   it("lets the same calls past the gate on the devnet profile", async () => {

@@ -31,9 +31,14 @@ export const PROGRAM_DEPLOYMENT_STATUS = network.programs.deploymentStatus;
  * Every transaction-signing surface consults it — browser wallet submits and server-side
  * operator signers alike — because the cost it prevents is the same on both.
  */
-export const SUBMISSION_BLOCKED = network.programs.deploymentStatus === "mainnet-not-deployed";
-export const SUBMISSION_BLOCKED_REASON =
-  "Transaction submission is blocked on this network profile: no audited mainnet deployment is registered, so submitting would spend real mainnet fees on a transaction against a program that is not executable on this cluster.";
+export const SUBMISSION_BLOCKED = !network.programs.submissionReady;
+export const SUBMISSION_BLOCKED_REASON = network.programs.submissionReadyReason
+  ? `Transaction submission is blocked on this network profile: ${network.programs.submissionReadyReason}${
+      network.programs.deploymentStatus === "mainnet-not-deployed"
+        ? " Submitting would spend real mainnet fees on a transaction against a program that is not executable on this cluster."
+        : ""
+    }`
+  : "Transaction submission is blocked on this network profile because the resolved program set is not ready for transaction submission.";
 
 /** Solana RPC endpoint from active network profile */
 export const DEVNET_RPC = network.solana.rpcHttp;

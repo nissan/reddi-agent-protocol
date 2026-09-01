@@ -71,16 +71,17 @@ surfaces as the amber blocked-readiness banner instead of throwing out of
 `lib/program.ts` at module scope and 500-ing every page.
 
 The hijack guard applies to `getNetworkProfile()` only: on the devnet profile it
-ignores these overrides unless `ALLOW_UNSAFE_ESCROW_OVERRIDE=true` (or its
-`NEXT_PUBLIC_ALLOW_UNSAFE_ESCROW_OVERRIDE` mirror), for both the
-legacy-Anchor and the Quasar target, so a stray env var cannot repoint the web
-app's registered devnet program set. Only the `NEXT_PUBLIC_`-prefixed form is
-inlined into the client bundle: the wallet signs in the browser, so use that form
-when the override must apply to what actually gets submitted — the non-public form
-alone authorises server-side resolution only, and the SSR HTML would then disagree
-with the id the wallet builds against. `packages/demo-agents` deliberately does not
-apply that guard — it honours its `DEMO_*` / `NEXT_PUBLIC_*` program id overrides
-unconditionally on devnet/local, because the Surfpool smoke lanes
+ignores these overrides unless the build was made with
+`ALLOW_UNSAFE_ESCROW_OVERRIDE=true`, for both the legacy-Anchor and the Quasar
+target, so a stray env var cannot repoint the web app's registered devnet program
+set. `next.config.ts` mirrors that explicit server setting into
+`NEXT_PUBLIC_BUILD_ALLOW_UNSAFE_ESCROW_OVERRIDE`, and the resolver consumes that
+immutable build mirror on both server and client whenever it is present. The
+browser does not accept a freely changeable runtime public unsafe-override flag;
+plain `ALLOW_UNSAFE_ESCROW_OVERRIDE` is only a fallback for non-Next tooling and
+unit tests when no build mirror exists. `packages/demo-agents` deliberately does
+not apply that guard — it honours its `DEMO_*` / `NEXT_PUBLIC_*` program id
+overrides unconditionally on devnet/local, because the Surfpool smoke lanes
 (`scripts/run-surfpool-quasar-critical-smoke.sh`) depend on repointing it at
 locally deployed programs.
 
@@ -98,19 +99,22 @@ not submission-ready, and records the refusal in `knownGaps` — so `/register` 
 `/economic-demo` render an amber blocked-readiness banner listing those gaps
 rather than failing to load.
 
-On profiles whose resolved `deploymentStatus` is `mainnet-not-deployed`,
-`lib/program.ts` exports `SUBMISSION_BLOCKED = true`, and every
-transaction-signing surface consults it — browser and server alike, because the
-cost it prevents is the same on both. In the browser: the register action on
-`/register`, and the register plus confirm/dispute attestation actions on
-`/onboarding`. On the server, where an operator keypair signs without a wallet
-prompt: `submitOnchainOnboardingAttestation` (behind `/api/onboarding/attestation`)
-throws, and `commitReputationRating` / `revealReputationRating` (behind the
-planner feedback and reveal routes) return `ok: false` with the blocked reason.
-No audited mainnet deployment is registered, so submitting would spend real
-mainnet fees on a transaction against a program that is not executable on that
-cluster. On every other profile the banner is advisory only — it reports
-readiness and does not disable submission.
+On profiles whose resolved program set is not submission-ready, `lib/program.ts`
+exports `SUBMISSION_BLOCKED = true`, and every transaction-signing surface
+consults it — browser and server alike, because the cost it prevents is the same
+on both. This includes the undeployed mainnet profile, refused Quasar targets on
+non-devnet profiles, and malformed program-id overrides that were rejected before
+`PublicKey` construction. In the browser: the register action on `/register`, and
+the register plus confirm/dispute attestation actions on `/onboarding`. On the
+server, where an operator keypair signs without a wallet prompt:
+`submitOnchainOnboardingAttestation` (behind `/api/onboarding/attestation`) throws,
+and `commitReputationRating` / `revealReputationRating` (behind the planner
+feedback and reveal routes) return `ok: false` with the blocked reason before
+signer use, transaction construction, or RPC submission. No audited mainnet
+deployment is registered, so submitting there would spend real mainnet fees on a
+transaction against a program that is not executable on that cluster. On profiles
+that are submission-ready the banner is advisory only — it reports readiness and
+does not disable submission.
 
 **Set the profile in the build environment, not just the runtime one.** Next
 inlines every `NEXT_PUBLIC_*` variable present in the build environment as a
