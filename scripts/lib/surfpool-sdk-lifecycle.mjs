@@ -159,6 +159,7 @@ async function runReadinessAttempt(probe, rpcUrl, { signal, attempts, budgetMs }
 export async function waitForSurfnetReadiness(rpcUrl, options = {}) {
   const timeoutMs = options.timeoutMs ?? 20_000;
   const intervalMs = options.intervalMs ?? 250;
+  const attemptTimeoutMs = options.attemptTimeoutMs ?? Math.max(intervalMs * 4, 2_000);
   const probe = options.probe ?? defaultReadinessProbe;
   const signal = options.signal;
   const startedAt = Date.now();
@@ -168,7 +169,7 @@ export async function waitForSurfnetReadiness(rpcUrl, options = {}) {
   while (Date.now() - startedAt <= timeoutMs) {
     if (signal?.aborted) throw signal.reason ?? new Error("readiness aborted");
     attempts += 1;
-    const budgetMs = Math.max(1, timeoutMs - (Date.now() - startedAt));
+    const budgetMs = Math.max(1, Math.min(timeoutMs - (Date.now() - startedAt), attemptTimeoutMs));
     try {
       if (await runReadinessAttempt(probe, rpcUrl, { signal, attempts, budgetMs })) return { attempts };
     } catch (error) {
@@ -210,6 +211,7 @@ export async function startLocalSurfnet(Surfnet, options = {}) {
     const readiness = await waitForSurfnetReadiness(endpoints.rpcUrl, {
       timeoutMs: options.readinessTimeoutMs,
       intervalMs: options.readinessIntervalMs,
+      attemptTimeoutMs: options.readinessAttemptTimeoutMs,
       probe: options.readinessProbe,
       signal: options.signal,
     });

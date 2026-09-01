@@ -151,6 +151,69 @@ test("readiness aborts each hung probe attempt instead of leaking it", async () 
   assert.match(observedAborts[0], /exceeded \d+ms/);
 });
 
+test("a hung probe consumes only its attempt slice, so a recovering RPC is still detected", async () => {
+  let probeCalls = 0;
+  class FakeSurfnet {
+    static startWithConfig() {
+      return {
+        rpcUrl: "http://127.0.0.1:18197",
+        wsUrl: "ws://127.0.0.1:18198",
+        instanceId: "fake-hung-then-healthy",
+        stop() {},
+      };
+    }
+  }
+
+  const lease = await startLocalSurfnet(FakeSurfnet, {
+    env: {},
+    readinessTimeoutMs: 1_000,
+    readinessIntervalMs: 5,
+    readinessAttemptTimeoutMs: 50,
+    readinessProbe: () => {
+      probeCalls += 1;
+      return probeCalls === 1 ? new Promise(() => {}) : true;
+    },
+  });
+
+  assert.equal(lease.readinessAttempts, 2, "the stalled first attempt must not consume the whole window");
+  lease.stop();
+});
+
+test("a permanently hung probe is retried across the readiness window and still fails closed", async () => {
+  class FakeSurfnet {
+    static startWithConfig() {
+      return {
+        rpcUrl: "http://127.0.0.1:18199",
+        wsUrl: "ws://127.0.0.1:18200",
+        instanceId: "fake-hung-retry",
+        stop() {},
+      };
+    }
+  }
+
+  const startedAt = Date.now();
+  let attempts = 0;
+  await assert.rejects(
+    startLocalSurfnet(FakeSurfnet, {
+      env: {},
+      readinessTimeoutMs: 400,
+      readinessIntervalMs: 5,
+      readinessAttemptTimeoutMs: 50,
+      readinessProbe: () => {
+        attempts += 1;
+        return new Promise(() => {});
+      },
+    }),
+    (error) => {
+      assert.ok(error instanceof SurfpoolReadinessError);
+      assert.ok(error.attempts >= 3, `expected retries within the window, got ${error.attempts}`);
+      return true;
+    },
+  );
+  assert.ok(attempts >= 3, `expected the hung probe to be retried, got ${attempts} call(s)`);
+  assert.ok(Date.now() - startedAt < 10_000, "overall readiness must still be bounded");
+});
+
 test("waiting for readiness does not accumulate abort listeners on a long-lived signal", async () => {
   const controller = new AbortController();
   class FakeSurfnet {
