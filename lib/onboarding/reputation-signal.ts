@@ -27,7 +27,7 @@ import {
   quasarRatingCommitment,
   quasarRatingPda,
 } from "@/lib/quasar/instructions";
-import { resolveOnboardingQuasarEscrow } from "@/lib/onboarding/quasar-escrow-binding";
+import { QUASAR_ESCROW_UNAVAILABLE_REASON, resolveOnboardingQuasarEscrow } from "@/lib/onboarding/quasar-escrow-binding";
 import { emitTorqueEvent } from "@/lib/torque/client";
 import { TORQUE_EVENTS } from "@/lib/torque/events";
 
@@ -177,7 +177,13 @@ export async function commitReputationRating(
   const trace: string[] = [];
   const isQuasar = PROGRAM_TARGET === "quasar";
 
-  if (SUBMISSION_BLOCKED && !isQuasar) {
+  if (isQuasar) {
+    // No onboarding surface records a Quasar lock result yet; refuse before reading/parsing any
+    // operator signer material, constructing an instruction, or opening RPC.
+    trace.push(`reputation:quasar_escrow_rejected=${QUASAR_ESCROW_UNAVAILABLE_REASON}`);
+    return { ok: false, error: QUASAR_ESCROW_UNAVAILABLE_REASON, trace };
+  }
+  if (SUBMISSION_BLOCKED) {
     trace.push("reputation:submission_blocked");
     return { ok: false, error: SUBMISSION_BLOCKED_REASON, trace };
   }
@@ -325,7 +331,13 @@ export async function revealReputationRating(runId: string): Promise<ReputationR
   const trace: string[] = [];
   const isQuasar = PROGRAM_TARGET === "quasar";
 
-  if (SUBMISSION_BLOCKED && !isQuasar) {
+  if (isQuasar) {
+    // No onboarding surface records a Quasar lock result yet; refuse before reading/parsing any
+    // operator signer material, constructing an instruction, reading the commit store, or opening RPC.
+    trace.push(`reputation:quasar_escrow_rejected=${QUASAR_ESCROW_UNAVAILABLE_REASON}`);
+    return { ok: false, error: QUASAR_ESCROW_UNAVAILABLE_REASON, trace };
+  }
+  if (SUBMISSION_BLOCKED) {
     trace.push("reputation:submission_blocked");
     return { ok: false, error: SUBMISSION_BLOCKED_REASON, trace };
   }

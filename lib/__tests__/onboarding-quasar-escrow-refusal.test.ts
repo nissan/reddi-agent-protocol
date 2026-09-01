@@ -62,10 +62,10 @@ describe("onboarding Quasar reputation/attestation refuses without a lock-create
     process.env = originalEnv;
   });
 
-  async function useQuasarTarget() {
+  async function useQuasarTarget(operatorSecret?: string) {
     process.env.NETWORK_PROFILE = "devnet";
     process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
-    process.env.ONBOARDING_ATTEST_OPERATOR_SECRET_KEY = await operatorSecretKey();
+    process.env.ONBOARDING_ATTEST_OPERATOR_SECRET_KEY = operatorSecret ?? await operatorSecretKey();
     const { PROGRAM_TARGET } = await import("@/lib/program");
     expect(PROGRAM_TARGET).toBe("quasar");
   }
@@ -123,6 +123,33 @@ describe("onboarding Quasar reputation/attestation refuses without a lock-create
       }),
     ).rejects.toThrow(QUASAR_ESCROW_UNAVAILABLE_REASON);
 
+    expect(rpcConstructions).toEqual([]);
+  });
+
+  it("Quasar missing-lock refusal happens before operator signer parsing", async () => {
+    await useQuasarTarget("not a JSON keypair");
+    const { commitReputationRating, revealReputationRating } = await import("@/lib/onboarding/reputation-signal");
+    const { submitOnchainOnboardingAttestation } = await import("@/lib/onboarding/onchain-attestation");
+    const { QUASAR_ESCROW_UNAVAILABLE_REASON } = await import("@/lib/onboarding/quasar-escrow-binding");
+
+    const commit = await commitReputationRating("run-1", 8, SPECIALIST);
+    expect(commit.ok).toBe(false);
+    expect(commit.ok === false && commit.error).toBe(QUASAR_ESCROW_UNAVAILABLE_REASON);
+
+    const reveal = await revealReputationRating("run-1");
+    expect(reveal.ok).toBe(false);
+    expect(reveal.ok === false && reveal.error).toBe(QUASAR_ESCROW_UNAVAILABLE_REASON);
+
+    await expect(
+      submitOnchainOnboardingAttestation({
+        walletAddress: SPECIALIST,
+        operatorSecretKey: "not a JSON keypair",
+      }),
+    ).rejects.toThrow(QUASAR_ESCROW_UNAVAILABLE_REASON);
+
+    for (const error of [commit.ok === false && commit.error, reveal.ok === false && reveal.error]) {
+      expect(error).not.toMatch(/SECRET_KEY|JSON byte array|Invalid/);
+    }
     expect(rpcConstructions).toEqual([]);
   });
 

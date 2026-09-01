@@ -17,7 +17,7 @@ import {
 } from "@/lib/program";
 import { buildOnboardingAttestQualityInstruction, onboardingAttestationPda } from "@/lib/onboarding/attestation-instruction";
 import { quasarAttestationPda } from "@/lib/quasar/instructions";
-import { resolveOnboardingQuasarEscrow } from "@/lib/onboarding/quasar-escrow-binding";
+import { QUASAR_ESCROW_UNAVAILABLE_REASON, resolveOnboardingQuasarEscrow } from "@/lib/onboarding/quasar-escrow-binding";
 
 export type SubmitOnchainAttestationInput = {
   walletAddress: string;
@@ -88,7 +88,12 @@ export async function submitOnchainOnboardingAttestation(
   input: SubmitOnchainAttestationInput
 ): Promise<SubmitOnchainAttestationResult> {
   const isQuasar = PROGRAM_TARGET === "quasar";
-  if (SUBMISSION_BLOCKED && !isQuasar) {
+  if (isQuasar) {
+    // No onboarding surface records a Quasar lock result yet; refuse before reading/parsing any
+    // operator signer material, constructing an instruction, or opening RPC.
+    throw new Error(QUASAR_ESCROW_UNAVAILABLE_REASON);
+  }
+  if (SUBMISSION_BLOCKED) {
     throw new Error(SUBMISSION_BLOCKED_REASON);
   }
 

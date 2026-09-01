@@ -25,7 +25,7 @@ The run completes cleanup, writes all PASS log lines, writes and flushes `SUMMAR
 Every receipt is bound to two things beyond its own contents:
 
 - **Freshness.** `ACCEPTED_EVIDENCE_MAX_AGE_MS` (14 days, owned by `scripts/lib/surfpool-evidence-manifest.mjs`) is enforced by every consumer. A caller may tighten the window but cannot widen or disable it.
-- **Sources.** The receipt records a SHA-256 fingerprint of the repository paths the lane's result depends on (the Quasar or Anchor program sources, the demo client, the lane runner and its libraries, the deployment inventory, and the pinned toolchain baseline). Readers recompute it, so editing any of those invalidates prior evidence and the lane must be re-run.
+- **Sources.** The receipt records a SHA-256 fingerprint of the repository paths the lane's result depends on (the Quasar or Anchor program sources, the demo client, the lane runner and its libraries, Quasar assertion scripts, the deployment/runtime compatibility inventories, package manifests/locks, and the pinned toolchain baseline). Readers recompute it, so editing any of those invalidates prior evidence and the lane must be re-run.
 
 Consumers such as `scripts/generate-economic-demo-submission-prep.mjs` read that receipt and validate target, status, provenance, freshness, source fingerprint, the bound evidence root, and that every cited artifact still exists inside that root (symlinked escapes are refused). Failed runs keep their own directory for debugging but never publish a receipt, so a `Status: FAIL` summary cannot displace or be cited in place of accepted evidence. Run ids are random UUIDs and are deliberately *not* used for chronological selection.
 
