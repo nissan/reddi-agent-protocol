@@ -27,9 +27,10 @@ import type { RailNeutralPaymentReceipt } from './rail-neutral-payment-receipts.
  * `instructionBuilt: false` and `signable: false`; nothing in this module
  * touches a wallet, an RPC endpoint's client, a program deploy path, a live
  * payment, or reputation state. Values that only a later checklist-gated
- * builder issue may produce (u128 job-id encoding, salt, commitment hash,
- * party public keys, account addresses) are named in
- * `deferredToInstructionBuilder` and are never fabricated here — see
+ * builder issue may produce (salt, the commitment hash, `u8` encodings, the
+ * verified escrow address, and the escrow-seeded PDA/signer accounts) are
+ * named in `deferredToInstructionBuilder` — split into `instructionData` and
+ * `accountInputs` — and are never fabricated here; see
  * `docs/QUASAR-SURFPOOL-DEVNET-PROMOTION-CHECKLIST.md` (#441).
  *
  * Field-split discipline (#390 / `docs/DISCOVER-DECIDE-PROVE-BOUNDARIES.md`):
@@ -84,6 +85,8 @@ export const QUASAR_REPUTATION_INTENT_COMPATIBILITY = {
     commit: ['escrow', 'rating', 'signer', 'system_program'],
     reveal: ['escrow', 'rating', 'signer', 'specialist_agent', 'consumer_agent'],
     attest: ['escrow', 'attestation', 'judge_agent', 'judge', 'system_program'],
+    confirm: ['escrow', 'attestation', 'judge_agent', 'consumer'],
+    dispute: ['escrow', 'attestation', 'judge_agent', 'consumer'],
   },
   pdaSeeds: {
     rating: ['rating', 'escrow_address'],
@@ -199,29 +202,52 @@ export type QuasarReputationIntentRecord = {
     discriminator: 1 | 2 | 3;
   };
   /**
-   * Compact on-chain argument values that are derivable from the eligible
+   * Compact instruction-data values that are derivable from the eligible
    * records today. Everything else is named in `deferredToInstructionBuilder`.
    */
   compactFields: {
-    /** RAP job id backing the on-chain `job_id`; u128 encoding is deferred. */
+    /**
+     * Off-chain RAP correlation only, never an instruction argument: the
+     * post-job-binding programs dropped the caller-supplied `job_id`. On-chain
+     * job identity lives in `escrowBinding`.
+     */
     jobIdRef: string;
-    /** Rating party for commit intents (u8 mapping is a builder concern). */
+    /** Rating party for commit intents (the `role: u8` mapping is deferred). */
     role?: 'consumer';
     /** 1-10 score scaled from the reputation event draft rubric score. */
     score?: number;
     /** Commitment described by contract only — nothing is computed here. */
     commitment?: {
       algorithm: 'sha256';
-      preimageFields: readonly ['score', 'salt', 'job_id', 'program_id'];
+      preimageFields: readonly ['score', 'salt', 'escrow_address', 'program_id'];
       state: 'not_computed';
     };
   };
   /**
-   * Argument names a later Surfpool-checklist-gated issue (#441 boundary)
-   * must produce before any instruction exists. This module never fabricates
-   * them.
+   * On-chain job identity under the current sources. There is no
+   * caller-supplied job id: the escrow account address *is* the job key, it
+   * must come from a verified escrow that `quasar-escrow::lock` actually
+   * created, and each lane PDA is seeded by it. This module resolves nothing
+   * here — the address is a builder input listed in
+   * `deferredToInstructionBuilder.accountInputs`.
    */
-  deferredToInstructionBuilder: readonly string[];
+  escrowBinding: {
+    source: 'verified-lock-created-escrow';
+    /** Lane PDA seeds, keyed on the escrow address rather than a job id. */
+    pdaSeeds: readonly ['rating' | 'attestation', 'escrow_address'];
+    state: 'not_resolved';
+  };
+  /**
+   * Inputs a later Surfpool-checklist-gated issue (#441 boundary) must produce
+   * before any instruction exists, split by where they land in a transaction.
+   * This module never fabricates them.
+   */
+  deferredToInstructionBuilder: {
+    /** Instruction-data arguments of the current source ABI. */
+    instructionData: readonly string[];
+    /** Account and signer inputs, mirroring `onchainAccountNames`. */
+    accountInputs: readonly string[];
+  };
   /** Rich RAP/ARD metadata stays off-chain; referenced by id only. */
   offchainRefs: {
     bindingId: string;
@@ -590,18 +616,15 @@ function intentRecordFor(
         role: 'consumer',
         commitment: {
           algorithm: 'sha256',
-          preimageFields: ['score', 'salt', 'job_id', 'program_id'],
+          preimageFields: ['score', 'salt', 'escrow_address', 'program_id'],
           state: 'not_computed',
         },
       },
-      deferredToInstructionBuilder: [
-        'job_id_u128_encoding',
-        'salt_generation',
-        'commitment_hash',
-        'consumer_pk',
-        'specialist_pk',
-        'rating_account_address',
-      ],
+      escrowBinding: escrowBindingFor('rating'),
+      deferredToInstructionBuilder: {
+        instructionData: ['salt_generation', 'commitment_hash', 'role_u8_encoding'],
+        accountInputs: QUASAR_REPUTATION_INTENT_COMPATIBILITY.onchainAccountNames.commit,
+      },
     };
   }
 
@@ -610,7 +633,11 @@ function intentRecordFor(
       ...base,
       program: reputationProgramLane('reveal', 2),
       compactFields: { jobIdRef, score },
-      deferredToInstructionBuilder: ['job_id_u128_encoding', 'salt', 'rating_account_address'],
+      escrowBinding: escrowBindingFor('rating'),
+      deferredToInstructionBuilder: {
+        instructionData: ['salt', 'score_u8_encoding'],
+        accountInputs: QUASAR_REPUTATION_INTENT_COMPATIBILITY.onchainAccountNames.reveal,
+      },
     };
   }
 
@@ -619,7 +646,13 @@ function intentRecordFor(
       ...base,
       program: attestationProgramLane('confirm', 2),
       compactFields: { jobIdRef },
-      deferredToInstructionBuilder: ['job_id_u128_encoding', 'consumer_authority', 'attestation_account_address'],
+      escrowBinding: escrowBindingFor('attestation'),
+      // `confirm` takes no instruction data under the current sources; the
+      // consumer is authorised by signer identity against `attestation.consumer`.
+      deferredToInstructionBuilder: {
+        instructionData: [],
+        accountInputs: QUASAR_REPUTATION_INTENT_COMPATIBILITY.onchainAccountNames.confirm,
+      },
     };
   }
 
@@ -627,7 +660,27 @@ function intentRecordFor(
     ...base,
     program: attestationProgramLane('dispute', 3),
     compactFields: { jobIdRef },
-    deferredToInstructionBuilder: ['job_id_u128_encoding', 'consumer_authority', 'attestation_account_address'],
+    escrowBinding: escrowBindingFor('attestation'),
+    // `dispute` is likewise argument-less; see the `confirm` note above.
+    deferredToInstructionBuilder: {
+      instructionData: [],
+      accountInputs: QUASAR_REPUTATION_INTENT_COMPATIBILITY.onchainAccountNames.dispute,
+    },
+  };
+}
+
+/**
+ * The escrow-address job binding for one lane. Always `not_resolved`: the
+ * address only exists once a real `quasar-escrow::lock` has created the
+ * escrow, which no fixture-level record may assert.
+ */
+function escrowBindingFor(
+  lane: 'rating' | 'attestation',
+): QuasarReputationIntentRecord['escrowBinding'] {
+  return {
+    source: 'verified-lock-created-escrow',
+    pdaSeeds: [lane, 'escrow_address'],
+    state: 'not_resolved',
   };
 }
 

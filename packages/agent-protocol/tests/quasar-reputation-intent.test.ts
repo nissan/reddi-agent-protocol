@@ -242,11 +242,25 @@ describe('deriveQuasarReputationIntentPlan — happy paths', () => {
     assert.equal(commitIntent.compactFields.jobIdRef, 'job:quasar-intent:happy');
     assert.equal(commitIntent.compactFields.role, 'consumer');
     assert.equal(commitIntent.compactFields.commitment?.state, 'not_computed');
-    assert.deepEqual(commitIntent.compactFields.commitment?.preimageFields, ['score', 'salt', 'job_id', 'program_id']);
-    assert.ok(commitIntent.deferredToInstructionBuilder.includes('salt_generation'));
-    assert.ok(commitIntent.deferredToInstructionBuilder.includes('commitment_hash'));
-    assert.ok(commitIntent.deferredToInstructionBuilder.includes('consumer_pk'));
-    assert.ok(commitIntent.deferredToInstructionBuilder.includes('specialist_pk'));
+    assert.deepEqual(commitIntent.compactFields.commitment?.preimageFields, [
+      'score',
+      'salt',
+      'escrow_address',
+      'program_id',
+    ]);
+    assert.deepEqual(commitIntent.escrowBinding, {
+      source: 'verified-lock-created-escrow',
+      pdaSeeds: ['rating', 'escrow_address'],
+      state: 'not_resolved',
+    });
+    assert.deepEqual(
+      [...commitIntent.deferredToInstructionBuilder.instructionData],
+      ['salt_generation', 'commitment_hash', 'role_u8_encoding'],
+    );
+    assert.deepEqual(
+      [...commitIntent.deferredToInstructionBuilder.accountInputs],
+      ['escrow', 'rating', 'signer', 'system_program'],
+    );
   });
 
   it('scales the reveal score from the 0-100 rubric score onto the program 1-10 range', () => {
@@ -257,7 +271,12 @@ describe('deriveQuasarReputationIntentPlan — happy paths', () => {
     assert.equal(revealIntent.compactFields.score, 9); // rubricScore 92 -> 9
     assert.ok(revealIntent.compactFields.score! >= QUASAR_REPUTATION_INTENT_COMPATIBILITY.scoreRange.min);
     assert.ok(revealIntent.compactFields.score! <= QUASAR_REPUTATION_INTENT_COMPATIBILITY.scoreRange.max);
-    assert.ok(revealIntent.deferredToInstructionBuilder.includes('salt'));
+    assert.deepEqual([...revealIntent.deferredToInstructionBuilder.instructionData], ['salt', 'score_u8_encoding']);
+    assert.deepEqual(
+      [...revealIntent.deferredToInstructionBuilder.accountInputs],
+      ['escrow', 'rating', 'signer', 'specialist_agent', 'consumer_agent'],
+    );
+    assert.deepEqual(revealIntent.escrowBinding.pdaSeeds, ['rating', 'escrow_address']);
   });
 
   it('routes confirm intents to the attestation program lane', () => {
@@ -267,6 +286,12 @@ describe('deriveQuasarReputationIntentPlan — happy paths', () => {
     assert.equal(confirmIntent.program.lane, 'quasar-attestation');
     assert.equal(confirmIntent.program.discriminator, 2);
     assert.deepEqual(Object.keys(confirmIntent.compactFields), ['jobIdRef']);
+    assert.deepEqual([...confirmIntent.deferredToInstructionBuilder.instructionData], []);
+    assert.deepEqual(
+      [...confirmIntent.deferredToInstructionBuilder.accountInputs],
+      ['escrow', 'attestation', 'judge_agent', 'consumer'],
+    );
+    assert.deepEqual(confirmIntent.escrowBinding.pdaSeeds, ['attestation', 'escrow_address']);
   });
 
   it('maps a rejected receipt with a disputed attestation onto the dispute lane', () => {
@@ -646,6 +671,55 @@ describe('quasar reputation intent ABI metadata', () => {
     ];
     for (const removed of ['job_id', 'consumer_pk', 'specialist_pk']) {
       assert.equal(everyArgument.includes(removed as never), false, `${removed} was removed by the job-binding rework`);
+    }
+  });
+
+  it('emits no pre-binding job_id, party-key, or account-address fields in a serialized plan', () => {
+    for (const input of [intentInput(), intentInput({ binding: disputedBinding() })]) {
+      const result = deriveQuasarReputationIntentPlan(input);
+      assert.equal(result.ok, true);
+      const serialized = JSON.stringify(result.plan);
+      for (const stale of [
+        'job_id_u128_encoding',
+        'consumer_pk',
+        'specialist_pk',
+        'consumer_authority',
+        'rating_account_address',
+        'attestation_account_address',
+      ]) {
+        assert.equal(serialized.includes(stale), false, `${stale} is pre-binding and must not be emitted`);
+      }
+    }
+  });
+
+  it('splits every emitted record into current-source instruction data and account inputs', () => {
+    const compat = QUASAR_REPUTATION_INTENT_COMPATIBILITY;
+    const intents = [
+      ...deriveQuasarReputationIntentPlan(intentInput()).plan.intents,
+      ...deriveQuasarReputationIntentPlan(intentInput({ binding: disputedBinding() })).plan.intents,
+    ];
+    assert.ok(intents.some((intent) => intent.kind === 'confirm'));
+    assert.ok(intents.some((intent) => intent.kind === 'dispute'));
+
+    for (const intent of intents) {
+      assert.deepEqual(
+        [...intent.deferredToInstructionBuilder.accountInputs],
+        [...compat.onchainAccountNames[intent.kind]],
+        `${intent.kind} must defer exactly the current-source accounts`,
+      );
+      assert.equal(intent.escrowBinding.source, 'verified-lock-created-escrow');
+      assert.equal(intent.escrowBinding.state, 'not_resolved');
+      assert.equal(intent.escrowBinding.pdaSeeds[1], 'escrow_address');
+      assert.deepEqual(
+        [...intent.escrowBinding.pdaSeeds],
+        [...compat.pdaSeeds[intent.program.lane === 'quasar-reputation' ? 'rating' : 'attestation']],
+      );
+      // `confirm`/`dispute` take no instruction data under the current sources.
+      if (intent.kind === 'confirm' || intent.kind === 'dispute') {
+        assert.deepEqual([...intent.deferredToInstructionBuilder.instructionData], []);
+      }
+      assert.equal(intent.instructionBuilt, false);
+      assert.equal(intent.signable, false);
     }
   });
 

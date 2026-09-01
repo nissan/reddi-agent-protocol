@@ -16,9 +16,10 @@ import { RECEIPT_EVIDENCE_BINDING_SCHEMA_VERSION, } from './receipt-evidence-bin
  * `instructionBuilt: false` and `signable: false`; nothing in this module
  * touches a wallet, an RPC endpoint's client, a program deploy path, a live
  * payment, or reputation state. Values that only a later checklist-gated
- * builder issue may produce (u128 job-id encoding, salt, commitment hash,
- * party public keys, account addresses) are named in
- * `deferredToInstructionBuilder` and are never fabricated here — see
+ * builder issue may produce (salt, the commitment hash, `u8` encodings, the
+ * verified escrow address, and the escrow-seeded PDA/signer accounts) are
+ * named in `deferredToInstructionBuilder` — split into `instructionData` and
+ * `accountInputs` — and are never fabricated here; see
  * `docs/QUASAR-SURFPOOL-DEVNET-PROMOTION-CHECKLIST.md` (#441).
  *
  * Field-split discipline (#390 / `docs/DISCOVER-DECIDE-PROVE-BOUNDARIES.md`):
@@ -34,6 +35,11 @@ export const QUASAR_REPUTATION_INTENT_SCHEMA_VERSION = 'reddi.quasar-reputation-
  * and argument names describe the target interface; nothing here encodes,
  * serializes, or dispatches them. `deploymentsRef` is a repo-relative
  * pointer, not a deployment claim by this module.
+ *
+ * Source compatibility is tracked separately from deployment compatibility:
+ * the field/account/commitment shape describes the current repository sources,
+ * while `recordedDevnetDeployment` records that the deployment named by
+ * `deploymentsRef` is pre-job-binding and unusable.
  */
 export const QUASAR_REPUTATION_INTENT_COMPATIBILITY = {
     compatibilitySchemaVersion: QUASAR_REGISTRY_COMPATIBILITY_SCHEMA_VERSION,
@@ -67,12 +73,25 @@ export const QUASAR_REPUTATION_INTENT_COMPATIBILITY = {
         commit: ['escrow', 'rating', 'signer', 'system_program'],
         reveal: ['escrow', 'rating', 'signer', 'specialist_agent', 'consumer_agent'],
         attest: ['escrow', 'attestation', 'judge_agent', 'judge', 'system_program'],
+        confirm: ['escrow', 'attestation', 'judge_agent', 'consumer'],
+        dispute: ['escrow', 'attestation', 'judge_agent', 'consumer'],
     },
     pdaSeeds: {
         rating: ['rating', 'escrow_address'],
         attestation: ['attestation', 'escrow_address'],
     },
+    /**
+     * Source compatibility only. This block mirrors the current
+     * `experiments/quasar-*` sources; it is NOT a statement about any deployed
+     * program. See `recordedDevnetDeployment` below.
+     */
     compatibilityScope: 'repository-sources-only',
+    /**
+     * The Quasar programs recorded in `config/quasar/deployments.json` predate the
+     * job-binding rework described above and expect the older caller-supplied
+     * `job_id` layout. They are incompatible with this contract and must not be
+     * used. Source compatibility above is not deployment compatibility.
+     */
     recordedDevnetDeployment: {
         status: 'incompatible-pre-job-binding',
         usable: false,
@@ -358,18 +377,15 @@ function intentRecordFor(kind, binding, preview, compatibility) {
                 role: 'consumer',
                 commitment: {
                     algorithm: 'sha256',
-                    preimageFields: ['score', 'salt', 'job_id', 'program_id'],
+                    preimageFields: ['score', 'salt', 'escrow_address', 'program_id'],
                     state: 'not_computed',
                 },
             },
-            deferredToInstructionBuilder: [
-                'job_id_u128_encoding',
-                'salt_generation',
-                'commitment_hash',
-                'consumer_pk',
-                'specialist_pk',
-                'rating_account_address',
-            ],
+            escrowBinding: escrowBindingFor('rating'),
+            deferredToInstructionBuilder: {
+                instructionData: ['salt_generation', 'commitment_hash', 'role_u8_encoding'],
+                accountInputs: QUASAR_REPUTATION_INTENT_COMPATIBILITY.onchainAccountNames.commit,
+            },
         };
     }
     if (kind === 'reveal') {
@@ -377,7 +393,11 @@ function intentRecordFor(kind, binding, preview, compatibility) {
             ...base,
             program: reputationProgramLane('reveal', 2),
             compactFields: { jobIdRef, score },
-            deferredToInstructionBuilder: ['job_id_u128_encoding', 'salt', 'rating_account_address'],
+            escrowBinding: escrowBindingFor('rating'),
+            deferredToInstructionBuilder: {
+                instructionData: ['salt', 'score_u8_encoding'],
+                accountInputs: QUASAR_REPUTATION_INTENT_COMPATIBILITY.onchainAccountNames.reveal,
+            },
         };
     }
     if (kind === 'confirm') {
@@ -385,14 +405,37 @@ function intentRecordFor(kind, binding, preview, compatibility) {
             ...base,
             program: attestationProgramLane('confirm', 2),
             compactFields: { jobIdRef },
-            deferredToInstructionBuilder: ['job_id_u128_encoding', 'consumer_authority', 'attestation_account_address'],
+            escrowBinding: escrowBindingFor('attestation'),
+            // `confirm` takes no instruction data under the current sources; the
+            // consumer is authorised by signer identity against `attestation.consumer`.
+            deferredToInstructionBuilder: {
+                instructionData: [],
+                accountInputs: QUASAR_REPUTATION_INTENT_COMPATIBILITY.onchainAccountNames.confirm,
+            },
         };
     }
     return {
         ...base,
         program: attestationProgramLane('dispute', 3),
         compactFields: { jobIdRef },
-        deferredToInstructionBuilder: ['job_id_u128_encoding', 'consumer_authority', 'attestation_account_address'],
+        escrowBinding: escrowBindingFor('attestation'),
+        // `dispute` is likewise argument-less; see the `confirm` note above.
+        deferredToInstructionBuilder: {
+            instructionData: [],
+            accountInputs: QUASAR_REPUTATION_INTENT_COMPATIBILITY.onchainAccountNames.dispute,
+        },
+    };
+}
+/**
+ * The escrow-address job binding for one lane. Always `not_resolved`: the
+ * address only exists once a real `quasar-escrow::lock` has created the
+ * escrow, which no fixture-level record may assert.
+ */
+function escrowBindingFor(lane) {
+    return {
+        source: 'verified-lock-created-escrow',
+        pdaSeeds: [lane, 'escrow_address'],
+        state: 'not_resolved',
     };
 }
 function reputationProgramLane(instructionName, discriminator) {

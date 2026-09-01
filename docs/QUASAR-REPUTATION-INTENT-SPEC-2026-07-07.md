@@ -42,9 +42,18 @@ The on-chain field/account names, PDA seeds, and commitment contract mirrored in
 constant records that the deployment referenced by `deploymentsRef` is pre-job-binding and unusable
 (see `docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`).
 
-Everything a real instruction would additionally need — u128 job-id encoding, salt generation, the
-commitment hash, party public keys, account addresses — is **named, not fabricated**, in each
-record's `deferredToInstructionBuilder` list. Rich RAP/ARD metadata (evidence, attestation, preview,
+`jobIdRef` is off-chain RAP correlation only, never an instruction argument: the current sources
+dropped the caller-supplied `job_id`. Each record instead carries an `escrowBinding` block naming
+the on-chain identity — the address of an escrow that `quasar-escrow::lock` actually created
+(`source: 'verified-lock-created-escrow'`), used to seed the lane PDA (`['rating' | 'attestation',
+'escrow_address']`) — and always `state: 'not_resolved'`, because no fixture may assert that such an
+escrow exists.
+
+Everything a real instruction would additionally need is **named, not fabricated**, in each record's
+`deferredToInstructionBuilder`, split by where it lands in a transaction: `instructionData` (salt
+generation, the commitment hash, and the `u8` encodings of `role`/`score`; empty for the
+argument-less `confirm`/`dispute`) and `accountInputs` (the exact current accounts and signers,
+mirroring `onchainAccountNames`). Rich RAP/ARD metadata (evidence, attestation, preview,
 payment proof, listing metadata) never appears inline: intent records point at it by id in
 `offchainRefs`, per the on-chain/off-chain split in `reddi.quasar-registry-compatibility.v1` and
 `docs/DISCOVER-DECIDE-PROVE-BOUNDARIES.md` §3.3.
