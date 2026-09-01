@@ -4,6 +4,24 @@
  * profile resolution keeps disclosure without crashing at module scope, and every Quasar
  * instruction builder refuses before an instruction, signer, or RPC call exists.
  */
+const LOCAL_QUASAR_IDS = {
+  escrow: "VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW",
+  registry: "Xk7jczJZ1HHJZuE1ZUWDqFmowxYhnom7mWzrNSGf9FU",
+  reputation: "nb9rLVjoHMibsgfRGgKuPqm6M8GVcH9r6bYNfg7Yiy6",
+  attestation: "CRGsWWkptdxsH6N6aWAyahLbuMsT58yM624EopEsv1Ex",
+};
+
+function configureLocalQuasarEnv() {
+  process.env.NETWORK_PROFILE = "local-surfpool";
+  process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+  process.env.NEXT_PUBLIC_RPC_ENDPOINT = "http://127.0.0.1:8899";
+  process.env.NEXT_PUBLIC_RPC_WS_ENDPOINT = "ws://[::1]:8900";
+  process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = LOCAL_QUASAR_IDS.escrow;
+  process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = LOCAL_QUASAR_IDS.registry;
+  process.env.NEXT_PUBLIC_REPUTATION_PROGRAM_ID = LOCAL_QUASAR_IDS.reputation;
+  process.env.NEXT_PUBLIC_ATTESTATION_PROGRAM_ID = LOCAL_QUASAR_IDS.attestation;
+}
+
 describe("web Quasar devnet refusal", () => {
   const originalEnv = process.env;
 
@@ -15,6 +33,18 @@ describe("web Quasar devnet refusal", () => {
     delete process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET;
     delete process.env.HACKATHON_DEMO_TARGET;
     delete process.env.DEMO_PROGRAM_TARGET;
+    delete process.env.NEXT_PUBLIC_RPC_ENDPOINT;
+    delete process.env.NEXT_PUBLIC_RPC_URL;
+    delete process.env.NEXT_PUBLIC_RPC_WS_ENDPOINT;
+    delete process.env.DEMO_DEVNET_RPC;
+    delete process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID;
+    delete process.env.DEMO_ESCROW_PROGRAM_ID;
+    delete process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID;
+    delete process.env.DEMO_REGISTRY_PROGRAM_ID;
+    delete process.env.NEXT_PUBLIC_REPUTATION_PROGRAM_ID;
+    delete process.env.DEMO_REPUTATION_PROGRAM_ID;
+    delete process.env.NEXT_PUBLIC_ATTESTATION_PROGRAM_ID;
+    delete process.env.DEMO_ATTESTATION_PROGRAM_ID;
   });
 
   afterAll(() => {
@@ -104,12 +134,27 @@ describe("web Quasar devnet refusal", () => {
     ).toThrow(/refused/);
   });
 
-  it("still builds Quasar instructions when the target is not the blocked devnet route", async () => {
-    process.env.NETWORK_PROFILE = "surfpool";
+  it("refuses Quasar builders unless the resolved target is explicit local-surfpool Quasar", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "legacy-anchor";
     const instructions = await import("@/lib/quasar/instructions");
     const { PublicKey } = await import("@solana/web3.js");
     const owner = new PublicKey("11111111111111111111111111111112");
-    const programId = new PublicKey("Xk7jczJZ1HHJZuE1ZUWDqFmowxYhnom7mWzrNSGf9FU");
+    const programId = new PublicKey(LOCAL_QUASAR_IDS.registry);
+
+    expect(() =>
+      instructions.buildQuasarRegisterAgentInstruction({
+        programId, owner, agentType: 0, model: "qwen3:8b", rateLamports: 1_000_000n, minReputation: 3,
+      }),
+    ).toThrow(/explicit local-surfpool Quasar target/);
+  });
+
+  it("builds Quasar instructions only under the explicit local-surfpool Quasar target", async () => {
+    configureLocalQuasarEnv();
+    const instructions = await import("@/lib/quasar/instructions");
+    const { PublicKey } = await import("@solana/web3.js");
+    const owner = new PublicKey("11111111111111111111111111111112");
+    const programId = new PublicKey(LOCAL_QUASAR_IDS.registry);
 
     const ix = instructions.buildQuasarRegisterAgentInstruction({
       programId, owner, agentType: 0, model: "qwen3:8b", rateLamports: 1_000_000n, minReputation: 3,
@@ -117,11 +162,11 @@ describe("web Quasar devnet refusal", () => {
     expect(ix.programId.toBase58()).toBe(programId.toBase58());
   });
 
-  it("builds the current-source expire instruction off the blocked route", async () => {
-    process.env.NETWORK_PROFILE = "surfpool";
+  it("builds the current-source expire instruction under the explicit local-surfpool Quasar target", async () => {
+    configureLocalQuasarEnv();
     const instructions = await import("@/lib/quasar/instructions");
     const { PublicKey } = await import("@solana/web3.js");
-    const programId = new PublicKey("nb9rLVjoHMibsgfRGgKuPqm6M8GVcH9r6bYNfg7Yiy6");
+    const programId = new PublicKey(LOCAL_QUASAR_IDS.reputation);
     const escrow = new PublicKey("11111111111111111111111111111114");
     const caller = new PublicKey("11111111111111111111111111111112");
     const specialistAgentPda = new PublicKey("11111111111111111111111111111115");

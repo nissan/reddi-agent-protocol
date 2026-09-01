@@ -15,8 +15,27 @@ import {
 } from "@/lib/quasar/instructions";
 
 const programId = new PublicKey("VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW");
+const localQuasarEnv = {
+  NETWORK_PROFILE: "local-surfpool",
+  NEXT_PUBLIC_DEMO_PROGRAM_TARGET: "quasar",
+  NEXT_PUBLIC_RPC_ENDPOINT: "http://127.0.0.1:8899",
+  NEXT_PUBLIC_RPC_WS_ENDPOINT: "ws://[::1]:8900",
+  NEXT_PUBLIC_ESCROW_PROGRAM_ID: "VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW",
+  NEXT_PUBLIC_REGISTRY_PROGRAM_ID: "Xk7jczJZ1HHJZuE1ZUWDqFmowxYhnom7mWzrNSGf9FU",
+  NEXT_PUBLIC_REPUTATION_PROGRAM_ID: "nb9rLVjoHMibsgfRGgKuPqm6M8GVcH9r6bYNfg7Yiy6",
+  NEXT_PUBLIC_ATTESTATION_PROGRAM_ID: "CRGsWWkptdxsH6N6aWAyahLbuMsT58yM624EopEsv1Ex",
+};
 
 describe("Quasar instruction wrappers", () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv, ...localQuasarEnv };
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
   it("builds registration with Quasar account order and one-byte discriminator", () => {
     const owner = Keypair.generate().publicKey;
     const ix = buildQuasarRegisterAgentInstruction({

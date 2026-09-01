@@ -432,7 +432,45 @@ export function describeBlockedProgramTarget(profile: NetworkProfile = getNetwor
   ].filter(Boolean).join(" ");
 }
 
+function profileHasExplicitLocalQuasarProgramSet(profile: NetworkProfile): boolean {
+  const ids = [
+    profile.programs.escrowProgramId,
+    profile.programs.registryProgramId,
+    profile.programs.reputationProgramId,
+    profile.programs.attestationProgramId,
+  ];
+  return ids.every((id): id is string => typeof id === "string" && isValidProgramId(id)) && new Set(ids).size === ids.length;
+}
+
+export function describeQuasarProgramTargetRefusal(profile: NetworkProfile = getNetworkProfile()): string | undefined {
+  const blocked = describeBlockedProgramTarget(profile);
+  if (blocked) return blocked;
+
+  const hasLoopbackEndpoints = isLoopbackRpcUrl(profile.solana.rpcHttp) && (!profile.solana.rpcWs || isLoopbackRpcUrl(profile.solana.rpcWs));
+  if (
+    profile.name === "local-surfpool" &&
+    profile.programs.target === "quasar" &&
+    profile.programs.framework === "quasar" &&
+    profile.programs.submissionReady === true &&
+    profileHasExplicitLocalQuasarProgramSet(profile) &&
+    hasLoopbackEndpoints
+  ) {
+    return undefined;
+  }
+
+  return [
+    "Quasar instruction builders require an explicit local-surfpool Quasar target before constructing instructions.",
+    `Resolved profile=${profile.name}, target=${profile.programs.target}, framework=${profile.programs.framework}, submissionReady=${profile.programs.submissionReady}.`,
+    "Set NETWORK_PROFILE=local-surfpool, NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar, loopback-only RPC/WS endpoints, and four distinct valid current-source local Quasar program IDs.",
+  ].join(" ");
+}
+
 export function assertProgramTargetUsable(profile: NetworkProfile = getNetworkProfile()): void {
   const refusal = describeBlockedProgramTarget(profile);
+  if (refusal) throw new Error(refusal);
+}
+
+export function assertQuasarProgramTargetUsable(profile: NetworkProfile = getNetworkProfile()): void {
+  const refusal = describeQuasarProgramTargetRefusal(profile);
   if (refusal) throw new Error(refusal);
 }

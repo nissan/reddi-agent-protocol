@@ -2,7 +2,7 @@ import { createHash } from "crypto";
 
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 
-import { assertProgramTargetUsable } from "@/lib/config/network";
+import { assertQuasarProgramTargetUsable } from "@/lib/config/network";
 import {
   buildQuasarAttestQualityData,
   buildQuasarConfirmAttestationData,
@@ -83,7 +83,7 @@ export function buildQuasarRegisterAgentInstruction(input: {
   agentPda?: PublicKey;
   feeCollector?: PublicKey;
 }): TransactionInstruction {
-  assertProgramTargetUsable();
+  assertQuasarProgramTargetUsable();
   const agent = input.agentPda ?? quasarAgentPda(input.owner, input.programId);
   return new TransactionInstruction({
     programId: input.programId,
@@ -105,7 +105,7 @@ export function buildQuasarUpdateAgentInstruction(input: {
   active: boolean;
   agentPda?: PublicKey;
 }): TransactionInstruction {
-  assertProgramTargetUsable();
+  assertQuasarProgramTargetUsable();
   const agent = input.agentPda ?? quasarAgentPda(input.owner, input.programId);
   return new TransactionInstruction({
     programId: input.programId,
@@ -122,7 +122,7 @@ export function buildQuasarDeregisterAgentInstruction(input: {
   owner: PublicKey;
   agentPda?: PublicKey;
 }): TransactionInstruction {
-  assertProgramTargetUsable();
+  assertQuasarProgramTargetUsable();
   const agent = input.agentPda ?? quasarAgentPda(input.owner, input.programId);
   return new TransactionInstruction({
     programId: input.programId,
@@ -142,7 +142,7 @@ export function buildQuasarCommitRatingInstruction(input: {
   role: 0 | 1;
   ratingPda?: PublicKey;
 }): TransactionInstruction {
-  assertProgramTargetUsable();
+  assertQuasarProgramTargetUsable();
   const rating = input.ratingPda ?? quasarRatingPda(input.escrow, input.programId);
   return new TransactionInstruction({
     programId: input.programId,
@@ -166,7 +166,7 @@ export function buildQuasarRevealRatingInstruction(input: {
   consumerAgentPda: PublicKey;
   ratingPda?: PublicKey;
 }): TransactionInstruction {
-  assertProgramTargetUsable();
+  assertQuasarProgramTargetUsable();
   const rating = input.ratingPda ?? quasarRatingPda(input.escrow, input.programId);
   return new TransactionInstruction({
     programId: input.programId,
@@ -189,7 +189,7 @@ export function buildQuasarExpireRatingInstruction(input: {
   consumerAgentPda: PublicKey;
   ratingPda?: PublicKey;
 }): TransactionInstruction {
-  assertProgramTargetUsable();
+  assertQuasarProgramTargetUsable();
   const rating = input.ratingPda ?? quasarRatingPda(input.escrow, input.programId);
   return new TransactionInstruction({
     programId: input.programId,
@@ -212,7 +212,7 @@ export function buildQuasarAttestQualityInstruction(input: {
   attestationPda?: PublicKey;
   judgeAgentPda?: PublicKey;
 }): TransactionInstruction {
-  assertProgramTargetUsable();
+  assertQuasarProgramTargetUsable();
   const attestation = input.attestationPda ?? quasarAttestationPda(input.escrow, input.programId);
   const judgeAgent = input.judgeAgentPda ?? quasarAgentPda(input.judge, input.programId);
   return new TransactionInstruction({
@@ -236,7 +236,7 @@ export function buildQuasarConfirmAttestationInstruction(input: {
   attestationPda?: PublicKey;
   judgeAgentPda?: PublicKey;
 }): TransactionInstruction {
-  assertProgramTargetUsable();
+  assertQuasarProgramTargetUsable();
   const attestation = input.attestationPda ?? quasarAttestationPda(input.escrow, input.programId);
   const judgeAgent = input.judgeAgentPda ?? quasarAgentPda(input.judge, input.programId);
   return new TransactionInstruction({
@@ -259,7 +259,7 @@ export function buildQuasarDisputeAttestationInstruction(input: {
   attestationPda?: PublicKey;
   judgeAgentPda?: PublicKey;
 }): TransactionInstruction {
-  assertProgramTargetUsable();
+  assertQuasarProgramTargetUsable();
   const attestation = input.attestationPda ?? quasarAttestationPda(input.escrow, input.programId);
   const judgeAgent = input.judgeAgentPda ?? quasarAgentPda(input.judge, input.programId);
   return new TransactionInstruction({
