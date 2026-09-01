@@ -12,14 +12,18 @@ import {
   assertQuasarCriticalDemoOutput,
   assertQuasarPerFailClosedOutput,
   createRedactingLineBuffer,
+  createTruncatingEvidenceBuffer,
   redactForEvidence,
   startLocalSurfnet,
   waitForPortClosed,
 } from "./lib/surfpool-sdk-lifecycle.mjs";
+import { ACCEPTED_EVIDENCE_FILENAME, writeAcceptedEvidenceManifest } from "./lib/surfpool-evidence-manifest.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(__filename), "..");
 const defaultTimeoutMs = 20 * 60 * 1000;
+const ASSERTION_HEAD_LIMIT = 512_000;
+const ASSERTION_TAIL_LIMIT = 1_500_000;
 
 const args = parseArgs(process.argv.slice(2));
 const target = args.target ?? "legacy-anchor";
@@ -39,7 +43,8 @@ try {
 
 const { Surfnet } = await import("@solana/surfpool");
 const runId = `sdk-${target}-${crypto.randomUUID()}`;
-const outDir = path.join(repoRoot, "artifacts", target === "quasar" ? "surfpool-quasar-smoke" : "surfpool-smoke", runId);
+const evidenceRoot = path.join(repoRoot, "artifacts", target === "quasar" ? "surfpool-quasar-smoke" : "surfpool-smoke");
+const outDir = path.join(evidenceRoot, runId);
 const tmpDir = path.join(repoRoot, ".tmp", "surfpool-sdk-critical-smoke", runId);
 const childTmpDir = path.join(tmpDir, "tmp");
 const logFile = path.join(outDir, "surfpool-sdk-critical-smoke.log");
@@ -55,6 +60,22 @@ let finalStatus = "PASS";
 let failureMessage;
 let programs = [];
 const cleanupNotes = [];
+let logWriteChain = Promise.resolve();
+let logWriteError;
+
+function appendToLog(text) {
+  if (!text) return logWriteChain;
+  logWriteChain = logWriteChain
+    .then(() => fs.appendFile(logFile, text))
+    .catch((error) => { logWriteError ??= error; });
+  return logWriteChain;
+}
+
+function takeLogWriteError() {
+  const error = logWriteError;
+  logWriteError = undefined;
+  return error;
+}
 
 const timeout = setTimeout(() => {
   const error = new Error(`critical Surfpool smoke timed out after ${overallTimeoutMs}ms`);
@@ -151,8 +172,13 @@ try {
 } finally {
   clearTimeout(timeout);
   await cleanup(exitReason);
+  if (finalStatus === "PASS") await publishAcceptedEvidence();
   await writeSummary({ target, programs, status: finalStatus, failure: failureMessage });
-  if (finalStatus === "PASS") await logLine(`[surfpool-sdk-smoke] complete: ${rel(summaryFile)}`);
+  if (finalStatus === "PASS") {
+    await logLine(`[surfpool-sdk-smoke] complete: ${rel(summaryFile)}`);
+  } else {
+    await logLine(`[surfpool-sdk-smoke] FAIL evidence retained at ${rel(outDir)}; accepted-evidence receipt left untouched`);
+  }
 }
 
 process.exit(exitCode);
@@ -313,7 +339,12 @@ function spawnLogged(command, commandArgs, options = {}) {
       stdio: ["ignore", "pipe", "pipe"],
     });
     activeChild = child;
-    const chunks = [];
+    const evidence = createTruncatingEvidenceBuffer({
+      headLimit: ASSERTION_HEAD_LIMIT,
+      tailLimit: ASSERTION_TAIL_LIMIT,
+      describeOmission: (chars, count) =>
+        `\n[surfpool-sdk-smoke] evidence buffer truncated: omitted ${chars} characters in ${count} chunk(s) between the retained head and tail; the complete output is in ${rel(logFile)}\n`,
+    });
     let abortedReason;
     const commandTimer = setTimeout(() => {
       abortedReason = new Error(`${command} ${commandArgs.join(" ")} timed out after ${commandTimeoutMs}ms`);
@@ -327,15 +358,11 @@ function spawnLogged(command, commandArgs, options = {}) {
     };
     abortController.signal.addEventListener("abort", onAbort, { once: true });
 
-    let combinedLength = 0;
     const emit = (text) => {
       if (!text) return;
-      chunks.push(text);
-      combinedLength += text.length;
-      while (combinedLength > 2_000_000 && chunks.length > 1) {
-        combinedLength -= chunks.shift().length;
-      }
+      appendToLog(text);
       process.stdout.write(text);
+      evidence.push(text);
     };
     // Redaction is line-buffered per stream so a secret split across two pipe
     // chunks is still matched before anything reaches stdout or the evidence log.
@@ -362,14 +389,15 @@ function spawnLogged(command, commandArgs, options = {}) {
       abortController.signal.removeEventListener("abort", onAbort);
       flushStreams();
       if (activeChild === child) activeChild = undefined;
-      const combined = chunks.join("");
-      fs.appendFile(logFile, combined)
+      logWriteChain
         .then(() => {
+          const logError = takeLogWriteError();
+          if (logError) throw logError;
           if (abortedReason) return reject(abortedReason);
           return resolve({
             status: code ?? (signal ? 128 + (signal === "SIGINT" ? 2 : 15) : 1),
             signal,
-            combined,
+            combined: evidence.text(),
           });
         })
         .catch(reject);
@@ -429,7 +457,9 @@ async function logLine(line) {
   const text = `${redactForEvidence(line, { repoRoot, home: process.env.HOME })}\n`;
   process.stdout.write(text);
   await fs.mkdir(path.dirname(logFile), { recursive: true });
-  await fs.appendFile(logFile, text);
+  await appendToLog(text);
+  const error = takeLogWriteError();
+  if (error) throw error;
 }
 
 async function writeSummary({ target, programs = [], status, failure }) {
@@ -455,8 +485,38 @@ async function writeSummary({ target, programs = [], status, failure }) {
   }
   lines.push("", "## Cleanup", ...cleanupNotes.map((note) => `- ${note}`));
   lines.push("", "## Artifacts", `- Log: ${rel(logFile)}`);
+  lines.push(
+    status === "PASS"
+      ? `- Accepted evidence receipt: ${rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_FILENAME))}`
+      : `- Accepted evidence receipt: not written (only PASS runs publish ${ACCEPTED_EVIDENCE_FILENAME}); this failed run is retained at ${rel(outDir)}`,
+  );
   await fs.mkdir(path.dirname(summaryFile), { recursive: true });
   await fs.writeFile(summaryFile, `${lines.join("\n")}\n`);
+}
+
+async function publishAcceptedEvidence() {
+  try {
+    const { manifestPath } = await writeAcceptedEvidenceManifest(evidenceRoot, {
+      target,
+      runId,
+      status: "PASS",
+      artifacts: [
+        { name: "summary", path: rel(summaryFile) },
+        { name: "log", path: rel(logFile) },
+      ],
+      provenance: {
+        command: target === "quasar" ? "npm run test:surfpool:quasar-critical" : "npm run test:surfpool:critical",
+        runner: rel(__filename),
+        lifecycle: "@solana/surfpool SDK in-process Surfnet (loopback only)",
+      },
+    });
+    await logLine(`[surfpool-sdk-smoke] accepted evidence receipt: ${rel(manifestPath)}`);
+  } catch (error) {
+    finalStatus = "FAIL";
+    failureMessage ??= `accepted evidence receipt failed: ${error.message}`;
+    if (exitCode === 0) exitCode = 1;
+    await logLine(`[surfpool-sdk-smoke] accepted evidence receipt failed: ${error.message}`);
+  }
 }
 
 function programIdsByKey(programs) {

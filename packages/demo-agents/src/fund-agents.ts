@@ -10,6 +10,7 @@
 import { Connection, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AGENT_A, AGENT_B, AGENT_C } from "./wallets";
 import { DEMO_NETWORK_PROFILE, DEVNET_RPC, DEVNET_RPC_WS } from "./config";
+import { shellQuote } from "./quasar-target-gate";
 
 async function fund() {
   const connection = new Connection(DEVNET_RPC, DEVNET_RPC_WS ? { commitment: "confirmed", wsEndpoint: DEVNET_RPC_WS } : "confirmed");
@@ -25,6 +26,11 @@ async function fund() {
     console.log(`${name}: ${pk.toBase58()} — ${sol.toFixed(4)} SOL`);
 
     if (sol < 0.01) {
+      if (DEMO_NETWORK_PROFILE === "mainnet") {
+        console.log(`  ⚠️  Low balance on the mainnet profile. Airdrop is not available on mainnet and is not attempted.`);
+        console.log(`     Fund ${pk.toBase58()} yourself before running the demo; this script will not move mainnet funds.`);
+        continue;
+      }
       console.log(`  ⚠️  Low balance. Requesting airdrop...`);
       try {
         const sig = await connection.requestAirdrop(pk, LAMPORTS_PER_SOL);
@@ -33,7 +39,7 @@ async function fund() {
         console.log(`  ✅ Airdropped 1 SOL — new balance: ${(newBal / LAMPORTS_PER_SOL).toFixed(4)} SOL`);
       } catch {
         console.log(`  ❌ Airdrop failed (rate-limited?). Manual funding required:`);
-        console.log(`     solana transfer ${pk.toBase58()} 0.1 --url ${DEMO_NETWORK_PROFILE} --keypair <local-funder-keypair> --allow-unfunded-recipient`);
+        console.log(`     solana transfer ${pk.toBase58()} 0.1 --url ${shellQuote(DEVNET_RPC)} --keypair <local-funder-keypair> --allow-unfunded-recipient`);
       }
     } else {
       console.log(`  ✅ Sufficiently funded`);

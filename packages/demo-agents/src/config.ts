@@ -29,6 +29,7 @@ type DemoNetworkProfile = {
   defaultPerRpc: string;
 };
 
+
 export type DemoProgramTarget = "legacy-anchor" | "quasar";
 
 function resolveProgramTarget(): DemoProgramTarget {

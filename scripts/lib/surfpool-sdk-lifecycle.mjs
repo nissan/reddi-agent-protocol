@@ -323,6 +323,49 @@ export function createRedactingLineBuffer(options = {}) {
   };
 }
 
+/**
+ * Bounded in-memory buffer for the text the lane asserts on. Keeps a deterministic head (so
+ * assertion-critical banners printed early are never lost) and a sliding tail, and reports what it
+ * dropped in between rather than silently discarding the front.
+ */
+export function createTruncatingEvidenceBuffer(options = {}) {
+  const headLimit = options.headLimit ?? 512_000;
+  const tailLimit = options.tailLimit ?? 1_500_000;
+  const describeOmission = options.describeOmission
+    ?? ((chars, count) => `\n[truncated: omitted ${chars} characters in ${count} chunk(s) between the retained head and tail]\n`);
+  const head = [];
+  const tail = [];
+  let headLength = 0;
+  let tailLength = 0;
+  let omittedChars = 0;
+  let omittedChunks = 0;
+
+  return {
+    push(text) {
+      if (!text) return;
+      if (headLength < headLimit) {
+        head.push(text);
+        headLength += text.length;
+        return;
+      }
+      tail.push(text);
+      tailLength += text.length;
+      while (tailLength > tailLimit && tail.length > 1) {
+        const dropped = tail.shift();
+        tailLength -= dropped.length;
+        omittedChars += dropped.length;
+        omittedChunks += 1;
+      }
+    },
+    get omittedChars() { return omittedChars; },
+    get omittedChunks() { return omittedChunks; },
+    text() {
+      if (omittedChunks === 0) return head.join("") + tail.join("");
+      return `${head.join("")}${describeOmission(omittedChars, omittedChunks)}${tail.join("")}`;
+    },
+  };
+}
+
 export async function waitForPortClosed(endpoint, options = {}) {
   const url = assertLoopbackEndpoint(endpoint, "closed-port probe endpoint");
   const timeoutMs = options.timeoutMs ?? 5_000;
