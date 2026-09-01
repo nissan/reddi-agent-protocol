@@ -95,4 +95,26 @@ describe("Quasar registry transaction-instruction helpers", () => {
     ]);
     expect([...ix.data]).toEqual([1, 8, 8, 9, 9, 10]);
   });
+
+  it("addresses attest_quality to the attestation program, never the escrow program", () => {
+    // Quasar splits into four programs: attest is discriminator 1 on the *attestation* program,
+    // while discriminator 1 on the escrow program is a settlement instruction. Building under the
+    // escrow program id would silently address the wrong program with the same first byte.
+    const escrow = new PublicKey("11111111111111111111111111111114");
+    const scores = Uint8Array.from([8, 8, 9, 9, 10]);
+    const attestationProgramId = new PublicKey("CRGsWWkptdxsH6N6aWAyahLbuMsT58yM624EopEsv1Ex");
+    const escrowProgramId = new PublicKey("VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW");
+
+    const ix = buildQuasarAttestQualityInstruction({
+      programId: attestationProgramId,
+      escrow,
+      judge: owner,
+      scores,
+    });
+
+    expect(ix.programId.toBase58()).toBe(attestationProgramId.toBase58());
+    expect(ix.programId.toBase58()).not.toBe(escrowProgramId.toBase58());
+    expect(ix.keys[1].pubkey.toBase58()).toBe(quasarAttestationPda(escrow, attestationProgramId).toBase58());
+    expect(ix.keys[1].pubkey.toBase58()).not.toBe(quasarAttestationPda(escrow, escrowProgramId).toBase58());
+  });
 });

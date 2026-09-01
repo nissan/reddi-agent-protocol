@@ -48,8 +48,17 @@ export class SurfpoolReadinessError extends Error {
   }
 }
 
+/**
+ * URL hostnames keep IPv6 brackets (`new URL("ws://[::1]:1").hostname === "[::1]"`), which every
+ * consumer here must strip before comparing or handing to `net.connect` — the socket API treats a
+ * bracketed literal as a DNS name and fails with ENOTFOUND.
+ */
+export function normalizeHostname(hostname) {
+  return String(hostname ?? "").trim().toLowerCase().replace(/^\[|\]$/g, "");
+}
+
 export function isLoopbackHostname(hostname) {
-  const host = String(hostname ?? "").trim().toLowerCase().replace(/^\[|\]$/g, "");
+  const host = normalizeHostname(hostname);
   if (host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1") return true;
   const ipv4 = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
   if (!ipv4) return false;
@@ -616,8 +625,11 @@ export async function waitForPortClosed(endpoint, options = {}) {
   const intervalMs = options.intervalMs ?? 100;
   const startedAt = Date.now();
 
+  const host = normalizeHostname(url.hostname);
+  const port = Number.parseInt(url.port, 10);
+
   while (Date.now() - startedAt <= timeoutMs) {
-    if (!(await canConnect(url.hostname, Number.parseInt(url.port, 10)))) return true;
+    if (await probePortClosed(host, port)) return true;
     await sleep(intervalMs, options.signal);
   }
 
@@ -638,17 +650,33 @@ export function sleep(ms, signal) {
   });
 }
 
-function canConnect(host, port) {
-  return new Promise((resolve) => {
+/**
+ * Refusal is the only proof a port is closed. A successful connect means it is still bound, and a
+ * connect that neither succeeds nor is refused (timeout) proves nothing, so it keeps the caller
+ * waiting instead of reporting closure. Any other socket error means the probe itself could not run
+ * — a bad host, an unavailable address family — and is raised rather than mistaken for closure.
+ */
+const PORT_CLOSED_ERROR_CODES = new Set(["ECONNREFUSED", "ECONNRESET"]);
+
+function probePortClosed(host, port) {
+  return new Promise((resolve, reject) => {
     const socket = net.connect({ host, port });
-    const done = (result) => {
+    const done = (settle, value) => {
       socket.removeAllListeners();
       socket.destroy();
-      resolve(result);
+      settle(value);
     };
     socket.setTimeout(200);
-    socket.once("connect", () => done(true));
-    socket.once("error", () => done(false));
-    socket.once("timeout", () => done(false));
+    socket.once("connect", () => done(resolve, false));
+    socket.once("timeout", () => done(resolve, false));
+    socket.once("error", (error) => {
+      if (PORT_CLOSED_ERROR_CODES.has(error?.code)) return done(resolve, true);
+      done(
+        reject,
+        new SurfpoolSafetyError(
+          `closed-port probe for ${host}:${port} could not run (${error?.code ?? error?.message ?? error}); refusing to report the port as closed`,
+        ),
+      );
+    });
   });
 }

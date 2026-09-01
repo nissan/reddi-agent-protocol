@@ -51,19 +51,19 @@
       "path": "app/onboarding/page.tsx",
       "surface": "onboarding registration and attestation confirmation/dispute builders",
       "status": "quasar-compatible",
-      "reason": "Onboarding registration and attestation confirmation/dispute construction now select Quasar wrappers in explicit Quasar mode while preserving Anchor builders only for legacy mode."
+      "reason": "Onboarding registration routes through the target-aware registration helper; attestation confirm/dispute delegate to lib/onboarding/attestation-resolution.ts, which refuses the Quasar target and surfaces the canonical reason with both actions disabled, so the page builds no Quasar instruction of its own."
     },
     {
       "path": "lib/onboarding/onchain-attestation.ts",
       "surface": "attest_quality transaction builder",
       "status": "quasar-compatible",
-      "reason": "Onboarding attest_quality construction now routes through target-aware helper and uses Quasar one-byte/fixed-size attestation data in explicit Quasar mode; send remains operator-triggered only."
+      "reason": "attest_quality refuses the Quasar target outright before any operator key is read, any instruction is built, or any RPC is opened, because onboarding has no verified lock-created escrow to bind an attestation to. Only the legacy Anchor attestation layout is ever constructed here; send remains operator-triggered only."
     },
     {
       "path": "lib/onboarding/reputation-signal.ts",
       "surface": "commit/reveal reputation builders",
       "status": "quasar-compatible",
-      "reason": "Commit/reveal reputation construction now selects Quasar wrappers/data in explicit Quasar mode while preserving Anchor IX builders only for legacy mode."
+      "reason": "Commit/reveal reputation refuses the Quasar target outright — onboarding never locks a Quasar escrow, so there is no verified lock record to bind a rating to — and returns the canonical unavailable reason before any operator key is read, any commitment or PDA is derived, any instruction is built, or any RPC is opened. Only the legacy Anchor commit/reveal layout is ever constructed here."
     },
     {
       "path": "lib/onboarding/quasar-escrow-binding.ts",
@@ -75,7 +75,7 @@
       "path": "lib/onboarding/attestation-resolution.ts",
       "surface": "onboarding consumer confirm/dispute attestation resolution builder",
       "status": "quasar-compatible",
-      "reason": "Single owner of the consumer confirm/dispute path shared by the onboarding page: refuses in explicit Quasar mode before any connection, base58 parse, instruction build, or signer use, and selects Quasar attestation wrappers only outside that refusal while preserving Anchor builders for legacy mode."
+      "reason": "Single owner of the consumer confirm/dispute path shared by the onboarding page. It refuses the Quasar target outright before any connection is opened, any base58 string is parsed into a PublicKey, any instruction is built, or any signer is used, and constructs only the legacy Anchor confirm/dispute layout."
     },
     {
       "path": "lib/registry/bridge.ts",

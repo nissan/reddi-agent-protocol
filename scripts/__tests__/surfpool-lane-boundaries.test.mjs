@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import net from "node:net";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +20,7 @@ import {
   localChildEnv,
   resolveRepositorySubpath,
   startLocalSurfnet,
+  waitForPortClosed,
 } from "../lib/surfpool-sdk-lifecycle.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -174,6 +176,52 @@ test("hosted Surfpool workflows request the exact repository Node baseline", () 
     "24.20.0",
   );
 });
+
+async function listenOn(host) {
+  const server = net.createServer();
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen({ host, port: 0 }, resolve);
+    });
+  } catch (error) {
+    server.close();
+    // A machine without this address family cannot host the probe at all.
+    if (error?.code === "EADDRNOTAVAIL" || error?.code === "EAFNOSUPPORT") return null;
+    throw error;
+  }
+  return { server, port: server.address().port };
+}
+
+// A bracketed IPv6 URL hostname handed straight to net.connect is treated as a DNS name and fails
+// with ENOTFOUND, which a refusal-means-closed probe reads as "closed" — so port closure would be
+// reported for a Surfnet that is still listening.
+for (const [host, endpointHost] of [["127.0.0.1", "127.0.0.1"], ["::1", "[::1]"]]) {
+  test(`waitForPortClosed does not report a still-listening ${host} socket as closed`, async () => {
+    const listening = await listenOn(host);
+    if (!listening) return;
+
+    try {
+      await assert.rejects(
+        waitForPortClosed(`http://${endpointHost}:${listening.port}`, { timeoutMs: 400, intervalMs: 50 }),
+        /Timed out waiting for .* to close/,
+      );
+    } finally {
+      await new Promise((resolve) => listening.server.close(resolve));
+    }
+  });
+
+  test(`waitForPortClosed reports a released ${host} port as closed`, async () => {
+    const listening = await listenOn(host);
+    if (!listening) return;
+
+    await new Promise((resolve) => listening.server.close(resolve));
+    assert.equal(
+      await waitForPortClosed(`http://${endpointHost}:${listening.port}`, { timeoutMs: 5_000, intervalMs: 50 }),
+      true,
+    );
+  });
+}
 
 test("payment API bases pointing off-loopback are rejected before anything starts", () => {
   assert.ok(LOCAL_ENDPOINT_ENV_KEYS.includes("DEMO_PAYMENTS_API_BASE_URL"));

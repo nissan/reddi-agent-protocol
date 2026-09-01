@@ -108,7 +108,6 @@ export async function submitOnchainOnboardingAttestation(
   const attestPda = onboardingAttestationPda(jobId, ESCROW_PROGRAM_ID);
 
   const ix = buildOnboardingAttestQualityInstruction({
-    target: PROGRAM_TARGET,
     programId: ESCROW_PROGRAM_ID,
     jobId,
     scores,

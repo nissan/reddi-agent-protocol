@@ -172,7 +172,6 @@ describe("onboarding Quasar reputation/attestation refuses without a lock-create
           // Deliberately unparseable: reaching PublicKey parsing would surface as a different error.
           operator: "not a base58 operator",
           jobIdHex: "not a job id",
-          escrow: "",
         },
         { getConnection, sendTransaction },
       );
@@ -208,7 +207,6 @@ describe("onboarding Quasar reputation/attestation refuses without a lock-create
         consumer: new PublicKey(SPECIALIST),
         operator: SPECIALIST,
         jobIdHex: "00112233445566778899aabbccddeeff",
-        escrow: "",
       },
       { getConnection, sendTransaction },
     );
@@ -216,6 +214,16 @@ describe("onboarding Quasar reputation/attestation refuses without a lock-create
     expect(outcome.ok).toBe(false);
     expect(outcome.ok === false && outcome.error).toBe("connection opened");
     expect(getConnection).toHaveBeenCalledTimes(1);
+  });
+
+  it("states one canonical reason naming the missing lock record and the effects it precedes", async () => {
+    const { QUASAR_ESCROW_UNAVAILABLE_REASON } = await import("@/lib/onboarding/quasar-escrow-binding");
+
+    expect(QUASAR_ESCROW_UNAVAILABLE_REASON).toMatch(/never locks a Quasar escrow/);
+    expect(QUASAR_ESCROW_UNAVAILABLE_REASON).toMatch(/no verified lock record/);
+    expect(QUASAR_ESCROW_UNAVAILABLE_REASON).toMatch(/before any instruction is built/);
+    expect(QUASAR_ESCROW_UNAVAILABLE_REASON).toMatch(/any signer is used/);
+    expect(QUASAR_ESCROW_UNAVAILABLE_REASON).toMatch(/any RPC call is made/);
   });
 
   it("the Quasar refusal leaves no side effect: no commit is stored and no signer is loaded", async () => {
