@@ -11,6 +11,7 @@ import { spawnSync } from "node:child_process";
 import {
   ACCEPTED_EVIDENCE_FILENAME,
   ACCEPTED_EVIDENCE_MAX_AGE_MS,
+  ACCEPTED_EVIDENCE_MAX_BYTES,
   EvidenceManifestError,
   assertContainedArtifactPath,
   computeLaneSourceFingerprint,
@@ -1014,3 +1015,115 @@ for (const [target, inputs] of Object.entries(FINGERPRINTED_BUILD_INPUTS)) {
     });
   }
 }
+
+test("a receipt that is itself a symlink to a foreign file is refused rather than trusted", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-symlinked-receipt");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+
+    const manifestPath = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME);
+    const genuine = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const outside = await fsp.mkdtemp(path.join(os.tmpdir(), "rap-foreign-receipt-"));
+    try {
+      // A foreign receipt that would otherwise pass every content check: same fingerprint, same
+      // artifacts, but an attacker-chosen acceptedAt that defeats the freshness bound.
+      const foreign = path.join(outside, "accepted-evidence.json");
+      await fsp.writeFile(foreign, JSON.stringify({ ...genuine, acceptedAt: new Date().toISOString() }, null, 2));
+      await fsp.rm(manifestPath);
+      await fsp.symlink(foreign, manifestPath, "file");
+
+      assert.throws(
+        () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary", "log"] }),
+        /must not be a symbolic link/,
+      );
+    } finally {
+      await fsp.rm(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+test("a receipt read through a symlinked evidence root is refused before any of its fields are trusted", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-symlinked-root");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+
+    const evidenceRoot = path.join(repoRoot, dir);
+    const outside = await fsp.mkdtemp(path.join(os.tmpdir(), "rap-foreign-evidence-root-"));
+    try {
+      const movedRoot = path.join(outside, "surfpool-quasar-smoke");
+      await fsp.rename(evidenceRoot, movedRoot);
+      await fsp.symlink(movedRoot, evidenceRoot, "dir");
+
+      // Stale-dated so a reader that parses the receipt first would report staleness instead: the
+      // symlinked-root refusal must win, proving no field of a foreign receipt is consulted.
+      const movedManifest = path.join(movedRoot, ACCEPTED_EVIDENCE_FILENAME);
+      const foreign = JSON.parse(fs.readFileSync(movedManifest, "utf8"));
+      foreign.acceptedAt = new Date(Date.now() - ACCEPTED_EVIDENCE_MAX_AGE_MS - 60_000).toISOString();
+      await fsp.writeFile(movedManifest, JSON.stringify(foreign, null, 2));
+
+      assert.throws(
+        () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary", "log"] }),
+        /evidence root must not traverse symbolic links/,
+      );
+    } finally {
+      await fsp.rm(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+test("a receipt swapped to a symlink between the existence check and the read is refused", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-receipt-swap");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+    assert.doesNotThrow(() =>
+      readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary", "log"] }));
+
+    const manifestPath = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME);
+    const genuine = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const outside = await fsp.mkdtemp(path.join(os.tmpdir(), "rap-swapped-receipt-"));
+    const originalOpenSync = fs.openSync;
+    let swapped = false;
+    fs.openSync = function patchedOpenSync(file, flags, mode) {
+      if (!swapped && path.resolve(String(file)) === manifestPath) {
+        swapped = true;
+        const foreign = path.join(outside, "accepted-evidence.json");
+        fs.writeFileSync(foreign, JSON.stringify({ ...genuine, runId: "attacker-chosen" }, null, 2));
+        fs.rmSync(manifestPath);
+        fs.symlinkSync(foreign, manifestPath, "file");
+      }
+      return originalOpenSync.call(this, file, flags, mode);
+    };
+
+    try {
+      assert.throws(
+        () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary", "log"] }),
+        /must not be a symbolic link/,
+      );
+      assert.equal(swapped, true, "the regression must exercise the existence-check-to-read race");
+    } finally {
+      fs.openSync = originalOpenSync;
+      await fsp.rm(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+test("an oversized receipt is refused instead of being buffered and parsed", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-oversized-receipt");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+
+    const manifestPath = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME);
+    const genuine = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    genuine.padding = "x".repeat(ACCEPTED_EVIDENCE_MAX_BYTES);
+    await fsp.writeFile(manifestPath, JSON.stringify(genuine));
+
+    assert.throws(
+      () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary", "log"] }),
+      /larger than the allowed/,
+    );
+  });
+});

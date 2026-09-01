@@ -139,8 +139,13 @@ non-empty, including on profiles that remain submission-ready.
 
 On `devnet` the Quasar target still resolves — so the disclosure surfaces can explain
 why — but `config/quasar/deployments.json` records `submissionReady: false`, so
-`getNetworkProfile()` populates `programs.blocked` and `assertProgramTargetUsable()`
-throws at every effect site before instruction building, signer use, or RPC. The
+`getNetworkProfile()` populates `programs.blocked`, and every exported Quasar
+instruction builder in `lib/quasar/instructions.ts` calls
+`assertQuasarProgramTargetUsable()` as its first statement — which consults that
+block first — so it throws before instruction building, signer use, or RPC. That
+guard admits only a `local-surfpool` profile carrying four distinct valid local
+Quasar program ids on loopback-only endpoints; it is the whole Quasar effect
+boundary, and no separate general-purpose target assertion exists. The
 underlying ABI/deployment gaps are owned by `config/quasar/deployments.json` and
 [`SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`](./SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md).
 

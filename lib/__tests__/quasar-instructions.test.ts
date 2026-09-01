@@ -1,7 +1,8 @@
 import { createHash } from "crypto";
 
-import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
+import { Keypair, PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 
+import * as quasarInstructions from "@/lib/quasar/instructions";
 import {
   buildQuasarCommitRatingInstruction,
   buildQuasarConfirmAttestationInstruction,
@@ -147,5 +148,83 @@ describe("Quasar instruction wrappers", () => {
     // The pre-image is job-unique: a different escrow yields a different commitment.
     const other = quasarRatingCommitment(8, salt, Keypair.generate().publicKey, programId);
     expect(Buffer.from(other).equals(expected)).toBe(false);
+  });
+  it("refuses to construct any exported Quasar instruction unless the ambient target is validated local-surfpool Quasar", () => {
+    const signer = Keypair.generate().publicKey;
+    const builderInput = {
+      programId,
+      owner: signer,
+      agentType: 1,
+      model: "gpt-test",
+      rateLamports: 1_000n,
+      minReputation: 0,
+      active: true,
+      escrow: Keypair.generate().publicKey,
+      signer,
+      caller: signer,
+      consumer: signer,
+      judge: signer,
+      specialistAgentPda: Keypair.generate().publicKey,
+      consumerAgentPda: Keypair.generate().publicKey,
+      commitment: Uint8Array.from(Array(32).fill(7)),
+      role: 0 as const,
+      score: 8,
+      salt: Uint8Array.from(Array(32).fill(5)),
+      scores: Uint8Array.from([8, 8, 8, 8, 8]),
+    };
+
+    const builders = Object.entries(quasarInstructions)
+      .filter(([name, value]) => /^buildQuasar.+Instruction$/.test(name) && typeof value === "function")
+      .map(([name, value]) => [name, value as (input: typeof builderInput) => TransactionInstruction] as const);
+    expect(builders.length).toBeGreaterThan(0);
+
+    // Positive control: under the validated local-surfpool Quasar configuration every builder constructs.
+    for (const [name, build] of builders) {
+      expect(build(builderInput)).toBeInstanceOf(TransactionInstruction);
+      expect(name).toMatch(/^buildQuasar/);
+    }
+
+    const refusedConfigurations: Array<[string, Record<string, string | undefined>]> = [
+      ["devnet Quasar, whose recorded deployment is blocked", {
+        NETWORK_PROFILE: "devnet",
+        NEXT_PUBLIC_DEMO_PROGRAM_TARGET: "quasar",
+      }],
+      ["mainnet Quasar", {
+        NETWORK_PROFILE: "mainnet",
+        NEXT_PUBLIC_DEMO_PROGRAM_TARGET: "quasar",
+      }],
+      ["local-surfpool Quasar pointed off loopback", {
+        ...localQuasarEnv,
+        NEXT_PUBLIC_RPC_ENDPOINT: "https://api.devnet.solana.com",
+      }],
+      ["local-surfpool Quasar missing the fourth program id", {
+        ...localQuasarEnv,
+        NEXT_PUBLIC_ATTESTATION_PROGRAM_ID: undefined,
+      }],
+      ["local-surfpool Quasar reusing one program id twice", {
+        ...localQuasarEnv,
+        NEXT_PUBLIC_ATTESTATION_PROGRAM_ID: localQuasarEnv.NEXT_PUBLIC_REGISTRY_PROGRAM_ID,
+      }],
+      ["the default legacy-anchor target", { NETWORK_PROFILE: "local-surfpool" }],
+    ];
+
+    for (const [label, overrides] of refusedConfigurations) {
+      process.env = { ...originalEnv };
+      for (const [key, value] of Object.entries(overrides)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+
+      for (const [name, build] of builders) {
+        expect(() => build(builderInput)).toThrow();
+        try {
+          build(builderInput);
+          throw new Error(`${name} constructed an instruction under ${label}`);
+        } catch (error) {
+          expect((error as Error).message).toMatch(/Quasar|quasar/);
+          expect((error as Error).message).not.toContain("constructed an instruction");
+        }
+      }
+    }
   });
 });

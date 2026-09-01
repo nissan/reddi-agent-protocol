@@ -37,8 +37,9 @@ export type NetworkProfile = {
      * client no longer matches, an `unregistered-deployment` block is about a profile with no Quasar
      * deployment at all, and a `local-configuration` block is about the operator's own local run —
      * the four program ids and the loopback endpoints it is pointed at.
-     * Resolution stays non-throwing so disclosure surfaces can render the reason; effect sites call
-     * assertProgramTargetUsable() to refuse before building instructions, signing, or reaching RPC.
+     * Resolution stays non-throwing so disclosure surfaces can render the reason; every exported
+     * Quasar instruction builder calls assertQuasarProgramTargetUsable() — which consults this block
+     * first — to refuse before building instructions, signing, or reaching RPC.
      */
     blocked?: {
       target: ProgramTarget;
@@ -463,11 +464,6 @@ export function describeQuasarProgramTargetRefusal(profile: NetworkProfile = get
     `Resolved profile=${profile.name}, target=${profile.programs.target}, framework=${profile.programs.framework}, submissionReady=${profile.programs.submissionReady}.`,
     "Set NETWORK_PROFILE=local-surfpool, NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar, loopback-only RPC/WS endpoints, and four distinct valid current-source local Quasar program IDs.",
   ].join(" ");
-}
-
-export function assertProgramTargetUsable(profile: NetworkProfile = getNetworkProfile()): void {
-  const refusal = describeBlockedProgramTarget(profile);
-  if (refusal) throw new Error(refusal);
 }
 
 export function assertQuasarProgramTargetUsable(profile: NetworkProfile = getNetworkProfile()): void {

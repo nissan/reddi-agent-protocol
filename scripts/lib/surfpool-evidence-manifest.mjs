@@ -15,6 +15,12 @@ export const ACCEPTED_EVIDENCE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 const ACCEPTED_EVIDENCE_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 /**
+ * Upper bound on a receipt's own size. A receipt is a short JSON record naming a handful of
+ * artifacts, so anything larger is not a receipt this reader should buffer or parse.
+ */
+export const ACCEPTED_EVIDENCE_MAX_BYTES = 1024 * 1024;
+
+/**
  * Repository paths whose contents the lane's evidence actually depends on: every input the built
  * programs compile from (sources, the Quasar framework they depend on by path, and the manifests and
  * lockfiles that pin their dependencies) plus the demo client, the lane runner, and the pinned
@@ -191,6 +197,11 @@ function readFingerprintedFile(repoRoot, relativePath, options = {}) {
       throw new EvidenceManifestError(`${relativePath} must be an ordinary file`);
     }
     assertOpenedDescriptorContained(fd, containmentRootRealPath, relativePath);
+    if (Number.isFinite(options.maxBytes) && opened.size > options.maxBytes) {
+      throw new EvidenceManifestError(
+        `${relativePath} is ${opened.size} bytes, larger than the allowed ${options.maxBytes} bytes`,
+      );
+    }
     if (identity && (opened.dev !== identity.dev || opened.ino !== identity.ino || opened.size !== identity.size)) {
       throw new EvidenceManifestError(`${relativePath} was replaced while evidence was being computed`);
     }
@@ -489,19 +500,32 @@ export async function writeAcceptedEvidenceManifest(manifestDir, record) {
  * Read a per-target passing-evidence receipt, validating target, PASS status, provenance, and that
  * every required artifact still exists. Throws EvidenceManifestError rather than returning stale or
  * failed evidence.
+ *
+ * The receipt itself is read under the same descriptor-bound contract as the evidence it cites: the
+ * evidence root is resolved and checked for symlinked components first, the manifest is opened
+ * without following a final-component symlink, the opened descriptor is re-resolved back inside that
+ * root, and the bytes that are parsed are the bytes read from that same descriptor. A foreign or
+ * swapped receipt is therefore refused before any of its fields are trusted.
  */
 export function readAcceptedEvidenceManifest(repoRoot, manifestRelativeDir, { target, requiredArtifacts = [], maxAgeMs } = {}) {
   const effectiveMaxAgeMs = Number.isFinite(maxAgeMs)
     ? Math.min(maxAgeMs, ACCEPTED_EVIDENCE_MAX_AGE_MS)
     : ACCEPTED_EVIDENCE_MAX_AGE_MS;
   const manifestPath = path.join(repoRoot, manifestRelativeDir, ACCEPTED_EVIDENCE_FILENAME);
+  const manifestRelativePath = path.join(path.normalize(manifestRelativeDir), ACCEPTED_EVIDENCE_FILENAME);
   if (!fs.existsSync(manifestPath)) {
-    throw new EvidenceManifestError(`no accepted evidence at ${path.join(manifestRelativeDir, ACCEPTED_EVIDENCE_FILENAME)}; run the lane to a PASS first`);
+    throw new EvidenceManifestError(`no accepted evidence at ${manifestRelativePath}; run the lane to a PASS first`);
   }
+
+  const evidenceRootRealPath = containmentRootRealPath(repoRoot, manifestRelativeDir, "evidence root");
+  const manifestBytes = readFingerprintedFile(repoRoot, manifestRelativePath, {
+    containmentRootRealPath: evidenceRootRealPath,
+    maxBytes: ACCEPTED_EVIDENCE_MAX_BYTES,
+  });
 
   let manifest;
   try {
-    manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    manifest = JSON.parse(manifestBytes.toString("utf8"));
   } catch (error) {
     throw new EvidenceManifestError(`accepted evidence at ${manifestRelativeDir} is not valid JSON: ${error.message}`);
   }
@@ -560,8 +584,7 @@ export function readAcceptedEvidenceManifest(repoRoot, manifestRelativeDir, { ta
       throw new EvidenceManifestError(`accepted evidence at ${manifestRelativeDir} does not bind the ${artifact.name} artifact content hash`);
     }
     const actualDigest = fileContentDigest(repoRoot, contained, {
-      containmentRootRelativePath: manifestRelativeDir,
-      containmentRootLabel: "evidence root",
+      containmentRootRealPath: evidenceRootRealPath,
     });
     if (artifact.sha256 !== actualDigest) {
       throw new EvidenceManifestError(

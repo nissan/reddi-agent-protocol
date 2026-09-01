@@ -171,7 +171,7 @@ Not safe to say yet:
 - Umbra mainnet or production settlement completed.
 - Umbra evidence proves live private settlement.
 - The recorded Quasar devnet deployment is current or submission-ready; \`config/quasar/deployments.json\` records it as \`submissionReady: false\` with explicit client/deployment ABI mismatch known gaps.
-- A devnet Quasar build is demo evidence. \`NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar\` on the devnet profile resolves to a blocked target: the readiness banner is amber, \`assertProgramTargetUsable()\` refuses every signing surface, and no on-chain path runs. It is not listed above.
+- A devnet Quasar build is demo evidence. \`NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar\` on the devnet profile resolves to a blocked target: the readiness banner is amber, the \`assertQuasarProgramTargetUsable()\` call that opens every exported Quasar instruction builder refuses before any instruction is constructed, and no on-chain path runs. It is not listed above.
 `;
 writeFileSync(prepPath, content);
 
