@@ -18,6 +18,7 @@ import {
   baselinePath,
   declaredQuasarProgramId,
   localChildEnv,
+  resolveRepositorySubpath,
   startLocalSurfnet,
 } from "../lib/surfpool-sdk-lifecycle.mjs";
 
@@ -201,6 +202,40 @@ test("child environment helpers refuse to guess the run-scoped paths they bind",
   assert.throws(() => localChildEnv({}, { childTmpDir: "/tmp/x" }), /requires repoRoot/);
   assert.throws(() => localChildEnv({}, { repoRoot: "/repo" }), /requires childTmpDir/);
   assert.throws(() => baselinePath({}), /requires repoRoot/);
+});
+
+test("the Surfpool cargo cache override is confined to the repository .tmp cache root", async () => {
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "rap-surfpool-cargo-cache-"));
+  const external = await fsp.mkdtemp(path.join(os.tmpdir(), "rap-surfpool-external-cache-"));
+  try {
+    const base = path.join(".tmp", "surfpool-sdk-cargo-target");
+    await fsp.mkdir(path.join(tempRoot, base), { recursive: true });
+    assert.equal(
+      resolveRepositorySubpath(tempRoot, path.join(base, "quasar"), base, "RAP_SURFPOOL_CARGO_TARGET_DIR"),
+      path.join(tempRoot, base, "quasar"),
+    );
+    assert.equal(
+      resolveRepositorySubpath(tempRoot, path.join(tempRoot, base, "legacy-anchor"), base, "RAP_SURFPOOL_CARGO_TARGET_DIR"),
+      path.join(tempRoot, base, "legacy-anchor"),
+    );
+    assert.throws(
+      () => resolveRepositorySubpath(tempRoot, external, base, "RAP_SURFPOOL_CARGO_TARGET_DIR"),
+      /must stay under/,
+    );
+    assert.throws(
+      () => resolveRepositorySubpath(tempRoot, path.join("..", "outside"), base, "RAP_SURFPOOL_CARGO_TARGET_DIR"),
+      /must stay under/,
+    );
+
+    await fsp.symlink(external, path.join(tempRoot, base, "linked"), "dir");
+    assert.throws(
+      () => resolveRepositorySubpath(tempRoot, path.join(base, "linked", "quasar"), base, "RAP_SURFPOOL_CARGO_TARGET_DIR"),
+      /must not traverse symbolic links/,
+    );
+  } finally {
+    await fsp.rm(tempRoot, { recursive: true, force: true });
+    await fsp.rm(external, { recursive: true, force: true });
+  }
 });
 
 // A Surfnet the SDK already started is a live process holding ports. Every rejection path after

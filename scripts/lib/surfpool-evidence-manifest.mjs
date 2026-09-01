@@ -12,6 +12,7 @@ export const ACCEPTED_EVIDENCE_VERSION = 3;
  * caller may only tighten this window, never widen or disable it.
  */
 export const ACCEPTED_EVIDENCE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+const ACCEPTED_EVIDENCE_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 /**
  * Repository paths whose contents the lane's evidence actually depends on: every input the built
@@ -208,6 +209,23 @@ export class EvidenceManifestError extends Error {
   }
 }
 
+function assertNoSymlinkPathComponents(repoRoot, normalizedRelativePath, label) {
+  const parts = normalizedRelativePath.split(path.sep).filter(Boolean);
+  let current = repoRoot;
+  for (const part of parts) {
+    current = path.join(current, part);
+    let stat;
+    try {
+      stat = fs.lstatSync(current);
+    } catch {
+      return;
+    }
+    if (stat.isSymbolicLink()) {
+      throw new EvidenceManifestError(`${label} must not traverse symbolic links: ${normalizedRelativePath}`);
+    }
+  }
+}
+
 export function assertContainedArtifactPath(manifestRelativeDir, artifactPath, options = {}) {
   if (typeof manifestRelativeDir !== "string" || !manifestRelativeDir) {
     throw new EvidenceManifestError("a bound evidence root (manifestRelativeDir) is required to validate artifact containment");
@@ -232,6 +250,8 @@ export function assertContainedArtifactPath(manifestRelativeDir, artifactPath, o
 
   const repoRoot = options.repoRoot;
   {
+    assertNoSymlinkPathComponents(repoRoot, normalizedDir, "evidence root");
+    assertNoSymlinkPathComponents(repoRoot, normalized, "artifact path");
     const realRepoRoot = fs.realpathSync(repoRoot);
     const boundRoot = fs.realpathSync(path.join(repoRoot, normalizedDir));
     if (boundRoot !== realRepoRoot && !boundRoot.startsWith(`${realRepoRoot}${path.sep}`)) {
@@ -367,7 +387,11 @@ export function readAcceptedEvidenceManifest(repoRoot, manifestRelativeDir, { ta
   if (!Number.isFinite(acceptedAtMs)) {
     throw new EvidenceManifestError(`accepted evidence at ${manifestRelativeDir} has an unparseable acceptedAt ${JSON.stringify(manifest.acceptedAt)}`);
   }
-  if (Date.now() - acceptedAtMs > effectiveMaxAgeMs) {
+  const now = Date.now();
+  if (acceptedAtMs - now > ACCEPTED_EVIDENCE_CLOCK_SKEW_MS) {
+    throw new EvidenceManifestError(`accepted evidence at ${manifestRelativeDir} is future-dated: accepted ${manifest.acceptedAt}; re-run the lane`);
+  }
+  if (now - acceptedAtMs > effectiveMaxAgeMs) {
     throw new EvidenceManifestError(`accepted evidence at ${manifestRelativeDir} is stale: accepted ${manifest.acceptedAt}, older than the allowed ${effectiveMaxAgeMs}ms; re-run the lane`);
   }
 

@@ -452,6 +452,24 @@ test("a receipt with an unparseable acceptedAt is refused", async () => {
   });
 });
 
+test("a future-dated receipt is refused", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-legacy-anchor-future-date", { target: "legacy-anchor" });
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+
+    const manifestPath = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME);
+    const tampered = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    tampered.acceptedAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    fs.writeFileSync(manifestPath, JSON.stringify(tampered));
+
+    assert.throws(
+      () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "legacy-anchor", requiredArtifacts: ["summary"] }),
+      /future-dated/,
+    );
+  });
+});
+
 test("a cancelled termination never escalates to SIGKILL on a recycled pid", async () => {
   const signalled = [];
   const child = { pid: 4242, kill: () => {} };
@@ -622,7 +640,29 @@ test("an artifact reachable only through a symlink out of the evidence root is r
 
     assert.throws(
       () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary"] }),
-      /through a symlink/,
+      /must not traverse symbolic links/,
+    );
+  });
+});
+
+test("an artifact symlinked inside the evidence root is refused", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-internal-artifact-symlink");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+
+    const runDir = path.join(repoRoot, dir, record.runId);
+    await fsp.writeFile(path.join(runDir, "linked-target.log"), "same-root log\n");
+    await fsp.symlink("linked-target.log", path.join(runDir, "linked-smoke.log"));
+
+    const manifestPath = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME);
+    const tampered = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    tampered.artifacts = [{ name: "log", path: `${dir}/${record.runId}/linked-smoke.log` }];
+    fs.writeFileSync(manifestPath, JSON.stringify(tampered));
+
+    assert.throws(
+      () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["log"] }),
+      /artifact path must not traverse symbolic links/,
     );
   });
 });
@@ -656,13 +696,45 @@ test("an evidence root symlinked outside the repository is refused", async () =>
 
       await assert.rejects(
         writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record),
-        /evidence root resolves outside the repository/,
+        /evidence root must not traverse symbolic links/,
       );
       assert.equal(fs.existsSync(path.join(externalRoot, ACCEPTED_EVIDENCE_FILENAME)), false);
     });
   } finally {
     await fsp.rm(externalRoot, { recursive: true, force: true });
   }
+});
+
+test("an evidence root symlinked elsewhere inside the repository is refused", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const realDir = "artifacts/internal-smoke-target";
+    const runId = "sdk-quasar-internal-root-symlink";
+    await seedFingerprintSources(repoRoot, "quasar");
+    await fsp.mkdir(path.join(repoRoot, realDir, runId), { recursive: true });
+    await fsp.symlink(path.join(repoRoot, realDir), path.join(repoRoot, dir), "dir");
+    await fsp.writeFile(path.join(repoRoot, realDir, runId, "SUMMARY.md"), "# internal summary\n");
+    await fsp.writeFile(path.join(repoRoot, realDir, runId, "smoke.log"), "internal log\n");
+
+    const record = {
+      target: "quasar",
+      runId,
+      status: "PASS",
+      repoRoot,
+      manifestRelativeDir: dir,
+      sourceFingerprint: computeLaneSourceFingerprint(repoRoot, "quasar"),
+      artifacts: [
+        { name: "summary", path: `${dir}/${runId}/SUMMARY.md` },
+        { name: "log", path: `${dir}/${runId}/smoke.log` },
+      ],
+      provenance: { command: "npm run test:surfpool:quasar-critical" },
+    };
+
+    await assert.rejects(
+      writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record),
+      /evidence root must not traverse symbolic links/,
+    );
+  });
 });
 
 test("publishing refuses to cite an artifact that does not exist yet", async () => {

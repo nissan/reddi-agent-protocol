@@ -17,6 +17,7 @@ import {
   createTruncatingEvidenceBuffer,
   localChildEnv,
   redactForEvidence,
+  resolveRepositorySubpath,
   scheduleProcessGroupTermination,
   startLocalSurfnet,
   stopLocalSurfnetLease,
@@ -68,8 +69,13 @@ const outDir = path.join(evidenceRoot, runId);
 const tmpDir = path.join(repoRoot, ".tmp", "surfpool-sdk-critical-smoke", runId);
 // Build output lives outside the per-run directory so cleanup does not delete it and CI can cache
 // it. Ledger, runtime state, child TMPDIR, and logs stay per-run under tmpDir.
-const cargoTargetDir = process.env.RAP_SURFPOOL_CARGO_TARGET_DIR?.trim()
-  || path.join(repoRoot, ".tmp", "surfpool-sdk-cargo-target", target);
+const cargoTargetRootRelative = path.join(".tmp", "surfpool-sdk-cargo-target");
+const cargoTargetDir = resolveRepositorySubpath(
+  repoRoot,
+  process.env.RAP_SURFPOOL_CARGO_TARGET_DIR?.trim() || path.join(cargoTargetRootRelative, target),
+  cargoTargetRootRelative,
+  "RAP_SURFPOOL_CARGO_TARGET_DIR",
+);
 const childTmpDir = path.join(tmpDir, "tmp");
 const logFile = path.join(outDir, "surfpool-sdk-critical-smoke.log");
 const summaryFile = path.join(outDir, "SUMMARY.md");

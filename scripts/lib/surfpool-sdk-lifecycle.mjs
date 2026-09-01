@@ -99,6 +99,45 @@ export function assertLocalOnlyEnvironment(env = process.env, options = {}) {
   }
 }
 
+function isSameOrChild(parent, candidate) {
+  const relative = path.relative(parent, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function assertNoSymlinkPathComponents(repoRoot, absolutePath, label) {
+  const relative = path.relative(repoRoot, absolutePath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new SurfpoolSafetyError(`${label} must stay inside the repository; got ${absolutePath}`);
+  }
+  let current = repoRoot;
+  for (const part of relative.split(path.sep).filter(Boolean)) {
+    current = path.join(current, part);
+    let stat;
+    try {
+      stat = fs.lstatSync(current);
+    } catch {
+      return;
+    }
+    if (stat.isSymbolicLink()) {
+      throw new SurfpoolSafetyError(`${label} must not traverse symbolic links; got ${absolutePath}`);
+    }
+  }
+}
+
+export function resolveRepositorySubpath(repoRoot, requestedPath, baseRelativeDir, label = "path") {
+  if (!repoRoot) throw new SurfpoolSafetyError(`${label} requires repoRoot`);
+  if (!requestedPath) throw new SurfpoolSafetyError(`${label} requires a path`);
+  if (!baseRelativeDir) throw new SurfpoolSafetyError(`${label} requires a repository-local base directory`);
+  const realRepoRoot = fs.realpathSync(repoRoot);
+  const base = path.resolve(realRepoRoot, baseRelativeDir);
+  const candidate = path.resolve(realRepoRoot, requestedPath);
+  if (!isSameOrChild(base, candidate)) {
+    throw new SurfpoolSafetyError(`${label} must stay under ${baseRelativeDir}; got ${requestedPath}`);
+  }
+  assertNoSymlinkPathComponents(realRepoRoot, candidate, label);
+  return candidate;
+}
+
 export const QUASAR_PROGRAM_SOURCE_DIRS = Object.freeze({
   escrow: "experiments/quasar-escrow",
   registry: "experiments/quasar-registry",
