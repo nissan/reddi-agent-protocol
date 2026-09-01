@@ -9,8 +9,13 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
+      - ".mise.toml"
       - "config/toolchain/solana-baseline-assets.json"
+      - "scripts/check-solana-baseline-pins.mjs"
+      - "scripts/solana-baseline-toolchain.sh"
+      - "scripts/lib/solana-baseline-version-match.sh"
       - ".github/workflows/anchor-program-tests.yml"
+      - ".github/workflows/quasar-program-tests.yml"
   pull_request:
     branches: [main]
     paths:
@@ -19,8 +24,13 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
+      - ".mise.toml"
       - "config/toolchain/solana-baseline-assets.json"
+      - "scripts/check-solana-baseline-pins.mjs"
+      - "scripts/solana-baseline-toolchain.sh"
+      - "scripts/lib/solana-baseline-version-match.sh"
       - ".github/workflows/anchor-program-tests.yml"
+      - ".github/workflows/quasar-program-tests.yml"
   workflow_dispatch:
 
 jobs:
@@ -33,7 +43,10 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Verify pinned Solana toolchain baseline
-        run: npm run check:toolchain:baseline
+        run: |
+          npm run check:toolchain:baseline
+          npm run test:toolchain:version-match
+          npm run test:toolchain:modes
 
       - name: Install Rust toolchain (matches rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
