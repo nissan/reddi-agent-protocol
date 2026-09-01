@@ -1,4 +1,5 @@
 import net from "node:net";
+import { StringDecoder } from "node:string_decoder";
 
 export const LOCAL_ENDPOINT_ENV_KEYS = Object.freeze([
   "ANCHOR_PROVIDER_URL",
@@ -123,6 +124,38 @@ export async function defaultReadinessProbe(rpcUrl, options = {}) {
   return Boolean(payload?.result?.["solana-core"]);
 }
 
+async function runReadinessAttempt(probe, rpcUrl, { signal, attempts, budgetMs }) {
+  const attemptController = new AbortController();
+  const abortAttempt = (reason) => {
+    if (!attemptController.signal.aborted) attemptController.abort(reason);
+  };
+  const onOuterAbort = () => abortAttempt(signal.reason ?? new Error("readiness aborted"));
+  if (signal) {
+    if (signal.aborted) abortAttempt(signal.reason ?? new Error("readiness aborted"));
+    else signal.addEventListener("abort", onOuterAbort, { once: true });
+  }
+
+  let deadlineTimer;
+  const deadline = new Promise((_, reject) => {
+    deadlineTimer = setTimeout(() => {
+      const error = new Error(`readiness probe attempt ${attempts} exceeded ${budgetMs}ms`);
+      abortAttempt(error);
+      reject(error);
+    }, budgetMs);
+  });
+
+  try {
+    return await Promise.race([
+      (async () => probe(rpcUrl, { signal: attemptController.signal, attempts }))(),
+      deadline,
+    ]);
+  } finally {
+    clearTimeout(deadlineTimer);
+    abortAttempt(new Error("readiness probe attempt settled"));
+    if (signal) signal.removeEventListener("abort", onOuterAbort);
+  }
+}
+
 export async function waitForSurfnetReadiness(rpcUrl, options = {}) {
   const timeoutMs = options.timeoutMs ?? 20_000;
   const intervalMs = options.intervalMs ?? 250;
@@ -135,11 +168,13 @@ export async function waitForSurfnetReadiness(rpcUrl, options = {}) {
   while (Date.now() - startedAt <= timeoutMs) {
     if (signal?.aborted) throw signal.reason ?? new Error("readiness aborted");
     attempts += 1;
+    const budgetMs = Math.max(1, timeoutMs - (Date.now() - startedAt));
     try {
-      if (await probe(rpcUrl, { signal, attempts })) return { attempts };
+      if (await runReadinessAttempt(probe, rpcUrl, { signal, attempts, budgetMs })) return { attempts };
     } catch (error) {
       lastError = error;
     }
+    if (Date.now() - startedAt > timeoutMs) break;
     await sleep(intervalMs, signal);
   }
 
@@ -199,9 +234,7 @@ export function assertQuasarCriticalDemoOutput(output, expectedProgramIds) {
   const completed = lines.some((line) => /Full A→B→C cycle complete/.test(line));
   const notClaimed = lines.some((line) => /MagicBlock PER\/TEE is not claimed/.test(line));
   const legacyTarget = lines.some((line) => /Target:\s+legacy-anchor/.test(line));
-  const anchorFallback = lines.some((line) => /No Anchor\/PER fallback was used/.test(line))
-    ? false
-    : lines.some((line) => /fallback used|L1 fallback|legacy Anchor\/PER paths/i.test(line));
+  const anchorFallback = lines.some((line) => /fallback used|L1 fallback|legacy Anchor\/PER paths/i.test(line));
   const localSurfpoolProfile = lines.some((line) => /local-surfpool/.test(line));
   const liveNetworkHint = /cluster=devnet|api\.devnet\.solana\.com|api\.mainnet-beta\.solana\.com|devnet-tee\.magicblock\.app/i.test(text);
 
@@ -261,6 +294,33 @@ export function redactForEvidence(value, options = {}) {
   return text;
 }
 
+export function createRedactingLineBuffer(options = {}) {
+  const decoder = new StringDecoder("utf8");
+  const maxResidualChars = options.maxResidualChars ?? 1_000_000;
+  let residual = "";
+
+  return {
+    push(chunk) {
+      residual += typeof chunk === "string" ? chunk : decoder.write(chunk);
+      const breakIndex = Math.max(residual.lastIndexOf("\n"), residual.lastIndexOf("\r"));
+      if (breakIndex === -1) {
+        if (residual.length < maxResidualChars) return "";
+        const forced = residual;
+        residual = "";
+        return redactForEvidence(forced, options);
+      }
+      const complete = residual.slice(0, breakIndex + 1);
+      residual = residual.slice(breakIndex + 1);
+      return redactForEvidence(complete, options);
+    },
+    flush() {
+      const tail = residual + decoder.end();
+      residual = "";
+      return tail ? redactForEvidence(tail, options) : "";
+    },
+  };
+}
+
 export async function waitForPortClosed(endpoint, options = {}) {
   const url = assertLoopbackEndpoint(endpoint, "closed-port probe endpoint");
   const timeoutMs = options.timeoutMs ?? 5_000;
@@ -278,17 +338,14 @@ export async function waitForPortClosed(endpoint, options = {}) {
 export function sleep(ms, signal) {
   if (signal?.aborted) return Promise.reject(signal.reason ?? new Error("sleep aborted"));
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    if (signal) {
-      signal.addEventListener(
-        "abort",
-        () => {
-          clearTimeout(timer);
-          reject(signal.reason ?? new Error("sleep aborted"));
-        },
-        { once: true },
-      );
-    }
+    const settle = (settleFn, value) => {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener("abort", onAbort);
+      settleFn(value);
+    };
+    const onAbort = () => settle(reject, signal.reason ?? new Error("sleep aborted"));
+    const timer = setTimeout(() => settle(resolve, undefined), ms);
+    if (signal) signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 

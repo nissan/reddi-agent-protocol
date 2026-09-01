@@ -10,6 +10,7 @@ import {
   assertLoopbackEndpoint,
   assertQuasarCriticalDemoOutput,
   assertQuasarPerFailClosedOutput,
+  createRedactingLineBuffer,
   redactForEvidence,
   startLocalSurfnet,
   waitForPortClosed,
@@ -89,6 +90,103 @@ test("readiness timeout stops the SDK Surfnet it started", async () => {
     SurfpoolReadinessError,
   );
   assert.equal(stopped, 1);
+});
+
+test("readiness enforces its own deadline when a probe never settles", async () => {
+  let stopped = 0;
+  class FakeSurfnet {
+    static startWithConfig() {
+      return {
+        rpcUrl: "http://127.0.0.1:18191",
+        wsUrl: "ws://127.0.0.1:18192",
+        instanceId: "fake-hang",
+        stop() { stopped += 1; },
+      };
+    }
+  }
+
+  const startedAt = Date.now();
+  await assert.rejects(
+    startLocalSurfnet(FakeSurfnet, {
+      env: {},
+      readinessTimeoutMs: 300,
+      readinessIntervalMs: 10,
+      readinessProbe: () => new Promise(() => {}),
+    }),
+    SurfpoolReadinessError,
+  );
+  assert.ok(Date.now() - startedAt < 10_000, "readiness must be bounded by readinessTimeoutMs");
+  assert.equal(stopped, 1);
+});
+
+test("readiness aborts each hung probe attempt instead of leaking it", async () => {
+  const observedAborts = [];
+  class FakeSurfnet {
+    static startWithConfig() {
+      return {
+        rpcUrl: "http://127.0.0.1:18193",
+        wsUrl: "ws://127.0.0.1:18194",
+        instanceId: "fake-hang-abort",
+        stop() {},
+      };
+    }
+  }
+
+  await assert.rejects(
+    startLocalSurfnet(FakeSurfnet, {
+      env: {},
+      readinessTimeoutMs: 200,
+      readinessIntervalMs: 10,
+      readinessProbe: (_url, { signal }) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            observedAborts.push(signal.reason?.message ?? "aborted");
+            reject(signal.reason);
+          }, { once: true });
+        }),
+    }),
+    SurfpoolReadinessError,
+  );
+  assert.ok(observedAborts.length >= 1);
+  assert.match(observedAborts[0], /exceeded \d+ms/);
+});
+
+test("waiting for readiness does not accumulate abort listeners on a long-lived signal", async () => {
+  const controller = new AbortController();
+  class FakeSurfnet {
+    static startWithConfig() {
+      return {
+        rpcUrl: "http://127.0.0.1:18195",
+        wsUrl: "ws://127.0.0.1:18196",
+        instanceId: "fake-listener-leak",
+        stop() {},
+      };
+    }
+  }
+
+  const warnings = [];
+  const onWarning = (warning) => warnings.push(warning);
+  process.on("warning", onWarning);
+  try {
+    await assert.rejects(
+      startLocalSurfnet(FakeSurfnet, {
+        env: {},
+        readinessTimeoutMs: 400,
+        readinessIntervalMs: 1,
+        readinessProbe: () => false,
+        signal: controller.signal,
+      }),
+      SurfpoolReadinessError,
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    process.off("warning", onWarning);
+  }
+
+  assert.deepEqual(
+    warnings.filter((warning) => warning.name === "MaxListenersExceededWarning").map((warning) => warning.message),
+    [],
+  );
 });
 
 test("loopback validation rejects malformed, non-loopback, and live-network-style URLs", () => {
@@ -202,4 +300,60 @@ test("SIGINT teardown stops an in-process SDK Surfnet and closes its ports", asy
   assert.ok(endpoints?.rpcUrl, stderr);
   await waitForPortClosed(endpoints.rpcUrl, { timeoutMs: 5_000 });
   await waitForPortClosed(endpoints.wsUrl, { timeoutMs: 5_000 });
+});
+
+test("Quasar output parser detects a real fallback that also prints the reassuring banner", () => {
+  const fallbackOutput = `
+║       Reddi Agent Protocol — local-surfpool Demo ║
+Target:   quasar
+Escrow:   ${quasarIds.escrow}
+Registry: ${quasarIds.registry}
+Repute:   ${quasarIds.reputation}
+Attest:   ${quasarIds.attestation}
+   ⚠️  PER unavailable (connect ECONNREFUSED...) — using L1 fallback
+   ✅ L1 fallback used — sig: local
+║  🏁  Full A→B→C cycle complete                          ║
+  Settlement:      Quasar escrow public settlement
+  ℹ️  MagicBlock PER/TEE is not claimed by this Quasar final path; no Anchor/PER fallback was used.
+`;
+  assert.throws(
+    () => assertQuasarCriticalDemoOutput(fallbackOutput, quasarIds),
+    /no Anchor\/PER fallback wording/,
+  );
+});
+
+test("line-buffered redaction strips a keypair split across two pipe chunks", () => {
+  const secretLine = `AGENT_A_KEYPAIR=[${Array.from({ length: 64 }, (_, i) => i + 1).join(",")}]\n`;
+  const splitAt = 40;
+  const buffer = createRedactingLineBuffer({ repoRoot: "/repo/path", home: "/home/example" });
+
+  let emitted = buffer.push(Buffer.from(secretLine.slice(0, splitAt), "utf8"));
+  assert.equal(emitted, "", "an incomplete line must not be emitted unredacted");
+  emitted += buffer.push(Buffer.from(secretLine.slice(splitAt), "utf8"));
+  emitted += buffer.flush();
+
+  assert.equal(emitted.includes("AGENT_A_KEYPAIR=[1,2"), false);
+  assert.match(emitted, /AGENT_KEYPAIR=<redacted>/);
+});
+
+test("line-buffered redaction relativizes paths split across chunks and flushes an unterminated tail", () => {
+  const buffer = createRedactingLineBuffer({ repoRoot: "/repo/path", home: "/home/example" });
+  let emitted = buffer.push("build output at /repo/pa");
+  emitted += buffer.push("th/artifacts and /home/exa");
+  emitted += buffer.push("mple/.config");
+  assert.equal(emitted, "", "nothing complete yet");
+  emitted += buffer.flush();
+
+  assert.equal(emitted.includes("/repo/path"), false);
+  assert.equal(emitted.includes("/home/example"), false);
+  assert.match(emitted, /<repo>\/artifacts/);
+  assert.match(emitted, /~\/\.config/);
+  assert.equal(buffer.flush(), "", "flush must be idempotent");
+});
+
+test("line-buffered redaction emits complete lines and preserves carriage-return progress output", () => {
+  const buffer = createRedactingLineBuffer({});
+  assert.equal(buffer.push("first line\nsecond par"), "first line\n");
+  assert.equal(buffer.push("t\rprogress"), "second part\r");
+  assert.equal(buffer.flush(), "progress");
 });

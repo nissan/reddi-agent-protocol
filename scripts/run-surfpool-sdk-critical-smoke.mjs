@@ -11,6 +11,7 @@ import {
   assertLocalOnlyEnvironment,
   assertQuasarCriticalDemoOutput,
   assertQuasarPerFailClosedOutput,
+  createRedactingLineBuffer,
   redactForEvidence,
   startLocalSurfnet,
   waitForPortClosed,
@@ -40,6 +41,7 @@ const { Surfnet } = await import("@solana/surfpool");
 const runId = `sdk-${target}-${crypto.randomUUID()}`;
 const outDir = path.join(repoRoot, "artifacts", target === "quasar" ? "surfpool-quasar-smoke" : "surfpool-smoke", runId);
 const tmpDir = path.join(repoRoot, ".tmp", "surfpool-sdk-critical-smoke", runId);
+const childTmpDir = path.join(tmpDir, "tmp");
 const logFile = path.join(outDir, "surfpool-sdk-critical-smoke.log");
 const summaryFile = path.join(outDir, "SUMMARY.md");
 const abortController = new AbortController();
@@ -74,6 +76,7 @@ for (const signalName of ["SIGINT", "SIGTERM"]) {
 try {
   await fs.mkdir(outDir, { recursive: true });
   await fs.mkdir(tmpDir, { recursive: true });
+  await fs.mkdir(childTmpDir, { recursive: true });
   await logLine(`[surfpool-sdk-smoke] run id: ${runId}`);
   await logLine(`[surfpool-sdk-smoke] target: ${target}`);
   await logLine(`[surfpool-sdk-smoke] artifact dir: ${rel(outDir)}`);
@@ -262,7 +265,7 @@ function localChildEnv(overrides) {
     NODE_ENV: process.env.NODE_ENV ?? "test",
     npm_config_audit: "false",
     npm_config_fund: "false",
-    TMPDIR: path.join(tmpDir, "tmp"),
+    TMPDIR: childTmpDir,
   };
   return { ...base, ...overrides };
 }
@@ -325,8 +328,8 @@ function spawnLogged(command, commandArgs, options = {}) {
     abortController.signal.addEventListener("abort", onAbort, { once: true });
 
     let combinedLength = 0;
-    const handleChunk = (chunk) => {
-      const text = redactForEvidence(chunk.toString("utf8"), { repoRoot, home: process.env.HOME });
+    const emit = (text) => {
+      if (!text) return;
       chunks.push(text);
       combinedLength += text.length;
       while (combinedLength > 2_000_000 && chunks.length > 1) {
@@ -334,17 +337,30 @@ function spawnLogged(command, commandArgs, options = {}) {
       }
       process.stdout.write(text);
     };
-    child.stdout.on("data", handleChunk);
-    child.stderr.on("data", handleChunk);
+    // Redaction is line-buffered per stream so a secret split across two pipe
+    // chunks is still matched before anything reaches stdout or the evidence log.
+    const streamBuffers = [];
+    const attachStream = (stream) => {
+      const buffer = createRedactingLineBuffer({ repoRoot, home: process.env.HOME });
+      streamBuffers.push(buffer);
+      stream.on("data", (chunk) => emit(buffer.push(chunk)));
+    };
+    const flushStreams = () => {
+      for (const buffer of streamBuffers) emit(buffer.flush());
+    };
+    attachStream(child.stdout);
+    attachStream(child.stderr);
     child.once("error", (error) => {
       clearTimeout(commandTimer);
       abortController.signal.removeEventListener("abort", onAbort);
+      flushStreams();
       if (activeChild === child) activeChild = undefined;
       reject(error);
     });
     child.once("close", (code, signal) => {
       clearTimeout(commandTimer);
       abortController.signal.removeEventListener("abort", onAbort);
+      flushStreams();
       if (activeChild === child) activeChild = undefined;
       const combined = chunks.join("");
       fs.appendFile(logFile, combined)
