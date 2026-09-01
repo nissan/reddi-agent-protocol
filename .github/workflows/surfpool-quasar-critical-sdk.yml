@@ -5,6 +5,7 @@ on:
     branches: [main, feature/**, feat/**]
     paths:
       - "config/quasar/**"
+      - "config/toolchain/**"
       - "third_party/quasar/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -13,6 +14,9 @@ on:
       - "lib/onboarding/**"
       - "lib/__tests__/**"
       - "scripts/lib/surfpool-evidence-manifest.mjs"
+      - "scripts/resolve-accepted-surfpool-evidence.mjs"
+      - "scripts/generate-economic-demo-submission-prep.mjs"
+      - "scripts/run-integration-lane.sh"
       - "scripts/__tests__/surfpool-evidence-manifest.test.mjs"
       - "scripts/__tests__/surfpool-lane-boundaries.test.mjs"
       - "jest.config.js"
@@ -34,10 +38,12 @@ on:
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/surfpool-quasar-critical-sdk.yml"
+      - ".github/workflows/surfpool-acceptance-manual.yml"
   pull_request:
     branches: [main]
     paths:
       - "config/quasar/**"
+      - "config/toolchain/**"
       - "third_party/quasar/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -46,6 +52,9 @@ on:
       - "lib/onboarding/**"
       - "lib/__tests__/**"
       - "scripts/lib/surfpool-evidence-manifest.mjs"
+      - "scripts/resolve-accepted-surfpool-evidence.mjs"
+      - "scripts/generate-economic-demo-submission-prep.mjs"
+      - "scripts/run-integration-lane.sh"
       - "scripts/__tests__/surfpool-evidence-manifest.test.mjs"
       - "scripts/__tests__/surfpool-lane-boundaries.test.mjs"
       - "jest.config.js"
@@ -67,16 +76,17 @@ on:
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/surfpool-quasar-critical-sdk.yml"
+      - ".github/workflows/surfpool-acceptance-manual.yml"
   workflow_dispatch:
 
 jobs:
   surfpool-quasar-critical-sdk:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
-      # The lane's own budget must expire before the job hard-kill so its bounded shutdown runs:
-      # cleanup, port-closure waits, and a FAIL summary instead of a truncated job.
-      RAP_SURFPOOL_CRITICAL_TIMEOUT_MS: "3000000"
+      # The smoke step has a 50-minute hard cap; the lane's own 40-minute budget expires first so
+      # bounded shutdown can stop Surfnet, wait for ports to close, and write a FAIL summary.
+      RAP_SURFPOOL_CRITICAL_TIMEOUT_MS: "2400000"
 
     steps:
       - name: Checkout
@@ -128,6 +138,7 @@ jobs:
         run: npm test -- --ci --runTestsByPath packages/demo-agents/src/__tests__/quasar-target-gate.test.ts lib/__tests__/quasar-demo-program-config.test.ts lib/__tests__/network-profile-resolution.test.ts lib/quasar/__tests__/quasar-devnet-refusal.test.ts lib/quasar/__tests__/web-consumer-modules-load.test.ts lib/__tests__/onboarding-quasar-escrow-refusal.test.ts
 
       - name: Run Quasar critical SDK Surfpool smoke
+        timeout-minutes: 50
         run: npm run test:surfpool:quasar-critical
 
       - name: Upload local Surfpool artifacts

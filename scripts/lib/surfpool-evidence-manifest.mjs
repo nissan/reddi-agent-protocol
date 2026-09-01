@@ -25,6 +25,8 @@ const LANE_FINGERPRINT_PATHS = Object.freeze({
     // The Quasar framework the four programs compile against: `quasar-lang` is a path dependency, so
     // editing it changes every .so the lane builds without touching any experiments/ source.
     "third_party/quasar",
+    "Cargo.toml",
+    "Cargo.lock",
     "experiments/quasar-escrow/src",
     "experiments/quasar-escrow/Cargo.toml",
     "experiments/quasar-escrow/Cargo.lock",
@@ -44,7 +46,11 @@ const LANE_FINGERPRINT_PATHS = Object.freeze({
     "scripts/lib/surfpool-sdk-lifecycle.mjs",
     "scripts/lib/surfpool-evidence-manifest.mjs",
     "scripts/run-surfpool-sdk-critical-smoke.mjs",
+    "scripts/resolve-accepted-surfpool-evidence.mjs",
+    "package.json",
+    "package-lock.json",
     "config/quasar/deployments.json",
+    "config/toolchain/solana-baseline-assets.json",
     "rust-toolchain.toml",
     "docs/SOLANA-TOOLCHAIN-BASELINE.md",
   ]),
@@ -60,6 +66,10 @@ const LANE_FINGERPRINT_PATHS = Object.freeze({
     "scripts/lib/surfpool-sdk-lifecycle.mjs",
     "scripts/lib/surfpool-evidence-manifest.mjs",
     "scripts/run-surfpool-sdk-critical-smoke.mjs",
+    "scripts/resolve-accepted-surfpool-evidence.mjs",
+    "package.json",
+    "package-lock.json",
+    "config/toolchain/solana-baseline-assets.json",
     "docs/SOLANA-TOOLCHAIN-BASELINE.md",
   ]),
 });
@@ -70,6 +80,18 @@ function digestFile(hash, repoRoot, relativePath) {
   hash.update(fs.readFileSync(path.join(repoRoot, relativePath)));
   hash.update("\0");
 }
+
+const FINGERPRINT_IGNORED_DIRECTORIES = new Set([
+  ".git",
+  ".next",
+  ".turbo",
+  ".vercel",
+  "artifacts",
+  "coverage",
+  "dist",
+  "node_modules",
+  "target",
+]);
 
 function walkFiles(repoRoot, relativePath, out) {
   const absolute = path.join(repoRoot, relativePath);
@@ -85,6 +107,7 @@ function walkFiles(repoRoot, relativePath, out) {
   }
   if (!stat.isDirectory()) return;
   for (const entry of fs.readdirSync(absolute).sort()) {
+    if (FINGERPRINT_IGNORED_DIRECTORIES.has(entry)) continue;
     walkFiles(repoRoot, path.join(relativePath, entry), out);
   }
 }

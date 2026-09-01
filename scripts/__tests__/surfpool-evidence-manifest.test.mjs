@@ -32,12 +32,33 @@ const FINGERPRINTED_BUILD_INPUTS = Object.freeze({
   quasar: Object.freeze({
     "packages/demo-agents/src/demo.ts": "export const version = 1;\n",
     "third_party/quasar/lang/src/lib.rs": "pub fn owner_check() {}\n",
+    "Cargo.toml": '[workspace]\nmembers = ["programs/*"]\n\n[profile.release]\nlto = "fat"\n',
+    "Cargo.lock": "version = 4\n",
     "experiments/quasar-escrow/src/lib.rs": 'declare_id!("stub");\n',
     "experiments/quasar-escrow/Cargo.toml": "[package]\nname = \"quasar-escrow\"\n",
     "experiments/quasar-escrow/Cargo.lock": "version = 4\n",
     "experiments/quasar-escrow-ref/src/lib.rs": "pub struct EscrowRef;\n",
+    "experiments/quasar-escrow-ref/Cargo.toml": "[package]\nname = \"quasar-escrow-ref\"\n",
+    "experiments/quasar-escrow-ref/Cargo.lock": "version = 4\n",
+    "experiments/quasar-registry/src/lib.rs": 'declare_id!("stub");\n',
+    "experiments/quasar-registry/Cargo.toml": "[package]\nname = \"quasar-registry\"\n",
+    "experiments/quasar-registry/Cargo.lock": "version = 4\n",
+    "experiments/quasar-reputation/src/lib.rs": 'declare_id!("stub");\n',
+    "experiments/quasar-reputation/Cargo.toml": "[package]\nname = \"quasar-reputation\"\n",
+    "experiments/quasar-reputation/Cargo.lock": "version = 4\n",
+    "experiments/quasar-attestation/src/lib.rs": 'declare_id!("stub");\n',
+    "experiments/quasar-attestation/Cargo.toml": "[package]\nname = \"quasar-attestation\"\n",
+    "experiments/quasar-attestation/Cargo.lock": "version = 4\n",
+    "scripts/lib/surfpool-sdk-lifecycle.mjs": "export const sdk = true;\n",
+    "scripts/lib/surfpool-evidence-manifest.mjs": "export const receipt = true;\n",
+    "scripts/run-surfpool-sdk-critical-smoke.mjs": "console.log('run');\n",
+    "scripts/resolve-accepted-surfpool-evidence.mjs": "console.log('resolve');\n",
+    "package.json": "{\"scripts\":{}}\n",
+    "package-lock.json": "{\"lockfileVersion\":3}\n",
     "config/quasar/deployments.json": "{}\n",
+    "config/toolchain/solana-baseline-assets.json": "{}\n",
     "rust-toolchain.toml": '[toolchain]\nchannel = "1.89.0"\n',
+    "docs/SOLANA-TOOLCHAIN-BASELINE.md": "# baseline\n",
   }),
   "legacy-anchor": Object.freeze({
     "packages/demo-agents/src/demo.ts": "export const version = 1;\n",
@@ -45,7 +66,15 @@ const FINGERPRINTED_BUILD_INPUTS = Object.freeze({
     "programs/escrow/Cargo.toml": "[package]\nname = \"escrow\"\n",
     "Cargo.toml": '[workspace]\nmembers = ["programs/*"]\n\n[profile.release]\nlto = "fat"\n',
     "Cargo.lock": "version = 4\n",
+    "scripts/lib/surfpool-sdk-lifecycle.mjs": "export const sdk = true;\n",
+    "scripts/lib/surfpool-evidence-manifest.mjs": "export const receipt = true;\n",
+    "scripts/run-surfpool-sdk-critical-smoke.mjs": "console.log('run');\n",
+    "scripts/resolve-accepted-surfpool-evidence.mjs": "console.log('resolve');\n",
+    "package.json": "{\"scripts\":{}}\n",
+    "package-lock.json": "{\"lockfileVersion\":3}\n",
+    "config/toolchain/solana-baseline-assets.json": "{}\n",
     "rust-toolchain.toml": '[toolchain]\nchannel = "1.89.0"\n',
+    "docs/SOLANA-TOOLCHAIN-BASELINE.md": "# baseline\n",
   }),
 });
 
@@ -389,6 +418,30 @@ test("a source change after publication invalidates the receipt", async () => {
     assert.throws(
       () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary", "log"] }),
       /produced from different sources than the working tree/,
+    );
+  });
+});
+
+test("fingerprints ignore generated cache directories while preserving tracked source sensitivity", async () => {
+  await withRepo(async (repoRoot) => {
+    await seedFingerprintSources(repoRoot, "quasar");
+    const before = computeLaneSourceFingerprint(repoRoot, "quasar");
+
+    await writeRepoFile(repoRoot, "third_party/quasar/target/release/build/generated.rs", "generated cache\n");
+    await writeRepoFile(repoRoot, "third_party/quasar/node_modules/package/index.js", "vendored cache\n");
+    await writeRepoFile(repoRoot, "third_party/quasar/.git/objects/aa/bb", "git object\n");
+
+    assert.equal(
+      computeLaneSourceFingerprint(repoRoot, "quasar"),
+      before,
+      "generated/heavy cache directories under a fingerprinted root must not affect receipts",
+    );
+
+    await writeRepoFile(repoRoot, "third_party/quasar/lang/src/lib.rs", "pub fn owner_check() { panic!(); }\n");
+    assert.notEqual(
+      computeLaneSourceFingerprint(repoRoot, "quasar"),
+      before,
+      "tracked framework source under the same root must still affect receipts",
     );
   });
 });

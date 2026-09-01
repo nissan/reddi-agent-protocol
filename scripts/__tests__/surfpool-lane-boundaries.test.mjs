@@ -90,13 +90,24 @@ test("the lane child environment pins every payment and mint variable and disabl
 
 test("the lane child environment carries the pinned payment and mint overrides through unchanged", () => {
   const env = localChildEnv(
-    { DEMO_PAYMENTS_API_BASE_URL: "http://127.0.0.1:1", DEMO_PRIVATE_MINT: "", DEMO_PER_RPC: "http://127.0.0.1:1" },
+    {
+      DEMO_PAYMENTS_API_BASE_URL: "http://127.0.0.1:1",
+      DEMO_PRIVATE_MINT: "",
+      DEMO_PER_RPC: "http://127.0.0.1:1",
+      DEMO_DISABLE_DOTENV: "false",
+      HOME: "/tmp/not-home",
+      PATH: "/tmp/not-toolchain",
+      TMPDIR: "/tmp/not-run-scoped",
+    },
     { repoRoot: "/repo", childTmpDir: "/repo/.tmp/run/tmp", home: "/home/dev" },
   );
 
   assert.equal(env.DEMO_PRIVATE_MINT, "", "an unset mint must be pinned empty, not inherited");
   assert.equal(env.DEMO_PAYMENTS_API_BASE_URL, "http://127.0.0.1:1");
   assert.equal(env.DEMO_DISABLE_DOTENV, "true", "an override must not be able to re-enable dotenv silently");
+  assert.equal(env.HOME, "/home/dev", "an override must not move HOME outside the run policy");
+  assert.equal(env.TMPDIR, "/repo/.tmp/run/tmp", "an override must not move temporary files outside the run directory");
+  assert.match(env.PATH, /^\/home\/dev\/\.cargo\/bin:/, "an override must not remove the pinned baseline PATH prefix");
   assert.doesNotThrow(() => assertLocalOnlyEnvironment(env));
 });
 

@@ -344,29 +344,74 @@ export function redactForEvidence(value, options = {}) {
   return text;
 }
 
+export const OVERSIZED_LOG_LINE_MARKER = "[redacted: oversized unterminated log line omitted]\n";
+
 export function createRedactingLineBuffer(options = {}) {
   const decoder = new StringDecoder("utf8");
   const maxResidualChars = options.maxResidualChars ?? 1_000_000;
   let residual = "";
+  let droppingOversizedLine = false;
+
+  const firstLineBreakIndex = (text) => {
+    const newline = text.indexOf("\n");
+    const carriage = text.indexOf("\r");
+    if (newline === -1) return carriage;
+    if (carriage === -1) return newline;
+    return Math.min(newline, carriage);
+  };
+
+  const processDecoded = (decoded) => {
+    let emitted = "";
+    let remaining = decoded;
+
+    while (remaining) {
+      const breakIndex = firstLineBreakIndex(remaining);
+      if (breakIndex === -1) {
+        if (!droppingOversizedLine) {
+          residual += remaining;
+          if (residual.length >= maxResidualChars) {
+            residual = "";
+            droppingOversizedLine = true;
+            emitted += OVERSIZED_LOG_LINE_MARKER;
+          }
+        }
+        return emitted;
+      }
+
+      const record = remaining.slice(0, breakIndex + 1);
+      remaining = remaining.slice(breakIndex + 1);
+
+      if (droppingOversizedLine) {
+        droppingOversizedLine = false;
+        residual = "";
+        continue;
+      }
+
+      residual += record;
+      if (residual.length >= maxResidualChars) emitted += OVERSIZED_LOG_LINE_MARKER;
+      else emitted += redactForEvidence(residual, options);
+      residual = "";
+    }
+
+    return emitted;
+  };
 
   return {
     push(chunk) {
-      residual += typeof chunk === "string" ? chunk : decoder.write(chunk);
-      const breakIndex = Math.max(residual.lastIndexOf("\n"), residual.lastIndexOf("\r"));
-      if (breakIndex === -1) {
-        if (residual.length < maxResidualChars) return "";
-        const forced = residual;
-        residual = "";
-        return redactForEvidence(forced, options);
-      }
-      const complete = residual.slice(0, breakIndex + 1);
-      residual = residual.slice(breakIndex + 1);
-      return redactForEvidence(complete, options);
+      return processDecoded(typeof chunk === "string" ? chunk : decoder.write(chunk));
     },
     flush() {
-      const tail = residual + decoder.end();
-      residual = "";
-      return tail ? redactForEvidence(tail, options) : "";
+      let emitted = processDecoded(decoder.end());
+      if (droppingOversizedLine) {
+        droppingOversizedLine = false;
+        residual = "";
+        return emitted;
+      }
+      if (residual) {
+        emitted += residual.length >= maxResidualChars ? OVERSIZED_LOG_LINE_MARKER : redactForEvidence(residual, options);
+        residual = "";
+      }
+      return emitted;
     },
   };
 }
@@ -438,6 +483,7 @@ export function localChildEnv(overrides = {}, { repoRoot, childTmpDir, home = pr
   if (!repoRoot) throw new Error("localChildEnv requires repoRoot");
   if (!childTmpDir) throw new Error("localChildEnv requires childTmpDir");
   return {
+    ...overrides,
     HOME: home,
     PATH: baselinePath({ repoRoot, home }),
     NODE_ENV: nodeEnv ?? "test",
@@ -445,7 +491,6 @@ export function localChildEnv(overrides = {}, { repoRoot, childTmpDir, home = pr
     npm_config_fund: "false",
     DEMO_DISABLE_DOTENV: "true",
     TMPDIR: childTmpDir,
-    ...overrides,
   };
 }
 

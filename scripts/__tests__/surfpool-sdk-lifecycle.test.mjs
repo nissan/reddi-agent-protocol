@@ -7,6 +7,7 @@ import { Surfnet } from "@solana/surfpool";
 import {
   SurfpoolReadinessError,
   SurfpoolSafetyError,
+  OVERSIZED_LOG_LINE_MARKER,
   assertLoopbackEndpoint,
   assertQuasarCriticalDemoOutput,
   assertQuasarPerFailClosedOutput,
@@ -397,6 +398,41 @@ test("line-buffered redaction strips a keypair split across two pipe chunks", ()
 
   assert.equal(emitted.includes("AGENT_A_KEYPAIR=[1,2"), false);
   assert.match(emitted, /AGENT_KEYPAIR=<redacted>/);
+});
+
+/*
+ * If a hostile child emits one giant unterminated line, do not force-flush arbitrary text.
+ * The whole record is omitted until its terminator arrives so a keypair split across the
+ * size boundary cannot leak as a prefix/suffix that no regex can match.
+ */
+test("line-buffered redaction replaces oversized unterminated lines instead of force-flushing them", () => {
+  const secretLine = `AGENT_A_KEYPAIR=[${Array.from({ length: 128 }, (_, i) => i + 1).join(",")}]`;
+  const buffer = createRedactingLineBuffer({ maxResidualChars: 32 });
+
+  let emitted = buffer.push(secretLine.slice(0, 40));
+  emitted += buffer.push(secretLine.slice(40));
+  emitted += buffer.flush();
+
+  assert.equal(emitted, OVERSIZED_LOG_LINE_MARKER);
+  assert.equal(emitted.includes("AGENT_A_KEYPAIR"), false);
+  assert.equal(emitted.includes("1,2,3"), false);
+});
+
+/* Oversized-line recovery must discard only that one record, not all future output. */
+test("line-buffered redaction resumes after an oversized line terminates", () => {
+  const buffer = createRedactingLineBuffer({ maxResidualChars: 16 });
+  let emitted = buffer.push("x".repeat(20));
+  emitted += buffer.push(" still omitted\nnormal line\n");
+  emitted += buffer.flush();
+
+  assert.equal(emitted, `${OVERSIZED_LOG_LINE_MARKER}normal line\n`);
+});
+
+test("line-buffered redaction omits a complete oversized line even when its terminator arrives in the same chunk", () => {
+  const buffer = createRedactingLineBuffer({ maxResidualChars: 16 });
+  const emitted = buffer.push(`${"x".repeat(32)}\nnormal line\n`) + buffer.flush();
+
+  assert.equal(emitted, `${OVERSIZED_LOG_LINE_MARKER}normal line\n`);
 });
 
 test("line-buffered redaction relativizes paths split across chunks and flushes an unterminated tail", () => {

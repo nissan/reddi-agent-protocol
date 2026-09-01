@@ -11,16 +11,16 @@ Surfnet.startWithConfig({ offline: true, airdropSol: 0, blockProductionMode: "tr
 - Local Surfnet only: no remote datasource, mainnet/testnet/devnet RPC, wallet files, upgrade authority, live funds, custody, Docker, sudo, or installed Surfpool source changes.
 - The lane refuses configured RPC/PER/datasource URLs unless they are explicit `http://` or `ws://` loopback endpoints with ports before it creates run directories, builds SBF artifacts, or starts the SDK.
 - Agent keypairs are generated in-process for the local run, funded by SDK cheatcodes, passed only to child demo processes via environment variables, and redacted from evidence.
-- Per-run SBF outputs, Cargo targets, temporary files, and child-process `TMPDIR` live under `.tmp/surfpool-sdk-critical-smoke/<run-id>` and are removed during cleanup; the runner has an overall timeout (`RAP_SURFPOOL_CRITICAL_TIMEOUT_MS`, default 20 minutes), child-process kill escalation, and bounded RPC/WS port-closure checks.
+- Per-run Surfpool runtime state, SBF output directories, temporary files, and child-process `TMPDIR` live under `.tmp/surfpool-sdk-critical-smoke/<run-id>` and are removed during cleanup. `CARGO_TARGET_DIR` defaults to `.tmp/surfpool-sdk-cargo-target/<target>` so CI/local repeats can reuse compiled dependencies without reusing validator state, key material, or deployed program output. The runner has an overall timeout (`RAP_SURFPOOL_CRITICAL_TIMEOUT_MS`, default 20 minutes), child-process kill escalation, and bounded RPC/WS port-closure checks.
 - Generated evidence under `artifacts/` uses repository-relative paths and records no ambient environment dump.
-- Step output is redacted line-by-line before it reaches stdout or the log, so a secret split across two pipe chunks is still matched. Redaction is line-oriented: a single unbroken line longer than 1,000,000 characters is force-flushed and a value straddling that boundary would not be matched. No lane step produces such a line today.
+- Step output is redacted line-by-line before it reaches stdout or the log, so a secret split across two pipe chunks is still matched. If a hostile child emits a single unbroken line longer than 1,000,000 characters, the runner replaces that entire unterminated record with an oversized-line marker until its newline/carriage-return terminator arrives; it never force-flushes arbitrary raw fragments.
 - The evidence log receives every byte a step emits. Only the in-memory buffer the assertions run against is bounded: it keeps a deterministic head and a sliding tail, and when it drops anything in between it says so inline with the omitted character and chunk counts. The front is never silently discarded.
 
 ## Evidence selection
 
 Each target publishes an `accepted-evidence.json` receipt next to its per-run directories, written atomically (temp file + rename) and **only after the run passes**. The receipt records the target, `PASS` status, run id, timestamp, provenance command, and the repository-relative artifact paths.
 
-The run writes and flushes its `SUMMARY.md` **before** publishing the receipt, and publication refuses to cite an artifact that does not exist, so a crash mid-publish leaves the previously accepted receipt intact.
+The run completes cleanup, writes all PASS log lines, writes and flushes `SUMMARY.md`, flushes every cited artifact, computes the source fingerprint, and then publishes the receipt as the final fallible commit point. Publication refuses to cite an artifact that does not exist, so a crash mid-publish leaves the previously accepted receipt intact.
 
 Every receipt is bound to two things beyond its own contents:
 
@@ -45,7 +45,7 @@ Quasar is refused outside this lane. `packages/demo-agents/src/config.ts` throws
 
 ## Hosted CI
 
-The `Surfpool Quasar Critical SDK` workflow runs the SDK lifecycle regressions and the Quasar critical smoke on Ubuntu with Node 24, Rust 1.89, and Agave/Solana CLI v3.1.13. CI intentionally does not run live RPC, devnet funding, wallet-backed deployment, or MagicBlock PER/TEE validation. The Quasar lane remains experimental local validation and does not imply deployment, security, submission, grant, or production readiness beyond the checked local assertions.
+The `Surfpool Quasar Critical SDK` workflow runs the SDK lifecycle regressions and the Quasar critical smoke on Ubuntu with Node 24, Rust 1.89, and Agave/Solana CLI v3.1.13. Hosted runs set `RAP_SURFPOOL_CRITICAL_TIMEOUT_MS=2400000` inside a 50-minute smoke step and a 90-minute job, leaving shutdown margin for cleanup, port-closure waits, FAIL summaries, and artifact upload. CI caches npm, Cargo registry/git data, the Solana install cache, and `.tmp/surfpool-sdk-cargo-target`; it intentionally does not run live RPC, devnet funding, wallet-backed deployment, or MagicBlock PER/TEE validation. The Quasar lane remains experimental local validation and does not imply deployment, security, submission, grant, or production readiness beyond the checked local assertions.
 
 ## Known limitation: the recorded Quasar devnet deployment
 

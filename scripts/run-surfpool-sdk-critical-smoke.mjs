@@ -184,13 +184,15 @@ try {
 } finally {
   clearTimeout(timeout);
   await cleanup(exitReason);
-  await logLine(
-    finalStatus === "PASS"
-      ? `[surfpool-sdk-smoke] complete: ${rel(summaryFile)}`
-      : `[surfpool-sdk-smoke] FAIL evidence retained at ${rel(outDir)}; accepted-evidence receipt left untouched`,
-  );
-  await writeSummary({ target, programs, status: finalStatus, failure: failureMessage });
-  if (finalStatus === "PASS" && !(await publishAcceptedEvidence())) {
+  if (finalStatus === "PASS") {
+    await logLine(`[surfpool-sdk-smoke] PASS evidence artifacts complete; preparing ${rel(summaryFile)}`);
+    await logLine(`[surfpool-sdk-smoke] publishing accepted evidence receipt: ${rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_FILENAME))}`);
+    await writeSummary({ target, programs, status: finalStatus, failure: failureMessage });
+    if (!(await publishAcceptedEvidence())) {
+      await writeSummary({ target, programs, status: finalStatus, failure: failureMessage });
+    }
+  } else {
+    await logLine(`[surfpool-sdk-smoke] FAIL evidence retained at ${rel(outDir)}; accepted-evidence receipt left untouched`);
     await writeSummary({ target, programs, status: finalStatus, failure: failureMessage });
   }
 }
@@ -234,7 +236,7 @@ async function buildPrograms(programs) {
   for (const program of programs) {
     const deployDir = path.join(tmpDir, "deploy", program.key);
     await fs.mkdir(deployDir, { recursive: true });
-    await runStep(`Build ${program.label} SBF in isolated target`, "cargo", [
+    await runStep(`Build ${program.label} SBF with reusable Cargo target cache`, "cargo", [
       "build-sbf",
       "--manifest-path",
       program.manifest,
@@ -493,10 +495,12 @@ async function writeSummary({ target, programs = [], status, failure }) {
 async function publishAcceptedEvidence() {
   try {
     if (takeLogWriteError()) throw new Error("evidence log write failed before publication");
+
     const artifacts = [
       { name: "summary", path: rel(summaryFile) },
       { name: "log", path: rel(logFile) },
     ];
+    const sourceFingerprint = computeLaneSourceFingerprint(repoRoot, target);
     for (const artifact of artifacts) {
       const handle = await fs.open(path.join(repoRoot, artifact.path), "r");
       try {
@@ -506,15 +510,13 @@ async function publishAcceptedEvidence() {
       }
     }
 
-    await logLine(`[surfpool-sdk-smoke] publishing accepted evidence receipt: ${rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_FILENAME))}`);
-
     await writeAcceptedEvidenceManifest(evidenceRoot, {
       target,
       runId,
       status: "PASS",
       repoRoot,
       manifestRelativeDir: rel(evidenceRoot),
-      sourceFingerprint: computeLaneSourceFingerprint(repoRoot, target),
+      sourceFingerprint,
       artifacts,
       provenance: {
         command: target === "quasar" ? "npm run test:surfpool:quasar-critical" : "npm run test:surfpool:critical",
