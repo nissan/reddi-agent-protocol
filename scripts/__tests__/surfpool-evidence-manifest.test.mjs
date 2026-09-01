@@ -268,6 +268,41 @@ test("concurrent publishes leave exactly one complete, parseable receipt", async
   });
 });
 
+test("publishing fsyncs the temporary receipt and containing directory before returning", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-durable-publish");
+    const manifestDir = path.join(repoRoot, dir);
+    const opened = new Map();
+    const fsynced = new Set();
+    const originalOpenSync = fs.openSync;
+    const originalFsyncSync = fs.fsyncSync;
+
+    fs.openSync = function patchedOpenSync(file, flags, mode) {
+      const fd = originalOpenSync.call(this, file, flags, mode);
+      opened.set(fd, path.resolve(String(file)));
+      return fd;
+    };
+    fs.fsyncSync = function patchedFsyncSync(fd) {
+      fsynced.add(opened.get(fd));
+      return originalFsyncSync.call(this, fd);
+    };
+
+    try {
+      await writeAcceptedEvidenceManifest(manifestDir, record);
+    } finally {
+      fs.openSync = originalOpenSync;
+      fs.fsyncSync = originalFsyncSync;
+    }
+
+    assert.ok(
+      [...fsynced].some((file) => file?.startsWith(path.join(manifestDir, `.${ACCEPTED_EVIDENCE_FILENAME}.`))),
+      "the temporary receipt file must be fsynced before rename",
+    );
+    assert.ok(fsynced.has(manifestDir), "the evidence directory must be fsynced after rename");
+  });
+});
+
 test("reading refuses a receipt for the wrong target, a missing artifact, or no receipt at all", async () => {
   await withRepo(async (repoRoot) => {
     const dir = "artifacts/surfpool-quasar-smoke";

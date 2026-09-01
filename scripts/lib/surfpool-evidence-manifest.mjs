@@ -283,6 +283,48 @@ function fileContentDigest(repoRoot, relativePath, options = {}) {
   return `sha256:${crypto.createHash("sha256").update(contents).digest("hex")}`;
 }
 
+function fsyncDirectorySync(directoryPath, label) {
+  const { O_RDONLY, O_DIRECTORY, O_CLOEXEC } = fs.constants;
+  if (typeof O_DIRECTORY !== "number") {
+    throw new EvidenceManifestError(`this platform cannot durably sync ${label}, so accepted evidence cannot be published`);
+  }
+  let flags = O_RDONLY | O_DIRECTORY;
+  if (typeof O_CLOEXEC === "number") flags |= O_CLOEXEC;
+  let fd;
+  try {
+    fd = fs.openSync(directoryPath, flags);
+  } catch (error) {
+    throw new EvidenceManifestError(`${label} could not be opened for durable sync: ${error?.message ?? error}`);
+  }
+  try {
+    fs.fsyncSync(fd);
+  } catch (error) {
+    throw new EvidenceManifestError(`${label} could not be durably synced: ${error?.message ?? error}`);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function writeFileDurablySync(filePath, contents, label) {
+  const { O_WRONLY, O_CREAT, O_EXCL, O_CLOEXEC } = fs.constants;
+  let flags = O_WRONLY | O_CREAT | O_EXCL;
+  if (typeof O_CLOEXEC === "number") flags |= O_CLOEXEC;
+  let fd;
+  try {
+    fd = fs.openSync(filePath, flags, 0o600);
+  } catch (error) {
+    throw new EvidenceManifestError(`${label} could not be opened for durable write: ${error?.message ?? error}`);
+  }
+  try {
+    fs.writeFileSync(fd, contents);
+    fs.fsyncSync(fd);
+  } catch (error) {
+    throw new EvidenceManifestError(`${label} could not be durably written: ${error?.message ?? error}`);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function digestFile(hash, repoRoot, entry) {
   hash.update(entry.relativePath.split(path.sep).join("/"));
   hash.update("\0");
@@ -530,8 +572,9 @@ export async function writeAcceptedEvidenceManifest(manifestDir, record) {
   const manifestPath = path.join(manifestDir, ACCEPTED_EVIDENCE_FILENAME);
   const tempPath = path.join(manifestDir, `.${ACCEPTED_EVIDENCE_FILENAME}.${crypto.randomUUID()}.tmp`);
   try {
-    await fsp.writeFile(tempPath, `${JSON.stringify(manifest, null, 2)}\n`);
-    await fsp.rename(tempPath, manifestPath);
+    writeFileDurablySync(tempPath, `${JSON.stringify(manifest, null, 2)}\n`, "accepted evidence temp receipt");
+    fs.renameSync(tempPath, manifestPath);
+    fsyncDirectorySync(manifestDir, "accepted evidence directory");
   } catch (error) {
     await fsp.rm(tempPath, { force: true });
     throw error;

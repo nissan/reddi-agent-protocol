@@ -237,6 +237,20 @@ test("payment API bases pointing off-loopback are rejected before anything start
   }
 });
 
+test("local-only preflight enforces HTTP RPC variables and WS websocket variables", () => {
+  assert.doesNotThrow(() => assertLocalOnlyEnvironment({ NEXT_PUBLIC_RPC_ENDPOINT: "http://127.0.0.1:8899" }));
+  assert.doesNotThrow(() => assertLocalOnlyEnvironment({ NEXT_PUBLIC_RPC_WS_ENDPOINT: "ws://127.0.0.1:8900" }));
+
+  assert.throws(
+    () => assertLocalOnlyEnvironment({ NEXT_PUBLIC_RPC_ENDPOINT: "ws://127.0.0.1:8899" }),
+    /NEXT_PUBLIC_RPC_ENDPOINT must use http:\/\//,
+  );
+  assert.throws(
+    () => assertLocalOnlyEnvironment({ DEMO_DEVNET_RPC_WS: "http://127.0.0.1:8900" }),
+    /DEMO_DEVNET_RPC_WS must use ws:\/\//,
+  );
+});
+
 const LOCAL_PROFILE_ALIASES = ["local-surfpool", "local", "localnet", "surfpool"];
 
 for (const key of ["NETWORK_PROFILE", "NEXT_PUBLIC_BUILD_NETWORK_PROFILE", "NEXT_PUBLIC_NETWORK_PROFILE"]) {

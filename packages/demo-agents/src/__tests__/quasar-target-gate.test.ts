@@ -75,20 +75,26 @@ describe("Quasar target gate", () => {
     expect(refusal).toContain("four distinct programs");
   });
 
-  it("refuses a non-loopback RPC even when every program ID is present", () => {
-    const refusal = describeQuasarTargetRefusal(
-      "local-surfpool",
-      lookupFrom({ ...completeLocalEnv, DEMO_DEVNET_RPC: "https://api.devnet.solana.com" }),
-    );
-    expect(refusal).toContain("non-loopback DEMO_DEVNET_RPC");
+  it("refuses a non-loopback or wrong-scheme RPC even when every program ID is present", () => {
+    for (const rpc of ["https://api.devnet.solana.com", "ws://127.0.0.1:41337"]) {
+      const refusal = describeQuasarTargetRefusal(
+        "local-surfpool",
+        lookupFrom({ ...completeLocalEnv, DEMO_DEVNET_RPC: rpc }),
+      );
+      expect(refusal).toContain("non-loopback DEMO_DEVNET_RPC");
+      expect(refusal).toContain("http:// loopback URL");
+    }
   });
 
-  it("refuses a loopback RPC paired with a non-loopback websocket endpoint", () => {
-    const refusal = describeQuasarTargetRefusal(
-      "local-surfpool",
-      lookupFrom({ ...completeLocalEnv, DEMO_DEVNET_RPC_WS: "wss://api.devnet.solana.com" }),
-    );
-    expect(refusal).toContain("non-loopback DEMO_DEVNET_RPC_WS");
+  it("refuses a loopback RPC paired with a non-loopback or wrong-scheme websocket endpoint", () => {
+    for (const rpcWs of ["wss://api.devnet.solana.com", "http://127.0.0.1:41338"]) {
+      const refusal = describeQuasarTargetRefusal(
+        "local-surfpool",
+        lookupFrom({ ...completeLocalEnv, DEMO_DEVNET_RPC_WS: rpcWs }),
+      );
+      expect(refusal).toContain("non-loopback DEMO_DEVNET_RPC_WS");
+      expect(refusal).toContain("ws:// loopback URL");
+    }
   });
 
   it("refuses an endpoint that only looks like loopback, or carries credentials", () => {

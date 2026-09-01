@@ -13,11 +13,13 @@
 
 /**
  * True only for an `http://` or `ws://` URL with an explicit port, no credentials, and a host that
- * is `localhost`, an IPv4 address in `127.0.0.0/8`, or IPv6 `::1`. A malformed URL, a hostname that
- * merely contains a loopback-looking substring, and any DNS name that would have to be resolved to
- * know where it points are all refused.
+ * is `localhost`, an IPv4 address in `127.0.0.0/8`, or IPv6 `::1`. Callers that know whether they
+ * are validating an HTTP RPC URL or a WebSocket URL pass `expectedProtocol` so a loopback URL with
+ * the wrong scheme is refused. A malformed URL, a hostname that merely contains a loopback-looking
+ * substring, and any DNS name that would have to be resolved to know where it points are all
+ * refused.
  */
-export function isLoopbackRpcUrl(raw?: string): boolean {
+export function isLoopbackRpcUrl(raw?: string, expectedProtocol?: "http:" | "ws:"): boolean {
   if (!raw) return false;
   let url: URL;
   try {
@@ -26,7 +28,9 @@ export function isLoopbackRpcUrl(raw?: string): boolean {
     return false;
   }
 
-  if (url.protocol !== "http:" && url.protocol !== "ws:") return false;
+  if (expectedProtocol) {
+    if (url.protocol !== expectedProtocol) return false;
+  } else if (url.protocol !== "http:" && url.protocol !== "ws:") return false;
   if (!url.port) return false;
   if (url.username || url.password) return false;
 

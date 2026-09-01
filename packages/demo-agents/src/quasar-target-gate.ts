@@ -98,13 +98,13 @@ export function describeQuasarTargetRefusal(profile: QuasarTargetProfile, lookup
   const rpc = lookup("DEMO_DEVNET_RPC", "NEXT_PUBLIC_RPC_ENDPOINT");
   if (!rpc) {
     problems.push("missing DEMO_DEVNET_RPC (or NEXT_PUBLIC_RPC_ENDPOINT)");
-  } else if (!isLoopbackRpcUrl(rpc)) {
-    problems.push(`non-loopback DEMO_DEVNET_RPC: ${rpc} must be an http:// or ws:// loopback URL with an explicit port`);
+  } else if (!isLoopbackRpcUrl(rpc, "http:")) {
+    problems.push(`non-loopback DEMO_DEVNET_RPC: ${rpc} must be an http:// loopback URL with an explicit port`);
   }
 
   const rpcWs = lookup("DEMO_DEVNET_RPC_WS", "NEXT_PUBLIC_RPC_WS_ENDPOINT");
-  if (rpcWs && !isLoopbackRpcUrl(rpcWs)) {
-    problems.push(`non-loopback DEMO_DEVNET_RPC_WS: ${rpcWs} must be an http:// or ws:// loopback URL with an explicit port`);
+  if (rpcWs && !isLoopbackRpcUrl(rpcWs, "ws:")) {
+    problems.push(`non-loopback DEMO_DEVNET_RPC_WS: ${rpcWs} must be a ws:// loopback URL with an explicit port`);
   }
 
   if (!problems.length) return undefined;

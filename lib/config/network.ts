@@ -189,10 +189,10 @@ export function getNetworkProfile(): NetworkProfile {
   const resolvedRpcHttp = rpcOverride?.value ?? base.solana.rpcHttp;
   const resolvedRpcWs = rpcWsOverride?.value ?? base.solana.rpcWs;
   const nonLoopbackLocalQuasarEndpoints = [
-    ...(isLoopbackRpcUrl(resolvedRpcHttp)
+    ...(isLoopbackRpcUrl(resolvedRpcHttp, "http:")
       ? []
       : [rpcOverride ? rpcOverride.key : `${name} profile RPC endpoint`]),
-    ...(!resolvedRpcWs || isLoopbackRpcUrl(resolvedRpcWs)
+    ...(!resolvedRpcWs || isLoopbackRpcUrl(resolvedRpcWs, "ws:")
       ? []
       : [rpcWsOverride ? rpcWsOverride.key : `${name} profile websocket endpoint`]),
   ];
@@ -447,7 +447,7 @@ export function describeQuasarProgramTargetRefusal(profile: NetworkProfile = get
   const blocked = describeBlockedProgramTarget(profile);
   if (blocked) return blocked;
 
-  const hasLoopbackEndpoints = isLoopbackRpcUrl(profile.solana.rpcHttp) && (!profile.solana.rpcWs || isLoopbackRpcUrl(profile.solana.rpcWs));
+  const hasLoopbackEndpoints = isLoopbackRpcUrl(profile.solana.rpcHttp, "http:") && (!profile.solana.rpcWs || isLoopbackRpcUrl(profile.solana.rpcWs, "ws:"));
   if (
     profile.name === "local-surfpool" &&
     profile.programs.target === "quasar" &&

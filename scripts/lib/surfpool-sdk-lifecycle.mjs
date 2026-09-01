@@ -66,7 +66,12 @@ export function isLoopbackHostname(hostname) {
   return octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255) && octets[0] === 127;
 }
 
-export function assertLoopbackEndpoint(raw, label = "endpoint") {
+function allowedEndpointProtocols(options = {}) {
+  if (options.protocol) return [options.protocol];
+  return options.protocols ?? ["http:", "ws:"];
+}
+
+export function assertLoopbackEndpoint(raw, label = "endpoint", options = {}) {
   let url;
   try {
     url = new URL(raw);
@@ -74,8 +79,10 @@ export function assertLoopbackEndpoint(raw, label = "endpoint") {
     throw new SurfpoolSafetyError(`${label} must be a valid localhost URL; got ${JSON.stringify(raw)}`);
   }
 
-  if (!["http:", "ws:"].includes(url.protocol)) {
-    throw new SurfpoolSafetyError(`${label} must use http:// or ws:// for local Surfpool; got ${url.protocol}`);
+  const protocols = allowedEndpointProtocols(options);
+  if (!protocols.includes(url.protocol)) {
+    const expected = protocols.map((protocol) => protocol.replace(":", "://")).join(" or ");
+    throw new SurfpoolSafetyError(`${label} must use ${expected} for local Surfpool; got ${url.protocol}`);
   }
 
   if (url.username || url.password) {
@@ -93,6 +100,10 @@ export function assertLoopbackEndpoint(raw, label = "endpoint") {
   return url;
 }
 
+function expectedEndpointProtocolForEnvKey(key) {
+  return key === "DEMO_DEVNET_RPC_WS" || key === "NEXT_PUBLIC_RPC_WS_ENDPOINT" ? "ws:" : "http:";
+}
+
 export function assertLocalOnlyEnvironment(env = process.env, options = {}) {
   const endpointKeys = options.endpointKeys ?? LOCAL_ENDPOINT_ENV_KEYS;
   const profileKeys = options.profileKeys ?? NETWORK_PROFILE_ENV_KEYS;
@@ -100,7 +111,7 @@ export function assertLocalOnlyEnvironment(env = process.env, options = {}) {
   for (const key of endpointKeys) {
     const value = env[key]?.trim();
     if (!value) continue;
-    assertLoopbackEndpoint(value, key);
+    assertLoopbackEndpoint(value, key, { protocol: expectedEndpointProtocolForEnvKey(key) });
   }
 
   for (const key of profileKeys) {
@@ -197,8 +208,8 @@ export function assertQuasarProgramIdsMatchSources(repoRoot, configuredIds) {
 export function validateSurfnetEndpoints(surfnet) {
   const rpcUrl = String(surfnet?.rpcUrl ?? "");
   const wsUrl = String(surfnet?.wsUrl ?? "");
-  const rpc = assertLoopbackEndpoint(rpcUrl, "Surfnet RPC URL");
-  const ws = assertLoopbackEndpoint(wsUrl, "Surfnet WebSocket URL");
+  const rpc = assertLoopbackEndpoint(rpcUrl, "Surfnet RPC URL", { protocol: "http:" });
+  const ws = assertLoopbackEndpoint(wsUrl, "Surfnet WebSocket URL", { protocol: "ws:" });
 
   if (rpc.href === ws.href) {
     throw new SurfpoolSafetyError("Surfnet RPC and WebSocket endpoints must be distinct dynamic loopback URLs");
@@ -320,7 +331,7 @@ export async function startLocalSurfnet(Surfnet, options = {}) {
     throw new SurfpoolSafetyError("Surfnet config override blockProductionMode must remain transaction in the local Surfpool validation lane");
   }
   if (requestedConfig.remoteRpcUrl) {
-    assertLoopbackEndpoint(requestedConfig.remoteRpcUrl, "Surfnet remoteRpcUrl");
+    assertLoopbackEndpoint(requestedConfig.remoteRpcUrl, "Surfnet remoteRpcUrl", { protocol: "http:" });
   }
   const config = {
     ...requestedConfig,

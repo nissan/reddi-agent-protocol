@@ -14,6 +14,7 @@ import {
   createRedactingLineBuffer,
   redactForEvidence,
   startLocalSurfnet,
+  validateSurfnetEndpoints,
   waitForPortClosed,
 } from "../lib/surfpool-sdk-lifecycle.mjs";
 
@@ -89,6 +90,27 @@ test("SDK startup refuses safety-critical Surfnet config overrides before startu
     );
   }
   assert.equal(starts, 0);
+});
+
+test("Surfnet endpoint validation enforces HTTP RPC and WS websocket schemes", () => {
+  assert.deepEqual(validateSurfnetEndpoints({
+    rpcUrl: "http://127.0.0.1:18180",
+    wsUrl: "ws://127.0.0.1:18181",
+  }), {
+    rpcUrl: "http://127.0.0.1:18180/",
+    wsUrl: "ws://127.0.0.1:18181/",
+    rpcPort: 18180,
+    wsPort: 18181,
+  });
+
+  assert.throws(
+    () => validateSurfnetEndpoints({ rpcUrl: "ws://127.0.0.1:18180", wsUrl: "ws://127.0.0.1:18181" }),
+    /Surfnet RPC URL must use http:\/\//,
+  );
+  assert.throws(
+    () => validateSurfnetEndpoints({ rpcUrl: "http://127.0.0.1:18180", wsUrl: "http://127.0.0.1:18181" }),
+    /Surfnet WebSocket URL must use ws:\/\//,
+  );
 });
 
 test("readiness timeout stops the SDK Surfnet it started", async () => {
@@ -329,11 +351,13 @@ test("waiting for readiness does not accumulate abort listeners on a long-lived 
 });
 
 test("loopback validation rejects malformed, non-loopback, and live-network-style URLs", () => {
-  assert.doesNotThrow(() => assertLoopbackEndpoint("http://127.42.0.1:4567", "rpc"));
-  assert.doesNotThrow(() => assertLoopbackEndpoint("ws://localhost:4568", "ws"));
+  assert.doesNotThrow(() => assertLoopbackEndpoint("http://127.42.0.1:4567", "rpc", { protocol: "http:" }));
+  assert.doesNotThrow(() => assertLoopbackEndpoint("ws://localhost:4568", "ws", { protocol: "ws:" }));
   assert.throws(() => assertLoopbackEndpoint("https://api.mainnet-beta.solana.com", "rpc"), SurfpoolSafetyError);
   assert.throws(() => assertLoopbackEndpoint("http://0.0.0.0:8899", "rpc"), SurfpoolSafetyError);
   assert.throws(() => assertLoopbackEndpoint("not a url", "rpc"), SurfpoolSafetyError);
+  assert.throws(() => assertLoopbackEndpoint("ws://127.0.0.1:4567", "rpc", { protocol: "http:" }), /http:\/\//);
+  assert.throws(() => assertLoopbackEndpoint("http://127.0.0.1:4568", "ws", { protocol: "ws:" }), /ws:\/\//);
   assert.throws(
     () => assertLoopbackEndpoint("http://operator:secret@127.0.0.1:8899", "rpc"),
     /must not include credentials/,
