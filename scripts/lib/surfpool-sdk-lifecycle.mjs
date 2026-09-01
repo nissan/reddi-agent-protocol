@@ -233,15 +233,25 @@ export async function waitForSurfnetReadiness(rpcUrl, options = {}) {
 
 export async function startLocalSurfnet(Surfnet, options = {}) {
   assertLocalOnlyEnvironment(options.env ?? process.env);
+  const requestedConfig = options.config ?? {};
+  if (Object.hasOwn(requestedConfig, "offline") && requestedConfig.offline !== true) {
+    throw new SurfpoolSafetyError("Surfnet config override offline=false is not allowed in the local Surfpool validation lane");
+  }
+  if (Object.hasOwn(requestedConfig, "airdropSol") && requestedConfig.airdropSol !== 0) {
+    throw new SurfpoolSafetyError("Surfnet config override airdropSol must remain 0 in the local Surfpool validation lane");
+  }
+  if (Object.hasOwn(requestedConfig, "blockProductionMode") && requestedConfig.blockProductionMode !== "transaction") {
+    throw new SurfpoolSafetyError("Surfnet config override blockProductionMode must remain transaction in the local Surfpool validation lane");
+  }
+  if (requestedConfig.remoteRpcUrl) {
+    assertLoopbackEndpoint(requestedConfig.remoteRpcUrl, "Surfnet remoteRpcUrl");
+  }
   const config = {
+    ...requestedConfig,
     offline: true,
     airdropSol: 0,
     blockProductionMode: "transaction",
-    ...(options.config ?? {}),
   };
-  if (config.remoteRpcUrl) {
-    assertLoopbackEndpoint(config.remoteRpcUrl, "Surfnet remoteRpcUrl");
-  }
 
   const surfnet = Surfnet.startWithConfig(config);
   let stopped = false;

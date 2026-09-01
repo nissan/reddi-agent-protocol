@@ -6,6 +6,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+import yaml from "js-yaml";
+
 import {
   LOCAL_ENDPOINT_ENV_KEYS,
   QUASAR_PROGRAM_SOURCE_DIRS,
@@ -24,6 +26,10 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 function configuredQuasarProgramIds() {
   const inventory = JSON.parse(fs.readFileSync(path.join(repoRoot, "config/quasar/deployments.json"), "utf8"));
   return inventory.quasarDeployments.devnet.programIds;
+}
+
+function loadWorkflow(name) {
+  return yaml.load(fs.readFileSync(path.join(repoRoot, ".github/workflows", name), "utf8"));
 }
 
 test("the lane precondition accepts the repository's configured Quasar program IDs", () => {
@@ -62,6 +68,17 @@ test("each Quasar crate reports the program ID it actually compiles with", () =>
   assert.throws(() => declaredQuasarProgramId(repoRoot, "scripts"), SurfpoolSafetyError);
   assert.throws(() => declaredQuasarProgramId(repoRoot, "scripts"), /declare_id! not found/);
   assert.throws(() => declaredQuasarProgramId(repoRoot, "experiments/quasar-escrow-ref"), /declare_id! not found/);
+});
+
+test("the Quasar SDK workflow is triggered by onboarding refusal surface changes", () => {
+  const workflow = loadWorkflow("surfpool-quasar-critical-sdk.yml");
+
+  for (const eventName of ["push", "pull_request"]) {
+    const paths = workflow.on[eventName].paths;
+    assert.ok(paths.includes("app/onboarding/**"), `${eventName} must cover the web refusal UI`);
+    assert.ok(paths.includes("app/api/onboarding/**"), `${eventName} must cover server onboarding refusal routes`);
+    assert.ok(paths.includes("lib/onboarding/**"), `${eventName} must cover refusal implementations`);
+  }
 });
 
 test("a payments API base pointing off-loopback is rejected before anything starts", () => {

@@ -68,6 +68,29 @@ test("local-only preflight refuses live endpoints before SDK startup", async () 
   assert.equal(starts, 0);
 });
 
+test("SDK startup refuses safety-critical Surfnet config overrides before startup", async () => {
+  let starts = 0;
+  class FakeSurfnet {
+    static startWithConfig() {
+      starts += 1;
+      throw new Error("must not start");
+    }
+  }
+
+  for (const config of [
+    { offline: false },
+    { airdropSol: 1 },
+    { blockProductionMode: "manual" },
+  ]) {
+    await assert.rejects(
+      startLocalSurfnet(FakeSurfnet, { env: {}, config, readinessProbe: () => true }),
+      SurfpoolSafetyError,
+      `${JSON.stringify(config)} must be rejected before Surfnet.startWithConfig`,
+    );
+  }
+  assert.equal(starts, 0);
+});
+
 test("readiness timeout stops the SDK Surfnet it started", async () => {
   let stopped = 0;
   class FakeSurfnet {
