@@ -73,6 +73,8 @@ test("each Quasar crate reports the program ID it actually compiles with", () =>
 test("the Quasar SDK workflow is triggered by refusal and compatibility surface changes", () => {
   const workflow = loadWorkflow("surfpool-quasar-critical-sdk.yml");
   const requiredPaths = [
+    ".mise.toml",
+    "Anchor.toml",
     "app/register/**",
     "app/onboarding/**",
     "app/api/onboarding/**",
@@ -86,6 +88,8 @@ test("the Quasar SDK workflow is triggered by refusal and compatibility surface 
     "docs/ECONOMIC-DEMO-JUDGE-PACKET-2026-05-05.md",
     "docs/ECONOMIC-DEMO-OPERATOR-CHECKLIST-2026-05-05.md",
     "docs/QUASAR-HACKATHON-CUTOVER-PLAN-2026-05-05.md",
+    ".github/workflows/anchor-program-tests.yml",
+    ".github/workflows/quasar-program-tests.yml",
   ];
 
   for (const eventName of ["push", "pull_request"]) {
@@ -94,6 +98,20 @@ test("the Quasar SDK workflow is triggered by refusal and compatibility surface 
       assert.ok(paths.includes(requiredPath), `${eventName} must cover ${requiredPath}`);
     }
   }
+});
+
+test("hosted Surfpool workflows request the exact repository Node baseline", () => {
+  const critical = loadWorkflow("surfpool-quasar-critical-sdk.yml");
+  const manual = loadWorkflow("surfpool-acceptance-manual.yml");
+
+  assert.equal(
+    critical.jobs["surfpool-quasar-critical-sdk"].steps.find((step) => step.uses === "actions/setup-node@v4")?.with?.["node-version"],
+    "24.20.0",
+  );
+  assert.equal(
+    manual.jobs["surfpool-acceptance"].steps.find((step) => step.uses === "actions/setup-node@v4")?.with?.["node-version"],
+    "24.20.0",
+  );
 });
 
 test("a payments API base pointing off-loopback is rejected before anything starts", () => {

@@ -7,6 +7,8 @@ on:
       - "config/quasar/**"
       - "config/toolchain/**"
       - "third_party/quasar/**"
+      - ".mise.toml"
+      - "Anchor.toml"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
@@ -49,6 +51,8 @@ on:
       - "scripts/lib/solana-baseline-version-match.sh"
       - "package.json"
       - "package-lock.json"
+      - ".github/workflows/anchor-program-tests.yml"
+      - ".github/workflows/quasar-program-tests.yml"
       - ".github/workflows/surfpool-quasar-critical-sdk.yml"
       - ".github/workflows/surfpool-acceptance-manual.yml"
   pull_request:
@@ -57,6 +61,8 @@ on:
       - "config/quasar/**"
       - "config/toolchain/**"
       - "third_party/quasar/**"
+      - ".mise.toml"
+      - "Anchor.toml"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
@@ -99,6 +105,8 @@ on:
       - "scripts/lib/solana-baseline-version-match.sh"
       - "package.json"
       - "package-lock.json"
+      - ".github/workflows/anchor-program-tests.yml"
+      - ".github/workflows/quasar-program-tests.yml"
       - ".github/workflows/surfpool-quasar-critical-sdk.yml"
       - ".github/workflows/surfpool-acceptance-manual.yml"
   workflow_dispatch:
@@ -119,7 +127,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "24.20.0"
           cache: npm
           cache-dependency-path: package-lock.json
 
