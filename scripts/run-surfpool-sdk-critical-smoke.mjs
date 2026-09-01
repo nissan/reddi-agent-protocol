@@ -19,6 +19,7 @@ import {
   redactForEvidence,
   scheduleProcessGroupTermination,
   startLocalSurfnet,
+  stopLocalSurfnetLease,
   waitForPortClosed,
 } from "./lib/surfpool-sdk-lifecycle.mjs";
 import {
@@ -422,7 +423,7 @@ async function cleanup(reason) {
     const rpcUrl = surfnetLease.rpcUrl;
     const wsUrl = surfnetLease.wsUrl;
     try {
-      surfnetLease.stop();
+      await stopLocalSurfnetLease(surfnetLease, { attempts: 2, retryDelayMs: 100 });
       await waitForPortClosed(rpcUrl, { timeoutMs: 5_000 });
       await waitForPortClosed(wsUrl, { timeoutMs: 5_000 });
       cleanupNotes.push("SDK Surfnet stopped and dynamic RPC/WS ports closed");

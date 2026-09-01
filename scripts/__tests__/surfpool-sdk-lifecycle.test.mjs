@@ -116,6 +116,58 @@ test("readiness timeout stops the SDK Surfnet it started", async () => {
   assert.equal(stopped, 1);
 });
 
+test("a failed lease stop remains retryable instead of being marked stopped", async () => {
+  let stopCalls = 0;
+  class FakeSurfnet {
+    static startWithConfig() {
+      return {
+        rpcUrl: "http://127.0.0.1:18183",
+        wsUrl: "ws://127.0.0.1:18184",
+        instanceId: "fake-retryable-stop",
+        stop() {
+          stopCalls += 1;
+          if (stopCalls === 1) throw new Error("first stop not confirmed");
+        },
+      };
+    }
+  }
+
+  const lease = await startLocalSurfnet(FakeSurfnet, { env: {}, readinessProbe: () => true });
+  assert.throws(() => lease.stop(), /first stop not confirmed/);
+  assert.equal(stopCalls, 1);
+  assert.doesNotThrow(() => lease.stop());
+  assert.equal(stopCalls, 2);
+  lease.stop();
+  assert.equal(stopCalls, 2, "a successful stop remains idempotent");
+});
+
+test("startup-error cleanup retries a stop that initially fails", async () => {
+  let stopCalls = 0;
+  class FakeSurfnet {
+    static startWithConfig() {
+      return {
+        rpcUrl: "http://0.0.0.0:18185",
+        wsUrl: "ws://0.0.0.0:18186",
+        instanceId: "fake-startup-retry-stop",
+        stop() {
+          stopCalls += 1;
+          if (stopCalls === 1) throw new Error("first stop not confirmed");
+        },
+      };
+    }
+  }
+
+  await assert.rejects(
+    startLocalSurfnet(FakeSurfnet, {
+      env: {},
+      readinessProbe: () => true,
+      stopRetryDelayMs: 1,
+    }),
+    /loopback/,
+  );
+  assert.equal(stopCalls, 2);
+});
+
 test("readiness enforces its own deadline when a probe never settles", async () => {
   let stopped = 0;
   class FakeSurfnet {

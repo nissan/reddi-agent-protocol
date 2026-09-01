@@ -234,6 +234,27 @@ export async function waitForSurfnetReadiness(rpcUrl, options = {}) {
   });
 }
 
+export async function stopWithRetries(stopFn, options = {}) {
+  const attempts = Math.max(1, options.attempts ?? 2);
+  const retryDelayMs = options.retryDelayMs ?? 50;
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      stopFn();
+      return { attempts: attempt };
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) await sleep(retryDelayMs);
+    }
+  }
+  throw lastError ?? new Error("Surfnet stop failed without an error");
+}
+
+export async function stopLocalSurfnetLease(lease, options = {}) {
+  if (!lease?.stop) return { attempts: 0 };
+  return stopWithRetries(() => lease.stop(), options);
+}
+
 export async function startLocalSurfnet(Surfnet, options = {}) {
   assertLocalOnlyEnvironment(options.env ?? process.env);
   const requestedConfig = options.config ?? {};
@@ -261,8 +282,8 @@ export async function startLocalSurfnet(Surfnet, options = {}) {
 
   const stop = () => {
     if (stopped) return;
-    stopped = true;
     surfnet.stop();
+    stopped = true;
   };
 
   // Everything after the SDK hands back a running Surfnet is inside cleanup ownership: a rejected
@@ -284,7 +305,17 @@ export async function startLocalSurfnet(Surfnet, options = {}) {
       readinessAttempts: readiness.attempts,
     };
   } catch (error) {
-    stop();
+    try {
+      await stopWithRetries(stop, {
+        attempts: options.stopAttempts ?? 2,
+        retryDelayMs: options.stopRetryDelayMs ?? 50,
+      });
+    } catch (stopError) {
+      if (error instanceof Error) {
+        error.message = `${error.message}; additionally failed to stop Surfnet after startup failure: ${stopError.message}`;
+        if (!error.cause) error.cause = stopError;
+      }
+    }
     throw error;
   }
 }
