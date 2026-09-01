@@ -13,11 +13,11 @@ function pickEnv(...keys: string[]): string | undefined {
   return undefined;
 }
 
-type DemoNetworkProfileName = "local-surfpool" | "devnet" | "mainnet";
+type DemoNetworkProfileName = "local-surfpool" | "devnet";
 
 type DemoNetworkProfile = {
   rpcHttp: string;
-  explorerClusterParam: "custom" | "devnet" | "mainnet";
+  explorerClusterParam: "custom" | "devnet";
   defaultEscrowProgramId: string;
   defaultPerRpc: string;
 };
@@ -47,30 +47,22 @@ const DEMO_NETWORK_PROFILES: Record<DemoNetworkProfileName, DemoNetworkProfile> 
     defaultEscrowProgramId: "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD",
     defaultPerRpc: "https://devnet-tee.magicblock.app",
   },
-  mainnet: {
-    rpcHttp: "https://api.mainnet-beta.solana.com",
-    explorerClusterParam: "mainnet",
-    defaultEscrowProgramId: "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD",
-    defaultPerRpc: "https://mainnet-tee.magicblock.app",
-  },
 };
 
 function resolveNetworkProfileName(): DemoNetworkProfileName {
   const raw = (pickEnv("NETWORK_PROFILE", "NEXT_PUBLIC_NETWORK_PROFILE") ?? "devnet").toLowerCase();
   if (raw === "local" || raw === "localnet" || raw === "surfpool") return "local-surfpool";
-  if (raw === "mainnet" || raw === "mainnet-beta") return "mainnet";
+  if (raw === "mainnet" || raw === "mainnet-beta") {
+    throw new Error(
+      "packages/demo-agents is a devnet/local evidence runner only; mainnet execution requires a separate audited deployment, custody plan, and explicit approval.",
+    );
+  }
   return "devnet";
 }
 
 const activeNetworkProfileName = resolveNetworkProfileName();
 const activeProfile = DEMO_NETWORK_PROFILES[activeNetworkProfileName];
 const requestedProgramTarget = resolveProgramTarget();
-
-if (activeNetworkProfileName === "mainnet") {
-  throw new Error(
-    "packages/demo-agents is a devnet/local evidence runner only; mainnet execution requires a separate audited deployment, custody plan, and explicit approval.",
-  );
-}
 
 if (requestedProgramTarget === "quasar" && activeNetworkProfileName !== "devnet") {
   throw new Error(
@@ -109,9 +101,6 @@ export const DEVNET_RPC = pickEnv("DEMO_DEVNET_RPC", "NEXT_PUBLIC_RPC_ENDPOINT")
 export const PER_DEVNET_RPC = pickEnv("DEMO_PER_RPC", "NEXT_PUBLIC_PER_RPC") ?? activeProfile.defaultPerRpc;
 
 export function explorerTxUrl(signature: string): string {
-  if (activeProfile.explorerClusterParam === "mainnet") {
-    return `https://explorer.solana.com/tx/${signature}`;
-  }
   if (activeProfile.explorerClusterParam === "devnet") {
     return `https://explorer.solana.com/tx/${signature}?cluster=devnet`;
   }

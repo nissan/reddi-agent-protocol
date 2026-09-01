@@ -29,6 +29,17 @@ describe("Quasar demo program target config", () => {
     expect(profile.programs.target).toBe("legacy-anchor");
     expect(profile.programs.framework).toBe("anchor");
     expect(profile.programs.escrowProgramId).toBe(LEGACY_ANCHOR_PROGRAM_ID);
+    expect(profile.programs.deploymentStatus).toBe("devnet-deployed");
+  });
+
+  it("labels the local Surfpool profile as local-only", async () => {
+    process.env.NETWORK_PROFILE = "surfpool";
+
+    const { getNetworkProfile } = await import("@/lib/config/network");
+    const profile = getNetworkProfile();
+
+    expect(profile.programs.target).toBe("legacy-anchor");
+    expect(profile.programs.deploymentStatus).toBe("local-only");
   });
 
   it("uses the Quasar deployment inventory in hackathon demo mode", async () => {
@@ -49,6 +60,7 @@ describe("Quasar demo program target config", () => {
     expect(PROGRAM_COMPATIBILITY).toBe("quasar-layout-unverified");
     expect(PROGRAM_SUBMISSION_READY).toBe(true);
     expect(PROGRAM_KNOWN_GAPS).toHaveLength(0);
+    expect(profile.programs.deploymentStatus).toBe("devnet-deployed");
   });
 
   it("refuses Quasar target for non-devnet profiles instead of silently falling back", async () => {
@@ -77,12 +89,32 @@ describe("Quasar demo program target config", () => {
     );
   });
 
-  it("refuses Quasar target on mainnet until audited per-program ids are registered", async () => {
+  it("refuses a Quasar mainnet request by staying blocked instead of crashing module init", async () => {
     process.env.NETWORK_PROFILE = "mainnet";
     process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
 
     const { getNetworkProfile } = await import("@/lib/config/network");
+    const profile = getNetworkProfile();
 
-    expect(() => getNetworkProfile()).toThrow(/mainnet has no registered Quasar deployment/);
+    expect(profile.programs.target).toBe("legacy-anchor");
+    expect(profile.programs.escrowProgramId).not.toBe(QUASAR_PROGRAM_ID);
+    expect(profile.programs.submissionReady).toBe(false);
+    expect(profile.programs.deploymentStatus).toBe("mainnet-not-deployed");
+    expect(profile.programs.activationGate).toBe("external_audit_and_mainnet_deployment_required");
+    expect(profile.programs.knownGaps).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/Quasar program target was requested for mainnet.*request is refused/),
+      ]),
+    );
+  });
+
+  it("surfaces the mainnet gate to the app instead of throwing at module scope", async () => {
+    process.env.NETWORK_PROFILE = "mainnet";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+
+    const { PROGRAM_SUBMISSION_READY, PROGRAM_KNOWN_GAPS } = await import("@/lib/program");
+
+    expect(PROGRAM_SUBMISSION_READY).toBe(false);
+    expect(PROGRAM_KNOWN_GAPS.join(" ")).toMatch(/Quasar program target was requested for mainnet/);
   });
 });

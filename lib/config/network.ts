@@ -82,14 +82,14 @@ export function getNetworkProfile(): NetworkProfile {
   const requestedTarget = resolveProgramTarget();
   const quasarDevnet = quasarDeployments.quasarDeployments.devnet;
 
-  if (requestedTarget === "quasar" && name !== "devnet") {
+  if (requestedTarget === "quasar" && name === "local-surfpool") {
     throw new Error(
       `Quasar program target is only configured for devnet; ${name} has no registered Quasar deployment. ` +
         "Use NETWORK_PROFILE=devnet for Quasar evidence, or register audited per-program ids before enabling this profile.",
     );
   }
 
-  const target: ProgramTarget = requestedTarget === "quasar" ? "quasar" : "legacy-anchor";
+  const target: ProgramTarget = requestedTarget === "quasar" && name === "devnet" ? "quasar" : "legacy-anchor";
 
   const rpcOverride = pickEnv("NEXT_PUBLIC_RPC_ENDPOINT", "NEXT_PUBLIC_RPC_URL", "DEMO_DEVNET_RPC");
   const escrowOverride = pickEnv("NEXT_PUBLIC_ESCROW_PROGRAM_ID", "DEMO_ESCROW_PROGRAM_ID");
@@ -101,6 +101,11 @@ export function getNetworkProfile(): NetworkProfile {
     ? [
         "No audited mainnet program deployment is registered; the configured escrow id is a placeholder and the Quasar four-program set has no mainnet ids.",
         "External audit, upgrade-authority custody, paid RPC, monitoring, and incident-response gates remain unresolved before mainnet activation.",
+        ...(requestedTarget === "quasar"
+          ? [
+              "A Quasar program target was requested for mainnet, but no mainnet Quasar deployment is registered; the request is refused and the profile stays blocked on the legacy placeholder id.",
+            ]
+          : []),
       ]
     : [];
 
@@ -137,7 +142,8 @@ export function getNetworkProfile(): NetworkProfile {
             ? quasarDeployments.submissionReadyReason
             : undefined,
       knownGaps: [...(target === "quasar" ? quasarDevnet.knownGaps : []), ...mainnetKnownGaps],
-      deploymentStatus: name === "mainnet" ? "mainnet-not-deployed" : target === "quasar" ? "devnet-deployed" : "local-only",
+      deploymentStatus:
+        name === "mainnet" ? "mainnet-not-deployed" : name === "local-surfpool" ? "local-only" : "devnet-deployed",
       activationGate: name === "mainnet" ? "external_audit_and_mainnet_deployment_required" : undefined,
     },
     payments: {

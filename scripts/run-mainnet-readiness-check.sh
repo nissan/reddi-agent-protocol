@@ -37,6 +37,7 @@ DEFAULT_ESCROW_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("escrowProg
 DEFAULT_REGISTRY_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("registryProgramId", "")')"
 DEFAULT_REPUTATION_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("reputationProgramId", "")')"
 DEFAULT_ATTESTATION_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("attestationProgramId", "")')"
+PLACEHOLDER_ESCROW_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("escrowProgramId", "") if obj["programs"].get("deploymentStatus") == "not_deployed" or obj["programs"].get("escrowProgramIdNote") else ""')"
 DEFAULT_PER_RPC="$(read_profile_value 'obj["payments"]["perRpc"]')"
 DEFAULT_JUPITER_BASE="$(read_profile_value 'obj["payments"]["jupiterApiBase"]')"
 
@@ -131,8 +132,23 @@ program_ids = {
     "reputation": "${REPUTATION_PROGRAM_ID}",
     "attestation": "${ATTESTATION_PROGRAM_ID}",
 }
-missing_program_ids = [name for name, value in program_ids.items() if not value.strip()]
-program_set_configured = not missing_program_ids
+placeholder_escrow_program_id = "${PLACEHOLDER_ESCROW_PROGRAM_ID}".strip()
+
+
+def program_id_defect(name, value):
+    if not value.strip():
+        return "unset"
+    if name == "escrow" and placeholder_escrow_program_id and value.strip() == placeholder_escrow_program_id:
+        return "placeholder (profile records deploymentStatus=not_deployed)"
+    return None
+
+unconfigured_program_ids = [
+    f"{name}: {defect}"
+    for name, value in program_ids.items()
+    for defect in [program_id_defect(name, value)]
+    if defect
+]
+program_set_configured = not unconfigured_program_ids
 
 per_ok = per_code.isdigit() and int(per_code) > 0 and int(per_code) < 500
 jup_ok = jup_code in {"200", "400", "401", "403"}
@@ -156,8 +172,8 @@ checks = [
         "id": "mainnet_program_set_configured",
         "blocking": True,
         "ok": program_set_configured,
-        "detail": "all four program ids present" if program_set_configured else f"missing ids: {', '.join(missing_program_ids)}",
-        "fix": None if program_set_configured else "Record audited mainnet registry, escrow, reputation, and attestation program ids before mainnet activation.",
+        "detail": "all four program ids are audited mainnet deployments" if program_set_configured else f"unconfigured ids: {'; '.join(unconfigured_program_ids)}",
+        "fix": None if program_set_configured else "Record audited mainnet registry, escrow, reputation, and attestation program ids (and clear the placeholder escrow id in config/networks/mainnet.json) before mainnet activation.",
     },
     {
         "id": "escrow_program_executable",

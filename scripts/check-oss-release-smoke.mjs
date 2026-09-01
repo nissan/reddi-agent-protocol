@@ -269,7 +269,10 @@ function checkClaimBoundaries() {
 function checkExcludedPackageManifests() {
   for (const dir of ["packages/sendai-x402", "packages/eliza-plugin-x402"]) {
     const manifest = JSON.parse(readFileSync(join(ROOT, dir, "package.json"), "utf8"));
-    if (!excludedPackages.has(manifest.name)) continue;
+    if (!excludedPackages.has(manifest.name)) {
+      failures.push(`${dir}/package.json name "${manifest.name}" drifted out of the deferred adapter set; update excludedPackages and docs/X402-ADAPTER-RETENTION-DECISION-2026-06-24.md before renaming`);
+      continue;
+    }
     if (manifest.private !== true) {
       failures.push(`${dir}/package.json must set private: true while the adapter is deferred from the public v0.1 package set`);
     }

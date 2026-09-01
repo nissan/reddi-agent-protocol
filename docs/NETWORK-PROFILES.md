@@ -60,7 +60,10 @@ notes for the registry, reputation, and attestation programs. The active devnet
 demo target is the four-program Quasar set in `config/quasar/deployments.json`;
 that set cannot be silently reused on mainnet because clusters are separate
 ledgers and the resolver refuses `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` outside
-`NETWORK_PROFILE=devnet`.
+`NETWORK_PROFILE=devnet`. On `local-surfpool` the resolver throws; on `mainnet` it
+keeps the blocked placeholder profile and records the refused request in
+`knownGaps`, so the app renders the mainnet activation gate rather than failing to
+load.
 
 Mainnet switching requires explicit approval **after** external audit,
 upgrade-authority/key-control decisions, audited mainnet deployments, and all

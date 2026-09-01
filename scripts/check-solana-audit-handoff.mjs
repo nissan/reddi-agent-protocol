@@ -73,6 +73,25 @@ const inputEvidencePaths = [
   "docs/SOLANA-CONTRACT-AUDIT-APPENDIX-2026-06-24.md",
 ];
 
+const readinessPath = path.join(repoRoot, "docs/SOLANA-CONTRACT-AUDIT-READINESS-2026-06-24.md");
+
+const requiredReadinessPhrases = [
+  "### Quasar Escrow",
+  "current\n  canonical job record owner for reputation/attestation job binding",
+  "Status: active escrow boundary on current main; `quasar-escrow-ref` pins this",
+];
+
+const forbiddenReadinessPatterns = [
+  {
+    pattern: /###\s+Quasar Escrow Legacy POC/,
+    reason: "readiness pack must not label `experiments/quasar-escrow` as a legacy POC after job binding",
+  },
+  {
+    pattern: /Status: reference\/legacy once `experiments\/quasar-escrow-per` is the active/,
+    reason: "readiness pack must not present quasar-escrow-per as the active escrow audit target",
+  },
+];
+
 function fail(message, details = []) {
   console.error(`[solana-audit-handoff] FAIL: ${message}`);
   for (const detail of details) console.error(`- ${detail}`);
@@ -133,4 +152,22 @@ if (/Current active escrow target for grant handoff: `experiments\/quasar-escrow
   fail("handoff must not present quasar-escrow-per as the current active escrow target");
 }
 
-console.log(`[solana-audit-handoff] OK: ${requiredHeadings.length} headings, ${requiredReferences.length} references, ${requiredArtifactTerms.length} artifact terms, ${requiredBoundaryPhrases.length} boundary phrases, and input evidence commit ${inputCommit} verified`);
+if (!fs.existsSync(readinessPath)) {
+  fail("readiness input evidence file is missing", [path.relative(repoRoot, readinessPath)]);
+}
+
+const readinessSource = fs.readFileSync(readinessPath, "utf8");
+
+const missingReadinessPhrases = requiredReadinessPhrases.filter((phrase) => !readinessSource.includes(phrase));
+if (missingReadinessPhrases.length) {
+  fail("readiness pack is missing the reconciled escrow-boundary statements", missingReadinessPhrases);
+}
+
+const readinessRegressions = forbiddenReadinessPatterns
+  .filter(({ pattern }) => pattern.test(readinessSource))
+  .map(({ reason }) => reason);
+if (readinessRegressions.length) {
+  fail("readiness pack carries a superseded escrow-target claim", readinessRegressions);
+}
+
+console.log(`[solana-audit-handoff] OK: ${requiredHeadings.length} headings, ${requiredReferences.length} references, ${requiredArtifactTerms.length} artifact terms, ${requiredBoundaryPhrases.length} boundary phrases, ${requiredReadinessPhrases.length} readiness-pack phrases, and input evidence commit ${inputCommit} verified`);
