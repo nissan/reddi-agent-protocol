@@ -53,7 +53,8 @@ SOL and USDC:
 AUDD:
 
 - uses `reddi.audd-payment-plan.v1`;
-- must include asset `AUDD`, network, mint, payee, settlement account, amount,
+- must use the exact canonical asset symbol `AUDD` and include network, mint,
+  payee, settlement account, amount,
   quote expiry, failure policy, refund policy, evidence requirement, and payment
   mode;
 - must be embedded in payment challenge policy metadata when using
@@ -114,8 +115,10 @@ Receipt/evidence acceptance requires:
   `reputationMutated=false` for no-spend lanes.
 
 AUDD proof metadata may be recorded in receipt/evidence bindings only when its
-network, mint, environment, and grant-eligibility label exactly match one
-configured canonical rail. Non-derivable identities are rejected. Fixture,
+asset symbol is exactly `AUDD`, its payment rail is
+`svm-spl-token-transfer-checked`, and its network, mint, canonical SPL Token
+program, environment, and grant-eligibility label exactly match one configured
+canonical rail. Non-derivable identities are rejected. Fixture,
 local-test-mint, and unverified-devnet evidence is never grant eligible;
 local-test-mint has no intent/x402 export path; and official mainnet AUDD stays
 disabled by default and pending partner acceptance. Read-only observation does
