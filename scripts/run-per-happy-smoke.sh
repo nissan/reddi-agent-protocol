@@ -21,7 +21,7 @@ LOG_FILE="$OUT_DIR/per-happy.log"
 mkdir -p "$OUT_DIR"
 
 PROFILE="${NETWORK_PROFILE:-devnet}"
-if [ "$PROFILE" = "local-surfpool" ] || [ "$PROFILE" = "local" ] || [ "$PROFILE" = "localnet" ]; then
+if [ "$PROFILE" = "local-surfpool" ] || [ "$PROFILE" = "local" ] || [ "$PROFILE" = "localnet" ] || [ "$PROFILE" = "surfpool" ]; then
   echo "[per-happy] NETWORK_PROFILE=$PROFILE is not valid for PER happy-path validation." | tee "$LOG_FILE"
   echo "[per-happy] use the devnet profile with a reachable TEE endpoint." | tee -a "$LOG_FILE"
   exit 1

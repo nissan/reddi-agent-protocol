@@ -1,11 +1,16 @@
 import type { NextConfig } from "next";
 
+const buildNetworkProfile = (
+  process.env.NEXT_PUBLIC_NETWORK_PROFILE ??
+  process.env.NETWORK_PROFILE ??
+  ""
+).trim();
+
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["localhost", "127.0.0.1"],
-  env: {
-    NEXT_PUBLIC_NETWORK_PROFILE:
-      process.env.NEXT_PUBLIC_NETWORK_PROFILE ?? process.env.NETWORK_PROFILE ?? "",
-  },
+  ...(buildNetworkProfile
+    ? { env: { NEXT_PUBLIC_NETWORK_PROFILE: buildNetworkProfile } }
+    : {}),
   async headers() {
     return [
       {

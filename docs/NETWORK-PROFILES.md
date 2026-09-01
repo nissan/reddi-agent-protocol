@@ -88,14 +88,24 @@ a transaction against a program that is not executable on that cluster. On every
 other profile the banner is advisory only — it reports readiness and does not
 disable wallet submission.
 
-**The profile must be set at build time.** Next inlines only static
-`process.env.NEXT_PUBLIC_*` reads into the client bundle, so `lib/config/network.ts`
-reads every selector as a static member and `next.config.ts` mirrors
-`NETWORK_PROFILE` into `NEXT_PUBLIC_NETWORK_PROFILE` for the browser. A server that
-sets `NETWORK_PROFILE` only at runtime, after `next build` ran without it, will
-render the blocked banner on the server while the client bundle still carries the
-build-time profile — set the variable in the build environment, not just the
-runtime one.
+**Set the profile in the build environment, not just the runtime one.** Next
+inlines only static `process.env.NEXT_PUBLIC_*` reads into the client bundle, so
+`lib/config/network.ts` reads every selector as a static member and
+`next.config.ts` mirrors `NETWORK_PROFILE` into `NEXT_PUBLIC_NETWORK_PROFILE` for
+the browser. That mirror is emitted only when a profile actually resolves at build
+time; otherwise the key is left untouched so both selectors still read the real
+runtime environment on the server.
+
+Consequences when `next build` ran without a profile:
+
+- `NETWORK_PROFILE=mainnet` at runtime — the server resolves mainnet and renders
+  the blocked banner, but the client bundle carries the build-time default, so the
+  browser-side gate is off.
+- `NEXT_PUBLIC_NETWORK_PROFILE=mainnet` at runtime — same server-side behaviour;
+  the client bundle again carries the build-time default.
+
+In both cases the server and browser disagree. Build with the profile set so the
+gate holds on both sides.
 
 Mainnet switching requires explicit approval **after** external audit,
 upgrade-authority/key-control decisions, audited mainnet deployments, and all
