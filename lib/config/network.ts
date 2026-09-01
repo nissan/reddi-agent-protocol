@@ -117,20 +117,29 @@ export function getNetworkProfile(): NetworkProfile {
   );
 
   const escrowIsConfiguredPlaceholder = effectiveEscrowProgramId === base.programs.escrowProgramId;
-  const perProgramIdsAliasEscrow =
-    effectiveRegistryProgramId === effectiveEscrowProgramId &&
-    effectiveReputationProgramId === effectiveEscrowProgramId &&
-    effectiveAttestationProgramId === effectiveEscrowProgramId;
+  const aliasedProgramLabels = (
+    [
+      ["registry", effectiveRegistryProgramId],
+      ["reputation", effectiveReputationProgramId],
+      ["attestation", effectiveAttestationProgramId],
+    ] as const
+  )
+    .filter(([, programId]) => programId === effectiveEscrowProgramId)
+    .map(([label]) => label);
+
+  const aliasDisclosure = aliasedProgramLabels.length
+    ? ` No distinct mainnet id is configured for ${
+        aliasedProgramLabels.length === 1
+          ? aliasedProgramLabels[0]
+          : `${aliasedProgramLabels.slice(0, -1).join(", ")} and ${aliasedProgramLabels[aliasedProgramLabels.length - 1]}`
+      }, so ${aliasedProgramLabels.length === 1 ? "it aliases" : "they alias"} to the escrow program id on this profile.`
+    : "";
 
   const mainnetKnownGaps = name === "mainnet"
     ? [
-        escrowIsConfiguredPlaceholder
-          ? `No audited mainnet program deployment is registered; the configured escrow id is still the placeholder devnet id${
-              perProgramIdsAliasEscrow
-                ? ", and registry, reputation, and attestation all alias to that single placeholder id on this profile"
-                : ""
-            }.`
-          : "Mainnet program ids are supplied by environment overrides, but no audited mainnet deployment is registered for them in config/networks/mainnet.json.",
+        (escrowIsConfiguredPlaceholder
+          ? "No audited mainnet program deployment is registered; the configured escrow id is still the placeholder devnet id."
+          : "The mainnet escrow id is supplied by an environment override, but no audited mainnet deployment is registered for it in config/networks/mainnet.json.") + aliasDisclosure,
         "External audit, upgrade-authority custody, paid RPC, monitoring, and incident-response gates remain unresolved before mainnet activation.",
         ...(requestedTarget === "quasar"
           ? [

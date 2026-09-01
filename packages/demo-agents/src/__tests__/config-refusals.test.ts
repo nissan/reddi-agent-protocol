@@ -1,3 +1,5 @@
+jest.mock("dotenv");
+
 describe("demo-agents network profile refusals", () => {
   const originalEnv = process.env;
 
@@ -9,6 +11,10 @@ describe("demo-agents network profile refusals", () => {
     delete process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET;
     delete process.env.HACKATHON_DEMO_TARGET;
     delete process.env.DEMO_PROGRAM_TARGET;
+    delete process.env.DEMO_DEVNET_RPC;
+    delete process.env.NEXT_PUBLIC_RPC_ENDPOINT;
+    delete process.env.DEMO_REGISTRY_PROGRAM_ID;
+    delete process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID;
   });
 
   afterAll(() => {

@@ -77,8 +77,14 @@ ledgers and the resolver refuses `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` outsid
 `NETWORK_PROFILE=devnet`. On `local-surfpool` the resolver throws; on `mainnet` it
 keeps the blocked placeholder profile and records the refused request in
 `knownGaps`, so `/register` and `/economic-demo` render an amber blocked-readiness
-banner listing those gaps rather than failing to load. That banner is advisory
-only — it reports readiness, it does not disable wallet submission.
+banner listing those gaps rather than failing to load.
+
+On profiles whose resolved `deploymentStatus` is `mainnet-not-deployed`,
+`/register` also disables the register action: no audited mainnet deployment is
+registered, so submitting would spend real mainnet fees on a transaction against
+a program that is not executable on that cluster. On every other profile the
+banner is advisory only — it reports readiness and does not disable wallet
+submission.
 
 Mainnet switching requires explicit approval **after** external audit,
 upgrade-authority/key-control decisions, audited mainnet deployments, and all

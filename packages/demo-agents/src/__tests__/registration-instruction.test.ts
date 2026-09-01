@@ -1,3 +1,5 @@
+jest.mock("dotenv");
+
 import { PublicKey } from "@solana/web3.js";
 
 import { IX } from "../../../../lib/program";

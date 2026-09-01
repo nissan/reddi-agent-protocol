@@ -367,9 +367,16 @@ function RegisterInner() {
   const activeProgramId = REGISTRY_PROGRAM_ID.toBase58();
   const myAgentHref = publicKey ? agentDetailHref(publicKey) : "/agents";
   const alreadyRegistered = existingAgent.status === "registered";
+  const mainnetDeploymentMissing = PROGRAM_DEPLOYMENT_STATUS === "mainnet-not-deployed";
 
   const handleRegister = async () => {
     if (!publicKey || !sendTransaction) return;
+    if (mainnetDeploymentMissing) {
+      setTxError(
+        "Registration is blocked on this network profile: no audited mainnet deployment is registered, so submitting would pay real mainnet fees for a transaction against a program that is not executable on this cluster.",
+      );
+      return;
+    }
     if (alreadyRegistered) {
       setTxError(
         "This wallet is already registered. Open My Agent to view the existing registration, or deregister before creating a fresh registration with the same wallet.",
@@ -645,7 +652,9 @@ function RegisterInner() {
             <span className="font-mono">{PROGRAM_DEPLOYMENT_STATUS}</span>.
             {PROGRAM_TARGET === "quasar"
               ? " Registration instruction construction uses the Quasar registry layout, but wallet submission should wait for the full proof chain unless you are deliberately testing this path."
-              : " This banner is advisory: it reports the recorded readiness gaps but does not block wallet submission."}
+              : mainnetDeploymentMissing
+                ? " Wallet submission is blocked on this profile: no audited mainnet deployment is registered, so a transaction would spend real mainnet fees against a program that is not executable on this cluster."
+                : " This banner is advisory: it reports the recorded readiness gaps but does not block wallet submission."}
           </p>
           {!PROGRAM_SUBMISSION_READY && PROGRAM_KNOWN_GAPS.length > 0 && (
             <ul className="list-disc space-y-1 pl-4 text-xs opacity-85">
@@ -1327,6 +1336,7 @@ function RegisterInner() {
                 onClick={handleRegister}
                 disabled={
                   registering ||
+                  mainnetDeploymentMissing ||
                   !endpointCompliancePassed ||
                   existingAgent.status === "checking"
                 }
@@ -1334,11 +1344,13 @@ function RegisterInner() {
               >
                 {registering
                   ? "Registering..."
-                  : existingAgent.status === "checking"
-                    ? "Checking registration..."
-                    : !endpointCompliancePassed
-                      ? "Probe endpoint compliance first"
-                      : "Register Agent (0.01 SOL)"}
+                  : mainnetDeploymentMissing
+                    ? "Blocked: no audited mainnet deployment"
+                    : existingAgent.status === "checking"
+                      ? "Checking registration..."
+                      : !endpointCompliancePassed
+                        ? "Probe endpoint compliance first"
+                        : "Register Agent (0.01 SOL)"}
               </Button>
             )}
           </div>

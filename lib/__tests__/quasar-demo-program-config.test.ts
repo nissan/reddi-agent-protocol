@@ -131,8 +131,9 @@ describe("Quasar demo program target config", () => {
     expect(REPUTATION_PROGRAM_ID.toBase58()).toBe(ESCROW_PROGRAM_ID.toBase58());
     expect(ATTESTATION_PROGRAM_ID.toBase58()).toBe(ESCROW_PROGRAM_ID.toBase58());
     expect(profile.programs.submissionReady).toBe(false);
+    expect(profile.programs.knownGaps.join(" ")).toMatch(/the configured escrow id is still the placeholder devnet id/);
     expect(profile.programs.knownGaps.join(" ")).toMatch(
-      /registry, reputation, and attestation all alias to that single placeholder id/,
+      /No distinct mainnet id is configured for registry, reputation and attestation, so they alias to the escrow program id/,
     );
   });
 
@@ -149,8 +150,33 @@ describe("Quasar demo program target config", () => {
 
     expect(gaps).not.toMatch(/placeholder/);
     expect(gaps).not.toMatch(/alias/);
-    expect(gaps).toMatch(/no audited mainnet deployment is registered for them/);
+    expect(gaps).toMatch(/no audited mainnet deployment is registered for it/);
     expect(getNetworkProfile().programs.submissionReady).toBe(false);
+  });
+
+  it("still discloses aliasing when only the mainnet escrow id is supplied", async () => {
+    process.env.NETWORK_PROFILE = "mainnet";
+    process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = "EscrowMainnet1111111111111111111111111111111";
+
+    const { getNetworkProfile } = await import("@/lib/config/network");
+    const profile = getNetworkProfile();
+    const gaps = profile.programs.knownGaps.join(" ");
+
+    expect(profile.programs.registryProgramId).toBe("EscrowMainnet1111111111111111111111111111111");
+    expect(gaps).toMatch(/registry, reputation and attestation/);
+    expect(gaps).toMatch(/they alias to the escrow program id on this profile/);
+  });
+
+  it("names only the programs that still alias when some mainnet ids are supplied", async () => {
+    process.env.NETWORK_PROFILE = "mainnet";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryMainnet111111111111111111111111111111";
+
+    const { getNetworkProfile } = await import("@/lib/config/network");
+    const gaps = getNetworkProfile().programs.knownGaps.join(" ");
+
+    expect(gaps).toMatch(/reputation and attestation/);
+    expect(gaps).not.toMatch(/registry, reputation and attestation/);
+    expect(gaps).toMatch(/placeholder devnet id/);
   });
 
   it("honours the documented per-program mainnet overrides instead of aliasing them to escrow", async () => {
