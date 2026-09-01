@@ -5,6 +5,7 @@ import quasarDeployments from "@/config/quasar/deployments.json";
 
 export type NetworkProfileName = "local-surfpool" | "devnet" | "mainnet";
 export type ProgramTarget = "legacy-anchor" | "quasar";
+export type DeploymentStatus = "local-only" | "devnet-deployed" | "mainnet-not-deployed";
 
 export type NetworkProfile = {
   name: NetworkProfileName;
@@ -25,6 +26,8 @@ export type NetworkProfile = {
     submissionReady: boolean;
     submissionReadyReason?: string;
     knownGaps: string[];
+    deploymentStatus: DeploymentStatus;
+    activationGate?: string;
   };
   payments: {
     jupiterApiBase: string;
@@ -78,7 +81,15 @@ export function getNetworkProfile(): NetworkProfile {
   const base = PROFILES[name];
   const requestedTarget = resolveProgramTarget();
   const quasarDevnet = quasarDeployments.quasarDeployments.devnet;
-  const target: ProgramTarget = name === "devnet" && requestedTarget === "quasar" ? "quasar" : "legacy-anchor";
+
+  if (requestedTarget === "quasar" && name !== "devnet") {
+    throw new Error(
+      `Quasar program target is only configured for devnet; ${name} has no registered Quasar deployment. ` +
+        "Use NETWORK_PROFILE=devnet for Quasar evidence, or register audited per-program ids before enabling this profile.",
+    );
+  }
+
+  const target: ProgramTarget = requestedTarget === "quasar" ? "quasar" : "legacy-anchor";
 
   const rpcOverride = pickEnv("NEXT_PUBLIC_RPC_ENDPOINT", "NEXT_PUBLIC_RPC_URL", "DEMO_DEVNET_RPC");
   const escrowOverride = pickEnv("NEXT_PUBLIC_ESCROW_PROGRAM_ID", "DEMO_ESCROW_PROGRAM_ID");
@@ -86,6 +97,12 @@ export function getNetworkProfile(): NetworkProfile {
 
   const quasarPrograms = quasarDevnet.programIds ?? { escrow: quasarDevnet.programId };
   const targetProgramId = target === "quasar" ? quasarPrograms.escrow : base.programs.escrowProgramId;
+  const mainnetKnownGaps = name === "mainnet"
+    ? [
+        "No audited mainnet program deployment is registered; the configured escrow id is a placeholder and the Quasar four-program set has no mainnet ids.",
+        "External audit, upgrade-authority custody, paid RPC, monitoring, and incident-response gates remain unresolved before mainnet activation.",
+      ]
+    : [];
 
   const effectiveEscrowProgramId =
     name === "devnet" &&
@@ -112,9 +129,16 @@ export function getNetworkProfile(): NetworkProfile {
       target,
       framework: target === "quasar" ? "quasar" : "anchor",
       compatibility: target === "quasar" ? "quasar-layout-unverified" : "anchor-layout",
-      submissionReady: target === "quasar" ? quasarDeployments.submissionReady : true,
-      submissionReadyReason: target === "quasar" ? quasarDeployments.submissionReadyReason : undefined,
-      knownGaps: target === "quasar" ? quasarDevnet.knownGaps : [],
+      submissionReady: name === "mainnet" ? false : target === "quasar" ? quasarDeployments.submissionReady : true,
+      submissionReadyReason:
+        name === "mainnet"
+          ? "Mainnet activation is blocked: no audited deployment is registered and the Quasar four-program set cannot be resolved for mainnet."
+          : target === "quasar"
+            ? quasarDeployments.submissionReadyReason
+            : undefined,
+      knownGaps: [...(target === "quasar" ? quasarDevnet.knownGaps : []), ...mainnetKnownGaps],
+      deploymentStatus: name === "mainnet" ? "mainnet-not-deployed" : target === "quasar" ? "devnet-deployed" : "local-only",
+      activationGate: name === "mainnet" ? "external_audit_and_mainnet_deployment_required" : undefined,
     },
     payments: {
       ...base.payments,

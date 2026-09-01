@@ -55,6 +55,8 @@ const requiredBoundaryPhrases = [
   "No current Quasar/Anchor/SPL custody",
   "requires the #441 promotion gate and explicit approval",
   "settlement-finality claims",
+  "Current boundary: MagicBlock PER proof lane",
+  "binding via `quasar-escrow-ref`",
 ];
 
 function fail(message, details = []) {
@@ -80,5 +82,9 @@ if (missingFiles.length) fail("referenced source files are missing from the repo
 
 const missingBoundaryPhrases = requiredBoundaryPhrases.filter((phrase) => !source.includes(phrase));
 if (missingBoundaryPhrases.length) fail("required boundary phrases are missing", missingBoundaryPhrases);
+
+if (/Status: reference\/legacy unless a later issue reselects it as the active\s+escrow audit target/.test(source)) {
+  fail("appendix must not leave quasar-escrow described only as a legacy target after job binding");
+}
 
 console.log(`[solana-audit-appendix] OK: ${requiredHeadings.length} headings, ${requiredSourcePaths.length} source references, and ${requiredBoundaryPhrases.length} boundary phrases verified`);

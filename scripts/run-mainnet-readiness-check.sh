@@ -33,12 +33,19 @@ PY
 }
 
 DEFAULT_RPC="$(read_profile_value 'obj["solana"]["rpcHttp"]')"
-DEFAULT_PROGRAM_ID="$(read_profile_value 'obj["programs"]["escrowProgramId"]')"
+DEFAULT_ESCROW_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("escrowProgramId", "")')"
+DEFAULT_REGISTRY_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("registryProgramId", "")')"
+DEFAULT_REPUTATION_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("reputationProgramId", "")')"
+DEFAULT_ATTESTATION_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("attestationProgramId", "")')"
 DEFAULT_PER_RPC="$(read_profile_value 'obj["payments"]["perRpc"]')"
 DEFAULT_JUPITER_BASE="$(read_profile_value 'obj["payments"]["jupiterApiBase"]')"
 
 RPC_URL="${NEXT_PUBLIC_RPC_ENDPOINT:-$DEFAULT_RPC}"
-PROGRAM_ID="${NEXT_PUBLIC_ESCROW_PROGRAM_ID:-$DEFAULT_PROGRAM_ID}"
+ESCROW_PROGRAM_ID="${NEXT_PUBLIC_ESCROW_PROGRAM_ID:-$DEFAULT_ESCROW_PROGRAM_ID}"
+REGISTRY_PROGRAM_ID="${NEXT_PUBLIC_REGISTRY_PROGRAM_ID:-$DEFAULT_REGISTRY_PROGRAM_ID}"
+REPUTATION_PROGRAM_ID="${NEXT_PUBLIC_REPUTATION_PROGRAM_ID:-$DEFAULT_REPUTATION_PROGRAM_ID}"
+ATTESTATION_PROGRAM_ID="${NEXT_PUBLIC_ATTESTATION_PROGRAM_ID:-$DEFAULT_ATTESTATION_PROGRAM_ID}"
+PROGRAM_ID="$ESCROW_PROGRAM_ID"
 PER_RPC="${NEXT_PUBLIC_PER_RPC:-$DEFAULT_PER_RPC}"
 JUPITER_BASE="${JUPITER_API_BASE:-$DEFAULT_JUPITER_BASE}"
 NETWORK_PROFILE_EFFECTIVE="${NETWORK_PROFILE:-mainnet}"
@@ -47,7 +54,10 @@ NETWORK_PROFILE_EFFECTIVE="${NETWORK_PROFILE:-mainnet}"
   echo "[mainnet-readiness] output: $OUT_DIR"
   echo "[mainnet-readiness] network_profile: $NETWORK_PROFILE_EFFECTIVE"
   echo "[mainnet-readiness] rpc: $RPC_URL"
-  echo "[mainnet-readiness] program_id: $PROGRAM_ID"
+  echo "[mainnet-readiness] escrow_program_id: $ESCROW_PROGRAM_ID"
+  echo "[mainnet-readiness] registry_program_id: ${REGISTRY_PROGRAM_ID:-UNSET}"
+  echo "[mainnet-readiness] reputation_program_id: ${REPUTATION_PROGRAM_ID:-UNSET}"
+  echo "[mainnet-readiness] attestation_program_id: ${ATTESTATION_PROGRAM_ID:-UNSET}"
   echo "[mainnet-readiness] per_rpc: $PER_RPC"
   echo "[mainnet-readiness] jupiter_base: $JUPITER_BASE"
 } | tee "$LOG_FILE"
@@ -115,6 +125,15 @@ if prog_code == "200":
     if isinstance(value, dict):
         program_exec = bool(value.get("executable"))
 
+program_ids = {
+    "escrow": "${ESCROW_PROGRAM_ID}",
+    "registry": "${REGISTRY_PROGRAM_ID}",
+    "reputation": "${REPUTATION_PROGRAM_ID}",
+    "attestation": "${ATTESTATION_PROGRAM_ID}",
+}
+missing_program_ids = [name for name, value in program_ids.items() if not value.strip()]
+program_set_configured = not missing_program_ids
+
 per_ok = per_code.isdigit() and int(per_code) > 0 and int(per_code) < 500
 jup_ok = jup_code in {"200", "400", "401", "403"}
 
@@ -134,7 +153,14 @@ checks = [
         "fix": None if slot_ok else "Verify RPC endpoint and network access.",
     },
     {
-        "id": "program_executable",
+        "id": "mainnet_program_set_configured",
+        "blocking": True,
+        "ok": program_set_configured,
+        "detail": "all four program ids present" if program_set_configured else f"missing ids: {', '.join(missing_program_ids)}",
+        "fix": None if program_set_configured else "Record audited mainnet registry, escrow, reputation, and attestation program ids before mainnet activation.",
+    },
+    {
+        "id": "escrow_program_executable",
         "blocking": True,
         "ok": program_exec,
         "detail": f"HTTP {prog_code}, executable={program_exec}",
@@ -165,6 +191,7 @@ payload = {
     "networkProfile": "${NETWORK_PROFILE_EFFECTIVE}",
     "rpcUrl": "${RPC_URL}",
     "programId": "${PROGRAM_ID}",
+    "programIds": program_ids,
     "perRpc": "${PER_RPC}",
     "jupiterBase": "${JUPITER_BASE}",
     "checks": checks,
@@ -185,7 +212,10 @@ lines = [
     f"- Timestamp: {payload['checkedAt']}",
     f"- Profile (effective): {payload['networkProfile']}",
     f"- RPC: {payload['rpcUrl']}",
-    f"- Program ID: {payload['programId']}",
+    f"- Escrow program ID: {payload['programIds']['escrow'] or 'UNSET'}",
+    f"- Registry program ID: {payload['programIds']['registry'] or 'UNSET'}",
+    f"- Reputation program ID: {payload['programIds']['reputation'] or 'UNSET'}",
+    f"- Attestation program ID: {payload['programIds']['attestation'] or 'UNSET'}",
     f"- PER RPC: {payload['perRpc']}",
     f"- Jupiter base: {payload['jupiterBase']}",
     f"- Result: {status}",

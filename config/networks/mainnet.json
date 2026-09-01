@@ -7,8 +7,13 @@
     "explorerClusterParam": "mainnet"
   },
   "programs": {
+    "deploymentStatus": "not_deployed",
     "escrowProgramId": "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD",
-    "escrowProgramIdNote": "PLACEHOLDER — no mainnet deployment exists. This is the devnet legacy Anchor program id and MUST be replaced (and this note removed) before any mainnet activation. See docs/SOLANA-EXTERNAL-AUDIT-HANDOFF-2026-06-24.md: mainnet is gated on external audit."
+    "escrowProgramIdNote": "PLACEHOLDER — no mainnet deployment exists. This is the devnet legacy Anchor program id and MUST be replaced (and this note removed) before any mainnet activation. See docs/SOLANA-EXTERNAL-AUDIT-HANDOFF-2026-06-24.md: mainnet is gated on external audit.",
+    "registryProgramIdNote": "UNSET — no mainnet Quasar registry deployment is registered.",
+    "reputationProgramIdNote": "UNSET — no mainnet Quasar reputation deployment is registered.",
+    "attestationProgramIdNote": "UNSET — no mainnet Quasar attestation deployment is registered.",
+    "quasarProgramSetNote": "The active devnet target is a four-program Quasar set. Mainnet remains disabled until audited mainnet ids for registry, escrow, reputation, and attestation are recorded and the resolver is deliberately enabled for that profile."
   },
   "payments": {
     "jupiterApiBase": "https://api.jup.ag/swap/v2",

@@ -1,7 +1,8 @@
 {
   "name": "@reddi/sendai-x402",
   "version": "0.1.0",
-  "description": "x402 middleware wrapper for @sendai/agent-kit — pay and earn via Solana escrow",
+  "description": "Experimental repo-local SendAI x402 adapter; not part of the public v0.1 package set.",
+  "private": true,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

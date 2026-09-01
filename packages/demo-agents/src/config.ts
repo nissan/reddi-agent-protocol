@@ -64,8 +64,21 @@ function resolveNetworkProfileName(): DemoNetworkProfileName {
 
 const activeNetworkProfileName = resolveNetworkProfileName();
 const activeProfile = DEMO_NETWORK_PROFILES[activeNetworkProfileName];
-export const PROGRAM_TARGET: DemoProgramTarget =
-  activeNetworkProfileName === "devnet" && resolveProgramTarget() === "quasar" ? "quasar" : "legacy-anchor";
+const requestedProgramTarget = resolveProgramTarget();
+
+if (activeNetworkProfileName === "mainnet") {
+  throw new Error(
+    "packages/demo-agents is a devnet/local evidence runner only; mainnet execution requires a separate audited deployment, custody plan, and explicit approval.",
+  );
+}
+
+if (requestedProgramTarget === "quasar" && activeNetworkProfileName !== "devnet") {
+  throw new Error(
+    `Quasar demo target is only registered for devnet; ${activeNetworkProfileName} has no Quasar program inventory in packages/demo-agents.`,
+  );
+}
+
+export const PROGRAM_TARGET: DemoProgramTarget = requestedProgramTarget === "quasar" ? "quasar" : "legacy-anchor";
 export const PROGRAM_FRAMEWORK = PROGRAM_TARGET === "quasar" ? "quasar" : "anchor";
 export const PROGRAM_COMPATIBILITY = PROGRAM_TARGET === "quasar" ? "quasar-layout-unverified" : "anchor-layout";
 

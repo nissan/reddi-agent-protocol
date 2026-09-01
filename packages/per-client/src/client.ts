@@ -18,7 +18,7 @@
  * releaseEscrowViaPer(escrowPda, payee, sessionToken)
  *   → builds release_escrow_per txn
  *   → sends to devnet-tee.magicblock.app (NOT public RPC)
- *   → TEE executes privately, undelegates, settles on mainnet
+ *   → TEE executes privately, undelegates, and commits back to the selected base Solana cluster
  *
  * releaseEscrowFallback(escrowPda, payee)
  *   → calls standard L1 release_escrow
@@ -134,7 +134,7 @@ export async function delegateEscrow(
  *
  * Routes the `release_escrow_per` transaction to the TEE RPC endpoint.
  * The TEE executes it privately (hidden from public mempool), then
- * undelegates and finalises on Solana mainnet.
+ * undelegates and finalises back on the selected base Solana cluster. This is not a mainnet-readiness claim.
  *
  * @param escrowProgramId - The deployed escrow program ID
  * @param escrowPda       - The escrow account PDA

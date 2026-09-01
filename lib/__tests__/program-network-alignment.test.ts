@@ -41,4 +41,13 @@ describe("program/network alignment", () => {
     expect(getNetworkProfile().programs.escrowProgramId).not.toBe(QUASAR_ESCROW_PROGRAM_ID);
     expect(ESCROW_PROGRAM_ID.toBase58()).not.toBe(QUASAR_ESCROW_PROGRAM_ID);
   });
+
+  it("exports mainnet placeholder metadata as blocked rather than ready", async () => {
+    process.env.NETWORK_PROFILE = "mainnet";
+
+    const { PROGRAM_SUBMISSION_READY, PROGRAM_KNOWN_GAPS } = await import("@/lib/program");
+
+    expect(PROGRAM_SUBMISSION_READY).toBe(false);
+    expect(PROGRAM_KNOWN_GAPS.join(" ")).toMatch(/no audited mainnet program deployment/i);
+  });
 });

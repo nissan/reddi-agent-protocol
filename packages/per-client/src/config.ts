@@ -3,7 +3,10 @@
  *
  * TEE validator endpoint: transactions sent here are executed privately
  * inside Intel TDX and remain hidden from the public mempool while in-flight.
- * The TEE then undelegates accounts and finalises on Solana mainnet.
+ * The TEE then undelegates accounts and finalises back on the selected base
+ * Solana cluster. The default endpoint follows NETWORK_PROFILE, but choosing a
+ * mainnet endpoint is not evidence that RAP has a mainnet deployment or approval
+ * to move live funds.
  */
 
 function pickEnv(...keys: string[]): string | undefined {

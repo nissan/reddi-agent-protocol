@@ -41,22 +41,34 @@ NEXT_PUBLIC_RPC_ENDPOINT=http://127.0.0.1:18999
 NEXT_PUBLIC_ESCROW_PROGRAM_ID=<local-deployed-program-id>
 ```
 
-### Mainnet
+### Mainnet (currently blocked)
 ```bash
 NETWORK_PROFILE=mainnet
 NEXT_PUBLIC_RPC_ENDPOINT=<mainnet-rpc>
-NEXT_PUBLIC_ESCROW_PROGRAM_ID=<audited-mainnet-program-id>
+NEXT_PUBLIC_ESCROW_PROGRAM_ID=<audited-mainnet-escrow-program-id>
+NEXT_PUBLIC_REGISTRY_PROGRAM_ID=<audited-mainnet-registry-program-id>
+NEXT_PUBLIC_REPUTATION_PROGRAM_ID=<audited-mainnet-reputation-program-id>
+NEXT_PUBLIC_ATTESTATION_PROGRAM_ID=<audited-mainnet-attestation-program-id>
 NEXT_PUBLIC_PER_RPC=<mainnet-tee-endpoint>
 ```
 
 ## Mainnet note
 
-Mainnet switching is config-only **after** the audited program is deployed once to mainnet.
-Clusters are separate ledgers, so a one-time deployment on target cluster is still required.
+No mainnet deployment is registered today. `config/networks/mainnet.json` carries
+only a placeholder escrow id (the devnet legacy Anchor id) plus explicit unset
+notes for the registry, reputation, and attestation programs. The active devnet
+demo target is the four-program Quasar set in `config/quasar/deployments.json`;
+that set cannot be silently reused on mainnet because clusters are separate
+ledgers and the resolver refuses `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` outside
+`NETWORK_PROFILE=devnet`.
+
+Mainnet switching requires explicit approval **after** external audit,
+upgrade-authority/key-control decisions, audited mainnet deployments, and all
+four program ids are recorded for the target cluster.
 
 ## Read-only readiness check
 
-Run a read-only mainnet readiness probe before cutover:
+Run a read-only mainnet deployment probe before cutover; this is not a production readiness claim:
 
 ```bash
 NETWORK_PROFILE=mainnet npm run test:mainnet:readiness
@@ -66,5 +78,6 @@ Artifacts are written to:
 - `artifacts/mainnet-readiness/<timestamp>/SUMMARY.md`
 - `artifacts/mainnet-readiness/<timestamp>/result.json`
 
-Current expected blocker before first mainnet deploy:
-- `program_executable` fails until audited escrow program is deployed to mainnet and `NEXT_PUBLIC_ESCROW_PROGRAM_ID` points to that deployed address.
+Current expected blockers before first mainnet deploy:
+- `mainnet_program_set_configured` fails until audited registry, escrow, reputation, and attestation ids are recorded for mainnet.
+- `escrow_program_executable` fails until the audited escrow program is deployed to mainnet and `NEXT_PUBLIC_ESCROW_PROGRAM_ID` points to that deployed address.

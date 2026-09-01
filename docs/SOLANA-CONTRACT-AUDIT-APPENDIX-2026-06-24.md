@@ -4,6 +4,12 @@ Date: 2026-06-24
 
 Issue: #531
 
+> **Readiness reconciliation note (2026-08-31):** this appendix predates the
+> job-binding series (#642-#645). Current main uses `experiments/quasar-escrow`
+> as the owner-checked escrow boundary for reputation/attestation; the PER crate
+> remains a separate MagicBlock proof lane unless a later approved issue reselects
+> it.
+
 Inputs:
 
 - #526 / PR #527 Solana contract audit-readiness evidence pack.
@@ -112,6 +118,8 @@ claim settlement finality.
 
 ### Quasar Escrow PER
 
+- Current boundary: MagicBlock PER proof lane; not the escrow owner accepted by
+  `quasar-escrow-ref` for current reputation/attestation job binding.
 - Source path: `experiments/quasar-escrow-per`
 - Source files:
   - `experiments/quasar-escrow-per/src/lib.rs`
@@ -155,14 +163,19 @@ claim settlement finality.
 
 ### Quasar Escrow Legacy POC
 
+- Current boundary: despite this historical heading, current main reselects this
+  program as the canonical job record owner for reputation/attestation job
+  binding via `quasar-escrow-ref`.
 - Source path: `experiments/quasar-escrow`
 - Source files:
   - `experiments/quasar-escrow/src/lib.rs`
   - `experiments/quasar-escrow/src/state.rs`
 - Program id in source: `VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW`
-- Purpose: earlier SOL-native escrow parity POC for lock/release/cancel.
-- Status: reference/legacy unless a later issue reselects it as the active
-  escrow audit target.
+- Purpose: SOL-native escrow parity POC for lock/release/cancel and current
+  canonical job record owner on main after the job-binding series.
+- Status: active for current reputation/attestation job binding; the heading is
+  retained only to avoid breaking historical checker anchors before the audit
+  packet is fully re-frozen.
 - Instructions:
   - `make`: discriminator `0`
   - `take`: discriminator `1`

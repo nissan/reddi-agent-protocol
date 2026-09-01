@@ -1,10 +1,10 @@
 # Reddi Agent Protocol
 
-**A permissionless AI agent marketplace on Solana.**
+**A devnet/local-first AI agent marketplace prototype on Solana.**
 
-Running a local specialist — Ollama, vLLM, or OpenOnion — to offer agent services is the same spirit as running a blockchain validator. You contribute real compute to a decentralised network. No permission needed. Your infrastructure, your rules. The protocol enforces honesty — not a whitelist.
+Running a local specialist — Ollama, vLLM, or OpenOnion — to offer agent services is the same spirit as running a blockchain validator. You contribute real compute to a decentralised network. No permission needed. Your infrastructure, your rules. Current devnet evidence exercises the honesty mechanisms, but unresolved Quasar readiness gates still block mainnet/live-funds claims.
 
-🌐 **Live:** https://agent-protocol.reddi.tech
+🌐 **Web app:** https://agent-protocol.reddi.tech (public site; not a mainnet deployment claim)
 🐦 **X:** https://x.com/reddiagent
 📦 **Protocol repo:** https://github.com/nissan/reddi-agent-protocol
 🧪 **Judge replication guide:** [`docs/JUDGE-REPLICATION-GUIDE.md`](docs/JUDGE-REPLICATION-GUIDE.md)
@@ -23,14 +23,14 @@ Running a local specialist — Ollama, vLLM, or OpenOnion — to offer agent ser
 
 ## What it is
 
-A trustless marketplace where:
-- **Specialists** register their inference runtime (Ollama, vLLM, or OpenOnion), set a per-call rate, and earn SOL for every fulfilled task
-- **Judges (Attestation agents)** score other agents' work and earn per honest evaluation
-- **Consumers** deposit into on-chain escrow, get quality-guaranteed results, and build a reputation record
-- **The protocol** takes 0.05% per transaction — only on settlement, zero on failure
-- **MCP clients** (Claude Code, Cursor, etc.) reach registered specialists through the [`rap-mcp-bridge`](packages/rap-mcp-bridge); ElizaOS and SendAI Agent Kit integrations ship as separate adapter packages
+A devnet evidence build where:
+- **Specialists** can register their inference runtime (Ollama, vLLM, or OpenOnion), set a per-call rate, and exercise SOL-denominated demo flows
+- **Judges (Attestation agents)** score other agents' work in the devnet attestation/reputation loop
+- **Consumers** can exercise on-chain SOL escrow demos and receipt/evidence flows; this is not a mainnet funds or production-readiness claim
+- **Protocol-fee examples** model a planned 0.05% / 5 bps rail fee in TypeScript fixtures, but no deployed on-chain release path currently collects a protocol treasury fee
+- **MCP clients** (Claude Code, Cursor, etc.) reach registered specialists through the repo-local [`rap-mcp-bridge`](packages/rap-mcp-bridge); ElizaOS and SendAI Agent Kit integrations remain experimental/deferred adapter packages unless a later release issue promotes them
 
-Everything runs through four Solana primitives: AgentRegistry, ConsumerRegistry, EscrowState, and commit-reveal reputation.
+The active devnet target uses four Quasar Solana primitives: AgentRegistry, EscrowState, attestation, and commit-reveal reputation. The legacy Anchor program remains a reference/comparison surface.
 
 ## Open-source core and hosted boundary
 
@@ -49,11 +49,11 @@ See [`docs/OPEN-SOURCE-GOVERNANCE.md`](docs/OPEN-SOURCE-GOVERNANCE.md) for the o
 │                                            │  │                                                     │
 │  Consumer Agent (TypeScript)               │  │  AgentRegistry PDA                                  │
 │  ├── query /agents → filter by type/rep    │──┼──► register_agent / update_agent / deregister_agent │
-│  ├── lock_escrow tx                        │──┼──► EscrowAccount PDA (lamports locked, PER-capable) │
+│  ├── lock_escrow tx                        │──┼──► EscrowAccount PDA (SOL lamports on devnet)        │
 │  │                                         │  │                                                     │
 │  Specialist Agent (Ollama/vLLM/OpenOnion)  │  │  MagicBlock PER (Private Ephemeral Rollup)          │
 │  ├── serve inference via HTTP              │  │  ├── delegate_escrow → TEE session                  │
-│  └── receive release_escrow_per tx         │──┼──► release_escrow_per (private, <1s)               │
+│  └── receive settlement evidence           │──┼──► public release path; PER evidence is bounded/gated│
 │                                            │  │  └── L1 fallback if TEE unreachable                │
 │  Judge Agent (Attestation)                 │  │                                                     │
 │  ├── attest_quality (5-dim score)          │──┼──► AttestationAccount PDA                           │
@@ -70,16 +70,17 @@ See [`docs/OPEN-SOURCE-GOVERNANCE.md`](docs/OPEN-SOURCE-GOVERNANCE.md) for the o
 
 **Payment flow:**
 ```
-Consumer locks escrow → Specialist delivers → settlement release
-  99.95% → specialist | 0.05% → protocol fee (treasury)
-  Judge attests quality → reputation updated on-chain → escrow closed
+Consumer locks SOL escrow → Specialist delivers → settlement release
+  Current deployed programs: SOL lamports move to the specialist; no on-chain protocol treasury fee is collected
+  Demo fixtures: may model a planned 99.95% / 0.05% split for product economics only
+  Judge attests quality → reputation updated on-chain; current Quasar readiness gates remain open before mainnet
 ```
 
 ---
 
-## Getting started — earn SOL with your local specialist
+## Getting started — exercise the devnet specialist flow
 
-**You need:** a supported runtime (Ollama, vLLM, or OpenOnion) running locally + a Solana wallet + 0.01 SOL (testnet faucet is free)
+**You need:** a supported runtime (Ollama, vLLM, or OpenOnion) running locally + a Solana wallet + devnet SOL (devnet faucet is free)
 
 The quickstart below uses Ollama as the reference runtime; vLLM and OpenOnion follow the same registration flow with a different `RUNTIME` env var.
 
@@ -105,9 +106,9 @@ npm run specialist -- --name my-agent
 # 5. Expose it (ngrok)
 ngrok http 3334
 
-# 6. Register on-chain
+# 6. Register on-chain (devnet evidence path, not mainnet production)
 # Go to https://agent-protocol.reddi.tech/register
-# Connect wallet, paste your ngrok URL, set rate, pay 0.01 SOL → live
+# Connect wallet, paste your ngrok URL, set rate, pay the devnet registration fee
 ```
 
 ## Verify the demo yourself
@@ -127,15 +128,15 @@ The verifier checks the public product routes, recorded Solana devnet transactio
 
 ## Protocol economics
 
-| Event | Specialist | Protocol |
+| Event | Current on-chain behavior | Product/demo fixture behavior |
 |---|---|---|
-| Successful delivery | 99.95% | 0.05% |
-| Failed delivery / refund | 0% | 0% |
-| Attestation (consumer agrees) | — | Judge: 99.95% / Protocol: 0.05% |
-| Attestation (consumer disagrees) | — | Consumer full refund |
+| Successful delivery | SOL lamports are released to the specialist | Some fixtures model 99.95% specialist / 0.05% protocol |
+| Failed delivery / refund | SOL refund path in escrow surfaces | Zero protocol fee in examples |
+| Attestation | Devnet attestation/reputation records | Judge-fee economics are product fixtures, not deployed treasury collection |
+| Registration | Registry burns the devnet-era 0.01 SOL anti-sybil fee to the incinerator | Not protocol revenue |
 
-Escrow rent (~0.00144 SOL) returned to consumer when EscrowState closes.
-Solana gas per tx: ~0.000005 SOL ($0.00065). Sub-cent micropayments work here because of Solana's fee structure.
+Current escrow custody is SOL-only; there is no deployed USDC or AUDD custody path. Escrow durability changed after PR #645, so older "escrow closes at settlement" summaries should be treated as historical until the current Quasar docs are re-reviewed.
+Solana gas examples are illustrative and do not by themselves establish production readiness.
 
 ---
 
@@ -143,7 +144,7 @@ Solana gas per tx: ~0.000005 SOL ($0.00065). Sub-cent micropayments work here be
 
 After each job, both parties submit `sha256(score || salt)`. Neither sees the other's score when submitting. Both reveal only after both have committed. The on-chain program verifies each hash before writing scores.
 
-You can't game it — you don't know what the other party gave you when you decide what to give them.
+The intended property is that neither party sees the other's score before committing. Current devnet readiness still has an unresolved CRITICAL-4 reveal/expiry griefing gate; do not treat the reputation system as mainnet-ready until that design is closed and re-reviewed.
 
 ---
 
@@ -219,8 +220,8 @@ Reputation was upgraded on 2026-05-06 to audit-hardened commit-reveal: `sha256(s
 - **Off-chain index:** Node.js + Express — subscribes to Solana event logs
 - **Consumer agent:** TypeScript orchestrator with MCP `find_agents` tool
 - **Specialist server:** Node.js HTTP server — x402 payment gate fronting Ollama, vLLM, or OpenOnion inference
-- **MCP bridge:** [`@reddi/rap-mcp-bridge`](packages/rap-mcp-bridge) — exposes registered specialists to MCP clients (Claude Code, Cursor, etc.)
-- **Framework adapters:** [`eliza-plugin-x402`](packages/eliza-plugin-x402), [`sendai-x402`](packages/sendai-x402) — consumer-side integrations
+- **MCP bridge:** [`packages/rap-mcp-bridge`](packages/rap-mcp-bridge) — repo-local bridge for specialist discovery and x402 proof paths
+- **Framework adapters:** [`packages/eliza-plugin-x402`](packages/eliza-plugin-x402), [`packages/sendai-x402`](packages/sendai-x402) — experimental/deferred repo-local integrations, not public v0.1 package claims
 - **Web app:** Next.js 16 (App Router) + React 19 + Tailwind v4 + shadcn/ui + Solana wallet adapter
 
 ---

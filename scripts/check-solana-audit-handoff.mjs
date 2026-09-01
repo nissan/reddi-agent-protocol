@@ -63,6 +63,9 @@ const requiredBoundaryPhrases = [
   "Contracts are audited.",
   "Settlement finality is proven.",
   "Final handoff source commit: the merge commit for PR #534",
+  "Current active escrow target for reputation/attestation job binding: `experiments/quasar-escrow`",
+  "Current MagicBlock PER proof lane outside that boundary: `experiments/quasar-escrow-per`",
+  "Do not send it to an external auditor as-is",
 ];
 
 const inputEvidencePaths = [
@@ -124,6 +127,10 @@ if (missingInputEvidence.length) {
 const staleHandoffSha = source.match(/Handoff source commit: `([0-9a-f]{40})`/);
 if (staleHandoffSha) {
   fail("handoff source commit must not be a pre-merge stale SHA", [staleHandoffSha[1]]);
+}
+
+if (/Current active escrow target for grant handoff: `experiments\/quasar-escrow-per`/.test(source)) {
+  fail("handoff must not present quasar-escrow-per as the current active escrow target");
 }
 
 console.log(`[solana-audit-handoff] OK: ${requiredHeadings.length} headings, ${requiredReferences.length} references, ${requiredArtifactTerms.length} artifact terms, ${requiredBoundaryPhrases.length} boundary phrases, and input evidence commit ${inputCommit} verified`);

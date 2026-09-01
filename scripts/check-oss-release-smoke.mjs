@@ -121,6 +121,11 @@ const overclaimPatterns = [
 ];
 
 const claimScanFiles = [
+  "README.md",
+  "SECURITY.md",
+  "DEPLOY.md",
+  "docs/NETWORK-PROFILES.md",
+  "packages/agent-protocol/README.md",
   "packages/x402-solana/README.md",
   "packages/x402-solana/src/index.ts",
   "packages/x402-solana/dist/index.js",
@@ -257,7 +262,21 @@ function checkClaimBoundaries() {
     }
   }
 
+  checkExcludedPackageManifests();
   passed.push("claim boundary scan");
+}
+
+function checkExcludedPackageManifests() {
+  for (const dir of ["packages/sendai-x402", "packages/eliza-plugin-x402"]) {
+    const manifest = JSON.parse(readFileSync(join(ROOT, dir, "package.json"), "utf8"));
+    if (!excludedPackages.has(manifest.name)) continue;
+    if (manifest.private !== true) {
+      failures.push(`${dir}/package.json must set private: true while the adapter is deferred from the public v0.1 package set`);
+    }
+    if (!/experimental|deferred|not part of the public v0\.1 package set/i.test(manifest.description ?? "")) {
+      failures.push(`${dir}/package.json description must disclose deferred/experimental status`);
+    }
+  }
 }
 
 function checkOverclaimBoundaries(file, text) {
