@@ -218,6 +218,29 @@ describe("onboarding Quasar reputation/attestation refuses without a lock-create
     expect(getConnection).toHaveBeenCalledTimes(1);
   });
 
+  it("the Quasar refusal leaves no side effect: no commit is stored and no signer is loaded", async () => {
+    const operatorSecret = await operatorSecretKey();
+    await useQuasarTarget(operatorSecret);
+    const { commitReputationRating, revealReputationRating } = await import("@/lib/onboarding/reputation-signal");
+    const { QUASAR_ESCROW_UNAVAILABLE_REASON } = await import("@/lib/onboarding/quasar-escrow-binding");
+    const fsMock = jest.requireMock("fs") as { writeFileSync: jest.Mock; mkdirSync: jest.Mock };
+
+    const commit = await commitReputationRating("run-side-effects", 7, SPECIALIST);
+    const reveal = await revealReputationRating("run-side-effects");
+
+    for (const outcome of [commit, reveal]) {
+      expect(outcome.ok).toBe(false);
+      expect(outcome.ok === false && outcome.error).toBe(QUASAR_ESCROW_UNAVAILABLE_REASON);
+      // The refusal is the whole trace: nothing after it ran, so no operator key, escrow, rating PDA,
+      // or instruction was ever derived.
+      expect(outcome.trace).toEqual([`reputation:quasar_escrow_rejected=${QUASAR_ESCROW_UNAVAILABLE_REASON}`]);
+    }
+
+    expect(fsMock.writeFileSync).not.toHaveBeenCalled();
+    expect(fsMock.mkdirSync).not.toHaveBeenCalled();
+    expect(rpcConstructions).toEqual([]);
+  });
+
   it("the refusal is scoped to the Quasar target: legacy-anchor still reaches its RPC step", async () => {
     process.env.NETWORK_PROFILE = "devnet";
     process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "legacy-anchor";

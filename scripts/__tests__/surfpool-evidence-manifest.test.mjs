@@ -649,6 +649,33 @@ test("a fingerprint root entry that is neither an ordinary file nor a directory 
   });
 });
 
+test("an intermediate component of a multi-segment root escaping the repository is refused", async () => {
+  // `experiments/quasar-escrow/src` is a fingerprint root, but the walk only lstats the joined path,
+  // which follows every component before the last. The parent being a link out of the repository is
+  // therefore invisible to the walk and is what the resolved-path check exists to catch.
+  await withRepo(async (repoRoot) => {
+    await seedFingerprintSources(repoRoot, "quasar");
+    assert.doesNotThrow(() => computeLaneSourceFingerprint(repoRoot, "quasar"));
+
+    const outside = await fsp.mkdtemp(path.join(os.tmpdir(), "rap-outside-root-"));
+    try {
+      await fsp.mkdir(path.join(outside, "src"), { recursive: true });
+      await fsp.writeFile(path.join(outside, "src", "lib.rs"), "pub fn smuggled() {}\n");
+
+      const parent = path.join(repoRoot, "experiments/quasar-escrow");
+      await fsp.rm(parent, { recursive: true, force: true });
+      await fsp.symlink(outside, parent, "dir");
+
+      assert.throws(
+        () => computeLaneSourceFingerprint(repoRoot, "quasar"),
+        /must stay inside the repository/,
+      );
+    } finally {
+      await fsp.rm(outside, { recursive: true, force: true });
+    }
+  });
+});
+
 test("a repository reached through a symlinked root still fingerprints, and to the same digest", async () => {
   // The per-file containment re-check resolves real paths, so it must compare against the resolved
   // repository root: a checkout reached through a symlinked parent (or a /tmp that is itself a link)

@@ -8,7 +8,6 @@ import {
   Transaction,
 } from "@solana/web3.js";
 import {
-  ATTESTATION_PROGRAM_ID,
   DEVNET_RPC,
   ESCROW_PROGRAM_ID,
   PROGRAM_TARGET,
@@ -16,8 +15,7 @@ import {
   SUBMISSION_BLOCKED_REASON,
 } from "@/lib/program";
 import { buildOnboardingAttestQualityInstruction, onboardingAttestationPda } from "@/lib/onboarding/attestation-instruction";
-import { quasarAttestationPda } from "@/lib/quasar/instructions";
-import { QUASAR_ESCROW_UNAVAILABLE_REASON, resolveOnboardingQuasarEscrow } from "@/lib/onboarding/quasar-escrow-binding";
+import { QUASAR_ESCROW_UNAVAILABLE_REASON } from "@/lib/onboarding/quasar-escrow-binding";
 
 export type SubmitOnchainAttestationInput = {
   walletAddress: string;
@@ -30,7 +28,6 @@ export type SubmitOnchainAttestationInput = {
 export type SubmitOnchainAttestationResult = {
   signature: string;
   attestationPda: string;
-  escrowAddress?: string;
   jobIdHex: string;
   operator: string;
   consumer: string;
@@ -87,8 +84,7 @@ export function getOnchainAttestationOperatorStatus(
 export async function submitOnchainOnboardingAttestation(
   input: SubmitOnchainAttestationInput
 ): Promise<SubmitOnchainAttestationResult> {
-  const isQuasar = PROGRAM_TARGET === "quasar";
-  if (isQuasar) {
+  if (PROGRAM_TARGET === "quasar") {
     // No onboarding surface records a Quasar lock result yet; refuse before reading/parsing any
     // operator signer material, constructing an instruction, or opening RPC.
     throw new Error(QUASAR_ESCROW_UNAVAILABLE_REASON);
@@ -109,30 +105,12 @@ export async function submitOnchainOnboardingAttestation(
   const scores: [number, number, number, number, number] = input.scores || [8, 8, 8, 8, 8];
   const jobId = randomBytes(16);
 
-  // Quasar splits escrow/registry/reputation/attestation into four programs: the attestation record
-  // is owned by the attestation program and binds to the escrow a lock created. Onboarding never
-  // locks one, so this refuses before any instruction, signer, or RPC use until canonical verified
-  // lock output is supplied.
-  const escrow = isQuasar
-    ? resolveOnboardingQuasarEscrow({
-        lockRecord: undefined,
-        expected: {
-          consumer: consumerWallet,
-          specialist: specialistWallet,
-          escrowProgramId: ESCROW_PROGRAM_ID,
-        },
-      })
-    : undefined;
-  const attestProgramId = isQuasar ? ATTESTATION_PROGRAM_ID : ESCROW_PROGRAM_ID;
-  const attestPda = isQuasar
-    ? quasarAttestationPda(escrow!, ATTESTATION_PROGRAM_ID)
-    : onboardingAttestationPda(jobId, ESCROW_PROGRAM_ID);
+  const attestPda = onboardingAttestationPda(jobId, ESCROW_PROGRAM_ID);
 
   const ix = buildOnboardingAttestQualityInstruction({
     target: PROGRAM_TARGET,
-    programId: attestProgramId,
+    programId: ESCROW_PROGRAM_ID,
     jobId,
-    escrow,
     scores,
     consumer: consumerWallet,
     judge: operator.publicKey,
@@ -153,7 +131,6 @@ export async function submitOnchainOnboardingAttestation(
   return {
     signature,
     attestationPda: attestPda.toBase58(),
-    escrowAddress: escrow?.toBase58(),
     jobIdHex: Buffer.from(jobId).toString("hex"),
     operator: operator.publicKey.toBase58(),
     consumer: consumerWallet.toBase58(),

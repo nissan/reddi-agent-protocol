@@ -76,7 +76,6 @@ type WizardState = {
   attestationNote: string;
   attestationJobIdHex: string;
   attestationPda: string;
-  attestationEscrow: string;
   attestationOperator: string;
   attestationConsumer: string;
   attestationResolution: "pending" | "confirmed" | "disputed";
@@ -151,7 +150,6 @@ const INITIAL_STATE: WizardState = {
   attestationNote: "",
   attestationJobIdHex: "",
   attestationPda: "",
-  attestationEscrow: "",
   attestationOperator: "",
   attestationConsumer: "",
   attestationResolution: "pending",
@@ -1547,7 +1545,6 @@ export default function OnboardingPage() {
                       attested: false,
                       attestationJobIdHex: "",
                       attestationPda: "",
-                      attestationEscrow: "",
                       attestationOperator: "",
                       attestationConsumer: "",
                       attestationResolution: "pending",
@@ -1561,7 +1558,6 @@ export default function OnboardingPage() {
                       attested: false,
                       attestationJobIdHex: "",
                       attestationPda: "",
-                      attestationEscrow: "",
                       attestationOperator: "",
                       attestationConsumer: "",
                       attestationResolution: "pending",
@@ -1726,7 +1722,6 @@ export default function OnboardingPage() {
                     attested: true,
                     attestationJobIdHex: data.result?.onchain?.jobIdHex || "",
                     attestationPda: data.result?.onchain?.attestationPda || "",
-                    attestationEscrow: data.result?.onchain?.escrowAddress || "",
                     attestationOperator: data.result?.onchain?.operator || "",
                     attestationConsumer: data.result?.onchain?.consumer || "",
                     attestationResolution: "pending",
@@ -1778,7 +1773,6 @@ export default function OnboardingPage() {
                       consumer: publicKey,
                       operator: state.attestationOperator,
                       jobIdHex: state.attestationJobIdHex,
-                      escrow: state.attestationEscrow,
                       attestationPda: state.attestationPda || undefined,
                     },
                     {
@@ -1828,7 +1822,6 @@ export default function OnboardingPage() {
                       consumer: publicKey,
                       operator: state.attestationOperator,
                       jobIdHex: state.attestationJobIdHex,
-                      escrow: state.attestationEscrow,
                       attestationPda: state.attestationPda || undefined,
                     },
                     {

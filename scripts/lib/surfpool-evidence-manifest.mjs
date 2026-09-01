@@ -126,14 +126,61 @@ const LANE_FINGERPRINT_PATHS = Object.freeze({
   ]),
 });
 
-function fileContentDigest(repoRoot, relativePath) {
-  return `sha256:${crypto.createHash("sha256").update(fs.readFileSync(path.join(repoRoot, relativePath))).digest("hex")}`;
+/**
+ * Reads a file the receipt will be bound to, refusing to follow a symlink in the final path
+ * component and hashing the bytes of the descriptor that check opened. `identity`, when supplied,
+ * is the device/inode the walk validated: a mismatch means the path was re-pointed at a different
+ * file between the walk and the read, and the read is refused rather than silently hashed.
+ *
+ * A platform without `O_NOFOLLOW` cannot provide that proof, so it is refused rather than
+ * downgraded to a following read.
+ */
+function readFingerprintedFile(absolutePath, label, identity) {
+  const { O_RDONLY, O_NOFOLLOW } = fs.constants;
+  if (typeof O_NOFOLLOW !== "number") {
+    throw new EvidenceManifestError(
+      `this platform cannot open ${label} without following symbolic links, so evidence cannot be bound to it`,
+    );
+  }
+
+  let fd;
+  try {
+    fd = fs.openSync(absolutePath, O_RDONLY | O_NOFOLLOW);
+  } catch (error) {
+    if (error?.code === "ELOOP" || error?.code === "EMLINK") {
+      throw new EvidenceManifestError(`${label} must not be a symbolic link: ${label}`);
+    }
+    throw new EvidenceManifestError(`${label} could not be opened: ${error?.message ?? error}`);
+  }
+
+  try {
+    const opened = fs.fstatSync(fd);
+    if (!opened.isFile()) {
+      throw new EvidenceManifestError(`${label} must be an ordinary file`);
+    }
+    if (identity && (opened.dev !== identity.dev || opened.ino !== identity.ino)) {
+      throw new EvidenceManifestError(`${label} was replaced while evidence was being computed`);
+    }
+    const contents = fs.readFileSync(fd);
+    const afterRead = fs.fstatSync(fd);
+    if (afterRead.dev !== opened.dev || afterRead.ino !== opened.ino || afterRead.size !== opened.size) {
+      throw new EvidenceManifestError(`${label} changed while it was being read`);
+    }
+    return contents;
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
-function digestFile(hash, repoRoot, relativePath) {
-  hash.update(relativePath.split(path.sep).join("/"));
+function fileContentDigest(repoRoot, relativePath) {
+  const contents = readFingerprintedFile(path.join(repoRoot, relativePath), relativePath);
+  return `sha256:${crypto.createHash("sha256").update(contents).digest("hex")}`;
+}
+
+function digestFile(hash, repoRoot, entry) {
+  hash.update(entry.relativePath.split(path.sep).join("/"));
   hash.update("\0");
-  hash.update(fs.readFileSync(path.join(repoRoot, relativePath)));
+  hash.update(readFingerprintedFile(path.join(repoRoot, entry.relativePath), entry.relativePath, entry));
   hash.update("\0");
 }
 
@@ -164,7 +211,7 @@ function walkFiles(repoRoot, relativePath, out) {
   }
   if (stat.isFile()) {
     assertContainedRealPath(repoRoot, relativePath);
-    out.push(relativePath);
+    out.push({ relativePath, dev: stat.dev, ino: stat.ino });
     return;
   }
   if (!stat.isDirectory()) {
@@ -179,9 +226,13 @@ function walkFiles(repoRoot, relativePath, out) {
 }
 
 /**
- * Re-checks after the walk that the file still resolves inside the repository, so a component
- * swapped for a symlink between `lstatSync` and `digestFile` cannot pull outside content into a
- * receipt's fingerprint.
+ * Rejects a file whose fully resolved path lands outside the repository.
+ *
+ * `walkFiles` only `lstat`s the joined path, which follows every component before the last, so an
+ * *intermediate* component of a multi-segment root (`experiments/quasar-escrow` in the root
+ * `experiments/quasar-escrow/src`) can be a symlink out of the repository without the walk seeing
+ * it. `realpathSync` is what catches that. It is not a race guarantee — the bytes are bound to the
+ * opened descriptor in `readFingerprintedFile`, not to this path check.
  */
 function assertContainedRealPath(repoRoot, relativePath) {
   const realRepoRoot = fs.realpathSync(repoRoot);
@@ -225,7 +276,7 @@ export function computeLaneSourceFingerprint(repoRoot, target) {
   const roots = fingerprintRootsForTarget(repoRoot, target);
   const files = [];
   for (const root of roots) walkFiles(repoRoot, root, files);
-  files.sort();
+  files.sort((left, right) => (left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0));
   const hash = crypto.createHash("sha256");
   hash.update(`target:${target}\0`);
   for (const file of files) digestFile(hash, repoRoot, file);

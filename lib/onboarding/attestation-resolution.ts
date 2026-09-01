@@ -6,24 +6,18 @@ import {
   attestationPda,
   buildConfirmAttestationData,
   buildDisputeAttestationData,
-  ATTESTATION_PROGRAM_ID,
   ESCROW_PROGRAM_ID,
   PROGRAM_TARGET,
 } from "@/lib/program";
-import {
-  buildQuasarConfirmAttestationInstruction,
-  buildQuasarDisputeAttestationInstruction,
-  quasarAgentPda,
-  quasarAttestationPda,
-} from "@/lib/quasar/instructions";
 
 /**
  * Consumer follow-through on an operator attestation: confirm or dispute.
  *
  * The two actions differ only in their instruction data, so they share one path here rather than in
  * two copies of a click handler where the Quasar refusal cannot be exercised. The refusal is the
- * first thing this function does, so it holds before any connection is opened, any base58 string is
- * parsed into a `PublicKey`, any instruction is built, and any signer is used.
+ * first thing `submitAttestationResolution` does, so it holds before any connection is opened, any
+ * base58 string is parsed into a `PublicKey`, any instruction is built, and any signer is used —
+ * which is why only the legacy Anchor layout is ever built below.
  */
 export type AttestationResolutionAction = "confirm" | "dispute";
 
@@ -35,8 +29,6 @@ export type AttestationResolutionRequest = {
   operator: string;
   /** 16-byte job id, hex encoded. */
   jobIdHex: string;
-  /** Quasar escrow the attestation binds to, as base58; empty when there is none. */
-  escrow: string;
   /** Attestation PDA recorded by the attest step, as base58; derived when absent. */
   attestationPda?: string;
 };
@@ -74,26 +66,6 @@ function buildResolutionInstruction(
   jobId: Uint8Array,
   operator: PublicKey,
 ): TransactionInstruction {
-  if (PROGRAM_TARGET === "quasar") {
-    const refusal = describeAttestationResolutionRefusal();
-    if (refusal) throw new Error(refusal);
-    const escrow = new PublicKey(request.escrow);
-    const build =
-      request.action === "confirm"
-        ? buildQuasarConfirmAttestationInstruction
-        : buildQuasarDisputeAttestationInstruction;
-    return build({
-      programId: ATTESTATION_PROGRAM_ID,
-      escrow,
-      consumer: request.consumer,
-      judge: operator,
-      attestationPda: request.attestationPda
-        ? new PublicKey(request.attestationPda)
-        : quasarAttestationPda(escrow, ATTESTATION_PROGRAM_ID),
-      judgeAgentPda: quasarAgentPda(operator, ATTESTATION_PROGRAM_ID),
-    });
-  }
-
   return new TransactionInstruction({
     programId: ESCROW_PROGRAM_ID,
     keys: [
