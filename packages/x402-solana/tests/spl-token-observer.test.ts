@@ -31,7 +31,7 @@ const expected = {
   paymentIntentId: 'reddi.payment-intent:fixture-audd-intent',
 };
 
-function transferIx(overrides: Record<string, unknown> = {}): any {
+function transferIx(overrides: Record<string, unknown> = {}) {
   return {
     programId: SPL_TOKEN_PROGRAM_ID,
     program: 'spl-token',

@@ -224,7 +224,7 @@ export class SolanaReceiptVerifier implements ReceiptVerifier {
 
   /** Returns a failure result when the parsed transaction does not settle the challenge, otherwise undefined. */
   private async challengePaymentFailure(
-    parsed: any,
+    parsed: Awaited<ReturnType<ParsedTransactionConnection['getParsedTransaction']>>,
     receipt: X402PaymentReceipt,
     challenge: X402Challenge,
     signature: string,
