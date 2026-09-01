@@ -383,7 +383,7 @@ function intentRecordFor(kind, binding, preview, compatibility) {
             },
             escrowBinding: escrowBindingFor('rating'),
             deferredToInstructionBuilder: {
-                instructionData: ['salt_generation', 'commitment_hash', 'role_u8_encoding'],
+                instructionData: ['commitment_hash', 'role_u8_encoding'],
                 accountInputs: QUASAR_REPUTATION_INTENT_COMPATIBILITY.onchainAccountNames.commit,
             },
         };

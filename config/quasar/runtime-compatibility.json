@@ -66,6 +66,18 @@
       "reason": "Commit/reveal reputation construction now selects Quasar wrappers/data in explicit Quasar mode while preserving Anchor IX builders only for legacy mode."
     },
     {
+      "path": "lib/onboarding/quasar-escrow-binding.ts",
+      "surface": "onboarding Quasar escrow job binding and refusal reason",
+      "status": "quasar-compatible",
+      "reason": "Owns the lock-created escrow PDA derivation, the verified-lock-record validation, and the canonical refusal returned when no verified lock record exists; onboarding never locks a Quasar escrow, so every Quasar reputation/attestation path refuses here before instruction, signer, or RPC use."
+    },
+    {
+      "path": "lib/onboarding/attestation-resolution.ts",
+      "surface": "onboarding consumer confirm/dispute attestation resolution builder",
+      "status": "quasar-compatible",
+      "reason": "Single owner of the consumer confirm/dispute path shared by the onboarding page: refuses in explicit Quasar mode before any connection, base58 parse, instruction build, or signer use, and selects Quasar attestation wrappers only outside that refusal while preserving Anchor builders for legacy mode."
+    },
+    {
       "path": "lib/registry/bridge.ts",
       "surface": "on-chain AgentAccount decoder/filter",
       "status": "quasar-compatible",

@@ -50,11 +50,13 @@ the on-chain identity — the address of an escrow that `quasar-escrow::lock` ac
 escrow exists.
 
 Everything a real instruction would additionally need is **named, not fabricated**, in each record's
-`deferredToInstructionBuilder`, split by where it lands in a transaction: `instructionData` (salt
-generation, the commitment hash, and the `u8` encodings of `role`/`score`; empty for the
-argument-less `confirm`/`dispute`) and `accountInputs` (the exact current accounts and signers,
-mirroring `onchainAccountNames`). Rich RAP/ARD metadata (evidence, attestation, preview,
-payment proof, listing metadata) never appears inline: intent records point at it by id in
+`deferredToInstructionBuilder`, split by where it lands in a transaction: `instructionData` (exactly
+the current source ABI arguments — the commitment hash and the `u8` `role` encoding for `commit`, the
+`u8` `score` encoding and the salt for `reveal`, empty for the argument-less `confirm`/`dispute`; the
+salt a `commit` commitment is derived from is a preimage field, not an instruction argument) and
+`accountInputs` (the exact current accounts and signers, mirroring `onchainAccountNames`). Rich
+RAP/ARD metadata (evidence, attestation, preview, payment proof, listing metadata) never appears
+inline: intent records point at it by id in
 `offchainRefs`, per the on-chain/off-chain split in `reddi.quasar-registry-compatibility.v1` and
 `docs/DISCOVER-DECIDE-PROVE-BOUNDARIES.md` §3.3.
 

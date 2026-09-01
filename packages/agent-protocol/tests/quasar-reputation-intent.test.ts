@@ -255,7 +255,7 @@ describe('deriveQuasarReputationIntentPlan — happy paths', () => {
     });
     assert.deepEqual(
       [...commitIntent.deferredToInstructionBuilder.instructionData],
-      ['salt_generation', 'commitment_hash', 'role_u8_encoding'],
+      ['commitment_hash', 'role_u8_encoding'],
     );
     assert.deepEqual(
       [...commitIntent.deferredToInstructionBuilder.accountInputs],

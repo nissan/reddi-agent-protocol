@@ -4,6 +4,7 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   ACCEPTED_EVIDENCE_FILENAME,
@@ -16,6 +17,26 @@ import {
 } from "../lib/surfpool-evidence-manifest.mjs";
 
 import { createTruncatingEvidenceBuffer, scheduleProcessGroupTermination } from "../lib/surfpool-sdk-lifecycle.mjs";
+
+const realRepoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+
+// The synthetic repo mirrors the repository's own compatibility inventory, so a demo-critical path
+// the inventory forgets to declare is not silently fingerprinted by this suite either.
+const REAL_DEMO_CRITICAL_PATHS = Object.freeze(
+  JSON.parse(fs.readFileSync(path.join(realRepoRoot, "config/quasar/runtime-compatibility.json"), "utf8"))
+    .demoCriticalPaths.map((entry) => entry.path),
+);
+
+// The modules that own the onboarding Quasar refusal: without a verified lock-created escrow, every
+// reputation/attestation/confirm/dispute path must refuse here. Editing any of them must invalidate
+// accepted Quasar evidence, otherwise a receipt keeps vouching for a refusal that no longer exists.
+const QUASAR_REFUSAL_OWNING_MODULES = Object.freeze([
+  "lib/onboarding/quasar-escrow-binding.ts",
+  "lib/onboarding/attestation-resolution.ts",
+  "lib/onboarding/reputation-signal.ts",
+  "lib/onboarding/onchain-attestation.ts",
+  "app/onboarding/page.tsx",
+]);
 
 async function withRepo(run) {
   const repoRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "rap-evidence-manifest-"));
@@ -97,22 +118,7 @@ const FINGERPRINTED_BUILD_INPUTS = Object.freeze({
     "config/quasar/deployments.json": "{}\n",
     "config/quasar/deployments.schema.json": "{}\n",
     "config/quasar/runtime-compatibility.json": JSON.stringify({
-      demoCriticalPaths: [
-        { path: "lib/quasar/instruction-builders.ts" },
-        { path: "lib/quasar/instructions.ts" },
-        { path: "lib/register/registration-instruction.ts" },
-        { path: "packages/demo-agents/src/registration-instruction.ts" },
-        { path: "lib/onboarding/attestation-instruction.ts" },
-        { path: "lib/program.ts" },
-        { path: "app/register/page.tsx" },
-        { path: "app/onboarding/page.tsx" },
-        { path: "lib/onboarding/onchain-attestation.ts" },
-        { path: "lib/onboarding/reputation-signal.ts" },
-        { path: "lib/registry/bridge.ts" },
-        { path: "lib/useOnchainAgents.ts" },
-        { path: "packages/demo-agents/src/register-agents.ts" },
-        { path: "packages/demo-agents/src/demo.ts" },
-      ],
+      demoCriticalPaths: REAL_DEMO_CRITICAL_PATHS.map((path) => ({ path })),
     }, null, 2),
     "config/quasar/runtime-compatibility.schema.json": "{}\n",
     "config/networks/devnet.json": "{}\n",
@@ -179,6 +185,11 @@ async function writeRepoFile(repoRoot, relativePath, body) {
 async function seedFingerprintSources(repoRoot, target = "quasar") {
   for (const [relativePath, body] of Object.entries(FINGERPRINTED_BUILD_INPUTS[target])) {
     await writeRepoFile(repoRoot, relativePath, body);
+  }
+  if (target !== "quasar") return;
+  for (const relativePath of REAL_DEMO_CRITICAL_PATHS) {
+    if (relativePath in FINGERPRINTED_BUILD_INPUTS.quasar) continue;
+    await writeRepoFile(repoRoot, relativePath, `export const declared = ${JSON.stringify(relativePath)};\n`);
   }
 }
 
@@ -546,6 +557,32 @@ test("a source change after publication invalidates the receipt", async () => {
       /produced from different sources than the working tree/,
     );
   });
+});
+
+test("every module owning the onboarding Quasar refusal is bound to the evidence it is cited as proof of", async () => {
+  for (const relativePath of QUASAR_REFUSAL_OWNING_MODULES) {
+    assert.ok(
+      REAL_DEMO_CRITICAL_PATHS.includes(relativePath),
+      `${relativePath} owns the Quasar refusal but is not declared demo-critical, so no receipt binds it`,
+    );
+
+    await withRepo(async (repoRoot) => {
+      const dir = "artifacts/surfpool-quasar-smoke";
+      const record = await seedRun(repoRoot, dir, "sdk-quasar-refusal-binding");
+      await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+
+      assert.doesNotThrow(() =>
+        readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary", "log"] }));
+
+      await writeRepoFile(repoRoot, relativePath, "export const refusalRemoved = true;\n");
+
+      assert.throws(
+        () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary", "log"] }),
+        /produced from different sources than the working tree/,
+        `weakening ${relativePath} must invalidate accepted Quasar evidence`,
+      );
+    });
+  }
 });
 
 test("an artifact content change after publication invalidates the receipt", async () => {

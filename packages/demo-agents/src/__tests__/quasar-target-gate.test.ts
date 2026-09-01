@@ -212,6 +212,29 @@ describe("program ID resolution has no Quasar devnet defaults", () => {
     await expect(import("../config")).rejects.toThrow(/missing DEMO_REGISTRY_PROGRAM_ID/);
   });
 
+  it("refuses to run against mainnet at module load, before any RPC client or wallet exists", async () => {
+    process.env.NETWORK_PROFILE = "mainnet";
+
+    await expect(import("../config")).rejects.toThrow(
+      /devnet\/local evidence runner only; mainnet execution requires a separate audited deployment/,
+    );
+  });
+
+  it("refuses the mainnet-beta alias too", async () => {
+    process.env.NETWORK_PROFILE = "mainnet-beta";
+
+    await expect(import("../config")).rejects.toThrow(/devnet\/local evidence runner only/);
+  });
+
+  it("refuses mainnet even when a complete valid Quasar program set is supplied", async () => {
+    process.env.NETWORK_PROFILE = "mainnet";
+    process.env.DEMO_PROGRAM_TARGET = "quasar";
+    process.env.DEMO_DEVNET_RPC = LOCAL_RPC;
+    Object.assign(process.env, IDS);
+
+    await expect(import("../config")).rejects.toThrow(/devnet\/local evidence runner only/);
+  });
+
   it("refuses a malformed supplied id on the default legacy-anchor lane, before any PublicKey is built", async () => {
     process.env.NETWORK_PROFILE = "devnet";
     process.env.DEMO_ESCROW_PROGRAM_ID = "not-a-key";
