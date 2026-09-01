@@ -20,6 +20,12 @@ function lookupFrom(env: Record<string, string>) {
 
 const completeLocalEnv = { ...IDS, DEMO_DEVNET_RPC: LOCAL_RPC };
 
+function withoutKey(env: Record<string, string>, key: string): Record<string, string> {
+  const partial = { ...env };
+  delete partial[key];
+  return partial;
+}
+
 describe("Quasar target gate", () => {
   it("accepts a complete four-ID loopback local-surfpool configuration", () => {
     expect(describeQuasarTargetRefusal("local-surfpool", lookupFrom(completeLocalEnv))).toBeUndefined();
@@ -37,7 +43,7 @@ describe("Quasar target gate", () => {
   });
 
   it("names the forgotten program ID instead of downgrading to legacy-anchor", () => {
-    const { DEMO_ATTESTATION_PROGRAM_ID: _omitted, ...partial } = completeLocalEnv;
+    const partial = withoutKey(completeLocalEnv, "DEMO_ATTESTATION_PROGRAM_ID");
     const refusal = describeQuasarTargetRefusal("local-surfpool", lookupFrom(partial));
     expect(refusal).toContain("missing DEMO_ATTESTATION_PROGRAM_ID");
     expect(refusal).toContain("NEXT_PUBLIC_ATTESTATION_PROGRAM_ID");

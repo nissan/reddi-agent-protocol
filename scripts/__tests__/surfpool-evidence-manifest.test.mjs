@@ -164,6 +164,12 @@ const FINGERPRINTED_BUILD_INPUTS = Object.freeze({
   }),
 });
 
+function withoutKey(record, key) {
+  const copy = { ...record };
+  delete copy[key];
+  return copy;
+}
+
 async function writeRepoFile(repoRoot, relativePath, body) {
   const absolute = path.join(repoRoot, relativePath);
   await fsp.mkdir(path.dirname(absolute), { recursive: true });
@@ -768,7 +774,7 @@ test("publishing without repoRoot is refused so containment checks can never be 
   await withRepo(async (repoRoot) => {
     const dir = "artifacts/surfpool-quasar-smoke";
     const record = await seedRun(repoRoot, dir, "sdk-quasar-norepo");
-    const { repoRoot: _omitted, ...withoutRepoRoot } = record;
+    const withoutRepoRoot = withoutKey(record, "repoRoot");
 
     await assert.rejects(
       writeAcceptedEvidenceManifest(path.join(repoRoot, dir), withoutRepoRoot),

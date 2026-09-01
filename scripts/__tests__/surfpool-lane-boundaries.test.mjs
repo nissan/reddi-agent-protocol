@@ -29,6 +29,12 @@ function configuredQuasarProgramIds() {
   return inventory.quasarDeployments.devnet.programIds;
 }
 
+function withoutKey(record, key) {
+  const copy = { ...record };
+  delete copy[key];
+  return copy;
+}
+
 function loadWorkflow(name) {
   return yaml.load(fs.readFileSync(path.join(repoRoot, ".github/workflows", name), "utf8"));
 }
@@ -56,7 +62,7 @@ test("the lane precondition refuses a configured program ID that drifts from its
 });
 
 test("the lane precondition refuses a missing Quasar program ID", () => {
-  const { escrow: _dropped, ...incomplete } = configuredQuasarProgramIds();
+  const incomplete = withoutKey(configuredQuasarProgramIds(), "escrow");
   assert.throws(() => assertQuasarProgramIdsMatchSources(repoRoot, incomplete), /missing Quasar escrow program ID/);
 });
 
