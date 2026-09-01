@@ -18,8 +18,15 @@ Profile definitions live in:
 Runtime values are resolved from profile defaults, then optional env overrides:
 
 - RPC: `NEXT_PUBLIC_RPC_ENDPOINT` (or `DEMO_DEVNET_RPC` in demo scripts)
-- Program ID: `NEXT_PUBLIC_ESCROW_PROGRAM_ID` (or `DEMO_ESCROW_PROGRAM_ID`)
+- Program IDs, one variable per program: `NEXT_PUBLIC_ESCROW_PROGRAM_ID`,
+  `NEXT_PUBLIC_REGISTRY_PROGRAM_ID`, `NEXT_PUBLIC_REPUTATION_PROGRAM_ID`,
+  `NEXT_PUBLIC_ATTESTATION_PROGRAM_ID` (or the matching `DEMO_*_PROGRAM_ID` in demo
+  scripts). Each is validated and guarded — see [Mainnet](#mainnet-currently-blocked)
+  below; an unset one falls back to the registered id for the resolved target.
 - PER RPC: `NEXT_PUBLIC_PER_RPC` (or `DEMO_PER_RPC`)
+
+The profile *name* itself resolves from a different, three-key order — see
+[Mainnet note](#mainnet-note).
 
 Resolver module:
 - `lib/config/network.ts`
