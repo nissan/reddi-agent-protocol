@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { Connection, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { Button } from "@/components/ui/button";
+import { QUASAR_ESCROW_UNAVAILABLE_REASON } from "@/lib/onboarding/quasar-escrow-binding";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SellerWrapperConfigPreview } from "@/components/onboarding/SellerWrapperConfigPreview";
@@ -281,6 +282,14 @@ export default function OnboardingPage() {
   const [healthcheckLoading, setHealthcheckLoading] = useState(false);
   const [attestationLoading, setAttestationLoading] = useState(false);
   const [attestationOperatorCheckLoading, setAttestationOperatorCheckLoading] = useState(false);
+
+  // Quasar reputation/attestation bind to the escrow a successful lock created. Onboarding never
+  // locks one, so the resolution actions stay disabled with the canonical reason rather than
+  // building an instruction against an escrow that does not exist.
+  const quasarResolutionBlockedReason =
+    PROGRAM_TARGET === "quasar" && !state.attestationEscrow
+      ? QUASAR_ESCROW_UNAVAILABLE_REASON
+      : undefined;
   const [capabilityLoading, setCapabilityLoading] = useState(false);
   const prevStepRef = useRef(step);
 
@@ -1757,6 +1766,11 @@ export default function OnboardingPage() {
             >
               {attestationLoading ? "Recording attestation..." : "Record operator attestation"}
             </Button>
+            {quasarResolutionBlockedReason ? (
+              <p className="text-xs text-muted-foreground" data-testid="quasar-resolution-blocked">
+                {quasarResolutionBlockedReason}
+              </p>
+            ) : null}
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"
@@ -1767,7 +1781,8 @@ export default function OnboardingPage() {
                   !connected ||
                   !publicKey ||
                   publicKey.toBase58() !== state.attestationConsumer ||
-                  state.attestationResolution !== "pending"
+                  state.attestationResolution !== "pending" ||
+                  quasarResolutionBlockedReason !== undefined
                 }
                 onClick={async () => {
                   if (SUBMISSION_BLOCKED) return;
@@ -1782,9 +1797,7 @@ export default function OnboardingPage() {
                     const operatorPubkey = new PublicKey(state.attestationOperator);
                     const ix = PROGRAM_TARGET === "quasar"
                       ? (() => {
-                          if (!state.attestationEscrow) {
-                            throw new Error("Quasar attestation confirm requires the escrow account that bound this attestation.");
-                          }
+                          if (quasarResolutionBlockedReason) throw new Error(quasarResolutionBlockedReason);
                           const escrow = new PublicKey(state.attestationEscrow);
                           return buildQuasarConfirmAttestationInstruction({
                             programId: ATTESTATION_PROGRAM_ID,
@@ -1792,7 +1805,7 @@ export default function OnboardingPage() {
                             consumer: publicKey,
                             judge: operatorPubkey,
                             attestationPda: state.attestationPda ? new PublicKey(state.attestationPda) : quasarAttestationPda(escrow, ATTESTATION_PROGRAM_ID),
-                            judgeAgentPda: quasarAgentPda(operatorPubkey, REGISTRY_PROGRAM_ID),
+                            judgeAgentPda: quasarAgentPda(operatorPubkey, ATTESTATION_PROGRAM_ID),
                           });
                         })()
                       : new TransactionInstruction({
@@ -1848,7 +1861,8 @@ export default function OnboardingPage() {
                   !connected ||
                   !publicKey ||
                   publicKey.toBase58() !== state.attestationConsumer ||
-                  state.attestationResolution !== "pending"
+                  state.attestationResolution !== "pending" ||
+                  quasarResolutionBlockedReason !== undefined
                 }
                 onClick={async () => {
                   if (SUBMISSION_BLOCKED) return;
@@ -1863,9 +1877,7 @@ export default function OnboardingPage() {
                     const operatorPubkey = new PublicKey(state.attestationOperator);
                     const ix = PROGRAM_TARGET === "quasar"
                       ? (() => {
-                          if (!state.attestationEscrow) {
-                            throw new Error("Quasar attestation dispute requires the escrow account that bound this attestation.");
-                          }
+                          if (quasarResolutionBlockedReason) throw new Error(quasarResolutionBlockedReason);
                           const escrow = new PublicKey(state.attestationEscrow);
                           return buildQuasarDisputeAttestationInstruction({
                             programId: ATTESTATION_PROGRAM_ID,
@@ -1873,7 +1885,7 @@ export default function OnboardingPage() {
                             consumer: publicKey,
                             judge: operatorPubkey,
                             attestationPda: state.attestationPda ? new PublicKey(state.attestationPda) : quasarAttestationPda(escrow, ATTESTATION_PROGRAM_ID),
-                            judgeAgentPda: quasarAgentPda(operatorPubkey, REGISTRY_PROGRAM_ID),
+                            judgeAgentPda: quasarAgentPda(operatorPubkey, ATTESTATION_PROGRAM_ID),
                           });
                         })()
                       : new TransactionInstruction({

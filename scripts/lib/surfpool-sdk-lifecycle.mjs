@@ -1,4 +1,5 @@
 import net from "node:net";
+import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
 export const LOCAL_ENDPOINT_ENV_KEYS = Object.freeze([
@@ -372,6 +373,41 @@ export function createTruncatingEvidenceBuffer(options = {}) {
  * cancellable: once the exact child has exited, `cancel()` must be called so a recycled pid can never
  * receive the delayed group kill.
  */
+/**
+ * PATH for lane child processes: the pinned user-scoped baseline toolchain first, then the repo's
+ * own binaries, then whatever the caller had.
+ */
+export function baselinePath({ repoRoot, home = process.env.HOME, inheritedPath = process.env.PATH } = {}) {
+  if (!repoRoot) throw new Error("baselinePath requires repoRoot");
+  return [
+    path.join(home ?? "", ".cargo/bin"),
+    path.join(home ?? "", ".local/share/solana/reddi-agent-protocol-baseline/install/active_release/bin"),
+    path.join(home ?? "", ".local/share/surfpool/releases/v1.5.0/bin"),
+    path.join(repoRoot, "node_modules/.bin"),
+    inheritedPath ?? "",
+  ].filter(Boolean).join(path.delimiter);
+}
+
+/**
+ * The complete environment a lane child runs with under `replaceEnv`. Nothing is inherited that the
+ * lane has not pinned, and dotenv is disabled so a gitignored .env.devnet cannot reintroduce a
+ * remote endpoint or mint.
+ */
+export function localChildEnv(overrides = {}, { repoRoot, childTmpDir, home = process.env.HOME, nodeEnv = process.env.NODE_ENV } = {}) {
+  if (!repoRoot) throw new Error("localChildEnv requires repoRoot");
+  if (!childTmpDir) throw new Error("localChildEnv requires childTmpDir");
+  return {
+    HOME: home,
+    PATH: baselinePath({ repoRoot, home }),
+    NODE_ENV: nodeEnv ?? "test",
+    npm_config_audit: "false",
+    npm_config_fund: "false",
+    DEMO_DISABLE_DOTENV: "true",
+    TMPDIR: childTmpDir,
+    ...overrides,
+  };
+}
+
 export function scheduleProcessGroupTermination(child, signal, options = {}) {
   const killDelayMs = options.killDelayMs ?? 5_000;
   const kill = options.kill ?? ((pid, sig) => process.kill(pid, sig));

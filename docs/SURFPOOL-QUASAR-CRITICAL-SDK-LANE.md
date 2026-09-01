@@ -60,12 +60,14 @@ These are two separate facts and the split matters:
 - **Repository sources and clients are on the post-job-binding ABI.** `lib/quasar/instruction-builders.ts`, `lib/quasar/instructions.ts`, `packages/demo-agents/src/demo.ts`, and the `packages/agent-protocol` intent metadata all encode the current `experiments/quasar-*` contract: `commit(commitment, role)`, `reveal(score, salt)`, `attest(scores)`, `expire`/`confirm`/`dispute` with no arguments, rating and attestation PDAs seeded on the escrow address, and the `sha256(score || salt || escrow_address || program_id)` commitment pre-image. There is no caller-supplied `job_id`, `consumer_pk`, or `specialist_pk` anywhere.
 - **The recorded devnet deployment is pre-binding and unusable.** It is not compatible with the ABI above and is not usable from any surface; see the section above. Nothing here implies devnet usability.
 
-Web Quasar reputation and attestation bind to an escrow derived from the job's own identity
-(`lib/onboarding/quasar-escrow-binding.ts`: `[b"escrow", consumer, escrow_id(u64)]` under the Quasar
-escrow program, where `escrow_id` comes from the run/job id). A caller-supplied escrow is only ever
-accepted as a cross-check and is refused when it does not match what the job derives to, so a client
-cannot bind a rating or attestation to somebody else's job. When the binding cannot be resolved the
-flow refuses before any instruction is constructed, any signer is touched, and any RPC call is made.
+**Web Quasar reputation and attestation are not implemented, and refuse.** A Quasar escrow address is
+not derivable: `experiments/quasar-escrow/src/instructions/lock.rs` requires `escrow_id == counter.next_id`,
+a sequential per-payer counter assigned at lock time, so the only real escrow is the PDA a successful
+lock created. The onboarding flow never locks a Quasar escrow, so it has no verified lock record, and
+`lib/onboarding/quasar-escrow-binding.ts` refuses with a canonical reason before any instruction is
+constructed, any signer is touched, or any RPC call is made. The wizard's confirm and dispute actions
+are disabled and show that reason rather than building against an escrow that does not exist. Nothing
+is derived from a job id, no client-supplied address is trusted, and no escrow is synthesized.
 
 The web Quasar route additionally stays blocked on the configured devnet profile: `lib/config/network.ts`
 yields the Quasar target only there, and `assertProgramTargetUsable()` refuses it because the recorded

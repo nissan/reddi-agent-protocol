@@ -17,7 +17,7 @@ import {
 } from "@/lib/program";
 import { buildOnboardingAttestQualityInstruction, onboardingAttestationPda } from "@/lib/onboarding/attestation-instruction";
 import { quasarAttestationPda } from "@/lib/quasar/instructions";
-import { resolveBoundQuasarEscrow } from "@/lib/onboarding/quasar-escrow-binding";
+import { resolveOnboardingQuasarEscrow } from "@/lib/onboarding/quasar-escrow-binding";
 
 export type SubmitOnchainAttestationInput = {
   walletAddress: string;
@@ -25,7 +25,6 @@ export type SubmitOnchainAttestationInput = {
   rpcUrl?: string;
   operatorSecretKey?: string;
   scores?: [number, number, number, number, number];
-  escrowAddress?: string;
 };
 
 export type SubmitOnchainAttestationResult = {
@@ -109,11 +108,13 @@ export async function submitOnchainOnboardingAttestation(
   // taken from the caller. Both are resolved before any instruction, signer, or RPC use.
   const isQuasar = PROGRAM_TARGET === "quasar";
   const escrow = isQuasar
-    ? resolveBoundQuasarEscrow({
-        consumer: consumerWallet,
-        jobId,
-        escrowProgramId: ESCROW_PROGRAM_ID,
-        supplied: input.escrowAddress,
+    ? resolveOnboardingQuasarEscrow({
+        lockRecord: undefined,
+        expected: {
+          consumer: consumerWallet,
+          specialist: specialistWallet,
+          escrowProgramId: ESCROW_PROGRAM_ID,
+        },
       })
     : undefined;
   const attestProgramId = isQuasar ? ATTESTATION_PROGRAM_ID : ESCROW_PROGRAM_ID;

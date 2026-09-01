@@ -12,7 +12,9 @@ import {
   assertQuasarCriticalDemoOutput,
   assertQuasarPerFailClosedOutput,
   createRedactingLineBuffer,
+  baselinePath,
   createTruncatingEvidenceBuffer,
+  localChildEnv,
   redactForEvidence,
   scheduleProcessGroupTermination,
   startLocalSurfnet,
@@ -317,31 +319,7 @@ async function prepareAgentEnvironment(programs) {
     JUPITER_API_BASE: "http://127.0.0.1:1",
     TS_NODE_PROJECT: "packages/demo-agents/tsconfig.json",
     TS_NODE_TRANSPILE_ONLY: "true",
-  });
-}
-
-function localChildEnv(overrides) {
-  const base = {
-    HOME: process.env.HOME,
-    PATH: baselinePath(),
-    NODE_ENV: process.env.NODE_ENV ?? "test",
-    npm_config_audit: "false",
-    npm_config_fund: "false",
-    DEMO_DISABLE_DOTENV: "true",
-    TMPDIR: childTmpDir,
-  };
-  return { ...base, ...overrides };
-}
-
-function baselinePath() {
-  const entries = [
-    path.join(process.env.HOME ?? "", ".cargo/bin"),
-    path.join(process.env.HOME ?? "", ".local/share/solana/reddi-agent-protocol-baseline/install/active_release/bin"),
-    path.join(process.env.HOME ?? "", ".local/share/surfpool/releases/v1.5.0/bin"),
-    path.join(repoRoot, "node_modules/.bin"),
-    process.env.PATH ?? "",
-  ];
-  return entries.filter(Boolean).join(path.delimiter);
+  }, { repoRoot, childTmpDir });
 }
 
 async function runStep(label, command, commandArgs, options = {}) {
@@ -362,7 +340,7 @@ function spawnLogged(command, commandArgs, options = {}) {
     ? { ...(options.env ?? {}) }
     : {
         ...process.env,
-        PATH: baselinePath(),
+        PATH: baselinePath({ repoRoot }),
         npm_config_audit: "false",
         npm_config_fund: "false",
         ...(options.env ?? {}),
