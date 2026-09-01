@@ -26,6 +26,7 @@ export type NetworkProfile = {
     submissionReady: boolean;
     submissionReadyReason?: string;
     knownGaps: string[];
+    knownLimitations?: string[];
     deploymentStatus: DeploymentStatus;
     activationGate?: string;
   };
@@ -53,6 +54,7 @@ function readEnv(): Record<string, string | undefined> {
   return {
     NETWORK_PROFILE: process.env.NETWORK_PROFILE,
     NEXT_PUBLIC_NETWORK_PROFILE: process.env.NEXT_PUBLIC_NETWORK_PROFILE,
+    NEXT_PUBLIC_BUILD_NETWORK_PROFILE: process.env.NEXT_PUBLIC_BUILD_NETWORK_PROFILE,
     NEXT_PUBLIC_DEMO_PROGRAM_TARGET: process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET,
     HACKATHON_DEMO_TARGET: process.env.HACKATHON_DEMO_TARGET,
     DEMO_PROGRAM_TARGET: process.env.DEMO_PROGRAM_TARGET,
@@ -89,10 +91,10 @@ function pickEnv(...keys: string[]): string | undefined {
 
 export function resolveNetworkProfileName(): NetworkProfileName {
   const raw = (
-    pickEnv("NETWORK_PROFILE", "NEXT_PUBLIC_NETWORK_PROFILE") ?? "devnet"
+    pickEnv("NETWORK_PROFILE", "NEXT_PUBLIC_NETWORK_PROFILE", "NEXT_PUBLIC_BUILD_NETWORK_PROFILE") ?? "devnet"
   ).toLowerCase();
 
-  if (raw === "local" || raw === "localnet" || raw === "surfpool") return "local-surfpool";
+  if (raw === "local-surfpool" || raw === "local" || raw === "localnet" || raw === "surfpool") return "local-surfpool";
   if (raw === "mainnet" || raw === "mainnet-beta") return "mainnet";
   return "devnet";
 }
@@ -112,12 +114,7 @@ export function getNetworkProfile(): NetworkProfile {
   const requestedTarget = resolveProgramTarget();
   const quasarDevnet = quasarDeployments.quasarDeployments.devnet;
 
-  if (requestedTarget === "quasar" && name === "local-surfpool") {
-    throw new Error(
-      `Quasar program target is only configured for devnet; ${name} has no registered Quasar deployment. ` +
-        "Use NETWORK_PROFILE=devnet for Quasar evidence, or register audited per-program ids before enabling this profile.",
-    );
-  }
+  const quasarRequestRefused = requestedTarget === "quasar" && name !== "devnet";
 
   const target: ProgramTarget = requestedTarget === "quasar" && name === "devnet" ? "quasar" : "legacy-anchor";
 
@@ -181,6 +178,12 @@ export function getNetworkProfile(): NetworkProfile {
       ]
     : [];
 
+  const localSurfpoolKnownGaps = name === "local-surfpool" && quasarRequestRefused
+    ? [
+        "A Quasar program target was requested for local-surfpool, but no Quasar deployment is registered for that profile; the request is refused and the profile stays on the legacy Anchor program id.",
+      ]
+    : [];
+
   return {
     ...base,
     solana: {
@@ -197,14 +200,26 @@ export function getNetworkProfile(): NetworkProfile {
       target,
       framework: target === "quasar" ? "quasar" : "anchor",
       compatibility: target === "quasar" ? "quasar-layout-unverified" : "anchor-layout",
-      submissionReady: name === "mainnet" ? false : target === "quasar" ? quasarDeployments.submissionReady : true,
+      submissionReady:
+        name === "mainnet" || quasarRequestRefused
+          ? false
+          : target === "quasar"
+            ? quasarDeployments.submissionReady
+            : true,
       submissionReadyReason:
         name === "mainnet"
           ? "Mainnet activation is blocked: no audited deployment is registered and the Quasar four-program set cannot be resolved for mainnet."
-          : target === "quasar"
-            ? quasarDeployments.submissionReadyReason
-            : undefined,
-      knownGaps: [...(target === "quasar" ? quasarDevnet.knownGaps : []), ...mainnetKnownGaps],
+          : quasarRequestRefused
+            ? `A Quasar program target was requested for ${name}, which has no registered Quasar deployment; the request is refused.`
+            : target === "quasar"
+              ? quasarDeployments.submissionReadyReason
+              : undefined,
+      knownGaps: [
+        ...(target === "quasar" ? quasarDevnet.knownGaps : []),
+        ...mainnetKnownGaps,
+        ...localSurfpoolKnownGaps,
+      ],
+      knownLimitations: target === "quasar" ? quasarDevnet.knownLimitations ?? [] : [],
       deploymentStatus:
         name === "mainnet" ? "mainnet-not-deployed" : name === "local-surfpool" ? "local-only" : "devnet-deployed",
       activationGate: name === "mainnet" ? "external_audit_and_mainnet_deployment_required" : undefined,

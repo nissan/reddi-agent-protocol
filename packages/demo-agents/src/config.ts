@@ -51,7 +51,7 @@ const DEMO_NETWORK_PROFILES: Record<DemoNetworkProfileName, DemoNetworkProfile> 
 
 function resolveNetworkProfileName(): DemoNetworkProfileName {
   const raw = (pickEnv("NETWORK_PROFILE", "NEXT_PUBLIC_NETWORK_PROFILE") ?? "devnet").toLowerCase();
-  if (raw === "local" || raw === "localnet" || raw === "surfpool") return "local-surfpool";
+  if (raw === "local-surfpool" || raw === "local" || raw === "localnet" || raw === "surfpool") return "local-surfpool";
   if (raw === "mainnet" || raw === "mainnet-beta") {
     throw new Error(
       "packages/demo-agents is a devnet/local evidence runner only; mainnet execution requires a separate audited deployment, custody plan, and explicit approval.",

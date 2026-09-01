@@ -12,6 +12,7 @@ import {
   PROGRAM_COMPATIBILITY,
   PROGRAM_SUBMISSION_READY,
   PROGRAM_KNOWN_GAPS,
+  PROGRAM_KNOWN_LIMITATIONS,
   PROGRAM_DEPLOYMENT_STATUS,
   WALLET_SUBMISSION_BLOCKED,
   WALLET_SUBMISSION_BLOCKED_REASON,
@@ -661,6 +662,18 @@ function RegisterInner() {
                 <li key={gap}>{gap}</li>
               ))}
             </ul>
+          )}
+          {PROGRAM_KNOWN_LIMITATIONS.length > 0 && (
+            <>
+              <p className="text-xs font-semibold opacity-85">
+                Known limitations of the deployed programs:
+              </p>
+              <ul className="list-disc space-y-1 pl-4 text-xs opacity-85">
+                {PROGRAM_KNOWN_LIMITATIONS.map((limitation) => (
+                  <li key={limitation}>{limitation}</li>
+                ))}
+              </ul>
+            </>
           )}
         </Card>
       )}

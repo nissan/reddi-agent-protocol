@@ -31,6 +31,7 @@ import {
   PROGRAM_COMPATIBILITY,
   PROGRAM_FRAMEWORK,
   PROGRAM_KNOWN_GAPS,
+  PROGRAM_KNOWN_LIMITATIONS,
   PROGRAM_SUBMISSION_READY,
   PROGRAM_TARGET,
 } from "@/lib/program";
@@ -1343,6 +1344,21 @@ export default function EconomicDemoPage() {
                       <li key={gap} className="flex gap-2">
                         <span>•</span>
                         <span>{gap}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {PROGRAM_KNOWN_LIMITATIONS.length > 0 && (
+                <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-gray-300">
+                  <p className="font-semibold text-gray-100">
+                    Known limitations of the deployed programs:
+                  </p>
+                  <ul className="mt-2 space-y-1">
+                    {PROGRAM_KNOWN_LIMITATIONS.map((limitation) => (
+                      <li key={limitation} className="flex gap-2">
+                        <span>•</span>
+                        <span>{limitation}</span>
                       </li>
                     ))}
                   </ul>

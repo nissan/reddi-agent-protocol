@@ -37,9 +37,15 @@ NETWORK_PROFILE=devnet
 ### Local Surfpool
 ```bash
 NETWORK_PROFILE=local-surfpool
+NEXT_PUBLIC_DEMO_PROGRAM_TARGET=legacy-anchor
 NEXT_PUBLIC_RPC_ENDPOINT=http://127.0.0.1:18999
 NEXT_PUBLIC_ESCROW_PROGRAM_ID=<local-deployed-program-id>
 ```
+
+No Quasar deployment is registered for this profile. Leaving
+`NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` set (as `.env.example` ships it) does not
+break the app — the resolver refuses the request, keeps the legacy Anchor target,
+marks the profile not submission-ready, and records the refusal in `knownGaps`.
 
 ### Mainnet (currently blocked)
 ```bash
@@ -74,10 +80,11 @@ notes for the registry, reputation, and attestation programs. The active devnet
 demo target is the four-program Quasar set in `config/quasar/deployments.json`;
 that set cannot be silently reused on mainnet because clusters are separate
 ledgers and the resolver refuses `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` outside
-`NETWORK_PROFILE=devnet`. On `local-surfpool` the resolver throws; on `mainnet` it
-keeps the blocked placeholder profile and records the refused request in
-`knownGaps`, so `/register` and `/economic-demo` render an amber blocked-readiness
-banner listing those gaps rather than failing to load.
+`NETWORK_PROFILE=devnet`. On both `local-surfpool` and `mainnet` the resolver
+refuses the request, keeps that profile's own legacy Anchor program id, marks it
+not submission-ready, and records the refusal in `knownGaps` — so `/register` and
+`/economic-demo` render an amber blocked-readiness banner listing those gaps
+rather than failing to load.
 
 On profiles whose resolved `deploymentStatus` is `mainnet-not-deployed`,
 `lib/program.ts` exports `WALLET_SUBMISSION_BLOCKED = true`, and every
@@ -91,21 +98,21 @@ disable wallet submission.
 **Set the profile in the build environment, not just the runtime one.** Next
 inlines only static `process.env.NEXT_PUBLIC_*` reads into the client bundle, so
 `lib/config/network.ts` reads every selector as a static member and
-`next.config.ts` mirrors `NETWORK_PROFILE` into `NEXT_PUBLIC_NETWORK_PROFILE` for
-the browser. That mirror is emitted only when a profile actually resolves at build
-time; otherwise the key is left untouched so both selectors still read the real
-runtime environment on the server.
+`next.config.ts` mirrors the build-time profile into a separate, build-only key,
+`NEXT_PUBLIC_BUILD_NETWORK_PROFILE`, for the browser. `resolveNetworkProfileName()`
+consults `NETWORK_PROFILE`, then `NEXT_PUBLIC_NETWORK_PROFILE`, then that
+build-only key last — so a runtime value always wins on the server, and the
+browser falls back to whatever the build was configured with.
 
-Consequences when `next build` ran without a profile:
+`next.config.ts` never emits `NEXT_PUBLIC_NETWORK_PROFILE` itself, so setting that
+variable at runtime is still honoured server-side regardless of how the image was
+built.
 
-- `NETWORK_PROFILE=mainnet` at runtime — the server resolves mainnet and renders
-  the blocked banner, but the client bundle carries the build-time default, so the
-  browser-side gate is off.
-- `NEXT_PUBLIC_NETWORK_PROFILE=mainnet` at runtime — same server-side behaviour;
-  the client bundle again carries the build-time default.
-
-In both cases the server and browser disagree. Build with the profile set so the
-gate holds on both sides.
+Consequence when `next build` ran with a different profile than the runtime one:
+the server resolves the runtime profile and renders the blocked banner, while the
+client bundle still carries the build-time profile, so the browser-side gate
+reflects the build. Build with the profile you intend to serve so the gate holds
+on both sides.
 
 Mainnet switching requires explicit approval **after** external audit,
 upgrade-authority/key-control decisions, audited mainnet deployments, and all

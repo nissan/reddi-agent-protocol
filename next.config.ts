@@ -9,7 +9,7 @@ const buildNetworkProfile = (
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["localhost", "127.0.0.1"],
   ...(buildNetworkProfile
-    ? { env: { NEXT_PUBLIC_NETWORK_PROFILE: buildNetworkProfile } }
+    ? { env: { NEXT_PUBLIC_BUILD_NETWORK_PROFILE: buildNetworkProfile } }
     : {}),
   async headers() {
     return [

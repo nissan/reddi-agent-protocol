@@ -55,7 +55,7 @@
           "type": "devnet-full-flow-demo",
           "checkedAt": "2026-05-06T15:47:00+10:00",
           "command": "DEMO_PROGRAM_TARGET=quasar HACKATHON_DEMO_TARGET=quasar DEMO_SETTLEMENT_MODE=public npm run demo --prefix packages/demo-agents",
-          "result": "PASS; full A→B→C completed in 6516ms after devnet Reputation upgrade; Quasar escrow lock 22XLto6VVbfYGZfRPvR65KNVEyztw4HAm1c7gPbWNXWpcNbqBdtNHFpAEeGL4L8T6UodT2fxan4yxYdPNb8hDzhx; settlement 4bhPXA3SCDM1CQKBHMVxKFiGtfcmqnNEnTFDpEW2i85DWiE9dFr3co7h5EUL2ysqMs3ctcFmHfu8fpjefzpzz1JJ; rating PDA cwBzEz3p26mKU7FGWQWDkkmKY8j8NG4iPgruSkVJqKz; attestation PDA G2hmyNWC3N8zdqKRNgzgr7z6sN8wxJtc9YjpYmoWgzT1; no Anchor/PER fallback used"
+          "result": "PASS; full A\u2192B\u2192C completed in 6516ms after devnet Reputation upgrade; Quasar escrow lock 22XLto6VVbfYGZfRPvR65KNVEyztw4HAm1c7gPbWNXWpcNbqBdtNHFpAEeGL4L8T6UodT2fxan4yxYdPNb8hDzhx; settlement 4bhPXA3SCDM1CQKBHMVxKFiGtfcmqnNEnTFDpEW2i85DWiE9dFr3co7h5EUL2ysqMs3ctcFmHfu8fpjefzpzz1JJ; rating PDA cwBzEz3p26mKU7FGWQWDkkmKY8j8NG4iPgruSkVJqKz; attestation PDA G2hmyNWC3N8zdqKRNgzgr7z6sN8wxJtc9YjpYmoWgzT1; no Anchor/PER fallback used"
         },
         {
           "type": "devnet-program-upgrade",
@@ -69,7 +69,9 @@
       ],
       "knownLimitations": [
         "MagicBlock PER/TEE live execution is not included in the final Quasar claim; the Quasar final demo uses public Quasar escrow settlement and fails closed if DEMO_SETTLEMENT_MODE=magicblock_per is requested.",
-        "Legacy Anchor artifacts remain historical comparison only and are not final-demo proof."
+        "Legacy Anchor artifacts remain historical comparison only and are not final-demo proof.",
+        "Deployment lag: the binaries at these devnet addresses were last deployed 2026-05-06 and predate the job-binding series (#642-#645) and the CRITICAL-4 durable-job-record change. Owner-checked `EscrowRef::owners()` job binding and the durability fix are source-level on `main` only.",
+        "Per docs/QUASAR-JOB-BINDING-DESIGN-2026-08-24.md, the escrow program currently on devnet still accepts an unsigned payee; escrow must be redeployed with or before reputation/attestation."
       ],
       "programIds": {
         "escrow": "VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW",
@@ -79,7 +81,7 @@
       }
     }
   },
-  "submissionReadyReason": "Full Quasar critical-success gate satisfied: demo-critical registry, escrow settlement, reputation, and attestation paths have Quasar-native runtime routes. MagicBlock PER/TEE is explicitly not a final Quasar claim without separate live Quasar PER validation; legacy Anchor remains historical only.",
+  "submissionReadyReason": "Full Quasar critical-success gate satisfied: demo-critical registry, escrow settlement, reputation, and attestation paths have Quasar-native runtime routes. MagicBlock PER/TEE is explicitly not a final Quasar claim without separate live Quasar PER validation; legacy Anchor remains historical only. `submissionReady` denotes hackathon-submission readiness of the demo paths only; it is not a statement about the security posture of the deployed binaries. See `knownLimitations` and SECURITY.md for the deployment lag against current `main`.",
   "criticalSuccessFactors": [
     "no-demo-critical-anchor-paths",
     "quasar-native-registry-reputation-attestation",

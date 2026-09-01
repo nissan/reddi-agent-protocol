@@ -11,6 +11,7 @@ describe("program/network alignment", () => {
     delete process.env.DEMO_PROGRAM_TARGET;
     delete process.env.ALLOW_UNSAFE_ESCROW_OVERRIDE;
     delete process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID;
+    delete process.env.NEXT_PUBLIC_BUILD_NETWORK_PROFILE;
   });
 
   it("uses the network profile escrow program by default", async () => {
@@ -74,6 +75,25 @@ describe("program/network alignment", () => {
 
   it("resolves the mainnet profile from the client-visible NEXT_PUBLIC selector", async () => {
     process.env.NEXT_PUBLIC_NETWORK_PROFILE = "mainnet";
+
+    const { WALLET_SUBMISSION_BLOCKED, PROGRAM_DEPLOYMENT_STATUS } = await import("@/lib/program");
+
+    expect(PROGRAM_DEPLOYMENT_STATUS).toBe("mainnet-not-deployed");
+    expect(WALLET_SUBMISSION_BLOCKED).toBe(true);
+  });
+
+  it("lets a runtime NEXT_PUBLIC_NETWORK_PROFILE override the build-time mirror", async () => {
+    process.env.NEXT_PUBLIC_BUILD_NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_NETWORK_PROFILE = "mainnet";
+
+    const { WALLET_SUBMISSION_BLOCKED, PROGRAM_DEPLOYMENT_STATUS } = await import("@/lib/program");
+
+    expect(PROGRAM_DEPLOYMENT_STATUS).toBe("mainnet-not-deployed");
+    expect(WALLET_SUBMISSION_BLOCKED).toBe(true);
+  });
+
+  it("falls back to the build-time mirror when no runtime selector is set", async () => {
+    process.env.NEXT_PUBLIC_BUILD_NETWORK_PROFILE = "mainnet";
 
     const { WALLET_SUBMISSION_BLOCKED, PROGRAM_DEPLOYMENT_STATUS } = await import("@/lib/program");
 
