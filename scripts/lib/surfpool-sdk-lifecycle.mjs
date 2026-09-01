@@ -369,11 +369,6 @@ export function createTruncatingEvidenceBuffer(options = {}) {
 }
 
 /**
- * Signal a detached child's process group, then escalate to SIGKILL after a delay. The escalation is
- * cancellable: once the exact child has exited, `cancel()` must be called so a recycled pid can never
- * receive the delayed group kill.
- */
-/**
  * PATH for lane child processes: the pinned user-scoped baseline toolchain first, then the repo's
  * own binaries, then whatever the caller had.
  */
@@ -408,6 +403,11 @@ export function localChildEnv(overrides = {}, { repoRoot, childTmpDir, home = pr
   };
 }
 
+/**
+ * Signal a detached child's process group, then escalate to SIGKILL after a delay. The escalation is
+ * cancellable: once the exact child has exited, `cancel()` must be called so a recycled pid can never
+ * receive the delayed group kill.
+ */
 export function scheduleProcessGroupTermination(child, signal, options = {}) {
   const killDelayMs = options.killDelayMs ?? 5_000;
   const kill = options.kill ?? ((pid, sig) => process.kill(pid, sig));

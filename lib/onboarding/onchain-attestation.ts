@@ -104,8 +104,9 @@ export async function submitOnchainOnboardingAttestation(
   const jobId = randomBytes(16);
 
   // Quasar splits escrow/registry/reputation/attestation into four programs: the attestation record
-  // is owned by the attestation program, and the escrow it binds to is derived from this job, never
-  // taken from the caller. Both are resolved before any instruction, signer, or RPC use.
+  // is owned by the attestation program and binds to the escrow a lock created. Onboarding never
+  // locks one, so this refuses before any instruction, signer, or RPC use until canonical verified
+  // lock output is supplied.
   const isQuasar = PROGRAM_TARGET === "quasar";
   const escrow = isQuasar
     ? resolveOnboardingQuasarEscrow({

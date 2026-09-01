@@ -22,6 +22,17 @@ export const QUASAR_ESCROW_UNAVAILABLE_REASON =
 export type EscrowStatus = "locked" | "released" | "cancelled";
 
 /**
+ * Escrow states that still describe a real job worth rating or attesting.
+ *
+ * `release.rs` deliberately dropped `close = payer` (CRITICAL-4, 2026-08-26) so the escrow survives
+ * settlement as a durable job record and becomes `Released`; the ordering is lock → release →
+ * commit → reveal → attest, so a settled job's escrow is `Released` by the time it is rated. Neither
+ * `quasar-reputation` nor `quasar-attestation` reads the status — they only need the account. A
+ * `Cancelled` escrow (cancel.rs) is a job that never completed, so there is nothing to rate.
+ */
+const RATEABLE_ESCROW_STATUSES: readonly EscrowStatus[] = ["locked", "released"];
+
+/**
  * A canonical lock result: what a successful `lock` returned, recorded server-side. Every field is
  * needed to prove the address really is the escrow this job locked.
  */
@@ -86,8 +97,10 @@ export function verifyLockCreatedEscrow(
       `quasar_escrow_wrong_payee: record names ${payee.toBase58()} but this job's specialist is ${expected.specialist.toBase58()}`,
     );
   }
-  if (record.status !== "locked") {
-    throw new Error(`quasar_escrow_not_locked: status is ${record.status}`);
+  if (!RATEABLE_ESCROW_STATUSES.includes(record.status)) {
+    throw new Error(
+      `quasar_escrow_not_rateable: status is ${record.status}; only ${RATEABLE_ESCROW_STATUSES.join(" or ")} escrows describe a real job`,
+    );
   }
 
   const derived = lockCreatedEscrowPda(payer, record.escrowId, escrowProgramId);

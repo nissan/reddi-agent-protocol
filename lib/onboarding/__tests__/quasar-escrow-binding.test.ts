@@ -94,10 +94,23 @@ describe("Quasar escrow binding", () => {
     );
   });
 
-  it("refuses an escrow that is no longer locked", () => {
-    for (const status of ["released", "cancelled"] as const) {
-      expect(() => verifyLockCreatedEscrow(lockRecord({ status }), expected)).toThrow(/quasar_escrow_not_locked/);
-    }
+  it("accepts a released escrow, which is the state a settled job is rated in", () => {
+    // release.rs dropped `close = payer` (CRITICAL-4) so the escrow survives settlement as a durable
+    // job record; the ordering is lock -> release -> commit -> reveal -> attest, so by rating time
+    // the escrow is Released. Neither reputation nor attestation reads the status.
+    const record = lockRecord({ escrowId: 2n, status: "released" });
+    expect(verifyLockCreatedEscrow(record, expected).toBase58()).toBe(record.escrowAddress);
+  });
+
+  it("accepts a still-locked escrow", () => {
+    const record = lockRecord({ status: "locked" });
+    expect(verifyLockCreatedEscrow(record, expected).toBase58()).toBe(record.escrowAddress);
+  });
+
+  it("refuses a cancelled escrow, which is a job that never completed", () => {
+    expect(() => verifyLockCreatedEscrow(lockRecord({ status: "cancelled" }), expected)).toThrow(
+      /quasar_escrow_not_rateable/,
+    );
   });
 
   it("refuses a malformed address in the record", () => {
@@ -113,6 +126,41 @@ describe("Quasar escrow binding", () => {
 
   it("resolves a verified lock record through the same entry point", () => {
     const record = lockRecord({ escrowId: 1n });
+    expect(resolveOnboardingQuasarEscrow({ lockRecord: record, expected }).toBase58()).toBe(record.escrowAddress);
+  });
+});
+
+describe("participant resolution order", () => {
+  const consumer = new PublicKey("11111111111111111111111111111112");
+  const specialist = new PublicKey("11111111111111111111111111111113");
+  const escrowProgramId = new PublicKey("VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW");
+  const expected = { consumer, specialist, escrowProgramId };
+
+  // Reading a not-yet-resolved participant into the `expected` literal produced a ReferenceError
+  // instead of the canonical refusal, so both participants must be real keys before this is called.
+  it("refuses with the canonical reason, not an internal error, when no lock record exists", () => {
+    let thrown: unknown;
+    try {
+      resolveOnboardingQuasarEscrow({ expected });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe(QUASAR_ESCROW_UNAVAILABLE_REASON);
+    expect((thrown as Error).message).not.toMatch(/before initialization/);
+  });
+
+  it("verifies a fully resolved participant pair against a released record", () => {
+    const record = {
+      escrowAddress: lockCreatedEscrowPda(consumer, 0n, escrowProgramId).toBase58(),
+      escrowId: 0n,
+      payer: consumer.toBase58(),
+      payee: specialist.toBase58(),
+      status: "released" as const,
+      escrowProgramId: escrowProgramId.toBase58(),
+    };
+
     expect(resolveOnboardingQuasarEscrow({ lockRecord: record, expected }).toBase58()).toBe(record.escrowAddress);
   });
 });
