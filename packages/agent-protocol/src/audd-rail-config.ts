@@ -136,7 +136,7 @@ export const AUDD_RAIL_CONFIG: AuddRailConfig = {
         {
           verifiedAt: '2026-09-01T00:00:00.000Z',
           confidence: 'fixture',
-          sources: ['/home/nissan/Projects/Redditech/data/audd-solana-implementation-design/report.md §5.1'],
+          sources: ['data/audd-solana-implementation-design/report.md §5.1'],
           facts: [
             'Deterministic AUDD fixture sentinel for unit tests only.',
             'The sentinel mint must never be presented as an official AUDD devnet mint or sent to live RPC.',
@@ -162,7 +162,7 @@ export const AUDD_RAIL_CONFIG: AuddRailConfig = {
         {
           verifiedAt: '2026-09-01T00:00:00.000Z',
           confidence: 'local-generated',
-          sources: ['/home/nissan/Projects/Redditech/data/audd-solana-implementation-design/report.md §5.1'],
+          sources: ['data/audd-solana-implementation-design/report.md §5.1'],
           facts: ['Local generated mints are test assets and are ineligible for grant volume.'],
         },
       ],
@@ -183,7 +183,7 @@ export const AUDD_RAIL_CONFIG: AuddRailConfig = {
         {
           verifiedAt: '2026-09-01T00:00:00.000Z',
           confidence: 'unverified',
-          sources: ['/home/nissan/Projects/Redditech/data/audd-solana-implementation-design/report.md §2.7, §5.1'],
+          sources: ['data/audd-solana-implementation-design/report.md §2.7, §5.1'],
           facts: ['No official AUDD devnet mint was verified; no devnet mint is implied by this config.'],
         },
       ],
@@ -207,7 +207,7 @@ export const AUDD_RAIL_CONFIG: AuddRailConfig = {
           confidence: 'verified-public-mainnet',
           sources: [
             'https://www.audd.digital/faq/',
-            'read-only Solana mainnet RPC getAccountInfo/getTokenSupply recorded in /home/nissan/Projects/Redditech/data/audd-solana-implementation-design/report.md §2.7',
+            'read-only Solana mainnet RPC getAccountInfo/getTokenSupply recorded in data/audd-solana-implementation-design/report.md §2.7',
           ],
           facts: [
             `Official AUDD Solana mainnet mint: ${AUDD_OFFICIAL_SOLANA_MAINNET_MINT}`,

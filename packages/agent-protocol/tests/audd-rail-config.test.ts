@@ -25,6 +25,11 @@ describe('AUDD rail configuration and identity validation', () => {
     assert.equal(mainnet.grantEligibility, 'pending_partner_acceptance');
     assert.ok(mainnet.provenance.some((item) => item.confidence === 'verified-public-mainnet'));
     assert.ok(mainnet.activationRequires?.some((item) => item.includes('separate exact captain approval')));
+    for (const environment of Object.values(AUDD_RAIL_CONFIG.environments)) {
+      for (const provenance of environment.provenance) {
+        assert.equal(provenance.sources.some((source) => source.startsWith('/home/')), false);
+      }
+    }
 
     const result = validateAuddRailIdentity({
       environment: 'mainnet-gated',
