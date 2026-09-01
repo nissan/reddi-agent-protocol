@@ -169,7 +169,9 @@ function validatePaymentObservation(input, errors) {
         return;
     const observationValidation = validatePaymentObservationRecord(input.paymentObservation);
     if (!observationValidation.ok) {
-        errors.push(...observationValidation.errors.map((item) => error(item.code === 'non_live_evidence_marked_eligible' ? 'payment_observation_ineligible' : 'payment_observation_mismatch', `$.paymentObservation${item.path.slice(1)}`, item.message)));
+        errors.push(...observationValidation.errors.map((item) => error(item.code === 'non_live_evidence_marked_eligible' || item.code === 'mainnet_partner_acceptance_missing'
+            ? 'payment_observation_ineligible'
+            : 'payment_observation_mismatch', `$.paymentObservation${item.path.slice(1)}`, item.message)));
         return;
     }
     const observation = input.paymentObservation;

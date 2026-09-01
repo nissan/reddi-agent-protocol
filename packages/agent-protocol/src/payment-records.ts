@@ -181,6 +181,10 @@ const NON_ELIGIBLE_ENVIRONMENTS = new Set<ReddiPaymentEnvironmentLabel>([
   'local-test-mint',
   'devnet-unverified',
 ]);
+const PARTNER_ACCEPTANCE_ENVIRONMENTS = new Set<ReddiPaymentEnvironmentLabel>([
+  'mainnet-gated',
+  'controlled-live',
+]);
 
 export function canonicalizePaymentObject(value: unknown): string {
   return canonicalize(value);
@@ -216,11 +220,11 @@ export function validatePaymentRecordLabels(labels: unknown, path = '$.labels'):
       `${record.environment} payment evidence is not eligible for grant-volume claims`,
     ));
   }
-  if (record.environment === 'mainnet-gated' && record.eligibility === 'eligible' && !isNonEmptyString(record.partnerAcceptanceRef)) {
+  if (isPaymentEnvironment(record.environment) && PARTNER_ACCEPTANCE_ENVIRONMENTS.has(record.environment) && record.eligibility === 'eligible' && !isNonEmptyString(record.partnerAcceptanceRef)) {
     errors.push(error(
       'mainnet_partner_acceptance_missing',
       `${path}.partnerAcceptanceRef`,
-      'mainnet AUDD evidence cannot be marked eligible without partner acceptance provenance',
+      `${record.environment} AUDD evidence cannot be marked eligible without partner acceptance provenance`,
     ));
   }
   if (record.exclusionReason !== undefined && !isNonEmptyString(record.exclusionReason)) {

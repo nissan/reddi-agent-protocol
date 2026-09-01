@@ -11,6 +11,12 @@ All notable changes to this package are documented here. Dates are AEST.
 - AUDD x402 v2 SVM `exact` bridge helpers layered onto the existing `reddi.audd-payment-plan.v1` plan for deliberate legacy compatibility. Models can create draft intents only; non-fixture spend still requires policy and operator approval.
 - Optional receipt/evidence binding for confirmed non-live payment observations, preserving no-wallet/no-RPC guardrails and rejecting fixture/devnet observations marked grant eligible or observations that do not exactly match the AUDD plan.
 
+### Changed
+
+- The AUDD mainnet gate now canonicalises the plan network alias and fires on any plan that names mainnet by alias or CAIP-2 network, or that names the official AUDD mainnet mint, whether or not the plan declares `railEnvironment`. `requireX402Exact` additionally rejects network aliases that do not resolve to a known CAIP-2 network.
+- `createAuddPaymentIntentDraft` derives the environment label from the plan instead of always defaulting to `deterministic-fixture`: mainnet-targeting plans are labelled `mainnet-gated` (keeping operator approval required), a `live` plan with no derivable environment throws `audd_payment_plan_environment_undeclared`, and supplied labels that understate a mainnet plan throw `audd_payment_plan_label_environment_mismatch`.
+- `controlled-live` payment record labels now require `partnerAcceptanceRef` before they can be marked grant eligible, matching the existing `mainnet-gated` rule.
+
 ## 0.1.0 — 2026-07-06
 
 First release-candidate cut of the public RAP (Reddi Agent Protocol) primitives package. Everything below runs locally on deterministic fixtures — see Boundaries.

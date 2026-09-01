@@ -231,8 +231,17 @@ export const AUDD_RAIL_CONFIG: AuddRailConfig = {
   },
 };
 
+export function canonicalSolanaNetworkAlias(network: unknown): string | undefined {
+  if (typeof network !== 'string') return undefined;
+  const alias = network.trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(AUDD_RAIL_CONFIG.caip2Networks, alias) ? alias : undefined;
+}
+
 export function caip2ForSolanaNetwork(network: string): string | undefined {
-  return AUDD_RAIL_CONFIG.caip2Networks[network as keyof AuddRailConfig['caip2Networks']];
+  const alias = canonicalSolanaNetworkAlias(network);
+  return alias === undefined
+    ? undefined
+    : AUDD_RAIL_CONFIG.caip2Networks[alias as keyof AuddRailConfig['caip2Networks']];
 }
 
 export function networkAliasForCaip2(caip2: string): string | undefined {

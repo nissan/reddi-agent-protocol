@@ -9,6 +9,11 @@ All notable changes to this package are documented here. Dates are AEST.
 - Read-only SPL `TransferChecked` observation verifier for parsed deterministic transaction fixtures. It checks successful transaction metadata, confirmation metadata, transaction-signature match, exact mint/program/payee owner/destination/amount, optional memo binding, exactly one match, and replay protection without RPC, wallets, signers, secrets, or live submission.
 - AUDD bridge in `SolanaReceiptVerifier` that uses the stricter x402 v2 SVM `exact` verifier only when an AUDD mint is explicitly configured (never inferred from the receipt), while retaining legacy SOL/USDC compatibility.
 
+### Changed
+
+- `SplTransferCheckedObservation.blockTime` is optional: a confirmed transaction whose node reports no block time for the slot is still observable, and only a present-but-invalid `blockTime` is rejected. `slot` remains mandatory.
+- An AUDD challenge verified without a configured `auddMint` now fails as `unsupported_receipt` (operator misconfiguration) rather than `invalid_receipt`, and AUDD observer failures surface their specific reason in the failure message.
+
 ## 0.1.0 — 2026-07-06
 
 First release-candidate cut of the HTTP 402 payment primitives for Solana-oriented RAP (Reddi Agent Protocol) workflows. This package is a repo-local v0.1 OSS candidate: it is not yet published on npm and must not be treated as production payment, custody, escrow-finality, or mainnet infrastructure.

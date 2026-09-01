@@ -22,8 +22,11 @@ async function verifySplTransferCheckedObservation(input) {
     if (meta.err !== null && meta.err !== undefined) {
         return failure('failed_transaction', 'transaction metadata reports failure', null, meta.err);
     }
-    if (!Number.isSafeInteger(parsed.slot) || Number(parsed.slot) <= 0 || !Number.isSafeInteger(parsed.blockTime) || Number(parsed.blockTime) <= 0) {
-        return failure('missing_confirmation_metadata', 'transaction must include positive slot and blockTime confirmation metadata');
+    if (!Number.isSafeInteger(parsed.slot) || Number(parsed.slot) <= 0) {
+        return failure('missing_confirmation_metadata', 'transaction must include a positive slot confirmation metadata value');
+    }
+    if (parsed.blockTime !== undefined && parsed.blockTime !== null && (!Number.isSafeInteger(parsed.blockTime) || Number(parsed.blockTime) <= 0)) {
+        return failure('missing_confirmation_metadata', 'transaction blockTime must be a positive integer when the node reports one', null, parsed.blockTime);
     }
     const signatures = asArray(asRecord(parsed.transaction)?.signatures);
     if (!signatures?.some((signature) => stringValue(signature) === input.expected.signature)) {
@@ -62,7 +65,7 @@ async function verifySplTransferCheckedObservation(input) {
         network: input.expected.network,
         signature: input.expected.signature,
         slot: Number(parsed.slot),
-        blockTime: Number(parsed.blockTime),
+        blockTime: typeof parsed.blockTime === 'number' ? Number(parsed.blockTime) : undefined,
         commitment: input.commitment,
         instructionIndex: match.collected.instructionIndex,
         innerInstruction: match.collected.innerInstruction,

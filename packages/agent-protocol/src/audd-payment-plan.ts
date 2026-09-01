@@ -2,8 +2,10 @@ import {
   AUDD_ASSET,
   AUDD_DECIMALS,
   AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
+  SOLANA_MAINNET_BETA_CAIP2,
   SPL_TOKEN_PROGRAM_ID,
   caip2ForSolanaNetwork,
+  canonicalSolanaNetworkAlias,
   validateAuddRailIdentity,
   type AuddRailEnvironment,
 } from './audd-rail-config.js';
@@ -461,6 +463,9 @@ export function createAuddPaymentIntentDraft(input: {
   const caip2 = plan.caip2Network ?? caip2ForSolanaNetwork(plan.network);
   if (!caip2) throw new Error('invalid_audd_x402_network');
   const labels = input.labels ?? defaultLabelsForPlan(plan);
+  if (planTargetsMainnetAudd(plan) && labels.environment !== 'mainnet-gated' && labels.environment !== 'controlled-live') {
+    throw new Error('audd_payment_plan_label_environment_mismatch');
+  }
   const memo = input.memo ?? plan.memo ?? deriveAuddMemo({ agreementId: input.agreementId, amount: plan.amount, mint: plan.mint, payTo: plan.payee });
   return createPaymentIntentDraft({
     labels,
@@ -767,7 +772,7 @@ export function evaluateAuddPaymentPlanPreflight(
     if (plan.x402Version !== AUDD_X402_VERSION || plan.scheme !== AUDD_X402_SCHEME || plan.paymentFlow !== AUDD_X402_PAYMENT_FLOW) {
       return deny('wrong_x402_scheme', 'Denied: AUDD payments must use x402 v2 SVM exact/upfront semantics.', { paymentPlan: plan });
     }
-    if (!plan.tokenProgram || plan.decimals !== AUDD_DECIMALS || !plan.caip2Network || (expectedCaip2 && expectedCaip2 !== plan.caip2Network)) {
+    if (!plan.tokenProgram || plan.decimals !== AUDD_DECIMALS || !plan.caip2Network || expectedCaip2 !== plan.caip2Network) {
       return deny('payment_plan_malformed', 'Denied: AUDD x402 exact plan must include matching CAIP-2 network, SPL token program, and six decimals.', { paymentPlan: plan });
     }
   }
@@ -817,13 +822,14 @@ function evaluateRailEnvironment(
   plan: AuddSolanaPaymentPlan,
   options: AuddPaymentPlanPreflightOptions,
 ): AuddPaymentPlanPreflightDecision | undefined {
-  if (plan.network === 'solana-mainnet-beta' && plan.mint === AUDD_OFFICIAL_SOLANA_MAINNET_MINT && !options.approveMainnetAudd) {
+  if (planTargetsMainnetAudd(plan) && !options.approveMainnetAudd) {
     return deny('mainnet_audd_disabled', 'Denied: official AUDD mainnet remains disabled by default and requires separate exact approval.', { paymentPlan: plan });
   }
-  if (!plan.railEnvironment) return undefined;
+  const environment = railEnvironmentForPlan(plan);
+  if (!environment) return undefined;
   const identity = validateAuddRailIdentity({
-    environment: plan.railEnvironment,
-    network: plan.network,
+    environment,
+    network: canonicalSolanaNetworkAlias(plan.network) ?? plan.network,
     caip2: plan.caip2Network,
     mint: plan.mint,
     tokenProgram: plan.tokenProgram,
@@ -849,8 +855,22 @@ function evaluateRailEnvironment(
   return deny('blocked_rail_environment', 'Denied: AUDD rail environment is not enabled for this payment plan.', { paymentPlan: plan });
 }
 
+function planTargetsMainnetAudd(plan: AuddSolanaPaymentPlan): boolean {
+  return canonicalSolanaNetworkAlias(plan.network) === 'solana-mainnet-beta'
+    || plan.caip2Network === SOLANA_MAINNET_BETA_CAIP2
+    || normalized(plan.mint) === normalized(AUDD_OFFICIAL_SOLANA_MAINNET_MINT);
+}
+
+function railEnvironmentForPlan(plan: AuddSolanaPaymentPlan): AuddRailEnvironment | undefined {
+  if (plan.railEnvironment) return plan.railEnvironment;
+  return planTargetsMainnetAudd(plan) ? 'mainnet-gated' : undefined;
+}
+
 function defaultLabelsForPlan(plan: AuddSolanaPaymentPlan): ReddiPaymentRecordLabels {
-  const environment: ReddiPaymentEnvironmentLabel = plan.railEnvironment ?? 'deterministic-fixture';
+  const inferred = railEnvironmentForPlan(plan);
+  const environment: ReddiPaymentEnvironmentLabel | undefined = inferred
+    ?? (plan.paymentMode === 'dry-run' ? 'deterministic-fixture' : undefined);
+  if (!environment) throw new Error('audd_payment_plan_environment_undeclared');
   const eligibility: ReddiPaymentEligibilityLabel = plan.eligibility ?? (environment === 'mainnet-gated' ? 'pending_partner_acceptance' : 'non_eligible');
   return { environment, eligibility };
 }

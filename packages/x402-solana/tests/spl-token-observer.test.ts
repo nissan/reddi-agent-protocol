@@ -72,7 +72,7 @@ function parsedTransaction(overrides: {
   failed?: boolean;
   duplicate?: boolean;
   slot?: number;
-  blockTime?: number;
+  blockTime?: number | null;
   signatures?: string[];
 } = {}) {
   const amount = overrides.amount ?? AMOUNT;
@@ -87,7 +87,7 @@ function parsedTransaction(overrides: {
   const instructions = overrides.memo === null ? [ix] : [ix, memoIx(overrides.memo ?? MEMO)];
   return {
     slot: overrides.slot ?? 443284058,
-    blockTime: overrides.blockTime ?? 1785523200,
+    blockTime: overrides.blockTime === undefined ? 1785523200 : overrides.blockTime,
     meta: {
       err: overrides.failed ? { InstructionError: [0, 'Custom'] } : null,
       postTokenBalances: [
@@ -114,6 +114,21 @@ function parsedTransaction(overrides: {
 }
 
 describe('SPL TransferChecked observation verifier', () => {
+  it('accepts a confirmed transaction whose node reports no blockTime for the slot', async () => {
+    const result = await verifySplTransferCheckedObservation({
+      parsedTransaction: parsedTransaction({ blockTime: null }),
+      expected,
+      commitment: 'confirmed',
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.observation.slot).toBe(443284058);
+      expect(result.observation.blockTime).toBeUndefined();
+      expect(result.observation.commitment).toBe('confirmed');
+    }
+  });
+
   it('verifies one exact AUDD TransferChecked payment from a parsed deterministic transaction fixture', async () => {
     const result = await verifySplTransferCheckedObservation({
       parsedTransaction: parsedTransaction(),
@@ -160,6 +175,10 @@ describe('SPL TransferChecked observation verifier', () => {
     const missingConfirmation = await verifySplTransferCheckedObservation({ parsedTransaction: parsedTransaction({ slot: 0 }), expected, commitment: 'confirmed' });
     expect(missingConfirmation.ok).toBe(false);
     if (!missingConfirmation.ok) expect(missingConfirmation.reason).toBe('missing_confirmation_metadata');
+
+    const negativeBlockTime = await verifySplTransferCheckedObservation({ parsedTransaction: parsedTransaction({ blockTime: -1 }), expected, commitment: 'confirmed' });
+    expect(negativeBlockTime.ok).toBe(false);
+    if (!negativeBlockTime.ok) expect(negativeBlockTime.reason).toBe('missing_confirmation_metadata');
 
     const wrongSignature = await verifySplTransferCheckedObservation({ parsedTransaction: parsedTransaction({ signatures: ['differentSignature1111111111111111111111111111'] }), expected, commitment: 'confirmed' });
     expect(wrongSignature.ok).toBe(false);

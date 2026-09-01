@@ -202,9 +202,9 @@ class SolanaReceiptVerifier {
         });
         if (!parsed?.meta || parsed.meta.err)
             return { ok: false, reason: 'invalid_receipt', message: 'transaction is missing or failed' };
-        const paid = await this.receiptSatisfiesChallenge(parsed, receipt, challenge, signature);
-        if (!paid)
-            return { ok: false, reason: 'invalid_receipt', message: 'transaction does not satisfy x402 challenge payment terms' };
+        const unpaid = await this.challengePaymentFailure(parsed, receipt, challenge, signature);
+        if (unpaid)
+            return unpaid;
         if (replayStore) {
             const accepted = await replayStore.checkAndStore(receipt.nonce);
             if (!accepted)
@@ -212,17 +212,26 @@ class SolanaReceiptVerifier {
         }
         return { ok: true, receipt, demo: false };
     }
-    async receiptSatisfiesChallenge(parsed, receipt, challenge, signature) {
+    /** Returns a failure result when the parsed transaction does not settle the challenge, otherwise undefined. */
+    async challengePaymentFailure(parsed, receipt, challenge, signature) {
         if (challenge.currency === 'SOL') {
-            return transactionHasSolTransfer(parsed, receipt.payer, challenge.payTo, Number(challenge.amount));
+            return transactionHasSolTransfer(parsed, receipt.payer, challenge.payTo, Number(challenge.amount))
+                ? undefined
+                : unsatisfiedChallenge();
         }
         if (challenge.currency === 'USDC') {
-            return transactionHasTokenTransfer(parsed, receipt, challenge, this.options.usdcMint);
+            return transactionHasTokenTransfer(parsed, receipt, challenge, this.options.usdcMint)
+                ? undefined
+                : unsatisfiedChallenge();
         }
         if (challenge.currency === 'AUDD') {
             const mint = this.options.auddMint;
-            if (!mint || (receipt.mint !== undefined && receipt.mint !== mint))
-                return false;
+            if (!mint) {
+                return { ok: false, reason: 'unsupported_receipt', message: 'AUDD receipt verification requires a configured auddMint' };
+            }
+            if (receipt.mint !== undefined && receipt.mint !== mint) {
+                return unsatisfiedChallenge('receipt mint does not match the configured AUDD mint', mint, receipt.mint);
+            }
             const result = await (0, spl_token_observer_1.verifySplTransferCheckedObservation)({
                 parsedTransaction: parsed,
                 commitment: 'confirmed',
@@ -239,12 +248,17 @@ class SolanaReceiptVerifier {
                     memoRequired: challenge.memo !== undefined,
                 },
             });
-            return result.ok;
+            if (result.ok)
+                return undefined;
+            return unsatisfiedChallenge(`transaction does not satisfy x402 challenge payment terms (${result.reason}: ${result.message})`, result.expected, result.actual);
         }
-        return false;
+        return { ok: false, reason: 'unsupported_receipt', message: `unsupported challenge currency: ${challenge.currency}` };
     }
 }
 exports.SolanaReceiptVerifier = SolanaReceiptVerifier;
+function unsatisfiedChallenge(message = 'transaction does not satisfy x402 challenge payment terms', expected, actual) {
+    return { ok: false, reason: 'invalid_receipt', message, expected, actual };
+}
 function validateReceiptShape(receipt, challenge) {
     if (receipt.network !== challenge.network)
         return { ok: false, reason: 'wrong_network', message: 'receipt network does not match challenge', expected: challenge.network, actual: receipt.network };

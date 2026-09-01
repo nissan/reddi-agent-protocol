@@ -288,6 +288,64 @@ describe('x402 Payment Module', () => {
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.reason).toBe('invalid_receipt');
     });
+
+    it('reports an unconfigured AUDD mint as an unsupported receipt rather than a bad buyer receipt', async () => {
+      const auddChallenge = buildX402Challenge({
+        network: 'solana-devnet',
+        payTo: validAddress,
+        amount: '2500000',
+        currency: 'AUDD',
+        endpoint: 'https://planning.example.test/v1/chat/completions',
+        nonce: 'nonce-audd',
+      });
+      const verifier = new SolanaReceiptVerifier({
+        allowRealPayment: true,
+        connection: {
+          async getParsedTransaction() {
+            return { meta: { err: null }, slot: 443284058, transaction: { signatures: ['sig-audd'], message: { accountKeys: [], instructions: [] } } };
+          },
+        },
+      });
+      const result = await verifier.verifyReceipt(
+        { network: 'solana-devnet', payTo: validAddress, amount: '2500000', currency: 'AUDD', nonce: 'nonce-audd', payer: otherValidAddress, signature: 'sig-audd' },
+        auddChallenge,
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe('unsupported_receipt');
+        expect(result.message).toMatch(/auddMint/);
+      }
+    });
+
+    it('surfaces the observer failure reason when an AUDD transaction does not satisfy the challenge', async () => {
+      const mint = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
+      const auddChallenge = buildX402Challenge({
+        network: 'solana-devnet',
+        payTo: validAddress,
+        amount: '2500000',
+        currency: 'AUDD',
+        endpoint: 'https://planning.example.test/v1/chat/completions',
+        nonce: 'nonce-audd-2',
+      });
+      const verifier = new SolanaReceiptVerifier({
+        allowRealPayment: true,
+        auddMint: mint,
+        connection: {
+          async getParsedTransaction() {
+            return { meta: { err: null }, slot: 443284058, transaction: { signatures: ['sig-audd-2'], message: { accountKeys: [], instructions: [] } } };
+          },
+        },
+      });
+      const result = await verifier.verifyReceipt(
+        { network: 'solana-devnet', payTo: validAddress, amount: '2500000', currency: 'AUDD', nonce: 'nonce-audd-2', payer: otherValidAddress, signature: 'sig-audd-2' },
+        auddChallenge,
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe('invalid_receipt');
+        expect(result.message).toMatch(/no_transfer_checked/);
+      }
+    });
   });
 
   describe('sendPayment', () => {

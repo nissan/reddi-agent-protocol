@@ -19,6 +19,10 @@ const NON_ELIGIBLE_ENVIRONMENTS = new Set([
     'local-test-mint',
     'devnet-unverified',
 ]);
+const PARTNER_ACCEPTANCE_ENVIRONMENTS = new Set([
+    'mainnet-gated',
+    'controlled-live',
+]);
 export function canonicalizePaymentObject(value) {
     return canonicalize(value);
 }
@@ -46,8 +50,8 @@ export function validatePaymentRecordLabels(labels, path = '$.labels') {
     if (isPaymentEnvironment(record.environment) && record.eligibility === 'eligible' && NON_ELIGIBLE_ENVIRONMENTS.has(record.environment)) {
         errors.push(error('non_live_evidence_marked_eligible', `${path}.eligibility`, `${record.environment} payment evidence is not eligible for grant-volume claims`));
     }
-    if (record.environment === 'mainnet-gated' && record.eligibility === 'eligible' && !isNonEmptyString(record.partnerAcceptanceRef)) {
-        errors.push(error('mainnet_partner_acceptance_missing', `${path}.partnerAcceptanceRef`, 'mainnet AUDD evidence cannot be marked eligible without partner acceptance provenance'));
+    if (isPaymentEnvironment(record.environment) && PARTNER_ACCEPTANCE_ENVIRONMENTS.has(record.environment) && record.eligibility === 'eligible' && !isNonEmptyString(record.partnerAcceptanceRef)) {
+        errors.push(error('mainnet_partner_acceptance_missing', `${path}.partnerAcceptanceRef`, `${record.environment} AUDD evidence cannot be marked eligible without partner acceptance provenance`));
     }
     if (record.exclusionReason !== undefined && !isNonEmptyString(record.exclusionReason)) {
         errors.push(error('malformed_labels', `${path}.exclusionReason`, 'exclusionReason must be non-empty when present'));

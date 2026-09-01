@@ -152,6 +152,18 @@ describe('canonical RAP payment identifiers and records', () => {
     assert.equal(eligible.ok, true);
   });
 
+  it('requires partner provenance before a controlled-live row can be eligible', () => {
+    const missing = validatePaymentRecordLabels({ environment: 'controlled-live', eligibility: 'eligible' });
+    assert.equal(missing.ok, false);
+    if (!missing.ok) assert.ok(missing.errors.some((item) => item.code === 'mainnet_partner_acceptance_missing'));
+
+    const eligible = validatePaymentRecordLabels({ environment: 'controlled-live', eligibility: 'eligible', partnerAcceptanceRef: 'audd-approval:future-explicit-written-alignment' });
+    assert.equal(eligible.ok, true);
+
+    const pending = validatePaymentRecordLabels({ environment: 'controlled-live', eligibility: 'pending_partner_acceptance' });
+    assert.equal(pending.ok, true);
+  });
+
   it('rejects model-controlled spend authority on payment intents', () => {
     const intent = createPaymentIntentDraft({
       labels,

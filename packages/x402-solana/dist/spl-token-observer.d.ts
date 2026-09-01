@@ -25,7 +25,8 @@ export type SplTransferCheckedObservation = {
     network: string;
     signature: string;
     slot: number;
-    blockTime: number;
+    /** Optional: Solana nodes legitimately report a null blockTime for a confirmed slot. */
+    blockTime?: number;
     commitment: SplTransferCheckedCommitment;
     instructionIndex: string;
     innerInstruction: boolean;

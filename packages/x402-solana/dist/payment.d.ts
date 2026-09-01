@@ -44,7 +44,8 @@ export declare class SolanaReceiptVerifier implements ReceiptVerifier {
     private readonly options;
     constructor(options: SolanaReceiptVerifierOptions);
     verifyReceipt(receiptInput: unknown, challenge: X402Challenge, replayStore?: NonceReplayStore): Promise<ReceiptVerificationResult>;
-    private receiptSatisfiesChallenge;
+    /** Returns a failure result when the parsed transaction does not settle the challenge, otherwise undefined. */
+    private challengePaymentFailure;
 }
 export interface SendPaymentOptions {
     swapClient?: SwapClient;
