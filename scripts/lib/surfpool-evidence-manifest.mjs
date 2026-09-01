@@ -45,12 +45,17 @@ const LANE_FINGERPRINT_PATHS = Object.freeze({
     "scripts/lib/surfpool-evidence-manifest.mjs",
     "scripts/run-surfpool-sdk-critical-smoke.mjs",
     "config/quasar/deployments.json",
+    "rust-toolchain.toml",
     "docs/SOLANA-TOOLCHAIN-BASELINE.md",
   ]),
   "legacy-anchor": Object.freeze([
     "programs/escrow/src",
     "programs/escrow/Cargo.toml",
+    // programs/escrow declares no [workspace], so the root manifest's [profile.release]
+    // (lto, codegen-units, overflow-checks) governs its cargo build-sbf output.
+    "Cargo.toml",
     "Cargo.lock",
+    "rust-toolchain.toml",
     "packages/demo-agents/src",
     "scripts/lib/surfpool-sdk-lifecycle.mjs",
     "scripts/lib/surfpool-evidence-manifest.mjs",

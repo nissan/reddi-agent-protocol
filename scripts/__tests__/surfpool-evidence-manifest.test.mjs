@@ -26,14 +26,43 @@ async function withRepo(run) {
   }
 }
 
-// The fingerprint roots are repository paths; seeding one keeps the digest deterministic per repo.
-async function seedFingerprintSources(repoRoot) {
-  await fsp.mkdir(path.join(repoRoot, "packages/demo-agents/src"), { recursive: true });
-  await fsp.writeFile(path.join(repoRoot, "packages/demo-agents/src", "demo.ts"), "export const version = 1;\n");
+// One representative file per fingerprint root the lanes actually build from, so a root that stops
+// being fingerprinted is caught rather than silently ignored.
+const FINGERPRINTED_BUILD_INPUTS = Object.freeze({
+  quasar: Object.freeze({
+    "packages/demo-agents/src/demo.ts": "export const version = 1;\n",
+    "third_party/quasar/lang/src/lib.rs": "pub fn owner_check() {}\n",
+    "experiments/quasar-escrow/src/lib.rs": 'declare_id!("stub");\n',
+    "experiments/quasar-escrow/Cargo.toml": "[package]\nname = \"quasar-escrow\"\n",
+    "experiments/quasar-escrow/Cargo.lock": "version = 4\n",
+    "experiments/quasar-escrow-ref/src/lib.rs": "pub struct EscrowRef;\n",
+    "config/quasar/deployments.json": "{}\n",
+    "rust-toolchain.toml": '[toolchain]\nchannel = "1.89.0"\n',
+  }),
+  "legacy-anchor": Object.freeze({
+    "packages/demo-agents/src/demo.ts": "export const version = 1;\n",
+    "programs/escrow/src/lib.rs": "fn main() {}\n",
+    "programs/escrow/Cargo.toml": "[package]\nname = \"escrow\"\n",
+    "Cargo.toml": '[workspace]\nmembers = ["programs/*"]\n\n[profile.release]\nlto = "fat"\n',
+    "Cargo.lock": "version = 4\n",
+    "rust-toolchain.toml": '[toolchain]\nchannel = "1.89.0"\n',
+  }),
+});
+
+async function writeRepoFile(repoRoot, relativePath, body) {
+  const absolute = path.join(repoRoot, relativePath);
+  await fsp.mkdir(path.dirname(absolute), { recursive: true });
+  await fsp.writeFile(absolute, body);
+}
+
+async function seedFingerprintSources(repoRoot, target = "quasar") {
+  for (const [relativePath, body] of Object.entries(FINGERPRINTED_BUILD_INPUTS[target])) {
+    await writeRepoFile(repoRoot, relativePath, body);
+  }
 }
 
 async function seedRun(repoRoot, relativeDir, runId, { status = "PASS", target = "quasar" } = {}) {
-  await seedFingerprintSources(repoRoot);
+  await seedFingerprintSources(repoRoot, target);
   const runDir = path.join(repoRoot, relativeDir, runId);
   await fsp.mkdir(runDir, { recursive: true });
   await fsp.writeFile(path.join(runDir, "SUMMARY.md"), `# Summary\n\n- Status: ${status}\n`);
@@ -447,3 +476,29 @@ test("containment validation refuses to run without a repoRoot to resolve agains
     /repoRoot is required to validate artifact containment/,
   );
 });
+
+for (const [target, inputs] of Object.entries(FINGERPRINTED_BUILD_INPUTS)) {
+  for (const relativePath of Object.keys(inputs)) {
+    test(`editing ${relativePath} invalidates an accepted ${target} receipt`, async () => {
+      await withRepo(async (repoRoot) => {
+        const dir = target === "quasar" ? "artifacts/surfpool-quasar-smoke" : "artifacts/surfpool-smoke";
+        const record = await seedRun(repoRoot, dir, `sdk-${target}-fingerprint-root`, { target });
+        await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+
+        // Baseline: the receipt is accepted against the sources that produced it.
+        assert.doesNotThrow(() =>
+          readAcceptedEvidenceManifest(repoRoot, dir, { target, requiredArtifacts: ["summary", "log"] }));
+
+        // Every one of these files is a real build input: changing it changes the binaries the lane
+        // would now produce, so the prior receipt must stop being citable.
+        await writeRepoFile(repoRoot, relativePath, `${inputs[relativePath]}// changed\n`);
+
+        assert.throws(
+          () => readAcceptedEvidenceManifest(repoRoot, dir, { target, requiredArtifacts: ["summary", "log"] }),
+          /produced from different sources than the working tree/,
+          `${relativePath} must be inside the ${target} fingerprint`,
+        );
+      });
+    });
+  }
+}
