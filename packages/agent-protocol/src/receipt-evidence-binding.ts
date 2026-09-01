@@ -354,6 +354,9 @@ function validatePaymentObservation(input: ReceiptEvidenceBindingInput, errors: 
         caip2Network: observation.payment.network.caip2,
         mint: observation.payment.mint,
       });
+  if (observesAudd && !observedRail) {
+    errors.push(error('payment_observation_mismatch', '$.paymentObservation.payment', 'payment observation AUDD identity must resolve to a configured rail'));
+  }
   if (observedRail && !auddLabelMatchesRail(observation.labels.environment, observedRail)) {
     errors.push(error('payment_observation_ineligible', '$.paymentObservation.labels.environment', `payment observation labelled ${observation.labels.environment} was observed on the ${observedRail} AUDD rail`));
   }

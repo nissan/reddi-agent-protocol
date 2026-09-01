@@ -427,6 +427,23 @@ describe('receipt/evidence binding for ARD-onboarded agents', () => {
       assert.ok(eligibleMainnet.errors.some((item) => item.code === 'payment_observation_ineligible' && item.path === '$.paymentObservation.labels.eligibility'));
     }
 
+    const nonderivableAudd = deriveReceiptEvidenceBinding({
+      ...input,
+      paymentPreflight: { ...input.paymentPreflight, paymentPlan: undefined },
+      paymentObservation: {
+        ...observation,
+        payment: {
+          ...observation.payment,
+          network: { caip2: 'solana:4uhcVJyU9pJkvQyS88uRDiswHXSCkY3z', rapAlias: 'solana-testnet' },
+          mint: 'NotAnAuddMint111111111111111111111111111111',
+        },
+      },
+    });
+    assert.equal(nonderivableAudd.ok, false);
+    if (!nonderivableAudd.ok) {
+      assert.ok(nonderivableAudd.errors.some((item) => item.message === 'payment observation AUDD identity must resolve to a configured rail'));
+    }
+
     const nonAuddObservation = deriveReceiptEvidenceBinding({
       ...input,
       paymentObservation: {

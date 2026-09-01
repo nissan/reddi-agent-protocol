@@ -265,7 +265,7 @@ export function createAuddX402SvmExactPaymentPlan(input) {
         paymentFlow: AUDD_X402_PAYMENT_FLOW,
         maxTimeoutSeconds: input.maxTimeoutSeconds ?? 60,
         railEnvironment,
-        eligibility: input.eligibility ?? 'non_eligible',
+        eligibility: input.eligibility ?? getAuddRailEnvironmentConfig(railEnvironment).grantEligibility,
         authority: input.authority ?? {
             modelRole: 'draft_only',
             authorizationState: 'model_draft',

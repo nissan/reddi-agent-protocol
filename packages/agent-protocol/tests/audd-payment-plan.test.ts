@@ -908,6 +908,12 @@ describe('AUDD/Solana payment plan adapter', () => {
       paymentMode: 'live',
     });
     assert.equal(mainnetPlan.railEnvironment, 'mainnet-gated');
+    assert.equal(mainnetPlan.eligibility, 'pending_partner_acceptance');
+    const defaultMainnetIntent = createAuddPaymentIntentDraft({
+      agreementId: 'reddi.agreement:6666666666666666666666666666666666666666666666666666666666666666',
+      paymentPlan: mainnetPlan,
+    });
+    assert.equal(defaultMainnetIntent.labels.eligibility, 'pending_partner_acceptance');
 
     const fixtureLabelledIntent = createPaymentIntentDraft({
       labels: { environment: 'deterministic-fixture', eligibility: 'non_eligible' },
