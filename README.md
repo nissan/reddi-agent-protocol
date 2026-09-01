@@ -49,11 +49,11 @@ See [`docs/OPEN-SOURCE-GOVERNANCE.md`](docs/OPEN-SOURCE-GOVERNANCE.md) for the o
 │                                            │  │                                                     │
 │  Consumer Agent (TypeScript)               │  │  AgentRegistry PDA                                  │
 │  ├── query /agents → filter by type/rep    │──┼──► register_agent / update_agent / deregister_agent │
-│  ├── lock_escrow tx                        │──┼──► EscrowAccount PDA (SOL lamports on devnet)        │
+│  ├── lock_escrow tx                        │──┼──► EscrowAccount PDA (SOL lamports on devnet)       │
 │  │                                         │  │                                                     │
 │  Specialist Agent (Ollama/vLLM/OpenOnion)  │  │  MagicBlock PER (Private Ephemeral Rollup)          │
 │  ├── serve inference via HTTP              │  │  ├── delegate_escrow → TEE session                  │
-│  └── receive settlement evidence           │──┼──► public release path; PER evidence is bounded/gated│
+│  └── receive settlement evidence           │──┼──► public release path; PER evidence bounded/gated  │
 │                                            │  │  └── L1 fallback if TEE unreachable                │
 │  Judge Agent (Attestation)                 │  │                                                     │
 │  ├── attest_quality (5-dim score)          │──┼──► AttestationAccount PDA                           │

@@ -97,18 +97,6 @@ export function getNetworkProfile(): NetworkProfile {
 
   const quasarPrograms = quasarDevnet.programIds ?? { escrow: quasarDevnet.programId };
   const targetProgramId = target === "quasar" ? quasarPrograms.escrow : base.programs.escrowProgramId;
-  const mainnetKnownGaps = name === "mainnet"
-    ? [
-        "No audited mainnet program deployment is registered; the configured escrow id is a placeholder devnet id and the Quasar four-program set has no mainnet ids, so registry, reputation, and attestation all alias to that single placeholder id on this profile.",
-        "External audit, upgrade-authority custody, paid RPC, monitoring, and incident-response gates remain unresolved before mainnet activation.",
-        ...(requestedTarget === "quasar"
-          ? [
-              "A Quasar program target was requested for mainnet, but no mainnet Quasar deployment is registered; the request is refused and the profile stays blocked on the legacy placeholder id.",
-            ]
-          : []),
-      ]
-    : [];
-
   const applyProgramIdOverride = (override: string | undefined, registered: string): string =>
     name === "devnet" && override && override !== registered && !allowUnsafeDevnetOverride
       ? registered
@@ -127,6 +115,32 @@ export function getNetworkProfile(): NetworkProfile {
     pickEnv("NEXT_PUBLIC_ATTESTATION_PROGRAM_ID", "DEMO_ATTESTATION_PROGRAM_ID"),
     target === "quasar" ? quasarPrograms.attestation : effectiveEscrowProgramId,
   );
+
+  const escrowIsConfiguredPlaceholder = effectiveEscrowProgramId === base.programs.escrowProgramId;
+  const perProgramIdsAliasEscrow =
+    effectiveRegistryProgramId === effectiveEscrowProgramId &&
+    effectiveReputationProgramId === effectiveEscrowProgramId &&
+    effectiveAttestationProgramId === effectiveEscrowProgramId;
+
+  const mainnetKnownGaps = name === "mainnet"
+    ? [
+        escrowIsConfiguredPlaceholder
+          ? `No audited mainnet program deployment is registered; the configured escrow id is still the placeholder devnet id${
+              perProgramIdsAliasEscrow
+                ? ", and registry, reputation, and attestation all alias to that single placeholder id on this profile"
+                : ""
+            }.`
+          : "Mainnet program ids are supplied by environment overrides, but no audited mainnet deployment is registered for them in config/networks/mainnet.json.",
+        "External audit, upgrade-authority custody, paid RPC, monitoring, and incident-response gates remain unresolved before mainnet activation.",
+        ...(requestedTarget === "quasar"
+          ? [
+              `A Quasar program target was requested for mainnet, but no mainnet Quasar deployment is registered; the request is refused and the profile stays blocked${
+                escrowIsConfiguredPlaceholder ? " on the legacy placeholder id" : ""
+              }.`,
+            ]
+          : []),
+      ]
+    : [];
 
   return {
     ...base,

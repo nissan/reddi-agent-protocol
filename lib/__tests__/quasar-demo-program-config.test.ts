@@ -136,6 +136,23 @@ describe("Quasar demo program target config", () => {
     );
   });
 
+  it("stops claiming placeholder aliasing once mainnet program ids are supplied", async () => {
+    process.env.NETWORK_PROFILE = "mainnet";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+    process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = "EscrowMainnet1111111111111111111111111111111";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryMainnet111111111111111111111111111111";
+    process.env.NEXT_PUBLIC_REPUTATION_PROGRAM_ID = "ReputationMainnet11111111111111111111111111";
+    process.env.NEXT_PUBLIC_ATTESTATION_PROGRAM_ID = "AttestationMainnet1111111111111111111111111";
+
+    const { getNetworkProfile } = await import("@/lib/config/network");
+    const gaps = getNetworkProfile().programs.knownGaps.join(" ");
+
+    expect(gaps).not.toMatch(/placeholder/);
+    expect(gaps).not.toMatch(/alias/);
+    expect(gaps).toMatch(/no audited mainnet deployment is registered for them/);
+    expect(getNetworkProfile().programs.submissionReady).toBe(false);
+  });
+
   it("honours the documented per-program mainnet overrides instead of aliasing them to escrow", async () => {
     process.env.NETWORK_PROFILE = "mainnet";
     process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = "EscrowMainnet1111111111111111111111111111111";
