@@ -250,6 +250,7 @@ export class SolanaReceiptVerifier implements ReceiptVerifier {
       const result = await verifySplTransferCheckedObservation({
         parsedTransaction: parsed,
         commitment: 'confirmed',
+        evidenceSource: 'parsed-rpc-transaction',
         expected: {
           network: challenge.network,
           signature,

@@ -235,6 +235,7 @@ class SolanaReceiptVerifier {
             const result = await (0, spl_token_observer_1.verifySplTransferCheckedObservation)({
                 parsedTransaction: parsed,
                 commitment: 'confirmed',
+                evidenceSource: 'parsed-rpc-transaction',
                 expected: {
                     network: challenge.network,
                     signature,

@@ -166,4 +166,4 @@ export type AuddRailIdentityRef = {
     mint: string;
 };
 export declare function deriveAuddRailEnvironment(identity: AuddRailIdentityRef): AuddRailEnvironment | undefined;
-export declare function auddLabelEnvironmentExceedsRail(environment: ReddiPaymentEnvironmentLabel, railEnvironment: AuddRailEnvironment): boolean;
+export declare function auddLabelMatchesRail(environment: ReddiPaymentEnvironmentLabel, railEnvironment: AuddRailEnvironment): boolean;

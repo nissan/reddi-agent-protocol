@@ -398,8 +398,10 @@ export function createAuddSolanaPaymentPlan(input: AuddPaymentPlanInput): AuddSo
 export function createAuddX402SvmExactPaymentPlan(input: AuddPaymentPlanInput): AuddSolanaPaymentPlan {
   const caip2Network = input.caip2Network ?? caip2ForSolanaNetwork(input.network);
   if (!caip2Network) throw new Error('invalid_audd_x402_network');
-  const railEnvironment = input.railEnvironment
-    ?? deriveAuddRailEnvironment({ network: input.network, caip2Network, mint: input.mint });
+  const railEnvironment = moreLiveRailEnvironment(
+    input.railEnvironment,
+    deriveAuddRailEnvironment({ network: input.network, caip2Network, mint: input.mint }),
+  );
   if (!railEnvironment) throw new Error('audd_payment_plan_environment_undeclared');
   return createAuddSolanaPaymentPlan({
     ...input,
@@ -517,6 +519,7 @@ export function createAuddX402SvmExactPaymentRequired(input: {
   ) {
     throw new Error('audd_payment_intent_plan_mismatch');
   }
+  assertLabelsMatchRail(plan, paymentIntent.labels);
   const caip2 = plan.caip2Network ?? paymentIntent.network.caip2;
   const tokenProgram = planTokenProgram;
   const memo = paymentIntent.memo ?? plan.memo ?? deriveAuddMemo({ agreementId: paymentIntent.agreementId, amount: plan.amount, mint: plan.mint, payTo: plan.payee });
@@ -892,23 +895,32 @@ function planTargetsMainnetAudd(plan: AuddSolanaPaymentPlan): boolean {
   return railIdentityTargetsMainnetAudd(plan);
 }
 
-function railEnvironmentForPlan(plan: AuddSolanaPaymentPlan): AuddRailEnvironment | undefined {
-  return plan.railEnvironment ?? deriveAuddRailEnvironment(plan);
+function moreLiveRailEnvironment(
+  declared: AuddRailEnvironment | undefined,
+  derived: AuddRailEnvironment | undefined,
+): AuddRailEnvironment | undefined {
+  if (!declared) return derived;
+  if (!derived) return declared;
+  return ENVIRONMENT_LIVENESS[derived] > ENVIRONMENT_LIVENESS[declared] ? derived : declared;
 }
 
-export function auddLabelEnvironmentExceedsRail(
+function railEnvironmentForPlan(plan: AuddSolanaPaymentPlan): AuddRailEnvironment | undefined {
+  return moreLiveRailEnvironment(plan.railEnvironment, deriveAuddRailEnvironment(plan));
+}
+
+export function auddLabelMatchesRail(
   environment: ReddiPaymentEnvironmentLabel,
   railEnvironment: AuddRailEnvironment,
 ): boolean {
-  return ENVIRONMENT_LIVENESS[environment] > ENVIRONMENT_LIVENESS[railEnvironment];
+  return environment === railEnvironment;
 }
 
 function assertLabelsMatchRail(plan: AuddSolanaPaymentPlan, labels: ReddiPaymentRecordLabels): void {
   const railEnvironment = railEnvironmentForPlan(plan);
   if (!railEnvironment) return;
-  const matchesRail = labels.environment === railEnvironment
-    || (railEnvironment === 'mainnet-gated' && labels.environment === 'controlled-live');
-  if (!matchesRail) throw new Error('audd_payment_plan_label_environment_mismatch');
+  if (!auddLabelMatchesRail(labels.environment, railEnvironment)) {
+    throw new Error('audd_payment_plan_label_environment_mismatch');
+  }
 }
 
 function defaultLabelsForPlan(plan: AuddSolanaPaymentPlan): ReddiPaymentRecordLabels {

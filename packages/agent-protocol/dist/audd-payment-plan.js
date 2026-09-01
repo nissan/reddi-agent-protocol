@@ -244,8 +244,7 @@ export function createAuddX402SvmExactPaymentPlan(input) {
     const caip2Network = input.caip2Network ?? caip2ForSolanaNetwork(input.network);
     if (!caip2Network)
         throw new Error('invalid_audd_x402_network');
-    const railEnvironment = input.railEnvironment
-        ?? deriveAuddRailEnvironment({ network: input.network, caip2Network, mint: input.mint });
+    const railEnvironment = moreLiveRailEnvironment(input.railEnvironment, deriveAuddRailEnvironment({ network: input.network, caip2Network, mint: input.mint }));
     if (!railEnvironment)
         throw new Error('audd_payment_plan_environment_undeclared');
     return createAuddSolanaPaymentPlan({
@@ -345,6 +344,7 @@ export function createAuddX402SvmExactPaymentRequired(input) {
         || paymentIntent.destinationTokenAccount !== plan.settlementAccount) {
         throw new Error('audd_payment_intent_plan_mismatch');
     }
+    assertLabelsMatchRail(plan, paymentIntent.labels);
     const caip2 = plan.caip2Network ?? paymentIntent.network.caip2;
     const tokenProgram = planTokenProgram;
     const memo = paymentIntent.memo ?? plan.memo ?? deriveAuddMemo({ agreementId: paymentIntent.agreementId, amount: plan.amount, mint: plan.mint, payTo: plan.payee });
@@ -713,20 +713,26 @@ export function deriveAuddRailEnvironment(identity) {
 function planTargetsMainnetAudd(plan) {
     return railIdentityTargetsMainnetAudd(plan);
 }
-function railEnvironmentForPlan(plan) {
-    return plan.railEnvironment ?? deriveAuddRailEnvironment(plan);
+function moreLiveRailEnvironment(declared, derived) {
+    if (!declared)
+        return derived;
+    if (!derived)
+        return declared;
+    return ENVIRONMENT_LIVENESS[derived] > ENVIRONMENT_LIVENESS[declared] ? derived : declared;
 }
-export function auddLabelEnvironmentExceedsRail(environment, railEnvironment) {
-    return ENVIRONMENT_LIVENESS[environment] > ENVIRONMENT_LIVENESS[railEnvironment];
+function railEnvironmentForPlan(plan) {
+    return moreLiveRailEnvironment(plan.railEnvironment, deriveAuddRailEnvironment(plan));
+}
+export function auddLabelMatchesRail(environment, railEnvironment) {
+    return environment === railEnvironment;
 }
 function assertLabelsMatchRail(plan, labels) {
     const railEnvironment = railEnvironmentForPlan(plan);
     if (!railEnvironment)
         return;
-    const matchesRail = labels.environment === railEnvironment
-        || (railEnvironment === 'mainnet-gated' && labels.environment === 'controlled-live');
-    if (!matchesRail)
+    if (!auddLabelMatchesRail(labels.environment, railEnvironment)) {
         throw new Error('audd_payment_plan_label_environment_mismatch');
+    }
 }
 function defaultLabelsForPlan(plan) {
     const environment = railEnvironmentForPlan(plan);

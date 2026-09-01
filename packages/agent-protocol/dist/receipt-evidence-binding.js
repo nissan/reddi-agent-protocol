@@ -1,5 +1,5 @@
 import { validateAttestationRecord, } from './attestation-reputation.js';
-import { auddLabelEnvironmentExceedsRail, deriveAuddRailEnvironment, } from './audd-payment-plan.js';
+import { auddLabelMatchesRail, deriveAuddRailEnvironment, } from './audd-payment-plan.js';
 import { validateEvidenceArchiveRecord, } from './evidence-archive.js';
 import { validatePaymentObservationRecord, } from './payment-records.js';
 import { validateReddiReceipt, } from './receipts.js';
@@ -186,7 +186,7 @@ function validatePaymentObservation(input, errors) {
             caip2Network: observation.payment.network.caip2,
             mint: observation.payment.mint,
         });
-    if (observedRail && auddLabelEnvironmentExceedsRail(observation.labels.environment, observedRail)) {
+    if (observedRail && !auddLabelMatchesRail(observation.labels.environment, observedRail)) {
         errors.push(error('payment_observation_ineligible', '$.paymentObservation.labels.environment', `payment observation labelled ${observation.labels.environment} was observed on the ${observedRail} AUDD rail`));
     }
     if (observation.status !== 'observed_confirmed') {

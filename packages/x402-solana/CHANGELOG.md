@@ -13,6 +13,7 @@ All notable changes to this package are documented here. Dates are AEST.
 
 - `SplTransferCheckedObservation.blockTime` is optional: a confirmed transaction whose node reports no block time for the slot is still observable, and only a present-but-invalid `blockTime` is rejected. `slot` remains mandatory.
 - An AUDD challenge verified without a configured `auddMint` now fails as `unsupported_receipt` (operator misconfiguration) rather than `invalid_receipt`, and AUDD observer failures surface their specific reason in the failure message.
+- `SolanaReceiptVerifier` marks AUDD observations it derives from `getParsedTransaction` output as `evidence.source: 'parsed-rpc-transaction'` instead of leaving the fixture default.
 
 ## 0.1.0 — 2026-07-06
 
