@@ -54,6 +54,14 @@
       "types": "./dist/buyer-seller.d.ts",
       "import": "./dist/buyer-seller.js"
     },
+    "./audd-rail-config": {
+      "types": "./dist/audd-rail-config.d.ts",
+      "import": "./dist/audd-rail-config.js"
+    },
+    "./payment-records": {
+      "types": "./dist/payment-records.d.ts",
+      "import": "./dist/payment-records.js"
+    },
     "./audd-payment-plan": {
       "types": "./dist/audd-payment-plan.d.ts",
       "import": "./dist/audd-payment-plan.js"

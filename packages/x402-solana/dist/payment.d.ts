@@ -28,18 +28,24 @@ export declare class DemoPaymentVerifier implements ReceiptVerifier {
     verifyReceipt(receipt: unknown, challenge: X402Challenge, replayStore?: NonceReplayStore): Promise<ReceiptVerificationResult>;
 }
 export interface ParsedTransactionConnection {
-    getParsedTransaction(signature: string, options?: unknown): Promise<any>;
+    getParsedTransaction(signature: string, options?: unknown): Promise<unknown>;
 }
 export interface SolanaReceiptVerifierOptions {
     allowRealPayment: boolean;
     connection: ParsedTransactionConnection;
     /** Required when verifying USDC/SPL-token receipts. */
     usdcMint?: string;
+    /** Required when verifying AUDD x402 v2 SVM exact receipts. */
+    auddMint?: string;
+    /** Defaults to the legacy SPL Token program for AUDD exact receipts. */
+    auddTokenProgram?: string;
 }
 export declare class SolanaReceiptVerifier implements ReceiptVerifier {
     private readonly options;
     constructor(options: SolanaReceiptVerifierOptions);
     verifyReceipt(receiptInput: unknown, challenge: X402Challenge, replayStore?: NonceReplayStore): Promise<ReceiptVerificationResult>;
+    /** Returns a failure result when the parsed transaction does not settle the challenge, otherwise undefined. */
+    private challengePaymentFailure;
 }
 export interface SendPaymentOptions {
     swapClient?: SwapClient;

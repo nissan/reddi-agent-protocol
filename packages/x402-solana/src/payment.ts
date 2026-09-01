@@ -1,5 +1,6 @@
 import { LAMPORTS_PER_SOL, PublicKey, SystemProgram } from '@solana/web3.js';
 import { needsAutoSwap, resolveMint, SwapClient } from './jupiter';
+import { SPL_TOKEN_PROGRAM_ID, verifySplTransferCheckedObservation } from './spl-token-observer';
 import { X402Request, PaymentReceipt } from './types';
 import type {
   NonceReplayStore,
@@ -67,7 +68,7 @@ export function parseX402Header(header: string): X402Request {
       payerAddress: typeof parsed.payerAddress === 'string' ? parsed.payerAddress : undefined,
       autoSwap: typeof parsed.autoSwap === 'boolean' ? parsed.autoSwap : false,
     };
-  } catch (e: any) {
+  } catch (e: unknown) {
     if (e instanceof SyntaxError) throw new Error('x402-request header is not valid JSON');
     throw e;
   }
@@ -177,7 +178,7 @@ export class DemoPaymentVerifier implements ReceiptVerifier {
 }
 
 export interface ParsedTransactionConnection {
-  getParsedTransaction(signature: string, options?: unknown): Promise<any>;
+  getParsedTransaction(signature: string, options?: unknown): Promise<unknown>;
 }
 
 export interface SolanaReceiptVerifierOptions {
@@ -185,6 +186,10 @@ export interface SolanaReceiptVerifierOptions {
   connection: ParsedTransactionConnection;
   /** Required when verifying USDC/SPL-token receipts. */
   usdcMint?: string;
+  /** Required when verifying AUDD x402 v2 SVM exact receipts. */
+  auddMint?: string;
+  /** Defaults to the legacy SPL Token program for AUDD exact receipts. */
+  auddTokenProgram?: string;
 }
 
 export class SolanaReceiptVerifier implements ReceiptVerifier {
@@ -201,18 +206,15 @@ export class SolanaReceiptVerifier implements ReceiptVerifier {
     const signature = receipt.signature ?? receipt.txSignature;
     if (!signature) return { ok: false, reason: 'invalid_receipt', message: 'receipt signature is required' };
 
-    const parsed = await this.options.connection.getParsedTransaction(signature, {
+    const parsed = asRecord(await this.options.connection.getParsedTransaction(signature, {
       commitment: 'confirmed',
       maxSupportedTransactionVersion: 0,
-    });
-    if (!parsed?.meta || parsed.meta.err) return { ok: false, reason: 'invalid_receipt', message: 'transaction is missing or failed' };
+    }));
+    const meta = asRecord(parsed?.meta);
+    if (!parsed || !meta || meta.err) return { ok: false, reason: 'invalid_receipt', message: 'transaction is missing or failed' };
 
-    const paid = challenge.currency === 'SOL'
-      ? transactionHasSolTransfer(parsed, receipt.payer, challenge.payTo, Number(challenge.amount))
-      : challenge.currency === 'USDC'
-        ? transactionHasTokenTransfer(parsed, receipt, challenge, this.options.usdcMint)
-        : false;
-    if (!paid) return { ok: false, reason: 'invalid_receipt', message: 'transaction does not satisfy x402 challenge payment terms' };
+    const unpaid = await this.challengePaymentFailure(parsed, receipt, challenge, signature, replayStore);
+    if (unpaid) return unpaid;
 
     if (replayStore) {
       const accepted = await replayStore.checkAndStore(receipt.nonce);
@@ -220,6 +222,68 @@ export class SolanaReceiptVerifier implements ReceiptVerifier {
     }
     return { ok: true, receipt, demo: false };
   }
+
+  /** Returns a failure result when the parsed transaction does not settle the challenge, otherwise undefined. */
+  private async challengePaymentFailure(
+    parsed: Record<string, unknown>,
+    receipt: X402PaymentReceipt,
+    challenge: X402Challenge,
+    signature: string,
+    replayStore?: NonceReplayStore,
+  ): Promise<ReceiptVerificationResult | undefined> {
+    if (challenge.currency === 'SOL') {
+      return transactionHasSolTransfer(parsed, receipt.payer, challenge.payTo, Number(challenge.amount))
+        ? undefined
+        : unsatisfiedChallenge();
+    }
+    if (challenge.currency === 'USDC') {
+      return transactionHasTokenTransfer(parsed, receipt, challenge, this.options.usdcMint)
+        ? undefined
+        : unsatisfiedChallenge();
+    }
+    if (challenge.currency === 'AUDD') {
+      const mint = this.options.auddMint;
+      if (!mint) {
+        return { ok: false, reason: 'unsupported_receipt', message: 'AUDD receipt verification requires a configured auddMint' };
+      }
+      if (receipt.mint !== undefined && receipt.mint !== mint) {
+        return unsatisfiedChallenge('receipt mint does not match the configured AUDD mint', mint, receipt.mint);
+      }
+      const result = await verifySplTransferCheckedObservation({
+        parsedTransaction: parsed,
+        commitment: 'confirmed',
+        replayStore,
+        evidenceSource: 'parsed-rpc-transaction',
+        expected: {
+          network: challenge.network,
+          signature,
+          mint,
+          tokenProgram: this.options.auddTokenProgram ?? SPL_TOKEN_PROGRAM_ID,
+          payTo: challenge.payTo,
+          amountBaseUnits: String(challenge.amount),
+          destinationTokenAccount: receipt.destinationTokenAccount,
+          authority: receipt.payer,
+          memo: challenge.memo,
+          memoRequired: challenge.memo !== undefined,
+        },
+      });
+      if (result.ok) return undefined;
+      return unsatisfiedChallenge(
+        `transaction does not satisfy x402 challenge payment terms (${result.reason}: ${result.message})`,
+        result.expected,
+        result.actual,
+      );
+    }
+    return { ok: false, reason: 'unsupported_receipt', message: `unsupported challenge currency: ${challenge.currency}` };
+  }
+}
+
+function unsatisfiedChallenge(
+  message = 'transaction does not satisfy x402 challenge payment terms',
+  expected?: unknown,
+  actual?: unknown,
+): ReceiptVerificationResult {
+  return { ok: false, reason: 'invalid_receipt', message, expected, actual };
 }
 
 function validateReceiptShape(receipt: X402PaymentReceipt, challenge: X402Challenge): ReceiptVerificationResult | undefined {
@@ -232,33 +296,36 @@ function validateReceiptShape(receipt: X402PaymentReceipt, challenge: X402Challe
   return undefined;
 }
 
-function transactionHasSolTransfer(parsed: any, payer: string | undefined, payTo: string, amountSol: number): boolean {
+function transactionHasSolTransfer(parsed: Record<string, unknown>, payer: string | undefined, payTo: string, amountSol: number): boolean {
   const lamports = Math.ceil(amountSol * LAMPORTS_PER_SOL);
-  return parsed.transaction?.message?.instructions?.some((ix: any) => {
-    const info = ix?.parsed?.info;
-    return ix?.programId?.toString?.() === SystemProgram.programId.toBase58()
-      && ix?.parsed?.type === 'transfer'
+  const instructions = parsedInstructions(parsed);
+  return instructions.some((ix) => {
+    const parsedInstruction = asRecord(ix.parsed);
+    const info = asRecord(parsedInstruction?.info);
+    return publicKeyText(ix.programId) === SystemProgram.programId.toBase58()
+      && parsedInstruction?.type === 'transfer'
       && (!payer || info?.source === payer)
       && info?.destination === payTo
       && Number(info?.lamports) >= lamports;
-  }) === true;
+  });
 }
 
-function transactionHasTokenTransfer(parsed: any, receipt: X402PaymentReceipt, challenge: X402Challenge, expectedMint?: string): boolean {
+function transactionHasTokenTransfer(parsed: Record<string, unknown>, receipt: X402PaymentReceipt, challenge: X402Challenge, expectedMint?: string): boolean {
   if (!expectedMint && !receipt.mint) return false;
   const mint = expectedMint ?? receipt.mint;
   const expectedAmount = String(challenge.amount);
-  const instructions = parsed.transaction?.message?.instructions;
-  if (!Array.isArray(instructions)) return false;
+  const instructions = parsedInstructions(parsed);
 
-  return instructions.some((ix: any) => {
-    const info = ix?.parsed?.info;
-    if (!info || !['transfer', 'transferChecked'].includes(ix?.parsed?.type)) return false;
+  return instructions.some((ix) => {
+    const parsedInstruction = asRecord(ix.parsed);
+    const info = asRecord(parsedInstruction?.info);
+    if (!info || !['transfer', 'transferChecked'].includes(String(parsedInstruction?.type))) return false;
     if (info.mint && info.mint !== mint) return false;
     if (receipt.payer && info.authority && info.authority !== receipt.payer) return false;
     if (receipt.destinationTokenAccount && info.destination !== receipt.destinationTokenAccount) return false;
 
-    const tokenAmount = info.tokenAmount?.uiAmountString ?? info.tokenAmount?.uiAmount ?? info.amount;
+    const tokenAmountRecord = asRecord(info.tokenAmount);
+    const tokenAmount = tokenAmountRecord?.uiAmountString ?? tokenAmountRecord?.uiAmount ?? info.amount;
     if (String(tokenAmount) !== expectedAmount) return false;
 
     const destination = typeof info.destination === 'string' ? info.destination : receipt.destinationTokenAccount;
@@ -267,18 +334,45 @@ function transactionHasTokenTransfer(parsed: any, receipt: X402PaymentReceipt, c
   });
 }
 
-function transactionTokenAccountOwnedBy(parsed: any, tokenAccount: string, mint: string | undefined, owner: string): boolean {
-  const accountKeys = parsed.transaction?.message?.accountKeys;
-  const postTokenBalances = parsed.meta?.postTokenBalances;
-  if (!Array.isArray(accountKeys) || !Array.isArray(postTokenBalances)) return false;
+function transactionTokenAccountOwnedBy(parsed: Record<string, unknown>, tokenAccount: string, mint: string | undefined, owner: string): boolean {
+  const accountKeys = asArray(asRecord(asRecord(parsed.transaction)?.message)?.accountKeys);
+  const postTokenBalances = asArray(asRecord(parsed.meta)?.postTokenBalances);
+  if (!accountKeys || !postTokenBalances) return false;
 
-  return postTokenBalances.some((balance: any) => {
-    if (balance?.owner !== owner) return false;
-    if (mint && balance?.mint !== mint) return false;
-    const key = accountKeys[balance?.accountIndex];
-    const pubkey = typeof key === 'string' ? key : key?.pubkey?.toString?.() ?? key?.toString?.();
+  return postTokenBalances.some((item) => {
+    const balance = asRecord(item);
+    if (!balance) return false;
+    if (balance.owner !== owner) return false;
+    if (mint && balance.mint !== mint) return false;
+    if (!Number.isSafeInteger(balance.accountIndex)) return false;
+    const key = accountKeys[Number(balance.accountIndex)];
+    const keyRecord = asRecord(key);
+    const pubkey = typeof key === 'string' ? key : publicKeyText(keyRecord?.pubkey) ?? publicKeyText(key);
     return pubkey === tokenAccount;
   });
+}
+
+function parsedInstructions(parsed: Record<string, unknown>): Record<string, unknown>[] {
+  return (asArray(asRecord(asRecord(parsed.transaction)?.message)?.instructions) ?? [])
+    .map((item) => asRecord(item))
+    .filter((item): item is Record<string, unknown> => item !== undefined);
+}
+
+function asArray(value: unknown): unknown[] | undefined {
+  return Array.isArray(value) ? value : undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' ? value as Record<string, unknown> : undefined;
+}
+
+function publicKeyText(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  if (value === null || typeof value !== 'object') return undefined;
+  const toString = (value as { toString?: unknown }).toString;
+  if (typeof toString !== 'function' || toString === Object.prototype.toString) return undefined;
+  const rendered = toString.call(value);
+  return typeof rendered === 'string' ? rendered : undefined;
 }
 
 export interface SendPaymentOptions {

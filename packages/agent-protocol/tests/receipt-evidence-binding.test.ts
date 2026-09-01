@@ -3,10 +3,13 @@ import { describe, it } from 'node:test';
 import {
   applyAttestationToReputation,
   createAttestationRecord,
+  SPL_TOKEN_PROGRAM_ID,
   createEvidenceArchiveRecord,
+  createPaymentObservationRecord,
   createReceiptEvidenceBinding,
   createReddiReceipt,
   deriveReceiptEvidenceBinding,
+  formatPaymentObservationProofRef,
   policyDecisionFromBudgetPolicyDecision,
   type AuddPaymentPlanPreflightDecision,
   type ReceiptEvidenceBindingInput,
@@ -265,5 +268,256 @@ describe('receipt/evidence binding for ARD-onboarded agents', () => {
     if (!result.ok) {
       assert.ok(result.errors.some((item) => item.code === 'raw_payload_leakage_rejected'));
     }
+  });
+
+  it('rejects lowercase AUDD receipt and preflight metadata', () => {
+    const input = validInput();
+    const paymentPlan = input.paymentPreflight.paymentPlan;
+    if (!paymentPlan) throw new Error('test fixture must carry an AUDD payment plan');
+    const result = deriveReceiptEvidenceBinding({
+      ...input,
+      receipt: {
+        ...input.receipt,
+        payment: { ...input.receipt.payment, asset: 'audd' },
+        policyDecision: { ...input.receipt.policyDecision, asset: 'audd' },
+      },
+      paymentPreflight: {
+        ...input.paymentPreflight,
+        paymentPlan: { ...paymentPlan, asset: 'audd' },
+        policyDecision: input.paymentPreflight.policyDecision
+          ? { ...input.paymentPreflight.policyDecision, asset: 'audd' }
+          : undefined,
+      },
+    } as unknown as ReceiptEvidenceBindingInput);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.ok(result.errors.some((item) => item.code === 'payment_plan_mismatch'));
+  });
+
+  it('binds a non-live AUDD TransferChecked observation without making it grant eligible', () => {
+    const input = validInput();
+    const plan = input.paymentPreflight.paymentPlan;
+    if (!plan) throw new Error('test fixture must carry an AUDD payment plan');
+    const proofRef = formatPaymentObservationProofRef({
+      network: { caip2: 'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1', rapAlias: 'solana-devnet' },
+      asset: 'AUDD',
+      signature: 'fixtureSignatureAuddTransferChecked111111111111111111',
+      instructionIndex: '0',
+      mint: plan.mint,
+      amountBaseUnits: plan.amount,
+    });
+    input.receipt.payment.paymentProofRef = proofRef;
+    input.paymentPreflight.paymentProofRef = proofRef;
+
+    const observation = createPaymentObservationRecord({
+      labels: {
+        environment: 'deterministic-fixture',
+        eligibility: 'non_eligible',
+        exclusionReason: 'offline parsed transaction fixture',
+      },
+      observedAt: createdAt,
+      verifier: { name: 'fixture-spl-transfer-checked', version: 'v1' },
+      payment: {
+        rail: 'svm-spl-token-transfer-checked',
+        network: { caip2: 'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1', rapAlias: 'solana-devnet' },
+        asset: 'AUDD',
+        mint: plan.mint,
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+        amountBaseUnits: plan.amount,
+        payTo: plan.payee,
+        sourceTokenAccount: 'payer-audd-token-account-fixture',
+        destinationTokenAccount: plan.settlementAccount,
+        authority: 'payer-owner-fixture',
+        signature: 'fixtureSignatureAuddTransferChecked111111111111111111',
+        instructionIndex: '0',
+        memo: 'reddi:pay:binding-fixture',
+        paymentProofRef: proofRef,
+      },
+      confirmation: { slot: 443284058, blockTime: 1785523200, commitment: 'confirmed' },
+      status: 'observed_confirmed',
+    });
+
+    const result = deriveReceiptEvidenceBinding({ ...input, paymentObservation: observation });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.binding.payment.observationRef?.id, observation.id);
+      assert.equal(result.binding.payment.observationRef?.eligibility, 'non_eligible');
+      assert.equal(result.binding.guardrails.livePaymentExecuted, false);
+      assert.equal(result.binding.guardrails.rpcCall, false);
+    }
+
+    const caip2OnlyResult = deriveReceiptEvidenceBinding({
+      ...input,
+      paymentObservation: {
+        ...observation,
+        payment: {
+          ...observation.payment,
+          network: { caip2: observation.payment.network.caip2 },
+        },
+      },
+    });
+    assert.equal(caip2OnlyResult.ok, true);
+  });
+
+  it('rejects payment observations that are grant-eligible fixtures or mismatch the plan', () => {
+    const input = validInput();
+    const plan = input.paymentPreflight.paymentPlan;
+    if (!plan) throw new Error('test fixture must carry an AUDD payment plan');
+    const observation = createPaymentObservationRecord({
+      labels: { environment: 'deterministic-fixture', eligibility: 'non_eligible' },
+      observedAt: createdAt,
+      verifier: { name: 'fixture-spl-transfer-checked', version: 'v1' },
+      payment: {
+        rail: 'svm-spl-token-transfer-checked',
+        network: { caip2: 'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1', rapAlias: 'solana-devnet' },
+        asset: 'AUDD',
+        mint: plan.mint,
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+        amountBaseUnits: plan.amount,
+        payTo: plan.payee,
+        destinationTokenAccount: plan.settlementAccount,
+        signature: 'fixtureSignatureAuddTransferChecked222222222222222222',
+        instructionIndex: '0',
+        paymentProofRef,
+      },
+      confirmation: { slot: 443284058, blockTime: 1785523200, commitment: 'confirmed' },
+      status: 'observed_confirmed',
+    });
+
+    const eligibleFixture = deriveReceiptEvidenceBinding({
+      ...input,
+      paymentObservation: {
+        ...observation,
+        labels: { environment: 'deterministic-fixture', eligibility: 'eligible' },
+      },
+    });
+    assert.equal(eligibleFixture.ok, false);
+    if (!eligibleFixture.ok) assert.ok(eligibleFixture.errors.some((item) => item.code === 'payment_observation_ineligible'));
+
+    const overstatedRail = deriveReceiptEvidenceBinding({
+      ...input,
+      paymentObservation: {
+        ...observation,
+        labels: { environment: 'controlled-live', eligibility: 'eligible', partnerAcceptanceRef: 'audd:not-real' },
+      },
+    });
+    assert.equal(overstatedRail.ok, false);
+    if (!overstatedRail.ok) assert.ok(overstatedRail.errors.some((item) => item.code === 'payment_observation_ineligible' && item.path === '$.paymentObservation.labels.environment'));
+
+    const understatedRail = deriveReceiptEvidenceBinding({
+      ...input,
+      paymentObservation: {
+        ...observation,
+        payment: { ...observation.payment, mint: 'AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw' },
+        labels: { environment: 'deterministic-fixture', eligibility: 'non_eligible' },
+      },
+    });
+    assert.equal(understatedRail.ok, false);
+    if (!understatedRail.ok) assert.ok(understatedRail.errors.some((item) => item.code === 'payment_observation_ineligible' && item.path === '$.paymentObservation.labels.environment'));
+
+    const conflictingIdentity = deriveReceiptEvidenceBinding({
+      ...input,
+      paymentPreflight: { ...input.paymentPreflight, paymentPlan: undefined },
+      paymentObservation: {
+        ...observation,
+        payment: { ...observation.payment, mint: 'AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw' },
+        labels: {
+          environment: 'mainnet-gated',
+          eligibility: 'pending_partner_acceptance',
+          partnerAcceptanceRef: 'audd:pending-partner-acceptance',
+        },
+      },
+    });
+    assert.equal(conflictingIdentity.ok, false);
+    if (!conflictingIdentity.ok) {
+      assert.ok(conflictingIdentity.errors.some((item) => item.code === 'payment_observation_mismatch' && item.path === '$.paymentObservation.payment'));
+    }
+
+    const eligibleMainnet = deriveReceiptEvidenceBinding({
+      ...input,
+      paymentPreflight: { ...input.paymentPreflight, paymentPlan: undefined },
+      paymentObservation: {
+        ...observation,
+        payment: {
+          ...observation.payment,
+          network: { caip2: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp', rapAlias: 'solana-mainnet-beta' },
+          mint: 'AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw',
+        },
+        labels: { environment: 'mainnet-gated', eligibility: 'eligible', partnerAcceptanceRef: 'audd:not-real' },
+      },
+    });
+    assert.equal(eligibleMainnet.ok, false);
+    if (!eligibleMainnet.ok) {
+      assert.ok(eligibleMainnet.errors.some((item) => item.code === 'payment_observation_ineligible' && item.path === '$.paymentObservation.labels.eligibility'));
+    }
+
+    const nonderivableAudd = deriveReceiptEvidenceBinding({
+      ...input,
+      paymentPreflight: { ...input.paymentPreflight, paymentPlan: undefined },
+      paymentObservation: {
+        ...observation,
+        payment: {
+          ...observation.payment,
+          network: { caip2: 'solana:4uhcVJyU9pJkvQyS88uRDiswHXSCkY3z', rapAlias: 'solana-testnet' },
+          mint: 'NotAnAuddMint111111111111111111111111111111',
+        },
+      },
+    });
+    assert.equal(nonderivableAudd.ok, false);
+    if (!nonderivableAudd.ok) {
+      assert.ok(nonderivableAudd.errors.some((item) => item.code === 'payment_observation_mismatch' && item.path === '$.paymentObservation.payment'));
+    }
+
+    const nonAuddObservation = deriveReceiptEvidenceBinding({
+      ...input,
+      paymentObservation: {
+        ...observation,
+        payment: { ...observation.payment, asset: 'USDC', mint: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU' },
+        labels: { environment: 'deterministic-fixture', eligibility: 'non_eligible' },
+      },
+    });
+    assert.equal(nonAuddObservation.ok, false);
+    if (!nonAuddObservation.ok) {
+      assert.equal(
+        nonAuddObservation.errors.some((item) => item.path === '$.paymentObservation.labels.environment'),
+        false,
+      );
+    }
+
+    const wrongAmount = deriveReceiptEvidenceBinding({
+      ...input,
+      paymentObservation: {
+        ...observation,
+        payment: { ...observation.payment, amountBaseUnits: '1' },
+      },
+    });
+    assert.equal(wrongAmount.ok, false);
+    if (!wrongAmount.ok) assert.ok(wrongAmount.errors.some((item) => item.code === 'payment_observation_mismatch'));
+
+    const missingMint = deriveReceiptEvidenceBinding({
+      ...input,
+      paymentObservation: {
+        ...observation,
+        payment: { ...observation.payment, mint: undefined },
+      },
+    });
+    assert.equal(missingMint.ok, false);
+    if (!missingMint.ok) assert.ok(missingMint.errors.some((item) => item.code === 'payment_observation_mismatch'));
+
+    const wrongDestination = deriveReceiptEvidenceBinding({
+      ...input,
+      paymentObservation: {
+        ...observation,
+        payment: { ...observation.payment, destinationTokenAccount: 'attacker-token-account' },
+      },
+    });
+    assert.equal(wrongDestination.ok, false);
+    if (!wrongDestination.ok) assert.ok(wrongDestination.errors.some((item) => item.code === 'payment_observation_mismatch'));
+
+    const inconclusive = deriveReceiptEvidenceBinding({
+      ...input,
+      paymentObservation: { ...observation, status: 'observation_inconclusive' },
+    });
+    assert.equal(inconclusive.ok, false);
+    if (!inconclusive.ok) assert.ok(inconclusive.errors.some((item) => item.code === 'payment_observation_mismatch' && item.path === '$.paymentObservation.status'));
   });
 });

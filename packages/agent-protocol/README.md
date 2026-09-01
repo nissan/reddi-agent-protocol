@@ -38,6 +38,14 @@ const policyDecision = policyDecisionFromBudgetPolicyDecision({
 
 Use payment-rail packages to settle and verify payment-specific proofs. RAP receipts record the policy, payment-proof reference, evidence reference, and trust metadata around the paid agent workflow.
 
+## AUDD non-custodial foundation
+
+`@reddi/agent-protocol/audd-rail-config` publishes the non-secret AUDD rail identity contract: deterministic fixture, generated local test mint, explicitly unverified/blocked devnet, and gated mainnet. The verified public mainnet identity is recorded as AUDD mint `AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw`, SPL Token program `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA`, six decimals, with dated source provenance. Mainnet remains disabled by default.
+
+`@reddi/agent-protocol/payment-records` adds rail-neutral canonical IDs for job, agreement, payment intent, payment observation, and refund records using stable canonical JSON SHA-256 hashing. Fixture, local-test-mint, and devnet-unverified labels are rejected if marked grant-volume eligible. Local-test-mint is configuration/test-only and has no public CAIP-2 export path.
+
+AUDD payment plans remain `reddi.audd-payment-plan.v1` for legacy callers, with optional x402 v2 SVM `exact` fields (`caip2Network`, token program, decimals, memo, payment-flow, evidence/refund labels). Use `createAuddX402SvmExactPaymentPlan`, `createAuddPaymentIntentDraft`, and `createAuddX402SvmExactPaymentRequired` for the new bridge. Models create draft intents only; non-fixture spend still requires buyer policy and operator approval, and mainnet AUDD additionally requires a separate exact gate.
+
 ## Seller Wrapper Config Examples
 
 ```typescript
@@ -610,7 +618,7 @@ const decision = evaluateAuddPaymentPlanPreflight(auddChallenge, {
 });
 ```
 
-AUDD/Solana payment plans are metadata and policy-preflight helpers for RAP buyer/seller middleware. They represent AUDD quote amount, Solana network, mint, payee/settlement account, expiry, failure/refund policy, and evidence requirements without submitting transactions or requiring hosted RAP infrastructure. Buyer preflight fails closed unless the caller supplies explicit allowed networks, mints, payees, settlement accounts, evidence policy, operator approval, and either a max amount or budget evaluator. Live payment remains fail-closed unless buyer/operator approval is explicit; actual wallet actions, SPL custody, Quasar escrow, and settlement proof verification belong in payment-rail integrations and the Quasar boundary work.
+AUDD/Solana payment plans are metadata and policy-preflight helpers for RAP buyer/seller middleware. They represent AUDD quote amount, Solana network, mint, payee/settlement account, expiry, failure/refund policy, and evidence requirements without submitting transactions or requiring hosted RAP infrastructure. Buyer preflight fails closed unless the caller supplies explicit allowed networks, mints, payees, settlement accounts, evidence policy, operator approval, and either a max amount or budget evaluator. See [AUDD non-custodial foundation](#audd-non-custodial-foundation) for the canonical x402 export and read-only observation boundary; actual wallet actions, SPL custody, Quasar escrow, and settlement proof verification remain outside this package.
 
 ## ARD No-Spend Quickstart
 

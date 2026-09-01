@@ -2,6 +2,29 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
+## Unreleased
+
+### Added
+
+- Public AUDD rail config and identity validator for deterministic fixtures, generated local test mints, explicitly blocked/unverified devnet, and gated mainnet. Official Solana mainnet AUDD mint/token-program/decimals provenance is recorded, while mainnet stays disabled by default.
+- Rail-neutral canonical payment job/agreement/intent/observation/refund records and deterministic canonical SHA-256 ID helpers, with environment and grant-eligibility labels that reject fixture/devnet evidence as eligible volume.
+- AUDD x402 v2 SVM `exact` bridge helpers layered onto the existing `reddi.audd-payment-plan.v1` plan for deliberate legacy compatibility. Models can create draft intents only; non-fixture spend still requires policy and operator approval.
+- Optional receipt/evidence binding for confirmed non-live payment observations, preserving no-wallet/no-RPC guardrails and rejecting fixture/devnet observations marked grant eligible or observations that do not exactly match the AUDD plan.
+
+### Changed
+
+- The AUDD mainnet gate now canonicalises the plan network alias and fires on any plan that names mainnet by alias or CAIP-2 network, or that names the official AUDD mainnet mint, whether or not the plan declares `railEnvironment`. `requireX402Exact` additionally rejects network aliases that do not resolve to a known CAIP-2 network.
+- `createAuddPaymentIntentDraft` derives the environment label from the plan instead of always defaulting to `deterministic-fixture`: mainnet-targeting plans are labelled `mainnet-gated` (keeping operator approval required), a plan with no derivable environment throws `audd_payment_plan_environment_undeclared`, local test mints throw `audd_payment_plan_local_test_mint_not_exportable`, and supplied labels that do not exactly match the canonical rail throw `audd_payment_plan_label_environment_mismatch`.
+- `controlled-live` payment record labels now require `partnerAcceptanceRef` before they can be marked grant eligible, matching the existing `mainnet-gated` rule.
+- The AUDD rail environment is derived once from the plan identity (canonical network alias, CAIP-2 network, mint) and reused by `createAuddX402SvmExactPaymentPlan`, preflight rail-identity validation and intent-draft labelling, so a plan is no longer stamped `deterministic-fixture` regardless of the rail it names. An undeclared unverified devnet mint now derives `devnet-unverified` and is denied `devnet_audd_unverified`, and a rail that cannot be derived is denied or throws `audd_payment_plan_environment_undeclared` instead of silently defaulting to fixture.
+- A supplied `railEnvironment` is treated only as an assertion: it must exactly equal the identity-derived canonical rail, so a seller cannot understate or overstate the network/CAIP-2/mint identity.
+- Environment labels must equal the plan's rail on every AUDD surface: `createAuddPaymentIntentDraft` and `createAuddX402SvmExactPaymentRequired` both throw `audd_payment_plan_label_environment_mismatch` for labels that understate or overstate the rail, and receipt/evidence binding rejects a payment observation whose environment label does not equal the rail its observed mint/network belongs to. `controlled-live` is consequently not a reachable label for an AUDD plan in this non-live foundation. That binding check only applies to AUDD observations, so a non-AUDD SPL payment is not judged against the AUDD rail table.
+- A plan whose identity resolves to no configured AUDD rail (for example `solana-testnet`) is rejected with `audd_payment_plan_environment_undeclared` at constructors and `blocked_rail_environment` at buyer preflight, even when it declares a `railEnvironment`, so a seller cannot self-assert a fixture rail on a network this config does not describe.
+- The intent draft's `operatorApprovalRequired` is derived from the plan's rail OR-ed with `plan.authority.operatorApprovalRequired` instead of from the environment label, and `createAuddX402SvmExactPaymentRequired` throws `audd_payment_intent_operator_approval_mismatch` when an intent waives operator approval that the plan's rail requires. The 402 can no longer advertise a non-fixture AUDD rail as needing no operator approval.
+- Local-test-mint remains a configuration/test-only rail with no public CAIP-2 identity; intent and x402 export boundaries reject it explicitly. AUDD rail provenance now uses public URLs and repository-relative references rather than maintainer-local absolute paths.
+- `validateAuddX402SvmExactPaymentRequired` now fail-closes forged AUDD x402 payloads whose CAIP-2 network, RAP alias, mint, environment label, or configured grant-eligibility ceiling do not resolve to one exportable canonical rail.
+- AUDD plan construction/preflight and generic payment-observation validation now enforce exact `AUDD` asset casing, the configured rail grant-eligibility ceiling, and canonical network/CAIP-2/mint identity. AUDD observations additionally require the `svm-spl-token-transfer-checked` rail and canonical SPL Token program; buyer budget-policy decisions cannot return lowercase or mixed-case AUDD metadata.
+
 ## 0.1.0 — 2026-07-06
 
 First release-candidate cut of the public RAP (Reddi Agent Protocol) primitives package. Everything below runs locally on deterministic fixtures — see Boundaries.

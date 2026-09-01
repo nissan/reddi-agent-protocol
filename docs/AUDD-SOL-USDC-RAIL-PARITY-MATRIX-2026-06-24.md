@@ -12,11 +12,13 @@ AUDD is a first-class Reddi Agent Protocol payment rail beside SOL and USDC for
 roadmap, quote, buyer-policy, receipt, evidence, and future UI/API copy
 purposes.
 
-For v0.1, AUDD support is payment-plan and proof-metadata support. It is not
-AUDD custody, SPL-token escrow, live payment activation, mainnet readiness, or
-settlement-finality proof. This matches the #392 AUDD / Quasar escrow decision:
-do not change Quasar, Anchor, or SPL custody programs for the first AUDD
-rollout.
+For v0.1, AUDD support is payment-plan, x402 SVM `exact`, and read-only
+proof-observation support. The observer consumes already parsed transaction
+data; it does not add RPC, wallet, signing, submission, or custody behavior. It
+is not AUDD custody, SPL-token escrow, live payment activation, mainnet
+readiness, or settlement-finality proof. This matches the #392 AUDD / Quasar
+escrow decision: do not change Quasar, Anchor, or SPL custody programs for the
+first AUDD rollout.
 
 ## Rail State Definitions
 
@@ -37,7 +39,7 @@ rollout.
 | --- | --- | --- | --- | --- | --- |
 | SOL | `dry-run`, `devnet-gated`, `custody-supported` for selected SOL escrow surfaces | Generic payment challenge can quote SOL on allowed Solana networks | Generic buyer preflight can allow SOL through `allowedRails` and budget policy | Receipt v1 allowlist includes SOL on devnet, testnet, and mainnet-beta fixtures | SOL lamports are the only current custody rail in Anchor reference and Quasar escrow/PER surfaces |
 | USDC | `dry-run`, `proof-metadata-only`, `live-gated` | Generic payment challenge and x402/Solana helper surfaces can express USDC | Generic buyer preflight can allow USDC through `allowedRails` and budget policy | Receipt v1 allowlist includes USDC on devnet, testnet, and mainnet-beta fixtures | No current Quasar/Anchor SPL-token custody |
-| AUDD | `dry-run`, `proof-metadata-only`, `live-gated` | `reddi.audd-payment-plan.v1` expresses AUDD quote/payment-plan metadata | AUDD preflight validates network, mint, payee, settlement account, amount, expiry, evidence, approval, and budget policy | Receipt v1 allowlist includes AUDD on solana-devnet fixtures; receipt/evidence binding tests cover AUDD proof metadata | No current Quasar/Anchor SPL-token custody |
+| AUDD | `dry-run`, `proof-metadata-only`, `live-gated` | `reddi.audd-payment-plan.v1` expresses AUDD quote/payment-plan metadata and can export a canonical x402 v2 SVM `exact` requirement | AUDD preflight validates the canonical rail identity, payee, settlement account, amount, expiry, evidence, approval, and budget policy | Receipt/evidence binding accepts canonically labelled AUDD observations; the read-only SPL observer verifies deterministic parsed `TransferChecked` fixtures | No current Quasar/Anchor SPL-token custody |
 
 ## Quote And Payment-Plan Acceptance
 
@@ -51,7 +53,8 @@ SOL and USDC:
 AUDD:
 
 - uses `reddi.audd-payment-plan.v1`;
-- must include asset `AUDD`, network, mint, payee, settlement account, amount,
+- must use the exact canonical asset symbol `AUDD` and include network, mint,
+  payee, settlement account, amount,
   quote expiry, failure policy, refund policy, evidence requirement, and payment
   mode;
 - must be embedded in payment challenge policy metadata when using
@@ -74,6 +77,9 @@ All three rails must pass the same buyer-side principles:
 
 AUDD-specific buyer policy must additionally check:
 
+- the canonical AUDD rail derived from normalized network alias, CAIP-2 network,
+  and mint identity, with any supplied environment treated as an exact
+  assertion;
 - allowed mint list;
 - allowed payee list;
 - allowed settlement account list;
@@ -108,9 +114,16 @@ Receipt/evidence acceptance requires:
   `rpcCall=false`, `hostedRegistryRequired=false`, and
   `reputationMutated=false` for no-spend lanes.
 
-AUDD proof metadata may be recorded in receipt/evidence bindings only when it is
-clearly labeled as proof/payment-plan metadata. It must not be described as
-escrowed AUDD, settled AUDD, mainnet AUDD, or audited AUDD custody.
+AUDD proof metadata may be recorded in receipt/evidence bindings only when its
+asset symbol is exactly `AUDD`, its payment rail is
+`svm-spl-token-transfer-checked`, and its network, mint, canonical SPL Token
+program, environment, and grant-eligibility label exactly match one configured
+canonical rail. Non-derivable identities are rejected. Fixture,
+local-test-mint, and unverified-devnet evidence is never grant eligible;
+local-test-mint has no intent/x402 export path; and official mainnet AUDD stays
+disabled by default and pending partner acceptance. Read-only observation does
+not prove that RAP executed or settled a payment and must not be described as
+escrowed AUDD, settled AUDD, mainnet-ready AUDD, or audited AUDD custody.
 
 ## Seller Wrapper And Onboarding Expectations
 
@@ -215,6 +228,7 @@ acceptance. The truthful v0.1 boundary is:
 
 - SOL has current program-custody surfaces, still promotion-gated;
 - USDC has proof/helper support, not RAP custody;
-- AUDD has payment-plan/proof-metadata support, not RAP custody.
+- AUDD has payment-plan, canonical x402 requirement, and read-only
+  proof-observation support, not RAP custody.
 
 Future AUDD custody must be a separate audited Solana/SPL workstream.

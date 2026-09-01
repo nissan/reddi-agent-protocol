@@ -39,6 +39,7 @@ const packageSet = [
       "middleware.js",
       "nonce.js",
       "payment.js",
+      "spl-token-observer.js",
     ],
   },
 ];
