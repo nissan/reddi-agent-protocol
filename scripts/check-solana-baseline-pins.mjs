@@ -38,6 +38,10 @@ function parseSimpleToml(file) {
 const mise = parseSimpleToml('.mise.toml');
 const rust = parseSimpleToml('rust-toolchain.toml');
 const anchor = parseSimpleToml('Anchor.toml');
+const escrowCargo = parseSimpleToml('programs/escrow/Cargo.toml');
+const escrowAnchorLangReq = escrowCargo.dependencies?.['anchor-lang']?.match(/version\s*=\s*"([^"]+)"/)?.[1];
+const cargoLock = readFileSync(join(root, 'Cargo.lock'), 'utf8');
+const lockedAnchorLang = cargoLock.match(/^name = "anchor-lang"\nversion = "([^"]+)"/m)?.[1];
 const assets = JSON.parse(readFileSync(join(root, 'config/toolchain/solana-baseline-assets.json'), 'utf8'));
 
 const workflowVersions = new Set();
@@ -70,6 +74,8 @@ const checks = [
   ['rust-toolchain.toml includes rustfmt', rust.toolchain?.components?.includes('rustfmt')],
   ['rust-toolchain.toml includes clippy', rust.toolchain?.components?.includes('clippy')],
   [`Anchor.toml pins stable Anchor ${STABLE_ANCHOR_VERSION}`, anchor.toolchain?.anchor_version === STABLE_ANCHOR_VERSION],
+  ['programs/escrow anchor-lang requirement matches the Anchor.toml pin', escrowAnchorLangReq === anchor.toolchain?.anchor_version],
+  ['Cargo.lock resolves anchor-lang to the Anchor.toml pin', lockedAnchorLang === anchor.toolchain?.anchor_version],
   ['CI workflows share one Agave pin', workflowVersions.size === 1],
   ['CI Agave pin is v3.1.13', workflowVersions.has('v3.1.13')],
   ['Agave asset checksum exists for CI pin', typeof assets.agave?.sha256ByVersion?.['v3.1.13'] === 'string'],

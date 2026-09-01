@@ -60,7 +60,7 @@ Results:
 - SBF build passed under Agave `3.1.13`; the generated `target/deploy/escrow-keypair.json` build artifact was removed immediately and not inspected or retained.
 - Anchor IDL generation passed into `.tmp/anchor-1.1.2/` only; no tracked IDL/client was changed.
 - Clippy passed with `-D warnings` after boxing the LiteSVM failed-transaction error in `programs/escrow/tests/test_registry.rs` to keep the large-error lint green under the stable Anchor upgrade.
-- `cargo test -p escrow` passed: 33 passing tests, 1 devnet-only MagicBlock PER test ignored.
+- `cargo test -p escrow` passed: 32 passing tests (30 LiteSVM integration tests plus 2 `magicblock_cpi` encoding unit tests), 1 devnet-only MagicBlock PER test ignored.
 
 ## TypeScript/package/conformance proof
 

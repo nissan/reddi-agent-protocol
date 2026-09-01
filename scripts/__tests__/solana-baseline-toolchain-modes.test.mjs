@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const script = fileURLToPath(new URL('../solana-baseline-toolchain.sh', import.meta.url));
+const assets = JSON.parse(
+  readFileSync(fileURLToPath(new URL('../../config/toolchain/solana-baseline-assets.json', import.meta.url)), 'utf8'),
+);
+const anchorToml = readFileSync(fileURLToPath(new URL('../../Anchor.toml', import.meta.url)), 'utf8');
+const anchorTomlVersion = anchorToml.match(/^anchor_version\s*=\s*"([^"]+)"/m)?.[1];
 
 function run(...args) {
   return spawnSync(script, args, { encoding: 'utf8' });
@@ -43,7 +49,6 @@ test('print-pins is a read-only mode that resolves every pin', () => {
   for (const key of ['node', 'npm', 'rust', 'rustfmt', 'clippy', 'agave', 'avm', 'anchor', 'rustup-init', 'surfpool']) {
     assert.ok(pins[key], `expected a resolved ${key} pin`);
   }
-  assert.equal(pins.avm, '1.0.0');
-  assert.equal(pins.anchor, '1.1.2');
-  assert.notEqual(pins.avm, pins.anchor, 'AVM manager pin is intentionally separate from the Anchor CLI pin');
+  assert.equal(pins.avm, assets.anchorAvm.managerVersion, 'AVM manager pin must come from the assets manifest');
+  assert.equal(pins.anchor, anchorTomlVersion, 'Anchor CLI pin must come from Anchor.toml');
 });

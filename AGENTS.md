@@ -70,11 +70,17 @@ The legacy Anchor implementation in `programs/escrow/` contains escrow, registry
 
 Quasar is the demo target, not Anchor. Program ids are in `config/quasar/deployments.json`; the legacy Anchor id is historical comparison only. MagicBlock PER/TEE live execution is not part of the final Quasar claim. See `DEPLOY.md` before any deployment, and never deploy or change upgrade authority without explicit approval.
 
+The `77rkRQxe…UZXmX` program id still quoted in some older `declare_id!` macros, `Anchor.toml` entries, and runbooks (including `packages/demo-agents/DEPLOY.md`) is pre-cutover doc rot; it is deployed nowhere. Ignore it.
+
 ## Protocol economics and claim boundaries
 
 The protocol fee is 0.05% per transaction, only on settlement. Older 16.7% / 83.3% figures are stale doc rot.
 
 Preserve the hard boundaries enforced by package/readiness checks: AUDD is payment-plan/proof metadata only, not custody or settled escrow; mainnet/live payment paths are gated; package/source conformance must remain no-spend/offline unless a task explicitly authorizes otherwise.
+
+## Repository conventions
+
+`STATUS.md` is a rolling log, not a source of truth about current code state; the newest entry is at the top and older entries describe intermediate states.
 
 ## Maintaining this file
 

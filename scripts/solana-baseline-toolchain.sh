@@ -150,7 +150,22 @@ ANCHOR_TAG_OBJECT_SHA=$(json_keyed_value anchorAvm.tagObjectShaByVersion "$ANCHO
 ANCHOR_TAG_COMMIT_SHA=$(json_keyed_value anchorAvm.tagCommitShaByVersion "$ANCHOR_VERSION")
 ANCHOR_CLI_URL_TEMPLATE=$(json_value anchorCli.urlTemplate)
 ANCHOR_CLI_URL=${ANCHOR_CLI_URL_TEMPLATE//\{version\}/$ANCHOR_VERSION}
+ANCHOR_CLI_PLATFORM=$(json_value anchorCli.platform)
+ANCHOR_CLI_ASSET_NAME_TEMPLATE=$(json_value anchorCli.assetNameTemplate)
+ANCHOR_CLI_ASSET_NAME=${ANCHOR_CLI_ASSET_NAME_TEMPLATE//\{version\}/$ANCHOR_VERSION}
 ANCHOR_CLI_SHA256=$(json_keyed_value anchorCli.sha256ByVersion "$ANCHOR_VERSION")
+
+case "$ANCHOR_CLI_ASSET_NAME" in
+  *"$ANCHOR_CLI_PLATFORM") ;;
+  *)
+    echo "error: recorded anchorCli.assetNameTemplate does not target anchorCli.platform $ANCHOR_CLI_PLATFORM" >&2
+    exit 1
+    ;;
+esac
+if [ "${ANCHOR_CLI_URL##*/}" != "$ANCHOR_CLI_ASSET_NAME" ]; then
+  echo "error: recorded anchorCli.urlTemplate and anchorCli.assetNameTemplate disagree on the release asset name" >&2
+  exit 1
+fi
 
 export PATH="$HOME/.cargo/bin:$SOLANA_INSTALL_DIR/active_release/bin:$SURFPOOL_ROOT/$SURFPOOL_VERSION/bin:$PATH"
 
@@ -489,7 +504,7 @@ install_anchor() {
   fi
 
   mkdir -p "$HOME/.avm/bin" "$DOWNLOAD_DIR"
-  local anchor_download="$DOWNLOAD_DIR/anchor-$ANCHOR_VERSION-x86_64-unknown-linux-gnu"
+  local anchor_download="$DOWNLOAD_DIR/$ANCHOR_CLI_ASSET_NAME"
   local anchor_bin="$HOME/.avm/bin/anchor-$ANCHOR_VERSION"
   download_verified "$ANCHOR_CLI_URL" "$ANCHOR_CLI_SHA256" "$anchor_download"
   install -m 0755 "$anchor_download" "$anchor_bin"
