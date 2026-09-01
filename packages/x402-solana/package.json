@@ -40,6 +40,11 @@
       "import": "./dist/payment.js",
       "require": "./dist/payment.js"
     },
+    "./spl-token-observer": {
+      "types": "./dist/spl-token-observer.d.ts",
+      "import": "./dist/spl-token-observer.js",
+      "require": "./dist/spl-token-observer.js"
+    },
     "./types": {
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js",

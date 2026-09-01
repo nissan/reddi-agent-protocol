@@ -38,6 +38,14 @@ const policyDecision = policyDecisionFromBudgetPolicyDecision({
 
 Use payment-rail packages to settle and verify payment-specific proofs. RAP receipts record the policy, payment-proof reference, evidence reference, and trust metadata around the paid agent workflow.
 
+## AUDD non-custodial foundation
+
+`@reddi/agent-protocol/audd-rail-config` publishes the non-secret AUDD rail identity contract: deterministic fixture, generated local test mint, explicitly unverified/blocked devnet, and gated mainnet. The verified public mainnet identity is recorded as AUDD mint `AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw`, SPL Token program `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA`, six decimals, with dated source provenance. Mainnet remains disabled by default.
+
+`@reddi/agent-protocol/payment-records` adds rail-neutral canonical IDs for job, agreement, payment intent, payment observation, and refund records using stable canonical JSON SHA-256 hashing. Fixture, local-test-mint, and devnet-unverified labels are rejected if marked grant-volume eligible.
+
+AUDD payment plans remain `reddi.audd-payment-plan.v1` for legacy callers, with optional x402 v2 SVM `exact` fields (`caip2Network`, token program, decimals, memo, payment-flow, evidence/refund labels). Use `createAuddX402SvmExactPaymentPlan`, `createAuddPaymentIntentDraft`, and `createAuddX402SvmExactPaymentRequired` for the new bridge. Models create draft intents only; non-fixture spend still requires buyer policy and operator approval, and mainnet AUDD additionally requires a separate exact gate.
+
 ## Seller Wrapper Config Examples
 
 ```typescript

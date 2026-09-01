@@ -9,6 +9,10 @@ import {
   type EvidenceArchiveRecord,
 } from './evidence-archive.js';
 import {
+  validatePaymentObservationRecord,
+  type ReddiPaymentObservationRecord,
+} from './payment-records.js';
+import {
   validateReddiReceipt,
   type ReddiReceipt,
 } from './receipts.js';
@@ -39,6 +43,7 @@ export type ReceiptEvidenceBindingInput = {
   evidence: EvidenceArchiveRecord;
   evidencePayload?: unknown;
   paymentPreflight: AuddPaymentPlanPreflightDecision;
+  paymentObservation?: ReddiPaymentObservationRecord;
   attestation?: AttestationRecord;
   reputationEventDraft?: ReputationEvent;
   createdAt: string;
@@ -76,6 +81,16 @@ export type ReceiptEvidenceBinding = {
       paymentMode: 'dry-run' | 'live';
       evidenceRequired: boolean;
     };
+    observationRef?: {
+      id: string;
+      environment: string;
+      eligibility: string;
+      paymentProofRef: string;
+      signature: string;
+      mint?: string;
+      tokenProgram?: string;
+      instructionIndex: string;
+    };
   };
   attestation?: {
     id: string;
@@ -103,6 +118,8 @@ export type ReceiptEvidenceBindingErrorCode =
   | 'payment_preflight_denied'
   | 'payment_proof_mismatch'
   | 'payment_plan_mismatch'
+  | 'payment_observation_mismatch'
+  | 'payment_observation_ineligible'
   | 'unsupported_network_asset'
   | 'receipt_invalid'
   | 'evidence_invalid'
@@ -165,6 +182,7 @@ export function deriveReceiptEvidenceBinding(input: ReceiptEvidenceBindingInput)
   }
 
   validatePaymentPreflight(input, errors);
+  validatePaymentObservation(input, errors);
   validateRecordLinks(input, errors);
   validateAttestation(input, errors);
   validateReputationEvent(input, errors);
@@ -213,6 +231,18 @@ export function deriveReceiptEvidenceBinding(input: ReceiptEvidenceBindingInput)
           paymentMode: plan.paymentMode,
           evidenceRequired: plan.evidenceRequired,
         },
+        observationRef: input.paymentObservation
+          ? {
+              id: input.paymentObservation.id,
+              environment: input.paymentObservation.labels.environment,
+              eligibility: input.paymentObservation.labels.eligibility,
+              paymentProofRef: input.paymentObservation.payment.paymentProofRef,
+              signature: input.paymentObservation.payment.signature,
+              mint: input.paymentObservation.payment.mint,
+              tokenProgram: input.paymentObservation.payment.tokenProgram,
+              instructionIndex: input.paymentObservation.payment.instructionIndex,
+            }
+          : undefined,
       },
       attestation: input.attestation
         ? {
@@ -283,6 +313,50 @@ function validatePaymentPreflight(input: ReceiptEvidenceBindingInput, errors: Re
       || policy.approvalState !== input.receipt.policyDecision.approvalState
     ) {
       errors.push(error('payment_plan_mismatch', '$.paymentPreflight.policyDecision', 'payment preflight policy decision must match receipt policy decision'));
+    }
+  }
+}
+
+function validatePaymentObservation(input: ReceiptEvidenceBindingInput, errors: ReceiptEvidenceBindingError[]) {
+  if (!input.paymentObservation) return;
+  const observationValidation = validatePaymentObservationRecord(input.paymentObservation);
+  if (!observationValidation.ok) {
+    errors.push(...observationValidation.errors.map((item) => error(
+      item.code === 'non_live_evidence_marked_eligible' ? 'payment_observation_ineligible' : 'payment_observation_mismatch',
+      `$.paymentObservation${item.path.slice(1)}`,
+      item.message,
+    )));
+    return;
+  }
+  const observation = input.paymentObservation;
+  if (observation.labels.eligibility === 'eligible' && ['deterministic-fixture', 'local-test-mint', 'devnet-unverified'].includes(observation.labels.environment)) {
+    errors.push(error('payment_observation_ineligible', '$.paymentObservation.labels.eligibility', 'fixture, local-test-mint, and devnet payment observations are not eligible for grant-volume claims'));
+  }
+  if (observation.status !== 'observed_confirmed') {
+    errors.push(error('payment_observation_mismatch', '$.paymentObservation.status', 'payment observation must be confirmed before receipt/evidence binding'));
+  }
+  if (observation.payment.paymentProofRef !== input.receipt.payment.paymentProofRef || observation.payment.paymentProofRef !== input.paymentPreflight.paymentProofRef) {
+    errors.push(error('payment_observation_mismatch', '$.paymentObservation.payment.paymentProofRef', 'payment observation proof ref must match the receipt and payment preflight proof ref'));
+  }
+  if (
+    observation.payment.asset !== input.receipt.payment.asset
+    || (observation.payment.network.rapAlias ?? observation.payment.network.caip2) !== input.receipt.payment.network
+    || observation.payment.amountBaseUnits !== input.receipt.payment.amount
+  ) {
+    errors.push(error('payment_observation_mismatch', '$.paymentObservation.payment', 'payment observation asset/network/amount must match the receipt payment'));
+  }
+  if (input.paymentPreflight.paymentPlan) {
+    const plan = input.paymentPreflight.paymentPlan;
+    if (
+      observation.payment.asset !== plan.asset
+      || (observation.payment.network.rapAlias ?? observation.payment.network.caip2) !== plan.network
+      || observation.payment.amountBaseUnits !== plan.amount
+      || observation.payment.mint !== plan.mint
+      || (plan.tokenProgram !== undefined && observation.payment.tokenProgram !== plan.tokenProgram)
+      || observation.payment.payTo !== plan.payee
+      || observation.payment.destinationTokenAccount !== plan.settlementAccount
+    ) {
+      errors.push(error('payment_observation_mismatch', '$.paymentObservation.payment', 'payment observation must match the AUDD payment plan terms'));
     }
   }
 }

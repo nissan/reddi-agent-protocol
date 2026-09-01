@@ -24,6 +24,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 __exportStar(require("./types"), exports);
 __exportStar(require("./nonce"), exports);
 __exportStar(require("./payment"), exports);
+__exportStar(require("./spl-token-observer"), exports);
 __exportStar(require("./middleware"), exports);
 __exportStar(require("./jupiter"), exports);
 __exportStar(require("./client"), exports);

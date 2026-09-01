@@ -1,5 +1,6 @@
 import { LAMPORTS_PER_SOL, PublicKey, SystemProgram } from '@solana/web3.js';
 import { needsAutoSwap, resolveMint, SwapClient } from './jupiter';
+import { SPL_TOKEN_PROGRAM_ID, verifySplTransferCheckedObservation } from './spl-token-observer';
 import { X402Request, PaymentReceipt } from './types';
 import type {
   NonceReplayStore,
@@ -185,6 +186,10 @@ export interface SolanaReceiptVerifierOptions {
   connection: ParsedTransactionConnection;
   /** Required when verifying USDC/SPL-token receipts. */
   usdcMint?: string;
+  /** Required when verifying AUDD x402 v2 SVM exact receipts. */
+  auddMint?: string;
+  /** Defaults to the legacy SPL Token program for AUDD exact receipts. */
+  auddTokenProgram?: string;
 }
 
 export class SolanaReceiptVerifier implements ReceiptVerifier {
@@ -207,11 +212,7 @@ export class SolanaReceiptVerifier implements ReceiptVerifier {
     });
     if (!parsed?.meta || parsed.meta.err) return { ok: false, reason: 'invalid_receipt', message: 'transaction is missing or failed' };
 
-    const paid = challenge.currency === 'SOL'
-      ? transactionHasSolTransfer(parsed, receipt.payer, challenge.payTo, Number(challenge.amount))
-      : challenge.currency === 'USDC'
-        ? transactionHasTokenTransfer(parsed, receipt, challenge, this.options.usdcMint)
-        : false;
+    const paid = await this.receiptSatisfiesChallenge(parsed, receipt, challenge, signature);
     if (!paid) return { ok: false, reason: 'invalid_receipt', message: 'transaction does not satisfy x402 challenge payment terms' };
 
     if (replayStore) {
@@ -219,6 +220,42 @@ export class SolanaReceiptVerifier implements ReceiptVerifier {
       if (!accepted) return { ok: false, reason: 'duplicate_nonce', message: 'receipt nonce has already been used', actual: receipt.nonce };
     }
     return { ok: true, receipt, demo: false };
+  }
+
+  private async receiptSatisfiesChallenge(
+    parsed: any,
+    receipt: X402PaymentReceipt,
+    challenge: X402Challenge,
+    signature: string,
+  ): Promise<boolean> {
+    if (challenge.currency === 'SOL') {
+      return transactionHasSolTransfer(parsed, receipt.payer, challenge.payTo, Number(challenge.amount));
+    }
+    if (challenge.currency === 'USDC') {
+      return transactionHasTokenTransfer(parsed, receipt, challenge, this.options.usdcMint);
+    }
+    if (challenge.currency === 'AUDD') {
+      const mint = this.options.auddMint;
+      if (!mint || (receipt.mint !== undefined && receipt.mint !== mint)) return false;
+      const result = await verifySplTransferCheckedObservation({
+        parsedTransaction: parsed,
+        commitment: 'confirmed',
+        expected: {
+          network: challenge.network,
+          signature,
+          mint,
+          tokenProgram: this.options.auddTokenProgram ?? SPL_TOKEN_PROGRAM_ID,
+          payTo: challenge.payTo,
+          amountBaseUnits: String(challenge.amount),
+          destinationTokenAccount: receipt.destinationTokenAccount,
+          authority: receipt.payer,
+          memo: challenge.memo,
+          memoRequired: challenge.memo !== undefined,
+        },
+      });
+      return result.ok;
+    }
+    return false;
   }
 }
 

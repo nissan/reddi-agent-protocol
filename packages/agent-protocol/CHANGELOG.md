@@ -2,6 +2,15 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
+## Unreleased
+
+### Added
+
+- Public AUDD rail config and identity validator for deterministic fixtures, generated local test mints, explicitly blocked/unverified devnet, and gated mainnet. Official Solana mainnet AUDD mint/token-program/decimals provenance is recorded, while mainnet stays disabled by default.
+- Rail-neutral canonical payment job/agreement/intent/observation/refund records and deterministic canonical SHA-256 ID helpers, with environment and grant-eligibility labels that reject fixture/devnet evidence as eligible volume.
+- AUDD x402 v2 SVM `exact` bridge helpers layered onto the existing `reddi.audd-payment-plan.v1` plan for deliberate legacy compatibility. Models can create draft intents only; non-fixture spend still requires policy and operator approval.
+- Optional receipt/evidence binding for confirmed non-live payment observations, preserving no-wallet/no-RPC guardrails and rejecting fixture/devnet observations marked grant eligible or observations that do not exactly match the AUDD plan.
+
 ## 0.1.0 — 2026-07-06
 
 First release-candidate cut of the public RAP (Reddi Agent Protocol) primitives package. Everything below runs locally on deterministic fixtures — see Boundaries.

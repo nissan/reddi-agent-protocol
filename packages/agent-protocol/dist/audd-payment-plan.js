@@ -1,6 +1,12 @@
+import { AUDD_ASSET, AUDD_DECIMALS, AUDD_OFFICIAL_SOLANA_MAINNET_MINT, SPL_TOKEN_PROGRAM_ID, caip2ForSolanaNetwork, validateAuddRailIdentity, } from './audd-rail-config.js';
+import { canonicalPaymentHash, createPaymentIntentDraft, } from './payment-records.js';
 import { evaluateBuyerPaymentChallenge, PAYMENT_CHALLENGE_SCHEMA_VERSION, } from './buyer-seller.js';
+export { AUDD_ASSET } from './audd-rail-config.js';
 export const AUDD_PAYMENT_PLAN_SCHEMA_VERSION = 'reddi.audd-payment-plan.v1';
-export const AUDD_ASSET = 'AUDD';
+export const AUDD_X402_SVM_EXACT_PAYMENT_REQUIRED_SCHEMA_VERSION = 'reddi.audd-x402-svm-exact-payment-required.v1';
+export const AUDD_X402_VERSION = 2;
+export const AUDD_X402_SCHEME = 'exact';
+export const AUDD_X402_PAYMENT_FLOW = 'upfront';
 const CREDENTIAL_KEYS = new Set([
     'api_key',
     'apikey',
@@ -29,6 +35,9 @@ function isNonEmptyString(value) {
 }
 function positiveAmount(value) {
     return typeof value === 'string' && /^[1-9]\d*$/.test(value);
+}
+function positiveSafeInteger(value) {
+    return Number.isSafeInteger(value) && Number(value) > 0;
 }
 function amountToBigInt(value) {
     return BigInt(value);
@@ -85,6 +94,27 @@ function containsCircularReference(value, seen = new WeakSet()) {
     seen.add(value);
     return Object.values(value).some((item) => containsCircularReference(item, seen));
 }
+function containsModelSpendAuthorization(value, seen = new WeakSet()) {
+    if (Array.isArray(value)) {
+        if (seen.has(value))
+            return false;
+        seen.add(value);
+        return value.some((item) => containsModelSpendAuthorization(item, seen));
+    }
+    if (!isPlainObject(value))
+        return false;
+    if (seen.has(value))
+        return false;
+    seen.add(value);
+    return Object.entries(value).some(([key, item]) => {
+        const normalizedKey = normalized(key);
+        if ((normalizedKey === 'modelmayauthorize' || normalizedKey === 'modelauthorizedspend') && item !== false)
+            return true;
+        if (normalizedKey === 'authorizationstate' && item === 'model_approved')
+            return true;
+        return containsModelSpendAuthorization(item, seen);
+    });
+}
 function isPaymentChallenge(value) {
     if (!isPlainObject(value))
         return false;
@@ -112,8 +142,28 @@ function validatePolicyText(value) {
 function validateRefundText(value) {
     if (!isPlainObject(value))
         return false;
-    return ['none', 'automatic', 'manual_review'].includes(String(value.mode))
-        && isNonEmptyString(value.description);
+    if (!['none', 'automatic', 'manual_review'].includes(String(value.mode)))
+        return false;
+    if (!isNonEmptyString(value.description))
+        return false;
+    return value.refundAddress === undefined || isNonEmptyString(value.refundAddress);
+}
+function validateAuthority(value) {
+    if (value === undefined)
+        return true;
+    if (!isPlainObject(value))
+        return false;
+    return value.modelRole === 'draft_only'
+        && ['model_draft', 'policy_approved', 'operator_approved'].includes(String(value.authorizationState))
+        && typeof value.operatorApprovalRequired === 'boolean'
+        && (value.operatorApprovalRef === undefined || isNonEmptyString(value.operatorApprovalRef))
+        && (value.policyDecisionRef === undefined || isNonEmptyString(value.policyDecisionRef));
+}
+function isRailEnvironment(value) {
+    return ['deterministic-fixture', 'local-test-mint', 'devnet-unverified', 'mainnet-gated'].includes(String(value));
+}
+function isPaymentEligibility(value) {
+    return ['non_eligible', 'pending_partner_acceptance', 'eligible', 'excluded'].includes(String(value));
 }
 export function validateAuddSolanaPaymentPlan(value) {
     if (!isPlainObject(value))
@@ -124,7 +174,13 @@ export function validateAuddSolanaPaymentPlan(value) {
         return false;
     if (!isNonEmptyString(value.network))
         return false;
+    if (value.caip2Network !== undefined && !isNonEmptyString(value.caip2Network))
+        return false;
     if (!isNonEmptyString(value.mint))
+        return false;
+    if (value.tokenProgram !== undefined && !isNonEmptyString(value.tokenProgram))
+        return false;
+    if (value.decimals !== undefined && value.decimals !== AUDD_DECIMALS)
         return false;
     if (!isNonEmptyString(value.payee))
         return false;
@@ -142,9 +198,37 @@ export function validateAuddSolanaPaymentPlan(value) {
         return false;
     if (!['dry-run', 'live'].includes(String(value.paymentMode)))
         return false;
+    if (value.x402Version !== undefined && value.x402Version !== AUDD_X402_VERSION)
+        return false;
+    if (value.scheme !== undefined && value.scheme !== AUDD_X402_SCHEME)
+        return false;
+    if (value.paymentFlow !== undefined && value.paymentFlow !== AUDD_X402_PAYMENT_FLOW)
+        return false;
+    if (value.maxTimeoutSeconds !== undefined && !positiveSafeInteger(value.maxTimeoutSeconds))
+        return false;
+    if (value.memo !== undefined && (!isNonEmptyString(value.memo) || value.memo.length > 256))
+        return false;
+    if (value.railEnvironment !== undefined && !isRailEnvironment(value.railEnvironment))
+        return false;
+    if (value.eligibility !== undefined && !isPaymentEligibility(value.eligibility))
+        return false;
+    if (!validateAuthority(value.authority))
+        return false;
+    if (value.paymentIntentId !== undefined && !isNonEmptyString(value.paymentIntentId))
+        return false;
+    if (value.evidence !== undefined) {
+        if (!isPlainObject(value.evidence))
+            return false;
+        if (typeof value.evidence.required !== 'boolean')
+            return false;
+        if (value.evidence.observationSchema !== undefined && !isNonEmptyString(value.evidence.observationSchema))
+            return false;
+        if (value.evidence.fixtureAndDevnetIneligible !== true)
+            return false;
+    }
     if (containsCircularReference(value))
         return false;
-    return !containsCredentialMaterial(value);
+    return !containsCredentialMaterial(value) && !containsModelSpendAuthorization(value);
 }
 export function createAuddSolanaPaymentPlan(input) {
     const plan = {
@@ -155,6 +239,33 @@ export function createAuddSolanaPaymentPlan(input) {
     if (!validateAuddSolanaPaymentPlan(plan))
         throw new Error('invalid_audd_payment_plan');
     return plan;
+}
+export function createAuddX402SvmExactPaymentPlan(input) {
+    const caip2Network = input.caip2Network ?? caip2ForSolanaNetwork(input.network);
+    if (!caip2Network)
+        throw new Error('invalid_audd_x402_network');
+    return createAuddSolanaPaymentPlan({
+        ...input,
+        caip2Network,
+        tokenProgram: input.tokenProgram ?? SPL_TOKEN_PROGRAM_ID,
+        decimals: AUDD_DECIMALS,
+        x402Version: AUDD_X402_VERSION,
+        scheme: AUDD_X402_SCHEME,
+        paymentFlow: AUDD_X402_PAYMENT_FLOW,
+        maxTimeoutSeconds: input.maxTimeoutSeconds ?? 60,
+        railEnvironment: input.railEnvironment ?? 'deterministic-fixture',
+        eligibility: input.eligibility ?? 'non_eligible',
+        authority: input.authority ?? {
+            modelRole: 'draft_only',
+            authorizationState: 'model_draft',
+            operatorApprovalRequired: input.railEnvironment !== undefined && input.railEnvironment !== 'deterministic-fixture',
+        },
+        evidence: input.evidence ?? {
+            required: input.evidenceRequired,
+            observationSchema: 'reddi.payment-observation.v1',
+            fixtureAndDevnetIneligible: true,
+        },
+    });
 }
 export function createAuddPaymentChallenge(input) {
     const { paymentPlan, quote, payTo, policyMetadata, ...rest } = input;
@@ -180,6 +291,169 @@ export function createAuddPaymentChallenge(input) {
     if (!isPaymentChallenge(challenge))
         throw new Error('invalid_payment_challenge');
     return challenge;
+}
+export function createAuddPaymentIntentDraft(input) {
+    if (!validateAuddSolanaPaymentPlan(input.paymentPlan))
+        throw new Error('invalid_audd_payment_plan');
+    const plan = input.paymentPlan;
+    const caip2 = plan.caip2Network ?? caip2ForSolanaNetwork(plan.network);
+    if (!caip2)
+        throw new Error('invalid_audd_x402_network');
+    const labels = input.labels ?? defaultLabelsForPlan(plan);
+    const memo = input.memo ?? plan.memo ?? deriveAuddMemo({ agreementId: input.agreementId, amount: plan.amount, mint: plan.mint, payTo: plan.payee });
+    return createPaymentIntentDraft({
+        labels,
+        agreementId: input.agreementId,
+        network: { caip2, rapAlias: plan.network },
+        asset: {
+            symbol: AUDD_ASSET,
+            mint: plan.mint,
+            tokenProgram: plan.tokenProgram ?? SPL_TOKEN_PROGRAM_ID,
+            decimals: AUDD_DECIMALS,
+            amountBaseUnits: plan.amount,
+        },
+        payTo: plan.payee,
+        destinationTokenAccount: input.destinationTokenAccount ?? plan.settlementAccount,
+        memo,
+        evidenceRequired: plan.evidenceRequired,
+        quoteExpiresAt: plan.quoteExpiresAt,
+        expiresAt: plan.quoteExpiresAt,
+        refundPolicy: plan.refundPolicy,
+        createdAt: input.createdAt,
+        policyDecisionRef: plan.authority?.policyDecisionRef,
+        operatorApprovalRequired: labels.environment !== 'deterministic-fixture',
+    });
+}
+export function createAuddX402SvmExactPaymentRequired(input) {
+    const { paymentPlan: plan, paymentIntent } = input;
+    if (!validateAuddSolanaPaymentPlan(plan))
+        throw new Error('invalid_audd_payment_plan');
+    const planTokenProgram = plan.tokenProgram ?? SPL_TOKEN_PROGRAM_ID;
+    if (paymentIntent.asset.symbol !== AUDD_ASSET
+        || paymentIntent.asset.amountBaseUnits !== plan.amount
+        || paymentIntent.asset.mint !== plan.mint
+        || paymentIntent.asset.tokenProgram !== planTokenProgram
+        || paymentIntent.asset.decimals !== AUDD_DECIMALS
+        || paymentIntent.payTo !== plan.payee
+        || paymentIntent.network.rapAlias !== plan.network
+        || (plan.caip2Network !== undefined && paymentIntent.network.caip2 !== plan.caip2Network)
+        || paymentIntent.destinationTokenAccount !== plan.settlementAccount) {
+        throw new Error('audd_payment_intent_plan_mismatch');
+    }
+    const caip2 = plan.caip2Network ?? paymentIntent.network.caip2;
+    const tokenProgram = planTokenProgram;
+    const memo = paymentIntent.memo ?? plan.memo ?? deriveAuddMemo({ agreementId: paymentIntent.agreementId, amount: plan.amount, mint: plan.mint, payTo: plan.payee });
+    const environment = paymentIntent.labels.environment;
+    const eligibility = paymentIntent.labels.eligibility;
+    const requirement = {
+        schemaVersion: AUDD_X402_SVM_EXACT_PAYMENT_REQUIRED_SCHEMA_VERSION,
+        x402Version: AUDD_X402_VERSION,
+        resource: input.resource,
+        accepts: [
+            {
+                scheme: AUDD_X402_SCHEME,
+                network: caip2,
+                amount: plan.amount,
+                asset: plan.mint,
+                payTo: plan.payee,
+                maxTimeoutSeconds: input.maxTimeoutSeconds ?? plan.maxTimeoutSeconds ?? 60,
+                extra: {
+                    symbol: AUDD_ASSET,
+                    decimals: AUDD_DECIMALS,
+                    tokenProgram,
+                    rapNetworkAlias: plan.network,
+                    destinationTokenAccount: paymentIntent.destinationTokenAccount,
+                    quoteExpiresAt: plan.quoteExpiresAt,
+                    memo,
+                    paymentFlow: AUDD_X402_PAYMENT_FLOW,
+                    receiptRequired: true,
+                    evidenceRequired: plan.evidenceRequired,
+                    paymentIntentId: paymentIntent.id,
+                    modelAuthority: 'draft_only',
+                    operatorApprovalRequired: paymentIntent.authorization.operatorApprovalRequired,
+                    refundPolicy: plan.refundPolicy,
+                    failurePolicy: plan.failurePolicy,
+                    environment,
+                    eligibility,
+                },
+            },
+        ],
+        extensions: {
+            reddi: {
+                schemaVersion: AUDD_PAYMENT_PLAN_SCHEMA_VERSION,
+                paymentIntentId: paymentIntent.id,
+                legacyPlanCompatible: true,
+                modelMayAuthorize: false,
+                mainnetDisabledByDefault: true,
+            },
+        },
+    };
+    if (!validateAuddX402SvmExactPaymentRequired(requirement))
+        throw new Error('invalid_audd_x402_svm_exact_payment_required');
+    return requirement;
+}
+export function validateAuddX402SvmExactPaymentRequired(value) {
+    if (!isPlainObject(value))
+        return false;
+    if (value.schemaVersion !== AUDD_X402_SVM_EXACT_PAYMENT_REQUIRED_SCHEMA_VERSION)
+        return false;
+    if (value.x402Version !== AUDD_X402_VERSION)
+        return false;
+    if (!isPlainObject(value.resource) || !isNonEmptyString(value.resource.url))
+        return false;
+    if (!Array.isArray(value.accepts) || value.accepts.length === 0)
+        return false;
+    if (!isPlainObject(value.extensions) || !isPlainObject(value.extensions.reddi))
+        return false;
+    const reddiExtension = value.extensions.reddi;
+    if (reddiExtension.schemaVersion !== AUDD_PAYMENT_PLAN_SCHEMA_VERSION)
+        return false;
+    if (!isNonEmptyString(reddiExtension.paymentIntentId))
+        return false;
+    if (reddiExtension.legacyPlanCompatible !== true)
+        return false;
+    if (reddiExtension.modelMayAuthorize !== false)
+        return false;
+    if (reddiExtension.mainnetDisabledByDefault !== true)
+        return false;
+    return value.accepts.every((accept) => {
+        if (!isPlainObject(accept))
+            return false;
+        if (accept.scheme !== AUDD_X402_SCHEME)
+            return false;
+        if (!isNonEmptyString(accept.network))
+            return false;
+        if (!positiveAmount(accept.amount))
+            return false;
+        if (!isNonEmptyString(accept.asset))
+            return false;
+        if (!isNonEmptyString(accept.payTo))
+            return false;
+        if (!positiveSafeInteger(accept.maxTimeoutSeconds))
+            return false;
+        if (!isPlainObject(accept.extra))
+            return false;
+        const extra = accept.extra;
+        return extra.symbol === AUDD_ASSET
+            && extra.decimals === AUDD_DECIMALS
+            && isNonEmptyString(extra.tokenProgram)
+            && isNonEmptyString(extra.rapNetworkAlias)
+            && (extra.destinationTokenAccount === undefined || isNonEmptyString(extra.destinationTokenAccount))
+            && isNonEmptyString(extra.quoteExpiresAt)
+            && !Number.isNaN(Date.parse(extra.quoteExpiresAt))
+            && isNonEmptyString(extra.memo)
+            && extra.memo.length <= 256
+            && extra.paymentFlow === AUDD_X402_PAYMENT_FLOW
+            && extra.receiptRequired === true
+            && typeof extra.evidenceRequired === 'boolean'
+            && extra.paymentIntentId === reddiExtension.paymentIntentId
+            && extra.modelAuthority === 'draft_only'
+            && typeof extra.operatorApprovalRequired === 'boolean'
+            && validateRefundText(extra.refundPolicy)
+            && validatePolicyText(extra.failurePolicy)
+            && isPaymentEligibility(extra.eligibility)
+            && ['deterministic-fixture', 'local-test-mint', 'devnet-unverified', 'mainnet-gated', 'controlled-live'].includes(String(extra.environment));
+    });
 }
 function planFromChallenge(challenge) {
     const plan = isPlainObject(challenge.policyMetadata)
@@ -259,6 +533,9 @@ export function evaluateAuddPaymentPlanPreflight(challengeInput, options = {}) {
     if (containsCredentialMaterial(rawPlan)) {
         return deny('credential_leakage_rejected', 'Denied: AUDD/Solana payment plan includes credential-bearing material.');
     }
+    if (containsModelSpendAuthorization(rawPlan)) {
+        return deny('model_authorization_rejected', 'Denied: models may draft AUDD payment intents but must not authorize or sign spend.');
+    }
     const plan = planFromChallenge(challenge);
     if (!plan) {
         return deny('payment_plan_malformed', 'Denied: AUDD/Solana payment plan metadata is malformed.');
@@ -296,6 +573,42 @@ export function evaluateAuddPaymentPlanPreflight(challengeInput, options = {}) {
     if (!options.allowedMints.some((mint) => normalized(mint) === normalized(plan.mint))) {
         return deny('wrong_mint', 'Denied: AUDD mint is not allowed by buyer policy.', { paymentPlan: plan });
     }
+    if (options.allowedTokenPrograms !== undefined) {
+        if (!hasOnlyNonEmptyStrings(options.allowedTokenPrograms)) {
+            return deny('buyer_policy_missing', 'Denied: buyer policy token-program allowlist is malformed.', { paymentPlan: plan });
+        }
+        if (!plan.tokenProgram || !options.allowedTokenPrograms.some((program) => program === plan.tokenProgram)) {
+            return deny('wrong_token_program', 'Denied: AUDD token program is not allowed by buyer policy.', { paymentPlan: plan });
+        }
+    }
+    if (options.allowedCaip2Networks !== undefined) {
+        if (!hasOnlyNonEmptyStrings(options.allowedCaip2Networks)) {
+            return deny('buyer_policy_missing', 'Denied: buyer policy CAIP-2 allowlist is malformed.', { paymentPlan: plan });
+        }
+        if (!plan.caip2Network || !options.allowedCaip2Networks.some((network) => network === plan.caip2Network)) {
+            return deny('wrong_network', 'Denied: AUDD x402 CAIP-2 network is not allowed by buyer policy.', { paymentPlan: plan });
+        }
+    }
+    if (options.allowedRailEnvironments !== undefined) {
+        if (!Array.isArray(options.allowedRailEnvironments) || !options.allowedRailEnvironments.every(isRailEnvironment)) {
+            return deny('buyer_policy_missing', 'Denied: buyer policy AUDD rail-environment allowlist is malformed.', { paymentPlan: plan });
+        }
+        if (!plan.railEnvironment || !options.allowedRailEnvironments.includes(plan.railEnvironment)) {
+            return deny('blocked_rail_environment', 'Denied: AUDD rail environment is not allowed by buyer policy.', { paymentPlan: plan });
+        }
+    }
+    if (options.requireX402Exact) {
+        const expectedCaip2 = caip2ForSolanaNetwork(plan.network);
+        if (plan.x402Version !== AUDD_X402_VERSION || plan.scheme !== AUDD_X402_SCHEME || plan.paymentFlow !== AUDD_X402_PAYMENT_FLOW) {
+            return deny('wrong_x402_scheme', 'Denied: AUDD payments must use x402 v2 SVM exact/upfront semantics.', { paymentPlan: plan });
+        }
+        if (!plan.tokenProgram || plan.decimals !== AUDD_DECIMALS || !plan.caip2Network || (expectedCaip2 && expectedCaip2 !== plan.caip2Network)) {
+            return deny('payment_plan_malformed', 'Denied: AUDD x402 exact plan must include matching CAIP-2 network, SPL token program, and six decimals.', { paymentPlan: plan });
+        }
+    }
+    const railEnvironmentDecision = evaluateRailEnvironment(plan, options);
+    if (railEnvironmentDecision)
+        return railEnvironmentDecision;
     if (!options.allowedPayees.some((payee) => payee === plan.payee)) {
         return deny('missing_payee', 'Denied: AUDD payee is not allowed by buyer policy.', { paymentPlan: plan });
     }
@@ -308,6 +621,10 @@ export function evaluateAuddPaymentPlanPreflight(challengeInput, options = {}) {
     }
     if (options.requireEvidence && !plan.evidenceRequired) {
         return deny('evidence_required', 'Denied: buyer policy requires evidence for AUDD payment plans.', { paymentPlan: plan });
+    }
+    const effectiveEnvironment = plan.railEnvironment ?? (plan.paymentMode === 'dry-run' ? 'deterministic-fixture' : undefined);
+    if (plan.eligibility === 'eligible' && (!effectiveEnvironment || effectiveEnvironment === 'deterministic-fixture' || effectiveEnvironment === 'local-test-mint' || effectiveEnvironment === 'devnet-unverified')) {
+        return deny('grant_eligibility_blocked', 'Denied: fixture, local-test-mint, and devnet AUDD evidence cannot be grant-volume eligible.', { paymentPlan: plan });
     }
     if (options.approvalState !== 'approved') {
         return deny('operator_approval_required', 'Denied: AUDD/Solana payment plan requires explicit operator approval.', { paymentPlan: plan });
@@ -328,4 +645,47 @@ export function evaluateAuddPaymentPlanPreflight(challengeInput, options = {}) {
         evaluateBudgetPolicy: options.evaluateBudgetPolicy,
     });
     return adaptBuyerDecision(buyerDecision, plan, challenge);
+}
+function evaluateRailEnvironment(plan, options) {
+    if (plan.network === 'solana-mainnet-beta' && plan.mint === AUDD_OFFICIAL_SOLANA_MAINNET_MINT && !options.approveMainnetAudd) {
+        return deny('mainnet_audd_disabled', 'Denied: official AUDD mainnet remains disabled by default and requires separate exact approval.', { paymentPlan: plan });
+    }
+    if (!plan.railEnvironment)
+        return undefined;
+    const identity = validateAuddRailIdentity({
+        environment: plan.railEnvironment,
+        network: plan.network,
+        caip2: plan.caip2Network,
+        mint: plan.mint,
+        tokenProgram: plan.tokenProgram,
+        decimals: plan.decimals,
+        enableGatedMainnet: options.approveMainnetAudd,
+    });
+    if (identity.ok)
+        return undefined;
+    if (identity.reasonCodes.includes('devnet_unverified_blocked')) {
+        return deny('devnet_audd_unverified', 'Denied: no official AUDD devnet mint is configured or implied.', { paymentPlan: plan });
+    }
+    if (identity.reasonCodes.includes('mainnet_audd_disabled_by_default')) {
+        return deny('mainnet_audd_disabled', 'Denied: official AUDD mainnet remains disabled by default and requires separate exact approval.', { paymentPlan: plan });
+    }
+    if (identity.reasonCodes.includes('wrong_mint')) {
+        return deny('wrong_mint', 'Denied: AUDD mint does not match the configured rail identity.', { paymentPlan: plan });
+    }
+    if (identity.reasonCodes.includes('wrong_token_program')) {
+        return deny('wrong_token_program', 'Denied: AUDD token program does not match the configured rail identity.', { paymentPlan: plan });
+    }
+    if (identity.reasonCodes.includes('wrong_network') || identity.reasonCodes.includes('wrong_caip2_network')) {
+        return deny('wrong_network', 'Denied: AUDD network identity does not match the configured rail identity.', { paymentPlan: plan });
+    }
+    return deny('blocked_rail_environment', 'Denied: AUDD rail environment is not enabled for this payment plan.', { paymentPlan: plan });
+}
+function defaultLabelsForPlan(plan) {
+    const environment = plan.railEnvironment ?? 'deterministic-fixture';
+    const eligibility = plan.eligibility ?? (environment === 'mainnet-gated' ? 'pending_partner_acceptance' : 'non_eligible');
+    return { environment, eligibility };
+}
+function deriveAuddMemo(input) {
+    const digest = canonicalPaymentHash({ auddMemo: input }).slice('sha256:'.length, 'sha256:'.length + 32);
+    return `reddi:pay:${digest}`;
 }

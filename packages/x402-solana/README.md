@@ -16,6 +16,7 @@ This package is currently a repo-local v0.1 OSS candidate. It is not yet publish
 - **Modular design** — nonce store, payment logic, and middleware are separately testable
 - **Mock-friendly** — tests don't require Solana devnet access
 - **Fail-closed devnet helpers** — any real devnet payment path is explicit, capped, allowlisted, and outside default OSS smoke
+- **Read-only SPL observation** — verifies parsed `TransferChecked` transaction fixtures without RPC, wallets, signers, secrets, or live submission
 
 ## Installation
 
@@ -100,6 +101,12 @@ if (checkAndStoreNonce(nonce)) {
   // Duplicate detected
 }
 ```
+
+### `verifySplTransferCheckedObservation({ parsedTransaction, expected, commitment })`
+
+Read-only verifier for SVM SPL Token / Token-2022 `TransferChecked` observations. It consumes an already parsed transaction object and checks transaction success, confirmation metadata, transaction-signature match, exact mint, exact token program, destination token-account ownership by `payTo`, exact base-unit amount, optional authority, optional decimals, exactly one matching transfer, replay store, and required memo binding. It does not fetch RPC, submit transactions, load wallets, sign, or hold funds.
+
+`SolanaReceiptVerifier` retains legacy SOL/USDC behavior and bridges AUDD receipts to this stricter x402 v2 SVM `exact` verifier only when the verifier is configured with an explicit `auddMint`; it will not trust a receipt-supplied mint as the AUDD identity. AUDD amounts are base units, not UI decimal strings.
 
 ### `sendPayment(request: X402Request): Promise<PaymentReceipt>`
 
@@ -188,6 +195,7 @@ x402-payment (response receipt)
 - **Phase 0**: Historical devnet/escrow research exists, but is not a current release claim
 - **Phase 1**: x402 primitives (header parsing, nonce, validation, demo receipts, local budget preflight)
 - **Phase 2**: Gated devnet USDC helpers behind explicit approval records and spend caps
+- **Phase 2a**: Non-live AUDD/SPL `TransferChecked` observation from deterministic parsed fixtures; no RPC or signer path is added
 - **Phase 3**: Framework adapters only after #519 decides retention/deprecation scope
 - **Phase 4**: Future private/Quasar settlement work only behind separate program-boundary approval
 

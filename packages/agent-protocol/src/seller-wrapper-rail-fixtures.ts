@@ -1,3 +1,4 @@
+import { AUDD_DETERMINISTIC_FIXTURE_MINT } from './audd-rail-config.js';
 import {
   createAuddPaymentChallenge,
   createAuddSolanaPaymentPlan,
@@ -72,13 +73,13 @@ export type AuddSellerWrapperNoSpendFlow = {
   guardrails: SellerWrapperRailFixture['guardrails'];
 };
 
-const AUDD_DEVNET_MINT = 'AUDDdev111111111111111111111111111111111111';
+const AUDD_FIXTURE_MINT = AUDD_DETERMINISTIC_FIXTURE_MINT;
 const SELLER_PAYEE = 'solana:SellerWrapperDemoPayee111111111111111111111';
 const SELLER_SETTLEMENT_ACCOUNT = 'solana:SellerWrapperDemoSettlement11111111111111111';
 
 const auddPaymentPlan = createAuddSolanaPaymentPlan({
   network: 'solana-devnet',
-  mint: AUDD_DEVNET_MINT,
+  mint: AUDD_FIXTURE_MINT,
   payee: SELLER_PAYEE,
   settlementAccount: SELLER_SETTLEMENT_ACCOUNT,
   amount: '2500000',
@@ -155,6 +156,7 @@ export const sellerWrapperRailFixture: SellerWrapperRailFixture = {
           auddPaymentPlan,
           notes: [
             'AUDD is first-class payment-plan/proof metadata beside SOL and USDC.',
+            'This uses the deterministic fixture sentinel only; no official AUDD devnet mint is configured or implied.',
             'AUDD custody or settlement-finality claims require a later audited custody workstream.',
           ],
         },

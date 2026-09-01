@@ -1,6 +1,7 @@
 import { type AttestationRecord, type ReputationEvent } from './attestation-reputation.js';
 import type { AuddPaymentPlanPreflightDecision } from './audd-payment-plan.js';
 import { type EvidenceArchiveRecord } from './evidence-archive.js';
+import { type ReddiPaymentObservationRecord } from './payment-records.js';
 import { type ReddiReceipt } from './receipts.js';
 export declare const RECEIPT_EVIDENCE_BINDING_SCHEMA_VERSION: "reddi.receipt-evidence-binding.v1";
 export type ReceiptEvidenceSourceKind = 'ai-catalog' | 'ard-registry' | 'hosted-rap-registry' | 'source-adapter' | 'static-fixture';
@@ -20,6 +21,7 @@ export type ReceiptEvidenceBindingInput = {
     evidence: EvidenceArchiveRecord;
     evidencePayload?: unknown;
     paymentPreflight: AuddPaymentPlanPreflightDecision;
+    paymentObservation?: ReddiPaymentObservationRecord;
     attestation?: AttestationRecord;
     reputationEventDraft?: ReputationEvent;
     createdAt: string;
@@ -56,6 +58,16 @@ export type ReceiptEvidenceBinding = {
             paymentMode: 'dry-run' | 'live';
             evidenceRequired: boolean;
         };
+        observationRef?: {
+            id: string;
+            environment: string;
+            eligibility: string;
+            paymentProofRef: string;
+            signature: string;
+            mint?: string;
+            tokenProgram?: string;
+            instructionIndex: string;
+        };
     };
     attestation?: {
         id: string;
@@ -75,7 +87,7 @@ export type ReceiptEvidenceBinding = {
     };
     createdAt: string;
 };
-export type ReceiptEvidenceBindingErrorCode = 'malformed_binding' | 'missing_source_ref' | 'missing_payment_preflight' | 'payment_preflight_denied' | 'payment_proof_mismatch' | 'payment_plan_mismatch' | 'unsupported_network_asset' | 'receipt_invalid' | 'evidence_invalid' | 'evidence_receipt_mismatch' | 'hash_mismatch' | 'attestation_mismatch' | 'reputation_event_mismatch' | 'raw_payload_leakage_rejected' | 'credential_leakage_rejected';
+export type ReceiptEvidenceBindingErrorCode = 'malformed_binding' | 'missing_source_ref' | 'missing_payment_preflight' | 'payment_preflight_denied' | 'payment_proof_mismatch' | 'payment_plan_mismatch' | 'payment_observation_mismatch' | 'payment_observation_ineligible' | 'unsupported_network_asset' | 'receipt_invalid' | 'evidence_invalid' | 'evidence_receipt_mismatch' | 'hash_mismatch' | 'attestation_mismatch' | 'reputation_event_mismatch' | 'raw_payload_leakage_rejected' | 'credential_leakage_rejected';
 export type ReceiptEvidenceBindingError = {
     code: ReceiptEvidenceBindingErrorCode;
     path: string;

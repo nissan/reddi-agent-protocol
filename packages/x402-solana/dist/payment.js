@@ -9,6 +9,7 @@ exports.verifyDemoPaymentReceipt = verifyDemoPaymentReceipt;
 exports.sendPayment = sendPayment;
 const web3_js_1 = require("@solana/web3.js");
 const jupiter_1 = require("./jupiter");
+const spl_token_observer_1 = require("./spl-token-observer");
 const SUPPORTED_NETWORKS = ['solana-devnet', 'solana-mainnet-beta', 'solana-testnet'];
 /**
  * Strictly validate canonical Solana public-key text.
@@ -201,11 +202,7 @@ class SolanaReceiptVerifier {
         });
         if (!parsed?.meta || parsed.meta.err)
             return { ok: false, reason: 'invalid_receipt', message: 'transaction is missing or failed' };
-        const paid = challenge.currency === 'SOL'
-            ? transactionHasSolTransfer(parsed, receipt.payer, challenge.payTo, Number(challenge.amount))
-            : challenge.currency === 'USDC'
-                ? transactionHasTokenTransfer(parsed, receipt, challenge, this.options.usdcMint)
-                : false;
+        const paid = await this.receiptSatisfiesChallenge(parsed, receipt, challenge, signature);
         if (!paid)
             return { ok: false, reason: 'invalid_receipt', message: 'transaction does not satisfy x402 challenge payment terms' };
         if (replayStore) {
@@ -214,6 +211,37 @@ class SolanaReceiptVerifier {
                 return { ok: false, reason: 'duplicate_nonce', message: 'receipt nonce has already been used', actual: receipt.nonce };
         }
         return { ok: true, receipt, demo: false };
+    }
+    async receiptSatisfiesChallenge(parsed, receipt, challenge, signature) {
+        if (challenge.currency === 'SOL') {
+            return transactionHasSolTransfer(parsed, receipt.payer, challenge.payTo, Number(challenge.amount));
+        }
+        if (challenge.currency === 'USDC') {
+            return transactionHasTokenTransfer(parsed, receipt, challenge, this.options.usdcMint);
+        }
+        if (challenge.currency === 'AUDD') {
+            const mint = this.options.auddMint;
+            if (!mint || (receipt.mint !== undefined && receipt.mint !== mint))
+                return false;
+            const result = await (0, spl_token_observer_1.verifySplTransferCheckedObservation)({
+                parsedTransaction: parsed,
+                commitment: 'confirmed',
+                expected: {
+                    network: challenge.network,
+                    signature,
+                    mint,
+                    tokenProgram: this.options.auddTokenProgram ?? spl_token_observer_1.SPL_TOKEN_PROGRAM_ID,
+                    payTo: challenge.payTo,
+                    amountBaseUnits: String(challenge.amount),
+                    destinationTokenAccount: receipt.destinationTokenAccount,
+                    authority: receipt.payer,
+                    memo: challenge.memo,
+                    memoRequired: challenge.memo !== undefined,
+                },
+            });
+            return result.ok;
+        }
+        return false;
     }
 }
 exports.SolanaReceiptVerifier = SolanaReceiptVerifier;
