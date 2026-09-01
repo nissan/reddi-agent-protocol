@@ -32,10 +32,15 @@ pointer, never as a deployment claim by this module.
 
 | Lane | Program lane | Discriminator | Compact fields carried | Eligibility |
 |---|---|---|---|---|
-| `commit` | `quasar-reputation` | 1 | `jobIdRef`, `role: 'consumer'`, commitment described by contract (`sha256(score‖salt‖job_id‖program_id)`) and explicitly `not_computed` | valid reputation event draft present |
+| `commit` | `quasar-reputation` | 1 | `jobIdRef`, `role: 'consumer'`, commitment described by contract (`sha256(score‖salt‖escrow_address‖program_id)`) and explicitly `not_computed` | valid reputation event draft present |
 | `reveal` | `quasar-reputation` | 2 | `jobIdRef`, `score` (draft rubric score 0–100 scaled to the program's 1–10 range) | same as commit |
 | `confirm` | `quasar-attestation` | 2 | `jobIdRef` | receipt `attested` + attestation verdict `passed` |
 | `dispute` | `quasar-attestation` | 3 | `jobIdRef` | receipt `rejected` + attestation verdict `disputed` |
+
+The on-chain field/account names, PDA seeds, and commitment contract mirrored in
+`QUASAR_REPUTATION_INTENT_COMPATIBILITY` describe the **current repository sources** only; the same
+constant records that the deployment referenced by `deploymentsRef` is pre-job-binding and unusable
+(see `docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`).
 
 Everything a real instruction would additionally need — u128 job-id encoding, salt generation, the
 commitment hash, party public keys, account addresses — is **named, not fabricated**, in each

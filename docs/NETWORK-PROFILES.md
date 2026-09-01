@@ -45,14 +45,20 @@ NETWORK_PROFILE=devnet
 ```bash
 NETWORK_PROFILE=local-surfpool
 NEXT_PUBLIC_DEMO_PROGRAM_TARGET=legacy-anchor
-NEXT_PUBLIC_RPC_ENDPOINT=http://127.0.0.1:18999
+NEXT_PUBLIC_RPC_ENDPOINT=http://127.0.0.1:<local-validator-port>
 NEXT_PUBLIC_ESCROW_PROGRAM_ID=<local-deployed-program-id>
 ```
 
-No Quasar deployment is registered for this profile. Leaving
-`NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` set (as `.env.example` ships it) does not
-break the app — the resolver refuses the request, keeps the legacy Anchor target,
-marks the profile not submission-ready, and records the refusal in `knownGaps`.
+`local-surfpool` is the only profile on which the Quasar target is usable, and only
+when all four local program ids (`NEXT_PUBLIC_ESCROW_PROGRAM_ID`,
+`NEXT_PUBLIC_REGISTRY_PROGRAM_ID`, `NEXT_PUBLIC_REPUTATION_PROGRAM_ID`,
+`NEXT_PUBLIC_ATTESTATION_PROGRAM_ID`) are supplied, valid, and distinct. Otherwise the
+resolver refuses the request, keeps the legacy Anchor target, marks the profile not
+submission-ready, and records the refusal — naming the missing, malformed, or duplicated
+ids — in `knownGaps`, so leaving `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` set (as
+`.env.example` ships it) does not break the app. The Surfpool SDK lane supplies those
+ids itself against a dynamic loopback port; see
+[`SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`](./SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md).
 
 ### Mainnet (currently blocked)
 ```bash
@@ -99,33 +105,45 @@ offending labels and neither falling back to a registered id:
   `NEXT_PUBLIC_*_PROGRAM_ID` that is not a valid 32-byte Solana public key is
   refused, so a typo is attributed to its variable instead of surfacing later as
   an `Invalid public key input` from whichever script used it first.
-- It has no registered Quasar inventory outside devnet, so selecting the Quasar
-  target on `local-surfpool` additionally requires all four ids
-  (`DEMO_ESCROW_PROGRAM_ID`, `DEMO_REGISTRY_PROGRAM_ID`,
-  `DEMO_REPUTATION_PROGRAM_ID`, `DEMO_ATTESTATION_PROGRAM_ID`) to be supplied.
+- The Quasar target is refused on every profile except `local-surfpool`, and there
+  it additionally requires all four ids (`DEMO_ESCROW_PROGRAM_ID`,
+  `DEMO_REGISTRY_PROGRAM_ID`, `DEMO_REPUTATION_PROGRAM_ID`,
+  `DEMO_ATTESTATION_PROGRAM_ID`) to be supplied, valid, and distinct, plus a
+  loopback `DEMO_DEVNET_RPC`. The policy lives in
+  `packages/demo-agents/src/quasar-target-gate.ts` and never downgrades a refused
+  Quasar request to `legacy-anchor`.
 
 ## Mainnet note
 
 No mainnet deployment is registered today. `config/networks/mainnet.json` carries
 only a placeholder escrow id (the devnet legacy Anchor id) plus explicit unset
-notes for the registry, reputation, and attestation programs. The active devnet
-demo target is the four-program Quasar set in `config/quasar/deployments.json`;
-that set cannot be silently reused on mainnet because clusters are separate
-ledgers and the resolver refuses `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` outside
-`NETWORK_PROFILE=devnet`. On both `local-surfpool` and `mainnet` the resolver
-refuses the request, keeps that profile's own legacy Anchor program id, marks it
-not submission-ready, and records the refusal in `knownGaps` — so `/register`,
+notes for the registry, reputation, and attestation programs. The four-program
+Quasar set recorded in `config/quasar/deployments.json` is devnet-only and blocked;
+it cannot be silently reused on mainnet either, because clusters are separate
+ledgers and the resolver refuses `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` on
+`mainnet` outright, and on `local-surfpool` unless the four local ids above are
+supplied. A refused request keeps that profile's own legacy Anchor program id,
+marks it not submission-ready, and records the refusal in `knownGaps` — so `/register`,
 `/onboarding`, and `/economic-demo` render an amber readiness panel listing those
 gaps rather than failing to load. Those panels render whenever `knownGaps` is
 non-empty, including on profiles that remain submission-ready.
 
+On `devnet` the Quasar target still resolves — so the disclosure surfaces can explain
+why — but `config/quasar/deployments.json` records `submissionReady: false`, so
+`getNetworkProfile()` populates `programs.blocked` and `assertProgramTargetUsable()`
+throws at every effect site before instruction building, signer use, or RPC. The
+underlying ABI/deployment gaps are owned by `config/quasar/deployments.json` and
+[`SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`](./SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md).
+
 On profiles whose resolved program set is not submission-ready, `lib/program.ts`
 exports `SUBMISSION_BLOCKED = true`, and every transaction-signing surface
 consults it — browser and server alike, because the cost it prevents is the same
-on both. This includes the undeployed mainnet profile, refused Quasar targets on
-non-devnet profiles, and malformed program-id overrides that were rejected before
-`PublicKey` construction. In the browser: the register action on `/register`, and
-the register plus confirm/dispute attestation actions on `/onboarding`. On the
+on both. This includes the undeployed mainnet profile, refused Quasar targets, the recorded
+but blocked devnet Quasar deployment, and malformed program-id overrides that were
+rejected before `PublicKey` construction. In the browser: the register action on
+`/register`, and the register plus confirm/dispute attestation actions on
+`/onboarding` — which under the Quasar target are additionally disabled because no
+verified lock-created Quasar escrow exists (see the lane doc above). On the
 server, where an operator keypair signs without a wallet prompt:
 `submitOnchainOnboardingAttestation` (behind `/api/onboarding/attestation`) throws,
 `commitReputationRating` / `revealReputationRating` (behind the planner

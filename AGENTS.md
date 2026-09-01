@@ -11,7 +11,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This is a mixed monorepo: a Next.js web app at the root, Solana programs under `programs/escrow/`, and independent TypeScript packages under `packages/`. The root `package.json` is named `web`; it is not a workspace root. Each `packages/*` package has its own install/build/test lifecycle.
 
 - `app/`, `components/`, `lib/`, `providers/`, `public/` — Next.js 16 (App Router) + React 19 + Tailwind v4 + shadcn/ui + Solana wallet adapter.
-- `programs/escrow/` — legacy Anchor reference implementation. Demo target is the Quasar program set in `config/quasar/deployments.json`; Anchor remains historical/reference regression evidence only.
+- `programs/escrow/` — legacy Anchor reference implementation. The recorded Quasar devnet program set in `config/quasar/deployments.json` is blocked (`submissionReady: false`); Anchor remains historical/reference regression evidence only.
 - `packages/per-client` — MagicBlock PER delegation client; PER architecture remains TypeScript/client-side unless a separate SDK compatibility qualification says otherwise.
 - `packages/agent-protocol`, `packages/x402-solana`, `packages/demo-agents`, `packages/rap-mcp-bridge`, `packages/eliza-plugin-x402`, `packages/sendai-x402`, `packages/openrouter-specialists`, `packages/testing-specialists` — package surfaces with separate package managers/scripts.
 - `scripts/` — smoke/evidence/readiness scripts; inspect scripts before running anything with devnet/live/surfpool/evidence in the name.
@@ -64,7 +64,7 @@ The repo has many smoke/evidence/readiness commands. Do not run destructive or l
 Runtime network comes from `lib/config/network.ts` and `config/networks/<profile>.json`.
 
 - Profile value: `devnet` default, `mainnet`, or `local-surfpool` (aliases: `local`, `localnet`, `surfpool`). `resolveNetworkProfileName()` consults three keys in order — `NETWORK_PROFILE` (the only true runtime selector; never inlined into a bundle), then `NEXT_PUBLIC_BUILD_NETWORK_PROFILE` (emitted by `next.config.ts` from the build-time profile — the browser's source of truth, never set by hand), then `NEXT_PUBLIC_NETWORK_PROFILE` (a build-time selector frozen into both bundles whenever it is present in the build env). See `docs/NETWORK-PROFILES.md` for why setting only `NEXT_PUBLIC_NETWORK_PROFILE` at runtime does not switch the profile.
-- `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` switches the devnet profile to the Quasar program set.
+- `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` selects the Quasar target: refused on `mainnet`; refused on `local-surfpool` unless four distinct valid local program ids are supplied; on `devnet` it resolves for disclosure only, and `assertProgramTargetUsable()` refuses it because the recorded deployment is not submission-ready.
 - `NEXT_PUBLIC_RPC_ENDPOINT` overrides RPC; `NEXT_PUBLIC_ESCROW_PROGRAM_ID` / `NEXT_PUBLIC_REGISTRY_PROGRAM_ID` / `NEXT_PUBLIC_REPUTATION_PROGRAM_ID` / `NEXT_PUBLIC_ATTESTATION_PROGRAM_ID` override program ids, but are ignored on devnet — both the legacy-Anchor and Quasar targets — unless the build was made with `ALLOW_UNSAFE_ESCROW_OVERRIDE=true`, mirrored by `next.config.ts` into `NEXT_PUBLIC_BUILD_ALLOW_UNSAFE_ESCROW_OVERRIDE`; the browser must not accept a runtime public unsafe-override flag. Rejected overrides keep the registered id, mark the profile not submission-ready, and record `knownGaps` without exposing the supplied value; malformed values are rejected before `lib/program.ts` constructs any `PublicKey`.
 
 When debugging wrong program id or wrong RPC, check these env vars before changing code.
@@ -73,7 +73,7 @@ When debugging wrong program id or wrong RPC, check these env vars before changi
 
 The legacy Anchor implementation in `programs/escrow/` contains escrow, registry, reputation commit/reveal, attestation, and MagicBlock PER state-tracking instructions. PDA seeds and Anchor discriminators are mirrored in `lib/program.ts`; if you change a seed or instruction name, update both Rust constants and TypeScript mirrors.
 
-Quasar is the demo target, not Anchor. Program ids are in `config/quasar/deployments.json`; the legacy Anchor id is historical comparison only. MagicBlock PER/TEE live execution is not part of the final Quasar claim. See `DEPLOY.md` before any deployment, and never deploy or change upgrade authority without explicit approval.
+Quasar is experimental. Program ids are in `config/quasar/deployments.json`, and the recorded devnet deployment is blocked: it predates the job-binding rework and no longer matches the in-repo client, so every Quasar request outside `local-surfpool` is refused before instruction building, signer access, or RPC. Current-source Quasar is exercised only by the local Surfpool lane — see `docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`. The legacy Anchor id is historical comparison only. MagicBlock PER/TEE live execution is not part of any Quasar claim. See `DEPLOY.md` before any deployment, and never deploy or change upgrade authority without explicit approval.
 
 The `77rkRQxe…UZXmX` program id still quoted in some older `declare_id!` macros, `Anchor.toml` entries, and runbooks (including `packages/demo-agents/DEPLOY.md`) is pre-cutover doc rot; it is deployed nowhere. Ignore it.
 

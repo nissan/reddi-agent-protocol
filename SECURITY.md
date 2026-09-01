@@ -6,6 +6,8 @@ This document summarizes the current threat model and security posture for the R
 
 ## Deployed Program Addresses (Solana devnet)
 
+These addresses are recorded history, not an active demo target: `config/quasar/deployments.json` marks the deployment `submissionReady: false` (client/deployment ABI mismatch), and the client refuses the Quasar target outside `local-surfpool` before instruction building, signer access, or RPC. See [Known Limitations](#known-limitations-current-phase) and `docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`.
+
 - Escrow Program: `VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW`
 - Registry Program: `Xk7jczJZ1HHJZuE1ZUWDqFmowxYhnom7mWzrNSGf9FU`
 - Reputation Program: `nb9rLVjoHMibsgfRGgKuPqm6M8GVcH9r6bYNfg7Yiy6`
@@ -33,7 +35,7 @@ This document summarizes the current threat model and security posture for the R
 
 ### 4) Unauthorized release prevention (explicit signer and PDA checks)
 
-- The active devnet addresses above are Quasar programs, not Anchor programs; do not rely on Anchor-only `has_one` wording for this trust boundary.
+- The devnet addresses above are Quasar programs, not Anchor programs; do not rely on Anchor-only `has_one` wording for this trust boundary.
 - Quasar escrow release/cancel paths validate the expected signer and PDA seeds/account fields explicitly before moving lamports.
 - **Source-level, not yet deployed:** reputation and attestation job-binding paths on current `main` read an owner-checked `quasar-escrow` escrow mirror (`EscrowRef::owners()` pins `VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW`) rather than trusting caller-supplied parties. This landed in the job-binding series (#642-#645, 2026-08-24/26). The last recorded devnet deployment is `config/quasar/deployments.json` `updatedAt: 2026-05-06`, so the binaries at the addresses above **predate** this binding and the CRITICAL-4 durability change. Per `docs/QUASAR-JOB-BINDING-DESIGN-2026-08-24.md`, the escrow program currently on devnet still accepts an unsigned payee. Read this bullet as a property of the source under audit, not of the deployed devnet programs.
 - Mismatched account graphs, signer substitution, or escrow accounts owned by other programs should fail account validation before business logic executes — again as a source-level property until the redeploy recorded in `docs/QUASAR-C4-DURABLE-JOB-RECORD-DESIGN-2026-08-26.md` lands.
