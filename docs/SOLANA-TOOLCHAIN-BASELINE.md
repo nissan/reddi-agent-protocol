@@ -29,7 +29,7 @@ The script is idempotent and constrained to user-scoped install paths. Re-runnin
 
 - Node is installed with `mise install node@24.20.0`; this does not replace the machine-wide/default Node, so Node 26 remains available for unrelated work.
 - Rust/rustup are installed under `~/.rustup` and `~/.cargo` using a pinned `rustup-init` archive and `--no-modify-path`. `auto-self-update` is disabled only on a rustup this script installed; an existing rustup keeps its own settings.
-- Solana CLI is installed under `~/.local/share/solana/install` using the pinned `agave-install-init` release asset, a config file inside that same install tree, and `--no-modify-path`. That is the shared default `agave-install` data dir, so this relinks `active_release` and the user-wide `solana` becomes v3.1.13; the installer prints what was active there first. Unlike Node, there is no repo-local selection for the Solana CLI — set `RAP_BASELINE_SOLANA_INSTALL_DIR` to keep an existing install untouched.
+- Solana CLI is installed under the baseline-owned `~/.local/share/solana/reddi-agent-protocol-baseline/install` directory using the pinned `agave-install-init` release asset, a config file inside that same install tree, and `--no-modify-path`. The shared default `~/.local/share/solana/install` tree is left untouched by default. If you explicitly set `RAP_BASELINE_SOLANA_INSTALL_DIR=~/.local/share/solana/install`, the installer warns that this relinks the shared `active_release` and may change the user-wide `solana`.
 - AVM is installed with Cargo from the official `otter-sec/anchor` `v1.0.0` tag; Anchor `1.0.0` is selected through AVM.
 - Surfpool is installed from the verified `v1.5.0` Linux release tarball under `~/.local/share/surfpool/releases/v1.5.0/bin`.
 - Downloaded installer assets are cached in the git-ignored `.tmp/solana-baseline-downloads/` (override with `RAP_BASELINE_DOWNLOAD_DIR`); install roots are overridable with `RAP_BASELINE_SOLANA_INSTALL_DIR` and `RAP_BASELINE_SURFPOOL_ROOT`, which the Surfpool smoke honours too.
@@ -78,11 +78,11 @@ Print the tested rollback plan without changing the host:
 scripts/rollback-solana-baseline.sh --plan
 ```
 
-If rollback is actually needed, run `scripts/rollback-solana-baseline.sh --execute` and type its confirmation phrase. That single phrase is the only gate: `--execute` removes everything the printed plan lists as removed, including the mise Node runtime, the Rust toolchain, the AVM-managed Anchor, and the whole `~/.local/share/solana/install` tree — the default `agave-install` data dir, so any other Solana release already installed there goes with it.
+If rollback is actually needed, run `scripts/rollback-solana-baseline.sh --execute` and type its confirmation phrase. That single phrase is the only gate: `--execute` removes everything the printed plan lists as removed, including the mise Node runtime, the Rust toolchain, the AVM-managed Anchor, and the configured Solana install tree. The default Solana tree is baseline-owned; if you override `RAP_BASELINE_SOLANA_INSTALL_DIR` to the shared `~/.local/share/solana/install` tree, rollback destroys that shared tree and any other Solana releases in it.
 
 1. Remove repository-local Node selection by ignoring/removing `.mise.toml`, or run commands outside this repository. To remove the installed runtime entirely: `mise uninstall node@24.20.0`.
 2. Remove the Rust toolchain: `rustup toolchain uninstall 1.89.0`. If this setup installed rustup only for RAP and nothing else uses it, remove `~/.rustup` and `~/.cargo` after backing up anything you need.
-3. Remove Solana CLI: delete `~/.local/share/solana/install` or reinstall a prior captured version with the matching `agave-install-init`.
+3. Remove Solana CLI: delete `~/.local/share/solana/reddi-agent-protocol-baseline/install` (or the explicit `RAP_BASELINE_SOLANA_INSTALL_DIR` you chose) or reinstall a prior captured version with the matching `agave-install-init`.
 4. Remove Anchor/AVM: `avm uninstall 1.0.0` if available, then remove the AVM Cargo binary if this setup installed it.
 5. Remove Surfpool: delete `~/.local/share/surfpool/releases/v1.5.0`.
 6. Restore shell startup files from the timestamped backup recorded in the capture artifact if any installer or manual PATH edit changed them.

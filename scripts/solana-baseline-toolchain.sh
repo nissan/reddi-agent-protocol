@@ -40,7 +40,8 @@ cd "$REPO_ROOT"
 . "$SCRIPT_DIR/lib/solana-baseline-version-match.sh"
 ASSETS_JSON="$REPO_ROOT/config/toolchain/solana-baseline-assets.json"
 DOWNLOAD_DIR="${RAP_BASELINE_DOWNLOAD_DIR:-$REPO_ROOT/.tmp/solana-baseline-downloads}"
-SOLANA_INSTALL_DIR="${RAP_BASELINE_SOLANA_INSTALL_DIR:-$HOME/.local/share/solana/install}"
+SHARED_SOLANA_INSTALL_DIR="$HOME/.local/share/solana/install"
+SOLANA_INSTALL_DIR="${RAP_BASELINE_SOLANA_INSTALL_DIR:-$HOME/.local/share/solana/reddi-agent-protocol-baseline/install}"
 SOLANA_CONFIG="$SOLANA_INSTALL_DIR/config.yml"
 SURFPOOL_ROOT="${RAP_BASELINE_SURFPOOL_ROOT:-$HOME/.local/share/surfpool/releases}"
 CAPTURE_DIR="$REPO_ROOT/artifacts/toolchain"
@@ -204,10 +205,14 @@ mise_pinned_node_dir() {
   printf '%s\n' "$dir"
 }
 
+redact_home() {
+  sed "s#${HOME}#~#g"
+}
+
 version_output() {
   local label=$1; shift
   printf '$ %s\n' "$label"
-  "$@" 2>&1 || true
+  ("$@" 2>&1 || true) | redact_home
   echo
 }
 
@@ -221,7 +226,7 @@ capture_versions() {
     echo "# RAP Solana baseline toolchain capture ($phase)"
     echo
     echo "Captured: $stamp"
-    echo "Worktree: $REPO_ROOT"
+    echo "Worktree: <local worktree path redacted>"
     echo "Git HEAD: $(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)"
     echo
     echo "## Expected pins"
@@ -242,8 +247,8 @@ capture_versions() {
     fi
     for cmd in node npm npx rustup rustc cargo solana agave-install avm anchor surfpool; do
       printf '$ command -v %s\n' "$cmd"
-      command -v "$cmd" || true
-      probe_ambient_version "$cmd"
+      (command -v "$cmd" || true) | redact_home
+      probe_ambient_version "$cmd" | redact_home
       echo
     done
     if rustup_pinned_toolchain_installed; then
@@ -348,7 +353,7 @@ inspect_shell_startup_diffs() {
   {
     echo "## Shell startup file diff inspection"
     echo
-    echo "Backup directory: $backup_dir"
+    echo "Backup directory: $(printf '%s' "$backup_dir" | redact_home)"
     echo
     if [ -n "$step_log" ]; then
       echo "### Per-install inspection"
@@ -427,12 +432,17 @@ install_rust() {
 
 install_agave() {
   mkdir -p "$DOWNLOAD_DIR" "$SOLANA_INSTALL_DIR"
-  echo "note: installing Agave $AGAVE_VERSION into $SOLANA_INSTALL_DIR and relinking its active_release."
-  echo "      this is the shared default agave-install data dir, so the user-wide 'solana' becomes $AGAVE_VERSION."
-  if [ -x "$SOLANA_INSTALL_DIR/active_release/bin/solana" ]; then
-    echo "      currently active there: $("$SOLANA_INSTALL_DIR/active_release/bin/solana" --version 2>&1 || true)"
+  if [ "$SOLANA_INSTALL_DIR" = "$SHARED_SOLANA_INSTALL_DIR" ]; then
+    echo "warning: RAP_BASELINE_SOLANA_INSTALL_DIR points at the shared default agave-install data dir:" >&2
+    echo "         $SHARED_SOLANA_INSTALL_DIR" >&2
+    echo "         installing here relinks active_release and can change the user-wide 'solana'." >&2
+    if [ -x "$SOLANA_INSTALL_DIR/active_release/bin/solana" ]; then
+      echo "         currently active there: $("$SOLANA_INSTALL_DIR/active_release/bin/solana" --version 2>&1 || true)" >&2
+    fi
+  else
+    echo "note: installing Agave $AGAVE_VERSION into baseline-owned directory $SOLANA_INSTALL_DIR"
+    echo "      shared default agave-install data dir is left untouched: $SHARED_SOLANA_INSTALL_DIR"
   fi
-  echo "      set RAP_BASELINE_SOLANA_INSTALL_DIR to install into a baseline-owned tree instead."
   local init="$DOWNLOAD_DIR/agave-install-init-$AGAVE_VERSION"
   download_verified "$AGAVE_URL" "$AGAVE_SHA256" "$init"
   chmod +x "$init"

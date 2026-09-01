@@ -3,27 +3,29 @@
 Manually authored record of the 2026-09-01 baseline install run; no script emits this file. The machine-generated version captures it references live under `artifacts/toolchain/`.
 
 Date: 2026-09-01
-Worktree: `/home/nissan/.treehouse/reddi-agent-protocol-276f74/5/reddi-agent-protocol`
+Worktree: `~/.treehouse/reddi-agent-protocol-276f74/5/reddi-agent-protocol`
 Branch: `fm/rap-toolchain-baseline`
 
 ## Host changes made
 
 - Installed Node `24.20.0` through mise; default `node --version` outside repo remains `v26.7.0`.
 - Installed user-scoped rustup/Rust `1.89.0` with `rustfmt` and `clippy` under `~/.rustup`/`~/.cargo`; set rustup auto-self-update to disabled after the install.
-- Installed user-scoped Agave/Solana CLI `v3.1.13` under `~/.local/share/solana/install` with install config kept in that tree.
+- Initially installed user-scoped Agave/Solana CLI `v3.1.13` under shared default `~/.local/share/solana/install`; later review tightened the reproducible default to the baseline-owned `~/.local/share/solana/reddi-agent-protocol-baseline/install` directory so future installs do not relink the shared default unless explicitly overridden.
 - Installed AVM `1.0.0` and selected Anchor CLI `1.0.0` under user Cargo/AVM paths.
 - Installed Surfpool `v1.5.0` under `~/.local/share/surfpool/releases/v1.5.0/bin`.
-- Shell startup backups: `/home/nissan/backups/reddi-agent-protocol-toolchain-baseline-20260901T015341Z`, `/home/nissan/backups/reddi-agent-protocol-toolchain-baseline-20260901T015716Z`, `/home/nissan/backups/reddi-agent-protocol-toolchain-baseline-20260901T020113Z`, `/home/nissan/backups/reddi-agent-protocol-toolchain-baseline-20260901T021001Z`.
-- Final startup-file diff inspection: no shell startup files changed.
+- Shell startup backups: `~/backups/reddi-agent-protocol-toolchain-baseline-20260901T015341Z`, `~/backups/reddi-agent-protocol-toolchain-baseline-20260901T015716Z`, `~/backups/reddi-agent-protocol-toolchain-baseline-20260901T020113Z`, `~/backups/reddi-agent-protocol-toolchain-baseline-20260901T021001Z`, `~/backups/reddi-agent-protocol-toolchain-baseline-20260901T042905Z`, `~/backups/reddi-agent-protocol-toolchain-baseline-20260901T043007Z`.
+- Final startup-file diff inspection: no shell startup files changed. Per-installer startup-diff attribution is present in `artifacts/toolchain/baseline-after-install-20260901T043009Z.md` for the later idempotent install; it is the current script-generated install evidence.
 
 ## Version captures
 
-- Before install: `artifacts/toolchain/baseline-preinstall-20260901T015341Z.md`
-- After install: `artifacts/toolchain/baseline-after-install-20260901T021005Z.md`
+- Manually captured preinstall record: `docs/SOLANA-BASELINE-PREINSTALL-MANUAL-2026-09-01.md`
+- Superseded after install: `artifacts/toolchain/baseline-after-install-20260901T021005Z.md`
+- Current script-generated before install: `artifacts/toolchain/baseline-before-install-20260901T043007Z.md`
+- Current script-generated after install: `artifacts/toolchain/baseline-after-install-20260901T043009Z.md`
 
 ## Verification run
 
-Passed, against the script as of commit 02aaeb3; `verify` and the pin check have both been tightened since (verify now fails instead of installing a missing `node@24.20.0`, and the pin check now asserts the rustfmt/clippy entries), so re-running them is the way to re-confirm this list:
+Passed initially against the script as of commit 02aaeb3, then rerun after the review fixes tightened `verify`, pin checks, capture redaction, Agave's default install path, and rollback wording:
 
 - `scripts/solana-baseline-toolchain.sh verify`
 - `npm run check:toolchain:baseline`

@@ -32,7 +32,8 @@ NODE_VERSION=$(toml_value .mise.toml tools.node)
 RUST_VERSION=$(toml_value rust-toolchain.toml toolchain.channel)
 ANCHOR_VERSION=$(toml_value Anchor.toml toolchain.anchor_version)
 SURFPOOL_VERSION=$(json_value surfpool.version)
-SOLANA_INSTALL_DIR="${RAP_BASELINE_SOLANA_INSTALL_DIR:-$HOME/.local/share/solana/install}"
+SOLANA_INSTALL_DIR="${RAP_BASELINE_SOLANA_INSTALL_DIR:-$HOME/.local/share/solana/reddi-agent-protocol-baseline/install}"
+SHARED_SOLANA_INSTALL_DIR="$HOME/.local/share/solana/install"
 SURFPOOL_DIR="${RAP_BASELINE_SURFPOOL_ROOT:-$HOME/.local/share/surfpool/releases}/$SURFPOOL_VERSION"
 
 MODE="${1:---plan}"
@@ -50,7 +51,7 @@ further per-step prompt, so stop now if other work still needs any of them:
 - Node: mise uninstall node@$NODE_VERSION (the machine-wide default Node stays, but anything else pinned to $NODE_VERSION loses it)
 - Rust: rustup toolchain uninstall $RUST_VERSION (anything else using this toolchain loses it)
 - Anchor: avm uninstall $ANCHOR_VERSION when avm is installed (anything else using Anchor $ANCHOR_VERSION loses it)
-- Solana CLI: rm -rf $SOLANA_INSTALL_DIR (this is the default agave-install data dir, not a path this baseline owns; any other release or CLI already installed there is destroyed with it)
+- Solana CLI: rm -rf $SOLANA_INSTALL_DIR (baseline-owned default; if RAP_BASELINE_SOLANA_INSTALL_DIR is overridden to $SHARED_SOLANA_INSTALL_DIR or another shared tree, any other release or CLI already installed there is destroyed with it)
 - Surfpool: rm -rf $SURFPOOL_DIR
 
 --execute leaves the following alone; remove them by hand only if no other work uses them:
