@@ -1,14 +1,41 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd -P)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 cd "$ROOT_DIR"
+# shellcheck source=lib/solana-baseline-version-match.sh
+. "$SCRIPT_DIR/lib/solana-baseline-version-match.sh"
 
-export PATH="$HOME/.cargo/bin:$HOME/.local/share/solana/install/active_release/bin:$HOME/.local/share/surfpool/releases/v1.5.0/bin:$PATH"
+PINS="$("$SCRIPT_DIR/solana-baseline-toolchain.sh" print-pins)"
+pin_value() { awk -F'[= ]' -v key="$1" '$0 ~ "^" key "=" { print $2; exit }' <<<"$PINS"; }
+SURFPOOL_VERSION="$(pin_value surfpool)"
+AGAVE_VERSION="$(pin_value agave)"
+[ -n "$SURFPOOL_VERSION" ] && [ -n "$AGAVE_VERSION" ] || {
+  echo "could not resolve surfpool/agave pins from solana-baseline-toolchain.sh print-pins" >&2
+  exit 1
+}
+
+SOLANA_INSTALL_DIR="${RAP_BASELINE_SOLANA_INSTALL_DIR:-$HOME/.local/share/solana/install}"
+SURFPOOL_ROOT="${RAP_BASELINE_SURFPOOL_ROOT:-$HOME/.local/share/surfpool/releases}"
+export PATH="$HOME/.cargo/bin:$SOLANA_INSTALL_DIR/active_release/bin:$SURFPOOL_ROOT/$SURFPOOL_VERSION/bin:$PATH"
 
 for cmd in surfpool solana python3; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "missing required command: $cmd" >&2; exit 1; }
 done
+
+assert_pinned() {
+  local description=$1 expected=$2 output=$3
+  if ! version_token_match "$output" "$expected"; then
+    echo "$description is not the pinned baseline build: expected '$expected' but got '$output' (from $(command -v "${description}"))" >&2
+    exit 1
+  fi
+}
+
+SURFPOOL_VERSION_OUTPUT="$(surfpool --version 2>&1)"
+SOLANA_VERSION_OUTPUT="$(solana --version 2>&1)"
+assert_pinned surfpool "surfpool ${SURFPOOL_VERSION#v}" "$SURFPOOL_VERSION_OUTPUT"
+assert_pinned solana "solana-cli ${AGAVE_VERSION#v}" "$SOLANA_VERSION_OUTPUT"
 
 read -r PORT WS_PORT < <(python3 - <<'PY'
 import socket
@@ -66,8 +93,8 @@ for _ in {1..40}; do
       echo "surfpool-smoke=ok"
       echo "rpc=$RPC_URL"
       echo "ws=ws://127.0.0.1:$WS_PORT"
-      echo "surfpool=$(surfpool --version)"
-      echo "solana=$(solana --version)"
+      echo "surfpool=$SURFPOOL_VERSION_OUTPUT"
+      echo "solana=$SOLANA_VERSION_OUTPUT"
       echo "cluster_version=$(cat "$OUT_DIR/cluster-version.txt")"
       echo "log=$LOG"
     } | tee "$OUT_DIR/summary.txt"

@@ -2,8 +2,9 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
+const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '');
 
 function fail(message) {
   console.error(`solana-baseline-pins: ${message}`);
@@ -70,6 +71,8 @@ const checks = [
   ['CI Agave pin is v3.1.13', workflowVersions.has('v3.1.13')],
   ['Agave asset checksum exists for CI pin', typeof assets.agave?.sha256ByVersion?.['v3.1.13'] === 'string'],
   ['npm exact probe pin is recorded for Node 24.20.0', assets.node?.npmBundledVersion === '11.19.0'],
+  ['rustfmt exact probe pin is recorded for Rust 1.89.0', assets.rust?.rustfmtVersionByChannel?.['1.89.0'] === '1.8.0-stable'],
+  ['clippy exact probe pin is recorded for Rust 1.89.0', assets.rust?.clippyVersionByChannel?.['1.89.0'] === '0.1.89'],
   ['rustup-init asset is exact official archive 1.29.0', assets.rustup?.version === '1.29.0' && assets.rustup?.url?.includes('/archive/1.29.0/')],
   ['Surfpool asset pins v1.5.0', assets.surfpool?.version === 'v1.5.0' && assets.surfpool?.url?.includes('/download/v1.5.0/')],
   ['Anchor AVM tag object and commit are recorded', typeof assets.anchorAvm?.tagObjectShaByVersion?.['1.0.0'] === 'string' && typeof assets.anchorAvm?.tagCommitShaByVersion?.['1.0.0'] === 'string'],
@@ -79,6 +82,14 @@ const checks = [
   ['setup script resolves Anchor pin from Anchor.toml', setupPins.anchor === anchor.toolchain?.anchor_version],
   ['setup script resolves Agave pin from CI workflows', setupPins.agave === 'v3.1.13'],
   ['setup script resolves Surfpool pin from assets', setupPins.surfpool === assets.surfpool?.version],
+  [
+    'setup script resolves rustfmt pin from assets for the pinned channel',
+    setupPins.rustfmt === assets.rust?.rustfmtVersionByChannel?.[rust.toolchain?.channel],
+  ],
+  [
+    'setup script resolves clippy pin from assets for the pinned channel',
+    setupPins.clippy === assets.rust?.clippyVersionByChannel?.[rust.toolchain?.channel],
+  ],
 ];
 
 for (const [label, ok] of checks) {

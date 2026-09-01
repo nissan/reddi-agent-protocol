@@ -94,6 +94,7 @@
     "check:rap:naming": "node ./scripts/check-rap-naming.mjs",
     "check:toolchain:baseline": "node ./scripts/check-solana-baseline-pins.mjs",
     "check:toolchain:surfpool-smoke": "./scripts/smoke-solana-baseline-surfpool.sh",
+    "test:toolchain:version-match": "node --test ./scripts/__tests__/solana-baseline-version-match.test.mjs",
     "check:oss-release-smoke": "node ./scripts/check-oss-release-smoke.mjs",
     "check:package:artifacts": "node ./scripts/check-package-artifact-contents.mjs",
     "check:conformance:public": "node ./scripts/run-public-conformance.mjs",

@@ -2,6 +2,15 @@
   "node": {
     "npmBundledVersion": "11.19.0"
   },
+  "rust": {
+    "componentVersionSource": "versions shipped with the rust-toolchain.toml channel, recorded here for exact probes",
+    "rustfmtVersionByChannel": {
+      "1.89.0": "1.8.0-stable"
+    },
+    "clippyVersionByChannel": {
+      "1.89.0": "0.1.89"
+    }
+  },
   "rustup": {
     "version": "1.29.0",
     "triple": "x86_64-unknown-linux-gnu",

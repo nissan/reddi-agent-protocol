@@ -24,7 +24,12 @@ case "$MODE" in
   *) usage >&2; exit 2 ;;
 esac
 
-REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+SELF="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
+REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)
+cd "$REPO_ROOT"
+# shellcheck source=lib/solana-baseline-version-match.sh
+. "$SCRIPT_DIR/lib/solana-baseline-version-match.sh"
 ASSETS_JSON="$REPO_ROOT/config/toolchain/solana-baseline-assets.json"
 DOWNLOAD_DIR="${RAP_BASELINE_DOWNLOAD_DIR:-$REPO_ROOT/.tmp/solana-baseline-downloads}"
 SOLANA_INSTALL_DIR="${RAP_BASELINE_SOLANA_INSTALL_DIR:-$HOME/.local/share/solana/install}"
@@ -51,6 +56,22 @@ cur = data
 for part in expr.split('.'):
     cur = cur[part]
 print(cur)
+PY
+}
+
+json_keyed_value() {
+  local expr=$1 key=$2
+  python3 - "$ASSETS_JSON" "$expr" "$key" <<'PY'
+import json, sys
+path, expr, key = sys.argv[1:4]
+with open(path, encoding='utf-8') as f:
+    data = json.load(f)
+cur = data
+for part in expr.split('.'):
+    cur = cur[part]
+if key not in cur:
+    raise SystemExit(f'error: {path} has no {expr} entry for {key!r}')
+print(cur[key])
 PY
 }
 
@@ -100,31 +121,15 @@ RUSTUP_URL=$(json_value rustup.url)
 RUSTUP_SHA256=$(json_value rustup.sha256)
 AGAVE_URL_TEMPLATE=$(json_value agave.urlTemplate)
 AGAVE_URL=${AGAVE_URL_TEMPLATE//\{version\}/$AGAVE_VERSION}
-AGAVE_SHA256=$(python3 - "$ASSETS_JSON" "$AGAVE_VERSION" <<'PY'
-import json, sys
-with open(sys.argv[1], encoding='utf-8') as f:
-    data = json.load(f)
-print(data['agave']['sha256ByVersion'][sys.argv[2]])
-PY
-)
+AGAVE_SHA256=$(json_keyed_value agave.sha256ByVersion "$AGAVE_VERSION")
+RUSTFMT_VERSION=$(json_keyed_value rust.rustfmtVersionByChannel "$RUST_VERSION")
+CLIPPY_VERSION=$(json_keyed_value rust.clippyVersionByChannel "$RUST_VERSION")
 SURFPOOL_URL=$(json_value surfpool.url)
 SURFPOOL_SHA256=$(json_value surfpool.sha256)
 AVM_GIT_URL=$(json_value anchorAvm.gitUrl)
 AVM_TAG="v$ANCHOR_VERSION"
-AVM_TAG_OBJECT_SHA=$(python3 - "$ASSETS_JSON" "$ANCHOR_VERSION" <<'PY'
-import json, sys
-with open(sys.argv[1], encoding='utf-8') as f:
-    data = json.load(f)
-print(data['anchorAvm']['tagObjectShaByVersion'][sys.argv[2]])
-PY
-)
-AVM_TAG_COMMIT_SHA=$(python3 - "$ASSETS_JSON" "$ANCHOR_VERSION" <<'PY'
-import json, sys
-with open(sys.argv[1], encoding='utf-8') as f:
-    data = json.load(f)
-print(data['anchorAvm']['tagCommitShaByVersion'][sys.argv[2]])
-PY
-)
+AVM_TAG_OBJECT_SHA=$(json_keyed_value anchorAvm.tagObjectShaByVersion "$ANCHOR_VERSION")
+AVM_TAG_COMMIT_SHA=$(json_keyed_value anchorAvm.tagCommitShaByVersion "$ANCHOR_VERSION")
 
 export PATH="$HOME/.cargo/bin:$SOLANA_INSTALL_DIR/active_release/bin:$SURFPOOL_ROOT/$SURFPOOL_VERSION/bin:$PATH"
 
@@ -133,6 +138,8 @@ if [ "$MODE" = print-pins ]; then
 node=$NODE_VERSION (source: .mise.toml)
 npm=$NPM_VERSION (source: config/toolchain/solana-baseline-assets.json, bundled with Node)
 rust=$RUST_VERSION components=[$RUST_COMPONENTS] (source: rust-toolchain.toml)
+rustfmt=$RUSTFMT_VERSION (source: config/toolchain/solana-baseline-assets.json, shipped with Rust $RUST_VERSION)
+clippy=$CLIPPY_VERSION (source: config/toolchain/solana-baseline-assets.json, shipped with Rust $RUST_VERSION)
 agave=$AGAVE_VERSION (source: CI release.anza.xyz install URLs)
 anchor=$ANCHOR_VERSION (source: Anchor.toml; AVM tag object $AVM_TAG_OBJECT_SHA, commit $AVM_TAG_COMMIT_SHA)
 rustup-init=$RUSTUP_VERSION (source: config/toolchain/solana-baseline-assets.json)
@@ -163,7 +170,7 @@ capture_versions() {
     echo
     echo "## Expected pins"
     echo
-    "$0" print-pins
+    "$SELF" print-pins
     echo
     echo "## Probed versions"
     echo
@@ -191,7 +198,7 @@ expect_exact() {
     echo "error: $description probe failed: $output" >&2
     return 1
   fi
-  if [[ "$output" != *"$expected"* ]]; then
+  if ! version_token_match "$output" "$expected"; then
     echo "error: $description expected '$expected' but got '$output'" >&2
     return 1
   fi
@@ -202,10 +209,10 @@ verify_versions() {
   require_cmd mise
   expect_exact node "v$NODE_VERSION" mise exec "node@$NODE_VERSION" -- node --version
   expect_exact npm "$NPM_VERSION" mise exec "node@$NODE_VERSION" -- npm --version
-  expect_exact rustc "rustc $RUST_VERSION" rustc --version
-  expect_exact cargo "cargo $RUST_VERSION" cargo --version
-  expect_exact rustfmt "rustfmt 1.8.0-stable" rustup run "$RUST_VERSION" rustfmt --version
-  expect_exact clippy "clippy 0.1.89" rustup run "$RUST_VERSION" cargo clippy --version
+  expect_exact rustc "rustc $RUST_VERSION" rustup run "$RUST_VERSION" rustc --version
+  expect_exact cargo "cargo $RUST_VERSION" rustup run "$RUST_VERSION" cargo --version
+  expect_exact rustfmt "rustfmt $RUSTFMT_VERSION" rustup run "$RUST_VERSION" rustfmt --version
+  expect_exact clippy "clippy $CLIPPY_VERSION" rustup run "$RUST_VERSION" cargo clippy --version
   expect_exact solana "solana-cli ${AGAVE_VERSION#v}" solana --version
   expect_exact avm "avm $ANCHOR_VERSION" avm --version
   expect_exact anchor "anchor-cli $ANCHOR_VERSION" anchor --version
@@ -262,13 +269,31 @@ inspect_shell_startup_diffs() {
   } >> "$out"
 }
 
+checksum_ok() {
+  local sha256=$1 file=$2
+  printf '%s  %s\n' "$sha256" "$file" | sha256sum -c - >/dev/null 2>&1
+}
+
 download_verified() {
   local url=$1 sha256=$2 out=$3
   mkdir -p "$(dirname "$out")"
-  if [ ! -f "$out" ]; then
-    curl --proto '=https' --tlsv1.2 -fsSL "$url" -o "$out"
+  if [ -f "$out" ] && checksum_ok "$sha256" "$out"; then
+    return 0
   fi
-  printf '%s  %s\n' "$sha256" "$out" | sha256sum -c - >/dev/null
+  rm -f "$out"
+  local tmp="$out.partial.$$"
+  rm -f "$tmp"
+  if ! curl --proto '=https' --tlsv1.2 -fsSL "$url" -o "$tmp"; then
+    rm -f "$tmp"
+    echo "error: download failed for $url" >&2
+    return 1
+  fi
+  if ! checksum_ok "$sha256" "$tmp"; then
+    rm -f "$tmp"
+    echo "error: SHA-256 mismatch for $url (expected $sha256)" >&2
+    return 1
+  fi
+  mv -f "$tmp" "$out"
 }
 
 install_node() {
@@ -307,6 +332,11 @@ install_anchor() {
     echo "error: $AVM_TAG commit SHA no longer matches recorded $AVM_TAG_COMMIT_SHA" >&2
     exit 1
   }
+  if version_token_match "$(avm --version 2>/dev/null || true)" "avm $ANCHOR_VERSION" \
+    && version_token_match "$(anchor --version 2>/dev/null || true)" "anchor-cli $ANCHOR_VERSION"; then
+    echo "avm and anchor already report $ANCHOR_VERSION; skipping rebuild"
+    return 0
+  fi
   cargo install --git "$AVM_GIT_URL" avm --tag "$AVM_TAG" --locked
   avm install "$ANCHOR_VERSION"
   avm use "$ANCHOR_VERSION"
