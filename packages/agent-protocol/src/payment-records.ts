@@ -562,11 +562,14 @@ function validateAuddObservationRail(record: ReddiPaymentObservationRecord, erro
   const labels = record.labels;
   const observesAudd = payment.asset === AUDD_ASSET || isKnownAuddMint(payment.mint);
   if (!observesAudd) return;
+  if (payment.rail !== 'svm-spl-token-transfer-checked') {
+    errors.push(error('audd_rail_identity_mismatch', '$.payment.rail', 'AUDD payment observations must use the SVM SPL Token TransferChecked rail'));
+  }
   if (!isNonEmptyString(payment.mint)) {
     errors.push(error('audd_rail_identity_mismatch', '$.payment.mint', 'AUDD payment observations must include the observed mint'));
     return;
   }
-  if (payment.tokenProgram !== undefined && payment.tokenProgram !== SPL_TOKEN_PROGRAM_ID) {
+  if (payment.tokenProgram !== SPL_TOKEN_PROGRAM_ID) {
     errors.push(error('audd_rail_identity_mismatch', '$.payment.tokenProgram', 'AUDD payment observations must use the SPL Token program'));
   }
   const observedRail = deriveCanonicalAuddRailEnvironment({

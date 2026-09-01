@@ -215,6 +215,20 @@ describe('canonical RAP payment identifiers and records', () => {
     });
     assert.equal(validatePaymentObservationRecord(observation).ok, true);
 
+    const wrongRail = validatePaymentObservationRecord({
+      ...observation,
+      payment: { ...observation.payment, rail: 'unrelated-payment-rail' },
+    });
+    assert.equal(wrongRail.ok, false);
+    if (!wrongRail.ok) assert.ok(wrongRail.errors.some((item) => item.code === 'audd_rail_identity_mismatch' && item.path === '$.payment.rail'));
+
+    const missingTokenProgram = validatePaymentObservationRecord({
+      ...observation,
+      payment: { ...observation.payment, tokenProgram: undefined },
+    });
+    assert.equal(missingTokenProgram.ok, false);
+    if (!missingTokenProgram.ok) assert.ok(missingTokenProgram.errors.some((item) => item.code === 'audd_rail_identity_mismatch' && item.path === '$.payment.tokenProgram'));
+
     assert.throws(
       () => createPaymentObservationRecord({
         labels: { environment: 'controlled-live', eligibility: 'pending_partner_acceptance' },
