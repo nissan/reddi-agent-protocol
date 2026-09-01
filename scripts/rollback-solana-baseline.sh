@@ -50,7 +50,7 @@ further per-step prompt, so stop now if other work still needs any of them:
 - Node: mise uninstall node@$NODE_VERSION (the machine-wide default Node stays, but anything else pinned to $NODE_VERSION loses it)
 - Rust: rustup toolchain uninstall $RUST_VERSION (anything else using this toolchain loses it)
 - Anchor: avm uninstall $ANCHOR_VERSION when avm is installed (anything else using Anchor $ANCHOR_VERSION loses it)
-- Solana CLI: rm -rf $SOLANA_INSTALL_DIR
+- Solana CLI: rm -rf $SOLANA_INSTALL_DIR (this is the default agave-install data dir, not a path this baseline owns; any other release or CLI already installed there is destroyed with it)
 - Surfpool: rm -rf $SURFPOOL_DIR
 
 --execute leaves the following alone; remove them by hand only if no other work uses them:

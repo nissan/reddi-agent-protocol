@@ -23,7 +23,7 @@ Branch: `fm/rap-toolchain-baseline`
 
 ## Verification run
 
-Passed:
+Passed, against the script as of commit 02aaeb3; `verify` and the pin check have both been tightened since (verify now fails instead of installing a missing `node@24.20.0`, and the pin check now asserts the rustfmt/clippy entries), so re-running them is the way to re-confirm this list:
 
 - `scripts/solana-baseline-toolchain.sh verify`
 - `npm run check:toolchain:baseline`

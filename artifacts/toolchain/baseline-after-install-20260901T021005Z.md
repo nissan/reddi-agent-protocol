@@ -1,5 +1,7 @@
 # RAP Solana baseline toolchain capture (after-install)
 
+Produced by `scripts/solana-baseline-toolchain.sh` as of commit 02aaeb3, a superseded revision. Later review rounds changed the capture format, so re-running `capture` now emits more than this file holds: `rustfmt=`/`clippy=` pin lines, ambient `command -v node`/`npm`/`npx` probes, and a "Per-install inspection" section. The recorded versions are the host state of that run and are unaffected.
+
 Captured: 20260901T021005Z
 Worktree: /home/nissan/.treehouse/reddi-agent-protocol-276f74/5/reddi-agent-protocol
 Git HEAD: 11311a407dcfb3f87a3793d3101b800374b45a91

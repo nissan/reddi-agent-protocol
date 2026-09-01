@@ -37,7 +37,11 @@ SOLANA_CONFIG="$SOLANA_INSTALL_DIR/config.yml"
 SURFPOOL_ROOT="${RAP_BASELINE_SURFPOOL_ROOT:-$HOME/.local/share/surfpool/releases}"
 CAPTURE_DIR="$REPO_ROOT/artifacts/toolchain"
 STARTUP_FILES=("$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" "$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.config/fish/config.fish")
+STEP_SNAPSHOT=""
+STEP_LOG=""
 export RUSTUP_AUTO_INSTALL=0
+export MISE_AUTO_INSTALL=false
+export MISE_NOT_FOUND_AUTO_INSTALL=false
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -160,12 +164,24 @@ is_rustup_proxy() {
   [ "$resolved" = "${CARGO_HOME:-$HOME/.cargo}/bin/$1" ]
 }
 
+is_mise_shim() {
+  local resolved
+  resolved=$(command -v "$1" 2>/dev/null) || return 1
+  [ "$resolved" = "${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims/$1" ]
+}
+
 probe_ambient_version() {
   local cmd=$1
   case "$cmd" in
     rustc|cargo)
       if is_rustup_proxy "$cmd" && ! rustup_pinned_toolchain_installed; then
         echo "not probed: this is a rustup proxy and toolchain $RUST_VERSION named by rust-toolchain.toml is not installed"
+        return 0
+      fi
+      ;;
+    node|npm|npx)
+      if is_mise_shim "$cmd" && ! mise_pinned_node_dir >/dev/null; then
+        echo "not probed: this is a mise shim and node@$NODE_VERSION named by .mise.toml is not installed"
         return 0
       fi
       ;;
@@ -454,20 +470,20 @@ main_install() {
   echo "Backed up shell startup files to $backup_dir"
   echo "Captured pre-install versions to $before_capture"
 
-  local step_snapshot step_log step
-  step_snapshot=$(mktemp -d)
-  step_log=$(mktemp)
-  trap 'rm -rf "$step_snapshot" "$step_log"' EXIT
-  snapshot_shell_startup "$step_snapshot"
+  local step
+  STEP_SNAPSHOT=$(mktemp -d)
+  STEP_LOG=$(mktemp)
+  trap 'rm -rf "${STEP_SNAPSHOT:-}" "${STEP_LOG:-}"' EXIT
+  snapshot_shell_startup "$STEP_SNAPSHOT"
 
   for step in install_node install_rust install_agave install_anchor install_surfpool; do
     "$step"
-    inspect_step_startup_diffs "$step" "$step_snapshot" "$step_log"
+    inspect_step_startup_diffs "$step" "$STEP_SNAPSHOT" "$STEP_LOG"
   done
 
   local after_capture
   after_capture=$(capture_versions "after-install")
-  inspect_shell_startup_diffs "$backup_dir" "$after_capture" "$step_log"
+  inspect_shell_startup_diffs "$backup_dir" "$after_capture" "$STEP_LOG"
   echo "Captured post-install versions to $after_capture"
   verify_versions
 }
