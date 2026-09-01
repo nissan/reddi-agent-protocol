@@ -143,14 +143,44 @@ export function getNetworkProfile(): NetworkProfile {
   const requestedTarget = resolveProgramTarget();
   const quasarDevnet = quasarDeployments.quasarDeployments.devnet;
 
-  const quasarRequestRefused = requestedTarget === "quasar" && name !== "devnet";
-  const target: ProgramTarget = requestedTarget === "quasar" && name === "devnet" ? "quasar" : "legacy-anchor";
-  const quasarDeploymentBlocked = target === "quasar" && quasarDeployments.submissionReady !== true;
-
   const rpcOverride = pickEnv("NEXT_PUBLIC_RPC_ENDPOINT", "NEXT_PUBLIC_RPC_URL", "DEMO_DEVNET_RPC");
   const escrowOverride = pickEnv("NEXT_PUBLIC_ESCROW_PROGRAM_ID", "DEMO_ESCROW_PROGRAM_ID");
+  const registryOverride = pickEnv("NEXT_PUBLIC_REGISTRY_PROGRAM_ID", "DEMO_REGISTRY_PROGRAM_ID");
+  const reputationOverride = pickEnv("NEXT_PUBLIC_REPUTATION_PROGRAM_ID", "DEMO_REPUTATION_PROGRAM_ID");
+  const attestationOverride = pickEnv("NEXT_PUBLIC_ATTESTATION_PROGRAM_ID", "DEMO_ATTESTATION_PROGRAM_ID");
   const buildUnsafeOverride = pickEnv("NEXT_PUBLIC_BUILD_ALLOW_UNSAFE_ESCROW_OVERRIDE");
   const allowUnsafeDevnetOverride = (buildUnsafeOverride ?? pickEnv("ALLOW_UNSAFE_ESCROW_OVERRIDE")) === "true";
+
+  const localQuasarProgramEntries = [
+    ["escrow", escrowOverride],
+    ["registry", registryOverride],
+    ["reputation", reputationOverride],
+    ["attestation", attestationOverride],
+  ] as const;
+  const missingLocalQuasarPrograms = localQuasarProgramEntries.filter(([, id]) => !id).map(([label]) => label);
+  const malformedLocalQuasarPrograms = localQuasarProgramEntries
+    .filter(([, id]) => id !== undefined && !isValidProgramId(id))
+    .map(([label]) => label);
+  const duplicateLocalQuasarPrograms: string[] = [];
+  const localQuasarProgramOwners = new Map<string, string>();
+  for (const [label, id] of localQuasarProgramEntries) {
+    if (!id || !isValidProgramId(id)) continue;
+    const owner = localQuasarProgramOwners.get(id);
+    if (owner) duplicateLocalQuasarPrograms.push(`${label} duplicates ${owner}`);
+    else localQuasarProgramOwners.set(id, label);
+  }
+  const localQuasarProgramSetReady =
+    name === "local-surfpool" &&
+    requestedTarget === "quasar" &&
+    missingLocalQuasarPrograms.length === 0 &&
+    malformedLocalQuasarPrograms.length === 0 &&
+    duplicateLocalQuasarPrograms.length === 0;
+
+  const quasarRequestRefused =
+    requestedTarget === "quasar" &&
+    (name === "mainnet" || (name === "local-surfpool" && !localQuasarProgramSetReady));
+  const target: ProgramTarget = requestedTarget === "quasar" && !quasarRequestRefused ? "quasar" : "legacy-anchor";
+  const quasarDeploymentBlocked = target === "quasar" && name === "devnet" && quasarDeployments.submissionReady !== true;
 
   const quasarPrograms = quasarDevnet.programIds ?? { escrow: quasarDevnet.programId };
   const targetProgramId = target === "quasar" ? quasarPrograms.escrow : base.programs.escrowProgramId;
@@ -172,17 +202,17 @@ export function getNetworkProfile(): NetworkProfile {
   const effectiveEscrowProgramId = applyProgramIdOverride("escrow", escrowOverride, targetProgramId);
   const effectiveRegistryProgramId = applyProgramIdOverride(
     "registry",
-    pickEnv("NEXT_PUBLIC_REGISTRY_PROGRAM_ID", "DEMO_REGISTRY_PROGRAM_ID"),
+    registryOverride,
     target === "quasar" ? quasarPrograms.registry : effectiveEscrowProgramId,
   );
   const effectiveReputationProgramId = applyProgramIdOverride(
     "reputation",
-    pickEnv("NEXT_PUBLIC_REPUTATION_PROGRAM_ID", "DEMO_REPUTATION_PROGRAM_ID"),
+    reputationOverride,
     target === "quasar" ? quasarPrograms.reputation : effectiveEscrowProgramId,
   );
   const effectiveAttestationProgramId = applyProgramIdOverride(
     "attestation",
-    pickEnv("NEXT_PUBLIC_ATTESTATION_PROGRAM_ID", "DEMO_ATTESTATION_PROGRAM_ID"),
+    attestationOverride,
     target === "quasar" ? quasarPrograms.attestation : effectiveEscrowProgramId,
   );
 
@@ -241,9 +271,18 @@ export function getNetworkProfile(): NetworkProfile {
       ]
     : [];
 
+  const localQuasarProgramProblems = [
+    ...(missingLocalQuasarPrograms.length ? [`missing ${missingLocalQuasarPrograms.join(", ")} program id${missingLocalQuasarPrograms.length === 1 ? "" : "s"}`] : []),
+    ...(malformedLocalQuasarPrograms.length ? [`malformed ${malformedLocalQuasarPrograms.join(", ")} program id${malformedLocalQuasarPrograms.length === 1 ? "" : "s"}`] : []),
+    ...(duplicateLocalQuasarPrograms.length ? [`duplicate program ids: ${duplicateLocalQuasarPrograms.join(", ")}`] : []),
+  ];
+  const localQuasarRefusalReason =
+    "A Quasar program target was requested for local-surfpool, but the profile must provide four distinct valid local program IDs (escrow, registry, reputation, and attestation); the request is refused rather than silently using a legacy Anchor layout.";
   const localSurfpoolKnownGaps = name === "local-surfpool" && quasarRequestRefused
     ? [
-        "A Quasar program target was requested for local-surfpool, but no Quasar deployment is registered for that profile; the request is refused and the profile stays on the legacy Anchor program id.",
+        localQuasarProgramProblems.length
+          ? `${localQuasarRefusalReason} Problems: ${localQuasarProgramProblems.join("; ")}.`
+          : localQuasarRefusalReason,
       ]
     : [];
 
@@ -266,25 +305,27 @@ export function getNetworkProfile(): NetworkProfile {
       submissionReady:
         name === "mainnet" || quasarRequestRefused || malformedOverrides.length > 0 || ignoredOverrides.length > 0 || quasarDeploymentBlocked
           ? false
-          : target === "quasar"
+          : target === "quasar" && name === "devnet"
             ? quasarDeployments.submissionReady
             : true,
       submissionReadyReason:
         name === "mainnet"
           ? "Mainnet activation is blocked: no audited mainnet deployment is registered and the Quasar four-program set cannot be resolved for mainnet."
           : quasarRequestRefused
-            ? `A Quasar program target was requested for ${name}, which has no registered Quasar deployment; the request is refused.`
+            ? name === "local-surfpool"
+              ? localQuasarRefusalReason
+              : `A Quasar program target was requested for ${name}, which has no registered Quasar deployment; the request is refused.`
             : malformedOverrides.length > 0
               ? `A malformed program id override was supplied for ${malformedOverrides.join(", ")}; it was ignored and the registered program id is used instead, so the configured override is not in effect.`
               : ignoredOverrides.length > 0
                 ? `A program id override was supplied for ${ignoredOverrides.join(", ")}, but it does not match the registered devnet program set and the build-time unsafe-override flag was not set; the registered program id is used instead.`
                 : quasarDeploymentBlocked
                   ? quasarDeployments.submissionReadyReason
-                  : target === "quasar"
+                  : target === "quasar" && name === "devnet"
                     ? quasarDeployments.submissionReadyReason
                     : undefined,
       knownGaps: [
-        ...(target === "quasar" ? quasarDevnet.knownGaps : []),
+        ...(target === "quasar" && name === "devnet" ? quasarDevnet.knownGaps : []),
         ...malformedOverrideKnownGaps,
         ...ignoredOverrideKnownGaps,
         ...mainnetKnownGaps,
@@ -294,15 +335,23 @@ export function getNetworkProfile(): NetworkProfile {
       deploymentStatus:
         name === "mainnet" ? "mainnet-not-deployed" : name === "local-surfpool" ? "local-only" : "devnet-deployed",
       activationGate: name === "mainnet" ? "external_audit_and_mainnet_deployment_required" : undefined,
-      blocked: quasarDeploymentBlocked
+      blocked: quasarRequestRefused
         ? {
-            target,
-            reason:
-              quasarDeployments.submissionReadyReason ??
-              "the recorded Quasar deployment is not submission-ready",
-            knownGaps: quasarDevnet.knownGaps,
+            target: "quasar",
+            reason: name === "local-surfpool"
+              ? localQuasarRefusalReason
+              : `A Quasar program target was requested for ${name}, which has no registered Quasar deployment; the request is refused.`,
+            knownGaps: name === "local-surfpool" ? localSurfpoolKnownGaps : mainnetKnownGaps,
           }
-        : undefined,
+        : quasarDeploymentBlocked
+          ? {
+              target,
+              reason:
+                quasarDeployments.submissionReadyReason ??
+                "the recorded Quasar deployment is not submission-ready",
+              knownGaps: quasarDevnet.knownGaps,
+            }
+          : undefined,
     },
     payments: {
       ...base.payments,

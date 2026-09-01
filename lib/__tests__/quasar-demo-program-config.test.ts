@@ -72,7 +72,7 @@ describe("Quasar demo program target config", () => {
     expect(profile.programs.deploymentStatus).toBe("devnet-deployed");
   });
 
-  it("refuses a Quasar surfpool request by staying blocked instead of crashing module init", async () => {
+  it("refuses a Quasar surfpool request without four explicit valid local program IDs", async () => {
     process.env.NETWORK_PROFILE = "surfpool";
     process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
 
@@ -83,9 +83,38 @@ describe("Quasar demo program target config", () => {
     expect(profile.programs.escrowProgramId).not.toBe(QUASAR_PROGRAM_ID);
     expect(profile.programs.submissionReady).toBe(false);
     expect(profile.programs.deploymentStatus).toBe("local-only");
+    expect(profile.programs.blocked?.target).toBe("quasar");
     expect(profile.programs.knownGaps.join(" ")).toMatch(
-      /Quasar program target was requested for local-surfpool.*request is refused/,
+      /four distinct valid local program IDs.*missing escrow, registry, reputation, attestation program ids/,
     );
+  });
+
+  it("keeps local-surfpool Quasar explicit when all four local program IDs are valid", async () => {
+    process.env.NETWORK_PROFILE = "local-surfpool";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+    process.env.NEXT_PUBLIC_RPC_ENDPOINT = "http://127.0.0.1:39999";
+    process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = QUASAR_PROGRAM_ID;
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = QUASAR_REGISTRY_PROGRAM_ID;
+    process.env.NEXT_PUBLIC_REPUTATION_PROGRAM_ID = QUASAR_REPUTATION_PROGRAM_ID;
+    process.env.NEXT_PUBLIC_ATTESTATION_PROGRAM_ID = QUASAR_ATTESTATION_PROGRAM_ID;
+
+    const { getNetworkProfile } = await import("@/lib/config/network");
+    const { ESCROW_PROGRAM_ID, REGISTRY_PROGRAM_ID, REPUTATION_PROGRAM_ID, ATTESTATION_PROGRAM_ID, PROGRAM_TARGET, PROGRAM_SUBMISSION_READY } = await import("@/lib/program");
+    const profile = getNetworkProfile();
+
+    expect(profile.programs.target).toBe("quasar");
+    expect(profile.programs.blocked).toBeUndefined();
+    expect(profile.programs.submissionReady).toBe(true);
+    expect(profile.programs.escrowProgramId).toBe(QUASAR_PROGRAM_ID);
+    expect(profile.programs.registryProgramId).toBe(QUASAR_REGISTRY_PROGRAM_ID);
+    expect(profile.programs.reputationProgramId).toBe(QUASAR_REPUTATION_PROGRAM_ID);
+    expect(profile.programs.attestationProgramId).toBe(QUASAR_ATTESTATION_PROGRAM_ID);
+    expect(ESCROW_PROGRAM_ID.toBase58()).toBe(QUASAR_PROGRAM_ID);
+    expect(REGISTRY_PROGRAM_ID.toBase58()).toBe(QUASAR_REGISTRY_PROGRAM_ID);
+    expect(REPUTATION_PROGRAM_ID.toBase58()).toBe(QUASAR_REPUTATION_PROGRAM_ID);
+    expect(ATTESTATION_PROGRAM_ID.toBase58()).toBe(QUASAR_ATTESTATION_PROGRAM_ID);
+    expect(PROGRAM_TARGET).toBe("quasar");
+    expect(PROGRAM_SUBMISSION_READY).toBe(true);
   });
 
   it("keeps the whole app loadable for the surfpool + quasar env the repo ships", async () => {

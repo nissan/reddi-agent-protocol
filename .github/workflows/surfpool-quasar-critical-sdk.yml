@@ -5,6 +5,7 @@ on:
     branches: [main, feature/**, feat/**]
     paths:
       - "config/quasar/**"
+      - "config/networks/**"
       - "config/toolchain/**"
       - "third_party/quasar/**"
       - ".mise.toml"
@@ -59,6 +60,7 @@ on:
     branches: [main]
     paths:
       - "config/quasar/**"
+      - "config/networks/**"
       - "config/toolchain/**"
       - "third_party/quasar/**"
       - ".mise.toml"
