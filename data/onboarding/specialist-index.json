@@ -48,7 +48,7 @@
     "reputation_score": 4.7,
     "schema_version": 2,
     "ranking_formula_version": 1,
-    "freshness_state": "stale",
+    "freshness_state": "warm",
     "ranking_score": 2.74
   },
   {
@@ -101,7 +101,7 @@
     "reputation_score": 4.8,
     "schema_version": 2,
     "ranking_formula_version": 1,
-    "freshness_state": "stale",
+    "freshness_state": "warm",
     "ranking_score": 2.53
   },
   {
@@ -204,7 +204,7 @@
       "attestationDisagreements": 0
     },
     "last_seen_at": "2026-05-09T10:41:51.971Z",
-    "freshness_state": "warm",
+    "freshness_state": "stale",
     "health_streak": 6,
     "ranking_score": 1.66,
     "reputation_score": 3.2
@@ -258,7 +258,7 @@
       "attestationDisagreements": 0
     },
     "last_seen_at": "2026-05-09T10:41:51.971Z",
-    "freshness_state": "warm",
+    "freshness_state": "stale",
     "health_streak": 6,
     "ranking_score": 2.14,
     "reputation_score": 4.4

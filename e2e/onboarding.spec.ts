@@ -19,6 +19,7 @@ async function checked(page: Page, label: RegExp) {
 }
 
 async function completeStep1(page: Page) {
+  await page.waitForLoadState('networkidle')
   await checked(page, /I consent to exposing my local runtime API/i)
   await checked(page, /I consent to protocol-funded onboarding transactions/i)
   const next = page.getByRole('button', { name: 'Next', exact: true })
