@@ -14,7 +14,7 @@ const requiredHeadings = [
   "### Quasar Attestation",
   "### Quasar Reputation",
   "### Quasar Escrow PER",
-  "### Quasar Escrow Legacy POC",
+  "### Quasar Escrow",
   "## Legacy Anchor Reference",
   "## Active Client And Instruction Builders",
   "## Scripted Proof Lanes",
@@ -72,7 +72,8 @@ if (!fs.existsSync(appendixPath)) {
 
 const source = fs.readFileSync(appendixPath, "utf8");
 
-const missingHeadings = requiredHeadings.filter((heading) => !source.includes(heading));
+const sourceHeadingLines = source.split("\n").map((line) => line.trimEnd());
+const missingHeadings = requiredHeadings.filter((heading) => !sourceHeadingLines.includes(heading));
 if (missingHeadings.length) fail("required headings are missing", missingHeadings);
 
 const missingReferences = requiredSourcePaths.filter((sourcePath) => !source.includes(sourcePath));
@@ -86,6 +87,10 @@ if (missingBoundaryPhrases.length) fail("required boundary phrases are missing",
 
 if (/Status: reference\/legacy unless a later issue reselects it as the active\s+escrow audit target/.test(source)) {
   fail("appendix must not leave quasar-escrow described only as a legacy target after job binding");
+}
+
+if (/^###[ \t]+Quasar Escrow Legacy POC[ \t]*$/m.test(source)) {
+  fail("appendix must not label `experiments/quasar-escrow` as a legacy POC after job binding");
 }
 
 console.log(`[solana-audit-appendix] OK: ${requiredHeadings.length} headings, ${requiredSourcePaths.length} source references, and ${requiredBoundaryPhrases.length} boundary phrases verified`);

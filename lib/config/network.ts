@@ -99,7 +99,7 @@ export function getNetworkProfile(): NetworkProfile {
   const targetProgramId = target === "quasar" ? quasarPrograms.escrow : base.programs.escrowProgramId;
   const mainnetKnownGaps = name === "mainnet"
     ? [
-        "No audited mainnet program deployment is registered; the configured escrow id is a placeholder and the Quasar four-program set has no mainnet ids.",
+        "No audited mainnet program deployment is registered; the configured escrow id is a placeholder devnet id and the Quasar four-program set has no mainnet ids, so registry, reputation, and attestation all alias to that single placeholder id on this profile.",
         "External audit, upgrade-authority custody, paid RPC, monitoring, and incident-response gates remain unresolved before mainnet activation.",
         ...(requestedTarget === "quasar"
           ? [

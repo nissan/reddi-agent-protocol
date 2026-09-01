@@ -161,11 +161,10 @@ claim settlement finality.
   - `AgentVault.status` is `0=active`;
   - PER callback must restore the committed agent-vault PDA bytes and ownership.
 
-### Quasar Escrow Legacy POC
+### Quasar Escrow
 
-- Current boundary: despite this historical heading, current main reselects this
-  program as the canonical job record owner for reputation/attestation job
-  binding via `quasar-escrow-ref`.
+- Current boundary: current main selects this program as the canonical job record
+  owner for reputation/attestation job binding via `quasar-escrow-ref`.
 - Source path: `experiments/quasar-escrow`
 - Source files:
   - `experiments/quasar-escrow/src/lib.rs`
@@ -173,9 +172,9 @@ claim settlement finality.
 - Program id in source: `VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW`
 - Purpose: SOL-native escrow parity POC for lock/release/cancel and current
   canonical job record owner on main after the job-binding series.
-- Status: active for current reputation/attestation job binding; the heading is
-  retained only to avoid breaking historical checker anchors before the audit
-  packet is fully re-frozen.
+- Status: active for current reputation/attestation job binding. Earlier revisions
+  of this packet headed this section "Quasar Escrow Legacy POC"; that label is
+  superseded and `scripts/check-solana-audit-appendix.mjs` now rejects it.
 - Instructions:
   - `make`: discriminator `0`
   - `take`: discriminator `1`

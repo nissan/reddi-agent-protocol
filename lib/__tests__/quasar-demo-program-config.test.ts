@@ -114,6 +114,28 @@ describe("Quasar demo program target config", () => {
     );
   });
 
+  it("aliases every program id to the single placeholder program on the blocked mainnet profile", async () => {
+    process.env.NETWORK_PROFILE = "mainnet";
+
+    const { getNetworkProfile } = await import("@/lib/config/network");
+    const { ESCROW_PROGRAM_ID, REGISTRY_PROGRAM_ID, REPUTATION_PROGRAM_ID, ATTESTATION_PROGRAM_ID } = await import(
+      "@/lib/program"
+    );
+    const profile = getNetworkProfile();
+
+    expect(profile.programs.escrowProgramId).toBe(LEGACY_ANCHOR_PROGRAM_ID);
+    expect(profile.programs.registryProgramId).toBe(LEGACY_ANCHOR_PROGRAM_ID);
+    expect(profile.programs.reputationProgramId).toBe(LEGACY_ANCHOR_PROGRAM_ID);
+    expect(profile.programs.attestationProgramId).toBe(LEGACY_ANCHOR_PROGRAM_ID);
+    expect(REGISTRY_PROGRAM_ID.toBase58()).toBe(ESCROW_PROGRAM_ID.toBase58());
+    expect(REPUTATION_PROGRAM_ID.toBase58()).toBe(ESCROW_PROGRAM_ID.toBase58());
+    expect(ATTESTATION_PROGRAM_ID.toBase58()).toBe(ESCROW_PROGRAM_ID.toBase58());
+    expect(profile.programs.submissionReady).toBe(false);
+    expect(profile.programs.knownGaps.join(" ")).toMatch(
+      /registry, reputation, and attestation all alias to that single placeholder id/,
+    );
+  });
+
   it("honours the documented per-program mainnet overrides instead of aliasing them to escrow", async () => {
     process.env.NETWORK_PROFILE = "mainnet";
     process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = "EscrowMainnet1111111111111111111111111111111";

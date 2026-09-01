@@ -1334,7 +1334,9 @@ export default function EconomicDemoPage() {
               {!PROGRAM_SUBMISSION_READY && PROGRAM_KNOWN_GAPS.length > 0 && (
                 <div className="mt-4 rounded-xl border border-yellow-400/30 bg-yellow-400/10 p-4 text-sm text-yellow-50/90">
                   <p className="font-semibold text-yellow-50">
-                    Known Quasar proof gaps before judge-ready submission:
+                    {PROGRAM_TARGET === "quasar"
+                      ? "Known Quasar proof gaps before judge-ready submission:"
+                      : "Known readiness gaps for the active network profile:"}
                   </p>
                   <ul className="mt-2 space-y-1">
                     {PROGRAM_KNOWN_GAPS.map((gap) => (

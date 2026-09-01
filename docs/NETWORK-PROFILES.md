@@ -55,9 +55,16 @@ NEXT_PUBLIC_PER_RPC=<mainnet-tee-endpoint>
 All four program id variables are read by `getNetworkProfile()`, by
 `npm run test:mainnet:readiness`, and by `packages/demo-agents` on its devnet/local
 profiles — demo-agents refuses `NETWORK_PROFILE=mainnet` outright, so it never
-reads them in the mainnet context above. On the devnet profile they are ignored
-unless `ALLOW_UNSAFE_ESCROW_OVERRIDE=true`, for both the legacy-Anchor and the
-Quasar target, so a stray override cannot hijack the registered devnet program set.
+reads them in the mainnet context above.
+
+The hijack guard applies to `getNetworkProfile()` only: on the devnet profile it
+ignores these overrides unless `ALLOW_UNSAFE_ESCROW_OVERRIDE=true`, for both the
+legacy-Anchor and the Quasar target, so a stray env var cannot repoint the web
+app's registered devnet program set. `packages/demo-agents` deliberately does not
+apply that guard — it honours its `DEMO_*` / `NEXT_PUBLIC_*` program id overrides
+unconditionally on devnet/local, because the Surfpool smoke lanes
+(`scripts/run-surfpool-quasar-critical-smoke.sh`) depend on repointing it at
+locally deployed programs.
 
 ## Mainnet note
 
