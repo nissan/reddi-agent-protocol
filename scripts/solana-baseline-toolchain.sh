@@ -465,7 +465,7 @@ install_anchor() {
     echo "avm and anchor already report $ANCHOR_VERSION; skipping rebuild"
     return 0
   fi
-  cargo install --git "$AVM_GIT_URL" avm --tag "$AVM_TAG" --locked
+  cargo install --git "$AVM_GIT_URL" avm --rev "$AVM_TAG_COMMIT_SHA" --locked
   avm install "$ANCHOR_VERSION"
   avm use "$ANCHOR_VERSION"
 }
