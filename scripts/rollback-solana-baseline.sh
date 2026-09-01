@@ -43,12 +43,18 @@ fi
 
 plan() {
   cat <<PLAN
-Rollback plan for the RAP baseline (user-scoped only):
-- Node: keep Node 26 available; optionally remove repository pin install with: mise uninstall node@$NODE_VERSION
-- Rust: remove pinned repo toolchain with: rustup toolchain uninstall $RUST_VERSION
-- Solana CLI: remove install tree: $SOLANA_INSTALL_DIR
-- Anchor/AVM: remove Anchor $ANCHOR_VERSION with AVM if available; remove ~/.cargo/bin/avm and ~/.cargo/bin/anchor only if no other work uses them.
-- Surfpool: remove install tree: $SURFPOOL_DIR
+Rollback plan for the RAP baseline (user-scoped only).
+
+--execute removes every item below after one confirmation phrase, with no
+further per-step prompt, so stop now if other work still needs any of them:
+- Node: mise uninstall node@$NODE_VERSION (the machine-wide default Node stays, but anything else pinned to $NODE_VERSION loses it)
+- Rust: rustup toolchain uninstall $RUST_VERSION (anything else using this toolchain loses it)
+- Anchor: avm uninstall $ANCHOR_VERSION when avm is installed (anything else using Anchor $ANCHOR_VERSION loses it)
+- Solana CLI: rm -rf $SOLANA_INSTALL_DIR
+- Surfpool: rm -rf $SURFPOOL_DIR
+
+--execute leaves the following alone; remove them by hand only if no other work uses them:
+- ~/.cargo/bin/avm, ~/.cargo/bin/anchor, ~/.rustup, ~/.cargo
 - Shell startup files: restore manually from the timestamped backup recorded in artifacts/toolchain/*.md only if a diff inspection says they changed. Do not inspect or restore keypair contents.
 PLAN
 }

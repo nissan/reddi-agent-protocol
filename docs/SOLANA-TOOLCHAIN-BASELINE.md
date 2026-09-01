@@ -32,7 +32,7 @@ The script is idempotent and constrained to user-scoped install paths. Re-runnin
 - Surfpool is installed from the verified `v1.5.0` Linux release tarball under `~/.local/share/surfpool/releases/v1.5.0/bin`.
 - Downloaded installer assets are cached in the git-ignored `.tmp/solana-baseline-downloads/` (override with `RAP_BASELINE_DOWNLOAD_DIR`); install roots are overridable with `RAP_BASELINE_SOLANA_INSTALL_DIR` and `RAP_BASELINE_SURFPOOL_ROOT`, which the Surfpool smoke honours too.
 
-The script does not use sudo, Docker, wallets/keypairs, Solana config mutation, live RPC, validators, airdrops, or transactions. It backs up existing shell startup files to a timestamped directory before host changes and records before/after captures under `artifacts/toolchain/`. Installers are run with PATH mutation disabled where supported; any startup-file diffs are appended to the after-install capture. The narrative record of the 2026-09-01 run, including the checks that passed and the one that failed, is manually authored in `docs/SOLANA-BASELINE-VALIDATION-2026-09-01.md`.
+The script does not use sudo, Docker, wallets/keypairs, Solana config mutation, live RPC, validators, airdrops, or transactions. It backs up existing shell startup files to a timestamped directory before host changes and records before/after captures under `artifacts/toolchain/`. Installers are run with PATH mutation disabled where supported; startup files are re-inspected after each installer and both that per-installer attribution and the overall backup-to-final diff are appended to the after-install capture. The narrative record of the 2026-09-01 run, including the checks that passed and the one that failed, is manually authored in `docs/SOLANA-BASELINE-VALIDATION-2026-09-01.md`.
 
 ## Verification
 
@@ -42,7 +42,7 @@ npm run check:toolchain:baseline
 mise exec node@24.20.0 -- npm ci --no-audit --no-fund
 ```
 
-`verify` and `capture` never install anything: both fail or record "not installed" rather than letting `mise exec` pull in a missing `node@24.20.0`.
+`verify` and `capture` never install anything: both fail or record "not installed" rather than letting `mise exec` pull in a missing `node@24.20.0`, and the ambient `rustc`/`cargo` probes are skipped when they are rustup proxies that would install the `rust-toolchain.toml` channel.
 
 For repository checks that do not require wallets, live RPC, Docker, external spend, or killing unrelated listeners, prefer:
 
@@ -75,7 +75,7 @@ Print the tested rollback plan without changing the host:
 scripts/rollback-solana-baseline.sh --plan
 ```
 
-If rollback is actually needed, run `scripts/rollback-solana-baseline.sh --execute` and type its confirmation phrase.
+If rollback is actually needed, run `scripts/rollback-solana-baseline.sh --execute` and type its confirmation phrase. That single phrase is the only gate: `--execute` removes everything the printed plan lists as removed, including the mise Node runtime, the Rust toolchain, and the AVM-managed Anchor, which other repositories may share.
 
 1. Remove repository-local Node selection by ignoring/removing `.mise.toml`, or run commands outside this repository. To remove the installed runtime entirely: `mise uninstall node@24.20.0`.
 2. Remove the Rust toolchain: `rustup toolchain uninstall 1.89.0`. If this setup installed rustup only for RAP and nothing else uses it, remove `~/.rustup` and `~/.cargo` after backing up anything you need.

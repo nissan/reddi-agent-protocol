@@ -36,7 +36,8 @@ SOLANA_INSTALL_DIR="${RAP_BASELINE_SOLANA_INSTALL_DIR:-$HOME/.local/share/solana
 SOLANA_CONFIG="$SOLANA_INSTALL_DIR/config.yml"
 SURFPOOL_ROOT="${RAP_BASELINE_SURFPOOL_ROOT:-$HOME/.local/share/surfpool/releases}"
 CAPTURE_DIR="$REPO_ROOT/artifacts/toolchain"
-PATH_PREFIX=""
+STARTUP_FILES=("$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" "$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.config/fish/config.fish")
+export RUSTUP_AUTO_INSTALL=0
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -148,6 +149,30 @@ PINS
   exit 0
 fi
 
+rustup_pinned_toolchain_installed() {
+  command -v rustup >/dev/null 2>&1 || return 1
+  rustup toolchain list 2>/dev/null | grep -q "^$RUST_VERSION\(-\| \|\$\)"
+}
+
+is_rustup_proxy() {
+  local resolved
+  resolved=$(command -v "$1" 2>/dev/null) || return 1
+  [ "$resolved" = "${CARGO_HOME:-$HOME/.cargo}/bin/$1" ]
+}
+
+probe_ambient_version() {
+  local cmd=$1
+  case "$cmd" in
+    rustc|cargo)
+      if is_rustup_proxy "$cmd" && ! rustup_pinned_toolchain_installed; then
+        echo "not probed: this is a rustup proxy and toolchain $RUST_VERSION named by rust-toolchain.toml is not installed"
+        return 0
+      fi
+      ;;
+  esac
+  "$cmd" --version 2>&1 || true
+}
+
 mise_pinned_node_dir() {
   local dir
   dir=$(mise where "node@$NODE_VERSION" 2>/dev/null) || return 1
@@ -194,11 +219,17 @@ capture_versions() {
     for cmd in node npm npx rustup rustc cargo solana agave-install avm anchor surfpool; do
       printf '$ command -v %s\n' "$cmd"
       command -v "$cmd" || true
-      "$cmd" --version 2>&1 || true
+      probe_ambient_version "$cmd"
       echo
     done
-    version_output "rustup run $RUST_VERSION rustfmt --version" rustup run "$RUST_VERSION" rustfmt --version
-    version_output "rustup run $RUST_VERSION cargo clippy --version" rustup run "$RUST_VERSION" cargo clippy --version
+    if rustup_pinned_toolchain_installed; then
+      version_output "rustup run $RUST_VERSION rustfmt --version" rustup run "$RUST_VERSION" rustfmt --version
+      version_output "rustup run $RUST_VERSION cargo clippy --version" rustup run "$RUST_VERSION" cargo clippy --version
+    else
+      printf '$ rustup toolchain list\n'
+      echo "toolchain $RUST_VERSION is not installed (rustfmt/clippy not probed, to avoid installing it)"
+      echo
+    fi
     echo '```'
   } > "$out"
   echo "$out"
@@ -251,7 +282,7 @@ backup_shell_startup() {
   local backup_dir="$HOME/backups/reddi-agent-protocol-toolchain-baseline-$stamp"
   mkdir -p "$backup_dir"
   local copied=0
-  for file in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" "$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.config/fish/config.fish"; do
+  for file in "${STARTUP_FILES[@]}"; do
     if [ -e "$file" ]; then
       cp -a "$file" "$backup_dir/$(basename "$file")"
       copied=$((copied + 1))
@@ -260,15 +291,53 @@ backup_shell_startup() {
   printf '%s\n' "$backup_dir"
 }
 
+snapshot_shell_startup() {
+  local dir=$1 file
+  mkdir -p "$dir"
+  rm -f "$dir"/*
+  for file in "${STARTUP_FILES[@]}"; do
+    [ -e "$file" ] && cp -a "$file" "$dir/$(basename "$file")"
+  done
+  return 0
+}
+
+inspect_step_startup_diffs() {
+  local step=$1 snapshot_dir=$2 log=$3 file base
+  for file in "${STARTUP_FILES[@]}"; do
+    base="$snapshot_dir/$(basename "$file")"
+    if [ -e "$file" ] && [ ! -e "$base" ]; then
+      echo "### Created during $step: $file" >> "$log"
+    elif [ -e "$file" ] && [ -e "$base" ] && ! cmp -s "$base" "$file"; then
+      {
+        echo "### Changed during $step: $file"
+        echo '```diff'
+        diff -u "$base" "$file" || true
+        echo '```'
+      } >> "$log"
+    fi
+  done
+  snapshot_shell_startup "$snapshot_dir"
+}
+
 inspect_shell_startup_diffs() {
-  local backup_dir=$1 out=$2
+  local backup_dir=$1 out=$2 step_log=${3:-}
   {
     echo "## Shell startup file diff inspection"
     echo
     echo "Backup directory: $backup_dir"
     echo
+    if [ -n "$step_log" ]; then
+      echo "### Per-install inspection"
+      echo
+      if [ -s "$step_log" ]; then
+        cat "$step_log"
+      else
+        echo "No shell startup file changed after any individual installer."
+      fi
+      echo
+    fi
     local any=0
-    for file in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" "$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.config/fish/config.fish"; do
+    for file in "${STARTUP_FILES[@]}"; do
       [ -e "$file" ] || continue
       local base="$backup_dir/$(basename "$file")"
       [ -e "$base" ] || continue
@@ -385,15 +454,20 @@ main_install() {
   echo "Backed up shell startup files to $backup_dir"
   echo "Captured pre-install versions to $before_capture"
 
-  install_node
-  install_rust
-  install_agave
-  install_anchor
-  install_surfpool
+  local step_snapshot step_log step
+  step_snapshot=$(mktemp -d)
+  step_log=$(mktemp)
+  trap 'rm -rf "$step_snapshot" "$step_log"' EXIT
+  snapshot_shell_startup "$step_snapshot"
+
+  for step in install_node install_rust install_agave install_anchor install_surfpool; do
+    "$step"
+    inspect_step_startup_diffs "$step" "$step_snapshot" "$step_log"
+  done
 
   local after_capture
   after_capture=$(capture_versions "after-install")
-  inspect_shell_startup_diffs "$backup_dir" "$after_capture"
+  inspect_shell_startup_diffs "$backup_dir" "$after_capture" "$step_log"
   echo "Captured post-install versions to $after_capture"
   verify_versions
 }
