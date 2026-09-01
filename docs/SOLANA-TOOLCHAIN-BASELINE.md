@@ -12,6 +12,7 @@ This repository owns a reproducible, user-scoped baseline for local Solana work.
 | Agave/Solana CLI | `v3.1.13` | CI `release.anza.xyz` install URLs in `.github/workflows/*program-tests.yml` |
 | AVM manager | `1.0.0` | `config/toolchain/solana-baseline-assets.json`; official `solana-foundation/anchor` tag `v1.0.0` (`f17b37fd1f1fdb4b1c0de68ccb467996d3ba07f3` → `25be6d502ec6957d34d436bc2a6170040fc64153`) |
 | Anchor CLI | `1.1.2` | `Anchor.toml`; official stable `solana-foundation/anchor` tag `v1.1.2` (`0984d7a19ae6cfea19d78fab228b2af016b63021` → `24035e2b0035c87e321acc1c05f97793829a87f1`) and Linux release asset SHA-256 `fdea9979629e9416e5f5e5622ff6c11b8c691d1e559581ece368e903c0c980c1` |
+| `anchor-lang` crate | same version as the Anchor CLI pin | `programs/escrow/Cargo.toml` requirement and the `Cargo.lock` resolution, both cross-checked against `Anchor.toml` by `npm run check:toolchain:baseline` so the program cannot compile against a different Anchor minor than the CLI that generates its IDL |
 | npm | `11.19.0` | bundled with Node `24.20.0`, recorded in `config/toolchain/solana-baseline-assets.json` for exact probes |
 | rustup-init | `1.29.0` | `config/toolchain/solana-baseline-assets.json` official static Rust archive URL and SHA-256 |
 | Surfpool | `v1.5.0` | `config/toolchain/solana-baseline-assets.json` GitHub release URL and SHA-256 |
@@ -26,12 +27,12 @@ scripts/solana-baseline-toolchain.sh install
 
 The mode is required — running the script with no argument prints usage and exits non-zero rather than installing.
 
-The script is idempotent and constrained to user-scoped install paths. Re-running it re-uses verified downloads, discards any partial or checksum-mismatched download and retries it, and skips the AVM/Anchor rebuild when both already report the pin:
+The script is idempotent and constrained to user-scoped install paths. Re-running it re-uses verified downloads, discards any partial or checksum-mismatched download and retries it, and skips both the AVM build and the Anchor CLI download when AVM and Anchor already report their pins:
 
 - Node is installed with `mise install node@24.20.0`; this does not replace the machine-wide/default Node, so Node 26 remains available for unrelated work.
 - Rust/rustup are installed under `~/.rustup` and `~/.cargo` using a pinned `rustup-init` archive and `--no-modify-path`. `auto-self-update` is disabled only on a rustup this script installed; an existing rustup keeps its own settings.
 - Solana CLI is installed under the baseline-owned `~/.local/share/solana/reddi-agent-protocol-baseline/install` directory using the pinned `agave-install-init` release asset, a config file inside that same install tree, and `--no-modify-path`. The shared default `~/.local/share/solana/install` tree is left untouched by default. If you explicitly set `RAP_BASELINE_SOLANA_INSTALL_DIR=~/.local/share/solana/install`, the installer warns that this relinks the shared `active_release` and may change the user-wide `solana`.
-- AVM manager stays on the verified official `solana-foundation/anchor` `v1.0.0` source tag because compiling AVM `v1.1.2` under the pinned Rust `1.89.0` pulls a dependency requiring Rust `1.91`. The installer verifies both the AVM manager tag and the Anchor `v1.1.2` tag, downloads the official `anchor-1.1.2-x86_64-unknown-linux-gnu` release binary with SHA-256 verification, installs it under `~/.avm/bin/anchor-1.1.2`, and selects it through AVM. Do not substitute Anchor 2.0 RC tags, unrecorded AVM sources, or unverified release assets.
+- AVM manager stays on the verified official `solana-foundation/anchor` `v1.0.0` source tag because compiling AVM `v1.1.2` under the pinned Rust `1.89.0` pulls a dependency requiring Rust `1.91`. The installer verifies both the AVM manager tag and the Anchor `v1.1.2` tag, downloads the official `anchor-1.1.2-x86_64-unknown-linux-gnu` release binary with SHA-256 verification, installs it under `${AVM_HOME:-$HOME/.avm}/bin/anchor-1.1.2`, and selects it through AVM. Do not substitute Anchor 2.0 RC tags, unrecorded AVM sources, or unverified release assets.
 - Surfpool is installed from the verified `v1.5.0` Linux release tarball under `~/.local/share/surfpool/releases/v1.5.0/bin`.
 - Downloaded installer assets are cached in the git-ignored `.tmp/solana-baseline-downloads/` (override with `RAP_BASELINE_DOWNLOAD_DIR`); install roots are overridable with `RAP_BASELINE_SOLANA_INSTALL_DIR` and `RAP_BASELINE_SURFPOOL_ROOT`, which the Surfpool smoke honours too.
 
