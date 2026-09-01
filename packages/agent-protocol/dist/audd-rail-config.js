@@ -129,6 +129,13 @@ export const AUDD_RAIL_CONFIG = {
         },
     },
 };
+export function isKnownAuddMint(mint) {
+    if (typeof mint !== 'string')
+        return false;
+    const candidate = mint.trim().toLowerCase();
+    return candidate === AUDD_OFFICIAL_SOLANA_MAINNET_MINT.toLowerCase()
+        || candidate === AUDD_DETERMINISTIC_FIXTURE_MINT.toLowerCase();
+}
 export function canonicalSolanaNetworkAlias(network) {
     if (typeof network !== 'string')
         return undefined;

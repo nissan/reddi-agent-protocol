@@ -5,6 +5,7 @@ import {
   AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
   SOLANA_DEVNET_CAIP2,
   SOLANA_MAINNET_BETA_CAIP2,
+  SOLANA_TESTNET_CAIP2,
   SPL_TOKEN_PROGRAM_ID,
   createAuddPaymentChallenge,
   createAuddPaymentIntentDraft,
@@ -941,6 +942,96 @@ describe('AUDD/Solana payment plan adapter', () => {
         labels: { environment: 'controlled-live', eligibility: 'pending_partner_acceptance' },
       }),
       /audd_payment_plan_label_environment_mismatch/,
+    );
+  });
+
+  it('carries the operator-approval gate from the plan onto the intent and the 402', () => {
+    const strictFixturePlan = createAuddX402SvmExactPaymentPlan({
+      ...plan,
+      tokenProgram: SPL_TOKEN_PROGRAM_ID,
+      caip2Network: SOLANA_DEVNET_CAIP2,
+      authority: {
+        modelRole: 'draft_only',
+        authorizationState: 'model_draft',
+        operatorApprovalRequired: true,
+      },
+    });
+    const strictIntent = createAuddPaymentIntentDraft({
+      agreementId: 'reddi.agreement:8888888888888888888888888888888888888888888888888888888888888888',
+      paymentPlan: strictFixturePlan,
+      destinationTokenAccount: PAYEE,
+    });
+    assert.equal(strictIntent.authorization.operatorApprovalRequired, true);
+    const strictRequirement = createAuddX402SvmExactPaymentRequired({
+      paymentPlan: strictFixturePlan,
+      paymentIntent: strictIntent,
+      resource: { url: 'https://seller.example.test/agent/task' },
+    });
+    assert.equal(strictRequirement.accepts[0].extra.operatorApprovalRequired, true);
+
+    const mainnetPlan = createAuddX402SvmExactPaymentPlan({
+      ...plan,
+      network: 'solana-mainnet-beta',
+      caip2Network: SOLANA_MAINNET_BETA_CAIP2,
+      mint: AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
+      tokenProgram: SPL_TOKEN_PROGRAM_ID,
+      paymentMode: 'live',
+    });
+    const waivedIntent = createPaymentIntentDraft({
+      labels: { environment: 'mainnet-gated', eligibility: 'non_eligible' },
+      agreementId: 'reddi.agreement:9999999999999999999999999999999999999999999999999999999999999999',
+      network: { caip2: SOLANA_MAINNET_BETA_CAIP2, rapAlias: mainnetPlan.network },
+      asset: {
+        symbol: 'AUDD',
+        mint: mainnetPlan.mint,
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+        decimals: 6,
+        amountBaseUnits: mainnetPlan.amount,
+      },
+      payTo: mainnetPlan.payee,
+      destinationTokenAccount: mainnetPlan.settlementAccount,
+      memo: 'reddi:pay:waived-operator-approval',
+      evidenceRequired: true,
+      quoteExpiresAt: mainnetPlan.quoteExpiresAt,
+      expiresAt: mainnetPlan.quoteExpiresAt,
+      refundPolicy: mainnetPlan.refundPolicy,
+      operatorApprovalRequired: false,
+    });
+    assert.throws(
+      () => createAuddX402SvmExactPaymentRequired({
+        paymentPlan: mainnetPlan,
+        paymentIntent: waivedIntent,
+        resource: { url: 'https://seller.example.test/agent/task' },
+      }),
+      /audd_payment_intent_operator_approval_mismatch/,
+    );
+  });
+
+  it('refuses to build an AUDD plan or intent on a network with no configured AUDD rail', () => {
+    assert.throws(
+      () => createAuddX402SvmExactPaymentPlan({
+        ...plan,
+        network: 'solana-testnet',
+        caip2Network: SOLANA_TESTNET_CAIP2,
+        mint: 'NotAnAuddMint111111111111111111111111111111',
+        paymentMode: 'live',
+        railEnvironment: 'deterministic-fixture',
+      }),
+      /audd_payment_plan_environment_undeclared/,
+    );
+
+    const legacyTestnetPlan = createAuddSolanaPaymentPlan({
+      ...plan,
+      network: 'solana-testnet',
+      mint: 'NotAnAuddMint111111111111111111111111111111',
+      railEnvironment: 'deterministic-fixture',
+    });
+    assert.throws(
+      () => createAuddPaymentIntentDraft({
+        agreementId: 'reddi.agreement:aaaabbbbccccddddeeeeffff00001111222233334444555566667777888899990',
+        paymentPlan: legacyTestnetPlan,
+      }),
+      /audd_payment_plan_environment_undeclared/,
     );
   });
 });

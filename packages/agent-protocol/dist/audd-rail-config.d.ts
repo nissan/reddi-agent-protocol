@@ -86,6 +86,7 @@ export type AuddRailIdentityValidationResult = {
     auditNotes: string[];
 };
 export declare const AUDD_RAIL_CONFIG: AuddRailConfig;
+export declare function isKnownAuddMint(mint: unknown): boolean;
 export declare function canonicalSolanaNetworkAlias(network: unknown): string | undefined;
 export declare function caip2ForSolanaNetwork(network: string): string | undefined;
 export declare function networkAliasForCaip2(caip2: string): string | undefined;

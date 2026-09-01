@@ -1,4 +1,5 @@
 import { validateAttestationRecord, } from './attestation-reputation.js';
+import { AUDD_ASSET, isKnownAuddMint } from './audd-rail-config.js';
 import { auddLabelMatchesRail, deriveAuddRailEnvironment, } from './audd-payment-plan.js';
 import { validateEvidenceArchiveRecord, } from './evidence-archive.js';
 import { validatePaymentObservationRecord, } from './payment-records.js';
@@ -179,7 +180,8 @@ function validatePaymentObservation(input, errors) {
     if (observation.labels.eligibility === 'eligible' && ['deterministic-fixture', 'local-test-mint', 'devnet-unverified'].includes(observation.labels.environment)) {
         errors.push(error('payment_observation_ineligible', '$.paymentObservation.labels.eligibility', 'fixture, local-test-mint, and devnet payment observations are not eligible for grant-volume claims'));
     }
-    const observedRail = observation.payment.mint === undefined
+    const observesAudd = observation.payment.asset === AUDD_ASSET || isKnownAuddMint(observation.payment.mint);
+    const observedRail = observation.payment.mint === undefined || !observesAudd
         ? undefined
         : deriveAuddRailEnvironment({
             network: observation.payment.network.rapAlias ?? observation.payment.network.caip2,

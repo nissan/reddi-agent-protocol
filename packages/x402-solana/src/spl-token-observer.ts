@@ -160,13 +160,14 @@ export async function verifySplTransferCheckedObservation(
     if (!memo.matched) return failure('memo_mismatch', 'transaction memo does not match the expected payment binding', input.expected.memo, memo.values);
   }
 
+  const match = matches[0];
+
   if (input.replayStore) {
-    const replayKey = `spl-transfer-checked:${input.expected.network}:${input.expected.signature}`;
+    const replayKey = `spl-transfer-checked:${input.expected.network}:${input.expected.signature}:${match.collected.instructionIndex}`;
     const accepted = await input.replayStore.checkAndStore(replayKey);
-    if (!accepted) return failure('replay_detected', 'payment signature has already been accepted by the replay store', replayKey);
+    if (!accepted) return failure('replay_detected', 'payment transfer has already been accepted by the replay store', replayKey);
   }
 
-  const match = matches[0];
   const observation: SplTransferCheckedObservation = {
     schemaVersion: SPL_TRANSFER_CHECKED_OBSERVATION_SCHEMA_VERSION,
     verifierVersion: input.verifierVersion ?? SPL_TRANSFER_CHECKED_OBSERVER_VERSION,

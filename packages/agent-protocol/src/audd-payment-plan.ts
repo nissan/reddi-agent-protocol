@@ -398,11 +398,9 @@ export function createAuddSolanaPaymentPlan(input: AuddPaymentPlanInput): AuddSo
 export function createAuddX402SvmExactPaymentPlan(input: AuddPaymentPlanInput): AuddSolanaPaymentPlan {
   const caip2Network = input.caip2Network ?? caip2ForSolanaNetwork(input.network);
   if (!caip2Network) throw new Error('invalid_audd_x402_network');
-  const railEnvironment = moreLiveRailEnvironment(
-    input.railEnvironment,
-    deriveAuddRailEnvironment({ network: input.network, caip2Network, mint: input.mint }),
-  );
-  if (!railEnvironment) throw new Error('audd_payment_plan_environment_undeclared');
+  const derivedRail = deriveAuddRailEnvironment({ network: input.network, caip2Network, mint: input.mint });
+  if (!derivedRail) throw new Error('audd_payment_plan_environment_undeclared');
+  const railEnvironment = moreLiveRailEnvironment(input.railEnvironment, derivedRail) ?? derivedRail;
   return createAuddSolanaPaymentPlan({
     ...input,
     caip2Network,
@@ -472,6 +470,7 @@ export function createAuddPaymentIntentDraft(input: {
   if (!caip2) throw new Error('invalid_audd_x402_network');
   const labels = input.labels ?? defaultLabelsForPlan(plan);
   assertLabelsMatchRail(plan, labels);
+  const operatorApprovalRequired = operatorApprovalRequiredForPlan(plan);
   const memo = input.memo ?? plan.memo ?? deriveAuddMemo({ agreementId: input.agreementId, amount: plan.amount, mint: plan.mint, payTo: plan.payee });
   return createPaymentIntentDraft({
     labels,
@@ -493,7 +492,7 @@ export function createAuddPaymentIntentDraft(input: {
     refundPolicy: plan.refundPolicy,
     createdAt: input.createdAt,
     policyDecisionRef: plan.authority?.policyDecisionRef,
-    operatorApprovalRequired: labels.environment !== 'deterministic-fixture',
+    operatorApprovalRequired,
   });
 }
 
@@ -520,6 +519,9 @@ export function createAuddX402SvmExactPaymentRequired(input: {
     throw new Error('audd_payment_intent_plan_mismatch');
   }
   assertLabelsMatchRail(plan, paymentIntent.labels);
+  if (operatorApprovalRequiredForPlan(plan) && !paymentIntent.authorization.operatorApprovalRequired) {
+    throw new Error('audd_payment_intent_operator_approval_mismatch');
+  }
   const caip2 = plan.caip2Network ?? paymentIntent.network.caip2;
   const tokenProgram = planTokenProgram;
   const memo = paymentIntent.memo ?? plan.memo ?? deriveAuddMemo({ agreementId: paymentIntent.agreementId, amount: plan.amount, mint: plan.mint, payTo: plan.payee });
@@ -908,6 +910,17 @@ function railEnvironmentForPlan(plan: AuddSolanaPaymentPlan): AuddRailEnvironmen
   return moreLiveRailEnvironment(plan.railEnvironment, deriveAuddRailEnvironment(plan));
 }
 
+function requireRailEnvironmentForPlan(plan: AuddSolanaPaymentPlan): AuddRailEnvironment {
+  const derived = deriveAuddRailEnvironment(plan);
+  if (!derived) throw new Error('audd_payment_plan_environment_undeclared');
+  return moreLiveRailEnvironment(plan.railEnvironment, derived) ?? derived;
+}
+
+function operatorApprovalRequiredForPlan(plan: AuddSolanaPaymentPlan): boolean {
+  return requireRailEnvironmentForPlan(plan) !== 'deterministic-fixture'
+    || plan.authority?.operatorApprovalRequired === true;
+}
+
 export function auddLabelMatchesRail(
   environment: ReddiPaymentEnvironmentLabel,
   railEnvironment: AuddRailEnvironment,
@@ -916,16 +929,13 @@ export function auddLabelMatchesRail(
 }
 
 function assertLabelsMatchRail(plan: AuddSolanaPaymentPlan, labels: ReddiPaymentRecordLabels): void {
-  const railEnvironment = railEnvironmentForPlan(plan);
-  if (!railEnvironment) return;
-  if (!auddLabelMatchesRail(labels.environment, railEnvironment)) {
+  if (!auddLabelMatchesRail(labels.environment, requireRailEnvironmentForPlan(plan))) {
     throw new Error('audd_payment_plan_label_environment_mismatch');
   }
 }
 
 function defaultLabelsForPlan(plan: AuddSolanaPaymentPlan): ReddiPaymentRecordLabels {
-  const environment: ReddiPaymentEnvironmentLabel | undefined = railEnvironmentForPlan(plan);
-  if (!environment) throw new Error('audd_payment_plan_environment_undeclared');
+  const environment: ReddiPaymentEnvironmentLabel = requireRailEnvironmentForPlan(plan);
   const eligibility: ReddiPaymentEligibilityLabel = plan.eligibility ?? (environment === 'mainnet-gated' ? 'pending_partner_acceptance' : 'non_eligible');
   return { environment, eligibility };
 }

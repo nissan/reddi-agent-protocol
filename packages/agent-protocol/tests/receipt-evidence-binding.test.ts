@@ -379,6 +379,22 @@ describe('receipt/evidence binding for ARD-onboarded agents', () => {
     assert.equal(understatedRail.ok, false);
     if (!understatedRail.ok) assert.ok(understatedRail.errors.some((item) => item.code === 'payment_observation_ineligible' && item.path === '$.paymentObservation.labels.environment'));
 
+    const nonAuddObservation = deriveReceiptEvidenceBinding({
+      ...input,
+      paymentObservation: {
+        ...observation,
+        payment: { ...observation.payment, asset: 'USDC', mint: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU' },
+        labels: { environment: 'deterministic-fixture', eligibility: 'non_eligible' },
+      },
+    });
+    assert.equal(nonAuddObservation.ok, false);
+    if (!nonAuddObservation.ok) {
+      assert.equal(
+        nonAuddObservation.errors.some((item) => item.path === '$.paymentObservation.labels.environment'),
+        false,
+      );
+    }
+
     const wrongAmount = deriveReceiptEvidenceBinding({
       ...input,
       paymentObservation: {

@@ -220,6 +220,55 @@ describe('SPL TransferChecked observation verifier', () => {
     if (!second.ok) expect(second.reason).toBe('replay_detected');
   });
 
+  it('gives each distinct transfer in one transaction its own replay slot', async () => {
+    const SECOND_DEST = 'second-destination-audd-token-account-fixture';
+    const SECOND_AMOUNT = '1000000';
+    const SECOND_MEMO = 'reddi:pay:fixture-audd-intent-2';
+    const twoPayments = {
+      slot: 443284058,
+      blockTime: 1785523200,
+      meta: {
+        err: null,
+        postTokenBalances: [
+          { accountIndex: 1, mint: MINT, owner: PAYEE, programId: SPL_TOKEN_PROGRAM_ID, uiTokenAmount: { amount: AMOUNT, decimals: 6, uiAmountString: '2.5' } },
+          { accountIndex: 2, mint: MINT, owner: PAYEE, programId: SPL_TOKEN_PROGRAM_ID, uiTokenAmount: { amount: SECOND_AMOUNT, decimals: 6, uiAmountString: '1.0' } },
+        ],
+        innerInstructions: [],
+      },
+      transaction: {
+        signatures: [SIGNATURE],
+        message: {
+          accountKeys: [SOURCE_TOKEN, DEST_TOKEN, SECOND_DEST],
+          instructions: [
+            transferIx(),
+            transferIx({ destination: SECOND_DEST, tokenAmount: { amount: SECOND_AMOUNT, decimals: 6, uiAmountString: '1.0' } }),
+            memoIx(MEMO),
+            memoIx(SECOND_MEMO),
+          ],
+        },
+      },
+    };
+
+    const replayStore = new MemoryNonceReplayStore();
+    const firstPayment = await verifySplTransferCheckedObservation({ parsedTransaction: twoPayments, expected, commitment: 'confirmed', replayStore });
+    expect(firstPayment.ok).toBe(true);
+
+    const secondPayment = await verifySplTransferCheckedObservation({
+      parsedTransaction: twoPayments,
+      expected: { ...expected, destinationTokenAccount: SECOND_DEST, amountBaseUnits: SECOND_AMOUNT, memo: SECOND_MEMO },
+      commitment: 'confirmed',
+      replayStore,
+    });
+    expect(secondPayment.ok).toBe(true);
+    if (secondPayment.ok && firstPayment.ok) {
+      expect(secondPayment.observation.instructionIndex).not.toBe(firstPayment.observation.instructionIndex);
+    }
+
+    const replayOfFirst = await verifySplTransferCheckedObservation({ parsedTransaction: twoPayments, expected, commitment: 'confirmed', replayStore });
+    expect(replayOfFirst.ok).toBe(false);
+    if (!replayOfFirst.ok) expect(replayOfFirst.reason).toBe('replay_detected');
+  });
+
   it('bridges AUDD x402 receipts through SolanaReceiptVerifier without broadening legacy USDC semantics', async () => {
     const challenge = buildX402Challenge({
       network: 'solana-devnet',
