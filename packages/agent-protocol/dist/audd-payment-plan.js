@@ -734,24 +734,26 @@ function assertDeclaredRailMatchesDerived(declared, derived) {
         throw new Error('audd_payment_plan_rail_environment_mismatch');
 }
 function assertPlanIdentityMatchesRail(plan, railEnvironment) {
-    const alias = canonicalSolanaNetworkAlias(plan.network);
-    const mint = normalized(plan.mint);
-    if (railEnvironment === 'deterministic-fixture') {
-        if ((alias !== 'solana-devnet' && plan.caip2Network !== SOLANA_DEVNET_CAIP2) || mint !== normalized(AUDD_DETERMINISTIC_FIXTURE_MINT)) {
-            throw new Error('audd_payment_plan_rail_identity_mismatch');
-        }
-        return;
-    }
-    if (railEnvironment === 'mainnet-gated') {
-        if ((alias !== 'solana-mainnet-beta' && plan.caip2Network !== SOLANA_MAINNET_BETA_CAIP2) || mint !== normalized(AUDD_OFFICIAL_SOLANA_MAINNET_MINT)) {
-            throw new Error('audd_payment_plan_rail_identity_mismatch');
-        }
-        return;
-    }
-    if (railEnvironment === 'local-test-mint') {
-        if (normalized(plan.network) !== getAuddRailEnvironmentConfig('local-test-mint').networkAlias || mint === normalized(AUDD_OFFICIAL_SOLANA_MAINNET_MINT) || mint === normalized(AUDD_DETERMINISTIC_FIXTURE_MINT)) {
-            throw new Error('audd_payment_plan_rail_identity_mismatch');
-        }
+    const identity = validateAuddRailIdentity({
+        environment: railEnvironment,
+        network: canonicalSolanaNetworkAlias(plan.network) ?? plan.network,
+        caip2: plan.caip2Network,
+        mint: plan.mint,
+        tokenProgram: plan.tokenProgram,
+        decimals: plan.decimals,
+        enableGatedMainnet: true,
+    });
+    if (!identity.ok && identity.reasonCodes.some((reason) => [
+        'malformed_audd_rail_identity',
+        'unknown_audd_rail_environment',
+        'wrong_network',
+        'wrong_caip2_network',
+        'wrong_mint',
+        'wrong_token_program',
+        'wrong_decimals',
+        'local_test_mint_required',
+    ].includes(reason))) {
+        throw new Error('audd_payment_plan_rail_identity_mismatch');
     }
 }
 function requireRailEnvironmentForPlan(plan) {
@@ -783,9 +785,16 @@ function operatorApprovalRequiredForPlan(plan) {
 export function auddLabelMatchesRail(environment, railEnvironment) {
     return environment === railEnvironment;
 }
+export function auddEligibilityMatchesRail(eligibility, railEnvironment) {
+    return eligibility === getAuddRailEnvironmentConfig(railEnvironment).grantEligibility;
+}
 function assertLabelsMatchRail(plan, labels) {
-    if (!auddLabelMatchesRail(labels.environment, requireExportableRailEnvironmentForPlan(plan))) {
+    const railEnvironment = requireExportableRailEnvironmentForPlan(plan);
+    if (!auddLabelMatchesRail(labels.environment, railEnvironment)) {
         throw new Error('audd_payment_plan_label_environment_mismatch');
+    }
+    if (!auddEligibilityMatchesRail(labels.eligibility, railEnvironment)) {
+        throw new Error('audd_payment_plan_label_eligibility_mismatch');
     }
 }
 function defaultLabelsForPlan(plan) {

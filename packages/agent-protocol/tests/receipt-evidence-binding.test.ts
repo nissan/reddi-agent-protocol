@@ -409,6 +409,24 @@ describe('receipt/evidence binding for ARD-onboarded agents', () => {
       assert.ok(conflictingIdentity.errors.some((item) => item.code === 'payment_observation_mismatch' && item.path === '$.paymentObservation.payment'));
     }
 
+    const eligibleMainnet = deriveReceiptEvidenceBinding({
+      ...input,
+      paymentPreflight: { ...input.paymentPreflight, paymentPlan: undefined },
+      paymentObservation: {
+        ...observation,
+        payment: {
+          ...observation.payment,
+          network: { caip2: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp', rapAlias: 'solana-mainnet-beta' },
+          mint: 'AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw',
+        },
+        labels: { environment: 'mainnet-gated', eligibility: 'eligible', partnerAcceptanceRef: 'audd:not-real' },
+      },
+    });
+    assert.equal(eligibleMainnet.ok, false);
+    if (!eligibleMainnet.ok) {
+      assert.ok(eligibleMainnet.errors.some((item) => item.code === 'payment_observation_ineligible' && item.path === '$.paymentObservation.labels.eligibility'));
+    }
+
     const nonAuddObservation = deriveReceiptEvidenceBinding({
       ...input,
       paymentObservation: {

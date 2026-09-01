@@ -884,6 +884,18 @@ describe('AUDD/Solana payment plan adapter', () => {
       }),
       /audd_payment_plan_rail_environment_mismatch/,
     );
+
+    assert.throws(
+      () => createAuddX402SvmExactPaymentPlan({
+        ...plan,
+        network: 'solana-mainnet-beta',
+        caip2Network: SOLANA_DEVNET_CAIP2,
+        mint: AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+        paymentMode: 'live',
+      }),
+      /audd_payment_plan_rail_identity_mismatch/,
+    );
   });
 
   it('refuses to advertise a 402 whose intent labels do not match the plan rail', () => {
@@ -935,6 +947,15 @@ describe('AUDD/Solana payment plan adapter', () => {
       }),
       /audd_payment_plan_label_environment_mismatch/,
     );
+
+    assert.throws(
+      () => createAuddPaymentIntentDraft({
+        agreementId: 'reddi.agreement:7777777777777777777777777777777777777777777777777777777777777777',
+        paymentPlan: mainnetPlan,
+        labels: { environment: 'mainnet-gated', eligibility: 'eligible', partnerAcceptanceRef: 'audd:not-real' },
+      }),
+      /audd_payment_plan_label_eligibility_mismatch/,
+    );
   });
 
   it('carries the operator-approval gate from the plan onto the intent and the 402', () => {
@@ -970,7 +991,11 @@ describe('AUDD/Solana payment plan adapter', () => {
       paymentMode: 'live',
     });
     const waivedIntent = createPaymentIntentDraft({
-      labels: { environment: 'mainnet-gated', eligibility: 'non_eligible' },
+      labels: {
+        environment: 'mainnet-gated',
+        eligibility: 'pending_partner_acceptance',
+        partnerAcceptanceRef: 'audd:pending-partner-acceptance',
+      },
       agreementId: 'reddi.agreement:9999999999999999999999999999999999999999999999999999999999999999',
       network: { caip2: SOLANA_MAINNET_BETA_CAIP2, rapAlias: mainnetPlan.network },
       asset: {

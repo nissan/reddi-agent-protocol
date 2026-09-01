@@ -1,6 +1,6 @@
 import { validateAttestationRecord, } from './attestation-reputation.js';
 import { AUDD_ASSET, canonicalSolanaNetworkAlias, isKnownAuddMint, networkAliasForCaip2, validateAuddRailIdentity, } from './audd-rail-config.js';
-import { auddLabelMatchesRail, deriveAuddRailEnvironment, } from './audd-payment-plan.js';
+import { auddEligibilityMatchesRail, auddLabelMatchesRail, deriveAuddRailEnvironment, } from './audd-payment-plan.js';
 import { validateEvidenceArchiveRecord, } from './evidence-archive.js';
 import { validatePaymentObservationRecord, } from './payment-records.js';
 import { validateReddiReceipt, } from './receipts.js';
@@ -190,6 +190,9 @@ function validatePaymentObservation(input, errors) {
         });
     if (observedRail && !auddLabelMatchesRail(observation.labels.environment, observedRail)) {
         errors.push(error('payment_observation_ineligible', '$.paymentObservation.labels.environment', `payment observation labelled ${observation.labels.environment} was observed on the ${observedRail} AUDD rail`));
+    }
+    if (observedRail && !auddEligibilityMatchesRail(observation.labels.eligibility, observedRail)) {
+        errors.push(error('payment_observation_ineligible', '$.paymentObservation.labels.eligibility', `payment observation eligibility ${observation.labels.eligibility} does not match the ${observedRail} AUDD rail`));
     }
     if (observedRail) {
         const identity = validateAuddRailIdentity({

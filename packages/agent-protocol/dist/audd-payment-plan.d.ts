@@ -167,3 +167,4 @@ export type AuddRailIdentityRef = {
 };
 export declare function deriveAuddRailEnvironment(identity: AuddRailIdentityRef): AuddRailEnvironment | undefined;
 export declare function auddLabelMatchesRail(environment: ReddiPaymentEnvironmentLabel, railEnvironment: AuddRailEnvironment): boolean;
+export declare function auddEligibilityMatchesRail(eligibility: ReddiPaymentEligibilityLabel, railEnvironment: AuddRailEnvironment): boolean;
