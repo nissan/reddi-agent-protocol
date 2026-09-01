@@ -15,7 +15,7 @@
       "path": "lib/quasar/instructions.ts",
       "surface": "Quasar transaction-instruction helpers for registry, reputation, and attestation",
       "status": "quasar-compatible",
-      "reason": "Wraps shared Quasar instruction data with account metas/order from Quasar parity source/tests for registry, reputation commit/reveal, and attestation confirm/dispute."
+      "reason": "Wraps shared Quasar instruction data with account metas/order from Quasar parity source/tests for registry, reputation commit/reveal, and attestation confirm/dispute. Every exported builder here calls assertQuasarProgramTargetUsable() as its first statement, so an instruction is constructed only when the resolved ambient profile is local-surfpool with the Quasar target, four distinct valid local program ids, and loopback-only RPC/WS endpoints; devnet and mainnet are refused before construction."
     },
     {
       "path": "lib/register/registration-instruction.ts",
