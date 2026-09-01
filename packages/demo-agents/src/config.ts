@@ -89,18 +89,16 @@ const malformedProgramIds = Object.entries(suppliedProgramIds)
   .filter(([, programId]) => programId !== undefined && !isValidProgramId(programId))
   .map(([label]) => label);
 
-if (requestedProgramTarget === "quasar" && activeNetworkProfileName !== "devnet") {
-  if (missingProgramIds.length > 0 || malformedProgramIds.length > 0) {
-    const defects = [
-      missingProgramIds.length ? `missing: ${missingProgramIds.join(", ")}` : undefined,
-      malformedProgramIds.length
-        ? `malformed: ${malformedProgramIds.join(", ")} must be valid 32-byte Solana public keys`
-        : undefined,
-    ].filter(Boolean).join("; ");
-    throw new Error(
-      `Quasar demo target has no registered program inventory for ${activeNetworkProfileName} in packages/demo-agents; supply valid deployed ids via DEMO_ESCROW_PROGRAM_ID, DEMO_REGISTRY_PROGRAM_ID, DEMO_REPUTATION_PROGRAM_ID, and DEMO_ATTESTATION_PROGRAM_ID (${defects}).`,
-    );
-  }
+if (malformedProgramIds.length > 0) {
+  throw new Error(
+    `Supplied demo program ids are malformed: ${malformedProgramIds.join(", ")} must be valid 32-byte Solana public keys; set DEMO_ESCROW_PROGRAM_ID, DEMO_REGISTRY_PROGRAM_ID, DEMO_REPUTATION_PROGRAM_ID, and DEMO_ATTESTATION_PROGRAM_ID to deployed base58 addresses.`,
+  );
+}
+
+if (requestedProgramTarget === "quasar" && activeNetworkProfileName !== "devnet" && missingProgramIds.length > 0) {
+  throw new Error(
+    `Quasar demo target has no registered program inventory for ${activeNetworkProfileName} in packages/demo-agents; supply valid deployed ids via DEMO_ESCROW_PROGRAM_ID, DEMO_REGISTRY_PROGRAM_ID, DEMO_REPUTATION_PROGRAM_ID, and DEMO_ATTESTATION_PROGRAM_ID (missing: ${missingProgramIds.join(", ")}).`,
+  );
 }
 
 export const PROGRAM_TARGET: DemoProgramTarget = requestedProgramTarget === "quasar" ? "quasar" : "legacy-anchor";

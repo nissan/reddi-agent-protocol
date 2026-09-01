@@ -162,18 +162,46 @@ known_placeholder_program_id = env("KNOWN_PLACEHOLDER_PROGRAM_ID", "").strip()
 mainnet_deployment_status_note = env("MAINNET_DEPLOYMENT_STATUS_NOTE", "").strip()
 
 
-def program_id_defect(name, value):
+BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+
+def is_valid_program_id(value):
+    # Mirrors isValidProgramId in lib/config/network.ts: base58 decodes to exactly 32 bytes.
+    if not value:
+        return False
+    leading_zero_bytes = 0
+    for char in value:
+        if char != "1":
+            break
+        leading_zero_bytes += 1
+    decoded = 0
+    for char in value:
+        digit = BASE58_ALPHABET.find(char)
+        if digit < 0:
+            return False
+        decoded = decoded * 58 + digit
+    significant_bytes = 0
+    remaining = decoded
+    while remaining > 0:
+        significant_bytes += 1
+        remaining >>= 8
+    return leading_zero_bytes + significant_bytes == 32
+
+
+def program_id_defect(value):
     value = value.strip()
     if not value:
         return "unset"
     if value == known_placeholder_program_id:
         return "placeholder (resolves to the known devnet legacy Anchor placeholder id)"
+    if not is_valid_program_id(value):
+        return "malformed (not a valid 32-byte base58 Solana address; the app resolver would discard it)"
     return None
 
 program_set_defects = [
     f"{name}: {defect}"
     for name, value in program_ids.items()
-    for defect in [program_id_defect(name, value)]
+    for defect in [program_id_defect(value)]
     if defect
 ]
 if mainnet_deployment_status_note == "not_deployed":
@@ -204,7 +232,7 @@ checks = [
         "id": "mainnet_program_set_configured",
         "blocking": True,
         "ok": program_set_configured,
-        "detail": "all four program ids present and none is the known placeholder; mainnet.json does not record mainnetDeploymentStatusNote=not_deployed (this check does not prove audit or deployment)" if program_set_configured else f"program set defects: {'; '.join(program_set_defects)}",
+        "detail": "all four program ids present, valid 32-byte base58 addresses, and none is the known placeholder; mainnet.json does not record mainnetDeploymentStatusNote=not_deployed (this check does not prove audit or deployment)" if program_set_configured else f"program set defects: {'; '.join(program_set_defects)}",
         "fix": None if program_set_configured else "Record audited mainnet registry, escrow, reputation, and attestation program ids in config/networks/mainnet.json, and clear its escrowProgramIdNote and mainnetDeploymentStatusNote annotations, before mainnet activation.",
     },
     {

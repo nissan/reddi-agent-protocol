@@ -79,6 +79,21 @@ describe("demo-agents network profile refusals", () => {
     await expect(import("../config")).rejects.toThrow(/malformed: escrow must be valid 32-byte Solana public keys/);
   });
 
+  it("refuses a malformed supplied id on the default legacy-anchor lane", async () => {
+    process.env.NETWORK_PROFILE = "surfpool";
+    process.env.DEMO_ESCROW_PROGRAM_ID = "EscrowLocal000000000000000000000000000000000";
+
+    await expect(import("../config")).rejects.toThrow(/malformed: escrow must be valid 32-byte Solana public keys/);
+  });
+
+  it("refuses a malformed supplied id on the devnet Quasar lane", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+    process.env.DEMO_REGISTRY_PROGRAM_ID = "RegistryLocal11111111111111111111111111111";
+
+    await expect(import("../config")).rejects.toThrow(/malformed: registry must be valid 32-byte Solana public keys/);
+  });
+
   it("runs the Quasar target outside devnet when all four deployed ids are supplied", async () => {
     process.env.NETWORK_PROFILE = "surfpool";
     process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";

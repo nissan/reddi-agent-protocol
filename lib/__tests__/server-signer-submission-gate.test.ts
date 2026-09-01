@@ -108,6 +108,31 @@ describe("server-side operator signers honour the profile submission gate", () =
     expect(result.trace).toEqual(["reputation:submission_blocked"]);
   });
 
+  it("refuses the armed live paid devnet lane on a blocked profile before signer or RPC use", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryMainnet11111111111111111111111111111";
+    const getAccountInfo = jest.spyOn(Connection.prototype, "getAccountInfo");
+
+    const { runEconomicDemoLivePaidDevnet, ECONOMIC_DEMO_LIVE_PAID_DEVNET_CONFIRM } = await import(
+      "@/lib/economic-demo/live-paid-devnet-run"
+    );
+
+    const run = await runEconomicDemoLivePaidDevnet({
+      env: {
+        ECONOMIC_DEMO_LIVE_PAID_DEVNET: "1",
+        ECONOMIC_DEMO_LIVE_PAID_DEVNET_CONFIRM,
+        ECONOMIC_DEMO_ORCHESTRATOR_DEVNET_KEYPAIR_JSON: operatorSecret,
+      },
+    });
+
+    expect(run.status).toBe("blocked");
+    expect(run.orchestratorWallet).toBeNull();
+    expect(run.spentUsdc).toBe("0");
+    expect(run.timeline[0]?.error).toMatch(/malformed program id override/);
+    expect(getAccountInfo).not.toHaveBeenCalled();
+    expect(JSON.stringify(run)).not.toContain(operatorSecret);
+  });
+
   it("lets the same calls past the gate on the devnet profile", async () => {
     process.env.NETWORK_PROFILE = "devnet";
 
