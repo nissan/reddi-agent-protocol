@@ -196,11 +196,12 @@ class SolanaReceiptVerifier {
         const signature = receipt.signature ?? receipt.txSignature;
         if (!signature)
             return { ok: false, reason: 'invalid_receipt', message: 'receipt signature is required' };
-        const parsed = await this.options.connection.getParsedTransaction(signature, {
+        const parsed = asRecord(await this.options.connection.getParsedTransaction(signature, {
             commitment: 'confirmed',
             maxSupportedTransactionVersion: 0,
-        });
-        if (!parsed?.meta || parsed.meta.err)
+        }));
+        const meta = asRecord(parsed?.meta);
+        if (!parsed || !meta || meta.err)
             return { ok: false, reason: 'invalid_receipt', message: 'transaction is missing or failed' };
         const unpaid = await this.challengePaymentFailure(parsed, receipt, challenge, signature, replayStore);
         if (unpaid)
@@ -278,26 +279,27 @@ function validateReceiptShape(receipt, challenge) {
 }
 function transactionHasSolTransfer(parsed, payer, payTo, amountSol) {
     const lamports = Math.ceil(amountSol * web3_js_1.LAMPORTS_PER_SOL);
-    return parsed.transaction?.message?.instructions?.some((ix) => {
-        const info = ix?.parsed?.info;
-        return ix?.programId?.toString?.() === web3_js_1.SystemProgram.programId.toBase58()
-            && ix?.parsed?.type === 'transfer'
+    const instructions = parsedInstructions(parsed);
+    return instructions.some((ix) => {
+        const parsedInstruction = asRecord(ix.parsed);
+        const info = asRecord(parsedInstruction?.info);
+        return publicKeyText(ix.programId) === web3_js_1.SystemProgram.programId.toBase58()
+            && parsedInstruction?.type === 'transfer'
             && (!payer || info?.source === payer)
             && info?.destination === payTo
             && Number(info?.lamports) >= lamports;
-    }) === true;
+    });
 }
 function transactionHasTokenTransfer(parsed, receipt, challenge, expectedMint) {
     if (!expectedMint && !receipt.mint)
         return false;
     const mint = expectedMint ?? receipt.mint;
     const expectedAmount = String(challenge.amount);
-    const instructions = parsed.transaction?.message?.instructions;
-    if (!Array.isArray(instructions))
-        return false;
+    const instructions = parsedInstructions(parsed);
     return instructions.some((ix) => {
-        const info = ix?.parsed?.info;
-        if (!info || !['transfer', 'transferChecked'].includes(ix?.parsed?.type))
+        const parsedInstruction = asRecord(ix.parsed);
+        const info = asRecord(parsedInstruction?.info);
+        if (!info || !['transfer', 'transferChecked'].includes(String(parsedInstruction?.type)))
             return false;
         if (info.mint && info.mint !== mint)
             return false;
@@ -305,7 +307,8 @@ function transactionHasTokenTransfer(parsed, receipt, challenge, expectedMint) {
             return false;
         if (receipt.destinationTokenAccount && info.destination !== receipt.destinationTokenAccount)
             return false;
-        const tokenAmount = info.tokenAmount?.uiAmountString ?? info.tokenAmount?.uiAmount ?? info.amount;
+        const tokenAmountRecord = asRecord(info.tokenAmount);
+        const tokenAmount = tokenAmountRecord?.uiAmountString ?? tokenAmountRecord?.uiAmount ?? info.amount;
         if (String(tokenAmount) !== expectedAmount)
             return false;
         const destination = typeof info.destination === 'string' ? info.destination : receipt.destinationTokenAccount;
@@ -315,19 +318,47 @@ function transactionHasTokenTransfer(parsed, receipt, challenge, expectedMint) {
     });
 }
 function transactionTokenAccountOwnedBy(parsed, tokenAccount, mint, owner) {
-    const accountKeys = parsed.transaction?.message?.accountKeys;
-    const postTokenBalances = parsed.meta?.postTokenBalances;
-    if (!Array.isArray(accountKeys) || !Array.isArray(postTokenBalances))
+    const accountKeys = asArray(asRecord(asRecord(parsed.transaction)?.message)?.accountKeys);
+    const postTokenBalances = asArray(asRecord(parsed.meta)?.postTokenBalances);
+    if (!accountKeys || !postTokenBalances)
         return false;
-    return postTokenBalances.some((balance) => {
-        if (balance?.owner !== owner)
+    return postTokenBalances.some((item) => {
+        const balance = asRecord(item);
+        if (!balance)
             return false;
-        if (mint && balance?.mint !== mint)
+        if (balance.owner !== owner)
             return false;
-        const key = accountKeys[balance?.accountIndex];
-        const pubkey = typeof key === 'string' ? key : key?.pubkey?.toString?.() ?? key?.toString?.();
+        if (mint && balance.mint !== mint)
+            return false;
+        if (!Number.isSafeInteger(balance.accountIndex))
+            return false;
+        const key = accountKeys[Number(balance.accountIndex)];
+        const keyRecord = asRecord(key);
+        const pubkey = typeof key === 'string' ? key : publicKeyText(keyRecord?.pubkey) ?? publicKeyText(key);
         return pubkey === tokenAccount;
     });
+}
+function parsedInstructions(parsed) {
+    return (asArray(asRecord(asRecord(parsed.transaction)?.message)?.instructions) ?? [])
+        .map((item) => asRecord(item))
+        .filter((item) => item !== undefined);
+}
+function asArray(value) {
+    return Array.isArray(value) ? value : undefined;
+}
+function asRecord(value) {
+    return value !== null && typeof value === 'object' ? value : undefined;
+}
+function publicKeyText(value) {
+    if (typeof value === 'string')
+        return value;
+    if (value === null || typeof value !== 'object')
+        return undefined;
+    const toString = value.toString;
+    if (typeof toString !== 'function' || toString === Object.prototype.toString)
+        return undefined;
+    const rendered = toString.call(value);
+    return typeof rendered === 'string' ? rendered : undefined;
 }
 /**
  * Send a payment via Solana SystemProgram.transfer.

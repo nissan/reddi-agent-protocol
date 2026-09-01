@@ -28,7 +28,7 @@ export declare class DemoPaymentVerifier implements ReceiptVerifier {
     verifyReceipt(receipt: unknown, challenge: X402Challenge, replayStore?: NonceReplayStore): Promise<ReceiptVerificationResult>;
 }
 export interface ParsedTransactionConnection {
-    getParsedTransaction(signature: string, options?: unknown): Promise<any>;
+    getParsedTransaction(signature: string, options?: unknown): Promise<unknown>;
 }
 export interface SolanaReceiptVerifierOptions {
     allowRealPayment: boolean;
