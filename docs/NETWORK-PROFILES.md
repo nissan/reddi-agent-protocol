@@ -92,12 +92,17 @@ plain `ALLOW_UNSAFE_ESCROW_OVERRIDE` is only a fallback for non-Next tooling and
 unit tests when no build mirror exists. `packages/demo-agents` deliberately uses
 a separate local evidence-runner contract because the Surfpool smoke lanes
 (`scripts/run-surfpool-quasar-critical-smoke.sh`) depend on repointing it at
-locally deployed programs. It has no registered Quasar inventory outside devnet,
-so selecting the Quasar target on `local-surfpool` requires all four ids
-(`DEMO_ESCROW_PROGRAM_ID`, `DEMO_REGISTRY_PROGRAM_ID`, `DEMO_REPUTATION_PROGRAM_ID`,
-`DEMO_ATTESTATION_PROGRAM_ID`) to be explicitly supplied as valid 32-byte Solana
-public keys; it refuses at module init and names the missing or malformed labels
-without using fallback ids.
+locally deployed programs. Two module-init refusals apply there, both naming the
+offending labels and neither falling back to a registered id:
+
+- On **every** profile and target, any supplied `DEMO_*_PROGRAM_ID` /
+  `NEXT_PUBLIC_*_PROGRAM_ID` that is not a valid 32-byte Solana public key is
+  refused, so a typo is attributed to its variable instead of surfacing later as
+  an `Invalid public key input` from whichever script used it first.
+- It has no registered Quasar inventory outside devnet, so selecting the Quasar
+  target on `local-surfpool` additionally requires all four ids
+  (`DEMO_ESCROW_PROGRAM_ID`, `DEMO_REGISTRY_PROGRAM_ID`,
+  `DEMO_REPUTATION_PROGRAM_ID`, `DEMO_ATTESTATION_PROGRAM_ID`) to be supplied.
 
 ## Mainnet note
 
@@ -123,9 +128,12 @@ non-devnet profiles, and malformed program-id overrides that were rejected befor
 the register plus confirm/dispute attestation actions on `/onboarding`. On the
 server, where an operator keypair signs without a wallet prompt:
 `submitOnchainOnboardingAttestation` (behind `/api/onboarding/attestation`) throws,
-and `commitReputationRating` / `revealReputationRating` (behind the planner
-feedback and reveal routes) return `ok: false` with the blocked reason before
-signer use, transaction construction, or RPC submission. No audited mainnet
+`commitReputationRating` / `revealReputationRating` (behind the planner
+feedback and reveal routes) return `ok: false` with the blocked reason, and the
+armed live-paid devnet lane `runEconomicDemoLivePaidDevnet` (behind
+`/api/economic-demo/live-run` and `/api/economic-demo/z-picture-run`) returns a
+`status: "blocked"` envelope — all of them before signer use, transaction
+construction, or RPC submission. No audited mainnet
 deployment is registered, so submitting there would spend real mainnet fees on a
 transaction against a program that is not executable on that cluster. On profiles
 that are submission-ready the banner is advisory only — it reports readiness and
@@ -175,5 +183,5 @@ Artifacts are written to:
 - `artifacts/mainnet-readiness/<timestamp>/result.json`
 
 Current expected blockers before first mainnet deploy:
-- `mainnet_program_set_configured` fails until audited registry, escrow, reputation, and attestation ids are recorded for mainnet — none of the four may be the known placeholder id — and until `mainnetDeploymentStatusNote` is cleared from `config/networks/mainnet.json`.
+- `mainnet_program_set_configured` fails until audited registry, escrow, reputation, and attestation ids are recorded for mainnet — each must base58-decode to 32 bytes, the same validity test the resolver applies, and none of the four may be the known placeholder id — and until `mainnetDeploymentStatusNote` is cleared from `config/networks/mainnet.json`.
 - `escrow_program_executable` fails until the audited escrow program is deployed to mainnet and `NEXT_PUBLIC_ESCROW_PROGRAM_ID` points to that deployed address.
