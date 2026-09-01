@@ -63,10 +63,22 @@ All four program id variables are read by `getNetworkProfile()`, by
 profiles — demo-agents refuses `NETWORK_PROFILE=mainnet` outright, so it never
 reads them in the mainnet context above.
 
+Every override is validated before it is used. A value that does not base58-decode
+to exactly 32 bytes — i.e. one `new PublicKey()` would reject — is discarded on
+every profile: `getNetworkProfile()` keeps the registered id, marks the profile not
+submission-ready, and records the rejection in `knownGaps`, so a mistyped id
+surfaces as the amber blocked-readiness banner instead of throwing out of
+`lib/program.ts` at module scope and 500-ing every page.
+
 The hijack guard applies to `getNetworkProfile()` only: on the devnet profile it
-ignores these overrides unless `ALLOW_UNSAFE_ESCROW_OVERRIDE=true`, for both the
+ignores these overrides unless `ALLOW_UNSAFE_ESCROW_OVERRIDE=true` (or its
+`NEXT_PUBLIC_ALLOW_UNSAFE_ESCROW_OVERRIDE` mirror), for both the
 legacy-Anchor and the Quasar target, so a stray env var cannot repoint the web
-app's registered devnet program set. `packages/demo-agents` deliberately does not
+app's registered devnet program set. Only the `NEXT_PUBLIC_`-prefixed form is
+inlined into the client bundle: the wallet signs in the browser, so use that form
+when the override must apply to what actually gets submitted — the non-public form
+alone authorises server-side resolution only, and the SSR HTML would then disagree
+with the id the wallet builds against. `packages/demo-agents` deliberately does not
 apply that guard — it honours its `DEMO_*` / `NEXT_PUBLIC_*` program id overrides
 unconditionally on devnet/local, because the Surfpool smoke lanes
 (`scripts/run-surfpool-quasar-critical-smoke.sh`) depend on repointing it at

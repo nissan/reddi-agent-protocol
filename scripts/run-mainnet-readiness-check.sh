@@ -37,7 +37,8 @@ DEFAULT_ESCROW_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("escrowProg
 DEFAULT_REGISTRY_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("registryProgramId", "")')"
 DEFAULT_REPUTATION_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("reputationProgramId", "")')"
 DEFAULT_ATTESTATION_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("attestationProgramId", "")')"
-PLACEHOLDER_ESCROW_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("escrowProgramId", "") if obj["programs"].get("mainnetDeploymentStatusNote") == "not_deployed" or obj["programs"].get("escrowProgramIdNote") else ""')"
+PLACEHOLDER_ESCROW_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("escrowProgramId", "") if str(obj["programs"].get("escrowProgramIdNote", "")).lstrip().upper().startswith("PLACEHOLDER") else ""')"
+MAINNET_DEPLOYMENT_STATUS_NOTE="$(read_profile_value 'obj["programs"].get("mainnetDeploymentStatusNote", "")')"
 DEFAULT_PER_RPC="$(read_profile_value 'obj["payments"]["perRpc"]')"
 DEFAULT_JUPITER_BASE="$(read_profile_value 'obj["payments"]["jupiterApiBase"]')"
 
@@ -133,13 +134,19 @@ program_ids = {
     "attestation": "${ATTESTATION_PROGRAM_ID}",
 }
 placeholder_escrow_program_id = "${PLACEHOLDER_ESCROW_PROGRAM_ID}".strip()
+mainnet_deployment_status_note = "${MAINNET_DEPLOYMENT_STATUS_NOTE}".strip()
 
 
 def program_id_defect(name, value):
-    if not value.strip():
+    value = value.strip()
+    if not value:
         return "unset"
-    if name == "escrow" and placeholder_escrow_program_id and value.strip() == placeholder_escrow_program_id:
-        return "placeholder (mainnet.json records mainnetDeploymentStatusNote=not_deployed)"
+    if name != "escrow":
+        return None
+    if placeholder_escrow_program_id and value == placeholder_escrow_program_id:
+        return "placeholder (mainnet.json annotates this id with escrowProgramIdNote=PLACEHOLDER)"
+    if mainnet_deployment_status_note == "not_deployed":
+        return "no deployment recorded (mainnet.json records mainnetDeploymentStatusNote=not_deployed)"
     return None
 
 unconfigured_program_ids = [
@@ -172,8 +179,8 @@ checks = [
         "id": "mainnet_program_set_configured",
         "blocking": True,
         "ok": program_set_configured,
-        "detail": "all four program ids present; escrow is not the recorded placeholder (this check does not prove audit or deployment)" if program_set_configured else f"unconfigured ids: {'; '.join(unconfigured_program_ids)}",
-        "fix": None if program_set_configured else "Record audited mainnet registry, escrow, reputation, and attestation program ids (and clear the placeholder escrow id in config/networks/mainnet.json) before mainnet activation.",
+        "detail": "all four program ids present; escrow is neither the annotated placeholder nor flagged not_deployed (this check does not prove audit or deployment)" if program_set_configured else f"unconfigured ids: {'; '.join(unconfigured_program_ids)}",
+        "fix": None if program_set_configured else "Record audited mainnet registry, escrow, reputation, and attestation program ids in config/networks/mainnet.json, and clear its escrowProgramIdNote and mainnetDeploymentStatusNote annotations, before mainnet activation.",
     },
     {
         "id": "escrow_program_executable",

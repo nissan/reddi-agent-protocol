@@ -71,6 +71,7 @@ function readEnv(): Record<string, string | undefined> {
     NEXT_PUBLIC_ATTESTATION_PROGRAM_ID: process.env.NEXT_PUBLIC_ATTESTATION_PROGRAM_ID,
     DEMO_ATTESTATION_PROGRAM_ID: process.env.DEMO_ATTESTATION_PROGRAM_ID,
     ALLOW_UNSAFE_ESCROW_OVERRIDE: process.env.ALLOW_UNSAFE_ESCROW_OVERRIDE,
+    NEXT_PUBLIC_ALLOW_UNSAFE_ESCROW_OVERRIDE: process.env.NEXT_PUBLIC_ALLOW_UNSAFE_ESCROW_OVERRIDE,
     JUPITER_API_BASE: process.env.JUPITER_API_BASE,
     NEXT_PUBLIC_PER_RPC: process.env.NEXT_PUBLIC_PER_RPC,
     DEMO_PER_RPC: process.env.DEMO_PER_RPC,
@@ -87,6 +88,28 @@ function pickEnv(...keys: string[]): string | undefined {
     if (value) return value;
   }
   return undefined;
+}
+
+const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+/** True when `value` base58-decodes to exactly 32 bytes, i.e. `new PublicKey(value)` will accept it. */
+export function isValidProgramId(value: string): boolean {
+  if (!value) return false;
+
+  let leadingZeroBytes = 0;
+  while (leadingZeroBytes < value.length && value[leadingZeroBytes] === "1") leadingZeroBytes += 1;
+
+  let decoded = 0n;
+  for (const char of value) {
+    const digit = BASE58_ALPHABET.indexOf(char);
+    if (digit < 0) return false;
+    decoded = decoded * 58n + BigInt(digit);
+  }
+
+  let significantBytes = 0;
+  for (let remaining = decoded; remaining > 0n; remaining >>= 8n) significantBytes += 1;
+
+  return leadingZeroBytes + significantBytes === 32;
 }
 
 export function resolveNetworkProfileName(): NetworkProfileName {
@@ -120,28 +143,47 @@ export function getNetworkProfile(): NetworkProfile {
 
   const rpcOverride = pickEnv("NEXT_PUBLIC_RPC_ENDPOINT", "NEXT_PUBLIC_RPC_URL", "DEMO_DEVNET_RPC");
   const escrowOverride = pickEnv("NEXT_PUBLIC_ESCROW_PROGRAM_ID", "DEMO_ESCROW_PROGRAM_ID");
-  const allowUnsafeDevnetOverride = pickEnv("ALLOW_UNSAFE_ESCROW_OVERRIDE") === "true";
+  const allowUnsafeDevnetOverride =
+    pickEnv("ALLOW_UNSAFE_ESCROW_OVERRIDE", "NEXT_PUBLIC_ALLOW_UNSAFE_ESCROW_OVERRIDE") === "true";
 
   const quasarPrograms = quasarDevnet.programIds ?? { escrow: quasarDevnet.programId };
   const targetProgramId = target === "quasar" ? quasarPrograms.escrow : base.programs.escrowProgramId;
-  const applyProgramIdOverride = (override: string | undefined, registered: string): string =>
-    name === "devnet" && override && override !== registered && !allowUnsafeDevnetOverride
-      ? registered
-      : override ?? registered;
+  const malformedOverrides: string[] = [];
+  const applyProgramIdOverride = (label: string, override: string | undefined, registered: string): string => {
+    if (!override) return registered;
+    if (!isValidProgramId(override)) {
+      malformedOverrides.push(label);
+      return registered;
+    }
+    return name === "devnet" && override !== registered && !allowUnsafeDevnetOverride ? registered : override;
+  };
 
-  const effectiveEscrowProgramId = applyProgramIdOverride(escrowOverride, targetProgramId);
+  const effectiveEscrowProgramId = applyProgramIdOverride("escrow", escrowOverride, targetProgramId);
   const effectiveRegistryProgramId = applyProgramIdOverride(
+    "registry",
     pickEnv("NEXT_PUBLIC_REGISTRY_PROGRAM_ID", "DEMO_REGISTRY_PROGRAM_ID"),
     target === "quasar" ? quasarPrograms.registry : effectiveEscrowProgramId,
   );
   const effectiveReputationProgramId = applyProgramIdOverride(
+    "reputation",
     pickEnv("NEXT_PUBLIC_REPUTATION_PROGRAM_ID", "DEMO_REPUTATION_PROGRAM_ID"),
     target === "quasar" ? quasarPrograms.reputation : effectiveEscrowProgramId,
   );
   const effectiveAttestationProgramId = applyProgramIdOverride(
+    "attestation",
     pickEnv("NEXT_PUBLIC_ATTESTATION_PROGRAM_ID", "DEMO_ATTESTATION_PROGRAM_ID"),
     target === "quasar" ? quasarPrograms.attestation : effectiveEscrowProgramId,
   );
+
+  const malformedOverrideKnownGaps = malformedOverrides.length
+    ? [
+        `The ${malformedOverrides.join(", ")} program id override${
+          malformedOverrides.length === 1 ? " is" : "s are"
+        } not a valid 32-byte base58 Solana address; ${
+          malformedOverrides.length === 1 ? "it was" : "they were"
+        } ignored and the registered program id is used instead.`,
+      ]
+    : [];
 
   const escrowIsConfiguredPlaceholder = effectiveEscrowProgramId === base.programs.escrowProgramId;
   const aliasedProgramLabels = (
@@ -201,7 +243,7 @@ export function getNetworkProfile(): NetworkProfile {
       framework: target === "quasar" ? "quasar" : "anchor",
       compatibility: target === "quasar" ? "quasar-layout-unverified" : "anchor-layout",
       submissionReady:
-        name === "mainnet" || quasarRequestRefused
+        name === "mainnet" || quasarRequestRefused || malformedOverrides.length > 0
           ? false
           : target === "quasar"
             ? quasarDeployments.submissionReady
@@ -211,11 +253,14 @@ export function getNetworkProfile(): NetworkProfile {
           ? "Mainnet activation is blocked: no audited deployment is registered and the Quasar four-program set cannot be resolved for mainnet."
           : quasarRequestRefused
             ? `A Quasar program target was requested for ${name}, which has no registered Quasar deployment; the request is refused.`
-            : target === "quasar"
-              ? quasarDeployments.submissionReadyReason
-              : undefined,
+            : malformedOverrides.length > 0
+              ? `A malformed program id override was supplied for ${malformedOverrides.join(", ")}; the resolved program set is not the configured one.`
+              : target === "quasar"
+                ? quasarDeployments.submissionReadyReason
+                : undefined,
       knownGaps: [
         ...(target === "quasar" ? quasarDevnet.knownGaps : []),
+        ...malformedOverrideKnownGaps,
         ...mainnetKnownGaps,
         ...localSurfpoolKnownGaps,
       ],
