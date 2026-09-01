@@ -55,6 +55,7 @@ further per-step prompt, so stop now if other work still needs any of them:
 
 --execute leaves the following alone; remove them by hand only if no other work uses them:
 - ~/.cargo/bin/avm, ~/.cargo/bin/anchor, ~/.rustup, ~/.cargo
+- rustup's auto-self-update setting: the baseline disables it only on a rustup it installed itself, and never restores it; re-enable with 'rustup set auto-self-update enable' if you want it back
 - Shell startup files: restore manually from the timestamped backup recorded in artifacts/toolchain/*.md only if a diff inspection says they changed. Do not inspect or restore keypair contents.
 PLAN
 }

@@ -3,7 +3,10 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/solana-baseline-toolchain.sh [install|verify|capture|print-pins]
+Usage: scripts/solana-baseline-toolchain.sh <install|verify|capture|print-pins>
+
+The mode is required: only 'install' changes host state, and it must be asked for
+explicitly.
 
 install    Install the pinned user-scoped RAP Solana baseline, then verify it.
 verify     Probe exact expected versions without installing or changing host state.
@@ -17,10 +20,15 @@ where release metadata provides it.
 USAGE
 }
 
-MODE="${1:-install}"
+MODE="${1:-}"
 case "$MODE" in
   install|verify|capture|print-pins) ;;
   -h|--help|help) usage; exit 0 ;;
+  "")
+    usage >&2
+    echo "error: no mode given; pass one explicitly (install changes host state)" >&2
+    exit 2
+    ;;
   *) usage >&2; exit 2 ;;
 esac
 
@@ -410,13 +418,21 @@ install_rust() {
     download_verified "$RUSTUP_URL" "$RUSTUP_SHA256" "$rustup_init"
     chmod +x "$rustup_init"
     "$rustup_init" -y --no-modify-path --default-toolchain none
+    rustup set auto-self-update disable
+  else
+    echo "rustup already present; leaving its auto-self-update setting as the host had it"
   fi
-  rustup set auto-self-update disable
   rustup toolchain install "$RUST_VERSION" --profile minimal $(for c in $RUST_COMPONENTS; do printf -- ' --component %q' "$c"; done)
 }
 
 install_agave() {
   mkdir -p "$DOWNLOAD_DIR" "$SOLANA_INSTALL_DIR"
+  echo "note: installing Agave $AGAVE_VERSION into $SOLANA_INSTALL_DIR and relinking its active_release."
+  echo "      this is the shared default agave-install data dir, so the user-wide 'solana' becomes $AGAVE_VERSION."
+  if [ -x "$SOLANA_INSTALL_DIR/active_release/bin/solana" ]; then
+    echo "      currently active there: $("$SOLANA_INSTALL_DIR/active_release/bin/solana" --version 2>&1 || true)"
+  fi
+  echo "      set RAP_BASELINE_SOLANA_INSTALL_DIR to install into a baseline-owned tree instead."
   local init="$DOWNLOAD_DIR/agave-install-init-$AGAVE_VERSION"
   download_verified "$AGAVE_URL" "$AGAVE_SHA256" "$init"
   chmod +x "$init"

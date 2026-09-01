@@ -23,11 +23,13 @@ Run `scripts/solana-baseline-toolchain.sh print-pins` to see the resolved pins t
 scripts/solana-baseline-toolchain.sh install
 ```
 
+The mode is required — running the script with no argument prints usage and exits non-zero rather than installing.
+
 The script is idempotent and constrained to user-scoped install paths. Re-running it re-uses verified downloads, discards any partial or checksum-mismatched download and retries it, and skips the AVM/Anchor rebuild when both already report the pin:
 
 - Node is installed with `mise install node@24.20.0`; this does not replace the machine-wide/default Node, so Node 26 remains available for unrelated work.
-- Rust/rustup are installed under `~/.rustup` and `~/.cargo` using a pinned `rustup-init` archive and `--no-modify-path`.
-- Solana CLI is installed under `~/.local/share/solana/install` using the pinned `agave-install-init` release asset, a config file inside that same install tree, and `--no-modify-path`.
+- Rust/rustup are installed under `~/.rustup` and `~/.cargo` using a pinned `rustup-init` archive and `--no-modify-path`. `auto-self-update` is disabled only on a rustup this script installed; an existing rustup keeps its own settings.
+- Solana CLI is installed under `~/.local/share/solana/install` using the pinned `agave-install-init` release asset, a config file inside that same install tree, and `--no-modify-path`. That is the shared default `agave-install` data dir, so this relinks `active_release` and the user-wide `solana` becomes v3.1.13; the installer prints what was active there first. Unlike Node, there is no repo-local selection for the Solana CLI — set `RAP_BASELINE_SOLANA_INSTALL_DIR` to keep an existing install untouched.
 - AVM is installed with Cargo from the official `otter-sec/anchor` `v1.0.0` tag; Anchor `1.0.0` is selected through AVM.
 - Surfpool is installed from the verified `v1.5.0` Linux release tarball under `~/.local/share/surfpool/releases/v1.5.0/bin`.
 - Downloaded installer assets are cached in the git-ignored `.tmp/solana-baseline-downloads/` (override with `RAP_BASELINE_DOWNLOAD_DIR`); install roots are overridable with `RAP_BASELINE_SOLANA_INSTALL_DIR` and `RAP_BASELINE_SURFPOOL_ROOT`, which the Surfpool smoke honours too.
@@ -63,6 +65,7 @@ Focused shell-check coverage for the exact-version matcher:
 
 ```bash
 npm run test:toolchain:version-match
+npm run test:toolchain:modes
 ```
 
 Only run broader Surfpool lanes when their preconditions are safe in a disposable worktree and no unrelated listeners must be killed. Capture failures as evidence; do not weaken checks to make the baseline pass.
