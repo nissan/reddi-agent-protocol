@@ -136,9 +136,10 @@ describe("participant resolution order", () => {
   const escrowProgramId = new PublicKey("VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW");
   const expected = { consumer, specialist, escrowProgramId };
 
-  // Reading a not-yet-resolved participant into the `expected` literal produced a ReferenceError
-  // instead of the canonical refusal, so both participants must be real keys before this is called.
-  it("refuses with the canonical reason, not an internal error, when no lock record exists", () => {
+  // Helper-level contract only. The reveal-path ordering regression that this helper's callers must
+  // satisfy lives in lib/__tests__/onboarding-quasar-escrow-refusal.test.ts, which calls
+  // revealReputationRating itself.
+  it("refuses with the canonical reason when no lock record exists", () => {
     let thrown: unknown;
     try {
       resolveOnboardingQuasarEscrow({ expected });

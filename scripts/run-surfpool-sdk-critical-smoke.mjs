@@ -11,6 +11,7 @@ import {
   assertLocalOnlyEnvironment,
   assertQuasarCriticalDemoOutput,
   assertQuasarPerFailClosedOutput,
+  assertQuasarProgramIdsMatchSources,
   createRedactingLineBuffer,
   baselinePath,
   createTruncatingEvidenceBuffer,
@@ -208,38 +209,10 @@ async function legacyAnchorProgramDescriptors() {
   ];
 }
 
-async function declaredProgramId(manifestDir) {
-  const libPath = path.join(repoRoot, manifestDir, "src/lib.rs");
-  const declared = (await fs.readFile(libPath, "utf8")).match(/declare_id!\("([^"]+)"\)/)?.[1];
-  if (!declared) throw new Error(`declare_id! not found in ${path.join(manifestDir, "src/lib.rs")}`);
-  return declared;
-}
-
 async function quasarProgramDescriptors() {
   const inventory = JSON.parse(await fs.readFile(path.join(repoRoot, "config/quasar/deployments.json"), "utf8"));
   const ids = inventory.quasarDeployments?.devnet?.programIds;
-  for (const key of ["escrow", "registry", "reputation", "attestation"]) {
-    if (!ids?.[key]) throw new Error(`missing Quasar ${key} program ID in config/quasar/deployments.json`);
-  }
-
-  // Quasar owner checks and the reveal commitment pre-image compare against declare_id!, so a
-  // configured ID that drifts from the source would deploy binaries at an address they reject.
-  const sourceDirs = {
-    escrow: "experiments/quasar-escrow",
-    registry: "experiments/quasar-registry",
-    reputation: "experiments/quasar-reputation",
-    attestation: "experiments/quasar-attestation",
-  };
-  const drift = [];
-  for (const [key, dir] of Object.entries(sourceDirs)) {
-    const declared = await declaredProgramId(dir);
-    if (declared !== ids[key]) {
-      drift.push(`${key}: config/quasar/deployments.json has ${ids[key]}, ${dir}/src/lib.rs declares ${declared}`);
-    }
-  }
-  if (drift.length) {
-    throw new Error(`Quasar program IDs drifted from their declare_id! sources: ${drift.join("; ")}`);
-  }
+  assertQuasarProgramIdsMatchSources(repoRoot, ids);
 
   return [
     { key: "escrow", label: "Quasar escrow", manifest: "experiments/quasar-escrow/Cargo.toml", soName: "quasar_escrow_poc", programId: ids.escrow },
@@ -250,11 +223,14 @@ async function quasarProgramDescriptors() {
 }
 
 async function buildPrograms(programs) {
+  // One cargo target dir for the whole run: the Quasar crates share quasar-lang and build with
+  // fat LTO, so a per-program dir would repeat the same release link work for no added isolation.
+  const cargoTargetDir = path.join(tmpDir, "cargo-target");
+  await fs.mkdir(cargoTargetDir, { recursive: true });
+
   for (const program of programs) {
     const deployDir = path.join(tmpDir, "deploy", program.key);
-    const cargoTargetDir = path.join(tmpDir, "cargo-target", program.key);
     await fs.mkdir(deployDir, { recursive: true });
-    await fs.mkdir(cargoTargetDir, { recursive: true });
     await runStep(`Build ${program.label} SBF in isolated target`, "cargo", [
       "build-sbf",
       "--manifest-path",

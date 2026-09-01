@@ -14,16 +14,32 @@ export const ACCEPTED_EVIDENCE_VERSION = 2;
 export const ACCEPTED_EVIDENCE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 
 /**
- * Repository paths whose contents the lane's evidence actually depends on. A receipt records the
- * digest of these at publish time; readers recompute it, so editing a Quasar program, the demo
- * client, the lane runner, or the pinned toolchain baseline invalidates prior evidence.
+ * Repository paths whose contents the lane's evidence actually depends on: every input the built
+ * programs compile from (sources, the Quasar framework they depend on by path, and the manifests and
+ * lockfiles that pin their dependencies) plus the demo client, the lane runner, and the pinned
+ * toolchain baseline. A receipt records the digest at publish time and readers recompute it, so
+ * editing any of these invalidates prior evidence.
  */
 const LANE_FINGERPRINT_PATHS = Object.freeze({
   quasar: Object.freeze([
+    // The Quasar framework the four programs compile against: `quasar-lang` is a path dependency, so
+    // editing it changes every .so the lane builds without touching any experiments/ source.
+    "third_party/quasar",
     "experiments/quasar-escrow/src",
+    "experiments/quasar-escrow/Cargo.toml",
+    "experiments/quasar-escrow/Cargo.lock",
+    "experiments/quasar-escrow-ref/src",
+    "experiments/quasar-escrow-ref/Cargo.toml",
+    "experiments/quasar-escrow-ref/Cargo.lock",
     "experiments/quasar-registry/src",
+    "experiments/quasar-registry/Cargo.toml",
+    "experiments/quasar-registry/Cargo.lock",
     "experiments/quasar-reputation/src",
+    "experiments/quasar-reputation/Cargo.toml",
+    "experiments/quasar-reputation/Cargo.lock",
     "experiments/quasar-attestation/src",
+    "experiments/quasar-attestation/Cargo.toml",
+    "experiments/quasar-attestation/Cargo.lock",
     "packages/demo-agents/src",
     "scripts/lib/surfpool-sdk-lifecycle.mjs",
     "scripts/lib/surfpool-evidence-manifest.mjs",
@@ -33,6 +49,8 @@ const LANE_FINGERPRINT_PATHS = Object.freeze({
   ]),
   "legacy-anchor": Object.freeze([
     "programs/escrow/src",
+    "programs/escrow/Cargo.toml",
+    "Cargo.lock",
     "packages/demo-agents/src",
     "scripts/lib/surfpool-sdk-lifecycle.mjs",
     "scripts/lib/surfpool-evidence-manifest.mjs",

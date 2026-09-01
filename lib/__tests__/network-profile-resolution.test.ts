@@ -99,7 +99,15 @@ describe("demo-agent config env isolation", () => {
 
   it("loads dotenv by default so ordinary demo runs keep their env file", async () => {
     delete process.env.DEMO_DISABLE_DOTENV;
+    // dotenv never overrides an already-set key, so pinning the target here keeps a developer's
+    // gitignored .env.devnet from selecting quasar and making the module-scope gate throw.
+    process.env.DEMO_PROGRAM_TARGET = "legacy-anchor";
+    process.env.HACKATHON_DEMO_TARGET = "legacy-anchor";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "legacy-anchor";
+
     const config = await import("../../packages/demo-agents/src/config");
+
     expect(config.DOTENV_DISABLED).toBe(false);
+    expect(config.PROGRAM_TARGET).toBe("legacy-anchor");
   });
 });

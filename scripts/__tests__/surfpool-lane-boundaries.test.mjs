@@ -8,37 +8,58 @@ import test from "node:test";
 
 import {
   LOCAL_ENDPOINT_ENV_KEYS,
+  QUASAR_PROGRAM_SOURCE_DIRS,
   SurfpoolSafetyError,
   assertLocalOnlyEnvironment,
+  assertQuasarProgramIdsMatchSources,
   baselinePath,
+  declaredQuasarProgramId,
   localChildEnv,
 } from "../lib/surfpool-sdk-lifecycle.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
-const QUASAR_SOURCE_DIRS = {
-  escrow: "experiments/quasar-escrow",
-  registry: "experiments/quasar-registry",
-  reputation: "experiments/quasar-reputation",
-  attestation: "experiments/quasar-attestation",
-};
-
-function declaredProgramId(sourceDir) {
-  const lib = fs.readFileSync(path.join(repoRoot, sourceDir, "src/lib.rs"), "utf8");
-  const declared = lib.match(/declare_id!\("([^"]+)"\)/)?.[1];
-  assert.ok(declared, `declare_id! not found in ${sourceDir}/src/lib.rs`);
-  return declared;
+function configuredQuasarProgramIds() {
+  const inventory = JSON.parse(fs.readFileSync(path.join(repoRoot, "config/quasar/deployments.json"), "utf8"));
+  return inventory.quasarDeployments.devnet.programIds;
 }
 
-test("configured Quasar program IDs equal the declare_id! each program compiles with", () => {
-  // Quasar owner checks and the reveal commitment pre-image compare against declare_id!, so the
-  // deployment inventory and the sources must agree or the lane deploys to addresses they reject.
-  const inventory = JSON.parse(fs.readFileSync(path.join(repoRoot, "config/quasar/deployments.json"), "utf8"));
-  const ids = inventory.quasarDeployments.devnet.programIds;
+test("the lane precondition accepts the repository's configured Quasar program IDs", () => {
+  // Invokes the same check the runner performs before it builds or starts anything.
+  assert.equal(assertQuasarProgramIdsMatchSources(repoRoot, configuredQuasarProgramIds()), true);
+});
 
-  for (const [key, sourceDir] of Object.entries(QUASAR_SOURCE_DIRS)) {
-    assert.equal(ids[key], declaredProgramId(sourceDir), `${key} program ID drifted from ${sourceDir}/src/lib.rs`);
+test("the lane precondition refuses a configured program ID that drifts from its declare_id!", () => {
+  const ids = configuredQuasarProgramIds();
+
+  for (const key of Object.keys(QUASAR_PROGRAM_SOURCE_DIRS)) {
+    const drifted = { ...ids, [key]: "11111111111111111111111111111112" };
+    assert.throws(
+      () => assertQuasarProgramIdsMatchSources(repoRoot, drifted),
+      (error) => {
+        assert.ok(error instanceof SurfpoolSafetyError);
+        assert.match(error.message, new RegExp(`drifted.*${key}`, "s"));
+        return true;
+      },
+      `drifting ${key} must be refused`,
+    );
   }
+});
+
+test("the lane precondition refuses a missing Quasar program ID", () => {
+  const { escrow: _dropped, ...incomplete } = configuredQuasarProgramIds();
+  assert.throws(() => assertQuasarProgramIdsMatchSources(repoRoot, incomplete), /missing Quasar escrow program ID/);
+});
+
+test("each Quasar crate reports the program ID it actually compiles with", () => {
+  for (const [key, dir] of Object.entries(QUASAR_PROGRAM_SOURCE_DIRS)) {
+    const declared = declaredQuasarProgramId(repoRoot, dir);
+    assert.match(declared, /^[1-9A-HJ-NP-Za-km-z]{32,44}$/, `${key} must declare a base58 program ID`);
+  }
+  // A crate with no program lib must fail closed with the same clear precondition error.
+  assert.throws(() => declaredQuasarProgramId(repoRoot, "scripts"), SurfpoolSafetyError);
+  assert.throws(() => declaredQuasarProgramId(repoRoot, "scripts"), /declare_id! not found/);
+  assert.throws(() => declaredQuasarProgramId(repoRoot, "experiments/quasar-escrow-ref"), /declare_id! not found/);
 });
 
 test("a payments API base pointing off-loopback is rejected before anything starts", () => {

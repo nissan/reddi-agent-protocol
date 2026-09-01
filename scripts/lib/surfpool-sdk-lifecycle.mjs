@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -93,6 +94,49 @@ export function assertLocalOnlyEnvironment(env = process.env, options = {}) {
       throw new SurfpoolSafetyError(`${key}=${value} is not allowed in the local Surfpool validation lane`);
     }
   }
+}
+
+export const QUASAR_PROGRAM_SOURCE_DIRS = Object.freeze({
+  escrow: "experiments/quasar-escrow",
+  registry: "experiments/quasar-registry",
+  reputation: "experiments/quasar-reputation",
+  attestation: "experiments/quasar-attestation",
+});
+
+/** The program ID a Quasar crate compiles with, from its `declare_id!`. */
+export function declaredQuasarProgramId(repoRoot, sourceDir) {
+  const relative = path.join(sourceDir, "src/lib.rs");
+  let source;
+  try {
+    source = fs.readFileSync(path.join(repoRoot, relative), "utf8");
+  } catch (error) {
+    throw new SurfpoolSafetyError(`declare_id! not found: cannot read ${relative} (${error.code ?? error.message})`);
+  }
+  const declared = source.match(/declare_id!\("([^"]+)"\)/)?.[1];
+  if (!declared) throw new SurfpoolSafetyError(`declare_id! not found in ${relative}`);
+  return declared;
+}
+
+/**
+ * Quasar owner checks and the reveal commitment pre-image compare against `declare_id!`, so a
+ * configured program ID that drifts from its source would deploy binaries at an address the program
+ * itself rejects. This runs as a lane precondition, before anything is built or started.
+ */
+export function assertQuasarProgramIdsMatchSources(repoRoot, configuredIds) {
+  const drift = [];
+  for (const [key, dir] of Object.entries(QUASAR_PROGRAM_SOURCE_DIRS)) {
+    if (!configuredIds?.[key]) {
+      throw new SurfpoolSafetyError(`missing Quasar ${key} program ID in config/quasar/deployments.json`);
+    }
+    const declared = declaredQuasarProgramId(repoRoot, dir);
+    if (declared !== configuredIds[key]) {
+      drift.push(`${key}: configured ${configuredIds[key]}, ${dir}/src/lib.rs declares ${declared}`);
+    }
+  }
+  if (drift.length) {
+    throw new SurfpoolSafetyError(`Quasar program IDs drifted from their declare_id! sources: ${drift.join("; ")}`);
+  }
+  return true;
 }
 
 export function validateSurfnetEndpoints(surfnet) {
