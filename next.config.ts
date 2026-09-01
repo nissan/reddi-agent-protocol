@@ -1,8 +1,8 @@
 import type { NextConfig } from "next";
 
 const buildNetworkProfile = (
-  process.env.NEXT_PUBLIC_NETWORK_PROFILE ??
   process.env.NETWORK_PROFILE ??
+  process.env.NEXT_PUBLIC_NETWORK_PROFILE ??
   ""
 ).trim();
 

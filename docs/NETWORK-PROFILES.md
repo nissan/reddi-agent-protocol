@@ -96,23 +96,31 @@ other profile the banner is advisory only — it reports readiness and does not
 disable wallet submission.
 
 **Set the profile in the build environment, not just the runtime one.** Next
-inlines only static `process.env.NEXT_PUBLIC_*` reads into the client bundle, so
-`lib/config/network.ts` reads every selector as a static member and
-`next.config.ts` mirrors the build-time profile into a separate, build-only key,
-`NEXT_PUBLIC_BUILD_NETWORK_PROFILE`, for the browser. `resolveNetworkProfileName()`
-consults `NETWORK_PROFILE`, then `NEXT_PUBLIC_NETWORK_PROFILE`, then that
-build-only key last — so a runtime value always wins on the server, and the
-browser falls back to whatever the build was configured with.
+inlines every `NEXT_PUBLIC_*` variable present in the build environment as a
+literal, and it does so for the server compilation as well as the client one. Only
+`NETWORK_PROFILE` — which is not `NEXT_PUBLIC_`-prefixed and is therefore never
+inlined — behaves as a true runtime selector.
 
-`next.config.ts` never emits `NEXT_PUBLIC_NETWORK_PROFILE` itself, so setting that
-variable at runtime is still honoured server-side regardless of how the image was
-built.
+`resolveNetworkProfileName()` consults, in order:
 
-Consequence when `next build` ran with a different profile than the runtime one:
-the server resolves the runtime profile and renders the blocked banner, while the
-client bundle still carries the build-time profile, so the browser-side gate
-reflects the build. Build with the profile you intend to serve so the gate holds
-on both sides.
+1. `NETWORK_PROFILE` — runtime selector, server-side only. Always wins on the
+   server; never reaches the browser.
+2. `NEXT_PUBLIC_BUILD_NETWORK_PROFILE` — emitted by `next.config.ts` from whatever
+   profile resolved at build time. This is the browser's source of truth.
+3. `NEXT_PUBLIC_NETWORK_PROFILE` — a *build-time* selector. If it is set in the
+   build environment its value is frozen into both bundles; setting it only at
+   runtime works solely when the build had no profile at all. It is consulted last
+   so a stale build-time value cannot beat the mirror.
+
+`next.config.ts` resolves the mirror with the same precedence
+(`NETWORK_PROFILE` before `NEXT_PUBLIC_NETWORK_PROFILE`), so the browser and the
+server agree on which profile the build was configured for.
+
+Consequence when `next build` ran with a different profile than the runtime
+`NETWORK_PROFILE`: the server resolves the runtime profile and renders the blocked
+banner, while the client bundle still carries the build-time profile, so the
+browser-side gate reflects the build. Build with the profile you intend to serve so
+the gate holds on both sides.
 
 Mainnet switching requires explicit approval **after** external audit,
 upgrade-authority/key-control decisions, audited mainnet deployments, and all

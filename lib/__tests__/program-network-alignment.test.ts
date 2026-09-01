@@ -82,9 +82,20 @@ describe("program/network alignment", () => {
     expect(WALLET_SUBMISSION_BLOCKED).toBe(true);
   });
 
-  it("lets a runtime NEXT_PUBLIC_NETWORK_PROFILE override the build-time mirror", async () => {
+  it("prefers the build-time mirror over a stale NEXT_PUBLIC_NETWORK_PROFILE", async () => {
+    process.env.NEXT_PUBLIC_BUILD_NETWORK_PROFILE = "mainnet";
+    process.env.NEXT_PUBLIC_NETWORK_PROFILE = "devnet";
+
+    const { WALLET_SUBMISSION_BLOCKED, PROGRAM_DEPLOYMENT_STATUS } = await import("@/lib/program");
+
+    expect(PROGRAM_DEPLOYMENT_STATUS).toBe("mainnet-not-deployed");
+    expect(WALLET_SUBMISSION_BLOCKED).toBe(true);
+  });
+
+  it("lets the server-only NETWORK_PROFILE selector outrank both public keys", async () => {
+    process.env.NETWORK_PROFILE = "mainnet";
     process.env.NEXT_PUBLIC_BUILD_NETWORK_PROFILE = "devnet";
-    process.env.NEXT_PUBLIC_NETWORK_PROFILE = "mainnet";
+    process.env.NEXT_PUBLIC_NETWORK_PROFILE = "devnet";
 
     const { WALLET_SUBMISSION_BLOCKED, PROGRAM_DEPLOYMENT_STATUS } = await import("@/lib/program");
 

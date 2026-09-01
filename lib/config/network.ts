@@ -91,7 +91,7 @@ function pickEnv(...keys: string[]): string | undefined {
 
 export function resolveNetworkProfileName(): NetworkProfileName {
   const raw = (
-    pickEnv("NETWORK_PROFILE", "NEXT_PUBLIC_NETWORK_PROFILE", "NEXT_PUBLIC_BUILD_NETWORK_PROFILE") ?? "devnet"
+    pickEnv("NETWORK_PROFILE", "NEXT_PUBLIC_BUILD_NETWORK_PROFILE", "NEXT_PUBLIC_NETWORK_PROFILE") ?? "devnet"
   ).toLowerCase();
 
   if (raw === "local-surfpool" || raw === "local" || raw === "localnet" || raw === "surfpool") return "local-surfpool";
