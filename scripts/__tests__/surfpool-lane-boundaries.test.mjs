@@ -11,10 +11,12 @@ import {
   QUASAR_PROGRAM_SOURCE_DIRS,
   SurfpoolSafetyError,
   assertLocalOnlyEnvironment,
+  SurfpoolReadinessError,
   assertQuasarProgramIdsMatchSources,
   baselinePath,
   declaredQuasarProgramId,
   localChildEnv,
+  startLocalSurfnet,
 } from "../lib/surfpool-sdk-lifecycle.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -116,4 +118,64 @@ test("child environment helpers refuse to guess the run-scoped paths they bind",
   assert.throws(() => localChildEnv({}, { childTmpDir: "/tmp/x" }), /requires repoRoot/);
   assert.throws(() => localChildEnv({}, { repoRoot: "/repo" }), /requires childTmpDir/);
   assert.throws(() => baselinePath({}), /requires repoRoot/);
+});
+
+// A Surfnet the SDK already started is a live process holding ports. Every rejection path after
+// start must stop it, or the lane leaves a validator running and the runner never learns it existed.
+function fakeSurfnetReporting(endpoints) {
+  let stopCount = 0;
+  return {
+    stopCount: () => stopCount,
+    Surfnet: class {
+      static startWithConfig() {
+        return { ...endpoints, instanceId: "fake", stop() { stopCount += 1; } };
+      }
+    },
+  };
+}
+
+const REJECTED_ENDPOINTS = [
+  { label: "non-loopback bind", rpcUrl: "http://0.0.0.0:8899", wsUrl: "ws://0.0.0.0:8900" },
+  { label: "public host", rpcUrl: "http://example.com:8899", wsUrl: "ws://example.com:8900" },
+  { label: "no explicit port", rpcUrl: "http://127.0.0.1", wsUrl: "ws://127.0.0.1:8900" },
+  { label: "rpc and ws identical", rpcUrl: "http://127.0.0.1:8899", wsUrl: "http://127.0.0.1:8899" },
+  { label: "https scheme", rpcUrl: "https://127.0.0.1:8899", wsUrl: "ws://127.0.0.1:8900" },
+];
+
+for (const endpoints of REJECTED_ENDPOINTS) {
+  test(`a started Surfnet reporting a ${endpoints.label} is stopped, not leaked`, async () => {
+    const fake = fakeSurfnetReporting(endpoints);
+
+    await assert.rejects(
+      startLocalSurfnet(fake.Surfnet, { env: {}, readinessProbe: () => true }),
+      SurfpoolSafetyError,
+    );
+    assert.equal(fake.stopCount(), 1, "the started Surfnet must be stopped exactly once");
+  });
+}
+
+test("a Surfnet that never becomes ready is also stopped exactly once", async () => {
+  const fake = fakeSurfnetReporting({ rpcUrl: "http://127.0.0.1:18311", wsUrl: "ws://127.0.0.1:18312" });
+
+  await assert.rejects(
+    startLocalSurfnet(fake.Surfnet, {
+      env: {},
+      readinessTimeoutMs: 60,
+      readinessIntervalMs: 5,
+      readinessProbe: () => false,
+    }),
+    SurfpoolReadinessError,
+  );
+  assert.equal(fake.stopCount(), 1);
+});
+
+test("a Surfnet accepted on loopback endpoints is handed back running", async () => {
+  const fake = fakeSurfnetReporting({ rpcUrl: "http://127.0.0.1:18313", wsUrl: "ws://127.0.0.1:18314" });
+
+  const lease = await startLocalSurfnet(fake.Surfnet, { env: {}, readinessProbe: () => true });
+
+  assert.equal(fake.stopCount(), 0, "a healthy lease must not be stopped by startLocalSurfnet");
+  lease.stop();
+  lease.stop();
+  assert.equal(fake.stopCount(), 1, "stop must be idempotent for the caller");
 });

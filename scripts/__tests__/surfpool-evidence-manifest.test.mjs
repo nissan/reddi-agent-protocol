@@ -265,13 +265,38 @@ test("publishing refuses an artifact path that escapes the target evidence direc
         target: "quasar",
         runId: "sdk-quasar-escape",
         status: "PASS",
+        repoRoot,
         manifestRelativeDir: dir,
         sourceFingerprint: "sha256:whatever",
         artifacts: [{ name: "summary", path: "../../secrets/id.json" }],
         provenance: { command: "npm run test:surfpool:quasar-critical" },
       }),
-      EvidenceManifestError,
+      /must not escape|must live under/,
     );
+    assert.equal(fs.existsSync(path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME)), false);
+  });
+});
+
+test("publishing refuses an absolute artifact path and one under a sibling evidence root", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const base = {
+      target: "quasar",
+      runId: "sdk-quasar-escape",
+      status: "PASS",
+      repoRoot,
+      manifestRelativeDir: dir,
+      sourceFingerprint: "sha256:whatever",
+      provenance: { command: "npm run test:surfpool:quasar-critical" },
+    };
+
+    for (const escape of ["/etc/passwd", "artifacts/surfpool-smoke/other/SUMMARY.md", "artifacts/surfpool-quasar-smoke-evil/x/SUMMARY.md"]) {
+      await assert.rejects(
+        writeAcceptedEvidenceManifest(path.join(repoRoot, dir), { ...base, artifacts: [{ name: "summary", path: escape }] }),
+        /repository-relative|must not escape|must live under/,
+        `${escape} must be refused at publish time`,
+      );
+    }
     assert.equal(fs.existsSync(path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME)), false);
   });
 });

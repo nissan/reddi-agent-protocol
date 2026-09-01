@@ -54,6 +54,10 @@ const runId = `sdk-${target}-${crypto.randomUUID()}`;
 const evidenceRoot = path.join(repoRoot, "artifacts", target === "quasar" ? "surfpool-quasar-smoke" : "surfpool-smoke");
 const outDir = path.join(evidenceRoot, runId);
 const tmpDir = path.join(repoRoot, ".tmp", "surfpool-sdk-critical-smoke", runId);
+// Build output lives outside the per-run directory so cleanup does not delete it and CI can cache
+// it. Ledger, runtime state, child TMPDIR, and logs stay per-run under tmpDir.
+const cargoTargetDir = process.env.RAP_SURFPOOL_CARGO_TARGET_DIR?.trim()
+  || path.join(repoRoot, ".tmp", "surfpool-sdk-cargo-target", target);
 const childTmpDir = path.join(tmpDir, "tmp");
 const logFile = path.join(outDir, "surfpool-sdk-critical-smoke.log");
 const summaryFile = path.join(outDir, "SUMMARY.md");
@@ -223,9 +227,8 @@ async function quasarProgramDescriptors() {
 }
 
 async function buildPrograms(programs) {
-  // One cargo target dir for the whole run: the Quasar crates share quasar-lang and build with
-  // fat LTO, so a per-program dir would repeat the same release link work for no added isolation.
-  const cargoTargetDir = path.join(tmpDir, "cargo-target");
+  // One cargo target dir for every program: the Quasar crates share quasar-lang and build with fat
+  // LTO, so a per-program dir would repeat the same release link work for no added isolation.
   await fs.mkdir(cargoTargetDir, { recursive: true });
 
   for (const program of programs) {
@@ -420,7 +423,7 @@ async function cleanup(reason) {
   }
   try {
     await fs.rm(tmpDir, { recursive: true, force: true });
-    cleanupNotes.push("isolated temporary build/runtime directory removed");
+    cleanupNotes.push(`isolated per-run runtime directory removed (reusable build cache at ${rel(cargoTargetDir)} retained)`);
   } catch (error) {
     const message = `tmp cleanup warning: ${error.message}`;
     cleanupNotes.push(message);
@@ -465,6 +468,7 @@ async function writeSummary({ target, programs = [], status, failure }) {
     surfnetLease ? `- WS: ${surfnetLease.wsUrl}` : "- WS: not started",
     surfnetLease ? `- Surfnet instance: ${surfnetLease.instanceId}` : "- Surfnet instance: not started",
     "- Temporary state: isolated under `.tmp/surfpool-sdk-critical-smoke/<run-id>` and removed during cleanup",
+    `- Build cache: reusable Cargo target dir at ${rel(cargoTargetDir)} (retained across runs; not per-run state)`,
     "- External Surfpool service process: none (in-process SDK lifecycle)",
     "",
     "## Programs deployed locally",

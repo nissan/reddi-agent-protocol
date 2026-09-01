@@ -244,7 +244,6 @@ export async function startLocalSurfnet(Surfnet, options = {}) {
   }
 
   const surfnet = Surfnet.startWithConfig(config);
-  const endpoints = validateSurfnetEndpoints(surfnet);
   let stopped = false;
 
   const stop = () => {
@@ -253,7 +252,10 @@ export async function startLocalSurfnet(Surfnet, options = {}) {
     surfnet.stop();
   };
 
+  // Everything after the SDK hands back a running Surfnet is inside cleanup ownership: a rejected
+  // endpoint must stop the instance it already started, not leave its ports bound.
   try {
+    const endpoints = validateSurfnetEndpoints(surfnet);
     const readiness = await waitForSurfnetReadiness(endpoints.rpcUrl, {
       timeoutMs: options.readinessTimeoutMs,
       intervalMs: options.readinessIntervalMs,

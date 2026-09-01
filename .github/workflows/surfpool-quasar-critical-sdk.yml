@@ -73,6 +73,10 @@ jobs:
   surfpool-quasar-critical-sdk:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      # The lane's own budget must expire before the job hard-kill so its bounded shutdown runs:
+      # cleanup, port-closure waits, and a FAIL summary instead of a truncated job.
+      RAP_SURFPOOL_CRITICAL_TIMEOUT_MS: "3000000"
 
     steps:
       - name: Checkout
@@ -99,7 +103,9 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-surfpool-quasar-sdk-cargo-${{ hashFiles('Cargo.lock', 'experiments/quasar-*/Cargo.lock', 'third_party/quasar/Cargo.lock') }}
+            ~/.cache/solana
+            .tmp/surfpool-sdk-cargo-target
+          key: ${{ runner.os }}-surfpool-quasar-sdk-cargo-${{ hashFiles('Cargo.lock', 'experiments/quasar-*/Cargo.lock', 'third_party/quasar/Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: |
             ${{ runner.os }}-surfpool-quasar-sdk-cargo-
             ${{ runner.os }}-cargo-
