@@ -31,6 +31,21 @@ async function withRepo(run) {
 const FINGERPRINTED_BUILD_INPUTS = Object.freeze({
   quasar: Object.freeze({
     "packages/demo-agents/src/demo.ts": "export const version = 1;\n",
+    "packages/agent-protocol/src/index.ts": "export const protocol = true;\n",
+    "packages/per-client/src/index.ts": "export const per = true;\n",
+    "lib/program.ts": "export const PROGRAM_TARGET = 'quasar';\n",
+    "lib/register/registration-instruction.ts": "export const register = true;\n",
+    "app/register/page.tsx": "export default function Register() { return null; }\n",
+    "app/onboarding/page.tsx": "export default function Onboarding() { return null; }\n",
+    "lib/onboarding/attestation-instruction.ts": "export const attest = true;\n",
+    "lib/onboarding/onchain-attestation.ts": "export const onchainAttest = true;\n",
+    "lib/onboarding/reputation-signal.ts": "export const reputation = true;\n",
+    "lib/registry/bridge.ts": "export const bridge = true;\n",
+    "lib/useOnchainAgents.ts": "export const useOnchainAgents = true;\n",
+    "lib/quasar/instruction-builders.ts": "export const quasarData = true;\n",
+    "lib/quasar/instructions.ts": "export const quasarInstructions = true;\n",
+    "packages/demo-agents/src/registration-instruction.ts": "export const demoRegisterIx = true;\n",
+    "packages/demo-agents/src/register-agents.ts": "export const demoRegister = true;\n",
     "third_party/quasar/lang/src/lib.rs": "pub fn owner_check() {}\n",
     "Cargo.toml": '[workspace]\nmembers = ["programs/*"]\n\n[profile.release]\nlto = "fat"\n',
     "Cargo.lock": "version = 4\n",
@@ -63,11 +78,31 @@ const FINGERPRINTED_BUILD_INPUTS = Object.freeze({
     "package-lock.json": "{\"lockfileVersion\":3}\n",
     "config/quasar/deployments.json": "{}\n",
     "config/quasar/deployments.schema.json": "{}\n",
-    "config/quasar/runtime-compatibility.json": "{}\n",
+    "config/quasar/runtime-compatibility.json": JSON.stringify({
+      demoCriticalPaths: [
+        { path: "lib/quasar/instruction-builders.ts" },
+        { path: "lib/quasar/instructions.ts" },
+        { path: "lib/register/registration-instruction.ts" },
+        { path: "packages/demo-agents/src/registration-instruction.ts" },
+        { path: "lib/onboarding/attestation-instruction.ts" },
+        { path: "lib/program.ts" },
+        { path: "app/register/page.tsx" },
+        { path: "app/onboarding/page.tsx" },
+        { path: "lib/onboarding/onchain-attestation.ts" },
+        { path: "lib/onboarding/reputation-signal.ts" },
+        { path: "lib/registry/bridge.ts" },
+        { path: "lib/useOnchainAgents.ts" },
+        { path: "packages/demo-agents/src/register-agents.ts" },
+        { path: "packages/demo-agents/src/demo.ts" },
+      ],
+    }, null, 2),
     "config/quasar/runtime-compatibility.schema.json": "{}\n",
     "config/toolchain/solana-baseline-assets.json": "{}\n",
     "rust-toolchain.toml": '[toolchain]\nchannel = "1.89.0"\n',
     "docs/SOLANA-TOOLCHAIN-BASELINE.md": "# baseline\n",
+    "docs/ECONOMIC-DEMO-JUDGE-PACKET-2026-05-05.md": "# judge packet\nQuasar-deployed Solana programs\nlegacy Anchor\napproval-gated blocker\n",
+    "docs/ECONOMIC-DEMO-OPERATOR-CHECKLIST-2026-05-05.md": "# operator checklist\nQuasar-deployed Solana programs\nlegacy Anchor\napproval-gated blocker\n",
+    "docs/QUASAR-HACKATHON-CUTOVER-PLAN-2026-05-05.md": "# cutover\nQuasar-deployed Solana programs\nlegacy Anchor\napproval-gated blocker\n",
   }),
   "legacy-anchor": Object.freeze({
     "packages/demo-agents/src/demo.ts": "export const version = 1;\n",
@@ -427,6 +462,24 @@ test("a source change after publication invalidates the receipt", async () => {
     assert.throws(
       () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary", "log"] }),
       /produced from different sources than the working tree/,
+    );
+  });
+});
+
+test("an artifact content change after publication invalidates the receipt", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-artifact-hash");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+
+    assert.doesNotThrow(() =>
+      readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary", "log"] }));
+
+    await fsp.appendFile(path.join(repoRoot, dir, record.runId, "SUMMARY.md"), "\nEdited after publication.\n");
+
+    assert.throws(
+      () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary", "log"] }),
+      /summary artifact whose content changed/,
     );
   });
 });

@@ -70,14 +70,29 @@ test("each Quasar crate reports the program ID it actually compiles with", () =>
   assert.throws(() => declaredQuasarProgramId(repoRoot, "experiments/quasar-escrow-ref"), /declare_id! not found/);
 });
 
-test("the Quasar SDK workflow is triggered by onboarding refusal surface changes", () => {
+test("the Quasar SDK workflow is triggered by refusal and compatibility surface changes", () => {
   const workflow = loadWorkflow("surfpool-quasar-critical-sdk.yml");
+  const requiredPaths = [
+    "app/register/**",
+    "app/onboarding/**",
+    "app/api/onboarding/**",
+    "lib/program.ts",
+    "lib/onboarding/**",
+    "lib/register/**",
+    "lib/registry/**",
+    "lib/useOnchainAgents.ts",
+    "packages/agent-protocol/src/**",
+    "packages/per-client/**",
+    "docs/ECONOMIC-DEMO-JUDGE-PACKET-2026-05-05.md",
+    "docs/ECONOMIC-DEMO-OPERATOR-CHECKLIST-2026-05-05.md",
+    "docs/QUASAR-HACKATHON-CUTOVER-PLAN-2026-05-05.md",
+  ];
 
   for (const eventName of ["push", "pull_request"]) {
     const paths = workflow.on[eventName].paths;
-    assert.ok(paths.includes("app/onboarding/**"), `${eventName} must cover the web refusal UI`);
-    assert.ok(paths.includes("app/api/onboarding/**"), `${eventName} must cover server onboarding refusal routes`);
-    assert.ok(paths.includes("lib/onboarding/**"), `${eventName} must cover refusal implementations`);
+    for (const requiredPath of requiredPaths) {
+      assert.ok(paths.includes(requiredPath), `${eventName} must cover ${requiredPath}`);
+    }
   }
 });
 

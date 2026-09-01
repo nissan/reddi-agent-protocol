@@ -4,7 +4,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 
 export const ACCEPTED_EVIDENCE_FILENAME = "accepted-evidence.json";
-export const ACCEPTED_EVIDENCE_VERSION = 2;
+export const ACCEPTED_EVIDENCE_VERSION = 3;
 
 /**
  * Repository-owned freshness bound for Surfpool lane evidence: 14 days. Every consumer enforces it
@@ -43,6 +43,10 @@ const LANE_FINGERPRINT_PATHS = Object.freeze({
     "experiments/quasar-attestation/Cargo.toml",
     "experiments/quasar-attestation/Cargo.lock",
     "packages/demo-agents/src",
+    "packages/agent-protocol/src",
+    "packages/per-client/src",
+    "lib/program.ts",
+    "lib/register",
     "scripts/lib/surfpool-sdk-lifecycle.mjs",
     "scripts/lib/surfpool-evidence-manifest.mjs",
     "scripts/run-surfpool-sdk-critical-smoke.mjs",
@@ -59,6 +63,9 @@ const LANE_FINGERPRINT_PATHS = Object.freeze({
     "config/toolchain/solana-baseline-assets.json",
     "rust-toolchain.toml",
     "docs/SOLANA-TOOLCHAIN-BASELINE.md",
+    "docs/ECONOMIC-DEMO-JUDGE-PACKET-2026-05-05.md",
+    "docs/ECONOMIC-DEMO-OPERATOR-CHECKLIST-2026-05-05.md",
+    "docs/QUASAR-HACKATHON-CUTOVER-PLAN-2026-05-05.md",
   ]),
   "legacy-anchor": Object.freeze([
     "programs/escrow/src",
@@ -79,6 +86,10 @@ const LANE_FINGERPRINT_PATHS = Object.freeze({
     "docs/SOLANA-TOOLCHAIN-BASELINE.md",
   ]),
 });
+
+function fileContentDigest(repoRoot, relativePath) {
+  return `sha256:${crypto.createHash("sha256").update(fs.readFileSync(path.join(repoRoot, relativePath))).digest("hex")}`;
+}
 
 function digestFile(hash, repoRoot, relativePath) {
   hash.update(relativePath.split(path.sep).join("/"));
@@ -122,9 +133,27 @@ function walkFiles(repoRoot, relativePath, out) {
  * Deterministic digest of the repository sources this lane's evidence depends on. Used as the
  * receipt's immutable binding to the exact sources that produced it.
  */
-export function computeLaneSourceFingerprint(repoRoot, target) {
+function runtimeCompatibilityFingerprintPaths(repoRoot) {
+  try {
+    const compatibility = JSON.parse(fs.readFileSync(path.join(repoRoot, "config/quasar/runtime-compatibility.json"), "utf8"));
+    return (compatibility.demoCriticalPaths ?? [])
+      .map((entry) => entry?.path)
+      .filter((relativePath) => typeof relativePath === "string" && relativePath && !path.isAbsolute(relativePath))
+      .filter((relativePath) => !path.normalize(relativePath).split(path.sep).includes(".."));
+  } catch {
+    return [];
+  }
+}
+
+function fingerprintRootsForTarget(repoRoot, target) {
   const roots = LANE_FINGERPRINT_PATHS[target];
   if (!roots) throw new EvidenceManifestError(`no source fingerprint is defined for target ${JSON.stringify(target)}`);
+  if (target !== "quasar") return roots;
+  return [...new Set([...roots, ...runtimeCompatibilityFingerprintPaths(repoRoot)])];
+}
+
+export function computeLaneSourceFingerprint(repoRoot, target) {
+  const roots = fingerprintRootsForTarget(repoRoot, target);
   const files = [];
   for (const root of roots) walkFiles(repoRoot, root, files);
   files.sort();
@@ -214,11 +243,17 @@ function assertPassRecord(record) {
 export async function writeAcceptedEvidenceManifest(manifestDir, record) {
   assertPassRecord(record);
 
-  for (const artifact of record.artifacts) {
-    if (!fs.existsSync(path.join(record.repoRoot, artifact.path))) {
+  const artifacts = record.artifacts.map((artifact) => {
+    const contained = assertContainedArtifactPath(record.manifestRelativeDir, artifact.path, { repoRoot: record.repoRoot });
+    if (!fs.existsSync(path.join(record.repoRoot, contained))) {
       throw new EvidenceManifestError(`refusing to publish a receipt citing a missing ${artifact.name} artifact: ${artifact.path}`);
     }
-  }
+    return {
+      ...artifact,
+      path: contained.split(path.sep).join("/"),
+      sha256: fileContentDigest(record.repoRoot, contained),
+    };
+  });
 
   const manifest = {
     version: ACCEPTED_EVIDENCE_VERSION,
@@ -228,7 +263,7 @@ export async function writeAcceptedEvidenceManifest(manifestDir, record) {
     acceptedAt: record.acceptedAt ?? new Date().toISOString(),
     evidenceRoot: path.normalize(record.manifestRelativeDir).split(path.sep).join("/"),
     sourceFingerprint: record.sourceFingerprint,
-    artifacts: [...record.artifacts],
+    artifacts,
     provenance: { ...record.provenance },
   };
   await fsp.mkdir(manifestDir, { recursive: true });
@@ -299,19 +334,38 @@ export function readAcceptedEvidenceManifest(repoRoot, manifestRelativeDir, { ta
     );
   }
 
-  const artifacts = Array.isArray(manifest.artifacts) ? manifest.artifacts : [];
-  const byName = new Map(artifacts.map((artifact) => [artifact?.name, artifact]));
+  if (!Array.isArray(manifest.artifacts) || manifest.artifacts.length === 0) {
+    throw new EvidenceManifestError(`accepted evidence at ${manifestRelativeDir} does not record any artifacts`);
+  }
+  const validatedArtifacts = [];
+  for (const artifact of manifest.artifacts) {
+    if (!artifact?.name || !artifact?.path) {
+      throw new EvidenceManifestError(`accepted evidence at ${manifestRelativeDir} records an artifact without name/path`);
+    }
+    const contained = assertContainedArtifactPath(manifestRelativeDir, artifact.path, { repoRoot });
+    if (!fs.existsSync(path.join(repoRoot, contained))) {
+      throw new EvidenceManifestError(`accepted evidence at ${manifestRelativeDir} cites a missing ${artifact.name} artifact: ${artifact.path}`);
+    }
+    if (!artifact.sha256) {
+      throw new EvidenceManifestError(`accepted evidence at ${manifestRelativeDir} does not bind the ${artifact.name} artifact content hash`);
+    }
+    const actualDigest = fileContentDigest(repoRoot, contained);
+    if (artifact.sha256 !== actualDigest) {
+      throw new EvidenceManifestError(
+        `accepted evidence at ${manifestRelativeDir} cites a ${artifact.name} artifact whose content changed ` +
+        `(receipt ${artifact.sha256}, current ${actualDigest}); re-run the lane`,
+      );
+    }
+    validatedArtifacts.push({ ...artifact, path: contained });
+  }
+  const byName = new Map(validatedArtifacts.map((artifact) => [artifact.name, artifact]));
   const resolved = {};
   for (const name of requiredArtifacts) {
     const artifact = byName.get(name);
     if (!artifact?.path) {
       throw new EvidenceManifestError(`accepted evidence at ${manifestRelativeDir} does not record the required ${name} artifact`);
     }
-    const contained = assertContainedArtifactPath(manifestRelativeDir, artifact.path, { repoRoot });
-    if (!fs.existsSync(path.join(repoRoot, contained))) {
-      throw new EvidenceManifestError(`accepted evidence at ${manifestRelativeDir} cites a missing ${name} artifact: ${artifact.path}`);
-    }
-    resolved[name] = contained;
+    resolved[name] = artifact.path;
   }
 
   return { manifest, manifestPath, artifacts: resolved };
