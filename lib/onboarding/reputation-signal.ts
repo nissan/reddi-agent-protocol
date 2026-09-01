@@ -19,7 +19,7 @@ import {
 import { createHash, randomBytes } from "crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { DEVNET_RPC, ESCROW_PROGRAM_ID, REGISTRY_PROGRAM_ID, REPUTATION_PROGRAM_ID, RATING_SEED, AGENT_SEED, IX, PROGRAM_TARGET } from "@/lib/program";
+import { DEVNET_RPC, ESCROW_PROGRAM_ID, REGISTRY_PROGRAM_ID, REPUTATION_PROGRAM_ID, RATING_SEED, AGENT_SEED, IX, PROGRAM_TARGET, SUBMISSION_BLOCKED, SUBMISSION_BLOCKED_REASON } from "@/lib/program";
 import {
   buildQuasarCommitRatingInstruction,
   buildQuasarRevealRatingInstruction,
@@ -168,6 +168,11 @@ export async function commitReputationRating(
 ): Promise<ReputationCommitResult> {
   const trace: string[] = [];
 
+  if (SUBMISSION_BLOCKED) {
+    trace.push("reputation:submission_blocked");
+    return { ok: false, error: SUBMISSION_BLOCKED_REASON, trace };
+  }
+
   const operator = loadOperatorKeypair();
   if (!operator) {
     trace.push("reputation:operator_key_missing");
@@ -291,6 +296,11 @@ export async function commitReputationRating(
  */
 export async function revealReputationRating(runId: string): Promise<ReputationRevealResult> {
   const trace: string[] = [];
+
+  if (SUBMISSION_BLOCKED) {
+    trace.push("reputation:submission_blocked");
+    return { ok: false, error: SUBMISSION_BLOCKED_REASON, trace };
+  }
 
   const operator = loadOperatorKeypair();
   if (!operator) {

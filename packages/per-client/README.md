@@ -2,6 +2,8 @@
 
 MagicBlock PER (Private Ephemeral Rollup) delegation client for the Reddi Agent Protocol.
 
+This package is repo-local evidence tooling. It is not a mainnet deployment, production custody guarantee, or broad private-payee settlement claim.
+
 ## Why TypeScript?
 
 PER delegation remains handled here at the TypeScript/client layer for the Anchor 1.1.2 stable upgrade. Do not move MagicBlock SDK ownership into the Rust program without a separate compatibility qualification. The on-chain Anchor program tracks delegation state via `delegate_escrow` and `release_escrow_per` instructions.
@@ -14,7 +16,7 @@ import { delegateEscrow, releaseEscrowViaPer, releaseEscrowFallback } from "@red
 // 1. Delegate escrow to PER
 const session = await delegateEscrow(escrowPda, payerKeypair, connection);
 
-// 2. Release via TEE (private settlement — hidden from public mempool)
+// 2. Release via TEE (selected-cluster PER path; hidden from public mempool while in-flight)
 const sig = await releaseEscrowViaPer(programId, escrowPda, payee, payerKeypair, session, connection);
 
 // 3. Poll for TEE confirmation (see note below)
@@ -61,7 +63,8 @@ await perConn.confirmTransaction(sig, "confirmed");
 ```
 
 Once the TEE finalises and undelegates the escrow account, the transaction becomes visible
-on the public Solana explorer and can be confirmed via the public RPC.
+on the selected Solana cluster and can be confirmed via that cluster's public RPC. This does
+not upgrade the package to mainnet/live-funds readiness.
 
 ### Discriminators
 

@@ -11,6 +11,8 @@ import {
   DEVNET_RPC,
   ESCROW_PROGRAM_ID,
   PROGRAM_TARGET,
+  SUBMISSION_BLOCKED,
+  SUBMISSION_BLOCKED_REASON,
 } from "@/lib/program";
 import { buildOnboardingAttestQualityInstruction, onboardingAttestationPda } from "@/lib/onboarding/attestation-instruction";
 
@@ -81,6 +83,10 @@ export function getOnchainAttestationOperatorStatus(
 export async function submitOnchainOnboardingAttestation(
   input: SubmitOnchainAttestationInput
 ): Promise<SubmitOnchainAttestationResult> {
+  if (SUBMISSION_BLOCKED) {
+    throw new Error(SUBMISSION_BLOCKED_REASON);
+  }
+
   const operatorSecret = input.operatorSecretKey || process.env.ONBOARDING_ATTEST_OPERATOR_SECRET_KEY;
   if (!operatorSecret) {
     throw new Error("Missing ONBOARDING_ATTEST_OPERATOR_SECRET_KEY for on-chain attestation.");

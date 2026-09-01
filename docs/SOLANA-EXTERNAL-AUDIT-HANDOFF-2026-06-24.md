@@ -4,6 +4,14 @@ Date: 2026-06-24
 
 Issue: #530
 
+> **Readiness reconciliation note (2026-08-31):** this packet predates the
+> job-binding series (#642-#645). Do not send it to an external auditor as-is.
+> Current code binds reputation and attestation to `experiments/quasar-escrow`
+> (`VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW`) via `quasar-escrow-ref`;
+> `experiments/quasar-escrow-per` is a separate MagicBlock PER proof lane and is
+> outside that current job-binding trust boundary unless a later approved issue
+> reselects it.
+
 Input evidence:
 
 - #526 / PR #527: `docs/SOLANA-CONTRACT-AUDIT-READINESS-2026-06-24.md`
@@ -25,13 +33,14 @@ payment, mainnet, custody expansion, or settlement-finality claim requires expli
 
 In scope for handoff:
 
-- Active Quasar targets:
+- Active Quasar targets for the current devnet job-binding boundary:
   - `experiments/quasar-registry`
   - `experiments/quasar-attestation`
   - `experiments/quasar-reputation`
+  - `experiments/quasar-escrow`
+- Separate Quasar proof lane, not the current reputation/attestation escrow boundary:
   - `experiments/quasar-escrow-per`
 - Legacy/reference targets:
-  - `experiments/quasar-escrow`
   - `programs/escrow`
 - Active client and instruction-builder surfaces:
   - `lib/quasar/instruction-builders.ts`
@@ -67,8 +76,8 @@ Explicitly out of scope unless a later approved issue changes scope:
   `docs/SOLANA-CONTRACT-AUDIT-APPENDIX-2026-06-24.md`
 - Final handoff source commit: the merge commit for PR #534, to be recorded in
   #530 before any external auditor submission.
-- Current active escrow target for grant handoff: `experiments/quasar-escrow-per`
-- Current legacy escrow reference: `experiments/quasar-escrow`
+- Current active escrow target for reputation/attestation job binding: `experiments/quasar-escrow`
+- Current MagicBlock PER proof lane outside that boundary: `experiments/quasar-escrow-per`
 - Current Anchor reference: `programs/escrow`
 - Current AUDD posture: first-class payment-plan/proof metadata only.
 - Current USDC posture: package/proof/helper rail only, not Quasar or Anchor
@@ -101,7 +110,7 @@ Expected questions and owner lanes:
 
 - Program target selection:
   - Owner lane: #388 / #441.
-  - Required answer: which Quasar targets are active, which are legacy, and why.
+  - Required answer: which Quasar targets are active, which are legacy/proof-only, and why; current job-binding code selects `quasar-escrow`, not `quasar-escrow-per`.
 - ABI, PDA, and account layout:
   - Owner lane: #531.
   - Required answer: account names, discriminators, field order, byte sizes,

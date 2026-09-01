@@ -26,7 +26,11 @@ import {
   REGISTRY_PROGRAM_ID,
   ATTESTATION_PROGRAM_ID,
   INCINERATOR,
+  PROGRAM_KNOWN_GAPS,
   PROGRAM_TARGET,
+  SUBMISSION_BLOCKED,
+  SUBMISSION_BLOCKED_LABEL,
+  SUBMISSION_BLOCKED_REASON,
 } from "@/lib/program";
 import {
   buildQuasarConfirmAttestationInstruction,
@@ -463,6 +467,10 @@ export default function OnboardingPage() {
 
   const handleRegisterSpecialist = async () => {
     if (!publicKey || !sendTransaction) return;
+    if (SUBMISSION_BLOCKED) {
+      setRegisterError(SUBMISSION_BLOCKED_REASON);
+      return;
+    }
 
     setRegistering(true);
     setRegisterError(null);
@@ -1146,6 +1154,7 @@ export default function OnboardingPage() {
               onClick={handleRegisterSpecialist}
               disabled={
                 registering ||
+                SUBMISSION_BLOCKED ||
                 !connected ||
                 !state.walletAddress ||
                 state.endpointStatus !== "online" ||
@@ -1153,8 +1162,23 @@ export default function OnboardingPage() {
               }
               style={{ background: "linear-gradient(135deg, #9945FF, #14F195)", color: "#000" }}
             >
-              {registering ? "Registering on-chain..." : "Register specialist on-chain"}
+              {SUBMISSION_BLOCKED
+                ? SUBMISSION_BLOCKED_LABEL
+                : registering
+                  ? "Registering on-chain..."
+                  : "Register specialist on-chain"}
             </Button>
+
+            {PROGRAM_KNOWN_GAPS.length > 0 && (
+              <div className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+                <p className="font-semibold">Known readiness gaps for the active network profile:</p>
+                <ul className="mt-2 list-disc space-y-1 pl-4">
+                  {PROGRAM_KNOWN_GAPS.map((gap) => (
+                    <li key={gap}>{gap}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {registerError && (
               <div className="rounded-lg border border-red-400/30 bg-red-500/10 p-3 text-xs text-red-300">
@@ -1734,12 +1758,14 @@ export default function OnboardingPage() {
                 disabled={
                   !state.attested ||
                   !state.attestationJobIdHex ||
+                  SUBMISSION_BLOCKED ||
                   !connected ||
                   !publicKey ||
                   publicKey.toBase58() !== state.attestationConsumer ||
                   state.attestationResolution !== "pending"
                 }
                 onClick={async () => {
+                  if (SUBMISSION_BLOCKED) return;
                   if (!publicKey || !sendTransaction || !state.attestationJobIdHex || !state.attestationOperator) {
                     return;
                   }
@@ -1798,19 +1824,23 @@ export default function OnboardingPage() {
                   }
                 }}
               >
-                Confirm attestation (consumer)
+                {SUBMISSION_BLOCKED
+                  ? "Confirm attestation — blocked"
+                  : "Confirm attestation (consumer)"}
               </Button>
               <Button
                 variant="outline"
                 disabled={
                   !state.attested ||
                   !state.attestationJobIdHex ||
+                  SUBMISSION_BLOCKED ||
                   !connected ||
                   !publicKey ||
                   publicKey.toBase58() !== state.attestationConsumer ||
                   state.attestationResolution !== "pending"
                 }
                 onClick={async () => {
+                  if (SUBMISSION_BLOCKED) return;
                   if (!publicKey || !sendTransaction || !state.attestationJobIdHex || !state.attestationOperator) {
                     return;
                   }
@@ -1869,9 +1899,16 @@ export default function OnboardingPage() {
                   }
                 }}
               >
-                Dispute attestation (consumer)
+                {SUBMISSION_BLOCKED
+                  ? "Dispute attestation — blocked"
+                  : "Dispute attestation (consumer)"}
               </Button>
             </div>
+            {SUBMISSION_BLOCKED && (
+              <p className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+                {SUBMISSION_BLOCKED_REASON}
+              </p>
+            )}
             {state.attested && state.attestationConsumer && (
               <p className="text-xs text-muted-foreground">
                 Consumer follow-through wallet: <span className="font-mono">{state.attestationConsumer}</span>

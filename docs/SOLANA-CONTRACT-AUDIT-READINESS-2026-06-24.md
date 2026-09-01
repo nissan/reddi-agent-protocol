@@ -4,6 +4,13 @@ Date: 2026-06-24
 
 Issue: #526
 
+> **Readiness reconciliation note (2026-08-31):** this evidence pack is a
+> historical audit-readiness input and predates the job-binding series (#642-#645).
+> Current reputation/attestation job binding reads the owner-checked
+> `quasar-escrow` account mirror. Treat any text below that selects
+> `quasar-escrow-per` as the active escrow audit target as superseded until the
+> packet is re-frozen.
+
 Parent gate: #524
 
 ## Decision
@@ -97,6 +104,9 @@ The audit handoff scope is:
 - Program id in source: `7ra8FZAHQ6F4SGfJJdjfgLuVnSN8HsGLx5iXq8qxSCpb`
 - Purpose: MagicBlock PER-specific SOL escrow and self-custodied agent vault
   proof of concept.
+- Current boundary: separate PER proof lane; not the escrow account owner that
+  `quasar-escrow-ref` accepts for reputation/attestation job binding on current
+  main.
 - Instructions:
   - `make(amount, escrow_id)`
   - `take(escrow_id)`
@@ -128,13 +138,14 @@ The audit handoff scope is:
   - self-custodied agent vault withdrawal authority;
   - TEE/private execution proof boundaries.
 
-### Quasar Escrow Legacy POC
+### Quasar Escrow
 
 - Path: `experiments/quasar-escrow`
 - Program id in source: `VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW`
-- Purpose: earlier SOL-native escrow parity POC for lock/release/cancel.
-- Status: reference/legacy once `experiments/quasar-escrow-per` is the active
-  escrow audit target.
+- Purpose: SOL-native escrow parity POC for lock/release/cancel and the current
+  canonical job record owner for reputation/attestation job binding.
+- Status: active escrow boundary on current main; `quasar-escrow-ref` pins this
+  program id and rejects `quasar-escrow-per` accounts for job binding.
 - Instructions:
   - `make(amount, escrow_id)`
   - `take(escrow_id)`

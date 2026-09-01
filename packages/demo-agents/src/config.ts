@@ -1,5 +1,6 @@
 import path from "path";
 import dotenv from "dotenv";
+import { PublicKey } from "@solana/web3.js";
 
 // Load devnet env — resolve relative to package root (not transpiled __dirname)
 const envPath = path.resolve(__dirname, "../.env.devnet");
@@ -13,11 +14,11 @@ function pickEnv(...keys: string[]): string | undefined {
   return undefined;
 }
 
-type DemoNetworkProfileName = "local-surfpool" | "devnet" | "mainnet";
+type DemoNetworkProfileName = "local-surfpool" | "devnet";
 
 type DemoNetworkProfile = {
   rpcHttp: string;
-  explorerClusterParam: "custom" | "devnet" | "mainnet";
+  explorerClusterParam: "custom" | "devnet";
   defaultEscrowProgramId: string;
   defaultPerRpc: string;
 };
@@ -47,46 +48,81 @@ const DEMO_NETWORK_PROFILES: Record<DemoNetworkProfileName, DemoNetworkProfile> 
     defaultEscrowProgramId: "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD",
     defaultPerRpc: "https://devnet-tee.magicblock.app",
   },
-  mainnet: {
-    rpcHttp: "https://api.mainnet-beta.solana.com",
-    explorerClusterParam: "mainnet",
-    defaultEscrowProgramId: "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD",
-    defaultPerRpc: "https://mainnet-tee.magicblock.app",
-  },
 };
 
 function resolveNetworkProfileName(): DemoNetworkProfileName {
   const raw = (pickEnv("NETWORK_PROFILE", "NEXT_PUBLIC_NETWORK_PROFILE") ?? "devnet").toLowerCase();
-  if (raw === "local" || raw === "localnet" || raw === "surfpool") return "local-surfpool";
-  if (raw === "mainnet" || raw === "mainnet-beta") return "mainnet";
+  if (raw === "local-surfpool" || raw === "local" || raw === "localnet" || raw === "surfpool") return "local-surfpool";
+  if (raw === "mainnet" || raw === "mainnet-beta") {
+    throw new Error(
+      "packages/demo-agents is a devnet/local evidence runner only; mainnet execution requires a separate audited deployment, custody plan, and explicit approval.",
+    );
+  }
   return "devnet";
 }
 
 const activeNetworkProfileName = resolveNetworkProfileName();
 const activeProfile = DEMO_NETWORK_PROFILES[activeNetworkProfileName];
-export const PROGRAM_TARGET: DemoProgramTarget =
-  activeNetworkProfileName === "devnet" && resolveProgramTarget() === "quasar" ? "quasar" : "legacy-anchor";
+const requestedProgramTarget = resolveProgramTarget();
+
+const suppliedProgramIds = {
+  escrow: pickEnv("DEMO_ESCROW_PROGRAM_ID", "NEXT_PUBLIC_ESCROW_PROGRAM_ID"),
+  registry: pickEnv("DEMO_REGISTRY_PROGRAM_ID", "NEXT_PUBLIC_REGISTRY_PROGRAM_ID"),
+  reputation: pickEnv("DEMO_REPUTATION_PROGRAM_ID", "NEXT_PUBLIC_REPUTATION_PROGRAM_ID"),
+  attestation: pickEnv("DEMO_ATTESTATION_PROGRAM_ID", "NEXT_PUBLIC_ATTESTATION_PROGRAM_ID"),
+};
+
+const missingProgramIds = Object.entries(suppliedProgramIds)
+  .filter(([, programId]) => !programId)
+  .map(([label]) => label);
+
+function isValidProgramId(programId: string): boolean {
+  try {
+    new PublicKey(programId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const malformedProgramIds = Object.entries(suppliedProgramIds)
+  .filter(([, programId]) => programId !== undefined && !isValidProgramId(programId))
+  .map(([label]) => label);
+
+if (malformedProgramIds.length > 0) {
+  throw new Error(
+    `Supplied demo program ids are malformed: ${malformedProgramIds.join(", ")} must be valid 32-byte Solana public keys; set DEMO_ESCROW_PROGRAM_ID, DEMO_REGISTRY_PROGRAM_ID, DEMO_REPUTATION_PROGRAM_ID, and DEMO_ATTESTATION_PROGRAM_ID to deployed base58 addresses.`,
+  );
+}
+
+if (requestedProgramTarget === "quasar" && activeNetworkProfileName !== "devnet" && missingProgramIds.length > 0) {
+  throw new Error(
+    `Quasar demo target has no registered program inventory for ${activeNetworkProfileName} in packages/demo-agents; supply valid deployed ids via DEMO_ESCROW_PROGRAM_ID, DEMO_REGISTRY_PROGRAM_ID, DEMO_REPUTATION_PROGRAM_ID, and DEMO_ATTESTATION_PROGRAM_ID (missing: ${missingProgramIds.join(", ")}).`,
+  );
+}
+
+export const PROGRAM_TARGET: DemoProgramTarget = requestedProgramTarget === "quasar" ? "quasar" : "legacy-anchor";
 export const PROGRAM_FRAMEWORK = PROGRAM_TARGET === "quasar" ? "quasar" : "anchor";
 export const PROGRAM_COMPATIBILITY = PROGRAM_TARGET === "quasar" ? "quasar-layout-unverified" : "anchor-layout";
 
 /** Deployed escrow program ID (overrideable for local Surfpool/test lanes) */
 export const ESCROW_PROGRAM_ID =
-  pickEnv("DEMO_ESCROW_PROGRAM_ID", "NEXT_PUBLIC_ESCROW_PROGRAM_ID") ??
+  suppliedProgramIds.escrow ??
   (PROGRAM_TARGET === "quasar" ? QUASAR_DEVNET_ESCROW_PROGRAM_ID : activeProfile.defaultEscrowProgramId);
 
 /** Registry program ID. Quasar cutover uses a separate registry program, not the escrow program. */
 export const REGISTRY_PROGRAM_ID =
-  pickEnv("DEMO_REGISTRY_PROGRAM_ID", "NEXT_PUBLIC_REGISTRY_PROGRAM_ID") ??
+  suppliedProgramIds.registry ??
   (PROGRAM_TARGET === "quasar" ? QUASAR_DEVNET_REGISTRY_PROGRAM_ID : ESCROW_PROGRAM_ID);
 
 /** Reputation program ID. Quasar cutover uses a separate reputation program. */
 export const REPUTATION_PROGRAM_ID =
-  pickEnv("DEMO_REPUTATION_PROGRAM_ID", "NEXT_PUBLIC_REPUTATION_PROGRAM_ID") ??
+  suppliedProgramIds.reputation ??
   (PROGRAM_TARGET === "quasar" ? QUASAR_DEVNET_REPUTATION_PROGRAM_ID : ESCROW_PROGRAM_ID);
 
 /** Attestation program ID. Quasar cutover uses a separate attestation program. */
 export const ATTESTATION_PROGRAM_ID =
-  pickEnv("DEMO_ATTESTATION_PROGRAM_ID", "NEXT_PUBLIC_ATTESTATION_PROGRAM_ID") ??
+  suppliedProgramIds.attestation ??
   (PROGRAM_TARGET === "quasar" ? QUASAR_DEVNET_ATTESTATION_PROGRAM_ID : ESCROW_PROGRAM_ID);
 
 /** Solana RPC (overrideable for local Surfpool/test lanes) */
@@ -96,9 +132,6 @@ export const DEVNET_RPC = pickEnv("DEMO_DEVNET_RPC", "NEXT_PUBLIC_RPC_ENDPOINT")
 export const PER_DEVNET_RPC = pickEnv("DEMO_PER_RPC", "NEXT_PUBLIC_PER_RPC") ?? activeProfile.defaultPerRpc;
 
 export function explorerTxUrl(signature: string): string {
-  if (activeProfile.explorerClusterParam === "mainnet") {
-    return `https://explorer.solana.com/tx/${signature}`;
-  }
   if (activeProfile.explorerClusterParam === "devnet") {
     return `https://explorer.solana.com/tx/${signature}?cluster=devnet`;
   }

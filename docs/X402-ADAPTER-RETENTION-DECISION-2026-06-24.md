@@ -4,7 +4,9 @@ Issue: [#519](https://github.com/nissan/reddi-agent-protocol/issues/519)
 
 Date: 2026-06-24
 
-Status: accepted for OSS v0.1 planning; implementation and package metadata are unchanged.
+Status: accepted for OSS v0.1 planning. Implementation is unchanged; package metadata was
+subsequently updated (2026-08-31) so both manifests carry `"private": true` and a deferred
+description, which `scripts/check-oss-release-smoke.mjs` now enforces.
 
 This decision covers the repo-local framework adapters:
 
@@ -31,7 +33,8 @@ Neither package should be included in a public v0.1 release claim, npm publish p
 Manifest: `packages/sendai-x402/package.json`
 
 - Name/version: `@reddi/sendai-x402@0.1.0`
-- Description: x402 middleware wrapper for `@sendai/agent-kit`; pay and earn via Solana escrow
+- Description: Experimental repo-local SendAI x402 adapter; not part of the public v0.1 package set.
+- Publication flag: `"private": true` (enforced by `scripts/check-oss-release-smoke.mjs`)
 - Entry points: `dist/index.js`, `dist/index.d.ts`
 - Scripts: `clean`, `build`, `test`
 - Runtime dependencies: `@reddi/x402-solana` via `file:../x402-solana`, `@solana/web3.js`
@@ -56,7 +59,8 @@ Tests:
 Manifest: `packages/eliza-plugin-x402/package.json`
 
 - Name/version: `@reddi/eliza-plugin-x402@0.1.0`
-- Description: ElizaOS plugin for pay and earn via x402 escrow on Solana
+- Description: Experimental repo-local ElizaOS x402 adapter; not part of the public v0.1 package set.
+- Publication flag: `"private": true` (enforced by `scripts/check-oss-release-smoke.mjs`)
 - Entry points: `dist/index.js`, `dist/index.d.ts`
 - Scripts: `clean`, `build`, `test`
 - Runtime dependencies: `@reddi/x402-solana` via `file:../x402-solana`, `@elizaos/core`, `@solana/web3.js`, `tweetnacl`
@@ -91,7 +95,7 @@ If either framework adapter is revived later, it should depend on the stable pub
 Before either adapter moves from experimental/deferred to a v0.1 or later public candidate:
 
 1. Add package README content that labels the adapter experimental until all release gates pass.
-2. Add package metadata that prevents accidental public support signaling, such as `private: true` or a clear prerelease/deprecation policy, until an approved publish plan exists.
+2. Done (2026-08-31): both manifests set `private: true` and describe themselves as deferred experimental adapters, preventing accidental public support signaling until an approved publish plan exists.
 3. Replace or explicitly label mock escrow helpers so developers cannot confuse deterministic test values with Solana settlement.
 4. Add clean-checkout installation, build, test, and pack dry-run evidence.
 5. Add a minimal host-framework smoke:
@@ -125,6 +129,6 @@ The package tests and examples reviewed here are mocked or local-only evidence. 
 
 ## Follow-Up Work
 
-- Add experimental/private package metadata if the repo begins automated package discovery for public release.
+- Keep the experimental/private package metadata in step with `excludedPackages` in `scripts/check-oss-release-smoke.mjs` if either adapter is renamed or promoted.
 - Add package READMEs only if a future issue wants these adapters visible to developers before support promotion.
 - Revisit the decision after `@reddi/x402-solana` has a stable public release surface and `@reddi/rap-mcp-bridge` release smoke is finalized.

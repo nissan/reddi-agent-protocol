@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { boundaryPhraseRegExp, containsPhrase } from "./lib/boundary-phrases.mjs";
 
 const repoRoot = process.cwd();
 const handoffPath = path.join(repoRoot, "docs/SOLANA-EXTERNAL-AUDIT-HANDOFF-2026-06-24.md");
@@ -63,11 +64,42 @@ const requiredBoundaryPhrases = [
   "Contracts are audited.",
   "Settlement finality is proven.",
   "Final handoff source commit: the merge commit for PR #534",
+  "Current active escrow target for reputation/attestation job binding: `experiments/quasar-escrow`",
+  "Current MagicBlock PER proof lane outside that boundary: `experiments/quasar-escrow-per`",
+  "Do not send it to an external auditor as-is",
 ];
 
 const inputEvidencePaths = [
   "docs/SOLANA-CONTRACT-AUDIT-READINESS-2026-06-24.md",
   "docs/SOLANA-CONTRACT-AUDIT-APPENDIX-2026-06-24.md",
+];
+
+const readinessPath = path.join(repoRoot, "docs/SOLANA-CONTRACT-AUDIT-READINESS-2026-06-24.md");
+
+const requiredReadinessMatchers = [
+  {
+    label: "exact heading `### Quasar Escrow`",
+    pattern: /^###[ \t]+Quasar Escrow[ \t]*$/m,
+  },
+  {
+    label: "current canonical job record owner for reputation/attestation job binding",
+    pattern: boundaryPhraseRegExp("current canonical job record owner for reputation/attestation job binding"),
+  },
+  {
+    label: "Status: active escrow boundary on current main; `quasar-escrow-ref` pins this",
+    pattern: boundaryPhraseRegExp("Status: active escrow boundary on current main; `quasar-escrow-ref` pins this"),
+  },
+];
+
+const forbiddenReadinessPatterns = [
+  {
+    pattern: /###\s+Quasar Escrow Legacy POC/,
+    reason: "readiness pack must not label `experiments/quasar-escrow` as a legacy POC after job binding",
+  },
+  {
+    pattern: /Status: reference\/legacy once `experiments\/quasar-escrow-per` is the active/,
+    reason: "readiness pack must not present quasar-escrow-per as the active escrow audit target",
+  },
 ];
 
 function fail(message, details = []) {
@@ -96,7 +128,7 @@ if (missingFiles.length) fail("referenced files/directories are missing", missin
 const missingArtifactTerms = requiredArtifactTerms.filter((term) => !source.includes(term));
 if (missingArtifactTerms.length) fail("required artifact terms are missing", missingArtifactTerms);
 
-const missingBoundaryPhrases = requiredBoundaryPhrases.filter((phrase) => !source.includes(phrase));
+const missingBoundaryPhrases = requiredBoundaryPhrases.filter((phrase) => !containsPhrase(source, phrase));
 if (missingBoundaryPhrases.length) fail("required boundary phrases are missing", missingBoundaryPhrases);
 
 const inputCommitMatch = source.match(/Input evidence commit: `([0-9a-f]{40})`/);
@@ -126,4 +158,28 @@ if (staleHandoffSha) {
   fail("handoff source commit must not be a pre-merge stale SHA", [staleHandoffSha[1]]);
 }
 
-console.log(`[solana-audit-handoff] OK: ${requiredHeadings.length} headings, ${requiredReferences.length} references, ${requiredArtifactTerms.length} artifact terms, ${requiredBoundaryPhrases.length} boundary phrases, and input evidence commit ${inputCommit} verified`);
+if (/Current active escrow target for grant handoff: `experiments\/quasar-escrow-per`/.test(source)) {
+  fail("handoff must not present quasar-escrow-per as the current active escrow target");
+}
+
+if (!fs.existsSync(readinessPath)) {
+  fail("readiness input evidence file is missing", [path.relative(repoRoot, readinessPath)]);
+}
+
+const readinessSource = fs.readFileSync(readinessPath, "utf8");
+
+const missingReadinessPhrases = requiredReadinessMatchers
+  .filter(({ pattern }) => !pattern.test(readinessSource))
+  .map(({ label }) => label);
+if (missingReadinessPhrases.length) {
+  fail("readiness pack is missing the reconciled escrow-boundary statements", missingReadinessPhrases);
+}
+
+const readinessRegressions = forbiddenReadinessPatterns
+  .filter(({ pattern }) => pattern.test(readinessSource))
+  .map(({ reason }) => reason);
+if (readinessRegressions.length) {
+  fail("readiness pack carries a superseded escrow-target claim", readinessRegressions);
+}
+
+console.log(`[solana-audit-handoff] OK: ${requiredHeadings.length} headings, ${requiredReferences.length} references, ${requiredArtifactTerms.length} artifact terms, ${requiredBoundaryPhrases.length} boundary phrases, ${requiredReadinessMatchers.length} readiness-pack phrases, and input evidence commit ${inputCommit} verified`);

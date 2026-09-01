@@ -4,10 +4,16 @@ Open protocol primitives for paid agent work.
 
 This package is the local-first Reddi Agent Protocol surface above payment rails such as `@reddi/x402-solana`. It defines receipt envelopes, policy decisions, deterministic fixtures, and validation helpers that run without hosted Reddi infrastructure, wallet keys, devnet/mainnet spend, or paid provider calls.
 
-## Install
+**Publication status:** repo-local v0.1 candidate. It is not published on npm yet; real publication is tracked by issue #603 and requires explicit operator approval.
+
+## Install / local validation
+
+Until #603 publishes the package, installability claims are limited to the repository checkout and dry-run tarball gates:
 
 ```bash
-npm install @reddi/agent-protocol
+cd packages/agent-protocol
+npm ci
+npm run release:dry-run
 ```
 
 ## Receipt Validation

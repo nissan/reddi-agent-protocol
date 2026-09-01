@@ -1,7 +1,8 @@
 {
   "name": "@reddi/eliza-plugin-x402",
   "version": "0.1.0",
-  "description": "ElizaOS plugin \u2014 pay and earn via x402 escrow on Solana",
+  "description": "Experimental repo-local ElizaOS x402 adapter; not part of the public v0.1 package set.",
+  "private": true,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

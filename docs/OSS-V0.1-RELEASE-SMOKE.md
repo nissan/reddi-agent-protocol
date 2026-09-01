@@ -18,7 +18,7 @@ Excluded from v0.1 smoke:
 - `@reddi/sendai-x402`
 - `@reddi/eliza-plugin-x402`
 
-The SendAI and Eliza adapters are deferred experimental repo-local packages per [x402 Adapter Retention Decision](./X402-ADAPTER-RETENTION-DECISION-2026-06-24.md). They must not appear in public v0.1 release claims, npm publication plans, or supported integration matrices unless a later promotion issue adds package metadata, README docs, stable smoke tests, and claim-boundary review.
+The SendAI and Eliza adapters are deferred experimental repo-local packages per [x402 Adapter Retention Decision](./X402-ADAPTER-RETENTION-DECISION-2026-06-24.md). Both manifests are marked `"private": true` with a deferred description, and this smoke enforces that. They must not appear in public v0.1 release claims, npm publication plans, or supported integration matrices unless a later promotion issue adds package metadata, README docs, stable smoke tests, and claim-boundary review.
 
 ## Clean-Checkout Command
 
@@ -38,7 +38,12 @@ The script runs:
 - `@reddi/x402-solana` import smoke for root, budget-policy, client, Jupiter, middleware, nonce, and payment surfaces.
 - Package `npm pack --dry-run --json` inspection from each package directory.
 - RAP naming guard.
-- Claim-boundary scan for stale x402 package comments and adapter-retention scope.
+- Claim-boundary scan for stale x402 package comments and adapter-retention scope. The scan also
+  covers the top-level product/readiness surfaces (`README.md`, `SECURITY.md`, `DEPLOY.md`,
+  `docs/NETWORK-PROFILES.md`, `packages/agent-protocol/README.md`).
+- Deferred-adapter manifest check: `packages/sendai-x402` and `packages/eliza-plugin-x402` must keep
+  their names in the excluded set, set `"private": true`, and describe themselves as
+  experimental/deferred.
 
 ## Artifact Rules
 

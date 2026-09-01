@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
+import { containsPhrase } from "./lib/boundary-phrases.mjs";
 
 const repoRoot = process.cwd();
 const appendixPath = path.join(repoRoot, "docs/SOLANA-CONTRACT-AUDIT-APPENDIX-2026-06-24.md");
@@ -13,7 +14,7 @@ const requiredHeadings = [
   "### Quasar Attestation",
   "### Quasar Reputation",
   "### Quasar Escrow PER",
-  "### Quasar Escrow Legacy POC",
+  "### Quasar Escrow",
   "## Legacy Anchor Reference",
   "## Active Client And Instruction Builders",
   "## Scripted Proof Lanes",
@@ -55,6 +56,8 @@ const requiredBoundaryPhrases = [
   "No current Quasar/Anchor/SPL custody",
   "requires the #441 promotion gate and explicit approval",
   "settlement-finality claims",
+  "Current boundary: MagicBlock PER proof lane",
+  "binding via `quasar-escrow-ref`",
 ];
 
 function fail(message, details = []) {
@@ -69,7 +72,8 @@ if (!fs.existsSync(appendixPath)) {
 
 const source = fs.readFileSync(appendixPath, "utf8");
 
-const missingHeadings = requiredHeadings.filter((heading) => !source.includes(heading));
+const sourceHeadingLines = source.split("\n").map((line) => line.trimEnd());
+const missingHeadings = requiredHeadings.filter((heading) => !sourceHeadingLines.includes(heading));
 if (missingHeadings.length) fail("required headings are missing", missingHeadings);
 
 const missingReferences = requiredSourcePaths.filter((sourcePath) => !source.includes(sourcePath));
@@ -78,7 +82,15 @@ if (missingReferences.length) fail("required source-path references are missing"
 const missingFiles = requiredSourcePaths.filter((sourcePath) => !fs.existsSync(path.join(repoRoot, sourcePath)));
 if (missingFiles.length) fail("referenced source files are missing from the repository", missingFiles);
 
-const missingBoundaryPhrases = requiredBoundaryPhrases.filter((phrase) => !source.includes(phrase));
+const missingBoundaryPhrases = requiredBoundaryPhrases.filter((phrase) => !containsPhrase(source, phrase));
 if (missingBoundaryPhrases.length) fail("required boundary phrases are missing", missingBoundaryPhrases);
+
+if (/Status: reference\/legacy unless a later issue reselects it as the active\s+escrow audit target/.test(source)) {
+  fail("appendix must not leave quasar-escrow described only as a legacy target after job binding");
+}
+
+if (/^###[ \t]+Quasar Escrow Legacy POC[ \t]*$/m.test(source)) {
+  fail("appendix must not label `experiments/quasar-escrow` as a legacy POC after job binding");
+}
 
 console.log(`[solana-audit-appendix] OK: ${requiredHeadings.length} headings, ${requiredSourcePaths.length} source references, and ${requiredBoundaryPhrases.length} boundary phrases verified`);

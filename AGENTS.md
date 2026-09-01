@@ -53,6 +53,8 @@ npm run test:e2e -- e2e/onboarding.spec.ts
 npm run test:e2e:ui
 ```
 
+Jest is configured in `jest.config.js` and covers `lib/**` tests plus `packages/demo-agents/src/__tests__`; the root `package.json` exposes `npm test` (aliasing `jest`), which is what CI runs.
+
 Playwright starts its own dev server and owns the port/wallet-mock env it needs; read `playwright.config.ts` before changing e2e setup, and set `PLAYWRIGHT_BASE_URL` to run against an already-running target instead. `packages/demo-agents` has its own devnet lifecycle (`fund`, `register`, `deregister`, `demo`) that spends devnet SOL — read the package before running any of it.
 
 The repo has many smoke/evidence/readiness commands. Do not run destructive or live-spend-capable scripts speculatively. Prefer dry-run/plan variants where they exist, for example `plan:economic-demo:devnet-usdc-sender`.
@@ -61,9 +63,9 @@ The repo has many smoke/evidence/readiness commands. Do not run destructive or l
 
 Runtime network comes from `lib/config/network.ts` and `config/networks/<profile>.json`.
 
-- `NETWORK_PROFILE` / `NEXT_PUBLIC_NETWORK_PROFILE`: `devnet` default, `mainnet`, or `local-surfpool` (aliases: `local`, `localnet`, `surfpool`).
+- Profile value: `devnet` default, `mainnet`, or `local-surfpool` (aliases: `local`, `localnet`, `surfpool`). `resolveNetworkProfileName()` consults three keys in order — `NETWORK_PROFILE` (the only true runtime selector; never inlined into a bundle), then `NEXT_PUBLIC_BUILD_NETWORK_PROFILE` (emitted by `next.config.ts` from the build-time profile — the browser's source of truth, never set by hand), then `NEXT_PUBLIC_NETWORK_PROFILE` (a build-time selector frozen into both bundles whenever it is present in the build env). See `docs/NETWORK-PROFILES.md` for why setting only `NEXT_PUBLIC_NETWORK_PROFILE` at runtime does not switch the profile.
 - `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` switches the devnet profile to the Quasar program set.
-- `NEXT_PUBLIC_RPC_ENDPOINT` overrides RPC; `NEXT_PUBLIC_ESCROW_PROGRAM_ID` is ignored on legacy-anchor devnet unless `ALLOW_UNSAFE_ESCROW_OVERRIDE=true`.
+- `NEXT_PUBLIC_RPC_ENDPOINT` overrides RPC; `NEXT_PUBLIC_ESCROW_PROGRAM_ID` / `NEXT_PUBLIC_REGISTRY_PROGRAM_ID` / `NEXT_PUBLIC_REPUTATION_PROGRAM_ID` / `NEXT_PUBLIC_ATTESTATION_PROGRAM_ID` override program ids, but are ignored on devnet — both the legacy-Anchor and Quasar targets — unless the build was made with `ALLOW_UNSAFE_ESCROW_OVERRIDE=true`, mirrored by `next.config.ts` into `NEXT_PUBLIC_BUILD_ALLOW_UNSAFE_ESCROW_OVERRIDE`; the browser must not accept a runtime public unsafe-override flag. Rejected overrides keep the registered id, mark the profile not submission-ready, and record `knownGaps` without exposing the supplied value; malformed values are rejected before `lib/program.ts` constructs any `PublicKey`.
 
 When debugging wrong program id or wrong RPC, check these env vars before changing code.
 
@@ -77,7 +79,11 @@ The `77rkRQxe…UZXmX` program id still quoted in some older `declare_id!` macro
 
 ## Protocol economics and claim boundaries
 
-The protocol fee is 0.05% per transaction, only on settlement. Older 16.7% / 83.3% figures are stale doc rot.
+The **planned** protocol fee is 0.05% per transaction, modelled as settlement-only (zero on failure). This is a
+product/fixture model, not implemented behaviour: no deployed on-chain release path collects a protocol treasury fee
+today — the only on-chain economic constant is `AGENT_REGISTRATION_FEE` (the 0.01 SOL registration burn). Describe the
+0.05% figure as planned or fixture semantics, never as an implemented fee. Older 16.7% / 83.3% figures are stale doc
+rot.
 
 Preserve the hard boundaries enforced by package/readiness checks: AUDD is payment-plan/proof metadata only, not custody or settled escrow; mainnet/live payment paths are gated; package/source conformance must remain no-spend/offline unless a task explicitly authorizes otherwise.
 

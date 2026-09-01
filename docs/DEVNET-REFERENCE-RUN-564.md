@@ -24,6 +24,7 @@ The live lane is the already-merged, env-gated `runEconomicDemoLivePaidDevnet` p
 - pays exact x402 USDC challenges on **solana-devnet only** for the four allowlisted hosted specialists: `planning-agent`, `content-creation-agent`, `code-generation-agent`, `verification-validation-agent`;
 - enforces a hard call cap (4) and hard spend cap (default **0.2 USDC**, not raisable above the default via env);
 - fails closed on any challenge that does not match the exact allowlisted endpoint, wallet, network, or currency;
+- refuses before loading the signer, building a transaction, or touching an RPC whenever the resolved network profile is not submission-ready, returning a `status: "blocked"` envelope with a `profile_not_submission_ready` timeline step (see [`NETWORK-PROFILES.md`](./NETWORK-PROFILES.md)) — so arm this lane from a build whose profile resolves to devnet with its registered program set intact;
 - never returns raw signer material.
 
 No Quasar or Anchor program state is mutated by this run: payments are SPL USDC transfers to specialist wallets plus hosted x402 endpoint calls. Devnet program ids in `config/quasar/deployments.json` are unaffected.

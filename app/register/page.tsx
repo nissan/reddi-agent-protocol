@@ -12,6 +12,11 @@ import {
   PROGRAM_COMPATIBILITY,
   PROGRAM_SUBMISSION_READY,
   PROGRAM_KNOWN_GAPS,
+  PROGRAM_KNOWN_LIMITATIONS,
+  PROGRAM_DEPLOYMENT_STATUS,
+  SUBMISSION_BLOCKED,
+  SUBMISSION_BLOCKED_LABEL,
+  SUBMISSION_BLOCKED_REASON,
   agentPda,
 } from "@/lib/program";
 import { toExplorerTxUrl } from "@/lib/config/explorer";
@@ -369,6 +374,10 @@ function RegisterInner() {
 
   const handleRegister = async () => {
     if (!publicKey || !sendTransaction) return;
+    if (SUBMISSION_BLOCKED) {
+      setTxError(SUBMISSION_BLOCKED_REASON);
+      return;
+    }
     if (alreadyRegistered) {
       setTxError(
         "This wallet is already registered. Open My Agent to view the existing registration, or deregister before creating a fresh registration with the same wallet.",
@@ -625,30 +634,49 @@ function RegisterInner() {
           </Card>
         ))}
       </div>
-      {PROGRAM_TARGET === "quasar" && (
+      {(PROGRAM_TARGET === "quasar" || !PROGRAM_SUBMISSION_READY || PROGRAM_KNOWN_GAPS.length > 0) && (
         <Card
           className={`space-y-2 p-4 text-sm ${PROGRAM_SUBMISSION_READY ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-50" : "border-amber-400/25 bg-amber-500/10 text-amber-50"}`}
         >
           <p className="font-semibold">
-            Quasar mode is active
-            {PROGRAM_SUBMISSION_READY
-              ? " and marked submission-ready."
-              : ", but submission readiness is still blocked."}
+            {PROGRAM_TARGET === "quasar"
+              ? PROGRAM_SUBMISSION_READY
+                ? "Quasar mode is active and marked submission-ready."
+                : "Quasar mode is active, but submission readiness is still blocked."
+              : PROGRAM_SUBMISSION_READY
+                ? "Readiness gaps are recorded for the active network profile."
+                : "Submission readiness is blocked for the active network profile."}
           </p>
           <p className="text-xs opacity-85">
             Target: <span className="font-mono">{PROGRAM_TARGET}</span> ·
             Compatibility:{" "}
-            <span className="font-mono">{PROGRAM_COMPATIBILITY}</span>.
-            Registration instruction construction uses the Quasar registry
-            layout, but wallet submission should wait for the full proof chain
-            unless you are deliberately testing this path.
+            <span className="font-mono">{PROGRAM_COMPATIBILITY}</span> ·
+            Deployment:{" "}
+            <span className="font-mono">{PROGRAM_DEPLOYMENT_STATUS}</span>.
+            {SUBMISSION_BLOCKED
+              ? ` ${SUBMISSION_BLOCKED_REASON}`
+              : PROGRAM_TARGET === "quasar"
+                ? " Registration instruction construction uses the Quasar registry layout, but wallet submission should wait for the full proof chain unless you are deliberately testing this path."
+                : " Wallet submission is not blocked on this profile; the gaps listed below are advisory."}
           </p>
-          {!PROGRAM_SUBMISSION_READY && PROGRAM_KNOWN_GAPS.length > 0 && (
+          {PROGRAM_KNOWN_GAPS.length > 0 && (
             <ul className="list-disc space-y-1 pl-4 text-xs opacity-85">
               {PROGRAM_KNOWN_GAPS.slice(0, 3).map((gap) => (
                 <li key={gap}>{gap}</li>
               ))}
             </ul>
+          )}
+          {PROGRAM_KNOWN_LIMITATIONS.length > 0 && (
+            <>
+              <p className="text-xs font-semibold opacity-85">
+                Known limitations of the deployed programs:
+              </p>
+              <ul className="list-disc space-y-1 pl-4 text-xs opacity-85">
+                {PROGRAM_KNOWN_LIMITATIONS.map((limitation) => (
+                  <li key={limitation}>{limitation}</li>
+                ))}
+              </ul>
+            </>
           )}
         </Card>
       )}
@@ -1323,6 +1351,7 @@ function RegisterInner() {
                 onClick={handleRegister}
                 disabled={
                   registering ||
+                  SUBMISSION_BLOCKED ||
                   !endpointCompliancePassed ||
                   existingAgent.status === "checking"
                 }
@@ -1330,11 +1359,13 @@ function RegisterInner() {
               >
                 {registering
                   ? "Registering..."
-                  : existingAgent.status === "checking"
-                    ? "Checking registration..."
-                    : !endpointCompliancePassed
-                      ? "Probe endpoint compliance first"
-                      : "Register Agent (0.01 SOL)"}
+                  : SUBMISSION_BLOCKED
+                    ? SUBMISSION_BLOCKED_LABEL
+                    : existingAgent.status === "checking"
+                      ? "Checking registration..."
+                      : !endpointCompliancePassed
+                        ? "Probe endpoint compliance first"
+                        : "Register Agent (0.01 SOL)"}
               </Button>
             )}
           </div>

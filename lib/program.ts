@@ -23,6 +23,28 @@ export const PROGRAM_FRAMEWORK = network.programs.framework;
 export const PROGRAM_COMPATIBILITY = network.programs.compatibility;
 export const PROGRAM_SUBMISSION_READY = network.programs.submissionReady;
 export const PROGRAM_KNOWN_GAPS = network.programs.knownGaps;
+export const PROGRAM_KNOWN_LIMITATIONS = network.programs.knownLimitations ?? [];
+export const PROGRAM_DEPLOYMENT_STATUS = network.programs.deploymentStatus;
+
+/**
+ * Profile-wide submission gate: the resolved program set is not ready for signing.
+ * Every transaction-signing surface consults it — browser wallet submits and server-side
+ * operator signers alike — before wallet, signer, transaction, or RPC side effects.
+ */
+export const SUBMISSION_BLOCKED = !network.programs.submissionReady;
+export const SUBMISSION_BLOCKED_REASON = network.programs.submissionReadyReason
+  ? `Transaction submission is blocked on this network profile: ${network.programs.submissionReadyReason}${
+      network.programs.deploymentStatus === "mainnet-not-deployed"
+        ? " Submitting would spend real mainnet fees on a transaction against a program that is not executable on this cluster."
+        : ""
+    }`
+  : "Transaction submission is blocked on this network profile because the resolved program set is not ready for transaction submission.";
+
+/** Short button-sized label for the same gate, accurate on every profile it can block. */
+export const SUBMISSION_BLOCKED_LABEL =
+  network.programs.deploymentStatus === "mainnet-not-deployed"
+    ? "Blocked: no audited mainnet deployment"
+    : "Blocked: profile not submission-ready";
 
 /** Solana RPC endpoint from active network profile */
 export const DEVNET_RPC = network.solana.rpcHttp;

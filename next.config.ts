@@ -1,7 +1,21 @@
 import type { NextConfig } from "next";
 
+const buildNetworkProfile = (
+  process.env.NETWORK_PROFILE ??
+  process.env.NEXT_PUBLIC_NETWORK_PROFILE ??
+  ""
+).trim();
+const buildAllowUnsafeEscrowOverride = (process.env.ALLOW_UNSAFE_ESCROW_OVERRIDE ?? "").trim();
+
+const buildEnv: Record<string, string> = {};
+if (buildNetworkProfile) buildEnv.NEXT_PUBLIC_BUILD_NETWORK_PROFILE = buildNetworkProfile;
+if (buildAllowUnsafeEscrowOverride) {
+  buildEnv.NEXT_PUBLIC_BUILD_ALLOW_UNSAFE_ESCROW_OVERRIDE = buildAllowUnsafeEscrowOverride;
+}
+
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["localhost", "127.0.0.1"],
+  ...(Object.keys(buildEnv).length ? { env: buildEnv } : {}),
   async headers() {
     return [
       {

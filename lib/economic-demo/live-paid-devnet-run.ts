@@ -15,6 +15,7 @@ import {
 } from "@solana/spl-token";
 
 import { parseX402Header } from "@reddi/x402-solana";
+import { SUBMISSION_BLOCKED, SUBMISSION_BLOCKED_REASON } from "@/lib/program";
 import { openRouterAll30EndpointEvidence } from "@/lib/economic-demo/openrouter-endpoints";
 import { economicDemoScenarios, type EconomicDemoScenarioId } from "@/lib/economic-demo/fixture";
 
@@ -244,6 +245,25 @@ export async function runEconomicDemoLivePaidDevnet(options?: {
           endpoint: "env",
           status: "blocked",
           error: "live paid lane not armed: set ECONOMIC_DEMO_LIVE_PAID_DEVNET=1, exact confirmation token, and ECONOMIC_DEMO_ORCHESTRATOR_DEVNET_KEYPAIR_JSON",
+        },
+      ],
+    });
+  }
+
+  if (SUBMISSION_BLOCKED) {
+    return baseRun({
+      scenarioId: options?.scenarioId,
+      prompt: options?.prompt,
+      status: "blocked",
+      orchestratorWallet: null,
+      maxUsdc: cfg.maxUsdc,
+      timeline: [
+        {
+          id: "profile_not_submission_ready",
+          profileId: "orchestrator",
+          endpoint: "network-profile",
+          status: "blocked",
+          error: SUBMISSION_BLOCKED_REASON,
         },
       ],
     });
