@@ -1,0 +1,45 @@
+{
+  "node": {
+    "npmBundledVersion": "11.19.0"
+  },
+  "rust": {
+    "componentVersionSource": "versions shipped with the rust-toolchain.toml channel, recorded here for exact probes",
+    "rustfmtVersionByChannel": {
+      "1.89.0": "1.8.0-stable"
+    },
+    "clippyVersionByChannel": {
+      "1.89.0": "0.1.89"
+    }
+  },
+  "rustup": {
+    "version": "1.29.0",
+    "triple": "x86_64-unknown-linux-gnu",
+    "url": "https://static.rust-lang.org/rustup/archive/1.29.0/x86_64-unknown-linux-gnu/rustup-init",
+    "sha256": "4acc9acc76d5079515b46346a485974457b5a79893cfb01112423c89aeb5aa10"
+  },
+  "agave": {
+    "versionSource": ".github/workflows/anchor-program-tests.yml and .github/workflows/quasar-program-tests.yml release.anza.xyz install URL",
+    "triple": "x86_64-unknown-linux-gnu",
+    "assetName": "agave-install-init-x86_64-unknown-linux-gnu",
+    "urlTemplate": "https://github.com/anza-xyz/agave/releases/download/{version}/agave-install-init-x86_64-unknown-linux-gnu",
+    "sha256ByVersion": {
+      "v3.1.13": "d7f31959e1b28dc2608cb4af12f615deee8b1d3ee82a10c3b40027a7365e84ab"
+    }
+  },
+  "surfpool": {
+    "version": "v1.5.0",
+    "platform": "linux-x64",
+    "url": "https://github.com/solana-foundation/surfpool/releases/download/v1.5.0/surfpool-linux-x64.tar.gz",
+    "sha256": "5b20a3b46e60c4f819af7b4da5c3ea211f76041710617841cc23247d15887ddc"
+  },
+  "anchorAvm": {
+    "gitUrl": "https://github.com/otter-sec/anchor",
+    "tagTemplate": "v{anchorVersion}",
+    "tagObjectShaByVersion": {
+      "1.0.0": "f17b37fd1f1fdb4b1c0de68ccb467996d3ba07f3"
+    },
+    "tagCommitShaByVersion": {
+      "1.0.0": "25be6d502ec6957d34d436bc2a6170040fc64153"
+    }
+  }
+}

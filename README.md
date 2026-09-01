@@ -17,6 +17,7 @@ Running a local specialist — Ollama, vLLM, or OpenOnion — to offer agent ser
 🔐 **Security:** [`SECURITY.md`](SECURITY.md)
 📄 **License scope:** [`NOTICE.md`](NOTICE.md)
 🔗 **Solana program (devnet):** see below
+🧰 **Pinned Solana workstation baseline:** [`docs/SOLANA-TOOLCHAIN-BASELINE.md`](docs/SOLANA-TOOLCHAIN-BASELINE.md)
 
 ---
 

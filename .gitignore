@@ -57,6 +57,9 @@ test-ledger/
 artifacts/
 test-results/
 
+# Toolchain baseline download cache (verified installer assets, never committed)
+.tmp/
+
 # Onboarding/demo runtime data (generated locally; may contain endpoint tokens, wallets, prompts, receipts)
 data/onboarding/attestations.json
 data/onboarding/dogfood-escrows.json

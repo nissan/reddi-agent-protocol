@@ -235,6 +235,7 @@ test.describe("/onboarding/profile-editor #385", () => {
 
   test("intake results link into the profile editor", async ({ page }) => {
     await page.goto("/onboarding/intake");
+    await page.waitForLoadState("networkidle");
     await page.getByTestId("intake-source-option-mcp-card-url").click();
     await page.getByTestId("intake-sample-url").click();
     await page.getByTestId("intake-continue").click();
