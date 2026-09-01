@@ -24,9 +24,9 @@ test('accepts a pinned version followed by build metadata', () => {
 });
 
 test('rejects a prerelease or suffixed build of the pinned version', () => {
-  assert.equal(matches('anchor-cli 1.0.0-rc.1', 'anchor-cli 1.0.0'), false);
+  assert.equal(matches('anchor-cli 1.1.2-rc.1', 'anchor-cli 1.1.2'), false);
   assert.equal(matches('surfpool 1.5.01', 'surfpool 1.5.0'), false);
-  assert.equal(matches('avm 1.0.0.1', 'avm 1.0.0'), false);
+  assert.equal(matches('avm 1.1.2.1', 'avm 1.1.2'), false);
   assert.equal(matches('v24.20.0-nightly', 'v24.20.0'), false);
 });
 

@@ -40,7 +40,10 @@ test('print-pins is a read-only mode that resolves every pin', () => {
       .filter(Boolean)
       .map((m) => [m[1], m[2]]),
   );
-  for (const key of ['node', 'npm', 'rust', 'rustfmt', 'clippy', 'agave', 'anchor', 'rustup-init', 'surfpool']) {
+  for (const key of ['node', 'npm', 'rust', 'rustfmt', 'clippy', 'agave', 'avm', 'anchor', 'rustup-init', 'surfpool']) {
     assert.ok(pins[key], `expected a resolved ${key} pin`);
   }
+  assert.equal(pins.avm, '1.0.0');
+  assert.equal(pins.anchor, '1.1.2');
+  assert.notEqual(pins.avm, pins.anchor, 'AVM manager pin is intentionally separate from the Anchor CLI pin');
 });

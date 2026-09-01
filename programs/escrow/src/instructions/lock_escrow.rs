@@ -24,8 +24,8 @@ pub fn lock_escrow_handler(ctx: Context<LockEscrow>, amount: u64, nonce: [u8; 16
     escrow.created_slot = clock.slot;
     escrow.bump = ctx.bumps.escrow;
 
-    // Transfer lamports from payer to escrow PDA
-    // Anchor 1.0.0: CpiContext::new takes Pubkey as first arg (not AccountInfo)
+    // Transfer lamports from payer to escrow PDA.
+    // Anchor 1.x on the Agave 3.x baseline expects the program id here.
     system_program::transfer(
         CpiContext::new(
             ctx.accounts.system_program.key(),

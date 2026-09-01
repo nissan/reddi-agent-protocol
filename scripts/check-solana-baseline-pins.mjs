@@ -61,12 +61,15 @@ const setupPins = Object.fromEntries(
     .map((m) => [m[1], m[2]]),
 );
 
+const STABLE_ANCHOR_VERSION = '1.1.2';
+const AVM_MANAGER_VERSION = '1.0.0';
+
 const checks = [
   ['.mise.toml pins Node 24.20.0', mise.tools?.node === '24.20.0'],
   ['rust-toolchain.toml pins Rust 1.89.0', rust.toolchain?.channel === '1.89.0'],
   ['rust-toolchain.toml includes rustfmt', rust.toolchain?.components?.includes('rustfmt')],
   ['rust-toolchain.toml includes clippy', rust.toolchain?.components?.includes('clippy')],
-  ['Anchor.toml pins Anchor 1.0.0', anchor.toolchain?.anchor_version === '1.0.0'],
+  [`Anchor.toml pins stable Anchor ${STABLE_ANCHOR_VERSION}`, anchor.toolchain?.anchor_version === STABLE_ANCHOR_VERSION],
   ['CI workflows share one Agave pin', workflowVersions.size === 1],
   ['CI Agave pin is v3.1.13', workflowVersions.has('v3.1.13')],
   ['Agave asset checksum exists for CI pin', typeof assets.agave?.sha256ByVersion?.['v3.1.13'] === 'string'],
@@ -75,10 +78,15 @@ const checks = [
   ['clippy exact probe pin is recorded for Rust 1.89.0', assets.rust?.clippyVersionByChannel?.['1.89.0'] === '0.1.89'],
   ['rustup-init asset is exact official archive 1.29.0', assets.rustup?.version === '1.29.0' && assets.rustup?.url?.includes('/archive/1.29.0/')],
   ['Surfpool asset pins v1.5.0', assets.surfpool?.version === 'v1.5.0' && assets.surfpool?.url?.includes('/download/v1.5.0/')],
-  ['Anchor AVM tag object and commit are recorded', typeof assets.anchorAvm?.tagObjectShaByVersion?.['1.0.0'] === 'string' && typeof assets.anchorAvm?.tagCommitShaByVersion?.['1.0.0'] === 'string'],
+  [`AVM manager is pinned independently at ${AVM_MANAGER_VERSION}`, assets.anchorAvm?.managerVersion === AVM_MANAGER_VERSION],
+  [`AVM manager tag object and commit are recorded for ${AVM_MANAGER_VERSION}`, typeof assets.anchorAvm?.tagObjectShaByVersion?.[AVM_MANAGER_VERSION] === 'string' && typeof assets.anchorAvm?.tagCommitShaByVersion?.[AVM_MANAGER_VERSION] === 'string'],
+  [`Anchor CLI tag object and commit are recorded for ${STABLE_ANCHOR_VERSION}`, typeof assets.anchorAvm?.tagObjectShaByVersion?.[STABLE_ANCHOR_VERSION] === 'string' && typeof assets.anchorAvm?.tagCommitShaByVersion?.[STABLE_ANCHOR_VERSION] === 'string'],
+  [`Anchor CLI Linux release checksum is recorded for ${STABLE_ANCHOR_VERSION}`, typeof assets.anchorCli?.sha256ByVersion?.[STABLE_ANCHOR_VERSION] === 'string' && assets.anchorCli?.urlTemplate?.includes('/releases/download/v{version}/')],
+  [`Anchor source is the current official repository for ${STABLE_ANCHOR_VERSION}`, assets.anchorAvm?.gitUrl === 'https://github.com/solana-foundation/anchor'],
   ['setup script resolves Node pin from .mise.toml', setupPins.node === mise.tools?.node],
   ['setup script resolves npm pin from assets', setupPins.npm === assets.node?.npmBundledVersion],
   ['setup script resolves Rust pin from rust-toolchain.toml', setupPins.rust === rust.toolchain?.channel],
+  ['setup script resolves AVM manager pin from assets', setupPins.avm === assets.anchorAvm?.managerVersion],
   ['setup script resolves Anchor pin from Anchor.toml', setupPins.anchor === anchor.toolchain?.anchor_version],
   ['setup script resolves Agave pin from CI workflows', setupPins.agave === 'v3.1.13'],
   ['setup script resolves Surfpool pin from assets', setupPins.surfpool === assets.surfpool?.version],

@@ -5,17 +5,21 @@ on:
     branches: [main]
     paths:
       - "programs/escrow/**"
+      - "Anchor.toml"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
+      - "config/toolchain/solana-baseline-assets.json"
       - ".github/workflows/anchor-program-tests.yml"
   pull_request:
     branches: [main]
     paths:
       - "programs/escrow/**"
+      - "Anchor.toml"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
+      - "config/toolchain/solana-baseline-assets.json"
       - ".github/workflows/anchor-program-tests.yml"
   workflow_dispatch:
 

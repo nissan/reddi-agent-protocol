@@ -1,6 +1,6 @@
 # RAP baseline validation evidence
 
-Manually authored record of the 2026-09-01 baseline install run; no script emits this file. The machine-generated version captures it references live under `artifacts/toolchain/`.
+Manually authored record of the 2026-09-01 baseline install run; no script emits this file. The machine-generated version captures it references live under `artifacts/toolchain/`. Anchor `1.0.0` details below are historical PR #648 baseline evidence and are superseded for current stable work by `docs/SOLANA-TOOLCHAIN-BASELINE.md` and `docs/SOLANA-ANCHOR-1.1.2-UPGRADE-VALIDATION-2026-09-01.md`.
 
 Date: 2026-09-01
 Worktree: `~/.treehouse/reddi-agent-protocol-276f74/5/reddi-agent-protocol`

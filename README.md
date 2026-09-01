@@ -150,9 +150,8 @@ You can't game it — you don't know what the other party gave you when you deci
 ## Running the protocol locally
 
 ### Prerequisites
-- [Solana CLI](https://docs.solana.com/cli/install-solana-cli-tools) + [Anchor](https://www.anchor-lang.com/docs/installation)
+- Pinned user-scoped Solana/Anchor toolchain from [`docs/SOLANA-TOOLCHAIN-BASELINE.md`](docs/SOLANA-TOOLCHAIN-BASELINE.md) (Anchor 1.1.2; Agave/Solana CLI 3.1.13; Rust 1.89.0; repo-local Node 24.20.0)
 - [Ollama](https://ollama.ai) with at least one model
-- Node.js 18+
 
 ### Local validator + program
 
@@ -175,8 +174,8 @@ npm run demo
 ### Tests
 
 ```bash
-# Anchor program tests (32 tests)
-anchor test
+# Legacy Anchor reference program tests (LiteSVM)
+cargo test -p escrow
 
 # Web app Playwright tests (26 tests)
 cd ../reddi-agent-protocol
