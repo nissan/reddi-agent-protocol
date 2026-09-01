@@ -50,4 +50,33 @@ describe("program/network alignment", () => {
     expect(PROGRAM_SUBMISSION_READY).toBe(false);
     expect(PROGRAM_KNOWN_GAPS.join(" ")).toMatch(/no audited mainnet program deployment/i);
   });
+
+  it("blocks wallet submission on the undeployed mainnet profile", async () => {
+    process.env.NETWORK_PROFILE = "mainnet";
+
+    const { WALLET_SUBMISSION_BLOCKED, WALLET_SUBMISSION_BLOCKED_REASON, PROGRAM_DEPLOYMENT_STATUS } =
+      await import("@/lib/program");
+
+    expect(PROGRAM_DEPLOYMENT_STATUS).toBe("mainnet-not-deployed");
+    expect(WALLET_SUBMISSION_BLOCKED).toBe(true);
+    expect(WALLET_SUBMISSION_BLOCKED_REASON).toMatch(/real mainnet fees/);
+  });
+
+  it("keeps wallet submission enabled on devnet even when mainnet ids are supplied", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = "EscrowMainnet1111111111111111111111111111111";
+
+    const { WALLET_SUBMISSION_BLOCKED } = await import("@/lib/program");
+
+    expect(WALLET_SUBMISSION_BLOCKED).toBe(false);
+  });
+
+  it("keeps wallet submission enabled on the local Surfpool profile", async () => {
+    process.env.NETWORK_PROFILE = "surfpool";
+
+    const { WALLET_SUBMISSION_BLOCKED, PROGRAM_DEPLOYMENT_STATUS } = await import("@/lib/program");
+
+    expect(PROGRAM_DEPLOYMENT_STATUS).toBe("local-only");
+    expect(WALLET_SUBMISSION_BLOCKED).toBe(false);
+  });
 });

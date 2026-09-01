@@ -80,11 +80,13 @@ keeps the blocked placeholder profile and records the refused request in
 banner listing those gaps rather than failing to load.
 
 On profiles whose resolved `deploymentStatus` is `mainnet-not-deployed`,
-`/register` also disables the register action: no audited mainnet deployment is
-registered, so submitting would spend real mainnet fees on a transaction against
-a program that is not executable on that cluster. On every other profile the
-banner is advisory only — it reports readiness and does not disable wallet
-submission.
+`lib/program.ts` exports `WALLET_SUBMISSION_BLOCKED = true`, and every
+wallet-submit surface consults it: the register action on `/register`, and the
+register plus confirm/dispute attestation actions on `/onboarding`. No audited
+mainnet deployment is registered, so submitting would spend real mainnet fees on
+a transaction against a program that is not executable on that cluster. On every
+other profile the banner is advisory only — it reports readiness and does not
+disable wallet submission.
 
 Mainnet switching requires explicit approval **after** external audit,
 upgrade-authority/key-control decisions, audited mainnet deployments, and all

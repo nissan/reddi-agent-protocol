@@ -23,7 +23,12 @@ mkdir -p "$OUT_DIR"
 PROFILE="${NETWORK_PROFILE:-devnet}"
 if [ "$PROFILE" = "local-surfpool" ] || [ "$PROFILE" = "local" ] || [ "$PROFILE" = "localnet" ]; then
   echo "[per-happy] NETWORK_PROFILE=$PROFILE is not valid for PER happy-path validation." | tee "$LOG_FILE"
-  echo "[per-happy] use devnet/mainnet profile with reachable TEE endpoint." | tee -a "$LOG_FILE"
+  echo "[per-happy] use the devnet profile with a reachable TEE endpoint." | tee -a "$LOG_FILE"
+  exit 1
+fi
+if [ "$PROFILE" = "mainnet" ] || [ "$PROFILE" = "mainnet-beta" ]; then
+  echo "[per-happy] NETWORK_PROFILE=$PROFILE is refused: packages/demo-agents is a devnet/local evidence runner only." | tee "$LOG_FILE"
+  echo "[per-happy] mainnet execution requires a separate audited deployment, custody plan, and explicit approval." | tee -a "$LOG_FILE"
   exit 1
 fi
 

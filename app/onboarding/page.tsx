@@ -27,6 +27,8 @@ import {
   ATTESTATION_PROGRAM_ID,
   INCINERATOR,
   PROGRAM_TARGET,
+  WALLET_SUBMISSION_BLOCKED,
+  WALLET_SUBMISSION_BLOCKED_REASON,
 } from "@/lib/program";
 import {
   buildQuasarConfirmAttestationInstruction,
@@ -463,6 +465,10 @@ export default function OnboardingPage() {
 
   const handleRegisterSpecialist = async () => {
     if (!publicKey || !sendTransaction) return;
+    if (WALLET_SUBMISSION_BLOCKED) {
+      setRegisterError(WALLET_SUBMISSION_BLOCKED_REASON);
+      return;
+    }
 
     setRegistering(true);
     setRegisterError(null);
@@ -1146,6 +1152,7 @@ export default function OnboardingPage() {
               onClick={handleRegisterSpecialist}
               disabled={
                 registering ||
+                WALLET_SUBMISSION_BLOCKED ||
                 !connected ||
                 !state.walletAddress ||
                 state.endpointStatus !== "online" ||
@@ -1153,7 +1160,11 @@ export default function OnboardingPage() {
               }
               style={{ background: "linear-gradient(135deg, #9945FF, #14F195)", color: "#000" }}
             >
-              {registering ? "Registering on-chain..." : "Register specialist on-chain"}
+              {WALLET_SUBMISSION_BLOCKED
+                ? "Blocked: no audited mainnet deployment"
+                : registering
+                  ? "Registering on-chain..."
+                  : "Register specialist on-chain"}
             </Button>
 
             {registerError && (
@@ -1734,12 +1745,14 @@ export default function OnboardingPage() {
                 disabled={
                   !state.attested ||
                   !state.attestationJobIdHex ||
+                  WALLET_SUBMISSION_BLOCKED ||
                   !connected ||
                   !publicKey ||
                   publicKey.toBase58() !== state.attestationConsumer ||
                   state.attestationResolution !== "pending"
                 }
                 onClick={async () => {
+                  if (WALLET_SUBMISSION_BLOCKED) return;
                   if (!publicKey || !sendTransaction || !state.attestationJobIdHex || !state.attestationOperator) {
                     return;
                   }
@@ -1805,12 +1818,14 @@ export default function OnboardingPage() {
                 disabled={
                   !state.attested ||
                   !state.attestationJobIdHex ||
+                  WALLET_SUBMISSION_BLOCKED ||
                   !connected ||
                   !publicKey ||
                   publicKey.toBase58() !== state.attestationConsumer ||
                   state.attestationResolution !== "pending"
                 }
                 onClick={async () => {
+                  if (WALLET_SUBMISSION_BLOCKED) return;
                   if (!publicKey || !sendTransaction || !state.attestationJobIdHex || !state.attestationOperator) {
                     return;
                   }

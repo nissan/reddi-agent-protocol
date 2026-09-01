@@ -13,6 +13,8 @@ import {
   PROGRAM_SUBMISSION_READY,
   PROGRAM_KNOWN_GAPS,
   PROGRAM_DEPLOYMENT_STATUS,
+  WALLET_SUBMISSION_BLOCKED,
+  WALLET_SUBMISSION_BLOCKED_REASON,
   agentPda,
 } from "@/lib/program";
 import { toExplorerTxUrl } from "@/lib/config/explorer";
@@ -367,14 +369,11 @@ function RegisterInner() {
   const activeProgramId = REGISTRY_PROGRAM_ID.toBase58();
   const myAgentHref = publicKey ? agentDetailHref(publicKey) : "/agents";
   const alreadyRegistered = existingAgent.status === "registered";
-  const mainnetDeploymentMissing = PROGRAM_DEPLOYMENT_STATUS === "mainnet-not-deployed";
 
   const handleRegister = async () => {
     if (!publicKey || !sendTransaction) return;
-    if (mainnetDeploymentMissing) {
-      setTxError(
-        "Registration is blocked on this network profile: no audited mainnet deployment is registered, so submitting would pay real mainnet fees for a transaction against a program that is not executable on this cluster.",
-      );
+    if (WALLET_SUBMISSION_BLOCKED) {
+      setTxError(WALLET_SUBMISSION_BLOCKED_REASON);
       return;
     }
     if (alreadyRegistered) {
@@ -652,8 +651,8 @@ function RegisterInner() {
             <span className="font-mono">{PROGRAM_DEPLOYMENT_STATUS}</span>.
             {PROGRAM_TARGET === "quasar"
               ? " Registration instruction construction uses the Quasar registry layout, but wallet submission should wait for the full proof chain unless you are deliberately testing this path."
-              : mainnetDeploymentMissing
-                ? " Wallet submission is blocked on this profile: no audited mainnet deployment is registered, so a transaction would spend real mainnet fees against a program that is not executable on this cluster."
+              : WALLET_SUBMISSION_BLOCKED
+                ? ` ${WALLET_SUBMISSION_BLOCKED_REASON}`
                 : " This banner is advisory: it reports the recorded readiness gaps but does not block wallet submission."}
           </p>
           {!PROGRAM_SUBMISSION_READY && PROGRAM_KNOWN_GAPS.length > 0 && (
@@ -1336,7 +1335,7 @@ function RegisterInner() {
                 onClick={handleRegister}
                 disabled={
                   registering ||
-                  mainnetDeploymentMissing ||
+                  WALLET_SUBMISSION_BLOCKED ||
                   !endpointCompliancePassed ||
                   existingAgent.status === "checking"
                 }
@@ -1344,7 +1343,7 @@ function RegisterInner() {
               >
                 {registering
                   ? "Registering..."
-                  : mainnetDeploymentMissing
+                  : WALLET_SUBMISSION_BLOCKED
                     ? "Blocked: no audited mainnet deployment"
                     : existingAgent.status === "checking"
                       ? "Checking registration..."
