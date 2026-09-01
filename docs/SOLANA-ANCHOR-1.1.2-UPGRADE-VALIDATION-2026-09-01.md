@@ -39,7 +39,7 @@ Observed pins after install/verify:
 - Anchor CLI `1.1.2`
 - Surfpool `1.5.0`
 
-Surfpool smoke used dynamic localhost ports, `--offline`, `--no-deploy`, `--airdrop-amount 0`, `--db :memory:`, `--no-studio`, and `--no-tui`. It proved RPC readiness without wallet/keypair material, transactions, live RPC, or persisted validator state. The latest smoke summary is under `artifacts/toolchain/surfpool-smoke-20260901T082929Z/summary.txt`.
+Surfpool smoke used dynamic localhost ports, `--offline`, `--no-deploy`, `--airdrop-amount 0`, `--db :memory:`, `--no-studio`, and `--no-tui`. It proved RPC readiness without wallet/keypair material, transactions, live RPC, or persisted validator state. The run wrote its summary to `artifacts/toolchain/surfpool-smoke-20260901T082929Z/summary.txt`. `artifacts/` is gitignored, so that summary is local run output rather than tracked evidence; reproduce it with `npm run check:toolchain:surfpool-smoke`. The tracked `artifacts/toolchain/baseline-*.md` captures predate this upgrade and still record Anchor `1.0.0`; the authoritative post-upgrade pins are `Anchor.toml`, `config/toolchain/solana-baseline-assets.json`, and `scripts/solana-baseline-toolchain.sh print-pins`, all of which `npm run check:toolchain:baseline` gates.
 
 ## Program and IDL proof
 

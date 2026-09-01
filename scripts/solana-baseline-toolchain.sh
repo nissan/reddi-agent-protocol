@@ -44,6 +44,7 @@ SHARED_SOLANA_INSTALL_DIR="$HOME/.local/share/solana/install"
 SOLANA_INSTALL_DIR="${RAP_BASELINE_SOLANA_INSTALL_DIR:-$HOME/.local/share/solana/reddi-agent-protocol-baseline/install}"
 SOLANA_CONFIG="$SOLANA_INSTALL_DIR/config.yml"
 SURFPOOL_ROOT="${RAP_BASELINE_SURFPOOL_ROOT:-$HOME/.local/share/surfpool/releases}"
+AVM_BIN_DIR="${AVM_HOME:-$HOME/.avm}/bin"
 CAPTURE_DIR="$REPO_ROOT/artifacts/toolchain"
 STARTUP_FILES=("$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" "$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.config/fish/config.fish")
 STEP_SNAPSHOT=""
@@ -503,9 +504,9 @@ install_anchor() {
     cargo install --git "$AVM_GIT_URL" avm --rev "$AVM_TAG_COMMIT_SHA" --locked
   fi
 
-  mkdir -p "$HOME/.avm/bin" "$DOWNLOAD_DIR"
+  mkdir -p "$AVM_BIN_DIR" "$DOWNLOAD_DIR"
   local anchor_download="$DOWNLOAD_DIR/$ANCHOR_CLI_ASSET_NAME"
-  local anchor_bin="$HOME/.avm/bin/anchor-$ANCHOR_VERSION"
+  local anchor_bin="$AVM_BIN_DIR/anchor-$ANCHOR_VERSION"
   download_verified "$ANCHOR_CLI_URL" "$ANCHOR_CLI_SHA256" "$anchor_download"
   install -m 0755 "$anchor_download" "$anchor_bin"
   avm use "$ANCHOR_VERSION"

@@ -32,6 +32,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Verify pinned Solana toolchain baseline
+        run: npm run check:toolchain:baseline
+
       - name: Install Rust toolchain (matches rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
         with:
