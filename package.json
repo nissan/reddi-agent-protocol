@@ -27,6 +27,7 @@
     "evidence:magicblock:cpi-layout": "node ./scripts/generate-magicblock-cpi-layout-fixture.mjs",
     "test:mainnet:readiness": "./scripts/run-mainnet-readiness-check.sh",
     "test:surfpool:critical": "./scripts/run-surfpool-critical-smoke.sh",
+    "test:surfpool:sdk-lifecycle": "node --test ./scripts/__tests__/surfpool-sdk-lifecycle.test.mjs",
     "test:surfpool:onboarding": "./scripts/run-surfpool-onboarding-attestation-smoke.sh",
     "test:surfpool:onboarding-wrapper": "./scripts/run-surfpool-onboarding-wrapper-smoke.sh",
     "test:surfpool:jupiter-invoke": "./scripts/run-surfpool-jupiter-invoke-smoke.sh",
@@ -123,6 +124,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
+    "@solana/surfpool": "1.5.0",
     "@tailwindcss/postcss": "^4",
     "@types/jest": "^30.0.0",
     "@types/node": "^20",
@@ -133,6 +135,7 @@
     "eslint-config-next": "16.2.1",
     "jest": "^30.3.0",
     "tailwindcss": "^4",
+    "ts-node": "10.9.2",
     "typescript": "^5"
   }
 }

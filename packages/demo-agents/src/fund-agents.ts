@@ -9,10 +9,10 @@
  */
 import { Connection, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AGENT_A, AGENT_B, AGENT_C } from "./wallets";
-import { DEVNET_RPC } from "./config";
+import { DEMO_NETWORK_PROFILE, DEVNET_RPC, DEVNET_RPC_WS } from "./config";
 
 async function fund() {
-  const connection = new Connection(DEVNET_RPC, "confirmed");
+  const connection = new Connection(DEVNET_RPC, DEVNET_RPC_WS ? { commitment: "confirmed", wsEndpoint: DEVNET_RPC_WS } : "confirmed");
   const agents = [
     { name: "Agent A (Orchestrator)", pk: AGENT_A },
     { name: "Agent B (Specialist)", pk: AGENT_B },
@@ -31,9 +31,9 @@ async function fund() {
         await connection.confirmTransaction(sig, "confirmed");
         const newBal = await connection.getBalance(pk);
         console.log(`  ✅ Airdropped 1 SOL — new balance: ${(newBal / LAMPORTS_PER_SOL).toFixed(4)} SOL`);
-      } catch (e) {
+      } catch {
         console.log(`  ❌ Airdrop failed (rate-limited?). Manual funding required:`);
-        console.log(`     solana transfer ${pk.toBase58()} 0.1 --url devnet --keypair ~/.config/solana/blitz-dev.json --allow-unfunded-recipient`);
+        console.log(`     solana transfer ${pk.toBase58()} 0.1 --url ${DEMO_NETWORK_PROFILE} --keypair <local-funder-keypair> --allow-unfunded-recipient`);
       }
     } else {
       console.log(`  ✅ Sufficiently funded`);
@@ -41,4 +41,7 @@ async function fund() {
   }
 }
 
-fund().catch(console.error);
+fund().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

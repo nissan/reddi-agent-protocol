@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - critical
+          - quasar-critical
           - onboarding
           - onboarding-wrapper
           - jupiter-invoke
@@ -31,6 +32,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Rust toolchain for SDK critical lanes
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.89.0"
+
+      - name: Install Solana CLI for SDK critical lanes
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.13/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
       - name: Run selected Surfpool lane
         shell: bash
         run: |
@@ -38,6 +49,9 @@ jobs:
           case "${{ github.event.inputs.lane }}" in
             critical)
               npm run test:surfpool:critical
+              ;;
+            quasar-critical)
+              npm run test:surfpool:quasar-critical
               ;;
             onboarding)
               npm run test:surfpool:onboarding

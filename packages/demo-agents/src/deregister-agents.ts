@@ -14,11 +14,11 @@ import {
   Transaction,
 } from "@solana/web3.js";
 import { AGENT_A_KEYPAIR, AGENT_B_KEYPAIR, AGENT_C_KEYPAIR } from "./wallets";
-import { AGENT_SEED, DEVNET_RPC, REGISTRY_PROGRAM_ID, PROGRAM_TARGET, explorerTxUrl } from "./config";
+import { AGENT_SEED, DEVNET_RPC, DEVNET_RPC_WS, REGISTRY_PROGRAM_ID, PROGRAM_TARGET, explorerTxUrl } from "./config";
 import { buildDemoDeregisterAgentInstruction } from "./registration-instruction";
 
 const PROGRAM_ID = new PublicKey(REGISTRY_PROGRAM_ID);
-const connection = new Connection(DEVNET_RPC, "confirmed");
+const connection = new Connection(DEVNET_RPC, DEVNET_RPC_WS ? { commitment: "confirmed", wsEndpoint: DEVNET_RPC_WS } : "confirmed");
 
 function agentPda(owner: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([AGENT_SEED, owner.toBytes()], PROGRAM_ID)[0];
@@ -67,4 +67,7 @@ async function main() {
   console.log("\n✅ Deregistration complete.");
 }
 
-main().catch(console.error);
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

@@ -63,6 +63,14 @@ npm run check:toolchain:surfpool-smoke
 
 The smoke resolves the Surfpool and Agave pins from `scripts/solana-baseline-toolchain.sh print-pins` and fails before starting if the `surfpool`/`solana` it resolved are not those exact builds, so the recorded summary can never label an unpinned build as baseline evidence.
 
+For the critical demo-program lanes, use the SDK-managed local Surfnet lifecycle documented in `docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`:
+
+```bash
+npm run test:surfpool:sdk-lifecycle
+npm run test:surfpool:critical
+npm run test:surfpool:quasar-critical
+```
+
 Focused shell-check coverage for the exact-version matcher:
 
 ```bash

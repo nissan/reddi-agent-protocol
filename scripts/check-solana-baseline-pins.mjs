@@ -42,10 +42,17 @@ const escrowCargo = parseSimpleToml('programs/escrow/Cargo.toml');
 const escrowAnchorLangReq = escrowCargo.dependencies?.['anchor-lang']?.match(/version\s*=\s*"([^"]+)"/)?.[1];
 const cargoLock = readFileSync(join(root, 'Cargo.lock'), 'utf8');
 const lockedAnchorLang = cargoLock.match(/^name = "anchor-lang"\nversion = "([^"]+)"/m)?.[1];
+const rootPackage = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+const packageLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
 const assets = JSON.parse(readFileSync(join(root, 'config/toolchain/solana-baseline-assets.json'), 'utf8'));
 
 const workflowVersions = new Set();
-for (const file of ['.github/workflows/anchor-program-tests.yml', '.github/workflows/quasar-program-tests.yml']) {
+for (const file of [
+  '.github/workflows/anchor-program-tests.yml',
+  '.github/workflows/quasar-program-tests.yml',
+  '.github/workflows/surfpool-acceptance-manual.yml',
+  '.github/workflows/surfpool-quasar-critical-sdk.yml',
+]) {
   const text = readFileSync(join(root, file), 'utf8');
   for (const match of text.matchAll(/https:\/\/release\.anza\.xyz\/(v\d+\.\d+\.\d+)\/install/g)) {
     workflowVersions.add(match[1]);
@@ -84,6 +91,7 @@ const checks = [
   ['clippy exact probe pin is recorded for Rust 1.89.0', assets.rust?.clippyVersionByChannel?.['1.89.0'] === '0.1.89'],
   ['rustup-init asset is exact official archive 1.29.0', assets.rustup?.version === '1.29.0' && assets.rustup?.url?.includes('/archive/1.29.0/')],
   ['Surfpool asset pins v1.5.0', assets.surfpool?.version === 'v1.5.0' && assets.surfpool?.url?.includes('/download/v1.5.0/')],
+  ['@solana/surfpool SDK package is pinned to the Surfpool asset version', rootPackage.devDependencies?.['@solana/surfpool'] === '1.5.0' && packageLock.packages?.['node_modules/@solana/surfpool']?.version === '1.5.0'],
   [`AVM manager is pinned independently at ${AVM_MANAGER_VERSION}`, assets.anchorAvm?.managerVersion === AVM_MANAGER_VERSION],
   [`AVM manager tag object and commit are recorded for ${AVM_MANAGER_VERSION}`, typeof assets.anchorAvm?.tagObjectShaByVersion?.[AVM_MANAGER_VERSION] === 'string' && typeof assets.anchorAvm?.tagCommitShaByVersion?.[AVM_MANAGER_VERSION] === 'string'],
   [`Anchor CLI tag object and commit are recorded for ${STABLE_ANCHOR_VERSION}`, typeof assets.anchorAvm?.tagObjectShaByVersion?.[STABLE_ANCHOR_VERSION] === 'string' && typeof assets.anchorAvm?.tagCommitShaByVersion?.[STABLE_ANCHOR_VERSION] === 'string'],

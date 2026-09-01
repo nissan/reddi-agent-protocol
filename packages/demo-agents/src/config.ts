@@ -1,10 +1,16 @@
 import path from "path";
 import dotenv from "dotenv";
-import { PublicKey } from "@solana/web3.js";
 
-// Load devnet env — resolve relative to package root (not transpiled __dirname)
-const envPath = path.resolve(__dirname, "../.env.devnet");
-dotenv.config({ path: envPath });
+import { describeQuasarTargetRefusal } from "./quasar-target-gate";
+
+// Load devnet env — resolve relative to package root (not transpiled __dirname).
+// DEMO_DISABLE_DOTENV lets a caller that already pins every variable (the local Surfpool lane, and
+// hermetic tests) guarantee a gitignored .env.devnet cannot reintroduce remote endpoints or mints.
+export const DOTENV_DISABLED = process.env.DEMO_DISABLE_DOTENV?.trim() === "true";
+if (!DOTENV_DISABLED) {
+  const envPath = path.resolve(__dirname, "../.env.devnet");
+  dotenv.config({ path: envPath });
+}
 
 function pickEnv(...keys: string[]): string | undefined {
   for (const key of keys) {
@@ -22,11 +28,6 @@ type DemoNetworkProfile = {
   defaultEscrowProgramId: string;
   defaultPerRpc: string;
 };
-
-const QUASAR_DEVNET_ESCROW_PROGRAM_ID = "VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW";
-const QUASAR_DEVNET_REGISTRY_PROGRAM_ID = "Xk7jczJZ1HHJZuE1ZUWDqFmowxYhnom7mWzrNSGf9FU";
-const QUASAR_DEVNET_REPUTATION_PROGRAM_ID = "nb9rLVjoHMibsgfRGgKuPqm6M8GVcH9r6bYNfg7Yiy6";
-const QUASAR_DEVNET_ATTESTATION_PROGRAM_ID = "CRGsWWkptdxsH6N6aWAyahLbuMsT58yM624EopEsv1Ex";
 
 export type DemoProgramTarget = "legacy-anchor" | "quasar";
 
@@ -65,68 +66,37 @@ const activeNetworkProfileName = resolveNetworkProfileName();
 const activeProfile = DEMO_NETWORK_PROFILES[activeNetworkProfileName];
 const requestedProgramTarget = resolveProgramTarget();
 
-const suppliedProgramIds = {
-  escrow: pickEnv("DEMO_ESCROW_PROGRAM_ID", "NEXT_PUBLIC_ESCROW_PROGRAM_ID"),
-  registry: pickEnv("DEMO_REGISTRY_PROGRAM_ID", "NEXT_PUBLIC_REGISTRY_PROGRAM_ID"),
-  reputation: pickEnv("DEMO_REPUTATION_PROGRAM_ID", "NEXT_PUBLIC_REPUTATION_PROGRAM_ID"),
-  attestation: pickEnv("DEMO_ATTESTATION_PROGRAM_ID", "NEXT_PUBLIC_ATTESTATION_PROGRAM_ID"),
-};
-
-const missingProgramIds = Object.entries(suppliedProgramIds)
-  .filter(([, programId]) => !programId)
-  .map(([label]) => label);
-
-function isValidProgramId(programId: string): boolean {
-  try {
-    new PublicKey(programId);
-    return true;
-  } catch {
-    return false;
-  }
+if (requestedProgramTarget === "quasar") {
+  const refusal = describeQuasarTargetRefusal(activeNetworkProfileName, pickEnv);
+  if (refusal) throw new Error(refusal);
 }
 
-const malformedProgramIds = Object.entries(suppliedProgramIds)
-  .filter(([, programId]) => programId !== undefined && !isValidProgramId(programId))
-  .map(([label]) => label);
-
-if (malformedProgramIds.length > 0) {
-  throw new Error(
-    `Supplied demo program ids are malformed: ${malformedProgramIds.join(", ")} must be valid 32-byte Solana public keys; set DEMO_ESCROW_PROGRAM_ID, DEMO_REGISTRY_PROGRAM_ID, DEMO_REPUTATION_PROGRAM_ID, and DEMO_ATTESTATION_PROGRAM_ID to deployed base58 addresses.`,
-  );
-}
-
-if (requestedProgramTarget === "quasar" && activeNetworkProfileName !== "devnet" && missingProgramIds.length > 0) {
-  throw new Error(
-    `Quasar demo target has no registered program inventory for ${activeNetworkProfileName} in packages/demo-agents; supply valid deployed ids via DEMO_ESCROW_PROGRAM_ID, DEMO_REGISTRY_PROGRAM_ID, DEMO_REPUTATION_PROGRAM_ID, and DEMO_ATTESTATION_PROGRAM_ID (missing: ${missingProgramIds.join(", ")}).`,
-  );
-}
-
-export const PROGRAM_TARGET: DemoProgramTarget = requestedProgramTarget === "quasar" ? "quasar" : "legacy-anchor";
+export const DEMO_NETWORK_PROFILE = activeNetworkProfileName;
+export const PROGRAM_TARGET: DemoProgramTarget = requestedProgramTarget;
 export const PROGRAM_FRAMEWORK = PROGRAM_TARGET === "quasar" ? "quasar" : "anchor";
 export const PROGRAM_COMPATIBILITY = PROGRAM_TARGET === "quasar" ? "quasar-layout-unverified" : "anchor-layout";
 
 /** Deployed escrow program ID (overrideable for local Surfpool/test lanes) */
 export const ESCROW_PROGRAM_ID =
-  suppliedProgramIds.escrow ??
-  (PROGRAM_TARGET === "quasar" ? QUASAR_DEVNET_ESCROW_PROGRAM_ID : activeProfile.defaultEscrowProgramId);
+  pickEnv("DEMO_ESCROW_PROGRAM_ID", "NEXT_PUBLIC_ESCROW_PROGRAM_ID") ?? activeProfile.defaultEscrowProgramId;
 
-/** Registry program ID. Quasar cutover uses a separate registry program, not the escrow program. */
+/** Registry program ID. Quasar requires all four IDs explicitly; there is no Quasar default. */
 export const REGISTRY_PROGRAM_ID =
-  suppliedProgramIds.registry ??
-  (PROGRAM_TARGET === "quasar" ? QUASAR_DEVNET_REGISTRY_PROGRAM_ID : ESCROW_PROGRAM_ID);
+  pickEnv("DEMO_REGISTRY_PROGRAM_ID", "NEXT_PUBLIC_REGISTRY_PROGRAM_ID") ?? ESCROW_PROGRAM_ID;
 
 /** Reputation program ID. Quasar cutover uses a separate reputation program. */
 export const REPUTATION_PROGRAM_ID =
-  suppliedProgramIds.reputation ??
-  (PROGRAM_TARGET === "quasar" ? QUASAR_DEVNET_REPUTATION_PROGRAM_ID : ESCROW_PROGRAM_ID);
+  pickEnv("DEMO_REPUTATION_PROGRAM_ID", "NEXT_PUBLIC_REPUTATION_PROGRAM_ID") ?? ESCROW_PROGRAM_ID;
 
 /** Attestation program ID. Quasar cutover uses a separate attestation program. */
 export const ATTESTATION_PROGRAM_ID =
-  suppliedProgramIds.attestation ??
-  (PROGRAM_TARGET === "quasar" ? QUASAR_DEVNET_ATTESTATION_PROGRAM_ID : ESCROW_PROGRAM_ID);
+  pickEnv("DEMO_ATTESTATION_PROGRAM_ID", "NEXT_PUBLIC_ATTESTATION_PROGRAM_ID") ?? ESCROW_PROGRAM_ID;
 
 /** Solana RPC (overrideable for local Surfpool/test lanes) */
 export const DEVNET_RPC = pickEnv("DEMO_DEVNET_RPC", "NEXT_PUBLIC_RPC_ENDPOINT") ?? activeProfile.rpcHttp;
+
+/** Solana WebSocket RPC (required when the HTTP/WS ports are independently dynamic, as with the Surfpool SDK). */
+export const DEVNET_RPC_WS = pickEnv("DEMO_DEVNET_RPC_WS", "NEXT_PUBLIC_RPC_WS_ENDPOINT");
 
 /** MagicBlock PER endpoint (overrideable for local Surfpool/test lanes) */
 export const PER_DEVNET_RPC = pickEnv("DEMO_PER_RPC", "NEXT_PUBLIC_PER_RPC") ?? activeProfile.defaultPerRpc;

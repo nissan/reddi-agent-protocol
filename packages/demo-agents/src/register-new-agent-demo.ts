@@ -16,7 +16,7 @@ import {
   Transaction,
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
-import { DEVNET_RPC, PROGRAM_TARGET, REGISTRY_PROGRAM_ID, explorerTxUrl } from "./config";
+import { DEVNET_RPC, DEVNET_RPC_WS, PROGRAM_TARGET, REGISTRY_PROGRAM_ID, explorerTxUrl } from "./config";
 import { buildDemoRegisterAgentInstruction, demoAgentPda } from "./registration-instruction";
 
 const AgentType = { Primary: 0, Attestation: 1, Both: 2 } as const;
@@ -36,7 +36,7 @@ async function main() {
   const outDir = process.env.DEMO_REGISTRATION_OUT_DIR || path.join(process.cwd(), "artifacts", "agent-registration-cli", runId);
   mkdirSync(outDir, { recursive: true });
 
-  const connection = new Connection(DEVNET_RPC, "confirmed");
+  const connection = new Connection(DEVNET_RPC, DEVNET_RPC_WS ? { commitment: "confirmed", wsEndpoint: DEVNET_RPC_WS } : "confirmed");
   const programId = new PublicKey(REGISTRY_PROGRAM_ID);
   const funderPath = process.env.DEMO_REGISTRATION_FUNDER_KEYPAIR || "/Users/loki/.config/solana/id.json";
   const funder = loadKeypair(funderPath);
