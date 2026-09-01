@@ -3,7 +3,11 @@ import {
   type AttestationRecord,
   type ReputationEvent,
 } from './attestation-reputation.js';
-import type { AuddPaymentPlanPreflightDecision } from './audd-payment-plan.js';
+import {
+  auddLabelEnvironmentExceedsRail,
+  deriveAuddRailEnvironment,
+  type AuddPaymentPlanPreflightDecision,
+} from './audd-payment-plan.js';
 import {
   validateEvidenceArchiveRecord,
   type EvidenceArchiveRecord,
@@ -333,6 +337,16 @@ function validatePaymentObservation(input: ReceiptEvidenceBindingInput, errors: 
   const observation = input.paymentObservation;
   if (observation.labels.eligibility === 'eligible' && ['deterministic-fixture', 'local-test-mint', 'devnet-unverified'].includes(observation.labels.environment)) {
     errors.push(error('payment_observation_ineligible', '$.paymentObservation.labels.eligibility', 'fixture, local-test-mint, and devnet payment observations are not eligible for grant-volume claims'));
+  }
+  const observedRail = observation.payment.mint === undefined
+    ? undefined
+    : deriveAuddRailEnvironment({
+        network: observation.payment.network.rapAlias ?? observation.payment.network.caip2,
+        caip2Network: observation.payment.network.caip2,
+        mint: observation.payment.mint,
+      });
+  if (observedRail && auddLabelEnvironmentExceedsRail(observation.labels.environment, observedRail)) {
+    errors.push(error('payment_observation_ineligible', '$.paymentObservation.labels.environment', `payment observation labelled ${observation.labels.environment} was observed on the ${observedRail} AUDD rail`));
   }
   if (observation.status !== 'observed_confirmed') {
     errors.push(error('payment_observation_mismatch', '$.paymentObservation.status', 'payment observation must be confirmed before receipt/evidence binding'));

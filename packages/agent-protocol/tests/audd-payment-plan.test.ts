@@ -762,13 +762,101 @@ describe('AUDD/Solana payment plan adapter', () => {
       /audd_payment_plan_label_environment_mismatch/,
     );
 
-    const liveDevnetPlan = createAuddSolanaPaymentPlan({ ...plan, paymentMode: 'live' });
+    const testnetPlan = createAuddSolanaPaymentPlan({ ...plan, network: 'solana-testnet', mint: 'UnknownRailAuddMint1111111111111111111111111' });
     assert.throws(
       () => createAuddPaymentIntentDraft({
         agreementId: 'reddi.agreement:3333333333333333333333333333333333333333333333333333333333333333',
-        paymentPlan: liveDevnetPlan,
+        paymentPlan: testnetPlan,
       }),
       /audd_payment_plan_environment_undeclared/,
     );
+  });
+
+  it('derives the rail environment from the plan identity for every rail, not just mainnet', () => {
+    const livePlan = createAuddX402SvmExactPaymentPlan({
+      ...plan,
+      network: 'solana-mainnet-beta',
+      mint: AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
+      paymentMode: 'live',
+    });
+    assert.equal(livePlan.railEnvironment, 'mainnet-gated');
+    assert.equal(livePlan.authority?.operatorApprovalRequired, true);
+
+    const fixturePlan = createAuddX402SvmExactPaymentPlan({ ...plan });
+    assert.equal(fixturePlan.railEnvironment, 'deterministic-fixture');
+    assert.equal(fixturePlan.authority?.operatorApprovalRequired, false);
+
+    const unverifiedDevnetPlan = createAuddX402SvmExactPaymentPlan({
+      ...plan,
+      mint: 'UnverifiedAuddDevnetMint11111111111111111111',
+    });
+    assert.equal(unverifiedDevnetPlan.railEnvironment, 'devnet-unverified');
+    assert.equal(unverifiedDevnetPlan.authority?.operatorApprovalRequired, true);
+
+    assert.throws(
+      () => createAuddX402SvmExactPaymentPlan({ ...plan, network: 'solana-testnet', mint: 'UnknownRailAuddMint1111111111111111111111111' }),
+      /audd_payment_plan_environment_undeclared/,
+    );
+  });
+
+  it('blocks an undeclared unverified devnet AUDD mint in preflight and labels it devnet-unverified', () => {
+    const undeclaredDevnetPlan = createAuddSolanaPaymentPlan({
+      ...plan,
+      mint: 'UnverifiedAuddDevnetMint11111111111111111111',
+    });
+    assert.equal(undeclaredDevnetPlan.railEnvironment, undefined);
+
+    const intent = createAuddPaymentIntentDraft({
+      agreementId: 'reddi.agreement:4444444444444444444444444444444444444444444444444444444444444444',
+      paymentPlan: undeclaredDevnetPlan,
+    });
+    assert.equal(intent.labels.environment, 'devnet-unverified');
+    assert.equal(intent.authorization.operatorApprovalRequired, true);
+
+    const devnetChallenge = createAuddPaymentChallenge({
+      mode: 'dry-run',
+      paymentPlan: undeclaredDevnetPlan,
+      quote: {
+        source: 'source:ard-catalog',
+        specialist: 'specialist:listing-writer',
+      },
+      nonce: 'audd-devnet-undeclared-001',
+      endpoint: 'https://seller.example.test/agent/task',
+    });
+    const decision = evaluateAuddPaymentPlanPreflight(devnetChallenge, {
+      ...baseBuyerPolicy,
+      allowedMints: [undeclaredDevnetPlan.mint],
+    });
+    assert.equal(decision.allowed, false);
+    assert.deepEqual(decision.reasonCodes, ['devnet_audd_unverified']);
+  });
+
+  it('rejects intent labels that overstate the plan rail as well as labels that understate it', () => {
+    const fixturePlan = createAuddX402SvmExactPaymentPlan({
+      ...plan,
+      tokenProgram: SPL_TOKEN_PROGRAM_ID,
+      caip2Network: SOLANA_DEVNET_CAIP2,
+      railEnvironment: 'deterministic-fixture',
+    });
+
+    for (const environment of ['controlled-live', 'mainnet-gated', 'devnet-unverified'] as const) {
+      assert.throws(
+        () => createAuddPaymentIntentDraft({
+          agreementId: 'reddi.agreement:5555555555555555555555555555555555555555555555555555555555555555',
+          paymentPlan: fixturePlan,
+          destinationTokenAccount: PAYEE,
+          labels: { environment, eligibility: 'eligible', partnerAcceptanceRef: 'audd:not-real' },
+        }),
+        /audd_payment_plan_label_environment_mismatch/,
+      );
+    }
+
+    const honest = createAuddPaymentIntentDraft({
+      agreementId: 'reddi.agreement:5555555555555555555555555555555555555555555555555555555555555555',
+      paymentPlan: fixturePlan,
+      destinationTokenAccount: PAYEE,
+      labels: { environment: 'deterministic-fixture', eligibility: 'non_eligible' },
+    });
+    assert.equal(honest.labels.environment, 'deterministic-fixture');
   });
 });

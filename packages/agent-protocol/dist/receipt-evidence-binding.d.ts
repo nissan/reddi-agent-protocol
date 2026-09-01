@@ -1,5 +1,5 @@
 import { type AttestationRecord, type ReputationEvent } from './attestation-reputation.js';
-import type { AuddPaymentPlanPreflightDecision } from './audd-payment-plan.js';
+import { type AuddPaymentPlanPreflightDecision } from './audd-payment-plan.js';
 import { type EvidenceArchiveRecord } from './evidence-archive.js';
 import { type ReddiPaymentObservationRecord } from './payment-records.js';
 import { type ReddiReceipt } from './receipts.js';

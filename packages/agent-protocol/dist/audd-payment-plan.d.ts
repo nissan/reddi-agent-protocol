@@ -160,3 +160,10 @@ export declare function createAuddX402SvmExactPaymentRequired(input: {
 }): AuddX402SvmExactPaymentRequired;
 export declare function validateAuddX402SvmExactPaymentRequired(value: unknown): value is AuddX402SvmExactPaymentRequired;
 export declare function evaluateAuddPaymentPlanPreflight(challengeInput: unknown, options?: AuddPaymentPlanPreflightOptions): AuddPaymentPlanPreflightDecision;
+export type AuddRailIdentityRef = {
+    network: string;
+    caip2Network?: string;
+    mint: string;
+};
+export declare function deriveAuddRailEnvironment(identity: AuddRailIdentityRef): AuddRailEnvironment | undefined;
+export declare function auddLabelEnvironmentExceedsRail(environment: ReddiPaymentEnvironmentLabel, railEnvironment: AuddRailEnvironment): boolean;
