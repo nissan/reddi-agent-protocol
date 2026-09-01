@@ -9,6 +9,7 @@ import {
   ACCEPTED_EVIDENCE_FILENAME,
   ACCEPTED_EVIDENCE_MAX_AGE_MS,
   EvidenceManifestError,
+  assertContainedArtifactPath,
   computeLaneSourceFingerprint,
   readAcceptedEvidenceManifest,
   writeAcceptedEvidenceManifest,
@@ -424,4 +425,25 @@ test("publishing refuses to cite an artifact that does not exist yet", async () 
     const { manifest } = readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary"] });
     assert.equal(manifest.runId, "sdk-quasar-good", "the previously accepted receipt must survive");
   });
+});
+
+test("publishing without repoRoot is refused so containment checks can never be skipped", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-norepo");
+    const { repoRoot: _omitted, ...withoutRepoRoot } = record;
+
+    await assert.rejects(
+      writeAcceptedEvidenceManifest(path.join(repoRoot, dir), withoutRepoRoot),
+      /requires repoRoot/,
+    );
+    assert.equal(fs.existsSync(path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME)), false);
+  });
+});
+
+test("containment validation refuses to run without a repoRoot to resolve against", () => {
+  assert.throws(
+    () => assertContainedArtifactPath("artifacts/surfpool-smoke", "artifacts/surfpool-smoke/r/SUMMARY.md"),
+    /repoRoot is required to validate artifact containment/,
+  );
 });

@@ -115,6 +115,9 @@ describe("program ID resolution has no Quasar devnet defaults", () => {
       "DEMO_ATTESTATION_PROGRAM_ID", "NEXT_PUBLIC_ATTESTATION_PROGRAM_ID",
       "DEMO_DEVNET_RPC", "NEXT_PUBLIC_RPC_ENDPOINT", "DEMO_DEVNET_RPC_WS", "NEXT_PUBLIC_RPC_WS_ENDPOINT",
     ]) delete process.env[key];
+    // Without this, dotenv would repopulate exactly the keys this suite just cleared from a
+    // gitignored .env.devnet, so the assertions would describe the machine, not the resolver.
+    process.env.DEMO_DISABLE_DOTENV = "true";
   });
 
   afterAll(() => {

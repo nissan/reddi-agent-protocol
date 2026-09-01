@@ -93,6 +93,9 @@ export function assertContainedArtifactPath(manifestRelativeDir, artifactPath, o
   if (typeof manifestRelativeDir !== "string" || !manifestRelativeDir) {
     throw new EvidenceManifestError("a bound evidence root (manifestRelativeDir) is required to validate artifact containment");
   }
+  if (!options.repoRoot) {
+    throw new EvidenceManifestError("a repoRoot is required to validate artifact containment against the real filesystem");
+  }
   if (typeof artifactPath !== "string" || !artifactPath) {
     throw new EvidenceManifestError(`artifact path must be a non-empty repository-relative string; got ${JSON.stringify(artifactPath)}`);
   }
@@ -109,7 +112,7 @@ export function assertContainedArtifactPath(manifestRelativeDir, artifactPath, o
   }
 
   const repoRoot = options.repoRoot;
-  if (repoRoot) {
+  {
     const boundRoot = fs.realpathSync(path.join(repoRoot, normalizedDir));
     let resolved;
     try {
@@ -142,6 +145,9 @@ function assertPassRecord(record) {
   if (!record?.sourceFingerprint) {
     throw new EvidenceManifestError("accepted evidence requires a sourceFingerprint binding it to the sources that produced it");
   }
+  if (!record?.repoRoot) {
+    throw new EvidenceManifestError("accepted evidence requires repoRoot so artifact existence and containment can be verified");
+  }
   for (const artifact of record.artifacts) {
     if (!artifact?.name) throw new EvidenceManifestError("every accepted artifact requires a name");
     assertContainedArtifactPath(record.manifestRelativeDir, artifact.path, { repoRoot: record.repoRoot });
@@ -156,11 +162,9 @@ function assertPassRecord(record) {
 export async function writeAcceptedEvidenceManifest(manifestDir, record) {
   assertPassRecord(record);
 
-  if (record.repoRoot) {
-    for (const artifact of record.artifacts) {
-      if (!fs.existsSync(path.join(record.repoRoot, artifact.path))) {
-        throw new EvidenceManifestError(`refusing to publish a receipt citing a missing ${artifact.name} artifact: ${artifact.path}`);
-      }
+  for (const artifact of record.artifacts) {
+    if (!fs.existsSync(path.join(record.repoRoot, artifact.path))) {
+      throw new EvidenceManifestError(`refusing to publish a receipt citing a missing ${artifact.name} artifact: ${artifact.path}`);
     }
   }
 

@@ -177,13 +177,14 @@ try {
 } finally {
   clearTimeout(timeout);
   await cleanup(exitReason);
+  await logLine(
+    finalStatus === "PASS"
+      ? `[surfpool-sdk-smoke] complete: ${rel(summaryFile)}`
+      : `[surfpool-sdk-smoke] FAIL evidence retained at ${rel(outDir)}; accepted-evidence receipt left untouched`,
+  );
   await writeSummary({ target, programs, status: finalStatus, failure: failureMessage });
-  if (finalStatus === "PASS") await publishAcceptedEvidence();
-  if (finalStatus === "PASS") {
-    await logLine(`[surfpool-sdk-smoke] complete: ${rel(summaryFile)}`);
-  } else {
+  if (finalStatus === "PASS" && !(await publishAcceptedEvidence())) {
     await writeSummary({ target, programs, status: finalStatus, failure: failureMessage });
-    await logLine(`[surfpool-sdk-smoke] FAIL evidence retained at ${rel(outDir)}; accepted-evidence receipt left untouched`);
   }
 }
 
@@ -205,12 +206,39 @@ async function legacyAnchorProgramDescriptors() {
   ];
 }
 
+async function declaredProgramId(manifestDir) {
+  const libPath = path.join(repoRoot, manifestDir, "src/lib.rs");
+  const declared = (await fs.readFile(libPath, "utf8")).match(/declare_id!\("([^"]+)"\)/)?.[1];
+  if (!declared) throw new Error(`declare_id! not found in ${path.join(manifestDir, "src/lib.rs")}`);
+  return declared;
+}
+
 async function quasarProgramDescriptors() {
   const inventory = JSON.parse(await fs.readFile(path.join(repoRoot, "config/quasar/deployments.json"), "utf8"));
   const ids = inventory.quasarDeployments?.devnet?.programIds;
   for (const key of ["escrow", "registry", "reputation", "attestation"]) {
     if (!ids?.[key]) throw new Error(`missing Quasar ${key} program ID in config/quasar/deployments.json`);
   }
+
+  // Quasar owner checks and the reveal commitment pre-image compare against declare_id!, so a
+  // configured ID that drifts from the source would deploy binaries at an address they reject.
+  const sourceDirs = {
+    escrow: "experiments/quasar-escrow",
+    registry: "experiments/quasar-registry",
+    reputation: "experiments/quasar-reputation",
+    attestation: "experiments/quasar-attestation",
+  };
+  const drift = [];
+  for (const [key, dir] of Object.entries(sourceDirs)) {
+    const declared = await declaredProgramId(dir);
+    if (declared !== ids[key]) {
+      drift.push(`${key}: config/quasar/deployments.json has ${ids[key]}, ${dir}/src/lib.rs declares ${declared}`);
+    }
+  }
+  if (drift.length) {
+    throw new Error(`Quasar program IDs drifted from their declare_id! sources: ${drift.join("; ")}`);
+  }
+
   return [
     { key: "escrow", label: "Quasar escrow", manifest: "experiments/quasar-escrow/Cargo.toml", soName: "quasar_escrow_poc", programId: ids.escrow },
     { key: "registry", label: "Quasar registry", manifest: "experiments/quasar-registry/Cargo.toml", soName: "quasar_registry", programId: ids.registry },
@@ -282,6 +310,8 @@ async function prepareAgentEnvironment(programs) {
     NEXT_PUBLIC_NETWORK_PROFILE: "local-surfpool",
     DEMO_ALLOW_FALLBACK: "true",
     DEMO_PAYMENTS_CLUSTER: "local-surfpool",
+    DEMO_PAYMENTS_API_BASE_URL: "http://127.0.0.1:1",
+    DEMO_PRIVATE_MINT: "",
     DEMO_STOP_AFTER_SETTLEMENT: "false",
     JUPITER_API_KEY: "",
     JUPITER_API_BASE: "http://127.0.0.1:1",
@@ -297,6 +327,7 @@ function localChildEnv(overrides) {
     NODE_ENV: process.env.NODE_ENV ?? "test",
     npm_config_audit: "false",
     npm_config_fund: "false",
+    DEMO_DISABLE_DOTENV: "true",
     TMPDIR: childTmpDir,
   };
   return { ...base, ...overrides };
@@ -503,6 +534,7 @@ async function writeSummary({ target, programs = [], status, failure }) {
 
 async function publishAcceptedEvidence() {
   try {
+    if (takeLogWriteError()) throw new Error("evidence log write failed before publication");
     const artifacts = [
       { name: "summary", path: rel(summaryFile) },
       { name: "log", path: rel(logFile) },
@@ -516,7 +548,9 @@ async function publishAcceptedEvidence() {
       }
     }
 
-    const { manifestPath } = await writeAcceptedEvidenceManifest(evidenceRoot, {
+    await logLine(`[surfpool-sdk-smoke] publishing accepted evidence receipt: ${rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_FILENAME))}`);
+
+    await writeAcceptedEvidenceManifest(evidenceRoot, {
       target,
       runId,
       status: "PASS",
@@ -530,12 +564,15 @@ async function publishAcceptedEvidence() {
         lifecycle: "@solana/surfpool SDK in-process Surfnet (loopback only)",
       },
     });
-    await logLine(`[surfpool-sdk-smoke] accepted evidence receipt: ${rel(manifestPath)}`);
+    return true;
   } catch (error) {
     finalStatus = "FAIL";
     failureMessage ??= `accepted evidence receipt failed: ${error.message}`;
     if (exitCode === 0) exitCode = 1;
-    await logLine(`[surfpool-sdk-smoke] accepted evidence receipt failed: ${error.message}; the previously accepted receipt is left untouched`);
+    try {
+      await logLine(`[surfpool-sdk-smoke] accepted evidence receipt failed: ${error.message}; the previously accepted receipt is left untouched`);
+    } catch { /* the run already failed; log loss must not mask it */ }
+    return false;
   }
 }
 

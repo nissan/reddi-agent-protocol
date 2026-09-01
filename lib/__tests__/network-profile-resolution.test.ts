@@ -19,6 +19,9 @@ describe("network profile resolution", () => {
     delete process.env.NEXT_PUBLIC_RPC_ENDPOINT;
     delete process.env.NEXT_PUBLIC_RPC_URL;
     delete process.env.DEMO_DEVNET_RPC;
+    // The demo-agent config loads a gitignored .env.devnet at module scope; disable it so this
+    // suite exercises the resolver rather than whatever the developer's env file happens to set.
+    process.env.DEMO_DISABLE_DOTENV = "true";
   });
 
   afterAll(() => {
@@ -70,5 +73,33 @@ describe("network profile resolution", () => {
       expect(config.DEMO_NETWORK_PROFILE).toBe("local-surfpool");
       expect(new URL(config.DEVNET_RPC).hostname).toMatch(/^(127\.\d+\.\d+\.\d+|localhost)$/);
     }
+  });
+});
+
+describe("demo-agent config env isolation", () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    jest.resetModules();
+    process.env = { ...originalEnv };
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
+  it("honours DEMO_DISABLE_DOTENV so a gitignored .env.devnet cannot supply endpoints", async () => {
+    process.env.DEMO_DISABLE_DOTENV = "true";
+    process.env.NETWORK_PROFILE = "local-surfpool";
+    const config = await import("../../packages/demo-agents/src/config");
+
+    expect(config.DOTENV_DISABLED).toBe(true);
+    expect(new URL(config.DEVNET_RPC).hostname).toMatch(/^(127\.\d+\.\d+\.\d+|localhost)$/);
+  });
+
+  it("loads dotenv by default so ordinary demo runs keep their env file", async () => {
+    delete process.env.DEMO_DISABLE_DOTENV;
+    const config = await import("../../packages/demo-agents/src/config");
+    expect(config.DOTENV_DISABLED).toBe(false);
   });
 });
