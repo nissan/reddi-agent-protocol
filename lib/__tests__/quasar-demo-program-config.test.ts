@@ -13,6 +13,9 @@ describe("Quasar demo program target config", () => {
     delete process.env.DEMO_PROGRAM_TARGET;
     delete process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID;
     delete process.env.DEMO_ESCROW_PROGRAM_ID;
+    delete process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID;
+    delete process.env.NEXT_PUBLIC_REPUTATION_PROGRAM_ID;
+    delete process.env.NEXT_PUBLIC_ATTESTATION_PROGRAM_ID;
     delete process.env.ALLOW_UNSAFE_ESCROW_OVERRIDE;
   });
 
@@ -106,6 +109,43 @@ describe("Quasar demo program target config", () => {
         expect.stringMatching(/Quasar program target was requested for mainnet.*request is refused/),
       ]),
     );
+  });
+
+  it("honours the documented per-program mainnet overrides instead of aliasing them to escrow", async () => {
+    process.env.NETWORK_PROFILE = "mainnet";
+    process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = "EscrowMainnet1111111111111111111111111111111";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryMainnet111111111111111111111111111111";
+    process.env.NEXT_PUBLIC_REPUTATION_PROGRAM_ID = "ReputationMainnet11111111111111111111111111";
+    process.env.NEXT_PUBLIC_ATTESTATION_PROGRAM_ID = "AttestationMainnet1111111111111111111111111";
+
+    const { getNetworkProfile } = await import("@/lib/config/network");
+    const profile = getNetworkProfile();
+
+    expect(profile.programs.escrowProgramId).toBe("EscrowMainnet1111111111111111111111111111111");
+    expect(profile.programs.registryProgramId).toBe("RegistryMainnet111111111111111111111111111111");
+    expect(profile.programs.reputationProgramId).toBe("ReputationMainnet11111111111111111111111111");
+    expect(profile.programs.attestationProgramId).toBe("AttestationMainnet1111111111111111111111111");
+  });
+
+  it("ignores per-program overrides on the devnet legacy-Anchor profile without the unsafe flag", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryHijack1111111111111111111111111111111";
+
+    const { getNetworkProfile } = await import("@/lib/config/network");
+    const profile = getNetworkProfile();
+
+    expect(profile.programs.registryProgramId).toBe(LEGACY_ANCHOR_PROGRAM_ID);
+  });
+
+  it("applies per-program overrides on devnet when the unsafe flag is set", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.ALLOW_UNSAFE_ESCROW_OVERRIDE = "true";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryLocal11111111111111111111111111111111";
+
+    const { getNetworkProfile } = await import("@/lib/config/network");
+    const profile = getNetworkProfile();
+
+    expect(profile.programs.registryProgramId).toBe("RegistryLocal11111111111111111111111111111111");
   });
 
   it("surfaces the mainnet gate to the app instead of throwing at module scope", async () => {

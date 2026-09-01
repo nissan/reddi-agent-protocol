@@ -7,7 +7,7 @@
     "explorerClusterParam": "mainnet"
   },
   "programs": {
-    "deploymentStatus": "not_deployed",
+    "mainnetDeploymentStatusNote": "not_deployed",
     "escrowProgramId": "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD",
     "escrowProgramIdNote": "PLACEHOLDER — no mainnet deployment exists. This is the devnet legacy Anchor program id and MUST be replaced (and this note removed) before any mainnet activation. See docs/SOLANA-EXTERNAL-AUDIT-HANDOFF-2026-06-24.md: mainnet is gated on external audit.",
     "registryProgramIdNote": "UNSET — no mainnet Quasar registry deployment is registered.",

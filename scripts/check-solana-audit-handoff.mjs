@@ -77,7 +77,7 @@ const readinessPath = path.join(repoRoot, "docs/SOLANA-CONTRACT-AUDIT-READINESS-
 
 const requiredReadinessPhrases = [
   "### Quasar Escrow",
-  "current\n  canonical job record owner for reputation/attestation job binding",
+  "current canonical job record owner for reputation/attestation job binding",
   "Status: active escrow boundary on current main; `quasar-escrow-ref` pins this",
 ];
 
@@ -91,6 +91,14 @@ const forbiddenReadinessPatterns = [
     reason: "readiness pack must not present quasar-escrow-per as the active escrow audit target",
   },
 ];
+
+function boundaryPhraseRegExp(phrase) {
+  return new RegExp(phrase.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+"));
+}
+
+function containsPhrase(text, phrase) {
+  return boundaryPhraseRegExp(phrase).test(text);
+}
 
 function fail(message, details = []) {
   console.error(`[solana-audit-handoff] FAIL: ${message}`);
@@ -118,7 +126,7 @@ if (missingFiles.length) fail("referenced files/directories are missing", missin
 const missingArtifactTerms = requiredArtifactTerms.filter((term) => !source.includes(term));
 if (missingArtifactTerms.length) fail("required artifact terms are missing", missingArtifactTerms);
 
-const missingBoundaryPhrases = requiredBoundaryPhrases.filter((phrase) => !source.includes(phrase));
+const missingBoundaryPhrases = requiredBoundaryPhrases.filter((phrase) => !containsPhrase(source, phrase));
 if (missingBoundaryPhrases.length) fail("required boundary phrases are missing", missingBoundaryPhrases);
 
 const inputCommitMatch = source.match(/Input evidence commit: `([0-9a-f]{40})`/);
@@ -158,7 +166,7 @@ if (!fs.existsSync(readinessPath)) {
 
 const readinessSource = fs.readFileSync(readinessPath, "utf8");
 
-const missingReadinessPhrases = requiredReadinessPhrases.filter((phrase) => !readinessSource.includes(phrase));
+const missingReadinessPhrases = requiredReadinessPhrases.filter((phrase) => !containsPhrase(readinessSource, phrase));
 if (missingReadinessPhrases.length) {
   fail("readiness pack is missing the reconciled escrow-boundary statements", missingReadinessPhrases);
 }

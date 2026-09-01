@@ -59,6 +59,14 @@ const requiredBoundaryPhrases = [
   "binding via `quasar-escrow-ref`",
 ];
 
+function boundaryPhraseRegExp(phrase) {
+  return new RegExp(phrase.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+"));
+}
+
+function containsPhrase(text, phrase) {
+  return boundaryPhraseRegExp(phrase).test(text);
+}
+
 function fail(message, details = []) {
   console.error(`[solana-audit-appendix] FAIL: ${message}`);
   for (const detail of details) console.error(`- ${detail}`);
@@ -80,7 +88,7 @@ if (missingReferences.length) fail("required source-path references are missing"
 const missingFiles = requiredSourcePaths.filter((sourcePath) => !fs.existsSync(path.join(repoRoot, sourcePath)));
 if (missingFiles.length) fail("referenced source files are missing from the repository", missingFiles);
 
-const missingBoundaryPhrases = requiredBoundaryPhrases.filter((phrase) => !source.includes(phrase));
+const missingBoundaryPhrases = requiredBoundaryPhrases.filter((phrase) => !containsPhrase(source, phrase));
 if (missingBoundaryPhrases.length) fail("required boundary phrases are missing", missingBoundaryPhrases);
 
 if (/Status: reference\/legacy unless a later issue reselects it as the active\s+escrow audit target/.test(source)) {

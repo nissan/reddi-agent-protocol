@@ -52,6 +52,11 @@ NEXT_PUBLIC_ATTESTATION_PROGRAM_ID=<audited-mainnet-attestation-program-id>
 NEXT_PUBLIC_PER_RPC=<mainnet-tee-endpoint>
 ```
 
+All four program id variables are read by `getNetworkProfile()`, by
+`npm run test:mainnet:readiness`, and by `packages/demo-agents`. On the devnet
+legacy-Anchor profile they are ignored unless `ALLOW_UNSAFE_ESCROW_OVERRIDE=true`,
+so a stray override cannot hijack the registered devnet program set.
+
 ## Mainnet note
 
 No mainnet deployment is registered today. `config/networks/mainnet.json` carries
@@ -62,8 +67,9 @@ that set cannot be silently reused on mainnet because clusters are separate
 ledgers and the resolver refuses `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` outside
 `NETWORK_PROFILE=devnet`. On `local-surfpool` the resolver throws; on `mainnet` it
 keeps the blocked placeholder profile and records the refused request in
-`knownGaps`, so the app renders the mainnet activation gate rather than failing to
-load.
+`knownGaps`, so `/register` and `/economic-demo` render an amber blocked-readiness
+banner listing those gaps rather than failing to load. That banner is advisory
+only — it reports readiness, it does not disable wallet submission.
 
 Mainnet switching requires explicit approval **after** external audit,
 upgrade-authority/key-control decisions, audited mainnet deployments, and all

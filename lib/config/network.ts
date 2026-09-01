@@ -109,14 +109,24 @@ export function getNetworkProfile(): NetworkProfile {
       ]
     : [];
 
-  const effectiveEscrowProgramId =
-    name === "devnet" &&
-    target === "legacy-anchor" &&
-    escrowOverride &&
-    escrowOverride !== targetProgramId &&
-    !allowUnsafeDevnetOverride
-      ? targetProgramId
-      : escrowOverride ?? targetProgramId;
+  const applyProgramIdOverride = (override: string | undefined, registered: string): string =>
+    name === "devnet" && target === "legacy-anchor" && override && override !== registered && !allowUnsafeDevnetOverride
+      ? registered
+      : override ?? registered;
+
+  const effectiveEscrowProgramId = applyProgramIdOverride(escrowOverride, targetProgramId);
+  const effectiveRegistryProgramId = applyProgramIdOverride(
+    pickEnv("NEXT_PUBLIC_REGISTRY_PROGRAM_ID", "DEMO_REGISTRY_PROGRAM_ID"),
+    target === "quasar" ? quasarPrograms.registry : effectiveEscrowProgramId,
+  );
+  const effectiveReputationProgramId = applyProgramIdOverride(
+    pickEnv("NEXT_PUBLIC_REPUTATION_PROGRAM_ID", "DEMO_REPUTATION_PROGRAM_ID"),
+    target === "quasar" ? quasarPrograms.reputation : effectiveEscrowProgramId,
+  );
+  const effectiveAttestationProgramId = applyProgramIdOverride(
+    pickEnv("NEXT_PUBLIC_ATTESTATION_PROGRAM_ID", "DEMO_ATTESTATION_PROGRAM_ID"),
+    target === "quasar" ? quasarPrograms.attestation : effectiveEscrowProgramId,
+  );
 
   return {
     ...base,
@@ -128,9 +138,9 @@ export function getNetworkProfile(): NetworkProfile {
     programs: {
       ...base.programs,
       escrowProgramId: effectiveEscrowProgramId,
-      registryProgramId: target === "quasar" ? quasarPrograms.registry : effectiveEscrowProgramId,
-      reputationProgramId: target === "quasar" ? quasarPrograms.reputation : effectiveEscrowProgramId,
-      attestationProgramId: target === "quasar" ? quasarPrograms.attestation : effectiveEscrowProgramId,
+      registryProgramId: effectiveRegistryProgramId,
+      reputationProgramId: effectiveReputationProgramId,
+      attestationProgramId: effectiveAttestationProgramId,
       target,
       framework: target === "quasar" ? "quasar" : "anchor",
       compatibility: target === "quasar" ? "quasar-layout-unverified" : "anchor-layout",

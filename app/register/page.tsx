@@ -12,6 +12,7 @@ import {
   PROGRAM_COMPATIBILITY,
   PROGRAM_SUBMISSION_READY,
   PROGRAM_KNOWN_GAPS,
+  PROGRAM_DEPLOYMENT_STATUS,
   agentPda,
 } from "@/lib/program";
 import { toExplorerTxUrl } from "@/lib/config/explorer";
@@ -625,23 +626,26 @@ function RegisterInner() {
           </Card>
         ))}
       </div>
-      {PROGRAM_TARGET === "quasar" && (
+      {(PROGRAM_TARGET === "quasar" || !PROGRAM_SUBMISSION_READY) && (
         <Card
           className={`space-y-2 p-4 text-sm ${PROGRAM_SUBMISSION_READY ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-50" : "border-amber-400/25 bg-amber-500/10 text-amber-50"}`}
         >
           <p className="font-semibold">
-            Quasar mode is active
-            {PROGRAM_SUBMISSION_READY
-              ? " and marked submission-ready."
-              : ", but submission readiness is still blocked."}
+            {PROGRAM_TARGET === "quasar"
+              ? PROGRAM_SUBMISSION_READY
+                ? "Quasar mode is active and marked submission-ready."
+                : "Quasar mode is active, but submission readiness is still blocked."
+              : "Submission readiness is blocked for the active network profile."}
           </p>
           <p className="text-xs opacity-85">
             Target: <span className="font-mono">{PROGRAM_TARGET}</span> ·
             Compatibility:{" "}
-            <span className="font-mono">{PROGRAM_COMPATIBILITY}</span>.
-            Registration instruction construction uses the Quasar registry
-            layout, but wallet submission should wait for the full proof chain
-            unless you are deliberately testing this path.
+            <span className="font-mono">{PROGRAM_COMPATIBILITY}</span> ·
+            Deployment:{" "}
+            <span className="font-mono">{PROGRAM_DEPLOYMENT_STATUS}</span>.
+            {PROGRAM_TARGET === "quasar"
+              ? " Registration instruction construction uses the Quasar registry layout, but wallet submission should wait for the full proof chain unless you are deliberately testing this path."
+              : " This banner is advisory: it reports the recorded readiness gaps but does not block wallet submission."}
           </p>
           {!PROGRAM_SUBMISSION_READY && PROGRAM_KNOWN_GAPS.length > 0 && (
             <ul className="list-disc space-y-1 pl-4 text-xs opacity-85">

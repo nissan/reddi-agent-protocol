@@ -23,6 +23,7 @@ export const PROGRAM_FRAMEWORK = network.programs.framework;
 export const PROGRAM_COMPATIBILITY = network.programs.compatibility;
 export const PROGRAM_SUBMISSION_READY = network.programs.submissionReady;
 export const PROGRAM_KNOWN_GAPS = network.programs.knownGaps;
+export const PROGRAM_DEPLOYMENT_STATUS = network.programs.deploymentStatus;
 
 /** Solana RPC endpoint from active network profile */
 export const DEVNET_RPC = network.solana.rpcHttp;

@@ -37,7 +37,7 @@ DEFAULT_ESCROW_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("escrowProg
 DEFAULT_REGISTRY_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("registryProgramId", "")')"
 DEFAULT_REPUTATION_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("reputationProgramId", "")')"
 DEFAULT_ATTESTATION_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("attestationProgramId", "")')"
-PLACEHOLDER_ESCROW_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("escrowProgramId", "") if obj["programs"].get("deploymentStatus") == "not_deployed" or obj["programs"].get("escrowProgramIdNote") else ""')"
+PLACEHOLDER_ESCROW_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("escrowProgramId", "") if obj["programs"].get("mainnetDeploymentStatusNote") == "not_deployed" or obj["programs"].get("escrowProgramIdNote") else ""')"
 DEFAULT_PER_RPC="$(read_profile_value 'obj["payments"]["perRpc"]')"
 DEFAULT_JUPITER_BASE="$(read_profile_value 'obj["payments"]["jupiterApiBase"]')"
 
@@ -139,7 +139,7 @@ def program_id_defect(name, value):
     if not value.strip():
         return "unset"
     if name == "escrow" and placeholder_escrow_program_id and value.strip() == placeholder_escrow_program_id:
-        return "placeholder (profile records deploymentStatus=not_deployed)"
+        return "placeholder (mainnet.json records mainnetDeploymentStatusNote=not_deployed)"
     return None
 
 unconfigured_program_ids = [
@@ -172,7 +172,7 @@ checks = [
         "id": "mainnet_program_set_configured",
         "blocking": True,
         "ok": program_set_configured,
-        "detail": "all four program ids are audited mainnet deployments" if program_set_configured else f"unconfigured ids: {'; '.join(unconfigured_program_ids)}",
+        "detail": "all four program ids present; escrow is not the recorded placeholder (this check does not prove audit or deployment)" if program_set_configured else f"unconfigured ids: {'; '.join(unconfigured_program_ids)}",
         "fix": None if program_set_configured else "Record audited mainnet registry, escrow, reputation, and attestation program ids (and clear the placeholder escrow id in config/networks/mainnet.json) before mainnet activation.",
     },
     {
