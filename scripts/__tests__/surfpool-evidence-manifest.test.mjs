@@ -676,6 +676,75 @@ test("an intermediate component of a multi-segment root escaping the repository 
   });
 });
 
+test("a fingerprinted source read refuses an intermediate directory swapped to a symlink after the walk", async () => {
+  await withRepo(async (repoRoot) => {
+    await seedFingerprintSources(repoRoot, "quasar");
+    assert.doesNotThrow(() => computeLaneSourceFingerprint(repoRoot, "quasar"));
+
+    const outside = await fsp.mkdtemp(path.join(os.tmpdir(), "rap-swapped-source-root-"));
+    const sourceDir = path.join(repoRoot, "lib/config");
+    const movedDir = path.join(outside, "config");
+    const triggerPath = path.join(sourceDir, "network.ts");
+    const originalOpenSync = fs.openSync;
+    let swapped = false;
+    fs.openSync = function patchedOpenSync(file, flags, mode) {
+      if (!swapped && path.resolve(String(file)) === triggerPath) {
+        swapped = true;
+        fs.renameSync(sourceDir, movedDir);
+        fs.symlinkSync(movedDir, sourceDir, "dir");
+      }
+      return originalOpenSync.call(this, file, flags, mode);
+    };
+
+    try {
+      assert.throws(
+        () => computeLaneSourceFingerprint(repoRoot, "quasar"),
+        /opened outside its allowed root/,
+      );
+      assert.equal(swapped, true, "the regression must exercise the walk-to-read race");
+    } finally {
+      fs.openSync = originalOpenSync;
+      await fsp.rm(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+test("artifact digest reads refuse an evidence root swapped to a symlink after containment validation", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-artifact-root-swap");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+    assert.doesNotThrow(() =>
+      readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary", "log"] }));
+
+    const outside = await fsp.mkdtemp(path.join(os.tmpdir(), "rap-swapped-evidence-root-"));
+    const evidenceRoot = path.join(repoRoot, dir);
+    const movedRoot = path.join(outside, "surfpool-quasar-smoke");
+    const triggerPath = path.join(evidenceRoot, record.runId, "SUMMARY.md");
+    const originalOpenSync = fs.openSync;
+    let swapped = false;
+    fs.openSync = function patchedOpenSync(file, flags, mode) {
+      if (!swapped && path.resolve(String(file)) === triggerPath) {
+        swapped = true;
+        fs.renameSync(evidenceRoot, movedRoot);
+        fs.symlinkSync(movedRoot, evidenceRoot, "dir");
+      }
+      return originalOpenSync.call(this, file, flags, mode);
+    };
+
+    try {
+      assert.throws(
+        () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary", "log"] }),
+        /opened outside its allowed root/,
+      );
+      assert.equal(swapped, true, "the regression must exercise the validation-to-read race");
+    } finally {
+      fs.openSync = originalOpenSync;
+      await fsp.rm(outside, { recursive: true, force: true });
+    }
+  });
+});
+
 test("a repository reached through a symlinked root still fingerprints, and to the same digest", async () => {
   // The per-file containment re-check resolves real paths, so it must compare against the resolved
   // repository root: a checkout reached through a symlinked parent (or a /tmp that is itself a link)

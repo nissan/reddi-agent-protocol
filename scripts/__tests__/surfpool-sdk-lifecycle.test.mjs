@@ -334,6 +334,14 @@ test("loopback validation rejects malformed, non-loopback, and live-network-styl
   assert.throws(() => assertLoopbackEndpoint("https://api.mainnet-beta.solana.com", "rpc"), SurfpoolSafetyError);
   assert.throws(() => assertLoopbackEndpoint("http://0.0.0.0:8899", "rpc"), SurfpoolSafetyError);
   assert.throws(() => assertLoopbackEndpoint("not a url", "rpc"), SurfpoolSafetyError);
+  assert.throws(
+    () => assertLoopbackEndpoint("http://operator:secret@127.0.0.1:8899", "rpc"),
+    /must not include credentials/,
+  );
+  assert.throws(
+    () => assertLoopbackEndpoint("ws://:secret@[::1]:8900", "ws"),
+    /must not include credentials/,
+  );
 });
 
 test("Quasar output parser requires all four explicit local program IDs and no fallback", () => {

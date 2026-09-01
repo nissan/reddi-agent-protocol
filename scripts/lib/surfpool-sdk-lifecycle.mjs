@@ -78,6 +78,10 @@ export function assertLoopbackEndpoint(raw, label = "endpoint") {
     throw new SurfpoolSafetyError(`${label} must use http:// or ws:// for local Surfpool; got ${url.protocol}`);
   }
 
+  if (url.username || url.password) {
+    throw new SurfpoolSafetyError(`${label} must not include credentials`);
+  }
+
   if (!isLoopbackHostname(url.hostname)) {
     throw new SurfpoolSafetyError(`${label} must bind to loopback only; got host ${url.hostname}`);
   }

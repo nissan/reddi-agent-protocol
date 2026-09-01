@@ -135,36 +135,78 @@ const LANE_FINGERPRINT_PATHS = Object.freeze({
  * A platform without `O_NOFOLLOW` cannot provide that proof, so it is refused rather than
  * downgraded to a following read.
  */
-function readFingerprintedFile(absolutePath, label, identity) {
+function isSameOrChild(parent, candidate) {
+  const relative = path.relative(parent, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function openedDescriptorPath(fd, label) {
+  if (process.platform !== "linux") {
+    throw new EvidenceManifestError(
+      `this platform cannot verify the opened descriptor for ${label}, so evidence cannot be bound to it`,
+    );
+  }
+  try {
+    return fs.realpathSync(`/proc/self/fd/${fd}`);
+  } catch (error) {
+    throw new EvidenceManifestError(
+      `could not verify the opened descriptor for ${label}: ${error?.message ?? error}`,
+    );
+  }
+}
+
+function assertOpenedDescriptorContained(fd, containmentRootRealPath, label) {
+  const openedPath = openedDescriptorPath(fd, label);
+  if (!isSameOrChild(containmentRootRealPath, openedPath)) {
+    throw new EvidenceManifestError(
+      `${label} opened outside its allowed root while evidence was being computed: ${openedPath}`,
+    );
+  }
+}
+
+/**
+ * Reads a file the receipt will be bound to, refusing to follow a symlink in the final path
+ * component and hashing the bytes from that same descriptor. `identity`, when supplied, is the
+ * device/inode/size the walk validated: a mismatch means the path was re-pointed at a different
+ * file between the walk and the read, and the read is refused rather than silently hashed.
+ *
+ * A platform without `O_NOFOLLOW` or `/proc/self/fd` cannot provide that proof, so it is refused
+ * rather than downgraded to a following read.
+ */
+function readFingerprintedFile(repoRoot, relativePath, options = {}) {
   const { O_RDONLY, O_NOFOLLOW } = fs.constants;
   if (typeof O_NOFOLLOW !== "number") {
     throw new EvidenceManifestError(
-      `this platform cannot open ${label} without following symbolic links, so evidence cannot be bound to it`,
+      `this platform cannot open ${relativePath} without following symbolic links, so evidence cannot be bound to it`,
     );
   }
 
+  const containmentRootRealPath = options.containmentRootRealPath ?? fs.realpathSync(repoRoot);
+  const identity = options.identity;
+  const absolutePath = path.join(repoRoot, relativePath);
   let fd;
   try {
     fd = fs.openSync(absolutePath, O_RDONLY | O_NOFOLLOW);
   } catch (error) {
     if (error?.code === "ELOOP" || error?.code === "EMLINK") {
-      throw new EvidenceManifestError(`${label} must not be a symbolic link: ${label}`);
+      throw new EvidenceManifestError(`${relativePath} must not be a symbolic link: ${relativePath}`);
     }
-    throw new EvidenceManifestError(`${label} could not be opened: ${error?.message ?? error}`);
+    throw new EvidenceManifestError(`${relativePath} could not be opened: ${error?.message ?? error}`);
   }
 
   try {
     const opened = fs.fstatSync(fd);
     if (!opened.isFile()) {
-      throw new EvidenceManifestError(`${label} must be an ordinary file`);
+      throw new EvidenceManifestError(`${relativePath} must be an ordinary file`);
     }
-    if (identity && (opened.dev !== identity.dev || opened.ino !== identity.ino)) {
-      throw new EvidenceManifestError(`${label} was replaced while evidence was being computed`);
+    assertOpenedDescriptorContained(fd, containmentRootRealPath, relativePath);
+    if (identity && (opened.dev !== identity.dev || opened.ino !== identity.ino || opened.size !== identity.size)) {
+      throw new EvidenceManifestError(`${relativePath} was replaced while evidence was being computed`);
     }
     const contents = fs.readFileSync(fd);
     const afterRead = fs.fstatSync(fd);
     if (afterRead.dev !== opened.dev || afterRead.ino !== opened.ino || afterRead.size !== opened.size) {
-      throw new EvidenceManifestError(`${label} changed while it was being read`);
+      throw new EvidenceManifestError(`${relativePath} changed while it was being read`);
     }
     return contents;
   } finally {
@@ -172,15 +214,34 @@ function readFingerprintedFile(absolutePath, label, identity) {
   }
 }
 
-function fileContentDigest(repoRoot, relativePath) {
-  const contents = readFingerprintedFile(path.join(repoRoot, relativePath), relativePath);
+function containmentRootRealPath(repoRoot, containmentRootRelativePath, label) {
+  if (!containmentRootRelativePath) return fs.realpathSync(repoRoot);
+  const normalized = path.normalize(containmentRootRelativePath);
+  assertNoSymlinkPathComponents(repoRoot, normalized, label);
+  const realRepoRoot = fs.realpathSync(repoRoot);
+  const resolved = fs.realpathSync(path.join(repoRoot, normalized));
+  if (!isSameOrChild(realRepoRoot, resolved)) {
+    throw new EvidenceManifestError(`${label} resolves outside the repository through a symlink: ${containmentRootRelativePath}`);
+  }
+  return resolved;
+}
+
+function fileContentDigest(repoRoot, relativePath, options = {}) {
+  const contents = readFingerprintedFile(repoRoot, relativePath, {
+    ...options,
+    containmentRootRealPath: options.containmentRootRealPath ?? containmentRootRealPath(
+      repoRoot,
+      options.containmentRootRelativePath,
+      options.containmentRootLabel ?? "evidence root",
+    ),
+  });
   return `sha256:${crypto.createHash("sha256").update(contents).digest("hex")}`;
 }
 
 function digestFile(hash, repoRoot, entry) {
   hash.update(entry.relativePath.split(path.sep).join("/"));
   hash.update("\0");
-  hash.update(readFingerprintedFile(path.join(repoRoot, entry.relativePath), entry.relativePath, entry));
+  hash.update(readFingerprintedFile(repoRoot, entry.relativePath, { identity: entry }));
   hash.update("\0");
 }
 
@@ -211,7 +272,7 @@ function walkFiles(repoRoot, relativePath, out) {
   }
   if (stat.isFile()) {
     assertContainedRealPath(repoRoot, relativePath);
-    out.push({ relativePath, dev: stat.dev, ino: stat.ino });
+    out.push({ relativePath, dev: stat.dev, ino: stat.ino, size: stat.size });
     return;
   }
   if (!stat.isDirectory()) {
@@ -402,7 +463,10 @@ export async function writeAcceptedEvidenceManifest(manifestDir, record) {
     return {
       ...artifact,
       path: contained.split(path.sep).join("/"),
-      sha256: fileContentDigest(record.repoRoot, contained),
+      sha256: fileContentDigest(record.repoRoot, contained, {
+        containmentRootRelativePath: record.manifestRelativeDir,
+        containmentRootLabel: "evidence root",
+      }),
     };
   });
 
@@ -504,7 +568,10 @@ export function readAcceptedEvidenceManifest(repoRoot, manifestRelativeDir, { ta
     if (!artifact.sha256) {
       throw new EvidenceManifestError(`accepted evidence at ${manifestRelativeDir} does not bind the ${artifact.name} artifact content hash`);
     }
-    const actualDigest = fileContentDigest(repoRoot, contained);
+    const actualDigest = fileContentDigest(repoRoot, contained, {
+      containmentRootRelativePath: manifestRelativeDir,
+      containmentRootLabel: "evidence root",
+    });
     if (artifact.sha256 !== actualDigest) {
       throw new EvidenceManifestError(
         `accepted evidence at ${manifestRelativeDir} cites a ${artifact.name} artifact whose content changed ` +
