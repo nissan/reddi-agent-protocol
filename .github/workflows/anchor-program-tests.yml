@@ -14,6 +14,7 @@ on:
       - "scripts/check-solana-baseline-pins.mjs"
       - "scripts/solana-baseline-toolchain.sh"
       - "scripts/lib/solana-baseline-version-match.sh"
+      - "scripts/__tests__/**"
       - ".github/workflows/anchor-program-tests.yml"
       - ".github/workflows/quasar-program-tests.yml"
   pull_request:
@@ -29,6 +30,7 @@ on:
       - "scripts/check-solana-baseline-pins.mjs"
       - "scripts/solana-baseline-toolchain.sh"
       - "scripts/lib/solana-baseline-version-match.sh"
+      - "scripts/__tests__/**"
       - ".github/workflows/anchor-program-tests.yml"
       - ".github/workflows/quasar-program-tests.yml"
   workflow_dispatch:
