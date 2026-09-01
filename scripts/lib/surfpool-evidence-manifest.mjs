@@ -126,15 +126,6 @@ const LANE_FINGERPRINT_PATHS = Object.freeze({
   ]),
 });
 
-/**
- * Reads a file the receipt will be bound to, refusing to follow a symlink in the final path
- * component and hashing the bytes of the descriptor that check opened. `identity`, when supplied,
- * is the device/inode the walk validated: a mismatch means the path was re-pointed at a different
- * file between the walk and the read, and the read is refused rather than silently hashed.
- *
- * A platform without `O_NOFOLLOW` cannot provide that proof, so it is refused rather than
- * downgraded to a following read.
- */
 function isSameOrChild(parent, candidate) {
   const relative = path.relative(parent, candidate);
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
