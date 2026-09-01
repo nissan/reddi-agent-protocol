@@ -1,5 +1,5 @@
 import { validateAttestationRecord, } from './attestation-reputation.js';
-import { AUDD_ASSET, canonicalSolanaNetworkAlias, isKnownAuddMint, networkAliasForCaip2, validateAuddRailIdentity, } from './audd-rail-config.js';
+import { AUDD_ASSET, canonicalSolanaNetworkAlias, isAuddAsset, isKnownAuddMint, networkAliasForCaip2, validateAuddRailIdentity, } from './audd-rail-config.js';
 import { auddEligibilityMatchesRail, auddLabelMatchesRail, deriveAuddRailEnvironment, } from './audd-payment-plan.js';
 import { validateEvidenceArchiveRecord, } from './evidence-archive.js';
 import { validatePaymentObservationRecord, } from './payment-records.js';
@@ -151,6 +151,17 @@ function validatePaymentPreflight(input, errors) {
         errors.push(error('missing_payment_preflight', '$.paymentPreflight.paymentPlan', 'payment plan metadata is required'));
         return;
     }
+    if (isAuddAsset(input.receipt.payment.asset)
+        || isAuddAsset(proof.paymentPlan.asset)
+        || isAuddAsset(input.receipt.policyDecision.asset)
+        || isAuddAsset(proof.policyDecision?.asset)) {
+        if (input.receipt.payment.asset !== AUDD_ASSET
+            || proof.paymentPlan.asset !== AUDD_ASSET
+            || input.receipt.policyDecision.asset !== AUDD_ASSET
+            || (proof.policyDecision !== undefined && proof.policyDecision.asset !== AUDD_ASSET)) {
+            errors.push(error('payment_plan_mismatch', '$.paymentPreflight.paymentPlan.asset', 'AUDD receipt and preflight metadata must use the canonical AUDD asset symbol'));
+        }
+    }
     if (proof.paymentPlan.asset !== input.receipt.payment.asset
         || proof.paymentPlan.network !== input.receipt.payment.network
         || proof.paymentPlan.amount !== input.receipt.payment.amount) {
@@ -180,7 +191,7 @@ function validatePaymentObservation(input, errors) {
     if (observation.labels.eligibility === 'eligible' && ['deterministic-fixture', 'local-test-mint', 'devnet-unverified'].includes(observation.labels.environment)) {
         errors.push(error('payment_observation_ineligible', '$.paymentObservation.labels.eligibility', 'fixture, local-test-mint, and devnet payment observations are not eligible for grant-volume claims'));
     }
-    const observesAudd = observation.payment.asset === AUDD_ASSET || isKnownAuddMint(observation.payment.mint);
+    const observesAudd = isAuddAsset(observation.payment.asset) || isKnownAuddMint(observation.payment.mint);
     const observedRail = observation.payment.mint === undefined || !observesAudd
         ? undefined
         : deriveAuddRailEnvironment({

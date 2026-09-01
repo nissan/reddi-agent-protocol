@@ -1,6 +1,7 @@
 import type { ReddiPaymentEligibilityLabel, ReddiPaymentEnvironmentLabel } from './payment-records.js';
 export declare const AUDD_RAIL_CONFIG_SCHEMA_VERSION: "reddi.audd-rail-config.v1";
 export declare const AUDD_ASSET: "AUDD";
+export declare function isAuddAsset(value: unknown): value is string;
 export declare const AUDD_DECIMALS: 6;
 export declare const AUDD_DETERMINISTIC_FIXTURE_MINT: "AUDDdev111111111111111111111111111111111111";
 export declare const AUDD_OFFICIAL_SOLANA_MAINNET_MINT: "AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw";

@@ -97,6 +97,16 @@ describe('AUDD/Solana payment plan adapter', () => {
     assert.equal(decision.paymentPlan?.asset, 'AUDD');
     assert.equal(decision.policyDecision?.quotedAmount?.asset, 'AUDD');
     assert.equal(decision.policyDecision?.approvalState, 'approved');
+
+    const lowercaseQuote = evaluateAuddPaymentPlanPreflight({
+      ...challenge,
+      quote: { ...challenge.quote, asset: 'audd' },
+    }, {
+      ...baseBuyerPolicy,
+      evaluateBudgetPolicy: allowBudget,
+    });
+    assert.equal(lowercaseQuote.allowed, false);
+    assert.deepEqual(lowercaseQuote.reasonCodes, ['wrong_asset']);
   });
 
   it('fails closed for wrong network, wrong mint, and missing payee', () => {

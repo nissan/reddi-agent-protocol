@@ -189,6 +189,13 @@ describe('canonical RAP payment identifiers and records', () => {
       }),
       /audd_rail_identity_mismatch/,
     );
+
+    const lowercaseUnknownIntent = validatePaymentIntentRecord({
+      ...intent,
+      asset: { ...intent.asset, symbol: 'audd', mint: 'UnknownAuddMint111111111111111111111111111111' },
+    });
+    assert.equal(lowercaseUnknownIntent.ok, false);
+    if (!lowercaseUnknownIntent.ok) assert.ok(lowercaseUnknownIntent.errors.some((item) => item.code === 'audd_rail_identity_mismatch' && item.path === '$.asset.symbol'));
   });
 
   it('enforces canonical AUDD rail identity on generic payment observations', () => {
@@ -228,6 +235,23 @@ describe('canonical RAP payment identifiers and records', () => {
     });
     assert.equal(missingTokenProgram.ok, false);
     if (!missingTokenProgram.ok) assert.ok(missingTokenProgram.errors.some((item) => item.code === 'audd_rail_identity_mismatch' && item.path === '$.payment.tokenProgram'));
+
+    const lowercaseForgedAudd = validatePaymentObservationRecord({
+      ...observation,
+      payment: {
+        ...observation.payment,
+        asset: 'audd',
+        mint: 'UnknownAuddMint111111111111111111111111111111',
+        rail: 'unrelated-payment-rail',
+        tokenProgram: undefined,
+      },
+    });
+    assert.equal(lowercaseForgedAudd.ok, false);
+    if (!lowercaseForgedAudd.ok) {
+      assert.ok(lowercaseForgedAudd.errors.some((item) => item.path === '$.payment.asset'));
+      assert.ok(lowercaseForgedAudd.errors.some((item) => item.path === '$.payment.rail'));
+      assert.ok(lowercaseForgedAudd.errors.some((item) => item.path === '$.payment.tokenProgram'));
+    }
 
     assert.throws(
       () => createPaymentObservationRecord({

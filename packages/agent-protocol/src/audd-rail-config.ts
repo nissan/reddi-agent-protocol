@@ -2,6 +2,10 @@ import type { ReddiPaymentEligibilityLabel, ReddiPaymentEnvironmentLabel } from 
 
 export const AUDD_RAIL_CONFIG_SCHEMA_VERSION = 'reddi.audd-rail-config.v1' as const;
 export const AUDD_ASSET = 'AUDD' as const;
+
+export function isAuddAsset(value: unknown): value is string {
+  return typeof value === 'string' && value.toUpperCase() === AUDD_ASSET;
+}
 export const AUDD_DECIMALS = 6 as const;
 export const AUDD_DETERMINISTIC_FIXTURE_MINT = 'AUDDdev111111111111111111111111111111111111' as const;
 export const AUDD_OFFICIAL_SOLANA_MAINNET_MINT = 'AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw' as const;

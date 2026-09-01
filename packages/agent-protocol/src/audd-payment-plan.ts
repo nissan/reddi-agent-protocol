@@ -758,7 +758,7 @@ export function evaluateAuddPaymentPlanPreflight(
   if (!plan) {
     return deny('payment_plan_malformed', 'Denied: AUDD/Solana payment plan metadata is malformed.');
   }
-  if (challenge.quote.asset.toUpperCase() !== AUDD_ASSET) {
+  if (challenge.quote.asset !== AUDD_ASSET) {
     return deny('wrong_asset', 'Denied: challenge quote asset is not AUDD.', { paymentPlan: plan });
   }
   if (challenge.quote.amount !== plan.amount || challenge.quote.network !== plan.network || challenge.payTo !== plan.payee) {

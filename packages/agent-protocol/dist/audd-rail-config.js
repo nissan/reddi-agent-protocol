@@ -1,5 +1,8 @@
 export const AUDD_RAIL_CONFIG_SCHEMA_VERSION = 'reddi.audd-rail-config.v1';
 export const AUDD_ASSET = 'AUDD';
+export function isAuddAsset(value) {
+    return typeof value === 'string' && value.toUpperCase() === AUDD_ASSET;
+}
 export const AUDD_DECIMALS = 6;
 export const AUDD_DETERMINISTIC_FIXTURE_MINT = 'AUDDdev111111111111111111111111111111111111';
 export const AUDD_OFFICIAL_SOLANA_MAINNET_MINT = 'AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw';

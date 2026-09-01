@@ -270,6 +270,29 @@ describe('receipt/evidence binding for ARD-onboarded agents', () => {
     }
   });
 
+  it('rejects lowercase AUDD receipt and preflight metadata', () => {
+    const input = validInput();
+    const paymentPlan = input.paymentPreflight.paymentPlan;
+    if (!paymentPlan) throw new Error('test fixture must carry an AUDD payment plan');
+    const result = deriveReceiptEvidenceBinding({
+      ...input,
+      receipt: {
+        ...input.receipt,
+        payment: { ...input.receipt.payment, asset: 'audd' },
+        policyDecision: { ...input.receipt.policyDecision, asset: 'audd' },
+      },
+      paymentPreflight: {
+        ...input.paymentPreflight,
+        paymentPlan: { ...paymentPlan, asset: 'audd' },
+        policyDecision: input.paymentPreflight.policyDecision
+          ? { ...input.paymentPreflight.policyDecision, asset: 'audd' }
+          : undefined,
+      },
+    } as unknown as ReceiptEvidenceBindingInput);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.ok(result.errors.some((item) => item.code === 'payment_plan_mismatch'));
+  });
+
   it('binds a non-live AUDD TransferChecked observation without making it grant eligible', () => {
     const input = validInput();
     const plan = input.paymentPreflight.paymentPlan;

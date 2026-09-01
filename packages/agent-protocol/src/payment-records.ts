@@ -6,6 +6,7 @@ import {
   canonicalSolanaNetworkAlias,
   deriveCanonicalAuddRailEnvironment,
   getAuddRailEnvironmentConfig,
+  isAuddAsset,
   isKnownAuddMint,
   networkAliasForCaip2,
   validateAuddRailIdentity,
@@ -411,8 +412,11 @@ function validateAuddIntentRail(record: ReddiPaymentIntentRecord, errors: ReddiP
   if (!isPlainObject(record.labels) || !isPlainObject(record.asset) || !isPlainObject(record.network)) return;
   const asset = record.asset;
   const labels = record.labels;
-  const usesAudd = asset.symbol === AUDD_ASSET || isKnownAuddMint(asset.mint);
+  const usesAudd = isAuddAsset(asset.symbol) || isKnownAuddMint(asset.mint);
   if (!usesAudd) return;
+  if (asset.symbol !== AUDD_ASSET) {
+    errors.push(error('audd_rail_identity_mismatch', '$.asset.symbol', 'AUDD payment intents must use the canonical AUDD asset symbol'));
+  }
   if (!isNonEmptyString(asset.mint)) {
     errors.push(error('audd_rail_identity_mismatch', '$.asset.mint', 'AUDD payment intents must include the mint'));
     return;
@@ -560,8 +564,11 @@ function validateAuddObservationRail(record: ReddiPaymentObservationRecord, erro
   if (!isPlainObject(record.labels) || !isPlainObject(record.payment) || !isPlainObject(record.payment.network)) return;
   const payment = record.payment;
   const labels = record.labels;
-  const observesAudd = payment.asset === AUDD_ASSET || isKnownAuddMint(payment.mint);
+  const observesAudd = isAuddAsset(payment.asset) || isKnownAuddMint(payment.mint);
   if (!observesAudd) return;
+  if (payment.asset !== AUDD_ASSET) {
+    errors.push(error('audd_rail_identity_mismatch', '$.payment.asset', 'AUDD payment observations must use the canonical AUDD asset symbol'));
+  }
   if (payment.rail !== 'svm-spl-token-transfer-checked') {
     errors.push(error('audd_rail_identity_mismatch', '$.payment.rail', 'AUDD payment observations must use the SVM SPL Token TransferChecked rail'));
   }
