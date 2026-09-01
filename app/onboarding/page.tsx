@@ -26,6 +26,7 @@ import {
   REGISTRY_PROGRAM_ID,
   ATTESTATION_PROGRAM_ID,
   INCINERATOR,
+  PROGRAM_KNOWN_GAPS,
   PROGRAM_TARGET,
   SUBMISSION_BLOCKED,
   SUBMISSION_BLOCKED_LABEL,
@@ -1167,6 +1168,17 @@ export default function OnboardingPage() {
                   ? "Registering on-chain..."
                   : "Register specialist on-chain"}
             </Button>
+
+            {PROGRAM_KNOWN_GAPS.length > 0 && (
+              <div className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+                <p className="font-semibold">Known readiness gaps for the active network profile:</p>
+                <ul className="mt-2 list-disc space-y-1 pl-4">
+                  {PROGRAM_KNOWN_GAPS.map((gap) => (
+                    <li key={gap}>{gap}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {registerError && (
               <div className="rounded-lg border border-red-400/30 bg-red-500/10 p-3 text-xs text-red-300">

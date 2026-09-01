@@ -339,7 +339,7 @@ describe("Quasar demo program target config", () => {
     const profile = getNetworkProfile();
 
     expect(profile.programs.registryProgramId).toBe("RegistryLoca1111111111111111111111111111111");
-    expect(profile.programs.knownGaps.join(" ")).not.toMatch(/were ignored and the registered program id is used/);
+    expect(profile.programs.knownGaps.join(" ")).not.toMatch(/match the registered devnet program set/);
   });
 
   it("refuses to repoint the registered Quasar devnet program set via a stray override", async () => {

@@ -160,5 +160,5 @@ Artifacts are written to:
 - `artifacts/mainnet-readiness/<timestamp>/result.json`
 
 Current expected blockers before first mainnet deploy:
-- `mainnet_program_set_configured` fails until audited registry, escrow, reputation, and attestation ids are recorded for mainnet.
+- `mainnet_program_set_configured` fails until audited registry, escrow, reputation, and attestation ids are recorded for mainnet — none of the four may be the known placeholder id — and until `mainnetDeploymentStatusNote` is cleared from `config/networks/mainnet.json`.
 - `escrow_program_executable` fails until the audited escrow program is deployed to mainnet and `NEXT_PUBLIC_ESCROW_PROGRAM_ID` points to that deployed address.
