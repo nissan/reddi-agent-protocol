@@ -1,6 +1,20 @@
-# Quasar-Backed Reputation Instruction Fixture Gate — `reddi.quasar-reputation-intent.v1` (#443)
+# Quasar-Backed Reputation Instruction Fixture Gate — `reddi.quasar-reputation-intent.v2` (#443)
 
-**Status: v1 fixture/intent gate (parent epics #394 / #388).**
+**Status: v2 fixture/intent gate (parent epics #394 / #388).**
+
+`v2` supersedes `v1` and is a breaking record shape, so the identifier changes rather than being
+reinterpreted. Against the post-job-binding current sources:
+
+- `deferredToInstructionBuilder` is `{ instructionData, accountInputs }` instead of a flat string
+  list, separating ABI arguments from account/signer inputs.
+- Every record carries a required `escrowBinding` block naming the escrow a real
+  `quasar-escrow::lock` created, always `state: 'not_resolved'`.
+- `compactFields.commitment.preimageFields` keys on `escrow_address` instead of the caller-supplied
+  `job_id` the current ABI dropped.
+
+No producer emits `v1`, nothing re-reads stored `v1` records, and no consumer reinterprets one: a
+reader keyed on the `v1` identifier simply keeps rejecting these records.
+
 Module: `packages/agent-protocol/src/quasar-reputation-intent.ts` · Tests: `packages/agent-protocol/tests/quasar-reputation-intent.test.ts` · Subpath export: `@reddi/agent-protocol/quasar-reputation-intent`.
 
 A **deterministic, fixture-level** mapping from eligible reputation/attestation records to Quasar

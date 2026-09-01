@@ -3,8 +3,18 @@ import { QUASAR_REGISTRY_COMPATIBILITY_SCHEMA_VERSION, type QuasarRegistryCompat
 import { type ReceiptEvidenceBinding } from './receipt-evidence-binding.js';
 import type { RailNeutralPaymentReceipt } from './rail-neutral-payment-receipts.js';
 /**
- * `reddi.quasar-reputation-intent.v1` — Quasar-backed reputation instruction
+ * `reddi.quasar-reputation-intent.v2` — Quasar-backed reputation instruction
  * fixture gate (#443).
+ *
+ * v2 supersedes v1 for the post-job-binding current sources and is a breaking
+ * record shape, so the identifier changes rather than being reinterpreted:
+ * `deferredToInstructionBuilder` is now `{ instructionData, accountInputs }`
+ * instead of a flat string list, every record carries a required
+ * `escrowBinding` block, and `compactFields.commitment.preimageFields` keys on
+ * `escrow_address` instead of the caller-supplied `job_id` the current ABI
+ * dropped. A consumer keyed on the v1 identifier keeps rejecting these records
+ * rather than reading a shape it cannot parse; nothing re-emits or reinterprets
+ * v1.
  *
  * Deterministic, fixture-level mapping from eligible reputation/attestation
  * records (a validated `reddi.receipt-evidence-binding.v1` plus the #390
@@ -28,7 +38,7 @@ import type { RailNeutralPaymentReceipt } from './rail-neutral-payment-receipts.
  * metadata (evidence, attestation, preview, payment proof) stays off-chain
  * and is referenced by id in `offchainRefs`.
  */
-export declare const QUASAR_REPUTATION_INTENT_SCHEMA_VERSION: "reddi.quasar-reputation-intent.v1";
+export declare const QUASAR_REPUTATION_INTENT_SCHEMA_VERSION: "reddi.quasar-reputation-intent.v2";
 /**
  * Compact-field contract for the two Quasar program lanes this gate maps
  * into, mirroring the parity ports under `experiments/quasar-reputation` and

@@ -153,18 +153,48 @@ function walkFiles(repoRoot, relativePath, out) {
   const absolute = path.join(repoRoot, relativePath);
   let stat;
   try {
-    stat = fs.statSync(absolute);
+    stat = fs.lstatSync(absolute);
   } catch {
     return;
   }
+  if (stat.isSymbolicLink()) {
+    throw new EvidenceManifestError(
+      `fingerprinted sources must not traverse symbolic links: ${relativePath}`,
+    );
+  }
   if (stat.isFile()) {
+    assertContainedRealPath(repoRoot, relativePath);
     out.push(relativePath);
     return;
   }
-  if (!stat.isDirectory()) return;
+  if (!stat.isDirectory()) {
+    throw new EvidenceManifestError(
+      `fingerprinted sources must be ordinary files or directories: ${relativePath}`,
+    );
+  }
   for (const entry of fs.readdirSync(absolute).sort()) {
     if (FINGERPRINT_IGNORED_DIRECTORIES.has(entry)) continue;
     walkFiles(repoRoot, path.join(relativePath, entry), out);
+  }
+}
+
+/**
+ * Re-checks after the walk that the file still resolves inside the repository, so a component
+ * swapped for a symlink between `lstatSync` and `digestFile` cannot pull outside content into a
+ * receipt's fingerprint.
+ */
+function assertContainedRealPath(repoRoot, relativePath) {
+  const realRepoRoot = fs.realpathSync(repoRoot);
+  let resolved;
+  try {
+    resolved = fs.realpathSync(path.join(repoRoot, relativePath));
+  } catch {
+    throw new EvidenceManifestError(`fingerprinted source could not be resolved: ${relativePath}`);
+  }
+  if (resolved !== realRepoRoot && !resolved.startsWith(`${realRepoRoot}${path.sep}`)) {
+    throw new EvidenceManifestError(
+      `fingerprinted sources must stay inside the repository: ${relativePath}`,
+    );
   }
 }
 

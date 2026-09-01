@@ -10,7 +10,7 @@ import { RECEIPT_EVIDENCE_BINDING_SCHEMA_VERSION, } from './receipt-evidence-bin
  * contracts for a single listing/job record set:
  *
  * - `reddi.offchain-reputation-preview.v1` (#439) — the off-chain lane,
- * - `reddi.quasar-reputation-intent.v1` (#443 / PR #601) — the Quasar-native
+ * - `reddi.quasar-reputation-intent.v2` (#443 / PR #601) — the Quasar-native
  *   projection, gated on the #390 `reddi.quasar-registry-compatibility.v1`
  *   report,
  * - `reddi.hosted-attestation-claim.v1` (#442) — the hosted

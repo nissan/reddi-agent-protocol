@@ -214,6 +214,7 @@ describe('deriveQuasarReputationIntentPlan — happy paths', () => {
     assert.equal(result.ok, true);
     assert.equal(result.plan.status, 'intent_ready');
     assert.equal(result.plan.schemaVersion, QUASAR_REPUTATION_INTENT_SCHEMA_VERSION);
+    assert.equal(result.plan.schemaVersion, 'reddi.quasar-reputation-intent.v2');
     assert.deepEqual(
       result.plan.intents.map((intent) => intent.kind),
       ['commit', 'reveal', 'confirm'],
@@ -599,6 +600,29 @@ describe('no-live boundary proofs', () => {
       assert.ok(intent.offchainRefs.evidenceHash.startsWith('sha256:'));
       assert.ok(intent.offchainRefs.evidenceRef.startsWith('file://'));
     }
+  });
+
+  it('identifies every emitted record as v2, the identifier that carries the post-job-binding shape', () => {
+    const result = deriveQuasarReputationIntentPlan(intentInput());
+
+    for (const intent of result.plan.intents) {
+      // A consumer keyed on the v1 identifier must not be handed a v1-incompatible record: the
+      // deferred-builder split, the escrow binding, and the escrow-address preimage all arrived
+      // together with this identifier.
+      assert.equal(intent.schemaVersion, 'reddi.quasar-reputation-intent.v2');
+      assert.equal(typeof intent.deferredToInstructionBuilder, 'object');
+      assert.ok(Array.isArray(intent.deferredToInstructionBuilder.instructionData));
+      assert.ok(Array.isArray(intent.deferredToInstructionBuilder.accountInputs));
+      assert.equal(intent.escrowBinding.source, 'verified-lock-created-escrow');
+      assert.equal(intent.escrowBinding.pdaSeeds[1], 'escrow_address');
+    }
+
+    const commitIntent = result.plan.intents.find((intent) => intent.kind === 'commit');
+    assert.ok(commitIntent);
+    assert.deepEqual(
+      [...(commitIntent.compactFields.commitment?.preimageFields ?? [])],
+      ['score', 'salt', 'escrow_address', 'program_id'],
+    );
   });
 
   it('never leaks credential-shaped or raw-payload material into the plan', () => {

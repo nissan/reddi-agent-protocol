@@ -6,6 +6,8 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { spawnSync } from "node:child_process";
+
 import {
   ACCEPTED_EVIDENCE_FILENAME,
   ACCEPTED_EVIDENCE_MAX_AGE_MS,
@@ -599,6 +601,70 @@ test("an artifact content change after publication invalidates the receipt", asy
       () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary", "log"] }),
       /summary artifact whose content changed/,
     );
+  });
+});
+
+test("a symlink anywhere under a fingerprint root is refused rather than hashed", async () => {
+  const cases = [
+    // A file symlink pointing outside the repository would bind a receipt to foreign content.
+    { relativePath: "lib/config/scratch.ts", target: os.tmpdir(), type: "file" },
+    // A directory symlink pointing at a parent would recurse until the OS path limit.
+    { relativePath: "lib/config/self", target: "..", type: "dir" },
+    // The root itself being a link is the same escape, one level up.
+    { relativePath: "experiments/quasar-escrow/src", target: "../../../lib", type: "dir" },
+  ];
+
+  for (const { relativePath, target, type } of cases) {
+    await withRepo(async (repoRoot) => {
+      await seedFingerprintSources(repoRoot, "quasar");
+      assert.doesNotThrow(() => computeLaneSourceFingerprint(repoRoot, "quasar"));
+
+      const absolute = path.join(repoRoot, relativePath);
+      await fsp.rm(absolute, { recursive: true, force: true });
+      await fsp.mkdir(path.dirname(absolute), { recursive: true });
+      await fsp.symlink(target, absolute, type);
+
+      assert.throws(
+        () => computeLaneSourceFingerprint(repoRoot, "quasar"),
+        /must not traverse symbolic links/,
+        `${relativePath} must be refused, not hashed`,
+      );
+    });
+  }
+});
+
+test("a fingerprint root entry that is neither an ordinary file nor a directory is refused", async () => {
+  await withRepo(async (repoRoot) => {
+    await seedFingerprintSources(repoRoot, "quasar");
+    assert.doesNotThrow(() => computeLaneSourceFingerprint(repoRoot, "quasar"));
+
+    const fifo = path.join(repoRoot, "lib/config/pipe");
+    const made = spawnSync("mkfifo", [fifo]);
+    if (made.status !== 0) return; // platform without mkfifo: the symlink cases already cover the rule
+
+    assert.throws(
+      () => computeLaneSourceFingerprint(repoRoot, "quasar"),
+      /must be ordinary files or directories/,
+    );
+  });
+});
+
+test("a repository reached through a symlinked root still fingerprints, and to the same digest", async () => {
+  // The per-file containment re-check resolves real paths, so it must compare against the resolved
+  // repository root: a checkout reached through a symlinked parent (or a /tmp that is itself a link)
+  // is legitimate and must not be mistaken for an escape.
+  await withRepo(async (repoRoot) => {
+    await seedFingerprintSources(repoRoot, "quasar");
+    const direct = computeLaneSourceFingerprint(repoRoot, "quasar");
+
+    const linkParent = await fsp.mkdtemp(path.join(os.tmpdir(), "rap-linked-root-"));
+    try {
+      const linkedRoot = path.join(linkParent, "checkout");
+      await fsp.symlink(repoRoot, linkedRoot, "dir");
+      assert.equal(computeLaneSourceFingerprint(linkedRoot, "quasar"), direct);
+    } finally {
+      await fsp.rm(linkParent, { recursive: true, force: true });
+    }
   });
 });
 
