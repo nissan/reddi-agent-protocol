@@ -96,6 +96,12 @@ describe("web Quasar devnet refusal", () => {
     expect(() =>
       instructions.buildQuasarDisputeAttestationInstruction({ programId, escrow, consumer: someone, judge: someone }),
     ).toThrow(/refused/);
+    expect(() =>
+      instructions.buildQuasarExpireRatingInstruction({
+        programId, escrow, caller: someone,
+        specialistAgentPda: someone, consumerAgentPda: someone,
+      }),
+    ).toThrow(/refused/);
   });
 
   it("still builds Quasar instructions when the target is not the blocked devnet route", async () => {
@@ -109,5 +115,31 @@ describe("web Quasar devnet refusal", () => {
       programId, owner, agentType: 0, model: "qwen3:8b", rateLamports: 1_000_000n, minReputation: 3,
     });
     expect(ix.programId.toBase58()).toBe(programId.toBase58());
+  });
+
+  it("builds the current-source expire instruction off the blocked route", async () => {
+    process.env.NETWORK_PROFILE = "surfpool";
+    const instructions = await import("@/lib/quasar/instructions");
+    const { PublicKey } = await import("@solana/web3.js");
+    const programId = new PublicKey("nb9rLVjoHMibsgfRGgKuPqm6M8GVcH9r6bYNfg7Yiy6");
+    const escrow = new PublicKey("11111111111111111111111111111114");
+    const caller = new PublicKey("11111111111111111111111111111112");
+    const specialistAgentPda = new PublicKey("11111111111111111111111111111115");
+    const consumerAgentPda = new PublicKey("11111111111111111111111111111116");
+
+    const ix = instructions.buildQuasarExpireRatingInstruction({
+      programId, escrow, caller, specialistAgentPda, consumerAgentPda,
+    });
+
+    // experiments/quasar-reputation/src/instructions/expire.rs:
+    //   accounts [escrow (ro), rating (mut), caller (signer, ro), specialist_agent (mut), consumer_agent (mut)]
+    expect([...ix.data]).toEqual([3]);
+    expect(ix.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable])).toEqual([
+      [escrow.toBase58(), false, false],
+      [instructions.quasarRatingPda(escrow, programId).toBase58(), false, true],
+      [caller.toBase58(), true, false],
+      [specialistAgentPda.toBase58(), false, true],
+      [consumerAgentPda.toBase58(), false, true],
+    ]);
   });
 });

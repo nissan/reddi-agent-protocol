@@ -8,6 +8,7 @@ import {
   Transaction,
 } from "@solana/web3.js";
 import {
+  ATTESTATION_PROGRAM_ID,
   DEVNET_RPC,
   ESCROW_PROGRAM_ID,
   PROGRAM_TARGET,
@@ -16,6 +17,7 @@ import {
 } from "@/lib/program";
 import { buildOnboardingAttestQualityInstruction, onboardingAttestationPda } from "@/lib/onboarding/attestation-instruction";
 import { quasarAttestationPda } from "@/lib/quasar/instructions";
+import { resolveBoundQuasarEscrow } from "@/lib/onboarding/quasar-escrow-binding";
 
 export type SubmitOnchainAttestationInput = {
   walletAddress: string;
@@ -29,6 +31,7 @@ export type SubmitOnchainAttestationInput = {
 export type SubmitOnchainAttestationResult = {
   signature: string;
   attestationPda: string;
+  escrowAddress?: string;
   jobIdHex: string;
   operator: string;
   consumer: string;
@@ -100,17 +103,27 @@ export async function submitOnchainOnboardingAttestation(
 
   const scores: [number, number, number, number, number] = input.scores || [8, 8, 8, 8, 8];
   const jobId = randomBytes(16);
-  const escrow = input.escrowAddress ? new PublicKey(input.escrowAddress) : undefined;
-  if (PROGRAM_TARGET === "quasar" && !escrow) {
-    throw new Error("Quasar attestation requires the escrow account that binds this job; none was supplied.");
-  }
-  const attestPda = PROGRAM_TARGET === "quasar"
-    ? quasarAttestationPda(escrow!, ESCROW_PROGRAM_ID)
+
+  // Quasar splits escrow/registry/reputation/attestation into four programs: the attestation record
+  // is owned by the attestation program, and the escrow it binds to is derived from this job, never
+  // taken from the caller. Both are resolved before any instruction, signer, or RPC use.
+  const isQuasar = PROGRAM_TARGET === "quasar";
+  const escrow = isQuasar
+    ? resolveBoundQuasarEscrow({
+        consumer: consumerWallet,
+        jobId,
+        escrowProgramId: ESCROW_PROGRAM_ID,
+        supplied: input.escrowAddress,
+      })
+    : undefined;
+  const attestProgramId = isQuasar ? ATTESTATION_PROGRAM_ID : ESCROW_PROGRAM_ID;
+  const attestPda = isQuasar
+    ? quasarAttestationPda(escrow!, ATTESTATION_PROGRAM_ID)
     : onboardingAttestationPda(jobId, ESCROW_PROGRAM_ID);
 
   const ix = buildOnboardingAttestQualityInstruction({
     target: PROGRAM_TARGET,
-    programId: ESCROW_PROGRAM_ID,
+    programId: attestProgramId,
     jobId,
     escrow,
     scores,
@@ -133,6 +146,7 @@ export async function submitOnchainOnboardingAttestation(
   return {
     signature,
     attestationPda: attestPda.toBase58(),
+    escrowAddress: escrow?.toBase58(),
     jobIdHex: Buffer.from(jobId).toString("hex"),
     operator: operator.publicKey.toBase58(),
     consumer: consumerWallet.toBase58(),
