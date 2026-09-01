@@ -110,7 +110,7 @@ export function getNetworkProfile(): NetworkProfile {
     : [];
 
   const applyProgramIdOverride = (override: string | undefined, registered: string): string =>
-    name === "devnet" && target === "legacy-anchor" && override && override !== registered && !allowUnsafeDevnetOverride
+    name === "devnet" && override && override !== registered && !allowUnsafeDevnetOverride
       ? registered
       : override ?? registered;
 

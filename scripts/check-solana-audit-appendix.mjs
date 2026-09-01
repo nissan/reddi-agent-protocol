@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
+import { containsPhrase } from "./lib/boundary-phrases.mjs";
 
 const repoRoot = process.cwd();
 const appendixPath = path.join(repoRoot, "docs/SOLANA-CONTRACT-AUDIT-APPENDIX-2026-06-24.md");
@@ -58,14 +59,6 @@ const requiredBoundaryPhrases = [
   "Current boundary: MagicBlock PER proof lane",
   "binding via `quasar-escrow-ref`",
 ];
-
-function boundaryPhraseRegExp(phrase) {
-  return new RegExp(phrase.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+"));
-}
-
-function containsPhrase(text, phrase) {
-  return boundaryPhraseRegExp(phrase).test(text);
-}
 
 function fail(message, details = []) {
   console.error(`[solana-audit-appendix] FAIL: ${message}`);

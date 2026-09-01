@@ -63,7 +63,7 @@ Runtime network comes from `lib/config/network.ts` and `config/networks/<profile
 
 - `NETWORK_PROFILE` / `NEXT_PUBLIC_NETWORK_PROFILE`: `devnet` default, `mainnet`, or `local-surfpool` (aliases: `local`, `localnet`, `surfpool`).
 - `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` switches the devnet profile to the Quasar program set.
-- `NEXT_PUBLIC_RPC_ENDPOINT` overrides RPC; `NEXT_PUBLIC_ESCROW_PROGRAM_ID` is ignored on legacy-anchor devnet unless `ALLOW_UNSAFE_ESCROW_OVERRIDE=true`.
+- `NEXT_PUBLIC_RPC_ENDPOINT` overrides RPC; `NEXT_PUBLIC_ESCROW_PROGRAM_ID` / `NEXT_PUBLIC_REGISTRY_PROGRAM_ID` / `NEXT_PUBLIC_REPUTATION_PROGRAM_ID` / `NEXT_PUBLIC_ATTESTATION_PROGRAM_ID` override program ids, but are ignored on devnet — both the legacy-Anchor and Quasar targets — unless `ALLOW_UNSAFE_ESCROW_OVERRIDE=true`, so a stray env var cannot repoint the registered devnet program set.
 
 When debugging wrong program id or wrong RPC, check these env vars before changing code.
 

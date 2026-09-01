@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { boundaryPhraseRegExp, containsPhrase } from "./lib/boundary-phrases.mjs";
 
 const repoRoot = process.cwd();
 const handoffPath = path.join(repoRoot, "docs/SOLANA-EXTERNAL-AUDIT-HANDOFF-2026-06-24.md");
@@ -75,10 +76,19 @@ const inputEvidencePaths = [
 
 const readinessPath = path.join(repoRoot, "docs/SOLANA-CONTRACT-AUDIT-READINESS-2026-06-24.md");
 
-const requiredReadinessPhrases = [
-  "### Quasar Escrow",
-  "current canonical job record owner for reputation/attestation job binding",
-  "Status: active escrow boundary on current main; `quasar-escrow-ref` pins this",
+const requiredReadinessMatchers = [
+  {
+    label: "exact heading `### Quasar Escrow`",
+    pattern: /^###[ \t]+Quasar Escrow[ \t]*$/m,
+  },
+  {
+    label: "current canonical job record owner for reputation/attestation job binding",
+    pattern: boundaryPhraseRegExp("current canonical job record owner for reputation/attestation job binding"),
+  },
+  {
+    label: "Status: active escrow boundary on current main; `quasar-escrow-ref` pins this",
+    pattern: boundaryPhraseRegExp("Status: active escrow boundary on current main; `quasar-escrow-ref` pins this"),
+  },
 ];
 
 const forbiddenReadinessPatterns = [
@@ -91,14 +101,6 @@ const forbiddenReadinessPatterns = [
     reason: "readiness pack must not present quasar-escrow-per as the active escrow audit target",
   },
 ];
-
-function boundaryPhraseRegExp(phrase) {
-  return new RegExp(phrase.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+"));
-}
-
-function containsPhrase(text, phrase) {
-  return boundaryPhraseRegExp(phrase).test(text);
-}
 
 function fail(message, details = []) {
   console.error(`[solana-audit-handoff] FAIL: ${message}`);
@@ -166,7 +168,9 @@ if (!fs.existsSync(readinessPath)) {
 
 const readinessSource = fs.readFileSync(readinessPath, "utf8");
 
-const missingReadinessPhrases = requiredReadinessPhrases.filter((phrase) => !containsPhrase(readinessSource, phrase));
+const missingReadinessPhrases = requiredReadinessMatchers
+  .filter(({ pattern }) => !pattern.test(readinessSource))
+  .map(({ label }) => label);
 if (missingReadinessPhrases.length) {
   fail("readiness pack is missing the reconciled escrow-boundary statements", missingReadinessPhrases);
 }
@@ -178,4 +182,4 @@ if (readinessRegressions.length) {
   fail("readiness pack carries a superseded escrow-target claim", readinessRegressions);
 }
 
-console.log(`[solana-audit-handoff] OK: ${requiredHeadings.length} headings, ${requiredReferences.length} references, ${requiredArtifactTerms.length} artifact terms, ${requiredBoundaryPhrases.length} boundary phrases, ${requiredReadinessPhrases.length} readiness-pack phrases, and input evidence commit ${inputCommit} verified`);
+console.log(`[solana-audit-handoff] OK: ${requiredHeadings.length} headings, ${requiredReferences.length} references, ${requiredArtifactTerms.length} artifact terms, ${requiredBoundaryPhrases.length} boundary phrases, ${requiredReadinessMatchers.length} readiness-pack phrases, and input evidence commit ${inputCommit} verified`);

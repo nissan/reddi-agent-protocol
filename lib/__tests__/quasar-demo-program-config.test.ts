@@ -1,6 +1,9 @@
 describe("Quasar demo program target config", () => {
   const originalEnv = process.env;
   const QUASAR_PROGRAM_ID = "VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW";
+  const QUASAR_REGISTRY_PROGRAM_ID = "Xk7jczJZ1HHJZuE1ZUWDqFmowxYhnom7mWzrNSGf9FU";
+  const QUASAR_REPUTATION_PROGRAM_ID = "nb9rLVjoHMibsgfRGgKuPqm6M8GVcH9r6bYNfg7Yiy6";
+  const QUASAR_ATTESTATION_PROGRAM_ID = "CRGsWWkptdxsH6N6aWAyahLbuMsT58yM624EopEsv1Ex";
   const LEGACY_ANCHOR_PROGRAM_ID = "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD";
 
   beforeEach(() => {
@@ -135,6 +138,36 @@ describe("Quasar demo program target config", () => {
     const profile = getNetworkProfile();
 
     expect(profile.programs.registryProgramId).toBe(LEGACY_ANCHOR_PROGRAM_ID);
+  });
+
+  it("refuses to repoint the registered Quasar devnet program set via a stray override", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryHijack1111111111111111111111111111111";
+    process.env.NEXT_PUBLIC_REPUTATION_PROGRAM_ID = "ReputationHijack111111111111111111111111111";
+    process.env.NEXT_PUBLIC_ATTESTATION_PROGRAM_ID = "AttestationHijack11111111111111111111111111";
+    process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = "EscrowHijack11111111111111111111111111111111";
+
+    const { getNetworkProfile } = await import("@/lib/config/network");
+    const profile = getNetworkProfile();
+
+    expect(profile.programs.escrowProgramId).toBe(QUASAR_PROGRAM_ID);
+    expect(profile.programs.registryProgramId).toBe(QUASAR_REGISTRY_PROGRAM_ID);
+    expect(profile.programs.reputationProgramId).toBe(QUASAR_REPUTATION_PROGRAM_ID);
+    expect(profile.programs.attestationProgramId).toBe(QUASAR_ATTESTATION_PROGRAM_ID);
+  });
+
+  it("applies Quasar devnet overrides only when the unsafe flag is set", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+    process.env.ALLOW_UNSAFE_ESCROW_OVERRIDE = "true";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryLocal11111111111111111111111111111111";
+
+    const { getNetworkProfile } = await import("@/lib/config/network");
+    const profile = getNetworkProfile();
+
+    expect(profile.programs.registryProgramId).toBe("RegistryLocal11111111111111111111111111111111");
+    expect(profile.programs.escrowProgramId).toBe(QUASAR_PROGRAM_ID);
   });
 
   it("applies per-program overrides on devnet when the unsafe flag is set", async () => {
