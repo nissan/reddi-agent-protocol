@@ -343,6 +343,7 @@ export function createAuddX402SvmExactPaymentRequired(input) {
     if (!validateAuddSolanaPaymentPlan(plan))
         throw new Error('invalid_audd_payment_plan');
     const planTokenProgram = plan.tokenProgram ?? SPL_TOKEN_PROGRAM_ID;
+    const planCaip2 = plan.caip2Network ?? caip2ForSolanaNetwork(plan.network);
     if (paymentIntent.asset.symbol !== AUDD_ASSET
         || paymentIntent.asset.amountBaseUnits !== plan.amount
         || paymentIntent.asset.mint !== plan.mint
@@ -350,7 +351,7 @@ export function createAuddX402SvmExactPaymentRequired(input) {
         || paymentIntent.asset.decimals !== AUDD_DECIMALS
         || paymentIntent.payTo !== plan.payee
         || paymentIntent.network.rapAlias !== plan.network
-        || (plan.caip2Network !== undefined && paymentIntent.network.caip2 !== plan.caip2Network)
+        || (planCaip2 !== undefined && paymentIntent.network.caip2 !== planCaip2)
         || paymentIntent.destinationTokenAccount !== plan.settlementAccount) {
         throw new Error('audd_payment_intent_plan_mismatch');
     }
@@ -358,7 +359,7 @@ export function createAuddX402SvmExactPaymentRequired(input) {
     if (operatorApprovalRequiredForPlan(plan) && !paymentIntent.authorization.operatorApprovalRequired) {
         throw new Error('audd_payment_intent_operator_approval_mismatch');
     }
-    const caip2 = plan.caip2Network ?? paymentIntent.network.caip2;
+    const caip2 = planCaip2 ?? paymentIntent.network.caip2;
     const tokenProgram = planTokenProgram;
     const memo = paymentIntent.memo ?? plan.memo ?? deriveAuddMemo({ agreementId: paymentIntent.agreementId, amount: plan.amount, mint: plan.mint, payTo: plan.payee });
     const environment = paymentIntent.labels.environment;

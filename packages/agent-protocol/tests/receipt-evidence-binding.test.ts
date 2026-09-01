@@ -321,6 +321,18 @@ describe('receipt/evidence binding for ARD-onboarded agents', () => {
       assert.equal(result.binding.guardrails.livePaymentExecuted, false);
       assert.equal(result.binding.guardrails.rpcCall, false);
     }
+
+    const caip2OnlyResult = deriveReceiptEvidenceBinding({
+      ...input,
+      paymentObservation: {
+        ...observation,
+        payment: {
+          ...observation.payment,
+          network: { caip2: observation.payment.network.caip2 },
+        },
+      },
+    });
+    assert.equal(caip2OnlyResult.ok, true);
   });
 
   it('rejects payment observations that are grant-eligible fixtures or mismatch the plan', () => {

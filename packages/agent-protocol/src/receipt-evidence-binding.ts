@@ -3,7 +3,13 @@ import {
   type AttestationRecord,
   type ReputationEvent,
 } from './attestation-reputation.js';
-import { AUDD_ASSET, isKnownAuddMint, validateAuddRailIdentity } from './audd-rail-config.js';
+import {
+  AUDD_ASSET,
+  canonicalSolanaNetworkAlias,
+  isKnownAuddMint,
+  networkAliasForCaip2,
+  validateAuddRailIdentity,
+} from './audd-rail-config.js';
 import {
   auddLabelMatchesRail,
   deriveAuddRailEnvironment,
@@ -353,7 +359,7 @@ function validatePaymentObservation(input: ReceiptEvidenceBindingInput, errors: 
   if (observedRail) {
     const identity = validateAuddRailIdentity({
       environment: observedRail,
-      network: observation.payment.network.rapAlias ?? observation.payment.network.caip2,
+      network: observation.payment.network.rapAlias,
       caip2: observation.payment.network.caip2,
       mint: observation.payment.mint,
       tokenProgram: observation.payment.tokenProgram,
@@ -381,7 +387,7 @@ function validatePaymentObservation(input: ReceiptEvidenceBindingInput, errors: 
   }
   if (
     observation.payment.asset !== input.receipt.payment.asset
-    || (observation.payment.network.rapAlias ?? observation.payment.network.caip2) !== input.receipt.payment.network
+    || !paymentNetworksMatch(observation.payment.network, input.receipt.payment.network)
     || observation.payment.amountBaseUnits !== input.receipt.payment.amount
   ) {
     errors.push(error('payment_observation_mismatch', '$.paymentObservation.payment', 'payment observation asset/network/amount must match the receipt payment'));
@@ -390,7 +396,7 @@ function validatePaymentObservation(input: ReceiptEvidenceBindingInput, errors: 
     const plan = input.paymentPreflight.paymentPlan;
     if (
       observation.payment.asset !== plan.asset
-      || (observation.payment.network.rapAlias ?? observation.payment.network.caip2) !== plan.network
+      || !paymentNetworksMatch(observation.payment.network, plan.network)
       || observation.payment.amountBaseUnits !== plan.amount
       || observation.payment.mint !== plan.mint
       || (plan.tokenProgram !== undefined && observation.payment.tokenProgram !== plan.tokenProgram)
@@ -400,6 +406,20 @@ function validatePaymentObservation(input: ReceiptEvidenceBindingInput, errors: 
       errors.push(error('payment_observation_mismatch', '$.paymentObservation.payment', 'payment observation must match the AUDD payment plan terms'));
     }
   }
+}
+
+function paymentNetworksMatch(
+  observationNetwork: ReddiPaymentObservationRecord['payment']['network'],
+  expectedNetwork: string,
+): boolean {
+  const observed = canonicalSolanaNetworkAlias(observationNetwork.rapAlias ?? observationNetwork.caip2)
+    ?? networkAliasForCaip2(observationNetwork.caip2)
+    ?? observationNetwork.rapAlias
+    ?? observationNetwork.caip2;
+  const expected = canonicalSolanaNetworkAlias(expectedNetwork)
+    ?? networkAliasForCaip2(expectedNetwork)
+    ?? expectedNetwork;
+  return observed === expected;
 }
 
 function validateRecordLinks(input: ReceiptEvidenceBindingInput, errors: ReceiptEvidenceBindingError[]) {

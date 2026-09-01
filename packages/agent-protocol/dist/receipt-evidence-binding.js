@@ -1,5 +1,5 @@
 import { validateAttestationRecord, } from './attestation-reputation.js';
-import { AUDD_ASSET, isKnownAuddMint } from './audd-rail-config.js';
+import { AUDD_ASSET, canonicalSolanaNetworkAlias, isKnownAuddMint, networkAliasForCaip2, validateAuddRailIdentity, } from './audd-rail-config.js';
 import { auddLabelMatchesRail, deriveAuddRailEnvironment, } from './audd-payment-plan.js';
 import { validateEvidenceArchiveRecord, } from './evidence-archive.js';
 import { validatePaymentObservationRecord, } from './payment-records.js';
@@ -191,6 +191,29 @@ function validatePaymentObservation(input, errors) {
     if (observedRail && !auddLabelMatchesRail(observation.labels.environment, observedRail)) {
         errors.push(error('payment_observation_ineligible', '$.paymentObservation.labels.environment', `payment observation labelled ${observation.labels.environment} was observed on the ${observedRail} AUDD rail`));
     }
+    if (observedRail) {
+        const identity = validateAuddRailIdentity({
+            environment: observedRail,
+            network: observation.payment.network.rapAlias,
+            caip2: observation.payment.network.caip2,
+            mint: observation.payment.mint,
+            tokenProgram: observation.payment.tokenProgram,
+            enableGatedMainnet: true,
+        });
+        const identityMismatch = !identity.ok && identity.reasonCodes.some((reason) => [
+            'malformed_audd_rail_identity',
+            'unknown_audd_rail_environment',
+            'wrong_network',
+            'wrong_caip2_network',
+            'wrong_mint',
+            'wrong_token_program',
+            'wrong_decimals',
+            'local_test_mint_required',
+        ].includes(reason));
+        if (identityMismatch) {
+            errors.push(error('payment_observation_mismatch', '$.paymentObservation.payment', 'payment observation AUDD identity components must resolve to the same rail'));
+        }
+    }
     if (observation.status !== 'observed_confirmed') {
         errors.push(error('payment_observation_mismatch', '$.paymentObservation.status', 'payment observation must be confirmed before receipt/evidence binding'));
     }
@@ -198,14 +221,14 @@ function validatePaymentObservation(input, errors) {
         errors.push(error('payment_observation_mismatch', '$.paymentObservation.payment.paymentProofRef', 'payment observation proof ref must match the receipt and payment preflight proof ref'));
     }
     if (observation.payment.asset !== input.receipt.payment.asset
-        || (observation.payment.network.rapAlias ?? observation.payment.network.caip2) !== input.receipt.payment.network
+        || !paymentNetworksMatch(observation.payment.network, input.receipt.payment.network)
         || observation.payment.amountBaseUnits !== input.receipt.payment.amount) {
         errors.push(error('payment_observation_mismatch', '$.paymentObservation.payment', 'payment observation asset/network/amount must match the receipt payment'));
     }
     if (input.paymentPreflight.paymentPlan) {
         const plan = input.paymentPreflight.paymentPlan;
         if (observation.payment.asset !== plan.asset
-            || (observation.payment.network.rapAlias ?? observation.payment.network.caip2) !== plan.network
+            || !paymentNetworksMatch(observation.payment.network, plan.network)
             || observation.payment.amountBaseUnits !== plan.amount
             || observation.payment.mint !== plan.mint
             || (plan.tokenProgram !== undefined && observation.payment.tokenProgram !== plan.tokenProgram)
@@ -214,6 +237,16 @@ function validatePaymentObservation(input, errors) {
             errors.push(error('payment_observation_mismatch', '$.paymentObservation.payment', 'payment observation must match the AUDD payment plan terms'));
         }
     }
+}
+function paymentNetworksMatch(observationNetwork, expectedNetwork) {
+    const observed = canonicalSolanaNetworkAlias(observationNetwork.rapAlias ?? observationNetwork.caip2)
+        ?? networkAliasForCaip2(observationNetwork.caip2)
+        ?? observationNetwork.rapAlias
+        ?? observationNetwork.caip2;
+    const expected = canonicalSolanaNetworkAlias(expectedNetwork)
+        ?? networkAliasForCaip2(expectedNetwork)
+        ?? expectedNetwork;
+    return observed === expected;
 }
 function validateRecordLinks(input, errors) {
     if (input.receipt.source.id !== input.source.sourceId) {
