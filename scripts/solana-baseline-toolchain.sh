@@ -44,6 +44,7 @@ SHARED_SOLANA_INSTALL_DIR="$HOME/.local/share/solana/install"
 SOLANA_INSTALL_DIR="${RAP_BASELINE_SOLANA_INSTALL_DIR:-$HOME/.local/share/solana/reddi-agent-protocol-baseline/install}"
 SOLANA_CONFIG="$SOLANA_INSTALL_DIR/config.yml"
 SURFPOOL_ROOT="${RAP_BASELINE_SURFPOOL_ROOT:-$HOME/.local/share/surfpool/releases}"
+AVM_BIN_DIR="${AVM_HOME:-$HOME/.avm}/bin"
 CAPTURE_DIR="$REPO_ROOT/artifacts/toolchain"
 STARTUP_FILES=("$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" "$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.config/fish/config.fish")
 STEP_SNAPSHOT=""
@@ -141,9 +142,31 @@ CLIPPY_VERSION=$(json_keyed_value rust.clippyVersionByChannel "$RUST_VERSION")
 SURFPOOL_URL=$(json_value surfpool.url)
 SURFPOOL_SHA256=$(json_value surfpool.sha256)
 AVM_GIT_URL=$(json_value anchorAvm.gitUrl)
-AVM_TAG="v$ANCHOR_VERSION"
-AVM_TAG_OBJECT_SHA=$(json_keyed_value anchorAvm.tagObjectShaByVersion "$ANCHOR_VERSION")
-AVM_TAG_COMMIT_SHA=$(json_keyed_value anchorAvm.tagCommitShaByVersion "$ANCHOR_VERSION")
+AVM_MANAGER_VERSION=$(json_value anchorAvm.managerVersion)
+AVM_TAG="v$AVM_MANAGER_VERSION"
+AVM_TAG_OBJECT_SHA=$(json_keyed_value anchorAvm.tagObjectShaByVersion "$AVM_MANAGER_VERSION")
+AVM_TAG_COMMIT_SHA=$(json_keyed_value anchorAvm.tagCommitShaByVersion "$AVM_MANAGER_VERSION")
+ANCHOR_TAG="v$ANCHOR_VERSION"
+ANCHOR_TAG_OBJECT_SHA=$(json_keyed_value anchorAvm.tagObjectShaByVersion "$ANCHOR_VERSION")
+ANCHOR_TAG_COMMIT_SHA=$(json_keyed_value anchorAvm.tagCommitShaByVersion "$ANCHOR_VERSION")
+ANCHOR_CLI_URL_TEMPLATE=$(json_value anchorCli.urlTemplate)
+ANCHOR_CLI_URL=${ANCHOR_CLI_URL_TEMPLATE//\{version\}/$ANCHOR_VERSION}
+ANCHOR_CLI_PLATFORM=$(json_value anchorCli.platform)
+ANCHOR_CLI_ASSET_NAME_TEMPLATE=$(json_value anchorCli.assetNameTemplate)
+ANCHOR_CLI_ASSET_NAME=${ANCHOR_CLI_ASSET_NAME_TEMPLATE//\{version\}/$ANCHOR_VERSION}
+ANCHOR_CLI_SHA256=$(json_keyed_value anchorCli.sha256ByVersion "$ANCHOR_VERSION")
+
+case "$ANCHOR_CLI_ASSET_NAME" in
+  *"$ANCHOR_CLI_PLATFORM") ;;
+  *)
+    echo "error: recorded anchorCli.assetNameTemplate does not target anchorCli.platform $ANCHOR_CLI_PLATFORM" >&2
+    exit 1
+    ;;
+esac
+if [ "${ANCHOR_CLI_URL##*/}" != "$ANCHOR_CLI_ASSET_NAME" ]; then
+  echo "error: recorded anchorCli.urlTemplate and anchorCli.assetNameTemplate disagree on the release asset name" >&2
+  exit 1
+fi
 
 export PATH="$HOME/.cargo/bin:$SOLANA_INSTALL_DIR/active_release/bin:$SURFPOOL_ROOT/$SURFPOOL_VERSION/bin:$PATH"
 
@@ -155,7 +178,8 @@ rust=$RUST_VERSION components=[$RUST_COMPONENTS] (source: rust-toolchain.toml)
 rustfmt=$RUSTFMT_VERSION (source: config/toolchain/solana-baseline-assets.json, shipped with Rust $RUST_VERSION)
 clippy=$CLIPPY_VERSION (source: config/toolchain/solana-baseline-assets.json, shipped with Rust $RUST_VERSION)
 agave=$AGAVE_VERSION (source: CI release.anza.xyz install URLs)
-anchor=$ANCHOR_VERSION (source: Anchor.toml; AVM tag object $AVM_TAG_OBJECT_SHA, commit $AVM_TAG_COMMIT_SHA)
+avm=$AVM_MANAGER_VERSION (source: config/toolchain/solana-baseline-assets.json; official tag object $AVM_TAG_OBJECT_SHA, commit $AVM_TAG_COMMIT_SHA)
+anchor=$ANCHOR_VERSION (source: Anchor.toml; official tag object $ANCHOR_TAG_OBJECT_SHA, commit $ANCHOR_TAG_COMMIT_SHA; release binary sha256 $ANCHOR_CLI_SHA256)
 rustup-init=$RUSTUP_VERSION (source: config/toolchain/solana-baseline-assets.json)
 surfpool=$SURFPOOL_VERSION (source: config/toolchain/solana-baseline-assets.json)
 PINS
@@ -291,7 +315,7 @@ verify_versions() {
   expect_exact rustfmt "rustfmt $RUSTFMT_VERSION" rustup run "$RUST_VERSION" rustfmt --version
   expect_exact clippy "clippy $CLIPPY_VERSION" rustup run "$RUST_VERSION" cargo clippy --version
   expect_exact solana "solana-cli ${AGAVE_VERSION#v}" solana --version
-  expect_exact avm "avm $ANCHOR_VERSION" avm --version
+  expect_exact avm "avm $AVM_MANAGER_VERSION" avm --version
   expect_exact anchor "anchor-cli $ANCHOR_VERSION" anchor --version
   expect_exact surfpool "surfpool ${SURFPOOL_VERSION#v}" surfpool --version
 }
@@ -450,7 +474,7 @@ install_agave() {
 }
 
 install_anchor() {
-  local refs
+  local refs anchor_refs
   refs=$(git ls-remote --tags "$AVM_GIT_URL" "refs/tags/$AVM_TAG" "refs/tags/$AVM_TAG^{}")
   grep -q "^$AVM_TAG_OBJECT_SHA[[:space:]]refs/tags/$AVM_TAG$" <<<"$refs" || {
     echo "error: $AVM_TAG object SHA no longer matches recorded $AVM_TAG_OBJECT_SHA" >&2
@@ -460,13 +484,31 @@ install_anchor() {
     echo "error: $AVM_TAG commit SHA no longer matches recorded $AVM_TAG_COMMIT_SHA" >&2
     exit 1
   }
-  if version_token_match "$(avm --version 2>/dev/null || true)" "avm $ANCHOR_VERSION" \
+  anchor_refs=$(git ls-remote --tags "$AVM_GIT_URL" "refs/tags/$ANCHOR_TAG" "refs/tags/$ANCHOR_TAG^{}")
+  grep -q "^$ANCHOR_TAG_OBJECT_SHA[[:space:]]refs/tags/$ANCHOR_TAG$" <<<"$anchor_refs" || {
+    echo "error: $ANCHOR_TAG object SHA no longer matches recorded $ANCHOR_TAG_OBJECT_SHA" >&2
+    exit 1
+  }
+  grep -q "^$ANCHOR_TAG_COMMIT_SHA[[:space:]]refs/tags/$ANCHOR_TAG\^{}$" <<<"$anchor_refs" || {
+    echo "error: $ANCHOR_TAG commit SHA no longer matches recorded $ANCHOR_TAG_COMMIT_SHA" >&2
+    exit 1
+  }
+
+  if version_token_match "$(avm --version 2>/dev/null || true)" "avm $AVM_MANAGER_VERSION" \
     && version_token_match "$(anchor --version 2>/dev/null || true)" "anchor-cli $ANCHOR_VERSION"; then
-    echo "avm and anchor already report $ANCHOR_VERSION; skipping rebuild"
+    echo "avm $AVM_MANAGER_VERSION and anchor $ANCHOR_VERSION already selected; skipping install"
     return 0
   fi
-  cargo install --git "$AVM_GIT_URL" avm --rev "$AVM_TAG_COMMIT_SHA" --locked
-  avm install "$ANCHOR_VERSION"
+
+  if ! version_token_match "$(avm --version 2>/dev/null || true)" "avm $AVM_MANAGER_VERSION"; then
+    cargo install --git "$AVM_GIT_URL" avm --rev "$AVM_TAG_COMMIT_SHA" --locked
+  fi
+
+  mkdir -p "$AVM_BIN_DIR" "$DOWNLOAD_DIR"
+  local anchor_download="$DOWNLOAD_DIR/$ANCHOR_CLI_ASSET_NAME"
+  local anchor_bin="$AVM_BIN_DIR/anchor-$ANCHOR_VERSION"
+  download_verified "$ANCHOR_CLI_URL" "$ANCHOR_CLI_SHA256" "$anchor_download"
+  install -m 0755 "$anchor_download" "$anchor_bin"
   avm use "$ANCHOR_VERSION"
 }
 

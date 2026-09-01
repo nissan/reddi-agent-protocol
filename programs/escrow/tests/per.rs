@@ -5,10 +5,10 @@
 /// `devnet-tee.magicblock.app` connection — those are marked `#[ignore]`
 /// and documented in the Phase 5 README.
 ///
-/// Compat note: `ephemeral-rollups-sdk` v0.10.5 is incompatible with
-/// Anchor 1.0.0 (Pubkey type mismatch, missing realloc API).  Delegation
-/// is handled TypeScript-side via `packages/per-client/`.  These tests
-/// cover the on-chain `delegate_escrow` and `release_escrow_per` instructions
+/// Compat note: PER delegation remains handled TypeScript-side via
+/// `packages/per-client/`; the Anchor 1.1.2 stable upgrade does not requalify
+/// or adopt the MagicBlock Rust SDK. These tests cover the on-chain
+/// `delegate_escrow` and `release_escrow_per` instructions
 /// that track delegation state.
 use {
     anchor_lang::{

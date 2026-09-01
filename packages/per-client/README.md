@@ -4,7 +4,7 @@ MagicBlock PER (Private Ephemeral Rollup) delegation client for the Reddi Agent 
 
 ## Why TypeScript?
 
-`ephemeral-rollups-sdk` v0.10.5 is incompatible with Anchor 1.0.0 (Pubkey type mismatch + missing `realloc` API). Delegation is handled here at the TypeScript/client layer. The on-chain Anchor program tracks delegation state via `delegate_escrow` and `release_escrow_per` instructions.
+PER delegation remains handled here at the TypeScript/client layer for the Anchor 1.1.2 stable upgrade. Do not move MagicBlock SDK ownership into the Rust program without a separate compatibility qualification. The on-chain Anchor program tracks delegation state via `delegate_escrow` and `release_escrow_per` instructions.
 
 ## Usage
 

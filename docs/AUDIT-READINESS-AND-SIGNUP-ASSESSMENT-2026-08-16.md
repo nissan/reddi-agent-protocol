@@ -11,7 +11,7 @@ Method: full-repo sweep of both repositories (programs, app routes, packages, te
 
 ## 1. Executive summary
 
-**Built and defensible:** five Quasar Rust programs with 70 CI-gated tests plus a 31-test legacy Anchor reference; an honest four-document adversarial security-audit chain with named regression tests; a complete external-audit handoff pack with frozen commit and full ABI appendix; `@reddi/agent-protocol` (47 modules, ~556 tests, CI-gated, release-guarded); mechanically enforced claim boundaries; a real on-chain registration flow at `/register`; and, lab-side, a stable ADL v0.2 spec with a deterministic conformance suite.
+**Built and defensible:** five Quasar Rust programs with 70 CI-gated tests plus the CI-gated legacy Anchor 1.1.2 reference; an honest four-document adversarial security-audit chain with named regression tests; a complete external-audit handoff pack with frozen commit and full ABI appendix; `@reddi/agent-protocol` (47 modules, ~586 tests, CI-gated, release-guarded); mechanically enforced claim boundaries; a real on-chain registration flow at `/register`; and, lab-side, a stable ADL v0.2 spec with a deterministic conformance suite.
 
 **Not built / blocking:**
 
@@ -30,7 +30,7 @@ The shortest path to both goals: (a) freeze and send the already-prepared audit 
 |---|---|---|
 | Quasar registry / escrow / reputation / attestation | `experiments/quasar-*` | Deployed to devnet (IDs in `config/quasar/deployments.json`); 42 tests across the four programs; CI-gated via `.github/workflows/quasar-program-tests.yml` |
 | Quasar escrow-PER (5th program) | `experiments/quasar-escrow-per/` | 28 tests (most-tested program); **not** in the four-program demo narrative; listed as an active audit target in the handoff doc |
-| Legacy Anchor reference | `programs/escrow/` | 14 instructions, 31 LiteSVM tests; historical reference only; **no CI workflow runs these tests** |
+| Legacy Anchor reference | `programs/escrow/` | 14 instructions, 30 passing LiteSVM tests plus 2 `magicblock_cpi` encoding unit tests and 1 devnet-only ignored LiteSVM test under Anchor 1.1.2; historical reference only; CI-gated by `.github/workflows/anchor-program-tests.yml` as regression evidence, not final Quasar proof |
 
 The reputation program carries the audit-hardened commit-reveal (`sha256(score ‖ salt ‖ job_id ‖ program_id)`, zero-commitment rejection, expire restricted to recorded parties) — remediation verified line-by-line in `docs/QUASAR-PROGRAMS-SECURITY-AUDIT-STAGE2-2026-05-06.md`.
 
@@ -70,7 +70,7 @@ ADL v0.2 spec + JSON Schema (stable, canonical), 102 pytest files, conformance l
 2. **No external auditor engaged.** The handoff pack requires named human approval to send; nothing has been sent. Lab `docs/TRACKS.md` rung 7: "Not started."
 3. **Upgrade authority is a single dev wallet** (`d4ST3N…` per `config/quasar/deployments.json`) — no multisig, no timelock, no rotation policy. Auditors will flag this on page one.
 4. **Committed live-format Jupiter API key** in `.env.example:16` — violates SECURITY.md's own rule. Treat as compromised and rotate immediately; scrub history or note it in the audit disclosure.
-5. **~700 automated checks have no CI gate**: the entire app Jest suite (121 files, ~531 cases — root `package.json` has no `test` script and no workflow invokes Jest), the entire Playwright suite (38 specs; nightly lane is best-effort/non-blocking), and all 31 legacy Anchor Rust tests. Verification is manual and recorded in STATUS prose.
+5. **Remaining CI coverage gaps:** PR #638 added root Jest, legacy Anchor reference, and signup/onboarding funnel workflows; PR #648 added the pinned Solana toolchain baseline, which the legacy Anchor workflow now gates via `npm run check:toolchain:baseline`. The entire Playwright suite remains split between blocking funnel coverage and best-effort/nightly evidence capture, and any broader Surfpool/devnet lane still needs its documented approval/safety preconditions.
 6. **Configuration truth-drift that an auditor will trip over:**
    - App defaults to `legacy-anchor` unless `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` is set (`lib/config/network.ts:66-78`), contradicting the "Quasar cutover complete" posture; Quasar is only permitted on the devnet profile, and the client emits `compatibility: "quasar-layout-unverified"`.
    - `config/networks/mainnet.json` carries the devnet legacy escrow ID as a placeholder.

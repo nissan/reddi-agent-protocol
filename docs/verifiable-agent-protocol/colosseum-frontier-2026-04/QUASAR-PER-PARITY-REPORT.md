@@ -43,6 +43,7 @@ _Baseline: `main` @ `ffe48a8`_
 ## Deltas / Blockers
 
 - No Rust `ephemeral-rollups-sdk` dependency was added, because the PER client is intentionally handled in TypeScript for Anchor 1.0.0 compatibility.
+  - _Snapshot note (superseded): the Anchor 1.0.0 compatibility rationale stopped applying with the Anchor 1.1.2 upgrade. `packages/per-client/README.md` owns the current reason PER stays TypeScript-side; the bullet above is retained as the 2026-04-12 record._
 - LiteSVM covers state transitions and fallback behavior, but not the live `devnet-tee.magicblock.app` execution path.
 - `release_escrow_per` is a local parity shim for the TEE path, not a full enclave integration test.
 

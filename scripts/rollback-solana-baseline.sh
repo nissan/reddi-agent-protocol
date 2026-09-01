@@ -35,6 +35,8 @@ SURFPOOL_VERSION=$(json_value surfpool.version)
 SOLANA_INSTALL_DIR="${RAP_BASELINE_SOLANA_INSTALL_DIR:-$HOME/.local/share/solana/reddi-agent-protocol-baseline/install}"
 SHARED_SOLANA_INSTALL_DIR="$HOME/.local/share/solana/install"
 SURFPOOL_DIR="${RAP_BASELINE_SURFPOOL_ROOT:-$HOME/.local/share/surfpool/releases}/$SURFPOOL_VERSION"
+AVM_BIN_DIR="${AVM_HOME:-$HOME/.avm}/bin"
+AVM_VERSION_FILE="${AVM_HOME:-$HOME/.avm}/.version"
 
 MODE="${1:---plan}"
 if [ "$MODE" != "--plan" ] && [ "$MODE" != "--execute" ]; then
@@ -50,7 +52,8 @@ Rollback plan for the RAP baseline (user-scoped only).
 further per-step prompt, so stop now if other work still needs any of them:
 - Node: mise uninstall node@$NODE_VERSION (the machine-wide default Node stays, but anything else pinned to $NODE_VERSION loses it)
 - Rust: rustup toolchain uninstall $RUST_VERSION (anything else using this toolchain loses it)
-- Anchor: avm uninstall $ANCHOR_VERSION when avm is installed (anything else using Anchor $ANCHOR_VERSION loses it)
+- Anchor: rm -f $AVM_BIN_DIR/anchor-$ANCHOR_VERSION, then clear $AVM_VERSION_FILE when it still selects $ANCHOR_VERSION
+  (anything else using Anchor $ANCHOR_VERSION loses it; other installed Anchor versions and an AVM selection of them are left alone)
 - Solana CLI: rm -rf $SOLANA_INSTALL_DIR (baseline-owned default; if RAP_BASELINE_SOLANA_INSTALL_DIR is overridden to $SHARED_SOLANA_INSTALL_DIR or another shared tree, any other release or CLI already installed there is destroyed with it)
 - Surfpool: rm -rf $SURFPOOL_DIR
 
@@ -77,8 +80,9 @@ command -v mise >/dev/null 2>&1 && mise uninstall "node@$NODE_VERSION" || true
 if command -v rustup >/dev/null 2>&1; then
   rustup toolchain uninstall "$RUST_VERSION" || true
 fi
-if command -v avm >/dev/null 2>&1; then
-  avm uninstall "$ANCHOR_VERSION" || true
+rm -f "$AVM_BIN_DIR/anchor-$ANCHOR_VERSION"
+if [ -f "$AVM_VERSION_FILE" ] && [ "$(cat "$AVM_VERSION_FILE")" = "$ANCHOR_VERSION" ]; then
+  rm -f "$AVM_VERSION_FILE"
 fi
 rm -rf "$SOLANA_INSTALL_DIR" "$SURFPOOL_DIR"
 echo "rollback complete for user-scoped baseline paths; review shell startup backups manually if needed"

@@ -33,13 +33,29 @@
     "sha256": "5b20a3b46e60c4f819af7b4da5c3ea211f76041710617841cc23247d15887ddc"
   },
   "anchorAvm": {
-    "gitUrl": "https://github.com/otter-sec/anchor",
-    "tagTemplate": "v{anchorVersion}",
+    "gitUrl": "https://github.com/solana-foundation/anchor",
+    "managerVersion": "1.0.0",
+    "managerReason": "AVM v1.1.2 cargo-install pulls cargo-platform 0.3.3, which requires Rust 1.91; keep the manager on the previously verified source tag while selecting Anchor CLI 1.1.2 from the official release asset.",
+    "tagTemplate": "v{version}",
     "tagObjectShaByVersion": {
-      "1.0.0": "f17b37fd1f1fdb4b1c0de68ccb467996d3ba07f3"
+      "1.0.0": "f17b37fd1f1fdb4b1c0de68ccb467996d3ba07f3",
+      "1.1.2": "0984d7a19ae6cfea19d78fab228b2af016b63021"
     },
     "tagCommitShaByVersion": {
-      "1.0.0": "25be6d502ec6957d34d436bc2a6170040fc64153"
+      "1.0.0": "25be6d502ec6957d34d436bc2a6170040fc64153",
+      "1.1.2": "24035e2b0035c87e321acc1c05f97793829a87f1"
+    }
+  },
+  "anchorCli": {
+    "versionSource": "Anchor.toml toolchain.anchor_version",
+    "releaseEvidence": {
+      "1.1.2": "gh-axi release view v1.1.2 -R solana-foundation/anchor; immutable, not prerelease, published 2026-06-26T15:16:04Z by github-actions[bot]; changelog has no Breaking entries for 1.1.2"
+    },
+    "platform": "x86_64-unknown-linux-gnu",
+    "assetNameTemplate": "anchor-{version}-x86_64-unknown-linux-gnu",
+    "urlTemplate": "https://github.com/solana-foundation/anchor/releases/download/v{version}/anchor-{version}-x86_64-unknown-linux-gnu",
+    "sha256ByVersion": {
+      "1.1.2": "fdea9979629e9416e5f5e5622ff6c11b8c691d1e559581ece368e903c0c980c1"
     }
   }
 }

@@ -27,8 +27,7 @@ pub const CREATE_PERMISSION_DISCRIMINATOR: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
 pub const DELEGATE_PERMISSION_DISCRIMINATOR: [u8; 8] = [3, 0, 0, 0, 0, 0, 0, 0];
 
 /// SDK discriminator for Permission Program `commitAndUndelegatePermission`.
-pub const COMMIT_AND_UNDELEGATE_PERMISSION_DISCRIMINATOR: [u8; 8] =
-    [5, 0, 0, 0, 0, 0, 0, 0];
+pub const COMMIT_AND_UNDELEGATE_PERMISSION_DISCRIMINATOR: [u8; 8] = [5, 0, 0, 0, 0, 0, 0, 0];
 
 /// SDK discriminator for Delegation Program `delegate`.
 pub const DELEGATE_ACCOUNT_DISCRIMINATOR: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
@@ -105,7 +104,10 @@ mod tests {
 
     #[test]
     fn permission_instruction_data_matches_magicblock_js_sdk() {
-        assert_eq!(hex(&create_permission_data_members_none()), "000000000000000000");
+        assert_eq!(
+            hex(&create_permission_data_members_none()),
+            "000000000000000000"
+        );
         assert_eq!(hex(&delegate_permission_data()), "0300000000000000");
         assert_eq!(
             hex(&commit_and_undelegate_permission_data()),

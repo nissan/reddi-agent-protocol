@@ -29,15 +29,12 @@ fn send_tx(
     svm: &mut LiteSVM,
     ix: Instruction,
     signers: &[&Keypair],
-) -> Result<(), litesvm::types::FailedTransactionMetadata> {
+) -> Result<(), Box<litesvm::types::FailedTransactionMetadata>> {
     let payer_pk = signers[0].pubkey();
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&payer_pk), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), signers).unwrap();
-    match svm.send_transaction(tx) {
-        Ok(_) => Ok(()),
-        Err(e) => Err(e),
-    }
+    svm.send_transaction(tx).map(|_| ()).map_err(Box::new)
 }
 
 fn register_ix(

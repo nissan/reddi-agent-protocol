@@ -4,9 +4,86 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
+# Reddi Agent Protocol agent memory
+
+## Repository shape
+
+This is a mixed monorepo: a Next.js web app at the root, Solana programs under `programs/escrow/`, and independent TypeScript packages under `packages/`. The root `package.json` is named `web`; it is not a workspace root. Each `packages/*` package has its own install/build/test lifecycle.
+
+- `app/`, `components/`, `lib/`, `providers/`, `public/` — Next.js 16 (App Router) + React 19 + Tailwind v4 + shadcn/ui + Solana wallet adapter.
+- `programs/escrow/` — legacy Anchor reference implementation. Demo target is the Quasar program set in `config/quasar/deployments.json`; Anchor remains historical/reference regression evidence only.
+- `packages/per-client` — MagicBlock PER delegation client; PER architecture remains TypeScript/client-side unless a separate SDK compatibility qualification says otherwise.
+- `packages/agent-protocol`, `packages/x402-solana`, `packages/demo-agents`, `packages/rap-mcp-bridge`, `packages/eliza-plugin-x402`, `packages/sendai-x402`, `packages/openrouter-specialists`, `packages/testing-specialists` — package surfaces with separate package managers/scripts.
+- `scripts/` — smoke/evidence/readiness scripts; inspect scripts before running anything with devnet/live/surfpool/evidence in the name.
+- `artifacts/` — generated evidence packs; do not hand-edit.
+
 ## Solana toolchain baseline
 
-Use `docs/SOLANA-TOOLCHAIN-BASELINE.md` and `scripts/solana-baseline-toolchain.sh` for the pinned user-scoped RAP Solana baseline. Keep Node repo-local through `.mise.toml`; do not replace the machine-wide Node used outside this repository. Prefer `npm run check:toolchain:surfpool-smoke` for a safe dynamic-port Surfpool smoke; inspect broader Surfpool/devnet scripts before running because some use fixed ports, keypair paths, live RPC, or generated artifacts.
+Use `docs/SOLANA-TOOLCHAIN-BASELINE.md` and `scripts/solana-baseline-toolchain.sh` for the pinned user-scoped RAP Solana baseline. Keep Node repo-local through `.mise.toml`; do not replace the machine-wide Node used outside this repository. Anchor CLI is pinned to 1.1.2, selected through the AVM 1.0.0 manager because AVM 1.1.2 itself requires newer Rust than the baseline. Prefer `npm run check:toolchain:surfpool-smoke` for a safe dynamic-port Surfpool smoke; inspect broader Surfpool/devnet scripts before running because some use fixed ports, keypair paths, live RPC, or generated artifacts.
+
+Common safe baseline checks:
+
+```bash
+scripts/solana-baseline-toolchain.sh verify
+npm run check:toolchain:baseline
+npm run test:toolchain:version-match
+npm run test:toolchain:modes
+```
+
+Legacy Anchor reference checks from the repo root:
+
+```bash
+cargo build-sbf --manifest-path programs/escrow/Cargo.toml --sbf-out-dir target/deploy
+cargo test -p escrow
+anchor idl build -p escrow --skip-lint -o .tmp/escrow-idl.json -t .tmp/escrow-idl.ts
+```
+
+`cargo build-sbf` may create generated files under `target/deploy/`; do not read, preserve, or commit generated keypair material.
+
+## Common app/package commands
+
+```bash
+npm run dev
+npm run build
+npm test -- --ci --maxWorkers=2
+npx jest lib/__tests__/jupiter-client.test.ts
+npx jest -t "registers an agent"
+npm run test:e2e
+npm run test:e2e -- e2e/onboarding.spec.ts
+npm run test:e2e:ui
+```
+
+Playwright starts its own dev server and owns the port/wallet-mock env it needs; read `playwright.config.ts` before changing e2e setup, and set `PLAYWRIGHT_BASE_URL` to run against an already-running target instead. `packages/demo-agents` has its own devnet lifecycle (`fund`, `register`, `deregister`, `demo`) that spends devnet SOL — read the package before running any of it.
+
+The repo has many smoke/evidence/readiness commands. Do not run destructive or live-spend-capable scripts speculatively. Prefer dry-run/plan variants where they exist, for example `plan:economic-demo:devnet-usdc-sender`.
+
+## Network profile resolution
+
+Runtime network comes from `lib/config/network.ts` and `config/networks/<profile>.json`.
+
+- `NETWORK_PROFILE` / `NEXT_PUBLIC_NETWORK_PROFILE`: `devnet` default, `mainnet`, or `local-surfpool` (aliases: `local`, `localnet`, `surfpool`).
+- `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` switches the devnet profile to the Quasar program set.
+- `NEXT_PUBLIC_RPC_ENDPOINT` overrides RPC; `NEXT_PUBLIC_ESCROW_PROGRAM_ID` is ignored on legacy-anchor devnet unless `ALLOW_UNSAFE_ESCROW_OVERRIDE=true`.
+
+When debugging wrong program id or wrong RPC, check these env vars before changing code.
+
+## On-chain program boundaries
+
+The legacy Anchor implementation in `programs/escrow/` contains escrow, registry, reputation commit/reveal, attestation, and MagicBlock PER state-tracking instructions. PDA seeds and Anchor discriminators are mirrored in `lib/program.ts`; if you change a seed or instruction name, update both Rust constants and TypeScript mirrors.
+
+Quasar is the demo target, not Anchor. Program ids are in `config/quasar/deployments.json`; the legacy Anchor id is historical comparison only. MagicBlock PER/TEE live execution is not part of the final Quasar claim. See `DEPLOY.md` before any deployment, and never deploy or change upgrade authority without explicit approval.
+
+The `77rkRQxe…UZXmX` program id still quoted in some older `declare_id!` macros, `Anchor.toml` entries, and runbooks (including `packages/demo-agents/DEPLOY.md`) is pre-cutover doc rot; it is deployed nowhere. Ignore it.
+
+## Protocol economics and claim boundaries
+
+The protocol fee is 0.05% per transaction, only on settlement. Older 16.7% / 83.3% figures are stale doc rot.
+
+Preserve the hard boundaries enforced by package/readiness checks: AUDD is payment-plan/proof metadata only, not custody or settled escrow; mainnet/live payment paths are gated; package/source conformance must remain no-spend/offline unless a task explicitly authorizes otherwise.
+
+## Repository conventions
+
+`STATUS.md` is a rolling log, not a source of truth about current code state; the newest entry is at the top and older entries describe intermediate states.
 
 ## Maintaining this file
 

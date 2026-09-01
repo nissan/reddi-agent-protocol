@@ -6,8 +6,9 @@ use crate::state::{EscrowAccount, EscrowStatus};
 
 /// Mark an escrow as delegated to a MagicBlock PER session.
 ///
-/// Delegation itself is handled TypeScript-side via `@magicblock-labs/ephemeral-rollups-sdk`
-/// (the Rust SDK is incompatible with Anchor 1.0.0 — see Phase 5 compat notes).
+/// Delegation itself remains handled TypeScript-side via `@magicblock-labs/ephemeral-rollups-sdk`.
+/// The Anchor 1.1.2 stable upgrade does not move MagicBlock SDK ownership into Rust;
+/// requalify that separately before changing the PER architecture.
 /// This instruction records the delegation state and the session key issued by
 /// the TEE so downstream instructions can validate the PER path.
 ///

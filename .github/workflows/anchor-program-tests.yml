@@ -5,18 +5,34 @@ on:
     branches: [main]
     paths:
       - "programs/escrow/**"
+      - "Anchor.toml"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
+      - ".mise.toml"
+      - "config/toolchain/solana-baseline-assets.json"
+      - "scripts/check-solana-baseline-pins.mjs"
+      - "scripts/solana-baseline-toolchain.sh"
+      - "scripts/lib/solana-baseline-version-match.sh"
+      - "scripts/__tests__/**"
       - ".github/workflows/anchor-program-tests.yml"
+      - ".github/workflows/quasar-program-tests.yml"
   pull_request:
     branches: [main]
     paths:
       - "programs/escrow/**"
+      - "Anchor.toml"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
+      - ".mise.toml"
+      - "config/toolchain/solana-baseline-assets.json"
+      - "scripts/check-solana-baseline-pins.mjs"
+      - "scripts/solana-baseline-toolchain.sh"
+      - "scripts/lib/solana-baseline-version-match.sh"
+      - "scripts/__tests__/**"
       - ".github/workflows/anchor-program-tests.yml"
+      - ".github/workflows/quasar-program-tests.yml"
   workflow_dispatch:
 
 jobs:
@@ -27,6 +43,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Verify pinned Solana toolchain baseline
+        run: |
+          npm run check:toolchain:baseline
+          npm run test:toolchain:version-match
+          npm run test:toolchain:modes
 
       - name: Install Rust toolchain (matches rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
