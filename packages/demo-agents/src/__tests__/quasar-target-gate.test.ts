@@ -1,4 +1,4 @@
-import { describeQuasarTargetRefusal, shellQuote } from "../quasar-target-gate";
+import { describeMalformedProgramIdRefusal, describeQuasarTargetRefusal, shellQuote } from "../quasar-target-gate";
 
 const LOCAL_RPC = "http://127.0.0.1:41337";
 const IDS = {
@@ -100,6 +100,40 @@ describe("Quasar target gate", () => {
   });
 });
 
+describe("supplied program id validity is enforced on every profile and target", () => {
+  it("accepts every valid supplied id", () => {
+    expect(describeMalformedProgramIdRefusal(lookupFrom(completeLocalEnv))).toBeUndefined();
+  });
+
+  it("accepts an environment that supplies no ids at all", () => {
+    expect(describeMalformedProgramIdRefusal(lookupFrom({}))).toBeUndefined();
+  });
+
+  it("names the variable that carries a malformed id", () => {
+    const refusal = describeMalformedProgramIdRefusal(
+      lookupFrom({ DEMO_ESCROW_PROGRAM_ID: "not-a-key" }),
+    );
+    expect(refusal).toContain("DEMO_ESCROW_PROGRAM_ID");
+    expect(refusal).toContain("NEXT_PUBLIC_ESCROW_PROGRAM_ID");
+    expect(refusal).toContain("not-a-key");
+  });
+
+  it("names a base58-looking id that does not decode to 32 bytes", () => {
+    const refusal = describeMalformedProgramIdRefusal(
+      lookupFrom({ NEXT_PUBLIC_REPUTATION_PROGRAM_ID: "22222222222222222222222222222222" }),
+    );
+    expect(refusal).toContain("DEMO_REPUTATION_PROGRAM_ID");
+  });
+
+  it("reports every malformed id at once", () => {
+    const refusal = describeMalformedProgramIdRefusal(
+      lookupFrom({ DEMO_REGISTRY_PROGRAM_ID: "bad-1", DEMO_ATTESTATION_PROGRAM_ID: "bad-2" }),
+    );
+    expect(refusal).toContain("DEMO_REGISTRY_PROGRAM_ID");
+    expect(refusal).toContain("DEMO_ATTESTATION_PROGRAM_ID");
+  });
+});
+
 describe("funding recovery hint", () => {
   it("quotes an RPC URL so it survives copy/paste into a shell", () => {
     expect(shellQuote(LOCAL_RPC)).toBe(`'${LOCAL_RPC}'`);
@@ -176,6 +210,20 @@ describe("program ID resolution has no Quasar devnet defaults", () => {
     process.env.DEMO_ESCROW_PROGRAM_ID = IDS.DEMO_ESCROW_PROGRAM_ID;
 
     await expect(import("../config")).rejects.toThrow(/missing DEMO_REGISTRY_PROGRAM_ID/);
+  });
+
+  it("refuses a malformed supplied id on the default legacy-anchor lane, before any PublicKey is built", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.DEMO_ESCROW_PROGRAM_ID = "not-a-key";
+
+    await expect(import("../config")).rejects.toThrow(/DEMO_ESCROW_PROGRAM_ID/);
+  });
+
+  it("refuses a malformed supplied id on the local-surfpool legacy-anchor lane", async () => {
+    process.env.NETWORK_PROFILE = "local-surfpool";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "not-a-key";
+
+    await expect(import("../config")).rejects.toThrow(/DEMO_REGISTRY_PROGRAM_ID/);
   });
 
   it("refuses the devnet Quasar route on import", async () => {

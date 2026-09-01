@@ -4,9 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
-import { Connection, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
+import { Connection, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { Button } from "@/components/ui/button";
-import { QUASAR_ESCROW_UNAVAILABLE_REASON } from "@/lib/onboarding/quasar-escrow-binding";
+import {
+  describeAttestationResolutionRefusal,
+  submitAttestationResolution,
+} from "@/lib/onboarding/attestation-resolution";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SellerWrapperConfigPreview } from "@/components/onboarding/SellerWrapperConfigPreview";
@@ -18,14 +21,10 @@ import { emitOnboardingCompletedEvent } from "@/lib/onboarding/torque-onboarding
 import {
   AGENT_TYPE_ENUM,
   agentPda,
-  attestationPda,
-  buildConfirmAttestationData,
-  buildDisputeAttestationData,
   buildRegisterAgentData,
   DEVNET_RPC,
   ESCROW_PROGRAM_ID,
   REGISTRY_PROGRAM_ID,
-  ATTESTATION_PROGRAM_ID,
   INCINERATOR,
   PROGRAM_KNOWN_GAPS,
   PROGRAM_TARGET,
@@ -34,11 +33,8 @@ import {
   SUBMISSION_BLOCKED_REASON,
 } from "@/lib/program";
 import {
-  buildQuasarConfirmAttestationInstruction,
-  buildQuasarDisputeAttestationInstruction,
   buildQuasarRegisterAgentInstruction,
   quasarAgentPda,
-  quasarAttestationPda,
 } from "@/lib/quasar/instructions";
 
 const WalletMultiButton = dynamic(
@@ -210,17 +206,6 @@ function mockWalletAddress() {
   return out;
 }
 
-function hexToJobId(hex: string): Uint8Array {
-  if (!/^[0-9a-fA-F]{32}$/.test(hex)) {
-    throw new Error("Invalid attestation job id.");
-  }
-  const out = new Uint8Array(16);
-  for (let i = 0; i < 16; i += 1) {
-    out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return out;
-}
-
 const RUNTIME_CAPABILITY_LABELS: Record<string, string> = {
   code_execution: "Can execute code",
   file_read: "Can read files/documents",
@@ -287,8 +272,7 @@ export default function OnboardingPage() {
   // Quasar reputation/attestation bind to the escrow a successful lock created. Onboarding never
   // locks one, so the resolution actions stay disabled with the canonical reason rather than
   // building an instruction against an escrow that does not exist.
-  const quasarResolutionBlockedReason =
-    PROGRAM_TARGET === "quasar" ? QUASAR_ESCROW_UNAVAILABLE_REASON : undefined;
+  const quasarResolutionBlockedReason = describeAttestationResolutionRefusal();
   const [capabilityLoading, setCapabilityLoading] = useState(false);
   const prevStepRef = useRef(step);
 
@@ -1787,67 +1771,33 @@ export default function OnboardingPage() {
                   if (!publicKey || !sendTransaction || !state.attestationJobIdHex || !state.attestationOperator) {
                     return;
                   }
-                  if (quasarResolutionBlockedReason) {
-                    setState((s) => ({ ...s, attestationNote: quasarResolutionBlockedReason }));
+
+                  const outcome = await submitAttestationResolution(
+                    {
+                      action: "confirm",
+                      consumer: publicKey,
+                      operator: state.attestationOperator,
+                      jobIdHex: state.attestationJobIdHex,
+                      escrow: state.attestationEscrow,
+                      attestationPda: state.attestationPda || undefined,
+                    },
+                    {
+                      getConnection: () => walletConnection ?? new Connection(DEVNET_RPC, "confirmed"),
+                      sendTransaction,
+                    },
+                  );
+
+                  if (!outcome.ok) {
+                    setState((s) => ({ ...s, attestationNote: outcome.error }));
                     return;
                   }
 
-                  try {
-                    const conn = walletConnection ?? new Connection(DEVNET_RPC, "confirmed");
-                    const jobId = hexToJobId(state.attestationJobIdHex);
-
-                    const operatorPubkey = new PublicKey(state.attestationOperator);
-                    const ix = PROGRAM_TARGET === "quasar"
-                      ? (() => {
-                          if (quasarResolutionBlockedReason) throw new Error(quasarResolutionBlockedReason);
-                          const escrow = new PublicKey(state.attestationEscrow);
-                          return buildQuasarConfirmAttestationInstruction({
-                            programId: ATTESTATION_PROGRAM_ID,
-                            escrow,
-                            consumer: publicKey,
-                            judge: operatorPubkey,
-                            attestationPda: state.attestationPda ? new PublicKey(state.attestationPda) : quasarAttestationPda(escrow, ATTESTATION_PROGRAM_ID),
-                            judgeAgentPda: quasarAgentPda(operatorPubkey, ATTESTATION_PROGRAM_ID),
-                          });
-                        })()
-                      : new TransactionInstruction({
-                          programId: ESCROW_PROGRAM_ID,
-                          keys: [
-                            {
-                              pubkey: state.attestationPda
-                                ? new PublicKey(state.attestationPda)
-                                : attestationPda(jobId),
-                              isSigner: false,
-                              isWritable: true,
-                            },
-                            { pubkey: agentPda(operatorPubkey), isSigner: false, isWritable: true },
-                            { pubkey: publicKey, isSigner: true, isWritable: false },
-                          ],
-                          data: buildConfirmAttestationData(jobId),
-                        });
-
-                    const { blockhash } = await conn.getLatestBlockhash();
-                    const tx = new Transaction();
-                    tx.recentBlockhash = blockhash;
-                    tx.feePayer = publicKey;
-                    tx.add(ix);
-
-                    const sig = await sendTransaction(tx, conn);
-                    await conn.confirmTransaction(sig, "confirmed");
-
-                    setState((s) => ({
-                      ...s,
-                      attestationResolution: "confirmed",
-                      attestationResolutionSig: sig,
-                      attestationNote: `Attestation confirmed by consumer: ${sig}`,
-                    }));
-                  } catch (error: unknown) {
-                    setState((s) => ({
-                      ...s,
-                      attestationNote:
-                        error instanceof Error ? error.message : "Confirm attestation failed",
-                    }));
-                  }
+                  setState((s) => ({
+                    ...s,
+                    attestationResolution: "confirmed",
+                    attestationResolutionSig: outcome.signature,
+                    attestationNote: `Attestation confirmed by consumer: ${outcome.signature}`,
+                  }));
                 }}
               >
                 {SUBMISSION_BLOCKED
@@ -1871,67 +1821,33 @@ export default function OnboardingPage() {
                   if (!publicKey || !sendTransaction || !state.attestationJobIdHex || !state.attestationOperator) {
                     return;
                   }
-                  if (quasarResolutionBlockedReason) {
-                    setState((s) => ({ ...s, attestationNote: quasarResolutionBlockedReason }));
+
+                  const outcome = await submitAttestationResolution(
+                    {
+                      action: "dispute",
+                      consumer: publicKey,
+                      operator: state.attestationOperator,
+                      jobIdHex: state.attestationJobIdHex,
+                      escrow: state.attestationEscrow,
+                      attestationPda: state.attestationPda || undefined,
+                    },
+                    {
+                      getConnection: () => walletConnection ?? new Connection(DEVNET_RPC, "confirmed"),
+                      sendTransaction,
+                    },
+                  );
+
+                  if (!outcome.ok) {
+                    setState((s) => ({ ...s, attestationNote: outcome.error }));
                     return;
                   }
 
-                  try {
-                    const conn = walletConnection ?? new Connection(DEVNET_RPC, "confirmed");
-                    const jobId = hexToJobId(state.attestationJobIdHex);
-
-                    const operatorPubkey = new PublicKey(state.attestationOperator);
-                    const ix = PROGRAM_TARGET === "quasar"
-                      ? (() => {
-                          if (quasarResolutionBlockedReason) throw new Error(quasarResolutionBlockedReason);
-                          const escrow = new PublicKey(state.attestationEscrow);
-                          return buildQuasarDisputeAttestationInstruction({
-                            programId: ATTESTATION_PROGRAM_ID,
-                            escrow,
-                            consumer: publicKey,
-                            judge: operatorPubkey,
-                            attestationPda: state.attestationPda ? new PublicKey(state.attestationPda) : quasarAttestationPda(escrow, ATTESTATION_PROGRAM_ID),
-                            judgeAgentPda: quasarAgentPda(operatorPubkey, ATTESTATION_PROGRAM_ID),
-                          });
-                        })()
-                      : new TransactionInstruction({
-                          programId: ESCROW_PROGRAM_ID,
-                          keys: [
-                            {
-                              pubkey: state.attestationPda
-                                ? new PublicKey(state.attestationPda)
-                                : attestationPda(jobId),
-                              isSigner: false,
-                              isWritable: true,
-                            },
-                            { pubkey: agentPda(operatorPubkey), isSigner: false, isWritable: true },
-                            { pubkey: publicKey, isSigner: true, isWritable: false },
-                          ],
-                          data: buildDisputeAttestationData(jobId),
-                        });
-
-                    const { blockhash } = await conn.getLatestBlockhash();
-                    const tx = new Transaction();
-                    tx.recentBlockhash = blockhash;
-                    tx.feePayer = publicKey;
-                    tx.add(ix);
-
-                    const sig = await sendTransaction(tx, conn);
-                    await conn.confirmTransaction(sig, "confirmed");
-
-                    setState((s) => ({
-                      ...s,
-                      attestationResolution: "disputed",
-                      attestationResolutionSig: sig,
-                      attestationNote: `Attestation disputed by consumer: ${sig}`,
-                    }));
-                  } catch (error: unknown) {
-                    setState((s) => ({
-                      ...s,
-                      attestationNote:
-                        error instanceof Error ? error.message : "Dispute attestation failed",
-                    }));
-                  }
+                  setState((s) => ({
+                    ...s,
+                    attestationResolution: "disputed",
+                    attestationResolutionSig: outcome.signature,
+                    attestationNote: `Attestation disputed by consumer: ${outcome.signature}`,
+                  }));
                 }}
               >
                 {SUBMISSION_BLOCKED

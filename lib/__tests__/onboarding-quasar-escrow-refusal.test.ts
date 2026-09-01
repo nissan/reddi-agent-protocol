@@ -153,28 +153,69 @@ describe("onboarding Quasar reputation/attestation refuses without a lock-create
     expect(rpcConstructions).toEqual([]);
   });
 
-  it("the onboarding page does not treat restored escrow state as Quasar resolution proof", () => {
-    const actualFs = jest.requireActual("fs") as typeof import("fs");
-    const actualPath = jest.requireActual("path") as typeof import("path");
-    const source = actualFs.readFileSync(actualPath.join(process.cwd(), "app/onboarding/page.tsx"), "utf8");
+  it("consumer confirm/dispute refuses before a connection is opened or an operator key is parsed", async () => {
+    await useQuasarTarget();
+    const { submitAttestationResolution } = await import("@/lib/onboarding/attestation-resolution");
+    const { QUASAR_ESCROW_UNAVAILABLE_REASON } = await import("@/lib/onboarding/quasar-escrow-binding");
+    const { PublicKey } = jest.requireActual("@solana/web3.js") as typeof import("@solana/web3.js");
 
-    expect(source).toContain(
-      'PROGRAM_TARGET === "quasar" ? QUASAR_ESCROW_UNAVAILABLE_REASON : undefined',
+    const getConnection = jest.fn(() => {
+      throw new Error("connection opened");
+    });
+    const sendTransaction = jest.fn(async () => "never");
+
+    for (const action of ["confirm", "dispute"] as const) {
+      const outcome = await submitAttestationResolution(
+        {
+          action,
+          consumer: new PublicKey(SPECIALIST),
+          // Deliberately unparseable: reaching PublicKey parsing would surface as a different error.
+          operator: "not a base58 operator",
+          jobIdHex: "not a job id",
+          escrow: "",
+        },
+        { getConnection, sendTransaction },
+      );
+
+      expect(outcome.ok).toBe(false);
+      expect(outcome.ok === false && outcome.error).toBe(QUASAR_ESCROW_UNAVAILABLE_REASON);
+    }
+
+    expect(getConnection).not.toHaveBeenCalled();
+    expect(sendTransaction).not.toHaveBeenCalled();
+    expect(rpcConstructions).toEqual([]);
+  });
+
+  it("the same confirm/dispute path reaches its connection step on legacy-anchor, so the refusal is what stops it", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "legacy-anchor";
+
+    const { describeAttestationResolutionRefusal, submitAttestationResolution } = await import(
+      "@/lib/onboarding/attestation-resolution"
+    );
+    const { PublicKey } = jest.requireActual("@solana/web3.js") as typeof import("@solana/web3.js");
+
+    expect(describeAttestationResolutionRefusal()).toBeUndefined();
+
+    const getConnection = jest.fn(() => {
+      throw new Error("connection opened");
+    });
+    const sendTransaction = jest.fn(async () => "never");
+
+    const outcome = await submitAttestationResolution(
+      {
+        action: "confirm",
+        consumer: new PublicKey(SPECIALIST),
+        operator: SPECIALIST,
+        jobIdHex: "00112233445566778899aabbccddeeff",
+        escrow: "",
+      },
+      { getConnection, sendTransaction },
     );
 
-    for (const label of ["Confirm attestation (consumer)", "Dispute attestation (consumer)"]) {
-      const buttonLabel = source.indexOf(label);
-      expect(buttonLabel).toBeGreaterThan(0);
-      const onClick = source.lastIndexOf("onClick={async () => {", buttonLabel);
-      expect(onClick).toBeGreaterThan(0);
-      const handler = source.slice(onClick, buttonLabel);
-      const guard = handler.indexOf("if (quasarResolutionBlockedReason)");
-      const connection = handler.indexOf("const conn = walletConnection ?? new Connection");
-      const escrow = handler.indexOf("const escrow = new PublicKey(state.attestationEscrow)");
-      expect(guard).toBeGreaterThan(0);
-      expect(connection).toBeGreaterThan(guard);
-      expect(escrow).toBeGreaterThan(connection);
-    }
+    expect(outcome.ok).toBe(false);
+    expect(outcome.ok === false && outcome.error).toBe("connection opened");
+    expect(getConnection).toHaveBeenCalledTimes(1);
   });
 
   it("the refusal is scoped to the Quasar target: legacy-anchor still reaches its RPC step", async () => {

@@ -289,6 +289,14 @@ async function ensureQuasarAgentRegistered(programId: PublicKey, owner: Keypair,
 
 // ── Demo ──────────────────────────────────────────────────────────────────────
 
+/** Inner width of the banner box, so every line lands on the rule regardless of profile name. */
+const BANNER_INNER_WIDTH = 58;
+
+function bannerLine(text: string): string {
+  const cells = [...text].slice(0, BANNER_INNER_WIDTH);
+  return `║${cells.join("")}${" ".repeat(BANNER_INNER_WIDTH - cells.length)}║`;
+}
+
 async function runDemo() {
   const start = Date.now();
   const requestedSettlementMode = readSettlementMode();
@@ -302,10 +310,10 @@ async function runDemo() {
     );
   }
 
-  console.log("\n╔══════════════════════════════════════════════════════════╗");
-  console.log(`║       Reddi Agent Protocol — ${DEMO_NETWORK_PROFILE} Demo${" ".repeat(Math.max(0, 15 - DEMO_NETWORK_PROFILE.length))}║`);
-  console.log("║   A→B→C cycle: payment + reputation + attestation       ║");
-  console.log("╚══════════════════════════════════════════════════════════╝\n");
+  console.log(`\n╔${"═".repeat(BANNER_INNER_WIDTH)}╗`);
+  console.log(bannerLine(`       Reddi Agent Protocol — ${DEMO_NETWORK_PROFILE} Demo`));
+  console.log(bannerLine("   A→B→C cycle: payment + reputation + attestation"));
+  console.log(`╚${"═".repeat(BANNER_INNER_WIDTH)}╝\n`);
   console.log(`Target:   ${PROGRAM_TARGET}`);
   console.log(`Escrow:   ${ESCROW_PROGRAM_ID}`);
   if (PROGRAM_TARGET === "quasar") {

@@ -84,9 +84,41 @@ describe("Quasar demo program target config", () => {
     expect(profile.programs.submissionReady).toBe(false);
     expect(profile.programs.deploymentStatus).toBe("local-only");
     expect(profile.programs.blocked?.target).toBe("quasar");
+    expect(profile.programs.blocked?.cause).toBe("local-program-set");
     expect(profile.programs.knownGaps.join(" ")).toMatch(
       /four distinct valid local program IDs.*missing escrow, registry, reputation, attestation program ids/,
     );
+  });
+
+  it("tells a local-surfpool operator to supply the missing local ID rather than to run the lane they are on", async () => {
+    process.env.NETWORK_PROFILE = "local-surfpool";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+    process.env.NEXT_PUBLIC_RPC_ENDPOINT = "http://127.0.0.1:39999";
+    process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = QUASAR_PROGRAM_ID;
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = QUASAR_REGISTRY_PROGRAM_ID;
+    process.env.NEXT_PUBLIC_REPUTATION_PROGRAM_ID = QUASAR_REPUTATION_PROGRAM_ID;
+
+    const { describeBlockedProgramTarget, getNetworkProfile } = await import("@/lib/config/network");
+    const refusal = describeBlockedProgramTarget(getNetworkProfile());
+
+    expect(refusal).toContain("local program set supplied for this run is incomplete");
+    expect(refusal).toContain("missing attestation program id");
+    expect(refusal).toContain("NEXT_PUBLIC_ATTESTATION_PROGRAM_ID");
+    expect(refusal).not.toContain("recorded deployment is not usable");
+    expect(refusal).not.toContain("test:surfpool:quasar-critical");
+  });
+
+  it("keeps the recorded-deployment wording and lane pointer for the blocked devnet deployment", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+
+    const { describeBlockedProgramTarget, getNetworkProfile } = await import("@/lib/config/network");
+    const profile = getNetworkProfile();
+    const refusal = describeBlockedProgramTarget(profile);
+
+    expect(profile.programs.blocked?.cause).toBe("recorded-deployment");
+    expect(refusal).toContain("recorded deployment is not usable");
+    expect(refusal).toContain("test:surfpool:quasar-critical");
   });
 
   it("keeps local-surfpool Quasar explicit when all four local program IDs are valid", async () => {

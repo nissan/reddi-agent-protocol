@@ -30,11 +30,19 @@ export type NetworkProfile = {
     deploymentStatus: DeploymentStatus;
     activationGate?: string;
     /**
-     * Set when the requested target resolves to a deployment the canonical record marks non-ready.
+     * Set when the requested target cannot be used to touch chain state. `cause` says which refusal
+     * applies, because the remedies differ: a `recorded-deployment` block is about binaries this
+     * client no longer matches, an `unregistered-deployment` block is about a profile with no Quasar
+     * deployment at all, and a `local-program-set` block is about the operator's own four local ids.
      * Resolution stays non-throwing so disclosure surfaces can render the reason; effect sites call
      * assertProgramTargetUsable() to refuse before building instructions, signing, or reaching RPC.
      */
-    blocked?: { target: ProgramTarget; reason: string; knownGaps: string[] };
+    blocked?: {
+      target: ProgramTarget;
+      cause: "recorded-deployment" | "unregistered-deployment" | "local-program-set";
+      reason: string;
+      knownGaps: string[];
+    };
   };
   payments: {
     jupiterApiBase: string;
@@ -338,6 +346,7 @@ export function getNetworkProfile(): NetworkProfile {
       blocked: quasarRequestRefused
         ? {
             target: "quasar",
+            cause: name === "local-surfpool" ? "local-program-set" : "unregistered-deployment",
             reason: name === "local-surfpool"
               ? localQuasarRefusalReason
               : `A Quasar program target was requested for ${name}, which has no registered Quasar deployment; the request is refused.`,
@@ -346,6 +355,7 @@ export function getNetworkProfile(): NetworkProfile {
         : quasarDeploymentBlocked
           ? {
               target,
+              cause: "recorded-deployment",
               reason:
                 quasarDeployments.submissionReadyReason ??
                 "the recorded Quasar deployment is not submission-ready",
@@ -381,11 +391,21 @@ export function getNetworkProfile(): NetworkProfile {
 export function describeBlockedProgramTarget(profile: NetworkProfile = getNetworkProfile()): string | undefined {
   const blocked = profile.programs.blocked;
   if (!blocked) return undefined;
+  const cause =
+    blocked.cause === "local-program-set"
+      ? "the local program set supplied for this run is incomplete or inconsistent"
+      : blocked.cause === "unregistered-deployment"
+        ? "no Quasar deployment is registered for this profile"
+        : "the recorded deployment is not usable";
+  const remedy =
+    blocked.cause === "local-program-set"
+      ? "Supply four distinct valid local program IDs (NEXT_PUBLIC_ESCROW_PROGRAM_ID, NEXT_PUBLIC_REGISTRY_PROGRAM_ID, NEXT_PUBLIC_REPUTATION_PROGRAM_ID, NEXT_PUBLIC_ATTESTATION_PROGRAM_ID) for the locally built current-source programs, then re-run."
+      : "Use the local Surfpool Quasar lane (npm run test:surfpool:quasar-critical) against locally built current-source programs instead.";
   return [
-    `The "${blocked.target}" program target is refused against the ${profile.name} profile because the recorded deployment is not usable.`,
+    `The "${blocked.target}" program target is refused against the ${profile.name} profile because ${cause}.`,
     blocked.reason,
     blocked.knownGaps.length ? `Known gaps: ${blocked.knownGaps.join(" | ")}` : "",
-    "Use the local Surfpool Quasar lane (npm run test:surfpool:quasar-critical) against locally built current-source programs instead.",
+    remedy,
   ].filter(Boolean).join(" ");
 }
 

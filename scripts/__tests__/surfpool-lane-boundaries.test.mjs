@@ -6,8 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-import yaml from "js-yaml";
-
+import { parseWorkflowYaml } from "../lib/workflow-yaml.mjs";
 import {
   LOCAL_ENDPOINT_ENV_KEYS,
   QUASAR_PROGRAM_SOURCE_DIRS,
@@ -36,7 +35,7 @@ function withoutKey(record, key) {
 }
 
 function loadWorkflow(name) {
-  return yaml.load(fs.readFileSync(path.join(repoRoot, ".github/workflows", name), "utf8"));
+  return parseWorkflowYaml(fs.readFileSync(path.join(repoRoot, ".github/workflows", name), "utf8"));
 }
 
 test("the lane precondition accepts the repository's configured Quasar program IDs", () => {
@@ -75,6 +74,59 @@ test("each Quasar crate reports the program ID it actually compiles with", () =>
   assert.throws(() => declaredQuasarProgramId(repoRoot, "scripts"), SurfpoolSafetyError);
   assert.throws(() => declaredQuasarProgramId(repoRoot, "scripts"), /declare_id! not found/);
   assert.throws(() => declaredQuasarProgramId(repoRoot, "experiments/quasar-escrow-ref"), /declare_id! not found/);
+});
+
+test("the workflow reader models the constructs these workflows are written with", () => {
+  const parsed = parseWorkflowYaml(
+    [
+      "name: Example # trailing comment",
+      "",
+      "on:",
+      "  push:",
+      "    branches: [main, feature/**]",
+      "    paths:",
+      "      - \"config/quasar/**\"",
+      "      - \"a#b\"",
+      "  workflow_dispatch:",
+      "",
+      "jobs:",
+      "  example:",
+      "    runs-on: ubuntu-latest",
+      "    timeout-minutes: 90",
+      "    env:",
+      "      # a comment line inside a mapping",
+      "      BUDGET_MS: \"2400000\"",
+      "    steps:",
+      "      - name: Setup Node",
+      "        uses: actions/setup-node@v4",
+      "        with:",
+      "          node-version: \"24.20.0\"",
+      "      - name: Run",
+      "        run: |",
+      "          echo one # not a comment",
+      "          echo two",
+    ].join("\n"),
+  );
+
+  assert.equal(parsed.name, "Example");
+  assert.deepEqual(parsed.on.push.branches, ["main", "feature/**"]);
+  assert.deepEqual(parsed.on.push.paths, ["config/quasar/**", "a#b"]);
+  assert.equal(parsed.on.workflow_dispatch, null);
+  assert.equal(parsed.jobs.example["timeout-minutes"], 90);
+  assert.equal(parsed.jobs.example.env.BUDGET_MS, "2400000");
+  assert.equal(parsed.jobs.example.steps.length, 2);
+  assert.equal(parsed.jobs.example.steps[0].with["node-version"], "24.20.0");
+  assert.equal(parsed.jobs.example.steps[1].run, "echo one # not a comment\necho two\n");
+});
+
+test("every workflow in the repository parses into a job model, so the reader cannot silently skip one", () => {
+  const names = fs.readdirSync(path.join(repoRoot, ".github/workflows")).filter((name) => name.endsWith(".yml"));
+  assert.ok(names.length > 0);
+  for (const name of names) {
+    const workflow = loadWorkflow(name);
+    assert.ok(workflow.on, `${name} must expose its triggers`);
+    assert.ok(Object.keys(workflow.jobs ?? {}).length > 0, `${name} must expose at least one job`);
+  }
 });
 
 test("the Quasar SDK workflow is triggered by refusal and compatibility surface changes", () => {

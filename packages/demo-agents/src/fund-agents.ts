@@ -9,7 +9,7 @@
  */
 import { Connection, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AGENT_A, AGENT_B, AGENT_C } from "./wallets";
-import { DEMO_NETWORK_PROFILE, DEVNET_RPC, DEVNET_RPC_WS } from "./config";
+import { DEVNET_RPC, DEVNET_RPC_WS } from "./config";
 import { shellQuote } from "./quasar-target-gate";
 
 async function fund() {
@@ -26,11 +26,6 @@ async function fund() {
     console.log(`${name}: ${pk.toBase58()} — ${sol.toFixed(4)} SOL`);
 
     if (sol < 0.01) {
-      if (DEMO_NETWORK_PROFILE === "mainnet") {
-        console.log(`  ⚠️  Low balance on the mainnet profile. Airdrop is not available on mainnet and is not attempted.`);
-        console.log(`     Fund ${pk.toBase58()} yourself before running the demo; this script will not move mainnet funds.`);
-        continue;
-      }
       console.log(`  ⚠️  Low balance. Requesting airdrop...`);
       try {
         const sig = await connection.requestAirdrop(pk, LAMPORTS_PER_SOL);

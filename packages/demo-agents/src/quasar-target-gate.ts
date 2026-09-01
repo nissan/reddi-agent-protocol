@@ -27,12 +27,34 @@ function isValidSolanaProgramId(value: string): boolean {
   return leadingZeroBytes + significantBytes === 32;
 }
 
-const QUASAR_PROGRAM_ID_ENV_KEYS: ReadonlyArray<readonly [string, string, string]> = [
+const PROGRAM_ID_ENV_KEYS: ReadonlyArray<readonly [string, string, string]> = [
   ["escrow", "DEMO_ESCROW_PROGRAM_ID", "NEXT_PUBLIC_ESCROW_PROGRAM_ID"],
   ["registry", "DEMO_REGISTRY_PROGRAM_ID", "NEXT_PUBLIC_REGISTRY_PROGRAM_ID"],
   ["reputation", "DEMO_REPUTATION_PROGRAM_ID", "NEXT_PUBLIC_REPUTATION_PROGRAM_ID"],
   ["attestation", "DEMO_ATTESTATION_PROGRAM_ID", "NEXT_PUBLIC_ATTESTATION_PROGRAM_ID"],
 ];
+
+/**
+ * Explains why a supplied program id cannot be used, on every profile and every target, or returns
+ * undefined when every supplied id is a valid 32-byte public key. A typo is attributed to the
+ * variable that carries it instead of surfacing later as a bare `Invalid public key input` from
+ * whichever script happened to construct a `PublicKey` from it first.
+ */
+export function describeMalformedProgramIdRefusal(lookup: EnvLookup): string | undefined {
+  const malformed: string[] = [];
+  for (const [, primaryKey, fallbackKey] of PROGRAM_ID_ENV_KEYS) {
+    const value = lookup(primaryKey, fallbackKey);
+    if (value === undefined) continue;
+    if (!isValidSolanaProgramId(value)) {
+      malformed.push(`${primaryKey} (or ${fallbackKey}): ${JSON.stringify(value)}`);
+    }
+  }
+  if (!malformed.length) return undefined;
+  return [
+    "Supplied demo program ids are malformed and must be valid 32-byte base58 Solana public keys:",
+    ...malformed.map((entry) => `\n  - ${entry}`),
+  ].join(" ");
+}
 
 export function isLoopbackRpcUrl(raw?: string): boolean {
   if (!raw) return false;
@@ -68,7 +90,7 @@ export function describeQuasarTargetRefusal(profile: QuasarTargetProfile, lookup
 
   const problems: string[] = [];
   const idOwners = new Map<string, string>();
-  for (const [label, primaryKey, fallbackKey] of QUASAR_PROGRAM_ID_ENV_KEYS) {
+  for (const [label, primaryKey, fallbackKey] of PROGRAM_ID_ENV_KEYS) {
     const value = lookup(primaryKey, fallbackKey);
     if (!value) {
       problems.push(`missing ${primaryKey} (or ${fallbackKey})`);

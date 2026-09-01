@@ -1,7 +1,7 @@
 import path from "path";
 import dotenv from "dotenv";
 
-import { describeQuasarTargetRefusal } from "./quasar-target-gate";
+import { describeMalformedProgramIdRefusal, describeQuasarTargetRefusal } from "./quasar-target-gate";
 
 // Load devnet env — resolve relative to package root (not transpiled __dirname).
 // DEMO_DISABLE_DOTENV lets a caller that already pins every variable (the local Surfpool lane, and
@@ -66,6 +66,12 @@ function resolveNetworkProfileName(): DemoNetworkProfileName {
 const activeNetworkProfileName = resolveNetworkProfileName();
 const activeProfile = DEMO_NETWORK_PROFILES[activeNetworkProfileName];
 const requestedProgramTarget = resolveProgramTarget();
+
+// Applies to every profile and every target: a supplied id that is not a valid public key is
+// attributed to its own variable here rather than failing later as a bare `Invalid public key
+// input` from whichever script first constructed a PublicKey from it.
+const malformedProgramIdRefusal = describeMalformedProgramIdRefusal(pickEnv);
+if (malformedProgramIdRefusal) throw new Error(malformedProgramIdRefusal);
 
 if (requestedProgramTarget === "quasar") {
   const refusal = describeQuasarTargetRefusal(activeNetworkProfileName, pickEnv);
