@@ -83,7 +83,7 @@ test("the Quasar SDK workflow is triggered by refusal and compatibility surface 
     "lib/register/**",
     "lib/registry/**",
     "lib/useOnchainAgents.ts",
-    "packages/agent-protocol/src/**",
+    "packages/agent-protocol/**",
     "packages/per-client/**",
     "docs/ECONOMIC-DEMO-JUDGE-PACKET-2026-05-05.md",
     "docs/ECONOMIC-DEMO-OPERATOR-CHECKLIST-2026-05-05.md",

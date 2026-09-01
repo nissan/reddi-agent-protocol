@@ -31,8 +31,17 @@ async function withRepo(run) {
 const FINGERPRINTED_BUILD_INPUTS = Object.freeze({
   quasar: Object.freeze({
     "packages/demo-agents/src/demo.ts": "export const version = 1;\n",
+    "packages/demo-agents/package.json": '{"name":"demo-agents"}\n',
+    "packages/demo-agents/package-lock.json": '{"lockfileVersion":3}\n',
+    "packages/demo-agents/tsconfig.json": '{"compilerOptions":{"module":"NodeNext"}}\n',
     "packages/agent-protocol/src/index.ts": "export const protocol = true;\n",
+    "packages/agent-protocol/package.json": '{"name":"agent-protocol"}\n',
+    "packages/agent-protocol/package-lock.json": '{"lockfileVersion":3}\n',
+    "packages/agent-protocol/tsconfig.json": '{"compilerOptions":{"module":"NodeNext"}}\n',
     "packages/per-client/src/index.ts": "export const per = true;\n",
+    "packages/per-client/package.json": '{"name":"per-client"}\n',
+    "packages/per-client/package-lock.json": '{"lockfileVersion":3}\n',
+    "packages/per-client/tsconfig.json": '{"compilerOptions":{"module":"NodeNext"}}\n',
     "lib/program.ts": "export const PROGRAM_TARGET = 'quasar';\n",
     "lib/register/registration-instruction.ts": "export const register = true;\n",
     "app/register/page.tsx": "export default function Register() { return null; }\n",
@@ -118,6 +127,9 @@ const FINGERPRINTED_BUILD_INPUTS = Object.freeze({
   }),
   "legacy-anchor": Object.freeze({
     "packages/demo-agents/src/demo.ts": "export const version = 1;\n",
+    "packages/demo-agents/package.json": '{"name":"demo-agents"}\n',
+    "packages/demo-agents/package-lock.json": '{"lockfileVersion":3}\n',
+    "packages/demo-agents/tsconfig.json": '{"compilerOptions":{"module":"NodeNext"}}\n',
     "programs/escrow/src/lib.rs": "fn main() {}\n",
     "programs/escrow/Cargo.toml": "[package]\nname = \"escrow\"\n",
     ".mise.toml": '[tools]\nnode = "24.20.0"\n',
