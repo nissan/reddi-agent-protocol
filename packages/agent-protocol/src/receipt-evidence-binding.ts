@@ -334,7 +334,7 @@ function validatePaymentObservation(input: ReceiptEvidenceBindingInput, errors: 
   const observationValidation = validatePaymentObservationRecord(input.paymentObservation);
   if (!observationValidation.ok) {
     errors.push(...observationValidation.errors.map((item) => error(
-      item.code === 'non_live_evidence_marked_eligible' || item.code === 'mainnet_partner_acceptance_missing'
+      item.code === 'non_live_evidence_marked_eligible' || item.code === 'mainnet_partner_acceptance_missing' || item.code === 'audd_rail_label_mismatch'
         ? 'payment_observation_ineligible'
         : 'payment_observation_mismatch',
       `$.paymentObservation${item.path.slice(1)}`,

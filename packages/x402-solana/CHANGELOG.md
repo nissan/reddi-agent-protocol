@@ -15,6 +15,7 @@ All notable changes to this package are documented here. Dates are AEST.
 - An AUDD challenge verified without a configured `auddMint` now fails as `unsupported_receipt` (operator misconfiguration) rather than `invalid_receipt`, and AUDD observer failures surface their specific reason in the failure message.
 - `SolanaReceiptVerifier` marks AUDD observations it derives from `getParsedTransaction` output as `evidence.source: 'parsed-rpc-transaction'` instead of leaving the fixture default.
 - The SPL observer's replay key includes the normalized network and matched instruction index, so two distinct transfers settled in one transaction each get their own replay slot while a genuine replay of the same transfer is still rejected. `SolanaReceiptVerifier` now applies that signature/instruction replay guard to AUDD receipts before accepting them.
+- SPL `TransferChecked` observation now requires the expected payment signature to be the transaction's first/canonical signature, not merely any secondary signer signature.
 
 ## 0.1.0 — 2026-07-06
 

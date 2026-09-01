@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  AUDD_DETERMINISTIC_FIXTURE_MINT,
+  AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
+  SOLANA_DEVNET_CAIP2,
+  SOLANA_MAINNET_BETA_CAIP2,
+  SOLANA_TESTNET_CAIP2,
+  SPL_TOKEN_PROGRAM_ID,
   canonicalPaymentHash,
   canonicalizePaymentObject,
   createPaymentAgreementRecord,
@@ -11,6 +17,7 @@ import {
   deriveReddiPaymentId,
   formatPaymentObservationProofRef,
   validatePaymentIntentRecord,
+  validatePaymentObservationRecord,
   validatePaymentRecordLabels,
   type ReddiPaymentRecordLabels,
 } from '../dist/index.js';
@@ -132,6 +139,125 @@ describe('canonical RAP payment identifiers and records', () => {
     assert.equal(observation.labels.eligibility, 'non_eligible');
   });
 
+  it('enforces canonical AUDD rail identity on generic payment intents', () => {
+    const intent = createPaymentIntentDraft({
+      labels,
+      agreementId: 'reddi.agreement:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      network: { caip2: SOLANA_DEVNET_CAIP2 },
+      asset: {
+        symbol: 'AUDD',
+        mint: AUDD_DETERMINISTIC_FIXTURE_MINT,
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+        decimals: 6,
+        amountBaseUnits: '1',
+      },
+      payTo: 'payee-owner-fixture',
+      destinationTokenAccount: 'payee-audd-token-account-fixture',
+      evidenceRequired: true,
+      quoteExpiresAt: '2026-09-01T02:00:00.000Z',
+      expiresAt: '2026-09-01T02:00:00.000Z',
+      refundPolicy: { mode: 'manual_review', description: 'Refunds are separate transfers.' },
+    });
+    assert.equal(validatePaymentIntentRecord(intent).ok, true);
+
+    assert.throws(
+      () => createPaymentIntentDraft({
+        ...intent,
+        labels: { environment: 'controlled-live', eligibility: 'pending_partner_acceptance' },
+        network: { caip2: SOLANA_MAINNET_BETA_CAIP2, rapAlias: 'solana-mainnet-beta' },
+        asset: { ...intent.asset, mint: AUDD_OFFICIAL_SOLANA_MAINNET_MINT },
+        operatorApprovalRequired: true,
+      }),
+      /audd_rail_label_mismatch/,
+    );
+    assert.throws(
+      () => createPaymentIntentDraft({
+        ...intent,
+        labels: { environment: 'mainnet-gated', eligibility: 'eligible', partnerAcceptanceRef: 'audd:not-real' },
+        network: { caip2: SOLANA_MAINNET_BETA_CAIP2, rapAlias: 'solana-mainnet-beta' },
+        asset: { ...intent.asset, mint: AUDD_OFFICIAL_SOLANA_MAINNET_MINT },
+        operatorApprovalRequired: true,
+      }),
+      /audd_rail_label_mismatch/,
+    );
+    assert.throws(
+      () => createPaymentIntentDraft({
+        ...intent,
+        network: { caip2: SOLANA_TESTNET_CAIP2, rapAlias: 'solana-testnet' },
+        asset: { ...intent.asset, mint: 'UnknownAuddTestnetMint111111111111111111111111' },
+        operatorApprovalRequired: true,
+      }),
+      /audd_rail_identity_mismatch/,
+    );
+  });
+
+  it('enforces canonical AUDD rail identity on generic payment observations', () => {
+    const observation = createPaymentObservationRecord({
+      labels,
+      observedAt: createdAt,
+      verifier: { name: 'fixture-spl-transfer-checked', version: 'v1' },
+      payment: {
+        rail: 'svm-spl-token-transfer-checked',
+        network: { caip2: SOLANA_DEVNET_CAIP2 },
+        asset: 'AUDD',
+        mint: AUDD_DETERMINISTIC_FIXTURE_MINT,
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+        amountBaseUnits: '2500000',
+        payTo: 'payee-owner-fixture',
+        sourceTokenAccount: 'payer-audd-token-account-fixture',
+        destinationTokenAccount: 'payee-audd-token-account-fixture',
+        authority: 'payer-owner-fixture',
+        signature: 'fixtureSignature2222222222222222222222222222222222',
+        instructionIndex: '0',
+      },
+      confirmation: { slot: 443284058, blockTime: 1785523200, commitment: 'confirmed' },
+      status: 'observed_confirmed',
+    });
+    assert.equal(validatePaymentObservationRecord(observation).ok, true);
+
+    assert.throws(
+      () => createPaymentObservationRecord({
+        labels: { environment: 'controlled-live', eligibility: 'pending_partner_acceptance' },
+        observedAt: createdAt,
+        verifier: { name: 'fixture-spl-transfer-checked', version: 'v1' },
+        payment: {
+          ...observation.payment,
+          network: { caip2: SOLANA_TESTNET_CAIP2, rapAlias: 'solana-testnet' },
+          mint: 'UnknownAuddTestnetMint111111111111111111111111',
+          signature: 'fixtureSignature3333333333333333333333333333333333',
+          paymentProofRef: undefined,
+        },
+        confirmation: observation.confirmation,
+        status: 'observed_confirmed',
+      }),
+      /audd_rail_identity_mismatch/,
+    );
+
+    const controlledLiveMainnet = validatePaymentObservationRecord({
+      ...observation,
+      labels: { environment: 'controlled-live', eligibility: 'pending_partner_acceptance' },
+      payment: {
+        ...observation.payment,
+        network: { caip2: SOLANA_MAINNET_BETA_CAIP2, rapAlias: 'solana-mainnet-beta' },
+        mint: AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
+      },
+    });
+    assert.equal(controlledLiveMainnet.ok, false);
+    if (!controlledLiveMainnet.ok) assert.ok(controlledLiveMainnet.errors.some((item) => item.code === 'audd_rail_label_mismatch' && item.path === '$.labels.environment'));
+
+    const eligibleMainnet = validatePaymentObservationRecord({
+      ...observation,
+      labels: { environment: 'mainnet-gated', eligibility: 'eligible', partnerAcceptanceRef: 'audd:not-real' },
+      payment: {
+        ...observation.payment,
+        network: { caip2: SOLANA_MAINNET_BETA_CAIP2, rapAlias: 'solana-mainnet-beta' },
+        mint: AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
+      },
+    });
+    assert.equal(eligibleMainnet.ok, false);
+    if (!eligibleMainnet.ok) assert.ok(eligibleMainnet.errors.some((item) => item.code === 'audd_rail_label_mismatch' && item.path === '$.labels.eligibility'));
+  });
+
   it('rejects fixture, local-test-mint, and devnet records marked grant eligible', () => {
     for (const environment of ['deterministic-fixture', 'local-test-mint', 'devnet-unverified'] as const) {
       const result = validatePaymentRecordLabels({ environment, eligibility: 'eligible' });
@@ -168,8 +294,14 @@ describe('canonical RAP payment identifiers and records', () => {
     const intent = createPaymentIntentDraft({
       labels,
       agreementId: 'reddi.agreement:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      network: { caip2: 'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1', rapAlias: 'solana-devnet' },
-      asset: { symbol: 'AUDD', amountBaseUnits: '1' },
+      network: { caip2: SOLANA_DEVNET_CAIP2, rapAlias: 'solana-devnet' },
+      asset: {
+        symbol: 'AUDD',
+        mint: AUDD_DETERMINISTIC_FIXTURE_MINT,
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+        decimals: 6,
+        amountBaseUnits: '1',
+      },
       payTo: 'payee-owner-fixture',
       evidenceRequired: true,
       quoteExpiresAt: '2026-09-01T02:00:00.000Z',

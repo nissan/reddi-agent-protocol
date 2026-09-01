@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { AUDD_ASSET, AUDD_DECIMALS, SPL_TOKEN_PROGRAM_ID, canonicalSolanaNetworkAlias, deriveCanonicalAuddRailEnvironment, getAuddRailEnvironmentConfig, isKnownAuddMint, networkAliasForCaip2, validateAuddRailIdentity, } from './audd-rail-config.js';
 export const REDDI_PAYMENT_CANONICALIZATION = 'reddi.canonical-json.sha256.v1';
 export const REDDI_PAYMENT_JOB_SCHEMA_VERSION = 'reddi.payment-job.v1';
 export const REDDI_PAYMENT_AGREEMENT_SCHEMA_VERSION = 'reddi.payment-agreement.v1';
@@ -208,7 +209,57 @@ export function validatePaymentIntentRecord(input) {
     validateRefundPolicy(record.refundPolicy, '$.refundPolicy', errors);
     validateAuthorization(record.authorization, '$.authorization', errors);
     validateOptionalTimestamp(record.createdAt, '$.createdAt', errors);
+    validateAuddIntentRail(record, errors);
     return errors.length === 0 ? { ok: true, record } : { ok: false, errors };
+}
+function validateAuddIntentRail(record, errors) {
+    if (!isPlainObject(record.labels) || !isPlainObject(record.asset) || !isPlainObject(record.network))
+        return;
+    const asset = record.asset;
+    const labels = record.labels;
+    const usesAudd = asset.symbol === AUDD_ASSET || isKnownAuddMint(asset.mint);
+    if (!usesAudd)
+        return;
+    if (!isNonEmptyString(asset.mint)) {
+        errors.push(error('audd_rail_identity_mismatch', '$.asset.mint', 'AUDD payment intents must include the mint'));
+        return;
+    }
+    if (asset.tokenProgram !== SPL_TOKEN_PROGRAM_ID) {
+        errors.push(error('audd_rail_identity_mismatch', '$.asset.tokenProgram', 'AUDD payment intents must use the SPL Token program'));
+    }
+    if (asset.decimals !== AUDD_DECIMALS) {
+        errors.push(error('audd_rail_identity_mismatch', '$.asset.decimals', 'AUDD payment intents must use six decimals'));
+    }
+    const railEnvironment = deriveCanonicalAuddRailEnvironment({
+        network: record.network.rapAlias ?? record.network.caip2,
+        caip2Network: record.network.caip2,
+        mint: asset.mint,
+    });
+    if (!railEnvironment) {
+        errors.push(error('audd_rail_identity_mismatch', '$.asset', 'AUDD payment intent identity must resolve to a configured rail'));
+        return;
+    }
+    if (labels.environment !== railEnvironment) {
+        errors.push(error('audd_rail_label_mismatch', '$.labels.environment', `AUDD payment intent environment must be ${railEnvironment}`));
+    }
+    if (labels.eligibility !== getAuddRailEnvironmentConfig(railEnvironment).grantEligibility) {
+        errors.push(error('audd_rail_label_mismatch', '$.labels.eligibility', `AUDD payment intent eligibility must match the ${railEnvironment} rail`));
+    }
+    if (railEnvironment !== 'deterministic-fixture' && record.authorization?.operatorApprovalRequired !== true) {
+        errors.push(error('audd_rail_label_mismatch', '$.authorization.operatorApprovalRequired', `${railEnvironment} AUDD payment intents require operator approval`));
+    }
+    const identity = validateAuddRailIdentity({
+        environment: railEnvironment,
+        network: canonicalObservationNetworkAlias(record.network, railEnvironment),
+        caip2: record.network.caip2,
+        mint: asset.mint,
+        tokenProgram: asset.tokenProgram,
+        decimals: asset.decimals,
+        enableGatedMainnet: true,
+    });
+    if (!identity.ok && identity.reasonCodes.some(isAuddRailIdentityMismatchReason)) {
+        errors.push(error('audd_rail_identity_mismatch', '$.asset', 'AUDD payment intent identity components must resolve to the same rail'));
+    }
 }
 export function formatPaymentObservationProofRef(input) {
     const network = input.network.rapAlias ?? input.network.caip2;
@@ -298,7 +349,51 @@ export function validatePaymentObservationRecord(input) {
     if (!['observed_confirmed', 'observed_failed', 'observation_inconclusive'].includes(String(record.status))) {
         errors.push(error('malformed_record', '$.status', 'observation status is invalid'));
     }
+    validateAuddObservationRail(record, errors);
     return errors.length === 0 ? { ok: true, record } : { ok: false, errors };
+}
+function validateAuddObservationRail(record, errors) {
+    if (!isPlainObject(record.labels) || !isPlainObject(record.payment) || !isPlainObject(record.payment.network))
+        return;
+    const payment = record.payment;
+    const labels = record.labels;
+    const observesAudd = payment.asset === AUDD_ASSET || isKnownAuddMint(payment.mint);
+    if (!observesAudd)
+        return;
+    if (!isNonEmptyString(payment.mint)) {
+        errors.push(error('audd_rail_identity_mismatch', '$.payment.mint', 'AUDD payment observations must include the observed mint'));
+        return;
+    }
+    if (payment.tokenProgram !== undefined && payment.tokenProgram !== SPL_TOKEN_PROGRAM_ID) {
+        errors.push(error('audd_rail_identity_mismatch', '$.payment.tokenProgram', 'AUDD payment observations must use the SPL Token program'));
+    }
+    const observedRail = deriveCanonicalAuddRailEnvironment({
+        network: payment.network.rapAlias ?? payment.network.caip2,
+        caip2Network: payment.network.caip2,
+        mint: payment.mint,
+    });
+    if (!observedRail) {
+        errors.push(error('audd_rail_identity_mismatch', '$.payment', 'AUDD payment observation identity must resolve to a configured rail'));
+        return;
+    }
+    if (labels.environment !== observedRail) {
+        errors.push(error('audd_rail_label_mismatch', '$.labels.environment', `AUDD payment observation environment must be ${observedRail}`));
+    }
+    if (labels.eligibility !== getAuddRailEnvironmentConfig(observedRail).grantEligibility) {
+        errors.push(error('audd_rail_label_mismatch', '$.labels.eligibility', `AUDD payment observation eligibility must match the ${observedRail} rail`));
+    }
+    const identity = validateAuddRailIdentity({
+        environment: observedRail,
+        network: canonicalObservationNetworkAlias(payment.network, observedRail),
+        caip2: payment.network.caip2,
+        mint: payment.mint,
+        tokenProgram: payment.tokenProgram,
+        decimals: AUDD_DECIMALS,
+        enableGatedMainnet: true,
+    });
+    if (!identity.ok && identity.reasonCodes.some(isAuddRailIdentityMismatchReason)) {
+        errors.push(error('audd_rail_identity_mismatch', '$.payment', 'AUDD payment observation identity components must resolve to the same rail'));
+    }
 }
 export function createRefundRecord(input) {
     const id = input.id ?? deriveReddiPaymentId('refund', {
@@ -364,6 +459,23 @@ function canonicalize(value) {
         .filter(([, nested]) => nested !== undefined)
         .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
     return `{${entries.map(([key, nested]) => `${JSON.stringify(key)}:${canonicalize(nested)}`).join(',')}}`;
+}
+function canonicalObservationNetworkAlias(network, railEnvironment) {
+    return canonicalSolanaNetworkAlias(network.rapAlias)
+        ?? networkAliasForCaip2(network.caip2)
+        ?? (railEnvironment === 'local-test-mint' && network.rapAlias === getAuddRailEnvironmentConfig('local-test-mint').networkAlias ? network.rapAlias : undefined);
+}
+function isAuddRailIdentityMismatchReason(reason) {
+    return [
+        'malformed_audd_rail_identity',
+        'unknown_audd_rail_environment',
+        'wrong_network',
+        'wrong_caip2_network',
+        'wrong_mint',
+        'wrong_token_program',
+        'wrong_decimals',
+        'local_test_mint_required',
+    ].includes(reason);
 }
 function validateAuthorization(value, path, errors) {
     if (!isPlainObject(value)) {

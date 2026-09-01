@@ -441,7 +441,7 @@ describe('receipt/evidence binding for ARD-onboarded agents', () => {
     });
     assert.equal(nonderivableAudd.ok, false);
     if (!nonderivableAudd.ok) {
-      assert.ok(nonderivableAudd.errors.some((item) => item.message === 'payment observation AUDD identity must resolve to a configured rail'));
+      assert.ok(nonderivableAudd.errors.some((item) => item.code === 'payment_observation_mismatch' && item.path === '$.paymentObservation.payment'));
     }
 
     const nonAuddObservation = deriveReceiptEvidenceBinding({

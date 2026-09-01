@@ -16,7 +16,7 @@ export type ReddiCanonicalNetworkRef = {
     caip2: string;
     rapAlias?: string;
 };
-export type ReddiPaymentRecordValidationErrorCode = 'malformed_record' | 'malformed_labels' | 'non_live_evidence_marked_eligible' | 'mainnet_partner_acceptance_missing' | 'model_spend_authority_rejected';
+export type ReddiPaymentRecordValidationErrorCode = 'malformed_record' | 'malformed_labels' | 'non_live_evidence_marked_eligible' | 'mainnet_partner_acceptance_missing' | 'model_spend_authority_rejected' | 'audd_rail_identity_mismatch' | 'audd_rail_label_mismatch';
 export type ReddiPaymentRecordValidationError = {
     code: ReddiPaymentRecordValidationErrorCode;
     path: string;

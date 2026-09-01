@@ -158,6 +158,23 @@ export function networkAliasForCaip2(caip2) {
 export function getAuddRailEnvironmentConfig(environment) {
     return AUDD_RAIL_CONFIG.environments[environment];
 }
+export function auddRailIdentityTargetsMainnet(input) {
+    return canonicalSolanaNetworkAlias(input.network) === 'solana-mainnet-beta'
+        || input.caip2Network === SOLANA_MAINNET_BETA_CAIP2
+        || (typeof input.mint === 'string' && normalized(input.mint) === normalized(AUDD_OFFICIAL_SOLANA_MAINNET_MINT));
+}
+export function deriveCanonicalAuddRailEnvironment(input) {
+    if (auddRailIdentityTargetsMainnet(input))
+        return 'mainnet-gated';
+    if (typeof input.mint === 'string' && normalized(input.mint) === normalized(AUDD_DETERMINISTIC_FIXTURE_MINT))
+        return 'deterministic-fixture';
+    const alias = canonicalSolanaNetworkAlias(input.network);
+    if (alias === 'solana-devnet' || input.caip2Network === SOLANA_DEVNET_CAIP2)
+        return 'devnet-unverified';
+    if (typeof input.network === 'string' && normalized(input.network) === getAuddRailEnvironmentConfig('local-test-mint').networkAlias)
+        return 'local-test-mint';
+    return undefined;
+}
 export function validateAuddRailIdentity(input) {
     const errors = [];
     const auditNotes = [];
@@ -262,6 +279,9 @@ function buildIdentity(config, input) {
 }
 function unique(items) {
     return Array.from(new Set(items));
+}
+function normalized(value) {
+    return value.trim().toLowerCase();
 }
 function isAuddRailEnvironment(value) {
     return ['deterministic-fixture', 'local-test-mint', 'devnet-unverified', 'mainnet-gated'].includes(String(value));

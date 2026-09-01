@@ -184,6 +184,10 @@ describe('SPL TransferChecked observation verifier', () => {
     expect(wrongSignature.ok).toBe(false);
     if (!wrongSignature.ok) expect(wrongSignature.reason).toBe('wrong_signature');
 
+    const secondarySignatureOnly = await verifySplTransferCheckedObservation({ parsedTransaction: parsedTransaction({ signatures: ['primaryTransactionSignature111111111111111111111111', SIGNATURE] }), expected, commitment: 'confirmed' });
+    expect(secondarySignatureOnly.ok).toBe(false);
+    if (!secondarySignatureOnly.ok) expect(secondarySignatureOnly.reason).toBe('wrong_signature');
+
     const noTransferChecked = await verifySplTransferCheckedObservation({
       parsedTransaction: {
         ...parsedTransaction(),

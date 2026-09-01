@@ -138,8 +138,9 @@ export async function verifySplTransferCheckedObservation(
     return failure('missing_confirmation_metadata', 'transaction blockTime must be a positive integer when the node reports one', null, parsed.blockTime);
   }
   const signatures = asArray(asRecord(parsed.transaction)?.signatures);
-  if (!signatures?.some((signature) => stringValue(signature) === input.expected.signature)) {
-    return failure('wrong_signature', 'parsed transaction signatures must include the expected payment signature', input.expected.signature, signatures);
+  const transactionSignature = signatures ? stringValue(signatures[0]) : undefined;
+  if (transactionSignature !== input.expected.signature) {
+    return failure('wrong_signature', 'parsed transaction first signature must equal the expected payment transaction signature', input.expected.signature, transactionSignature ?? signatures);
   }
 
   const instructions = collectInstructions(parsed);

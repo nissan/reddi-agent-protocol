@@ -58,6 +58,11 @@ export type AuddRailIdentityInput = {
     /** Explicit approval flag for identity validation only; it does not submit, sign, or activate live payments. */
     enableGatedMainnet?: boolean;
 };
+export type AuddRailIdentityRefInput = {
+    network?: string;
+    caip2Network?: string;
+    mint?: string;
+};
 export type AuddRailIdentity = {
     asset: typeof AUDD_ASSET;
     environment: AuddRailEnvironment;
@@ -91,4 +96,6 @@ export declare function canonicalSolanaNetworkAlias(network: unknown): string | 
 export declare function caip2ForSolanaNetwork(network: string): string | undefined;
 export declare function networkAliasForCaip2(caip2: string): string | undefined;
 export declare function getAuddRailEnvironmentConfig(environment: AuddRailEnvironment): AuddRailEnvironmentConfig;
+export declare function auddRailIdentityTargetsMainnet(input: AuddRailIdentityRefInput): boolean;
+export declare function deriveCanonicalAuddRailEnvironment(input: AuddRailIdentityRefInput): AuddRailEnvironment | undefined;
 export declare function validateAuddRailIdentity(input: AuddRailIdentityInput): AuddRailIdentityValidationResult;

@@ -1,4 +1,4 @@
-import { AUDD_ASSET, AUDD_DECIMALS, type AuddRailEnvironment } from './audd-rail-config.js';
+import { AUDD_ASSET, AUDD_DECIMALS, type AuddRailEnvironment, type AuddRailIdentityRefInput } from './audd-rail-config.js';
 import { type ReddiPaymentEligibilityLabel, type ReddiPaymentEnvironmentLabel, type ReddiPaymentIntentRecord, type ReddiPaymentRecordLabels } from './payment-records.js';
 import { type BudgetPolicyEvaluator, type PaymentChallenge } from './buyer-seller.js';
 import type { ReddiPolicyApprovalState, ReddiPolicyDecision } from './policy.js';
@@ -160,9 +160,8 @@ export declare function createAuddX402SvmExactPaymentRequired(input: {
 }): AuddX402SvmExactPaymentRequired;
 export declare function validateAuddX402SvmExactPaymentRequired(value: unknown): value is AuddX402SvmExactPaymentRequired;
 export declare function evaluateAuddPaymentPlanPreflight(challengeInput: unknown, options?: AuddPaymentPlanPreflightOptions): AuddPaymentPlanPreflightDecision;
-export type AuddRailIdentityRef = {
+export type AuddRailIdentityRef = AuddRailIdentityRefInput & {
     network: string;
-    caip2Network?: string;
     mint: string;
 };
 export declare function deriveAuddRailEnvironment(identity: AuddRailIdentityRef): AuddRailEnvironment | undefined;

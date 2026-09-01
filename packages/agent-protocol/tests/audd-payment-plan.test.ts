@@ -12,7 +12,6 @@ import {
   createAuddSolanaPaymentPlan,
   createAuddX402SvmExactPaymentPlan,
   createAuddX402SvmExactPaymentRequired,
-  createPaymentIntentDraft,
   evaluateAuddPaymentPlanPreflight,
   validateAuddX402SvmExactPaymentRequired,
   type BudgetPolicyEvaluator,
@@ -630,13 +629,25 @@ describe('AUDD/Solana payment plan adapter', () => {
     assert.equal(devnetDecision.allowed, false);
     assert.deepEqual(devnetDecision.reasonCodes, ['devnet_audd_unverified']);
 
-    const eligibleFixture = createAuddX402SvmExactPaymentPlan({
-      ...plan,
-      tokenProgram: SPL_TOKEN_PROGRAM_ID,
-      caip2Network: SOLANA_DEVNET_CAIP2,
-      railEnvironment: 'deterministic-fixture',
-      eligibility: 'eligible',
-    });
+    assert.throws(
+      () => createAuddX402SvmExactPaymentPlan({
+        ...plan,
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+        caip2Network: SOLANA_DEVNET_CAIP2,
+        railEnvironment: 'deterministic-fixture',
+        eligibility: 'eligible',
+      }),
+      /audd_payment_plan_label_eligibility_mismatch/,
+    );
+    const eligibleFixture = {
+      ...createAuddX402SvmExactPaymentPlan({
+        ...plan,
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+        caip2Network: SOLANA_DEVNET_CAIP2,
+        railEnvironment: 'deterministic-fixture',
+      }),
+      eligibility: 'eligible' as const,
+    };
     const eligibleChallenge = createAuddPaymentChallenge({
       mode: 'dry-run',
       paymentPlan: eligibleFixture,
@@ -930,6 +941,18 @@ describe('AUDD/Solana payment plan adapter', () => {
     });
     assert.equal(mainnetPlan.railEnvironment, 'mainnet-gated');
     assert.equal(mainnetPlan.eligibility, 'pending_partner_acceptance');
+    assert.throws(
+      () => createAuddX402SvmExactPaymentPlan({
+        ...plan,
+        network: 'solana-mainnet-beta',
+        caip2Network: SOLANA_MAINNET_BETA_CAIP2,
+        mint: AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+        paymentMode: 'live',
+        eligibility: 'eligible',
+      }),
+      /audd_payment_plan_label_eligibility_mismatch/,
+    );
     const defaultMainnetIntent = createAuddPaymentIntentDraft({
       agreementId: 'reddi.agreement:6666666666666666666666666666666666666666666666666666666666666666',
       paymentPlan: mainnetPlan,
@@ -949,26 +972,12 @@ describe('AUDD/Solana payment plan adapter', () => {
       }],
     }), false);
 
-    const fixtureLabelledIntent = createPaymentIntentDraft({
-      labels: { environment: 'deterministic-fixture', eligibility: 'non_eligible' },
-      agreementId: 'reddi.agreement:7777777777777777777777777777777777777777777777777777777777777777',
-      network: { caip2: SOLANA_MAINNET_BETA_CAIP2, rapAlias: mainnetPlan.network },
-      asset: {
-        symbol: 'AUDD',
-        mint: mainnetPlan.mint,
-        tokenProgram: SPL_TOKEN_PROGRAM_ID,
-        decimals: 6,
-        amountBaseUnits: mainnetPlan.amount,
-      },
-      payTo: mainnetPlan.payee,
-      destinationTokenAccount: mainnetPlan.settlementAccount,
+    const fixtureLabelledIntent = {
+      ...defaultMainnetIntent,
+      labels: { environment: 'deterministic-fixture' as const, eligibility: 'non_eligible' as const },
+      authorization: { ...defaultMainnetIntent.authorization, operatorApprovalRequired: false },
       memo: 'reddi:pay:mislabelled-mainnet',
-      evidenceRequired: true,
-      quoteExpiresAt: mainnetPlan.quoteExpiresAt,
-      expiresAt: mainnetPlan.quoteExpiresAt,
-      refundPolicy: mainnetPlan.refundPolicy,
-      operatorApprovalRequired: false,
-    });
+    };
 
     assert.throws(
       () => createAuddX402SvmExactPaymentRequired({
@@ -1030,30 +1039,15 @@ describe('AUDD/Solana payment plan adapter', () => {
       tokenProgram: SPL_TOKEN_PROGRAM_ID,
       paymentMode: 'live',
     });
-    const waivedIntent = createPaymentIntentDraft({
-      labels: {
-        environment: 'mainnet-gated',
-        eligibility: 'pending_partner_acceptance',
-        partnerAcceptanceRef: 'audd:pending-partner-acceptance',
-      },
+    const approvedMainnetIntent = createAuddPaymentIntentDraft({
       agreementId: 'reddi.agreement:9999999999999999999999999999999999999999999999999999999999999999',
-      network: { caip2: SOLANA_MAINNET_BETA_CAIP2, rapAlias: mainnetPlan.network },
-      asset: {
-        symbol: 'AUDD',
-        mint: mainnetPlan.mint,
-        tokenProgram: SPL_TOKEN_PROGRAM_ID,
-        decimals: 6,
-        amountBaseUnits: mainnetPlan.amount,
-      },
-      payTo: mainnetPlan.payee,
-      destinationTokenAccount: mainnetPlan.settlementAccount,
+      paymentPlan: mainnetPlan,
       memo: 'reddi:pay:waived-operator-approval',
-      evidenceRequired: true,
-      quoteExpiresAt: mainnetPlan.quoteExpiresAt,
-      expiresAt: mainnetPlan.quoteExpiresAt,
-      refundPolicy: mainnetPlan.refundPolicy,
-      operatorApprovalRequired: false,
     });
+    const waivedIntent = {
+      ...approvedMainnetIntent,
+      authorization: { ...approvedMainnetIntent.authorization, operatorApprovalRequired: false },
+    };
     assert.throws(
       () => createAuddX402SvmExactPaymentRequired({
         paymentPlan: mainnetPlan,

@@ -87,6 +87,12 @@ export type AuddRailIdentityInput = {
   enableGatedMainnet?: boolean;
 };
 
+export type AuddRailIdentityRefInput = {
+  network?: string;
+  caip2Network?: string;
+  mint?: string;
+};
+
 export type AuddRailIdentity = {
   asset: typeof AUDD_ASSET;
   environment: AuddRailEnvironment;
@@ -262,6 +268,21 @@ export function getAuddRailEnvironmentConfig(environment: AuddRailEnvironment): 
   return AUDD_RAIL_CONFIG.environments[environment];
 }
 
+export function auddRailIdentityTargetsMainnet(input: AuddRailIdentityRefInput): boolean {
+  return canonicalSolanaNetworkAlias(input.network) === 'solana-mainnet-beta'
+    || input.caip2Network === SOLANA_MAINNET_BETA_CAIP2
+    || (typeof input.mint === 'string' && normalized(input.mint) === normalized(AUDD_OFFICIAL_SOLANA_MAINNET_MINT));
+}
+
+export function deriveCanonicalAuddRailEnvironment(input: AuddRailIdentityRefInput): AuddRailEnvironment | undefined {
+  if (auddRailIdentityTargetsMainnet(input)) return 'mainnet-gated';
+  if (typeof input.mint === 'string' && normalized(input.mint) === normalized(AUDD_DETERMINISTIC_FIXTURE_MINT)) return 'deterministic-fixture';
+  const alias = canonicalSolanaNetworkAlias(input.network);
+  if (alias === 'solana-devnet' || input.caip2Network === SOLANA_DEVNET_CAIP2) return 'devnet-unverified';
+  if (typeof input.network === 'string' && normalized(input.network) === getAuddRailEnvironmentConfig('local-test-mint').networkAlias) return 'local-test-mint';
+  return undefined;
+}
+
 export function validateAuddRailIdentity(input: AuddRailIdentityInput): AuddRailIdentityValidationResult {
   const errors: AuddRailIdentityValidationReasonCode[] = [];
   const auditNotes: string[] = [];
@@ -370,6 +391,10 @@ function buildIdentity(config: AuddRailEnvironmentConfig, input: AuddRailIdentit
 
 function unique<T>(items: T[]): T[] {
   return Array.from(new Set(items));
+}
+
+function normalized(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 function isAuddRailEnvironment(value: unknown): value is AuddRailEnvironment {
