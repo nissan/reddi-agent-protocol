@@ -20,7 +20,14 @@ Surfnet.startWithConfig({ offline: true, airdropSol: 0, blockProductionMode: "tr
 
 Each target publishes an `accepted-evidence.json` receipt next to its per-run directories, written atomically (temp file + rename) and **only after the run passes**. The receipt records the target, `PASS` status, run id, timestamp, provenance command, and the repository-relative artifact paths.
 
-Consumers such as `scripts/generate-economic-demo-submission-prep.mjs` read that receipt and validate target, status, provenance, and that every cited artifact still exists. Failed runs keep their own directory for debugging but never publish a receipt, so a `Status: FAIL` summary cannot displace or be cited in place of accepted evidence. Run ids are random UUIDs and are deliberately *not* used for chronological selection.
+The run writes and flushes its `SUMMARY.md` **before** publishing the receipt, and publication refuses to cite an artifact that does not exist, so a crash mid-publish leaves the previously accepted receipt intact.
+
+Every receipt is bound to two things beyond its own contents:
+
+- **Freshness.** `ACCEPTED_EVIDENCE_MAX_AGE_MS` (14 days, owned by `scripts/lib/surfpool-evidence-manifest.mjs`) is enforced by every consumer. A caller may tighten the window but cannot widen or disable it.
+- **Sources.** The receipt records a SHA-256 fingerprint of the repository paths the lane's result depends on (the Quasar or Anchor program sources, the demo client, the lane runner and its libraries, the deployment inventory, and the pinned toolchain baseline). Readers recompute it, so editing any of those invalidates prior evidence and the lane must be re-run.
+
+Consumers such as `scripts/generate-economic-demo-submission-prep.mjs` read that receipt and validate target, status, provenance, freshness, source fingerprint, the bound evidence root, and that every cited artifact still exists inside that root (symlinked escapes are refused). Failed runs keep their own directory for debugging but never publish a receipt, so a `Status: FAIL` summary cannot displace or be cited in place of accepted evidence. Run ids are random UUIDs and are deliberately *not* used for chronological selection.
 
 ## Commands
 
@@ -45,3 +52,7 @@ The `Surfpool Quasar Critical SDK` workflow runs the SDK lifecycle regressions a
 The Quasar devnet programs recorded in `config/quasar/deployments.json` predate the 2026-08 job-binding rework and no longer match the in-repo client, which encodes the current `experiments/quasar-*` sources. `config/quasar/deployments.json` therefore records `submissionReady: false` with explicit ABI, PDA-derivation, commitment-pre-image, and lock-signer known gaps, and its historical `devnet-full-flow-demo` PASS is marked superseded and not reproducible.
 
 No redeploy is claimed or performed. The only retained Quasar evidence is this local-surfpool lane, run against locally built current-source programs on a loopback Surfnet.
+
+## Known limitation: the web Quasar rating/attestation builders
+
+`lib/quasar/instruction-builders.ts` still encodes the pre-job-binding reputation and attestation layout (caller-supplied `job_id`, `consumer_pk`, `specialist_pk`, and `job_id`-seeded PDAs). The current sources bind those records to the **escrow account address**, and the web onboarding flow has no Quasar escrow account to bind to, so this is not a mechanical re-encode — it needs a decision about where the escrow comes from in that flow. These builders are unreachable in practice: `lib/config/network.ts` only yields the Quasar target on the devnet profile, which `assertProgramTargetUsable()` refuses before any instruction, signer, or RPC call. The demo-agent client and the agent-protocol intent metadata are already on the current escrow-address binding.

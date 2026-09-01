@@ -18,7 +18,11 @@ import {
   startLocalSurfnet,
   waitForPortClosed,
 } from "./lib/surfpool-sdk-lifecycle.mjs";
-import { ACCEPTED_EVIDENCE_FILENAME, writeAcceptedEvidenceManifest } from "./lib/surfpool-evidence-manifest.mjs";
+import {
+  ACCEPTED_EVIDENCE_FILENAME,
+  computeLaneSourceFingerprint,
+  writeAcceptedEvidenceManifest,
+} from "./lib/surfpool-evidence-manifest.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(__filename), "..");
@@ -173,11 +177,12 @@ try {
 } finally {
   clearTimeout(timeout);
   await cleanup(exitReason);
-  if (finalStatus === "PASS") await publishAcceptedEvidence();
   await writeSummary({ target, programs, status: finalStatus, failure: failureMessage });
+  if (finalStatus === "PASS") await publishAcceptedEvidence();
   if (finalStatus === "PASS") {
     await logLine(`[surfpool-sdk-smoke] complete: ${rel(summaryFile)}`);
   } else {
+    await writeSummary({ target, programs, status: finalStatus, failure: failureMessage });
     await logLine(`[surfpool-sdk-smoke] FAIL evidence retained at ${rel(outDir)}; accepted-evidence receipt left untouched`);
   }
 }
@@ -498,14 +503,27 @@ async function writeSummary({ target, programs = [], status, failure }) {
 
 async function publishAcceptedEvidence() {
   try {
+    const artifacts = [
+      { name: "summary", path: rel(summaryFile) },
+      { name: "log", path: rel(logFile) },
+    ];
+    for (const artifact of artifacts) {
+      const handle = await fs.open(path.join(repoRoot, artifact.path), "r");
+      try {
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+    }
+
     const { manifestPath } = await writeAcceptedEvidenceManifest(evidenceRoot, {
       target,
       runId,
       status: "PASS",
-      artifacts: [
-        { name: "summary", path: rel(summaryFile) },
-        { name: "log", path: rel(logFile) },
-      ],
+      repoRoot,
+      manifestRelativeDir: rel(evidenceRoot),
+      sourceFingerprint: computeLaneSourceFingerprint(repoRoot, target),
+      artifacts,
       provenance: {
         command: target === "quasar" ? "npm run test:surfpool:quasar-critical" : "npm run test:surfpool:critical",
         runner: rel(__filename),
@@ -517,7 +535,7 @@ async function publishAcceptedEvidence() {
     finalStatus = "FAIL";
     failureMessage ??= `accepted evidence receipt failed: ${error.message}`;
     if (exitCode === 0) exitCode = 1;
-    await logLine(`[surfpool-sdk-smoke] accepted evidence receipt failed: ${error.message}`);
+    await logLine(`[surfpool-sdk-smoke] accepted evidence receipt failed: ${error.message}; the previously accepted receipt is left untouched`);
   }
 }
 

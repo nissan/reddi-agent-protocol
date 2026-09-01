@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync 
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { readAcceptedEvidenceManifest } from "./lib/surfpool-evidence-manifest.mjs";
+import { ACCEPTED_EVIDENCE_MAX_AGE_MS, readAcceptedEvidenceManifest } from "./lib/surfpool-evidence-manifest.mjs";
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
@@ -34,6 +34,7 @@ function acceptedSurfpoolEvidence(relativeDir, target, label) {
     const { artifacts } = readAcceptedEvidenceManifest(rootDir, relativeDir, {
       target,
       requiredArtifacts: ["summary", "log"],
+      maxAgeMs: ACCEPTED_EVIDENCE_MAX_AGE_MS,
     });
     return artifacts.summary;
   } catch (error) {

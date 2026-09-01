@@ -1,7 +1,7 @@
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 
-import {
 import { assertProgramTargetUsable } from "@/lib/config/network";
+import {
   buildQuasarAttestQualityData,
   buildQuasarConfirmAttestationData,
   buildQuasarCommitRatingData,

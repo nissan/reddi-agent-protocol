@@ -7,7 +7,9 @@ import test from "node:test";
 
 import {
   ACCEPTED_EVIDENCE_FILENAME,
+  ACCEPTED_EVIDENCE_MAX_AGE_MS,
   EvidenceManifestError,
+  computeLaneSourceFingerprint,
   readAcceptedEvidenceManifest,
   writeAcceptedEvidenceManifest,
 } from "../lib/surfpool-evidence-manifest.mjs";
@@ -23,15 +25,25 @@ async function withRepo(run) {
   }
 }
 
-async function seedRun(repoRoot, relativeDir, runId, { status = "PASS" } = {}) {
+// The fingerprint roots are repository paths; seeding one keeps the digest deterministic per repo.
+async function seedFingerprintSources(repoRoot) {
+  await fsp.mkdir(path.join(repoRoot, "packages/demo-agents/src"), { recursive: true });
+  await fsp.writeFile(path.join(repoRoot, "packages/demo-agents/src", "demo.ts"), "export const version = 1;\n");
+}
+
+async function seedRun(repoRoot, relativeDir, runId, { status = "PASS", target = "quasar" } = {}) {
+  await seedFingerprintSources(repoRoot);
   const runDir = path.join(repoRoot, relativeDir, runId);
   await fsp.mkdir(runDir, { recursive: true });
   await fsp.writeFile(path.join(runDir, "SUMMARY.md"), `# Summary\n\n- Status: ${status}\n`);
   await fsp.writeFile(path.join(runDir, "smoke.log"), "log\n");
   return {
-    target: "quasar",
+    target,
     runId,
     status,
+    repoRoot,
+    manifestRelativeDir: relativeDir,
+    sourceFingerprint: computeLaneSourceFingerprint(repoRoot, target),
     artifacts: [
       { name: "summary", path: path.join(relativeDir, runId, "SUMMARY.md") },
       { name: "log", path: path.join(relativeDir, runId, "smoke.log") },
@@ -70,11 +82,11 @@ test("concurrent publishes leave exactly one complete, parseable receipt", async
     const dir = "artifacts/surfpool-smoke";
     const records = [];
     for (let i = 0; i < 12; i += 1) {
-      records.push(await seedRun(repoRoot, dir, `sdk-legacy-anchor-run-${i}`));
+      records.push(await seedRun(repoRoot, dir, `sdk-legacy-anchor-run-${i}`, { target: "legacy-anchor" }));
     }
 
     await Promise.all(records.map((record) =>
-      writeAcceptedEvidenceManifest(path.join(repoRoot, dir), { ...record, target: "legacy-anchor" })));
+      writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record)));
 
     const { manifest } = readAcceptedEvidenceManifest(repoRoot, dir, {
       target: "legacy-anchor",
@@ -139,6 +151,22 @@ test("publishing requires provenance and at least one artifact", async () => {
     await assert.rejects(
       writeAcceptedEvidenceManifest(dir, { target: "quasar", runId: "r", status: "PASS", artifacts: [{ name: "summary", path: "p" }] }),
       /provenance.command/,
+    );
+    await assert.rejects(
+      writeAcceptedEvidenceManifest(dir, {
+        target: "quasar", runId: "r", status: "PASS",
+        artifacts: [{ name: "summary", path: "artifacts/surfpool-smoke/r/SUMMARY.md" }],
+        provenance: { command: "x" },
+      }),
+      /explicit manifestRelativeDir/,
+    );
+    await assert.rejects(
+      writeAcceptedEvidenceManifest(dir, {
+        target: "quasar", runId: "r", status: "PASS", manifestRelativeDir: "artifacts/surfpool-smoke",
+        artifacts: [{ name: "summary", path: "artifacts/surfpool-smoke/r/SUMMARY.md" }],
+        provenance: { command: "x" },
+      }),
+      /sourceFingerprint/,
     );
     assert.equal(fs.existsSync(path.join(dir, ACCEPTED_EVIDENCE_FILENAME)), false);
   });
@@ -208,6 +236,7 @@ test("publishing refuses an artifact path that escapes the target evidence direc
         runId: "sdk-quasar-escape",
         status: "PASS",
         manifestRelativeDir: dir,
+        sourceFingerprint: "sha256:whatever",
         artifacts: [{ name: "summary", path: "../../secrets/id.json" }],
         provenance: { command: "npm run test:surfpool:quasar-critical" },
       }),
@@ -220,10 +249,9 @@ test("publishing refuses an artifact path that escapes the target evidence direc
 test("a receipt older than the caller's freshness bound is refused as stale", async () => {
   await withRepo(async (repoRoot) => {
     const dir = "artifacts/surfpool-smoke";
-    const record = await seedRun(repoRoot, dir, "sdk-legacy-anchor-old");
+    const record = await seedRun(repoRoot, dir, "sdk-legacy-anchor-old", { target: "legacy-anchor" });
     await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), {
       ...record,
-      target: "legacy-anchor",
       acceptedAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
     });
 
@@ -239,8 +267,8 @@ test("a receipt older than the caller's freshness bound is refused as stale", as
 test("a receipt with an unparseable acceptedAt is refused", async () => {
   await withRepo(async (repoRoot) => {
     const dir = "artifacts/surfpool-smoke";
-    const record = await seedRun(repoRoot, dir, "sdk-legacy-anchor-bad-date");
-    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), { ...record, target: "legacy-anchor" });
+    const record = await seedRun(repoRoot, dir, "sdk-legacy-anchor-bad-date", { target: "legacy-anchor" });
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
 
     const manifestPath = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME);
     const tampered = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
@@ -290,4 +318,110 @@ test("terminating a child with no pid is a no-op rather than signalling the whol
   });
   assert.deepEqual(signalled, [], "a missing pid must never become kill(-0) / kill(NaN)");
   escalation.cancel();
+});
+
+test("a source change after publication invalidates the receipt", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-fingerprint");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+
+    assert.doesNotThrow(() =>
+      readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary", "log"] }));
+
+    await fsp.writeFile(path.join(repoRoot, "packages/demo-agents/src", "demo.ts"), "export const version = 2;\n");
+
+    assert.throws(
+      () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary", "log"] }),
+      /produced from different sources than the working tree/,
+    );
+  });
+});
+
+test("the repository-owned freshness bound cannot be widened or disabled by a caller", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-too-old");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), {
+      ...record,
+      acceptedAt: new Date(Date.now() - ACCEPTED_EVIDENCE_MAX_AGE_MS - 60_000).toISOString(),
+    });
+
+    for (const attemptedBypass of [undefined, Number.POSITIVE_INFINITY, ACCEPTED_EVIDENCE_MAX_AGE_MS * 100]) {
+      assert.throws(
+        () => readAcceptedEvidenceManifest(repoRoot, dir, {
+          target: "quasar", requiredArtifacts: ["summary"], maxAgeMs: attemptedBypass,
+        }),
+        /is stale/,
+        `maxAgeMs=${String(attemptedBypass)} must not widen the repository bound`,
+      );
+    }
+  });
+});
+
+test("a receipt published for a different evidence root is refused", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-rootmix");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+
+    const manifestPath = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME);
+    const tampered = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    tampered.evidenceRoot = "artifacts/surfpool-smoke";
+    fs.writeFileSync(manifestPath, JSON.stringify(tampered));
+
+    assert.throws(
+      () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary"] }),
+      /published for evidence root/,
+    );
+  });
+});
+
+test("an artifact reachable only through a symlink out of the evidence root is refused", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-symlink");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+
+    await fsp.mkdir(path.join(repoRoot, "secrets"), { recursive: true });
+    await fsp.writeFile(path.join(repoRoot, "secrets", "SUMMARY.md"), "- Status: PASS\n");
+    await fsp.symlink(path.join(repoRoot, "secrets"), path.join(repoRoot, dir, "escaped"), "dir");
+
+    const manifestPath = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME);
+    const tampered = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    tampered.artifacts = [{ name: "summary", path: `${dir}/escaped/SUMMARY.md` }];
+    fs.writeFileSync(manifestPath, JSON.stringify(tampered));
+
+    assert.throws(
+      () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary"] }),
+      /through a symlink/,
+    );
+  });
+});
+
+test("publishing refuses to cite an artifact that does not exist yet", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const passing = await seedRun(repoRoot, dir, "sdk-quasar-good");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), passing);
+
+    // A later run that publishes before writing its SUMMARY must not displace the accepted receipt.
+    await fsp.mkdir(path.join(repoRoot, dir, "sdk-quasar-nosummary"), { recursive: true });
+    await assert.rejects(
+      writeAcceptedEvidenceManifest(path.join(repoRoot, dir), {
+        target: "quasar",
+        runId: "sdk-quasar-nosummary",
+        status: "PASS",
+        repoRoot,
+        manifestRelativeDir: dir,
+        sourceFingerprint: computeLaneSourceFingerprint(repoRoot, "quasar"),
+        artifacts: [{ name: "summary", path: `${dir}/sdk-quasar-nosummary/SUMMARY.md` }],
+        provenance: { command: "npm run test:surfpool:quasar-critical" },
+      }),
+      /citing a missing summary artifact/,
+    );
+
+    const { manifest } = readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary"] });
+    assert.equal(manifest.runId, "sdk-quasar-good", "the previously accepted receipt must survive");
+  });
 });

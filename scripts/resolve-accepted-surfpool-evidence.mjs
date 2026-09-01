@@ -4,7 +4,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { readAcceptedEvidenceManifest } from "./lib/surfpool-evidence-manifest.mjs";
+import { ACCEPTED_EVIDENCE_MAX_AGE_MS, readAcceptedEvidenceManifest } from "./lib/surfpool-evidence-manifest.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const [relativeDir, target] = process.argv.slice(2);
@@ -18,6 +18,7 @@ try {
   const { artifacts } = readAcceptedEvidenceManifest(repoRoot, relativeDir, {
     target,
     requiredArtifacts: ["summary", "log"],
+    maxAgeMs: ACCEPTED_EVIDENCE_MAX_AGE_MS,
   });
   process.stdout.write(`${artifacts.summary}\n`);
 } catch (error) {
