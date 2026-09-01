@@ -487,6 +487,18 @@ describe('AUDD/Solana payment plan adapter', () => {
       }),
       /audd_payment_intent_plan_mismatch/,
     );
+    const planWithoutCaip2 = createAuddSolanaPaymentPlan({ ...plan, caip2Network: undefined });
+    assert.throws(
+      () => createAuddX402SvmExactPaymentRequired({
+        paymentPlan: planWithoutCaip2,
+        paymentIntent: {
+          ...intent,
+          network: { ...intent.network, caip2: SOLANA_MAINNET_BETA_CAIP2 },
+        },
+        resource: { url: 'https://seller.example.test/agent/task' },
+      }),
+      /audd_payment_intent_plan_mismatch/,
+    );
     assert.equal(validateAuddX402SvmExactPaymentRequired({
       ...paymentRequired,
       accepts: [{

@@ -3,7 +3,7 @@ import {
   type AttestationRecord,
   type ReputationEvent,
 } from './attestation-reputation.js';
-import { AUDD_ASSET, isKnownAuddMint } from './audd-rail-config.js';
+import { AUDD_ASSET, isKnownAuddMint, validateAuddRailIdentity } from './audd-rail-config.js';
 import {
   auddLabelMatchesRail,
   deriveAuddRailEnvironment,
@@ -349,6 +349,29 @@ function validatePaymentObservation(input: ReceiptEvidenceBindingInput, errors: 
       });
   if (observedRail && !auddLabelMatchesRail(observation.labels.environment, observedRail)) {
     errors.push(error('payment_observation_ineligible', '$.paymentObservation.labels.environment', `payment observation labelled ${observation.labels.environment} was observed on the ${observedRail} AUDD rail`));
+  }
+  if (observedRail) {
+    const identity = validateAuddRailIdentity({
+      environment: observedRail,
+      network: observation.payment.network.rapAlias ?? observation.payment.network.caip2,
+      caip2: observation.payment.network.caip2,
+      mint: observation.payment.mint,
+      tokenProgram: observation.payment.tokenProgram,
+      enableGatedMainnet: true,
+    });
+    const identityMismatch = !identity.ok && identity.reasonCodes.some((reason) => [
+      'malformed_audd_rail_identity',
+      'unknown_audd_rail_environment',
+      'wrong_network',
+      'wrong_caip2_network',
+      'wrong_mint',
+      'wrong_token_program',
+      'wrong_decimals',
+      'local_test_mint_required',
+    ].includes(reason));
+    if (identityMismatch) {
+      errors.push(error('payment_observation_mismatch', '$.paymentObservation.payment', 'payment observation AUDD identity components must resolve to the same rail'));
+    }
   }
   if (observation.status !== 'observed_confirmed') {
     errors.push(error('payment_observation_mismatch', '$.paymentObservation.status', 'payment observation must be confirmed before receipt/evidence binding'));

@@ -379,6 +379,24 @@ describe('receipt/evidence binding for ARD-onboarded agents', () => {
     assert.equal(understatedRail.ok, false);
     if (!understatedRail.ok) assert.ok(understatedRail.errors.some((item) => item.code === 'payment_observation_ineligible' && item.path === '$.paymentObservation.labels.environment'));
 
+    const conflictingIdentity = deriveReceiptEvidenceBinding({
+      ...input,
+      paymentPreflight: { ...input.paymentPreflight, paymentPlan: undefined },
+      paymentObservation: {
+        ...observation,
+        payment: { ...observation.payment, mint: 'AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw' },
+        labels: {
+          environment: 'mainnet-gated',
+          eligibility: 'pending_partner_acceptance',
+          partnerAcceptanceRef: 'audd:pending-partner-acceptance',
+        },
+      },
+    });
+    assert.equal(conflictingIdentity.ok, false);
+    if (!conflictingIdentity.ok) {
+      assert.ok(conflictingIdentity.errors.some((item) => item.code === 'payment_observation_mismatch' && item.path === '$.paymentObservation.payment'));
+    }
+
     const nonAuddObservation = deriveReceiptEvidenceBinding({
       ...input,
       paymentObservation: {
