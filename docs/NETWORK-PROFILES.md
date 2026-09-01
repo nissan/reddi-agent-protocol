@@ -55,9 +55,10 @@ when all four local program ids (`NEXT_PUBLIC_ESCROW_PROGRAM_ID`,
 `NEXT_PUBLIC_ATTESTATION_PROGRAM_ID`) are supplied, valid, and distinct. Otherwise the
 resolver refuses the request, keeps the legacy Anchor target, marks the profile not
 submission-ready, and records the refusal — naming the missing, malformed, or duplicated
-ids — in `knownGaps`, so leaving `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` set (as
-`.env.example` ships it) does not break the app. The Surfpool SDK lane supplies those
-ids itself against a dynamic loopback port; see
+ids — in `knownGaps`, so an incompletely configured `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar`
+degrades to the amber blocked-readiness banner instead of breaking the app. `.env.example`
+therefore ships `legacy-anchor`: `quasar` is an explicit opt-in, never a copied default.
+The Surfpool SDK lane supplies those ids itself against a dynamic loopback port; see
 [`SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`](./SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md).
 
 ### Mainnet (currently blocked)

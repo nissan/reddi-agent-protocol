@@ -33,7 +33,7 @@ Consumers such as `scripts/generate-economic-demo-submission-prep.mjs` read that
 ## Commands
 
 ```bash
-npm run test:surfpool:sdk-lifecycle
+npm run test:surfpool:lane-regressions   # sdk-lifecycle + evidence-manifest + lane-boundaries
 npm run test:surfpool:critical
 npm run test:surfpool:quasar-critical
 ```
@@ -46,7 +46,7 @@ Quasar is refused outside this lane. `packages/demo-agents/src/config.ts` throws
 
 ## Hosted CI
 
-The `Surfpool Quasar Critical SDK` workflow runs the SDK lifecycle regressions and the Quasar critical smoke on Ubuntu with Node 24, Rust 1.89, and Agave/Solana CLI v3.1.13. Hosted runs set `RAP_SURFPOOL_CRITICAL_TIMEOUT_MS=2400000` inside a 50-minute smoke step and a 90-minute job, leaving shutdown margin for cleanup, port-closure waits, FAIL summaries, and artifact upload. CI caches npm, Cargo registry/git data, the Solana install cache, and `.tmp/surfpool-sdk-cargo-target`; it intentionally does not run live RPC, devnet funding, wallet-backed deployment, or MagicBlock PER/TEE validation. The Quasar lane remains experimental local validation and does not imply deployment, security, submission, grant, or production readiness beyond the checked local assertions.
+The `Surfpool Quasar Critical SDK` workflow runs the lane regressions (SDK lifecycle, evidence receipts, lane boundaries), the Quasar target-gate and web-refusal suites, and the Quasar critical smoke on Ubuntu with Node 24, Rust 1.89, and Agave/Solana CLI v3.1.13. Hosted runs set `RAP_SURFPOOL_CRITICAL_TIMEOUT_MS=2400000` inside a 50-minute smoke step and a 90-minute job, leaving shutdown margin for cleanup, port-closure waits, FAIL summaries, and artifact upload. CI caches npm, Cargo registry/git data, the Solana install cache, and `.tmp/surfpool-sdk-cargo-target`; it intentionally does not run live RPC, devnet funding, wallet-backed deployment, or MagicBlock PER/TEE validation. The Quasar lane remains experimental local validation and does not imply deployment, security, submission, grant, or production readiness beyond the checked local assertions.
 
 ## Known limitation: the recorded Quasar devnet deployment
 
