@@ -1206,6 +1206,9 @@ test("a receipt replaced between the type check and the open is refused without 
     { label: "named pipe", plant: "fifo", expected: /must be an ordinary file/ },
     // An ordinary file swapped in still fails the descriptor's identity check.
     { label: "different ordinary file", plant: "file", expected: /was replaced while evidence was being computed/ },
+    // Rewriting the bytes in place keeps the inode, so only a fuller identity catches it. This is
+    // also what an inode-reusing filesystem hands back for the swapped-file case above.
+    { label: "same inode rewritten in place", plant: "rewrite", expected: /was replaced while evidence was being computed/ },
   ];
 
   for (const { label, plant, expected } of cases) {
@@ -1231,8 +1234,9 @@ fs.lstatSync = function patchedLstatSync(target, options) {
   const stat = originalLstatSync.call(this, target, options);
   if (!swapped && String(target) === manifestPath) {
     swapped = true;
-    fs.rmSync(manifestPath);
-    if (${JSON.stringify(plant)} === "fifo") {
+    const plant = ${JSON.stringify(plant)};
+    if (plant !== "rewrite") fs.rmSync(manifestPath);
+    if (plant === "fifo") {
       spawnSyncInChild("mkfifo", [manifestPath]);
     } else {
       const forged = JSON.parse(genuine.toString("utf8"));

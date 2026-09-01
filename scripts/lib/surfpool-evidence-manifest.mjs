@@ -132,6 +132,22 @@ const LANE_FINGERPRINT_PATHS = Object.freeze({
   ]),
 });
 
+/**
+ * Two stats describe the same unmodified file only if device, inode, size and change time all
+ * match. Device and inode alone are not enough: a filesystem is free to hand a newly created file
+ * the inode a just-deleted one released, and an in-place rewrite keeps the inode by construction.
+ * Size and change time both move when the bytes behind the path are replaced, so they close the
+ * window between the pre-open type check and the opened descriptor.
+ */
+function isSameFileIdentity(left, right) {
+  return (
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.size === right.size &&
+    left.ctimeMs === right.ctimeMs
+  );
+}
+
 function isSameOrChild(parent, candidate) {
   const relative = path.relative(parent, candidate);
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
@@ -164,14 +180,15 @@ function assertOpenedDescriptorContained(fd, containmentRootRealPath, label) {
 /**
  * Reads a file the receipt will be bound to, refusing to follow a symlink in the final path
  * component and hashing the bytes from that same descriptor. `identity`, when supplied, is the
- * device/inode/size the walk validated: a mismatch means the path was re-pointed at a different
- * file between the walk and the read, and the read is refused rather than silently hashed.
+ * identity the walk validated: a mismatch means the path was re-pointed at a different file, or the
+ * bytes behind it were rewritten, between the walk and the read, and the read is refused rather
+ * than silently hashed.
  *
  * The final component is `lstat`ed *before* the open and required to be an ordinary file, because
  * opening a FIFO for reading blocks until a writer appears — the post-open `fstat` guard would
  * never be reached. `O_NONBLOCK` makes the open itself non-blocking for anything that slipped in
- * between the two calls, and the opened descriptor's device/inode must still match what the
- * `lstat` saw, so a special file swapped in during that window is refused rather than opened.
+ * between the two calls, and the opened descriptor's identity must still match what the `lstat`
+ * saw, so a special file swapped in during that window is refused rather than opened.
  *
  * A platform without `O_NOFOLLOW` or `/proc/self/fd` cannot provide that proof, so it is refused
  * rather than downgraded to a following read.
@@ -219,7 +236,7 @@ function readFingerprintedFile(repoRoot, relativePath, options = {}) {
     if (!opened.isFile()) {
       throw new EvidenceManifestError(`${relativePath} must be an ordinary file`);
     }
-    if (opened.dev !== beforeOpen.dev || opened.ino !== beforeOpen.ino) {
+    if (!isSameFileIdentity(opened, beforeOpen)) {
       throw new EvidenceManifestError(`${relativePath} was replaced while evidence was being computed`);
     }
     assertOpenedDescriptorContained(fd, containmentRootRealPath, relativePath);
@@ -228,12 +245,12 @@ function readFingerprintedFile(repoRoot, relativePath, options = {}) {
         `${relativePath} is ${opened.size} bytes, larger than the allowed ${options.maxBytes} bytes`,
       );
     }
-    if (identity && (opened.dev !== identity.dev || opened.ino !== identity.ino || opened.size !== identity.size)) {
+    if (identity && !isSameFileIdentity(opened, identity)) {
       throw new EvidenceManifestError(`${relativePath} was replaced while evidence was being computed`);
     }
     const contents = fs.readFileSync(fd);
     const afterRead = fs.fstatSync(fd);
-    if (afterRead.dev !== opened.dev || afterRead.ino !== opened.ino || afterRead.size !== opened.size) {
+    if (!isSameFileIdentity(afterRead, opened)) {
       throw new EvidenceManifestError(`${relativePath} changed while it was being read`);
     }
     return contents;
@@ -300,7 +317,7 @@ function walkFiles(repoRoot, relativePath, out) {
   }
   if (stat.isFile()) {
     assertContainedRealPath(repoRoot, relativePath);
-    out.push({ relativePath, dev: stat.dev, ino: stat.ino, size: stat.size });
+    out.push({ relativePath, dev: stat.dev, ino: stat.ino, size: stat.size, ctimeMs: stat.ctimeMs });
     return;
   }
   if (!stat.isDirectory()) {
