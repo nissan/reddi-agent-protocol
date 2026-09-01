@@ -202,7 +202,7 @@ class SolanaReceiptVerifier {
         });
         if (!parsed?.meta || parsed.meta.err)
             return { ok: false, reason: 'invalid_receipt', message: 'transaction is missing or failed' };
-        const unpaid = await this.challengePaymentFailure(parsed, receipt, challenge, signature);
+        const unpaid = await this.challengePaymentFailure(parsed, receipt, challenge, signature, replayStore);
         if (unpaid)
             return unpaid;
         if (replayStore) {
@@ -213,7 +213,7 @@ class SolanaReceiptVerifier {
         return { ok: true, receipt, demo: false };
     }
     /** Returns a failure result when the parsed transaction does not settle the challenge, otherwise undefined. */
-    async challengePaymentFailure(parsed, receipt, challenge, signature) {
+    async challengePaymentFailure(parsed, receipt, challenge, signature, replayStore) {
         if (challenge.currency === 'SOL') {
             return transactionHasSolTransfer(parsed, receipt.payer, challenge.payTo, Number(challenge.amount))
                 ? undefined
@@ -235,6 +235,7 @@ class SolanaReceiptVerifier {
             const result = await (0, spl_token_observer_1.verifySplTransferCheckedObservation)({
                 parsedTransaction: parsed,
                 commitment: 'confirmed',
+                replayStore,
                 evidenceSource: 'parsed-rpc-transaction',
                 expected: {
                     network: challenge.network,

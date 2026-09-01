@@ -54,7 +54,7 @@ async function verifySplTransferCheckedObservation(input) {
     }
     const match = matches[0];
     if (input.replayStore) {
-        const replayKey = `spl-transfer-checked:${input.expected.network}:${input.expected.signature}:${match.collected.instructionIndex}`;
+        const replayKey = `spl-transfer-checked:${replayNetworkKey(input.expected.network)}:${input.expected.signature}:${match.collected.instructionIndex}`;
         const accepted = await input.replayStore.checkAndStore(replayKey);
         if (!accepted)
             return failure('replay_detected', 'payment transfer has already been accepted by the replay store', replayKey);
@@ -309,6 +309,9 @@ function asArray(value) {
 }
 function isNonEmptyString(value) {
     return typeof value === 'string' && value.trim().length > 0;
+}
+function replayNetworkKey(network) {
+    return network.trim().toLowerCase();
 }
 function failure(reason, message, expected, actual) {
     return { ok: false, reason, message, expected, actual };

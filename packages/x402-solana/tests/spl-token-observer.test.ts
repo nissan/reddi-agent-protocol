@@ -220,6 +220,34 @@ describe('SPL TransferChecked observation verifier', () => {
     if (!second.ok) expect(second.reason).toBe('replay_detected');
   });
 
+  it('normalizes the network in the signature/instruction replay key', async () => {
+    const seen = new Set<string>();
+    const replayStore = {
+      checkAndStore(key: string) {
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      },
+    };
+    const first = await verifySplTransferCheckedObservation({
+      parsedTransaction: parsedTransaction(),
+      expected: { ...expected, network: 'Solana-Devnet' },
+      commitment: 'confirmed',
+      replayStore,
+    });
+    expect(first.ok).toBe(true);
+    expect(seen.has(`spl-transfer-checked:solana-devnet:${SIGNATURE}:0`)).toBe(true);
+
+    const second = await verifySplTransferCheckedObservation({
+      parsedTransaction: parsedTransaction(),
+      expected: { ...expected, network: 'solana-devnet' },
+      commitment: 'confirmed',
+      replayStore,
+    });
+    expect(second.ok).toBe(false);
+    if (!second.ok) expect(second.reason).toBe('replay_detected');
+  });
+
   it('gives each distinct transfer in one transaction its own replay slot', async () => {
     const SECOND_DEST = 'second-destination-audd-token-account-fixture';
     const SECOND_AMOUNT = '1000000';
@@ -334,5 +362,46 @@ describe('SPL TransferChecked observation verifier', () => {
       mint: 'WrongAuddMint1111111111111111111111111111111',
     }, challenge);
     expect(wrongReceiptMint.ok).toBe(false);
+  });
+
+  it('applies signature/instruction replay protection to AUDD SolanaReceiptVerifier receipts', async () => {
+    const challenge = buildX402Challenge({
+      network: 'solana-devnet',
+      payTo: PAYEE,
+      amount: AMOUNT,
+      currency: 'AUDD',
+      endpoint: 'https://seller.example.test/agent/task',
+      nonce: 'audd-x402-replay-001',
+      memo: MEMO,
+    });
+    const verifier = new SolanaReceiptVerifier({
+      allowRealPayment: true,
+      auddMint: MINT,
+      auddTokenProgram: SPL_TOKEN_PROGRAM_ID,
+      connection: { async getParsedTransaction() { return parsedTransaction(); } },
+    });
+    const replayStore = new MemoryNonceReplayStore();
+    const receipt = {
+      network: 'solana-devnet',
+      payTo: PAYEE,
+      amount: AMOUNT,
+      currency: 'AUDD',
+      nonce: 'audd-x402-replay-001',
+      payer: PAYER,
+      signature: SIGNATURE,
+      destinationTokenAccount: DEST_TOKEN,
+      mint: MINT,
+    };
+
+    const first = await verifier.verifyReceipt(receipt, challenge, replayStore);
+    expect(first.ok).toBe(true);
+
+    const secondChallenge = { ...challenge, nonce: 'audd-x402-replay-002' };
+    const second = await verifier.verifyReceipt({ ...receipt, nonce: 'audd-x402-replay-002' }, secondChallenge, replayStore);
+    expect(second.ok).toBe(false);
+    if (!second.ok) {
+      expect(second.reason).toBe('invalid_receipt');
+      expect(second.message).toMatch(/replay_detected/);
+    }
   });
 });
