@@ -31,9 +31,9 @@
     },
     {
       "path": "lib/onboarding/attestation-instruction.ts",
-      "surface": "target-aware onboarding attest_quality instruction selector",
+      "surface": "onboarding attest_quality instruction builder",
       "status": "quasar-compatible",
-      "reason": "Selects Quasar attest_quality wrapper/data when PROGRAM_TARGET is quasar; preserves Anchor builder only for legacy mode."
+      "reason": "Builds only the legacy Anchor attest_quality layout. It takes no target and no escrow: its single caller refuses the Quasar target before reaching it, because a Quasar attestation seeds its PDA on the escrow a successful lock created and onboarding never locks one."
     },
     {
       "path": "lib/program.ts",
@@ -67,9 +67,9 @@
     },
     {
       "path": "lib/onboarding/quasar-escrow-binding.ts",
-      "surface": "onboarding Quasar escrow job binding and refusal reason",
+      "surface": "canonical onboarding Quasar refusal reason",
       "status": "quasar-compatible",
-      "reason": "Owns the lock-created escrow PDA derivation, the verified-lock-record validation, and the canonical refusal returned when no verified lock record exists; onboarding never locks a Quasar escrow, so every Quasar reputation/attestation path refuses here before instruction, signer, or RPC use."
+      "reason": "Owns the single canonical reason every onboarding Quasar reputation/attestation/confirm/dispute path refuses with. There is deliberately no resolver or PDA derivation here: onboarding never locks a Quasar escrow, so there is no verified lock record to bind to and no onboarding surface builds a Quasar instruction."
     },
     {
       "path": "lib/onboarding/attestation-resolution.ts",
@@ -99,7 +99,7 @@
       "path": "packages/demo-agents/src/demo.ts",
       "surface": "full demo-agent A\u2192B\u2192C escrow/reputation/attestation/MagicBlock PER transaction flow",
       "status": "quasar-compatible",
-      "reason": "Full demo-agent A\u2192B\u2192C flow now targets Quasar multi-program devnet IDs in explicit Quasar mode: registry read, Quasar escrow make/take settlement, reputation commit/reveal, and attestation attest. Legacy Anchor/PER paths remain available only in legacy-anchor mode; MagicBlock PER/TEE is fail-closed/not claimed for Quasar final proof."
+      "reason": "Full demo-agent A\u2192B\u2192C flow encodes the current Quasar sources in explicit Quasar mode: registry read, Quasar escrow make/take settlement, reputation commit/reveal, and attestation attest. packages/demo-agents/src/config.ts admits that mode only on the local-surfpool profile with four distinct valid loopback-deployed program ids, so the recorded devnet Quasar set is never reached from here. Legacy Anchor/PER paths remain available only in legacy-anchor mode; MagicBlock PER/TEE is fail-closed/not claimed for Quasar."
     }
   ],
   "allowedStatuses": [

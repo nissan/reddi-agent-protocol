@@ -53,7 +53,7 @@ npm run test:e2e -- e2e/onboarding.spec.ts
 npm run test:e2e:ui
 ```
 
-Jest is configured in `jest.config.js` and covers `lib/**` tests plus `packages/demo-agents/src/__tests__`; the root `package.json` exposes `npm test` (aliasing `jest`), which is what CI runs.
+Jest is configured in `jest.config.js` and covers `lib/**` tests plus any `__tests__` directory under `packages/demo-agents/src`; the root `package.json` exposes `npm test` (aliasing `jest`), which is what CI runs.
 
 Playwright starts its own dev server and owns the port/wallet-mock env it needs; read `playwright.config.ts` before changing e2e setup, and set `PLAYWRIGHT_BASE_URL` to run against an already-running target instead. `packages/demo-agents` has its own devnet lifecycle (`fund`, `register`, `deregister`, `demo`) that spends devnet SOL — read the package before running any of it.
 

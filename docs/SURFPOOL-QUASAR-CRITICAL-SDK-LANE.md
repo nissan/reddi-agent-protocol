@@ -64,10 +64,12 @@ These are two separate facts and the split matters:
 **Web Quasar reputation and attestation are not implemented, and refuse.** A Quasar escrow address is
 not derivable: `experiments/quasar-escrow/src/instructions/lock.rs` requires `escrow_id == counter.next_id`,
 a sequential per-payer counter assigned at lock time, so the only real escrow is the PDA a successful
-lock created. The onboarding flow never locks a Quasar escrow, so it has no verified lock record, and
-`lib/onboarding/quasar-escrow-binding.ts` refuses with a canonical reason before any instruction is
-constructed, any signer is touched, or any RPC call is made. The wizard's confirm and dispute actions
-are disabled and show that reason rather than building against an escrow that does not exist. Nothing
+lock created. The onboarding flow never locks a Quasar escrow, so it has no verified lock record: the
+reputation, attestation, and confirm/dispute modules each refuse the Quasar target outright — with the
+single canonical reason owned by `lib/onboarding/quasar-escrow-binding.ts` — before any instruction is
+constructed, any signer is touched, or any RPC call is made, and none of them contains a Quasar branch
+to reach. The wizard's confirm and dispute actions are disabled and show that reason rather than
+building against an escrow that does not exist. Nothing
 is derived from a job id, no client-supplied address is trusted, and no escrow is synthesized.
 
 Among remote profiles, `lib/config/network.ts` resolves the Quasar target only on devnet, and
