@@ -627,6 +627,44 @@ test("an artifact reachable only through a symlink out of the evidence root is r
   });
 });
 
+test("an evidence root symlinked outside the repository is refused", async () => {
+  const externalRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "rap-evidence-external-"));
+  try {
+    await withRepo(async (repoRoot) => {
+      const dir = "artifacts/surfpool-quasar-smoke";
+      const runId = "sdk-quasar-root-symlink";
+      await seedFingerprintSources(repoRoot, "quasar");
+      await fsp.mkdir(path.join(repoRoot, "artifacts"), { recursive: true });
+      await fsp.symlink(externalRoot, path.join(repoRoot, dir), "dir");
+      await fsp.mkdir(path.join(externalRoot, runId), { recursive: true });
+      await fsp.writeFile(path.join(externalRoot, runId, "SUMMARY.md"), "# external summary\n");
+      await fsp.writeFile(path.join(externalRoot, runId, "smoke.log"), "external log\n");
+
+      const record = {
+        target: "quasar",
+        runId,
+        status: "PASS",
+        repoRoot,
+        manifestRelativeDir: dir,
+        sourceFingerprint: computeLaneSourceFingerprint(repoRoot, "quasar"),
+        artifacts: [
+          { name: "summary", path: `${dir}/${runId}/SUMMARY.md` },
+          { name: "log", path: `${dir}/${runId}/smoke.log` },
+        ],
+        provenance: { command: "npm run test:surfpool:quasar-critical" },
+      };
+
+      await assert.rejects(
+        writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record),
+        /evidence root resolves outside the repository/,
+      );
+      assert.equal(fs.existsSync(path.join(externalRoot, ACCEPTED_EVIDENCE_FILENAME)), false);
+    });
+  } finally {
+    await fsp.rm(externalRoot, { recursive: true, force: true });
+  }
+});
+
 test("publishing refuses to cite an artifact that does not exist yet", async () => {
   await withRepo(async (repoRoot) => {
     const dir = "artifacts/surfpool-quasar-smoke";

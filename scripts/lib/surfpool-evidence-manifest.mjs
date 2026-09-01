@@ -232,7 +232,11 @@ export function assertContainedArtifactPath(manifestRelativeDir, artifactPath, o
 
   const repoRoot = options.repoRoot;
   {
+    const realRepoRoot = fs.realpathSync(repoRoot);
     const boundRoot = fs.realpathSync(path.join(repoRoot, normalizedDir));
+    if (boundRoot !== realRepoRoot && !boundRoot.startsWith(`${realRepoRoot}${path.sep}`)) {
+      throw new EvidenceManifestError(`evidence root resolves outside the repository through a symlink: ${manifestRelativeDir}`);
+    }
     let resolved;
     try {
       resolved = fs.realpathSync(path.join(repoRoot, normalized));
