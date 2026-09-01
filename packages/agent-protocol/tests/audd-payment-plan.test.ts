@@ -506,6 +506,27 @@ describe('AUDD/Solana payment plan adapter', () => {
         extra: { ...paymentRequired.accepts[0].extra, paymentIntentId: 'reddi.payment-intent:other' },
       }],
     }), false);
+    assert.equal(validateAuddX402SvmExactPaymentRequired({
+      ...paymentRequired,
+      accepts: [{
+        ...paymentRequired.accepts[0],
+        network: 'solana:bogus',
+        asset: 'BogusAuddMint1111111111111111111111111111',
+        extra: {
+          ...paymentRequired.accepts[0].extra,
+          rapNetworkAlias: 'solana-mainnet-beta',
+          environment: 'controlled-live',
+          eligibility: 'eligible',
+        },
+      }],
+    }), false);
+    assert.equal(validateAuddX402SvmExactPaymentRequired({
+      ...paymentRequired,
+      accepts: [{
+        ...paymentRequired.accepts[0],
+        network: SOLANA_MAINNET_BETA_CAIP2,
+      }],
+    }), false);
 
     const exactChallenge = createAuddPaymentChallenge({
       mode: 'dry-run',
@@ -914,6 +935,19 @@ describe('AUDD/Solana payment plan adapter', () => {
       paymentPlan: mainnetPlan,
     });
     assert.equal(defaultMainnetIntent.labels.eligibility, 'pending_partner_acceptance');
+    const defaultMainnetPaymentRequired = createAuddX402SvmExactPaymentRequired({
+      paymentPlan: mainnetPlan,
+      paymentIntent: defaultMainnetIntent,
+      resource: { url: 'https://seller.example.test/agent/task' },
+    });
+    assert.equal(validateAuddX402SvmExactPaymentRequired(defaultMainnetPaymentRequired), true);
+    assert.equal(validateAuddX402SvmExactPaymentRequired({
+      ...defaultMainnetPaymentRequired,
+      accepts: [{
+        ...defaultMainnetPaymentRequired.accepts[0],
+        extra: { ...defaultMainnetPaymentRequired.accepts[0].extra, eligibility: 'eligible' },
+      }],
+    }), false);
 
     const fixtureLabelledIntent = createPaymentIntentDraft({
       labels: { environment: 'deterministic-fixture', eligibility: 'non_eligible' },

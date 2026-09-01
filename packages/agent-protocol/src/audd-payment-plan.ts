@@ -606,25 +606,53 @@ export function validateAuddX402SvmExactPaymentRequired(value: unknown): value i
     if (!positiveSafeInteger(accept.maxTimeoutSeconds)) return false;
     if (!isPlainObject(accept.extra)) return false;
     const extra = accept.extra;
-    return extra.symbol === AUDD_ASSET
-      && extra.decimals === AUDD_DECIMALS
-      && isNonEmptyString(extra.tokenProgram)
-      && isNonEmptyString(extra.rapNetworkAlias)
-      && (extra.destinationTokenAccount === undefined || isNonEmptyString(extra.destinationTokenAccount))
-      && isNonEmptyString(extra.quoteExpiresAt)
-      && !Number.isNaN(Date.parse(extra.quoteExpiresAt))
-      && isNonEmptyString(extra.memo)
-      && extra.memo.length <= 256
-      && extra.paymentFlow === AUDD_X402_PAYMENT_FLOW
-      && extra.receiptRequired === true
-      && typeof extra.evidenceRequired === 'boolean'
-      && extra.paymentIntentId === reddiExtension.paymentIntentId
-      && extra.modelAuthority === 'draft_only'
-      && typeof extra.operatorApprovalRequired === 'boolean'
-      && validateRefundText(extra.refundPolicy)
-      && validatePolicyText(extra.failurePolicy)
-      && isPaymentEligibility(extra.eligibility)
-      && ['deterministic-fixture', 'local-test-mint', 'devnet-unverified', 'mainnet-gated', 'controlled-live'].includes(String(extra.environment));
+    if (extra.symbol !== AUDD_ASSET) return false;
+    if (extra.decimals !== AUDD_DECIMALS) return false;
+    if (!isNonEmptyString(extra.tokenProgram)) return false;
+    if (!isNonEmptyString(extra.rapNetworkAlias)) return false;
+    if (extra.destinationTokenAccount !== undefined && !isNonEmptyString(extra.destinationTokenAccount)) return false;
+    if (!isNonEmptyString(extra.quoteExpiresAt) || Number.isNaN(Date.parse(extra.quoteExpiresAt))) return false;
+    if (!isNonEmptyString(extra.memo) || extra.memo.length > 256) return false;
+    if (extra.paymentFlow !== AUDD_X402_PAYMENT_FLOW) return false;
+    if (extra.receiptRequired !== true) return false;
+    if (typeof extra.evidenceRequired !== 'boolean') return false;
+    if (extra.paymentIntentId !== reddiExtension.paymentIntentId) return false;
+    if (extra.modelAuthority !== 'draft_only') return false;
+    if (typeof extra.operatorApprovalRequired !== 'boolean') return false;
+    if (!validateRefundText(extra.refundPolicy)) return false;
+    if (!validatePolicyText(extra.failurePolicy)) return false;
+    if (!isPaymentEligibility(extra.eligibility)) return false;
+    if (!isRailEnvironment(extra.environment)) return false;
+
+    const railEnvironment = extra.environment;
+    const derivedRail = deriveAuddRailEnvironment({
+      network: extra.rapNetworkAlias,
+      caip2Network: accept.network,
+      mint: accept.asset,
+    });
+    if (!derivedRail || derivedRail !== railEnvironment || derivedRail === 'local-test-mint') return false;
+    if (!auddEligibilityMatchesRail(extra.eligibility, railEnvironment)) return false;
+    if (railEnvironment !== 'deterministic-fixture' && extra.operatorApprovalRequired !== true) return false;
+
+    const identity = validateAuddRailIdentity({
+      environment: railEnvironment,
+      network: canonicalSolanaNetworkAlias(extra.rapNetworkAlias) ?? extra.rapNetworkAlias,
+      caip2: accept.network,
+      mint: accept.asset,
+      tokenProgram: extra.tokenProgram,
+      decimals: extra.decimals,
+      enableGatedMainnet: true,
+    });
+    return identity.ok || !identity.reasonCodes.some((reason) => [
+      'malformed_audd_rail_identity',
+      'unknown_audd_rail_environment',
+      'wrong_network',
+      'wrong_caip2_network',
+      'wrong_mint',
+      'wrong_token_program',
+      'wrong_decimals',
+      'local_test_mint_required',
+    ].includes(reason));
   });
 }
 

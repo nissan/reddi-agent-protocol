@@ -22,6 +22,7 @@ All notable changes to this package are documented here. Dates are AEST.
 - A plan whose identity resolves to no configured AUDD rail (for example `solana-testnet`) is rejected with `audd_payment_plan_environment_undeclared` at constructors and `blocked_rail_environment` at buyer preflight, even when it declares a `railEnvironment`, so a seller cannot self-assert a fixture rail on a network this config does not describe.
 - The intent draft's `operatorApprovalRequired` is derived from the plan's rail OR-ed with `plan.authority.operatorApprovalRequired` instead of from the environment label, and `createAuddX402SvmExactPaymentRequired` throws `audd_payment_intent_operator_approval_mismatch` when an intent waives operator approval that the plan's rail requires. The 402 can no longer advertise a non-fixture AUDD rail as needing no operator approval.
 - Local-test-mint remains a configuration/test-only rail with no public CAIP-2 identity; intent and x402 export boundaries reject it explicitly. AUDD rail provenance now uses public URLs and repository-relative references rather than maintainer-local absolute paths.
+- `validateAuddX402SvmExactPaymentRequired` now fail-closes forged AUDD x402 payloads whose CAIP-2 network, RAP alias, mint, environment label, or configured grant-eligibility ceiling do not resolve to one exportable canonical rail.
 
 ## 0.1.0 — 2026-07-06
 
