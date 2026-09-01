@@ -40,6 +40,12 @@ export const SUBMISSION_BLOCKED_REASON = network.programs.submissionReadyReason
     }`
   : "Transaction submission is blocked on this network profile because the resolved program set is not ready for transaction submission.";
 
+/** Short button-sized label for the same gate, accurate on every profile it can block. */
+export const SUBMISSION_BLOCKED_LABEL =
+  network.programs.deploymentStatus === "mainnet-not-deployed"
+    ? "Blocked: no audited mainnet deployment"
+    : "Blocked: profile not submission-ready";
+
 /** Solana RPC endpoint from active network profile */
 export const DEVNET_RPC = network.solana.rpcHttp;
 

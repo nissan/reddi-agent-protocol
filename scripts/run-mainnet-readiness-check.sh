@@ -38,7 +38,11 @@ DEFAULT_REGISTRY_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("registry
 DEFAULT_REPUTATION_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("reputationProgramId", "")')"
 DEFAULT_ATTESTATION_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("attestationProgramId", "")')"
 KNOWN_PLACEHOLDER_ESCROW_PROGRAM_ID="794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD"
-PLACEHOLDER_ESCROW_PROGRAM_ID="$(read_profile_value 'obj["programs"].get("escrowProgramId", "") if obj["programs"].get("escrowProgramId", "") == "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD" else ""')"
+if [ "$DEFAULT_ESCROW_PROGRAM_ID" = "$KNOWN_PLACEHOLDER_ESCROW_PROGRAM_ID" ]; then
+  PLACEHOLDER_ESCROW_PROGRAM_ID="$KNOWN_PLACEHOLDER_ESCROW_PROGRAM_ID"
+else
+  PLACEHOLDER_ESCROW_PROGRAM_ID=""
+fi
 MAINNET_DEPLOYMENT_STATUS_NOTE="$(read_profile_value 'obj["programs"].get("mainnetDeploymentStatusNote", "")')"
 DEFAULT_PER_RPC="$(read_profile_value 'obj["payments"]["perRpc"]')"
 DEFAULT_JUPITER_BASE="$(read_profile_value 'obj["payments"]["jupiterApiBase"]')"

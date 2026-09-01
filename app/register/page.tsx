@@ -15,6 +15,7 @@ import {
   PROGRAM_KNOWN_LIMITATIONS,
   PROGRAM_DEPLOYMENT_STATUS,
   SUBMISSION_BLOCKED,
+  SUBMISSION_BLOCKED_LABEL,
   SUBMISSION_BLOCKED_REASON,
   agentPda,
 } from "@/lib/program";
@@ -650,11 +651,9 @@ function RegisterInner() {
             <span className="font-mono">{PROGRAM_COMPATIBILITY}</span> ·
             Deployment:{" "}
             <span className="font-mono">{PROGRAM_DEPLOYMENT_STATUS}</span>.
-            {PROGRAM_TARGET === "quasar"
-              ? " Registration instruction construction uses the Quasar registry layout, but wallet submission should wait for the full proof chain unless you are deliberately testing this path."
-              : SUBMISSION_BLOCKED
-                ? ` ${SUBMISSION_BLOCKED_REASON}`
-                : " This banner is advisory: it reports the recorded readiness gaps but does not block wallet submission."}
+            {SUBMISSION_BLOCKED
+              ? ` ${SUBMISSION_BLOCKED_REASON}`
+              : " Registration instruction construction uses the Quasar registry layout, but wallet submission should wait for the full proof chain unless you are deliberately testing this path."}
           </p>
           {!PROGRAM_SUBMISSION_READY && PROGRAM_KNOWN_GAPS.length > 0 && (
             <ul className="list-disc space-y-1 pl-4 text-xs opacity-85">
@@ -1357,7 +1356,7 @@ function RegisterInner() {
                 {registering
                   ? "Registering..."
                   : SUBMISSION_BLOCKED
-                    ? "Blocked: no audited mainnet deployment"
+                    ? SUBMISSION_BLOCKED_LABEL
                     : existingAgent.status === "checking"
                       ? "Checking registration..."
                       : !endpointCompliancePassed

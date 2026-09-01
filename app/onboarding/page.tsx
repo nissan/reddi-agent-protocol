@@ -28,6 +28,7 @@ import {
   INCINERATOR,
   PROGRAM_TARGET,
   SUBMISSION_BLOCKED,
+  SUBMISSION_BLOCKED_LABEL,
   SUBMISSION_BLOCKED_REASON,
 } from "@/lib/program";
 import {
@@ -1161,7 +1162,7 @@ export default function OnboardingPage() {
               style={{ background: "linear-gradient(135deg, #9945FF, #14F195)", color: "#000" }}
             >
               {SUBMISSION_BLOCKED
-                ? "Blocked: no audited mainnet deployment"
+                ? SUBMISSION_BLOCKED_LABEL
                 : registering
                   ? "Registering on-chain..."
                   : "Register specialist on-chain"}

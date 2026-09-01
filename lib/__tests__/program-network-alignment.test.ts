@@ -144,4 +144,34 @@ describe("program/network alignment", () => {
     expect(SUBMISSION_BLOCKED).toBe(true);
     expect(SUBMISSION_BLOCKED_REASON).toMatch(/malformed program id override/);
   });
+
+  it("labels the block by its mainnet cause only on the undeployed mainnet profile", async () => {
+    process.env.NETWORK_PROFILE = "mainnet";
+
+    const { SUBMISSION_BLOCKED, SUBMISSION_BLOCKED_LABEL } = await import("@/lib/program");
+
+    expect(SUBMISSION_BLOCKED).toBe(true);
+    expect(SUBMISSION_BLOCKED_LABEL).toBe("Blocked: no audited mainnet deployment");
+  });
+
+  it("does not claim a mainnet cause when devnet is blocked by a malformed override", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryMainnet11111111111111111111111111111";
+
+    const { SUBMISSION_BLOCKED, SUBMISSION_BLOCKED_LABEL } = await import("@/lib/program");
+
+    expect(SUBMISSION_BLOCKED).toBe(true);
+    expect(SUBMISSION_BLOCKED_LABEL).not.toMatch(/mainnet/i);
+    expect(SUBMISSION_BLOCKED_LABEL).toBe("Blocked: profile not submission-ready");
+  });
+
+  it("does not claim a mainnet cause when a refused Quasar Surfpool profile is blocked", async () => {
+    process.env.NETWORK_PROFILE = "surfpool";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+
+    const { SUBMISSION_BLOCKED, SUBMISSION_BLOCKED_LABEL } = await import("@/lib/program");
+
+    expect(SUBMISSION_BLOCKED).toBe(true);
+    expect(SUBMISSION_BLOCKED_LABEL).not.toMatch(/mainnet/i);
+  });
 });
