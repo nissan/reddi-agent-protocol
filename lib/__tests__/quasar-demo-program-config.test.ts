@@ -298,9 +298,11 @@ describe("Quasar demo program target config", () => {
     const profile = getNetworkProfile();
 
     expect(profile.programs.registryProgramId).toBe(LEGACY_ANCHOR_PROGRAM_ID);
+    expect(profile.programs.submissionReady).toBe(false);
+    expect(profile.programs.knownGaps.join(" ")).toMatch(/registry program id override does not match/);
   });
 
-  it("discloses a discarded well-formed devnet override as a known gap without exposing its value", async () => {
+  it("discloses and blocks a discarded well-formed devnet override without exposing its value", async () => {
     process.env.NETWORK_PROFILE = "devnet";
     process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
     process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryLoca1111111111111111111111111111111";
@@ -309,7 +311,8 @@ describe("Quasar demo program target config", () => {
     const profile = getNetworkProfile();
 
     expect(profile.programs.registryProgramId).toBe(QUASAR_REGISTRY_PROGRAM_ID);
-    expect(profile.programs.submissionReady).toBe(true);
+    expect(profile.programs.submissionReady).toBe(false);
+    expect(profile.programs.submissionReadyReason).toMatch(/program id override was supplied for registry/);
     expect(profile.programs.knownGaps.join(" ")).toMatch(
       /registry program id override does not match the registered devnet program set/,
     );
@@ -326,6 +329,8 @@ describe("Quasar demo program target config", () => {
 
     expect(profile.programs.registryProgramId).toBe(LEGACY_ANCHOR_PROGRAM_ID);
     expect(profile.programs.reputationProgramId).toBe(LEGACY_ANCHOR_PROGRAM_ID);
+    expect(profile.programs.submissionReady).toBe(false);
+    expect(profile.programs.submissionReadyReason).toMatch(/registry, reputation/);
     expect(profile.programs.knownGaps.join(" ")).toMatch(/registry, reputation program id overrides do not match/);
   });
 

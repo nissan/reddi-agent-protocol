@@ -66,13 +66,15 @@ describe("program/network alignment", () => {
     expect(SUBMISSION_BLOCKED_REASON).toMatch(/real mainnet fees/);
   });
 
-  it("keeps wallet submission enabled on devnet even when mainnet ids are supplied", async () => {
+  it("blocks wallet submission on devnet when a well-formed override is rejected by the hijack guard", async () => {
     process.env.NETWORK_PROFILE = "devnet";
     process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = "EscrowMainnet1111111111111111111111111111111";
 
-    const { SUBMISSION_BLOCKED } = await import("@/lib/program");
+    const { SUBMISSION_BLOCKED, SUBMISSION_BLOCKED_REASON, PROGRAM_KNOWN_GAPS } = await import("@/lib/program");
 
-    expect(SUBMISSION_BLOCKED).toBe(false);
+    expect(SUBMISSION_BLOCKED).toBe(true);
+    expect(SUBMISSION_BLOCKED_REASON).toMatch(/program id override was supplied for escrow/);
+    expect(PROGRAM_KNOWN_GAPS.join(" ")).toMatch(/escrow program id override does not match/);
   });
 
   it("resolves the mainnet profile from the client-visible NEXT_PUBLIC selector", async () => {

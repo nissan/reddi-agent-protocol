@@ -258,7 +258,7 @@ export function getNetworkProfile(): NetworkProfile {
       framework: target === "quasar" ? "quasar" : "anchor",
       compatibility: target === "quasar" ? "quasar-layout-unverified" : "anchor-layout",
       submissionReady:
-        name === "mainnet" || quasarRequestRefused || malformedOverrides.length > 0
+        name === "mainnet" || quasarRequestRefused || malformedOverrides.length > 0 || ignoredOverrides.length > 0
           ? false
           : target === "quasar"
             ? quasarDeployments.submissionReady
@@ -270,9 +270,11 @@ export function getNetworkProfile(): NetworkProfile {
             ? `A Quasar program target was requested for ${name}, which has no registered Quasar deployment; the request is refused.`
             : malformedOverrides.length > 0
               ? `A malformed program id override was supplied for ${malformedOverrides.join(", ")}; it was ignored and the registered program id is used instead, so the configured override is not in effect.`
-              : target === "quasar"
-                ? quasarDeployments.submissionReadyReason
-                : undefined,
+              : ignoredOverrides.length > 0
+                ? `A program id override was supplied for ${ignoredOverrides.join(", ")}, but it does not match the registered devnet program set and the build-time unsafe-override flag was not set; the registered program id is used instead.`
+                : target === "quasar"
+                  ? quasarDeployments.submissionReadyReason
+                  : undefined,
       knownGaps: [
         ...(target === "quasar" ? quasarDevnet.knownGaps : []),
         ...malformedOverrideKnownGaps,

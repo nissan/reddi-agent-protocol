@@ -81,22 +81,23 @@ The hijack guard applies to `getNetworkProfile()` only: on the devnet profile it
 ignores these overrides unless the build was made with
 `ALLOW_UNSAFE_ESCROW_OVERRIDE=true`, for both the legacy-Anchor and the Quasar
 target, so a stray env var cannot repoint the web app's registered devnet program
-set. A discarded override is not silent: the resolver records it in `knownGaps`
-and the readiness panels list it, while the profile stays submission-ready against
-the registered ids it kept. `next.config.ts` mirrors that explicit server setting
+set. A discarded override is not silent: the resolver records it in `knownGaps`,
+the readiness panels list it, and the selected browser profile becomes
+non-submission-ready until the override is removed or the build-time unsafe flag
+is set. `next.config.ts` mirrors that explicit server setting
 into `NEXT_PUBLIC_BUILD_ALLOW_UNSAFE_ESCROW_OVERRIDE`, and the resolver consumes
 that immutable build mirror on both server and client whenever it is present. The
 browser does not accept a freely changeable runtime public unsafe-override flag;
 plain `ALLOW_UNSAFE_ESCROW_OVERRIDE` is only a fallback for non-Next tooling and
-unit tests when no build mirror exists. `packages/demo-agents` deliberately does
-not apply that guard — it honours its `DEMO_*` / `NEXT_PUBLIC_*` program id
-overrides unconditionally on devnet/local, because the Surfpool smoke lanes
+unit tests when no build mirror exists. `packages/demo-agents` deliberately uses
+a separate local evidence-runner contract because the Surfpool smoke lanes
 (`scripts/run-surfpool-quasar-critical-smoke.sh`) depend on repointing it at
 locally deployed programs. It has no registered Quasar inventory outside devnet,
 so selecting the Quasar target on `local-surfpool` requires all four ids
 (`DEMO_ESCROW_PROGRAM_ID`, `DEMO_REGISTRY_PROGRAM_ID`, `DEMO_REPUTATION_PROGRAM_ID`,
-`DEMO_ATTESTATION_PROGRAM_ID`); it refuses at module init and names the missing
-ones if any is unset.
+`DEMO_ATTESTATION_PROGRAM_ID`) to be explicitly supplied as valid 32-byte Solana
+public keys; it refuses at module init and names the missing or malformed labels
+without using fallback ids.
 
 ## Mainnet note
 

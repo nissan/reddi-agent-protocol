@@ -82,6 +82,19 @@ describe("server-side operator signers honour the profile submission gate", () =
     expect(result.trace).toEqual(["reputation:submission_blocked"]);
   });
 
+  it("refuses a well-formed devnet override rejected by the hijack guard before signer use", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryHijack11111111111111111111111111111";
+    process.env.ONBOARDING_ATTEST_OPERATOR_SECRET_KEY = "not-json";
+
+    const { commitReputationRating } = await import("@/lib/onboarding/reputation-signal");
+    const result = await commitReputationRating("run-ignored-override-commit", 8, specialistWallet);
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toMatch(/program id override was supplied for registry/);
+    expect(result.trace).toEqual(["reputation:submission_blocked"]);
+  });
+
   it("refuses a Quasar local Surfpool operator send before signer use", async () => {
     process.env.NETWORK_PROFILE = "local-surfpool";
     process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";

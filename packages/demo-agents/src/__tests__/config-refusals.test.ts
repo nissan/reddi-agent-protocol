@@ -1,5 +1,7 @@
 jest.mock("dotenv");
 
+import { PublicKey } from "@solana/web3.js";
+
 describe("demo-agents network profile refusals", () => {
   const originalEnv = process.env;
 
@@ -60,16 +62,27 @@ describe("demo-agents network profile refusals", () => {
   it("names only the program ids still missing outside devnet", async () => {
     process.env.NETWORK_PROFILE = "surfpool";
     process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
-    process.env.DEMO_ESCROW_PROGRAM_ID = "EscrowLocal1111111111111111111111111111111";
+    process.env.DEMO_ESCROW_PROGRAM_ID = "EK9Q7JS2xaCqM5us7EE1GXbE54haVqchUjdFgtvZKUQN";
     process.env.DEMO_REGISTRY_PROGRAM_ID = "RegistryLoca1111111111111111111111111111111";
 
     await expect(import("../config")).rejects.toThrow(/missing: reputation, attestation/);
   });
 
+  it("refuses malformed supplied Quasar ids outside devnet", async () => {
+    process.env.NETWORK_PROFILE = "surfpool";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+    process.env.DEMO_ESCROW_PROGRAM_ID = "EscrowLocal000000000000000000000000000000000";
+    process.env.DEMO_REGISTRY_PROGRAM_ID = "RegistryLoca1111111111111111111111111111111";
+    process.env.DEMO_REPUTATION_PROGRAM_ID = "ReputationLoca11111111111111111111111111111";
+    process.env.DEMO_ATTESTATION_PROGRAM_ID = "AttestationLoca11111111111111111111111111111";
+
+    await expect(import("../config")).rejects.toThrow(/malformed: escrow must be valid 32-byte Solana public keys/);
+  });
+
   it("runs the Quasar target outside devnet when all four deployed ids are supplied", async () => {
     process.env.NETWORK_PROFILE = "surfpool";
     process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
-    process.env.DEMO_ESCROW_PROGRAM_ID = "EscrowLocal1111111111111111111111111111111";
+    process.env.DEMO_ESCROW_PROGRAM_ID = "EK9Q7JS2xaCqM5us7EE1GXbE54haVqchUjdFgtvZKUQN";
     process.env.DEMO_REGISTRY_PROGRAM_ID = "RegistryLoca1111111111111111111111111111111";
     process.env.DEMO_REPUTATION_PROGRAM_ID = "ReputationLoca11111111111111111111111111111";
     process.env.DEMO_ATTESTATION_PROGRAM_ID = "AttestationLoca11111111111111111111111111111";
@@ -77,10 +90,14 @@ describe("demo-agents network profile refusals", () => {
     const config = await import("../config");
 
     expect(config.PROGRAM_TARGET).toBe("quasar");
-    expect(config.ESCROW_PROGRAM_ID).toBe("EscrowLocal1111111111111111111111111111111");
+    expect(config.ESCROW_PROGRAM_ID).toBe("EK9Q7JS2xaCqM5us7EE1GXbE54haVqchUjdFgtvZKUQN");
     expect(config.REGISTRY_PROGRAM_ID).toBe("RegistryLoca1111111111111111111111111111111");
     expect(config.REPUTATION_PROGRAM_ID).toBe("ReputationLoca11111111111111111111111111111");
     expect(config.ATTESTATION_PROGRAM_ID).toBe("AttestationLoca11111111111111111111111111111");
+    expect(new PublicKey(config.ESCROW_PROGRAM_ID).toBase58()).toBe(config.ESCROW_PROGRAM_ID);
+    expect(new PublicKey(config.REGISTRY_PROGRAM_ID).toBase58()).toBe(config.REGISTRY_PROGRAM_ID);
+    expect(new PublicKey(config.REPUTATION_PROGRAM_ID).toBase58()).toBe(config.REPUTATION_PROGRAM_ID);
+    expect(new PublicKey(config.ATTESTATION_PROGRAM_ID).toBase58()).toBe(config.ATTESTATION_PROGRAM_ID);
     expect(config.DEVNET_RPC).toBe("http://127.0.0.1:18999");
   });
 

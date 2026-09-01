@@ -27,9 +27,9 @@ export const PROGRAM_KNOWN_LIMITATIONS = network.programs.knownLimitations ?? []
 export const PROGRAM_DEPLOYMENT_STATUS = network.programs.deploymentStatus;
 
 /**
- * Profile-wide submission gate: no audited deployment exists for the resolved profile.
+ * Profile-wide submission gate: the resolved program set is not ready for signing.
  * Every transaction-signing surface consults it — browser wallet submits and server-side
- * operator signers alike — because the cost it prevents is the same on both.
+ * operator signers alike — before wallet, signer, transaction, or RPC side effects.
  */
 export const SUBMISSION_BLOCKED = !network.programs.submissionReady;
 export const SUBMISSION_BLOCKED_REASON = network.programs.submissionReadyReason

@@ -1,5 +1,6 @@
 import path from "path";
 import dotenv from "dotenv";
+import { PublicKey } from "@solana/web3.js";
 
 // Load devnet env — resolve relative to package root (not transpiled __dirname)
 const envPath = path.resolve(__dirname, "../.env.devnet");
@@ -75,10 +76,31 @@ const missingProgramIds = Object.entries(suppliedProgramIds)
   .filter(([, programId]) => !programId)
   .map(([label]) => label);
 
-if (requestedProgramTarget === "quasar" && activeNetworkProfileName !== "devnet" && missingProgramIds.length > 0) {
-  throw new Error(
-    `Quasar demo target has no registered program inventory for ${activeNetworkProfileName} in packages/demo-agents; supply the deployed ids via DEMO_ESCROW_PROGRAM_ID, DEMO_REGISTRY_PROGRAM_ID, DEMO_REPUTATION_PROGRAM_ID, and DEMO_ATTESTATION_PROGRAM_ID (missing: ${missingProgramIds.join(", ")}).`,
-  );
+function isValidProgramId(programId: string): boolean {
+  try {
+    new PublicKey(programId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const malformedProgramIds = Object.entries(suppliedProgramIds)
+  .filter(([, programId]) => programId !== undefined && !isValidProgramId(programId))
+  .map(([label]) => label);
+
+if (requestedProgramTarget === "quasar" && activeNetworkProfileName !== "devnet") {
+  if (missingProgramIds.length > 0 || malformedProgramIds.length > 0) {
+    const defects = [
+      missingProgramIds.length ? `missing: ${missingProgramIds.join(", ")}` : undefined,
+      malformedProgramIds.length
+        ? `malformed: ${malformedProgramIds.join(", ")} must be valid 32-byte Solana public keys`
+        : undefined,
+    ].filter(Boolean).join("; ");
+    throw new Error(
+      `Quasar demo target has no registered program inventory for ${activeNetworkProfileName} in packages/demo-agents; supply valid deployed ids via DEMO_ESCROW_PROGRAM_ID, DEMO_REGISTRY_PROGRAM_ID, DEMO_REPUTATION_PROGRAM_ID, and DEMO_ATTESTATION_PROGRAM_ID (${defects}).`,
+    );
+  }
 }
 
 export const PROGRAM_TARGET: DemoProgramTarget = requestedProgramTarget === "quasar" ? "quasar" : "legacy-anchor";
