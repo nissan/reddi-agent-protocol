@@ -490,6 +490,22 @@ test("terminating a child with no pid is a no-op rather than signalling the whol
   escalation.cancel();
 });
 
+test("a source change before publication refuses the receipt instead of accepting untested sources", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-pre-publish-fingerprint");
+    const preRunFingerprint = record.sourceFingerprint;
+
+    await fsp.writeFile(path.join(repoRoot, "packages/demo-agents/src", "demo.ts"), "export const version = 2;\n");
+
+    await assert.rejects(
+      writeAcceptedEvidenceManifest(path.join(repoRoot, dir), { ...record, sourceFingerprint: preRunFingerprint }),
+      /sources changed during the run/,
+    );
+    assert.equal(fs.existsSync(path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME)), false);
+  });
+});
+
 test("a source change after publication invalidates the receipt", async () => {
   await withRepo(async (repoRoot) => {
     const dir = "artifacts/surfpool-quasar-smoke";

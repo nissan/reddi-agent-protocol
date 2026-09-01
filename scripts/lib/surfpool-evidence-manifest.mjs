@@ -281,6 +281,14 @@ function assertPassRecord(record) {
 export async function writeAcceptedEvidenceManifest(manifestDir, record) {
   assertPassRecord(record);
 
+  const currentSourceFingerprint = computeLaneSourceFingerprint(record.repoRoot, record.target);
+  if (record.sourceFingerprint !== currentSourceFingerprint) {
+    throw new EvidenceManifestError(
+      `refusing to publish accepted evidence because sources changed during the run ` +
+      `(pre-run ${record.sourceFingerprint}, current ${currentSourceFingerprint}); re-run the lane`,
+    );
+  }
+
   const artifacts = record.artifacts.map((artifact) => {
     const contained = assertContainedArtifactPath(record.manifestRelativeDir, artifact.path, { repoRoot: record.repoRoot });
     if (!fs.existsSync(path.join(record.repoRoot, contained))) {

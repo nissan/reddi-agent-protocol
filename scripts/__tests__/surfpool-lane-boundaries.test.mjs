@@ -115,15 +115,36 @@ test("hosted Surfpool workflows request the exact repository Node baseline", () 
   );
 });
 
-test("a payments API base pointing off-loopback is rejected before anything starts", () => {
+test("payment API bases pointing off-loopback are rejected before anything starts", () => {
   assert.ok(LOCAL_ENDPOINT_ENV_KEYS.includes("DEMO_PAYMENTS_API_BASE_URL"));
+  assert.ok(LOCAL_ENDPOINT_ENV_KEYS.includes("JUPITER_API_BASE"));
 
-  assert.throws(
-    () => assertLocalOnlyEnvironment({ DEMO_PAYMENTS_API_BASE_URL: "https://payments.magicblock.app" }),
-    SurfpoolSafetyError,
-  );
-  assert.doesNotThrow(() => assertLocalOnlyEnvironment({ DEMO_PAYMENTS_API_BASE_URL: "http://127.0.0.1:1" }));
+  for (const key of ["DEMO_PAYMENTS_API_BASE_URL", "JUPITER_API_BASE"]) {
+    assert.throws(
+      () => assertLocalOnlyEnvironment({ [key]: "https://api.jup.ag" }),
+      SurfpoolSafetyError,
+      `${key} must be part of the parent-process local-only preflight`,
+    );
+    assert.doesNotThrow(() => assertLocalOnlyEnvironment({ [key]: "http://127.0.0.1:1" }));
+  }
 });
+
+const LOCAL_PROFILE_ALIASES = ["local-surfpool", "local", "localnet", "surfpool"];
+
+for (const key of ["NETWORK_PROFILE", "NEXT_PUBLIC_BUILD_NETWORK_PROFILE", "NEXT_PUBLIC_NETWORK_PROFILE"]) {
+  test(`the local Surfpool lane rejects non-local ${key} before anything starts`, () => {
+    for (const value of ["devnet", "mainnet", "mainnet-beta", "testnet", "unknown-profile"]) {
+      assert.throws(
+        () => assertLocalOnlyEnvironment({ [key]: value }),
+        SurfpoolSafetyError,
+        `${key}=${value} must not be accepted by the local Surfpool validation lane`,
+      );
+    }
+    for (const value of LOCAL_PROFILE_ALIASES) {
+      assert.doesNotThrow(() => assertLocalOnlyEnvironment({ [key]: value }));
+    }
+  });
+}
 
 test("the lane child environment pins every payment and mint variable and disables dotenv", () => {
   const env = localChildEnv({}, { repoRoot: "/repo", childTmpDir: "/repo/.tmp/run/tmp", home: "/home/dev" });

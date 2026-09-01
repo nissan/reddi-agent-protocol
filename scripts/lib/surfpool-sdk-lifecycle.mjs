@@ -9,6 +9,7 @@ export const LOCAL_ENDPOINT_ENV_KEYS = Object.freeze([
   "DEMO_DEVNET_RPC_WS",
   "DEMO_PAYMENTS_API_BASE_URL",
   "DEMO_PER_RPC",
+  "JUPITER_API_BASE",
   "NEXT_PUBLIC_PER_RPC",
   "NEXT_PUBLIC_RPC_ENDPOINT",
   "NEXT_PUBLIC_RPC_URL",
@@ -20,13 +21,15 @@ export const LOCAL_ENDPOINT_ENV_KEYS = Object.freeze([
 
 export const NETWORK_PROFILE_ENV_KEYS = Object.freeze([
   "NETWORK_PROFILE",
+  "NEXT_PUBLIC_BUILD_NETWORK_PROFILE",
   "NEXT_PUBLIC_NETWORK_PROFILE",
 ]);
 
-const FORBIDDEN_NETWORK_PROFILE_VALUES = new Set([
-  "mainnet",
-  "mainnet-beta",
-  "testnet",
+const LOCAL_NETWORK_PROFILE_VALUES = new Set([
+  "local-surfpool",
+  "local",
+  "localnet",
+  "surfpool",
 ]);
 
 export class SurfpoolSafetyError extends Error {
@@ -90,8 +93,8 @@ export function assertLocalOnlyEnvironment(env = process.env, options = {}) {
   for (const key of profileKeys) {
     const value = env[key]?.trim().toLowerCase();
     if (!value) continue;
-    if (FORBIDDEN_NETWORK_PROFILE_VALUES.has(value)) {
-      throw new SurfpoolSafetyError(`${key}=${value} is not allowed in the local Surfpool validation lane`);
+    if (!LOCAL_NETWORK_PROFILE_VALUES.has(value)) {
+      throw new SurfpoolSafetyError(`${key}=${value} is not allowed in the local Surfpool validation lane; use local-surfpool or a local alias`);
     }
   }
 }

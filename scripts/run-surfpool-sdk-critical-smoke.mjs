@@ -49,6 +49,17 @@ try {
   process.exit(1);
 }
 
+// Bind PASS evidence to the sources as they existed before any build, validator startup, or demo
+// side effect. Publication recomputes the fingerprint and refuses the receipt if the working tree
+// changed while the lane was running.
+let preRunSourceFingerprint;
+try {
+  preRunSourceFingerprint = computeLaneSourceFingerprint(repoRoot, target);
+} catch (error) {
+  console.error(`[surfpool-sdk-smoke] source fingerprint preflight failed: ${error.message}`);
+  process.exit(1);
+}
+
 const { Surfnet } = await import("@solana/surfpool");
 const runId = `sdk-${target}-${crypto.randomUUID()}`;
 const evidenceRoot = path.join(repoRoot, "artifacts", target === "quasar" ? "surfpool-quasar-smoke" : "surfpool-smoke");
@@ -500,7 +511,7 @@ async function publishAcceptedEvidence() {
       { name: "summary", path: rel(summaryFile) },
       { name: "log", path: rel(logFile) },
     ];
-    const sourceFingerprint = computeLaneSourceFingerprint(repoRoot, target);
+    const sourceFingerprint = preRunSourceFingerprint;
     for (const artifact of artifacts) {
       const handle = await fs.open(path.join(repoRoot, artifact.path), "r");
       try {
