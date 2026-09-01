@@ -74,16 +74,22 @@ The hijack guard applies to `getNetworkProfile()` only: on the devnet profile it
 ignores these overrides unless the build was made with
 `ALLOW_UNSAFE_ESCROW_OVERRIDE=true`, for both the legacy-Anchor and the Quasar
 target, so a stray env var cannot repoint the web app's registered devnet program
-set. `next.config.ts` mirrors that explicit server setting into
-`NEXT_PUBLIC_BUILD_ALLOW_UNSAFE_ESCROW_OVERRIDE`, and the resolver consumes that
-immutable build mirror on both server and client whenever it is present. The
+set. A discarded override is not silent: the resolver records it in `knownGaps`
+and the readiness panels list it, while the profile stays submission-ready against
+the registered ids it kept. `next.config.ts` mirrors that explicit server setting
+into `NEXT_PUBLIC_BUILD_ALLOW_UNSAFE_ESCROW_OVERRIDE`, and the resolver consumes
+that immutable build mirror on both server and client whenever it is present. The
 browser does not accept a freely changeable runtime public unsafe-override flag;
 plain `ALLOW_UNSAFE_ESCROW_OVERRIDE` is only a fallback for non-Next tooling and
 unit tests when no build mirror exists. `packages/demo-agents` deliberately does
 not apply that guard — it honours its `DEMO_*` / `NEXT_PUBLIC_*` program id
 overrides unconditionally on devnet/local, because the Surfpool smoke lanes
 (`scripts/run-surfpool-quasar-critical-smoke.sh`) depend on repointing it at
-locally deployed programs.
+locally deployed programs. It has no registered Quasar inventory outside devnet,
+so selecting the Quasar target on `local-surfpool` requires all four ids
+(`DEMO_ESCROW_PROGRAM_ID`, `DEMO_REGISTRY_PROGRAM_ID`, `DEMO_REPUTATION_PROGRAM_ID`,
+`DEMO_ATTESTATION_PROGRAM_ID`); it refuses at module init and names the missing
+ones if any is unset.
 
 ## Mainnet note
 
@@ -95,9 +101,10 @@ that set cannot be silently reused on mainnet because clusters are separate
 ledgers and the resolver refuses `NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar` outside
 `NETWORK_PROFILE=devnet`. On both `local-surfpool` and `mainnet` the resolver
 refuses the request, keeps that profile's own legacy Anchor program id, marks it
-not submission-ready, and records the refusal in `knownGaps` — so `/register` and
-`/economic-demo` render an amber blocked-readiness banner listing those gaps
-rather than failing to load.
+not submission-ready, and records the refusal in `knownGaps` — so `/register`,
+`/onboarding`, and `/economic-demo` render an amber readiness panel listing those
+gaps rather than failing to load. Those panels render whenever `knownGaps` is
+non-empty, including on profiles that remain submission-ready.
 
 On profiles whose resolved program set is not submission-ready, `lib/program.ts`
 exports `SUBMISSION_BLOCKED = true`, and every transaction-signing surface
