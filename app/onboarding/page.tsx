@@ -282,6 +282,7 @@ export default function OnboardingPage() {
   const [healthcheckLoading, setHealthcheckLoading] = useState(false);
   const [attestationLoading, setAttestationLoading] = useState(false);
   const [attestationOperatorCheckLoading, setAttestationOperatorCheckLoading] = useState(false);
+  const [state, setState] = useState<WizardState>(INITIAL_STATE);
 
   // Quasar reputation/attestation bind to the escrow a successful lock created. Onboarding never
   // locks one, so the resolution actions stay disabled with the canonical reason rather than
@@ -300,7 +301,6 @@ export default function OnboardingPage() {
     }
   }, [step]);
 
-  const [state, setState] = useState<WizardState>(INITIAL_STATE);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
