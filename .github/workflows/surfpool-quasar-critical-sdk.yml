@@ -90,6 +90,12 @@ jobs:
       - name: Run SDK lifecycle regressions
         run: npm run test:surfpool:sdk-lifecycle
 
+      - name: Run evidence receipt regressions
+        run: npm run test:surfpool:evidence-manifest
+
+      - name: Run Quasar target gate and web refusal regressions
+        run: npm test -- --ci --runTestsByPath packages/demo-agents/src/__tests__/quasar-target-gate.test.ts lib/__tests__/quasar-demo-program-config.test.ts lib/quasar/__tests__/quasar-devnet-refusal.test.ts
+
       - name: Run Quasar critical SDK Surfpool smoke
         run: npm run test:surfpool:quasar-critical
 

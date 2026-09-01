@@ -624,3 +624,38 @@ describe('no-live boundary proofs', () => {
     assert.ok(!/signable\s*:\s*true/.test(source));
   });
 });
+
+describe('quasar reputation intent ABI metadata', () => {
+  it('describes the current escrow-address job binding, not the pre-binding job_id shape', () => {
+    const compat = QUASAR_REPUTATION_INTENT_COMPATIBILITY;
+
+    assert.equal(compat.commitmentContract, 'sha256(score||salt||escrow_address||program_id)');
+    assert.equal(compat.jobBinding, 'escrow-address');
+    assert.deepEqual([...compat.onchainFieldNames.commit], ['commitment', 'role']);
+    assert.deepEqual([...compat.onchainFieldNames.reveal], ['score', 'salt']);
+    assert.deepEqual([...compat.onchainFieldNames.confirm], []);
+    assert.deepEqual([...compat.onchainFieldNames.dispute], []);
+    assert.deepEqual([...compat.pdaSeeds.rating], ['rating', 'escrow_address']);
+    assert.deepEqual([...compat.pdaSeeds.attestation], ['attestation', 'escrow_address']);
+
+    const everyArgument = [
+      ...compat.onchainFieldNames.commit,
+      ...compat.onchainFieldNames.reveal,
+      ...compat.onchainFieldNames.confirm,
+      ...compat.onchainFieldNames.dispute,
+    ];
+    for (const removed of ['job_id', 'consumer_pk', 'specialist_pk']) {
+      assert.equal(everyArgument.includes(removed as never), false, `${removed} was removed by the job-binding rework`);
+    }
+  });
+
+  it('states source compatibility separately from the unusable recorded deployment', () => {
+    const compat = QUASAR_REPUTATION_INTENT_COMPATIBILITY;
+
+    assert.equal(compat.compatibilityScope, 'repository-sources-only');
+    assert.equal(compat.recordedDevnetDeployment.usable, false);
+    assert.equal(compat.recordedDevnetDeployment.status, 'incompatible-pre-job-binding');
+    assert.match(compat.recordedDevnetDeployment.reason, /job_id/);
+    assert.match(compat.recordedDevnetDeployment.remediation, /local Surfpool/);
+  });
+});

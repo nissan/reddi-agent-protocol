@@ -13,6 +13,24 @@ export class EvidenceManifestError extends Error {
   }
 }
 
+export function assertContainedArtifactPath(manifestRelativeDir, artifactPath) {
+  if (typeof artifactPath !== "string" || !artifactPath) {
+    throw new EvidenceManifestError(`artifact path must be a non-empty repository-relative string; got ${JSON.stringify(artifactPath)}`);
+  }
+  if (path.isAbsolute(artifactPath) || /^[a-zA-Z]:[\\/]/.test(artifactPath)) {
+    throw new EvidenceManifestError(`artifact path must be repository-relative; got ${JSON.stringify(artifactPath)}`);
+  }
+  const normalizedDir = path.normalize(manifestRelativeDir);
+  const normalized = path.normalize(artifactPath);
+  if (normalized.split(/[\\/]/).includes("..")) {
+    throw new EvidenceManifestError(`artifact path must not escape ${manifestRelativeDir}; got ${JSON.stringify(artifactPath)}`);
+  }
+  if (normalized !== normalizedDir && !normalized.startsWith(`${normalizedDir}${path.sep}`)) {
+    throw new EvidenceManifestError(`artifact path must live under ${manifestRelativeDir}; got ${JSON.stringify(artifactPath)}`);
+  }
+  return normalized;
+}
+
 function assertPassRecord(record) {
   if (record?.status !== "PASS") {
     throw new EvidenceManifestError(`refusing to accept evidence with status ${JSON.stringify(record?.status)}; only PASS runs are accepted`);
@@ -25,6 +43,10 @@ function assertPassRecord(record) {
   if (!record?.provenance?.command) {
     throw new EvidenceManifestError("accepted evidence requires provenance.command");
   }
+  for (const artifact of record.artifacts) {
+    if (!artifact?.name) throw new EvidenceManifestError("every accepted artifact requires a name");
+    assertContainedArtifactPath(record.manifestRelativeDir ?? path.dirname(artifact.path ?? ""), artifact.path);
+  }
 }
 
 /**
@@ -34,6 +56,9 @@ function assertPassRecord(record) {
  */
 export async function writeAcceptedEvidenceManifest(manifestDir, record) {
   assertPassRecord(record);
+  if (record.manifestRelativeDir) {
+    for (const artifact of record.artifacts) assertContainedArtifactPath(record.manifestRelativeDir, artifact.path);
+  }
   const manifest = {
     version: ACCEPTED_EVIDENCE_VERSION,
     status: "PASS",
@@ -61,7 +86,7 @@ export async function writeAcceptedEvidenceManifest(manifestDir, record) {
  * every required artifact still exists. Throws EvidenceManifestError rather than returning stale or
  * failed evidence.
  */
-export function readAcceptedEvidenceManifest(repoRoot, manifestRelativeDir, { target, requiredArtifacts = [] } = {}) {
+export function readAcceptedEvidenceManifest(repoRoot, manifestRelativeDir, { target, requiredArtifacts = [], maxAgeMs } = {}) {
   const manifestPath = path.join(repoRoot, manifestRelativeDir, ACCEPTED_EVIDENCE_FILENAME);
   if (!fs.existsSync(manifestPath)) {
     throw new EvidenceManifestError(`no accepted evidence at ${path.join(manifestRelativeDir, ACCEPTED_EVIDENCE_FILENAME)}; run the lane to a PASS first`);
@@ -87,6 +112,14 @@ export function readAcceptedEvidenceManifest(repoRoot, manifestRelativeDir, { ta
     throw new EvidenceManifestError(`accepted evidence at ${manifestRelativeDir} is missing runId/acceptedAt/provenance`);
   }
 
+  const acceptedAtMs = Date.parse(manifest.acceptedAt);
+  if (!Number.isFinite(acceptedAtMs)) {
+    throw new EvidenceManifestError(`accepted evidence at ${manifestRelativeDir} has an unparseable acceptedAt ${JSON.stringify(manifest.acceptedAt)}`);
+  }
+  if (Number.isFinite(maxAgeMs) && Date.now() - acceptedAtMs > maxAgeMs) {
+    throw new EvidenceManifestError(`accepted evidence at ${manifestRelativeDir} is stale: accepted ${manifest.acceptedAt}, older than the allowed ${maxAgeMs}ms`);
+  }
+
   const artifacts = Array.isArray(manifest.artifacts) ? manifest.artifacts : [];
   const byName = new Map(artifacts.map((artifact) => [artifact?.name, artifact]));
   const resolved = {};
@@ -95,10 +128,11 @@ export function readAcceptedEvidenceManifest(repoRoot, manifestRelativeDir, { ta
     if (!artifact?.path) {
       throw new EvidenceManifestError(`accepted evidence at ${manifestRelativeDir} does not record the required ${name} artifact`);
     }
-    if (!fs.existsSync(path.join(repoRoot, artifact.path))) {
+    const contained = assertContainedArtifactPath(manifestRelativeDir, artifact.path);
+    if (!fs.existsSync(path.join(repoRoot, contained))) {
       throw new EvidenceManifestError(`accepted evidence at ${manifestRelativeDir} cites a missing ${name} artifact: ${artifact.path}`);
     }
-    resolved[name] = artifact.path;
+    resolved[name] = contained;
   }
 
   return { manifest, manifestPath, artifacts: resolved };

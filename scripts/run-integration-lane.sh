@@ -76,8 +76,14 @@ latest_summary() {
   fi
 }
 
-SURFPOOL_CRITICAL_SUMMARY="$(latest_summary "${ROOT_DIR}/artifacts/surfpool-smoke/*")"
-SURFPOOL_QUASAR_SUMMARY="$(latest_summary "${ROOT_DIR}/artifacts/surfpool-quasar-smoke/*")"
+# Surfpool lanes publish a PASS-only accepted-evidence receipt; resolve through the same validated
+# contract the Node consumers use so a retained FAIL run is never cited as lane evidence.
+accepted_surfpool_summary() {
+  node "${ROOT_DIR}/scripts/resolve-accepted-surfpool-evidence.mjs" "$1" "$2" 2>/dev/null || echo "n/a"
+}
+
+SURFPOOL_CRITICAL_SUMMARY="$(accepted_surfpool_summary "artifacts/surfpool-smoke" "legacy-anchor")"
+SURFPOOL_QUASAR_SUMMARY="$(accepted_surfpool_summary "artifacts/surfpool-quasar-smoke" "quasar")"
 SURFPOOL_ECONOMIC_SUMMARY="$(latest_summary "${ROOT_DIR}/artifacts/economic-demo-surfpool-rehearsal/*")"
 
 set +e

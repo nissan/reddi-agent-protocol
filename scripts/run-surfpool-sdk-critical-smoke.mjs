@@ -14,6 +14,7 @@ import {
   createRedactingLineBuffer,
   createTruncatingEvidenceBuffer,
   redactForEvidence,
+  scheduleProcessGroupTermination,
   startLocalSurfnet,
   waitForPortClosed,
 } from "./lib/surfpool-sdk-lifecycle.mjs";
@@ -380,6 +381,7 @@ function spawnLogged(command, commandArgs, options = {}) {
     child.once("error", (error) => {
       clearTimeout(commandTimer);
       abortController.signal.removeEventListener("abort", onAbort);
+      cancelPendingEscalations(child);
       flushStreams();
       if (activeChild === child) activeChild = undefined;
       reject(error);
@@ -387,6 +389,7 @@ function spawnLogged(command, commandArgs, options = {}) {
     child.once("close", (code, signal) => {
       clearTimeout(commandTimer);
       abortController.signal.removeEventListener("abort", onAbort);
+      cancelPendingEscalations(child);
       flushStreams();
       if (activeChild === child) activeChild = undefined;
       logWriteChain
@@ -443,14 +446,13 @@ function terminateActiveChild(signal) {
 }
 
 function terminateChild(child, signal) {
-  try {
-    process.kill(-child.pid, signal);
-  } catch {
-    try { child.kill(signal); } catch { /* already gone */ }
-  }
-  setTimeout(() => {
-    try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ }
-  }, 5_000).unref?.();
+  const escalation = scheduleProcessGroupTermination(child, signal);
+  (child.rapEscalations ??= []).push(escalation);
+}
+
+function cancelPendingEscalations(child) {
+  for (const escalation of child.rapEscalations ?? []) escalation.cancel();
+  child.rapEscalations = [];
 }
 
 async function logLine(line) {

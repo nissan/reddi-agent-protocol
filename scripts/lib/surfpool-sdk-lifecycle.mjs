@@ -366,6 +366,39 @@ export function createTruncatingEvidenceBuffer(options = {}) {
   };
 }
 
+/**
+ * Signal a detached child's process group, then escalate to SIGKILL after a delay. The escalation is
+ * cancellable: once the exact child has exited, `cancel()` must be called so a recycled pid can never
+ * receive the delayed group kill.
+ */
+export function scheduleProcessGroupTermination(child, signal, options = {}) {
+  const killDelayMs = options.killDelayMs ?? 5_000;
+  const kill = options.kill ?? ((pid, sig) => process.kill(pid, sig));
+  const pid = child?.pid;
+  if (!pid) return { cancel() {}, get cancelled() { return true; } };
+
+  try {
+    kill(-pid, signal);
+  } catch {
+    try { child.kill(signal); } catch { /* already gone */ }
+  }
+
+  let cancelled = false;
+  const timer = setTimeout(() => {
+    if (cancelled) return;
+    try { kill(-pid, "SIGKILL"); } catch { /* already gone */ }
+  }, killDelayMs);
+  timer.unref?.();
+
+  return {
+    cancel() {
+      cancelled = true;
+      clearTimeout(timer);
+    },
+    get cancelled() { return cancelled; },
+  };
+}
+
 export async function waitForPortClosed(endpoint, options = {}) {
   const url = assertLoopbackEndpoint(endpoint, "closed-port probe endpoint");
   const timeoutMs = options.timeoutMs ?? 5_000;

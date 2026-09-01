@@ -67,12 +67,29 @@ export declare const QUASAR_REPUTATION_INTENT_COMPATIBILITY: {
         readonly max: 10;
     };
     readonly scoreSource: "reputationEventDraft.rubricScore (0-100) scaled to 1-10";
-    readonly commitmentContract: "sha256(score||salt||job_id||program_id)";
+    readonly commitmentContract: "sha256(score||salt||escrow_address||program_id)";
+    readonly jobBinding: "escrow-address";
     readonly onchainFieldNames: {
-        readonly commit: readonly ["job_id", "commitment", "role", "consumer_pk", "specialist_pk"];
-        readonly reveal: readonly ["job_id", "score", "salt"];
-        readonly confirm: readonly ["job_id"];
-        readonly dispute: readonly ["job_id"];
+        readonly commit: readonly ["commitment", "role"];
+        readonly reveal: readonly ["score", "salt"];
+        readonly confirm: readonly [];
+        readonly dispute: readonly [];
+    };
+    readonly onchainAccountNames: {
+        readonly commit: readonly ["escrow", "rating", "signer", "system_program"];
+        readonly reveal: readonly ["escrow", "rating", "signer", "specialist_agent", "consumer_agent"];
+        readonly attest: readonly ["escrow", "attestation", "judge_agent", "judge", "system_program"];
+    };
+    readonly pdaSeeds: {
+        readonly rating: readonly ["rating", "escrow_address"];
+        readonly attestation: readonly ["attestation", "escrow_address"];
+    };
+    readonly compatibilityScope: "repository-sources-only";
+    readonly recordedDevnetDeployment: {
+        readonly status: "incompatible-pre-job-binding";
+        readonly usable: false;
+        readonly reason: string;
+        readonly remediation: string;
     };
     readonly offchainFieldNames: readonly ["bindingId", "receiptId", "evidenceId", "evidenceHash", "evidenceRef", "paymentProofRef", "attestationId", "reputationEventDraftId", "previewId", "compatibilityListingId"];
 };

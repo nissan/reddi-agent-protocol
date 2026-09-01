@@ -29,6 +29,12 @@ export type NetworkProfile = {
     knownLimitations?: string[];
     deploymentStatus: DeploymentStatus;
     activationGate?: string;
+    /**
+     * Set when the requested target resolves to a deployment the canonical record marks non-ready.
+     * Resolution stays non-throwing so disclosure surfaces can render the reason; effect sites call
+     * assertProgramTargetUsable() to refuse before building instructions, signing, or reaching RPC.
+     */
+    blocked?: { target: ProgramTarget; reason: string; knownGaps: string[] };
   };
   payments: {
     jupiterApiBase: string;
@@ -138,8 +144,8 @@ export function getNetworkProfile(): NetworkProfile {
   const quasarDevnet = quasarDeployments.quasarDeployments.devnet;
 
   const quasarRequestRefused = requestedTarget === "quasar" && name !== "devnet";
-
   const target: ProgramTarget = requestedTarget === "quasar" && name === "devnet" ? "quasar" : "legacy-anchor";
+  const quasarDeploymentBlocked = target === "quasar" && quasarDeployments.submissionReady !== true;
 
   const rpcOverride = pickEnv("NEXT_PUBLIC_RPC_ENDPOINT", "NEXT_PUBLIC_RPC_URL", "DEMO_DEVNET_RPC");
   const escrowOverride = pickEnv("NEXT_PUBLIC_ESCROW_PROGRAM_ID", "DEMO_ESCROW_PROGRAM_ID");
@@ -258,7 +264,7 @@ export function getNetworkProfile(): NetworkProfile {
       framework: target === "quasar" ? "quasar" : "anchor",
       compatibility: target === "quasar" ? "quasar-layout-unverified" : "anchor-layout",
       submissionReady:
-        name === "mainnet" || quasarRequestRefused || malformedOverrides.length > 0 || ignoredOverrides.length > 0
+        name === "mainnet" || quasarRequestRefused || malformedOverrides.length > 0 || ignoredOverrides.length > 0 || quasarDeploymentBlocked
           ? false
           : target === "quasar"
             ? quasarDeployments.submissionReady
@@ -272,9 +278,11 @@ export function getNetworkProfile(): NetworkProfile {
               ? `A malformed program id override was supplied for ${malformedOverrides.join(", ")}; it was ignored and the registered program id is used instead, so the configured override is not in effect.`
               : ignoredOverrides.length > 0
                 ? `A program id override was supplied for ${ignoredOverrides.join(", ")}, but it does not match the registered devnet program set and the build-time unsafe-override flag was not set; the registered program id is used instead.`
-                : target === "quasar"
+                : quasarDeploymentBlocked
                   ? quasarDeployments.submissionReadyReason
-                  : undefined,
+                  : target === "quasar"
+                    ? quasarDeployments.submissionReadyReason
+                    : undefined,
       knownGaps: [
         ...(target === "quasar" ? quasarDevnet.knownGaps : []),
         ...malformedOverrideKnownGaps,
@@ -286,6 +294,15 @@ export function getNetworkProfile(): NetworkProfile {
       deploymentStatus:
         name === "mainnet" ? "mainnet-not-deployed" : name === "local-surfpool" ? "local-only" : "devnet-deployed",
       activationGate: name === "mainnet" ? "external_audit_and_mainnet_deployment_required" : undefined,
+      blocked: quasarDeploymentBlocked
+        ? {
+            target,
+            reason:
+              quasarDeployments.submissionReadyReason ??
+              "the recorded Quasar deployment is not submission-ready",
+            knownGaps: quasarDevnet.knownGaps,
+          }
+        : undefined,
     },
     payments: {
       ...base.payments,
@@ -305,4 +322,25 @@ export function getNetworkProfile(): NetworkProfile {
           : pickEnv("DEMO_REQUIRE_MINT_READY") === "true",
     },
   };
+}
+
+/**
+ * Describes why the active program target must not be used to touch chain state, or undefined when
+ * it is usable. Effect sites (instruction builders, signers, RPC submitters) call this before doing
+ * any work; read-only disclosure surfaces render `programs.blocked` instead.
+ */
+export function describeBlockedProgramTarget(profile: NetworkProfile = getNetworkProfile()): string | undefined {
+  const blocked = profile.programs.blocked;
+  if (!blocked) return undefined;
+  return [
+    `The "${blocked.target}" program target is refused against the ${profile.name} profile because the recorded deployment is not usable.`,
+    blocked.reason,
+    blocked.knownGaps.length ? `Known gaps: ${blocked.knownGaps.join(" | ")}` : "",
+    "Use the local Surfpool Quasar lane (npm run test:surfpool:quasar-critical) against locally built current-source programs instead.",
+  ].filter(Boolean).join(" ");
+}
+
+export function assertProgramTargetUsable(profile: NetworkProfile = getNetworkProfile()): void {
+  const refusal = describeBlockedProgramTarget(profile);
+  if (refusal) throw new Error(refusal);
 }

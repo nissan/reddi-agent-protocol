@@ -99,3 +99,71 @@ describe("funding recovery hint", () => {
     expect(quoted.slice(1, -1).split("'\\''").join("")).not.toContain("'");
   });
 });
+
+describe("program ID resolution has no Quasar devnet defaults", () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    jest.resetModules();
+    process.env = { ...originalEnv };
+    for (const key of [
+      "NETWORK_PROFILE", "NEXT_PUBLIC_NETWORK_PROFILE",
+      "NEXT_PUBLIC_DEMO_PROGRAM_TARGET", "HACKATHON_DEMO_TARGET", "DEMO_PROGRAM_TARGET",
+      "DEMO_ESCROW_PROGRAM_ID", "NEXT_PUBLIC_ESCROW_PROGRAM_ID",
+      "DEMO_REGISTRY_PROGRAM_ID", "NEXT_PUBLIC_REGISTRY_PROGRAM_ID",
+      "DEMO_REPUTATION_PROGRAM_ID", "NEXT_PUBLIC_REPUTATION_PROGRAM_ID",
+      "DEMO_ATTESTATION_PROGRAM_ID", "NEXT_PUBLIC_ATTESTATION_PROGRAM_ID",
+      "DEMO_DEVNET_RPC", "NEXT_PUBLIC_RPC_ENDPOINT", "DEMO_DEVNET_RPC_WS", "NEXT_PUBLIC_RPC_WS_ENDPOINT",
+    ]) delete process.env[key];
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
+  it("never resolves a recorded Quasar devnet program ID as a silent default", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    const config = await import("../config");
+
+    expect(config.PROGRAM_TARGET).toBe("legacy-anchor");
+    for (const id of [
+      config.ESCROW_PROGRAM_ID,
+      config.REGISTRY_PROGRAM_ID,
+      config.REPUTATION_PROGRAM_ID,
+      config.ATTESTATION_PROGRAM_ID,
+    ]) {
+      expect(Object.values(IDS)).not.toContain(id);
+    }
+  });
+
+  it("resolves exactly the four explicitly supplied IDs on a complete local-surfpool config", async () => {
+    process.env.NETWORK_PROFILE = "local-surfpool";
+    process.env.DEMO_PROGRAM_TARGET = "quasar";
+    process.env.DEMO_DEVNET_RPC = LOCAL_RPC;
+    Object.assign(process.env, IDS);
+
+    const config = await import("../config");
+
+    expect(config.PROGRAM_TARGET).toBe("quasar");
+    expect(config.ESCROW_PROGRAM_ID).toBe(IDS.DEMO_ESCROW_PROGRAM_ID);
+    expect(config.REGISTRY_PROGRAM_ID).toBe(IDS.DEMO_REGISTRY_PROGRAM_ID);
+    expect(config.REPUTATION_PROGRAM_ID).toBe(IDS.DEMO_REPUTATION_PROGRAM_ID);
+    expect(config.ATTESTATION_PROGRAM_ID).toBe(IDS.DEMO_ATTESTATION_PROGRAM_ID);
+  });
+
+  it("throws on import when Quasar is requested with an incomplete config, before any RPC client exists", async () => {
+    process.env.NETWORK_PROFILE = "local-surfpool";
+    process.env.DEMO_PROGRAM_TARGET = "quasar";
+    process.env.DEMO_DEVNET_RPC = LOCAL_RPC;
+    process.env.DEMO_ESCROW_PROGRAM_ID = IDS.DEMO_ESCROW_PROGRAM_ID;
+
+    await expect(import("../config")).rejects.toThrow(/missing DEMO_REGISTRY_PROGRAM_ID/);
+  });
+
+  it("refuses the devnet Quasar route on import", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.DEMO_PROGRAM_TARGET = "quasar";
+
+    await expect(import("../config")).rejects.toThrow(/submissionReady=false/);
+  });
+});

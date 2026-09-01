@@ -46,6 +46,11 @@ export const QUASAR_REPUTATION_INTENT_SCHEMA_VERSION = 'reddi.quasar-reputation-
  * and argument names describe the target interface; nothing here encodes,
  * serializes, or dispatches them. `deploymentsRef` is a repo-relative
  * pointer, not a deployment claim by this module.
+ *
+ * Source compatibility is tracked separately from deployment compatibility:
+ * the field/account/commitment shape describes the current repository sources,
+ * while `recordedDevnetDeployment` records that the deployment named by
+ * `deploymentsRef` is pre-job-binding and unusable.
  */
 export const QUASAR_REPUTATION_INTENT_COMPATIBILITY = {
   compatibilitySchemaVersion: QUASAR_REGISTRY_COMPATIBILITY_SCHEMA_VERSION,
@@ -67,12 +72,42 @@ export const QUASAR_REPUTATION_INTENT_COMPATIBILITY = {
   },
   scoreRange: { min: 1, max: 10 },
   scoreSource: 'reputationEventDraft.rubricScore (0-100) scaled to 1-10',
-  commitmentContract: 'sha256(score||salt||job_id||program_id)',
+  commitmentContract: 'sha256(score||salt||escrow_address||program_id)',
+  jobBinding: 'escrow-address',
   onchainFieldNames: {
-    commit: ['job_id', 'commitment', 'role', 'consumer_pk', 'specialist_pk'],
-    reveal: ['job_id', 'score', 'salt'],
-    confirm: ['job_id'],
-    dispute: ['job_id'],
+    commit: ['commitment', 'role'],
+    reveal: ['score', 'salt'],
+    confirm: [],
+    dispute: [],
+  },
+  onchainAccountNames: {
+    commit: ['escrow', 'rating', 'signer', 'system_program'],
+    reveal: ['escrow', 'rating', 'signer', 'specialist_agent', 'consumer_agent'],
+    attest: ['escrow', 'attestation', 'judge_agent', 'judge', 'system_program'],
+  },
+  pdaSeeds: {
+    rating: ['rating', 'escrow_address'],
+    attestation: ['attestation', 'escrow_address'],
+  },
+  /**
+   * Source compatibility only. This block mirrors the current
+   * `experiments/quasar-*` sources; it is NOT a statement about any deployed
+   * program. See `recordedDevnetDeployment` below.
+   */
+  compatibilityScope: 'repository-sources-only',
+  /**
+   * The Quasar programs recorded in `config/quasar/deployments.json` predate the
+   * job-binding rework described above and expect the older caller-supplied
+   * `job_id` layout. They are incompatible with this contract and must not be
+   * used. Source compatibility above is not deployment compatibility.
+   */
+  recordedDevnetDeployment: {
+    status: 'incompatible-pre-job-binding',
+    usable: false,
+    reason:
+      'Recorded devnet Quasar programs expect sha256(score||salt||job_id||program_id) with caller-supplied job_id/consumer_pk/specialist_pk and job_id-seeded PDAs. They predate the escrow-address job binding this contract describes.',
+    remediation:
+      'Exercise Quasar only on a local Surfpool lane against locally built current-source programs (npm run test:surfpool:quasar-critical). No redeploy is claimed.',
   },
   offchainFieldNames: [
     'bindingId',

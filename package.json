@@ -28,6 +28,8 @@
     "test:mainnet:readiness": "./scripts/run-mainnet-readiness-check.sh",
     "test:surfpool:critical": "./scripts/run-surfpool-critical-smoke.sh",
     "test:surfpool:sdk-lifecycle": "node --test ./scripts/__tests__/surfpool-sdk-lifecycle.test.mjs",
+    "test:surfpool:evidence-manifest": "node --test ./scripts/__tests__/surfpool-evidence-manifest.test.mjs",
+    "test:surfpool:lane-regressions": "npm run test:surfpool:sdk-lifecycle && npm run test:surfpool:evidence-manifest",
     "test:surfpool:onboarding": "./scripts/run-surfpool-onboarding-attestation-smoke.sh",
     "test:surfpool:onboarding-wrapper": "./scripts/run-surfpool-onboarding-wrapper-smoke.sh",
     "test:surfpool:jupiter-invoke": "./scripts/run-surfpool-jupiter-invoke-smoke.sh",

@@ -66,8 +66,9 @@ describe("Quasar demo program target config", () => {
     expect(PROGRAM_TARGET).toBe("quasar");
     expect(PROGRAM_FRAMEWORK).toBe("quasar");
     expect(PROGRAM_COMPATIBILITY).toBe("quasar-layout-unverified");
-    expect(PROGRAM_SUBMISSION_READY).toBe(true);
-    expect(PROGRAM_KNOWN_GAPS).toHaveLength(0);
+    expect(PROGRAM_SUBMISSION_READY).toBe(false);
+    expect(PROGRAM_KNOWN_GAPS.length).toBeGreaterThan(0);
+    expect(profile.programs.blocked?.target).toBe("quasar");
     expect(profile.programs.deploymentStatus).toBe("devnet-deployed");
   });
 
@@ -101,11 +102,12 @@ describe("Quasar demo program target config", () => {
     process.env.NETWORK_PROFILE = "devnet";
     process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
 
-    const { PROGRAM_KNOWN_LIMITATIONS, PROGRAM_SUBMISSION_READY } = await import("@/lib/program");
+    const { PROGRAM_KNOWN_GAPS, PROGRAM_KNOWN_LIMITATIONS, PROGRAM_SUBMISSION_READY } = await import("@/lib/program");
 
-    expect(PROGRAM_SUBMISSION_READY).toBe(true);
-    expect(PROGRAM_KNOWN_LIMITATIONS.join(" ")).toMatch(/predate the job-binding series/);
-    expect(PROGRAM_KNOWN_LIMITATIONS.join(" ")).toMatch(/still accepts an unsigned payee/);
+    expect(PROGRAM_SUBMISSION_READY).toBe(false);
+    expect(PROGRAM_KNOWN_GAPS.join(" ")).toMatch(/pre-job-binding Quasar programs/);
+    expect(PROGRAM_KNOWN_LIMITATIONS.join(" ")).toMatch(/gated off/);
+    expect(PROGRAM_KNOWN_LIMITATIONS.join(" ")).toMatch(/Quasar remains experimental/);
   });
 
   it("marks the mainnet placeholder as not submission-ready", async () => {
