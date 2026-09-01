@@ -153,6 +153,30 @@ describe("onboarding Quasar reputation/attestation refuses without a lock-create
     expect(rpcConstructions).toEqual([]);
   });
 
+  it("the onboarding page does not treat restored escrow state as Quasar resolution proof", () => {
+    const actualFs = jest.requireActual("fs") as typeof import("fs");
+    const actualPath = jest.requireActual("path") as typeof import("path");
+    const source = actualFs.readFileSync(actualPath.join(process.cwd(), "app/onboarding/page.tsx"), "utf8");
+
+    expect(source).toContain(
+      'PROGRAM_TARGET === "quasar" ? QUASAR_ESCROW_UNAVAILABLE_REASON : undefined',
+    );
+
+    for (const label of ["Confirm attestation (consumer)", "Dispute attestation (consumer)"]) {
+      const buttonLabel = source.indexOf(label);
+      expect(buttonLabel).toBeGreaterThan(0);
+      const onClick = source.lastIndexOf("onClick={async () => {", buttonLabel);
+      expect(onClick).toBeGreaterThan(0);
+      const handler = source.slice(onClick, buttonLabel);
+      const guard = handler.indexOf("if (quasarResolutionBlockedReason)");
+      const connection = handler.indexOf("const conn = walletConnection ?? new Connection");
+      const escrow = handler.indexOf("const escrow = new PublicKey(state.attestationEscrow)");
+      expect(guard).toBeGreaterThan(0);
+      expect(connection).toBeGreaterThan(guard);
+      expect(escrow).toBeGreaterThan(connection);
+    }
+  });
+
   it("the refusal is scoped to the Quasar target: legacy-anchor still reaches its RPC step", async () => {
     process.env.NETWORK_PROFILE = "devnet";
     process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "legacy-anchor";

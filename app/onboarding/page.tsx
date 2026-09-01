@@ -288,9 +288,7 @@ export default function OnboardingPage() {
   // locks one, so the resolution actions stay disabled with the canonical reason rather than
   // building an instruction against an escrow that does not exist.
   const quasarResolutionBlockedReason =
-    PROGRAM_TARGET === "quasar" && !state.attestationEscrow
-      ? QUASAR_ESCROW_UNAVAILABLE_REASON
-      : undefined;
+    PROGRAM_TARGET === "quasar" ? QUASAR_ESCROW_UNAVAILABLE_REASON : undefined;
   const [capabilityLoading, setCapabilityLoading] = useState(false);
   const prevStepRef = useRef(step);
 
@@ -1789,6 +1787,10 @@ export default function OnboardingPage() {
                   if (!publicKey || !sendTransaction || !state.attestationJobIdHex || !state.attestationOperator) {
                     return;
                   }
+                  if (quasarResolutionBlockedReason) {
+                    setState((s) => ({ ...s, attestationNote: quasarResolutionBlockedReason }));
+                    return;
+                  }
 
                   try {
                     const conn = walletConnection ?? new Connection(DEVNET_RPC, "confirmed");
@@ -1867,6 +1869,10 @@ export default function OnboardingPage() {
                 onClick={async () => {
                   if (SUBMISSION_BLOCKED) return;
                   if (!publicKey || !sendTransaction || !state.attestationJobIdHex || !state.attestationOperator) {
+                    return;
+                  }
+                  if (quasarResolutionBlockedReason) {
+                    setState((s) => ({ ...s, attestationNote: quasarResolutionBlockedReason }));
                     return;
                   }
 
