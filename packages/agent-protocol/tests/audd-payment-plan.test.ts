@@ -58,6 +58,14 @@ const allowBudget: BudgetPolicyEvaluator = (quote) => ({
   auditNotes: ['Allowed by local AUDD budget policy.'],
 });
 
+const lowercaseAuddBudget: BudgetPolicyEvaluator = (quote) => ({
+  allowed: true,
+  reasonCodes: ['allowed'],
+  quotedAmount: { ...quote, asset: 'audd' },
+  remainingBudget: { perRequest: '10000000' },
+  auditNotes: ['Returned noncanonical AUDD metadata.'],
+});
+
 const denyBudget: BudgetPolicyEvaluator = (quote) => ({
   allowed: false,
   reasonCodes: ['request_amount_exceeds_limit'],
@@ -107,6 +115,15 @@ describe('AUDD/Solana payment plan adapter', () => {
     });
     assert.equal(lowercaseQuote.allowed, false);
     assert.deepEqual(lowercaseQuote.reasonCodes, ['wrong_asset']);
+
+    const lowercaseBudgetDecision = evaluateAuddPaymentPlanPreflight(challenge, {
+      ...baseBuyerPolicy,
+      evaluateBudgetPolicy: lowercaseAuddBudget,
+    });
+    assert.equal(lowercaseBudgetDecision.allowed, false);
+    assert.deepEqual(lowercaseBudgetDecision.reasonCodes, ['budget_policy_malformed']);
+    assert.equal(lowercaseBudgetDecision.policyDecision?.quotedAmount?.asset, 'audd');
+    assert.equal(lowercaseBudgetDecision.policyDecision?.asset, 'audd');
   });
 
   it('fails closed for wrong network, wrong mint, and missing payee', () => {

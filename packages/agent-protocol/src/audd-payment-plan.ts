@@ -689,13 +689,13 @@ function adaptBuyerDecision(
       && decision.policyDecision.approvalState === 'approved'
       && quoted !== null
       && quoted?.amount === plan.amount
-      && quoted.asset.toUpperCase() === AUDD_ASSET
-      && quoted.asset.toUpperCase() === challenge.quote.asset.toUpperCase()
+      && quoted.asset === AUDD_ASSET
+      && quoted.asset === challenge.quote.asset
       && quoted.network.toLowerCase() === plan.network.toLowerCase()
       && quoted.network.toLowerCase() === challenge.quote.network.toLowerCase()
       && quoted.source === challenge.quote.source
       && quoted.specialist === challenge.quote.specialist
-      && decision.policyDecision.asset.toUpperCase() === AUDD_ASSET
+      && decision.policyDecision.asset === AUDD_ASSET
       && decision.policyDecision.network.toLowerCase() === plan.network.toLowerCase();
     if (!matchesAuddPlan) {
       return {
