@@ -1753,6 +1753,40 @@ test("a rollback whose rename fails keeps the previous receipt's exact bytes on 
   });
 });
 
+test("a quarantine reason recorded into the receipt carries no absolute path", async () => {
+  // An unreadable canonical entry in a still-writable directory: Node's EACCES message embeds the
+  // absolute path, and this reason is published into accepted-evidence.json and uploaded.
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const manifestDir = path.join(repoRoot, dir);
+    const manifestPath = path.join(manifestDir, ACCEPTED_EVIDENCE_FILENAME);
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-unreadable-prior");
+    await fsp.mkdir(manifestDir, { recursive: true });
+    await fsp.writeFile(manifestPath, "{\"status\":\"PASS\"}\n");
+    await fsp.chmod(manifestPath, 0o000);
+    if (fs.accessSync && (() => { try { fs.accessSync(manifestPath, fs.constants.R_OK); return true; } catch { return false; } })()) {
+      return; // running as a user that ignores the mode (root); the leak shape is unreachable here
+    }
+
+    const { quarantinedPriorEntry } = await writeAcceptedEvidenceManifest(manifestDir, record);
+
+    assert.ok(quarantinedPriorEntry, "an unreadable entry must be moved aside, not destroyed");
+    assert.match(quarantinedPriorEntry.reason, /could not be read as accepted evidence/);
+    assert.match(quarantinedPriorEntry.reason, /EACCES/, "the diagnosis survives");
+    assert.equal(
+      quarantinedPriorEntry.reason.includes(repoRoot),
+      false,
+      "the absolute path Node's error carried must not be recorded into the receipt",
+    );
+    assert.equal(/\/(?:[A-Za-z0-9._~@%+-]+\/)+/.test(quarantinedPriorEntry.reason), false, "no absolute path at all");
+
+    // The published receipt is the durable artifact, so assert the bytes on disk, not just the return.
+    const published = JSON.parse(await fsp.readFile(manifestPath, "utf8"));
+    assert.equal(published.quarantinedPriorEntry.reason.includes(repoRoot), false);
+    assert.equal(published.quarantinedPriorEntry.path.startsWith(`${dir}/`), true);
+  });
+});
+
 test("a publication that quarantines a prior entry and then fails reports both facts", async () => {
   // The disposition the operator notice has to name: the canonical path was emptied by this run
   // before the write failed, so "not-published" alone does not mean nothing on disk changed.

@@ -210,6 +210,54 @@ test("a schema the validator cannot compile is refused rather than skipped", () 
   assert.equal(result.stdout.includes("OK: audited"), false);
 });
 
+// A keyword whose value has the wrong type is skipped by the validator's own type guards, so it
+// would be silently dropped rather than enforced. Each of these must be a load-time refusal, and
+// each is paired with a document the dropped keyword would otherwise have let through.
+const MISTYPED_KEYWORDS = [
+  {
+    label: "minItems",
+    corrupt: (schema) => { schema.properties.demoCriticalPaths.minItems = "1"; },
+    admits: (inventory) => { inventory.demoCriticalPaths = []; },
+  },
+  {
+    label: "minLength",
+    corrupt: (schema) => { schema.properties.demoCriticalPaths.items.properties.surface.minLength = "1"; },
+    admits: (inventory) => { inventory.demoCriticalPaths[0].surface = ""; },
+  },
+  {
+    label: "minimum",
+    corrupt: (schema) => { schema.properties.phase.minimum = "0"; },
+    admits: (inventory) => { inventory.phase = -5; },
+  },
+  {
+    label: "uniqueItems",
+    corrupt: (schema) => { schema.properties.allowedStatuses.uniqueItems = "yes"; },
+    admits: () => {},
+  },
+  {
+    label: "enum",
+    corrupt: (schema) => { schema.properties.target.enum = "quasar"; },
+    admits: (inventory) => { inventory.target = "legacy-anchor"; },
+  },
+];
+
+for (const { label, corrupt, admits } of MISTYPED_KEYWORDS) {
+  test(`a mistyped ${label} is refused when the schema is compiled, not dropped at validation`, () => {
+    const schema = structuredClone(liveSchema);
+    corrupt(schema);
+    const inventory = inventoryWithPaths(["lib/program.ts"]);
+    admits(inventory);
+
+    const root = stageFixtureRepo(inventory, { schema, files: ["lib/program.ts"] });
+    const result = runChecker(root);
+
+    assert.equal(result.status, 1, `a mistyped ${label} must fail the gate rather than be ignored`);
+    assert.match(result.stderr, /schema could not be compiled/);
+    assert.match(result.stderr, new RegExp(`invalid ${label} at`));
+    assert.equal(result.stdout.includes("OK: audited"), false, "no document may be reported as audited");
+  });
+}
+
 test("an unreadable schema is refused rather than skipped", () => {
   const root = stageFixtureRepo(inventoryWithPaths(["lib/program.ts"]), { files: ["lib/program.ts"] });
   fs.writeFileSync(path.join(root, "config/quasar/runtime-compatibility.schema.json"), "{ not json");

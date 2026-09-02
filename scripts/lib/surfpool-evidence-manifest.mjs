@@ -1028,6 +1028,25 @@ async function releasePublicationLock(lock) {
  * unreadable). The last kind is not evidence and is moved aside rather than left to block every
  * future passing run.
  */
+/**
+ * The recorded reason an entry at the canonical path was unusable.
+ *
+ * This string outlives the run: it is written into the published receipt and rendered into
+ * SUMMARY.md, both of which are uploaded as CI artifacts and read by judges. Node's filesystem
+ * errors embed the absolute path they failed on even when the caller passed a relative name, so the
+ * diagnosis is kept and any absolute path in it is replaced. Bounded for the same reason — an error
+ * message is untrusted input to a durable artifact.
+ */
+function recordedUnusableReason(detail, maxChars = 300) {
+  const withoutAbsolutePaths = String(detail ?? "")
+    .replace(/\/(?:[A-Za-z0-9._~@%+-]+\/)+[A-Za-z0-9._~@%+-]*/g, "<path>")
+    .replace(/\s+/g, " ")
+    .trim();
+  return withoutAbsolutePaths.length > maxChars
+    ? `${withoutAbsolutePaths.slice(0, maxChars)}[truncated ${withoutAbsolutePaths.length - maxChars} character(s)]`
+    : withoutAbsolutePaths;
+}
+
 function classifyPriorEntrySync(manifestDir) {
   const manifestPath = path.join(manifestDir, ACCEPTED_EVIDENCE_FILENAME);
   let existing;
@@ -1035,7 +1054,7 @@ function classifyPriorEntrySync(manifestDir) {
     existing = fs.lstatSync(manifestPath);
   } catch (error) {
     if (error?.code === "ENOENT") return { kind: "none" };
-    return { kind: "unusable", reason: `it could not be inspected (${error?.message ?? error})` };
+    return { kind: "unusable", reason: `it could not be inspected (${recordedUnusableReason(error?.message ?? error)})` };
   }
   if (!existing.isFile()) {
     return { kind: "unusable", reason: "it is not an ordinary file" };
@@ -1052,7 +1071,7 @@ function classifyPriorEntrySync(manifestDir) {
       }),
     };
   } catch (error) {
-    return { kind: "unusable", reason: `it could not be read as accepted evidence (${error?.message ?? error})` };
+    return { kind: "unusable", reason: `it could not be read as accepted evidence (${recordedUnusableReason(error?.message ?? error)})` };
   }
 }
 

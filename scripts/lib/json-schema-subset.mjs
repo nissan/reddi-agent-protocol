@@ -27,6 +27,15 @@ const SUPPORTED_KEYWORDS = new Set([
 
 const SUPPORTED_TYPES = new Set(["object", "array", "string", "integer", "number", "boolean", "null"]);
 
+// Every keyword whose assertion is skipped by a `typeof … === "number"` guard at validation time.
+// A mistyped bound would therefore be silently dropped — the one behaviour this module exists to
+// refuse — so the type is settled when the schema is compiled instead.
+const NUMERIC_KEYWORDS = Object.freeze([
+  "minLength", "maxLength",
+  "minItems", "maxItems",
+  "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+]);
+
 function schemaTypeOf(value) {
   if (value === null) return "null";
   if (Array.isArray(value)) return "array";
@@ -60,6 +69,17 @@ function assertSupportedSchema(schema, pointer, compiledPatterns) {
     for (const type of types) {
       if (!SUPPORTED_TYPES.has(type)) throw new Error(`unsupported schema type "${type}" at ${pointer}`);
     }
+  }
+  for (const keyword of NUMERIC_KEYWORDS) {
+    if (keyword in schema && typeof schema[keyword] !== "number") {
+      throw new Error(`invalid ${keyword} at ${pointer}: expected a number`);
+    }
+  }
+  if ("uniqueItems" in schema && typeof schema.uniqueItems !== "boolean") {
+    throw new Error(`invalid uniqueItems at ${pointer}: expected a boolean`);
+  }
+  if ("enum" in schema && !Array.isArray(schema.enum)) {
+    throw new Error(`invalid enum at ${pointer}: expected an array`);
   }
   if ("pattern" in schema) {
     if (typeof schema.pattern !== "string") throw new Error(`invalid pattern at ${pointer}: expected a string`);

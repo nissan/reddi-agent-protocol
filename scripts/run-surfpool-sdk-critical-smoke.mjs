@@ -460,6 +460,8 @@ function acceptedReceiptDisposition(status) {
     receiptPath: rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_FILENAME)),
     lockPath: rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_LOCK_DIRNAME)),
     receiptFilename: ACCEPTED_EVIDENCE_FILENAME,
+    repoRoot,
+    home: process.env.HOME,
   });
 }
 

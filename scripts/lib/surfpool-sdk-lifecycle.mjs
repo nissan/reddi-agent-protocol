@@ -850,6 +850,8 @@ export function describeAcceptedReceiptDisposition(options = {}) {
     receiptPath = "the accepted-evidence receipt",
     lockPath = "the publication lock",
     receiptFilename = "accepted-evidence.json",
+    repoRoot,
+    home,
   } = options;
 
   let receiptLine;
@@ -870,8 +872,13 @@ export function describeAcceptedReceiptDisposition(options = {}) {
       + priorEntryUntouchedClause(quarantinedPriorEntry);
   }
 
+  // The quarantine reason is the one fragment here the lane did not compose itself — it carries a
+  // filesystem error, and this line is written into SUMMARY.md and uploaded. It goes through the
+  // same sanitizer as the operator notice rather than being interpolated raw.
+  const sanitize = (value, maxChars) => sanitizeOperatorNoticeFragment(value, { repoRoot, home, maxChars });
   const priorEntryLine = status !== "PASS" && quarantinedPriorEntry
-    ? `unusable (${quarantinedPriorEntry.reason}); publication moved it aside to ${quarantinedPriorEntry.path}`
+    ? `unusable (${sanitize(quarantinedPriorEntry.reason ?? "no reason recorded", 300)}); publication moved it aside `
+      + `to ${sanitize(quarantinedPriorEntry.path ?? "an unnamed path", 200)}`
     : null;
 
   return { receiptLine, priorEntryLine };

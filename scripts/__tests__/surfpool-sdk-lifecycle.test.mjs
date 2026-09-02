@@ -1319,9 +1319,15 @@ const RECEIPT_DISPOSITION_FIXTURE = {
   receiptFilename: "accepted-evidence.json",
 };
 
+const QUARANTINE_REPO_ROOT = "/home/runner/work/reddi/rap";
+
+// The shape classifyPriorEntrySync actually produces when the canonical entry exists but cannot be
+// opened: Node embeds the absolute path in its own message even though the wrapper used a relative
+// name, and this reason is rendered into SUMMARY.md and uploaded.
 const QUARANTINED_PRIOR_ENTRY = {
   path: "artifacts/surfpool-quasar-smoke/.accepted-evidence.json.quarantined-abc123",
-  reason: "the entry is not an ordinary file",
+  reason: "it could not be read as accepted evidence (accepted-evidence.json could not be opened: EACCES: "
+    + `permission denied, open '${QUARANTINE_REPO_ROOT}/artifacts/surfpool-quasar-smoke/accepted-evidence.json')`,
 };
 
 test("the FAIL summary never calls a quarantined prior entry untouched", () => {
@@ -1332,6 +1338,8 @@ test("the FAIL summary never calls a quarantined prior entry untouched", () => {
     status: "FAIL",
     receiptOutcome: EVIDENCE_PUBLICATION_NOT_PUBLISHED,
     quarantinedPriorEntry: QUARANTINED_PRIOR_ENTRY,
+    repoRoot: QUARANTINE_REPO_ROOT,
+    home: "/home/runner",
   });
 
   assert.equal(
@@ -1342,7 +1350,7 @@ test("the FAIL summary never calls a quarantined prior entry untouched", () => {
   assert.match(quarantined.receiptLine, /not published by this run \(accepted-evidence\.json could not be published\)/);
   assert.match(
     quarantined.priorEntryLine,
-    /unusable \(the entry is not an ordinary file\); publication moved it aside to artifacts\/surfpool-quasar-smoke\/\.accepted-evidence\.json\.quarantined-abc123/,
+    /unusable \(it could not be read as accepted evidence[\s\S]*EACCES[\s\S]*\); publication moved it aside to artifacts\/surfpool-quasar-smoke\/\.accepted-evidence\.json\.quarantined-abc123/,
   );
 
   // Without a quarantine the settled wording stands: nothing on disk was moved.
@@ -1370,6 +1378,8 @@ for (const receiptOutcome of [
         status: "FAIL",
         receiptOutcome,
         quarantinedPriorEntry,
+        repoRoot: QUARANTINE_REPO_ROOT,
+        home: "/home/runner",
       });
 
       assert.equal(
@@ -1383,13 +1393,41 @@ for (const receiptOutcome of [
           false,
           "the receipt line may not contradict the prior-entry line",
         );
-        assert.equal(priorEntryLine.includes("/home/"), false, "no absolute path may reach the summary");
+        assert.equal(
+          priorEntryLine.includes(QUARANTINE_REPO_ROOT),
+          false,
+          "the absolute path the filesystem error carried may not reach the summary",
+        );
+        assert.match(priorEntryLine, /<repo>\/artifacts\/surfpool-quasar-smoke\/accepted-evidence\.json/);
+        assert.match(priorEntryLine, /EACCES/, "the diagnosis itself survives redaction");
         assert.match(priorEntryLine, /^unusable \(/);
       }
       assert.equal(receiptLine.includes("undefined"), false);
     });
   }
 }
+
+test("a quarantine reason carrying key material or an oversized dump is bounded and scrubbed", () => {
+  const bytes = Array.from({ length: 64 }, (_, i) => i + 1);
+  const { priorEntryLine } = describeAcceptedReceiptDisposition({
+    ...RECEIPT_DISPOSITION_FIXTURE,
+    status: "FAIL",
+    receiptOutcome: EVIDENCE_PUBLICATION_NOT_PUBLISHED,
+    quarantinedPriorEntry: {
+      path: "artifacts/surfpool-quasar-smoke/.accepted-evidence.json.quarantined-abc123",
+      reason: `it could not be read: AGENT_A_KEYPAIR=[${bytes.join(",")}] at ${QUARANTINE_REPO_ROOT}/x `
+        + "filler ".repeat(500),
+    },
+    repoRoot: QUARANTINE_REPO_ROOT,
+    home: "/home/runner",
+  });
+
+  assert.equal(priorEntryLine.includes("AGENT_A_KEYPAIR=["), false, "key material may not reach the summary");
+  assert.equal(priorEntryLine.includes(QUARANTINE_REPO_ROOT), false);
+  assert.equal(priorEntryLine.includes("\n"), false, "the summary line stays one line");
+  assert.match(priorEntryLine, /\[truncated \d+ character\(s\)\]/, "an unbounded reason is bounded");
+  assert.ok(priorEntryLine.length < 700, `the line must stay bounded; got ${priorEntryLine.length}`);
+});
 
 test("a PASS run cites the receipt path and reports no prior-entry disposition", () => {
   const passed = describeAcceptedReceiptDisposition({
