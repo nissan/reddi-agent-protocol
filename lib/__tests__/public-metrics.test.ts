@@ -9,10 +9,10 @@ import {
 } from "@/lib/assurance/public-metrics";
 
 /**
- * The landing page publishes these three numbers as public claims, so each one
- * is checked against a corpus property that is independent of the expression
- * the constant is defined by: a restated `Object.keys(...).length` would hold
- * for any corpus and could not detect a wrong published number.
+ * The landing page publishes these three numbers as public claims. Two are
+ * pinned constants kept out of the client bundle, so the assertions below are
+ * what hold them to the real corpora; the third is checked against classifier
+ * behaviour rather than a restatement of its own definition.
  */
 describe("landing-page assurance metrics", () => {
   it("publishes the size of the shipped specialist directory registry", () => {
