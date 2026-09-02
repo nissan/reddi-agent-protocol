@@ -57,7 +57,7 @@ jobs:
       - name: Install Rust toolchain (matches rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.89.0"
+          toolchain: "1.98.0"
 
       - name: Cache Cargo registry and workspace target
         uses: actions/cache@v5
@@ -73,7 +73,7 @@ jobs:
 
       - name: Install Solana CLI
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.13/install)"
+          sh -c "$(curl -sSfL https://release.anza.xyz/v4.2.2/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
       # The LiteSVM tests embed target/deploy/escrow.so via include_bytes!,

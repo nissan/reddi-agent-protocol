@@ -190,7 +190,7 @@ Exit: `scripts/run-quasar-program-tests.sh` covers PER instruction parse + CPI l
 
 ### Phase 3 — devnet deploy of Quasar escrow PER extension (0.5 day, approval-gated)
 
-- Build SBF with Anza 3.1.13 toolchain.
+- Build SBF with the repository-pinned Anza/Agave toolchain from `docs/SOLANA-TOOLCHAIN-BASELINE.md`.
 - Deploy upgraded/new Quasar escrow program to devnet.
 - Update `config/quasar/deployments.json` only after successful deploy.
 

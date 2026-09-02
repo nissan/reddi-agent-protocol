@@ -3,12 +3,12 @@
     "npmBundledVersion": "11.19.0"
   },
   "rust": {
-    "componentVersionSource": "versions shipped with the rust-toolchain.toml channel, recorded here for exact probes",
+    "componentVersionSource": "versions shipped with the rust-toolchain.toml channel, recorded here for exact probes; Rust 1.98.0 manifest: static.rust-lang.org/dist/channel-rust-1.98.0.toml (HTTP 200, last-modified Thu, 20 Aug 2026 17:06:06 GMT)",
     "rustfmtVersionByChannel": {
-      "1.89.0": "1.8.0-stable"
+      "1.98.0": "1.9.0-stable"
     },
     "clippyVersionByChannel": {
-      "1.89.0": "0.1.89"
+      "1.98.0": "0.1.98"
     }
   },
   "rustup": {
@@ -18,12 +18,15 @@
     "sha256": "4acc9acc76d5079515b46346a485974457b5a79893cfb01112423c89aeb5aa10"
   },
   "agave": {
-    "versionSource": ".github/workflows/anchor-program-tests.yml and .github/workflows/quasar-program-tests.yml release.anza.xyz install URL",
+    "versionSource": "CI release.anza.xyz install URLs scanned by scripts/check-solana-baseline-pins.mjs",
+    "releaseEvidence": {
+      "v4.2.2": "gh-axi release view v4.2.2 -R anza-xyz/agave; stable, not draft, not prerelease, published 2026-08-28T18:47:41Z by github-actions[bot]; Linux installer asset digest sha256:78b6bc178609de93fba8d2175f2e44be409fe13fd8510cad0206c3f0433523fd"
+    },
     "triple": "x86_64-unknown-linux-gnu",
     "assetName": "agave-install-init-x86_64-unknown-linux-gnu",
     "urlTemplate": "https://github.com/anza-xyz/agave/releases/download/{version}/agave-install-init-x86_64-unknown-linux-gnu",
     "sha256ByVersion": {
-      "v3.1.13": "d7f31959e1b28dc2608cb4af12f615deee8b1d3ee82a10c3b40027a7365e84ab"
+      "v4.2.2": "78b6bc178609de93fba8d2175f2e44be409fe13fd8510cad0206c3f0433523fd"
     }
   },
   "surfpool": {
@@ -35,7 +38,7 @@
   "anchorAvm": {
     "gitUrl": "https://github.com/solana-foundation/anchor",
     "managerVersion": "1.0.0",
-    "managerReason": "AVM v1.1.2 cargo-install pulls cargo-platform 0.3.3, which requires Rust 1.91; keep the manager on the previously verified source tag while selecting Anchor CLI 1.1.2 from the official release asset.",
+    "managerReason": "Keep the AVM manager on the previously verified source tag while selecting Anchor CLI 1.1.2 from the official release asset; changing the manager is outside this Agave/Rust refresh and requires separate qualification.",
     "tagTemplate": "v{version}",
     "tagObjectShaByVersion": {
       "1.0.0": "f17b37fd1f1fdb4b1c0de68ccb467996d3ba07f3",
