@@ -38,7 +38,7 @@ const ACCEPTED_EVIDENCE_LOCK_RECLAIM_DIRNAME = `${ACCEPTED_EVIDENCE_LOCK_DIRNAME
  * required to match exactly on read: a receipt carrying any other algorithm is refused rather than
  * reinterpreted under this one, because two encodings can disagree about which trees are equal.
  */
-export const LANE_SOURCE_FINGERPRINT_ALGORITHM = "rap-lane-source-fingerprint-v2-sha256";
+export const LANE_SOURCE_FINGERPRINT_ALGORITHM = "rap-lane-source-fingerprint-v3-sha256";
 
 /**
  * Repository-owned freshness bound for Surfpool lane evidence: 14 days. Every consumer enforces it
@@ -461,33 +461,48 @@ function assertContainedRealPath(repoRoot, relativePath) {
  * Deterministic digest of the repository sources this lane's evidence depends on. Used as the
  * receipt's immutable binding to the exact sources that produced it.
  */
-function runtimeCompatibilityFingerprintPaths(repoRoot) {
+function runtimeCompatibilityFingerprintSelector(repoRoot) {
+  const relativePath = "config/quasar/runtime-compatibility.json";
+  const bytes = readFingerprintedFile(repoRoot, relativePath, { maxBytes: ACCEPTED_EVIDENCE_MAX_BYTES });
+  let compatibility;
   try {
-    const compatibility = JSON.parse(fs.readFileSync(path.join(repoRoot, "config/quasar/runtime-compatibility.json"), "utf8"));
-    return (compatibility.demoCriticalPaths ?? [])
-      .map((entry) => entry?.path)
-      .filter((relativePath) => typeof relativePath === "string" && relativePath && !path.isAbsolute(relativePath))
-      .filter((relativePath) => !path.normalize(relativePath).split(path.sep).includes(".."));
-  } catch {
-    return [];
+    compatibility = JSON.parse(bytes.toString("utf8"));
+  } catch (error) {
+    throw new EvidenceManifestError(`Quasar runtime compatibility inventory is not valid JSON: ${error.message}`);
   }
+  const paths = (compatibility.demoCriticalPaths ?? [])
+    .map((entry) => entry?.path)
+    .filter((entryPath) => typeof entryPath === "string" && entryPath && !path.isAbsolute(entryPath))
+    .filter((entryPath) => !path.normalize(entryPath).split(path.sep).includes(".."));
+  return { relativePath, bytes, paths };
 }
 
-function fingerprintRootsForTarget(repoRoot, target) {
+function fingerprintInputsForTarget(repoRoot, target) {
   const roots = LANE_FINGERPRINT_PATHS[target];
   if (!roots) throw new EvidenceManifestError(`no source fingerprint is defined for target ${JSON.stringify(target)}`);
-  if (target !== "quasar") return roots;
-  return [...new Set([...roots, ...runtimeCompatibilityFingerprintPaths(repoRoot)])];
+  if (target !== "quasar") return { roots, selectors: [] };
+  const runtimeCompatibility = runtimeCompatibilityFingerprintSelector(repoRoot);
+  return {
+    roots: [...new Set([...roots, ...runtimeCompatibility.paths])],
+    selectors: [runtimeCompatibility],
+  };
 }
 
 export function computeLaneSourceFingerprint(repoRoot, target) {
-  const roots = fingerprintRootsForTarget(repoRoot, target);
+  const { roots, selectors } = fingerprintInputsForTarget(repoRoot, target);
   const files = [];
   for (const root of roots) walkFiles(repoRoot, root, files);
   files.sort((left, right) => (left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0));
   const hash = crypto.createHash("sha256");
   updateFramed(hash, Buffer.from(LANE_SOURCE_FINGERPRINT_ALGORITHM, "utf8"));
   updateFramed(hash, Buffer.from(String(target), "utf8"));
+  const selectorCount = Buffer.alloc(8);
+  selectorCount.writeBigUInt64BE(BigInt(selectors.length));
+  hash.update(selectorCount);
+  for (const selector of selectors) {
+    updateFramed(hash, Buffer.from(`selector:${selector.relativePath.split(path.sep).join("/")}`, "utf8"));
+    updateFramed(hash, selector.bytes);
+  }
   const fileCount = Buffer.alloc(8);
   fileCount.writeBigUInt64BE(BigInt(files.length));
   hash.update(fileCount);
@@ -731,6 +746,36 @@ function pathExistsSync(candidate) {
     return true;
   } catch {
     return false;
+  }
+}
+
+function regularFileIdentitySync(absolutePath, label) {
+  let stat;
+  try {
+    stat = fs.lstatSync(absolutePath);
+  } catch (error) {
+    throw new EvidenceManifestError(`${label} could not be inspected: ${error?.message ?? error}`);
+  }
+  if (stat.isSymbolicLink()) throw new EvidenceManifestError(`${label} must not be a symbolic link: ${label}`);
+  if (!stat.isFile()) throw new EvidenceManifestError(`${label} must be an ordinary file`);
+  return { dev: stat.dev, ino: stat.ino, size: stat.size, ctimeMs: stat.ctimeMs };
+}
+
+function assertPathStillSameFile(absolutePath, expected, label) {
+  const current = regularFileIdentitySync(absolutePath, label);
+  if (!isSameFileIdentity(current, expected)) {
+    throw new EvidenceManifestError(`${label} changed while accepted evidence was being read`);
+  }
+}
+
+function assertNoPublicationLock(repoRoot, manifestRelativeDir) {
+  const lockDir = path.join(repoRoot, manifestRelativeDir, ACCEPTED_EVIDENCE_LOCK_DIRNAME);
+  if (pathExistsSync(lockDir)) {
+    throw new EvidenceManifestError(
+      `accepted evidence at ${manifestRelativeDir} is not citable while a publication lock stands ` +
+      `(${describeLockState(lockOwnerRecordSync(lockDir))}); the receipt state is unproven until an operator resolves ` +
+      `${path.join(path.normalize(manifestRelativeDir), ACCEPTED_EVIDENCE_LOCK_DIRNAME)}`,
+    );
   }
 }
 
@@ -1135,22 +1180,17 @@ export function readAcceptedEvidenceManifest(repoRoot, manifestRelativeDir, { ta
   const manifestPath = path.join(repoRoot, manifestRelativeDir, ACCEPTED_EVIDENCE_FILENAME);
   const manifestRelativePath = path.join(path.normalize(manifestRelativeDir), ACCEPTED_EVIDENCE_FILENAME);
 
-  const lockDir = path.join(repoRoot, manifestRelativeDir, ACCEPTED_EVIDENCE_LOCK_DIRNAME);
-  if (pathExistsSync(lockDir)) {
-    throw new EvidenceManifestError(
-      `accepted evidence at ${manifestRelativeDir} is not citable while a publication lock stands ` +
-      `(${describeLockState(lockOwnerRecordSync(lockDir))}); the receipt state is unproven until an operator resolves ` +
-      `${path.join(path.normalize(manifestRelativeDir), ACCEPTED_EVIDENCE_LOCK_DIRNAME)}`,
-    );
-  }
+  assertNoPublicationLock(repoRoot, manifestRelativeDir);
 
   if (!fs.existsSync(manifestPath)) {
     throw new EvidenceManifestError(`no accepted evidence at ${manifestRelativePath}; run the lane to a PASS first`);
   }
 
   const evidenceRootRealPath = containmentRootRealPath(repoRoot, manifestRelativeDir, "evidence root");
+  const manifestIdentity = regularFileIdentitySync(manifestPath, `${manifestRelativePath} receipt`);
   const manifestBytes = readFingerprintedFile(repoRoot, manifestRelativePath, {
     containmentRootRealPath: evidenceRootRealPath,
+    identity: manifestIdentity,
     maxBytes: ACCEPTED_EVIDENCE_MAX_BYTES,
   });
 
@@ -1242,6 +1282,9 @@ export function readAcceptedEvidenceManifest(repoRoot, manifestRelativeDir, { ta
     }
     resolved[name] = artifact.path;
   }
+
+  assertNoPublicationLock(repoRoot, manifestRelativeDir);
+  assertPathStillSameFile(manifestPath, manifestIdentity, `${manifestRelativePath} receipt`);
 
   return { manifest, manifestPath, artifacts: resolved };
 }

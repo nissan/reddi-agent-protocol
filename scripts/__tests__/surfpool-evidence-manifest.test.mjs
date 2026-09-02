@@ -625,6 +625,57 @@ test("every module owning the onboarding Quasar refusal is bound to the evidence
   }
 });
 
+test("runtime compatibility inventory selection is descriptor-bound and fail-closed", async () => {
+  await withRepo(async (repoRoot) => {
+    await seedFingerprintSources(repoRoot, "quasar");
+    const before = computeLaneSourceFingerprint(repoRoot, "quasar");
+    const inventory = path.join(repoRoot, "config/quasar/runtime-compatibility.json");
+
+    await fsp.writeFile(inventory, "{ not json");
+    assert.throws(
+      () => computeLaneSourceFingerprint(repoRoot, "quasar"),
+      /runtime compatibility inventory is not valid JSON/,
+      "a selector parse failure must not silently drop demo-critical paths",
+    );
+
+    await seedFingerprintSources(repoRoot, "quasar");
+    const legitimate = await fsp.readFile(inventory, "utf8");
+    const malicious = JSON.stringify({ demoCriticalPaths: [] }, null, 2);
+    const configDir = path.join(repoRoot, "config/quasar");
+    const originalLstatSync = fs.lstatSync;
+    const originalReaddirSync = fs.readdirSync;
+    let planted = false;
+    let restored = false;
+    fs.lstatSync = function patchedLstatSync(target, options) {
+      if (!planted && path.resolve(String(target)) === inventory) {
+        planted = true;
+        fs.writeFileSync(inventory, malicious);
+      }
+      return originalLstatSync.call(this, target, options);
+    };
+    fs.readdirSync = function patchedReaddirSync(target, options) {
+      if (planted && !restored && path.resolve(String(target)) === configDir) {
+        restored = true;
+        fs.writeFileSync(inventory, legitimate);
+      }
+      return originalReaddirSync.call(this, target, options);
+    };
+
+    try {
+      const raced = computeLaneSourceFingerprint(repoRoot, "quasar");
+      assert.notEqual(
+        raced,
+        before,
+        "the exact inventory bytes used to choose demo-critical paths must also enter the fingerprint",
+      );
+      assert.equal(restored, true, "the regression must restore the on-disk inventory before the config/quasar tree is walked");
+    } finally {
+      fs.lstatSync = originalLstatSync;
+      fs.readdirSync = originalReaddirSync;
+    }
+  });
+});
+
 test("an artifact content change after publication invalidates the receipt", async () => {
   await withRepo(async (repoRoot) => {
     const dir = "artifacts/surfpool-quasar-smoke";
@@ -1044,9 +1095,12 @@ for (const [target, inputs] of Object.entries(FINGERPRINTED_BUILD_INPUTS)) {
         // would now produce, so the prior receipt must stop being citable.
         await writeRepoFile(repoRoot, relativePath, `${inputs[relativePath]}// changed\n`);
 
+        const expected = relativePath === "config/quasar/runtime-compatibility.json"
+          ? /produced from different sources than the working tree|runtime compatibility inventory is not valid JSON/
+          : /produced from different sources than the working tree/;
         assert.throws(
           () => readAcceptedEvidenceManifest(repoRoot, dir, { target, requiredArtifacts: ["summary", "log"] }),
-          /produced from different sources than the working tree/,
+          expected,
           `${relativePath} must be inside the ${target} fingerprint`,
         );
       });
@@ -1107,6 +1161,40 @@ test("a receipt read through a symlinked evidence root is refused before any of 
       );
     } finally {
       await fsp.rm(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+test("a receipt read refuses a publication lock that appears before validation returns", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-lock-during-read");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+    assert.doesNotThrow(() =>
+      readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary", "log"] }));
+
+    const manifestPath = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME);
+    const lockDir = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_LOCK_DIRNAME);
+    const originalOpenSync = fs.openSync;
+    let planted = false;
+    fs.openSync = function patchedOpenSync(file, flags, mode) {
+      const fd = originalOpenSync.call(this, file, flags, mode);
+      if (!planted && path.resolve(String(file)) === manifestPath) {
+        planted = true;
+        fs.mkdirSync(lockDir);
+        fs.writeFileSync(path.join(lockDir, "owner.json"), JSON.stringify({ state: "publishing", detail: "race" }));
+      }
+      return fd;
+    };
+
+    try {
+      assert.throws(
+        () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary", "log"] }),
+        /not citable while a publication lock stands/,
+      );
+      assert.equal(planted, true, "the regression must exercise the read-to-return lock race");
+    } finally {
+      fs.openSync = originalOpenSync;
     }
   });
 });
