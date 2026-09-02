@@ -226,6 +226,46 @@ test("every workflow whose path filters name a regression test file also runs th
   assert.ok(checked > 0, "the repository must have at least one workflow triggering on a named test file");
 });
 
+test("every workflow this suite makes assertions about is re-run when that workflow changes", () => {
+  // The assertions above are only worth anything if something runs them when the file they describe
+  // is edited. A guard that is not named by any workflow's path filters can have its own triggers
+  // deleted in a PR that starts no job at all, so the drift the filters exist to catch merges
+  // unobserved.
+  const packageScripts = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")).scripts;
+  const thisSuite = "scripts/__tests__/surfpool-lane-boundaries.test.mjs";
+  const asserted = ["quasar-readiness-guard.yml", "surfpool-quasar-critical-sdk.yml", "surfpool-acceptance-manual.yml"];
+
+  const triggersRunningThisSuite = [];
+  for (const name of fs.readdirSync(path.join(repoRoot, ".github/workflows")).filter((entry) => entry.endsWith(".yml"))) {
+    const workflow = loadWorkflow(name);
+    const runsSuite = Object.values(workflow.jobs ?? {}).some((job) => (job.steps ?? []).some((step) =>
+      testFilesExecutedBy(step.run, packageScripts).has(thisSuite)));
+    if (!runsSuite) continue;
+    for (const trigger of Object.values(workflow.on ?? {})) {
+      for (const filter of trigger?.paths ?? []) triggersRunningThisSuite.push(filter);
+    }
+  }
+
+  assert.ok(triggersRunningThisSuite.length > 0, "some workflow must run this suite on a path filter");
+  for (const workflowName of asserted) {
+    assert.ok(
+      triggersRunningThisSuite.includes(`.github/workflows/${workflowName}`),
+      `editing ${workflowName} must start a job that runs ${thisSuite}, or its trigger assertions are unenforceable`,
+    );
+  }
+});
+
+test("a guard workflow re-runs its own job when its triggers are edited", () => {
+  // Self-listing is what makes a filter change re-run the checks that file gates, independently of
+  // which other workflow happens to name it.
+  for (const name of ["quasar-readiness-guard.yml", "quasar-program-tests.yml", "rap-package-guard.yml"]) {
+    const workflow = loadWorkflow(name);
+    const selfListed = Object.values(workflow.on ?? {}).some((trigger) =>
+      (trigger?.paths ?? []).includes(`.github/workflows/${name}`));
+    assert.ok(selfListed, `${name} must list itself so editing its triggers re-runs its own job`);
+  }
+});
+
 test("hosted Surfpool workflows request the exact repository Node baseline", () => {
   const critical = loadWorkflow("surfpool-quasar-critical-sdk.yml");
   const manual = loadWorkflow("surfpool-acceptance-manual.yml");

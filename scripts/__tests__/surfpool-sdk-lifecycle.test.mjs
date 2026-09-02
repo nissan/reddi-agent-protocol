@@ -1527,20 +1527,21 @@ test("a hostile failure message cannot break out of its SUMMARY.md bullet", () =
   assert.match(summaryBullet(summary, ""), /^# Surfpool SDK Quasar Critical Smoke Summary$|^- Status: FAIL$/);
 });
 
-test("the rendered summary is the exact byte content persisted to SUMMARY.md", async () => {
+test("the rendered document is a well-formed SUMMARY.md with no absolute path in it", () => {
+  // renderRunSummary returns the exact bytes writeSummary persists, so the document contract is
+  // asserted here rather than round-tripping a string this test wrote itself.
   const summary = renderFixtureSummary({ failure: `EIO at ${SUMMARY_REPO_ROOT}/artifacts` });
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rap-summary-"));
-  stepRunnerDirs.push(dir);
-  const summaryFile = path.join(dir, "SUMMARY.md");
 
-  await fsp.writeFile(summaryFile, summary);
-  const persisted = await fsp.readFile(summaryFile, "utf8");
-
-  assert.equal(persisted, summary, "the renderer's output is written verbatim");
-  assert.equal(persisted.endsWith("\n"), true, "the document ends with a newline");
-  assert.equal(persisted.includes(SUMMARY_REPO_ROOT), false, "no absolute path is persisted");
-  assert.match(persisted, /^# Surfpool SDK Quasar Critical Smoke Summary\n/);
-  assert.match(persisted, /\n## Failure\n- EIO at <repo>\/artifacts\n/);
+  assert.equal(summary.endsWith("\n"), true, "the document ends with a newline");
+  assert.equal(summary.includes(SUMMARY_REPO_ROOT), false, "no absolute path is rendered anywhere");
+  assert.equal(summary.includes(SUMMARY_HOME), false);
+  assert.match(summary, /^# Surfpool SDK Quasar Critical Smoke Summary\n/);
+  assert.match(summary, /\n## Failure\n- EIO at <repo>\/artifacts\n/);
+  for (const heading of ["## Programs deployed locally", "## Cleanup", "## Artifacts"]) {
+    assert.equal(summary.split("\n").filter((line) => line === heading).length, 1, `${heading} appears once`);
+  }
+  assert.match(summary, /\n- Accepted evidence receipt: not written \(only PASS runs publish accepted-evidence\.json\)\n/);
+  assert.match(summary, /\n- Failed run evidence retained at: artifacts\/surfpool-quasar-smoke\/run\n/);
 });
 
 test("a PASS run cites the receipt path and reports no prior-entry disposition", () => {

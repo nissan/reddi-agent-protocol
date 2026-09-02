@@ -14,6 +14,7 @@ on:
       - "scripts/__tests__/quasar-runtime-compatibility-schema.test.mjs"
       - "package.json"
       - "package-lock.json"
+      - ".github/workflows/quasar-readiness-guard.yml"
   workflow_dispatch:
 
 jobs:

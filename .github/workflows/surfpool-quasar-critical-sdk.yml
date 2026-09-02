@@ -57,6 +57,7 @@ on:
       - "package-lock.json"
       - ".github/workflows/anchor-program-tests.yml"
       - ".github/workflows/quasar-program-tests.yml"
+      - ".github/workflows/quasar-readiness-guard.yml"
       - ".github/workflows/surfpool-quasar-critical-sdk.yml"
       - ".github/workflows/surfpool-acceptance-manual.yml"
   pull_request:
@@ -115,6 +116,7 @@ on:
       - "package-lock.json"
       - ".github/workflows/anchor-program-tests.yml"
       - ".github/workflows/quasar-program-tests.yml"
+      - ".github/workflows/quasar-readiness-guard.yml"
       - ".github/workflows/surfpool-quasar-critical-sdk.yml"
       - ".github/workflows/surfpool-acceptance-manual.yml"
   workflow_dispatch:

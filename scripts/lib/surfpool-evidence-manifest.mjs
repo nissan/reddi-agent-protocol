@@ -1028,6 +1028,17 @@ async function releasePublicationLock(lock) {
  * unreadable). The last kind is not evidence and is moved aside rather than left to block every
  * future passing run.
  */
+function knownAbsolutePrefixes(manifestDir) {
+  if (!manifestDir) return [];
+  const prefixes = new Set([manifestDir]);
+  try {
+    prefixes.add(fs.realpathSync(manifestDir));
+  } catch {
+    // The directory may already be gone; the literal path is still worth substituting.
+  }
+  return [...prefixes].filter(Boolean).sort((left, right) => right.length - left.length);
+}
+
 /**
  * The recorded reason an entry at the canonical path was unusable.
  *
@@ -1037,9 +1048,22 @@ async function releasePublicationLock(lock) {
  * diagnosis is kept and any absolute path in it is replaced. Bounded for the same reason — an error
  * message is untrusted input to a durable artifact.
  */
-function recordedUnusableReason(detail, maxChars = 300) {
-  const withoutAbsolutePaths = String(detail ?? "")
-    .replace(/\/(?:[A-Za-z0-9._~@%+-]+\/)+[A-Za-z0-9._~@%+-]*/g, "<path>")
+function recordedUnusableReason(detail, { manifestDir, maxChars = 300 } = {}) {
+  let text = String(detail ?? "");
+  // The directory this transaction is working in is the prefix Node's errors actually embed, and
+  // substituting it literally is the only rule that survives a path containing a quote, a space, or
+  // anything else the generic patterns below have to guess at.
+  for (const prefix of knownAbsolutePrefixes(manifestDir)) {
+    text = text.split(prefix).join("<path>");
+  }
+  const withoutAbsolutePaths = text
+    // A quoted path is delimited, so everything up to the closing quote can be consumed whatever it
+    // contains — this is the shape `open '/…'` takes when a directory name has a space in it.
+    .replace(/'\/[^']*'/g, "'<path>'")
+    .replace(/"\/[^"]*"/g, '"<path>"')
+    // Unquoted, the run ends at whitespace or a quote; the class is deliberately wide enough to
+    // cover punctuation and non-ASCII segments rather than stopping part-way through them.
+    .replace(/\/(?:[^\s'"]+\/)+[^\s'"]*/g, "<path>")
     .replace(/\s+/g, " ")
     .trim();
   return withoutAbsolutePaths.length > maxChars
@@ -1054,7 +1078,7 @@ function classifyPriorEntrySync(manifestDir) {
     existing = fs.lstatSync(manifestPath);
   } catch (error) {
     if (error?.code === "ENOENT") return { kind: "none" };
-    return { kind: "unusable", reason: `it could not be inspected (${recordedUnusableReason(error?.message ?? error)})` };
+    return { kind: "unusable", reason: `it could not be inspected (${recordedUnusableReason(error?.message ?? error, { manifestDir })})` };
   }
   if (!existing.isFile()) {
     return { kind: "unusable", reason: "it is not an ordinary file" };
@@ -1071,7 +1095,7 @@ function classifyPriorEntrySync(manifestDir) {
       }),
     };
   } catch (error) {
-    return { kind: "unusable", reason: `it could not be read as accepted evidence (${recordedUnusableReason(error?.message ?? error)})` };
+    return { kind: "unusable", reason: `it could not be read as accepted evidence (${recordedUnusableReason(error?.message ?? error, { manifestDir })})` };
   }
 }
 

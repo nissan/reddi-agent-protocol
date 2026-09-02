@@ -1787,6 +1787,41 @@ test("a quarantine reason recorded into the receipt carries no absolute path", a
   });
 });
 
+test("a quarantine reason strips an absolute path whose directories contain spaces", async () => {
+  // A checkout path with a space is the shape the earlier segment-class pattern only partly
+  // consumed, leaving a fragment of the absolute path in the published receipt.
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/my evidence dir";
+    const manifestDir = path.join(repoRoot, dir);
+    const manifestPath = path.join(manifestDir, ACCEPTED_EVIDENCE_FILENAME);
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-spaced-prior");
+    await fsp.mkdir(manifestDir, { recursive: true });
+    await fsp.writeFile(manifestPath, "{\"status\":\"PASS\"}\n");
+    await fsp.chmod(manifestPath, 0o000);
+    const readable = (() => { try { fs.accessSync(manifestPath, fs.constants.R_OK); return true; } catch { return false; } })();
+    if (readable) return; // running as a user that ignores the mode
+
+    const { quarantinedPriorEntry } = await writeAcceptedEvidenceManifest(manifestDir, record);
+
+    assert.ok(quarantinedPriorEntry);
+    assert.match(quarantinedPriorEntry.reason, /EACCES/, "the diagnosis survives");
+    assert.equal(quarantinedPriorEntry.reason.includes(repoRoot), false, "no part of the repository path survives");
+    // The old segment-class pattern stopped at the space, leaving "evidence dir/accepted-evidence.json"
+    // — a fragment of the checkout path — in the receipt.
+    for (const fragment of ["my evidence dir", "evidence dir", "evidence dir/accepted-evidence.json"]) {
+      assert.equal(
+        quarantinedPriorEntry.reason.includes(fragment),
+        false,
+        `no fragment of the spaced directory path may survive: ${fragment}`,
+      );
+    }
+    assert.equal(/\/(?:[^\s'"]+\/)+/.test(quarantinedPriorEntry.reason), false, "no absolute path at all");
+
+    const published = JSON.parse(await fsp.readFile(manifestPath, "utf8"));
+    assert.equal(published.quarantinedPriorEntry.reason.includes("evidence dir"), false);
+  });
+});
+
 test("a publication that quarantines a prior entry and then fails reports both facts", async () => {
   // The disposition the operator notice has to name: the canonical path was emptied by this run
   // before the write failed, so "not-published" alone does not mean nothing on disk changed.
