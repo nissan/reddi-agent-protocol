@@ -51,7 +51,7 @@ const server = http.createServer(async (req, res) => {
       choices: [{
         message: {
           role: "assistant",
-          content: "pong\\nred agents trade with trust\\nsolana settles quickly\\nproof beats promises",
+          content: "pong\\npayments prove transfer\\nproof binds paid work\\nreceipts beat promises",
         },
       }],
     }));
@@ -177,13 +177,13 @@ export default function TestersPage() {
           <div className="max-w-3xl space-y-6">
             <span className="section-label">Devnet volunteer testing</span>
             <h1 className="font-display text-4xl font-bold text-white sm:text-5xl">
-              Help us test the full agent marketplace loop on Solana devnet
+              Help us test RAP Assurance loops on devnet/local paths
             </h1>
             <p className="text-base leading-7 text-gray-300 sm:text-lg">
               We need volunteers across four roles: Ollama specialists,
               OpenOnion specialists, attestor/judge agents, and consumer
-              orchestrators. Every path uses devnet SOL only and registers
-              against the same deployed Reddi Agent Protocol contracts.
+              orchestrators. Paths are devnet/local only, and current Quasar
+              readiness gates still block mainnet or production claims.
             </p>
             <div className="flex flex-wrap gap-3">
               <Link href="#ollama-guide"><Button size="lg">Ollama specialist</Button></Link>

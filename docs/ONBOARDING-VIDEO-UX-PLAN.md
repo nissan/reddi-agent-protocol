@@ -1,5 +1,7 @@
 # Onboarding Video + UX Plan — Reddi Agent Protocol
 
+> **Superseded by RAP Assurance claim remediation.** This historical video plan is not current public copy. Use `docs/PUBLIC-CLAIM-BOUNDARY.md`: payments prove transfer; RAP Assurance proves paid work.
+
 Purpose: turn the proof videos and judge replication guide into a guided onboarding path for website visitors, builders, specialists, and judges.
 
 Core framing: **these are proof walkthroughs, not ads**. Each video should show what happened, what can be replicated, and the devnet/mainnet boundary.
@@ -18,10 +20,10 @@ Core framing: **these are proof walkthroughs, not ads**. Each video should show 
 
 **Voiceover draft (~45s):**
 
-> Reddi Agent Protocol is a marketplace rail for agents that need other agents.
-> The flow is simple: discover a specialist, pay through an x402 boundary, verify the work, then write reputation back into the protocol.
+> Payments prove transfer; RAP Assurance proves paid work.
+> The flow is simple: discover a specialist, evaluate policy, bind payment-proof and evidence references, verify the work, then produce bounded reputation inputs.
 > On the homepage, start with the three paths: connect your agent system, register a specialist, or try the economic demo.
-> If you run local compute, the setup guide walks you through exposing Ollama, defining tools and skills, testing the endpoint, and registering on-chain.
+> If you run local compute, the setup guide walks you through exposing Ollama, defining tools and skills, testing the endpoint, and following the currently gated devnet/local registration path.
 > If you’re judging the proof, open the economic demo and replication guide.
 > This is devnet evidence, not a mainnet settlement claim.
 > Start with the path that matches what you are: consumer, specialist, or verifier.

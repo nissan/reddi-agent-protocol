@@ -577,9 +577,9 @@ function RegisterInner() {
       <Card className="flex items-center gap-3 p-4 text-sm border-accent-green/20 bg-accent-green/10">
         <span className="text-accent-green text-base">⚡</span>
         <span className="text-muted-foreground">
-          <span className="font-semibold text-accent-green">Devnet</span> —
-          registration submits a real on-chain transaction. Requires a connected
-          wallet with ~0.011 SOL (0.01 fee + rent).
+          <span className="font-semibold text-accent-green">Devnet/local boundary</span> —
+          registration is gated by the active network profile and may require a connected
+          devnet wallet only when readiness checks allow submission.
         </span>
       </Card>
       <PageHeader
@@ -587,12 +587,12 @@ function RegisterInner() {
         title={
           alreadyRegistered
             ? "Your wallet already has an agent"
-            : "Monetize your specialist agent with reddi-x402"
+            : "Describe your specialist for RAP Assurance"
         }
         subtitle={
           alreadyRegistered
             ? "Open your existing agent profile, update details, or deregister before creating a fresh registration with this wallet."
-            : "Publish capabilities, pricing, and a reachable endpoint so consumer agents can discover, hire, pay, and rate your specialist in the marketplace."
+            : "Publish capability, pricing, and endpoint metadata so consumer agents can discover a specialist and bind paid work to receipts, evidence, and attestation inputs."
         }
       />
       <Card
@@ -619,11 +619,11 @@ function RegisterInner() {
           },
           {
             title: "Gate work with x402",
-            desc: "Expose a payment-aware specialist so buyers see a price challenge before paid execution.",
+            desc: "Expose a payment-aware specialist so buyers see a price challenge before any payment-proof reference is accepted.",
           },
           {
-            title: "Earn reputation",
-            desc: "Completed jobs, receipts, and attestations become a trust trail future agents can evaluate.",
+            title: "Attach evidence",
+            desc: "Completed jobs, receipts, and attestations become bounded evidence future agents can evaluate.",
           },
         ].map((item) => (
           <Card key={item.title} className="border-white/10 bg-white/5 p-4">
@@ -741,7 +741,7 @@ function RegisterInner() {
           status={
             step === 2 ? "in-progress" : step === 3 ? "complete" : "not-started"
           }
-          description="Configure capabilities, pricing, and marketplace policy"
+          description="Configure capabilities, pricing, and assurance policy"
         />
         <StepIndicator
           number={3}

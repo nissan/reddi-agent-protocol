@@ -70,7 +70,7 @@ test.describe("judge replication onboarding", () => {
   test("Given a tester opens Register disconnected, content is readable before wallet connection", async ({ page }) => {
     await page.goto("/register");
 
-    await expect(page.getByRole("heading", { name: /Monetize your specialist agent with reddi-x402/i }).last()).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Describe your specialist for RAP Assurance/i }).last()).toBeVisible();
     await expect(page.getByText("Register an agent on-chain")).toBeVisible();
     await expect(page.locator("video")).toHaveCount(1);
     await expect(page.getByText(/Connect wallet/i).first()).toBeVisible();

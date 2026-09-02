@@ -5,7 +5,7 @@ import { Download, FileJson, FileText, MessageSquare } from "lucide-react";
 export const metadata: Metadata = {
   title: "ReddiAgent ADL v0.2.0-beta",
   description:
-    "The open Agent Definition Language — define an AI agent once: model envelope, operating harness, and payment authority. Validate it deterministically. Run it anywhere.",
+    "The open Agent Definition Language — define an AI agent once: model envelope, operating harness, and payment authority. Validate it deterministically and export compatibility reports."
 };
 
 const badges = [
@@ -20,8 +20,8 @@ const receiptLayers = [
   ["x402", "payment challenge/proof — the rail"],
   ["AP2 / Verifiable Intent", "delegated authority — who allowed what"],
   ["MCP", "protected-resource access — what was touched"],
-  ["Solana", "settlement proof — where value moved"],
-  ["RAP", "receipts, accounting, reputation — bound above the rail"],
+  ["Solana/AUDD adapters", "transfer evidence or payment-plan metadata — rail-specific proof"],
+  ["RAP Assurance", "receipts, accounting, evidence, reputation inputs — bound above the rail"],
 ];
 
 const delegationCards = [
@@ -51,7 +51,7 @@ export default function SpecPage() {
           <p className="max-w-3xl text-lg text-gray-300">
             The open Agent Definition Language — define an AI agent once: model
             envelope, operating harness, and payment authority. Validate it
-            deterministically. Run it anywhere.
+            deterministically and export compatibility reports.
           </p>
           <div className="flex flex-wrap gap-2">
             {badges.map((badge) => (
@@ -93,14 +93,12 @@ export default function SpecPage() {
             Settlement is not success
           </h2>
           <p className="max-w-3xl text-sm leading-6 text-gray-300">
-            USENIX Security 2026 research found security-rule violations in{" "}
-            <b>all 15 major x402 payment facilitators</b>. Our answer ships in
-            this release: a <b>receipt-integrity validator</b> that refuses to
-            treat payment proof as service success — receipts must bind
-            delegated authority, payment evidence, service outcome, and eval
-            evidence across 10 layers, tested against a 14-case threat model
-            (replay, wrong-payee, paid-but-denied). Hardened by three rounds of
-            adversarial review: 33 attack probes, every one failing closed.
+            Payment proof is not service success. The current RAP Assurance
+            answer is a local <b>receipt-integrity validator</b> and conformance
+            fixture set that refuses to treat payment evidence as proof of paid
+            work by itself — receipts must bind delegated authority, payment-proof
+            references, service outcome, and eval evidence before downstream
+            trust or reputation inputs are considered.
           </p>
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-sm">
@@ -125,7 +123,7 @@ export default function SpecPage() {
 
         <section className="space-y-4">
           <h2 className="font-display text-2xl font-semibold">
-            Agents paying agents — both sides, today
+            Agents paying agents — assurance boundaries today
           </h2>
           <div className="grid gap-4 md:grid-cols-3">
             {delegationCards.map((card) => (
@@ -198,9 +196,9 @@ export default function SpecPage() {
             — issues and structured review intake included.
           </p>
           <div className="rounded-lg border-l-2 border-accent-pink bg-surface/60 px-4 py-3 text-sm text-gray-400">
-            The spec repo is going public with tagged release v0.2.0-beta — if
-            the GitHub link 404s, the flip is imminent. Everything on this page
-            is downloadable right here in the meantime.
+            Treat this page as a beta specification surface. Downloadable examples
+            are local/conformance artifacts, not production payment, custody, or
+            mainnet-readiness claims.
           </div>
           <div className="flex flex-wrap gap-3 pt-1">
             <Link

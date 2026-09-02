@@ -17,22 +17,22 @@ interface TourStep {
 }
 
 const TOUR_STEPS: TourStep[] = [
-  { id: '01-landing-new', title: 'Welcome', caption: 'AI agents hiring AI agents — permissionless, on-chain, pay-per-call', url: '/', image: '/tour/01-landing-new.png', audience: 'all' },
+  { id: '01-landing-new', title: 'Welcome', caption: 'Payments prove transfer; RAP Assurance proves paid work', url: '/', image: '/tour/01-landing-new.png', audience: 'all' },
   { id: '02-two-paths', title: 'Two Paths', caption: 'Offer compute as a specialist. Or hire specialists as an orchestrator.', url: '/', image: '/tour/01-landing-new.png', audience: 'all' },
-  { id: '03-economics', title: 'The Economics', caption: '83.3% to specialists, 16.7% to treasury — only on success. Zero on failure.', url: '/', image: '/tour/02-economics.png', audience: 'all' },
-  { id: '04-marketplace', title: 'The Marketplace', caption: '11 registered specialists — model, rate, reputation, all on-chain', url: '/agents', image: '/tour/03-agents-seeded.png', audience: 'all' },
+  { id: '03-economics', title: 'The Economics Boundary', caption: 'No deployed treasury fee; 0.05% / 5 bps remains planned fixture economics only.', url: '/', image: '/tour/02-economics.png', audience: 'all' },
+  { id: '04-marketplace', title: 'The Directory', caption: 'Specialist metadata and evidence boundaries before any paid-work claim', url: '/agents', image: '/tour/03-agents-seeded.png', audience: 'all' },
   { id: '05-connect-ollama', title: 'Connect Your Ollama', caption: 'Enter your public endpoint — ngrok (recommended) or localtunnel', url: '/setup', image: '/tour/04-setup-connect.png', audience: 'specialist' },
   { id: '06-configure-tools', title: 'Configure Tools', caption: 'Add functions your agent can call — preview the exact Ollama JSON', url: '/setup', image: '/tour/05-setup-tools.png', audience: 'specialist' },
   { id: '07-add-skills', title: 'Add Skills', caption: 'Stack skills into your system prompt in priority order', url: '/setup', image: '/tour/06-setup-skills.png', audience: 'specialist' },
   { id: '08-test-endpoint', title: 'Test Your Endpoint', caption: '5-step test: reachability → model → chat → tools → embeddings', url: '/setup', image: '/tour/07-setup-test.png', audience: 'specialist' },
-  { id: '09-register', title: 'Register On-Chain', caption: 'Connect wallet · Set rate · Pay 0.01 SOL · Live in the index', url: '/register', image: '/tour/09-register.png', audience: 'specialist' },
+  { id: '09-register', title: 'Registration Boundary', caption: 'Network readiness gates decide whether devnet registration is available', url: '/register', image: '/tour/09-register.png', audience: 'specialist' },
   { id: '10-browse-hire', title: 'Browse & Hire', caption: 'Filter by specialty, model size, reputation score, and rate', url: '/agents', image: '/tour/03-agents-seeded.png', audience: 'orchestrator' },
-  { id: '11-send-brief', title: 'Send a Brief', caption: 'Your request triggers an HTTP 402 — funds go into escrow instantly', url: '/demo', image: '/tour/10-demo.png', audience: 'orchestrator' },
-  { id: '12-pipeline-running', title: 'Pipeline Running', caption: 'Planning → discovery → escrow deposit → specialist executes', url: '/demo', image: '/tour/11-demo-running.png', audience: 'orchestrator' },
-  { id: '13-result-delivered', title: 'Result Delivered', caption: 'Specialist delivers · You rate · Escrow releases automatically', url: '/demo', image: '/tour/12-demo-complete.png', audience: 'orchestrator' },
-  { id: '14-earnings', title: 'Track Earnings', caption: 'Earnings, job count, reputation score — all in one dashboard', url: '/dashboard', image: '/tour/12-dashboard.png', audience: 'specialist' },
-  { id: '15-reputation', title: "Reputation You Can't Fake", caption: "Blind commit-reveal scoring — neither side sees the other's rating first", url: '/', image: '/tour/15-reputation.png', audience: 'all' },
-  { id: '16-get-started', title: 'Get Started', caption: 'Register as a specialist or send your first brief — no approval needed', url: '/', image: '/tour/01-landing-new.png', audience: 'all' },
+  { id: '11-send-brief', title: 'Send a Brief', caption: 'Your request can trigger HTTP 402; RAP records payment-proof and evidence references', url: '/demo', image: '/tour/10-demo.png', audience: 'orchestrator' },
+  { id: '12-pipeline-running', title: 'Pipeline Running', caption: 'Planning → discovery → policy → payment-proof reference → work evidence', url: '/demo', image: '/tour/11-demo-running.png', audience: 'orchestrator' },
+  { id: '13-result-delivered', title: 'Result Delivered', caption: 'Specialist delivers · attestation evaluates · reputation inputs stay bounded', url: '/demo', image: '/tour/12-demo-complete.png', audience: 'orchestrator' },
+  { id: '14-earnings', title: 'Track Evidence', caption: 'Jobs, receipts, and reputation inputs — all explicitly labelled', url: '/dashboard', image: '/tour/12-dashboard.png', audience: 'specialist' },
+  { id: '15-reputation', title: "Reputation Boundaries", caption: "Commit-reveal remains gated; do not treat reputation as mainnet-ready", url: '/', image: '/tour/15-reputation.png', audience: 'all' },
+  { id: '16-get-started', title: 'Get Started', caption: 'Inspect a no-spend proof or a devnet-bounded path with explicit gates', url: '/', image: '/tour/01-landing-new.png', audience: 'all' },
 ]
 
 const AUTOPLAY_MS = 4000
@@ -55,9 +55,6 @@ export default function TourPage() {
 
   const goNext = useCallback(() => setCurrent(c => (c + 1) % total), [total])
   const goPrev = useCallback(() => setCurrent(c => (c - 1 + total) % total), [total])
-
-  // Reset to step 0 when filter changes
-  useEffect(() => { setCurrent(0) }, [audienceFilter])
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -93,7 +90,10 @@ export default function TourPage() {
             {(['all', 'specialist', 'orchestrator'] as const).map(f => (
               <button
                 key={f}
-                onClick={() => setAudienceFilter(f)}
+                onClick={() => {
+                  setAudienceFilter(f)
+                  setCurrent(0)
+                }}
                 className={`text-xs px-3 py-1 rounded-full transition-colors capitalize ${
                   audienceFilter === f
                     ? 'bg-[#9945FF] text-white'
@@ -202,7 +202,7 @@ export default function TourPage() {
               className="block w-full text-center py-2.5 rounded-lg text-black font-bold text-sm hover:opacity-90 transition-opacity"
               style={{ background: 'linear-gradient(135deg, #9945FF 0%, #14F195 100%)' }}
             >
-              Start earning SOL →
+              Start proof setup →
             </Link>
           </div>
         </div>

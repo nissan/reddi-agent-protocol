@@ -1,5 +1,7 @@
 # Pitch Collateral — Why Specialist Agents Still Matter
 
+> **Superseded by RAP Assurance claim remediation.** This historical pitch note is not current public copy. Use `docs/PUBLIC-CLAIM-BOUNDARY.md`: payments prove transfer; RAP Assurance proves paid work.
+
 Source video: **“Andrej Karpathy on one of AI's weirdest flaws: the car wash problem”** — Sequoia Capital, 2:22  
 URL: https://www.youtube.com/watch?v=dbg39yrHT9s
 
@@ -40,12 +42,12 @@ Raw general-purpose LLMs are powerful but inconsistent. They can be brilliant in
 
 ### Reddi Agent Protocol framing
 
-Reddi Agent Protocol turns jagged model capability into an **agent marketplace with verifiable specialization**:
+Reddi Agent Protocol should now be framed as **RAP Assurance for paid specialist work**, not a broad marketplace claim:
 
 - specialist profiles expose which jobs an agent is meant to perform;
-- payment gates turn work into explicit economic transactions;
-- attestations and reputation create post-job accountability;
-- Quasar/Solana program evidence anchors the workflow beyond a chat transcript;
+- payment gates expose payment-proof references without proving work quality by themselves;
+- attestations and reputation inputs create post-job evidence for review;
+- Solana/Quasar material is reference or explicitly bounded evidence, not mainnet/live production proof;
 - fallback boundaries are labelled honestly so demos do not overclaim.
 
 ### Why specialist agents beat “just call GPT-5”
@@ -60,7 +62,7 @@ A specialist agent is not merely a smaller prompt around a big model. It is a pa
 
 ## Malatang analogy
 
-We are experimenting with **Malatang** as an analogy, not as the product name. The idea: users choose the ingredients they need, the system assembles them into a coherent bowl, and the value comes from composability plus a repeatable preparation layer. In Reddi Agent Protocol terms, specialist agents are the ingredients, `reddi-x402` is the payment-gated ordering/checkout rail, and attestations/reputation are the receipt and quality memory.
+We are experimenting with **Malatang** as an analogy, not as the product name. The idea: users choose the ingredients they need, the system assembles them into a coherent bowl, and the value comes from composability plus a repeatable preparation layer. In Reddi Agent Protocol terms, specialist agents are the ingredients, x402-style rails can prove transfer/payment intent, and RAP Assurance provides the receipt/evidence/replay layer that records whether paid work met the agreed terms.
 
 For now, do not rename the product to Malatang. Use it only as a way to explain how specialist-agent composition works.
 
@@ -74,7 +76,7 @@ For now, do not rename the product to Malatang. Use it only as a way to explain 
 
 ### Short deck paragraph
 
-Frontier models can be brilliant in one domain and unreliable in the next because their strengths reflect opaque training distributions and lab priorities. Reddi Agent Protocol wraps LLM capability in specialist agents with task-specific tools, payment gates, attestations, and on-chain reputation — turning unpredictable model output into accountable economic work.
+Frontier models can be brilliant in one domain and unreliable in the next because their strengths reflect opaque training distributions and lab priorities. RAP Assurance wraps paid specialist work with terms, payment-proof references, evidence, attestations, replay, and bounded reputation inputs — turning unpredictable model output into inspectable paid-work records.
 
 ### Founder narration
 
@@ -94,7 +96,7 @@ Suggested sequence:
 2. But capability is jagged and opaque.
 3. Work needs specialization, routing, and verification.
 4. The Economic Singularity / agent-commerce thesis explains why those specialists also need payment rails: agents increasingly buy APIs, services, data, tools, and other agent work.
-5. Reddi Agent Protocol provides the economic protocol for specialist agents, with `reddi-x402` as the key user package for x402 payment-gated agent work.
+5. Reddi Agent Protocol provides RAP Assurance for specialist work, with x402/Solana helpers as adapter primitives rather than payment-facilitator or marketplace claims.
 
 Companion macro framing: `docs/PITCH-ECONOMIC-SINGULARITY-AGENT-COMMERCE-2026-05-08.md`.
 
@@ -104,7 +106,7 @@ Use:
 
 - “Inspired by Karpathy’s jagged capability framing.”
 - “General-purpose models still need domain scaffolding and verification.”
-- “Reddi Agent Protocol provides a protocol layer for routed, paid, attestable specialist work, packaged for users through `reddi-x402`.”
+- “Reddi Agent Protocol provides RAP Assurance for routed, paid, attestable specialist work; payment rails prove transfer, RAP records what the paid work proves.”
 
 Avoid:
 

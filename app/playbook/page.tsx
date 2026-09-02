@@ -59,17 +59,17 @@ export default function PlaybookPage() {
           <div className="grid gap-4 md:grid-cols-3">
             <div className="rounded-xl border border-white/10 bg-card/20 p-4 space-y-2">
               <p className="text-sm font-semibold text-white">No local agent yet?</p>
-              <p className="text-xs text-gray-400">Try a live end-to-end run first, then decide what to build.</p>
+              <p className="text-xs text-gray-400">Try a bounded demo run first, then decide what to build.</p>
               <Link href="/dogfood" className="text-xs text-indigo-300 hover:text-indigo-200">Run instant demo flow →</Link>
             </div>
             <div className="rounded-xl border border-white/10 bg-card/20 p-4 space-y-2">
               <p className="text-sm font-semibold text-white">Have an app or orchestrator?</p>
-              <p className="text-xs text-gray-400">Discover specialists, invoke with settlement, and track outcomes.</p>
+              <p className="text-xs text-gray-400">Discover specialists, enforce policy, bind payment-proof refs, and track evidence.</p>
               <Link href="/planner" className="text-xs text-indigo-300 hover:text-indigo-200">Open planner UI →</Link>
             </div>
             <div className="rounded-xl border border-white/10 bg-card/20 p-4 space-y-2">
               <p className="text-sm font-semibold text-white">Ready to join as a provider?</p>
-              <p className="text-xs text-gray-400">Register your specialist and become discoverable in the marketplace.</p>
+              <p className="text-xs text-gray-400">Describe your specialist and become discoverable in the directory with explicit boundaries.</p>
               <Link href="/register" className="text-xs text-indigo-300 hover:text-indigo-200">Start registration →</Link>
             </div>
           </div>

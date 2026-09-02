@@ -1,5 +1,7 @@
 # Bounty Gap Closure Plan — 2026-05-08
 
+> **Superseded by RAP Assurance claim remediation.** This hackathon plan is historical and must not be used for current public claims. Use `docs/PUBLIC-CLAIM-BOUNDARY.md`: payments prove transfer; RAP Assurance proves paid work. Quasar, MagicBlock, AUDD, marketplace, production, and mainnet claims below are archived context unless re-proven by current shipped behavior.
+
 ## Purpose
 
 Build a fair, claim-safe plan to close the remaining hackathon bounty gaps for Reddi Agent Protocol before final recording/submission.
@@ -10,7 +12,7 @@ Current clean baseline: `main` at `338b6906` (`docs: refresh final readiness sta
 
 We are close to a strong, defensible submission, but the remaining work is not evenly distributed.
 
-- **Quasar:** strong / submission-ready. Final demo-critical on-chain path is Quasar-native and guarded.
+- **Quasar:** historical hackathon assessment only. Current `config/quasar/deployments.json` blocks the recorded devnet deployment (`submissionReady: false`).
 - **MagicBlock:** strong for the bounded Quasar-owned AgentVault route. Do not claim arbitrary-wallet/private payee settlement.
 - **Pay.sh / `reddi-x402`:** strong for single-charge sandbox compatibility. Do not claim session/split settlement.
 - **Umbra:** strong adapter + devnet encrypted-balance evidence; receiver-claimable UTXO devnet-only evidence is being aligned into the closure PR and may be featured with strict devnet-only boundaries.
@@ -27,8 +29,10 @@ What we have:
 - Quasar Registry, Escrow, Reputation, and Attestation program IDs are documented in `STATUS.md`.
 - Critical success and submission guards exist.
 
-Safe claim:
+Historical safe claim at the time:
 - “Reddi Agent Protocol demonstrates a Quasar-native agent marketplace flow across registration, escrow/payment, reputation, and attestation.”
+
+Current public copy must instead say that Quasar is local/blocked reference evidence unless a new deployment and review supersede `config/quasar/deployments.json`.
 
 Remaining gap:
 - None for a fair submission. Only keep the final recording on the documented Quasar path and rerun gates.

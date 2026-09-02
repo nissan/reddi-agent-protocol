@@ -11,7 +11,7 @@ const phases = [
 
 const screenshots = [
   { src: "/whitepaper/landing-overview.png", title: "Landing overview", route: "/" },
-  { src: "/whitepaper/marketplace-discovery.png", title: "Marketplace discovery", route: "/agents" },
+  { src: "/whitepaper/marketplace-discovery.png", title: "Directory discovery", route: "/agents" },
   { src: "/whitepaper/planner-consumption.png", title: "Planner consumption", route: "/planner" },
   { src: "/whitepaper/register-onboarding.png", title: "Register onboarding", route: "/register" },
   { src: "/whitepaper/dogfood-operator-ui.png", title: "Dogfood operator UI", route: "/dogfood" },
@@ -25,8 +25,8 @@ export default function WhitepaperPage() {
           <p className="section-label">Protocol Documentation</p>
           <h1 className="font-display text-4xl sm:text-5xl font-bold">Reddi Agent Protocol Whitepaper</h1>
           <p className="max-w-3xl text-gray-300">
-            A phased documentation program covering system model, economics, threat posture, and evidence-backed
-            product flows.
+            Candidate documentation for RAP Assurance: payments prove transfer; RAP Assurance proves paid work.
+            Current claims are local/offline or explicitly devnet-bounded, not production or mainnet readiness.
           </p>
           <div className="flex flex-wrap gap-3">
             <Link href="https://github.com/nissan/reddi-agent-protocol/blob/main/docs/whitepaper/WHITEPAPER-v1.md" className="rounded-lg bg-white text-black px-4 py-2 text-sm font-medium">
@@ -71,7 +71,7 @@ export default function WhitepaperPage() {
 
         <section className="space-y-4">
           <h2 className="font-display text-2xl font-semibold">Evidence screenshots</h2>
-          <p className="text-sm text-gray-300">Initial screenshot pack used for technical claims and protocol walkthroughs.</p>
+          <p className="text-sm text-gray-300">Initial screenshot pack used for bounded technical walkthroughs; screenshots are not production-readiness evidence.</p>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {screenshots.map((shot) => (
               <figure key={shot.src} className="rounded-xl border border-white/10 bg-card/40 overflow-hidden">
@@ -91,7 +91,7 @@ export default function WhitepaperPage() {
           <ul className="list-disc pl-5 text-sm text-gray-300 space-y-1">
             <li>Run final technical review pass and sign-off on claim wording.</li>
             <li>Attach dated benchmark result snapshots to Appendix B.</li>
-            <li>Tag whitepaper release version and publish announcement.</li>
+            <li>Keep any release announcement gated on current evidence, not roadmap intent.</li>
           </ul>
         </section>
       </div>

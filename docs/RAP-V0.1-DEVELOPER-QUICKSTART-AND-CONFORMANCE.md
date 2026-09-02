@@ -2,7 +2,7 @@
 
 Issue: [#353](https://github.com/nissan/reddi-agent-protocol/issues/353) (parent epic: #355 — OSS developer release and conformance readiness)
 
-This is the single public entry point for an external developer adopting `@reddi/agent-protocol` v0.1. It ties together the quickstart, the example specialist workflow, the consolidated conformance suite, the fixture coverage matrix, and the OSS-vs-hosted boundary docs. Everything here is local, offline, deterministic, and no-spend: no hosted services, no wallet, no RPC, no secrets, no live payment.
+This is the single public entry point for an external developer adopting `@reddi/agent-protocol` v0.1. Payments prove transfer; RAP Assurance proves paid work. This guide ties together the quickstart, the example specialist workflow, the consolidated conformance suite, the fixture coverage matrix, and the OSS-vs-hosted boundary docs. Everything here is local, offline, deterministic, and no-spend: no hosted services, no wallet, no RPC, no secrets, no live payment.
 
 ## 1. Quickstart: install to running proof in under five minutes
 
@@ -81,7 +81,7 @@ These boundaries are normative and documented once — do not restate them elsew
 - [Discover/Decide/Prove Boundaries](./DISCOVER-DECIDE-PROVE-BOUNDARIES.md) (#452) — lane boundaries between OSS, hosted, and Quasar surfaces; discovery relevance is never trust, budget, payment, or publication approval.
 - [RAP v0.1 Release Checklist](./RAP-V0.1-RELEASE-CHECKLIST.md) §8 (OSS/self-hosted release scope) and §9 (hosted marketplace/facilitator path, explicitly out of v0.1 launch scope).
 
-Summary for adopters: everything in §1–§4 works from a clean checkout with no hosted dependency. Hosted catalog/search, facilitators, live payment, custody, and settlement-finality claims are out of v0.1 scope and mechanically excluded from package text by the claim-boundary scan.
+Summary for adopters: everything in §1–§4 works from a clean checkout with no hosted dependency. Hosted catalog/search, facilitators, live payment, custody, production marketplace, runtime, and settlement-finality claims are out of v0.1 scope and mechanically excluded from package text by the claim-boundary scan.
 
 ## 6. Full local verification path
 

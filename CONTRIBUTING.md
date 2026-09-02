@@ -1,6 +1,6 @@
 # Contributing to Reddi Agent Protocol
 
-Reddi Agent Protocol is open-source-first protocol infrastructure for paid agent work. Contributions should improve the local protocol, SDKs, conformance checks, adapters, documentation, or governance without making the OSS core depend on a hosted Reddi service.
+Reddi Agent Protocol is open-source-first protocol infrastructure for RAP Assurance: payments prove transfer; RAP Assurance proves paid work. Contributions should improve the local protocol, SDKs, conformance checks, adapters, documentation, or governance without making the OSS core depend on a hosted Reddi service or making unproven payment, custody, marketplace, runtime, production, or mainnet claims.
 
 ## Project Boundary
 
@@ -9,10 +9,10 @@ The OSS core includes:
 - Protocol schemas for quote, policy, receipt, attestation, disclosure, settlement, and reputation flows.
 - Local SDKs, middleware, MCP bridge packages, and framework adapters.
 - Conformance tests, BDD scenarios, example specialists, and local evidence archives.
-- Solana/devnet/localnet reference implementations and optional settlement/source adapters.
+- Solana/devnet/localnet reference implementations and optional payment/source adapters with explicit live-spend gates.
 - Documentation needed to run, test, inspect, and extend the core locally.
 
-Optional hosted Reddi services may exist later for convenience, operations, or monetization. They are not required to use the OSS core. Do not add a core dependency on private dashboards, hosted registries, managed relays, proprietary marketplaces, private deployment URLs, or paid provider credentials.
+Optional hosted Redditech services may exist later for convenience, operations, or monetization. They are not required to use the OSS core and should be described as future/optional unless an approved release says otherwise. Do not add a core dependency on private dashboards, hosted registries, managed relays, proprietary marketplaces, private deployment URLs, or paid provider credentials.
 
 ## How to Contribute
 

@@ -257,7 +257,7 @@ export default function DemoPage() {
             <textarea
               value={brief}
               onChange={(e) => setBrief(e.target.value)}
-              placeholder="e.g. A landing page for a Solana-native AI agent marketplace targeting developers"
+              placeholder="e.g. A landing page for a paid-work assurance demo targeting developers"
               rows={4}
               className="w-full rounded-xl border border-white/10 bg-card/30 p-3 text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-1 focus:ring-[#9945FF]/60"
             />

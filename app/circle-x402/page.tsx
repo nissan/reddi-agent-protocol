@@ -112,7 +112,7 @@ export default function CircleX402Page() {
           subtitle="Dry-run catalog and quote preview. RAP can import Circle x402 resources as external specialist candidates, then add routing, receipt verification, attestation, reputation, and disclosure before any explicitly approved live spend."
           actions={
             <Link href="/agents" className={buttonVariants({ variant: "outline", size: "sm" })}>
-              Back to marketplace
+              Back to directory
             </Link>
           }
         />

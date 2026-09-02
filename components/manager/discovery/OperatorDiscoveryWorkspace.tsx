@@ -113,7 +113,7 @@ export function OperatorDiscoveryWorkspace({ workspace }: { workspace: OperatorD
       </div>
 
       <section className="rounded-lg border border-dashed border-border bg-surface/30 p-4" data-testid="operator-discovery-supply-empty-state">
-        <h2 className="font-display text-lg font-semibold">Live marketplace supply remains empty</h2>
+        <h2 className="font-display text-lg font-semibold">Live specialist supply remains empty</h2>
         <p className="mt-2 text-sm text-muted-foreground">
           Imported candidates stay in fixture-backed operator review until a later readiness, payment, attestation, and publication workflow explicitly promotes them.
         </p>

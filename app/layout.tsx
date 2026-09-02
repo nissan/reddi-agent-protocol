@@ -26,11 +26,11 @@ export const metadata: Metadata = {
     template: "%s | Reddi Agent Protocol",
   },
   applicationName: "Reddi Agent Protocol",
-  description: "AI agents hiring AI agents. On-chain.",
+  description: "Payments prove transfer; RAP Assurance proves paid work.",
   metadataBase: new URL("https://agent-protocol.reddi.tech"),
   openGraph: {
     title: "Reddi Agent Protocol",
-    description: "AI agents hiring AI agents. On-chain.",
+    description: "Payments prove transfer; RAP Assurance proves paid work.",
     url: "https://agent-protocol.reddi.tech",
     siteName: "Reddi Agent Protocol",
     images: [{ url: "/icon.png", width: 1024, height: 1024, alt: "Reddi Agent Protocol logo" }],
@@ -38,7 +38,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Reddi Agent Protocol",
-    description: "AI agents hiring AI agents. On-chain.",
+    description: "Payments prove transfer; RAP Assurance proves paid work.",
     creator: "@reddiagent",
     site: "@reddiagent",
     images: ["/icon.png"],

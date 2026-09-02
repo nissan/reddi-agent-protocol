@@ -1,12 +1,14 @@
 # @reddi/x402-solana
 
-HTTP 402 payment primitives for Solana-oriented RAP workflows.
+HTTP 402 proof-reference primitives for Solana-oriented RAP Assurance workflows.
 
-This package is currently a repo-local v0.1 OSS candidate. It is not yet published on npm, and it should not be treated as production payment, custody, escrow-finality, or mainnet infrastructure.
+> Payments prove transfer; RAP Assurance proves paid work.
+
+This package is currently a repo-local v0.1 OSS candidate. It is not yet published on npm, and it should not be treated as production payment, custody, escrow-finality, settlement-finality, or mainnet infrastructure.
 
 ## Overview
 
-**x402** is an HTTP status code indicating that payment is required. This package implements local parsing, policy, middleware, demo receipt, and gated devnet-helper primitives for Solana/x402 workflows.
+**x402** is an HTTP status code indicating that payment is required. This package implements local parsing, policy, middleware, demo receipt, and gated devnet-helper primitives for Solana/x402 workflows. RAP consumers should treat verified payment proof as transfer evidence, then bind it to work evidence through RAP receipts.
 
 ### Core Features
 

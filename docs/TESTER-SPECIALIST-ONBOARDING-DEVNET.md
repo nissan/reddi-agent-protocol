@@ -106,7 +106,7 @@ const server = http.createServer(async (req, res) => {
         index: 0,
         message: {
           role: "assistant",
-          content: "pong\nred agents trade with trust\nsolana settles quickly\nproof beats promises",
+          content: "pong\npayments prove transfer\nproof binds paid work\nreceipts beat promises",
         },
         finish_reason: "stop",
       }],

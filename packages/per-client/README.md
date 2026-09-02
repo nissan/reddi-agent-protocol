@@ -1,8 +1,8 @@
 # @reddi/per-client
 
-MagicBlock PER (Private Ephemeral Rollup) delegation client for the Reddi Agent Protocol.
+MagicBlock PER (Private Ephemeral Rollup) delegation evidence client for the Reddi Agent Protocol.
 
-This package is repo-local evidence tooling. It is not a mainnet deployment, production custody guarantee, or broad private-payee settlement claim.
+This package is repo-local evidence tooling for bounded RAP Assurance experiments. It is not a mainnet deployment, production custody guarantee, privacy guarantee, or broad private-payee settlement claim.
 
 ## Why TypeScript?
 
@@ -16,7 +16,7 @@ import { delegateEscrow, releaseEscrowViaPer, releaseEscrowFallback } from "@red
 // 1. Delegate escrow to PER
 const session = await delegateEscrow(escrowPda, payerKeypair, connection);
 
-// 2. Release via TEE (selected-cluster PER path; hidden from public mempool while in-flight)
+// 2. Release via TEE in an approved experiment (selected-cluster PER path; not a production privacy claim)
 const sig = await releaseEscrowViaPer(programId, escrowPda, payee, payerKeypair, session, connection);
 
 // 3. Poll for TEE confirmation (see note below)
