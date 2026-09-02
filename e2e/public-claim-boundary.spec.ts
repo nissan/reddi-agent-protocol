@@ -36,11 +36,10 @@ test.describe("public-claim boundary (rendered copy)", () => {
 
       const violations: string[] = [];
       for (const line of rendered.split(/\r?\n/)) {
-        if (claimIsQualified(line)) continue;
         for (const claim of FORBIDDEN_PUBLIC_CLAIMS) {
-          if (claim.pattern.test(line)) {
-            violations.push(`[${claim.id}] ${claim.reason} :: ${line.trim()}`);
-          }
+          if (!claim.pattern.test(line)) continue;
+          if (claimIsQualified(line, claim)) continue;
+          violations.push(`[${claim.id}] ${claim.reason} :: ${line.trim()}`);
         }
       }
 
@@ -58,7 +57,7 @@ test.describe("public-claim boundary (rendered copy)", () => {
         `injection example for ${claim.id} must be caught by its own pattern`,
       ).toBe(true);
       expect(
-        claimIsQualified(claim.injectionExample),
+        claimIsQualified(claim.injectionExample, claim),
         `injection example for ${claim.id} must not be suppressed as a qualified claim`,
       ).toBe(false);
     }

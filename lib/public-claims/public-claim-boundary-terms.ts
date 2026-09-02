@@ -93,11 +93,11 @@ export const FORBIDDEN_PUBLIC_CLAIMS: ForbiddenPublicClaim[] = [
 ];
 
 /**
- * Same-line qualifiers that turn a pattern hit into a stated boundary rather
- * than a claim. Deliberately narrow and evaluated only against the matched
- * line: words the remediation sprinkles everywhere ("planned", "fixture",
- * "boundary", "historical") are NOT qualifiers, because treating them as such
- * suppresses genuine affirmative claims that merely sit near boundary prose.
+ * Qualifiers that turn a pattern hit into a stated boundary rather than a
+ * claim. Deliberately narrow, and evaluated only against the clause the match
+ * sits in: words the remediation sprinkles everywhere ("planned", "fixture",
+ * "boundary", "historical") are NOT qualifiers, and a negation elsewhere on
+ * the line does not excuse an affirmative claim made in its own clause.
  */
 export const CLAIM_QUALIFIER_PATTERNS: RegExp[] = [
   /\bnot\b/i,
@@ -112,6 +112,7 @@ export const CLAIM_QUALIFIER_PATTERNS: RegExp[] = [
   /\brefused\b/i,
   /\bgated\b/i,
   /\bout of scope\b/i,
+  /\boutside\b/i,
   /\bnon-?claims?\b/i,
 ];
 
@@ -122,9 +123,48 @@ export const CLAIM_QUALIFIER_PATTERNS: RegExp[] = [
 export const PROHIBITION_HEADING_PATTERN =
   /^#{1,6}\s.*\b(?:must not|do not|does not|is not|are not|not yet|non-?claims?|not claim(?:ed|ing)?|out of scope|prohibited|forbidden|never claim)\b/i;
 
-/** True when a matched line states the claim as a boundary rather than asserting it. */
-export function claimIsQualified(line: string): boolean {
-  return CLAIM_QUALIFIER_PATTERNS.some((pattern) => pattern.test(line));
+/**
+ * Separators that end a clause. Sentence terminators require trailing space so
+ * `0.05%`, `5/7/5`, and `deployments.json` do not split a clause apart.
+ */
+const CLAUSE_SEPARATOR = /[.!?](?=\s|$)|[;|]|—|–/g;
+
+/** The span of text covering every clause the match overlaps. */
+function clauseWindow(line: string, start: number, end: number): string {
+  const boundaries = [0];
+  CLAUSE_SEPARATOR.lastIndex = 0;
+  let separator: RegExpExecArray | null;
+  while ((separator = CLAUSE_SEPARATOR.exec(line)) !== null) {
+    boundaries.push(separator.index + separator[0].length);
+  }
+  boundaries.push(line.length);
+
+  let from = 0;
+  for (const boundary of boundaries) {
+    if (boundary > start) break;
+    from = boundary;
+  }
+  let to = line.length;
+  for (const boundary of boundaries) {
+    if (boundary >= end) {
+      to = boundary;
+      break;
+    }
+  }
+  return line.slice(from, to);
+}
+
+/**
+ * True when the clause asserting the claim also states its boundary. Scoped to
+ * the matched clause so an unrelated "no"/"not" elsewhere on the line — such as
+ * "no wallet required" trailing a marketplace-rail claim — cannot suppress it.
+ */
+export function claimIsQualified(line: string, claim: ForbiddenPublicClaim): boolean {
+  claim.pattern.lastIndex = 0;
+  const match = claim.pattern.exec(line);
+  if (!match) return false;
+  const window = clauseWindow(line, match.index, match.index + match[0].length);
+  return CLAIM_QUALIFIER_PATTERNS.some((pattern) => pattern.test(window));
 }
 
 export type PublicClaimDomRoute = {

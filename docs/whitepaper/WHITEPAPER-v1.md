@@ -68,7 +68,7 @@ Current repository evidence includes:
 
 ### 5.1 Dogfood trust harness
 
-The repository ships a dogfood harness that exercises acceptance logic under injected failure: a testing specialist answering `ping -> pong + haiku` (`packages/testing-specialists`), deterministic failure injection, an independent attestor checking for `pong` and 5/7/5 structure, and a consumer run that decides accept vs reject from the attestor verdict (`/dogfood`, `app/api/dogfood/*`).
+The repository ships a dogfood harness that exercises acceptance logic under injected failure: a testing specialist answering `ping -> pong + haiku` (`app/api/dogfood/testing-specialist`), an independent attestor checking for `pong` and 5/7/5 structure, and a consumer run that decides accept vs reject from the attestor verdict (`/dogfood`, `app/api/dogfood/*`). The specialist injects failure randomly on about one call in four; a `force: "pass" | "fail"` request field makes either outcome deterministic for repeatable runs.
 
 It demonstrates that acceptance logic rejects malformed output and withholds approval on failed attestation. The decision it records is an application-level accept/reject over evidence; it is not fund custody, on-chain settlement, or a settlement-finality claim.
 

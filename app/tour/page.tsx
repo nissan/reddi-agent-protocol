@@ -14,12 +14,14 @@ interface TourStep {
   url: string
   image: string
   audience: Audience
+  /** Committed screenshot predates the public-claim remediation of the page it shows. */
+  imageStale?: true
 }
 
 const TOUR_STEPS: TourStep[] = [
-  { id: '01-landing-new', title: 'Welcome', caption: 'Payments prove transfer; RAP Assurance proves paid work', url: '/', image: '/tour/01-landing-new.png', audience: 'all' },
-  { id: '02-two-paths', title: 'Two Paths', caption: 'Offer compute as a specialist. Or hire specialists as an orchestrator.', url: '/', image: '/tour/01-landing-new.png', audience: 'all' },
-  { id: '03-economics', title: 'The Economics Boundary', caption: 'No deployed treasury fee; 0.05% / 5 bps remains planned fixture economics only.', url: '/', image: '/tour/02-economics.png', audience: 'all' },
+  { id: '01-landing-new', title: 'Welcome', caption: 'Payments prove transfer; RAP Assurance proves paid work', url: '/', image: '/tour/01-landing-new.png', audience: 'all', imageStale: true },
+  { id: '02-two-paths', title: 'Two Paths', caption: 'Offer compute as a specialist. Or hire specialists as an orchestrator.', url: '/', image: '/tour/01-landing-new.png', audience: 'all', imageStale: true },
+  { id: '03-economics', title: 'The Economics Boundary', caption: 'No deployed treasury fee; 0.05% / 5 bps remains planned fixture economics only.', url: '/', image: '/tour/02-economics.png', audience: 'all', imageStale: true },
   { id: '04-marketplace', title: 'The Directory', caption: 'Specialist metadata and evidence boundaries before any paid-work claim', url: '/agents', image: '/tour/03-agents-seeded.png', audience: 'all' },
   { id: '05-connect-ollama', title: 'Connect Your Ollama', caption: 'Enter your public endpoint — ngrok (recommended) or localtunnel', url: '/setup', image: '/tour/04-setup-connect.png', audience: 'specialist' },
   { id: '06-configure-tools', title: 'Configure Tools', caption: 'Add functions your agent can call — preview the exact Ollama JSON', url: '/setup', image: '/tour/05-setup-tools.png', audience: 'specialist' },
@@ -32,7 +34,7 @@ const TOUR_STEPS: TourStep[] = [
   { id: '13-result-delivered', title: 'Result Delivered', caption: 'Specialist delivers · attestation evaluates · reputation inputs stay bounded', url: '/demo', image: '/tour/12-demo-complete.png', audience: 'orchestrator' },
   { id: '14-earnings', title: 'Track Evidence', caption: 'Jobs, receipts, and reputation inputs — all explicitly labelled', url: '/dashboard', image: '/tour/12-dashboard.png', audience: 'specialist' },
   { id: '15-reputation', title: "Reputation Boundaries", caption: "Commit-reveal remains gated; do not treat reputation as mainnet-ready", url: '/', image: '/tour/15-reputation.png', audience: 'all' },
-  { id: '16-get-started', title: 'Get Started', caption: 'Inspect a no-spend proof or a devnet-bounded path with explicit gates', url: '/', image: '/tour/01-landing-new.png', audience: 'all' },
+  { id: '16-get-started', title: 'Get Started', caption: 'Inspect a no-spend proof or a devnet-bounded path with explicit gates', url: '/', image: '/tour/01-landing-new.png', audience: 'all', imageStale: true },
 ]
 
 const AUTOPLAY_MS = 4000
@@ -141,9 +143,15 @@ export default function TourPage() {
           </button>
 
           <div className="relative w-full max-w-4xl rounded-xl overflow-hidden border border-white/10 shadow-2xl" style={{ aspectRatio: '1280/800' }}>
-            {imgErrors.has(step.id) ? (
-              <div className="w-full h-full bg-[#1a1a2e] flex items-center justify-center">
+            {step.imageStale || imgErrors.has(step.id) ? (
+              <div className="w-full h-full bg-[#1a1a2e] flex flex-col items-center justify-center gap-2 px-8 text-center">
                 <span className="text-white/30 text-xl">{step.title}</span>
+                {step.imageStale && (
+                  <span className="max-w-md text-xs leading-relaxed text-white/25">
+                    Screenshot withheld: the committed capture predates this page&apos;s public-claim
+                    remediation and still shows retired escrow/marketplace copy. Open the live page below.
+                  </span>
+                )}
               </div>
             ) : (
               <Image

@@ -20,7 +20,7 @@ await page.waitForTimeout(2500);
 
 await page.getByText('Returned image proof').scrollIntoViewIfNeeded();
 await page.waitForTimeout(6000);
-await page.getByText('Wallet-backed Agent Protocol run').scrollIntoViewIfNeeded();
+await page.getByText('Wallet-authorized Agent Protocol run').scrollIntoViewIfNeeded();
 await page.waitForTimeout(5000);
 
 const observed = await page.evaluate(async () => {
@@ -36,7 +36,7 @@ if (observed.paymentLinks[0]) {
   await page.waitForTimeout(2500);
 }
 
-await page.getByText('MagicBlock PER privacy proof').scrollIntoViewIfNeeded();
+await page.getByText('MagicBlock PER reference proof').scrollIntoViewIfNeeded();
 await page.waitForTimeout(5000);
 const releaseUrl = observed.paymentLinks.find((url) => url.includes('2Hj5pFtu')) ?? observed.paymentLinks[6];
 if (releaseUrl) {

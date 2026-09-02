@@ -104,7 +104,7 @@ function scanClaims(rel, text) {
     if (/^#{1,6}\s/.test(line)) underProhibitionHeading = PROHIBITION_HEADING_PATTERN.test(line);
     for (const claim of FORBIDDEN_PUBLIC_CLAIMS) {
       if (!claim.pattern.test(line)) continue;
-      if (claimIsQualified(line) || underProhibitionHeading) continue;
+      if (claimIsQualified(line, claim) || underProhibitionHeading) continue;
       failures.push(`${rel}:${index + 1}: [${claim.id}] ${claim.reason} :: ${line.trim()}`);
     }
   });
@@ -163,7 +163,7 @@ for (const rel of packageManifestFiles) {
     failures.push(`${rel}: package description should identify the RAP Assurance / Reddi Agent Protocol surface`);
   }
   for (const claim of FORBIDDEN_PUBLIC_CLAIMS) {
-    if (claim.pattern.test(description) && !claimIsQualified(description)) {
+    if (claim.pattern.test(description) && !claimIsQualified(description, claim)) {
       failures.push(`${rel}: [${claim.id}] ${claim.reason} :: ${description}`);
     }
   }
@@ -174,7 +174,7 @@ for (const rel of packageManifestFiles) {
 for (const claim of FORBIDDEN_PUBLIC_CLAIMS) {
   if (!claim.pattern.test(claim.injectionExample)) {
     failures.push(`self-test: [${claim.id}] injection example is not caught by its own pattern: ${claim.injectionExample}`);
-  } else if (claimIsQualified(claim.injectionExample)) {
+  } else if (claimIsQualified(claim.injectionExample, claim)) {
     failures.push(`self-test: [${claim.id}] injection example is suppressed by the qualifier list: ${claim.injectionExample}`);
   }
 }

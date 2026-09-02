@@ -368,7 +368,7 @@ console.log(diagnostics.capabilityMatch.scoreMeaning); // relevance_only_not_tru
 console.log(diagnostics.policyDecision.reasonCodes); // machine-readable allow/deny reasons
 ```
 
-Source-aware diagnostics expose separate lanes for capability match, discovery source, publisher identity, evidence claims, policy decision, payment fit, and reputation evidence. ARD and registry relevance scores are always labelled as relevance only; they are never collapsed into trust, policy, payment, or reputation approval.
+Source-aware diagnostics expose separate lanes, one per returned field: `capabilityMatch`, `discoverySource`, `publisherIdentity`, `trustEvidence` (the evidence a trust claim would rest on, not a trust verdict), `policyDecision`, `paymentFit`, and `reputationEvidence`. ARD and registry relevance scores are always labelled as relevance only; they are never collapsed into trust, policy, payment, or reputation approval.
 
 ## Source/Trust Conformance Matrix
 
