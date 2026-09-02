@@ -10,6 +10,7 @@ import { spawnSync } from "node:child_process";
 
 import {
   ACCEPTED_EVIDENCE_FILENAME,
+  ACCEPTED_EVIDENCE_LOCK_DIRNAME,
   ACCEPTED_EVIDENCE_MAX_AGE_MS,
   ACCEPTED_EVIDENCE_MAX_BYTES,
   EvidenceManifestError,
@@ -1342,9 +1343,11 @@ test("a receipt recording another source fingerprint algorithm is refused, not r
   });
 });
 
-// Durable publication is the only place a passing run may displace previously accepted evidence.
-// These inject the failures that can happen around the rename, because the outcome the runner
-// reports (previous receipt intact, restored, or unknown) is only correct if each one is handled.
+
+// Publication is the only place a passing run may displace previously accepted evidence, and it is
+// a read-modify-write over one directory entry. These exercise the protocol that makes it safe:
+// a single-writer lock, quarantine of an unusable prior entry, a rollback proven on a fresh
+// descriptor, and an indeterminate outcome that keeps consumers from citing anything.
 async function withPatchedFs(patches, run) {
   const originals = Object.fromEntries(Object.keys(patches).map((key) => [key, fs[key]]));
   Object.assign(fs, patches);
@@ -1355,17 +1358,44 @@ async function withPatchedFs(patches, run) {
   }
 }
 
-function failingDirectoryFsync(originalFsyncSync, { times = Number.POSITIVE_INFINITY } = {}) {
+function openedDirectoryPath(fd) {
+  try {
+    if (!fs.fstatSync(fd).isDirectory()) return null;
+    return fs.readlinkSync(`/proc/self/fd/${fd}`);
+  } catch {
+    return null;
+  }
+}
+
+// Fails the fsync of one specific directory, skipping the first `after` syncs of it (the lock's own
+// preflight sync) so only the syncs that decide publication durability are injected into.
+function failingDirectorySync(originalFsyncSync, directoryPath, { after = 1, times = 1 } = {}) {
+  const target = fs.realpathSync(directoryPath);
+  let seen = 0;
   let failed = 0;
   return function patchedFsyncSync(fd) {
-    if (failed < times && fs.fstatSync(fd).isDirectory()) {
-      failed += 1;
-      const error = new Error("EIO: simulated directory fsync failure");
-      error.code = "EIO";
-      throw error;
+    if (openedDirectoryPath(fd) === target) {
+      seen += 1;
+      if (seen > after && failed < times) {
+        failed += 1;
+        const error = new Error("EIO: simulated directory writeback failure");
+        error.code = "EIO";
+        throw error;
+      }
     }
     return originalFsyncSync.call(this, fd);
   };
+}
+
+function rejectedPublication(manifestDir, record, options = {}) {
+  return writeAcceptedEvidenceManifest(manifestDir, record, { lockWaitMs: 50, ...options }).then(
+    () => null,
+    (thrown) => thrown,
+  );
+}
+
+async function dotEntries(repoRoot, dir) {
+  return (await fsp.readdir(path.join(repoRoot, dir))).filter((entry) => entry.startsWith("."));
 }
 
 test("a failure before the rename leaves the previously accepted receipt in place", async () => {
@@ -1376,31 +1406,30 @@ test("a failure before the rename leaves the previously accepted receipt in plac
     const before = await fsp.readFile(path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME));
 
     const replacement = await seedRun(repoRoot, dir, "sdk-quasar-publish-second");
+    const manifestPath = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME);
     const originalRenameSync = fs.renameSync;
     const error = await withPatchedFs(
       {
-        renameSync() {
-          const failure = new Error("EXDEV: simulated rename failure");
-          failure.code = "EXDEV";
-          throw failure;
+        renameSync(from, to) {
+          if (path.resolve(String(to)) === manifestPath) {
+            const failure = new Error("EXDEV: simulated rename failure");
+            failure.code = "EXDEV";
+            throw failure;
+          }
+          return originalRenameSync.call(this, from, to);
         },
       },
-      () => writeAcceptedEvidenceManifest(path.join(repoRoot, dir), replacement).then(
-        () => null,
-        (thrown) => thrown,
-      ),
+      () => rejectedPublication(path.join(repoRoot, dir), replacement),
     );
-    assert.equal(fs.renameSync, originalRenameSync);
 
     assert.ok(error, "publication must fail when the rename cannot happen");
     assert.equal(error.publicationOutcome, "not-published");
-    assert.deepEqual(await fsp.readFile(path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME)), before);
+    assert.deepEqual(await fsp.readFile(manifestPath), before);
     assert.equal(
       readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary"] }).manifest.runId,
       accepted.runId,
     );
-    const leftovers = (await fsp.readdir(path.join(repoRoot, dir))).filter((entry) => entry.startsWith("."));
-    assert.deepEqual(leftovers, [], "no temp or rollback file may be left behind");
+    assert.deepEqual(await dotEntries(repoRoot, dir), [], "no lock, temp, or rollback entry may be left behind");
   });
 });
 
@@ -1413,11 +1442,8 @@ test("a directory sync failure after the rename restores the previously accepted
 
     const replacement = await seedRun(repoRoot, dir, "sdk-quasar-rollback-second");
     const error = await withPatchedFs(
-      { fsyncSync: failingDirectoryFsync(fs.fsyncSync, { times: 1 }) },
-      () => writeAcceptedEvidenceManifest(path.join(repoRoot, dir), replacement).then(
-        () => null,
-        (thrown) => thrown,
-      ),
+      { fsyncSync: failingDirectorySync(fs.fsyncSync, path.join(repoRoot, dir)) },
+      () => rejectedPublication(path.join(repoRoot, dir), replacement),
     );
 
     assert.ok(error, "an unsyncable directory must not be reported as a successful publication");
@@ -1431,8 +1457,54 @@ test("a directory sync failure after the rename restores the previously accepted
       readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary"] }).manifest.runId,
       accepted.runId,
     );
-    const leftovers = (await fsp.readdir(path.join(repoRoot, dir))).filter((entry) => entry.startsWith("."));
-    assert.deepEqual(leftovers, []);
+    assert.deepEqual(await dotEntries(repoRoot, dir), []);
+  });
+});
+
+test("the rollback's durability is proven on a descriptor opened after the failure, never the failed one", async () => {
+  // Linux reports a directory writeback error at most once per open file description, so re-syncing
+  // the descriptor that already reported one returns success while proving nothing.
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const accepted = await seedRun(repoRoot, dir, "sdk-quasar-fresh-fd-first");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), accepted);
+
+    const replacement = await seedRun(repoRoot, dir, "sdk-quasar-fresh-fd-second");
+    const evidenceDir = fs.realpathSync(path.join(repoRoot, dir));
+    const events = [];
+    const originalOpenSync = fs.openSync;
+    const originalFsyncSync = fs.fsyncSync;
+    const failing = failingDirectorySync(originalFsyncSync, path.join(repoRoot, dir));
+
+    const error = await withPatchedFs(
+      {
+        openSync(file, flags, mode) {
+          const fd = originalOpenSync.call(this, file, flags, mode);
+          if (openedDirectoryPath(fd) === evidenceDir) events.push({ op: "open", fd });
+          return fd;
+        },
+        fsyncSync(fd) {
+          const isEvidenceDir = openedDirectoryPath(fd) === evidenceDir;
+          try {
+            const result = failing.call(this, fd);
+            if (isEvidenceDir) events.push({ op: "fsync-ok", fd });
+            return result;
+          } catch (thrown) {
+            if (isEvidenceDir) events.push({ op: "fsync-failed", fd });
+            throw thrown;
+          }
+        },
+      },
+      () => rejectedPublication(path.join(repoRoot, dir), replacement),
+    );
+
+    assert.equal(error.publicationOutcome, "rolled-back");
+    const failedAt = events.findIndex((event) => event.op === "fsync-failed");
+    assert.ok(failedAt >= 0, "the regression must actually fail a directory sync");
+    const proofAt = events.findIndex((event, index) => index > failedAt && event.op === "fsync-ok");
+    assert.ok(proofAt > failedAt, "the rollback must be proven by a later successful sync");
+    const reopenedBetween = events.some((event, index) => index > failedAt && index < proofAt && event.op === "open");
+    assert.ok(reopenedBetween, "the rollback proof must come from a descriptor opened after the failure");
   });
 });
 
@@ -1442,22 +1514,18 @@ test("a directory sync failure with no previous receipt leaves no receipt at all
     const record = await seedRun(repoRoot, dir, "sdk-quasar-rollback-none");
 
     const error = await withPatchedFs(
-      { fsyncSync: failingDirectoryFsync(fs.fsyncSync, { times: 1 }) },
-      () => writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record).then(
-        () => null,
-        (thrown) => thrown,
-      ),
+      { fsyncSync: failingDirectorySync(fs.fsyncSync, path.join(repoRoot, dir)) },
+      () => rejectedPublication(path.join(repoRoot, dir), record),
     );
 
     assert.ok(error);
     assert.equal(error.publicationOutcome, "not-published");
     assert.equal(fs.existsSync(path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME)), false);
-    const leftovers = (await fsp.readdir(path.join(repoRoot, dir))).filter((entry) => entry.startsWith("."));
-    assert.deepEqual(leftovers, []);
+    assert.deepEqual(await dotEntries(repoRoot, dir), []);
   });
 });
 
-test("a rollback that cannot be proven durable reports an indeterminate publication", async () => {
+test("a rollback that cannot be proven durable reports indeterminate and locks consumers out", async () => {
   await withRepo(async (repoRoot) => {
     const dir = "artifacts/surfpool-quasar-smoke";
     const accepted = await seedRun(repoRoot, dir, "sdk-quasar-indeterminate-first");
@@ -1465,16 +1533,30 @@ test("a rollback that cannot be proven durable reports an indeterminate publicat
 
     const replacement = await seedRun(repoRoot, dir, "sdk-quasar-indeterminate-second");
     const error = await withPatchedFs(
-      { fsyncSync: failingDirectoryFsync(fs.fsyncSync) },
-      () => writeAcceptedEvidenceManifest(path.join(repoRoot, dir), replacement).then(
-        () => null,
-        (thrown) => thrown,
-      ),
+      { fsyncSync: failingDirectorySync(fs.fsyncSync, path.join(repoRoot, dir), { times: 2 }) },
+      () => rejectedPublication(path.join(repoRoot, dir), replacement),
     );
 
     assert.ok(error instanceof EvidencePublicationIndeterminateError);
     assert.equal(error.publicationOutcome, "indeterminate");
     assert.match(error.message, /must not be cited as accepted evidence/);
+
+    const lockDir = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_LOCK_DIRNAME);
+    assert.equal(fs.existsSync(lockDir), true, "the indeterminate marker must be retained");
+    const owner = JSON.parse(await fsp.readFile(path.join(lockDir, "owner.json"), "utf8"));
+    assert.equal(owner.state, "indeterminate");
+
+    assert.throws(
+      () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary"] }),
+      /not citable while a publication lock stands/,
+      "no consumer may cite a receipt whose on-disk state is unproven",
+    );
+
+    await assert.rejects(
+      rejectedPublication(path.join(repoRoot, dir), replacement).then((thrown) => { throw thrown; }),
+      /records an indeterminate publication/,
+      "an indeterminate marker is never reclaimed automatically",
+    );
   });
 });
 
@@ -1486,47 +1568,163 @@ test("a rollback whose rename fails keeps the previous receipt's exact bytes on 
     const before = await fsp.readFile(path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME));
 
     const replacement = await seedRun(repoRoot, dir, "sdk-quasar-rollback-rename-second");
+    const manifestPath = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME);
     const originalRenameSync = fs.renameSync;
-    let renames = 0;
+    let publishedOnce = false;
     const error = await withPatchedFs(
       {
-        fsyncSync: failingDirectoryFsync(fs.fsyncSync, { times: 1 }),
+        fsyncSync: failingDirectorySync(fs.fsyncSync, path.join(repoRoot, dir)),
         renameSync(from, to) {
-          renames += 1;
-          if (renames === 2) {
-            const failure = new Error("EIO: simulated rollback rename failure");
-            failure.code = "EIO";
-            throw failure;
+          if (path.resolve(String(to)) === manifestPath) {
+            if (publishedOnce) {
+              const failure = new Error("EIO: simulated rollback rename failure");
+              failure.code = "EIO";
+              throw failure;
+            }
+            publishedOnce = true;
           }
           return originalRenameSync.call(this, from, to);
         },
       },
-      () => writeAcceptedEvidenceManifest(path.join(repoRoot, dir), replacement).then(
-        () => null,
-        (thrown) => thrown,
-      ),
+      () => rejectedPublication(path.join(repoRoot, dir), replacement),
     );
 
     assert.ok(error instanceof EvidencePublicationIndeterminateError);
     assert.equal(error.publicationOutcome, "indeterminate");
-    const retained = (await fsp.readdir(path.join(repoRoot, dir))).filter((entry) => entry.endsWith(".rollback"));
+    const retained = (await dotEntries(repoRoot, dir)).filter((entry) => entry.endsWith(".rollback"));
     assert.equal(retained.length, 1, "the prior receipt's bytes must survive a failed rollback");
     assert.deepEqual(await fsp.readFile(path.join(repoRoot, dir, retained[0])), before);
   });
 });
 
-test("publishing refuses to replace an accepted receipt that is not an ordinary file", async () => {
+test("an unusable prior receipt is preserved for diagnosis instead of blocking every later run", async () => {
+  const plants = [
+    {
+      label: "symlink",
+      async plant(manifestPath) { await fsp.symlink(path.join(os.tmpdir(), "foreign-receipt.json"), manifestPath); },
+      assertPreserved: (stat) => assert.equal(stat.isSymbolicLink(), true),
+    },
+    {
+      label: "named pipe",
+      async plant(manifestPath) { return makeFifo(manifestPath) ? undefined : false; },
+      assertPreserved: (stat) => assert.equal(stat.isFIFO(), true),
+    },
+    {
+      label: "oversized file",
+      async plant(manifestPath) { await fsp.writeFile(manifestPath, Buffer.alloc(ACCEPTED_EVIDENCE_MAX_BYTES + 1, 0x7b)); },
+      assertPreserved: (stat) => assert.equal(stat.size, ACCEPTED_EVIDENCE_MAX_BYTES + 1),
+    },
+    {
+      // A readable ordinary file is restorable, so it is snapshotted and replaced rather than
+      // quarantined; what matters is that its corrupt content cannot block a passing run either.
+      label: "unparseable receipt",
+      async plant(manifestPath) { await fsp.writeFile(manifestPath, "{ this is not a receipt"); },
+      expectQuarantine: false,
+    },
+  ];
+
+  for (const plant of plants) {
+    await withRepo(async (repoRoot) => {
+      const dir = "artifacts/surfpool-quasar-smoke";
+      const record = await seedRun(repoRoot, dir, "sdk-quasar-quarantine");
+      const manifestPath = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME);
+      await fsp.mkdir(path.dirname(manifestPath), { recursive: true });
+      if ((await plant.plant(manifestPath)) === false) return; // platform without mkfifo
+
+      const { quarantinedPriorEntry } = await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+
+      if (plant.expectQuarantine === false) {
+        assert.equal(quarantinedPriorEntry, null, `${plant.label}: a restorable entry is replaced, not quarantined`);
+      } else {
+        assert.ok(quarantinedPriorEntry, `${plant.label}: the unusable entry must be moved aside, not destroyed`);
+        plant.assertPreserved(await fsp.lstat(quarantinedPriorEntry));
+      }
+      assert.equal(
+        readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary"] }).manifest.runId,
+        record.runId,
+        `${plant.label}: the passing run must still publish`,
+      );
+    });
+  }
+});
+
+test("a concurrent publisher refuses within its bounded wait instead of interleaving", async () => {
   await withRepo(async (repoRoot) => {
     const dir = "artifacts/surfpool-quasar-smoke";
-    const record = await seedRun(repoRoot, dir, "sdk-quasar-non-regular-receipt");
-    const manifestPath = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME);
-    await fsp.mkdir(path.dirname(manifestPath), { recursive: true });
-    await fsp.symlink(path.join(os.tmpdir(), "foreign-receipt.json"), manifestPath);
+    const accepted = await seedRun(repoRoot, dir, "sdk-quasar-concurrent-first");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), accepted);
+    const before = await fsp.readFile(path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME));
 
-    await assert.rejects(
-      writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record),
-      /not an ordinary file/,
+    const lockDir = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_LOCK_DIRNAME);
+    await fsp.mkdir(lockDir);
+    await fsp.writeFile(
+      path.join(lockDir, "owner.json"),
+      `${JSON.stringify({ token: "live", pid: process.pid, hostname: os.hostname(), startedAt: new Date().toISOString(), state: "publishing" })}\n`,
     );
-    assert.equal((await fsp.lstat(manifestPath)).isSymbolicLink(), true);
+
+    const replacement = await seedRun(repoRoot, dir, "sdk-quasar-concurrent-second");
+    const startedAt = Date.now();
+    const error = await rejectedPublication(path.join(repoRoot, dir), replacement, { lockWaitMs: 120 });
+
+    assert.ok(error, "a publication may not proceed while another holds the lock");
+    assert.match(error.message, /refusing to publish concurrently/);
+    assert.ok(Date.now() - startedAt < 5_000, "the wait must be bounded");
+    assert.deepEqual(await fsp.readFile(path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME)), before);
+    assert.equal(fs.existsSync(lockDir), true, "another publisher's lock must never be removed");
+  });
+});
+
+test("a crashed publisher's stale lock is quarantined and retaken, not silently deleted", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-stale-lock");
+    const lockDir = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_LOCK_DIRNAME);
+    await fsp.mkdir(lockDir, { recursive: true });
+
+    const departed = spawnSync(process.execPath, ["-e", "process.exit(0)"]);
+    const owner = {
+      token: "crashed",
+      pid: departed.pid,
+      hostname: os.hostname(),
+      startedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      state: "publishing",
+    };
+    await fsp.writeFile(path.join(lockDir, "owner.json"), `${JSON.stringify(owner)}\n`);
+
+    const { manifest } = await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record, { lockWaitMs: 50 });
+
+    assert.equal(manifest.runId, record.runId);
+    assert.equal(fs.existsSync(lockDir), false, "the reclaimed lock must be released after publication");
+    const quarantined = (await dotEntries(repoRoot, dir)).filter((entry) => entry.includes(".lock.stale-"));
+    assert.equal(quarantined.length, 1, "the stale lock must be preserved for diagnosis, not deleted");
+    assert.equal(
+      JSON.parse(await fsp.readFile(path.join(repoRoot, dir, quarantined[0], "owner.json"), "utf8")).token,
+      "crashed",
+    );
+  });
+});
+
+test("a live publisher's lock is never reclaimed no matter how old it is", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-live-old-lock");
+    const lockDir = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_LOCK_DIRNAME);
+    await fsp.mkdir(lockDir, { recursive: true });
+    await fsp.writeFile(
+      path.join(lockDir, "owner.json"),
+      `${JSON.stringify({
+        token: "alive",
+        pid: process.pid,
+        hostname: os.hostname(),
+        startedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+        state: "publishing",
+      })}\n`,
+    );
+
+    const error = await rejectedPublication(path.join(repoRoot, dir), record, { lockWaitMs: 50 });
+
+    assert.ok(error);
+    assert.match(error.message, /refusing to publish concurrently/);
+    assert.equal(fs.existsSync(lockDir), true);
   });
 });

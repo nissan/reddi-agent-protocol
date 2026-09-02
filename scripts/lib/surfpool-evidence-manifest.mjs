@@ -1,10 +1,33 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 export const ACCEPTED_EVIDENCE_FILENAME = "accepted-evidence.json";
 export const ACCEPTED_EVIDENCE_VERSION = 4;
+
+/**
+ * Publishing a receipt is a read-modify-write over one directory entry (snapshot the prior receipt,
+ * rename the new one in, restore the prior one if durability cannot be proven), so it is serialized
+ * by a lock directory created with `mkdir`, which is atomic on every filesystem this lane runs on.
+ * While the lock exists the accepted receipt is not citable: it is either mid-replacement or its
+ * on-disk state is unproven, and consumers refuse it rather than guess which.
+ */
+export const ACCEPTED_EVIDENCE_LOCK_DIRNAME = ".accepted-evidence.lock";
+export const EVIDENCE_LOCK_STATE_PUBLISHING = "publishing";
+export const EVIDENCE_LOCK_STATE_INDETERMINATE = "indeterminate";
+const ACCEPTED_EVIDENCE_LOCK_OWNER_FILENAME = "owner.json";
+const ACCEPTED_EVIDENCE_LOCK_WAIT_MS = 10_000;
+const ACCEPTED_EVIDENCE_LOCK_POLL_MS = 25;
+
+/**
+ * How old a lock must be before a publisher may reclaim it, and only then with positive evidence
+ * that its owner is gone: same host, and a pid that no longer exists. A reclaimed lock is moved
+ * aside for diagnosis rather than deleted, and a lock recording an indeterminate publication is
+ * never reclaimable — that one needs an operator, because nothing on disk proves what it left.
+ */
+const ACCEPTED_EVIDENCE_LOCK_STALE_MS = 10 * 60 * 1000;
 
 /**
  * Name and version of the lane source fingerprint encoding. It is recorded in every receipt and
@@ -312,6 +335,20 @@ function fsyncDescriptorSync(fd, label) {
   }
 }
 
+/**
+ * Every directory sync opens its own descriptor and closes it again. Linux reports a writeback
+ * error at most once per open file description, so a second `fsync` on a descriptor that already
+ * reported one returns success without proving anything; a durability claim may never rest on that.
+ */
+function fsyncDirectoryPathSync(directoryPath, label) {
+  const fd = openDirectoryForSync(directoryPath, label);
+  try {
+    fsyncDescriptorSync(fd, label);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function writeFileDurablySync(filePath, contents, label) {
   const { O_WRONLY, O_CREAT, O_EXCL, O_CLOEXEC } = fs.constants;
   let flags = O_WRONLY | O_CREAT | O_EXCL;
@@ -574,44 +611,224 @@ function assertPassRecord(record) {
   }
 }
 
+function lockOwnerRecordSync(lockDir) {
+  try {
+    const bytes = readFingerprintedFile(lockDir, ACCEPTED_EVIDENCE_LOCK_OWNER_FILENAME, {
+      containmentRootRealPath: fs.realpathSync(lockDir),
+      maxBytes: ACCEPTED_EVIDENCE_MAX_BYTES,
+    });
+    return JSON.parse(bytes.toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function describeLockState(owner) {
+  const state = owner?.state ?? "unknown";
+  return owner?.detail ? `${state}: ${owner.detail}` : String(state);
+}
+
+function isReclaimableLockSync(lockDir, owner, nowMs) {
+  if (owner?.state === EVIDENCE_LOCK_STATE_INDETERMINATE) return false;
+
+  const startedAtMs = owner?.startedAt ? Date.parse(owner.startedAt) : Number.NaN;
+  let ageMs;
+  if (Number.isFinite(startedAtMs)) {
+    ageMs = nowMs - startedAtMs;
+  } else {
+    try {
+      ageMs = nowMs - fs.lstatSync(lockDir).mtimeMs;
+    } catch {
+      return false;
+    }
+  }
+  if (!(ageMs > ACCEPTED_EVIDENCE_LOCK_STALE_MS)) return false;
+
+  if (owner?.hostname && owner.hostname !== os.hostname()) return false;
+  if (Number.isInteger(owner?.pid)) {
+    try {
+      process.kill(owner.pid, 0);
+      return false;
+    } catch (error) {
+      if (error?.code !== "ESRCH") return false;
+    }
+  }
+  return true;
+}
+
+function moveAsideSync(fromPath, toPath, directoryPath, label) {
+  let before;
+  try {
+    before = fs.lstatSync(fromPath);
+  } catch (error) {
+    throw new EvidenceManifestError(`${label} could not be inspected before it was moved aside: ${error?.message ?? error}`);
+  }
+  try {
+    fs.renameSync(fromPath, toPath);
+  } catch (error) {
+    throw new EvidenceManifestError(`${label} could not be moved aside for diagnosis: ${error?.message ?? error}`);
+  }
+  fsyncDirectoryPathSync(directoryPath, "accepted evidence directory");
+
+  let moved;
+  try {
+    moved = fs.lstatSync(toPath);
+  } catch (error) {
+    throw new EvidenceManifestError(`${label} could not be proven preserved at ${toPath}: ${error?.message ?? error}`);
+  }
+  // Renaming an entry keeps its inode but updates ctime, so identity here is device and inode only.
+  if (moved.dev !== before.dev || moved.ino !== before.ino) {
+    throw new EvidenceManifestError(`${label} at ${toPath} is not the entry that was moved aside`);
+  }
+  if (pathExistsSync(fromPath)) {
+    throw new EvidenceManifestError(`${label} is still present at ${fromPath} after it was moved aside`);
+  }
+  return toPath;
+}
+
+function pathExistsSync(candidate) {
+  try {
+    fs.lstatSync(candidate);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Snapshot the receipt a publication is about to replace, so it can be restored byte for byte if
- * publication cannot be completed durably. A receipt that is not an ordinary file is not accepted
- * evidence any reader would take, and it is refused here rather than silently destroyed by the
- * rename that follows.
+ * Take the single-writer publication lock, waiting boundedly for a live publisher to finish. A lock
+ * older than the stale bound whose owner is provably gone is moved aside and retaken; a lock
+ * recording an indeterminate publication is never taken, because the receipt it left behind is
+ * exactly the state no automated writer may resolve.
  */
-function readReplaceableReceiptSync(manifestDir) {
+async function acquirePublicationLock(manifestDir, options = {}) {
+  const lockDir = path.join(manifestDir, ACCEPTED_EVIDENCE_LOCK_DIRNAME);
+  const waitMs = Number.isFinite(options.lockWaitMs) ? Math.max(0, options.lockWaitMs) : ACCEPTED_EVIDENCE_LOCK_WAIT_MS;
+  const deadline = Date.now() + waitMs;
+  let reclaimed = false;
+
+  for (;;) {
+    try {
+      fs.mkdirSync(lockDir, 0o700);
+      break;
+    } catch (error) {
+      if (error?.code !== "EEXIST") {
+        throw new EvidenceManifestError(`the accepted evidence publication lock could not be created: ${error?.message ?? error}`);
+      }
+      const owner = lockOwnerRecordSync(lockDir);
+      if (owner?.state === EVIDENCE_LOCK_STATE_INDETERMINATE) {
+        throw new EvidenceManifestError(
+          `refusing to publish accepted evidence: ${lockDir} records an indeterminate publication ` +
+          `(${describeLockState(owner)}); an operator must resolve the on-disk receipt state before this lane publishes again`,
+        );
+      }
+      if (!reclaimed && isReclaimableLockSync(lockDir, owner, Date.now())) {
+        moveAsideSync(
+          lockDir,
+          path.join(manifestDir, `${ACCEPTED_EVIDENCE_LOCK_DIRNAME}.stale-${crypto.randomUUID()}`),
+          manifestDir,
+          "a stale accepted evidence publication lock",
+        );
+        reclaimed = true;
+        continue;
+      }
+      if (Date.now() >= deadline) {
+        throw new EvidenceManifestError(
+          `another accepted evidence publication holds ${lockDir} (${describeLockState(owner)}); refusing to publish concurrently`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, ACCEPTED_EVIDENCE_LOCK_POLL_MS));
+    }
+  }
+
+  const lock = { lockDir, token: crypto.randomUUID() };
+  try {
+    writeLockOwnerSync(lock, EVIDENCE_LOCK_STATE_PUBLISHING);
+    // Proving the containing directory can be opened and synced is also the publication preflight:
+    // a directory that cannot be synced at all fails here, before any receipt is replaced.
+    fsyncDirectoryPathSync(manifestDir, "accepted evidence directory");
+  } catch (error) {
+    await fsp.rm(lockDir, { recursive: true, force: true });
+    throw error;
+  }
+  return lock;
+}
+
+function writeLockOwnerSync(lock, state, detail) {
+  const owner = {
+    token: lock.token,
+    pid: process.pid,
+    hostname: os.hostname(),
+    startedAt: new Date().toISOString(),
+    state,
+    ...(detail ? { detail } : {}),
+  };
+  const ownerPath = path.join(lock.lockDir, ACCEPTED_EVIDENCE_LOCK_OWNER_FILENAME);
+  const tempPath = path.join(lock.lockDir, `${ACCEPTED_EVIDENCE_LOCK_OWNER_FILENAME}.${crypto.randomUUID()}.tmp`);
+  writeFileDurablySync(tempPath, `${JSON.stringify(owner, null, 2)}\n`, "accepted evidence publication lock owner record");
+  fs.renameSync(tempPath, ownerPath);
+  fsyncDirectoryPathSync(lock.lockDir, "accepted evidence publication lock");
+}
+
+async function releasePublicationLock(lock) {
+  await fsp.rm(lock.lockDir, { recursive: true, force: true });
+  try {
+    fsyncDirectoryPathSync(path.dirname(lock.lockDir), "accepted evidence directory");
+  } catch {
+    // The outcome is already decided and durable; failing to sync the unlink cannot unmake it.
+  }
+}
+
+/**
+ * What is sitting at the receipt path right now: nothing, readable accepted evidence whose exact
+ * bytes can be restored, or an entry no reader would ever accept (symlink, special file, oversized,
+ * unreadable). The last kind is not evidence and is moved aside rather than left to block every
+ * future passing run.
+ */
+function classifyPriorEntrySync(manifestDir) {
   const manifestPath = path.join(manifestDir, ACCEPTED_EVIDENCE_FILENAME);
   let existing;
   try {
     existing = fs.lstatSync(manifestPath);
   } catch (error) {
-    if (error?.code === "ENOENT") return null;
-    throw new EvidenceManifestError(`the existing ${ACCEPTED_EVIDENCE_FILENAME} could not be inspected before publication: ${error?.message ?? error}`);
+    if (error?.code === "ENOENT") return { kind: "none" };
+    return { kind: "unusable", reason: `it could not be inspected (${error?.message ?? error})` };
   }
   if (!existing.isFile()) {
-    throw new EvidenceManifestError(`refusing to replace an existing ${ACCEPTED_EVIDENCE_FILENAME} that is not an ordinary file`);
+    return { kind: "unusable", reason: "it is not an ordinary file" };
   }
-  return readFingerprintedFile(manifestDir, ACCEPTED_EVIDENCE_FILENAME, {
-    containmentRootRealPath: fs.realpathSync(manifestDir),
-    maxBytes: ACCEPTED_EVIDENCE_MAX_BYTES,
-  });
+  if (existing.size > ACCEPTED_EVIDENCE_MAX_BYTES) {
+    return { kind: "unusable", reason: `it is ${existing.size} bytes, larger than the allowed ${ACCEPTED_EVIDENCE_MAX_BYTES} bytes` };
+  }
+  try {
+    return {
+      kind: "receipt",
+      bytes: readFingerprintedFile(manifestDir, ACCEPTED_EVIDENCE_FILENAME, {
+        containmentRootRealPath: fs.realpathSync(manifestDir),
+        maxBytes: ACCEPTED_EVIDENCE_MAX_BYTES,
+      }),
+    };
+  } catch (error) {
+    return { kind: "unusable", reason: `it could not be read as accepted evidence (${error?.message ?? error})` };
+  }
 }
 
 /**
- * Atomically publish a per-target passing-evidence receipt. Written only after a run passes, via
- * temp-file + rename inside the same directory, so a concurrent or crashed writer can never leave a
- * torn manifest and a failed run can never displace previously accepted evidence.
+ * Publish a per-target passing-evidence receipt, only after a run passes, under the single-writer
+ * publication lock: the whole read-modify-write — classify or move aside the prior entry, snapshot
+ * it, write and rename the new receipt, sync, and roll back — happens while this process holds the
+ * lock, so a concurrent publisher can neither interleave with it nor undo a publication that
+ * already succeeded, and a failed run can never displace previously accepted evidence.
  *
- * Publication succeeds only once the rename *and* the containing directory's fsync succeed. If the
- * directory sync fails after the rename, the previous receipt (snapshotted durably beforehand) is
- * renamed back and that rollback is itself synced, and the thrown error carries
- * `publicationOutcome: "rolled-back"`. A failure before the rename carries `"not-published"`. If the
- * rollback cannot be completed, an `EvidencePublicationIndeterminateError` is thrown instead: the
- * caller then knows nothing about which receipt is on disk and must not report the previous one as
- * intact, nor the new one as accepted.
+ * Publication succeeds only once the rename *and* the containing directory's fsync succeed. If that
+ * sync fails after the rename, the snapshot is renamed back and the rollback is proven on a freshly
+ * opened directory descriptor; the thrown error then carries `publicationOutcome: "rolled-back"`.
+ * A failure before the rename carries `"not-published"`. If the rollback cannot be completed and
+ * proven, the lock is left behind marked indeterminate and an `EvidencePublicationIndeterminateError`
+ * is thrown: nothing is known about which receipt is on disk, so the caller must claim neither, and
+ * every consumer refuses the receipt while that lock stands.
  */
-export async function writeAcceptedEvidenceManifest(manifestDir, record) {
+export async function writeAcceptedEvidenceManifest(manifestDir, record, options = {}) {
   assertPassRecord(record);
 
   const currentSourceFingerprint = computeLaneSourceFingerprint(record.repoRoot, record.target);
@@ -654,21 +871,28 @@ export async function writeAcceptedEvidenceManifest(manifestDir, record) {
   const tempPath = path.join(manifestDir, `.${ACCEPTED_EVIDENCE_FILENAME}.${crypto.randomUUID()}.tmp`);
   const rollbackPath = path.join(manifestDir, `.${ACCEPTED_EVIDENCE_FILENAME}.${crypto.randomUUID()}.rollback`);
 
-  // The directory is opened before anything is published, so a directory that cannot be synced at
-  // all fails while the previous receipt is still the only one on disk.
-  const directoryFd = openDirectoryForSync(manifestDir, "accepted evidence directory");
+  const lock = await acquirePublicationLock(manifestDir, options);
   let rollbackPrepared = false;
   let renamed = false;
+  let lockRetained = false;
+  let quarantinedPriorEntry = null;
   try {
-    const previousReceipt = readReplaceableReceiptSync(manifestDir);
-    if (previousReceipt) {
-      writeFileDurablySync(rollbackPath, previousReceipt, "accepted evidence rollback copy");
+    const prior = classifyPriorEntrySync(manifestDir);
+    if (prior.kind === "unusable") {
+      quarantinedPriorEntry = moveAsideSync(
+        manifestPath,
+        path.join(manifestDir, `.${ACCEPTED_EVIDENCE_FILENAME}.quarantined-${crypto.randomUUID()}`),
+        manifestDir,
+        `the unusable ${ACCEPTED_EVIDENCE_FILENAME} being replaced (${prior.reason})`,
+      );
+    } else if (prior.kind === "receipt") {
+      writeFileDurablySync(rollbackPath, prior.bytes, "accepted evidence rollback copy");
       rollbackPrepared = true;
     }
     writeFileDurablySync(tempPath, `${JSON.stringify(manifest, null, 2)}\n`, "accepted evidence temp receipt");
     fs.renameSync(tempPath, manifestPath);
     renamed = true;
-    fsyncDescriptorSync(directoryFd, "accepted evidence directory");
+    fsyncDirectoryPathSync(manifestDir, "accepted evidence directory");
   } catch (error) {
     if (!renamed) {
       error.publicationOutcome ??= EVIDENCE_PUBLICATION_NOT_PUBLISHED;
@@ -679,13 +903,21 @@ export async function writeAcceptedEvidenceManifest(manifestDir, record) {
       if (rollbackPrepared) fs.renameSync(rollbackPath, manifestPath);
       else fs.unlinkSync(manifestPath);
       restoredEntry = true;
-      fsyncDescriptorSync(directoryFd, "accepted evidence directory");
+      fsyncDirectoryPathSync(manifestDir, "accepted evidence directory");
     } catch (rollbackError) {
       if (!restoredEntry) rollbackPrepared = false; // keep the prior bytes on disk for the operator
+      lockRetained = true;
+      const detail =
+        `${manifestPath} was renamed into place, could not be durably published (${error.message}), ` +
+        `and the previous state could not be restored (${rollbackError.message})`;
+      try {
+        writeLockOwnerSync(lock, EVIDENCE_LOCK_STATE_INDETERMINATE, detail);
+      } catch {
+        // The lock directory itself is what makes consumers refuse; losing its detail cannot undo that.
+      }
       throw new EvidencePublicationIndeterminateError(
-        `accepted evidence publication is indeterminate: ${manifestPath} was renamed into place but ` +
-        `could not be durably published (${error.message}) and the previous state could not be restored ` +
-        `(${rollbackError.message}); the receipt now on disk must not be cited as accepted evidence`,
+        `accepted evidence publication is indeterminate: ${detail}; the receipt now on disk must not be ` +
+        `cited as accepted evidence, and ${lock.lockDir} is retained so every consumer refuses it until an operator resolves it`,
         { cause: error },
       );
     }
@@ -703,9 +935,9 @@ export async function writeAcceptedEvidenceManifest(manifestDir, record) {
   } finally {
     await fsp.rm(tempPath, { force: true });
     if (rollbackPrepared) await fsp.rm(rollbackPath, { force: true });
-    fs.closeSync(directoryFd);
+    if (!lockRetained) await releasePublicationLock(lock);
   }
-  return { manifestPath, manifest };
+  return { manifestPath, manifest, quarantinedPriorEntry };
 }
 
 /**
@@ -725,6 +957,16 @@ export function readAcceptedEvidenceManifest(repoRoot, manifestRelativeDir, { ta
     : ACCEPTED_EVIDENCE_MAX_AGE_MS;
   const manifestPath = path.join(repoRoot, manifestRelativeDir, ACCEPTED_EVIDENCE_FILENAME);
   const manifestRelativePath = path.join(path.normalize(manifestRelativeDir), ACCEPTED_EVIDENCE_FILENAME);
+
+  const lockDir = path.join(repoRoot, manifestRelativeDir, ACCEPTED_EVIDENCE_LOCK_DIRNAME);
+  if (pathExistsSync(lockDir)) {
+    throw new EvidenceManifestError(
+      `accepted evidence at ${manifestRelativeDir} is not citable while a publication lock stands ` +
+      `(${describeLockState(lockOwnerRecordSync(lockDir))}); the receipt state is unproven until an operator resolves ` +
+      `${path.join(path.normalize(manifestRelativeDir), ACCEPTED_EVIDENCE_LOCK_DIRNAME)}`,
+    );
+  }
+
   if (!fs.existsSync(manifestPath)) {
     throw new EvidenceManifestError(`no accepted evidence at ${manifestRelativePath}; run the lane to a PASS first`);
   }

@@ -25,7 +25,9 @@ import {
 } from "./lib/surfpool-sdk-lifecycle.mjs";
 import {
   ACCEPTED_EVIDENCE_FILENAME,
+  ACCEPTED_EVIDENCE_LOCK_DIRNAME,
   EVIDENCE_PUBLICATION_INDETERMINATE,
+  EVIDENCE_PUBLICATION_NOT_PUBLISHED,
   EVIDENCE_PUBLICATION_ROLLED_BACK,
   computeLaneSourceFingerprint,
   writeAcceptedEvidenceManifest,
@@ -89,6 +91,7 @@ let cleanupStarted = false;
 let exitCode = 0;
 let exitReason = "success";
 let finalStatus = "PASS";
+let acceptedReceiptOutcome = null;
 let failureMessage;
 let programs = [];
 const cleanupNotes = [];
@@ -479,6 +482,27 @@ async function logLine(line) {
   if (error) throw error;
 }
 
+/**
+ * The receipt line is the judge-facing claim about what is on disk, so it may only state what the
+ * publication actually proved. A PASS summary is written before publication and hashed into the
+ * receipt, so it must not be rewritten on success; every other wording belongs to a run already
+ * reported FAIL.
+ */
+function acceptedReceiptSummaryLine(status) {
+  const receiptPath = rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_FILENAME));
+  if (status === "PASS") return receiptPath;
+  switch (acceptedReceiptOutcome) {
+    case EVIDENCE_PUBLICATION_INDETERMINATE:
+      return `INDETERMINATE: a receipt was renamed into ${receiptPath} and could neither be durably published nor rolled back, so what is on disk is unknown and must not be cited; the publication lock retained at ${rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_LOCK_DIRNAME))} makes every consumer refuse it until an operator resolves it`;
+    case EVIDENCE_PUBLICATION_ROLLED_BACK:
+      return `not published by this run (${ACCEPTED_EVIDENCE_FILENAME} could not be durably published); the previously accepted receipt was durably restored`;
+    case EVIDENCE_PUBLICATION_NOT_PUBLISHED:
+      return `not published by this run (${ACCEPTED_EVIDENCE_FILENAME} could not be published); any previously accepted receipt is left untouched`;
+    default:
+      return `not written (only PASS runs publish ${ACCEPTED_EVIDENCE_FILENAME}); any previously accepted receipt is left untouched`;
+  }
+}
+
 async function writeSummary({ target, programs = [], status, failure }) {
   const lines = [
     `# Surfpool SDK ${target === "quasar" ? "Quasar" : "Anchor"} Critical Smoke Summary`,
@@ -503,11 +527,10 @@ async function writeSummary({ target, programs = [], status, failure }) {
   }
   lines.push("", "## Cleanup", ...cleanupNotes.map((note) => `- ${note}`));
   lines.push("", "## Artifacts", `- Log: ${rel(logFile)}`);
-  lines.push(
-    status === "PASS"
-      ? `- Accepted evidence receipt: ${rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_FILENAME))}`
-      : `- Accepted evidence receipt: not written (only PASS runs publish ${ACCEPTED_EVIDENCE_FILENAME}); this failed run is retained at ${rel(outDir)}`,
-  );
+  lines.push(`- Accepted evidence receipt: ${acceptedReceiptSummaryLine(status)}`);
+  if (status !== "PASS") {
+    lines.push(`- Failed run evidence retained at: ${rel(outDir)}`);
+  }
   await fs.mkdir(path.dirname(summaryFile), { recursive: true });
   await fs.writeFile(summaryFile, `${lines.join("\n")}\n`);
 }
@@ -549,11 +572,8 @@ async function publishAcceptedEvidence() {
     finalStatus = "FAIL";
     failureMessage ??= `accepted evidence receipt failed: ${error.message}`;
     if (exitCode === 0) exitCode = 1;
-    const receiptState = error.publicationOutcome === EVIDENCE_PUBLICATION_INDETERMINATE
-      ? `the accepted receipt state is INDETERMINATE; whatever is at ${rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_FILENAME))} must not be cited, and this run is reported FAIL so its summary no longer matches any published receipt`
-      : error.publicationOutcome === EVIDENCE_PUBLICATION_ROLLED_BACK
-        ? "the previously accepted receipt was durably restored"
-        : "the previously accepted receipt is left untouched";
+    acceptedReceiptOutcome = error.publicationOutcome ?? EVIDENCE_PUBLICATION_NOT_PUBLISHED;
+    const receiptState = acceptedReceiptSummaryLine("FAIL");
     try {
       await logLine(`[surfpool-sdk-smoke] accepted evidence receipt failed: ${error.message}; ${receiptState}`);
     } catch { /* the run already failed; log loss must not mask it */ }

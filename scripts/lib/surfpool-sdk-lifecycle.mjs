@@ -57,15 +57,6 @@ export function normalizeHostname(hostname) {
   return String(hostname ?? "").trim().toLowerCase().replace(/^\[|\]$/g, "");
 }
 
-/**
- * `host:port` of a parsed URL with the scheme dropped. `URL` already canonicalizes both IPv4
- * (`127.0.0.001` → `127.0.0.1`) and IPv6 (`[0:0:0:0:0:0:0:1]` → `[::1]`) literals, so normalizing
- * case and brackets is enough to compare two endpoints as sockets rather than as strings.
- */
-export function normalizedAuthority(url) {
-  return `${normalizeHostname(url.hostname)}:${url.port}`;
-}
-
 export function isLoopbackHostname(hostname) {
   const host = normalizeHostname(hostname);
   if (host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1") return true;
@@ -220,21 +211,26 @@ export function validateSurfnetEndpoints(surfnet) {
   const rpc = assertLoopbackEndpoint(rpcUrl, "Surfnet RPC URL", { protocol: "http:" });
   const ws = assertLoopbackEndpoint(wsUrl, "Surfnet WebSocket URL", { protocol: "ws:" });
 
-  // Comparing hrefs would compare schemes too, which the checks above already forced apart. The
-  // invariant that still needs enforcing is that the two endpoints are separate sockets: the SDK
-  // must report a distinct dynamically assigned port for each, on the same normalized loopback host
-  // or another one.
-  if (normalizedAuthority(rpc) === normalizedAuthority(ws)) {
+  // Both URLs already carry an explicit port. Comparing the port numbers rather than the host and
+  // port together is deliberate: `localhost` and `127.0.0.1` are different strings for the same
+  // loopback stack, so an SDK reporting one dynamically assigned port under two spellings would
+  // otherwise pass as two sockets.
+  const rpcPort = Number.parseInt(rpc.port, 10);
+  const wsPort = Number.parseInt(ws.port, 10);
+  if (!Number.isInteger(rpcPort) || !Number.isInteger(wsPort)) {
+    throw new SurfpoolSafetyError(`Surfnet endpoints must report explicit numeric dynamic ports; got ${rpc.href} and ${ws.href}`);
+  }
+  if (rpcPort === wsPort) {
     throw new SurfpoolSafetyError(
-      `Surfnet RPC and WebSocket endpoints must be distinct dynamic loopback sockets; both resolved to ${normalizedAuthority(rpc)}`,
+      `Surfnet RPC and WebSocket endpoints must be bound to distinct dynamic ports; both reported port ${rpcPort}`,
     );
   }
 
   return {
     rpcUrl: rpc.href,
     wsUrl: ws.href,
-    rpcPort: Number.parseInt(rpc.port, 10),
-    wsPort: Number.parseInt(ws.port, 10),
+    rpcPort,
+    wsPort,
   };
 }
 

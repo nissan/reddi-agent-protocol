@@ -22,6 +22,14 @@ Each target publishes an `accepted-evidence.json` receipt next to its per-run di
 
 The run completes cleanup, writes all PASS log lines, writes and flushes `SUMMARY.md`, flushes every cited artifact, computes the source fingerprint, and then publishes the receipt as the final fallible commit point. Publication refuses to cite an artifact that does not exist, so a crash mid-publish leaves the previously accepted receipt intact.
 
+### Publication is single-writer, and says what it proved
+
+Replacing the receipt is a read-modify-write over one directory entry, so the whole sequence runs under a lock directory (`.accepted-evidence.lock`, created with `mkdir`, which is atomic). A second publisher waits boundedly and then refuses rather than interleaving. Publication counts as done only once the rename **and** the containing directory's `fsync` succeed; if that sync fails, the snapshot of the previous receipt is renamed back and the rollback is proven on a **freshly opened** directory descriptor, because Linux reports a writeback error at most once per open file description. `SUMMARY.md` and the run log then state which of these actually happened — published, not published, rolled back, or indeterminate — and never claim more.
+
+An entry sitting at the receipt path that no reader would accept (symlink, special file, oversized, unparseable) is not evidence: it is renamed aside to `.accepted-evidence.json.quarantined-<uuid>` and kept for diagnosis, and the passing run publishes normally.
+
+**Operator recovery.** While the lock directory exists, every consumer refuses the receipt — its state is either mid-replacement or unproven. A lock whose `owner.json` records `state: "indeterminate"` is never reclaimed automatically: the run renamed a new receipt into place, could not prove it durable, and could not restore the old one, so what is on disk is unknown. Inspect `owner.json` for the failure detail, decide whether to keep or delete `accepted-evidence.json` (any `.rollback` copy alongside it holds the previous receipt's exact bytes), then remove the lock directory. A lock older than 10 minutes whose owning pid is provably gone on this host is reclaimed automatically, but even then it is renamed to `.accepted-evidence.lock.stale-<uuid>` rather than deleted.
+
 Every receipt is bound to two things beyond its own contents:
 
 - **Freshness.** `ACCEPTED_EVIDENCE_MAX_AGE_MS` (14 days, owned by `scripts/lib/surfpool-evidence-manifest.mjs`) is enforced by every consumer. A caller may tighten the window but cannot widen or disable it.

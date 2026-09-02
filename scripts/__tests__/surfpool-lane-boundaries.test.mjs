@@ -377,12 +377,10 @@ const REJECTED_ENDPOINTS = [
   { label: "non-loopback bind", rpcUrl: "http://0.0.0.0:8899", wsUrl: "ws://0.0.0.0:8900" },
   { label: "public host", rpcUrl: "http://example.com:8899", wsUrl: "ws://example.com:8900" },
   { label: "no explicit port", rpcUrl: "http://127.0.0.1", wsUrl: "ws://127.0.0.1:8900" },
-  // Same socket, different schemes: the scheme checks alone cannot catch this, and an SDK reporting
-  // it has bound one port for both roles rather than two dynamic ones.
-  { label: "rpc and ws sharing one authority", rpcUrl: "http://127.0.0.1:8899", wsUrl: "ws://127.0.0.1:8899" },
-  // The same collision written in non-canonical IPv4/IPv6 literals, which `URL` normalizes.
-  { label: "rpc and ws sharing one authority in non-canonical IPv4", rpcUrl: "http://127.0.0.001:8899", wsUrl: "ws://127.0.0.1:8899" },
-  { label: "rpc and ws sharing one authority in expanded IPv6", rpcUrl: "http://[::1]:8899", wsUrl: "ws://[0:0:0:0:0:0:0:1]:8899" },
+  // One port reported for both roles is one socket, whichever spelling of loopback it is dressed in.
+  { label: "rpc and ws sharing one port", rpcUrl: "http://127.0.0.1:8899", wsUrl: "ws://127.0.0.1:8899" },
+  { label: "rpc and ws sharing one port under loopback aliases", rpcUrl: "http://localhost:8899", wsUrl: "ws://127.0.0.1:8899" },
+  { label: "rpc and ws sharing one port across address families", rpcUrl: "http://[::1]:8899", wsUrl: "ws://127.0.0.1:8899" },
   { label: "https scheme", rpcUrl: "https://127.0.0.1:8899", wsUrl: "ws://127.0.0.1:8900" },
 ];
 

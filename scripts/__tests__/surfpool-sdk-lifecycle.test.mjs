@@ -113,17 +113,20 @@ test("Surfnet endpoint validation enforces HTTP RPC and WS websocket schemes", (
   );
 });
 
-test("Surfnet endpoint validation requires two distinct dynamic loopback sockets", () => {
-  // The schemes differ by construction, so only the host+port authority distinguishes these.
+test("Surfnet endpoint validation requires two distinct dynamic ports", () => {
+  // Loopback has many spellings and they all reach the same stack, so distinctness is decided by
+  // the port alone: an alias pair on one port is one socket, not two.
   for (const [rpcUrl, wsUrl] of [
     ["http://127.0.0.1:18180", "ws://127.0.0.1:18180"],
-    ["http://127.0.0.001:18180", "ws://127.0.0.1:18180"],
+    ["http://localhost:18180", "ws://127.0.0.1:18180"],
+    ["http://127.0.0.001:18180", "ws://localhost:18180"],
+    ["http://[::1]:18180", "ws://127.0.0.1:18180"],
     ["http://[::1]:18180", "ws://[0:0:0:0:0:0:0:1]:18180"],
   ]) {
     assert.throws(
       () => validateSurfnetEndpoints({ rpcUrl, wsUrl }),
-      /must be distinct dynamic loopback sockets/,
-      `${rpcUrl} and ${wsUrl} are one socket and must be refused`,
+      /must be bound to distinct dynamic ports/,
+      `${rpcUrl} and ${wsUrl} share one port and must be refused`,
     );
   }
 
