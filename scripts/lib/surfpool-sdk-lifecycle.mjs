@@ -414,14 +414,35 @@ export async function startLocalSurfnet(Surfnet, options = {}) {
 }
 
 /**
+ * The evidence record for one lane step, folding together every stage that can drop output: the
+ * per-stream redacting line buffers, which replace an oversized unterminated line with a marker,
+ * and the evidence spool, which drops chunks between its retained head and tail. Evidence is
+ * complete only when no stage dropped anything.
+ */
+export function createStepEvidenceRecord(spool, streamBuffers = [], options = {}) {
+  const redactorOmittedChars = streamBuffers.reduce((total, buffer) => total + buffer.omittedChars, 0);
+  const redactorOmittedLines = streamBuffers.reduce((total, buffer) => total + buffer.omittedLines, 0);
+  return {
+    text: spool.text(),
+    complete: spool.complete && redactorOmittedChars === 0,
+    omittedChars: spool.omittedChars + redactorOmittedChars,
+    omittedChunks: spool.omittedChunks,
+    omittedLines: redactorOmittedLines,
+    logFile: options.logFile,
+  };
+}
+
+/**
  * The text a lane assertion is allowed to reason over.
  *
- * The lane's step evidence is a bounded spool: it keeps a head and a sliding tail and reports what
- * it dropped in between. A run whose middle was dropped cannot prove a "must NOT contain" boundary
- * — the prohibited marker may be in exactly the part that is gone — and it cannot prove ordering or
- * a missing banner either. So an incomplete spool is refused here instead of being asserted over
- * the surviving head and tail. The complete redacted output stays in the run log; only the
- * assertion spool is bounded.
+ * Lane output passes through two bounded stages before an assertion sees it: the redacting line
+ * buffer, which replaces an oversized unterminated line with a marker rather than holding it, and
+ * the evidence spool, which keeps a head and a sliding tail. Either stage can drop bytes, and both
+ * report how much. A run missing any of its output cannot prove a "must NOT contain" boundary — the
+ * prohibited marker may be in exactly the part that is gone — and cannot prove ordering or a
+ * missing banner either, so incomplete evidence is refused here instead of being asserted over
+ * whatever survived. Redaction still shapes what is displayed and logged; only completeness is
+ * decided here.
  *
  * A bare string is treated as complete evidence supplied by the caller.
  */
@@ -431,11 +452,11 @@ export function assertionEvidenceText(output, label = "lane assertion") {
     throw new Error(`${label}: no evidence text was captured, so nothing can be asserted`);
   }
   if (output.complete !== true) {
-    const where = output.logFile ? ` The complete output is in ${output.logFile}.` : "";
+    const where = output.logFile ? ` The retained output is in ${output.logFile}.` : "";
     throw new Error(
-      `${label}: evidence is incomplete — the bounded assertion spool dropped ${output.omittedChars ?? 0} `
-      + `characters in ${output.omittedChunks ?? 0} chunk(s), so neither the required banners nor the `
-      + `prohibited-content boundaries can be proven over it.${where}`,
+      `${label}: evidence is incomplete — ${output.omittedChars ?? 0} characters were dropped `
+      + `(${output.omittedChunks ?? 0} spool chunk(s), ${output.omittedLines ?? 0} oversized log line(s)), `
+      + `so neither the required banners nor the prohibited-content boundaries can be proven over it.${where}`,
     );
   }
   return output.text;
@@ -516,6 +537,8 @@ export function createRedactingLineBuffer(options = {}) {
   const maxResidualChars = options.maxResidualChars ?? 1_000_000;
   let residual = "";
   let droppingOversizedLine = false;
+  let omittedChars = 0;
+  let omittedLines = 0;
 
   const firstLineBreakIndex = (text) => {
     const newline = text.indexOf("\n");
@@ -525,6 +548,13 @@ export function createRedactingLineBuffer(options = {}) {
     return Math.min(newline, carriage);
   };
 
+  const dropOversizedLine = () => {
+    omittedChars += residual.length;
+    omittedLines += 1;
+    residual = "";
+    return OVERSIZED_LOG_LINE_MARKER;
+  };
+
   const processDecoded = (decoded) => {
     let emitted = "";
     let remaining = decoded;
@@ -532,12 +562,13 @@ export function createRedactingLineBuffer(options = {}) {
     while (remaining) {
       const breakIndex = firstLineBreakIndex(remaining);
       if (breakIndex === -1) {
-        if (!droppingOversizedLine) {
+        if (droppingOversizedLine) {
+          omittedChars += remaining.length;
+        } else {
           residual += remaining;
           if (residual.length >= maxResidualChars) {
-            residual = "";
+            emitted += dropOversizedLine();
             droppingOversizedLine = true;
-            emitted += OVERSIZED_LOG_LINE_MARKER;
           }
         }
         return emitted;
@@ -548,14 +579,17 @@ export function createRedactingLineBuffer(options = {}) {
 
       if (droppingOversizedLine) {
         droppingOversizedLine = false;
+        omittedChars += record.length;
         residual = "";
         continue;
       }
 
       residual += record;
-      if (residual.length >= maxResidualChars) emitted += OVERSIZED_LOG_LINE_MARKER;
-      else emitted += redactForEvidence(residual, options);
-      residual = "";
+      if (residual.length >= maxResidualChars) emitted += dropOversizedLine();
+      else {
+        emitted += redactForEvidence(residual, options);
+        residual = "";
+      }
     }
 
     return emitted;
@@ -573,11 +607,17 @@ export function createRedactingLineBuffer(options = {}) {
         return emitted;
       }
       if (residual) {
-        emitted += residual.length >= maxResidualChars ? OVERSIZED_LOG_LINE_MARKER : redactForEvidence(residual, options);
-        residual = "";
+        if (residual.length >= maxResidualChars) emitted += dropOversizedLine();
+        else {
+          emitted += redactForEvidence(residual, options);
+          residual = "";
+        }
       }
       return emitted;
     },
+    get omittedChars() { return omittedChars; },
+    get omittedLines() { return omittedLines; },
+    get complete() { return omittedChars === 0; },
   };
 }
 

@@ -12,6 +12,7 @@ import {
   assertQuasarCriticalDemoOutput,
   assertQuasarPerFailClosedOutput,
   createRedactingLineBuffer,
+  createStepEvidenceRecord,
   createTruncatingEvidenceBuffer,
   redactForEvidence,
   startLocalSurfnet,
@@ -486,6 +487,65 @@ Attest:   ${quasarIds.attestation}
     () => assertQuasarPerFailClosedOutput(evidence),
     /evidence is incomplete/,
   );
+});
+
+test("a prohibited hint hidden inside an oversized unterminated line is refused, not certified", () => {
+  const head = `
+║       Reddi Agent Protocol — local-surfpool Demo ║
+Target:   quasar
+Escrow:   ${quasarIds.escrow}
+Registry: ${quasarIds.registry}
+Repute:   ${quasarIds.reputation}
+Attest:   ${quasarIds.attestation}
+`;
+  const tail = `║  🏁  Full A→B→C cycle complete                          ║
+  Settlement:      Quasar escrow public settlement
+  ℹ️  MagicBlock PER/TEE is not claimed by this Quasar final path; no Anchor/PER fallback was used.
+`;
+  const maxResidualChars = 4_096;
+  const redactor = createRedactingLineBuffer({ maxResidualChars });
+  const spool = createTruncatingEvidenceBuffer({ headLimit: 512_000, tailLimit: 1_500_000 });
+  const emit = (text) => { if (text) spool.push(text); };
+
+  emit(redactor.push(head));
+  // One unterminated line larger than the residual bound — a single-line RPC error dump.
+  emit(redactor.push(`{"err":"connect ECONNREFUSED","url":"https://api.devnet.solana.com",${"x".repeat(maxResidualChars)}`));
+  emit(redactor.push("}\n"));
+  emit(redactor.push(tail));
+  emit(redactor.flush());
+
+  const evidence = createStepEvidenceRecord(spool, [redactor], { logFile: "artifacts/surfpool-sdk-critical-smoke.log" });
+
+  assert.equal(spool.complete, true, "the spool itself dropped nothing — spool completeness alone cannot catch this");
+  assert.equal(
+    evidence.text.includes("api.devnet.solana.com"),
+    false,
+    "the prohibited hint must be absent from the retained text — this is the fail-open the refusal closes",
+  );
+  assert.equal(evidence.complete, false, "redactor-side loss must make the step evidence incomplete");
+  assert.ok(evidence.omittedLines > 0);
+  assert.ok(evidence.omittedChars > 0);
+  assert.throws(
+    () => assertQuasarCriticalDemoOutput(evidence, quasarIds),
+    /evidence is incomplete[\s\S]*oversized log line/,
+  );
+  assert.throws(() => assertQuasarPerFailClosedOutput(evidence), /evidence is incomplete/);
+});
+
+test("output that fits the redaction bound stays complete and is still redacted", () => {
+  const redactor = createRedactingLineBuffer({ repoRoot: "/repo/path", home: "/home/example", maxResidualChars: 4_096 });
+  const spool = createTruncatingEvidenceBuffer({ headLimit: 512_000, tailLimit: 1_500_000 });
+  spool.push(redactor.push(`AGENT_A_KEYPAIR=[${Array.from({ length: 64 }, (_, i) => i + 1).join(",")}]\n`));
+  spool.push(redactor.push("Target:   quasar in /repo/path\n"));
+  spool.push(redactor.flush());
+
+  const evidence = createStepEvidenceRecord(spool, [redactor], { logFile: "artifacts/surfpool-sdk-critical-smoke.log" });
+
+  assert.equal(evidence.complete, true);
+  assert.equal(evidence.omittedChars, 0);
+  assert.equal(evidence.omittedLines, 0);
+  assert.equal(evidence.text.includes("AGENT_A_KEYPAIR=["), false, "redaction still applies to complete evidence");
+  assert.equal(evidence.text.includes("<repo>"), true);
 });
 
 test("a complete evidence record is asserted normally and a missing one is refused", () => {

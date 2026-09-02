@@ -14,6 +14,7 @@ import {
   assertQuasarProgramIdsMatchSources,
   assertionEvidenceText,
   createRedactingLineBuffer,
+  createStepEvidenceRecord,
   baselinePath,
   createTruncatingEvidenceBuffer,
   localChildEnv,
@@ -420,13 +421,7 @@ function spawnLogged(command, commandArgs, options = {}) {
           return resolve({
             status: code ?? (signal ? 128 + (signal === "SIGINT" ? 2 : 15) : 1),
             signal,
-            evidence: {
-              text: evidence.text(),
-              complete: evidence.complete,
-              omittedChars: evidence.omittedChars,
-              omittedChunks: evidence.omittedChunks,
-              logFile: rel(logFile),
-            },
+            evidence: createStepEvidenceRecord(evidence, streamBuffers, { logFile: rel(logFile) }),
           });
         })
         .catch(reject);
