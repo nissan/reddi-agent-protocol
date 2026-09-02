@@ -221,6 +221,7 @@ try {
       summaryFile: rel(summaryFile),
       repoRoot,
       home: process.env.HOME,
+      receiptOutcome: acceptedReceiptOutcome,
     })}\n`);
   }
 }

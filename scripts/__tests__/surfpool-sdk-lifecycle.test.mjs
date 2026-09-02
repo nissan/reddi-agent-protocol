@@ -9,6 +9,11 @@ import test, { after } from "node:test";
 import { Surfnet } from "@solana/surfpool";
 
 import {
+  EVIDENCE_PUBLICATION_INDETERMINATE,
+  EVIDENCE_PUBLICATION_NOT_PUBLISHED,
+  EVIDENCE_PUBLICATION_ROLLED_BACK,
+} from "../lib/surfpool-evidence-manifest.mjs";
+import {
   SurfpoolReadinessError,
   SurfpoolSafetyError,
   OVERSIZED_LOG_LINE_MARKER,
@@ -1142,7 +1147,7 @@ test("the summary-failure notice states the run's invariant and never guesses th
   // those two are asserted; which summary is on disk was never observed, so all four states are
   // named as possible rather than one being claimed.
   assert.match(notice, /authoritative result is failure/);
-  assert.match(notice, /published no accepted-evidence receipt of its own, so it must not be accepted/);
+  assert.match(notice, /has no citable accepted-evidence receipt, so it must not be accepted/);
   assert.match(notice, /may be absent, partial, stale from an earlier write in this run, or still report PASS/);
   assert.match(notice, /did not verify which/);
   assert.equal(
@@ -1151,6 +1156,68 @@ test("the summary-failure notice states the run's invariant and never guesses th
     "a PASS summary already durable on disk is neither missing nor partial, so it may not be claimed to be",
   );
   assert.match(notice, /artifacts\/surfpool-quasar-smoke\/sdk-quasar-1234\/SUMMARY\.md is untrusted/);
+});
+
+test("the summary-failure notice scrubs key material split across lines before joining them", () => {
+  // redactForEvidence stops its keypair patterns at a line break — correct for a line-buffered log,
+  // but here the collapse to one stderr line would otherwise reassemble the raw bytes afterwards.
+  const bytes = Array.from({ length: 64 }, (_, i) => i + 1);
+  for (const [label, breakSequence] of [["LF", "\n"], ["CRLF", "\r\n"], ["indented continuation", "\n\t"]]) {
+    const labelled = `AGENT_A_KEYPAIR=[${bytes.slice(0, 20).join(",")},${breakSequence}${bytes.slice(20).join(",")}]`;
+    const notice = describeSummaryPublicationFailure({
+      error: new Error(`write failed while flushing ${labelled}`),
+      summaryFile: "artifacts/SUMMARY.md",
+    });
+
+    assert.equal(notice.includes("AGENT_A_KEYPAIR=["), false, `${label}: the labelled keypair must not survive`);
+    assert.equal(notice.includes("21,22,23"), false, `${label}: no run of key bytes may survive`);
+    assert.match(notice, /AGENT_KEYPAIR=<redacted>/, `${label}: the redaction marker replaces it`);
+  }
+});
+
+test("the summary-failure notice scrubs a bare byte array however its elements are spaced", () => {
+  const bytes = Array.from({ length: 64 }, (_, i) => i + 1);
+  for (const [label, separator] of [["newline", ",\n"], ["carriage return", ",\r\n"], ["spaces", ", "]]) {
+    const array = `[${bytes.join(separator === ", " ? ", " : separator)}]`;
+    const notice = describeSummaryPublicationFailure({
+      error: new Error(`ENOSPC while writing ${array}`),
+      summaryFile: "artifacts/SUMMARY.md",
+    });
+
+    assert.match(notice, /\[<redacted-bytes>\]/, `${label}: the array must be replaced`);
+    assert.equal(notice.includes("60,61,62"), false, `${label}: no run of bytes may survive the collapse`);
+  }
+});
+
+test("the summary-failure notice reports the publication outcome the run actually observed", () => {
+  const build = (receiptOutcome) => describeSummaryPublicationFailure({
+    error: new Error("EIO: simulated"),
+    summaryFile: "artifacts/SUMMARY.md",
+    receiptOutcome,
+  });
+
+  // The indeterminate path renamed this run's receipt into place and could not roll it back, so a
+  // file may well remain; claiming none was published would be false, and the retained lock is the
+  // only reason consumers still refuse it.
+  const indeterminate = build(EVIDENCE_PUBLICATION_INDETERMINATE);
+  assert.match(indeterminate, /An accepted-evidence file may remain on disk from this run/);
+  assert.match(indeterminate, /state is indeterminate and the retained publication lock makes every consumer refuse it/);
+  assert.equal(indeterminate.includes("published no receipt"), false, "a file may be on disk, so this may not be claimed");
+
+  const rolledBack = build(EVIDENCE_PUBLICATION_ROLLED_BACK);
+  assert.match(rolledBack, /published no receipt; the previously accepted receipt was durably restored/);
+
+  const notPublished = build(EVIDENCE_PUBLICATION_NOT_PUBLISHED);
+  assert.match(notPublished, /published no receipt; any previously accepted receipt is untouched/);
+
+  // Publication never ran, so nothing about a prior receipt may be claimed either way.
+  const unattempted = build(null);
+  assert.match(unattempted, /This run published no receipt it may cite\./);
+  assert.equal(unattempted.includes("previously accepted receipt"), false);
+
+  for (const notice of [indeterminate, rolledBack, notPublished, unattempted]) {
+    assert.match(notice, /has no citable accepted-evidence receipt, so it must not be accepted/);
+  }
 });
 
 test("the summary-failure notice survives a thrown non-Error value", () => {

@@ -1663,6 +1663,59 @@ test("a rollback that cannot be proven durable reports indeterminate and locks c
   });
 });
 
+test("a first publication left indeterminate keeps this run's receipt on disk and refuses every consumer", async () => {
+  // No prior receipt, so the rollback is an unlink rather than a rename: when the rename succeeds,
+  // the directory fsync fails, and the unlink fails too, the file sitting at accepted-evidence.json
+  // is this run's own. The operator notice may not claim nothing was published, and the lock is what
+  // has to keep consumers from citing it.
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const manifestPath = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME);
+    const first = await seedRun(repoRoot, dir, "sdk-quasar-first-indeterminate");
+
+    const originalUnlinkSync = fs.unlinkSync;
+    const error = await withPatchedFs(
+      {
+        fsyncSync: failingDirectorySync(fs.fsyncSync, path.join(repoRoot, dir)),
+        unlinkSync(target) {
+          if (path.resolve(String(target)) === manifestPath) {
+            const failure = new Error("EIO: simulated rollback unlink failure");
+            failure.code = "EIO";
+            throw failure;
+          }
+          return originalUnlinkSync.call(this, target);
+        },
+      },
+      () => rejectedPublication(path.join(repoRoot, dir), first),
+    );
+
+    assert.ok(error instanceof EvidencePublicationIndeterminateError);
+    assert.equal(error.publicationOutcome, "indeterminate");
+
+    assert.equal(fs.existsSync(manifestPath), true, "this run's receipt bytes remain on disk");
+    const stranded = JSON.parse(await fsp.readFile(manifestPath, "utf8"));
+    assert.equal(stranded.runId, "sdk-quasar-first-indeterminate", "the stranded file is this run's own receipt");
+    assert.equal(stranded.status, "PASS", "and it still reads as a PASS receipt, which is why the lock must hold");
+
+    const lockDir = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_LOCK_DIRNAME);
+    assert.equal(fs.existsSync(lockDir), true);
+    assert.equal(JSON.parse(await fsp.readFile(path.join(lockDir, "owner.json"), "utf8")).state, "indeterminate");
+
+    assert.throws(
+      () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary"] }),
+      /not citable while a publication lock stands/,
+      "a stranded PASS receipt must never be accepted",
+    );
+
+    // Recovery is an operator action: with the marker removed the receipt becomes citable again.
+    await fsp.rm(lockDir, { recursive: true, force: true });
+    assert.equal(
+      readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary"] }).manifest.runId,
+      "sdk-quasar-first-indeterminate",
+    );
+  });
+});
+
 test("a rollback whose rename fails keeps the previous receipt's exact bytes on disk", async () => {
   await withRepo(async (repoRoot) => {
     const dir = "artifacts/surfpool-quasar-smoke";
