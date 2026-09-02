@@ -222,6 +222,7 @@ try {
       repoRoot,
       home: process.env.HOME,
       receiptOutcome: acceptedReceiptOutcome,
+      quarantinedPriorEntry: quarantinedPriorReceipt,
     })}\n`);
   }
 }

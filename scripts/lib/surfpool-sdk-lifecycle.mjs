@@ -801,36 +801,62 @@ export function redactForEvidence(value, options = {}) {
 }
 
 /**
+ * Sanitizes one untrusted fragment for a single-line operator channel.
+ *
+ * The order matters at both ends. `redactForEvidence` substitutes the repository root and home
+ * directory as literal strings, so it has to see the raw text: collapsing whitespace first would
+ * rewrite any such path that contains a tab, newline, or doubled space and leave it unmatched. Its
+ * keypair patterns deliberately stop at a line break, which is right for a line-buffered log but
+ * would let a multi-line array through here, so key material is scrubbed with line-tolerant
+ * patterns before the collapse joins it onto one line — and the general redactor runs once more
+ * afterwards, because collapsing can flatten a secret into a shape only it matches.
+ */
+function sanitizeOperatorNoticeFragment(value, { repoRoot, home, maxChars = 2_000 } = {}) {
+  const scrubbed = redactForEvidence(value, { repoRoot, home })
+    .replace(/AGENT_[ABC]_KEYPAIR=\[[^\]]*\]/g, "AGENT_KEYPAIR=<redacted>")
+    .replace(/\[(?:\s*\d{1,3}\s*,){16,}\s*\d{1,3}\s*\]/g, "[<redacted-bytes>]");
+  const sanitized = redactForEvidence(scrubbed.replace(/\s+/g, " ").trim(), { repoRoot, home });
+  return sanitized.length > maxChars
+    ? `${sanitized.slice(0, maxChars)}[truncated ${sanitized.length - maxChars} character(s)]`
+    : sanitized;
+}
+
+/**
  * The operator notice for a run whose summary could not be published.
  *
- * It is built here rather than interpolated at the call site for two reasons. The text carries a
- * filesystem error message, which is the one place an absolute repository or home path reaches an
- * operator channel unredacted, and it is unbounded input on a single CI log line. Both are handled
- * on the way through: key material is scrubbed with patterns that tolerate the line breaks and
- * spacing an error message can carry, the result is collapsed to one line, passed through the same
- * redactor every other operator-facing channel uses, and truncated with an explicit count of what
- * was dropped. Scrubbing has to precede the collapse because `redactForEvidence` deliberately stops
- * its keypair patterns at a line break — correct for a line-buffered log, but it would let a
- * multi-line array through here and then join it onto one line.
+ * It is built here rather than interpolated at the call site because it carries two untrusted
+ * fragments — a filesystem error message and, when the publication moved one aside, a quarantined
+ * entry's reason — onto a channel that has none of the log's redaction or bounds. Both go through
+ * `sanitizeOperatorNoticeFragment`.
  *
  * Every claim is an invariant of the state that produced the notice, never an observation of the
  * disk. Any path that reaches it exits nonzero and holds no citable receipt, so both of those are
- * stated. What remains on disk is not observed: `receiptOutcome` reports what the publication
- * attempt last returned — `indeterminate`, `rolled-back`, or `not-published` — and an unrecognized
- * or absent value falls back to the narrowest claim. Which summary is on disk is never claimed at
- * all, because the write may have failed before, during, or after an earlier summary of the same
- * run was already durable.
+ * stated. What the publication did to a prior entry is taken from what the transaction itself
+ * reported: `receiptOutcome` is its last outcome — `indeterminate`, `rolled-back`, or
+ * `not-published` — and `quarantinedPriorEntry` is set only when an unusable entry was actually
+ * renamed aside, which is the one case where claiming a prior receipt was left alone would be
+ * false. An unrecognized or absent outcome means publication may never have run, so nothing about a
+ * prior entry is claimed at all. Which summary is on disk is never claimed either, because the
+ * write may have failed before, during, or after an earlier summary of the same run was durable.
  */
 export function describeSummaryPublicationFailure(options = {}) {
-  const { error, summaryFile = "the run summary", repoRoot, home, receiptOutcome, maxErrorChars = 2_000 } = options;
-  const message = error?.message ?? String(error ?? "unknown error");
-  const scrubbed = message
-    .replace(/AGENT_[ABC]_KEYPAIR=\[[^\]]*\]/g, "AGENT_KEYPAIR=<redacted>")
-    .replace(/\[(?:\s*\d{1,3}\s*,){16,}\s*\d{1,3}\s*\]/g, "[<redacted-bytes>]");
-  const redacted = redactForEvidence(scrubbed.replace(/\s+/g, " ").trim(), { repoRoot, home });
-  const reason = redacted.length > maxErrorChars
-    ? `${redacted.slice(0, maxErrorChars)}[truncated ${redacted.length - maxErrorChars} character(s)]`
-    : redacted;
+  const {
+    error,
+    summaryFile = "the run summary",
+    repoRoot,
+    home,
+    receiptOutcome,
+    quarantinedPriorEntry = null,
+    maxErrorChars = 2_000,
+  } = options;
+  const sanitize = (value, maxChars) => sanitizeOperatorNoticeFragment(value, { repoRoot, home, maxChars });
+  const reason = sanitize(error?.message ?? String(error ?? "unknown error"), maxErrorChars);
+
+  const quarantineClause = quarantinedPriorEntry
+    ? ` The unusable accepted-evidence entry this run moved aside remains quarantined at `
+      + `${sanitize(quarantinedPriorEntry.path ?? "an unnamed path", 200)} `
+      + `(${sanitize(quarantinedPriorEntry.reason ?? "no reason recorded", 200)}).`
+    : "";
 
   let receiptClause;
   if (receiptOutcome === "indeterminate") {
@@ -840,15 +866,17 @@ export function describeSummaryPublicationFailure(options = {}) {
   } else if (receiptOutcome === "rolled-back") {
     receiptClause = "This run published no receipt; the previously accepted receipt was durably restored.";
   } else if (receiptOutcome === "not-published") {
-    receiptClause = "This run published no receipt; any previously accepted receipt is untouched.";
+    receiptClause = quarantinedPriorEntry
+      ? "This run published no receipt."
+      : "This run published no receipt and did not modify any accepted-evidence entry already on disk.";
   } else {
     receiptClause = "This run published no receipt it may cite.";
   }
 
   return `summary publication failed: ${reason}. This run's authoritative result is failure — it exits nonzero and `
-    + `has no citable accepted-evidence receipt, so it must not be accepted. ${receiptClause} ${summaryFile} is `
-    + "untrusted: it may be absent, partial, stale from an earlier write in this run, or still report PASS, and this "
-    + "run did not verify which.";
+    + `has no citable accepted-evidence receipt, so it must not be accepted. ${receiptClause}${quarantineClause} `
+    + `${summaryFile} is untrusted: it may be absent, partial, stale from an earlier write in this run, or still `
+    + "report PASS, and this run did not verify which.";
 }
 
 export const OVERSIZED_LOG_LINE_MARKER = "[redacted: oversized unterminated log line omitted]\n";

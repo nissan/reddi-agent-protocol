@@ -1208,7 +1208,7 @@ test("the summary-failure notice reports the publication outcome the run actuall
   assert.match(rolledBack, /published no receipt; the previously accepted receipt was durably restored/);
 
   const notPublished = build(EVIDENCE_PUBLICATION_NOT_PUBLISHED);
-  assert.match(notPublished, /published no receipt; any previously accepted receipt is untouched/);
+  assert.match(notPublished, /published no receipt and did not modify any accepted-evidence entry already on disk/);
 
   // Publication never ran, so nothing about a prior receipt may be claimed either way.
   const unattempted = build(null);
@@ -1218,6 +1218,98 @@ test("the summary-failure notice reports the publication outcome the run actuall
   for (const notice of [indeterminate, rolledBack, notPublished, unattempted]) {
     assert.match(notice, /has no citable accepted-evidence receipt, so it must not be accepted/);
   }
+});
+
+test("the summary-failure notice never claims a quarantined prior entry was left alone", () => {
+  // publishAcceptedEvidence returns not-published after moveAsideSync has already emptied the
+  // canonical path, so this outcome alone does not mean nothing on disk changed.
+  const quarantinedPriorEntry = {
+    path: "artifacts/surfpool-quasar-smoke/.accepted-evidence.json.quarantined-abc123",
+    reason: "the entry is not an ordinary file",
+  };
+
+  const withQuarantine = describeSummaryPublicationFailure({
+    error: new Error("ENOSPC: no space left on device"),
+    summaryFile: "artifacts/SUMMARY.md",
+    receiptOutcome: EVIDENCE_PUBLICATION_NOT_PUBLISHED,
+    quarantinedPriorEntry,
+  });
+
+  assert.equal(
+    withQuarantine.includes("did not modify any accepted-evidence entry"),
+    false,
+    "the canonical entry was moved aside, so this run did modify what is on disk",
+  );
+  assert.match(withQuarantine, /moved aside remains quarantined at artifacts\/surfpool-quasar-smoke\/\.accepted-evidence\.json\.quarantined-abc123/);
+  assert.match(withQuarantine, /the entry is not an ordinary file/);
+  assert.match(withQuarantine, /has no citable accepted-evidence receipt, so it must not be accepted/);
+
+  // The indeterminate transaction can quarantine too, and there both facts have to survive.
+  const indeterminate = describeSummaryPublicationFailure({
+    error: new Error("EIO: simulated"),
+    summaryFile: "artifacts/SUMMARY.md",
+    receiptOutcome: EVIDENCE_PUBLICATION_INDETERMINATE,
+    quarantinedPriorEntry,
+  });
+  assert.match(indeterminate, /An accepted-evidence file may remain on disk from this run/);
+  assert.match(indeterminate, /moved aside remains quarantined at/);
+
+  // Publication never ran, so no disposition may be named at all.
+  const unattempted = describeSummaryPublicationFailure({
+    error: new Error("EIO: simulated"),
+    summaryFile: "artifacts/SUMMARY.md",
+  });
+  assert.equal(unattempted.includes("quarantined"), false);
+  assert.equal(unattempted.includes("did not modify"), false);
+});
+
+test("the summary-failure notice redacts a repository path containing whitespace", () => {
+  // redactForEvidence substitutes repoRoot and home as literal strings, so it has to see the raw
+  // message: collapsing whitespace first would leave a path like this unmatched and leak it.
+  for (const [label, repoRoot] of [
+    ["doubled space", "/home/runner/work/my  project/rap"],
+    ["tab", "/home/runner/work/my\tproject/rap"],
+    ["newline", "/home/runner/work/my\nproject/rap"],
+  ]) {
+    const home = "/home/build\tuser";
+    const notice = describeSummaryPublicationFailure({
+      error: new Error(`EACCES: permission denied, mkdir '${repoRoot}/artifacts/x' (home ${home}/.cache)`),
+      summaryFile: "artifacts/SUMMARY.md",
+      repoRoot,
+      home,
+    });
+
+    assert.equal(notice.includes(repoRoot), false, `${label}: the raw repository path must not survive`);
+    assert.equal(notice.includes(home), false, `${label}: the raw home path must not survive`);
+    assert.match(notice, /<repo>\/artifacts\/x/, `${label}: the substitution still happened`);
+    assert.match(notice, /~\/\.cache/, `${label}: the home substitution still happened`);
+  }
+});
+
+test("the summary-failure notice survives a path, key material, and an oversized message together", () => {
+  const repoRoot = "/home/runner/work/my  project/rap";
+  const bytes = Array.from({ length: 64 }, (_, i) => i + 1);
+  const notice = describeSummaryPublicationFailure({
+    error: new Error(
+      `EIO writing ${repoRoot}/artifacts/SUMMARY.md`
+      + ` AGENT_B_KEYPAIR=[${bytes.slice(0, 30).join(",")},\n${bytes.slice(30).join(",")}]`
+      + ` and [${bytes.join(",\r\n")}]`
+      + ` ${"filler ".repeat(1_000)}`,
+    ),
+    summaryFile: "artifacts/SUMMARY.md",
+    repoRoot,
+    home: "/home/runner",
+    receiptOutcome: EVIDENCE_PUBLICATION_NOT_PUBLISHED,
+    maxErrorChars: 400,
+  });
+
+  assert.equal(notice.includes(repoRoot), false, "the whitespace-bearing path must not survive");
+  assert.equal(notice.includes("AGENT_B_KEYPAIR=["), false, "the labelled keypair must not survive");
+  assert.equal(notice.includes("31,32,33"), false, "no run of key bytes may survive");
+  assert.equal(notice.includes("\n"), false, "the notice must stay one stderr line");
+  assert.match(notice, /\[truncated \d+ character\(s\)\]/, "the reason is still bounded");
+  assert.ok(notice.length < 1_200, `the notice must stay bounded; got ${notice.length}`);
+  assert.match(notice, /must not be accepted/);
 });
 
 test("the summary-failure notice survives a thrown non-Error value", () => {

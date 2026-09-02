@@ -1753,6 +1753,56 @@ test("a rollback whose rename fails keeps the previous receipt's exact bytes on 
   });
 });
 
+test("a publication that quarantines a prior entry and then fails reports both facts", async () => {
+  // The disposition the operator notice has to name: the canonical path was emptied by this run
+  // before the write failed, so "not-published" alone does not mean nothing on disk changed.
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const manifestDir = path.join(repoRoot, dir);
+    const manifestPath = path.join(manifestDir, ACCEPTED_EVIDENCE_FILENAME);
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-quarantine-then-fail");
+    await fsp.mkdir(manifestDir, { recursive: true });
+    // An unusable prior entry: a directory cannot be read as a receipt, so it is quarantined.
+    await fsp.mkdir(manifestPath, { recursive: true });
+    await fsp.writeFile(path.join(manifestPath, "marker"), "prior entry contents\n");
+
+    const originalOpenSync = fs.openSync;
+    const error = await withPatchedFs(
+      {
+        openSync(target, ...rest) {
+          const name = path.basename(String(target));
+          if (name.startsWith(`.${ACCEPTED_EVIDENCE_FILENAME}.`) && name.endsWith(".tmp")) {
+            const failure = new Error("ENOSPC: no space left on device");
+            failure.code = "ENOSPC";
+            throw failure;
+          }
+          return originalOpenSync.call(this, target, ...rest);
+        },
+      },
+      () => rejectedPublication(manifestDir, record),
+    );
+
+    assert.equal(error.publicationOutcome, "not-published", "the receipt was never renamed into place");
+    assert.ok(error.quarantinedPriorEntry, "the transaction must report what it moved aside");
+    assert.equal(fs.existsSync(manifestPath), false, "this run emptied the canonical path");
+
+    const quarantined = path.join(repoRoot, error.quarantinedPriorEntry.path);
+    assert.equal(fs.existsSync(quarantined), true, "the prior entry survives for diagnosis");
+    assert.equal(await fsp.readFile(path.join(quarantined, "marker"), "utf8"), "prior entry contents\n");
+    assert.equal(
+      error.quarantinedPriorEntry.path.startsWith(`${dir}/`),
+      true,
+      "the reported location is repository-relative, so no absolute path reaches an operator channel",
+    );
+
+    assert.throws(
+      () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary"] }),
+      /accepted evidence/i,
+      "no consumer may cite anything: the canonical path is empty and a quarantine file is never citable",
+    );
+  });
+});
+
 test("an unusable prior receipt is preserved for diagnosis instead of blocking every later run", async () => {
   const plants = [
     {
