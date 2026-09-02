@@ -9,7 +9,11 @@ on:
       - "scripts/check-paid-workflow-copy-boundaries.mjs"
       - "e2e/economic-demo-paid-workflow*.ts"
       - "docs/DISCOVER-DECIDE-PROVE-BOUNDARIES.md"
+      - "scripts/lib/workflow-yaml.mjs"
+      - "scripts/__tests__/surfpool-lane-boundaries.test.mjs"
       - ".github/workflows/rap-package-guard.yml"
+      - ".github/workflows/quasar-readiness-guard.yml"
+      - ".github/workflows/surfpool-quasar-critical-sdk.yml"
   workflow_dispatch:
 
 jobs:
@@ -65,6 +69,9 @@ jobs:
 
       - name: Install root dependencies
         run: npm ci
+
+      - name: Verify lane trigger and safety boundaries
+        run: npm run test:surfpool:lane-boundaries
 
       - name: Copy-boundary regression gate (#501)
         run: node scripts/check-paid-workflow-copy-boundaries.mjs

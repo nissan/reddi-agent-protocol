@@ -11,10 +11,15 @@ on:
       - "packages/demo-agents/**"
       - "scripts/check-quasar-*.mjs"
       - "scripts/lib/json-schema-subset.mjs"
+      - "scripts/lib/workflow-yaml.mjs"
+      - "scripts/lib/surfpool-sdk-lifecycle.mjs"
       - "scripts/__tests__/quasar-runtime-compatibility-schema.test.mjs"
+      - "scripts/__tests__/surfpool-lane-boundaries.test.mjs"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/quasar-readiness-guard.yml"
+      - ".github/workflows/rap-package-guard.yml"
+      - ".github/workflows/surfpool-quasar-critical-sdk.yml"
   workflow_dispatch:
 
 jobs:
@@ -40,3 +45,8 @@ jobs:
 
       - name: Verify the runtime-compatibility schema is enforced
         run: npm run test:quasar:runtime-compatibility
+
+      # Cheap enough to run here rather than in the 90-minute Surfpool lane, and running it in two
+      # independent lightweight workflows is what keeps either one from being its own only witness.
+      - name: Verify lane trigger and safety boundaries
+        run: npm run test:surfpool:lane-boundaries

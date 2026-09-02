@@ -226,38 +226,189 @@ test("every workflow whose path filters name a regression test file also runs th
   assert.ok(checked > 0, "the repository must have at least one workflow triggering on a named test file");
 });
 
-test("every workflow this suite makes assertions about is re-run when that workflow changes", () => {
-  // The assertions above are only worth anything if something runs them when the file they describe
-  // is edited. A guard that is not named by any workflow's path filters can have its own triggers
-  // deleted in a PR that starts no job at all, so the drift the filters exist to catch merges
-  // unobserved.
-  const packageScripts = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")).scripts;
-  const thisSuite = "scripts/__tests__/surfpool-lane-boundaries.test.mjs";
-  const asserted = ["quasar-readiness-guard.yml", "surfpool-quasar-critical-sdk.yml", "surfpool-acceptance-manual.yml"];
+const LANE_BOUNDARY_SUITE = "scripts/__tests__/surfpool-lane-boundaries.test.mjs";
 
-  const triggersRunningThisSuite = [];
-  for (const name of fs.readdirSync(path.join(repoRoot, ".github/workflows")).filter((entry) => entry.endsWith(".yml"))) {
-    const workflow = loadWorkflow(name);
+// Files whose edit must start a job that runs this suite. Workflow YAML is here because a trigger
+// list can otherwise be deleted in a PR that starts nothing; the suite file and the script that
+// runs it are here because a change to either can silently stop it being executed.
+const GUARDED_BY_THIS_SUITE = Object.freeze([
+  ".github/workflows/quasar-readiness-guard.yml",
+  ".github/workflows/rap-package-guard.yml",
+  ".github/workflows/surfpool-quasar-critical-sdk.yml",
+  LANE_BOUNDARY_SUITE,
+  "package.json",
+]);
+
+/**
+ * Which workflow events run this suite, and on which path filters — per event, never flattened.
+ * GitHub evaluates each event's filters independently, so a filter present only under `push` does
+ * nothing for a pull request, and it is the pull request that gates a merge.
+ */
+function laneBoundaryCoverage(workflows) {
+  const coverage = [];
+  for (const [name, workflow] of Object.entries(workflows)) {
     const runsSuite = Object.values(workflow.jobs ?? {}).some((job) => (job.steps ?? []).some((step) =>
-      testFilesExecutedBy(step.run, packageScripts).has(thisSuite)));
-    if (!runsSuite) continue;
-    for (const trigger of Object.values(workflow.on ?? {})) {
-      for (const filter of trigger?.paths ?? []) triggersRunningThisSuite.push(filter);
+      testFilesExecutedBy(step.run, workflow.packageScripts).has(LANE_BOUNDARY_SUITE)));
+    for (const [eventName, trigger] of Object.entries(workflow.on ?? {})) {
+      if (!trigger?.paths) continue;
+      coverage.push({ workflow: name, event: eventName, runsSuite, paths: trigger.paths });
     }
   }
+  return coverage;
+}
 
-  assert.ok(triggersRunningThisSuite.length > 0, "some workflow must run this suite on a path filter");
-  for (const workflowName of asserted) {
+/** Every guarded file with no independent witness under the merge-gating pull_request event. */
+function unwitnessedFiles(coverage, guarded = GUARDED_BY_THIS_SUITE) {
+  return guarded.filter((file) => !coverage.some((entry) =>
+    entry.runsSuite
+    && entry.event === "pull_request"
+    && entry.paths.includes(file)
+    // A workflow's own filter list cannot be its only witness: deleting that line is exactly the
+    // edit that must still start a job.
+    && `.github/workflows/${entry.workflow}` !== file));
+}
+
+function repositoryWorkflows() {
+  const packageScripts = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")).scripts;
+  const workflows = {};
+  for (const name of fs.readdirSync(path.join(repoRoot, ".github/workflows")).filter((entry) => entry.endsWith(".yml"))) {
+    workflows[name] = { ...loadWorkflow(name), packageScripts };
+  }
+  return workflows;
+}
+
+test("every file this suite guards has an independent workflow that runs it on pull request", () => {
+  const coverage = laneBoundaryCoverage(repositoryWorkflows());
+
+  assert.deepEqual(unwitnessedFiles(coverage), [], "each guarded file needs a witness other than itself");
+  const witnesses = new Set(coverage.filter((entry) => entry.runsSuite).map((entry) => entry.workflow));
+  assert.ok(witnesses.size >= 2, `at least two workflows must run this suite; got ${[...witnesses].join(", ") || "none"}`);
+});
+
+test("each event's filters are judged on their own, so push coverage cannot stand in for pull request", () => {
+  const workflows = repositoryWorkflows();
+  const pushOnly = {
+    ...workflows,
+    "example.yml": {
+      packageScripts: workflows["quasar-readiness-guard.yml"].packageScripts,
+      on: { push: { paths: [...GUARDED_BY_THIS_SUITE] }, pull_request: { paths: ["unrelated/**"] } },
+      jobs: { example: { steps: [{ run: "npm run test:surfpool:lane-boundaries" }] } },
+    },
+  };
+
+  // The added workflow covers every guarded file under push and none under pull_request. If events
+  // were flattened it would satisfy the check on its own.
+  const coverageWithoutRealWitnesses = laneBoundaryCoverage(pushOnly)
+    .filter((entry) => entry.workflow === "example.yml");
+  assert.deepEqual(
+    unwitnessedFiles(coverageWithoutRealWitnesses),
+    [...GUARDED_BY_THIS_SUITE],
+    "push-only coverage must not satisfy a pull-request gate",
+  );
+});
+
+// Mutation fixtures: each is an edit a maintainer could plausibly make, and each must be reported as
+// a coverage gap rather than passing silently.
+const COVERAGE_MUTATIONS = [
+  {
+    label: "the readiness guard stops naming its reciprocal partner",
+    mutate: (workflows) => {
+      workflows["quasar-readiness-guard.yml"].on.pull_request.paths =
+        workflows["quasar-readiness-guard.yml"].on.pull_request.paths.filter((p) => p !== ".github/workflows/rap-package-guard.yml");
+    },
+    expected: [".github/workflows/rap-package-guard.yml"],
+  },
+  {
+    label: "the package guard stops naming its reciprocal partner",
+    mutate: (workflows) => {
+      workflows["rap-package-guard.yml"].on.pull_request.paths =
+        workflows["rap-package-guard.yml"].on.pull_request.paths.filter((p) => p !== ".github/workflows/quasar-readiness-guard.yml");
+    },
+    expected: [".github/workflows/quasar-readiness-guard.yml"],
+  },
+  {
+    label: "the heavy lane's YAML loses its lightweight witnesses",
+    mutate: (workflows) => {
+      for (const name of ["quasar-readiness-guard.yml", "rap-package-guard.yml"]) {
+        workflows[name].on.pull_request.paths =
+          workflows[name].on.pull_request.paths.filter((p) => p !== ".github/workflows/surfpool-quasar-critical-sdk.yml");
+      }
+    },
+    expected: [".github/workflows/surfpool-quasar-critical-sdk.yml"],
+  },
+  {
+    label: "the suite file itself stops being a trigger",
+    mutate: (workflows) => {
+      for (const workflow of Object.values(workflows)) {
+        for (const trigger of Object.values(workflow.on ?? {})) {
+          if (trigger?.paths) trigger.paths = trigger.paths.filter((p) => p !== LANE_BOUNDARY_SUITE);
+        }
+      }
+    },
+    expected: [LANE_BOUNDARY_SUITE],
+  },
+  {
+    // Reciprocity cuts both ways: the package guard is the readiness guard's only independent
+    // witness, so dropping the step here leaves the readiness guard's own YAML unguarded.
+    label: "one witness drops the step that runs the suite",
+    mutate: (workflows) => {
+      for (const job of Object.values(workflows["rap-package-guard.yml"].jobs)) {
+        job.steps = (job.steps ?? []).filter((step) => !String(step.run ?? "").includes("test:surfpool:lane-boundaries"));
+      }
+    },
+    expected: [".github/workflows/quasar-readiness-guard.yml"],
+  },
+  {
+    label: "both witnesses drop the step that runs the suite",
+    mutate: (workflows) => {
+      for (const name of ["quasar-readiness-guard.yml", "rap-package-guard.yml"]) {
+        for (const job of Object.values(workflows[name].jobs)) {
+          job.steps = (job.steps ?? []).filter((step) => !String(step.run ?? "").includes("test:surfpool:lane-boundaries"));
+        }
+      }
+    },
+    // Only the heavy lane still runs the suite, and it no longer names either guard's YAML.
+    expected: [
+      ".github/workflows/quasar-readiness-guard.yml",
+      ".github/workflows/rap-package-guard.yml",
+      ".github/workflows/surfpool-quasar-critical-sdk.yml",
+    ],
+  },
+];
+
+for (const { label, mutate, expected } of COVERAGE_MUTATIONS) {
+  test(`hosted coverage is reported as lost when ${label}`, () => {
+    const workflows = structuredClone(repositoryWorkflows());
+    assert.deepEqual(unwitnessedFiles(laneBoundaryCoverage(workflows)), [], "the fixture starts from full coverage");
+
+    mutate(workflows);
+    assert.deepEqual(
+      unwitnessedFiles(laneBoundaryCoverage(workflows)).sort(),
+      [...expected].sort(),
+      `${label} must be reported, not tolerated`,
+    );
+  });
+}
+
+test("the heavy Surfpool lane is not triggered by sibling guard YAML", () => {
+  // The lane-boundary suite is cheap; running the 90-minute Surfnet/Rust job because a lightweight
+  // guard's YAML changed would be paying for it in the wrong place.
+  const critical = loadWorkflow("surfpool-quasar-critical-sdk.yml");
+  for (const eventName of ["push", "pull_request"]) {
+    const paths = critical.on[eventName].paths;
+    for (const sibling of [".github/workflows/quasar-readiness-guard.yml", ".github/workflows/rap-package-guard.yml"]) {
+      assert.equal(paths.includes(sibling), false, `${eventName} must not start the heavy lane for ${sibling}`);
+    }
     assert.ok(
-      triggersRunningThisSuite.includes(`.github/workflows/${workflowName}`),
-      `editing ${workflowName} must start a job that runs ${thisSuite}, or its trigger assertions are unenforceable`,
+      paths.includes(".github/workflows/surfpool-quasar-critical-sdk.yml"),
+      `${eventName} must still re-run the lane when its own definition changes`,
     );
   }
 });
 
 test("a guard workflow re-runs its own job when its triggers are edited", () => {
-  // Self-listing is what makes a filter change re-run the checks that file gates, independently of
-  // which other workflow happens to name it.
+  // Self-listing is not sufficient on its own — that is what unwitnessedFiles checks — but it is
+  // still necessary, so an edit re-runs the checks the file itself gates.
   for (const name of ["quasar-readiness-guard.yml", "quasar-program-tests.yml", "rap-package-guard.yml"]) {
     const workflow = loadWorkflow(name);
     const selfListed = Object.values(workflow.on ?? {}).some((trigger) =>
