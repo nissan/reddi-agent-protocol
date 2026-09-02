@@ -535,7 +535,7 @@ Given Pay.sh / `reddi-x402` evidence now appears in the UI, run report, and subm
   - `docs/ECONOMIC-DEMO-JUDGE-PACKET-2026-05-05.md`
   - `docs/ECONOMIC-DEMO-PROOF-HIERARCHY-2026-05-07.md`
   - `docs/HACKATHON-BOUNTY-SHOWCASE-AUDIT-2026-05-07.md`
-  - `artifacts/economic-demo-submission-prep/latest/SUBMISSION-PREP.md`
+  - `artifacts/economic-demo-submission-prep/latest/SUBMISSION-PREP.md` (generated symlink, not committed; the guard resolves the newest committed timestamped run — see `docs/PUBLIC-CLAIM-BOUNDARY.md` § Evidence artifacts that are not committed)
 
 ### Validation
 

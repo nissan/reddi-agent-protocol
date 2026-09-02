@@ -23,6 +23,23 @@ RAP Assurance (Reddi Agent Protocol Assurance) is an open, integration-first rec
 - That payment evidence proves work quality, trust, reputation, settlement finality, or dispute outcome by itself.
 - That hosted Reddi/Redditech services are required for the OSS core or are live production services unless a separately approved release says so.
 
+## Executable checks
+
+The boundary is enforced in two halves that share one pattern list (`lib/public-claims/public-claim-boundary-terms.ts`):
+
+| Surface | Check |
+|---|---|
+| Owned prose and package metadata (README/docs/`package.json`) | `npm run check:claims:public` (`.github/workflows/public-claim-boundary.yml`) |
+| Rendered app copy and document metadata | `e2e/public-claim-boundary.spec.ts`, `e2e/home.spec.ts` (blocking Playwright funnel lane) |
+
+The static gate carries a negative control: `node scripts/check-public-claim-boundaries.mjs --negative-control` injects every forbidden claim's affirmative example and must exit 1, so a gate that has stopped catching overclaims fails CI.
+
+## Evidence artifacts that are not committed
+
+`artifacts/economic-demo-submission-prep/latest/SUBMISSION-PREP.md` does not exist in this repository and was deliberately not created during the RAP Assurance claim remediation. `latest` is a generated convenience symlink produced by a local prep run; only the timestamped run directories under `artifacts/economic-demo-submission-prep/` are committed.
+
+The truthful resolution is to cite the newest committed timestamped run, not to author a stand-in file. Docs that reference the `latest` path are labelled as pointing at a generated artifact, and `scripts/check-submission-claim-boundaries.mjs` resolves the newest committed run instead of requiring the symlink. Do not fabricate the missing file to make a guard pass.
+
 ## Preferred positioning
 
 Describe RAP Assurance as complementary to payment and agent-discovery standards/products such as x402, MPP/Stripe-style machine payments, AP2, MCP Registry, A2A, AGNTCY/OASF, Pay.sh/PayAI, and Solana/AUDD adapters. Those systems can prove or route payment and discovery; RAP Assurance records the paid-work lifecycle around them.

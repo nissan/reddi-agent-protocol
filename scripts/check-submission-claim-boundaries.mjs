@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const files = process.argv.slice(2).length
   ? process.argv.slice(2)
@@ -85,12 +86,35 @@ const forbiddenSafeClaimPatterns = [
   /Pay\.sh[^\n]*(?:Umbra private settlement|MagicBlock PER settlement)[^\n]*(?:proves|proved|settled|completed)/i,
 ];
 
+const SUBMISSION_PREP_LATEST = "artifacts/economic-demo-submission-prep/latest/SUBMISSION-PREP.md";
+
+/**
+ * `artifacts/economic-demo-submission-prep/latest` is a generated convenience
+ * symlink that is deliberately not committed — only the timestamped run
+ * directories are. Resolve the newest committed run rather than requiring an
+ * artifact the repository does not contain. See docs/PUBLIC-CLAIM-BOUNDARY.md
+ * § Evidence artifacts that are not committed.
+ */
+function resolveSubmissionPrep() {
+  if (existsSync(SUBMISSION_PREP_LATEST)) return SUBMISSION_PREP_LATEST;
+  const parent = join("artifacts", "economic-demo-submission-prep");
+  if (!existsSync(parent)) return SUBMISSION_PREP_LATEST;
+  const newest = readdirSync(parent, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && /^\d{8}T\d{6}Z$/.test(entry.name))
+    .map((entry) => join(parent, entry.name, "SUBMISSION-PREP.md"))
+    .filter((path) => existsSync(path))
+    .sort()
+    .at(-1);
+  return newest ?? SUBMISSION_PREP_LATEST;
+}
+
 for (const file of files) {
-  if (!existsSync(file)) {
+  const resolved = file === SUBMISSION_PREP_LATEST ? resolveSubmissionPrep() : file;
+  if (!existsSync(resolved)) {
     failures.push(`${file}: missing file`);
     continue;
   }
-  const text = readFileSync(file, "utf8");
+  const text = readFileSync(resolved, "utf8");
   for (const phrase of requiredByFile[file] ?? []) {
     if (!text.includes(phrase)) failures.push(`${file}: missing required boundary phrase: ${phrase}`);
   }

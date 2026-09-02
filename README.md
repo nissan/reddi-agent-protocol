@@ -148,6 +148,23 @@ The verifier checks public product routes, recorded Solana devnet transactions, 
 
 RAP receipts and attestation records can bind evidence and make reputation inputs inspectable. They do not by themselves prove final settlement, mainnet execution, provider quality, legal/compliance approval, or live reputation mutation. Current Quasar readiness still has unresolved gates; do not treat the on-chain reputation system as mainnet-ready until those are closed and re-reviewed.
 
+### Commit-reveal reputation (reference mechanism)
+
+The reference programs implement rating as commit-reveal, mirrored in `lib/program.ts`: each party submits `sha256(score || salt)` via `commit_rating`, neither side sees the other's score at commit time, and `reveal_rating` is verified against the stored hash before any score is written. `expire_rating` covers the non-reveal path.
+
+The intended property is that neither party can react to the other's score. This is a mechanism description, not a readiness claim: the CRITICAL-4 reveal/expiry griefing gate in `SECURITY.md` is still open, so the reputation path is neither audited nor mainnet-ready.
+
+## RPC configuration
+
+Solana RPC latency matters for the lock/verify/read loops in the reference and devnet paths, so the endpoint is configurable rather than hard-coded.
+
+```bash
+# .env.local
+NEXT_PUBLIC_RPC_ENDPOINT=https://<your-rpc-endpoint>
+```
+
+`NEXT_PUBLIC_RPC_ENDPOINT` overrides the RPC endpoint resolved from the active network profile (`lib/config/network.ts`, `config/networks/<profile>.json`). Program-id overrides are separate and are ignored on devnet unless the build explicitly opted in — see [`docs/NETWORK-PROFILES.md`](docs/NETWORK-PROFILES.md). No RPC provider is endorsed, and no throughput or production-capacity claim is made here.
+
 ---
 
 ## Running protocol/reference checks locally

@@ -54,6 +54,28 @@ RAP Assurance receipt
 - No hosted marketplace/facilitator readiness claim.
 - No collected on-chain protocol treasury fee; 0.05% / 5 bps remains fixture/planned economics only.
 
+## x402 challenge/response semantics (implemented in `packages/x402-solana`)
+
+These are protocol mechanics the repository actually implements, not a settlement claim.
+
+- Request header: `x402-request`, a JSON payload parsed by `parseX402Header`.
+- Required fields: `amount` (positive), `currency`, `paymentAddress`/`payTo` (strict base58 32-byte Solana public key), `nonce`.
+- Optional fields: `network`, `endpoint`, `memo`, `payerCurrency`, `payerAddress`, `autoSwap`.
+- `buildX402Challenge` rejects unsupported networks, non-positive amounts, and missing nonce/currency/endpoint.
+- Replay protection: `checkAndStoreNonce` rejects a repeated nonce with HTTP 409 before any payment path runs.
+- Response header: `x402-payment`, carrying the receipt the caller can retain as a payment-proof reference.
+
+The invariants are challenge binding, anti-replay nonce, amount/asset binding, and payer authorization proof. Parsing and gating these is not itself proof that funds moved, that work was performed, or that any live rail is enabled.
+
+## Escrow PDA lifecycle (legacy Anchor reference program only)
+
+`programs/escrow/` is historical/reference evidence. It is not deployed as a current target, holds lamports/SOL only, and is not an escrow product, custody offering, or settlement-finality claim.
+
+- PDA seeds: `[b"escrow", payer, nonce]`; the payer-scoped nonce prevents duplicate escrows.
+- `EscrowStatus` has exactly three states: `Locked` (funds locked awaiting resolution), `Released` (paid to the payee), `Cancelled` (returned to the payer).
+- Instructions: `lock_escrow`, `release_escrow`, `cancel_escrow`, plus the MagicBlock PER state-tracking pair `delegate_escrow` / `release_escrow_per`.
+- `Released` and `Cancelled` are terminal, which is what prevents double-resolution in the reference program.
+
 ## Reference Solana surfaces
 
 The repository still contains Solana reference code and demos. The legacy Anchor program is historical/reference evidence. The recorded Quasar devnet deployment is blocked by `config/quasar/deployments.json` and refused outside the local Surfpool lane before instruction building, signer access, or RPC. Future custody or settlement work must land behind separate approval, audit, deployment, and public-claim gates.

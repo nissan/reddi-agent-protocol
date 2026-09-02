@@ -8,9 +8,17 @@ import { StatsBar } from "@/components/ui/stats-bar";
 import { OnboardingVideoGrid } from "@/components/onboarding/OnboardingVideoGrid";
 import { SpecialistCard } from "@/components/SpecialistCard";
 import { onboardingVideos } from "@/lib/onboarding/video-guides";
+import {
+  receiptFixtureCaseCount,
+  sourceTrustConformanceCaseCount,
+} from "@/lib/assurance/public-metrics";
 import type { SpecialistListing } from "@/lib/registry/bridge";
 
-const JUDGE_METRICS = { specialists: 30, receiptCases: 14, conformanceAreas: 9 };
+const JUDGE_METRICS = {
+  specialists: 30,
+  receiptCases: receiptFixtureCaseCount,
+  conformanceCases: sourceTrustConformanceCaseCount,
+};
 
 const ECOSYSTEM_PROOFS = [
   {
@@ -200,8 +208,8 @@ export default function Home() {
         <StatsBar
           stats={[
             { label: "Directory fixtures", value: stats.specialists },
-            { label: "Receipt threat cases", value: stats.receiptCases },
-            { label: "Conformance areas", value: stats.conformanceAreas },
+            { label: "Receipt fixture cases", value: stats.receiptCases },
+            { label: "Source-trust conformance cases", value: stats.conformanceCases },
           ]}
         />
       </div>

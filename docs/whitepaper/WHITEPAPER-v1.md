@@ -66,6 +66,12 @@ Current repository evidence includes:
 - The public conformance suite (`npm run check:conformance:public`) and OSS release smoke (`npm run check:oss-release-smoke`).
 - Recorded/local Solana reference evidence, with the current Quasar devnet deployment explicitly blocked by `config/quasar/deployments.json`.
 
+### 5.1 Dogfood trust harness
+
+The repository ships a dogfood harness that exercises acceptance logic under injected failure: a testing specialist answering `ping -> pong + haiku` (`packages/testing-specialists`), deterministic failure injection, an independent attestor checking for `pong` and 5/7/5 structure, and a consumer run that decides accept vs reject from the attestor verdict (`/dogfood`, `app/api/dogfood/*`).
+
+It demonstrates that acceptance logic rejects malformed output and withholds approval on failed attestation. The decision it records is an application-level accept/reject over evidence; it is not fund custody, on-chain settlement, or a settlement-finality claim.
+
 ## 6. Security and anti-gaming posture
 
 See Appendix A (`APPENDIX-THREAT-MODEL.md`) and `SECURITY.md` for details. Current controls are threat-model and source/test claims, not a completed external audit. They include receipt validation, credential-leakage rejection, nonce/replay checks, evidence hashing, policy fail-closed behavior, and attestation/reputation separation.

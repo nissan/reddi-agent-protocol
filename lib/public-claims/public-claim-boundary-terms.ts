@@ -1,0 +1,131 @@
+/**
+ * Shared public-claim boundary terms for RAP Assurance.
+ *
+ * Authority: `docs/PUBLIC-CLAIM-BOUNDARY.md`. Two consumers share this list so
+ * the owned-text contract and the rendered-copy contract cannot drift apart:
+ *
+ * - `scripts/check-public-claim-boundaries.mjs` scans the repository's owned
+ *   public prose and package metadata (README/docs/package.json), whose literal
+ *   text is itself the published artifact.
+ * - `e2e/public-claim-boundary.spec.ts` scans the rendered DOM of the public
+ *   routes, which is where app copy is actually a claim.
+ */
+
+export const PUBLIC_CLAIM_BOUNDARY_DOC_PATH = "docs/PUBLIC-CLAIM-BOUNDARY.md";
+
+export const CENTRAL_MESSAGE = "Payments prove transfer; RAP Assurance proves paid work";
+
+export type ForbiddenPublicClaim = {
+  id: string;
+  pattern: RegExp;
+  reason: string;
+  /** Affirmative phrasing the pattern must catch; drives the negative-control self-test. */
+  injectionExample: string;
+};
+
+export const FORBIDDEN_PUBLIC_CLAIMS: ForbiddenPublicClaim[] = [
+  {
+    id: "marketplace-rail",
+    pattern: /\b(?:is|as|becomes?|provides?|gives|gives existing agent systems|turns|lets|handles)\b[^\n]{0,120}\bmarketplace\s+rail\b/i,
+    reason: "Do not position RAP as a marketplace rail.",
+    injectionExample: "Reddi Agent Protocol is the marketplace rail for agent commerce.",
+  },
+  {
+    id: "payment-facilitator",
+    pattern: /\b(?:is|as|becomes?|provides?|runs|operates|handles)\b[^\n]{0,100}\bpayment\s+facilitator\b/i,
+    reason: "Do not position RAP as a payment facilitator.",
+    injectionExample: "RAP Assurance operates as a payment facilitator for paid agent work.",
+  },
+  {
+    id: "generic-runtime",
+    pattern: /\b(?:generic|hosted|production)\s+(?:agent\s+)?runtime\b[^\n]{0,80}\b(?:live|ready|available|provided|built in)\b/i,
+    reason: "Do not claim a generic/hosted runtime product is live.",
+    injectionExample: "Our hosted agent runtime is live for every registered specialist.",
+  },
+  {
+    id: "custody-provider",
+    pattern: /\b(?:takes?|holds?|provides?|offers?|assumes?)\s+(?:production\s+)?(?:funds?\s+)?custody\b|\bcustody\s+(?:provider|service|product)\b/i,
+    reason: "Do not claim custody.",
+    injectionExample: "The protocol takes custody of buyer funds for every paid job.",
+  },
+  {
+    id: "escrow-provider",
+    pattern: /\b(?:production\s+)?escrow\s+(?:provider|service|product|finality|guarantee)\b/i,
+    reason: "Do not claim an escrow product or escrow finality.",
+    injectionExample: "RAP ships production escrow finality for every paid job.",
+  },
+  {
+    id: "collected-fee",
+    pattern: /\b(?:collects?|charges?|takes?)\s+(?:a\s+)?(?:0\.05\s*%|5\s*bps\b|protocol\s+fee\b|take-?rate\b)/i,
+    reason: "Protocol fee/take-rate is not implemented.",
+    injectionExample: "The protocol collects a 0.05% take-rate on every settled job.",
+  },
+  {
+    id: "production-ready",
+    pattern: /\b(?:production[-\s]?ready|ready\s+for\s+production|production\s+readiness\s+(?:passed|complete|green))\b/i,
+    reason: "Production readiness is not established.",
+    injectionExample: "The RAP Assurance stack is production-ready today.",
+  },
+  {
+    id: "mainnet-ready",
+    pattern: /\b(?:mainnet[-\s]?ready|ready\s+for\s+mainnet|mainnet\s+readiness\s+(?:passed|complete|green))\b/i,
+    reason: "Mainnet readiness is not established.",
+    injectionExample: "The Quasar program set is mainnet-ready.",
+  },
+  {
+    id: "security-audited",
+    pattern: /\b(?:security[-\s]?audited|audit\s+(?:passed|complete|completed)|audited\s+(?:release|contracts?|programs?))\b/i,
+    reason: "No completed security audit is claimed.",
+    injectionExample: "This is a security-audited release of the escrow programs.",
+  },
+  {
+    id: "live-audd-settlement",
+    pattern: /\bAUDD\b[^\n]{0,120}\b(?:live|production|settled|settlement\s+(?:complete|enabled|ready)|custody)\b/i,
+    reason: "AUDD is proof/payment-plan/read-only observation metadata unless separately approved.",
+    injectionExample: "AUDD custody is available for every specialist invoice.",
+  },
+  {
+    id: "payment-proves-work",
+    pattern: /\bpayment\s+(?:proof|receipt|evidence)\s+(?:proves|guarantees|certifies)\s+(?:work|quality|success|delivery)\b/i,
+    reason: "Payment proves transfer, not work quality.",
+    injectionExample: "A payment receipt proves work quality for the buyer.",
+  },
+];
+
+/**
+ * Same-line qualifiers that turn a pattern hit into a stated boundary rather
+ * than a claim. Deliberately narrow and evaluated only against the matched
+ * line: words the remediation sprinkles everywhere ("planned", "fixture",
+ * "boundary", "historical") are NOT qualifiers, because treating them as such
+ * suppresses genuine affirmative claims that merely sit near boundary prose.
+ */
+export const CLAIM_QUALIFIER_PATTERNS: RegExp[] = [
+  /\bnot\b/i,
+  /\bno\b/i,
+  /\bnor\b/i,
+  /\bnever\b/i,
+  /\bwithout\b/i,
+  /\bunless\b/i,
+  /\buntil\b/i,
+  /\bavoid\b/i,
+  /\bblocked\b/i,
+  /\brefused\b/i,
+  /\bgated\b/i,
+  /\bout of scope\b/i,
+  /\bnon-?claims?\b/i,
+];
+
+/**
+ * Markdown headings that open an explicit prohibition list. Bullets under such
+ * a heading are prohibitions even when the bullet itself carries no negation.
+ */
+export const PROHIBITION_HEADING_PATTERN =
+  /^#{1,6}\s.*\b(?:must not|do not|does not|is not|are not|not yet|non-?claims?|not claim(?:ed|ing)?|out of scope|prohibited|forbidden|never claim)\b/i;
+
+/** True when a matched line states the claim as a boundary rather than asserting it. */
+export function claimIsQualified(line: string): boolean {
+  return CLAIM_QUALIFIER_PATTERNS.some((pattern) => pattern.test(line));
+}
+
+/** Public routes whose rendered copy is gated at the DOM layer. */
+export const PUBLIC_CLAIM_DOM_ROUTES = ["/", "/agents", "/spec", "/whitepaper"] as const;
