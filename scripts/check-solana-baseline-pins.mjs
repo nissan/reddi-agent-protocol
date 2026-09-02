@@ -82,16 +82,24 @@ const BASELINE_CLIPPY_VERSION = '0.1.98';
 const STABLE_ANCHOR_VERSION = '1.1.2';
 const AVM_MANAGER_VERSION = '1.0.0';
 const BASELINE_CARGO_BUILD_SBF_VERSION = '4.1.0';
-const BASELINE_CARGO_TEST_SBF_VERSION = '4.0.0';
 const BASELINE_PLATFORM_TOOLS_VERSION = 'v1.54';
 
 const majorOf = (version) => String(version ?? '').replace(/^v/, '').split('.')[0];
 // The program-test lanes build against the CI Agave pin but execute in-process on whatever SVM
-// LiteSVM pulls in. While those two disagree on the major version, the baseline must say so rather
-// than let a passing lane read as Agave-major runtime evidence.
+// LiteSVM pulls in. Version equality between the two is dependency alignment, never a runtime
+// compatibility claim, so aligning them can only ever reach 'major-aligned' here: 'verified'
+// additionally requires recorded evidence of dedicated Agave runtime qualification.
 const inProcessRuntimeMatchesAgavePin =
   Boolean(lockedProgramRuntime) && majorOf(lockedProgramRuntime) === majorOf(BASELINE_AGAVE_VERSION);
-const expectedRuntimeCompatibility = inProcessRuntimeMatchesAgavePin ? 'verified' : 'unresolved';
+const alignmentStatus = inProcessRuntimeMatchesAgavePin ? 'major-aligned' : 'unresolved';
+const runtimeVerificationEvidence = assets.programRuntime?.runtimeVerificationEvidence;
+const recordedRuntimeCompatibility = assets.programRuntime?.agaveRuntimeCompatibility;
+const runtimeCompatibilityOk =
+  recordedRuntimeCompatibility === alignmentStatus ||
+  (recordedRuntimeCompatibility === 'verified' &&
+    inProcessRuntimeMatchesAgavePin &&
+    typeof runtimeVerificationEvidence === 'string' &&
+    runtimeVerificationEvidence.trim().length > 0);
 
 const checks = [
   ['.mise.toml pins Node 24.20.0', mise.tools?.node === '24.20.0'],
@@ -105,9 +113,8 @@ const checks = [
   [`CI Agave pin is ${BASELINE_AGAVE_VERSION}`, workflowVersions.has(BASELINE_AGAVE_VERSION)],
   ['Agave asset checksum exists for CI pin', typeof assets.agave?.sha256ByVersion?.[BASELINE_AGAVE_VERSION] === 'string'],
   [
-    `SBF build toolchain is recorded for Agave ${BASELINE_AGAVE_VERSION} as cargo-build-sbf ${BASELINE_CARGO_BUILD_SBF_VERSION} / cargo-test-sbf ${BASELINE_CARGO_TEST_SBF_VERSION}`,
-    assets.sbf?.cargoBuildSbfVersionByAgaveVersion?.[BASELINE_AGAVE_VERSION] === BASELINE_CARGO_BUILD_SBF_VERSION &&
-      assets.sbf?.cargoTestSbfVersionByAgaveVersion?.[BASELINE_AGAVE_VERSION] === BASELINE_CARGO_TEST_SBF_VERSION,
+    `SBF build toolchain is recorded for Agave ${BASELINE_AGAVE_VERSION} as cargo-build-sbf ${BASELINE_CARGO_BUILD_SBF_VERSION}`,
+    assets.sbf?.cargoBuildSbfVersionByAgaveVersion?.[BASELINE_AGAVE_VERSION] === BASELINE_CARGO_BUILD_SBF_VERSION,
   ],
   [
     `platform-tools ${BASELINE_PLATFORM_TOOLS_VERSION} is recorded for cargo-build-sbf ${BASELINE_CARGO_BUILD_SBF_VERSION}`,
@@ -123,8 +130,8 @@ const checks = [
       assets.programRuntime?.embeddedSolanaSbpfVersion === lockedSolanaSbpf,
   ],
   [
-    `in-process runtime vs Agave CLI pin is recorded as ${expectedRuntimeCompatibility}`,
-    assets.programRuntime?.agaveMajorCompatibility === expectedRuntimeCompatibility,
+    `in-process runtime vs Agave CLI pin is recorded as ${alignmentStatus} (or as evidence-backed 'verified')`,
+    runtimeCompatibilityOk,
   ],
   ['npm exact probe pin is recorded for Node 24.20.0', assets.node?.npmBundledVersion === '11.19.0'],
   [
@@ -150,6 +157,15 @@ const checks = [
   ['setup script resolves Anchor pin from Anchor.toml', setupPins.anchor === anchor.toolchain?.anchor_version],
   ['setup script resolves Agave pin from CI workflows', setupPins.agave === BASELINE_AGAVE_VERSION],
   ['setup script resolves Surfpool pin from assets', setupPins.surfpool === assets.surfpool?.version],
+  [
+    'setup script resolves cargo-build-sbf pin from assets for the CI Agave pin',
+    setupPins['cargo-build-sbf'] === assets.sbf?.cargoBuildSbfVersionByAgaveVersion?.[BASELINE_AGAVE_VERSION],
+  ],
+  [
+    'setup script resolves platform-tools pin from assets for the pinned cargo-build-sbf',
+    setupPins['platform-tools'] ===
+      assets.sbf?.platformToolsVersionByCargoBuildSbfVersion?.[BASELINE_CARGO_BUILD_SBF_VERSION],
+  ],
   [
     'setup script resolves rustfmt pin from assets for the pinned channel',
     setupPins.rustfmt === assets.rust?.rustfmtVersionByChannel?.[rust.toolchain?.channel],

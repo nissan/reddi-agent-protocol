@@ -30,13 +30,12 @@
     }
   },
   "sbf": {
-    "versionSource": "agave scripts/cargo-build-sbf-version.sh at the pinned Agave tag; since Agave 4 these are installed from crates.io by the release installer instead of being built from the agave workspace",
-    "evidence": "https://raw.githubusercontent.com/anza-xyz/agave/v4.2.2/scripts/cargo-build-sbf-version.sh pins cargoBuildSbfVersion=4.1.0 and cargoTestSbfVersion=4.0.0; the crates.io cargo-build-sbf 4.1.0 source (crate sha256 e35c25e6496e42c5e48e79c94b826530c1cd184bf1640935aebb3db4cba79bcb) declares DEFAULT_PLATFORM_TOOLS_VERSION \"v1.54\" and default arch \"v0\"",
+    "versionSource": "agave scripts/cargo-build-sbf-version.sh at the pinned Agave tag; since Agave 4 cargo-build-sbf is not an agave workspace member and the agave release build installs the crates.io crate into the release staging directory instead",
+    "evidence": "https://raw.githubusercontent.com/anza-xyz/agave/v4.2.2/scripts/cargo-build-sbf-version.sh pins cargoBuildSbfVersion=4.1.0; scripts/create-release-tarball.sh runs scripts/cargo-install-all.sh, whose only cargo-build-sbf step is `cargo install --locked cargo-build-sbf --root \"$installDir\"` into the release staging directory that becomes the release tarball. The crates.io cargo-build-sbf 4.1.0 source (crate sha256 e35c25e6496e42c5e48e79c94b826530c1cd184bf1640935aebb3db4cba79bcb) declares DEFAULT_PLATFORM_TOOLS_VERSION \"v1.54\" and default arch \"v0\", and ships cargo-test-sbf as a second [[bin]] of the same crate, so both binaries report the crate version",
+    "cargoTestSbfNote": "agave's cargo-build-sbf-version.sh also sets cargoTestSbfVersion=4.0.0, but cargo-install-all.sh never uses that argument at v4.2.2: cargo-test-sbf is delivered by the cargo-build-sbf crate itself, so it is pinned by cargoBuildSbfVersionByAgaveVersion and not recorded separately",
+    "installFootprint": "contained in the baseline-owned Agave tree: agave-install-init unpacks the release tarball into --data-dir, so cargo-build-sbf and cargo-test-sbf land in <RAP_BASELINE_SOLANA_INSTALL_DIR>/active_release/bin beside solana. scripts/solana-baseline-toolchain.sh never runs cargo install for them and never writes ~/.cargo/bin, and rolling back the install tree removes them. Because the PATH that script exports puts ~/.cargo/bin first, verify probes them at their absolute baseline-owned path rather than through PATH",
     "cargoBuildSbfVersionByAgaveVersion": {
       "v4.2.2": "4.1.0"
-    },
-    "cargoTestSbfVersionByAgaveVersion": {
-      "v4.2.2": "4.0.0"
     },
     "platformToolsVersionByCargoBuildSbfVersion": {
       "4.1.0": "v1.54"
@@ -46,10 +45,11 @@
   },
   "programRuntime": {
     "statusSource": "programs/escrow/Cargo.toml dev-dependencies and Cargo.lock, recorded here so the Agave CLI pin cannot be read as Agave 4 runtime evidence",
+    "statusVocabulary": "unresolved = the in-process runtime major differs from the Agave CLI pin; major-aligned = the majors match, which records dependency alignment and is not a compatibility claim; verified = requires major alignment AND a non-empty runtimeVerificationEvidence naming dedicated Agave runtime qualification. scripts/check-solana-baseline-pins.mjs never derives 'verified' from version equality alone.",
     "liteSvmVersion": "0.10.0",
     "embeddedProgramRuntimeVersion": "3.1.12",
     "embeddedSolanaSbpfVersion": "0.13.1",
-    "agaveMajorCompatibility": "unresolved",
+    "agaveRuntimeCompatibility": "unresolved",
     "reason": "The program-test lanes build escrow.so with the pinned Agave 4 SBF toolchain but execute it in-process on the Agave 3.1 SVM crates LiteSVM 0.10.0 embeds, so no lane in this repository runs an Agave 4 runtime. SBPFv0 output keeps those lanes loadable and passing; that is not Agave 4 runtime compatibility. Aligning LiteSVM/Mollusk with the Agave CLI pin is a separate workstream requiring its own qualification."
   },
   "surfpool": {
