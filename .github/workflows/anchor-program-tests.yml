@@ -53,6 +53,7 @@ jobs:
           npm run check:toolchain:baseline
           npm run test:toolchain:version-match
           npm run test:toolchain:modes
+          npm run test:toolchain:runtime-status
 
       - name: Install Rust toolchain (matches rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable

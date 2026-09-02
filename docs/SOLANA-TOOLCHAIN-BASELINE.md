@@ -90,12 +90,15 @@ npm run test:surfpool:critical
 npm run test:surfpool:quasar-critical
 ```
 
-Focused shell-check coverage for the exact-version matcher:
+Focused regression coverage for the exact-version matcher, the script's mode dispatch, and the three-valued runtime-compatibility vocabulary above:
 
 ```bash
 npm run test:toolchain:version-match
 npm run test:toolchain:modes
+npm run test:toolchain:runtime-status
 ```
+
+All three run beside `npm run check:toolchain:baseline` in the legacy Anchor CI lane, so removing any of the logic they guard — including the runtime-compatibility computation — fails a configured check rather than passing silently.
 
 Only run broader Surfpool lanes when their preconditions are safe in a disposable worktree and no unrelated listeners must be killed. Capture failures as evidence; do not weaken checks to make the baseline pass.
 
