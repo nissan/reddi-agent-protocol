@@ -30,6 +30,7 @@ import {
   EVIDENCE_PUBLICATION_NOT_PUBLISHED,
   EVIDENCE_PUBLICATION_ROLLED_BACK,
   computeLaneSourceFingerprint,
+  describeUnusableAcceptedEntry,
   writeAcceptedEvidenceManifest,
 } from "./lib/surfpool-evidence-manifest.mjs";
 
@@ -92,6 +93,7 @@ let exitCode = 0;
 let exitReason = "success";
 let finalStatus = "PASS";
 let acceptedReceiptOutcome = null;
+let unusablePriorReceiptReason = null;
 let failureMessage;
 let programs = [];
 const cleanupNotes = [];
@@ -210,6 +212,10 @@ try {
   if (finalStatus === "PASS") {
     await logLine(`[surfpool-sdk-smoke] PASS evidence artifacts complete; preparing ${rel(summaryFile)}`);
     await logLine(`[surfpool-sdk-smoke] publishing accepted evidence receipt: ${rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_FILENAME))}`);
+    unusablePriorReceiptReason = describeUnusableAcceptedEntry(evidenceRoot);
+    if (unusablePriorReceiptReason) {
+      await logLine(`[surfpool-sdk-smoke] the existing ${ACCEPTED_EVIDENCE_FILENAME} is unusable (${unusablePriorReceiptReason}); publication moves it aside for diagnosis`);
+    }
     await writeSummary({ target, programs, status: finalStatus, failure: failureMessage });
     if (!(await publishAcceptedEvidence())) {
       await writeSummary({ target, programs, status: finalStatus, failure: failureMessage });
@@ -473,6 +479,15 @@ function cancelPendingEscalations(child) {
   child.rapEscalations = [];
 }
 
+/**
+ * Operator notice for something learned *after* the receipt was published. It goes to stdout only:
+ * the evidence log is a cited artifact whose hash the receipt records, so appending to it here
+ * would invalidate the very receipt this run just published.
+ */
+function noteAfterPublication(line) {
+  process.stdout.write(`${redactForEvidence(line, { repoRoot, home: process.env.HOME })}\n`);
+}
+
 async function logLine(line) {
   const text = `${redactForEvidence(line, { repoRoot, home: process.env.HOME })}\n`;
   process.stdout.write(text);
@@ -528,6 +543,12 @@ async function writeSummary({ target, programs = [], status, failure }) {
   lines.push("", "## Cleanup", ...cleanupNotes.map((note) => `- ${note}`));
   lines.push("", "## Artifacts", `- Log: ${rel(logFile)}`);
   lines.push(`- Accepted evidence receipt: ${acceptedReceiptSummaryLine(status)}`);
+  if (unusablePriorReceiptReason) {
+    lines.push(
+      `- Prior accepted evidence entry: unusable (${unusablePriorReceiptReason}); publication moves it aside as ` +
+      `${rel(evidenceRoot)}/.${ACCEPTED_EVIDENCE_FILENAME}.quarantined-<uuid> and the published receipt names the exact path`,
+    );
+  }
   if (status !== "PASS") {
     lines.push(`- Failed run evidence retained at: ${rel(outDir)}`);
   }
@@ -553,7 +574,7 @@ async function publishAcceptedEvidence() {
       }
     }
 
-    await writeAcceptedEvidenceManifest(evidenceRoot, {
+    const published = await writeAcceptedEvidenceManifest(evidenceRoot, {
       target,
       runId,
       status: "PASS",
@@ -567,6 +588,22 @@ async function publishAcceptedEvidence() {
         lifecycle: "@solana/surfpool SDK in-process Surfnet (loopback only)",
       },
     });
+    if (published.manifest.quarantinedPriorEntry) {
+      noteAfterPublication(
+        `[surfpool-sdk-smoke] the previous ${ACCEPTED_EVIDENCE_FILENAME} was unusable ` +
+        `(${published.manifest.quarantinedPriorEntry.reason}) and is retained for inspection at ` +
+        `${published.manifest.quarantinedPriorEntry.path}`,
+      );
+    }
+    if (published.cleanupFailures.length > 0) {
+      noteAfterPublication(
+        `[surfpool-sdk-smoke] the receipt at ${rel(published.manifestPath)} is published and durable, but publication ` +
+        `cleanup failed: ${published.cleanupFailures.join("; ")}` +
+        (published.lockRetained
+          ? `. The publication lock at ${rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_LOCK_DIRNAME))} is retained, so every consumer refuses this receipt until an operator removes it`
+          : ""),
+      );
+    }
     return true;
   } catch (error) {
     finalStatus = "FAIL";
