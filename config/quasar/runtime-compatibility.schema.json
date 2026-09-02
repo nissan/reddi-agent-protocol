@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "./runtime-compatibility.schema.json",
   "title": "Quasar runtime-compatibility boundary map",
-  "description": "Schema for config/quasar/runtime-compatibility.json — the per-file static compatibility boundary for Quasar demo mode, enforced by scripts/check-quasar-runtime-compatibility.mjs.",
+  "description": "Schema for config/quasar/runtime-compatibility.json — the per-file static compatibility boundary for Quasar demo mode, enforced by scripts/check-quasar-runtime-compatibility.mjs. The same file is also the Quasar lane's fingerprint selector: scripts/lib/surfpool-evidence-manifest.mjs reads it under a descriptor-bound contract and folds the paths it lists into the lane source fingerprint. This schema constrains only what is decidable from the document text; the selector remains the authoritative check for everything that depends on filesystem state.",
   "type": "object",
   "required": ["updatedAt", "phase", "target", "summary", "demoCriticalPaths", "allowedStatuses", "submissionReadyRule"],
   "properties": {
@@ -24,7 +24,12 @@
         "type": "object",
         "required": ["path", "surface", "status", "reason"],
         "properties": {
-          "path": { "type": "string" },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?![A-Za-z]:)(?:(?!\\.{1,2}(?:/|$))[^/\\\\]+)(?:/(?!\\.{1,2}(?:/|$))[^/\\\\]+)*$",
+            "description": "Repository-relative POSIX path, already normalized. The pattern rejects everything the fingerprint selector can refuse on text alone: an empty value, a leading slash, a Windows drive prefix or any backslash (so UNC forms are excluded too), an empty segment from a doubled or trailing slash, and any '.' or '..' segment. It deliberately stops there — JSON Schema cannot observe the filesystem, so the selector in scripts/lib/surfpool-evidence-manifest.mjs stays the authoritative check that the path exists, resolves inside the repository, is an ordinary file or directory, and does not traverse a symbolic link. A path that satisfies this pattern can still be refused there; nothing is normalized on the selector's behalf."
+          },
           "surface": { "type": "string" },
           "status": { "type": "string" },
           "reason": { "type": "string" }
