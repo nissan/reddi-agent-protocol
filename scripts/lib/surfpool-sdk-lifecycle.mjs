@@ -525,7 +525,7 @@ export function redactForEvidence(value, options = {}) {
     if (!from) continue;
     text = text.split(from).join(to);
   }
-  text = text.replace(/AGENT_[ABC]_KEYPAIR=\[[^\n\r]*\]/g, "AGENT_KEYPAIR=<redacted>");
+  text = text.replace(/AGENT_[ABC]_KEYPAIR=\[[^\n\r\]]*\]/g, "AGENT_KEYPAIR=<redacted>");
   text = text.replace(/\[(?:\d{1,3},){16,}\d{1,3}\]/g, "[<redacted-bytes>]");
   return text;
 }

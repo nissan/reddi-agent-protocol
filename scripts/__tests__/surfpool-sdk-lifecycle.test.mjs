@@ -597,6 +597,52 @@ test("evidence redaction repository-relativizes paths and strips keypair byte ar
   assert.match(redacted, /~\/\.config/);
 });
 
+test("keypair redaction stops at the array and leaves a same-line prohibited hint detectable", () => {
+  const keypair = `[${Array.from({ length: 64 }, (_, i) => i + 1).join(",")}]`;
+  const hostileLine = `AGENT_A_KEYPAIR=${keypair} rpc=https://api.devnet.solana.com/v1 [attempt 1]\n`;
+
+  const redactor = createRedactingLineBuffer({});
+  const spool = createTruncatingEvidenceBuffer({});
+  const emit = (text) => { if (text) spool.push(text); };
+  emit(redactor.push(`
+║       Reddi Agent Protocol — local-surfpool Demo ║
+Target:   quasar
+Escrow:   ${quasarIds.escrow}
+Registry: ${quasarIds.registry}
+Repute:   ${quasarIds.reputation}
+Attest:   ${quasarIds.attestation}
+`));
+  emit(redactor.push(hostileLine));
+  emit(redactor.push(`║  🏁  Full A→B→C cycle complete                          ║
+  Settlement:      Quasar escrow public settlement
+  ℹ️  MagicBlock PER/TEE is not claimed by this Quasar final path; no Anchor/PER fallback was used.
+`));
+  emit(redactor.flush());
+
+  const evidence = createStepEvidenceRecord(spool, [redactor], { logFile: "artifacts/surfpool-sdk-critical-smoke.log" });
+
+  assert.equal(evidence.complete, true, "redacting the secret is not an omission");
+  assert.equal(evidence.text.includes("AGENT_A_KEYPAIR=["), false, "the keypair must not survive redaction");
+  assert.equal(evidence.text.includes("1,2,3,4,5"), false, "the keypair bytes must not survive redaction");
+  assert.equal(
+    evidence.text.includes("api.devnet.solana.com"),
+    true,
+    "redaction must not swallow the rest of the line — the prohibited hint has to stay visible to the assertions",
+  );
+  assert.throws(
+    () => assertQuasarCriticalDemoOutput(evidence, quasarIds),
+    /devnet\/mainnet/,
+  );
+});
+
+test("keypair redaction consumes only the bracketed literal, not later brackets on the line", () => {
+  const redacted = redactForEvidence("AGENT_A_KEYPAIR=[1,2,3] Target:   legacy-anchor [attempt 1]");
+
+  assert.equal(redacted.includes("AGENT_A_KEYPAIR"), false);
+  assert.equal(redacted.includes("[1,2,3]"), false);
+  assert.equal(redacted, "AGENT_KEYPAIR=<redacted> Target:   legacy-anchor [attempt 1]");
+});
+
 test("SIGINT teardown stops an in-process SDK Surfnet and closes its ports", async () => {
   const childSource = `
     import { Surfnet } from "@solana/surfpool";
