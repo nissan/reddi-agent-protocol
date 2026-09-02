@@ -413,8 +413,36 @@ export async function startLocalSurfnet(Surfnet, options = {}) {
   }
 }
 
+/**
+ * The text a lane assertion is allowed to reason over.
+ *
+ * The lane's step evidence is a bounded spool: it keeps a head and a sliding tail and reports what
+ * it dropped in between. A run whose middle was dropped cannot prove a "must NOT contain" boundary
+ * — the prohibited marker may be in exactly the part that is gone — and it cannot prove ordering or
+ * a missing banner either. So an incomplete spool is refused here instead of being asserted over
+ * the surviving head and tail. The complete redacted output stays in the run log; only the
+ * assertion spool is bounded.
+ *
+ * A bare string is treated as complete evidence supplied by the caller.
+ */
+export function assertionEvidenceText(output, label = "lane assertion") {
+  if (typeof output === "string") return output;
+  if (!output || typeof output.text !== "string") {
+    throw new Error(`${label}: no evidence text was captured, so nothing can be asserted`);
+  }
+  if (output.complete !== true) {
+    const where = output.logFile ? ` The complete output is in ${output.logFile}.` : "";
+    throw new Error(
+      `${label}: evidence is incomplete — the bounded assertion spool dropped ${output.omittedChars ?? 0} `
+      + `characters in ${output.omittedChunks ?? 0} chunk(s), so neither the required banners nor the `
+      + `prohibited-content boundaries can be proven over it.${where}`,
+    );
+  }
+  return output.text;
+}
+
 export function assertQuasarCriticalDemoOutput(output, expectedProgramIds) {
-  const text = String(output ?? "");
+  const text = assertionEvidenceText(output, "Quasar critical demo output");
   const lines = text.split(/\r?\n/).map((line) => line.trim());
   const targetLine = lines.find((line) => line.startsWith("Target:"));
   const settlementLine = lines.find((line) => line.startsWith("Settlement:") && /Quasar escrow public settlement/.test(line));
@@ -457,7 +485,7 @@ export function assertQuasarCriticalDemoOutput(output, expectedProgramIds) {
 }
 
 export function assertQuasarPerFailClosedOutput(output) {
-  const text = String(output ?? "");
+  const text = assertionEvidenceText(output, "Quasar PER fail-closed output");
   if (!/MagicBlock PER\/TEE is not claimed for the Quasar final demo path yet/.test(text)) {
     throw new Error("Quasar PER fail-closed output did not include the expected boundary message");
   }
@@ -589,6 +617,7 @@ export function createTruncatingEvidenceBuffer(options = {}) {
     },
     get omittedChars() { return omittedChars; },
     get omittedChunks() { return omittedChunks; },
+    get complete() { return omittedChunks === 0; },
     text() {
       if (omittedChunks === 0) return head.join("") + tail.join("");
       return `${head.join("")}${describeOmission(omittedChars, omittedChunks)}${tail.join("")}`;

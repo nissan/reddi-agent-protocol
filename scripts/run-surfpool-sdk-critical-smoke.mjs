@@ -12,6 +12,7 @@ import {
   assertQuasarCriticalDemoOutput,
   assertQuasarPerFailClosedOutput,
   assertQuasarProgramIdsMatchSources,
+  assertionEvidenceText,
   createRedactingLineBuffer,
   baselinePath,
   createTruncatingEvidenceBuffer,
@@ -336,7 +337,7 @@ async function runStep(label, command, commandArgs, options = {}) {
     const expectation = expectFailure ? "expected failure but command succeeded" : `command failed with exit ${output.status}`;
     throw new Error(`${label}: ${expectation}`);
   }
-  return output.combined;
+  return output.evidence;
 }
 
 function spawnLogged(command, commandArgs, options = {}) {
@@ -419,7 +420,13 @@ function spawnLogged(command, commandArgs, options = {}) {
           return resolve({
             status: code ?? (signal ? 128 + (signal === "SIGINT" ? 2 : 15) : 1),
             signal,
-            combined: evidence.text(),
+            evidence: {
+              text: evidence.text(),
+              complete: evidence.complete,
+              omittedChars: evidence.omittedChars,
+              omittedChunks: evidence.omittedChunks,
+              logFile: rel(logFile),
+            },
           });
         })
         .catch(reject);
@@ -622,7 +629,7 @@ function programIdsByKey(programs) {
 }
 
 function assertQuasarRegistrationOutput(output, ids) {
-  const text = String(output ?? "");
+  const text = assertionEvidenceText(output, "Quasar registration output");
   if (!text.includes(`Program: ${ids.registry}`) || !text.includes("Target: quasar") || !text.includes("Registration complete") || !text.includes("local-surfpool")) {
     throw new Error("Quasar registration output did not prove registration through the explicit local registry program ID/profile");
   }
@@ -632,7 +639,7 @@ function assertQuasarRegistrationOutput(output, ids) {
 }
 
 function assertAnchorCriticalDemoOutput(output, programId) {
-  const text = String(output ?? "");
+  const text = assertionEvidenceText(output, "Anchor critical demo output");
   if (!text.includes("Target:   legacy-anchor") || !text.includes(`Escrow:   ${programId}`) || !text.includes("Full A→B→C cycle complete")) {
     throw new Error("Anchor critical demo output did not prove the expected local Anchor path");
   }
@@ -642,7 +649,7 @@ function assertAnchorCriticalDemoOutput(output, programId) {
 }
 
 function assertAnchorFallbackOutput(output) {
-  const text = String(output ?? "");
+  const text = assertionEvidenceText(output, "Anchor PER fallback output");
   if (!text.includes("PER unavailable") || !text.includes("L1 fallback used")) {
     throw new Error("Anchor PER fallback output did not prove local fallback boundary");
   }

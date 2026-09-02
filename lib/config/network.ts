@@ -407,8 +407,10 @@ export function getNetworkProfile(): NetworkProfile {
 
 /**
  * Describes why the active program target must not be used to touch chain state, or undefined when
- * it is usable. Effect sites (instruction builders, signers, RPC submitters) call this before doing
- * any work; read-only disclosure surfaces render `programs.blocked` instead.
+ * it is usable. This is the canonical refusal description for `programs.blocked`: effect sites
+ * (instruction builders, signers, RPC submitters) reach it through the program-target refusal
+ * paths before doing any work. No read-only UI renders `programs.blocked` itself — the disclosure
+ * surfaces key off `programs.submissionReady` and `programs.knownGaps`.
  */
 export function describeBlockedProgramTarget(profile: NetworkProfile = getNetworkProfile()): string | undefined {
   const blocked = profile.programs.blocked;

@@ -12,6 +12,7 @@ import {
   assertQuasarCriticalDemoOutput,
   assertQuasarPerFailClosedOutput,
   createRedactingLineBuffer,
+  createTruncatingEvidenceBuffer,
   redactForEvidence,
   startLocalSurfnet,
   validateSurfnetEndpoints,
@@ -440,6 +441,76 @@ Attest:   ${quasarIds.attestation}
     () => assertQuasarCriticalDemoOutput(goodOutput.replace("local-surfpool", "devnet") + "\nhttps://explorer.solana.com/tx/abc?cluster=devnet", quasarIds),
     /local-surfpool|devnet\/mainnet/,
   );
+});
+
+test("a step whose evidence spool dropped its middle is refused, not certified", () => {
+  const head = `
+║       Reddi Agent Protocol — local-surfpool Demo ║
+Target:   quasar
+Escrow:   ${quasarIds.escrow}
+Registry: ${quasarIds.registry}
+Repute:   ${quasarIds.reputation}
+Attest:   ${quasarIds.attestation}
+`;
+  const tail = `
+║  🏁  Full A→B→C cycle complete                          ║
+  Settlement:      Quasar escrow public settlement
+  ℹ️  MagicBlock PER/TEE is not claimed by this Quasar final path; no Anchor/PER fallback was used.
+`;
+  const spool = createTruncatingEvidenceBuffer({ headLimit: head.length, tailLimit: tail.length });
+  spool.push(head);
+  // A retry storm that pushes the prohibited hint out of both the retained head and the tail.
+  spool.push("  retrying rpc against api.devnet.solana.com after ECONNRESET\n");
+  for (let i = 0; i < 200; i += 1) spool.push(`  attempt ${i} failed\n`);
+  spool.push(tail);
+
+  const evidence = {
+    text: spool.text(),
+    complete: spool.complete,
+    omittedChars: spool.omittedChars,
+    omittedChunks: spool.omittedChunks,
+    logFile: "artifacts/surfpool-sdk-critical-smoke.log",
+  };
+
+  assert.equal(evidence.complete, false, "the spool must report that it dropped output");
+  assert.equal(
+    evidence.text.includes("api.devnet.solana.com"),
+    false,
+    "the prohibited hint must be absent from the retained text — this is the fail-open the refusal closes",
+  );
+  assert.throws(
+    () => assertQuasarCriticalDemoOutput(evidence, quasarIds),
+    /evidence is incomplete[\s\S]*surfpool-sdk-critical-smoke\.log/,
+  );
+  assert.throws(
+    () => assertQuasarPerFailClosedOutput(evidence),
+    /evidence is incomplete/,
+  );
+});
+
+test("a complete evidence record is asserted normally and a missing one is refused", () => {
+  const complete = {
+    text: `
+║       Reddi Agent Protocol — local-surfpool Demo ║
+Target:   quasar
+Escrow:   ${quasarIds.escrow}
+Registry: ${quasarIds.registry}
+Repute:   ${quasarIds.reputation}
+Attest:   ${quasarIds.attestation}
+║  🏁  Full A→B→C cycle complete                          ║
+  Settlement:      Quasar escrow public settlement
+  ℹ️  MagicBlock PER/TEE is not claimed by this Quasar final path; no Anchor/PER fallback was used.
+`,
+    complete: true,
+    omittedChars: 0,
+    omittedChunks: 0,
+  };
+  assert.equal(assertQuasarCriticalDemoOutput(complete, quasarIds), true);
+  assert.throws(
+    () => assertQuasarCriticalDemoOutput({ ...complete, text: `${complete.text}\ncluster=devnet\n` }, quasarIds),
+    /devnet\/mainnet/,
+  );
+  assert.throws(() => assertQuasarCriticalDemoOutput(undefined, quasarIds), /no evidence text was captured/);
 });
 
 test("Quasar PER fail-closed parser rejects hostile success-looking output", () => {

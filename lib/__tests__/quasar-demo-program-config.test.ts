@@ -315,6 +315,54 @@ describe("Quasar demo program target config", () => {
     expect(PROGRAM_KNOWN_LIMITATIONS.join(" ")).toMatch(/Quasar remains experimental/);
   });
 
+  it("keeps the disclosed ABI byte counts equal to the payloads the client actually encodes", async () => {
+    process.env.NETWORK_PROFILE = "devnet";
+    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
+
+    const { PROGRAM_KNOWN_GAPS } = await import("@/lib/program");
+    const {
+      buildQuasarAttestQualityData,
+      buildQuasarCommitRatingData,
+      buildQuasarRevealRatingData,
+    } = await import("@/lib/quasar/instruction-builders");
+
+    // The ABI-mismatch gap is a public disclosure record: it names one byte count per instruction
+    // for the layout the client encodes and one for the layout the recorded devnet programs
+    // expect. Normalize both sides of that sentence into a model instead of matching prose.
+    const abiGap = PROGRAM_KNOWN_GAPS.find((gap) => gap.includes("Client/deployment ABI mismatch"));
+    expect(abiGap).toBeDefined();
+    const disclosedSizes = (clause: string) =>
+      Object.fromEntries(
+        Array.from(clause.matchAll(/(commit|reveal|attest) (\d+) bytes/g)).map(([, name, size]) => [
+          name,
+          Number(size),
+        ]),
+      );
+    const [postBindingClause, preBindingClause] = abiGap!.split("while these devnet programs");
+    expect(preBindingClause).toBeDefined();
+
+    // Post-binding: derived by executing the builders the client ships.
+    const commitment = new Uint8Array(32).fill(7);
+    const salt = new Uint8Array(32).fill(9);
+    const scores = Uint8Array.from([1, 2, 3, 4, 5]);
+    expect(disclosedSizes(postBindingClause)).toEqual({
+      commit: buildQuasarCommitRatingData(commitment, 0).length,
+      reveal: buildQuasarRevealRatingData(5, salt).length,
+      attest: buildQuasarAttestQualityData(scores).length,
+    });
+
+    // Pre-binding: derived from the field layout the recorded devnet programs accepted, which
+    // carried a caller-supplied 16-byte job_id plus the party pubkeys commit and attest passed in.
+    const DISCRIMINATOR = 1;
+    const JOB_ID = 16;
+    const PUBKEY = 32;
+    expect(disclosedSizes(preBindingClause)).toEqual({
+      commit: DISCRIMINATOR + JOB_ID + PUBKEY /* commitment */ + 1 /* role */ + PUBKEY + PUBKEY,
+      reveal: DISCRIMINATOR + JOB_ID + 1 /* score */ + PUBKEY /* salt */,
+      attest: DISCRIMINATOR + JOB_ID + 5 /* scores */ + PUBKEY /* specialist_pk */,
+    });
+  });
+
   it("marks the mainnet placeholder as not submission-ready", async () => {
     process.env.NETWORK_PROFILE = "mainnet";
 

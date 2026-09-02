@@ -22,7 +22,7 @@
         "magicblock-per-explicitly-not-final-claim-without-live-quasar-validation"
       ],
       "knownGaps": [
-        "Client/deployment ABI mismatch: the in-repo Quasar client encodes the post-job-binding instruction layout (commit 34 bytes, reveal 34 bytes, attest 6 bytes) while these devnet programs expect the pre-binding layout (commit 114 bytes, reveal 49 bytes, attest 54 bytes).",
+        "Client/deployment ABI mismatch: the in-repo Quasar client encodes the post-job-binding instruction layout (commit 34 bytes, reveal 34 bytes, attest 6 bytes) while these devnet programs expect the pre-binding layout (commit 114 bytes, reveal 50 bytes, attest 54 bytes).",
         "PDA derivation mismatch: the client seeds rating and attestation PDAs on the escrow account address; these devnet programs seed them on a caller-supplied job_id.",
         "Commitment pre-image mismatch: the client commits sha256(score || salt || escrow_address || program_id); these devnet programs verify sha256(score || salt || job_id || program_id).",
         "Escrow lock signer mismatch: the client requires the payee (Agent B) to co-sign lock; these devnet programs do not.",
