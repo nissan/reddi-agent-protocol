@@ -19,8 +19,8 @@ import {
   describeSummaryPublicationFailure,
   localChildEnv,
   redactForEvidence,
+  renderRunSummary,
   resolveRepositorySubpath,
-  sanitizeEvidenceFragment,
   spawnLoggedStep,
   startLocalSurfnet,
   stopLocalSurfnetLease,
@@ -467,49 +467,35 @@ function acceptedReceiptDisposition(status) {
 }
 
 async function writeSummary({ target, programs = [], status, failure }) {
-  const lines = [
-    `# Surfpool SDK ${target === "quasar" ? "Quasar" : "Anchor"} Critical Smoke Summary`,
-    "",
-    `- Status: ${status}`,
-    "- Lifecycle: `@solana/surfpool` SDK `Surfnet.startWithConfig({ offline: true, airdropSol: 0, blockProductionMode: \"transaction\" })`",
-    "- Network boundary: local SDK Surfnet only; no remote datasource, live RPC, wallet file, upgrade authority, or installed Surfpool source patching",
-    surfnetLease ? `- RPC: ${surfnetLease.rpcUrl}` : "- RPC: not started",
-    surfnetLease ? `- WS: ${surfnetLease.wsUrl}` : "- WS: not started",
-    surfnetLease ? `- Surfnet instance: ${surfnetLease.instanceId}` : "- Surfnet instance: not started",
-    "- Temporary state: isolated under `.tmp/surfpool-sdk-critical-smoke/<run-id>` and removed during cleanup",
-    `- Build cache: reusable Cargo target dir at ${rel(cargoTargetDir)} (retained across runs; not per-run state)`,
-    "- External Surfpool service process: none (in-process SDK lifecycle)",
-    "",
-    "## Programs deployed locally",
-  ];
-  for (const program of programs) {
-    lines.push(`- ${program.label}: ${program.programId}${program.soPath ? ` from ${rel(program.soPath)}` : ""}`);
-  }
-  // Failure and cleanup text is the only content here the lane did not compose itself: both carry
-  // filesystem error messages, whose absolute paths every other line in this file avoids by going
-  // through rel(). They go through the same sanitizer the receipt disposition uses.
-  const describeUntrusted = (value, maxChars) =>
-    sanitizeEvidenceFragment(value, { repoRoot, home: process.env.HOME, maxChars });
-  if (failure) {
-    lines.push("", "## Failure", `- ${describeUntrusted(failure, 2_000)}`);
-  }
-  lines.push("", "## Cleanup", ...cleanupNotes.map((note) => `- ${describeUntrusted(note, 1_000)}`));
-  lines.push("", "## Artifacts", `- Log: ${rel(logFile)}`);
-  lines.push(`- Evidence completeness: ${summarizeEvidenceCompleteness(evidenceOmissions, { logPersisted: logWriter.persisted })}`);
   // Both lines come from one description of the publication transaction: a pre-publication
   // observation of the receipt path can be overtaken by a concurrent publisher, and deriving them
   // separately once let the receipt line call a prior entry untouched that the next line reported
   // as quarantined.
   const disposition = acceptedReceiptDisposition(status);
-  lines.push(`- Accepted evidence receipt: ${disposition.receiptLine}`);
-  if (disposition.priorEntryLine) {
-    lines.push(`- Prior accepted evidence entry: ${disposition.priorEntryLine}`);
-  }
-  if (status !== "PASS") {
-    lines.push(`- Failed run evidence retained at: ${rel(outDir)}`);
-  }
+  const summary = renderRunSummary({
+    target,
+    status,
+    rpcUrl: surfnetLease?.rpcUrl ?? null,
+    wsUrl: surfnetLease?.wsUrl ?? null,
+    instanceId: surfnetLease?.instanceId ?? null,
+    cargoTargetDir: rel(cargoTargetDir),
+    programs: programs.map((program) => ({
+      label: program.label,
+      programId: program.programId,
+      soPath: program.soPath ? rel(program.soPath) : null,
+    })),
+    failure,
+    cleanupNotes,
+    logFile: rel(logFile),
+    evidenceCompleteness: summarizeEvidenceCompleteness(evidenceOmissions, { logPersisted: logWriter.persisted }),
+    receiptLine: disposition.receiptLine,
+    priorEntryLine: disposition.priorEntryLine,
+    failedRunEvidenceDir: status === "PASS" ? null : rel(outDir),
+    repoRoot,
+    home: process.env.HOME,
+  });
   await fs.mkdir(path.dirname(summaryFile), { recursive: true });
-  await fs.writeFile(summaryFile, `${lines.join("\n")}\n`);
+  await fs.writeFile(summaryFile, summary);
 }
 
 async function publishAcceptedEvidence() {

@@ -27,14 +27,13 @@ const SUPPORTED_KEYWORDS = new Set([
 
 const SUPPORTED_TYPES = new Set(["object", "array", "string", "integer", "number", "boolean", "null"]);
 
-// Every keyword whose assertion is skipped by a `typeof … === "number"` guard at validation time.
-// A mistyped bound would therefore be silently dropped — the one behaviour this module exists to
-// refuse — so the type is settled when the schema is compiled instead.
-const NUMERIC_KEYWORDS = Object.freeze([
-  "minLength", "maxLength",
-  "minItems", "maxItems",
-  "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
-]);
+// Every keyword whose assertion the validator skips unless its value is usable. A bound it cannot
+// compare against is silently dropped — the one behaviour this module exists to refuse — so each
+// value is settled when the schema is compiled rather than at validation time. `NaN` is the case
+// that makes a plain `typeof` check insufficient: it is a number, and every comparison against it
+// is false, so the assertion never fires.
+const CARDINALITY_KEYWORDS = Object.freeze(["minLength", "maxLength", "minItems", "maxItems"]);
+const NUMERIC_BOUND_KEYWORDS = Object.freeze(["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"]);
 
 function schemaTypeOf(value) {
   if (value === null) return "null";
@@ -70,9 +69,14 @@ function assertSupportedSchema(schema, pointer, compiledPatterns) {
       if (!SUPPORTED_TYPES.has(type)) throw new Error(`unsupported schema type "${type}" at ${pointer}`);
     }
   }
-  for (const keyword of NUMERIC_KEYWORDS) {
-    if (keyword in schema && typeof schema[keyword] !== "number") {
-      throw new Error(`invalid ${keyword} at ${pointer}: expected a number`);
+  for (const keyword of CARDINALITY_KEYWORDS) {
+    if (keyword in schema && !(Number.isInteger(schema[keyword]) && schema[keyword] >= 0)) {
+      throw new Error(`invalid ${keyword} at ${pointer}: expected a non-negative integer`);
+    }
+  }
+  for (const keyword of NUMERIC_BOUND_KEYWORDS) {
+    if (keyword in schema && !Number.isFinite(schema[keyword])) {
+      throw new Error(`invalid ${keyword} at ${pointer}: expected a finite number`);
     }
   }
   // A number alone is not enough for multipleOf: the validator skips the assertion unless the

@@ -263,6 +263,54 @@ for (const [label, multipleOf] of INVALID_MULTIPLE_OF) {
   });
 }
 
+// Every keyword whose assertion the validator skips when its value is unusable. JSON cannot carry
+// NaN or Infinity, so a committed schema reaches these only through the exported compiler, but a
+// silently skipped keyword is the behaviour this validator exists to refuse either way.
+const KEYWORD_VALUE_RULES = [
+  { keyword: "minLength", subject: { type: "string" }, valid: [0, 1, 12], invalid: [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "1"], expect: /expected a non-negative integer/ },
+  { keyword: "maxLength", subject: { type: "string" }, valid: [0, 4], invalid: [-1, 2.5, Number.NaN, Number.POSITIVE_INFINITY], expect: /expected a non-negative integer/ },
+  { keyword: "minItems", subject: { type: "array" }, valid: [0, 1], invalid: [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY], expect: /expected a non-negative integer/ },
+  { keyword: "maxItems", subject: { type: "array" }, valid: [0, 3], invalid: [-1, 0.5, Number.NaN, Number.NEGATIVE_INFINITY], expect: /expected a non-negative integer/ },
+  { keyword: "minimum", subject: { type: "number" }, valid: [0, -3, 1.5], invalid: [Number.NaN, Number.POSITIVE_INFINITY, "0"], expect: /expected a finite number/ },
+  { keyword: "maximum", subject: { type: "number" }, valid: [0, 2.25], invalid: [Number.NaN, Number.NEGATIVE_INFINITY], expect: /expected a finite number/ },
+  { keyword: "exclusiveMinimum", subject: { type: "number" }, valid: [-1.5, 0], invalid: [Number.NaN, Number.POSITIVE_INFINITY], expect: /expected a finite number/ },
+  { keyword: "exclusiveMaximum", subject: { type: "number" }, valid: [0, 9.5], invalid: [Number.NaN, Number.NEGATIVE_INFINITY], expect: /expected a finite number/ },
+  { keyword: "multipleOf", subject: { type: "number" }, valid: [0.5, 2], invalid: [0, -2, Number.NaN, Number.POSITIVE_INFINITY], expect: /expected a finite number greater than zero/ },
+];
+
+for (const { keyword, subject, valid, invalid, expect } of KEYWORD_VALUE_RULES) {
+  test(`${keyword} accepts only values the validator can assert with`, () => {
+    for (const value of valid) {
+      assert.doesNotThrow(
+        () => compileJsonSchema({ type: "object", properties: { field: { ...subject, [keyword]: value } } }),
+        `${keyword}=${value} is legal and must compile`,
+      );
+    }
+    for (const value of invalid) {
+      assert.throws(
+        () => compileJsonSchema({ type: "object", properties: { field: { ...subject, [keyword]: value } } }),
+        (error) => {
+          assert.match(error.message, new RegExp(`invalid ${keyword} at #/properties/field`));
+          assert.match(error.message, expect);
+          return true;
+        },
+        `${keyword}=${String(value)} must be refused at compile time`,
+      );
+    }
+  });
+}
+
+test("a keyword the compiler accepts is actually asserted against the document", () => {
+  // The pairing that matters: NaN previously compiled and then silently passed everything.
+  const validate = compileJsonSchema({ type: "object", properties: { items: { type: "array", minItems: 1 } } });
+  assert.deepEqual(validate({ items: ["x"] }), []);
+  assert.deepEqual(
+    validate({ items: [] }).map((error) => error.path),
+    ["#/items"],
+    "an empty array must be refused by a minItems the compiler accepted",
+  );
+});
+
 test("a non-finite multipleOf is refused by the compiler", () => {
   // JSON cannot carry NaN or Infinity, so a committed schema file never can either; these reach the
   // compiler only from a programmatically built schema, and the guard has to hold there too.

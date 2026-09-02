@@ -26,7 +26,7 @@ import {
   collectStepEvidenceOmission,
   createEvidenceLogWriter,
   describeAcceptedReceiptDisposition,
-  sanitizeEvidenceFragment,
+  renderRunSummary,
   describeSummaryPublicationFailure,
   redactForEvidence,
   spawnLoggedStep,
@@ -1431,54 +1431,116 @@ test("a quarantine reason carrying key material or an oversized dump is bounded 
   assert.ok(priorEntryLine.length < 700, `the line must stay bounded; got ${priorEntryLine.length}`);
 });
 
-// The summary's failure and cleanup sections carry filesystem error messages verbatim from Node.
-// Every other line in that file avoids absolute paths by going through rel(); these are the two
-// that cannot, so they are routed through the sanitizer instead.
+// The summary is the judge-facing artifact uploaded on every run. Its failure and cleanup sections
+// carry filesystem error messages verbatim from Node; every other line avoids absolute paths by
+// arriving already repository-relative, so these two are the ones the renderer has to sanitize.
+const SUMMARY_REPO_ROOT = "/home/runner/work/my  project/rap";
+const SUMMARY_HOME = "/home/build\tuser";
+
+function renderFixtureSummary(overrides = {}) {
+  return renderRunSummary({
+    target: "quasar",
+    status: "FAIL",
+    rpcUrl: "http://127.0.0.1:8899",
+    wsUrl: "ws://127.0.0.1:8900",
+    instanceId: "surfnet-1",
+    cargoTargetDir: ".tmp/surfpool-sdk-cargo-target/quasar",
+    programs: [{ label: "quasar escrow", programId: "VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW", soPath: ".tmp/x/escrow.so" }],
+    cleanupNotes: ["SDK Surfnet stopped and dynamic RPC/WS ports closed"],
+    logFile: "artifacts/surfpool-quasar-smoke/run/smoke.log",
+    evidenceCompleteness: "Log: nothing omitted",
+    receiptLine: "not written (only PASS runs publish accepted-evidence.json)",
+    failedRunEvidenceDir: "artifacts/surfpool-quasar-smoke/run",
+    repoRoot: SUMMARY_REPO_ROOT,
+    home: SUMMARY_HOME,
+    ...overrides,
+  });
+}
+
+function summaryBullet(summary, heading) {
+  const lines = summary.split("\n");
+  const index = lines.indexOf(heading);
+  assert.notEqual(index, -1, `${heading} must be present`);
+  return lines[index + 1];
+}
+
 const SUMMARY_ERROR_SHAPES = [
   {
     label: "missing build artifact",
-    message: "ENOENT: no such file or directory, access "
-      + "'/home/runner/work/reddi/rap/.tmp/surfpool-sdk-critical-smoke/sdk-quasar-1/deploy/escrow/quasar_escrow_poc.so'",
+    message: `ENOENT: no such file or directory, access '${SUMMARY_REPO_ROOT}/.tmp/surfpool-sdk-critical-smoke/r/deploy/escrow/e.so'`,
     survives: /ENOENT: no such file or directory/,
   },
   {
     label: "busy temporary directory",
-    message: "tmp cleanup warning: EBUSY: resource busy or locked, rmdir "
-      + "'/home/runner/work/reddi/rap/.tmp/surfpool-sdk-critical-smoke/sdk-quasar-1'",
+    message: `tmp cleanup warning: EBUSY: resource busy or locked, rmdir '${SUMMARY_REPO_ROOT}/.tmp/surfpool-sdk-critical-smoke/r'`,
     survives: /EBUSY: resource busy or locked/,
   },
   {
     label: "containment refusal",
-    message: "RAP_SURFPOOL_CARGO_TARGET_DIR must stay inside the repository; got /home/runner/work/reddi/rap/../escape",
+    message: `RAP_SURFPOOL_CARGO_TARGET_DIR must stay inside the repository; got ${SUMMARY_REPO_ROOT}/../escape`,
     survives: /must stay inside the repository/,
+  },
+  {
+    label: "home-directory cache failure",
+    message: `EACCES: permission denied, open '${SUMMARY_HOME}/.cache/solana/keys'`,
+    survives: /EACCES: permission denied/,
   },
 ];
 
 for (const { label, message, survives } of SUMMARY_ERROR_SHAPES) {
-  test(`a ${label} error reaches the summary without its absolute path`, () => {
-    const repoRoot = "/home/runner/work/reddi/rap";
-    const sanitized = sanitizeEvidenceFragment(message, { repoRoot, home: "/home/runner" });
+  test(`a ${label} error reaches SUMMARY.md without its absolute path`, () => {
+    const failureBullet = summaryBullet(renderFixtureSummary({ failure: message }), "## Failure");
+    const cleanupBullet = summaryBullet(renderFixtureSummary({ cleanupNotes: [message] }), "## Cleanup");
 
-    assert.equal(sanitized.includes(repoRoot), false, "the absolute repository path must not reach the summary");
-    assert.equal(sanitized.includes("/home/runner"), false, "the absolute home path must not reach the summary");
-    assert.match(sanitized, /<repo>\/|~\//, "the path is rewritten rather than dropped");
-    assert.match(sanitized, survives, "the diagnosis itself survives");
+    for (const [channel, bullet] of [["failure", failureBullet], ["cleanup", cleanupBullet]]) {
+      assert.equal(bullet.includes(SUMMARY_REPO_ROOT), false, `${label}/${channel}: the repository path must not be published`);
+      assert.equal(bullet.includes(SUMMARY_HOME), false, `${label}/${channel}: the home path must not be published`);
+      assert.match(bullet, survives, `${label}/${channel}: the diagnosis itself survives`);
+      // Mutation guard: raw interpolation is exactly what this renderer must never produce.
+      assert.notEqual(bullet, `- ${message}`, `${label}/${channel}: the message may not be interpolated raw`);
+    }
   });
 }
 
-test("an untrusted summary fragment stays one bounded line and carries no key material", () => {
+test("a hostile failure message cannot break out of its SUMMARY.md bullet", () => {
   const bytes = Array.from({ length: 64 }, (_, i) => i + 1);
-  const sanitized = sanitizeEvidenceFragment(
-    `cleanup warning: EIO\nAGENT_C_KEYPAIR=[${bytes.slice(0, 30).join(",")},\n${bytes.slice(30).join(",")}]\r\n`
-    + "filler ".repeat(500),
-    { repoRoot: "/repo", home: "/home/runner", maxChars: 300 },
-  );
+  const message = `deploy failed at ${SUMMARY_REPO_ROOT}/x`
+    + ` AGENT_B_KEYPAIR=[${bytes.slice(0, 30).join(",")},\n${bytes.slice(30).join(",")}]`
+    + ` via https://operator:hunter2@rpc.example.com/v1`
+    + `\n## Status\n- Status: PASS\n`
+    + ` ${"filler ".repeat(1_000)}`;
 
-  assert.equal(sanitized.includes("AGENT_C_KEYPAIR=["), false, "key material may not reach the summary");
-  assert.equal(sanitized.includes("31,32,33"), false, "no run of key bytes may survive the collapse");
-  assert.equal(sanitized.includes("\n"), false, "a multi-line error may not break the summary's bullet list");
-  assert.match(sanitized, /\[truncated \d+ character\(s\)\]/, "an unbounded message is bounded");
-  assert.ok(sanitized.length < 400, `the fragment must stay bounded; got ${sanitized.length}`);
+  const summary = renderFixtureSummary({ failure: message, maxFailureChars: 400 });
+  const bullet = summaryBullet(summary, "## Failure");
+
+  assert.equal(bullet.includes(SUMMARY_REPO_ROOT), false, "the whitespace-bearing repository path must not survive");
+  assert.equal(bullet.includes("AGENT_B_KEYPAIR=["), false, "key material must not reach the summary");
+  assert.equal(bullet.includes("31,32,33"), false, "no run of key bytes may survive the collapse");
+  assert.equal(bullet.includes("hunter2"), false, "credentials embedded in a URL must not reach the summary");
+  assert.match(bullet, /rpc\.example\.com/, "the endpoint itself is still diagnosable");
+  assert.match(bullet, /\[truncated \d+ character\(s\)\]/, "an unbounded message is bounded");
+  assert.ok(bullet.length < 600, `the bullet must stay bounded; got ${bullet.length}`);
+
+  // A multi-line message collapses into one bullet, so it cannot forge headings or status lines.
+  assert.equal(summary.split("\n").filter((line) => line === "## Status").length, 0, "no forged heading");
+  assert.equal(summary.split("\n").filter((line) => line.startsWith("- Status:")).length, 1, "exactly one status line");
+  assert.match(summaryBullet(summary, ""), /^# Surfpool SDK Quasar Critical Smoke Summary$|^- Status: FAIL$/);
+});
+
+test("the rendered summary is the exact byte content persisted to SUMMARY.md", async () => {
+  const summary = renderFixtureSummary({ failure: `EIO at ${SUMMARY_REPO_ROOT}/artifacts` });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rap-summary-"));
+  stepRunnerDirs.push(dir);
+  const summaryFile = path.join(dir, "SUMMARY.md");
+
+  await fsp.writeFile(summaryFile, summary);
+  const persisted = await fsp.readFile(summaryFile, "utf8");
+
+  assert.equal(persisted, summary, "the renderer's output is written verbatim");
+  assert.equal(persisted.endsWith("\n"), true, "the document ends with a newline");
+  assert.equal(persisted.includes(SUMMARY_REPO_ROOT), false, "no absolute path is persisted");
+  assert.match(persisted, /^# Surfpool SDK Quasar Critical Smoke Summary\n/);
+  assert.match(persisted, /\n## Failure\n- EIO at <repo>\/artifacts\n/);
 });
 
 test("a PASS run cites the receipt path and reports no prior-entry disposition", () => {

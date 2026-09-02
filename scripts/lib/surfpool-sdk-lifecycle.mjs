@@ -818,11 +818,74 @@ export function redactForEvidence(value, options = {}) {
 export function sanitizeEvidenceFragment(value, { repoRoot, home, maxChars = 2_000 } = {}) {
   const scrubbed = redactForEvidence(value, { repoRoot, home })
     .replace(/AGENT_[ABC]_KEYPAIR=\[[^\]]*\]/g, "AGENT_KEYPAIR=<redacted>")
-    .replace(/\[(?:\s*\d{1,3}\s*,){16,}\s*\d{1,3}\s*\]/g, "[<redacted-bytes>]");
+    .replace(/\[(?:\s*\d{1,3}\s*,){16,}\s*\d{1,3}\s*\]/g, "[<redacted-bytes>]")
+    .replace(/([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^\s/@]+@/g, "$1<redacted>@");
   const sanitized = redactForEvidence(scrubbed.replace(/\s+/g, " ").trim(), { repoRoot, home });
   return sanitized.length > maxChars
     ? `${sanitized.slice(0, maxChars)}[truncated ${sanitized.length - maxChars} character(s)]`
     : sanitized;
+}
+
+/**
+ * The run summary, rendered as the exact bytes written to `SUMMARY.md`.
+ *
+ * This is the judge-facing artifact and is uploaded on every run, so the document's shape and its
+ * redaction live together here rather than at the call site. Everything the lane composed itself
+ * arrives already repository-relative; `failure` and `cleanupNotes` are the two fields it did not,
+ * because both carry filesystem error messages, and those are the two that go through
+ * `sanitizeEvidenceFragment` before they reach a bullet.
+ */
+export function renderRunSummary(options = {}) {
+  const {
+    target,
+    status,
+    rpcUrl = null,
+    wsUrl = null,
+    instanceId = null,
+    cargoTargetDir,
+    programs = [],
+    failure = null,
+    cleanupNotes = [],
+    logFile,
+    evidenceCompleteness,
+    receiptLine,
+    priorEntryLine = null,
+    failedRunEvidenceDir = null,
+    repoRoot,
+    home,
+    maxFailureChars = 2_000,
+    maxCleanupNoteChars = 1_000,
+  } = options;
+
+  const untrusted = (value, maxChars) => sanitizeEvidenceFragment(value, { repoRoot, home, maxChars });
+  const lines = [
+    `# Surfpool SDK ${target === "quasar" ? "Quasar" : "Anchor"} Critical Smoke Summary`,
+    "",
+    `- Status: ${status}`,
+    "- Lifecycle: `@solana/surfpool` SDK `Surfnet.startWithConfig({ offline: true, airdropSol: 0, blockProductionMode: \"transaction\" })`",
+    "- Network boundary: local SDK Surfnet only; no remote datasource, live RPC, wallet file, upgrade authority, or installed Surfpool source patching",
+    rpcUrl ? `- RPC: ${rpcUrl}` : "- RPC: not started",
+    wsUrl ? `- WS: ${wsUrl}` : "- WS: not started",
+    instanceId ? `- Surfnet instance: ${instanceId}` : "- Surfnet instance: not started",
+    "- Temporary state: isolated under `.tmp/surfpool-sdk-critical-smoke/<run-id>` and removed during cleanup",
+    `- Build cache: reusable Cargo target dir at ${cargoTargetDir} (retained across runs; not per-run state)`,
+    "- External Surfpool service process: none (in-process SDK lifecycle)",
+    "",
+    "## Programs deployed locally",
+  ];
+  for (const program of programs) {
+    lines.push(`- ${program.label}: ${program.programId}${program.soPath ? ` from ${program.soPath}` : ""}`);
+  }
+  if (failure) {
+    lines.push("", "## Failure", `- ${untrusted(failure, maxFailureChars)}`);
+  }
+  lines.push("", "## Cleanup", ...cleanupNotes.map((note) => `- ${untrusted(note, maxCleanupNoteChars)}`));
+  lines.push("", "## Artifacts", `- Log: ${logFile}`);
+  lines.push(`- Evidence completeness: ${evidenceCompleteness}`);
+  lines.push(`- Accepted evidence receipt: ${receiptLine}`);
+  if (priorEntryLine) lines.push(`- Prior accepted evidence entry: ${priorEntryLine}`);
+  if (failedRunEvidenceDir) lines.push(`- Failed run evidence retained at: ${failedRunEvidenceDir}`);
+  return `${lines.join("\n")}\n`;
 }
 
 /**
