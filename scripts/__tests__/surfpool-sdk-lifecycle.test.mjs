@@ -25,6 +25,7 @@ import {
   createTruncatingEvidenceBuffer,
   collectStepEvidenceOmission,
   createEvidenceLogWriter,
+  describeAcceptedReceiptDisposition,
   describeSummaryPublicationFailure,
   redactForEvidence,
   spawnLoggedStep,
@@ -1310,6 +1311,120 @@ test("the summary-failure notice survives a path, key material, and an oversized
   assert.match(notice, /\[truncated \d+ character\(s\)\]/, "the reason is still bounded");
   assert.ok(notice.length < 1_200, `the notice must stay bounded; got ${notice.length}`);
   assert.match(notice, /must not be accepted/);
+});
+
+const RECEIPT_DISPOSITION_FIXTURE = {
+  receiptPath: "artifacts/surfpool-quasar-smoke/accepted-evidence.json",
+  lockPath: "artifacts/surfpool-quasar-smoke/.accepted-evidence.lock",
+  receiptFilename: "accepted-evidence.json",
+};
+
+const QUARANTINED_PRIOR_ENTRY = {
+  path: "artifacts/surfpool-quasar-smoke/.accepted-evidence.json.quarantined-abc123",
+  reason: "the entry is not an ordinary file",
+};
+
+test("the FAIL summary never calls a quarantined prior entry untouched", () => {
+  // publishAcceptedEvidence returns not-published after moveAsideSync already emptied the canonical
+  // path, so this outcome alone does not mean the prior entry survived where it was.
+  const quarantined = describeAcceptedReceiptDisposition({
+    ...RECEIPT_DISPOSITION_FIXTURE,
+    status: "FAIL",
+    receiptOutcome: EVIDENCE_PUBLICATION_NOT_PUBLISHED,
+    quarantinedPriorEntry: QUARANTINED_PRIOR_ENTRY,
+  });
+
+  assert.equal(
+    quarantined.receiptLine.includes("left untouched"),
+    false,
+    "this run emptied the canonical path, so the receipt line may not claim otherwise",
+  );
+  assert.match(quarantined.receiptLine, /not published by this run \(accepted-evidence\.json could not be published\)/);
+  assert.match(
+    quarantined.priorEntryLine,
+    /unusable \(the entry is not an ordinary file\); publication moved it aside to artifacts\/surfpool-quasar-smoke\/\.accepted-evidence\.json\.quarantined-abc123/,
+  );
+
+  // Without a quarantine the settled wording stands: nothing on disk was moved.
+  const untouched = describeAcceptedReceiptDisposition({
+    ...RECEIPT_DISPOSITION_FIXTURE,
+    status: "FAIL",
+    receiptOutcome: EVIDENCE_PUBLICATION_NOT_PUBLISHED,
+  });
+  assert.match(untouched.receiptLine, /any previously accepted receipt is left untouched/);
+  assert.equal(untouched.priorEntryLine, null, "no prior-entry line is emitted when nothing was moved");
+});
+
+// The self-contradiction this pair exists to prevent: one line may not report a prior entry as
+// left alone while the next reports the same run as having moved it aside.
+for (const receiptOutcome of [
+  EVIDENCE_PUBLICATION_INDETERMINATE,
+  EVIDENCE_PUBLICATION_ROLLED_BACK,
+  EVIDENCE_PUBLICATION_NOT_PUBLISHED,
+  null,
+]) {
+  for (const quarantinedPriorEntry of [QUARANTINED_PRIOR_ENTRY, null]) {
+    test(`the receipt and prior-entry lines agree for outcome=${receiptOutcome} quarantined=${Boolean(quarantinedPriorEntry)}`, () => {
+      const { receiptLine, priorEntryLine } = describeAcceptedReceiptDisposition({
+        ...RECEIPT_DISPOSITION_FIXTURE,
+        status: "FAIL",
+        receiptOutcome,
+        quarantinedPriorEntry,
+      });
+
+      assert.equal(
+        Boolean(priorEntryLine),
+        Boolean(quarantinedPriorEntry),
+        "the prior-entry line appears exactly when an entry was quarantined",
+      );
+      if (quarantinedPriorEntry) {
+        assert.equal(
+          receiptLine.includes("left untouched"),
+          false,
+          "the receipt line may not contradict the prior-entry line",
+        );
+        assert.equal(priorEntryLine.includes("/home/"), false, "no absolute path may reach the summary");
+        assert.match(priorEntryLine, /^unusable \(/);
+      }
+      assert.equal(receiptLine.includes("undefined"), false);
+    });
+  }
+}
+
+test("a PASS run cites the receipt path and reports no prior-entry disposition", () => {
+  const passed = describeAcceptedReceiptDisposition({
+    ...RECEIPT_DISPOSITION_FIXTURE,
+    status: "PASS",
+    quarantinedPriorEntry: QUARANTINED_PRIOR_ENTRY,
+  });
+
+  assert.equal(passed.receiptLine, RECEIPT_DISPOSITION_FIXTURE.receiptPath, "a PASS summary cites the receipt itself");
+  assert.equal(passed.priorEntryLine, null, "the published receipt records its own quarantine, so the summary does not");
+});
+
+test("an indeterminate publication names the retained lock that makes consumers refuse", () => {
+  const { receiptLine } = describeAcceptedReceiptDisposition({
+    ...RECEIPT_DISPOSITION_FIXTURE,
+    status: "FAIL",
+    receiptOutcome: EVIDENCE_PUBLICATION_INDETERMINATE,
+  });
+
+  assert.match(receiptLine, /^INDETERMINATE: a receipt was renamed into artifacts\/surfpool-quasar-smoke\/accepted-evidence\.json/);
+  assert.match(receiptLine, /must not be cited/);
+  assert.match(receiptLine, /artifacts\/surfpool-quasar-smoke\/\.accepted-evidence\.lock makes every consumer refuse it/);
+  assert.equal(receiptLine.includes("left untouched"), false);
+});
+
+test("a rolled-back publication reports the restored receipt", () => {
+  const { receiptLine, priorEntryLine } = describeAcceptedReceiptDisposition({
+    ...RECEIPT_DISPOSITION_FIXTURE,
+    status: "FAIL",
+    receiptOutcome: EVIDENCE_PUBLICATION_ROLLED_BACK,
+  });
+
+  assert.match(receiptLine, /the previously accepted receipt was durably restored/);
+  assert.equal(receiptLine.includes("left untouched"), false, "restored is a different fact from untouched");
+  assert.equal(priorEntryLine, null);
 });
 
 test("the summary-failure notice survives a thrown non-Error value", () => {

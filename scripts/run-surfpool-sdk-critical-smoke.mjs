@@ -15,6 +15,7 @@ import {
   baselinePath,
   collectStepEvidenceOmission,
   createEvidenceLogWriter,
+  describeAcceptedReceiptDisposition,
   describeSummaryPublicationFailure,
   localChildEnv,
   redactForEvidence,
@@ -29,9 +30,7 @@ import {
 import {
   ACCEPTED_EVIDENCE_FILENAME,
   ACCEPTED_EVIDENCE_LOCK_DIRNAME,
-  EVIDENCE_PUBLICATION_INDETERMINATE,
   EVIDENCE_PUBLICATION_NOT_PUBLISHED,
-  EVIDENCE_PUBLICATION_ROLLED_BACK,
   computeLaneSourceFingerprint,
   writeAcceptedEvidenceManifest,
 } from "./lib/surfpool-evidence-manifest.mjs";
@@ -453,19 +452,15 @@ async function logTeardownLine(line) {
  * receipt, so it must not be rewritten on success; every other wording belongs to a run already
  * reported FAIL.
  */
-function acceptedReceiptSummaryLine(status) {
-  const receiptPath = rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_FILENAME));
-  if (status === "PASS") return receiptPath;
-  switch (acceptedReceiptOutcome) {
-    case EVIDENCE_PUBLICATION_INDETERMINATE:
-      return `INDETERMINATE: a receipt was renamed into ${receiptPath} and could neither be durably published nor rolled back, so what is on disk is unknown and must not be cited; the publication lock retained at ${rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_LOCK_DIRNAME))} makes every consumer refuse it until an operator resolves it`;
-    case EVIDENCE_PUBLICATION_ROLLED_BACK:
-      return `not published by this run (${ACCEPTED_EVIDENCE_FILENAME} could not be durably published); the previously accepted receipt was durably restored`;
-    case EVIDENCE_PUBLICATION_NOT_PUBLISHED:
-      return `not published by this run (${ACCEPTED_EVIDENCE_FILENAME} could not be published); any previously accepted receipt is left untouched`;
-    default:
-      return `not written (only PASS runs publish ${ACCEPTED_EVIDENCE_FILENAME}); any previously accepted receipt is left untouched`;
-  }
+function acceptedReceiptDisposition(status) {
+  return describeAcceptedReceiptDisposition({
+    status,
+    receiptOutcome: acceptedReceiptOutcome,
+    quarantinedPriorEntry: quarantinedPriorReceipt,
+    receiptPath: rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_FILENAME)),
+    lockPath: rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_LOCK_DIRNAME)),
+    receiptFilename: ACCEPTED_EVIDENCE_FILENAME,
+  });
 }
 
 async function writeSummary({ target, programs = [], status, failure }) {
@@ -493,15 +488,14 @@ async function writeSummary({ target, programs = [], status, failure }) {
   lines.push("", "## Cleanup", ...cleanupNotes.map((note) => `- ${note}`));
   lines.push("", "## Artifacts", `- Log: ${rel(logFile)}`);
   lines.push(`- Evidence completeness: ${summarizeEvidenceCompleteness(evidenceOmissions, { logPersisted: logWriter.persisted })}`);
-  lines.push(`- Accepted evidence receipt: ${acceptedReceiptSummaryLine(status)}`);
-  // Only ever from the outcome publication produced under its lock: a pre-publication observation of
-  // the receipt path can be overtaken by a concurrent publisher, and this summary is immutable once
-  // the receipt records its hash.
-  if (status !== "PASS" && quarantinedPriorReceipt) {
-    lines.push(
-      `- Prior accepted evidence entry: unusable (${quarantinedPriorReceipt.reason}); publication moved it aside to ` +
-      `${quarantinedPriorReceipt.path}`,
-    );
+  // Both lines come from one description of the publication transaction: a pre-publication
+  // observation of the receipt path can be overtaken by a concurrent publisher, and deriving them
+  // separately once let the receipt line call a prior entry untouched that the next line reported
+  // as quarantined.
+  const disposition = acceptedReceiptDisposition(status);
+  lines.push(`- Accepted evidence receipt: ${disposition.receiptLine}`);
+  if (disposition.priorEntryLine) {
+    lines.push(`- Prior accepted evidence entry: ${disposition.priorEntryLine}`);
   }
   if (status !== "PASS") {
     lines.push(`- Failed run evidence retained at: ${rel(outDir)}`);
@@ -565,7 +559,7 @@ async function publishAcceptedEvidence() {
     if (exitCode === 0) exitCode = 1;
     acceptedReceiptOutcome = error.publicationOutcome ?? EVIDENCE_PUBLICATION_NOT_PUBLISHED;
     quarantinedPriorReceipt = error.quarantinedPriorEntry ?? null;
-    const receiptState = acceptedReceiptSummaryLine("FAIL");
+    const receiptState = acceptedReceiptDisposition("FAIL").receiptLine;
     try {
       await logLine(`[surfpool-sdk-smoke] accepted evidence receipt failed: ${error.message}; ${receiptState}`);
     } catch { /* the run already failed; log loss must not mask it */ }

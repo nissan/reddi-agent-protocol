@@ -822,6 +822,62 @@ function sanitizeOperatorNoticeFragment(value, { repoRoot, home, maxChars = 2_00
 }
 
 /**
+ * Whether a run may still say it left an existing accepted-evidence entry alone. It may not once
+ * the publication quarantined one: the canonical path was emptied by this run, so the claim is
+ * false however the transaction ended afterwards. Shared by every channel that reports the
+ * disposition, so the two cannot disagree.
+ */
+function priorEntryUntouchedClause(quarantinedPriorEntry) {
+  return quarantinedPriorEntry ? "" : "; any previously accepted receipt is left untouched";
+}
+
+/**
+ * What a run's summary says about the accepted-evidence receipt, and about whatever entry was
+ * already at the canonical path.
+ *
+ * Both lines come from here because they describe one transaction. When they were derived
+ * separately, the receipt line could report a prior entry as untouched on the same outcome that the
+ * neighbouring line reported as quarantined — a self-contradiction the reader has no way to
+ * resolve. `receiptOutcome` is the publication's last outcome and `quarantinedPriorEntry` is set
+ * only when an unusable entry was actually renamed aside, so every claim below is read off the two
+ * facts the transaction reported rather than inferred from one of them.
+ */
+export function describeAcceptedReceiptDisposition(options = {}) {
+  const {
+    status,
+    receiptOutcome,
+    quarantinedPriorEntry = null,
+    receiptPath = "the accepted-evidence receipt",
+    lockPath = "the publication lock",
+    receiptFilename = "accepted-evidence.json",
+  } = options;
+
+  let receiptLine;
+  if (status === "PASS") {
+    receiptLine = receiptPath;
+  } else if (receiptOutcome === "indeterminate") {
+    receiptLine = `INDETERMINATE: a receipt was renamed into ${receiptPath} and could neither be durably published `
+      + `nor rolled back, so what is on disk is unknown and must not be cited; the publication lock retained at `
+      + `${lockPath} makes every consumer refuse it until an operator resolves it`;
+  } else if (receiptOutcome === "rolled-back") {
+    receiptLine = `not published by this run (${receiptFilename} could not be durably published); the previously `
+      + "accepted receipt was durably restored";
+  } else if (receiptOutcome === "not-published") {
+    receiptLine = `not published by this run (${receiptFilename} could not be published)`
+      + priorEntryUntouchedClause(quarantinedPriorEntry);
+  } else {
+    receiptLine = `not written (only PASS runs publish ${receiptFilename})`
+      + priorEntryUntouchedClause(quarantinedPriorEntry);
+  }
+
+  const priorEntryLine = status !== "PASS" && quarantinedPriorEntry
+    ? `unusable (${quarantinedPriorEntry.reason}); publication moved it aside to ${quarantinedPriorEntry.path}`
+    : null;
+
+  return { receiptLine, priorEntryLine };
+}
+
+/**
  * The operator notice for a run whose summary could not be published.
  *
  * It is built here rather than interpolated at the call site because it carries two untrusted
@@ -853,7 +909,7 @@ export function describeSummaryPublicationFailure(options = {}) {
   const reason = sanitize(error?.message ?? String(error ?? "unknown error"), maxErrorChars);
 
   const quarantineClause = quarantinedPriorEntry
-    ? ` The unusable accepted-evidence entry this run moved aside remains quarantined at `
+    ? " The unusable accepted-evidence entry this run moved aside remains quarantined at "
       + `${sanitize(quarantinedPriorEntry.path ?? "an unnamed path", 200)} `
       + `(${sanitize(quarantinedPriorEntry.reason ?? "no reason recorded", 200)}).`
     : "";
@@ -869,6 +925,7 @@ export function describeSummaryPublicationFailure(options = {}) {
     receiptClause = quarantinedPriorEntry
       ? "This run published no receipt."
       : "This run published no receipt and did not modify any accepted-evidence entry already on disk.";
+
   } else {
     receiptClause = "This run published no receipt it may cite.";
   }
