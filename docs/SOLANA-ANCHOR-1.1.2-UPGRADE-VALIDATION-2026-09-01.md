@@ -16,6 +16,8 @@ Scope: upgrade the legacy Anchor reference program and RAP workstation baseline 
 
 `cargo install --git ... avm --rev <v1.1.2>` was intentionally not adopted: AVM `1.1.2` pulls a dependency requiring Rust `1.91`, which would violate the repository baseline (`1.89.0`). The supported path now keeps the AVM manager pinned at `1.0.0` and selects the official verified Anchor CLI `1.1.2` binary through AVM.
 
+That Rust-version rationale is historical to this 2026-09-01 run and has since been superseded by the Agave/Rust refresh; the manager pin and its current reason live in `docs/SOLANA-TOOLCHAIN-BASELINE.md` and `config/toolchain/solana-baseline-assets.json`.
+
 No Agave, Rust, Node, Surfpool, LiteSVM, PER, AUDD, mainnet, or Quasar runtime upgrade is included.
 
 ## Current toolchain proof
