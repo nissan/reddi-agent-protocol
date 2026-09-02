@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import test from "node:test";
+import fs from "node:fs";
+import fsp from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import test, { after } from "node:test";
 
 import { Surfnet } from "@solana/surfpool";
 
@@ -14,7 +18,10 @@ import {
   createRedactingLineBuffer,
   createStepEvidenceRecord,
   createTruncatingEvidenceBuffer,
+  collectStepEvidenceOmission,
+  createEvidenceLogWriter,
   redactForEvidence,
+  spawnLoggedStep,
   startLocalSurfnet,
   summarizeEvidenceCompleteness,
   validateSurfnetEndpoints,
@@ -847,6 +854,219 @@ test("keypair redaction consumes only the bracketed literal, not later brackets 
   assert.equal(redacted.includes("[1,2,3]"), false);
   assert.equal(redacted, "AGENT_KEYPAIR=<redacted> Target:   legacy-anchor [attempt 1]");
 });
+
+// Integration harness for the lane's real step runner: a temporary log file, the production
+// `createEvidenceLogWriter`, and the production `spawnLoggedStep`. Every case below drives an actual
+// child process through the same settlement path the smoke runner uses, and collects the disclosure
+// with the same `collectStepEvidenceOmission` the runner passes as its `onRecord` sink.
+const stepRunnerDirs = [];
+after(() => {
+  for (const dir of stepRunnerDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+function stagedStepRunner(options = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rap-step-runner-"));
+  stepRunnerDirs.push(dir);
+  const logFile = path.join(dir, "surfpool-sdk-critical-smoke.log");
+  fs.writeFileSync(logFile, "");
+  const appends = [];
+  const append = options.append ?? ((text) => fsp.appendFile(logFile, text));
+  const logWriter = createEvidenceLogWriter((text) => {
+    appends.push(text);
+    return append(text);
+  });
+  const omissions = [];
+  const records = [];
+  const controller = new AbortController();
+  const displayed = [];
+  const run = (childSource, overrides = {}) => spawnLoggedStep({
+    label: overrides.label ?? "step under test",
+    command: process.execPath,
+    commandArgs: ["-e", childSource],
+    cwd: dir,
+    env: { PATH: process.env.PATH ?? "" },
+    signal: controller.signal,
+    logWriter,
+    logFile: "artifacts/surfpool-sdk-critical-smoke.log",
+    display: (text) => displayed.push(text),
+    onRecord: (label, record) => {
+      records.push({ label, record });
+      collectStepEvidenceOmission(omissions, label, record);
+    },
+    headLimit: overrides.headLimit ?? 512_000,
+    tailLimit: overrides.tailLimit ?? 1_500_000,
+    redactOptions: overrides.redactOptions ?? {},
+    timeoutMs: overrides.timeoutMs ?? 30_000,
+  });
+  return { dir, logFile, logWriter, omissions, records, controller, displayed, appends, run,
+    logText: () => fs.readFileSync(logFile, "utf8"),
+    summary: () => summarizeEvidenceCompleteness(omissions, { logPersisted: logWriter.persisted }) };
+}
+
+test("a step aborted after an oversized unterminated record still reports that loss to the run summary", async () => {
+  const harness = stagedStepRunner();
+  const maxResidualChars = 4_096;
+  // An unterminated record larger than the residual bound, then a child that never exits: the
+  // redactor replaces the record with a marker and the step has to be aborted.
+  const childSource = `process.stdout.write("SECRET-HINT api.devnet.solana.com " + "x".repeat(${maxResidualChars * 2}));`
+    + "setInterval(() => {}, 1000);";
+
+  const stepPromise = harness.run(childSource, { redactOptions: { maxResidualChars }, label: "run local Quasar demo" });
+  await new Promise((resolve) => {
+    const poll = setInterval(() => {
+      if (harness.displayed.join("").includes(OVERSIZED_LOG_LINE_MARKER.trim())) {
+        clearInterval(poll);
+        resolve();
+      }
+    }, 20);
+  });
+  const abortReason = new Error("SIGINT received");
+  abortReason.name = "SmokeInterruptError";
+  harness.controller.abort(abortReason);
+
+  await assert.rejects(stepPromise, (error) => {
+    assert.equal(error.name, "SmokeInterruptError");
+    return true;
+  });
+
+  assert.equal(harness.records.length, 1, "the aborted step must still finalize exactly one record");
+  const [{ record }] = harness.records;
+  assert.equal(record.complete, false);
+  assert.equal(record.completeness, "partial");
+  assert.equal(record.logOmittedLines, 1);
+  assert.ok(record.logOmittedChars >= maxResidualChars);
+  assert.equal(record.logPersisted, true);
+
+  assert.equal(harness.logText().includes("api.devnet.solana.com"), false, "the dropped record never reached the log");
+  assert.match(harness.logText(), new RegExp(OVERSIZED_LOG_LINE_MARKER.trim().replace(/[[\]]/g, "\\$&")));
+
+  assert.equal(harness.omissions.length, 1, "the run summary must see the aborted step's loss");
+  assert.match(harness.summary(), /Log: 1 step\(s\) had records replaced by an oversized-line marker — run local Quasar demo \(1 record\(s\)/);
+  assert.equal(harness.summary().includes("nothing omitted"), false);
+});
+
+test("a multi-megabyte line-terminated step with a nonzero exit keeps the log whole and reports spool truncation", async () => {
+  const harness = stagedStepRunner();
+  const childSource = 'const chunk = ("  lane output ".repeat(6) + "\\n").repeat(800);'
+    + "for (let i = 0; i < 50; i += 1) process.stdout.write(chunk);"
+    + "process.exitCode = 3;";
+
+  const result = await harness.run(childSource, { label: "run local Quasar demo" });
+
+  assert.equal(result.status, 3, "a nonzero exit still resolves with the evidence record");
+  const record = result.evidence;
+  assert.ok(record.spoolOmittedChunks > 0, "the bounded spool must have truncated a 3 MB step");
+  assert.ok(record.spoolOmittedChars > 0);
+  assert.equal(record.logOmittedChars, 0, "nothing was dropped on the way to the log");
+  assert.equal(record.logOmittedLines, 0);
+  assert.equal(record.logComplete, true);
+  assert.equal(record.logPersisted, true);
+  assert.equal(record.completeness, "partial");
+
+  const logged = harness.logText();
+  assert.ok(logged.length >= 3_000_000, `every byte the child emitted reached the log; got ${logged.length}`);
+  assert.equal(logged, harness.appends.join(""), "the log holds exactly the redacted stream, in order");
+  assert.ok(logged.length > record.text.length, "the spool retained less than the log did");
+
+  assert.equal(harness.omissions.length, 1);
+  const summary = harness.summary();
+  assert.match(summary, /Log: the line-terminated redacted child stream with nothing omitted/);
+  assert.match(summary, /spool \(in-memory only; what it dropped was already written to the log\): truncated for 1 step\(s\)/);
+});
+
+test("a real log-writer failure marks the step indeterminate and reaches the summary before the rejection", async () => {
+  const harness = stagedStepRunner({
+    append: () => Promise.reject(Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" })),
+  });
+
+  const stepPromise = harness.run('process.stdout.write("Target:   quasar\\n");');
+
+  await assert.rejects(stepPromise, /ENOSPC/);
+
+  assert.equal(harness.records.length, 1, "the record is finalized before the rejection propagates");
+  const [{ record }] = harness.records;
+  assert.equal(record.logPersisted, false);
+  assert.equal(record.completeness, "indeterminate");
+  assert.equal(record.complete, false);
+  assert.equal(record.spoolComplete, true, "the in-memory spool is intact and reported as such");
+  assert.match(record.text, /Target:   quasar/);
+  assert.equal(harness.logWriter.persisted, false);
+
+  const summary = harness.summary();
+  assert.match(summary, /Log: writing to it failed during this run \(during step under test\)/);
+  assert.match(summary, /no zero-loss count is claimed for it/);
+  assert.equal(summary.includes("nothing omitted"), false);
+});
+
+test("a step that cannot be spawned still finalizes and records its evidence", async () => {
+  const harness = stagedStepRunner();
+  await assert.rejects(
+    spawnLoggedStep({
+      label: "missing command",
+      command: path.join(harness.dir, "does-not-exist"),
+      commandArgs: [],
+      cwd: harness.dir,
+      env: { PATH: "" },
+      signal: harness.controller.signal,
+      logWriter: harness.logWriter,
+      logFile: "artifacts/surfpool-sdk-critical-smoke.log",
+      onRecord: (label, record) => {
+        harness.records.push({ label, record });
+        collectStepEvidenceOmission(harness.omissions, label, record);
+      },
+    }),
+    /ENOENT/,
+  );
+
+  assert.equal(harness.records.length, 1, "a failed spawn settles exactly once");
+  assert.equal(harness.records[0].record.completeness, "proven", "nothing was emitted, so nothing was lost");
+  assert.equal(harness.omissions.length, 0, "a lossless step is not published as an omission");
+});
+
+// Every material combination of the three inputs the disclosure derives from. The contradiction the
+// truth table exists to reject: a run may not recommend the log for spool-dropped bytes while also
+// saying that log's persistence is unproven.
+for (const logPersisted of [true, false]) {
+  for (const spoolLoss of [true, false]) {
+    for (const logLoss of [true, false]) {
+      test(`the disclosure is consistent for logPersisted=${logPersisted} spoolLoss=${spoolLoss} logLoss=${logLoss}`, () => {
+        const omissions = spoolLoss || logLoss || !logPersisted
+          ? [{
+            label: "run local Quasar demo",
+            logPersisted,
+            logOmittedChars: logLoss ? 4_096 : 0,
+            logOmittedLines: logLoss ? 1 : 0,
+            spoolOmittedChars: spoolLoss ? 1_000_000 : 0,
+            spoolOmittedChunks: spoolLoss ? 3 : 0,
+          }]
+          : [];
+        const summary = summarizeEvidenceCompleteness(omissions, { logPersisted });
+
+        if (logPersisted) {
+          assert.equal(summary.includes("indeterminate"), false);
+          assert.equal(
+            summary.includes("Log: the line-terminated redacted child stream with nothing omitted"),
+            !logLoss,
+          );
+          assert.equal(summary.includes("had records replaced by an oversized-line marker"), logLoss);
+          assert.equal(summary.includes("what it dropped was already written to the log"), spoolLoss);
+        } else {
+          assert.match(summary, /writing to it failed during this run/);
+          assert.equal(summary.includes("nothing omitted"), false, "an unproven log may never be published as lossless");
+          assert.equal(
+            summary.includes("what it dropped was already written to the log"),
+            false,
+            "the spool clause may not recommend a log whose persistence is unproven",
+          );
+          if (spoolLoss) assert.match(summary, /whose persistence this run could not prove, so its coverage is indeterminate/);
+        }
+
+        assert.equal(summary.includes("spool: retained every step's output in full"), !spoolLoss);
+        assert.match(summary, /No assertion runs over a step either channel dropped from/);
+      });
+    }
+  }
+}
 
 test("SIGINT teardown stops an in-process SDK Surfnet and closes its ports", async () => {
   const childSource = `

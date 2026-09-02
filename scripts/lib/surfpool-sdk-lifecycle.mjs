@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
@@ -484,13 +485,204 @@ export function summarizeEvidenceCompleteness(omissions = [], options = {}) {
     logSentence = `Log: ${logLoss.length} step(s) had records replaced by an oversized-line marker — ${markerDetail}`;
   }
 
+  // Where the spool's dropped characters went is a claim about the log, so it may only be made when
+  // the log's persistence was proven. Otherwise the run would recommend a file it just said is
+  // missing an unknown amount of output.
+  const spoolFate = logPersisted
+    ? "in-memory only; what it dropped was already written to the log"
+    : "in-memory only; what it dropped was handed to the log, whose persistence this run could not prove, so its coverage is indeterminate";
   const spoolSentence = spoolLoss.length === 0
     ? "Assertion/display spool: retained every step's output in full"
-    : `Assertion/display spool (in-memory only; what it dropped was already written to the log): truncated for ${spoolLoss.length} step(s) — ${spoolLoss
+    : `Assertion/display spool (${spoolFate}): truncated for ${spoolLoss.length} step(s) — ${spoolLoss
       .map((omission) => `${omission.label} (${omission.spoolOmittedChars ?? 0} char(s) in ${omission.spoolOmittedChunks ?? 0} chunk(s) between the retained head and tail)`)
       .join("; ")}`;
 
   return `${logSentence}. ${spoolSentence}. No assertion runs over a step either channel dropped from — such a step is refused rather than certified — so no boundary below rests on truncated output`;
+}
+
+/**
+ * The per-step omission entry the receipt disclosure is built from. A step whose evidence is
+ * provably complete contributes nothing; everything else carries both channels' counts and the
+ * persistence status forward, so the summary never has to default an absent metric to zero.
+ */
+export function collectStepEvidenceOmission(omissions, label, record) {
+  if (record.complete === true) return record;
+  omissions.push({
+    label,
+    logPersisted: record.logPersisted,
+    logOmittedChars: record.logOmittedChars,
+    logOmittedLines: record.logOmittedLines,
+    spoolOmittedChars: record.spoolOmittedChars,
+    spoolOmittedChunks: record.spoolOmittedChunks,
+  });
+  return record;
+}
+
+/**
+ * The lane's evidence log as a value that owns its own write ordering and failure state. Appends are
+ * serialized through one chain so interleaved step output cannot reorder on disk, and a failure is
+ * recorded twice over: `takeError()` hands the error to whichever caller checks next, while
+ * `persisted` stays false for the rest of the run because the file is short by an unknown amount
+ * from that point on and every later disclosure has to say so.
+ */
+export function createEvidenceLogWriter(append) {
+  let chain = Promise.resolve();
+  let error;
+  let persisted = true;
+  return {
+    write(text) {
+      if (!text) return chain;
+      chain = chain
+        .then(() => append(text))
+        .catch((cause) => {
+          error ??= cause;
+          persisted = false;
+        });
+      return chain;
+    },
+    drain() { return chain; },
+    takeError() {
+      const taken = error;
+      error = undefined;
+      return taken;
+    },
+    get persisted() { return persisted; },
+  };
+}
+
+/**
+ * Runs one lane step, owning everything that can drop its output: the per-stream redacting line
+ * buffers, the bounded assertion spool, the log writer, and the child's termination.
+ *
+ * The reason this is one function rather than a resolve path plus three rejection paths is that a
+ * step which times out, is interrupted, fails to spawn, or cannot be logged has dropped output in
+ * exactly the same ways as one that exits normally — and the run's disclosure has to hear about it
+ * either way. `settle()` is therefore the single terminal path: it stops the timers, flushes what
+ * the redactors still hold, drains the queued log writes, finalizes exactly one evidence record,
+ * and hands that record to `onRecord` *before* the outcome decides between resolve and reject.
+ */
+export function spawnLoggedStep(options = {}) {
+  const {
+    label,
+    command,
+    commandArgs = [],
+    cwd,
+    env,
+    signal,
+    timeoutMs = 10 * 60 * 1000,
+    logWriter,
+    logFile,
+    display = () => {},
+    onRecord = () => {},
+    onSpawn = () => {},
+    onSettled = () => {},
+    redactOptions = {},
+    headLimit,
+    tailLimit,
+    describeOmission,
+    spawnChild = spawn,
+  } = options;
+  if (!logWriter) throw new SurfpoolSafetyError("spawnLoggedStep requires a log writer");
+
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const child = spawnChild(command, commandArgs, {
+      cwd,
+      env,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    onSpawn(child);
+
+    const spool = createTruncatingEvidenceBuffer({ headLimit, tailLimit, describeOmission });
+    let abortedReason;
+    const commandTimer = setTimeout(() => {
+      abortedReason = new Error(`${command} ${commandArgs.join(" ")} timed out after ${timeoutMs}ms`);
+      abortedReason.name = "SmokeTimeoutError";
+      terminateChildProcess(child, "SIGTERM");
+    }, timeoutMs);
+    commandTimer.unref?.();
+    const onAbort = () => {
+      abortedReason = signal?.reason ?? new Error("aborted");
+      terminateChildProcess(child, "SIGTERM");
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    const emit = (text) => {
+      if (!text) return;
+      logWriter.write(text);
+      display(text);
+      spool.push(text);
+    };
+    // Redaction is line-buffered per stream so a secret split across two pipe chunks is still
+    // matched before anything reaches the display or the log.
+    const streamBuffers = [];
+    const attachStream = (stream) => {
+      const buffer = createRedactingLineBuffer(redactOptions);
+      streamBuffers.push(buffer);
+      stream.on("data", (chunk) => emit(buffer.push(chunk)));
+    };
+    const flushStreams = () => {
+      for (const buffer of streamBuffers) emit(buffer.flush());
+    };
+    attachStream(child.stdout);
+    attachStream(child.stderr);
+
+    let settlement;
+    const settle = () => {
+      // 'error' and 'close' can both fire for the same child; the record — and the flush that feeds
+      // it — must happen exactly once.
+      if (settlement) return settlement;
+      clearTimeout(commandTimer);
+      signal?.removeEventListener("abort", onAbort);
+      cancelChildEscalations(child);
+      flushStreams();
+      onSettled(child);
+      settlement = logWriter.drain().then(() => {
+        const logError = logWriter.takeError();
+        const record = createStepEvidenceRecord(spool, streamBuffers, {
+          logFile,
+          logPersisted: logWriter.persisted,
+        });
+        onRecord(label, record);
+        return { logError, record };
+      });
+      return settlement;
+    };
+
+    child.once("error", (error) => {
+      settle().then(() => reject(error), () => reject(error));
+    });
+    child.once("close", (code, terminatingSignal) => {
+      settle()
+        .then(({ logError, record }) => {
+          if (logError) return reject(logError);
+          if (abortedReason) return reject(abortedReason);
+          return resolve({
+            status: code ?? (terminatingSignal ? 128 + (terminatingSignal === "SIGINT" ? 2 : 15) : 1),
+            signal: terminatingSignal,
+            evidence: record,
+          });
+        })
+        .catch(reject);
+    });
+  });
+}
+
+/**
+ * Group-terminates a lane child and records the escalation on the child itself, so the settlement
+ * path can cancel it once that exact child has exited and a recycled pid can never inherit a
+ * pending SIGKILL.
+ */
+export function terminateChildProcess(child, signal, options = {}) {
+  const escalation = scheduleProcessGroupTermination(child, signal, options);
+  (child.rapEscalations ??= []).push(escalation);
+  return escalation;
+}
+
+export function cancelChildEscalations(child) {
+  for (const escalation of child?.rapEscalations ?? []) escalation.cancel();
+  if (child) child.rapEscalations = [];
 }
 
 /**

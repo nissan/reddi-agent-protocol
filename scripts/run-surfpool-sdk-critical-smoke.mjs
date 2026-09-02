@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -13,17 +12,17 @@ import {
   assertQuasarPerFailClosedOutput,
   assertQuasarProgramIdsMatchSources,
   assertionEvidenceText,
-  createRedactingLineBuffer,
-  createStepEvidenceRecord,
   baselinePath,
-  createTruncatingEvidenceBuffer,
+  collectStepEvidenceOmission,
+  createEvidenceLogWriter,
   localChildEnv,
   redactForEvidence,
   resolveRepositorySubpath,
-  scheduleProcessGroupTermination,
+  spawnLoggedStep,
   startLocalSurfnet,
   stopLocalSurfnetLease,
   summarizeEvidenceCompleteness,
+  terminateChildProcess,
   waitForPortClosed,
 } from "./lib/surfpool-sdk-lifecycle.mjs";
 import {
@@ -102,29 +101,7 @@ const cleanupNotes = [];
 // Every step's reported evidence loss, so the published receipt discloses what the retained log is
 // missing. Assertions refuse incomplete evidence, but unasserted steps still reach a PASS run.
 const evidenceOmissions = [];
-let logWriteChain = Promise.resolve();
-let logWriteError;
-// Sticky: takeLogWriteError() clears the transient error for control flow, but once an append has
-// failed the file on disk is short by an unknown amount for the rest of the run, and every later
-// disclosure has to say so instead of reporting a zero-loss count.
-let logPersistenceFailed = false;
-
-function appendToLog(text) {
-  if (!text) return logWriteChain;
-  logWriteChain = logWriteChain
-    .then(() => fs.appendFile(logFile, text))
-    .catch((error) => {
-      logWriteError ??= error;
-      logPersistenceFailed = true;
-    });
-  return logWriteChain;
-}
-
-function takeLogWriteError() {
-  const error = logWriteError;
-  logWriteError = undefined;
-  return error;
-}
+const logWriter = createEvidenceLogWriter((text) => fs.appendFile(logFile, text));
 
 const timeout = setTimeout(() => {
   const error = new Error(`critical Surfpool smoke timed out after ${overallTimeoutMs}ms`);
@@ -340,22 +317,6 @@ async function prepareAgentEnvironment(programs) {
   }, { repoRoot, childTmpDir });
 }
 
-// The disclosure belongs to whoever owns the buffers, not to a caller's success path: a step that
-// times out, is interrupted, or fails to spawn drops output exactly the same way, and its loss has
-// to reach the summary even though nothing is ever returned to runStep.
-function recordStepEvidence(label, evidence) {
-  if (evidence.complete === true) return evidence;
-  evidenceOmissions.push({
-    label,
-    logPersisted: evidence.logPersisted,
-    logOmittedChars: evidence.logOmittedChars,
-    logOmittedLines: evidence.logOmittedLines,
-    spoolOmittedChars: evidence.spoolOmittedChars,
-    spoolOmittedChunks: evidence.spoolOmittedChunks,
-  });
-  return evidence;
-}
-
 async function runStep(label, command, commandArgs, options = {}) {
   const expectFailure = options.expectFailure ?? false;
   await logLine("");
@@ -369,7 +330,6 @@ async function runStep(label, command, commandArgs, options = {}) {
 }
 
 function spawnLogged(label, command, commandArgs, options = {}) {
-  const commandTimeoutMs = options.timeoutMs ?? 10 * 60 * 1000;
   const childEnv = options.replaceEnv
     ? { ...(options.env ?? {}) }
     : {
@@ -379,97 +339,27 @@ function spawnLogged(label, command, commandArgs, options = {}) {
         npm_config_fund: "false",
         ...(options.env ?? {}),
       };
-  return new Promise((resolve, reject) => {
-    if (abortController.signal.aborted) return reject(abortController.signal.reason);
-    const child = spawn(command, commandArgs, {
-      cwd: repoRoot,
-      env: childEnv,
-      detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    activeChild = child;
-    const evidence = createTruncatingEvidenceBuffer({
-      headLimit: ASSERTION_HEAD_LIMIT,
-      tailLimit: ASSERTION_TAIL_LIMIT,
-      describeOmission: (chars, count) =>
-        `\n[surfpool-sdk-smoke] evidence buffer truncated: omitted ${chars} characters in ${count} chunk(s) between the retained head and tail; `
-        + `the retained output is in ${rel(logFile)}, which is itself redacted and may replace an oversized unterminated record with a marker. `
-        + `No step assertion runs over evidence any stage dropped from — it is refused instead\n`,
-    });
-    let abortedReason;
-    const commandTimer = setTimeout(() => {
-      abortedReason = new Error(`${command} ${commandArgs.join(" ")} timed out after ${commandTimeoutMs}ms`);
-      abortedReason.name = "SmokeTimeoutError";
-      terminateChild(child, "SIGTERM");
-    }, commandTimeoutMs);
-    commandTimer.unref?.();
-    const onAbort = () => {
-      abortedReason = abortController.signal.reason ?? new Error("aborted");
-      terminateChild(child, "SIGTERM");
-    };
-    abortController.signal.addEventListener("abort", onAbort, { once: true });
-
-    const emit = (text) => {
-      if (!text) return;
-      appendToLog(text);
-      process.stdout.write(text);
-      evidence.push(text);
-    };
-    // Redaction is line-buffered per stream so a secret split across two pipe
-    // chunks is still matched before anything reaches stdout or the evidence log.
-    const streamBuffers = [];
-    const attachStream = (stream) => {
-      const buffer = createRedactingLineBuffer({ repoRoot, home: process.env.HOME });
-      streamBuffers.push(buffer);
-      stream.on("data", (chunk) => emit(buffer.push(chunk)));
-    };
-    const flushStreams = () => {
-      for (const buffer of streamBuffers) emit(buffer.flush());
-    };
-    attachStream(child.stdout);
-    attachStream(child.stderr);
-    // Every terminal path settles the same way: stop the timers, flush what the redactors still
-    // hold, wait for the queued log writes, then finalize exactly one evidence record. Only after
-    // the record is recorded does the outcome decide between resolve and reject.
-    let settlement;
-    const settle = () => {
-      // 'error' and 'close' can both fire for the same child; the record — and the flush that feeds
-      // it — must happen exactly once.
-      if (settlement) return settlement;
-      clearTimeout(commandTimer);
-      abortController.signal.removeEventListener("abort", onAbort);
-      cancelPendingEscalations(child);
-      flushStreams();
-      if (activeChild === child) activeChild = undefined;
-      settlement = logWriteChain.then(() => {
-        const logError = takeLogWriteError();
-        const record = recordStepEvidence(
-          label,
-          createStepEvidenceRecord(evidence, streamBuffers, {
-            logFile: rel(logFile),
-            logPersisted: !logPersistenceFailed,
-          }),
-        );
-        return { logError, record };
-      });
-      return settlement;
-    };
-    child.once("error", (error) => {
-      settle().then(() => reject(error), () => reject(error));
-    });
-    child.once("close", (code, signal) => {
-      settle()
-        .then(({ logError, record }) => {
-          if (logError) return reject(logError);
-          if (abortedReason) return reject(abortedReason);
-          return resolve({
-            status: code ?? (signal ? 128 + (signal === "SIGINT" ? 2 : 15) : 1),
-            signal,
-            evidence: record,
-          });
-        })
-        .catch(reject);
-    });
+  return spawnLoggedStep({
+    label,
+    command,
+    commandArgs,
+    cwd: repoRoot,
+    env: childEnv,
+    signal: abortController.signal,
+    timeoutMs: options.timeoutMs ?? 10 * 60 * 1000,
+    logWriter,
+    logFile: rel(logFile),
+    display: (text) => process.stdout.write(text),
+    onRecord: (stepLabel, record) => collectStepEvidenceOmission(evidenceOmissions, stepLabel, record),
+    onSpawn: (child) => { activeChild = child; },
+    onSettled: (child) => { if (activeChild === child) activeChild = undefined; },
+    redactOptions: { repoRoot, home: process.env.HOME },
+    headLimit: ASSERTION_HEAD_LIMIT,
+    tailLimit: ASSERTION_TAIL_LIMIT,
+    describeOmission: (chars, count) =>
+      `\n[surfpool-sdk-smoke] evidence buffer truncated: omitted ${chars} characters in ${count} chunk(s) between the retained head and tail; `
+      + `the retained output is in ${rel(logFile)}, which is itself redacted and may replace an oversized unterminated record with a marker. `
+      + `No step assertion runs over evidence any stage dropped from — it is refused instead\n`,
   });
 }
 
@@ -511,13 +401,7 @@ function terminateActiveChild(signal) {
 }
 
 function terminateChild(child, signal) {
-  const escalation = scheduleProcessGroupTermination(child, signal);
-  (child.rapEscalations ??= []).push(escalation);
-}
-
-function cancelPendingEscalations(child) {
-  for (const escalation of child.rapEscalations ?? []) escalation.cancel();
-  child.rapEscalations = [];
+  terminateChildProcess(child, signal);
 }
 
 /**
@@ -533,8 +417,8 @@ async function logLine(line) {
   const text = `${redactForEvidence(line, { repoRoot, home: process.env.HOME })}\n`;
   process.stdout.write(text);
   await fs.mkdir(path.dirname(logFile), { recursive: true });
-  await appendToLog(text);
-  const error = takeLogWriteError();
+  await logWriter.write(text);
+  const error = logWriter.takeError();
   if (error) throw error;
 }
 
@@ -583,7 +467,7 @@ async function writeSummary({ target, programs = [], status, failure }) {
   }
   lines.push("", "## Cleanup", ...cleanupNotes.map((note) => `- ${note}`));
   lines.push("", "## Artifacts", `- Log: ${rel(logFile)}`);
-  lines.push(`- Evidence completeness: ${summarizeEvidenceCompleteness(evidenceOmissions, { logPersisted: !logPersistenceFailed })}`);
+  lines.push(`- Evidence completeness: ${summarizeEvidenceCompleteness(evidenceOmissions, { logPersisted: logWriter.persisted })}`);
   lines.push(`- Accepted evidence receipt: ${acceptedReceiptSummaryLine(status)}`);
   // Only ever from the outcome publication produced under its lock: a pre-publication observation of
   // the receipt path can be overtaken by a concurrent publisher, and this summary is immutable once
@@ -603,7 +487,7 @@ async function writeSummary({ target, programs = [], status, failure }) {
 
 async function publishAcceptedEvidence() {
   try {
-    if (takeLogWriteError()) throw new Error("evidence log write failed before publication");
+    if (logWriter.takeError() || !logWriter.persisted) throw new Error("evidence log write failed before publication");
 
     const artifacts = [
       { name: "summary", path: rel(summaryFile) },
