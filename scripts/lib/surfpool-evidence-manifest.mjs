@@ -458,8 +458,12 @@ function assertContainedRealPath(repoRoot, relativePath) {
 }
 
 /**
- * Deterministic digest of the repository sources this lane's evidence depends on. Used as the
- * receipt's immutable binding to the exact sources that produced it.
+ * The Quasar runtime-compatibility inventory is not just another fingerprinted file: it *selects*
+ * which demo-critical paths join the fingerprint at all. A silent fallback to "no extra paths" would
+ * let an unreadable or corrupted inventory quietly shrink what the digest covers, so this reads it
+ * under the same descriptor-bound contract as any other source and fails closed. Its exact bytes are
+ * returned alongside the selected paths so the digest can bind the selector itself, not only what it
+ * happened to select.
  */
 function runtimeCompatibilityFingerprintSelector(repoRoot) {
   const relativePath = "config/quasar/runtime-compatibility.json";
@@ -488,6 +492,12 @@ function fingerprintInputsForTarget(repoRoot, target) {
   };
 }
 
+/**
+ * Deterministic digest of the repository sources this lane's evidence depends on. Used as the
+ * receipt's immutable binding to the exact sources that produced it. Selector inputs are framed in
+ * ahead of the file list under their own tag, so a tree whose files are unchanged but whose selector
+ * differs digests differently.
+ */
 export function computeLaneSourceFingerprint(repoRoot, target) {
   const { roots, selectors } = fingerprintInputsForTarget(repoRoot, target);
   const files = [];
@@ -1172,6 +1182,12 @@ export async function writeAcceptedEvidenceManifest(manifestDir, record, options
  * without following a final-component symlink, the opened descriptor is re-resolved back inside that
  * root, and the bytes that are parsed are the bytes read from that same descriptor. A foreign or
  * swapped receipt is therefore refused before any of its fields are trusted.
+ *
+ * That per-file binding is bracketed by a whole-read one, because validating the cited artifacts
+ * takes long enough for a concurrent publisher to replace or roll back the receipt underneath it:
+ * the publication lock must be absent both before the receipt is opened and after the last artifact
+ * hash is checked, and the receipt path must still hold the same file at the end that it held at the
+ * start. Otherwise the caller would be handed a result half-validated against two on-disk states.
  */
 export function readAcceptedEvidenceManifest(repoRoot, manifestRelativeDir, { target, requiredArtifacts = [], maxAgeMs } = {}) {
   const effectiveMaxAgeMs = Number.isFinite(maxAgeMs)
