@@ -105,8 +105,15 @@ function read(rel) {
 function scanClaims(rel, text) {
   const lines = text.split(/\r?\n/);
   let underProhibitionHeading = false;
+  let insideCodeFence = false;
   lines.forEach((line, index) => {
-    if (/^#{1,6}\s/.test(line)) underProhibitionHeading = PROHIBITION_HEADING_PATTERN.test(line);
+    if (/^\s*(?:```|~~~)/.test(line)) {
+      insideCodeFence = !insideCodeFence;
+      return;
+    }
+    if (!insideCodeFence && /^#{1,6}\s/.test(line)) {
+      underProhibitionHeading = PROHIBITION_HEADING_PATTERN.test(line);
+    }
     for (const claim of FORBIDDEN_PUBLIC_CLAIMS) {
       if (!claim.pattern.test(line)) continue;
       if (claimIsQualified(line, claim) || underProhibitionHeading) continue;

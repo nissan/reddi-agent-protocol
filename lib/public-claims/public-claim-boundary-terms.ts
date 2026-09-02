@@ -119,9 +119,14 @@ export const CLAIM_QUALIFIER_PATTERNS: RegExp[] = [
 /**
  * Markdown headings that open an explicit prohibition list. Bullets under such
  * a heading are prohibitions even when the bullet itself carries no negation.
+ *
+ * The alternation has to name a prohibition, not merely contain a negation:
+ * bare `is not`/`are not` also match descriptive headings such as "Evidence
+ * artifacts that are not committed", which would exempt that whole section
+ * from scanning.
  */
 export const PROHIBITION_HEADING_PATTERN =
-  /^#{1,6}\s.*\b(?:must not|do not|does not|is not|are not|not yet|non-?claims?|not claim(?:ed|ing)?|out of scope|prohibited|forbidden|never claim)\b/i;
+  /^#{1,6}\s.*\b(?:must not|do not|does not|not yet|non-?claims?|not claim(?:ed|ing)?|out of scope|prohibited|forbidden|never claim)\b/i;
 
 /**
  * Separators that end a clause. Sentence terminators require trailing space so
