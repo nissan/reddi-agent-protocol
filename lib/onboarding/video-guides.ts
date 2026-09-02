@@ -9,6 +9,8 @@ export type OnboardingVideoGuide = {
   posterSrc: string;
   captionsSrc: string;
   boundary: string;
+  /** Recording predates the public-claim remediation of the page it captures. */
+  mediaStale?: true;
   primaryCta: { label: string; href: string };
   secondaryCta?: { label: string; href: string };
   proofLinks?: { label: string; href: string }[];
@@ -27,6 +29,7 @@ export const onboardingVideos: OnboardingVideoGuide[] = [
     posterSrc: "/videos/onboarding/posters/overview.jpg",
     captionsSrc: "/videos/onboarding/captions/overview.vtt",
     boundary: "Guided devnet proof tour",
+    mediaStale: true,
     primaryCta: { label: "Choose your path", href: "/start" },
     secondaryCta: { label: "Open replication guide", href: "/judge-replication" },
   },
@@ -63,6 +66,7 @@ export const onboardingVideos: OnboardingVideoGuide[] = [
     posterSrc: "/videos/onboarding/posters/economic-proof.jpg",
     captionsSrc: "/videos/onboarding/captions/economic-proof.vtt",
     boundary: "Devnet settlement + demo-local reputation",
+    mediaStale: true,
     primaryCta: { label: "Try economic demo", href: "/economic-demo#video-guide" },
     secondaryCta: { label: "Verify recorded txs", href: "/judge-replication" },
   },
@@ -78,6 +82,7 @@ export const onboardingVideos: OnboardingVideoGuide[] = [
     posterSrc: "/videos/onboarding/posters/register-agent.jpg",
     captionsSrc: "/videos/onboarding/captions/register-agent.vtt",
     boundary: "Devnet registry proof",
+    mediaStale: true,
     primaryCta: { label: "Register a specialist", href: "/register#video-guide" },
     secondaryCta: { label: "Open CLI steps", href: "/judge-replication" },
     proofLinks: [

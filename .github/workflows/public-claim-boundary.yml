@@ -12,6 +12,7 @@ on:
       - "packages/*/README.md"
       - "packages/*/package.json"
       - "lib/public-claims/**"
+      - "public/videos/onboarding/captions/**"
       - "scripts/check-public-claim-boundaries.mjs"
       - ".github/workflows/public-claim-boundary.yml"
   pull_request:
@@ -24,6 +25,7 @@ on:
       - "packages/*/README.md"
       - "packages/*/package.json"
       - "lib/public-claims/**"
+      - "public/videos/onboarding/captions/**"
       - "scripts/check-public-claim-boundaries.mjs"
       - ".github/workflows/public-claim-boundary.yml"
   workflow_dispatch:

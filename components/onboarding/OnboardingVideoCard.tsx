@@ -41,25 +41,39 @@ export function OnboardingVideoCard({ video, layout = "stacked" }: Props) {
       }`}
     >
       <div className="relative bg-black">
-        <video
-          aria-label={`${video.title} onboarding video`}
-          className="aspect-video h-full w-full object-cover"
-          controls
-          playsInline
-          preload="metadata"
-          poster={video.posterSrc}
-        >
-          <source src={video.videoSrc} type="video/mp4" />
-          <track
-            default
-            kind="captions"
-            label="English captions"
-            src={video.captionsSrc}
-            srcLang="en"
-          />
-        </video>
+        {video.mediaStale ? (
+          <div className="flex aspect-video h-full w-full flex-col items-center justify-center gap-2 bg-[#1a1a2e] px-6 text-center">
+            <span className="text-sm font-semibold text-white/40">{video.title}</span>
+            <span className="max-w-sm text-xs leading-relaxed text-white/25">
+              Recording withheld: this capture predates the public-claim remediation and still shows
+              retired marketplace/payment wording. Open{" "}
+              <Link href={video.route} className="underline hover:text-white/50">
+                {video.route}
+              </Link>{" "}
+              on this build for the current copy.
+            </span>
+          </div>
+        ) : (
+          <video
+            aria-label={`${video.title} onboarding video`}
+            className="aspect-video h-full w-full object-cover"
+            controls
+            playsInline
+            preload="metadata"
+            poster={video.posterSrc}
+          >
+            <source src={video.videoSrc} type="video/mp4" />
+            <track
+              default
+              kind="captions"
+              label="English captions"
+              src={video.captionsSrc}
+              srcLang="en"
+            />
+          </video>
+        )}
         <div className="absolute left-3 top-3 rounded-full border border-[#14F195]/30 bg-black/70 px-3 py-1 text-xs font-semibold text-[#14F195] backdrop-blur">
-          {video.duration} · {video.boundary}
+          {video.mediaStale ? video.boundary : `${video.duration} · ${video.boundary}`}
         </div>
       </div>
 
