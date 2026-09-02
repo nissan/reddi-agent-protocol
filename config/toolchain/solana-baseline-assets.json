@@ -44,7 +44,7 @@
     "defaultArch": "v0"
   },
   "programRuntime": {
-    "statusSource": "programs/escrow/Cargo.toml dev-dependencies and Cargo.lock, recorded here so the Agave CLI pin cannot be read as Agave 4 runtime evidence",
+    "statusSource": "programs/escrow/Cargo.toml dev-dependencies and the root Cargo.lock, recorded here so the Agave CLI pin cannot be read as Agave 4 runtime evidence. Scope is the escrow LiteSVM lane only: the Quasar program-test workspaces under experiments/ carry their own lockfiles, which scripts/check-solana-baseline-pins.mjs does not read, so this status is not a checked assertion about them",
     "statusVocabulary": "unresolved = the in-process runtime major differs from the Agave CLI pin; major-aligned = the majors match, which records dependency alignment and is not a compatibility claim; verified = requires major alignment AND a non-empty runtimeVerificationEvidence naming dedicated Agave runtime qualification. scripts/check-solana-baseline-pins.mjs never derives 'verified' from version equality alone.",
     "liteSvmVersion": "0.10.0",
     "embeddedProgramRuntimeVersion": "3.1.12",
