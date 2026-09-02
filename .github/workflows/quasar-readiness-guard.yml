@@ -34,3 +34,6 @@ jobs:
 
       - name: Verify Quasar runtime/deployment/readiness guards
         run: npm run check:quasar:submission
+
+      - name: Verify the runtime-compatibility schema is enforced
+        run: npm run test:quasar:runtime-compatibility

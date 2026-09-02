@@ -116,6 +116,9 @@ const LANE_FINGERPRINT_PATHS = Object.freeze({
     "scripts/check-quasar-deployment-inventory.mjs",
     "scripts/check-quasar-per-abi.mjs",
     "scripts/check-quasar-runtime-compatibility.mjs",
+    // The compatibility gate's refusal logic lives here, so a change to it changes what a Quasar
+    // PASS proves about the inventory.
+    "scripts/lib/json-schema-subset.mjs",
     "package.json",
     "package-lock.json",
     "config/quasar",

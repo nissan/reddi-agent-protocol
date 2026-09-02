@@ -597,6 +597,55 @@ test("evidence redaction repository-relativizes paths and strips keypair byte ar
   assert.match(redacted, /~\/\.config/);
 });
 
+test("spool truncation and an oversized redacted line together report both losses and are refused", () => {
+  const maxResidualChars = 4_096;
+  const redactor = createRedactingLineBuffer({ maxResidualChars });
+  const head = `
+║       Reddi Agent Protocol — local-surfpool Demo ║
+Target:   quasar
+Escrow:   ${quasarIds.escrow}
+Registry: ${quasarIds.registry}
+Repute:   ${quasarIds.reputation}
+Attest:   ${quasarIds.attestation}
+`;
+  const tail = `║  🏁  Full A→B→C cycle complete                          ║
+  Settlement:      Quasar escrow public settlement
+  ℹ️  MagicBlock PER/TEE is not claimed by this Quasar final path; no Anchor/PER fallback was used.
+`;
+  // Both bounded stages lose output in the same run: the redactor drops an oversized unterminated
+  // record, and the spool drops chunks between its head and tail.
+  const spool = createTruncatingEvidenceBuffer({ headLimit: head.length, tailLimit: tail.length });
+  const emit = (text) => { if (text) spool.push(text); };
+
+  emit(redactor.push(head));
+  emit(redactor.push(`{"err":"connect ECONNREFUSED","url":"https://api.devnet.solana.com",${"x".repeat(maxResidualChars)}`));
+  emit(redactor.push("}\n"));
+  for (let i = 0; i < 200; i += 1) emit(redactor.push(`  attempt ${i} failed\n`));
+  emit(redactor.push(tail));
+  emit(redactor.flush());
+
+  const evidence = createStepEvidenceRecord(spool, [redactor], { logFile: "artifacts/surfpool-sdk-critical-smoke.log" });
+
+  assert.equal(evidence.complete, false, "loss from either stage must make the step evidence incomplete");
+  assert.ok(evidence.omittedChunks > 0, "the spool's own loss must still be reported");
+  assert.ok(evidence.omittedLines > 0, "the redactor's oversized-line loss must still be reported");
+  assert.equal(
+    evidence.omittedChars > evidence.omittedLines,
+    true,
+    "the reported character count must fold in both stages, not just one",
+  );
+  assert.equal(
+    evidence.text.includes("api.devnet.solana.com"),
+    false,
+    "the prohibited hint must be absent from the retained text — this is the fail-open the refusal closes",
+  );
+  assert.throws(
+    () => assertQuasarCriticalDemoOutput(evidence, quasarIds),
+    /evidence is incomplete[\s\S]*spool chunk\(s\)[\s\S]*oversized log line/,
+  );
+  assert.throws(() => assertQuasarPerFailClosedOutput(evidence), /evidence is incomplete/);
+});
+
 test("keypair redaction stops at the array and leaves a same-line prohibited hint detectable", () => {
   const keypair = `[${Array.from({ length: 64 }, (_, i) => i + 1).join(",")}]`;
   const hostileLine = `AGENT_A_KEYPAIR=${keypair} rpc=https://api.devnet.solana.com/v1 [attempt 1]\n`;
