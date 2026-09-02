@@ -40,8 +40,11 @@ const rust = parseSimpleToml('rust-toolchain.toml');
 const anchor = parseSimpleToml('Anchor.toml');
 const escrowCargo = parseSimpleToml('programs/escrow/Cargo.toml');
 const escrowAnchorLangReq = escrowCargo.dependencies?.['anchor-lang']?.match(/version\s*=\s*"([^"]+)"/)?.[1];
+const escrowLiteSvmReq = escrowCargo['dev-dependencies']?.litesvm;
 const cargoLock = readFileSync(join(root, 'Cargo.lock'), 'utf8');
 const lockedAnchorLang = cargoLock.match(/^name = "anchor-lang"\nversion = "([^"]+)"/m)?.[1];
+const lockedProgramRuntime = cargoLock.match(/^name = "solana-program-runtime"\nversion = "([^"]+)"/m)?.[1];
+const lockedSolanaSbpf = cargoLock.match(/^name = "solana-sbpf"\nversion = "([^"]+)"/m)?.[1];
 const rootPackage = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const packageLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
 const assets = JSON.parse(readFileSync(join(root, 'config/toolchain/solana-baseline-assets.json'), 'utf8'));
@@ -78,6 +81,17 @@ const BASELINE_RUSTFMT_VERSION = '1.9.0-stable';
 const BASELINE_CLIPPY_VERSION = '0.1.98';
 const STABLE_ANCHOR_VERSION = '1.1.2';
 const AVM_MANAGER_VERSION = '1.0.0';
+const BASELINE_CARGO_BUILD_SBF_VERSION = '4.1.0';
+const BASELINE_CARGO_TEST_SBF_VERSION = '4.0.0';
+const BASELINE_PLATFORM_TOOLS_VERSION = 'v1.54';
+
+const majorOf = (version) => String(version ?? '').replace(/^v/, '').split('.')[0];
+// The program-test lanes build against the CI Agave pin but execute in-process on whatever SVM
+// LiteSVM pulls in. While those two disagree on the major version, the baseline must say so rather
+// than let a passing lane read as Agave-major runtime evidence.
+const inProcessRuntimeMatchesAgavePin =
+  Boolean(lockedProgramRuntime) && majorOf(lockedProgramRuntime) === majorOf(BASELINE_AGAVE_VERSION);
+const expectedRuntimeCompatibility = inProcessRuntimeMatchesAgavePin ? 'verified' : 'unresolved';
 
 const checks = [
   ['.mise.toml pins Node 24.20.0', mise.tools?.node === '24.20.0'],
@@ -90,6 +104,28 @@ const checks = [
   ['CI workflows share one Agave pin', workflowVersions.size === 1],
   [`CI Agave pin is ${BASELINE_AGAVE_VERSION}`, workflowVersions.has(BASELINE_AGAVE_VERSION)],
   ['Agave asset checksum exists for CI pin', typeof assets.agave?.sha256ByVersion?.[BASELINE_AGAVE_VERSION] === 'string'],
+  [
+    `SBF build toolchain is recorded for Agave ${BASELINE_AGAVE_VERSION} as cargo-build-sbf ${BASELINE_CARGO_BUILD_SBF_VERSION} / cargo-test-sbf ${BASELINE_CARGO_TEST_SBF_VERSION}`,
+    assets.sbf?.cargoBuildSbfVersionByAgaveVersion?.[BASELINE_AGAVE_VERSION] === BASELINE_CARGO_BUILD_SBF_VERSION &&
+      assets.sbf?.cargoTestSbfVersionByAgaveVersion?.[BASELINE_AGAVE_VERSION] === BASELINE_CARGO_TEST_SBF_VERSION,
+  ],
+  [
+    `platform-tools ${BASELINE_PLATFORM_TOOLS_VERSION} is recorded for cargo-build-sbf ${BASELINE_CARGO_BUILD_SBF_VERSION}`,
+    assets.sbf?.platformToolsVersionByCargoBuildSbfVersion?.[BASELINE_CARGO_BUILD_SBF_VERSION] === BASELINE_PLATFORM_TOOLS_VERSION,
+  ],
+  [
+    'recorded LiteSVM pin matches the programs/escrow dev-dependency',
+    typeof escrowLiteSvmReq === 'string' && assets.programRuntime?.liteSvmVersion === escrowLiteSvmReq,
+  ],
+  [
+    'recorded in-process runtime versions match Cargo.lock',
+    assets.programRuntime?.embeddedProgramRuntimeVersion === lockedProgramRuntime &&
+      assets.programRuntime?.embeddedSolanaSbpfVersion === lockedSolanaSbpf,
+  ],
+  [
+    `in-process runtime vs Agave CLI pin is recorded as ${expectedRuntimeCompatibility}`,
+    assets.programRuntime?.agaveMajorCompatibility === expectedRuntimeCompatibility,
+  ],
   ['npm exact probe pin is recorded for Node 24.20.0', assets.node?.npmBundledVersion === '11.19.0'],
   [
     `rustfmt exact probe pin is recorded for Rust ${BASELINE_RUST_VERSION}`,

@@ -29,6 +29,29 @@
       "v4.2.2": "78b6bc178609de93fba8d2175f2e44be409fe13fd8510cad0206c3f0433523fd"
     }
   },
+  "sbf": {
+    "versionSource": "agave scripts/cargo-build-sbf-version.sh at the pinned Agave tag; since Agave 4 these are installed from crates.io by the release installer instead of being built from the agave workspace",
+    "evidence": "https://raw.githubusercontent.com/anza-xyz/agave/v4.2.2/scripts/cargo-build-sbf-version.sh pins cargoBuildSbfVersion=4.1.0 and cargoTestSbfVersion=4.0.0; the crates.io cargo-build-sbf 4.1.0 source (crate sha256 e35c25e6496e42c5e48e79c94b826530c1cd184bf1640935aebb3db4cba79bcb) declares DEFAULT_PLATFORM_TOOLS_VERSION \"v1.54\" and default arch \"v0\"",
+    "cargoBuildSbfVersionByAgaveVersion": {
+      "v4.2.2": "4.1.0"
+    },
+    "cargoTestSbfVersionByAgaveVersion": {
+      "v4.2.2": "4.0.0"
+    },
+    "platformToolsVersionByCargoBuildSbfVersion": {
+      "4.1.0": "v1.54"
+    },
+    "platformToolsVerification": "none: cargo-build-sbf downloads platform-tools on demand from anza-xyz/platform-tools and this repository neither mirrors nor checksums it, so v1.54 is a recorded pin, not a verified asset",
+    "defaultArch": "v0"
+  },
+  "programRuntime": {
+    "statusSource": "programs/escrow/Cargo.toml dev-dependencies and Cargo.lock, recorded here so the Agave CLI pin cannot be read as Agave 4 runtime evidence",
+    "liteSvmVersion": "0.10.0",
+    "embeddedProgramRuntimeVersion": "3.1.12",
+    "embeddedSolanaSbpfVersion": "0.13.1",
+    "agaveMajorCompatibility": "unresolved",
+    "reason": "The program-test lanes build escrow.so with the pinned Agave 4 SBF toolchain but execute it in-process on the Agave 3.1 SVM crates LiteSVM 0.10.0 embeds, so no lane in this repository runs an Agave 4 runtime. SBPFv0 output keeps those lanes loadable and passing; that is not Agave 4 runtime compatibility. Aligning LiteSVM/Mollusk with the Agave CLI pin is a separate workstream requiring its own qualification."
+  },
   "surfpool": {
     "version": "v1.5.0",
     "platform": "linux-x64",
