@@ -27,6 +27,10 @@
     "evidence:magicblock:cpi-layout": "node ./scripts/generate-magicblock-cpi-layout-fixture.mjs",
     "test:mainnet:readiness": "./scripts/run-mainnet-readiness-check.sh",
     "test:surfpool:critical": "./scripts/run-surfpool-critical-smoke.sh",
+    "test:surfpool:sdk-lifecycle": "node --test ./scripts/__tests__/surfpool-sdk-lifecycle.test.mjs",
+    "test:surfpool:evidence-manifest": "node --test ./scripts/__tests__/surfpool-evidence-manifest.test.mjs",
+    "test:surfpool:lane-boundaries": "node --test ./scripts/__tests__/surfpool-lane-boundaries.test.mjs",
+    "test:surfpool:lane-regressions": "npm run test:surfpool:sdk-lifecycle && npm run test:surfpool:evidence-manifest && npm run test:surfpool:lane-boundaries",
     "test:surfpool:onboarding": "./scripts/run-surfpool-onboarding-attestation-smoke.sh",
     "test:surfpool:onboarding-wrapper": "./scripts/run-surfpool-onboarding-wrapper-smoke.sh",
     "test:surfpool:jupiter-invoke": "./scripts/run-surfpool-jupiter-invoke-smoke.sh",
@@ -54,6 +58,7 @@
     "check:solana:audit-appendix": "node ./scripts/check-solana-audit-appendix.mjs",
     "check:solana:audit-handoff": "node ./scripts/check-solana-audit-handoff.mjs",
     "test:quasar:boundary-guard": "node --test ./scripts/__tests__/check-quasar-boundary-guard.test.mjs",
+    "test:quasar:runtime-compatibility": "node --test ./scripts/__tests__/quasar-runtime-compatibility-schema.test.mjs",
     "check:quasar:submission": "npm run check:quasar:runtime-compatibility && npm run check:quasar:deployments && npm run check:quasar:demo-readiness && npm run check:quasar:critical-success",
     "check:quasar:critical-success": "node ./scripts/check-quasar-critical-success.mjs",
     "check:quasar:per-abi": "node ./scripts/check-quasar-per-abi.mjs",
@@ -123,6 +128,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
+    "@solana/surfpool": "1.5.0",
     "@tailwindcss/postcss": "^4",
     "@types/jest": "^30.0.0",
     "@types/node": "^20",
@@ -133,6 +139,7 @@
     "eslint-config-next": "16.2.1",
     "jest": "^30.3.0",
     "tailwindcss": "^4",
+    "ts-node": "10.9.2",
     "typescript": "^5"
   }
 }

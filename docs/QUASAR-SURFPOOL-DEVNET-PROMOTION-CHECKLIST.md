@@ -55,7 +55,7 @@ If any of those surfaces are needed, the work is no longer package/read-model-on
 
 ## Program Inventory
 
-Current Quasar devnet targets are documented in [`README.md`](../README.md#solana-programs-devnet) and historical validation in [`QUASAR-DEVNET-VALIDATION-RUNBOOK-2026-05-06.md`](./QUASAR-DEVNET-VALIDATION-RUNBOOK-2026-05-06.md).
+The recorded Quasar devnet program set in [`config/quasar/deployments.json`](../config/quasar/deployments.json) is blocked (`submissionReady: false`), so devnet promotion of a Quasar path is not currently eligible; see [`SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`](./SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md) for the current Quasar validation boundary and [`QUASAR-DEVNET-VALIDATION-RUNBOOK-2026-05-06.md`](./QUASAR-DEVNET-VALIDATION-RUNBOOK-2026-05-06.md) for historical validation.
 
 Any PR that depends on these programs must name which interface is in scope:
 
@@ -77,7 +77,7 @@ A devnet proof is not eligible until all applicable local checks pass:
 - `npm run check:rap:naming`
 - `git diff --check`
 - a relevant Surfpool lane from [`SURFPOOL-ACCEPTANCE-GATE.md`](./SURFPOOL-ACCEPTANCE-GATE.md)
-- an artifact path such as `artifacts/surfpool-*/<timestamp>/SUMMARY.md`
+- an artifact path such as `artifacts/surfpool-*/<run>/SUMMARY.md` (for the critical lanes, the run named by that lane's `accepted-evidence.json` receipt)
 - explicit notes for any skipped lane and why it is not in scope
 
 For UI PRs that expose these states, also include mobile/tablet/desktop screenshots and a video or Playwright trace for the changed interaction.

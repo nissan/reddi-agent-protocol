@@ -2,18 +2,15 @@
 
 ## Current deployments (devnet)
 
-**Demo target is the Quasar program set** — four programs deployed to devnet per
-`config/quasar/deployments.json` (cutover 2026-05-06):
-
-| Program | ID |
-|---|---|
-| Registry | `Xk7jczJZ1HHJZuE1ZUWDqFmowxYhnom7mWzrNSGf9FU` |
-| Escrow | `VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW` |
-| Reputation | `nb9rLVjoHMibsgfRGgKuPqm6M8GVcH9r6bYNfg7Yiy6` |
-| Attestation | `CRGsWWkptdxsH6N6aWAyahLbuMsT58yM624EopEsv1Ex` |
+**The recorded Quasar devnet program set is blocked.** `config/quasar/deployments.json`
+owns those four program ids and their status; it records `submissionReady: false`
+because the deployed binaries predate the job-binding rework and no longer match the
+in-repo client. Requesting the Quasar target outside `local-surfpool` is refused before
+any instruction, signer, or RPC call. No redeploy is authorized or performed here.
 
 Quasar sources live under `experiments/quasar-*`; build/test via
-`bash scripts/run-quasar-program-tests.sh`.
+`bash scripts/run-quasar-program-tests.sh`, and validate current sources locally with
+the lane in `docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`.
 
 ## Legacy Anchor reference program
 

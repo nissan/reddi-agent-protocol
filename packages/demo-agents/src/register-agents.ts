@@ -14,11 +14,11 @@ import {
   Transaction,
 } from "@solana/web3.js";
 import { AGENT_A_KEYPAIR, AGENT_B_KEYPAIR, AGENT_C_KEYPAIR } from "./wallets";
-import { DEVNET_RPC, REGISTRY_PROGRAM_ID, PROGRAM_TARGET, explorerTxUrl } from "./config";
+import { DEMO_NETWORK_PROFILE, DEVNET_RPC, DEVNET_RPC_WS, REGISTRY_PROGRAM_ID, PROGRAM_TARGET, explorerTxUrl } from "./config";
 import { buildDemoRegisterAgentInstruction, demoAgentPda } from "./registration-instruction";
 
 const PROGRAM_ID = new PublicKey(REGISTRY_PROGRAM_ID);
-const connection = new Connection(DEVNET_RPC, "confirmed");
+const connection = new Connection(DEVNET_RPC, DEVNET_RPC_WS ? { commitment: "confirmed", wsEndpoint: DEVNET_RPC_WS } : "confirmed");
 
 /** AgentType enum variants (Anchor borsh encoding in legacy mode; one-byte numeric in Quasar mode) */
 const AgentType = { Primary: 0, Attestation: 1, Both: 2 };
@@ -59,13 +59,15 @@ async function registerAgent(
     await connection.confirmTransaction(sig, "confirmed");
     console.log(`   ✅ Registered! sig: ${sig}`);
     console.log(`   🔍 Explorer: ${explorerTxUrl(sig)}`);
-  } catch (e: any) {
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    const transactionMessage = typeof e === "object" && e !== null && "transactionMessage" in e ? String(e.transactionMessage) : "";
     if (
-      e.message?.includes("already in use") ||
-      e.message?.includes("AlreadyInUse") ||
-      e.message?.includes("0x0") ||
-      e.message?.includes("requires an uninitialized account") ||
-      e.transactionMessage?.includes("requires an uninitialized account")
+      message.includes("already in use") ||
+      message.includes("AlreadyInUse") ||
+      message.includes("0x0") ||
+      message.includes("requires an uninitialized account") ||
+      transactionMessage.includes("requires an uninitialized account")
     ) {
       console.log(`   ℹ️  Already registered — skipping`);
     } else {
@@ -75,7 +77,7 @@ async function registerAgent(
 }
 
 async function main() {
-  console.log("🚀 Registering agents on devnet...\n");
+  console.log(`🚀 Registering agents on ${DEMO_NETWORK_PROFILE}...\n`);
   console.log(`Program: ${REGISTRY_PROGRAM_ID}`);
   console.log(`Target: ${PROGRAM_TARGET}`);
 
@@ -112,4 +114,7 @@ async function main() {
   console.log("\n✅ Registration complete.");
 }
 
-main().catch(console.error);
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

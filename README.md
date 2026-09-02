@@ -30,7 +30,7 @@ A devnet evidence build where:
 - **Protocol-fee examples** model a planned 0.05% / 5 bps rail fee in TypeScript fixtures, but no deployed on-chain release path currently collects a protocol treasury fee
 - **MCP clients** (Claude Code, Cursor, etc.) reach registered specialists through the repo-local [`rap-mcp-bridge`](packages/rap-mcp-bridge); ElizaOS and SendAI Agent Kit integrations remain experimental/deferred adapter packages unless a later release issue promotes them
 
-The active devnet target uses four Quasar Solana primitives: AgentRegistry, EscrowState, attestation, and commit-reveal reputation. The legacy Anchor program remains a reference/comparison surface.
+The protocol is built on four Quasar Solana primitives: AgentRegistry, EscrowState, attestation, and commit-reveal reputation. The recorded Quasar devnet deployment is currently blocked and Quasar is validated only on a local Surfpool lane — see [Solana programs](#solana-programs-devnet). The legacy Anchor program remains a reference/comparison surface.
 
 ## Open-source core and hosted boundary
 
@@ -201,16 +201,21 @@ npm run test:e2e
 
 ## Solana programs (devnet)
 
-The protocol runs four **Quasar** programs on devnet (Quasar cutover completed 2026-05-06 — see [`config/quasar/deployments.json`](config/quasar/deployments.json)):
+The four **Quasar** program ids recorded for devnet live in
+[`config/quasar/deployments.json`](config/quasar/deployments.json), which is the single
+source of truth for their status. That deployment is currently **blocked**
+(`submissionReady: false`): the binaries predate the job-binding rework and no longer
+match the in-repo client, so the Quasar target is refused on devnet before any
+instruction is built, any signer is touched, or any RPC call is made. No redeploy is
+claimed or performed.
 
-| Program | Program ID |
-|---|---|
-| Registry | [`Xk7jczJZ1HHJZuE1ZUWDqFmowxYhnom7mWzrNSGf9FU`](https://explorer.solana.com/address/Xk7jczJZ1HHJZuE1ZUWDqFmowxYhnom7mWzrNSGf9FU?cluster=devnet) |
-| Escrow | [`VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW`](https://explorer.solana.com/address/VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW?cluster=devnet) |
-| Reputation | [`nb9rLVjoHMibsgfRGgKuPqm6M8GVcH9r6bYNfg7Yiy6`](https://explorer.solana.com/address/nb9rLVjoHMibsgfRGgKuPqm6M8GVcH9r6bYNfg7Yiy6?cluster=devnet) |
-| Attestation | [`CRGsWWkptdxsH6N6aWAyahLbuMsT58yM624EopEsv1Ex`](https://explorer.solana.com/address/CRGsWWkptdxsH6N6aWAyahLbuMsT58yM624EopEsv1Ex?cluster=devnet) |
+Quasar is therefore experimental, and the only retained Quasar evidence is the local
+Surfpool lane described in
+[`docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`](docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md),
+which builds the current sources and runs them against a loopback local validator.
 
-Reputation was upgraded on 2026-05-06 to audit-hardened commit-reveal: `sha256(score‖salt‖job_id‖program_id)`. The legacy Anchor deployment (`794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD`) is historical/reference only and must not be used as the demo target. Redeployment instructions in [`DEPLOY.md`](DEPLOY.md).
+The legacy Anchor deployment (`794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD`) is
+historical/reference only. Deployment guidance is in [`DEPLOY.md`](DEPLOY.md).
 
 ---
 

@@ -3,6 +3,8 @@ import localSurfpoolProfile from "@/config/networks/local-surfpool.json" with { 
 import mainnetProfile from "@/config/networks/mainnet.json" with { type: "json" };
 import quasarDeployments from "@/config/quasar/deployments.json" with { type: "json" };
 
+import { isLoopbackRpcUrl } from "@/lib/config/loopback-endpoint";
+
 export type NetworkProfileName = "local-surfpool" | "devnet" | "mainnet";
 export type ProgramTarget = "legacy-anchor" | "quasar";
 export type DeploymentStatus = "local-only" | "devnet-deployed" | "mainnet-not-deployed";
@@ -29,6 +31,22 @@ export type NetworkProfile = {
     knownLimitations?: string[];
     deploymentStatus: DeploymentStatus;
     activationGate?: string;
+    /**
+     * Set when the requested target cannot be used to touch chain state. `cause` says which refusal
+     * applies, because the remedies differ: a `recorded-deployment` block is about binaries this
+     * client no longer matches, an `unregistered-deployment` block is about a profile with no Quasar
+     * deployment at all, and a `local-configuration` block is about the operator's own local run —
+     * the four program ids and the loopback endpoints it is pointed at.
+     * Resolution stays non-throwing so disclosure surfaces can render the reason; every exported
+     * Quasar instruction builder calls assertQuasarProgramTargetUsable() — which consults this block
+     * first — to refuse before building instructions, signing, or reaching RPC.
+     */
+    blocked?: {
+      target: ProgramTarget;
+      cause: "recorded-deployment" | "unregistered-deployment" | "local-configuration";
+      reason: string;
+      knownGaps: string[];
+    };
   };
   payments: {
     jupiterApiBase: string;
@@ -81,13 +99,17 @@ function readEnv(): Record<string, string | undefined> {
   };
 }
 
-function pickEnv(...keys: string[]): string | undefined {
+function pickEnvEntry(...keys: string[]): { key: string; value: string } | undefined {
   const env = readEnv();
   for (const key of keys) {
     const value = env[key]?.trim();
-    if (value) return value;
+    if (value) return { key, value };
   }
   return undefined;
+}
+
+function pickEnv(...keys: string[]): string | undefined {
+  return pickEnvEntry(...keys)?.value;
 }
 
 const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -137,14 +159,57 @@ export function getNetworkProfile(): NetworkProfile {
   const requestedTarget = resolveProgramTarget();
   const quasarDevnet = quasarDeployments.quasarDeployments.devnet;
 
-  const quasarRequestRefused = requestedTarget === "quasar" && name !== "devnet";
-
-  const target: ProgramTarget = requestedTarget === "quasar" && name === "devnet" ? "quasar" : "legacy-anchor";
-
-  const rpcOverride = pickEnv("NEXT_PUBLIC_RPC_ENDPOINT", "NEXT_PUBLIC_RPC_URL", "DEMO_DEVNET_RPC");
+  const rpcOverride = pickEnvEntry("NEXT_PUBLIC_RPC_ENDPOINT", "NEXT_PUBLIC_RPC_URL", "DEMO_DEVNET_RPC");
+  const rpcWsOverride = pickEnvEntry("NEXT_PUBLIC_RPC_WS_ENDPOINT");
   const escrowOverride = pickEnv("NEXT_PUBLIC_ESCROW_PROGRAM_ID", "DEMO_ESCROW_PROGRAM_ID");
+  const registryOverride = pickEnv("NEXT_PUBLIC_REGISTRY_PROGRAM_ID", "DEMO_REGISTRY_PROGRAM_ID");
+  const reputationOverride = pickEnv("NEXT_PUBLIC_REPUTATION_PROGRAM_ID", "DEMO_REPUTATION_PROGRAM_ID");
+  const attestationOverride = pickEnv("NEXT_PUBLIC_ATTESTATION_PROGRAM_ID", "DEMO_ATTESTATION_PROGRAM_ID");
   const buildUnsafeOverride = pickEnv("NEXT_PUBLIC_BUILD_ALLOW_UNSAFE_ESCROW_OVERRIDE");
   const allowUnsafeDevnetOverride = (buildUnsafeOverride ?? pickEnv("ALLOW_UNSAFE_ESCROW_OVERRIDE")) === "true";
+
+  const localQuasarProgramEntries = [
+    ["escrow", escrowOverride],
+    ["registry", registryOverride],
+    ["reputation", reputationOverride],
+    ["attestation", attestationOverride],
+  ] as const;
+  const missingLocalQuasarPrograms = localQuasarProgramEntries.filter(([, id]) => !id).map(([label]) => label);
+  const malformedLocalQuasarPrograms = localQuasarProgramEntries
+    .filter(([, id]) => id !== undefined && !isValidProgramId(id))
+    .map(([label]) => label);
+  const duplicateLocalQuasarPrograms: string[] = [];
+  const localQuasarProgramOwners = new Map<string, string>();
+  for (const [label, id] of localQuasarProgramEntries) {
+    if (!id || !isValidProgramId(id)) continue;
+    const owner = localQuasarProgramOwners.get(id);
+    if (owner) duplicateLocalQuasarPrograms.push(`${label} duplicates ${owner}`);
+    else localQuasarProgramOwners.set(id, label);
+  }
+  const resolvedRpcHttp = rpcOverride?.value ?? base.solana.rpcHttp;
+  const resolvedRpcWs = rpcWsOverride?.value ?? base.solana.rpcWs;
+  const nonLoopbackLocalQuasarEndpoints = [
+    ...(isLoopbackRpcUrl(resolvedRpcHttp, "http:")
+      ? []
+      : [rpcOverride ? rpcOverride.key : `${name} profile RPC endpoint`]),
+    ...(!resolvedRpcWs || isLoopbackRpcUrl(resolvedRpcWs, "ws:")
+      ? []
+      : [rpcWsOverride ? rpcWsOverride.key : `${name} profile websocket endpoint`]),
+  ];
+
+  const localQuasarConfigReady =
+    name === "local-surfpool" &&
+    requestedTarget === "quasar" &&
+    missingLocalQuasarPrograms.length === 0 &&
+    malformedLocalQuasarPrograms.length === 0 &&
+    duplicateLocalQuasarPrograms.length === 0 &&
+    nonLoopbackLocalQuasarEndpoints.length === 0;
+
+  const quasarRequestRefused =
+    requestedTarget === "quasar" &&
+    (name === "mainnet" || (name === "local-surfpool" && !localQuasarConfigReady));
+  const target: ProgramTarget = requestedTarget === "quasar" && !quasarRequestRefused ? "quasar" : "legacy-anchor";
+  const quasarDeploymentBlocked = target === "quasar" && name === "devnet" && quasarDeployments.submissionReady !== true;
 
   const quasarPrograms = quasarDevnet.programIds ?? { escrow: quasarDevnet.programId };
   const targetProgramId = target === "quasar" ? quasarPrograms.escrow : base.programs.escrowProgramId;
@@ -166,17 +231,17 @@ export function getNetworkProfile(): NetworkProfile {
   const effectiveEscrowProgramId = applyProgramIdOverride("escrow", escrowOverride, targetProgramId);
   const effectiveRegistryProgramId = applyProgramIdOverride(
     "registry",
-    pickEnv("NEXT_PUBLIC_REGISTRY_PROGRAM_ID", "DEMO_REGISTRY_PROGRAM_ID"),
+    registryOverride,
     target === "quasar" ? quasarPrograms.registry : effectiveEscrowProgramId,
   );
   const effectiveReputationProgramId = applyProgramIdOverride(
     "reputation",
-    pickEnv("NEXT_PUBLIC_REPUTATION_PROGRAM_ID", "DEMO_REPUTATION_PROGRAM_ID"),
+    reputationOverride,
     target === "quasar" ? quasarPrograms.reputation : effectiveEscrowProgramId,
   );
   const effectiveAttestationProgramId = applyProgramIdOverride(
     "attestation",
-    pickEnv("NEXT_PUBLIC_ATTESTATION_PROGRAM_ID", "DEMO_ATTESTATION_PROGRAM_ID"),
+    attestationOverride,
     target === "quasar" ? quasarPrograms.attestation : effectiveEscrowProgramId,
   );
 
@@ -235,9 +300,21 @@ export function getNetworkProfile(): NetworkProfile {
       ]
     : [];
 
+  const localQuasarProgramProblems = [
+    ...(missingLocalQuasarPrograms.length ? [`missing ${missingLocalQuasarPrograms.join(", ")} program id${missingLocalQuasarPrograms.length === 1 ? "" : "s"}`] : []),
+    ...(malformedLocalQuasarPrograms.length ? [`malformed ${malformedLocalQuasarPrograms.join(", ")} program id${malformedLocalQuasarPrograms.length === 1 ? "" : "s"}`] : []),
+    ...(duplicateLocalQuasarPrograms.length ? [`duplicate program ids: ${duplicateLocalQuasarPrograms.join(", ")}`] : []),
+    ...(nonLoopbackLocalQuasarEndpoints.length
+      ? [`non-loopback ${nonLoopbackLocalQuasarEndpoints.join(", ")}`]
+      : []),
+  ];
+  const localQuasarRefusalReason =
+    "A Quasar program target was requested for local-surfpool, but the profile must provide four distinct valid local program IDs (escrow, registry, reputation, and attestation) and loopback-only http/ws endpoints; the request is refused rather than silently using a legacy Anchor layout or sending Quasar-encoded instructions to a live cluster.";
   const localSurfpoolKnownGaps = name === "local-surfpool" && quasarRequestRefused
     ? [
-        "A Quasar program target was requested for local-surfpool, but no Quasar deployment is registered for that profile; the request is refused and the profile stays on the legacy Anchor program id.",
+        localQuasarProgramProblems.length
+          ? `${localQuasarRefusalReason} Problems: ${localQuasarProgramProblems.join("; ")}.`
+          : localQuasarRefusalReason,
       ]
     : [];
 
@@ -245,8 +322,8 @@ export function getNetworkProfile(): NetworkProfile {
     ...base,
     solana: {
       ...base.solana,
-      rpcHttp: rpcOverride ?? base.solana.rpcHttp,
-      rpcWs: pickEnv("NEXT_PUBLIC_RPC_WS_ENDPOINT") ?? base.solana.rpcWs,
+      rpcHttp: resolvedRpcHttp,
+      rpcWs: resolvedRpcWs,
     },
     programs: {
       ...base.programs,
@@ -258,25 +335,27 @@ export function getNetworkProfile(): NetworkProfile {
       framework: target === "quasar" ? "quasar" : "anchor",
       compatibility: target === "quasar" ? "quasar-layout-unverified" : "anchor-layout",
       submissionReady:
-        name === "mainnet" || quasarRequestRefused || malformedOverrides.length > 0 || ignoredOverrides.length > 0
+        name === "mainnet" || quasarRequestRefused || malformedOverrides.length > 0 || ignoredOverrides.length > 0 || quasarDeploymentBlocked
           ? false
-          : target === "quasar"
+          : target === "quasar" && name === "devnet"
             ? quasarDeployments.submissionReady
             : true,
       submissionReadyReason:
         name === "mainnet"
           ? "Mainnet activation is blocked: no audited mainnet deployment is registered and the Quasar four-program set cannot be resolved for mainnet."
           : quasarRequestRefused
-            ? `A Quasar program target was requested for ${name}, which has no registered Quasar deployment; the request is refused.`
+            ? name === "local-surfpool"
+              ? localQuasarRefusalReason
+              : `A Quasar program target was requested for ${name}, which has no registered Quasar deployment; the request is refused.`
             : malformedOverrides.length > 0
               ? `A malformed program id override was supplied for ${malformedOverrides.join(", ")}; it was ignored and the registered program id is used instead, so the configured override is not in effect.`
               : ignoredOverrides.length > 0
                 ? `A program id override was supplied for ${ignoredOverrides.join(", ")}, but it does not match the registered devnet program set and the build-time unsafe-override flag was not set; the registered program id is used instead.`
-                : target === "quasar"
+                : target === "quasar" && name === "devnet"
                   ? quasarDeployments.submissionReadyReason
                   : undefined,
       knownGaps: [
-        ...(target === "quasar" ? quasarDevnet.knownGaps : []),
+        ...(target === "quasar" && name === "devnet" ? quasarDevnet.knownGaps : []),
         ...malformedOverrideKnownGaps,
         ...ignoredOverrideKnownGaps,
         ...mainnetKnownGaps,
@@ -286,6 +365,25 @@ export function getNetworkProfile(): NetworkProfile {
       deploymentStatus:
         name === "mainnet" ? "mainnet-not-deployed" : name === "local-surfpool" ? "local-only" : "devnet-deployed",
       activationGate: name === "mainnet" ? "external_audit_and_mainnet_deployment_required" : undefined,
+      blocked: quasarRequestRefused
+        ? {
+            target: "quasar",
+            cause: name === "local-surfpool" ? "local-configuration" : "unregistered-deployment",
+            reason: name === "local-surfpool"
+              ? localQuasarRefusalReason
+              : `A Quasar program target was requested for ${name}, which has no registered Quasar deployment; the request is refused.`,
+            knownGaps: name === "local-surfpool" ? localSurfpoolKnownGaps : mainnetKnownGaps,
+          }
+        : quasarDeploymentBlocked
+          ? {
+              target,
+              cause: "recorded-deployment",
+              reason:
+                quasarDeployments.submissionReadyReason ??
+                "the recorded Quasar deployment is not submission-ready",
+              knownGaps: quasarDevnet.knownGaps,
+            }
+          : undefined,
     },
     payments: {
       ...base.payments,
@@ -305,4 +403,70 @@ export function getNetworkProfile(): NetworkProfile {
           : pickEnv("DEMO_REQUIRE_MINT_READY") === "true",
     },
   };
+}
+
+/**
+ * Describes why the active program target must not be used to touch chain state, or undefined when
+ * it is usable. This is the canonical refusal description for `programs.blocked`: effect sites
+ * (instruction builders, signers, RPC submitters) reach it through the program-target refusal
+ * paths before doing any work. No read-only UI renders `programs.blocked` itself — the disclosure
+ * surfaces key off `programs.submissionReady` and `programs.knownGaps`.
+ */
+export function describeBlockedProgramTarget(profile: NetworkProfile = getNetworkProfile()): string | undefined {
+  const blocked = profile.programs.blocked;
+  if (!blocked) return undefined;
+  const cause =
+    blocked.cause === "local-configuration"
+      ? "the local configuration supplied for this run is incomplete or inconsistent"
+      : blocked.cause === "unregistered-deployment"
+        ? "no Quasar deployment is registered for this profile"
+        : "the recorded deployment is not usable";
+  const remedy =
+    blocked.cause === "local-configuration"
+      ? "Supply four distinct valid local program IDs (NEXT_PUBLIC_ESCROW_PROGRAM_ID, NEXT_PUBLIC_REGISTRY_PROGRAM_ID, NEXT_PUBLIC_REPUTATION_PROGRAM_ID, NEXT_PUBLIC_ATTESTATION_PROGRAM_ID) for the locally built current-source programs, keep NEXT_PUBLIC_RPC_ENDPOINT and NEXT_PUBLIC_RPC_WS_ENDPOINT on loopback, then re-run."
+      : "Use the local Surfpool Quasar lane (npm run test:surfpool:quasar-critical) against locally built current-source programs instead.";
+  return [
+    `The "${blocked.target}" program target is refused against the ${profile.name} profile because ${cause}.`,
+    blocked.reason,
+    blocked.knownGaps.length ? `Known gaps: ${blocked.knownGaps.join(" | ")}` : "",
+    remedy,
+  ].filter(Boolean).join(" ");
+}
+
+function profileHasExplicitLocalQuasarProgramSet(profile: NetworkProfile): boolean {
+  const ids = [
+    profile.programs.escrowProgramId,
+    profile.programs.registryProgramId,
+    profile.programs.reputationProgramId,
+    profile.programs.attestationProgramId,
+  ];
+  return ids.every((id): id is string => typeof id === "string" && isValidProgramId(id)) && new Set(ids).size === ids.length;
+}
+
+export function describeQuasarProgramTargetRefusal(profile: NetworkProfile = getNetworkProfile()): string | undefined {
+  const blocked = describeBlockedProgramTarget(profile);
+  if (blocked) return blocked;
+
+  const hasLoopbackEndpoints = isLoopbackRpcUrl(profile.solana.rpcHttp, "http:") && (!profile.solana.rpcWs || isLoopbackRpcUrl(profile.solana.rpcWs, "ws:"));
+  if (
+    profile.name === "local-surfpool" &&
+    profile.programs.target === "quasar" &&
+    profile.programs.framework === "quasar" &&
+    profile.programs.submissionReady === true &&
+    profileHasExplicitLocalQuasarProgramSet(profile) &&
+    hasLoopbackEndpoints
+  ) {
+    return undefined;
+  }
+
+  return [
+    "Quasar instruction builders require an explicit local-surfpool Quasar target before constructing instructions.",
+    `Resolved profile=${profile.name}, target=${profile.programs.target}, framework=${profile.programs.framework}, submissionReady=${profile.programs.submissionReady}.`,
+    "Set NETWORK_PROFILE=local-surfpool, NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar, loopback-only RPC/WS endpoints, and four distinct valid current-source local Quasar program IDs.",
+  ].join(" ");
+}
+
+export function assertQuasarProgramTargetUsable(profile: NetworkProfile = getNetworkProfile()): void {
+  const refusal = describeQuasarProgramTargetRefusal(profile);
+  if (refusal) throw new Error(refusal);
 }

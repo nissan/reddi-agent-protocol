@@ -133,7 +133,7 @@ describe("program/network alignment", () => {
 
     expect(PROGRAM_DEPLOYMENT_STATUS).toBe("local-only");
     expect(SUBMISSION_BLOCKED).toBe(true);
-    expect(SUBMISSION_BLOCKED_REASON).toMatch(/no registered Quasar deployment/);
+    expect(SUBMISSION_BLOCKED_REASON).toMatch(/four distinct valid local program IDs/);
   });
 
   it("blocks wallet submission for a malformed program-id override on devnet", async () => {

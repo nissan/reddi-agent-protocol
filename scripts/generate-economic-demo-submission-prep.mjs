@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync 
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { ACCEPTED_EVIDENCE_MAX_AGE_MS, readAcceptedEvidenceManifest } from "./lib/surfpool-evidence-manifest.mjs";
+
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
 const prepParent = join(rootDir, "artifacts", "economic-demo-submission-prep");
@@ -25,11 +27,26 @@ function required(path, label) {
   return path;
 }
 
+// Surfpool lanes publish an atomic accepted-evidence receipt only after a PASS. Selecting on that
+// receipt (rather than the lexically-last run directory) keeps a retained FAIL run from being cited.
+function acceptedSurfpoolEvidence(relativeDir, target, label) {
+  try {
+    const { artifacts } = readAcceptedEvidenceManifest(rootDir, relativeDir, {
+      target,
+      requiredArtifacts: ["summary", "log"],
+      maxAgeMs: ACCEPTED_EVIDENCE_MAX_AGE_MS,
+    });
+    return artifacts.summary;
+  } catch (error) {
+    throw new Error(`missing_${label}: ${error.message}`);
+  }
+}
+
 const evidence = {
   playwright: process.env.ECONOMIC_DEMO_PLAYWRIGHT_EVIDENCE || "artifacts/playwright-economic-demo",
   surfpool: required(latestArtifact("artifacts/economic-demo-surfpool-rehearsal", "summary.json"), "surfpool_summary"),
-  surfpoolCritical: required(latestArtifact("artifacts/surfpool-smoke", "SUMMARY.md"), "surfpool_critical_summary"),
-  surfpoolQuasarCritical: required(latestArtifact("artifacts/surfpool-quasar-smoke", "SUMMARY.md"), "surfpool_quasar_critical_summary"),
+  surfpoolCritical: acceptedSurfpoolEvidence("artifacts/surfpool-smoke", "legacy-anchor", "surfpool_critical_summary"),
+  surfpoolQuasarCritical: acceptedSurfpoolEvidence("artifacts/surfpool-quasar-smoke", "quasar", "surfpool_quasar_critical_summary"),
   jupiterQuote: required(latestArtifact("artifacts/economic-demo-jupiter-quote-proof", "quote-proof.json"), "jupiter_quote_proof"),
   surfpoolJupiterInvoke: required(latestArtifact("artifacts/surfpool-jupiter-invoke", "SUMMARY.md"), "surfpool_jupiter_invoke"),
   upfrontPack: required(latestArtifact("artifacts/economic-demo-upfront-payment-evidence", "upfront-payment-evidence.json"), "upfront_payment_pack"),
@@ -69,11 +86,11 @@ Scope: safe local/demo prep only. Generated: ${new Date().toISOString()}.
 
 - BDD index guard: \`npm run test:bdd:index\`
 - Economic demo Playwright: \`npx playwright test e2e/economic-demo.spec.ts\`
-- App build: \`NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar npm run build\`
+- App build (default legacy-anchor target): \`npm run build\`
 - Upfront evidence pack: \`npm run evidence:economic-demo:upfront-payment\`
 - Surfpool/mock-Jupiter invoke proof: \`npm run test:surfpool:jupiter-invoke\`
 - Surfpool A→B→C critical lane: \`npm run test:surfpool:critical\`
-- Surfpool Quasar critical lane: \`npm run test:surfpool:quasar-critical\`
+- Surfpool Quasar critical lane (local-surfpool profile, loopback endpoints, four distinct local program ids): \`npm run test:surfpool:quasar-critical\`
 - Jupiter quote proof: \`npm run smoke:economic-demo:jupiter-quote\`
 - Live payment gate: \`npm run check:economic-demo:live-payment-gate\` (blocked by default, safe)
 - Devnet USDC receipt verifier: \`npm run verify:economic-demo:devnet-usdc-receipt\` (blocked by default, safe)
@@ -130,7 +147,8 @@ Safe to say:
 - The UI demonstrates upfront-funded consumer-agent orchestration.
 - Surfpool/local evidence proves payment ordering, budget reconciliation, and blocked-edge zero-delta behavior.
 - Surfpool A→B→C critical lane proves local public settlement plus PER-unavailable fallback safety.
-- Surfpool Quasar critical lane proves local Quasar public settlement plus private-request boundary behavior.
+- Surfpool Quasar critical lane proves local Quasar public settlement plus private-request boundary behavior, on a loopback Surfnet against locally built current-source programs only. It is the only current Quasar execution evidence, and it is cited from an accepted PASS receipt whose target, status, age, artifact hashes, and pre-run source fingerprint were revalidated when this document was generated.
+- Quasar is reachable only as an explicit \`local-surfpool\` opt-in requiring loopback endpoints and four distinct valid local program ids; the default app build stays on the legacy Anchor target.
 - Surfpool/mock-Jupiter proof shows a successful no-real-funds swap-shaped invoke path.
 - Public Jupiter quote proof proves live route availability only; public Jupiter devnet execution is not claimed.
 - Devnet USDC receipt verification is ready and fail-closed, but default artifacts are blocked until a real signature is supplied.
@@ -152,6 +170,8 @@ Not safe to say yet:
 - Pay.sh evidence proves Umbra private settlement or MagicBlock PER settlement.
 - Umbra mainnet or production settlement completed.
 - Umbra evidence proves live private settlement.
+- The recorded Quasar devnet deployment is current or submission-ready; \`config/quasar/deployments.json\` records it as \`submissionReady: false\` with explicit client/deployment ABI mismatch known gaps.
+- A devnet Quasar build is demo evidence. \`NEXT_PUBLIC_DEMO_PROGRAM_TARGET=quasar\` on the devnet profile resolves to a blocked target: the readiness banner is amber, the \`assertQuasarProgramTargetUsable()\` call that opens every exported Quasar instruction builder refuses before any instruction is constructed, and no on-chain path runs. It is not listed above.
 `;
 writeFileSync(prepPath, content);
 

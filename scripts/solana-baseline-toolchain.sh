@@ -115,6 +115,8 @@ versions = set()
 for rel in [
     '.github/workflows/anchor-program-tests.yml',
     '.github/workflows/quasar-program-tests.yml',
+    '.github/workflows/surfpool-acceptance-manual.yml',
+    '.github/workflows/surfpool-quasar-critical-sdk.yml',
 ]:
     text = (root / rel).read_text(encoding='utf-8')
     versions.update(re.findall(r'https://release\.anza\.xyz/(v[0-9]+\.[0-9]+\.[0-9]+)/install', text))

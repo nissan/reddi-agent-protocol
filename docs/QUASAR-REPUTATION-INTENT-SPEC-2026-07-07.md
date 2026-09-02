@@ -1,6 +1,20 @@
-# Quasar-Backed Reputation Instruction Fixture Gate — `reddi.quasar-reputation-intent.v1` (#443)
+# Quasar-Backed Reputation Instruction Fixture Gate — `reddi.quasar-reputation-intent.v2` (#443)
 
-**Status: v1 fixture/intent gate (parent epics #394 / #388).**
+**Status: v2 fixture/intent gate (parent epics #394 / #388).**
+
+`v2` supersedes `v1` and is a breaking record shape, so the identifier changes rather than being
+reinterpreted. Against the post-job-binding current sources:
+
+- `deferredToInstructionBuilder` is `{ instructionData, accountInputs }` instead of a flat string
+  list, separating ABI arguments from account/signer inputs.
+- Every record carries a required `escrowBinding` block naming the escrow a real
+  `quasar-escrow::lock` created, always `state: 'not_resolved'`.
+- `compactFields.commitment.preimageFields` keys on `escrow_address` instead of the caller-supplied
+  `job_id` the current ABI dropped.
+
+No producer emits `v1`, nothing re-reads stored `v1` records, and no consumer reinterprets one: a
+reader keyed on the `v1` identifier simply keeps rejecting these records.
+
 Module: `packages/agent-protocol/src/quasar-reputation-intent.ts` · Tests: `packages/agent-protocol/tests/quasar-reputation-intent.test.ts` · Subpath export: `@reddi/agent-protocol/quasar-reputation-intent`.
 
 A **deterministic, fixture-level** mapping from eligible reputation/attestation records to Quasar
@@ -32,15 +46,31 @@ pointer, never as a deployment claim by this module.
 
 | Lane | Program lane | Discriminator | Compact fields carried | Eligibility |
 |---|---|---|---|---|
-| `commit` | `quasar-reputation` | 1 | `jobIdRef`, `role: 'consumer'`, commitment described by contract (`sha256(score‖salt‖job_id‖program_id)`) and explicitly `not_computed` | valid reputation event draft present |
+| `commit` | `quasar-reputation` | 1 | `jobIdRef`, `role: 'consumer'`, commitment described by contract (`sha256(score‖salt‖escrow_address‖program_id)`) and explicitly `not_computed` | valid reputation event draft present |
 | `reveal` | `quasar-reputation` | 2 | `jobIdRef`, `score` (draft rubric score 0–100 scaled to the program's 1–10 range) | same as commit |
 | `confirm` | `quasar-attestation` | 2 | `jobIdRef` | receipt `attested` + attestation verdict `passed` |
 | `dispute` | `quasar-attestation` | 3 | `jobIdRef` | receipt `rejected` + attestation verdict `disputed` |
 
-Everything a real instruction would additionally need — u128 job-id encoding, salt generation, the
-commitment hash, party public keys, account addresses — is **named, not fabricated**, in each
-record's `deferredToInstructionBuilder` list. Rich RAP/ARD metadata (evidence, attestation, preview,
-payment proof, listing metadata) never appears inline: intent records point at it by id in
+The on-chain field/account names, PDA seeds, and commitment contract mirrored in
+`QUASAR_REPUTATION_INTENT_COMPATIBILITY` describe the **current repository sources** only; the same
+constant records that the deployment referenced by `deploymentsRef` is pre-job-binding and unusable
+(see `docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`).
+
+`jobIdRef` is off-chain RAP correlation only, never an instruction argument: the current sources
+dropped the caller-supplied `job_id`. Each record instead carries an `escrowBinding` block naming
+the on-chain identity — the address of an escrow that `quasar-escrow::lock` actually created
+(`source: 'verified-lock-created-escrow'`), used to seed the lane PDA (`['rating' | 'attestation',
+'escrow_address']`) — and always `state: 'not_resolved'`, because no fixture may assert that such an
+escrow exists.
+
+Everything a real instruction would additionally need is **named, not fabricated**, in each record's
+`deferredToInstructionBuilder`, split by where it lands in a transaction: `instructionData` (exactly
+the current source ABI arguments — the commitment hash and the `u8` `role` encoding for `commit`, the
+`u8` `score` encoding and the salt for `reveal`, empty for the argument-less `confirm`/`dispute`; the
+salt a `commit` commitment is derived from is a preimage field, not an instruction argument) and
+`accountInputs` (the exact current accounts and signers, mirroring `onchainAccountNames`). Rich
+RAP/ARD metadata (evidence, attestation, preview, payment proof, listing metadata) never appears
+inline: intent records point at it by id in
 `offchainRefs`, per the on-chain/off-chain split in `reddi.quasar-registry-compatibility.v1` and
 `docs/DISCOVER-DECIDE-PROVE-BOUNDARIES.md` §3.3.
 

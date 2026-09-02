@@ -9,13 +9,13 @@ This repository owns a reproducible, user-scoped baseline for local Solana work.
 | Node | `24.20.0` | `.mise.toml` repository-local mise selection |
 | Rust | `1.89.0` with `rustfmt` and `clippy` | `rust-toolchain.toml` |
 | rustfmt / clippy | `1.8.0-stable` / `0.1.89` | shipped with Rust `1.89.0`, recorded per channel in `config/toolchain/solana-baseline-assets.json` for exact probes |
-| Agave/Solana CLI | `v3.1.13` | CI `release.anza.xyz` install URLs in `.github/workflows/*program-tests.yml` |
+| Agave/Solana CLI | `v3.1.13` | CI `release.anza.xyz` install URLs in every workflow `npm run check:toolchain:baseline` scans: the Anchor/Quasar program-test workflows and the Surfpool acceptance and critical SDK lanes |
 | AVM manager | `1.0.0` | `config/toolchain/solana-baseline-assets.json`; official `solana-foundation/anchor` tag `v1.0.0` (`f17b37fd1f1fdb4b1c0de68ccb467996d3ba07f3` → `25be6d502ec6957d34d436bc2a6170040fc64153`) |
 | Anchor CLI | `1.1.2` | `Anchor.toml`; official stable `solana-foundation/anchor` tag `v1.1.2` (`0984d7a19ae6cfea19d78fab228b2af016b63021` → `24035e2b0035c87e321acc1c05f97793829a87f1`) and Linux release asset SHA-256 `fdea9979629e9416e5f5e5622ff6c11b8c691d1e559581ece368e903c0c980c1` |
 | `anchor-lang` crate | same version as the Anchor CLI pin | `programs/escrow/Cargo.toml` requirement and the `Cargo.lock` resolution, both cross-checked against `Anchor.toml` by `npm run check:toolchain:baseline` so the program cannot compile against a different Anchor minor than the CLI that generates its IDL |
 | npm | `11.19.0` | bundled with Node `24.20.0`, recorded in `config/toolchain/solana-baseline-assets.json` for exact probes |
 | rustup-init | `1.29.0` | `config/toolchain/solana-baseline-assets.json` official static Rust archive URL and SHA-256 |
-| Surfpool | `v1.5.0` | `config/toolchain/solana-baseline-assets.json` GitHub release URL and SHA-256 |
+| Surfpool | `v1.5.0` | `config/toolchain/solana-baseline-assets.json` GitHub release URL and SHA-256; the `@solana/surfpool` SDK the critical lanes run in-process is pinned to the same `1.5.0` in `package.json`/`package-lock.json` and cross-checked by `npm run check:toolchain:baseline` |
 
 Run `scripts/solana-baseline-toolchain.sh print-pins` to see the resolved pins the installer will use.
 
@@ -62,6 +62,14 @@ npm run check:toolchain:surfpool-smoke
 ```
 
 The smoke resolves the Surfpool and Agave pins from `scripts/solana-baseline-toolchain.sh print-pins` and fails before starting if the `surfpool`/`solana` it resolved are not those exact builds, so the recorded summary can never label an unpinned build as baseline evidence.
+
+For the critical demo-program lanes, use the SDK-managed local Surfnet lifecycle documented in `docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`:
+
+```bash
+npm run test:surfpool:sdk-lifecycle
+npm run test:surfpool:critical
+npm run test:surfpool:quasar-critical
+```
 
 Focused shell-check coverage for the exact-version matcher:
 

@@ -1,9 +1,9 @@
 {
   "$schema": "./deployments.schema.json",
-  "updatedAt": "2026-05-06",
+  "updatedAt": "2026-09-01",
   "decisionIssue": 236,
   "target": "hackathon-demo-quasar-cutover",
-  "submissionReady": true,
+  "submissionReady": false,
   "legacyAnchorReference": {
     "cluster": "devnet",
     "programId": "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD",
@@ -14,16 +14,20 @@
       "cluster": "devnet",
       "rpcHttp": "https://api.devnet.solana.com",
       "programId": "VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW",
-      "status": "ready-full-quasar-critical-success",
+      "status": "blocked-client-abi-deployment-mismatch",
       "scope": [
-        "full-quasar-demo-ready",
-        "registry-runtime-compatible",
-        "escrow-settlement-runtime-compatible",
-        "reputation-runtime-compatible",
-        "attestation-runtime-compatible",
+        "pre-job-binding-devnet-deployment-historical-only",
+        "not-submission-evidence",
+        "superseded-by-local-surfpool-current-source-quasar-lane",
         "magicblock-per-explicitly-not-final-claim-without-live-quasar-validation"
       ],
-      "knownGaps": [],
+      "knownGaps": [
+        "Client/deployment ABI mismatch: the in-repo Quasar client encodes the post-job-binding instruction layout (commit 34 bytes, reveal 34 bytes, attest 6 bytes) while these devnet programs expect the pre-binding layout (commit 114 bytes, reveal 50 bytes, attest 54 bytes).",
+        "PDA derivation mismatch: the client seeds rating and attestation PDAs on the escrow account address; these devnet programs seed them on a caller-supplied job_id.",
+        "Commitment pre-image mismatch: the client commits sha256(score || salt || escrow_address || program_id); these devnet programs verify sha256(score || salt || job_id || program_id).",
+        "Escrow lock signer mismatch: the client requires the payee (Agent B) to co-sign lock; these devnet programs do not.",
+        "No redeploy is authorized or performed, so the recorded devnet-full-flow-demo PASS is not reproducible and is retained as historical record only."
+      ],
       "evidence": [
         {
           "type": "read-only-rpc-account-check",
@@ -55,7 +59,7 @@
           "type": "devnet-full-flow-demo",
           "checkedAt": "2026-05-06T15:47:00+10:00",
           "command": "DEMO_PROGRAM_TARGET=quasar HACKATHON_DEMO_TARGET=quasar DEMO_SETTLEMENT_MODE=public npm run demo --prefix packages/demo-agents",
-          "result": "PASS; full A\u2192B\u2192C completed in 6516ms after devnet Reputation upgrade; Quasar escrow lock 22XLto6VVbfYGZfRPvR65KNVEyztw4HAm1c7gPbWNXWpcNbqBdtNHFpAEeGL4L8T6UodT2fxan4yxYdPNb8hDzhx; settlement 4bhPXA3SCDM1CQKBHMVxKFiGtfcmqnNEnTFDpEW2i85DWiE9dFr3co7h5EUL2ysqMs3ctcFmHfu8fpjefzpzz1JJ; rating PDA cwBzEz3p26mKU7FGWQWDkkmKY8j8NG4iPgruSkVJqKz; attestation PDA G2hmyNWC3N8zdqKRNgzgr7z6sN8wxJtc9YjpYmoWgzT1; no Anchor/PER fallback used"
+          "result": "SUPERSEDED / NOT REPRODUCIBLE as of 2026-09-01: this PASS was recorded against the pre-job-binding Quasar programs. The current in-repo client encodes the post-job-binding ABI, so the recorded command no longer reproduces against these program IDs. Retained as historical record only; not submission evidence. Original 2026-05-06 record: PASS; full A→B→C completed in 6516ms after devnet Reputation upgrade."
         },
         {
           "type": "devnet-program-upgrade",
@@ -64,14 +68,19 @@
           "programId": "nb9rLVjoHMibsgfRGgKuPqm6M8GVcH9r6bYNfg7Yiy6",
           "upgradeAuthority": "d4ST3N4Vkio1Xsg2NaF6Zox7Xq8MdqWihvyip9AHioR",
           "tx": "24bf49dnB9YCiqS6uT21jnQHRy9RveTquffBSNjhUpeHPE663kf7PEMCMch5k4ZR9sADxYUWvVijufEN993PVzqg",
-          "result": "upgraded to audit-hardened Quasar commitment verification: sha256(score || salt || job_id || program_id)"
+          "result": "Historical only: upgraded to the pre-job-binding Quasar commitment verification sha256(score || salt || job_id || program_id). The current in-repo reputation source binds commitments to the escrow address instead, so this deployment is behind the repository sources."
+        },
+        {
+          "type": "client-abi-deployment-mismatch-review",
+          "checkedAt": "2026-09-01",
+          "result": "Source review compared packages/demo-agents/src/demo.ts against experiments/quasar-{escrow,reputation,attestation}/src. The client matches current repository sources; the recorded devnet programs do not. No RPC call, signing, wallet access, or deployment was performed for this review."
         }
       ],
       "knownLimitations": [
-        "MagicBlock PER/TEE live execution is not included in the final Quasar claim; the Quasar final demo uses public Quasar escrow settlement and fails closed if DEMO_SETTLEMENT_MODE=magicblock_per is requested.",
+        "MagicBlock PER/TEE live execution is not included in any Quasar claim; the Quasar demo uses public Quasar escrow settlement and fails closed if DEMO_SETTLEMENT_MODE=magicblock_per is requested.",
         "Legacy Anchor artifacts remain historical comparison only and are not final-demo proof.",
-        "Deployment lag: the binaries at these devnet addresses were last deployed 2026-05-06 and predate the job-binding series (#642-#645) and the CRITICAL-4 durable-job-record change. Owner-checked `EscrowRef::owners()` job binding and the durability fix are source-level on `main` only.",
-        "Per docs/QUASAR-JOB-BINDING-DESIGN-2026-08-24.md, the escrow program currently on devnet still accepts an unsigned payee; escrow must be redeployed with or before reputation/attestation."
+        "These devnet program IDs are gated off in packages/demo-agents/src/config.ts: requesting the Quasar target on any profile other than local-surfpool is refused before any transaction construction, signer access, or RPC call.",
+        "Quasar remains experimental. No deployment, security, audit, submission, grant, or production readiness is claimed."
       ],
       "programIds": {
         "escrow": "VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW",
@@ -81,7 +90,7 @@
       }
     }
   },
-  "submissionReadyReason": "Full Quasar critical-success gate satisfied: demo-critical registry, escrow settlement, reputation, and attestation paths have Quasar-native runtime routes. MagicBlock PER/TEE is explicitly not a final Quasar claim without separate live Quasar PER validation; legacy Anchor remains historical only. `submissionReady` denotes hackathon-submission readiness of the demo paths only; it is not a statement about the security posture of the deployed binaries. See `knownLimitations` and SECURITY.md for the deployment lag against current `main`.",
+  "submissionReadyReason": "BLOCKED: the recorded devnet Quasar programs predate the 2026-08 job-binding rework and no longer match the in-repo Quasar client. The demo client encodes the current experiments/quasar-* sources (commit/reveal/attest drop caller-supplied job_id/consumer_pk/specialist_pk, rating and attestation PDAs are seeded on the escrow address, and escrow lock requires the payee to sign), while the deployed devnet programs still expect the pre-binding layout. No redeploy is claimed or performed. Only the local-surfpool lane with four explicit valid loopback-configured Quasar program IDs built from current sources is retained as Quasar evidence.",
   "criticalSuccessFactors": [
     "no-demo-critical-anchor-paths",
     "quasar-native-registry-reputation-attestation",

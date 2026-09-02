@@ -104,7 +104,7 @@ describe("server-side operator signers honour the profile submission gate", () =
     const result = await commitReputationRating("run-refused-surfpool-commit", 8, specialistWallet);
 
     expect(result.ok).toBe(false);
-    expect(result.ok === false && result.error).toMatch(/no registered Quasar deployment/);
+    expect(result.ok === false && result.error).toMatch(/four distinct valid local program IDs/);
     expect(result.trace).toEqual(["reputation:submission_blocked"]);
   });
 

@@ -34,43 +34,62 @@ describe("Quasar instruction-data builders", () => {
     expect([...buildQuasarDeregisterAgentData()]).toEqual([2]);
   });
 
-  it("builds reputation data using u128 little-endian job ids", () => {
-    const commit = buildQuasarCommitRatingData(jobId, commitment, 1, consumer, specialist);
-    expect(commit.length).toBe(114);
+  it("builds post-job-binding reputation payloads with no caller-supplied job identity", () => {
+    // experiments/quasar-reputation/src/lib.rs: commit(commitment: [u8;32], role: u8) disc 1.
+    const commit = buildQuasarCommitRatingData(commitment, 1);
+    expect(commit.length).toBe(34);
     expect(commit[0]).toBe(1);
-    expect([...commit.subarray(1, 17)]).toEqual([...jobId]);
-    expect([...commit.subarray(17, 49)]).toEqual([...commitment]);
-    expect(commit[49]).toBe(1);
-    expect([...commit.subarray(50, 82)]).toEqual([...consumer]);
-    expect([...commit.subarray(82, 114)]).toEqual([...specialist]);
+    expect([...commit.subarray(1, 33)]).toEqual([...commitment]);
+    expect(commit[33]).toBe(1);
 
-    const reveal = buildQuasarRevealRatingData(jobId, 9, salt);
-    expect(reveal.length).toBe(50);
+    // reveal(score: u8, salt: [u8;32]) disc 2.
+    const reveal = buildQuasarRevealRatingData(9, salt);
+    expect(reveal.length).toBe(34);
     expect(reveal[0]).toBe(2);
-    expect([...reveal.subarray(1, 17)]).toEqual([...jobId]);
-    expect(reveal[17]).toBe(9);
-    expect([...reveal.subarray(18, 50)]).toEqual([...salt]);
+    expect(reveal[1]).toBe(9);
+    expect([...reveal.subarray(2, 34)]).toEqual([...salt]);
 
-    expect([...buildQuasarExpireRatingData(jobId)]).toEqual([3, ...jobId]);
+    // expire() disc 3 — no arguments.
+    expect([...buildQuasarExpireRatingData()]).toEqual([3]);
   });
 
-  it("builds attestation data using Quasar sentinel-compatible scores", () => {
+  it("builds post-job-binding attestation payloads carrying only the scores", () => {
+    // experiments/quasar-attestation/src/lib.rs: attest(scores: [u8;5]) disc 1, confirm/dispute no args.
     const scores = Uint8Array.from([8, 9, 10, 7, 6]);
-    const attest = buildQuasarAttestQualityData(jobId, scores, consumer);
-    expect(attest.length).toBe(54);
+    const attest = buildQuasarAttestQualityData(scores);
+    expect(attest.length).toBe(6);
     expect(attest[0]).toBe(1);
-    expect([...attest.subarray(1, 17)]).toEqual([...jobId]);
-    expect([...attest.subarray(17, 22)]).toEqual([...scores]);
-    expect([...attest.subarray(22, 54)]).toEqual([...consumer]);
+    expect([...attest.subarray(1, 6)]).toEqual([...scores]);
 
-    expect([...buildQuasarConfirmAttestationData(jobId)]).toEqual([2, ...jobId]);
-    expect([...buildQuasarDisputeAttestationData(jobId)]).toEqual([3, ...jobId]);
+    expect([...buildQuasarConfirmAttestationData()]).toEqual([2]);
+    expect([...buildQuasarDisputeAttestationData()]).toEqual([3]);
+  });
+
+  it("no reputation or attestation payload carries job_id, consumer_pk, or specialist_pk", () => {
+    const scores = Uint8Array.from([8, 9, 10, 7, 6]);
+    const payloads = [
+      buildQuasarCommitRatingData(commitment, 0),
+      buildQuasarRevealRatingData(9, salt),
+      buildQuasarExpireRatingData(),
+      buildQuasarAttestQualityData(scores),
+      buildQuasarConfirmAttestationData(),
+      buildQuasarDisputeAttestationData(),
+    ];
+    // The pre-binding layouts were 114/50/17/54/17/17 bytes; the current ones cannot fit a pubkey.
+    expect(payloads.map((p) => p.length)).toEqual([34, 34, 1, 6, 1, 1]);
+    for (const payload of payloads) {
+      expect(payload.includes(Buffer.from(consumer))).toBe(false);
+      expect(payload.includes(Buffer.from(specialist))).toBe(false);
+      expect(payload.includes(Buffer.from(jobId))).toBe(false);
+    }
   });
 
   it("rejects invalid fixed-size Quasar inputs before transaction construction", () => {
     expect(() => buildQuasarRegisterData(0, "x".repeat(65), 1n, 0)).toThrow("model_too_long");
-    expect(() => buildQuasarCommitRatingData(jobId.slice(0, 15), commitment, 0, consumer, specialist)).toThrow("job_id_must_be_16_bytes");
-    expect(() => buildQuasarRevealRatingData(jobId, 0, salt)).toThrow("invalid_score");
-    expect(() => buildQuasarAttestQualityData(jobId, Uint8Array.from([1, 2, 0, 4, 5]), consumer)).toThrow("invalid_attestation_score");
-  });
+    expect(() => buildQuasarCommitRatingData(commitment.slice(0, 31), 0)).toThrow("commitment_must_be_32_bytes");
+    expect(() => buildQuasarCommitRatingData(commitment, 2 as 0 | 1)).toThrow("invalid_role");
+    expect(() => buildQuasarRevealRatingData(0, salt)).toThrow("invalid_score");
+    expect(() => buildQuasarRevealRatingData(9, salt.slice(0, 31))).toThrow("salt_must_be_32_bytes");
+    expect(() => buildQuasarAttestQualityData(Uint8Array.from([1, 2, 0, 4, 5]))).toThrow("invalid_attestation_score");
+});
 });

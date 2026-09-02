@@ -17,6 +17,8 @@ on:
       - "scripts/__tests__/**"
       - ".github/workflows/anchor-program-tests.yml"
       - ".github/workflows/quasar-program-tests.yml"
+      - ".github/workflows/surfpool-acceptance-manual.yml"
+      - ".github/workflows/surfpool-quasar-critical-sdk.yml"
   pull_request:
     branches: [main]
     paths:
@@ -33,6 +35,8 @@ on:
       - "scripts/__tests__/**"
       - ".github/workflows/anchor-program-tests.yml"
       - ".github/workflows/quasar-program-tests.yml"
+      - ".github/workflows/surfpool-acceptance-manual.yml"
+      - ".github/workflows/surfpool-quasar-critical-sdk.yml"
   workflow_dispatch:
 
 jobs:

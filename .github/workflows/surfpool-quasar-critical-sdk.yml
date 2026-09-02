@@ -1,0 +1,194 @@
+name: Surfpool Quasar Critical SDK
+
+on:
+  push:
+    branches: [main, feature/**, feat/**]
+    paths:
+      - "config/quasar/**"
+      - "config/networks/**"
+      - "config/toolchain/**"
+      - "third_party/quasar/**"
+      - ".mise.toml"
+      - "Anchor.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "lib/config/**"
+      - "lib/program.ts"
+      - "app/register/**"
+      - "app/onboarding/**"
+      - "app/api/onboarding/**"
+      - "lib/onboarding/**"
+      - "lib/register/**"
+      - "lib/registry/**"
+      - "lib/useOnchainAgents.ts"
+      - "lib/__tests__/**"
+      - "scripts/lib/surfpool-evidence-manifest.mjs"
+      - "scripts/lib/json-schema-subset.mjs"
+      - "scripts/lib/workflow-yaml.mjs"
+      - "scripts/resolve-accepted-surfpool-evidence.mjs"
+      - "scripts/generate-economic-demo-submission-prep.mjs"
+      - "scripts/run-integration-lane.sh"
+      - "scripts/__tests__/surfpool-evidence-manifest.test.mjs"
+      - "scripts/__tests__/quasar-runtime-compatibility-schema.test.mjs"
+      - "scripts/__tests__/surfpool-lane-boundaries.test.mjs"
+      - "jest.config.js"
+      - "docs/SOLANA-TOOLCHAIN-BASELINE.md"
+      - "docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md"
+      - "docs/ECONOMIC-DEMO-JUDGE-PACKET-2026-05-05.md"
+      - "docs/ECONOMIC-DEMO-OPERATOR-CHECKLIST-2026-05-05.md"
+      - "docs/QUASAR-HACKATHON-CUTOVER-PLAN-2026-05-05.md"
+      - "experiments/quasar-*/**"
+      - "lib/quasar/**"
+      - "packages/agent-protocol/**"
+      - "packages/demo-agents/**"
+      - "packages/per-client/**"
+      - "programs/escrow/**"
+      - "scripts/lib/surfpool-sdk-lifecycle.mjs"
+      - "scripts/run-surfpool-critical-smoke.sh"
+      - "scripts/run-surfpool-quasar-critical-smoke.sh"
+      - "scripts/run-surfpool-sdk-critical-smoke.mjs"
+      - "scripts/__tests__/surfpool-sdk-lifecycle.test.mjs"
+      - "scripts/check-quasar-*.mjs"
+      - "scripts/check-solana-baseline-pins.mjs"
+      - "scripts/solana-baseline-toolchain.sh"
+      - "scripts/lib/solana-baseline-version-match.sh"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/anchor-program-tests.yml"
+      - ".github/workflows/quasar-program-tests.yml"
+      - ".github/workflows/surfpool-quasar-critical-sdk.yml"
+      - ".github/workflows/surfpool-acceptance-manual.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "config/quasar/**"
+      - "config/networks/**"
+      - "config/toolchain/**"
+      - "third_party/quasar/**"
+      - ".mise.toml"
+      - "Anchor.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "lib/config/**"
+      - "lib/program.ts"
+      - "app/register/**"
+      - "app/onboarding/**"
+      - "app/api/onboarding/**"
+      - "lib/onboarding/**"
+      - "lib/register/**"
+      - "lib/registry/**"
+      - "lib/useOnchainAgents.ts"
+      - "lib/__tests__/**"
+      - "scripts/lib/surfpool-evidence-manifest.mjs"
+      - "scripts/lib/json-schema-subset.mjs"
+      - "scripts/lib/workflow-yaml.mjs"
+      - "scripts/resolve-accepted-surfpool-evidence.mjs"
+      - "scripts/generate-economic-demo-submission-prep.mjs"
+      - "scripts/run-integration-lane.sh"
+      - "scripts/__tests__/surfpool-evidence-manifest.test.mjs"
+      - "scripts/__tests__/quasar-runtime-compatibility-schema.test.mjs"
+      - "scripts/__tests__/surfpool-lane-boundaries.test.mjs"
+      - "jest.config.js"
+      - "docs/SOLANA-TOOLCHAIN-BASELINE.md"
+      - "docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md"
+      - "docs/ECONOMIC-DEMO-JUDGE-PACKET-2026-05-05.md"
+      - "docs/ECONOMIC-DEMO-OPERATOR-CHECKLIST-2026-05-05.md"
+      - "docs/QUASAR-HACKATHON-CUTOVER-PLAN-2026-05-05.md"
+      - "experiments/quasar-*/**"
+      - "lib/quasar/**"
+      - "packages/agent-protocol/**"
+      - "packages/demo-agents/**"
+      - "packages/per-client/**"
+      - "programs/escrow/**"
+      - "scripts/lib/surfpool-sdk-lifecycle.mjs"
+      - "scripts/run-surfpool-critical-smoke.sh"
+      - "scripts/run-surfpool-quasar-critical-smoke.sh"
+      - "scripts/run-surfpool-sdk-critical-smoke.mjs"
+      - "scripts/__tests__/surfpool-sdk-lifecycle.test.mjs"
+      - "scripts/check-quasar-*.mjs"
+      - "scripts/check-solana-baseline-pins.mjs"
+      - "scripts/solana-baseline-toolchain.sh"
+      - "scripts/lib/solana-baseline-version-match.sh"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/anchor-program-tests.yml"
+      - ".github/workflows/quasar-program-tests.yml"
+      - ".github/workflows/surfpool-quasar-critical-sdk.yml"
+      - ".github/workflows/surfpool-acceptance-manual.yml"
+  workflow_dispatch:
+
+jobs:
+  surfpool-quasar-critical-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      # The smoke step has a 50-minute hard cap; the lane's own 40-minute budget expires first so
+      # bounded shutdown can stop Surfnet, wait for ports to close, and write a FAIL summary.
+      RAP_SURFPOOL_CRITICAL_TIMEOUT_MS: "2400000"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.20.0"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Rust toolchain (matches rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.89.0"
+
+      - name: Cache Cargo registry and isolated build inputs
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/solana
+            .tmp/surfpool-sdk-cargo-target
+          key: ${{ runner.os }}-surfpool-quasar-sdk-cargo-${{ hashFiles('Cargo.lock', 'experiments/quasar-*/Cargo.lock', 'third_party/quasar/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-surfpool-quasar-sdk-cargo-
+            ${{ runner.os }}-cargo-
+
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.13/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Run SDK lifecycle regressions
+        run: npm run test:surfpool:sdk-lifecycle
+
+      - name: Run evidence receipt regressions
+        run: npm run test:surfpool:evidence-manifest
+
+      - name: Run lane boundary regressions
+        run: npm run test:surfpool:lane-boundaries
+
+      - name: Verify the runtime-compatibility schema is enforced
+        run: npm run test:quasar:runtime-compatibility
+
+      - name: Run Quasar target gate and web refusal regressions
+        run: npm test -- --ci --runTestsByPath packages/demo-agents/src/__tests__/quasar-target-gate.test.ts lib/__tests__/quasar-demo-program-config.test.ts lib/__tests__/network-profile-resolution.test.ts lib/quasar/__tests__/quasar-devnet-refusal.test.ts lib/quasar/__tests__/web-consumer-modules-load.test.ts lib/__tests__/onboarding-quasar-escrow-refusal.test.ts
+
+      - name: Run Quasar critical SDK Surfpool smoke
+        timeout-minutes: 50
+        run: npm run test:surfpool:quasar-critical
+
+      - name: Upload local Surfpool artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surfpool-quasar-critical-sdk-${{ github.run_id }}
+          path: artifacts/surfpool-quasar-smoke/**
+          if-no-files-found: warn
+          retention-days: 14

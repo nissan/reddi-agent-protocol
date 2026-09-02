@@ -15,7 +15,7 @@
       "path": "lib/quasar/instructions.ts",
       "surface": "Quasar transaction-instruction helpers for registry, reputation, and attestation",
       "status": "quasar-compatible",
-      "reason": "Wraps shared Quasar instruction data with account metas/order from Quasar parity source/tests for registry, reputation commit/reveal, and attestation confirm/dispute."
+      "reason": "Wraps shared Quasar instruction data with account metas/order from Quasar parity source/tests for registry, reputation commit/reveal, and attestation confirm/dispute. Every exported builder here calls assertQuasarProgramTargetUsable() as its first statement, so an instruction is constructed only when the resolved ambient profile is local-surfpool with the Quasar target, four distinct valid local program ids, and loopback-only RPC/WS endpoints; devnet and mainnet are refused before construction."
     },
     {
       "path": "lib/register/registration-instruction.ts",
@@ -31,9 +31,9 @@
     },
     {
       "path": "lib/onboarding/attestation-instruction.ts",
-      "surface": "target-aware onboarding attest_quality instruction selector",
+      "surface": "onboarding attest_quality instruction builder",
       "status": "quasar-compatible",
-      "reason": "Selects Quasar attest_quality wrapper/data when PROGRAM_TARGET is quasar; preserves Anchor builder only for legacy mode."
+      "reason": "Builds only the legacy Anchor attest_quality layout. It takes no target and no escrow: its single caller refuses the Quasar target before reaching it, because a Quasar attestation seeds its PDA on the escrow a successful lock created and onboarding never locks one."
     },
     {
       "path": "lib/program.ts",
@@ -51,19 +51,31 @@
       "path": "app/onboarding/page.tsx",
       "surface": "onboarding registration and attestation confirmation/dispute builders",
       "status": "quasar-compatible",
-      "reason": "Onboarding registration and attestation confirmation/dispute construction now select Quasar wrappers in explicit Quasar mode while preserving Anchor builders only for legacy mode."
+      "reason": "Onboarding registration routes through the target-aware registration helper; attestation confirm/dispute delegate to lib/onboarding/attestation-resolution.ts, which refuses the Quasar target and surfaces the canonical reason with both actions disabled, so the page builds no Quasar instruction of its own."
     },
     {
       "path": "lib/onboarding/onchain-attestation.ts",
       "surface": "attest_quality transaction builder",
       "status": "quasar-compatible",
-      "reason": "Onboarding attest_quality construction now routes through target-aware helper and uses Quasar one-byte/fixed-size attestation data in explicit Quasar mode; send remains operator-triggered only."
+      "reason": "attest_quality refuses the Quasar target outright before any operator key is read, any instruction is built, or any RPC is opened, because onboarding has no verified lock-created escrow to bind an attestation to. Only the legacy Anchor attestation layout is ever constructed here; send remains operator-triggered only."
     },
     {
       "path": "lib/onboarding/reputation-signal.ts",
       "surface": "commit/reveal reputation builders",
       "status": "quasar-compatible",
-      "reason": "Commit/reveal reputation construction now selects Quasar wrappers/data in explicit Quasar mode while preserving Anchor IX builders only for legacy mode."
+      "reason": "Commit/reveal reputation refuses the Quasar target outright — onboarding never locks a Quasar escrow, so there is no verified lock record to bind a rating to — and returns the canonical unavailable reason before any operator key is read, any commitment or PDA is derived, any instruction is built, or any RPC is opened. Only the legacy Anchor commit/reveal layout is ever constructed here."
+    },
+    {
+      "path": "lib/onboarding/quasar-escrow-binding.ts",
+      "surface": "canonical onboarding Quasar refusal reason",
+      "status": "quasar-compatible",
+      "reason": "Owns the single canonical reason every onboarding Quasar reputation/attestation/confirm/dispute path refuses with. There is deliberately no resolver or PDA derivation here: onboarding never locks a Quasar escrow, so there is no verified lock record to bind to and no onboarding surface builds a Quasar instruction."
+    },
+    {
+      "path": "lib/onboarding/attestation-resolution.ts",
+      "surface": "onboarding consumer confirm/dispute attestation resolution builder",
+      "status": "quasar-compatible",
+      "reason": "Single owner of the consumer confirm/dispute path shared by the onboarding page. It refuses the Quasar target outright before any connection is opened, any base58 string is parsed into a PublicKey, any instruction is built, or any signer is used, and constructs only the legacy Anchor confirm/dispute layout."
     },
     {
       "path": "lib/registry/bridge.ts",
@@ -87,7 +99,7 @@
       "path": "packages/demo-agents/src/demo.ts",
       "surface": "full demo-agent A\u2192B\u2192C escrow/reputation/attestation/MagicBlock PER transaction flow",
       "status": "quasar-compatible",
-      "reason": "Full demo-agent A\u2192B\u2192C flow now targets Quasar multi-program devnet IDs in explicit Quasar mode: registry read, Quasar escrow make/take settlement, reputation commit/reveal, and attestation attest. Legacy Anchor/PER paths remain available only in legacy-anchor mode; MagicBlock PER/TEE is fail-closed/not claimed for Quasar final proof."
+      "reason": "Full demo-agent A\u2192B\u2192C flow encodes the current Quasar sources in explicit Quasar mode: registry read, Quasar escrow make/take settlement, reputation commit/reveal, and attestation attest. packages/demo-agents/src/config.ts admits that mode only on the local-surfpool profile with four distinct valid loopback-deployed program ids, so the recorded devnet Quasar set is never reached from here. Legacy Anchor/PER paths remain available only in legacy-anchor mode; MagicBlock PER/TEE is fail-closed/not claimed for Quasar."
     }
   ],
   "allowedStatuses": [

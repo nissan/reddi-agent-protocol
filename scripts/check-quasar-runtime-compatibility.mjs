@@ -2,8 +2,11 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { compileJsonSchema, formatSchemaErrors } from "./lib/json-schema-subset.mjs";
+
 const repoRoot = process.cwd();
 const compatibilityPath = path.join(repoRoot, "config/quasar/runtime-compatibility.json");
+const schemaPath = path.join(repoRoot, "config/quasar/runtime-compatibility.schema.json");
 const deploymentsPath = path.join(repoRoot, "config/quasar/deployments.json");
 
 function fail(message, detail) {
@@ -12,22 +15,47 @@ function fail(message, detail) {
   process.exit(1);
 }
 
-const compatibility = JSON.parse(fs.readFileSync(compatibilityPath, "utf8"));
-const deployments = JSON.parse(fs.readFileSync(deploymentsPath, "utf8"));
-const entries = compatibility.demoCriticalPaths;
-
-if (!Array.isArray(entries) || entries.length === 0) {
-  fail("demoCriticalPaths must list all audited demo-critical runtime paths");
+function readJson(filePath, label) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch (error) {
+    fail(`${label} could not be read as JSON`, `${path.relative(repoRoot, filePath)}: ${error.message}`);
+  }
 }
 
-const allowed = new Set(compatibility.allowedStatuses ?? []);
+// The committed schema is a gate input, not documentation: a schema that cannot be read or compiled
+// means this check cannot prove what it claims, so it refuses rather than skipping to the semantic
+// checks and reporting OK on an unvalidated document.
+const schema = readJson(schemaPath, "the compatibility schema");
+let validateCompatibility;
+try {
+  validateCompatibility = compileJsonSchema(schema);
+} catch (error) {
+  fail("the compatibility schema could not be compiled", `config/quasar/runtime-compatibility.schema.json: ${error.message}`);
+}
+
+const compatibility = readJson(compatibilityPath, "the compatibility inventory");
+
+// Schema first. Everything below assumes the document's shape, and a syntactically unsafe selector
+// (absolute, backslash-separated, traversing, or with an empty segment) must be refused here rather
+// than reaching fs.existsSync, where a traversing path can resolve to a real file outside the repo.
+const schemaErrors = validateCompatibility(compatibility);
+if (schemaErrors.length > 0) {
+  fail(
+    `config/quasar/runtime-compatibility.json violates its schema (${schemaErrors.length} violation(s))`,
+    formatSchemaErrors(schemaErrors),
+  );
+}
+
+const deployments = readJson(deploymentsPath, "the deployment inventory");
+const entries = compatibility.demoCriticalPaths;
+
+const allowed = new Set(compatibility.allowedStatuses);
 for (const entry of entries) {
-  if (!entry.path || !entry.surface || !entry.status || !entry.reason) {
-    fail("each compatibility entry needs path, surface, status, and reason", JSON.stringify(entry, null, 2));
-  }
   if (!allowed.has(entry.status)) {
     fail(`unsupported compatibility status: ${entry.status}`, entry.path);
   }
+  // JSON Schema settled the path's text; only the filesystem can settle the rest.
   if (!fs.existsSync(path.join(repoRoot, entry.path))) {
     fail("compatibility entry references missing path", entry.path);
   }
@@ -47,7 +75,7 @@ if (!programSource.includes("PROGRAM_COMPATIBILITY") || !networkSource.includes(
   fail("runtime config must expose quasar-layout-unverified compatibility metadata in Quasar mode");
 }
 
-console.log(`[quasar-runtime-compat] OK: audited ${entries.length} demo-critical paths`);
+console.log(`[quasar-runtime-compat] OK: audited ${entries.length} demo-critical paths against ${path.basename(schemaPath)}`);
 if (blocked.length > 0) {
   console.log(`[quasar-runtime-compat] BLOCKED: ${blocked.length} paths require Quasar port/verification before submissionReady=true`);
 }
