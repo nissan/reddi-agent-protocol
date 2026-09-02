@@ -638,6 +638,21 @@ test("runtime compatibility inventory selection is descriptor-bound and fail-clo
       "a selector parse failure must not silently drop demo-critical paths",
     );
 
+    for (const { contents, expected } of [
+      { contents: {}, expected: /must declare demoCriticalPaths as an array/ },
+      { contents: { demoCriticalPaths: [{ path: "/absolute" }] }, expected: /must be relative and POSIX-style/ },
+      { contents: { demoCriticalPaths: [{ path: "lib/../program.ts" }] }, expected: /must not contain empty, dot, or traversal segments/ },
+      { contents: { demoCriticalPaths: [{ path: "lib/not-present.ts" }] }, expected: /could not be inspected/ },
+    ]) {
+      await seedFingerprintSources(repoRoot, "quasar");
+      await fsp.writeFile(inventory, JSON.stringify(contents, null, 2));
+      assert.throws(
+        () => computeLaneSourceFingerprint(repoRoot, "quasar"),
+        expected,
+        "a malformed selector must not silently shrink the fingerprint roots",
+      );
+    }
+
     await seedFingerprintSources(repoRoot, "quasar");
     const legitimate = await fsp.readFile(inventory, "utf8");
     const malicious = JSON.stringify({ demoCriticalPaths: [] }, null, 2);

@@ -465,6 +465,41 @@ function assertContainedRealPath(repoRoot, relativePath) {
  * returned alongside the selected paths so the digest can bind the selector itself, not only what it
  * happened to select.
  */
+function normalizeRuntimeCompatibilityPath(repoRoot, entry, index) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    throw new EvidenceManifestError(`Quasar runtime compatibility demoCriticalPaths[${index}] must be an object`);
+  }
+  const entryPath = entry.path;
+  if (typeof entryPath !== "string" || entryPath.length === 0) {
+    throw new EvidenceManifestError(`Quasar runtime compatibility demoCriticalPaths[${index}].path must be a non-empty relative path`);
+  }
+  if (entryPath.includes("\\") || path.posix.isAbsolute(entryPath)) {
+    throw new EvidenceManifestError(`Quasar runtime compatibility path must be relative and POSIX-style: ${entryPath}`);
+  }
+  const segments = entryPath.split("/");
+  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
+    throw new EvidenceManifestError(`Quasar runtime compatibility path must not contain empty, dot, or traversal segments: ${entryPath}`);
+  }
+  const normalized = path.posix.normalize(entryPath);
+  if (normalized !== entryPath) {
+    throw new EvidenceManifestError(`Quasar runtime compatibility path is not normalized: ${entryPath}`);
+  }
+  let stat;
+  try {
+    stat = fs.lstatSync(path.join(repoRoot, normalized));
+  } catch (error) {
+    throw new EvidenceManifestError(`Quasar runtime compatibility path could not be inspected: ${entryPath}: ${error.message}`);
+  }
+  if (stat.isSymbolicLink()) {
+    throw new EvidenceManifestError(`Quasar runtime compatibility path must not traverse symbolic links: ${entryPath}`);
+  }
+  if (!stat.isFile() && !stat.isDirectory()) {
+    throw new EvidenceManifestError(`Quasar runtime compatibility path must be an ordinary file or directory: ${entryPath}`);
+  }
+  assertContainedRealPath(repoRoot, normalized);
+  return normalized;
+}
+
 function runtimeCompatibilityFingerprintSelector(repoRoot) {
   const relativePath = "config/quasar/runtime-compatibility.json";
   const bytes = readFingerprintedFile(repoRoot, relativePath, { maxBytes: ACCEPTED_EVIDENCE_MAX_BYTES });
@@ -474,10 +509,14 @@ function runtimeCompatibilityFingerprintSelector(repoRoot) {
   } catch (error) {
     throw new EvidenceManifestError(`Quasar runtime compatibility inventory is not valid JSON: ${error.message}`);
   }
-  const paths = (compatibility.demoCriticalPaths ?? [])
-    .map((entry) => entry?.path)
-    .filter((entryPath) => typeof entryPath === "string" && entryPath && !path.isAbsolute(entryPath))
-    .filter((entryPath) => !path.normalize(entryPath).split(path.sep).includes(".."));
+  if (!compatibility || typeof compatibility !== "object" || Array.isArray(compatibility)) {
+    throw new EvidenceManifestError("Quasar runtime compatibility inventory must be a JSON object");
+  }
+  if (!Array.isArray(compatibility.demoCriticalPaths)) {
+    throw new EvidenceManifestError("Quasar runtime compatibility inventory must declare demoCriticalPaths as an array");
+  }
+  const paths = compatibility.demoCriticalPaths.map((entry, index) =>
+    normalizeRuntimeCompatibilityPath(repoRoot, entry, index));
   return { relativePath, bytes, paths };
 }
 
