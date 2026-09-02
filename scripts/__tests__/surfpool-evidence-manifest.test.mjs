@@ -22,7 +22,11 @@ import {
   writeAcceptedEvidenceManifest,
 } from "../lib/surfpool-evidence-manifest.mjs";
 
-import { createTruncatingEvidenceBuffer, scheduleProcessGroupTermination } from "../lib/surfpool-sdk-lifecycle.mjs";
+import {
+  createTruncatingEvidenceBuffer,
+  describeSummaryPublicationFailure,
+  scheduleProcessGroupTermination,
+} from "../lib/surfpool-sdk-lifecycle.mjs";
 
 const realRepoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -1869,6 +1873,52 @@ test("a publication that quarantines a prior entry and then fails reports both f
       /accepted evidence/i,
       "no consumer may cite anything: the canonical path is empty and a quarantine file is never citable",
     );
+  });
+});
+
+test("a directory sync failure during quarantine still reports the moved prior entry", async () => {
+  // moveAsideSync first renames the unusable canonical entry, then proves the directory update. A
+  // failure in that proof must not fall back to the generic not-published wording that says the
+  // prior accepted-evidence entry was untouched.
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const manifestDir = path.join(repoRoot, dir);
+    const manifestPath = path.join(manifestDir, ACCEPTED_EVIDENCE_FILENAME);
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-quarantine-fsync-fail");
+    await fsp.mkdir(manifestDir, { recursive: true });
+    await fsp.mkdir(manifestPath, { recursive: true });
+    await fsp.writeFile(path.join(manifestPath, "marker"), "prior entry contents\n");
+
+    const error = await withPatchedFs(
+      { fsyncSync: failingDirectorySync(fs.fsyncSync, manifestDir) },
+      () => rejectedPublication(manifestDir, record),
+    );
+
+    assert.equal(error.publicationOutcome, "not-published", "the receipt was never renamed into place");
+    assert.ok(error.quarantinedPriorEntry, "the failed transaction must still report the prior entry it moved");
+    assert.equal(fs.existsSync(manifestPath), false, "the canonical entry was moved away before the fsync failed");
+    assert.equal(error.quarantinedPriorEntry.path.includes(repoRoot), false, "the reported path is not absolute");
+    assert.equal(error.quarantinedPriorEntry.path.startsWith(`${dir}/`), true);
+
+    const quarantined = path.join(repoRoot, error.quarantinedPriorEntry.path);
+    assert.equal(fs.existsSync(quarantined), true, "the moved entry remains available for diagnosis");
+    assert.equal(await fsp.readFile(path.join(quarantined, "marker"), "utf8"), "prior entry contents\n");
+
+    const notice = describeSummaryPublicationFailure({
+      error,
+      summaryFile: path.posix.join(dir, record.runId, "SUMMARY.md"),
+      repoRoot,
+      home: os.homedir(),
+      receiptOutcome: error.publicationOutcome,
+      quarantinedPriorEntry: error.quarantinedPriorEntry,
+    });
+    assert.equal(
+      notice.includes("did not modify any accepted-evidence entry"),
+      false,
+      "the operator notice must not claim the canonical entry was untouched",
+    );
+    assert.match(notice, /moved aside remains quarantined at/);
+    assert.equal(notice.includes(repoRoot), false, "the operator notice must not leak the absolute repo path");
   });
 });
 

@@ -762,7 +762,7 @@ function processStartIdentitySync(pid) {
   }
 }
 
-function moveAsideSync(fromPath, toPath, directoryPath, label) {
+function moveAsideSync(fromPath, toPath, directoryPath, label, onMovedAside = () => {}) {
   let before;
   try {
     before = fs.lstatSync(fromPath);
@@ -774,6 +774,10 @@ function moveAsideSync(fromPath, toPath, directoryPath, label) {
   } catch (error) {
     throw new EvidenceManifestError(`${label} could not be moved aside for diagnosis: ${error?.message ?? error}`);
   }
+  // From this point the canonical entry is no longer untouched, even if the durability sync or
+  // post-rename proof below fails. Tell the caller immediately so every failure channel reports the
+  // displacement instead of falsely claiming the prior accepted-evidence path was left alone.
+  onMovedAside(toPath);
   fsyncDirectoryPathSync(directoryPath, "accepted evidence directory");
 
   let moved;
@@ -1162,21 +1166,24 @@ export async function writeAcceptedEvidenceManifest(manifestDir, record, options
   let rollbackPrepared = false;
   let renamed = false;
   let lockRetained = false;
-  let quarantinedPriorEntry = null;
   const cleanupFailures = [];
   try {
     const prior = classifyPriorEntrySync(manifestDir);
     if (prior.kind === "unusable") {
-      quarantinedPriorEntry = moveAsideSync(
+      const quarantinePath = path.join(manifestDir, `.${ACCEPTED_EVIDENCE_FILENAME}.quarantined-${crypto.randomUUID()}`);
+      const recordQuarantinedPriorEntry = (movedAsidePath) => {
+        manifest.quarantinedPriorEntry = {
+          path: path.posix.join(evidenceRootRelative, path.basename(movedAsidePath)),
+          reason: prior.reason,
+        };
+      };
+      moveAsideSync(
         manifestPath,
-        path.join(manifestDir, `.${ACCEPTED_EVIDENCE_FILENAME}.quarantined-${crypto.randomUUID()}`),
+        quarantinePath,
         manifestDir,
         `the unusable ${ACCEPTED_EVIDENCE_FILENAME} being replaced (${prior.reason})`,
+        recordQuarantinedPriorEntry,
       );
-      manifest.quarantinedPriorEntry = {
-        path: path.posix.join(evidenceRootRelative, path.basename(quarantinedPriorEntry)),
-        reason: prior.reason,
-      };
     } else if (prior.kind === "receipt") {
       writeFileDurablySync(rollbackPath, prior.bytes, "accepted evidence rollback copy");
       rollbackPrepared = true;
