@@ -424,15 +424,25 @@ export async function startLocalSurfnet(Surfnet, options = {}) {
  *   drops between its retained head and tail was already written to the log, so its counts describe
  *   the spool alone and must never be reported as log omission.
  *
- * `complete` stays the conjunction: an assertion may only run over evidence no stage dropped from.
+ * A third outcome is neither channel's loss but the absence of proof: if appending to the log
+ * failed, what reached disk cannot be counted at all. `completeness` names which of the three the
+ * record is — `proven`, `partial` (a counted loss), or `indeterminate` (the log did not persist) —
+ * and `complete` stays the strict conjunction: an assertion may only run over evidence no stage
+ * dropped from and whose persistence is proven.
  */
 export function createStepEvidenceRecord(spool, streamBuffers = [], options = {}) {
   const logOmittedChars = streamBuffers.reduce((total, buffer) => total + buffer.omittedChars, 0);
   const logOmittedLines = streamBuffers.reduce((total, buffer) => total + buffer.omittedLines, 0);
+  const logPersisted = options.logPersisted !== false;
+  const completeness = !logPersisted
+    ? "indeterminate"
+    : spool.complete && logOmittedChars === 0 ? "proven" : "partial";
   return {
     text: spool.text(),
-    complete: spool.complete && logOmittedChars === 0,
-    logComplete: logOmittedChars === 0,
+    completeness,
+    complete: completeness === "proven",
+    logPersisted,
+    logComplete: logPersisted && logOmittedChars === 0,
     logOmittedChars,
     logOmittedLines,
     spoolComplete: spool.complete,
@@ -446,16 +456,33 @@ export function createStepEvidenceRecord(spool, streamBuffers = [], options = {}
  * The judge-facing completeness disclosure for a published receipt, built from the same two-channel
  * accounting `createStepEvidenceRecord` produces so the receipt cannot attribute one channel's loss
  * to the other. `omissions` are the per-step records of steps whose evidence was not complete.
+ *
+ * A run whose log could not be persisted publishes no count for the log at all: an append that
+ * failed leaves an unknown amount of output off disk, so claiming zero loss there would be the same
+ * overclaim this two-channel split exists to prevent.
  */
-export function summarizeEvidenceCompleteness(omissions = []) {
+export function summarizeEvidenceCompleteness(omissions = [], options = {}) {
   const logLoss = omissions.filter((omission) => (omission.logOmittedChars ?? 0) > 0 || (omission.logOmittedLines ?? 0) > 0);
   const spoolLoss = omissions.filter((omission) => (omission.spoolOmittedChars ?? 0) > 0 || (omission.spoolOmittedChunks ?? 0) > 0);
+  const unpersistedSteps = omissions.filter((omission) => omission.logPersisted === false).map((omission) => omission.label);
+  const logPersisted = options.logPersisted !== false && unpersistedSteps.length === 0;
 
-  const logSentence = logLoss.length === 0
-    ? "Log: the line-terminated redacted child stream with nothing omitted — redaction rewrites secrets in place, and no record was replaced by an oversized-line marker"
-    : `Log: ${logLoss.length} step(s) had records replaced by an oversized-line marker — ${logLoss
-      .map((omission) => `${omission.label} (${omission.logOmittedLines ?? 0} record(s), ${omission.logOmittedChars ?? 0} char(s))`)
-      .join("; ")}`;
+  const markerDetail = logLoss
+    .map((omission) => `${omission.label} (${omission.logOmittedLines ?? 0} record(s), ${omission.logOmittedChars ?? 0} char(s))`)
+    .join("; ");
+
+  let logSentence;
+  if (!logPersisted) {
+    const during = unpersistedSteps.length ? ` (during ${unpersistedSteps.join("; ")})` : "";
+    logSentence = `Log: writing to it failed during this run${during}, so what reached disk is indeterminate — an unknown amount of output is missing and no zero-loss count is claimed for it`;
+    if (logLoss.length > 0) {
+      logSentence += `; separately, ${logLoss.length} step(s) had records replaced by an oversized-line marker before the log was reached — ${markerDetail}`;
+    }
+  } else if (logLoss.length === 0) {
+    logSentence = "Log: the line-terminated redacted child stream with nothing omitted — redaction rewrites secrets in place, and no record was replaced by an oversized-line marker";
+  } else {
+    logSentence = `Log: ${logLoss.length} step(s) had records replaced by an oversized-line marker — ${markerDetail}`;
+  }
 
   const spoolSentence = spoolLoss.length === 0
     ? "Assertion/display spool: retained every step's output in full"
@@ -486,12 +513,20 @@ export function assertionEvidenceText(output, label = "lane assertion") {
     throw new Error(`${label}: no evidence text was captured, so nothing can be asserted`);
   }
   if (output.complete !== true) {
-    const where = output.logFile ? ` The retained output is in ${output.logFile}.` : "";
+    const unpersisted = output.logPersisted === false;
+    const where = output.logFile
+      ? unpersisted
+        ? ` Whatever reached ${output.logFile} before the write failed is partial.`
+        : ` The retained output is in ${output.logFile}.`
+      : "";
+    const logDetail = unpersisted
+      ? "writing to the log failed, so what reached disk is indeterminate and cannot be counted"
+      : `redaction replaced ${output.logOmittedLines ?? 0} oversized log line(s) (${output.logOmittedChars ?? 0} `
+        + "character(s)) with a marker before they could reach the log";
     throw new Error(
       `${label}: evidence is incomplete — the assertion/display spool dropped ${output.spoolOmittedChars ?? 0} `
       + `character(s) in ${output.spoolOmittedChunks ?? 0} spool chunk(s) between its retained head and tail, and `
-      + `redaction replaced ${output.logOmittedLines ?? 0} oversized log line(s) (${output.logOmittedChars ?? 0} `
-      + `character(s)) with a marker before they could reach the log, `
+      + `${logDetail}, `
       + `so neither the required banners nor the prohibited-content boundaries can be proven over it.${where}`,
     );
   }

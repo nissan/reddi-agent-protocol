@@ -725,6 +725,83 @@ test("the receipt disclosure names each channel's loss separately", () => {
   assert.match(both, /No assertion runs over a step either channel dropped from/);
 });
 
+test("an oversized unterminated record dropped before a step is aborted is still disclosed", () => {
+  // The timeout/SIGINT sequence: the redactor replaces a megabyte-scale unterminated record with a
+  // marker, the step is then aborted, and the FAIL summary still has to name the loss.
+  const maxResidualChars = 1_000;
+  const redactor = createRedactingLineBuffer({ maxResidualChars });
+  const spool = createTruncatingEvidenceBuffer({});
+  let log = "";
+  const emit = (text) => {
+    if (!text) return;
+    log += text;
+    spool.push(text);
+  };
+
+  emit(redactor.push("Target:   quasar\n"));
+  emit(redactor.push(`{"err":"connect ECONNREFUSED","url":"https://api.devnet.solana.com",${"x".repeat(maxResidualChars)}`));
+  // The abort path flushes whatever the redactors still hold before finalizing the record.
+  emit(redactor.flush());
+
+  const record = createStepEvidenceRecord(spool, [redactor], { logFile: "artifacts/surfpool-sdk-critical-smoke.log", logPersisted: true });
+
+  assert.ok(log.includes(OVERSIZED_LOG_LINE_MARKER.trim()), "the log holds a marker where the record was");
+  assert.equal(log.includes("api.devnet.solana.com"), false, "the dropped record never reached the log");
+  assert.equal(record.completeness, "partial");
+  assert.equal(record.complete, false);
+  assert.equal(record.logOmittedLines, 1);
+  assert.ok(record.logOmittedChars >= maxResidualChars);
+
+  const disclosure = summarizeEvidenceCompleteness([{ label: "run local Quasar demo", ...record }]);
+  assert.match(disclosure, /Log: 1 step\(s\) had records replaced by an oversized-line marker — run local Quasar demo \(1 record\(s\)/);
+  assert.equal(disclosure.includes("nothing omitted"), false, "an aborted step's loss must not be published as a lossless log");
+});
+
+test("a step whose log write failed is disclosed as indeterminate, never as zero loss", () => {
+  const redactor = createRedactingLineBuffer({});
+  const spool = createTruncatingEvidenceBuffer({});
+  spool.push(redactor.push("Target:   quasar\n"));
+  spool.push(redactor.flush());
+
+  const record = createStepEvidenceRecord(spool, [redactor], {
+    logFile: "artifacts/surfpool-sdk-critical-smoke.log",
+    logPersisted: false,
+  });
+
+  assert.equal(record.completeness, "indeterminate", "an append that failed leaves the file short by an unknown amount");
+  assert.equal(record.complete, false, "completeness that cannot be proven must not be asserted over");
+  assert.equal(record.logComplete, false);
+  assert.equal(record.logPersisted, false);
+  assert.equal(record.spoolComplete, true, "the in-memory spool is still intact and reported as such");
+
+  assert.throws(
+    () => assertQuasarPerFailClosedOutput(record),
+    /writing to the log failed, so what reached disk is indeterminate and cannot be counted/,
+  );
+
+  const disclosure = summarizeEvidenceCompleteness([{ label: "build Quasar programs", ...record }]);
+  assert.match(disclosure, /Log: writing to it failed during this run \(during build Quasar programs\)/);
+  assert.match(disclosure, /no zero-loss count is claimed for it/);
+  assert.equal(disclosure.includes("nothing omitted"), false);
+  assert.match(disclosure, /spool: retained every step's output in full/, "the intact channel is still reported as intact");
+});
+
+test("a run-level log write failure is disclosed even when no step reported a loss", () => {
+  // A banner write can fail outside any step, so the run-level flag has to reach the summary on its
+  // own — otherwise an empty omission list publishes a lossless log for a truncated file.
+  const disclosure = summarizeEvidenceCompleteness([], { logPersisted: false });
+
+  assert.match(disclosure, /Log: writing to it failed during this run, so what reached disk is indeterminate/);
+  assert.equal(disclosure.includes("nothing omitted"), false);
+  assert.equal(disclosure.includes("(during "), false, "no step is named when the failure was not inside one");
+
+  const both = summarizeEvidenceCompleteness(
+    [{ label: "run demo", logPersisted: true, logOmittedChars: 4_096, logOmittedLines: 1, spoolOmittedChars: 0, spoolOmittedChunks: 0 }],
+    { logPersisted: false },
+  );
+  assert.match(both, /indeterminate[\s\S]*separately, 1 step\(s\) had records replaced by an oversized-line marker before the log was reached — run demo \(1 record\(s\), 4096 char\(s\)\)/);
+});
+
 test("keypair redaction stops at the array and leaves a same-line prohibited hint detectable", () => {
   const keypair = `[${Array.from({ length: 64 }, (_, i) => i + 1).join(",")}]`;
   const hostileLine = `AGENT_A_KEYPAIR=${keypair} rpc=https://api.devnet.solana.com/v1 [attempt 1]\n`;

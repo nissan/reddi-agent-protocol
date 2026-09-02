@@ -104,12 +104,19 @@ const cleanupNotes = [];
 const evidenceOmissions = [];
 let logWriteChain = Promise.resolve();
 let logWriteError;
+// Sticky: takeLogWriteError() clears the transient error for control flow, but once an append has
+// failed the file on disk is short by an unknown amount for the rest of the run, and every later
+// disclosure has to say so instead of reporting a zero-loss count.
+let logPersistenceFailed = false;
 
 function appendToLog(text) {
   if (!text) return logWriteChain;
   logWriteChain = logWriteChain
     .then(() => fs.appendFile(logFile, text))
-    .catch((error) => { logWriteError ??= error; });
+    .catch((error) => {
+      logWriteError ??= error;
+      logPersistenceFailed = true;
+    });
   return logWriteChain;
 }
 
@@ -333,20 +340,27 @@ async function prepareAgentEnvironment(programs) {
   }, { repoRoot, childTmpDir });
 }
 
+// The disclosure belongs to whoever owns the buffers, not to a caller's success path: a step that
+// times out, is interrupted, or fails to spawn drops output exactly the same way, and its loss has
+// to reach the summary even though nothing is ever returned to runStep.
+function recordStepEvidence(label, evidence) {
+  if (evidence.complete === true) return evidence;
+  evidenceOmissions.push({
+    label,
+    logPersisted: evidence.logPersisted,
+    logOmittedChars: evidence.logOmittedChars,
+    logOmittedLines: evidence.logOmittedLines,
+    spoolOmittedChars: evidence.spoolOmittedChars,
+    spoolOmittedChunks: evidence.spoolOmittedChunks,
+  });
+  return evidence;
+}
+
 async function runStep(label, command, commandArgs, options = {}) {
   const expectFailure = options.expectFailure ?? false;
   await logLine("");
   await logLine(`[surfpool-sdk-smoke] >>> ${label}`);
-  const output = await spawnLogged(command, commandArgs, options);
-  if (output.evidence.complete !== true) {
-    evidenceOmissions.push({
-      label,
-      logOmittedChars: output.evidence.logOmittedChars,
-      logOmittedLines: output.evidence.logOmittedLines,
-      spoolOmittedChars: output.evidence.spoolOmittedChars,
-      spoolOmittedChunks: output.evidence.spoolOmittedChunks,
-    });
-  }
+  const output = await spawnLogged(label, command, commandArgs, options);
   if (expectFailure ? output.status === 0 : output.status !== 0) {
     const expectation = expectFailure ? "expected failure but command succeeded" : `command failed with exit ${output.status}`;
     throw new Error(`${label}: ${expectation}`);
@@ -354,7 +368,7 @@ async function runStep(label, command, commandArgs, options = {}) {
   return output.evidence;
 }
 
-function spawnLogged(command, commandArgs, options = {}) {
+function spawnLogged(label, command, commandArgs, options = {}) {
   const commandTimeoutMs = options.timeoutMs ?? 10 * 60 * 1000;
   const childEnv = options.replaceEnv
     ? { ...(options.env ?? {}) }
@@ -414,29 +428,44 @@ function spawnLogged(command, commandArgs, options = {}) {
     };
     attachStream(child.stdout);
     attachStream(child.stderr);
-    child.once("error", (error) => {
+    // Every terminal path settles the same way: stop the timers, flush what the redactors still
+    // hold, wait for the queued log writes, then finalize exactly one evidence record. Only after
+    // the record is recorded does the outcome decide between resolve and reject.
+    let settlement;
+    const settle = () => {
+      // 'error' and 'close' can both fire for the same child; the record — and the flush that feeds
+      // it — must happen exactly once.
+      if (settlement) return settlement;
       clearTimeout(commandTimer);
       abortController.signal.removeEventListener("abort", onAbort);
       cancelPendingEscalations(child);
       flushStreams();
       if (activeChild === child) activeChild = undefined;
-      reject(error);
+      settlement = logWriteChain.then(() => {
+        const logError = takeLogWriteError();
+        const record = recordStepEvidence(
+          label,
+          createStepEvidenceRecord(evidence, streamBuffers, {
+            logFile: rel(logFile),
+            logPersisted: !logPersistenceFailed,
+          }),
+        );
+        return { logError, record };
+      });
+      return settlement;
+    };
+    child.once("error", (error) => {
+      settle().then(() => reject(error), () => reject(error));
     });
     child.once("close", (code, signal) => {
-      clearTimeout(commandTimer);
-      abortController.signal.removeEventListener("abort", onAbort);
-      cancelPendingEscalations(child);
-      flushStreams();
-      if (activeChild === child) activeChild = undefined;
-      logWriteChain
-        .then(() => {
-          const logError = takeLogWriteError();
-          if (logError) throw logError;
+      settle()
+        .then(({ logError, record }) => {
+          if (logError) return reject(logError);
           if (abortedReason) return reject(abortedReason);
           return resolve({
             status: code ?? (signal ? 128 + (signal === "SIGINT" ? 2 : 15) : 1),
             signal,
-            evidence: createStepEvidenceRecord(evidence, streamBuffers, { logFile: rel(logFile) }),
+            evidence: record,
           });
         })
         .catch(reject);
@@ -554,7 +583,7 @@ async function writeSummary({ target, programs = [], status, failure }) {
   }
   lines.push("", "## Cleanup", ...cleanupNotes.map((note) => `- ${note}`));
   lines.push("", "## Artifacts", `- Log: ${rel(logFile)}`);
-  lines.push(`- Evidence completeness: ${summarizeEvidenceCompleteness(evidenceOmissions)}`);
+  lines.push(`- Evidence completeness: ${summarizeEvidenceCompleteness(evidenceOmissions, { logPersisted: !logPersistenceFailed })}`);
   lines.push(`- Accepted evidence receipt: ${acceptedReceiptSummaryLine(status)}`);
   // Only ever from the outcome publication produced under its lock: a pre-publication observation of
   // the receipt path can be overtaken by a concurrent publisher, and this summary is immutable once
