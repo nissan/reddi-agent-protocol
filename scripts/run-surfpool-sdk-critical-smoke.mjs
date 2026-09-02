@@ -15,6 +15,7 @@ import {
   baselinePath,
   collectStepEvidenceOmission,
   createEvidenceLogWriter,
+  describeSummaryPublicationFailure,
   localChildEnv,
   redactForEvidence,
   resolveRepositorySubpath,
@@ -214,8 +215,13 @@ try {
     // The summary is the only place a reader learns what the log lost, so its own failure is
     // reported on the operator channel rather than thrown into an unhandled rejection that would
     // also skip the exit code.
-    process.stderr.write(`[surfpool-sdk-smoke] summary publication failed: ${error.message}; ${rel(summaryFile)} is missing or partial\n`);
     if (exitCode === 0) exitCode = 1;
+    process.stderr.write(`[surfpool-sdk-smoke] ${describeSummaryPublicationFailure({
+      error,
+      summaryFile: rel(summaryFile),
+      repoRoot,
+      home: process.env.HOME,
+    })}\n`);
   }
 }
 

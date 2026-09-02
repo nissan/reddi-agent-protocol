@@ -800,6 +800,34 @@ export function redactForEvidence(value, options = {}) {
   return text;
 }
 
+/**
+ * The operator notice for a run whose summary could not be published.
+ *
+ * It is built here rather than interpolated at the call site for two reasons. The text carries a
+ * filesystem error message, which is the one place an absolute repository or home path reaches an
+ * operator channel unredacted, and it is unbounded input on a single CI log line. Both are handled
+ * on the way through: the message passes the same redactor every other operator-facing channel
+ * uses, is collapsed to one line, and is truncated with an explicit count of what was dropped.
+ *
+ * The claim it makes is deliberately an invariant of reaching this state, not an observation of the
+ * disk. Any path that produces this notice exits nonzero and publishes no receipt for the run, so
+ * both of those can be stated. Which summary is on disk cannot: the write may have failed before
+ * anything was written, part-way through, or after an earlier PASS summary from the same run was
+ * already durable. Naming one of those would be a guess, so all of them are named as possible.
+ */
+export function describeSummaryPublicationFailure(options = {}) {
+  const { error, summaryFile = "the run summary", repoRoot, home, maxErrorChars = 2_000 } = options;
+  const message = error?.message ?? String(error ?? "unknown error");
+  const redacted = redactForEvidence(message, { repoRoot, home }).replace(/[\r\n]+/g, " ").trim();
+  const reason = redacted.length > maxErrorChars
+    ? `${redacted.slice(0, maxErrorChars)}[truncated ${redacted.length - maxErrorChars} character(s)]`
+    : redacted;
+  return `summary publication failed: ${reason}. This run's authoritative result is failure — it exits nonzero and `
+    + `published no accepted-evidence receipt of its own, so it must not be accepted. ${summaryFile} is untrusted: it `
+    + `may be absent, partial, stale from an earlier write in this run, or still report PASS, and this run did not `
+    + "verify which.";
+}
+
 export const OVERSIZED_LOG_LINE_MARKER = "[redacted: oversized unterminated log line omitted]\n";
 
 export function createRedactingLineBuffer(options = {}) {

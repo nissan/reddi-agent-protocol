@@ -20,6 +20,7 @@ import {
   createTruncatingEvidenceBuffer,
   collectStepEvidenceOmission,
   createEvidenceLogWriter,
+  describeSummaryPublicationFailure,
   redactForEvidence,
   spawnLoggedStep,
   startLocalSurfnet,
@@ -1079,6 +1080,84 @@ for (const logPersisted of [true, false]) {
     }
   }
 }
+
+test("the summary-failure notice redacts the paths a filesystem error carries", () => {
+  // The hosted-runner shape: an absolute repository path and a home path inside an fs error, on the
+  // one operator channel that reports a summary the run could not publish.
+  const repoRoot = "/home/runner/work/rap/rap";
+  const home = "/home/runner";
+  const error = new Error(
+    `EACCES: permission denied, mkdir '${repoRoot}/artifacts/surfpool-quasar-smoke/sdk-quasar-1234'`
+    + ` (cache ${home}/.cache/solana)`,
+  );
+
+  const notice = describeSummaryPublicationFailure({
+    error,
+    summaryFile: "artifacts/surfpool-quasar-smoke/sdk-quasar-1234/SUMMARY.md",
+    repoRoot,
+    home,
+  });
+
+  assert.equal(notice.includes(repoRoot), false, "the absolute repository path must not reach the operator channel");
+  assert.equal(notice.includes(home), false, "the absolute home path must not reach the operator channel");
+  assert.match(notice, /<repo>\/artifacts\/surfpool-quasar-smoke/);
+  assert.match(notice, /~\/\.cache\/solana/);
+  assert.match(notice, /EACCES: permission denied/, "the diagnosis itself must survive redaction");
+});
+
+test("the summary-failure notice redacts key material and stays on one bounded line", () => {
+  const keypair = `AGENT_A_KEYPAIR=[${Array.from({ length: 64 }, (_, i) => i + 1).join(",")}]`;
+  const notice = describeSummaryPublicationFailure({
+    error: new Error(`write failed while flushing ${keypair}\nsecond line\rthird line`),
+    summaryFile: "artifacts/SUMMARY.md",
+  });
+
+  assert.equal(notice.includes("AGENT_A_KEYPAIR=["), false, "key material must not reach the operator channel");
+  assert.match(notice, /AGENT_KEYPAIR=<redacted>/);
+  assert.equal(notice.includes("\n"), false, "the notice must stay a single stderr line");
+  assert.equal(notice.includes("\r"), false);
+  assert.match(notice, /second line third line/, "collapsed lines are kept, not dropped");
+});
+
+test("an oversized summary-failure reason is truncated with the count it dropped", () => {
+  const maxErrorChars = 200;
+  const notice = describeSummaryPublicationFailure({
+    error: new Error("x".repeat(5_000)),
+    summaryFile: "artifacts/SUMMARY.md",
+    maxErrorChars,
+  });
+
+  assert.ok(notice.length < 1_500, `the notice must stay bounded; got ${notice.length}`);
+  assert.match(notice, /\[truncated 4800 character\(s\)\]/);
+  assert.equal(notice.includes("x".repeat(maxErrorChars + 1)), false, "no more than the bound survives");
+});
+
+test("the summary-failure notice states the run's invariant and never guesses the file's state", () => {
+  const notice = describeSummaryPublicationFailure({
+    error: new Error("ENOSPC: no space left on device"),
+    summaryFile: "artifacts/surfpool-quasar-smoke/sdk-quasar-1234/SUMMARY.md",
+  });
+
+  // Reaching this notice is only possible on a path that exits nonzero and published no receipt, so
+  // those two are asserted; which summary is on disk was never observed, so all four states are
+  // named as possible rather than one being claimed.
+  assert.match(notice, /authoritative result is failure/);
+  assert.match(notice, /published no accepted-evidence receipt of its own, so it must not be accepted/);
+  assert.match(notice, /may be absent, partial, stale from an earlier write in this run, or still report PASS/);
+  assert.match(notice, /did not verify which/);
+  assert.equal(
+    notice.includes("is missing or partial"),
+    false,
+    "a PASS summary already durable on disk is neither missing nor partial, so it may not be claimed to be",
+  );
+  assert.match(notice, /artifacts\/surfpool-quasar-smoke\/sdk-quasar-1234\/SUMMARY\.md is untrusted/);
+});
+
+test("the summary-failure notice survives a thrown non-Error value", () => {
+  const notice = describeSummaryPublicationFailure({ error: "raw string failure", summaryFile: "artifacts/SUMMARY.md" });
+  assert.match(notice, /summary publication failed: raw string failure/);
+  assert.match(notice, /must not be accepted/);
+});
 
 test("SIGINT teardown stops an in-process SDK Surfnet and closes its ports", async () => {
   const childSource = `
