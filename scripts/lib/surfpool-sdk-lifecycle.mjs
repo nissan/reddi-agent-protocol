@@ -516,6 +516,13 @@ export function assertQuasarPerFailClosedOutput(output) {
   return true;
 }
 
+/**
+ * Redacts paths and key material from step output. Every substitution must consume the secret and
+ * nothing else: this is the text the lane's "must NOT contain" assertions run over, so a pattern
+ * that swallowed the rest of the line could delete a prohibited marker without any stage counting
+ * the loss. That is why the keypair class excludes `]` — it stops at the array's own terminator
+ * instead of backtracking to the last bracket on the line.
+ */
 export function redactForEvidence(value, options = {}) {
   let text = String(value ?? "");
   const replacements = [];
