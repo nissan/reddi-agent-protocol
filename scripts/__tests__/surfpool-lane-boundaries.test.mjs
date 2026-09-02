@@ -146,6 +146,8 @@ test("the Quasar SDK workflow is triggered by refusal and compatibility surface 
     "lib/register/**",
     "lib/registry/**",
     "lib/useOnchainAgents.ts",
+    "scripts/lib/json-schema-subset.mjs",
+    "scripts/__tests__/quasar-runtime-compatibility-schema.test.mjs",
     "packages/agent-protocol/**",
     "packages/per-client/**",
     "docs/ECONOMIC-DEMO-JUDGE-PACKET-2026-05-05.md",
@@ -160,6 +162,18 @@ test("the Quasar SDK workflow is triggered by refusal and compatibility surface 
     for (const requiredPath of requiredPaths) {
       assert.ok(paths.includes(requiredPath), `${eventName} must cover ${requiredPath}`);
     }
+  }
+});
+
+test("the Quasar readiness guard is triggered by runtime-compatibility schema contract changes", () => {
+  const workflow = loadWorkflow("quasar-readiness-guard.yml");
+  const paths = workflow.on.pull_request.paths;
+  for (const requiredPath of [
+    "scripts/check-quasar-*.mjs",
+    "scripts/lib/json-schema-subset.mjs",
+    "scripts/__tests__/quasar-runtime-compatibility-schema.test.mjs",
+  ]) {
+    assert.ok(paths.includes(requiredPath), `pull_request must cover ${requiredPath}`);
   }
 });
 

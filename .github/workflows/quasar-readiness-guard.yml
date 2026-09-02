@@ -10,6 +10,8 @@ on:
       - "lib/**"
       - "packages/demo-agents/**"
       - "scripts/check-quasar-*.mjs"
+      - "scripts/lib/json-schema-subset.mjs"
+      - "scripts/__tests__/quasar-runtime-compatibility-schema.test.mjs"
       - "package.json"
       - "package-lock.json"
   workflow_dispatch:
