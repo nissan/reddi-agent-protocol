@@ -1,5 +1,6 @@
 import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * `artifacts/economic-demo-submission-prep/latest` is a generated convenience
@@ -8,17 +9,22 @@ import { join } from "node:path";
  * requiring an artifact the repository does not contain. See
  * docs/PUBLIC-CLAIM-BOUNDARY.md § Evidence artifacts that are not committed.
  */
-export const SUBMISSION_PREP_PARENT_DIR = "artifacts/economic-demo-submission-prep";
-export const SUBMISSION_PREP_LATEST_PATH = `${SUBMISSION_PREP_PARENT_DIR}/latest/SUBMISSION-PREP.md`;
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const PARENT_DIR = join(ROOT, "artifacts", "economic-demo-submission-prep");
 
+/** Canonical repository-relative identifier, used for guard file lists and reporting. */
+export const SUBMISSION_PREP_LATEST_PATH = "artifacts/economic-demo-submission-prep/latest/SUBMISSION-PREP.md";
+
+/** Absolute path to the newest committed submission prep, independent of cwd. */
 export function resolveSubmissionPrepPath() {
-  if (existsSync(SUBMISSION_PREP_LATEST_PATH)) return SUBMISSION_PREP_LATEST_PATH;
-  if (!existsSync(SUBMISSION_PREP_PARENT_DIR)) return SUBMISSION_PREP_LATEST_PATH;
-  const newest = readdirSync(SUBMISSION_PREP_PARENT_DIR, { withFileTypes: true })
+  const latest = join(ROOT, SUBMISSION_PREP_LATEST_PATH);
+  if (existsSync(latest)) return latest;
+  if (!existsSync(PARENT_DIR)) return latest;
+  const newest = readdirSync(PARENT_DIR, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && /^\d{8}T\d{6}Z$/.test(entry.name))
-    .map((entry) => join(SUBMISSION_PREP_PARENT_DIR, entry.name, "SUBMISSION-PREP.md"))
+    .map((entry) => join(PARENT_DIR, entry.name, "SUBMISSION-PREP.md"))
     .filter((path) => existsSync(path))
     .sort()
     .at(-1);
-  return newest ?? SUBMISSION_PREP_LATEST_PATH;
+  return newest ?? latest;
 }
