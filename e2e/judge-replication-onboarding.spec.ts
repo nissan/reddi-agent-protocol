@@ -1,10 +1,31 @@
 import { expect, test } from "@playwright/test";
 
+import { onboardingVideos } from "../lib/onboarding/video-guides";
+
 const proofVideos = [
   "Claude Code pays a RAP specialist",
   "Run the paid economic demo",
   "Register an agent on-chain",
 ];
+
+/**
+ * Cards whose recording predates the public-claim remediation render a
+ * withheld-notice placeholder instead of a <video>, so the playable and
+ * withheld tallies are derived from the shipped guide data rather than pinned.
+ */
+function guidesOn(ids: string[]) {
+  const guides = ids.map((id) => {
+    const guide = onboardingVideos.find((candidate) => candidate.id === id);
+    if (!guide) throw new Error(`unknown onboarding guide: ${id}`);
+    return guide;
+  });
+  return {
+    playable: guides.filter((guide) => !guide.mediaStale).length,
+    withheld: guides.filter((guide) => guide.mediaStale).length,
+  };
+}
+
+const PROOF_CARD_IDS = ["mcp-x402", "economic-proof", "register-agent"];
 
 test.describe("judge replication onboarding", () => {
   test("Given a judge lands on the homepage, they can find proof videos and verifier guidance", async ({ page }) => {
@@ -15,9 +36,11 @@ test.describe("judge replication onboarding", () => {
       await expect(nav.getByRole("link", { name: "Verify", exact: true })).toBeVisible();
     });
 
-    await test.step("Then the three submitted proof videos are visible", async () => {
+    await test.step("Then the three proof cards render, playable or explicitly withheld", async () => {
       await expect(page.getByText("Start with the 3 proof videos")).toBeVisible();
-      await expect(page.locator("video")).toHaveCount(3);
+      const { playable, withheld } = guidesOn(PROOF_CARD_IDS);
+      await expect(page.locator("video")).toHaveCount(playable);
+      await expect(page.getByText(/Recording withheld/i)).toHaveCount(withheld);
       for (const title of proofVideos) {
         await expect(page.getByText(title).first()).toBeVisible();
       }
@@ -32,12 +55,14 @@ test.describe("judge replication onboarding", () => {
     });
   });
 
-  test("Given a tester opens Start, the overview and proof cards include playable captions", async ({ page }) => {
+  test("Given a tester opens Start, every card is either playable with captions or explicitly withheld", async ({ page }) => {
     await page.goto("/start");
 
     await expect(page.getByRole("heading", { name: /Start with a 43s overview, then 3 proof videos/i })).toBeVisible();
-    await expect(page.locator("video")).toHaveCount(4);
-    await expect(page.locator('track[kind="captions"]')).toHaveCount(4);
+    const { playable, withheld } = guidesOn(["overview", ...PROOF_CARD_IDS]);
+    await expect(page.locator("video")).toHaveCount(playable);
+    await expect(page.locator('track[kind="captions"]')).toHaveCount(playable);
+    await expect(page.getByText(/Recording withheld/i)).toHaveCount(withheld);
 
     await expect(page.getByText("Choose your protocol path")).toBeVisible();
     for (const title of proofVideos) {
@@ -72,7 +97,9 @@ test.describe("judge replication onboarding", () => {
 
     await expect(page.getByRole("heading", { name: /Describe your specialist for RAP Assurance/i }).last()).toBeVisible();
     await expect(page.getByText("Register an agent on-chain")).toBeVisible();
-    await expect(page.locator("video")).toHaveCount(1);
+    const { playable, withheld } = guidesOn(["register-agent"]);
+    await expect(page.locator("video")).toHaveCount(playable);
+    await expect(page.getByText(/Recording withheld/i)).toHaveCount(withheld);
     await expect(page.getByText(/Connect wallet/i).first()).toBeVisible();
   });
 

@@ -30,7 +30,9 @@ The boundary is enforced in two halves that share one pattern list (`lib/public-
 | Surface | Check |
 |---|---|
 | Owned prose and package metadata (README/docs/`package.json`) | `npm run check:claims:public` (`.github/workflows/public-claim-boundary.yml`) |
-| Rendered app copy and document metadata | `e2e/public-claim-boundary.spec.ts`, `e2e/home.spec.ts` (blocking Playwright funnel lane) |
+| Rendered app copy and document metadata | `e2e/public-claim-boundary.spec.ts` (blocking Playwright funnel lane) |
+
+`e2e/home.spec.ts` runs in the same lane but is a separate literal-copy regression spec: it asserts the central message renders in the hero and footer, and does not consume the shared pattern list.
 
 The static gate carries a negative control: `node scripts/check-public-claim-boundaries.mjs --negative-control` injects every forbidden claim's affirmative example and must exit 1, so a gate that has stopped catching overclaims fails CI.
 
