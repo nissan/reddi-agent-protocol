@@ -113,6 +113,31 @@ test("Surfnet endpoint validation enforces HTTP RPC and WS websocket schemes", (
   );
 });
 
+test("Surfnet endpoint validation requires two distinct dynamic loopback sockets", () => {
+  // The schemes differ by construction, so only the host+port authority distinguishes these.
+  for (const [rpcUrl, wsUrl] of [
+    ["http://127.0.0.1:18180", "ws://127.0.0.1:18180"],
+    ["http://127.0.0.001:18180", "ws://127.0.0.1:18180"],
+    ["http://[::1]:18180", "ws://[0:0:0:0:0:0:0:1]:18180"],
+  ]) {
+    assert.throws(
+      () => validateSurfnetEndpoints({ rpcUrl, wsUrl }),
+      /must be distinct dynamic loopback sockets/,
+      `${rpcUrl} and ${wsUrl} are one socket and must be refused`,
+    );
+  }
+
+  assert.deepEqual(validateSurfnetEndpoints({
+    rpcUrl: "http://[::1]:18180",
+    wsUrl: "ws://127.0.0.1:18181",
+  }), {
+    rpcUrl: "http://[::1]:18180/",
+    wsUrl: "ws://127.0.0.1:18181/",
+    rpcPort: 18180,
+    wsPort: 18181,
+  });
+});
+
 test("readiness timeout stops the SDK Surfnet it started", async () => {
   let stopped = 0;
   class FakeSurfnet {

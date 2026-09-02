@@ -13,6 +13,8 @@ import {
   ACCEPTED_EVIDENCE_MAX_AGE_MS,
   ACCEPTED_EVIDENCE_MAX_BYTES,
   EvidenceManifestError,
+  EvidencePublicationIndeterminateError,
+  LANE_SOURCE_FINGERPRINT_ALGORITHM,
   assertContainedArtifactPath,
   computeLaneSourceFingerprint,
   readAcceptedEvidenceManifest,
@@ -441,7 +443,7 @@ test("publishing refuses an artifact path that escapes the target evidence direc
         status: "PASS",
         repoRoot,
         manifestRelativeDir: dir,
-        sourceFingerprint: "sha256:whatever",
+        sourceFingerprint: `${LANE_SOURCE_FINGERPRINT_ALGORITHM}:whatever`,
         artifacts: [{ name: "summary", path: "../../secrets/id.json" }],
         provenance: { command: "npm run test:surfpool:quasar-critical" },
       }),
@@ -460,7 +462,7 @@ test("publishing refuses an absolute artifact path and one under a sibling evide
       status: "PASS",
       repoRoot,
       manifestRelativeDir: dir,
-      sourceFingerprint: "sha256:whatever",
+      sourceFingerprint: `${LANE_SOURCE_FINGERPRINT_ALGORITHM}:whatever`,
       provenance: { command: "npm run test:surfpool:quasar-critical" },
     };
 
@@ -1287,4 +1289,244 @@ fs.lstatSync = function patchedLstatSync(target, options) {
       assert.match(child.outcome, new RegExp(`^REFUSED .*${expected.source}`), label);
     });
   }
+});
+
+test("two source trees that differ cannot share one fingerprint through embedded separators", async () => {
+  // The pre-v2 encoding hashed `<path>\0<contents>\0` per file with no length framing. Because file
+  // contents are raw bytes, deleting a fingerprinted file and re-embedding `\0<its path>\0<its
+  // bytes>` at the tail of the immediately preceding sorted file reproduced the identical stream, so
+  // a receipt published before the deletion still validated after it.
+  const first = "packages/demo-agents/src/aaa.ts";
+  const second = "packages/demo-agents/src/bbb.ts";
+
+  const fingerprintAfter = (seed) => withRepo(async (repoRoot) => {
+    await seedFingerprintSources(repoRoot, "quasar");
+    await seed(repoRoot);
+    return computeLaneSourceFingerprint(repoRoot, "quasar");
+  });
+
+  const twoFiles = await fingerprintAfter(async (repoRoot) => {
+    await writeRepoFile(repoRoot, first, "P");
+    await writeRepoFile(repoRoot, second, "Q");
+  });
+  const oneFileCarryingBoth = await fingerprintAfter(async (repoRoot) => {
+    await writeRepoFile(repoRoot, first, `P\0${second}\0Q`);
+  });
+
+  assert.notEqual(
+    oneFileCarryingBoth,
+    twoFiles,
+    "deleting a fingerprinted file must not be reproducible inside its predecessor's bytes",
+  );
+});
+
+test("a receipt recording another source fingerprint algorithm is refused, not reinterpreted", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-fingerprint-algorithm");
+    const { manifestPath, manifest } = await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
+
+    assert.equal(manifest.sourceFingerprintAlgorithm, LANE_SOURCE_FINGERPRINT_ALGORITHM);
+    assert.doesNotThrow(() =>
+      readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary"] }));
+
+    await fsp.writeFile(
+      manifestPath,
+      `${JSON.stringify({ ...manifest, sourceFingerprintAlgorithm: "sha256-path-nul-contents" }, null, 2)}\n`,
+    );
+
+    assert.throws(
+      () => readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary"] }),
+      /which this reader does not accept/,
+    );
+  });
+});
+
+// Durable publication is the only place a passing run may displace previously accepted evidence.
+// These inject the failures that can happen around the rename, because the outcome the runner
+// reports (previous receipt intact, restored, or unknown) is only correct if each one is handled.
+async function withPatchedFs(patches, run) {
+  const originals = Object.fromEntries(Object.keys(patches).map((key) => [key, fs[key]]));
+  Object.assign(fs, patches);
+  try {
+    return await run();
+  } finally {
+    Object.assign(fs, originals);
+  }
+}
+
+function failingDirectoryFsync(originalFsyncSync, { times = Number.POSITIVE_INFINITY } = {}) {
+  let failed = 0;
+  return function patchedFsyncSync(fd) {
+    if (failed < times && fs.fstatSync(fd).isDirectory()) {
+      failed += 1;
+      const error = new Error("EIO: simulated directory fsync failure");
+      error.code = "EIO";
+      throw error;
+    }
+    return originalFsyncSync.call(this, fd);
+  };
+}
+
+test("a failure before the rename leaves the previously accepted receipt in place", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const accepted = await seedRun(repoRoot, dir, "sdk-quasar-publish-first");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), accepted);
+    const before = await fsp.readFile(path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME));
+
+    const replacement = await seedRun(repoRoot, dir, "sdk-quasar-publish-second");
+    const originalRenameSync = fs.renameSync;
+    const error = await withPatchedFs(
+      {
+        renameSync() {
+          const failure = new Error("EXDEV: simulated rename failure");
+          failure.code = "EXDEV";
+          throw failure;
+        },
+      },
+      () => writeAcceptedEvidenceManifest(path.join(repoRoot, dir), replacement).then(
+        () => null,
+        (thrown) => thrown,
+      ),
+    );
+    assert.equal(fs.renameSync, originalRenameSync);
+
+    assert.ok(error, "publication must fail when the rename cannot happen");
+    assert.equal(error.publicationOutcome, "not-published");
+    assert.deepEqual(await fsp.readFile(path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME)), before);
+    assert.equal(
+      readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary"] }).manifest.runId,
+      accepted.runId,
+    );
+    const leftovers = (await fsp.readdir(path.join(repoRoot, dir))).filter((entry) => entry.startsWith("."));
+    assert.deepEqual(leftovers, [], "no temp or rollback file may be left behind");
+  });
+});
+
+test("a directory sync failure after the rename restores the previously accepted receipt", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const accepted = await seedRun(repoRoot, dir, "sdk-quasar-rollback-first");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), accepted);
+    const before = await fsp.readFile(path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME));
+
+    const replacement = await seedRun(repoRoot, dir, "sdk-quasar-rollback-second");
+    const error = await withPatchedFs(
+      { fsyncSync: failingDirectoryFsync(fs.fsyncSync, { times: 1 }) },
+      () => writeAcceptedEvidenceManifest(path.join(repoRoot, dir), replacement).then(
+        () => null,
+        (thrown) => thrown,
+      ),
+    );
+
+    assert.ok(error, "an unsyncable directory must not be reported as a successful publication");
+    assert.equal(error.publicationOutcome, "rolled-back");
+    assert.deepEqual(
+      await fsp.readFile(path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME)),
+      before,
+      "the previous receipt must be restored byte for byte",
+    );
+    assert.equal(
+      readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary"] }).manifest.runId,
+      accepted.runId,
+    );
+    const leftovers = (await fsp.readdir(path.join(repoRoot, dir))).filter((entry) => entry.startsWith("."));
+    assert.deepEqual(leftovers, []);
+  });
+});
+
+test("a directory sync failure with no previous receipt leaves no receipt at all", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-rollback-none");
+
+    const error = await withPatchedFs(
+      { fsyncSync: failingDirectoryFsync(fs.fsyncSync, { times: 1 }) },
+      () => writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record).then(
+        () => null,
+        (thrown) => thrown,
+      ),
+    );
+
+    assert.ok(error);
+    assert.equal(error.publicationOutcome, "not-published");
+    assert.equal(fs.existsSync(path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME)), false);
+    const leftovers = (await fsp.readdir(path.join(repoRoot, dir))).filter((entry) => entry.startsWith("."));
+    assert.deepEqual(leftovers, []);
+  });
+});
+
+test("a rollback that cannot be proven durable reports an indeterminate publication", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const accepted = await seedRun(repoRoot, dir, "sdk-quasar-indeterminate-first");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), accepted);
+
+    const replacement = await seedRun(repoRoot, dir, "sdk-quasar-indeterminate-second");
+    const error = await withPatchedFs(
+      { fsyncSync: failingDirectoryFsync(fs.fsyncSync) },
+      () => writeAcceptedEvidenceManifest(path.join(repoRoot, dir), replacement).then(
+        () => null,
+        (thrown) => thrown,
+      ),
+    );
+
+    assert.ok(error instanceof EvidencePublicationIndeterminateError);
+    assert.equal(error.publicationOutcome, "indeterminate");
+    assert.match(error.message, /must not be cited as accepted evidence/);
+  });
+});
+
+test("a rollback whose rename fails keeps the previous receipt's exact bytes on disk", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const accepted = await seedRun(repoRoot, dir, "sdk-quasar-rollback-rename-first");
+    await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), accepted);
+    const before = await fsp.readFile(path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME));
+
+    const replacement = await seedRun(repoRoot, dir, "sdk-quasar-rollback-rename-second");
+    const originalRenameSync = fs.renameSync;
+    let renames = 0;
+    const error = await withPatchedFs(
+      {
+        fsyncSync: failingDirectoryFsync(fs.fsyncSync, { times: 1 }),
+        renameSync(from, to) {
+          renames += 1;
+          if (renames === 2) {
+            const failure = new Error("EIO: simulated rollback rename failure");
+            failure.code = "EIO";
+            throw failure;
+          }
+          return originalRenameSync.call(this, from, to);
+        },
+      },
+      () => writeAcceptedEvidenceManifest(path.join(repoRoot, dir), replacement).then(
+        () => null,
+        (thrown) => thrown,
+      ),
+    );
+
+    assert.ok(error instanceof EvidencePublicationIndeterminateError);
+    assert.equal(error.publicationOutcome, "indeterminate");
+    const retained = (await fsp.readdir(path.join(repoRoot, dir))).filter((entry) => entry.endsWith(".rollback"));
+    assert.equal(retained.length, 1, "the prior receipt's bytes must survive a failed rollback");
+    assert.deepEqual(await fsp.readFile(path.join(repoRoot, dir, retained[0])), before);
+  });
+});
+
+test("publishing refuses to replace an accepted receipt that is not an ordinary file", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-non-regular-receipt");
+    const manifestPath = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_FILENAME);
+    await fsp.mkdir(path.dirname(manifestPath), { recursive: true });
+    await fsp.symlink(path.join(os.tmpdir(), "foreign-receipt.json"), manifestPath);
+
+    await assert.rejects(
+      writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record),
+      /not an ordinary file/,
+    );
+    assert.equal((await fsp.lstat(manifestPath)).isSymbolicLink(), true);
+  });
 });

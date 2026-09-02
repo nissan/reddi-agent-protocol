@@ -57,6 +57,15 @@ export function normalizeHostname(hostname) {
   return String(hostname ?? "").trim().toLowerCase().replace(/^\[|\]$/g, "");
 }
 
+/**
+ * `host:port` of a parsed URL with the scheme dropped. `URL` already canonicalizes both IPv4
+ * (`127.0.0.001` → `127.0.0.1`) and IPv6 (`[0:0:0:0:0:0:0:1]` → `[::1]`) literals, so normalizing
+ * case and brackets is enough to compare two endpoints as sockets rather than as strings.
+ */
+export function normalizedAuthority(url) {
+  return `${normalizeHostname(url.hostname)}:${url.port}`;
+}
+
 export function isLoopbackHostname(hostname) {
   const host = normalizeHostname(hostname);
   if (host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1") return true;
@@ -211,8 +220,14 @@ export function validateSurfnetEndpoints(surfnet) {
   const rpc = assertLoopbackEndpoint(rpcUrl, "Surfnet RPC URL", { protocol: "http:" });
   const ws = assertLoopbackEndpoint(wsUrl, "Surfnet WebSocket URL", { protocol: "ws:" });
 
-  if (rpc.href === ws.href) {
-    throw new SurfpoolSafetyError("Surfnet RPC and WebSocket endpoints must be distinct dynamic loopback URLs");
+  // Comparing hrefs would compare schemes too, which the checks above already forced apart. The
+  // invariant that still needs enforcing is that the two endpoints are separate sockets: the SDK
+  // must report a distinct dynamically assigned port for each, on the same normalized loopback host
+  // or another one.
+  if (normalizedAuthority(rpc) === normalizedAuthority(ws)) {
+    throw new SurfpoolSafetyError(
+      `Surfnet RPC and WebSocket endpoints must be distinct dynamic loopback sockets; both resolved to ${normalizedAuthority(rpc)}`,
+    );
   }
 
   return {

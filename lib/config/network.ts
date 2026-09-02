@@ -351,11 +351,9 @@ export function getNetworkProfile(): NetworkProfile {
               ? `A malformed program id override was supplied for ${malformedOverrides.join(", ")}; it was ignored and the registered program id is used instead, so the configured override is not in effect.`
               : ignoredOverrides.length > 0
                 ? `A program id override was supplied for ${ignoredOverrides.join(", ")}, but it does not match the registered devnet program set and the build-time unsafe-override flag was not set; the registered program id is used instead.`
-                : quasarDeploymentBlocked
+                : target === "quasar" && name === "devnet"
                   ? quasarDeployments.submissionReadyReason
-                  : target === "quasar" && name === "devnet"
-                    ? quasarDeployments.submissionReadyReason
-                    : undefined,
+                  : undefined,
       knownGaps: [
         ...(target === "quasar" && name === "devnet" ? quasarDevnet.knownGaps : []),
         ...malformedOverrideKnownGaps,

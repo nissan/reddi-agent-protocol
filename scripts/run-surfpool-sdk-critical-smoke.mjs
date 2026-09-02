@@ -25,6 +25,8 @@ import {
 } from "./lib/surfpool-sdk-lifecycle.mjs";
 import {
   ACCEPTED_EVIDENCE_FILENAME,
+  EVIDENCE_PUBLICATION_INDETERMINATE,
+  EVIDENCE_PUBLICATION_ROLLED_BACK,
   computeLaneSourceFingerprint,
   writeAcceptedEvidenceManifest,
 } from "./lib/surfpool-evidence-manifest.mjs";
@@ -547,8 +549,13 @@ async function publishAcceptedEvidence() {
     finalStatus = "FAIL";
     failureMessage ??= `accepted evidence receipt failed: ${error.message}`;
     if (exitCode === 0) exitCode = 1;
+    const receiptState = error.publicationOutcome === EVIDENCE_PUBLICATION_INDETERMINATE
+      ? `the accepted receipt state is INDETERMINATE; whatever is at ${rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_FILENAME))} must not be cited, and this run is reported FAIL so its summary no longer matches any published receipt`
+      : error.publicationOutcome === EVIDENCE_PUBLICATION_ROLLED_BACK
+        ? "the previously accepted receipt was durably restored"
+        : "the previously accepted receipt is left untouched";
     try {
-      await logLine(`[surfpool-sdk-smoke] accepted evidence receipt failed: ${error.message}; the previously accepted receipt is left untouched`);
+      await logLine(`[surfpool-sdk-smoke] accepted evidence receipt failed: ${error.message}; ${receiptState}`);
     } catch { /* the run already failed; log loss must not mask it */ }
     return false;
   }

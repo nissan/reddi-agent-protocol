@@ -4,7 +4,14 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 
 export const ACCEPTED_EVIDENCE_FILENAME = "accepted-evidence.json";
-export const ACCEPTED_EVIDENCE_VERSION = 3;
+export const ACCEPTED_EVIDENCE_VERSION = 4;
+
+/**
+ * Name and version of the lane source fingerprint encoding. It is recorded in every receipt and
+ * required to match exactly on read: a receipt carrying any other algorithm is refused rather than
+ * reinterpreted under this one, because two encodings can disagree about which trees are equal.
+ */
+export const LANE_SOURCE_FINGERPRINT_ALGORITHM = "rap-lane-source-fingerprint-v2-sha256";
 
 /**
  * Repository-owned freshness bound for Surfpool lane evidence: 14 days. Every consumer enforces it
@@ -283,25 +290,25 @@ function fileContentDigest(repoRoot, relativePath, options = {}) {
   return `sha256:${crypto.createHash("sha256").update(contents).digest("hex")}`;
 }
 
-function fsyncDirectorySync(directoryPath, label) {
+function openDirectoryForSync(directoryPath, label) {
   const { O_RDONLY, O_DIRECTORY, O_CLOEXEC } = fs.constants;
   if (typeof O_DIRECTORY !== "number") {
     throw new EvidenceManifestError(`this platform cannot durably sync ${label}, so accepted evidence cannot be published`);
   }
   let flags = O_RDONLY | O_DIRECTORY;
   if (typeof O_CLOEXEC === "number") flags |= O_CLOEXEC;
-  let fd;
   try {
-    fd = fs.openSync(directoryPath, flags);
+    return fs.openSync(directoryPath, flags);
   } catch (error) {
     throw new EvidenceManifestError(`${label} could not be opened for durable sync: ${error?.message ?? error}`);
   }
+}
+
+function fsyncDescriptorSync(fd, label) {
   try {
     fs.fsyncSync(fd);
   } catch (error) {
     throw new EvidenceManifestError(`${label} could not be durably synced: ${error?.message ?? error}`);
-  } finally {
-    fs.closeSync(fd);
   }
 }
 
@@ -325,11 +332,23 @@ function writeFileDurablySync(filePath, contents, label) {
   }
 }
 
+/**
+ * Length-prefixed record framing. A separator byte cannot be used here because file contents are
+ * arbitrary bytes and may contain it: with `path \0 contents \0` concatenation, deleting a file and
+ * re-embedding `\0<its path>\0<its bytes>` at the tail of the preceding sorted file reproduces the
+ * exact same stream, so two different trees hash equal. A fixed-width byte length in front of every
+ * record makes the encoding injective, so a fingerprint match means the trees really do match.
+ */
+function updateFramed(hash, bytes) {
+  const length = Buffer.alloc(8);
+  length.writeBigUInt64BE(BigInt(bytes.length));
+  hash.update(length);
+  hash.update(bytes);
+}
+
 function digestFile(hash, repoRoot, entry) {
-  hash.update(entry.relativePath.split(path.sep).join("/"));
-  hash.update("\0");
-  hash.update(readFingerprintedFile(repoRoot, entry.relativePath, { identity: entry }));
-  hash.update("\0");
+  updateFramed(hash, Buffer.from(entry.relativePath.split(path.sep).join("/"), "utf8"));
+  updateFramed(hash, readFingerprintedFile(repoRoot, entry.relativePath, { identity: entry }));
 }
 
 const FINGERPRINT_IGNORED_DIRECTORIES = new Set([
@@ -426,15 +445,38 @@ export function computeLaneSourceFingerprint(repoRoot, target) {
   for (const root of roots) walkFiles(repoRoot, root, files);
   files.sort((left, right) => (left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0));
   const hash = crypto.createHash("sha256");
-  hash.update(`target:${target}\0`);
+  updateFramed(hash, Buffer.from(LANE_SOURCE_FINGERPRINT_ALGORITHM, "utf8"));
+  updateFramed(hash, Buffer.from(String(target), "utf8"));
+  const fileCount = Buffer.alloc(8);
+  fileCount.writeBigUInt64BE(BigInt(files.length));
+  hash.update(fileCount);
   for (const file of files) digestFile(hash, repoRoot, file);
-  return `sha256:${hash.digest("hex")}`;
+  return `${LANE_SOURCE_FINGERPRINT_ALGORITHM}:${hash.digest("hex")}`;
 }
 
 export class EvidenceManifestError extends Error {
   constructor(message) {
     super(message);
     this.name = "EvidenceManifestError";
+  }
+}
+
+/**
+ * Publication outcomes a caller may report. `not-published` and `rolled-back` both leave the
+ * previous receipt as the only accepted evidence; `indeterminate` means the new receipt reached the
+ * directory entry, could not be proven durable, and could not be rolled back, so nothing may be
+ * reported about which receipt is on disk.
+ */
+export const EVIDENCE_PUBLICATION_NOT_PUBLISHED = "not-published";
+export const EVIDENCE_PUBLICATION_ROLLED_BACK = "rolled-back";
+export const EVIDENCE_PUBLICATION_INDETERMINATE = "indeterminate";
+
+export class EvidencePublicationIndeterminateError extends EvidenceManifestError {
+  constructor(message, options = {}) {
+    super(message);
+    this.name = "EvidencePublicationIndeterminateError";
+    this.publicationOutcome = EVIDENCE_PUBLICATION_INDETERMINATE;
+    this.cause = options.cause;
   }
 }
 
@@ -517,6 +559,12 @@ function assertPassRecord(record) {
   if (!record?.sourceFingerprint) {
     throw new EvidenceManifestError("accepted evidence requires a sourceFingerprint binding it to the sources that produced it");
   }
+  if (!String(record.sourceFingerprint).startsWith(`${LANE_SOURCE_FINGERPRINT_ALGORITHM}:`)) {
+    throw new EvidenceManifestError(
+      `accepted evidence requires a ${LANE_SOURCE_FINGERPRINT_ALGORITHM} sourceFingerprint; ` +
+      `got ${JSON.stringify(record.sourceFingerprint)}, which this publisher will not reinterpret`,
+    );
+  }
   if (!record?.repoRoot) {
     throw new EvidenceManifestError("accepted evidence requires repoRoot so artifact existence and containment can be verified");
   }
@@ -527,9 +575,41 @@ function assertPassRecord(record) {
 }
 
 /**
+ * Snapshot the receipt a publication is about to replace, so it can be restored byte for byte if
+ * publication cannot be completed durably. A receipt that is not an ordinary file is not accepted
+ * evidence any reader would take, and it is refused here rather than silently destroyed by the
+ * rename that follows.
+ */
+function readReplaceableReceiptSync(manifestDir) {
+  const manifestPath = path.join(manifestDir, ACCEPTED_EVIDENCE_FILENAME);
+  let existing;
+  try {
+    existing = fs.lstatSync(manifestPath);
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw new EvidenceManifestError(`the existing ${ACCEPTED_EVIDENCE_FILENAME} could not be inspected before publication: ${error?.message ?? error}`);
+  }
+  if (!existing.isFile()) {
+    throw new EvidenceManifestError(`refusing to replace an existing ${ACCEPTED_EVIDENCE_FILENAME} that is not an ordinary file`);
+  }
+  return readFingerprintedFile(manifestDir, ACCEPTED_EVIDENCE_FILENAME, {
+    containmentRootRealPath: fs.realpathSync(manifestDir),
+    maxBytes: ACCEPTED_EVIDENCE_MAX_BYTES,
+  });
+}
+
+/**
  * Atomically publish a per-target passing-evidence receipt. Written only after a run passes, via
  * temp-file + rename inside the same directory, so a concurrent or crashed writer can never leave a
  * torn manifest and a failed run can never displace previously accepted evidence.
+ *
+ * Publication succeeds only once the rename *and* the containing directory's fsync succeed. If the
+ * directory sync fails after the rename, the previous receipt (snapshotted durably beforehand) is
+ * renamed back and that rollback is itself synced, and the thrown error carries
+ * `publicationOutcome: "rolled-back"`. A failure before the rename carries `"not-published"`. If the
+ * rollback cannot be completed, an `EvidencePublicationIndeterminateError` is thrown instead: the
+ * caller then knows nothing about which receipt is on disk and must not report the previous one as
+ * intact, nor the new one as accepted.
  */
 export async function writeAcceptedEvidenceManifest(manifestDir, record) {
   assertPassRecord(record);
@@ -564,6 +644,7 @@ export async function writeAcceptedEvidenceManifest(manifestDir, record) {
     runId: record.runId,
     acceptedAt: record.acceptedAt ?? new Date().toISOString(),
     evidenceRoot: path.normalize(record.manifestRelativeDir).split(path.sep).join("/"),
+    sourceFingerprintAlgorithm: LANE_SOURCE_FINGERPRINT_ALGORITHM,
     sourceFingerprint: record.sourceFingerprint,
     artifacts,
     provenance: { ...record.provenance },
@@ -571,13 +652,58 @@ export async function writeAcceptedEvidenceManifest(manifestDir, record) {
   await fsp.mkdir(manifestDir, { recursive: true });
   const manifestPath = path.join(manifestDir, ACCEPTED_EVIDENCE_FILENAME);
   const tempPath = path.join(manifestDir, `.${ACCEPTED_EVIDENCE_FILENAME}.${crypto.randomUUID()}.tmp`);
+  const rollbackPath = path.join(manifestDir, `.${ACCEPTED_EVIDENCE_FILENAME}.${crypto.randomUUID()}.rollback`);
+
+  // The directory is opened before anything is published, so a directory that cannot be synced at
+  // all fails while the previous receipt is still the only one on disk.
+  const directoryFd = openDirectoryForSync(manifestDir, "accepted evidence directory");
+  let rollbackPrepared = false;
+  let renamed = false;
   try {
+    const previousReceipt = readReplaceableReceiptSync(manifestDir);
+    if (previousReceipt) {
+      writeFileDurablySync(rollbackPath, previousReceipt, "accepted evidence rollback copy");
+      rollbackPrepared = true;
+    }
     writeFileDurablySync(tempPath, `${JSON.stringify(manifest, null, 2)}\n`, "accepted evidence temp receipt");
     fs.renameSync(tempPath, manifestPath);
-    fsyncDirectorySync(manifestDir, "accepted evidence directory");
+    renamed = true;
+    fsyncDescriptorSync(directoryFd, "accepted evidence directory");
   } catch (error) {
+    if (!renamed) {
+      error.publicationOutcome ??= EVIDENCE_PUBLICATION_NOT_PUBLISHED;
+      throw error;
+    }
+    let restoredEntry = false;
+    try {
+      if (rollbackPrepared) fs.renameSync(rollbackPath, manifestPath);
+      else fs.unlinkSync(manifestPath);
+      restoredEntry = true;
+      fsyncDescriptorSync(directoryFd, "accepted evidence directory");
+    } catch (rollbackError) {
+      if (!restoredEntry) rollbackPrepared = false; // keep the prior bytes on disk for the operator
+      throw new EvidencePublicationIndeterminateError(
+        `accepted evidence publication is indeterminate: ${manifestPath} was renamed into place but ` +
+        `could not be durably published (${error.message}) and the previous state could not be restored ` +
+        `(${rollbackError.message}); the receipt now on disk must not be cited as accepted evidence`,
+        { cause: error },
+      );
+    }
+    const restored = new EvidenceManifestError(
+      `accepted evidence could not be durably published (${error.message}); ` +
+      (rollbackPrepared
+        ? "the previously accepted receipt was durably restored"
+        : "no accepted receipt is published"),
+    );
+    restored.publicationOutcome = rollbackPrepared
+      ? EVIDENCE_PUBLICATION_ROLLED_BACK
+      : EVIDENCE_PUBLICATION_NOT_PUBLISHED;
+    restored.cause = error;
+    throw restored;
+  } finally {
     await fsp.rm(tempPath, { force: true });
-    throw error;
+    if (rollbackPrepared) await fsp.rm(rollbackPath, { force: true });
+    fs.closeSync(directoryFd);
   }
   return { manifestPath, manifest };
 }
@@ -644,6 +770,14 @@ export function readAcceptedEvidenceManifest(repoRoot, manifestRelativeDir, { ta
   const boundRoot = path.normalize(manifestRelativeDir).split(path.sep).join("/");
   if (manifest.evidenceRoot !== boundRoot) {
     throw new EvidenceManifestError(`accepted evidence at ${manifestRelativeDir} was published for evidence root ${JSON.stringify(manifest.evidenceRoot)}, not ${JSON.stringify(boundRoot)}`);
+  }
+
+  if (manifest.sourceFingerprintAlgorithm !== LANE_SOURCE_FINGERPRINT_ALGORITHM) {
+    throw new EvidenceManifestError(
+      `accepted evidence at ${manifestRelativeDir} records source fingerprint algorithm ` +
+      `${JSON.stringify(manifest.sourceFingerprintAlgorithm)}, which this reader does not accept ` +
+      `(expected ${LANE_SOURCE_FINGERPRINT_ALGORITHM}); re-run the lane`,
+    );
   }
 
   const expectedFingerprint = computeLaneSourceFingerprint(repoRoot, manifest.target);
