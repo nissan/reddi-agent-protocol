@@ -3,8 +3,8 @@
  * Public-claim boundary contract for RAP Assurance.
  *
  * Owned-text contract only. Every file scanned here is one whose literal text
- * IS the published artifact: repository prose (README/docs) and package
- * manifest metadata. Rendered app copy is a claim only once it renders, so it
+ * IS the published artifact: repository prose (README/docs), package manifest
+ * metadata, and the WebVTT caption tracks served verbatim under /public. Rendered app copy is a claim only once it renders, so it
  * is gated at the DOM layer by `e2e/public-claim-boundary.spec.ts` and
  * `e2e/home.spec.ts`, which share this pattern list through
  * `lib/public-claims/public-claim-boundary-terms.ts`.
@@ -56,6 +56,10 @@ const activeClaimFiles = [
   "docs/verifiable-agent-protocol/README.md",
   "packages/per-client/README.md",
   "packages/openrouter-specialists/README.md",
+  "public/videos/onboarding/captions/overview.vtt",
+  "public/videos/onboarding/captions/hire-agent-x402.vtt",
+  "public/videos/onboarding/captions/economic-proof.vtt",
+  "public/videos/onboarding/captions/register-agent.vtt",
 ];
 
 const historicalFilesRequiringDisclaimer = [

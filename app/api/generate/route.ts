@@ -87,7 +87,7 @@ const HARDCODED_TRACE = [
       "Specialist commit: 0xb81c...3f90",
       "Consumer reveals: score 5 ✅",
       "Specialist reveals: score 4 ✅",
-      "→ TX: 9mKpCsaX...3q [EXPLORER:9mKpCsaX3q]",
+      "→ No transaction id: nothing was submitted in this trace",
       "→ Simulated EscrowState close · no rent or lamports move",
     ],
   },
@@ -98,7 +98,7 @@ const HARDCODED_TRACE = [
     lines: [
       "4 agents · 12 simulated steps · 0.0046 SOL illustrative total",
       "Quality score: 4.76 / 5",
-      "View all transactions on Solana Explorer ↗",
+      "No Explorer links: this trace produced no transactions",
     ],
   },
 ];

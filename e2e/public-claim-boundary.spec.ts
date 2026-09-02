@@ -1,7 +1,10 @@
 import { expect, test } from "@playwright/test";
 
 import { reddiReceiptFixtureCases } from "@reddi/agent-protocol/fixtures";
-import { buildSourceTrustConformanceMatrix } from "@reddi/agent-protocol/source-trust-conformance-matrix";
+import {
+  classifySourceTrustCandidate,
+  sourceTrustConformanceFixtureCases,
+} from "@reddi/agent-protocol/source-trust-conformance-matrix";
 
 import { specialistProfiles } from "../packages/openrouter-specialists/src/profiles/index";
 import {
@@ -24,6 +27,20 @@ import {
 // /api/registry can take >20s when the devnet RPC is slow; give the route
 // readiness anchors headroom beyond the 30s repo default.
 test.describe.configure({ timeout: 60_000 });
+
+/** Required cases the shipped classifier still demonstrates end to end. */
+function demonstratedSourceTrustCaseCount(): number {
+  const demonstrated = new Set<string>();
+  for (const fixture of Object.values(sourceTrustConformanceFixtureCases)) {
+    if (!fixture.requiredCase) continue;
+    const row = classifySourceTrustCandidate(fixture.input);
+    if (row.state !== fixture.expectedState) continue;
+    const codes = new Set(row.findings.map((finding) => finding.code));
+    if (!fixture.expectedFindingCodes.every((code) => codes.has(code))) continue;
+    demonstrated.add(fixture.requiredCase);
+  }
+  return demonstrated.size;
+}
 
 test.describe("public-claim boundary (rendered copy)", () => {
   for (const route of PUBLIC_CLAIM_DOM_ROUTES) {
@@ -84,7 +101,7 @@ test.describe("public-claim boundary (rendered copy)", () => {
       Object.keys(reddiReceiptFixtureCases).length,
     );
     expect(await readStat("Source-trust conformance cases")).toBe(
-      Object.keys(buildSourceTrustConformanceMatrix().coverage.requiredCases).length,
+      demonstratedSourceTrustCaseCount(),
     );
   });
 

@@ -20,7 +20,7 @@ export const onboardingVideos: OnboardingVideoGuide[] = [
     eyebrow: "Start here",
     title: "Choose your protocol path",
     description:
-      "Take a quick tour of the homepage, setup flow, marketplace, registration path, economic proof, and verifier command.",
+      "Take a quick tour of the homepage, setup flow, specialist directory, registration path, economic proof, and verifier command.",
     duration: "43s",
     route: "/start",
     videoSrc: "/videos/onboarding/overview.mp4",

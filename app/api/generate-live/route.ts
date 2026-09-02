@@ -232,10 +232,8 @@ export async function POST(req: Request) {
           ],
         });
 
-        // Step 8: Commit-reveal (real devnet TX)
+        // Step 8: Commit-reveal placeholder — this route never submits a transaction.
         await new Promise((r) => setTimeout(r, 600));
-        const mockRevealTx =
-          "5JrwMLaD681SLdNoySGxazDqZJtiSNKDYD1MRySVt4Ac9R6xWBfEKVawaLZFCTQmuiy5JyaVYQ2z6eEAt2XLj7TJ";
         emit({
           delay: midMs + 1400,
           icon: "🔐",
@@ -245,7 +243,7 @@ export async function POST(req: Request) {
             "Specialist commit: 0xb81c...3f90",
             "Consumer reveals: score 5 ✅",
             "Specialist reveals: score 4 ✅",
-            `→ TX: ${mockRevealTx.slice(0, 8)}... [EXPLORER:${mockRevealTx}]`,
+            "→ No transaction id: nothing was submitted in this run",
             "→ Simulated EscrowState close · no rent or lamports move",
           ],
         });
@@ -262,7 +260,7 @@ export async function POST(req: Request) {
             "Quality score: 4.72 / 5",
             `Devnet slot at run time: ${devnetProof.slot}`,
             `Delivery receipt: ${responseHash.slice(0, 16)}...`,
-            "View transactions on Solana Explorer ↗",
+            "No Explorer links: only the devnet slot above was read from RPC",
           ],
         });
 

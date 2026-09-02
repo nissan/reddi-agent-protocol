@@ -26,19 +26,19 @@ export type ForbiddenPublicClaim = {
 export const FORBIDDEN_PUBLIC_CLAIMS: ForbiddenPublicClaim[] = [
   {
     id: "marketplace-rail",
-    pattern: /\b(?:is|as|becomes?|provides?|gives|gives existing agent systems|turns|lets|handles)\b[^\n]{0,120}\bmarketplace\s+rail\b/i,
+    pattern: /\b(?:is|as|becomes?|provides?|gives|gives existing agent systems|turns|lets|handles)\b[^\n]{0,120}?\bmarketplace\s+rail\b/i,
     reason: "Do not position RAP as a marketplace rail.",
     injectionExample: "Reddi Agent Protocol is the marketplace rail for agent commerce.",
   },
   {
     id: "payment-facilitator",
-    pattern: /\b(?:is|as|becomes?|provides?|runs|operates|handles)\b[^\n]{0,100}\bpayment\s+facilitator\b/i,
+    pattern: /\b(?:is|as|becomes?|provides?|runs|operates|handles)\b[^\n]{0,100}?\bpayment\s+facilitator\b/i,
     reason: "Do not position RAP as a payment facilitator.",
     injectionExample: "RAP Assurance operates as a payment facilitator for paid agent work.",
   },
   {
     id: "generic-runtime",
-    pattern: /\b(?:generic|hosted|production)\s+(?:agent\s+)?runtime\b[^\n]{0,80}\b(?:live|ready|available|provided|built in)\b/i,
+    pattern: /\b(?:generic|hosted|production)\s+(?:agent\s+)?runtime\b[^\n]{0,80}?\b(?:live|ready|available|provided|built in)\b/i,
     reason: "Do not claim a generic/hosted runtime product is live.",
     injectionExample: "Our hosted agent runtime is live for every registered specialist.",
   },
@@ -80,7 +80,7 @@ export const FORBIDDEN_PUBLIC_CLAIMS: ForbiddenPublicClaim[] = [
   },
   {
     id: "live-audd-settlement",
-    pattern: /\bAUDD\b[^\n]{0,120}\b(?:live|production|settled|settlement\s+(?:complete|enabled|ready)|custody)\b/i,
+    pattern: /\bAUDD\b[^\n]{0,120}?\b(?:live|production|settled|settlement\s+(?:complete|enabled|ready)|custody)\b/i,
     reason: "AUDD is proof/payment-plan/read-only observation metadata unless separately approved.",
     injectionExample: "AUDD custody is available for every specialist invoice.",
   },
@@ -125,9 +125,19 @@ export const PROHIBITION_HEADING_PATTERN =
 
 /**
  * Separators that end a clause. Sentence terminators require trailing space so
- * `0.05%`, `5/7/5`, and `deployments.json` do not split a clause apart.
+ * `0.05%`, `5/7/5`, and `deployments.json` do not split a clause apart. A comma
+ * ends a clause only before a contrastive conjunction, which starts a new
+ * independent clause ("…takes custody of buyer funds, but no mainnet claim is
+ * made"). `and`/`or` are excluded because they are the serial-comma tail of an
+ * enumeration governed by one leading negation ("Not a payment facilitator,
+ * custody service, escrow provider, or wallet SDK"). Splitting on those two as
+ * well was tried and fails closed the wrong way: it flags the serial-comma
+ * boundary lists this repository actually ships. So a claim joined to an
+ * unrelated negation by ", and"/", or" stays a reviewer's call, not the
+ * regex's.
  */
-const CLAUSE_SEPARATOR = /[.!?](?=\s|$)|[;|]|—|–/g;
+const CLAUSE_SEPARATOR =
+  /[.!?](?=\s|$)|[;|]|—|–|,\s+(?:but|yet|so|while|whereas|though|although|however)\b/g;
 
 /** The single clause containing `position`. */
 function clauseWindow(line: string, position: number): string {
