@@ -13,7 +13,7 @@
     "summary": { "type": "string" },
     "allowedStatuses": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": { "type": "string", "minLength": 1, "pattern": "\\S" },
       "minItems": 1
     },
     "submissionReadyRule": { "type": "string" },
@@ -30,9 +30,24 @@
             "pattern": "^(?![A-Za-z]:)(?:(?!\\.{1,2}(?:/|$))[^/\\\\]+)(?:/(?!\\.{1,2}(?:/|$))[^/\\\\]+)*$",
             "description": "Repository-relative POSIX path, already normalized. The pattern rejects everything the fingerprint selector can refuse on text alone: an empty value, a leading slash, a Windows drive prefix or any backslash (so UNC forms are excluded too), an empty segment from a doubled or trailing slash, and any '.' or '..' segment. It deliberately stops there — JSON Schema cannot observe the filesystem, so scripts/check-quasar-runtime-compatibility.mjs (existence) and the fingerprint selector in scripts/lib/surfpool-evidence-manifest.mjs (repository containment, ordinary file or directory, no symbolic-link traversal) stay the authoritative checks for everything that depends on filesystem state. A path that satisfies this pattern can still be refused there; nothing is normalized on the selector's behalf."
           },
-          "surface": { "type": "string" },
-          "status": { "type": "string" },
-          "reason": { "type": "string" }
+          "surface": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S",
+            "description": "The runtime surface this path belongs to. Required to carry at least one non-whitespace character: an audited demo-critical path with a blank surface records no boundary at all, and this schema is the enforcing check for that — scripts/check-quasar-runtime-compatibility.mjs refuses the document here before any status or filesystem check."
+          },
+          "status": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S",
+            "description": "Compatibility status, additionally required to appear in allowedStatuses by scripts/check-quasar-runtime-compatibility.mjs. The non-whitespace constraint is enforced here so a blank status cannot be admitted by a document that also lists a blank value in allowedStatuses."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S",
+            "description": "Why the path carries its status. Required to carry at least one non-whitespace character so an audited entry cannot pass the gate with no recorded justification."
+          }
         },
         "additionalProperties": false
       }

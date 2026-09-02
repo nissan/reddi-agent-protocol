@@ -126,6 +126,45 @@ test("the checker accepts nested file and directory selectors", () => {
   assert.match(result.stdout, /OK: audited 5 demo-critical paths/);
 });
 
+// The non-empty contracts the checker used to enforce in code (`!entry.surface || !entry.status ||
+// !entry.reason`) and that the schema now owns. An audited demo-critical path with a blank surface
+// or reason records no boundary and no justification at all.
+for (const field of ["surface", "status", "reason"]) {
+  for (const [label, value] of [["empty", ""], ["whitespace-only", "   "], ["newline-only", "\n"]]) {
+    test(`the checker refuses a ${label} ${field}`, () => {
+      const inventory = inventoryWithPaths(["lib/program.ts"]);
+      inventory.demoCriticalPaths[0][field] = value;
+      // A blank status must be refused by the schema even when the document also declares it
+      // allowed, so the status enum cannot readmit what the shape contract rejects.
+      if (field === "status") inventory.allowedStatuses = [value];
+      const root = stageFixtureRepo(inventory, { files: ["lib/program.ts"] });
+      const result = runChecker(root);
+      assert.equal(result.status, 1, `expected refusal for ${field}=${JSON.stringify(value)}\n${result.stdout}`);
+      assert.match(result.stderr, /violates its schema/);
+      assert.match(result.stderr, new RegExp(`#/demoCriticalPaths/0/${field}:`));
+      assert.equal(result.stdout.includes("OK: audited"), false);
+    });
+  }
+}
+
+test("a blank allowedStatuses entry is refused", () => {
+  const inventory = inventoryWithPaths(["lib/program.ts"]);
+  inventory.allowedStatuses = ["quasar-ready", " "];
+  const root = stageFixtureRepo(inventory, { files: ["lib/program.ts"] });
+  const result = runChecker(root);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /#\/allowedStatuses\/1:/);
+});
+
+test("a status outside allowedStatuses is still refused after the shape check passes", () => {
+  const inventory = inventoryWithPaths(["lib/program.ts"]);
+  inventory.demoCriticalPaths[0].status = "invented-status";
+  const root = stageFixtureRepo(inventory, { files: ["lib/program.ts"] });
+  const result = runChecker(root);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /unsupported compatibility status: invented-status/);
+});
+
 test("a schema-valid selector that does not exist is still refused by the filesystem check", () => {
   const root = stageFixtureRepo(inventoryWithPaths(["lib/not-here.ts"]), { files: ["lib/program.ts"] });
   const result = runChecker(root);

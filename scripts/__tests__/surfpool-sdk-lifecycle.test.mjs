@@ -16,6 +16,7 @@ import {
   createTruncatingEvidenceBuffer,
   redactForEvidence,
   startLocalSurfnet,
+  summarizeEvidenceCompleteness,
   validateSurfnetEndpoints,
   waitForPortClosed,
 } from "../lib/surfpool-sdk-lifecycle.mjs";
@@ -465,13 +466,7 @@ Attest:   ${quasarIds.attestation}
   for (let i = 0; i < 200; i += 1) spool.push(`  attempt ${i} failed\n`);
   spool.push(tail);
 
-  const evidence = {
-    text: spool.text(),
-    complete: spool.complete,
-    omittedChars: spool.omittedChars,
-    omittedChunks: spool.omittedChunks,
-    logFile: "artifacts/surfpool-sdk-critical-smoke.log",
-  };
+  const evidence = createStepEvidenceRecord(spool, [], { logFile: "artifacts/surfpool-sdk-critical-smoke.log" });
 
   assert.equal(evidence.complete, false, "the spool must report that it dropped output");
   assert.equal(
@@ -523,8 +518,11 @@ Attest:   ${quasarIds.attestation}
     "the prohibited hint must be absent from the retained text — this is the fail-open the refusal closes",
   );
   assert.equal(evidence.complete, false, "redactor-side loss must make the step evidence incomplete");
-  assert.ok(evidence.omittedLines > 0);
-  assert.ok(evidence.omittedChars > 0);
+  assert.equal(evidence.logComplete, false, "a marker-replaced record never reached the log");
+  assert.ok(evidence.logOmittedLines > 0);
+  assert.ok(evidence.logOmittedChars > 0);
+  assert.equal(evidence.spoolOmittedChars, 0, "the spool dropped nothing, so its channel must report nothing");
+  assert.equal(evidence.spoolOmittedChunks, 0);
   assert.throws(
     () => assertQuasarCriticalDemoOutput(evidence, quasarIds),
     /evidence is incomplete[\s\S]*oversized log line/,
@@ -542,8 +540,9 @@ test("output that fits the redaction bound stays complete and is still redacted"
   const evidence = createStepEvidenceRecord(spool, [redactor], { logFile: "artifacts/surfpool-sdk-critical-smoke.log" });
 
   assert.equal(evidence.complete, true);
-  assert.equal(evidence.omittedChars, 0);
-  assert.equal(evidence.omittedLines, 0);
+  assert.equal(evidence.logOmittedChars, 0);
+  assert.equal(evidence.logOmittedLines, 0);
+  assert.equal(evidence.spoolOmittedChars, 0);
   assert.equal(evidence.text.includes("AGENT_A_KEYPAIR=["), false, "redaction still applies to complete evidence");
   assert.equal(evidence.text.includes("<repo>"), true);
 });
@@ -562,8 +561,10 @@ Attest:   ${quasarIds.attestation}
   ℹ️  MagicBlock PER/TEE is not claimed by this Quasar final path; no Anchor/PER fallback was used.
 `,
     complete: true,
-    omittedChars: 0,
-    omittedChunks: 0,
+    logOmittedChars: 0,
+    logOmittedLines: 0,
+    spoolOmittedChars: 0,
+    spoolOmittedChunks: 0,
   };
   assert.equal(assertQuasarCriticalDemoOutput(complete, quasarIds), true);
   assert.throws(
@@ -627,13 +628,12 @@ Attest:   ${quasarIds.attestation}
   const evidence = createStepEvidenceRecord(spool, [redactor], { logFile: "artifacts/surfpool-sdk-critical-smoke.log" });
 
   assert.equal(evidence.complete, false, "loss from either stage must make the step evidence incomplete");
-  assert.ok(evidence.omittedChunks > 0, "the spool's own loss must still be reported");
-  assert.ok(evidence.omittedLines > 0, "the redactor's oversized-line loss must still be reported");
-  assert.equal(
-    evidence.omittedChars > evidence.omittedLines,
-    true,
-    "the reported character count must fold in both stages, not just one",
-  );
+  assert.ok(evidence.spoolOmittedChunks > 0, "the spool's own loss must be reported on the spool channel");
+  assert.ok(evidence.spoolOmittedChars > 0);
+  assert.ok(evidence.logOmittedLines > 0, "the redactor's oversized-line loss must be reported on the log channel");
+  assert.ok(evidence.logOmittedChars > 0);
+  assert.equal(evidence.logComplete, false);
+  assert.equal(evidence.spoolComplete, false);
   assert.equal(
     evidence.text.includes("api.devnet.solana.com"),
     false,
@@ -641,9 +641,88 @@ Attest:   ${quasarIds.attestation}
   );
   assert.throws(
     () => assertQuasarCriticalDemoOutput(evidence, quasarIds),
-    /evidence is incomplete[\s\S]*spool chunk\(s\)[\s\S]*oversized log line/,
+    new RegExp(
+      `evidence is incomplete[\\s\\S]*spool dropped ${evidence.spoolOmittedChars} character\\(s\\) in `
+      + `${evidence.spoolOmittedChunks} spool chunk\\(s\\)[\\s\\S]*replaced ${evidence.logOmittedLines} `
+      + `oversized log line\\(s\\) \\(${evidence.logOmittedChars} character\\(s\\)\\)`,
+    ),
   );
   assert.throws(() => assertQuasarPerFailClosedOutput(evidence), /evidence is incomplete/);
+});
+
+test("a 3 MB line-terminated step loses output from the assertion spool only, never from the log", () => {
+  // The spool sits downstream of the log write, so what it drops is still on disk. Counting its loss
+  // as log omission published a receipt claiming the log had lost megabytes it still held.
+  const chunk = `  ${"lane output ".repeat(6)}\n`.repeat(800);
+  const chunks = Math.ceil(3_000_000 / chunk.length);
+  const redactor = createRedactingLineBuffer({});
+  const spool = createTruncatingEvidenceBuffer({});
+  let log = "";
+  const emit = (text) => {
+    if (!text) return;
+    log += text;
+    spool.push(text);
+  };
+
+  for (let i = 0; i < chunks; i += 1) emit(redactor.push(chunk));
+  emit(redactor.flush());
+
+  const evidence = createStepEvidenceRecord(spool, [redactor], { logFile: "artifacts/surfpool-sdk-critical-smoke.log" });
+
+  assert.ok(log.length >= 3_000_000, "the fixture must exceed the spool's head and tail bounds");
+  assert.equal(log, chunk.repeat(chunks), "every line-terminated record reached the log, in order");
+  assert.equal(evidence.logComplete, true, "no record was replaced by an oversized-line marker");
+  assert.equal(evidence.logOmittedChars, 0, "a spool drop must never be counted against the log");
+  assert.equal(evidence.logOmittedLines, 0);
+  assert.equal(evidence.spoolComplete, false, "the bounded spool must report its own truncation");
+  assert.ok(evidence.spoolOmittedChars > 0);
+  assert.ok(evidence.spoolOmittedChunks > 0);
+  assert.equal(evidence.complete, false, "an assertion still may not run over truncated evidence");
+  assert.throws(() => assertQuasarPerFailClosedOutput(evidence), /evidence is incomplete/);
+
+  const omission = {
+    label: "run local Quasar demo",
+    logOmittedChars: evidence.logOmittedChars,
+    logOmittedLines: evidence.logOmittedLines,
+    spoolOmittedChars: evidence.spoolOmittedChars,
+    spoolOmittedChunks: evidence.spoolOmittedChunks,
+  };
+  const [logClause, spoolClause] = summarizeEvidenceCompleteness([omission]).split("Assertion/display spool");
+
+  assert.match(logClause, /Log: the line-terminated redacted child stream with nothing omitted/);
+  assert.equal(
+    logClause.includes(String(evidence.spoolOmittedChars)),
+    false,
+    "the receipt must not report the spool's dropped characters as log omission",
+  );
+  assert.match(
+    spoolClause,
+    new RegExp(`${evidence.spoolOmittedChars} char\\(s\\) in ${evidence.spoolOmittedChunks} chunk\\(s\\)`),
+  );
+  assert.match(spoolClause, /already written to the log/);
+});
+
+test("the receipt disclosure names each channel's loss separately", () => {
+  assert.match(
+    summarizeEvidenceCompleteness([]),
+    /Log: the line-terminated redacted child stream with nothing omitted[\s\S]*spool: retained every step's output in full/,
+  );
+
+  const logOnly = summarizeEvidenceCompleteness([
+    { label: "build programs", logOmittedChars: 4_096, logOmittedLines: 1, spoolOmittedChars: 0, spoolOmittedChunks: 0 },
+  ]);
+  assert.match(logOnly, /Log: 1 step\(s\) had records replaced by an oversized-line marker — build programs \(1 record\(s\), 4096 char\(s\)\)/);
+  assert.match(logOnly, /spool: retained every step's output in full/);
+
+  const both = summarizeEvidenceCompleteness([
+    { label: "build programs", logOmittedChars: 4_096, logOmittedLines: 1, spoolOmittedChars: 0, spoolOmittedChunks: 0 },
+    { label: "run demo", logOmittedChars: 0, logOmittedLines: 0, spoolOmittedChars: 1_000_000, spoolOmittedChunks: 3 },
+  ]);
+  const [logClause, spoolClause] = both.split("Assertion/display spool");
+  assert.equal(logClause.includes("run demo"), false, "a spool-only truncation is not a log omission");
+  assert.equal(spoolClause.includes("build programs"), false, "a marker-replaced record is not a spool truncation");
+  assert.match(spoolClause, /run demo \(1000000 char\(s\) in 3 chunk\(s\)/);
+  assert.match(both, /No assertion runs over a step either channel dropped from/);
 });
 
 test("keypair redaction stops at the array and leaves a same-line prohibited hint detectable", () => {

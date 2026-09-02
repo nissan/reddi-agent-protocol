@@ -174,6 +174,9 @@ jobs:
       - name: Run lane boundary regressions
         run: npm run test:surfpool:lane-boundaries
 
+      - name: Verify the runtime-compatibility schema is enforced
+        run: npm run test:quasar:runtime-compatibility
+
       - name: Run Quasar target gate and web refusal regressions
         run: npm test -- --ci --runTestsByPath packages/demo-agents/src/__tests__/quasar-target-gate.test.ts lib/__tests__/quasar-demo-program-config.test.ts lib/__tests__/network-profile-resolution.test.ts lib/quasar/__tests__/quasar-devnet-refusal.test.ts lib/quasar/__tests__/web-consumer-modules-load.test.ts lib/__tests__/onboarding-quasar-escrow-refusal.test.ts
 

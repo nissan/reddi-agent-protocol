@@ -414,22 +414,56 @@ export async function startLocalSurfnet(Surfnet, options = {}) {
 }
 
 /**
- * The evidence record for one lane step, folding together every stage that can drop output: the
- * per-stream redacting line buffers, which replace an oversized unterminated line with a marker,
- * and the evidence spool, which drops chunks between its retained head and tail. Evidence is
- * complete only when no stage dropped anything.
+ * The evidence record for one lane step. Two stages can drop output, and they drop it from two
+ * different places, so the record counts them as two channels rather than one total:
+ *
+ * - The redacting line buffers sit upstream of everything. What they replace with an oversized-line
+ *   marker never reaches the on-disk log, so their counts — and only their counts — describe what
+ *   the log is missing.
+ * - The evidence spool is an in-memory assertion/display buffer downstream of the log write. What it
+ *   drops between its retained head and tail was already written to the log, so its counts describe
+ *   the spool alone and must never be reported as log omission.
+ *
+ * `complete` stays the conjunction: an assertion may only run over evidence no stage dropped from.
  */
 export function createStepEvidenceRecord(spool, streamBuffers = [], options = {}) {
-  const redactorOmittedChars = streamBuffers.reduce((total, buffer) => total + buffer.omittedChars, 0);
-  const redactorOmittedLines = streamBuffers.reduce((total, buffer) => total + buffer.omittedLines, 0);
+  const logOmittedChars = streamBuffers.reduce((total, buffer) => total + buffer.omittedChars, 0);
+  const logOmittedLines = streamBuffers.reduce((total, buffer) => total + buffer.omittedLines, 0);
   return {
     text: spool.text(),
-    complete: spool.complete && redactorOmittedChars === 0,
-    omittedChars: spool.omittedChars + redactorOmittedChars,
-    omittedChunks: spool.omittedChunks,
-    omittedLines: redactorOmittedLines,
+    complete: spool.complete && logOmittedChars === 0,
+    logComplete: logOmittedChars === 0,
+    logOmittedChars,
+    logOmittedLines,
+    spoolComplete: spool.complete,
+    spoolOmittedChars: spool.omittedChars,
+    spoolOmittedChunks: spool.omittedChunks,
     logFile: options.logFile,
   };
+}
+
+/**
+ * The judge-facing completeness disclosure for a published receipt, built from the same two-channel
+ * accounting `createStepEvidenceRecord` produces so the receipt cannot attribute one channel's loss
+ * to the other. `omissions` are the per-step records of steps whose evidence was not complete.
+ */
+export function summarizeEvidenceCompleteness(omissions = []) {
+  const logLoss = omissions.filter((omission) => (omission.logOmittedChars ?? 0) > 0 || (omission.logOmittedLines ?? 0) > 0);
+  const spoolLoss = omissions.filter((omission) => (omission.spoolOmittedChars ?? 0) > 0 || (omission.spoolOmittedChunks ?? 0) > 0);
+
+  const logSentence = logLoss.length === 0
+    ? "Log: the line-terminated redacted child stream with nothing omitted — redaction rewrites secrets in place, and no record was replaced by an oversized-line marker"
+    : `Log: ${logLoss.length} step(s) had records replaced by an oversized-line marker — ${logLoss
+      .map((omission) => `${omission.label} (${omission.logOmittedLines ?? 0} record(s), ${omission.logOmittedChars ?? 0} char(s))`)
+      .join("; ")}`;
+
+  const spoolSentence = spoolLoss.length === 0
+    ? "Assertion/display spool: retained every step's output in full"
+    : `Assertion/display spool (in-memory only; what it dropped was already written to the log): truncated for ${spoolLoss.length} step(s) — ${spoolLoss
+      .map((omission) => `${omission.label} (${omission.spoolOmittedChars ?? 0} char(s) in ${omission.spoolOmittedChunks ?? 0} chunk(s) between the retained head and tail)`)
+      .join("; ")}`;
+
+  return `${logSentence}. ${spoolSentence}. No assertion runs over a step either channel dropped from — such a step is refused rather than certified — so no boundary below rests on truncated output`;
 }
 
 /**
@@ -454,8 +488,10 @@ export function assertionEvidenceText(output, label = "lane assertion") {
   if (output.complete !== true) {
     const where = output.logFile ? ` The retained output is in ${output.logFile}.` : "";
     throw new Error(
-      `${label}: evidence is incomplete — ${output.omittedChars ?? 0} characters were dropped `
-      + `(${output.omittedChunks ?? 0} spool chunk(s), ${output.omittedLines ?? 0} oversized log line(s)), `
+      `${label}: evidence is incomplete — the assertion/display spool dropped ${output.spoolOmittedChars ?? 0} `
+      + `character(s) in ${output.spoolOmittedChunks ?? 0} spool chunk(s) between its retained head and tail, and `
+      + `redaction replaced ${output.logOmittedLines ?? 0} oversized log line(s) (${output.logOmittedChars ?? 0} `
+      + `character(s)) with a marker before they could reach the log, `
       + `so neither the required banners nor the prohibited-content boundaries can be proven over it.${where}`,
     );
   }

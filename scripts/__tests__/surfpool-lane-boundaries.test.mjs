@@ -177,6 +177,55 @@ test("the Quasar readiness guard is triggered by runtime-compatibility schema co
   }
 });
 
+// The set of regression test files a shell command executes, resolved through package.json so a
+// step that runs an aggregate script counts as running each file the aggregate runs.
+function testFilesExecutedBy(command, packageScripts, seen = new Set()) {
+  const files = new Set();
+  for (const match of String(command ?? "").matchAll(/node\s+--test\s+(\S+)/g)) {
+    files.add(match[1].replace(/^\.\//, ""));
+  }
+  for (const match of String(command ?? "").matchAll(/npm\s+run\s+([\w:-]+)/g)) {
+    const name = match[1];
+    if (seen.has(name) || !packageScripts[name]) continue;
+    seen.add(name);
+    for (const file of testFilesExecutedBy(packageScripts[name], packageScripts, seen)) files.add(file);
+  }
+  return files;
+}
+
+test("every workflow whose path filters name a regression test file also runs that file", () => {
+  // A trigger that names an exact test file promises hosted coverage of it. Without a step that
+  // runs it, editing only that file starts the job and proves nothing — the case that let the
+  // runtime-compatibility schema regressions ride on indirect smoke coverage alone. Glob filters
+  // (`scripts/__tests__/**`) make no such per-file promise and are not read as one.
+  const packageScripts = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")).scripts;
+  const names = fs.readdirSync(path.join(repoRoot, ".github/workflows")).filter((name) => name.endsWith(".yml"));
+  let checked = 0;
+
+  for (const name of names) {
+    const workflow = loadWorkflow(name);
+    const executed = new Set();
+    for (const job of Object.values(workflow.jobs ?? {})) {
+      for (const step of job.steps ?? []) {
+        for (const file of testFilesExecutedBy(step.run, packageScripts)) executed.add(file);
+      }
+    }
+    for (const [eventName, trigger] of Object.entries(workflow.on ?? {})) {
+      for (const filter of trigger?.paths ?? []) {
+        if (!filter.endsWith(".test.mjs") || filter.includes("*")) continue;
+        assert.ok(fs.existsSync(path.join(repoRoot, filter)), `${name} ${eventName} names a missing file: ${filter}`);
+        assert.ok(
+          executed.has(filter),
+          `${name} triggers on ${eventName} changes to ${filter} but no step runs it`,
+        );
+        checked += 1;
+      }
+    }
+  }
+
+  assert.ok(checked > 0, "the repository must have at least one workflow triggering on a named test file");
+});
+
 test("hosted Surfpool workflows request the exact repository Node baseline", () => {
   const critical = loadWorkflow("surfpool-quasar-critical-sdk.yml");
   const manual = loadWorkflow("surfpool-acceptance-manual.yml");

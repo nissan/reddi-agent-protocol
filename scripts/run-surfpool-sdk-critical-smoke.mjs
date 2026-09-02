@@ -23,6 +23,7 @@ import {
   scheduleProcessGroupTermination,
   startLocalSurfnet,
   stopLocalSurfnetLease,
+  summarizeEvidenceCompleteness,
   waitForPortClosed,
 } from "./lib/surfpool-sdk-lifecycle.mjs";
 import {
@@ -340,9 +341,10 @@ async function runStep(label, command, commandArgs, options = {}) {
   if (output.evidence.complete !== true) {
     evidenceOmissions.push({
       label,
-      omittedChars: output.evidence.omittedChars,
-      omittedChunks: output.evidence.omittedChunks,
-      omittedLines: output.evidence.omittedLines,
+      logOmittedChars: output.evidence.logOmittedChars,
+      logOmittedLines: output.evidence.logOmittedLines,
+      spoolOmittedChars: output.evidence.spoolOmittedChars,
+      spoolOmittedChunks: output.evidence.spoolOmittedChunks,
     });
   }
   if (expectFailure ? output.status === 0 : output.status !== 0) {
@@ -528,26 +530,6 @@ function acceptedReceiptSummaryLine(status) {
   }
 }
 
-/**
- * What the cited log actually holds. Two bounded stages can drop output before it is written —
- * redaction replaces an oversized unterminated record with a marker, and the assertion spool drops
- * chunks between its head and tail — so the receipt must say so rather than let a reader assume the
- * log is the child's raw stream. A step whose evidence lost anything is refused by
- * `assertionEvidenceText` before it can certify a boundary, so a PASS run only ever discloses loss
- * from steps that carry no assertion.
- */
-function describeEvidenceCompleteness() {
-  if (evidenceOmissions.length === 0) {
-    return "no step reported dropped output; the log is the fully redacted child output, bounded only by redaction";
-  }
-  const detail = evidenceOmissions
-    .map((omission) =>
-      `${omission.label} (${omission.omittedChars} char(s); ${omission.omittedChunks} spool chunk(s), ` +
-      `${omission.omittedLines} oversized log line(s))`)
-    .join("; ");
-  return `incomplete for ${evidenceOmissions.length} step(s) — ${detail}. Assertions over incomplete step evidence are refused, so no boundary below rests on a step that dropped output`;
-}
-
 async function writeSummary({ target, programs = [], status, failure }) {
   const lines = [
     `# Surfpool SDK ${target === "quasar" ? "Quasar" : "Anchor"} Critical Smoke Summary`,
@@ -572,7 +554,7 @@ async function writeSummary({ target, programs = [], status, failure }) {
   }
   lines.push("", "## Cleanup", ...cleanupNotes.map((note) => `- ${note}`));
   lines.push("", "## Artifacts", `- Log: ${rel(logFile)}`);
-  lines.push(`- Log completeness: ${describeEvidenceCompleteness()}`);
+  lines.push(`- Evidence completeness: ${summarizeEvidenceCompleteness(evidenceOmissions)}`);
   lines.push(`- Accepted evidence receipt: ${acceptedReceiptSummaryLine(status)}`);
   // Only ever from the outcome publication produced under its lock: a pre-publication observation of
   // the receipt path can be overtaken by a concurrent publisher, and this summary is immutable once
