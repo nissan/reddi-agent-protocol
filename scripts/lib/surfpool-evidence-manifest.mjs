@@ -23,12 +23,15 @@ const ACCEPTED_EVIDENCE_LOCK_POLL_MS = 25;
 
 /**
  * How old a lock must be before a publisher may reclaim it, and only then with positive evidence
- * that its owner is gone: same host, and a pid that no longer exists. A reclaimed lock is moved
- * aside for diagnosis rather than deleted, and a lock recording an indeterminate publication is
- * never reclaimable — that one needs an operator, because nothing on disk proves what it left.
+ * that its owner is gone: a readable owner record naming this host and this boot, and a pid that is
+ * either absent or now belongs to a different process. Ownership that cannot be verified is left to
+ * an operator, as is a lock recording an indeterminate publication — nothing on disk proves what
+ * either left behind. Reclaimers serialize through their own atomic claim directory, and a reclaimed
+ * lock is moved aside for diagnosis rather than deleted.
  */
 const ACCEPTED_EVIDENCE_LOCK_STALE_MS = 10 * 60 * 1000;
 const ACCEPTED_EVIDENCE_LOCK_RECLAIM_ATTEMPTS = 3;
+const ACCEPTED_EVIDENCE_LOCK_RECLAIM_DIRNAME = `${ACCEPTED_EVIDENCE_LOCK_DIRNAME}.reclaim`;
 
 /**
  * Name and version of the lane source fingerprint encoding. It is recorded in every receipt and
@@ -505,6 +508,7 @@ export class EvidenceManifestError extends Error {
  * directory entry, could not be proven durable, and could not be rolled back, so nothing may be
  * reported about which receipt is on disk.
  */
+export const EVIDENCE_PUBLICATION_PUBLISHED = "published";
 export const EVIDENCE_PUBLICATION_NOT_PUBLISHED = "not-published";
 export const EVIDENCE_PUBLICATION_ROLLED_BACK = "rolled-back";
 export const EVIDENCE_PUBLICATION_INDETERMINATE = "indeterminate";
@@ -629,32 +633,66 @@ function describeLockState(owner) {
   return owner?.detail ? `${state}: ${owner.detail}` : String(state);
 }
 
-function isReclaimableLockSync(lockDir, owner, nowMs) {
-  if (owner?.state === EVIDENCE_LOCK_STATE_INDETERMINATE) return false;
+/**
+ * Positive evidence that a lock's owner is gone, or the reason it may not be reclaimed. Ownership
+ * that cannot be read and verified is never reclaimable: a missing, unreadable, malformed,
+ * foreign-host, or pre-reboot owner record leaves the lock to an operator, because nothing on disk
+ * proves the writer it names is finished.
+ */
+function describeReclaimRefusal(owner, nowMs) {
+  if (!owner || typeof owner !== "object") return "its owner record is missing, unreadable, or malformed";
+  if (owner.state === EVIDENCE_LOCK_STATE_INDETERMINATE) return "it records an indeterminate publication";
+  if (owner.state !== EVIDENCE_LOCK_STATE_PUBLISHING) return `its owner record records the unknown state ${JSON.stringify(owner.state)}`;
+  if (typeof owner.token !== "string" || !owner.token) return "its owner record carries no token";
+  if (typeof owner.hostname !== "string" || !owner.hostname) return "its owner record names no host";
+  if (owner.hostname !== os.hostname()) return `it was taken on another host (${owner.hostname})`;
 
-  const startedAtMs = owner?.startedAt ? Date.parse(owner.startedAt) : Number.NaN;
-  let ageMs;
-  if (Number.isFinite(startedAtMs)) {
-    ageMs = nowMs - startedAtMs;
-  } else {
-    try {
-      ageMs = nowMs - fs.lstatSync(lockDir).mtimeMs;
-    } catch {
-      return false;
-    }
-  }
-  if (!(ageMs > ACCEPTED_EVIDENCE_LOCK_STALE_MS)) return false;
+  const bootId = currentBootIdSync();
+  if (!bootId) return "this host's boot id is unavailable, so the owner's pid cannot be verified";
+  if (owner.bootId !== bootId) return "it was taken before this boot, so the owner's pid cannot be verified";
+  if (!Number.isInteger(owner.pid)) return "its owner record carries no pid";
 
-  if (owner?.hostname && owner.hostname !== os.hostname()) return false;
-  if (Number.isInteger(owner?.pid)) {
-    try {
-      process.kill(owner.pid, 0);
-      return false;
-    } catch (error) {
-      if (error?.code !== "ESRCH") return false;
-    }
+  const startedAtMs = Date.parse(owner.startedAt ?? "");
+  if (!Number.isFinite(startedAtMs)) return "its owner record carries no usable start time";
+  if (!(nowMs - startedAtMs > ACCEPTED_EVIDENCE_LOCK_STALE_MS)) return "it is not old enough to be treated as abandoned";
+
+  try {
+    process.kill(owner.pid, 0);
+  } catch (error) {
+    if (error?.code === "ESRCH") return null;
+    return `its owner's liveness could not be determined (${error?.code ?? error?.message ?? error})`;
   }
-  return true;
+  // The pid is live, which only proves the owner is running if it is still the same process.
+  const runningStartedAt = processStartIdentitySync(owner.pid);
+  if (!runningStartedAt) return "its owner's process identity could not be verified";
+  if (typeof owner.processStartedAt !== "string" || !owner.processStartedAt) {
+    return "its owner record carries no process start identity";
+  }
+  if (runningStartedAt !== owner.processStartedAt) return null;
+  return "its owner process is still running";
+}
+
+function currentBootIdSync() {
+  try {
+    return fs.readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The process's start time from `/proc/<pid>/stat` field 22, which distinguishes a live process
+ * from a different process that later reused its pid. Fields before it can contain spaces only
+ * inside the parenthesised comm, so parsing starts after its final `)`.
+ */
+function processStartIdentitySync(pid) {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+    const afterComm = stat.slice(stat.lastIndexOf(")") + 2);
+    return afterComm.split(" ")[19] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function moveAsideSync(fromPath, toPath, directoryPath, label) {
@@ -711,39 +749,67 @@ function isSameLockIdentity(left, right) {
   return left.token === right.token;
 }
 
+function acquireReclaimClaimSync(manifestDir) {
+  const claimDir = path.join(manifestDir, ACCEPTED_EVIDENCE_LOCK_RECLAIM_DIRNAME);
+  try {
+    fs.mkdirSync(claimDir, 0o700);
+    return claimDir;
+  } catch (error) {
+    if (error?.code === "EEXIST") return null;
+    throw new EvidenceManifestError(`the accepted evidence reclaim claim could not be created: ${error?.message ?? error}`);
+  }
+}
+
 /**
- * Move a lock judged stale aside, but only if the entry is still the exact one that was judged.
- * Another publisher may have reclaimed it in the meantime and be holding a live lock through a new
- * directory (a fresh inode, a fresh owner token); displacing that would put two writers inside the
- * read-modify-write the lock exists to serialize. Returns false when the entry changed, so the
- * caller falls back to waiting rather than racing.
+ * Move a lock judged stale aside, but only if the entry is still the exact one that was judged, and
+ * only one reclaimer at a time: the claim directory below is the atomic right to reclaim, so two
+ * publishers cannot both decide the same lock is theirs to displace. Returns false when the entry
+ * changed or another reclaimer holds the claim, so the caller falls back to waiting rather than
+ * racing. A displaced entry is never renamed back over a path that has since acquired a newer lock;
+ * it stays quarantined and the contention is reported instead.
  */
 function reclaimStaleLockSync(manifestDir, lockDir, expected) {
-  const quarantinePath = path.join(manifestDir, `${ACCEPTED_EVIDENCE_LOCK_DIRNAME}.stale-${crypto.randomUUID()}`);
-  if (!isSameLockIdentity(lockIdentitySync(lockDir, lockOwnerRecordSync(lockDir)), expected)) return false;
-
+  const claimDir = acquireReclaimClaimSync(manifestDir);
+  if (!claimDir) return false;
   try {
-    fs.renameSync(lockDir, quarantinePath);
-  } catch (error) {
-    if (error?.code === "ENOENT") return false;
-    throw new EvidenceManifestError(`a stale accepted evidence publication lock could not be moved aside for diagnosis: ${error?.message ?? error}`);
-  }
+    if (!isSameLockIdentity(lockIdentitySync(lockDir, lockOwnerRecordSync(lockDir)), expected)) return false;
 
-  const moved = lockIdentitySync(quarantinePath, lockOwnerRecordSync(quarantinePath));
-  if (!isSameLockIdentity(moved, expected)) {
+    const quarantinePath = path.join(manifestDir, `${ACCEPTED_EVIDENCE_LOCK_DIRNAME}.stale-${crypto.randomUUID()}`);
     try {
-      fs.renameSync(quarantinePath, lockDir);
-    } catch {
-      // Reported below either way; the mismatch itself is what must not be acted on.
+      fs.renameSync(lockDir, quarantinePath);
+    } catch (error) {
+      if (error?.code === "ENOENT") return false;
+      throw new EvidenceManifestError(`a stale accepted evidence publication lock could not be moved aside for diagnosis: ${error?.message ?? error}`);
     }
     fsyncDirectoryPathSync(manifestDir, "accepted evidence directory");
-    throw new EvidenceManifestError(
-      `refusing to reclaim ${lockDir}: it changed between being judged stale and being moved aside, ` +
-      `so a live publisher's lock may not be displaced`,
-    );
+
+    const moved = lockIdentitySync(quarantinePath, lockOwnerRecordSync(quarantinePath));
+    if (!isSameLockIdentity(moved, expected)) {
+      let restored = false;
+      if (!pathExistsSync(lockDir)) {
+        try {
+          fs.renameSync(quarantinePath, lockDir);
+          restored = true;
+        } catch {
+          // Reported below; a failed restore leaves the entry quarantined rather than lost.
+        }
+      }
+      fsyncDirectoryPathSync(manifestDir, "accepted evidence directory");
+      throw new EvidenceManifestError(
+        `refusing to reclaim ${lockDir}: it changed between being judged stale and being moved aside; ` +
+        (restored
+          ? "the displaced lock was put back"
+          : `the displaced entry is preserved at ${quarantinePath} and whatever now holds ${lockDir} was left untouched`),
+      );
+    }
+    return true;
+  } finally {
+    try {
+      fs.rmSync(claimDir, { recursive: true, force: true });
+    } catch {
+      // A claim that cannot be released makes the next reclaim refuse, which is the safe direction.
+    }
   }
-  fsyncDirectoryPathSync(manifestDir, "accepted evidence directory");
-  return true;
 }
 
 /**
@@ -759,65 +825,95 @@ async function acquirePublicationLock(manifestDir, options = {}) {
   let reclaimAttempts = 0;
 
   for (;;) {
-    try {
-      fs.mkdirSync(lockDir, 0o700);
-      break;
-    } catch (error) {
-      if (error?.code !== "EEXIST") {
-        throw new EvidenceManifestError(`the accepted evidence publication lock could not be created: ${error?.message ?? error}`);
-      }
-      const owner = lockOwnerRecordSync(lockDir);
-      if (owner?.state === EVIDENCE_LOCK_STATE_INDETERMINATE) {
-        throw new EvidenceManifestError(
-          `refusing to publish accepted evidence: ${lockDir} records an indeterminate publication ` +
-          `(${describeLockState(owner)}); an operator must resolve the on-disk receipt state before this lane publishes again`,
-        );
-      }
-      const judged = lockIdentitySync(lockDir, owner);
-      if (
-        reclaimAttempts < ACCEPTED_EVIDENCE_LOCK_RECLAIM_ATTEMPTS &&
-        judged &&
-        isReclaimableLockSync(lockDir, owner, Date.now())
-      ) {
-        reclaimAttempts += 1;
-        if (reclaimStaleLockSync(manifestDir, lockDir, judged)) continue;
-      }
-      if (Date.now() >= deadline) {
-        throw new EvidenceManifestError(
-          `another accepted evidence publication holds ${lockDir} (${describeLockState(owner)}); refusing to publish concurrently`,
-        );
-      }
-      await new Promise((resolve) => setTimeout(resolve, ACCEPTED_EVIDENCE_LOCK_POLL_MS));
-    }
-  }
+    const lock = establishPublicationLockSync(manifestDir, lockDir);
+    if (lock) return lock;
 
-  const lock = { lockDir, token: crypto.randomUUID() };
+    const owner = lockOwnerRecordSync(lockDir);
+    if (owner?.state === EVIDENCE_LOCK_STATE_INDETERMINATE) {
+      throw new EvidenceManifestError(
+        `refusing to publish accepted evidence: ${lockDir} records an indeterminate publication ` +
+        `(${describeLockState(owner)}); an operator must resolve the on-disk receipt state before this lane publishes again`,
+      );
+    }
+    const judged = lockIdentitySync(lockDir, owner);
+    const reclaimRefusal = describeReclaimRefusal(owner, Date.now());
+    if (!reclaimRefusal && judged && reclaimAttempts < ACCEPTED_EVIDENCE_LOCK_RECLAIM_ATTEMPTS) {
+      reclaimAttempts += 1;
+      if (reclaimStaleLockSync(manifestDir, lockDir, judged)) continue;
+    }
+    if (Date.now() >= deadline) {
+      throw new EvidenceManifestError(
+        `another accepted evidence publication holds ${lockDir} (${describeLockState(owner)}); refusing to publish concurrently` +
+        (reclaimRefusal ? `; it is not automatically reclaimable because ${reclaimRefusal}` : ""),
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, ACCEPTED_EVIDENCE_LOCK_POLL_MS));
+  }
+}
+
+/**
+ * Publish a lock that is complete the instant it becomes visible: the owner record is written and
+ * synced inside a staging directory, and only then is that directory renamed into place. No other
+ * publisher can therefore observe a lock whose ownership cannot be read, and renaming onto a
+ * populated lock fails rather than replacing it. Returns null when the lock is already held.
+ */
+function establishPublicationLockSync(manifestDir, lockDir) {
+  const token = crypto.randomUUID();
+  const stagingDir = path.join(manifestDir, `${ACCEPTED_EVIDENCE_LOCK_DIRNAME}.staging-${token}`);
   try {
-    writeLockOwnerSync(lock, EVIDENCE_LOCK_STATE_PUBLISHING);
+    fs.mkdirSync(stagingDir, 0o700);
+  } catch (error) {
+    throw new EvidenceManifestError(`the accepted evidence publication lock could not be staged: ${error?.message ?? error}`);
+  }
+  let renamed = false;
+  try {
+    writeLockOwnerRecordSync(stagingDir, publicationLockOwnerRecord(token, EVIDENCE_LOCK_STATE_PUBLISHING));
+    if (pathExistsSync(lockDir)) {
+      fs.rmSync(stagingDir, { recursive: true, force: true });
+      return null;
+    }
+    try {
+      fs.renameSync(stagingDir, lockDir);
+      renamed = true;
+    } catch (error) {
+      fs.rmSync(stagingDir, { recursive: true, force: true });
+      if (error?.code === "ENOTEMPTY" || error?.code === "EEXIST" || error?.code === "ENOTDIR") return null;
+      throw new EvidenceManifestError(`the accepted evidence publication lock could not be created: ${error?.message ?? error}`);
+    }
     // Proving the containing directory can be opened and synced is also the publication preflight:
     // a directory that cannot be synced at all fails here, before any receipt is replaced.
     fsyncDirectoryPathSync(manifestDir, "accepted evidence directory");
   } catch (error) {
-    await fsp.rm(lockDir, { recursive: true, force: true });
+    // Only ever remove the directory this call created; another publisher's lock is never deleted.
+    fs.rmSync(renamed ? lockDir : stagingDir, { recursive: true, force: true });
     throw error;
   }
-  return lock;
+  return { lockDir, token };
 }
 
-function writeLockOwnerSync(lock, state, detail) {
-  const owner = {
-    token: lock.token,
+function publicationLockOwnerRecord(token, state, detail) {
+  return {
+    token,
     pid: process.pid,
     hostname: os.hostname(),
+    bootId: currentBootIdSync(),
+    processStartedAt: processStartIdentitySync(process.pid),
     startedAt: new Date().toISOString(),
     state,
     ...(detail ? { detail } : {}),
   };
-  const ownerPath = path.join(lock.lockDir, ACCEPTED_EVIDENCE_LOCK_OWNER_FILENAME);
-  const tempPath = path.join(lock.lockDir, `${ACCEPTED_EVIDENCE_LOCK_OWNER_FILENAME}.${crypto.randomUUID()}.tmp`);
+}
+
+function writeLockOwnerRecordSync(lockDir, owner) {
+  const ownerPath = path.join(lockDir, ACCEPTED_EVIDENCE_LOCK_OWNER_FILENAME);
+  const tempPath = path.join(lockDir, `${ACCEPTED_EVIDENCE_LOCK_OWNER_FILENAME}.${crypto.randomUUID()}.tmp`);
   writeFileDurablySync(tempPath, `${JSON.stringify(owner, null, 2)}\n`, "accepted evidence publication lock owner record");
   fs.renameSync(tempPath, ownerPath);
-  fsyncDirectoryPathSync(lock.lockDir, "accepted evidence publication lock");
+  fsyncDirectoryPathSync(lockDir, "accepted evidence publication lock");
+}
+
+function writeLockOwnerSync(lock, state, detail) {
+  writeLockOwnerRecordSync(lock.lockDir, publicationLockOwnerRecord(lock.token, state, detail));
 }
 
 async function releasePublicationLock(lock) {
@@ -861,16 +957,6 @@ function classifyPriorEntrySync(manifestDir) {
   } catch (error) {
     return { kind: "unusable", reason: `it could not be read as accepted evidence (${error?.message ?? error})` };
   }
-}
-
-/**
- * Why the entry currently at the receipt path cannot be read as accepted evidence, or null when
- * there is nothing there or it is readable. A publisher moves such an entry aside, so a caller can
- * say so in the artifacts it writes *before* publication hashes them.
- */
-export function describeUnusableAcceptedEntry(manifestDir) {
-  const prior = classifyPriorEntrySync(manifestDir);
-  return prior.kind === "unusable" ? prior.reason : null;
 }
 
 /**
@@ -962,6 +1048,7 @@ export async function writeAcceptedEvidenceManifest(manifestDir, record, options
   } catch (error) {
     if (!renamed) {
       error.publicationOutcome ??= EVIDENCE_PUBLICATION_NOT_PUBLISHED;
+      error.quarantinedPriorEntry ??= manifest.quarantinedPriorEntry ?? null;
       throw error;
     }
     let restoredEntry = false;
@@ -981,11 +1068,13 @@ export async function writeAcceptedEvidenceManifest(manifestDir, record, options
       } catch {
         // The lock directory itself is what makes consumers refuse; losing its detail cannot undo that.
       }
-      throw new EvidencePublicationIndeterminateError(
+      const indeterminate = new EvidencePublicationIndeterminateError(
         `accepted evidence publication is indeterminate: ${detail}; the receipt now on disk must not be ` +
         `cited as accepted evidence, and ${lock.lockDir} is retained so every consumer refuses it until an operator resolves it`,
         { cause: error },
       );
+      indeterminate.quarantinedPriorEntry = manifest.quarantinedPriorEntry ?? null;
+      throw indeterminate;
     }
     const restored = new EvidenceManifestError(
       `accepted evidence could not be durably published (${error.message}); ` +
@@ -997,6 +1086,7 @@ export async function writeAcceptedEvidenceManifest(manifestDir, record, options
       ? EVIDENCE_PUBLICATION_ROLLED_BACK
       : EVIDENCE_PUBLICATION_NOT_PUBLISHED;
     restored.cause = error;
+    restored.quarantinedPriorEntry = manifest.quarantinedPriorEntry ?? null;
     throw restored;
   } finally {
     // Cleanup runs after the outcome is already decided and durable, so a failure here may never
@@ -1017,7 +1107,14 @@ export async function writeAcceptedEvidenceManifest(manifestDir, record, options
       }
     }
   }
-  return { manifestPath, manifest, quarantinedPriorEntry, cleanupFailures, lockRetained };
+  return {
+    outcome: EVIDENCE_PUBLICATION_PUBLISHED,
+    manifestPath,
+    manifest,
+    quarantinedPriorEntry: manifest.quarantinedPriorEntry ?? null,
+    cleanupFailures,
+    lockRetained,
+  };
 }
 
 /**

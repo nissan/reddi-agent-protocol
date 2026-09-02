@@ -18,7 +18,6 @@ import {
   LANE_SOURCE_FINGERPRINT_ALGORITHM,
   assertContainedArtifactPath,
   computeLaneSourceFingerprint,
-  describeUnusableAcceptedEntry,
   readAcceptedEvidenceManifest,
   writeAcceptedEvidenceManifest,
 } from "../lib/surfpool-evidence-manifest.mjs";
@@ -1638,7 +1637,7 @@ test("an unusable prior receipt is preserved for diagnosis instead of blocking e
         assert.equal(quarantinedPriorEntry, null, `${plant.label}: a restorable entry is replaced, not quarantined`);
       } else {
         assert.ok(quarantinedPriorEntry, `${plant.label}: the unusable entry must be moved aside, not destroyed`);
-        plant.assertPreserved(await fsp.lstat(quarantinedPriorEntry));
+        plant.assertPreserved(await fsp.lstat(path.join(repoRoot, quarantinedPriorEntry.path)));
       }
       assert.equal(
         readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary"] }).manifest.runId,
@@ -1658,10 +1657,7 @@ test("a concurrent publisher refuses within its bounded wait instead of interlea
 
     const lockDir = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_LOCK_DIRNAME);
     await fsp.mkdir(lockDir);
-    await fsp.writeFile(
-      path.join(lockDir, "owner.json"),
-      `${JSON.stringify({ token: "live", pid: process.pid, hostname: os.hostname(), startedAt: new Date().toISOString(), state: "publishing" })}\n`,
-    );
+    await fsp.writeFile(path.join(lockDir, "owner.json"), `${JSON.stringify(liveOwnerRecord("live"))}\n`);
 
     const replacement = await seedRun(repoRoot, dir, "sdk-quasar-concurrent-second");
     const startedAt = Date.now();
@@ -1682,15 +1678,7 @@ test("a crashed publisher's stale lock is quarantined and retaken, not silently 
     const lockDir = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_LOCK_DIRNAME);
     await fsp.mkdir(lockDir, { recursive: true });
 
-    const departed = spawnSync(process.execPath, ["-e", "process.exit(0)"]);
-    const owner = {
-      token: "crashed",
-      pid: departed.pid,
-      hostname: os.hostname(),
-      startedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
-      state: "publishing",
-    };
-    await fsp.writeFile(path.join(lockDir, "owner.json"), `${JSON.stringify(owner)}\n`);
+    await fsp.writeFile(path.join(lockDir, "owner.json"), `${JSON.stringify(departedOwnerRecord("crashed"))}\n`);
 
     const { manifest } = await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record, { lockWaitMs: 50 });
 
@@ -1713,13 +1701,7 @@ test("a live publisher's lock is never reclaimed no matter how old it is", async
     await fsp.mkdir(lockDir, { recursive: true });
     await fsp.writeFile(
       path.join(lockDir, "owner.json"),
-      `${JSON.stringify({
-        token: "alive",
-        pid: process.pid,
-        hostname: os.hostname(),
-        startedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-        state: "publishing",
-      })}\n`,
+      `${JSON.stringify({ ...liveOwnerRecord("alive"), startedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() })}\n`,
     );
 
     const error = await rejectedPublication(path.join(repoRoot, dir), record, { lockWaitMs: 50 });
@@ -1737,31 +1719,19 @@ test("a lock reclaimed by a competitor between the staleness judgement and the r
     const lockDir = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_LOCK_DIRNAME);
     await fsp.mkdir(lockDir, { recursive: true });
 
-    const departed = spawnSync(process.execPath, ["-e", "process.exit(0)"]);
-    await fsp.writeFile(path.join(lockDir, "owner.json"), `${JSON.stringify({
-      token: "crashed",
-      pid: departed.pid,
-      hostname: os.hostname(),
-      startedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
-      state: "publishing",
-    })}\n`);
+    const owner = departedOwnerRecord("crashed");
+    await fsp.writeFile(path.join(lockDir, "owner.json"), `${JSON.stringify(owner)}\n`);
 
     // The liveness probe is the last thing the staleness judgement does, so a competitor winning
     // here is exactly the window in which the judged lock stops being the lock on disk.
     const originalKill = process.kill;
     let swapped = false;
     process.kill = function patchedKill(pid, signal) {
-      if (!swapped && pid === departed.pid && signal === 0) {
+      if (!swapped && pid === owner.pid && signal === 0) {
         swapped = true;
         fs.rmSync(lockDir, { recursive: true, force: true });
         fs.mkdirSync(lockDir);
-        fs.writeFileSync(path.join(lockDir, "owner.json"), `${JSON.stringify({
-          token: "winner",
-          pid: process.pid,
-          hostname: os.hostname(),
-          startedAt: new Date().toISOString(),
-          state: "publishing",
-        })}\n`);
+        fs.writeFileSync(path.join(lockDir, "owner.json"), `${JSON.stringify(liveOwnerRecord("winner"))}\n`);
         const error = new Error("ESRCH: no such process");
         error.code = "ESRCH";
         throw error;
@@ -1799,14 +1769,7 @@ test("a lock replaced during the reclaim rename is restored rather than kept asi
     const lockDir = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_LOCK_DIRNAME);
     await fsp.mkdir(lockDir, { recursive: true });
 
-    const departed = spawnSync(process.execPath, ["-e", "process.exit(0)"]);
-    await fsp.writeFile(path.join(lockDir, "owner.json"), `${JSON.stringify({
-      token: "crashed",
-      pid: departed.pid,
-      hostname: os.hostname(),
-      startedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
-      state: "publishing",
-    })}\n`);
+    await fsp.writeFile(path.join(lockDir, "owner.json"), `${JSON.stringify(departedOwnerRecord("crashed"))}\n`);
 
     const originalRenameSync = fs.renameSync;
     let raced = false;
@@ -1817,13 +1780,7 @@ test("a lock replaced during the reclaim rename is restored rather than kept asi
             raced = true;
             fs.rmSync(lockDir, { recursive: true, force: true });
             fs.mkdirSync(lockDir);
-            fs.writeFileSync(path.join(lockDir, "owner.json"), `${JSON.stringify({
-              token: "winner",
-              pid: process.pid,
-              hostname: os.hostname(),
-              startedAt: new Date().toISOString(),
-              state: "publishing",
-            })}\n`);
+            fs.writeFileSync(path.join(lockDir, "owner.json"), `${JSON.stringify(liveOwnerRecord("winner"))}\n`);
           }
           return originalRenameSync.call(this, from, to);
         },
@@ -1894,13 +1851,11 @@ test("a quarantined prior entry is named in the published receipt and reportable
     await fsp.mkdir(path.dirname(manifestPath), { recursive: true });
     await fsp.symlink(path.join(os.tmpdir(), "foreign-receipt.json"), manifestPath);
 
-    const reason = describeUnusableAcceptedEntry(path.join(repoRoot, dir));
-    assert.match(reason, /not an ordinary file/, "the runner must be able to say so before it hashes its artifacts");
+    const { manifest, quarantinedPriorEntry, outcome } = await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
 
-    const { manifest, quarantinedPriorEntry } = await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record);
-
-    assert.equal(manifest.quarantinedPriorEntry.reason, reason);
-    assert.equal(manifest.quarantinedPriorEntry.path, path.posix.join(dir, path.basename(quarantinedPriorEntry)));
+    assert.equal(outcome, "published", "the caller is told what publication proved, under the lock");
+    assert.match(quarantinedPriorEntry.reason, /not an ordinary file/);
+    assert.deepEqual(manifest.quarantinedPriorEntry, quarantinedPriorEntry);
     assert.equal((await fsp.lstat(path.join(repoRoot, manifest.quarantinedPriorEntry.path))).isSymbolicLink(), true);
 
     const cited = readAcceptedEvidenceManifest(repoRoot, dir, { target: "quasar", requiredArtifacts: ["summary"] });
@@ -1914,13 +1869,206 @@ test("nothing is quarantined or reported when the prior receipt is usable", asyn
     const first = await seedRun(repoRoot, dir, "sdk-quasar-no-quarantine-first");
     await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), first);
 
-    assert.equal(describeUnusableAcceptedEntry(path.join(repoRoot, dir)), null);
-
     const second = await seedRun(repoRoot, dir, "sdk-quasar-no-quarantine-second");
     const { manifest, quarantinedPriorEntry } = await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), second);
 
     assert.equal(quarantinedPriorEntry, null);
     assert.equal(manifest.quarantinedPriorEntry, undefined);
     assert.deepEqual(await dotEntries(repoRoot, dir), []);
+  });
+});
+
+function currentBootId() {
+  return fs.readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
+}
+
+function processStartIdentity(pid) {
+  const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+  return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19];
+}
+
+function liveOwnerRecord(token) {
+  return {
+    token,
+    pid: process.pid,
+    hostname: os.hostname(),
+    bootId: currentBootId(),
+    processStartedAt: processStartIdentity(process.pid),
+    startedAt: new Date().toISOString(),
+    state: "publishing",
+  };
+}
+
+function departedOwnerRecord(token) {
+  const departed = spawnSync(process.execPath, ["-e", "process.exit(0)"]);
+  return {
+    ...liveOwnerRecord(token),
+    pid: departed.pid,
+    processStartedAt: "0",
+    startedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+  };
+}
+
+async function plantLock(repoRoot, dir, owner) {
+  const lockDir = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_LOCK_DIRNAME);
+  await fsp.mkdir(lockDir, { recursive: true });
+  if (owner !== undefined) {
+    await fsp.writeFile(path.join(lockDir, "owner.json"), typeof owner === "string" ? owner : `${JSON.stringify(owner)}\n`);
+  }
+  return lockDir;
+}
+
+test("a lock is never visible before its ownership can be read", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-transactional-lock");
+    const lockDir = path.join(repoRoot, dir, ACCEPTED_EVIDENCE_LOCK_DIRNAME);
+
+    const originalRenameSync = fs.renameSync;
+    const observed = [];
+    const published = await withPatchedFs(
+      {
+        renameSync(from, to) {
+          if (path.resolve(String(to)) === lockDir) {
+            observed.push({
+              lockExistedBefore: fs.existsSync(lockDir),
+              stagedOwner: JSON.parse(fs.readFileSync(path.join(String(from), "owner.json"), "utf8")),
+            });
+          }
+          return originalRenameSync.call(this, from, to);
+        },
+      },
+      () => writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record, { lockWaitMs: 50 }),
+    );
+
+    assert.equal(published.manifest.runId, record.runId);
+    assert.equal(observed.length, 1, "the lock must be published by exactly one rename");
+    assert.equal(observed[0].lockExistedBefore, false, "the lock is never created empty and filled in afterwards");
+    assert.equal(typeof observed[0].stagedOwner.token, "string");
+    assert.equal(observed[0].stagedOwner.pid, process.pid);
+    assert.equal(observed[0].stagedOwner.bootId, currentBootId());
+    assert.equal(observed[0].stagedOwner.state, "publishing");
+  });
+});
+
+test("a lock whose ownership cannot be verified is never reclaimed automatically", async () => {
+  const cases = [
+    { label: "no owner record", owner: undefined },
+    { label: "unparseable owner record", owner: "{ not json" },
+    { label: "owner record with no pid", owner: { ...departedOwnerRecord("t"), pid: undefined } },
+    { label: "owner record from another host", owner: { ...departedOwnerRecord("t"), hostname: `${os.hostname()}-elsewhere` } },
+    { label: "owner record from an earlier boot", owner: { ...departedOwnerRecord("t"), bootId: "00000000-0000-4000-8000-000000000000" } },
+    { label: "owner record in an unknown state", owner: { ...departedOwnerRecord("t"), state: "whatever" } },
+  ];
+
+  for (const { label, owner } of cases) {
+    await withRepo(async (repoRoot) => {
+      const dir = "artifacts/surfpool-quasar-smoke";
+      const record = await seedRun(repoRoot, dir, "sdk-quasar-opaque-owner");
+      const lockDir = await plantLock(repoRoot, dir, owner);
+
+      const error = await rejectedPublication(path.join(repoRoot, dir), record, { lockWaitMs: 50 });
+
+      assert.ok(error, `${label}: publication must refuse`);
+      assert.match(error.message, /not automatically reclaimable because/, label);
+      assert.equal(fs.existsSync(lockDir), true, `${label}: the lock must be left for an operator`);
+      assert.deepEqual(
+        (await dotEntries(repoRoot, dir)).filter((entry) => entry.includes(".lock.stale-")),
+        [],
+        `${label}: nothing may be quarantined without ownership evidence`,
+      );
+    });
+  }
+});
+
+test("a stale lock whose pid was reused by a different process is reclaimable", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-pid-reuse");
+    // A live pid proves nothing on its own: this record names a process that started at a different
+    // time, so the pid has been reused and the owner it names is gone.
+    await plantLock(repoRoot, dir, {
+      ...liveOwnerRecord("reused"),
+      processStartedAt: `${Number(processStartIdentity(process.pid)) - 1}`,
+      startedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    });
+
+    const { manifest } = await writeAcceptedEvidenceManifest(path.join(repoRoot, dir), record, { lockWaitMs: 50 });
+
+    assert.equal(manifest.runId, record.runId);
+    const quarantined = (await dotEntries(repoRoot, dir)).filter((entry) => entry.includes(".lock.stale-"));
+    assert.equal(quarantined.length, 1);
+    assert.equal(
+      JSON.parse(await fsp.readFile(path.join(repoRoot, dir, quarantined[0], "owner.json"), "utf8")).token,
+      "reused",
+    );
+  });
+});
+
+test("only one reclaimer at a time may displace a stale lock", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-reclaim-claim");
+    const lockDir = await plantLock(repoRoot, dir, departedOwnerRecord("crashed"));
+    const claimDir = path.join(repoRoot, dir, `${ACCEPTED_EVIDENCE_LOCK_DIRNAME}.reclaim`);
+    await fsp.mkdir(claimDir);
+
+    const error = await rejectedPublication(path.join(repoRoot, dir), record, { lockWaitMs: 60 });
+
+    assert.ok(error, "a second reclaimer must not act while another holds the claim");
+    assert.match(error.message, /refusing to publish concurrently/);
+    assert.equal(fs.existsSync(lockDir), true);
+    assert.equal(fs.existsSync(claimDir), true, "another reclaimer's claim is never removed");
+    assert.deepEqual(
+      (await dotEntries(repoRoot, dir)).filter((entry) => entry.includes(".lock.stale-")),
+      [],
+    );
+  });
+});
+
+test("a displaced lock is never restored over a newer lock", async () => {
+  await withRepo(async (repoRoot) => {
+    const dir = "artifacts/surfpool-quasar-smoke";
+    const record = await seedRun(repoRoot, dir, "sdk-quasar-no-restore-over-newer");
+    const lockDir = await plantLock(repoRoot, dir, departedOwnerRecord("crashed"));
+
+    const originalRenameSync = fs.renameSync;
+    let raced = false;
+    let newerLockInode;
+    const error = await withPatchedFs(
+      {
+        renameSync(from, to) {
+          if (!raced && path.resolve(String(from)) === lockDir) {
+            raced = true;
+            fs.rmSync(lockDir, { recursive: true, force: true });
+            fs.mkdirSync(lockDir);
+            fs.writeFileSync(path.join(lockDir, "owner.json"), `${JSON.stringify(liveOwnerRecord("displaced"))}\n`);
+            const result = originalRenameSync.call(this, from, to);
+            // A lock claimed but not yet populated: renaming onto it would succeed on Linux, so
+            // only the absence check keeps the displaced entry from replacing it.
+            fs.mkdirSync(lockDir);
+            newerLockInode = fs.statSync(lockDir).ino;
+            return result;
+          }
+          return originalRenameSync.call(this, from, to);
+        },
+      },
+      () => rejectedPublication(path.join(repoRoot, dir), record, { lockWaitMs: 60 }),
+    );
+
+    assert.equal(raced, true, "the regression must exercise the restore race");
+    assert.ok(error);
+    assert.match(error.message, /the displaced entry is preserved at/);
+    assert.equal(
+      fs.statSync(lockDir).ino,
+      newerLockInode,
+      "the lock that arrived after the displacement must be the one still holding the path",
+    );
+    const quarantined = (await dotEntries(repoRoot, dir)).filter((entry) => entry.includes(".lock.stale-"));
+    assert.equal(quarantined.length, 1, "the displaced entry must be preserved, not lost");
+    assert.equal(
+      JSON.parse(await fsp.readFile(path.join(repoRoot, dir, quarantined[0], "owner.json"), "utf8")).token,
+      "displaced",
+    );
   });
 });

@@ -113,32 +113,46 @@ test("Surfnet endpoint validation enforces HTTP RPC and WS websocket schemes", (
   );
 });
 
-test("Surfnet endpoint validation requires two distinct dynamic ports", () => {
-  // Loopback has many spellings and they all reach the same stack, so distinctness is decided by
-  // the port alone: an alias pair on one port is one socket, not two.
+test("Surfnet endpoint validation requires two distinct loopback sockets", () => {
+  // Distinctness is socket identity, not port number. Two endpoints overlap when they name the same
+  // loopback address at one port, or when either is `localhost`, which is not a literal address and
+  // may resolve to whichever loopback address the pair's other endpoint names.
   for (const [rpcUrl, wsUrl] of [
     ["http://127.0.0.1:18180", "ws://127.0.0.1:18180"],
-    ["http://localhost:18180", "ws://127.0.0.1:18180"],
-    ["http://127.0.0.001:18180", "ws://localhost:18180"],
-    ["http://[::1]:18180", "ws://127.0.0.1:18180"],
+    ["http://127.0.0.001:18180", "ws://127.0.0.1:18180"],
     ["http://[::1]:18180", "ws://[0:0:0:0:0:0:0:1]:18180"],
+    ["http://localhost:18180", "ws://127.0.0.1:18180"],
+    ["http://[::1]:18180", "ws://localhost:18180"],
+    ["http://localhost:18180", "ws://localhost:18180"],
   ]) {
     assert.throws(
       () => validateSurfnetEndpoints({ rpcUrl, wsUrl }),
-      /must be bound to distinct dynamic ports/,
-      `${rpcUrl} and ${wsUrl} share one port and must be refused`,
+      /must be distinct dynamic loopback sockets/,
+      `${rpcUrl} and ${wsUrl} may be one socket and must be refused`,
     );
   }
 
-  assert.deepEqual(validateSurfnetEndpoints({
-    rpcUrl: "http://[::1]:18180",
-    wsUrl: "ws://127.0.0.1:18181",
-  }), {
-    rpcUrl: "http://[::1]:18180/",
-    wsUrl: "ws://127.0.0.1:18181/",
-    rpcPort: 18180,
-    wsPort: 18181,
-  });
+  // The IPv4-mapped IPv6 form needs no canonicalization here because it never reaches the socket
+  // comparison: `URL` renders it as `[::ffff:7f00:1]`, which loopback acceptance refuses outright.
+  assert.throws(
+    () => validateSurfnetEndpoints({ rpcUrl: "http://[::ffff:127.0.0.1]:18180", wsUrl: "ws://127.0.0.1:18181" }),
+    /must bind to loopback only/,
+  );
+
+  // Two literal addresses on different address families are two sockets, even on one port, and two
+  // ports are two sockets whatever the spelling.
+  for (const [rpcUrl, wsUrl, expected] of [
+    ["http://[::1]:18180", "ws://127.0.0.1:18180", { rpcPort: 18180, wsPort: 18180 }],
+    ["http://127.0.0.1:18180", "ws://[::1]:18180", { rpcPort: 18180, wsPort: 18180 }],
+    ["http://127.0.0.1:18180", "ws://127.0.0.2:18180", { rpcPort: 18180, wsPort: 18180 }],
+    ["http://localhost:18180", "ws://127.0.0.1:18181", { rpcPort: 18180, wsPort: 18181 }],
+  ]) {
+    assert.deepEqual(
+      validateSurfnetEndpoints({ rpcUrl, wsUrl }),
+      { rpcUrl: new URL(rpcUrl).href, wsUrl: new URL(wsUrl).href, ...expected },
+      `${rpcUrl} and ${wsUrl} are distinct sockets and must be accepted`,
+    );
+  }
 });
 
 test("readiness timeout stops the SDK Surfnet it started", async () => {

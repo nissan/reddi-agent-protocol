@@ -57,6 +57,32 @@ export function normalizeHostname(hostname) {
   return String(hostname ?? "").trim().toLowerCase().replace(/^\[|\]$/g, "");
 }
 
+/**
+ * The loopback address a hostname denotes, canonicalized. `URL` already folds every literal spelling
+ * these endpoints can carry (`127.0.0.001` and `0177.0.0.1` to `127.0.0.1`, `[0:0:0:0:0:0:0:1]` to
+ * `[::1]`), so stripping brackets and case is all that is left. `localhost` denotes whichever
+ * loopback addresses the resolver returns rather than one address, so it canonicalizes to nothing
+ * and is treated as potentially any of them.
+ */
+function canonicalLoopbackAddress(hostname) {
+  const host = normalizeHostname(hostname);
+  return host === "localhost" ? null : host;
+}
+
+/**
+ * Whether two validated loopback endpoints could be the same listening socket. Distinctness is a
+ * question of socket identity, not of port number: `127.0.0.1:P` and `[::1]:P` are two sockets on
+ * two address families and may be bound by different processes, while `localhost:P` overlaps any
+ * loopback spelling at that port because it is not a literal address at all.
+ */
+function loopbackSocketsMayOverlap(left, right) {
+  if (left.port !== right.port) return false;
+  const leftAddress = canonicalLoopbackAddress(left.hostname);
+  const rightAddress = canonicalLoopbackAddress(right.hostname);
+  if (leftAddress === null || rightAddress === null) return true;
+  return leftAddress === rightAddress;
+}
+
 export function isLoopbackHostname(hostname) {
   const host = normalizeHostname(hostname);
   if (host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1") return true;
@@ -211,18 +237,11 @@ export function validateSurfnetEndpoints(surfnet) {
   const rpc = assertLoopbackEndpoint(rpcUrl, "Surfnet RPC URL", { protocol: "http:" });
   const ws = assertLoopbackEndpoint(wsUrl, "Surfnet WebSocket URL", { protocol: "ws:" });
 
-  // Both URLs already carry an explicit port. Comparing the port numbers rather than the host and
-  // port together is deliberate: `localhost` and `127.0.0.1` are different strings for the same
-  // loopback stack, so an SDK reporting one dynamically assigned port under two spellings would
-  // otherwise pass as two sockets.
   const rpcPort = Number.parseInt(rpc.port, 10);
   const wsPort = Number.parseInt(ws.port, 10);
-  if (!Number.isInteger(rpcPort) || !Number.isInteger(wsPort)) {
-    throw new SurfpoolSafetyError(`Surfnet endpoints must report explicit numeric dynamic ports; got ${rpc.href} and ${ws.href}`);
-  }
-  if (rpcPort === wsPort) {
+  if (loopbackSocketsMayOverlap(rpc, ws)) {
     throw new SurfpoolSafetyError(
-      `Surfnet RPC and WebSocket endpoints must be bound to distinct dynamic ports; both reported port ${rpcPort}`,
+      `Surfnet RPC and WebSocket endpoints must be distinct dynamic loopback sockets; ${rpc.href} and ${ws.href} may be the same socket`,
     );
   }
 
