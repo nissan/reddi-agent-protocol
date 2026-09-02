@@ -70,6 +70,9 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
+      # Not this guard's own subject: it runs here so that an edit to any of the three workflow
+      # files these guards cross-list is witnessed by a workflow other than the one being edited.
+      # See docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md § Hosted CI.
       - name: Verify lane trigger and safety boundaries
         run: npm run test:surfpool:lane-boundaries
 
