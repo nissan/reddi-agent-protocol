@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { onboardingVideos } from "../lib/onboarding/video-guides";
 
@@ -12,6 +12,10 @@ const proofVideos = [
  * Cards whose recording predates the public-claim remediation render a
  * withheld-notice placeholder instead of a <video>, so the playable and
  * withheld tallies are derived from the shipped guide data rather than pinned.
+ *
+ * `total` is asserted against the rendered card count so the two states have to
+ * account for every card: derived tallies alone would move with the DOM and
+ * could not fail on a card that rendered neither branch.
  */
 function guidesOn(ids: string[]) {
   const guides = ids.map((id) => {
@@ -20,9 +24,15 @@ function guidesOn(ids: string[]) {
     return guide;
   });
   return {
+    total: guides.length,
     playable: guides.filter((guide) => !guide.mediaStale).length,
     withheld: guides.filter((guide) => guide.mediaStale).length,
   };
+}
+
+/** Onboarding cards are the only <article> elements on the routes this spec visits. */
+function onboardingCards(page: Page) {
+  return page.locator("article");
 }
 
 const PROOF_CARD_IDS = ["mcp-x402", "economic-proof", "register-agent"];
@@ -38,7 +48,9 @@ test.describe("judge replication onboarding", () => {
 
     await test.step("Then the three proof cards render, playable or explicitly withheld", async () => {
       await expect(page.getByText("Start with the 3 proof videos")).toBeVisible();
-      const { playable, withheld } = guidesOn(PROOF_CARD_IDS);
+      const { total, playable, withheld } = guidesOn(PROOF_CARD_IDS);
+      expect(playable, "the heading promises proof videos, so at least one must still play").toBeGreaterThan(0);
+      await expect(onboardingCards(page)).toHaveCount(total);
       await expect(page.locator("video")).toHaveCount(playable);
       await expect(page.getByText(/Recording withheld/i)).toHaveCount(withheld);
       for (const title of proofVideos) {
@@ -59,7 +71,9 @@ test.describe("judge replication onboarding", () => {
     await page.goto("/start");
 
     await expect(page.getByRole("heading", { name: /Start with a 43s overview, then 3 proof videos/i })).toBeVisible();
-    const { playable, withheld } = guidesOn(["overview", ...PROOF_CARD_IDS]);
+    const { total, playable, withheld } = guidesOn(["overview", ...PROOF_CARD_IDS]);
+    expect(playable, "the heading promises proof videos, so at least one must still play").toBeGreaterThan(0);
+    await expect(onboardingCards(page)).toHaveCount(total);
     await expect(page.locator("video")).toHaveCount(playable);
     await expect(page.locator('track[kind="captions"]')).toHaveCount(playable);
     await expect(page.getByText(/Recording withheld/i)).toHaveCount(withheld);
@@ -97,7 +111,8 @@ test.describe("judge replication onboarding", () => {
 
     await expect(page.getByRole("heading", { name: /Describe your specialist for RAP Assurance/i }).last()).toBeVisible();
     await expect(page.getByText("Register an agent on-chain")).toBeVisible();
-    const { playable, withheld } = guidesOn(["register-agent"]);
+    const { total, playable, withheld } = guidesOn(["register-agent"]);
+    await expect(onboardingCards(page)).toHaveCount(total);
     await expect(page.locator("video")).toHaveCount(playable);
     await expect(page.getByText(/Recording withheld/i)).toHaveCount(withheld);
     await expect(page.getByText(/Connect wallet/i).first()).toBeVisible();
