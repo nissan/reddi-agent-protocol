@@ -898,7 +898,22 @@ function stagedStepRunner(options = {}) {
     redactOptions: overrides.redactOptions ?? {},
     timeoutMs: overrides.timeoutMs ?? 30_000,
   });
-  return { dir, logFile, logWriter, omissions, records, controller, displayed, appends, run,
+  // Bounded: the child under test never exits on its own, so a wait with no deadline would turn a
+  // regression in what reaches `display` into a hung job with a leaked detached process group.
+  const waitForDisplayed = (needle, timeoutMs = 10_000) => new Promise((resolve) => {
+    const deadline = Date.now() + timeoutMs;
+    const poll = setInterval(() => {
+      if (displayed.join("").includes(needle)) {
+        clearInterval(poll);
+        resolve(true);
+      } else if (Date.now() >= deadline) {
+        clearInterval(poll);
+        resolve(false);
+      }
+    }, 20);
+    poll.unref?.();
+  });
+  return { dir, logFile, logWriter, omissions, records, controller, displayed, appends, run, waitForDisplayed,
     logText: () => fs.readFileSync(logFile, "utf8"),
     summary: () => summarizeEvidenceCompleteness(omissions, { logPersisted: logWriter.persisted }) };
 }
@@ -912,14 +927,9 @@ test("a step aborted after an oversized unterminated record still reports that l
     + "setInterval(() => {}, 1000);";
 
   const stepPromise = harness.run(childSource, { redactOptions: { maxResidualChars }, label: "run local Quasar demo" });
-  await new Promise((resolve) => {
-    const poll = setInterval(() => {
-      if (harness.displayed.join("").includes(OVERSIZED_LOG_LINE_MARKER.trim())) {
-        clearInterval(poll);
-        resolve();
-      }
-    }, 20);
-  });
+  const sawMarker = await harness.waitForDisplayed(OVERSIZED_LOG_LINE_MARKER.trim());
+  // Aborted either way, so the detached child is always reaped and the step always settles before
+  // the assertions run.
   const abortReason = new Error("SIGINT received");
   abortReason.name = "SmokeInterruptError";
   harness.controller.abort(abortReason);
@@ -928,6 +938,8 @@ test("a step aborted after an oversized unterminated record still reports that l
     assert.equal(error.name, "SmokeInterruptError");
     return true;
   });
+
+  assert.ok(sawMarker, "the oversized-record marker never reached the display within the deadline");
 
   assert.equal(harness.records.length, 1, "the aborted step must still finalize exactly one record");
   const [{ record }] = harness.records;

@@ -194,20 +194,28 @@ try {
   exitCode = exitReason === "timeout" ? 124 : exitReason === "interrupt" ? 130 : 1;
   finalStatus = "FAIL";
   failureMessage = error.message;
-  await logLine(`[surfpool-sdk-smoke] FAIL (${exitReason}): ${error.message}`);
+  await logTeardownLine(`[surfpool-sdk-smoke] FAIL (${exitReason}): ${error.message}`);
 } finally {
   clearTimeout(timeout);
   await cleanup(exitReason);
-  if (finalStatus === "PASS") {
-    await logLine(`[surfpool-sdk-smoke] PASS evidence artifacts complete; preparing ${rel(summaryFile)}`);
-    await logLine(`[surfpool-sdk-smoke] publishing accepted evidence receipt: ${rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_FILENAME))}`);
-    await writeSummary({ target, programs, status: finalStatus, failure: failureMessage });
-    if (!(await publishAcceptedEvidence())) {
+  try {
+    if (finalStatus === "PASS") {
+      await logTeardownLine(`[surfpool-sdk-smoke] PASS evidence artifacts complete; preparing ${rel(summaryFile)}`);
+      await logTeardownLine(`[surfpool-sdk-smoke] publishing accepted evidence receipt: ${rel(path.join(evidenceRoot, ACCEPTED_EVIDENCE_FILENAME))}`);
+      await writeSummary({ target, programs, status: finalStatus, failure: failureMessage });
+      if (!(await publishAcceptedEvidence())) {
+        await writeSummary({ target, programs, status: finalStatus, failure: failureMessage });
+      }
+    } else {
+      await logTeardownLine(`[surfpool-sdk-smoke] FAIL evidence retained at ${rel(outDir)}; accepted-evidence receipt left untouched`);
       await writeSummary({ target, programs, status: finalStatus, failure: failureMessage });
     }
-  } else {
-    await logLine(`[surfpool-sdk-smoke] FAIL evidence retained at ${rel(outDir)}; accepted-evidence receipt left untouched`);
-    await writeSummary({ target, programs, status: finalStatus, failure: failureMessage });
+  } catch (error) {
+    // The summary is the only place a reader learns what the log lost, so its own failure is
+    // reported on the operator channel rather than thrown into an unhandled rejection that would
+    // also skip the exit code.
+    process.stderr.write(`[surfpool-sdk-smoke] summary publication failed: ${error.message}; ${rel(summaryFile)} is missing or partial\n`);
+    if (exitCode === 0) exitCode = 1;
   }
 }
 
@@ -393,15 +401,11 @@ async function cleanup(reason) {
     finalStatus = "FAIL";
     failureMessage ??= message;
   }
-  await logLine(`[surfpool-sdk-smoke] cleanup (${reason}): ${cleanupNotes.join("; ") || "complete"}`);
+  await logTeardownLine(`[surfpool-sdk-smoke] cleanup (${reason}): ${cleanupNotes.join("; ") || "complete"}`);
 }
 
 function terminateActiveChild(signal) {
-  if (activeChild) terminateChild(activeChild, signal);
-}
-
-function terminateChild(child, signal) {
-  terminateChildProcess(child, signal);
+  if (activeChild) terminateChildProcess(activeChild, signal);
 }
 
 /**
@@ -420,6 +424,19 @@ async function logLine(line) {
   await logWriter.write(text);
   const error = logWriter.takeError();
   if (error) throw error;
+}
+
+/**
+ * A log line written while the run is already ending. Inside the run a failed append is fatal — the
+ * evidence stops being provable, so the step fails. During teardown the opposite holds: the write
+ * that failed is exactly what the summary has to disclose, and throwing here would suppress the
+ * `Evidence completeness` line instead of publishing it. The loss is still recorded, because the
+ * writer keeps `persisted` false for the rest of the run.
+ */
+async function logTeardownLine(line) {
+  try {
+    await logLine(line);
+  } catch { /* the run is already ending; a lost log line must not suppress the summary */ }
 }
 
 /**
