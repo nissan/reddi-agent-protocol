@@ -54,8 +54,11 @@ when all four local program ids (`NEXT_PUBLIC_ESCROW_PROGRAM_ID`,
 `NEXT_PUBLIC_REGISTRY_PROGRAM_ID`, `NEXT_PUBLIC_REPUTATION_PROGRAM_ID`,
 `NEXT_PUBLIC_ATTESTATION_PROGRAM_ID`) are supplied, valid, and distinct **and** the
 resolved `NEXT_PUBLIC_RPC_ENDPOINT` and `NEXT_PUBLIC_RPC_WS_ENDPOINT` are provably
-loopback — an `http://`/`ws://` URL with an explicit port on `localhost`, `127.0.0.0/8`,
-or `::1`, with no credentials. A hostname that merely looks local, a malformed URL, and a
+loopback — a URL with an explicit port on `localhost`, `127.0.0.0/8`, or `::1`, with no
+credentials, whose scheme matches the variable's role: the RPC endpoint must be
+`http://` and the websocket endpoint must be `ws://`, so a loopback URL with the wrong
+scheme is refused as firmly as a remote one. The websocket endpoint is checked whenever
+the resolved profile carries one. A hostname that merely looks local, a malformed URL, and a
 live cluster URL are all refused, so a locally built Quasar program set can never be
 addressed with Quasar-encoded instructions sent at devnet or mainnet. Otherwise the
 resolver refuses the request, keeps the legacy Anchor target, marks the profile not
@@ -115,8 +118,9 @@ offending labels and neither falling back to a registered id:
 - The Quasar target is refused on every profile except `local-surfpool`, and there
   it additionally requires all four ids (`DEMO_ESCROW_PROGRAM_ID`,
   `DEMO_REGISTRY_PROGRAM_ID`, `DEMO_REPUTATION_PROGRAM_ID`,
-  `DEMO_ATTESTATION_PROGRAM_ID`) to be supplied, valid, and distinct, plus a
-  loopback `DEMO_DEVNET_RPC`. The loopback predicate itself lives in
+  `DEMO_ATTESTATION_PROGRAM_ID`) to be supplied, valid, and distinct, plus an
+  `http://` loopback `DEMO_DEVNET_RPC` and, when one is set, a `ws://` loopback
+  `DEMO_DEVNET_RPC_WS`. The loopback predicate itself lives in
   `lib/config/loopback-endpoint.ts` and is the same one the web resolver applies, so
   the two gates cannot drift apart. The policy lives in
   `packages/demo-agents/src/quasar-target-gate.ts` and never downgrades a refused
