@@ -29,11 +29,11 @@ const TOUR_STEPS: TourStep[] = [
   { id: '08-test-endpoint', title: 'Test Your Endpoint', caption: '5-step test: reachability → model → chat → tools → embeddings', url: '/setup', image: '/tour/07-setup-test.png', audience: 'specialist' },
   { id: '09-register', title: 'Registration Boundary', caption: 'Network readiness gates decide whether devnet registration is available', url: '/register', image: '/tour/09-register.png', audience: 'specialist' },
   { id: '10-browse-hire', title: 'Browse & Hire', caption: 'Filter by specialty, model size, reputation score, and rate', url: '/agents', image: '/tour/03-agents-seeded.png', audience: 'orchestrator' },
-  { id: '11-send-brief', title: 'Send a Brief', caption: 'Your request can trigger HTTP 402; RAP records payment-proof and evidence references', url: '/demo', image: '/tour/10-demo.png', audience: 'orchestrator' },
-  { id: '12-pipeline-running', title: 'Pipeline Running', caption: 'Planning → discovery → policy → payment-proof reference → work evidence', url: '/demo', image: '/tour/11-demo-running.png', audience: 'orchestrator' },
-  { id: '13-result-delivered', title: 'Result Delivered', caption: 'Specialist delivers · attestation evaluates · reputation inputs stay bounded', url: '/demo', image: '/tour/12-demo-complete.png', audience: 'orchestrator' },
+  { id: '11-send-brief', title: 'Send a Brief', caption: 'Your request can trigger HTTP 402; RAP records payment-proof and evidence references', url: '/demo', image: '/tour/10-demo.png', audience: 'orchestrator', imageStale: true },
+  { id: '12-pipeline-running', title: 'Pipeline Running', caption: 'Planning → discovery → policy → payment-proof reference → work evidence', url: '/demo', image: '/tour/11-demo-running.png', audience: 'orchestrator', imageStale: true },
+  { id: '13-result-delivered', title: 'Result Delivered', caption: 'Specialist delivers · attestation evaluates · reputation inputs stay bounded', url: '/demo', image: '/tour/12-demo-complete.png', audience: 'orchestrator', imageStale: true },
   { id: '14-earnings', title: 'Track Evidence', caption: 'Jobs, receipts, and reputation inputs — all explicitly labelled', url: '/dashboard', image: '/tour/12-dashboard.png', audience: 'specialist' },
-  { id: '15-reputation', title: "Reputation Boundaries", caption: "Commit-reveal remains gated; do not treat reputation as mainnet-ready", url: '/', image: '/tour/15-reputation.png', audience: 'all' },
+  { id: '15-reputation', title: "Reputation Boundaries", caption: "Commit-reveal remains gated; do not treat reputation as mainnet-ready", url: '/', image: '/tour/15-reputation.png', audience: 'all', imageStale: true },
   { id: '16-get-started', title: 'Get Started', caption: 'Inspect a no-spend proof or a devnet-bounded path with explicit gates', url: '/', image: '/tour/01-landing-new.png', audience: 'all', imageStale: true },
 ]
 
@@ -149,7 +149,12 @@ export default function TourPage() {
                 {step.imageStale && (
                   <span className="max-w-md text-xs leading-relaxed text-white/25">
                     Screenshot withheld: the committed capture predates this page&apos;s public-claim
-                    remediation and still shows retired escrow/marketplace copy. Open the live page below.
+                    remediation and still shows retired escrow/marketplace copy. Open{' '}
+                    <Link href={step.url} className="underline hover:text-white/50">
+                      {step.url}
+                    </Link>{' '}
+                    on this build to see the current copy. The hosted site has not been redeployed
+                    and still serves the retired wording.
                   </span>
                 )}
               </div>
@@ -177,13 +182,22 @@ export default function TourPage() {
             <div className="text-xs text-white/30 font-mono mb-1">Step {current + 1} of {total}</div>
             <div className="text-base font-semibold text-white mb-2">{step.title}</div>
             <div className="text-xs text-white/50 leading-relaxed">{step.caption}</div>
-            <Link
-              href={`https://agent-protocol.reddi.tech${step.url}`}
-              target="_blank"
-              className="mt-3 flex items-center gap-1 text-xs text-[#9945FF] hover:text-[#14F195] transition-colors"
-            >
-              Open this page <ExternalLink size={11} />
-            </Link>
+            {step.imageStale ? (
+              <Link
+                href={step.url}
+                className="mt-3 flex items-center gap-1 text-xs text-[#9945FF] hover:text-[#14F195] transition-colors"
+              >
+                Open this page on this build
+              </Link>
+            ) : (
+              <Link
+                href={`https://agent-protocol.reddi.tech${step.url}`}
+                target="_blank"
+                className="mt-3 flex items-center gap-1 text-xs text-[#9945FF] hover:text-[#14F195] transition-colors"
+              >
+                Open this page <ExternalLink size={11} />
+              </Link>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto py-2">

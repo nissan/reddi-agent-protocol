@@ -213,11 +213,11 @@ export default function DemoPage() {
         {mode === "live" ? (
           <span className="flex items-center gap-1.5 text-xs font-medium text-[#14F195] bg-[#14F195]/10 border border-[#14F195]/20 px-3 py-1.5 rounded-full">
             <span className="inline-block w-2 h-2 rounded-full bg-[#14F195] animate-pulse" />
-            Live — real Ollama call · real devnet
+            Live — real Ollama call · devnet RPC read only · escrow steps simulated
           </span>
         ) : (
           <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground bg-white/5 border border-white/10 px-3 py-1.5 rounded-full">
-            ⟳ Replay — recorded real run · all TX IDs verifiable on-chain
+            ⟳ Scripted trace — illustrative pipeline shape, not a recorded on-chain run
           </span>
         )}
       </div>
@@ -227,11 +227,13 @@ export default function DemoPage() {
         <div className="lg:col-span-2 space-y-6">
           <div className="space-y-2">
             <h1 className="text-3xl font-bold sol-gradient-text pb-1">
-              Watch the agent economy work in real time
+              Watch a paid-work pipeline trace, step by step
             </h1>
             <p className="text-muted-foreground text-sm">
-              Enter a brief. The consumer agent coordinates specialists, handles escrow, and returns
-              a scored result — all on-chain.
+              Enter a brief and watch a scripted walkthrough of the stages: planning, discovery,
+              payment-proof reference, specialist response, and attestation scoring. The escrow and
+              settlement steps are illustrative placeholders — no funds move and nothing is settled
+              on-chain from this page.
             </p>
           </div>
 

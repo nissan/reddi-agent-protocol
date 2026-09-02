@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
 
+import { reddiReceiptFixtureCases } from "@reddi/agent-protocol/fixtures";
+import { buildSourceTrustConformanceMatrix } from "@reddi/agent-protocol/source-trust-conformance-matrix";
+
+import { specialistProfiles } from "../packages/openrouter-specialists/src/profiles/index";
 import {
   CENTRAL_MESSAGE,
   FORBIDDEN_PUBLIC_CLAIMS,
@@ -61,6 +65,27 @@ test.describe("public-claim boundary (rendered copy)", () => {
         `injection example for ${claim.id} must not be suppressed as a qualified claim`,
       ).toBe(false);
     }
+  });
+
+  test("landing stats render the counts the shipped corpora actually contain", async ({ page }) => {
+    await page.goto("/");
+    await expect(
+      page.getByRole("heading", { name: PUBLIC_CLAIM_DOM_ROUTES[0].readyHeading }).first(),
+    ).toBeVisible({ timeout: 30_000 });
+
+    const readStat = async (label: string) => {
+      const tile = page.getByText(label, { exact: true }).first().locator("..");
+      const [value] = (await tile.innerText()).trim().split(/\s*\n\s*/);
+      return Number(value);
+    };
+
+    expect(await readStat("Directory fixtures")).toBe(specialistProfiles.length);
+    expect(await readStat("Receipt fixture cases")).toBe(
+      Object.keys(reddiReceiptFixtureCases).length,
+    );
+    expect(await readStat("Source-trust conformance cases")).toBe(
+      Object.keys(buildSourceTrustConformanceMatrix().coverage.requiredCases).length,
+    );
   });
 
   test("landing copy and document metadata carry the central message", async ({ page }) => {

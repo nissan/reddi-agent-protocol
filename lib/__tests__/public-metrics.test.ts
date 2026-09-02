@@ -1,5 +1,5 @@
 import { reddiReceiptFixtureCases } from "@reddi/agent-protocol/fixtures";
-import { SOURCE_TRUST_REQUIRED_CASES } from "@reddi/agent-protocol/source-trust-conformance-matrix";
+import { buildSourceTrustConformanceMatrix } from "@reddi/agent-protocol/source-trust-conformance-matrix";
 
 import { specialistProfiles } from "../../packages/openrouter-specialists/src/profiles/index";
 import {
@@ -9,20 +9,42 @@ import {
 } from "@/lib/assurance/public-metrics";
 
 /**
- * The landing page publishes these three numbers as public claims. This suite
- * is what keeps the one constant honest: it loads the real specialist registry
- * (Node-only, so it cannot be imported by the client page) and requires the
- * published count to equal it.
+ * The landing page publishes these three numbers as public claims, so each one
+ * is checked against a corpus property that is independent of the expression
+ * the constant is defined by: a restated `Object.keys(...).length` would hold
+ * for any corpus and could not detect a wrong published number.
  */
 describe("landing-page assurance metrics", () => {
   it("publishes the size of the shipped specialist directory registry", () => {
     expect(directoryFixtureProfileCount).toBe(specialistProfiles.length);
+    expect(new Set(specialistProfiles.map((profile) => profile.id)).size).toBe(
+      directoryFixtureProfileCount,
+    );
   });
 
-  it("derives the conformance counts from non-empty shipped corpora", () => {
-    expect(receiptFixtureCaseCount).toBe(Object.keys(reddiReceiptFixtureCases).length);
+  it("counts only well-formed, distinct receipt fixture cases", () => {
+    const entries = Object.entries(reddiReceiptFixtureCases);
+    const wellFormed = entries.filter(
+      ([, fixture]) =>
+        typeof fixture.description === "string" &&
+        fixture.description.length > 0 &&
+        fixture.receipt !== undefined &&
+        typeof fixture.expectedValid === "boolean" &&
+        Array.isArray(fixture.expectedErrorCodes),
+    );
+
+    expect(wellFormed).toHaveLength(receiptFixtureCaseCount);
+    expect(new Set(entries.map(([name]) => name)).size).toBe(receiptFixtureCaseCount);
     expect(receiptFixtureCaseCount).toBeGreaterThan(0);
-    expect(sourceTrustConformanceCaseCount).toBe(SOURCE_TRUST_REQUIRED_CASES.length);
+    expect(wellFormed.some(([, fixture]) => fixture.expectedValid)).toBe(true);
+    expect(wellFormed.some(([, fixture]) => !fixture.expectedValid)).toBe(true);
+  });
+
+  it("counts the source-trust cases the shipped conformance matrix actually covers", () => {
+    const { coverage } = buildSourceTrustConformanceMatrix();
+
+    expect(coverage.missingRequiredCases).toEqual([]);
+    expect(Object.keys(coverage.requiredCases)).toHaveLength(sourceTrustConformanceCaseCount);
     expect(sourceTrustConformanceCaseCount).toBeGreaterThan(0);
   });
 });

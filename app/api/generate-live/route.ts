@@ -120,19 +120,17 @@ export async function POST(req: Request) {
           ],
         });
 
-        // Step 4: Escrow (real TX IDs from devnet test runs)
+        // Step 4: Escrow placeholder — this route never submits a transaction.
         await new Promise((r) => setTimeout(r, 600));
-        const mockEscrowTx =
-          "3LE39Rbisy8AG6hEyYyMyq9KNzhqEwxiRgMGakAAmW8c1E4VFrRo6XV3kTJP4ELULXN9ptfFtntdLjY6G2NoZZpY";
         emit({
           delay: 2000,
           icon: "💸",
-          section: "Escrow Deposit",
+          section: "Escrow Deposit (simulated)",
           lines: [
-            "Locking 0.0012 SOL in escrow...",
-            `→ TX: ${mockEscrowTx.slice(0, 8)}... [EXPLORER:${mockEscrowTx}]`,
-            "→ Escrow PDA: derived from consumer + specialist pubkeys",
-            "✅ Funds locked — specialist notified",
+            "Illustrative step — no funds move and no transaction is submitted.",
+            "→ Placeholder signature, not a real devnet transaction",
+            "→ Escrow PDA would derive from consumer + specialist pubkeys",
+            "✅ Simulated lock recorded in this trace only",
           ],
         });
 
@@ -248,7 +246,7 @@ export async function POST(req: Request) {
             "Consumer reveals: score 5 ✅",
             "Specialist reveals: score 4 ✅",
             `→ TX: ${mockRevealTx.slice(0, 8)}... [EXPLORER:${mockRevealTx}]`,
-            "→ EscrowState closed · rent returned to consumer",
+            "→ Simulated EscrowState close · no rent or lamports move",
           ],
         });
 

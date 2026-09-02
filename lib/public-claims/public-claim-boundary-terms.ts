@@ -129,8 +129,8 @@ export const PROHIBITION_HEADING_PATTERN =
  */
 const CLAUSE_SEPARATOR = /[.!?](?=\s|$)|[;|]|—|–/g;
 
-/** The span of text covering every clause the match overlaps. */
-function clauseWindow(line: string, start: number, end: number): string {
+/** The single clause containing `position`. */
+function clauseWindow(line: string, position: number): string {
   const boundaries = [0];
   CLAUSE_SEPARATOR.lastIndex = 0;
   let separator: RegExpExecArray | null;
@@ -140,31 +140,39 @@ function clauseWindow(line: string, start: number, end: number): string {
   boundaries.push(line.length);
 
   let from = 0;
-  for (const boundary of boundaries) {
-    if (boundary > start) break;
-    from = boundary;
-  }
   let to = line.length;
   for (const boundary of boundaries) {
-    if (boundary >= end) {
+    if (boundary > position) {
       to = boundary;
       break;
     }
+    from = boundary;
   }
   return line.slice(from, to);
 }
 
 /**
- * True when the clause asserting the claim also states its boundary. Scoped to
- * the matched clause so an unrelated "no"/"not" elsewhere on the line — such as
- * "no wallet required" trailing a marketplace-rail claim — cannot suppress it.
+ * True when every occurrence of the claim on this line states its own boundary.
+ *
+ * Each occurrence is judged by the clause holding the phrase the pattern ends
+ * on, because that is where the claim is actually asserted. Windowing on the
+ * whole match would let a pattern's greedy middle reach back into an earlier
+ * negated clause, and stopping at the first occurrence would let a later
+ * unqualified assertion ride on an earlier boundary sentence.
  */
 export function claimIsQualified(line: string, claim: ForbiddenPublicClaim): boolean {
-  claim.pattern.lastIndex = 0;
-  const match = claim.pattern.exec(line);
-  if (!match) return false;
-  const window = clauseWindow(line, match.index, match.index + match[0].length);
-  return CLAIM_QUALIFIER_PATTERNS.some((pattern) => pattern.test(window));
+  const flags = claim.pattern.flags.includes("g") ? claim.pattern.flags : `${claim.pattern.flags}g`;
+  const scanner = new RegExp(claim.pattern.source, flags);
+  let match: RegExpExecArray | null;
+  let matched = false;
+  while ((match = scanner.exec(line)) !== null) {
+    matched = true;
+    const assertedAt = Math.max(match.index, match.index + match[0].length - 1);
+    const window = clauseWindow(line, assertedAt);
+    if (!CLAIM_QUALIFIER_PATTERNS.some((pattern) => pattern.test(window))) return false;
+    if (match.index === scanner.lastIndex) scanner.lastIndex += 1;
+  }
+  return matched;
 }
 
 export type PublicClaimDomRoute = {
