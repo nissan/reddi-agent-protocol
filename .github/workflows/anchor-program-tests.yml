@@ -60,6 +60,13 @@ jobs:
         with:
           toolchain: "1.98.0"
 
+      # Every platform-tools release reports the same `rustc -vV` (1.89.0-dev),
+      # so cargo cannot tell one apart from another and keeps SBF dependency
+      # rlibs from a cached target/ when the Agave pin moves. Linking those old
+      # rlibs into a freshly compiled escrow produces a program that loads and
+      # then faults at runtime, so the toolchain pins must scope the cache in
+      # both the key and the restore prefix — a bare lane prefix would restore
+      # the previous toolchain's target/ anyway.
       - name: Cache Cargo registry and workspace target
         uses: actions/cache@v5
         with:
@@ -67,10 +74,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-anchor-cargo-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-anchor-cargo-${{ hashFiles('rust-toolchain.toml', 'config/toolchain/solana-baseline-assets.json') }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-anchor-cargo-
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-anchor-cargo-${{ hashFiles('rust-toolchain.toml', 'config/toolchain/solana-baseline-assets.json') }}-
 
       - name: Install Solana CLI
         run: |
