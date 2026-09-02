@@ -20,6 +20,7 @@ import {
   localChildEnv,
   redactForEvidence,
   resolveRepositorySubpath,
+  sanitizeEvidenceFragment,
   spawnLoggedStep,
   startLocalSurfnet,
   stopLocalSurfnetLease,
@@ -484,10 +485,15 @@ async function writeSummary({ target, programs = [], status, failure }) {
   for (const program of programs) {
     lines.push(`- ${program.label}: ${program.programId}${program.soPath ? ` from ${rel(program.soPath)}` : ""}`);
   }
+  // Failure and cleanup text is the only content here the lane did not compose itself: both carry
+  // filesystem error messages, whose absolute paths every other line in this file avoids by going
+  // through rel(). They go through the same sanitizer the receipt disposition uses.
+  const describeUntrusted = (value, maxChars) =>
+    sanitizeEvidenceFragment(value, { repoRoot, home: process.env.HOME, maxChars });
   if (failure) {
-    lines.push("", "## Failure", `- ${failure}`);
+    lines.push("", "## Failure", `- ${describeUntrusted(failure, 2_000)}`);
   }
-  lines.push("", "## Cleanup", ...cleanupNotes.map((note) => `- ${note}`));
+  lines.push("", "## Cleanup", ...cleanupNotes.map((note) => `- ${describeUntrusted(note, 1_000)}`));
   lines.push("", "## Artifacts", `- Log: ${rel(logFile)}`);
   lines.push(`- Evidence completeness: ${summarizeEvidenceCompleteness(evidenceOmissions, { logPersisted: logWriter.persisted })}`);
   // Both lines come from one description of the publication transaction: a pre-publication

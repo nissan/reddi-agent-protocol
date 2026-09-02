@@ -75,6 +75,12 @@ function assertSupportedSchema(schema, pointer, compiledPatterns) {
       throw new Error(`invalid ${keyword} at ${pointer}: expected a number`);
     }
   }
+  // A number alone is not enough for multipleOf: the validator skips the assertion unless the
+  // divisor is positive, so zero, a negative, or a non-finite value would compile and then be
+  // silently dropped. None of them is legal JSON Schema.
+  if ("multipleOf" in schema && !(Number.isFinite(schema.multipleOf) && schema.multipleOf > 0)) {
+    throw new Error(`invalid multipleOf at ${pointer}: expected a finite number greater than zero`);
+  }
   if ("uniqueItems" in schema && typeof schema.uniqueItems !== "boolean") {
     throw new Error(`invalid uniqueItems at ${pointer}: expected a boolean`);
   }

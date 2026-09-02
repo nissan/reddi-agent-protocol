@@ -241,6 +241,58 @@ const MISTYPED_KEYWORDS = [
   },
 ];
 
+// multipleOf is a number in each of these, so the type check passes; the validator then skips the
+// assertion because its divisor guard requires a positive finite value. A silently skipped keyword
+// is the behaviour this validator exists to refuse, so the value is settled at compile time too.
+const INVALID_MULTIPLE_OF = [["zero", 0], ["negative", -2]];
+
+for (const [label, multipleOf] of INVALID_MULTIPLE_OF) {
+  test(`a ${label} multipleOf is refused when the schema is compiled`, () => {
+    const schema = structuredClone(liveSchema);
+    schema.properties.phase.multipleOf = multipleOf;
+    const inventory = inventoryWithPaths(["lib/program.ts"]);
+    inventory.phase = 7;
+
+    const root = stageFixtureRepo(inventory, { schema, files: ["lib/program.ts"] });
+    const result = runChecker(root);
+
+    assert.equal(result.status, 1, `a ${label} multipleOf must fail the gate rather than be ignored`);
+    assert.match(result.stderr, /schema could not be compiled/);
+    assert.match(result.stderr, /invalid multipleOf at .*: expected a finite number greater than zero/);
+    assert.equal(result.stdout.includes("OK: audited"), false);
+  });
+}
+
+test("a non-finite multipleOf is refused by the compiler", () => {
+  // JSON cannot carry NaN or Infinity, so a committed schema file never can either; these reach the
+  // compiler only from a programmatically built schema, and the guard has to hold there too.
+  for (const multipleOf of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    assert.throws(
+      () => compileJsonSchema({ type: "object", properties: { phase: { type: "integer", multipleOf } } }),
+      /invalid multipleOf at #\/properties\/phase: expected a finite number greater than zero/,
+      `multipleOf=${multipleOf} must be refused`,
+    );
+  }
+  assert.deepEqual(
+    compileJsonSchema({ type: "object", properties: { phase: { type: "integer", multipleOf: 5 } } })({ phase: 10 }),
+    [],
+    "a legal divisor still compiles",
+  );
+});
+
+test("a valid multipleOf is compiled and enforced against the document", () => {
+  const schema = structuredClone(liveSchema);
+  schema.properties.phase.multipleOf = 5;
+  const inventory = inventoryWithPaths(["lib/program.ts"]);
+  inventory.phase = 7;
+
+  const root = stageFixtureRepo(inventory, { schema, files: ["lib/program.ts"] });
+  const result = runChecker(root);
+
+  assert.equal(result.status, 1, "a legal multipleOf must still be applied, not merely accepted");
+  assert.match(result.stderr, /#\/phase: must be a multiple of 5/);
+});
+
 for (const { label, corrupt, admits } of MISTYPED_KEYWORDS) {
   test(`a mistyped ${label} is refused when the schema is compiled, not dropped at validation`, () => {
     const schema = structuredClone(liveSchema);

@@ -801,7 +801,11 @@ export function redactForEvidence(value, options = {}) {
 }
 
 /**
- * Sanitizes one untrusted fragment for a single-line operator channel.
+ * Sanitizes one untrusted fragment before it enters an evidence channel.
+ *
+ * Every fragment the lane did not compose itself goes through here: filesystem error messages,
+ * quarantine reasons, cleanup warnings. All of them can carry an absolute path or key material, all
+ * of them are unbounded, and all of them end up in a file that is uploaded and read.
  *
  * The order matters at both ends. `redactForEvidence` substitutes the repository root and home
  * directory as literal strings, so it has to see the raw text: collapsing whitespace first would
@@ -811,7 +815,7 @@ export function redactForEvidence(value, options = {}) {
  * patterns before the collapse joins it onto one line — and the general redactor runs once more
  * afterwards, because collapsing can flatten a secret into a shape only it matches.
  */
-function sanitizeOperatorNoticeFragment(value, { repoRoot, home, maxChars = 2_000 } = {}) {
+export function sanitizeEvidenceFragment(value, { repoRoot, home, maxChars = 2_000 } = {}) {
   const scrubbed = redactForEvidence(value, { repoRoot, home })
     .replace(/AGENT_[ABC]_KEYPAIR=\[[^\]]*\]/g, "AGENT_KEYPAIR=<redacted>")
     .replace(/\[(?:\s*\d{1,3}\s*,){16,}\s*\d{1,3}\s*\]/g, "[<redacted-bytes>]");
@@ -875,7 +879,7 @@ export function describeAcceptedReceiptDisposition(options = {}) {
   // The quarantine reason is the one fragment here the lane did not compose itself — it carries a
   // filesystem error, and this line is written into SUMMARY.md and uploaded. It goes through the
   // same sanitizer as the operator notice rather than being interpolated raw.
-  const sanitize = (value, maxChars) => sanitizeOperatorNoticeFragment(value, { repoRoot, home, maxChars });
+  const sanitize = (value, maxChars) => sanitizeEvidenceFragment(value, { repoRoot, home, maxChars });
   const priorEntryLine = status !== "PASS" && quarantinedPriorEntry
     ? `unusable (${sanitize(quarantinedPriorEntry.reason ?? "no reason recorded", 300)}); publication moved it aside `
       + `to ${sanitize(quarantinedPriorEntry.path ?? "an unnamed path", 200)}`
@@ -890,7 +894,7 @@ export function describeAcceptedReceiptDisposition(options = {}) {
  * It is built here rather than interpolated at the call site because it carries two untrusted
  * fragments — a filesystem error message and, when the publication moved one aside, a quarantined
  * entry's reason — onto a channel that has none of the log's redaction or bounds. Both go through
- * `sanitizeOperatorNoticeFragment`.
+ * `sanitizeEvidenceFragment`.
  *
  * Every claim is an invariant of the state that produced the notice, never an observation of the
  * disk. Any path that reaches it exits nonzero and holds no citable receipt, so both of those are
@@ -912,7 +916,7 @@ export function describeSummaryPublicationFailure(options = {}) {
     quarantinedPriorEntry = null,
     maxErrorChars = 2_000,
   } = options;
-  const sanitize = (value, maxChars) => sanitizeOperatorNoticeFragment(value, { repoRoot, home, maxChars });
+  const sanitize = (value, maxChars) => sanitizeEvidenceFragment(value, { repoRoot, home, maxChars });
   const reason = sanitize(error?.message ?? String(error ?? "unknown error"), maxErrorChars);
 
   const quarantineClause = quarantinedPriorEntry

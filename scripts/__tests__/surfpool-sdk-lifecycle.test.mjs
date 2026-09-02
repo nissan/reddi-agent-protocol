@@ -26,6 +26,7 @@ import {
   collectStepEvidenceOmission,
   createEvidenceLogWriter,
   describeAcceptedReceiptDisposition,
+  sanitizeEvidenceFragment,
   describeSummaryPublicationFailure,
   redactForEvidence,
   spawnLoggedStep,
@@ -1321,9 +1322,10 @@ const RECEIPT_DISPOSITION_FIXTURE = {
 
 const QUARANTINE_REPO_ROOT = "/home/runner/work/reddi/rap";
 
-// The shape classifyPriorEntrySync actually produces when the canonical entry exists but cannot be
-// opened: Node embeds the absolute path in its own message even though the wrapper used a relative
-// name, and this reason is rendered into SUMMARY.md and uploaded.
+// Defence in depth for the summary layer. Production sanitizes this reason upstream — the receipt
+// layer's recordedUnusableReason already rewrites the absolute path Node embeds in an EACCES
+// message — so no current caller hands the path through. These cases hold the summary layer to the
+// same contract independently, so a future caller that skips the upstream pass cannot leak.
 const QUARANTINED_PRIOR_ENTRY = {
   path: "artifacts/surfpool-quasar-smoke/.accepted-evidence.json.quarantined-abc123",
   reason: "it could not be read as accepted evidence (accepted-evidence.json could not be opened: EACCES: "
@@ -1427,6 +1429,56 @@ test("a quarantine reason carrying key material or an oversized dump is bounded 
   assert.equal(priorEntryLine.includes("\n"), false, "the summary line stays one line");
   assert.match(priorEntryLine, /\[truncated \d+ character\(s\)\]/, "an unbounded reason is bounded");
   assert.ok(priorEntryLine.length < 700, `the line must stay bounded; got ${priorEntryLine.length}`);
+});
+
+// The summary's failure and cleanup sections carry filesystem error messages verbatim from Node.
+// Every other line in that file avoids absolute paths by going through rel(); these are the two
+// that cannot, so they are routed through the sanitizer instead.
+const SUMMARY_ERROR_SHAPES = [
+  {
+    label: "missing build artifact",
+    message: "ENOENT: no such file or directory, access "
+      + "'/home/runner/work/reddi/rap/.tmp/surfpool-sdk-critical-smoke/sdk-quasar-1/deploy/escrow/quasar_escrow_poc.so'",
+    survives: /ENOENT: no such file or directory/,
+  },
+  {
+    label: "busy temporary directory",
+    message: "tmp cleanup warning: EBUSY: resource busy or locked, rmdir "
+      + "'/home/runner/work/reddi/rap/.tmp/surfpool-sdk-critical-smoke/sdk-quasar-1'",
+    survives: /EBUSY: resource busy or locked/,
+  },
+  {
+    label: "containment refusal",
+    message: "RAP_SURFPOOL_CARGO_TARGET_DIR must stay inside the repository; got /home/runner/work/reddi/rap/../escape",
+    survives: /must stay inside the repository/,
+  },
+];
+
+for (const { label, message, survives } of SUMMARY_ERROR_SHAPES) {
+  test(`a ${label} error reaches the summary without its absolute path`, () => {
+    const repoRoot = "/home/runner/work/reddi/rap";
+    const sanitized = sanitizeEvidenceFragment(message, { repoRoot, home: "/home/runner" });
+
+    assert.equal(sanitized.includes(repoRoot), false, "the absolute repository path must not reach the summary");
+    assert.equal(sanitized.includes("/home/runner"), false, "the absolute home path must not reach the summary");
+    assert.match(sanitized, /<repo>\/|~\//, "the path is rewritten rather than dropped");
+    assert.match(sanitized, survives, "the diagnosis itself survives");
+  });
+}
+
+test("an untrusted summary fragment stays one bounded line and carries no key material", () => {
+  const bytes = Array.from({ length: 64 }, (_, i) => i + 1);
+  const sanitized = sanitizeEvidenceFragment(
+    `cleanup warning: EIO\nAGENT_C_KEYPAIR=[${bytes.slice(0, 30).join(",")},\n${bytes.slice(30).join(",")}]\r\n`
+    + "filler ".repeat(500),
+    { repoRoot: "/repo", home: "/home/runner", maxChars: 300 },
+  );
+
+  assert.equal(sanitized.includes("AGENT_C_KEYPAIR=["), false, "key material may not reach the summary");
+  assert.equal(sanitized.includes("31,32,33"), false, "no run of key bytes may survive the collapse");
+  assert.equal(sanitized.includes("\n"), false, "a multi-line error may not break the summary's bullet list");
+  assert.match(sanitized, /\[truncated \d+ character\(s\)\]/, "an unbounded message is bounded");
+  assert.ok(sanitized.length < 400, `the fragment must stay bounded; got ${sanitized.length}`);
 });
 
 test("a PASS run cites the receipt path and reports no prior-entry disposition", () => {
