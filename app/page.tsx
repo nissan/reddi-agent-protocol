@@ -345,7 +345,7 @@ export default function Home() {
             Open onboarding hub →
           </Link>
         </div>
-        <OnboardingVideoGrid videos={onboardingVideos.filter((video) => video.id !== "overview")} />
+        <OnboardingVideoGrid videos={onboardingVideos.filter((video) => video.id !== "overview")} hostRoute="/" />
       </section>
 
       <section id="verify-demo" className="mx-auto max-w-6xl px-4 pt-10 sm:px-6 lg:px-8">

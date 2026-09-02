@@ -608,7 +608,7 @@ function RegisterInner() {
         </LinkButton>
       </Card>
       <section id="video-guide">
-        <OnboardingVideoCard video={onboardingVideos.find((video) => video.id === "register-agent") ?? onboardingVideos[2]} layout="horizontal" />
+        <OnboardingVideoCard video={onboardingVideos.find((video) => video.id === "register-agent") ?? onboardingVideos[2]} layout="horizontal" hostRoute="/register" />
       </section>
 
       <div className="grid gap-3 md:grid-cols-3">

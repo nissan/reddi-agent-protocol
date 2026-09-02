@@ -498,7 +498,7 @@ export default function EconomicDemoPage() {
               ))}
             </div>
             <section id="video-guide" className="pt-2">
-              <OnboardingVideoCard video={onboardingVideos.find((video) => video.id === "economic-proof") ?? onboardingVideos[1]} layout="horizontal" />
+              <OnboardingVideoCard video={onboardingVideos.find((video) => video.id === "economic-proof") ?? onboardingVideos[1]} layout="horizontal" hostRoute="/economic-demo" />
             </section>
 
             <div

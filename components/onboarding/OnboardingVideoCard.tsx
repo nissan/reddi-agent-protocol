@@ -5,10 +5,16 @@ import type { OnboardingVideoGuide } from "@/lib/onboarding/video-guides";
 type Props = {
   video: OnboardingVideoGuide;
   layout?: "stacked" | "horizontal";
+  /** Route this card is rendered on, so a withheld capture of this same page does not link to itself. */
+  hostRoute?: string;
 };
 
 function isExternal(href: string) {
   return href.startsWith("http://") || href.startsWith("https://");
+}
+
+function samePage(a: string, b: string) {
+  return a.split("#")[0] === b.split("#")[0];
 }
 
 function CtaLink({ href, label, primary = false }: { href: string; label: string; primary?: boolean }) {
@@ -31,8 +37,9 @@ function CtaLink({ href, label, primary = false }: { href: string; label: string
   );
 }
 
-export function OnboardingVideoCard({ video, layout = "stacked" }: Props) {
+export function OnboardingVideoCard({ video, layout = "stacked", hostRoute }: Props) {
   const horizontal = layout === "horizontal";
+  const capturesHostPage = hostRoute !== undefined && samePage(hostRoute, video.route);
 
   return (
     <article
@@ -46,11 +53,18 @@ export function OnboardingVideoCard({ video, layout = "stacked" }: Props) {
             <span className="text-sm font-semibold text-white/40">{video.title}</span>
             <span className="max-w-sm text-xs leading-relaxed text-white/25">
               Recording withheld: this capture predates the public-claim remediation and still shows
-              retired marketplace/payment wording. Open{" "}
-              <Link href={video.route} className="underline hover:text-white/50">
-                {video.route}
-              </Link>{" "}
-              on this build for the current copy.
+              retired marketplace/payment wording.{" "}
+              {capturesHostPage ? (
+                <>The current copy is what this page renders.</>
+              ) : (
+                <>
+                  Open{" "}
+                  <Link href={video.route} className="underline hover:text-white/50">
+                    {video.route}
+                  </Link>{" "}
+                  on this build for the current copy.
+                </>
+              )}
             </span>
           </div>
         ) : (

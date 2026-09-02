@@ -229,7 +229,7 @@ function AgentsPageContent() {
         </p>
 
         <section className="mb-8">
-          <OnboardingVideoCard video={onboardingVideos.find((video) => video.id === "mcp-x402") ?? onboardingVideos[0]} layout="horizontal" />
+          <OnboardingVideoCard video={onboardingVideos.find((video) => video.id === "mcp-x402") ?? onboardingVideos[0]} layout="horizontal" hostRoute="/agents" />
         </section>
 
         <div className="mb-4">

@@ -57,7 +57,7 @@ export default function StartPage() {
                 Boundary: these walkthroughs show Solana devnet proof unless explicitly stated otherwise.
               </p>
             </div>
-            <OnboardingVideoCard video={firstVideo} />
+            <OnboardingVideoCard video={firstVideo} hostRoute="/start" />
           </div>
         </div>
       </section>
@@ -72,7 +72,7 @@ export default function StartPage() {
             Each card keeps the devnet boundary visible and links back to the public verification steps.
           </p>
         </div>
-        <OnboardingVideoGrid videos={proofVideos} />
+        <OnboardingVideoGrid videos={proofVideos} hostRoute="/start" />
       </section>
 
       <section className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
