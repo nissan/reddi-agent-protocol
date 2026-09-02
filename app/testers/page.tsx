@@ -51,7 +51,7 @@ const server = http.createServer(async (req, res) => {
       choices: [{
         message: {
           role: "assistant",
-          content: "pong\\npayments prove transfer\\nproof binds paid work\\nreceipts beat promises",
+          content: "pong\\npayments prove transfer\\nreceipts bind the paid work done\\nproof beats a promise",
         },
       }],
     }));

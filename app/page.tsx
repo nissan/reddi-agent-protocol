@@ -9,13 +9,14 @@ import { OnboardingVideoGrid } from "@/components/onboarding/OnboardingVideoGrid
 import { SpecialistCard } from "@/components/SpecialistCard";
 import { onboardingVideos } from "@/lib/onboarding/video-guides";
 import {
+  directoryFixtureProfileCount,
   receiptFixtureCaseCount,
   sourceTrustConformanceCaseCount,
 } from "@/lib/assurance/public-metrics";
 import type { SpecialistListing } from "@/lib/registry/bridge";
 
 const JUDGE_METRICS = {
-  specialists: 30,
+  specialists: directoryFixtureProfileCount,
   receiptCases: receiptFixtureCaseCount,
   conformanceCases: sourceTrustConformanceCaseCount,
 };

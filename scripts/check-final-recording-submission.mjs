@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { join } from "node:path";
+
+import { SUBMISSION_PREP_LATEST_PATH, resolveSubmissionPrepPath } from "./lib/submission-prep-path.mjs";
 
 const steps = [
   ["product naming", ["npm", "run", "check:product:naming"]],
@@ -28,21 +29,9 @@ function runStep(label, command) {
 
 for (const [label, command] of steps) runStep(label, command);
 
-const prepPath = join("artifacts", "economic-demo-submission-prep", "latest", "SUBMISSION-PREP.md");
-function newestPrepPath() {
-  const parent = join("artifacts", "economic-demo-submission-prep");
-  if (!existsSync(parent)) return prepPath;
-  const candidate = readdirSync(parent, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && /^\d{8}T\d{6}Z$/.test(entry.name))
-    .map((entry) => join(parent, entry.name, "SUBMISSION-PREP.md"))
-    .filter((path) => existsSync(path))
-    .sort()
-    .at(-1);
-  return candidate ?? prepPath;
-}
-const resolvedPrepPath = existsSync(prepPath) ? prepPath : newestPrepPath();
+const resolvedPrepPath = resolveSubmissionPrepPath();
 if (!existsSync(resolvedPrepPath)) {
-  console.error(`[final-recording] FAIL: missing ${prepPath} and no timestamped fallback exists`);
+  console.error(`[final-recording] FAIL: missing ${SUBMISSION_PREP_LATEST_PATH} and no timestamped fallback exists`);
   process.exit(1);
 }
 const prep = readFileSync(resolvedPrepPath, "utf8");

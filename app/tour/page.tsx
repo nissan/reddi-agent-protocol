@@ -91,6 +91,7 @@ export default function TourPage() {
               <button
                 key={f}
                 onClick={() => {
+                  if (f === audienceFilter) return
                   setAudienceFilter(f)
                   setCurrent(0)
                 }}

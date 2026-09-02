@@ -17,12 +17,22 @@ import {
  * `scripts/check-public-claim-boundaries.mjs`, which shares this pattern list.
  */
 
+// /api/registry can take >20s when the devnet RPC is slow; give the route
+// readiness anchors headroom beyond the 30s repo default.
+test.describe.configure({ timeout: 60_000 });
+
 test.describe("public-claim boundary (rendered copy)", () => {
   for (const route of PUBLIC_CLAIM_DOM_ROUTES) {
-    test(`${route} renders no forbidden affirmative claim`, async ({ page }) => {
-      await page.goto(route);
+    test(`${route.path} renders no forbidden affirmative claim`, async ({ page }) => {
+      await page.goto(route.path);
+      // Readiness anchor first: without it a skeleton with nav/footer chrome
+      // would report a clean scan of copy that never rendered.
+      await expect(
+        page.getByRole("heading", { name: route.readyHeading }).first(),
+      ).toBeVisible({ timeout: 30_000 });
+
       const rendered = await page.locator("body").innerText();
-      expect(rendered.length).toBeGreaterThan(0);
+      expect(rendered).toMatch(route.readyHeading);
 
       const violations: string[] = [];
       for (const line of rendered.split(/\r?\n/)) {
@@ -36,7 +46,7 @@ test.describe("public-claim boundary (rendered copy)", () => {
 
       expect(
         violations,
-        `rendered copy at ${route} breaks ${PUBLIC_CLAIM_BOUNDARY_DOC_PATH}`,
+        `rendered copy at ${route.path} breaks ${PUBLIC_CLAIM_BOUNDARY_DOC_PATH}`,
       ).toEqual([]);
     });
   }

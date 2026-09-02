@@ -127,5 +127,20 @@ export function claimIsQualified(line: string): boolean {
   return CLAIM_QUALIFIER_PATTERNS.some((pattern) => pattern.test(line));
 }
 
+export type PublicClaimDomRoute = {
+  path: string;
+  /**
+   * Heading that only the route's own content tree renders. The DOM gate waits
+   * for it before snapshotting, so a green result cannot come from a skeleton
+   * or an unhydrated shell that never showed the claim-bearing copy.
+   */
+  readyHeading: RegExp;
+};
+
 /** Public routes whose rendered copy is gated at the DOM layer. */
-export const PUBLIC_CLAIM_DOM_ROUTES = ["/", "/agents", "/spec", "/whitepaper"] as const;
+export const PUBLIC_CLAIM_DOM_ROUTES: PublicClaimDomRoute[] = [
+  { path: "/", readyHeading: /payments prove transfer\. RAP Assurance proves paid work\./i },
+  { path: "/agents", readyHeading: /specialist directory/i },
+  { path: "/spec", readyHeading: /ADL/i },
+  { path: "/whitepaper", readyHeading: /Reddi Agent Protocol Whitepaper/i },
+];
