@@ -12,6 +12,7 @@ Use this for wallet-gated UX tests and screenshot capture without a browser exte
 ## Files
 
 - Adapter: `lib/wallet/playwright-wallet-adapter.ts`
+- Safety guard: `lib/wallet/playwright-wallet-safety.ts`
 - Provider wiring: `components/WalletProvider.tsx`
 - Playwright helper: `e2e/helpers/wallet.ts`
 - Example spec: `e2e/wallet-mock.spec.ts`
