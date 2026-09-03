@@ -110,10 +110,11 @@ const runtimeCompatibilityOk = recordedRuntimeCompatibility === alignmentStatus;
 // written for a profile the tests only sample.
 //
 // The exact-set label is granted on positive evidence, never on the absence of a gate list:
-// it requires naming an enumeration from COMPLETE_SET_SOURCES that a test can compare the
-// live active set against for equality. That allowlist lives here rather than in the assets
-// file so that claiming exact-set evidence for another runtime takes a reviewed code change,
-// not a one-key JSON edit. Mollusk has no entry because mollusk-svm 0.15.1 exposes no stable
+// it requires naming the enumeration COMPLETE_SET_SOURCES records for that runtime, which a
+// test can compare the live active set against for equality. The allowlist is keyed by
+// profile so a runtime cannot borrow another's enumeration, and it lives here rather than in
+// the assets file so that claiming exact-set evidence for a runtime takes a reviewed code
+// change, not a JSON edit. Mollusk has no entry because mollusk-svm 0.15.1 exposes no stable
 // complete comparison: its SVMFeatureSet derives no equality and sits behind the
 // agave-unstable-api cfg, so the Mollusk half stays on named sentinel gates.
 const PROFILE_EVIDENCE_KINDS = new Set([
@@ -121,7 +122,7 @@ const PROFILE_EVIDENCE_KINDS = new Set([
   'asserted-representative-gates',
   'source-observed',
 ]);
-const COMPLETE_SET_SOURCES = new Set(['litesvm::features::MAINNET_ACTIVE_FEATURES']);
+const COMPLETE_SET_SOURCES = new Map([['litesvm', 'litesvm::features::MAINNET_ACTIVE_FEATURES']]);
 const executionProfiles = assets.programRuntime?.executionProfiles;
 const profileEntries = Object.entries(executionProfiles ?? {}).filter(
   ([, value]) => value !== null && typeof value === 'object' && !Array.isArray(value),
@@ -129,13 +130,19 @@ const profileEntries = Object.entries(executionProfiles ?? {}).filter(
 const executionProfilesOk =
   profileEntries.length > 0 &&
   ['litesvm', 'mollusk'].every((half) => profileEntries.some(([name]) => name === half)) &&
-  profileEntries.every(([, profile]) => {
+  profileEntries.every(([name, profile]) => {
     if (!PROFILE_EVIDENCE_KINDS.has(profile.profileEvidence)) return false;
     const gates = profile.assertedGates;
     if (gates !== undefined && (!Array.isArray(gates) || gates.length === 0)) return false;
     const completeSetSource = profile.completeSetSource;
     const claimsCompleteSet = profile.profileEvidence === 'asserted-complete-feature-set';
-    if (claimsCompleteSet && !COMPLETE_SET_SOURCES.has(completeSetSource)) return false;
+    const expectedCompleteSetSource = COMPLETE_SET_SOURCES.get(name);
+    if (
+      claimsCompleteSet &&
+      (expectedCompleteSetSource === undefined || completeSetSource !== expectedCompleteSetSource)
+    ) {
+      return false;
+    }
     if (!claimsCompleteSet && completeSetSource !== undefined) return false;
     // An enumerated gate list samples the profile, so it can never back the exact-set claim.
     if (gates !== undefined && claimsCompleteSet) return false;

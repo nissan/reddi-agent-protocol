@@ -257,6 +257,23 @@ test('a sampled profile cannot be relabelled as an exact feature-set pin', (t) =
   const unknownSource = runChecker(dir);
   assert.equal(unknownSource.status, 1, 'an unrecognised complete-comparison source must not back the claim');
   assertOnlyExecutionProfilesFailed(unknownSource);
+
+  // Nor may a runtime borrow another runtime's enumeration: the LiteSVM source is recognised,
+  // but nothing compares Mollusk's live feature set against it.
+  const litesvmSource = assets.programRuntime.executionProfiles.litesvm.completeSetSource;
+  assert.equal(typeof litesvmSource, 'string');
+  patchExecutionProfile(dir, 'mollusk', {
+    profileEvidence: 'asserted-complete-feature-set',
+    assertedGates: undefined,
+    completeSetSource: litesvmSource,
+  });
+  const borrowedSource = runChecker(dir);
+  assert.equal(
+    borrowedSource.status,
+    1,
+    "a profile must not claim the exact-set label using another runtime's comparison source",
+  );
+  assertOnlyExecutionProfilesFailed(borrowedSource);
 });
 
 test('the exact-set label requires a recognised complete-comparison source', (t) => {
@@ -318,9 +335,12 @@ test('an unrecognised evidence strength, or a claim without the test backing it,
   assert.equal(unpinned.status, 1, 'an asserted profile must name the test that asserts it');
   assertOnlyExecutionProfilesFailed(unpinned);
 
-  // And a source-observed profile must not pretend a test pins it.
+  // And a source-observed profile must not pretend a test pins it. The comparison source is
+  // dropped alongside the label so this reaches the asserted/pinned rule rather than tripping
+  // the dangling-source rule first.
   patchExecutionProfile(dir, 'litesvm', {
     profileEvidence: 'source-observed',
+    completeSetSource: undefined,
     pinnedBy: 'programs/escrow/tests/litesvm_runtime_profile.rs',
   });
   const mislabelled = runChecker(dir);
