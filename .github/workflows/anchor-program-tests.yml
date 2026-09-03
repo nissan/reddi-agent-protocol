@@ -41,7 +41,7 @@ on:
 
 jobs:
   anchor-program-tests:
-    name: Legacy Anchor escrow tests (LiteSVM)
+    name: Legacy Anchor escrow tests (LiteSVM / Mollusk)
     runs-on: ubuntu-latest
 
     steps:
@@ -83,10 +83,11 @@ jobs:
           sh -c "$(curl -sSfL https://release.anza.xyz/v4.2.2/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
-      # The LiteSVM tests embed target/deploy/escrow.so via include_bytes!,
-      # so the SBF build must complete before the test crate compiles.
+      # The LiteSVM tests embed target/deploy/escrow.so via include_bytes!, and
+      # the Mollusk smoke loads the same artifact through SBF_OUT_DIR, so the SBF
+      # build must complete before the test crate compiles.
       - name: Build escrow program (SBF)
         run: cargo build-sbf --manifest-path programs/escrow/Cargo.toml
 
-      - name: Run LiteSVM tests
+      - name: Run LiteSVM and Mollusk tests
         run: cargo test -p escrow

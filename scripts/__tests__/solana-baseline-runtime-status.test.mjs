@@ -1,11 +1,12 @@
 // The Agave CLI/SBF pin says nothing about which SVM the program-test lanes actually execute on.
 // `scripts/check-solana-baseline-pins.mjs` therefore recomputes the permitted value of
 // `programRuntime.agaveRuntimeCompatibility` from the root Cargo.lock resolution against the CI
-// Agave pin, and the whole point of the three-valued vocabulary is that dependency alignment alone
-// must never be able to produce the attestation-grade 'verified' label.
+// Agave pin. The current LiteSVM/Mollusk lane is major-aligned, but the whole point of
+// the three-valued vocabulary is that dependency alignment alone must never be able to
+// produce the attestation-grade 'verified' label.
 //
-// These tests exercise the real checker against a throwaway repository fixture: only the two files
-// whose recorded state is under test (the root Cargo.lock and the assets file) are rewritten, and
+// These tests exercise the real checker against a throwaway repository fixture: only the files
+// whose recorded runtime state is under test (the root Cargo.lock and the assets file) are rewritten, and
 // everything the checker reads is the repository's own content. Nothing here inspects the checker's
 // source; each case asserts its exit status and the label it printed.
 import assert from 'node:assert/strict';
@@ -90,41 +91,42 @@ function assertOnlyRuntimeStatusFailed(result) {
   assert.match(failures[0], /in-process runtime vs Agave CLI pin/);
 }
 
-test('today’s Agave 3.1 in-process runtime under an Agave 4 CLI pin is accepted only as unresolved', (t) => {
+test('the Agave 4 in-process runtime under an Agave 4 CLI pin is accepted only as major-aligned', (t) => {
   const dir = makeFixture(t);
 
   const asRecorded = runChecker(dir);
   assert.equal(asRecorded.status, 0, asRecorded.stderr);
-  assert.match(asRecorded.stdout, /ok: in-process runtime vs Agave CLI pin is recorded as unresolved/);
+  assert.match(asRecorded.stdout, /ok: in-process runtime vs Agave CLI pin is recorded as major-aligned/);
 
-  patchProgramRuntime(dir, { agaveRuntimeCompatibility: 'major-aligned' });
+  patchProgramRuntime(dir, { agaveRuntimeCompatibility: 'unresolved' });
+  const staleUnresolved = runChecker(dir);
+  assert.equal(staleUnresolved.status, 1);
+  assertOnlyRuntimeStatusFailed(staleUnresolved);
+  assert.match(staleUnresolved.stderr, /recorded as major-aligned/);
+});
+
+test('a runtime major mismatch records unresolved, not major-aligned', (t) => {
+  const dir = makeFixture(t);
+  setLockedProgramRuntime(dir, '3.1.12');
+  patchProgramRuntime(dir, {
+    embeddedProgramRuntimeVersion: '3.1.12',
+    agaveRuntimeCompatibility: 'major-aligned',
+  });
+
   const claimedAligned = runChecker(dir);
   assert.equal(claimedAligned.status, 1);
   assertOnlyRuntimeStatusFailed(claimedAligned);
-});
+  assert.match(claimedAligned.stderr, /recorded as unresolved/);
 
-test('aligning LiteSVM with the Agave pin records major-aligned, never verified', (t) => {
-  const dir = makeFixture(t);
-  setLockedProgramRuntime(dir, '4.2.2');
-  patchProgramRuntime(dir, { embeddedProgramRuntimeVersion: '4.2.2' });
-
-  // The recorded 'unresolved' no longer describes the lockfile, so the guard must notice.
-  const stale = runChecker(dir);
-  assert.equal(stale.status, 1);
-  assertOnlyRuntimeStatusFailed(stale);
-  assert.match(stale.stderr, /recorded as major-aligned/);
-
-  patchProgramRuntime(dir, { agaveRuntimeCompatibility: 'major-aligned' });
-  const aligned = runChecker(dir);
-  assert.equal(aligned.status, 0, aligned.stderr);
-  assert.match(aligned.stdout, /ok: in-process runtime vs Agave CLI pin is recorded as major-aligned/);
+  patchProgramRuntime(dir, { agaveRuntimeCompatibility: 'unresolved' });
+  const unresolved = runChecker(dir);
+  assert.equal(unresolved.status, 0, unresolved.stderr);
+  assert.match(unresolved.stdout, /ok: in-process runtime vs Agave CLI pin is recorded as unresolved/);
 });
 
 test('an unearned verified label is refused even when the majors align', (t) => {
   const dir = makeFixture(t);
-  setLockedProgramRuntime(dir, '4.2.2');
   patchProgramRuntime(dir, {
-    embeddedProgramRuntimeVersion: '4.2.2',
     agaveRuntimeCompatibility: 'verified',
   });
 
@@ -147,7 +149,9 @@ test('an unearned verified label is refused even when the majors align', (t) => 
 
 test('evidence cannot buy a verified label while the in-process runtime major still differs', (t) => {
   const dir = makeFixture(t);
+  setLockedProgramRuntime(dir, '3.1.12');
   patchProgramRuntime(dir, {
+    embeddedProgramRuntimeVersion: '3.1.12',
     agaveRuntimeCompatibility: 'verified',
     runtimeVerificationEvidence: 'dedicated Agave 4.2 runtime qualification run, artifact XYZ',
   });
@@ -159,10 +163,10 @@ test('evidence cannot buy a verified label while the in-process runtime major st
 
 test('the recorded in-process runtime versions must match the lockfile they claim to describe', (t) => {
   const dir = makeFixture(t);
-  setLockedProgramRuntime(dir, '4.2.2');
-  patchProgramRuntime(dir, { agaveRuntimeCompatibility: 'major-aligned' });
+  setLockedProgramRuntime(dir, '3.1.12');
+  patchProgramRuntime(dir, { agaveRuntimeCompatibility: 'unresolved' });
 
-  // embeddedProgramRuntimeVersion still says 3.1.12 while the lockfile now says 4.2.2.
+  // embeddedProgramRuntimeVersion still says 4.2.2 while the lockfile now says 3.1.12.
   const result = runChecker(dir);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /failed: recorded in-process runtime versions match Cargo\.lock/);

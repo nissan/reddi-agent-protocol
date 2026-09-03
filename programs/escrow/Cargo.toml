@@ -24,11 +24,14 @@ anchor-lang = { version = "1.1.2", features = ["init-if-needed"] }
 sha2 = { version = "0.10", default-features = false }
 
 [dev-dependencies]
-litesvm = "0.10.0"
-solana-message = "3.0.1"
-solana-transaction = "3.0.2"
-solana-signer = "3.0.0"
-solana-keypair = "3.0.1"
+litesvm = "0.16.0"
+mollusk-svm = "0.15.1"
+solana-account = "4.3.2"
+solana-message = "4.4.1"
+solana-transaction = { version = "4.1.6", features = ["wincode"] }
+solana-signer = "3.0.1"
+solana-keypair = "3.1.2"
+solana-sdk-ids = "3.1.0"
 sha2 = { version = "0.10", default-features = false }
 
 [lints.rust]

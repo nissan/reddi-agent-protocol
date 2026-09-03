@@ -10,9 +10,15 @@
 ///   - Duplicate nonce (same payer + nonce = account already exists)
 ///   - Zero amount is rejected
 use {
-    anchor_lang::{solana_program::instruction::Instruction, InstructionData, ToAccountMetas},
-    escrow::accounts::{CancelEscrow, LockEscrow, ReleaseEscrow},
+    anchor_lang::{
+        solana_program::instruction::Instruction, AccountDeserialize, InstructionData,
+        ToAccountMetas,
+    },
     escrow::instruction,
+    escrow::{
+        accounts::{CancelEscrow, LockEscrow, ReleaseEscrow},
+        state::EscrowAccount,
+    },
     litesvm::LiteSVM,
     solana_keypair::Keypair,
     solana_message::{Message, VersionedMessage},
@@ -196,8 +202,14 @@ fn test_cancel_escrow_refunds_payer() {
         .map(|a| a.lamports)
         .unwrap_or(0);
 
-    // Warp past the 7-day cancel window (50,400 slots)
-    svm.warp_to_slot(60_000);
+    // Warp past the 7-day cancel window relative to the slot recorded by the
+    // in-process runtime, whose initial slot is not fixed across LiteSVM releases.
+    let escrow_account = svm
+        .get_account(&escrow_pda)
+        .expect("escrow PDA should exist");
+    let escrow_state = EscrowAccount::try_deserialize(&mut escrow_account.data.as_slice())
+        .expect("escrow account should deserialize");
+    svm.warp_to_slot(escrow_state.created_slot + 60_000);
 
     // Cancel
     let cancel_ix = Instruction::new_with_bytes(

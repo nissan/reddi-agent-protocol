@@ -44,13 +44,20 @@
     "defaultArch": "v0"
   },
   "programRuntime": {
-    "statusSource": "programs/escrow/Cargo.toml dev-dependencies and the root Cargo.lock, recorded here so the Agave CLI pin cannot be read as Agave 4 runtime evidence. Scope is the escrow LiteSVM lane only: the Quasar program-test workspaces under experiments/ carry their own lockfiles, which scripts/check-solana-baseline-pins.mjs does not read, so this status is not a checked assertion about them",
+    "statusSource": "programs/escrow/Cargo.toml dev-dependencies and the root Cargo.lock, recorded here so the Agave CLI pin cannot be read as executable Agave 4 runtime proof beyond the escrow deterministic runtime lane. Scope is the escrow LiteSVM/Mollusk lane only: the Quasar program-test workspaces under experiments/ carry their own lockfiles, which scripts/check-solana-baseline-pins.mjs does not read, so this status is not a checked assertion about them",
     "statusVocabulary": "unresolved = the in-process runtime major differs from the Agave CLI pin; major-aligned = the majors match, which records dependency alignment and is not a compatibility claim; verified = requires major alignment AND a non-empty runtimeVerificationEvidence naming dedicated Agave runtime qualification. scripts/check-solana-baseline-pins.mjs never derives 'verified' from version equality alone.",
-    "liteSvmVersion": "0.10.0",
-    "embeddedProgramRuntimeVersion": "3.1.12",
-    "embeddedSolanaSbpfVersion": "0.13.1",
-    "agaveRuntimeCompatibility": "unresolved",
-    "reason": "The program-test lanes build escrow.so with the pinned Agave 4 SBF toolchain but execute it in-process on the Agave 3.1 SVM crates LiteSVM 0.10.0 embeds, so no lane in this repository runs an Agave 4 runtime. SBPFv0 output keeps those lanes loadable and passing; that is not Agave 4 runtime compatibility. Aligning LiteSVM/Mollusk with the Agave CLI pin is a separate workstream requiring its own qualification."
+    "liteSvmVersion": "0.16.0",
+    "embeddedProgramRuntimeVersion": "4.2.2",
+    "embeddedSolanaSbpfVersion": "0.21.1",
+    "agaveRuntimeCompatibility": "major-aligned",
+    "reason": "The legacy escrow deterministic tests now compile against LiteSVM 0.16.0 and Mollusk 0.15.1, whose root lockfile resolution embeds the Agave 4.2.2 in-process SVM crates and solana-sbpf 0.21.1, matching the Agave CLI major. The recorded status is therefore major-aligned only: it records exact root lockfile identity plus deterministic escrow test execution and does not claim verified deployment/runtime readiness. Quasar workspaces remain separately locked/evidenced and are not inferred from this root LiteSVM/Mollusk lockfile.",
+    "molluskSvmVersion": "0.15.1",
+    "runtimeAlignmentEvidence": "Cargo.lock resolves litesvm 0.16.0 and mollusk-svm 0.15.1 with solana-program-runtime 4.2.2 and solana-sbpf 0.21.1; cargo test -p escrow executes the legacy escrow SBF fixture under the updated in-process runtime lane, including programs/escrow/tests/mollusk_runtime.rs for Mollusk failure/conformance checks. This is dependency/runtime-lane alignment evidence, not deployment, Quasar, mainnet, or product-readiness evidence.",
+    "dependencyEvidence": {
+      "litesvm@0.16.0": "cargo info litesvm@0.16.0; crates.io release exists, repository https://github.com/LiteSVM/litesvm, rust-version 1.89.0, features include default/precompiles/register-tracing/sbpf-debugger; root Cargo.lock resolves its Agave runtime crates to 4.2.2",
+      "mollusk-svm@0.15.1": "cargo info mollusk-svm@0.15.1; crates.io release exists, repository https://github.com/anza-xyz/mollusk, features include all-builtins/precompiles/register-tracing/sbpf-debugger/serde; root Cargo.lock resolves solana-program-runtime 4.2.2",
+      "mollusk-svm-programs-token@0.15.1": "cargo info mollusk-svm-programs-token@0.15.1; crates.io release exists from the same Mollusk repository. Not a root dependency today because the legacy escrow Mollusk check does not exercise SPL Token."
+    }
   },
   "surfpool": {
     "version": "v1.5.0",

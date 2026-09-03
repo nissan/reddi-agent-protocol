@@ -41,8 +41,11 @@ const anchor = parseSimpleToml('Anchor.toml');
 const escrowCargo = parseSimpleToml('programs/escrow/Cargo.toml');
 const escrowAnchorLangReq = escrowCargo.dependencies?.['anchor-lang']?.match(/version\s*=\s*"([^"]+)"/)?.[1];
 const escrowLiteSvmReq = escrowCargo['dev-dependencies']?.litesvm;
+const escrowMolluskSvmReq = escrowCargo['dev-dependencies']?.['mollusk-svm'];
 const cargoLock = readFileSync(join(root, 'Cargo.lock'), 'utf8');
 const lockedAnchorLang = cargoLock.match(/^name = "anchor-lang"\nversion = "([^"]+)"/m)?.[1];
+const lockedLiteSvm = cargoLock.match(/^name = "litesvm"\nversion = "([^"]+)"/m)?.[1];
+const lockedMolluskSvm = cargoLock.match(/^name = "mollusk-svm"\nversion = "([^"]+)"/m)?.[1];
 const lockedProgramRuntime = cargoLock.match(/^name = "solana-program-runtime"\nversion = "([^"]+)"/m)?.[1];
 const lockedSolanaSbpf = cargoLock.match(/^name = "solana-sbpf"\nversion = "([^"]+)"/m)?.[1];
 const rootPackage = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -86,8 +89,9 @@ const BASELINE_PLATFORM_TOOLS_VERSION = 'v1.54';
 
 const majorOf = (version) => String(version ?? '').replace(/^v/, '').split('.')[0];
 // The program-test lanes build against the CI Agave pin but execute in-process on whatever SVM
-// LiteSVM pulls in. Version equality between the two is dependency alignment, never a runtime
-// compatibility claim, so aligning them can only ever reach 'major-aligned' here: 'verified'
+// the deterministic LiteSVM/Mollusk root lockfile pulls in. Version equality between the two is
+// dependency alignment, never a runtime compatibility claim, so aligning them can only ever reach
+// 'major-aligned' here: 'verified'
 // additionally requires recorded evidence of dedicated Agave runtime qualification.
 const inProcessRuntimeMatchesAgavePin =
   Boolean(lockedProgramRuntime) && majorOf(lockedProgramRuntime) === majorOf(BASELINE_AGAVE_VERSION);
@@ -121,8 +125,16 @@ const checks = [
     assets.sbf?.platformToolsVersionByCargoBuildSbfVersion?.[BASELINE_CARGO_BUILD_SBF_VERSION] === BASELINE_PLATFORM_TOOLS_VERSION,
   ],
   [
-    'recorded LiteSVM pin matches the programs/escrow dev-dependency',
-    typeof escrowLiteSvmReq === 'string' && assets.programRuntime?.liteSvmVersion === escrowLiteSvmReq,
+    'recorded LiteSVM pin matches the programs/escrow dev-dependency and lockfile',
+    typeof escrowLiteSvmReq === 'string' &&
+      assets.programRuntime?.liteSvmVersion === escrowLiteSvmReq &&
+      lockedLiteSvm === escrowLiteSvmReq,
+  ],
+  [
+    'recorded Mollusk pin matches the programs/escrow dev-dependency and lockfile',
+    typeof escrowMolluskSvmReq === 'string' &&
+      assets.programRuntime?.molluskSvmVersion === escrowMolluskSvmReq &&
+      lockedMolluskSvm === escrowMolluskSvmReq,
   ],
   [
     'recorded in-process runtime versions match Cargo.lock',
