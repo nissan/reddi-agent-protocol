@@ -139,6 +139,9 @@ RUSTUP_SHA256=$(json_value rustup.sha256)
 AGAVE_URL_TEMPLATE=$(json_value agave.urlTemplate)
 AGAVE_URL=${AGAVE_URL_TEMPLATE//\{version\}/$AGAVE_VERSION}
 AGAVE_SHA256=$(json_keyed_value agave.sha256ByVersion "$AGAVE_VERSION")
+CARGO_BUILD_SBF_VERSION=$(json_keyed_value sbf.cargoBuildSbfVersionByAgaveVersion "$AGAVE_VERSION")
+PLATFORM_TOOLS_VERSION=$(json_keyed_value sbf.platformToolsVersionByCargoBuildSbfVersion "$CARGO_BUILD_SBF_VERSION")
+SBF_BIN_DIR="$SOLANA_INSTALL_DIR/active_release/bin"
 RUSTFMT_VERSION=$(json_keyed_value rust.rustfmtVersionByChannel "$RUST_VERSION")
 CLIPPY_VERSION=$(json_keyed_value rust.clippyVersionByChannel "$RUST_VERSION")
 SURFPOOL_URL=$(json_value surfpool.url)
@@ -180,6 +183,8 @@ rust=$RUST_VERSION components=[$RUST_COMPONENTS] (source: rust-toolchain.toml)
 rustfmt=$RUSTFMT_VERSION (source: config/toolchain/solana-baseline-assets.json, shipped with Rust $RUST_VERSION)
 clippy=$CLIPPY_VERSION (source: config/toolchain/solana-baseline-assets.json, shipped with Rust $RUST_VERSION)
 agave=$AGAVE_VERSION (source: CI release.anza.xyz install URLs)
+cargo-build-sbf=$CARGO_BUILD_SBF_VERSION (source: config/toolchain/solana-baseline-assets.json; shipped inside the Agave $AGAVE_VERSION release tarball, which also provides cargo-test-sbf from the same crate)
+platform-tools=$PLATFORM_TOOLS_VERSION (source: config/toolchain/solana-baseline-assets.json, cargo-build-sbf $CARGO_BUILD_SBF_VERSION default; fetched on demand and not checksummed here)
 avm=$AVM_MANAGER_VERSION (source: config/toolchain/solana-baseline-assets.json; official tag object $AVM_TAG_OBJECT_SHA, commit $AVM_TAG_COMMIT_SHA)
 anchor=$ANCHOR_VERSION (source: Anchor.toml; official tag object $ANCHOR_TAG_OBJECT_SHA, commit $ANCHOR_TAG_COMMIT_SHA; release binary sha256 $ANCHOR_CLI_SHA256)
 rustup-init=$RUSTUP_VERSION (source: config/toolchain/solana-baseline-assets.json)
@@ -271,10 +276,19 @@ capture_versions() {
       echo "node@$NODE_VERSION is not installed through mise (not probed, to avoid installing it)"
       echo
     fi
-    for cmd in node npm npx rustup rustc cargo solana agave-install avm anchor surfpool; do
+    for cmd in node npm npx rustup rustc cargo solana agave-install avm anchor surfpool cargo-build-sbf cargo-test-sbf; do
       printf '$ command -v %s\n' "$cmd"
       (command -v "$cmd" || true) | redact_home
       probe_ambient_version "$cmd" | redact_home
+      echo
+    done
+    for sbf_bin in cargo-build-sbf cargo-test-sbf; do
+      printf '$ %s --version\n' "$(printf '%s' "$SBF_BIN_DIR/$sbf_bin" | redact_home)"
+      if [ -x "$SBF_BIN_DIR/$sbf_bin" ]; then
+        ("$SBF_BIN_DIR/$sbf_bin" --version 2>&1 || true) | redact_home
+      else
+        echo "not present in the baseline-owned Agave tree (not probed)"
+      fi
       echo
     done
     if rustup_pinned_toolchain_installed; then
@@ -317,6 +331,9 @@ verify_versions() {
   expect_exact rustfmt "rustfmt $RUSTFMT_VERSION" rustup run "$RUST_VERSION" rustfmt --version
   expect_exact clippy "clippy $CLIPPY_VERSION" rustup run "$RUST_VERSION" cargo clippy --version
   expect_exact solana "solana-cli ${AGAVE_VERSION#v}" solana --version
+  expect_exact cargo-build-sbf "cargo-build-sbf $CARGO_BUILD_SBF_VERSION" "$SBF_BIN_DIR/cargo-build-sbf" --version
+  expect_exact platform-tools "platform-tools $PLATFORM_TOOLS_VERSION" "$SBF_BIN_DIR/cargo-build-sbf" --version
+  expect_exact cargo-test-sbf "cargo-build-sbf $CARGO_BUILD_SBF_VERSION" "$SBF_BIN_DIR/cargo-test-sbf" --version
   expect_exact avm "avm $AVM_MANAGER_VERSION" avm --version
   expect_exact anchor "anchor-cli $ANCHOR_VERSION" anchor --version
   expect_exact surfpool "surfpool ${SURFPOOL_VERSION#v}" surfpool --version

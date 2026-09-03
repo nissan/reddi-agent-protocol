@@ -151,7 +151,7 @@ The intended property is that neither party sees the other's score before commit
 ## Running the protocol locally
 
 ### Prerequisites
-- Pinned user-scoped Solana/Anchor toolchain from [`docs/SOLANA-TOOLCHAIN-BASELINE.md`](docs/SOLANA-TOOLCHAIN-BASELINE.md) (Anchor 1.1.2; Agave/Solana CLI 3.1.13; Rust 1.89.0; repo-local Node 24.20.0)
+- Pinned user-scoped Solana/Anchor toolchain from [`docs/SOLANA-TOOLCHAIN-BASELINE.md`](docs/SOLANA-TOOLCHAIN-BASELINE.md) (Anchor 1.1.2; Agave/Solana CLI 4.2.2; Rust 1.98.0; repo-local Node 24.20.0)
 - [Ollama](https://ollama.ai) with at least one model
 
 ### Local validator + program

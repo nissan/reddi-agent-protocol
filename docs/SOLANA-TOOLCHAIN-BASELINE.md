@@ -1,15 +1,17 @@
 # RAP Solana workstation baseline
 
-This repository owns a reproducible, user-scoped baseline for local Solana work. It is baseline parity only; do not use it as approval to upgrade RAP to Anchor 2.x/RC builds, Agave 4.x, newer Rust, newer LiteSVM, or mainnet flows.
+This repository owns a reproducible, user-scoped baseline for local Solana work. It is baseline parity only; do not use it as approval to upgrade RAP to Anchor 2.x/RC builds, unpinned Agave/Rust beyond the versions below, newer LiteSVM, or mainnet flows.
 
 ## Authoritative pins
 
 | Tool | Pin | Source |
 | --- | --- | --- |
 | Node | `24.20.0` | `.mise.toml` repository-local mise selection |
-| Rust | `1.89.0` with `rustfmt` and `clippy` | `rust-toolchain.toml` |
-| rustfmt / clippy | `1.8.0-stable` / `0.1.89` | shipped with Rust `1.89.0`, recorded per channel in `config/toolchain/solana-baseline-assets.json` for exact probes |
-| Agave/Solana CLI | `v3.1.13` | CI `release.anza.xyz` install URLs in every workflow `npm run check:toolchain:baseline` scans: the Anchor/Quasar program-test workflows and the Surfpool acceptance and critical SDK lanes |
+| Rust | `1.98.0` with `rustfmt` and `clippy` | `rust-toolchain.toml`; official Rust dist manifest `channel-rust-1.98.0.toml` was HTTP 200 on 2026-09-02 |
+| rustfmt / clippy | `1.9.0-stable` / `0.1.98` | shipped with Rust `1.98.0`, recorded per channel in `config/toolchain/solana-baseline-assets.json` for exact probes |
+| Agave/Solana CLI | `v4.2.2` | CI `release.anza.xyz` install URLs in every workflow `npm run check:toolchain:baseline` scans: the Anchor/Quasar program-test workflows and the Surfpool acceptance and critical SDK lanes; `gh-axi release view v4.2.2 -R anza-xyz/agave` reported a stable, non-prerelease release and Linux installer digest `sha256:78b6bc178609de93fba8d2175f2e44be409fe13fd8510cad0206c3f0433523fd` |
+| `cargo-build-sbf` / `cargo-test-sbf` | `4.1.0` (one crate ships both binaries) | recorded per Agave version in `config/toolchain/solana-baseline-assets.json`, resolved by `print-pins`, and probed by `verify` at the baseline-owned Agave tree. Since Agave 4 these are no longer agave workspace members: `scripts/cargo-build-sbf-version.sh` at tag `v4.2.2` pins the crates.io `cargo-build-sbf 4.1.0`, and the agave *release build* — not this installer — runs `cargo install --locked cargo-build-sbf --root <release staging dir>` so both binaries ship inside the release tarball. `cargo build-sbf` therefore moves with the Agave pin rather than with this repository |
+| SBF platform-tools | `v1.54` | `DEFAULT_PLATFORM_TOOLS_VERSION` in `cargo-build-sbf` `4.1.0`, recorded in `config/toolchain/solana-baseline-assets.json`, resolved by `print-pins`, and probed by `verify` from `cargo-build-sbf --version`. `cargo build-sbf` downloads the toolchain itself on demand from `anza-xyz/platform-tools`; this repository neither mirrors nor checksums that download, so `v1.54` is a recorded pin, not a verified asset. Its default output arch is `v0` (SBPFv0) |
 | AVM manager | `1.0.0` | `config/toolchain/solana-baseline-assets.json`; official `solana-foundation/anchor` tag `v1.0.0` (`f17b37fd1f1fdb4b1c0de68ccb467996d3ba07f3` → `25be6d502ec6957d34d436bc2a6170040fc64153`) |
 | Anchor CLI | `1.1.2` | `Anchor.toml`; official stable `solana-foundation/anchor` tag `v1.1.2` (`0984d7a19ae6cfea19d78fab228b2af016b63021` → `24035e2b0035c87e321acc1c05f97793829a87f1`) and Linux release asset SHA-256 `fdea9979629e9416e5f5e5622ff6c11b8c691d1e559581ece368e903c0c980c1` |
 | `anchor-lang` crate | same version as the Anchor CLI pin | `programs/escrow/Cargo.toml` requirement and the `Cargo.lock` resolution, both cross-checked against `Anchor.toml` by `npm run check:toolchain:baseline` so the program cannot compile against a different Anchor minor than the CLI that generates its IDL |
@@ -18,6 +20,23 @@ This repository owns a reproducible, user-scoped baseline for local Solana work.
 | Surfpool | `v1.5.0` | `config/toolchain/solana-baseline-assets.json` GitHub release URL and SHA-256; the `@solana/surfpool` SDK the critical lanes run in-process is pinned to the same `1.5.0` in `package.json`/`package-lock.json` and cross-checked by `npm run check:toolchain:baseline` |
 
 Run `scripts/solana-baseline-toolchain.sh print-pins` to see the resolved pins the installer will use.
+
+## Agave 4 runtime compatibility is unresolved
+
+The Agave pin above covers the CLI and the SBF build path only. It is not evidence that the programs execute correctly under an Agave 4 runtime, and nothing in this repository establishes that today:
+
+- `programs/escrow` tests run in-process on `litesvm 0.10.0`, which the **root** `Cargo.lock` resolves to the Agave `3.1.12` SVM crates (`solana-program-runtime`, `solana-bpf-loader-program`, `agave-syscalls`) and `solana-sbpf 0.13.1`. This is the only lockfile the baseline check reads.
+- The Quasar program-test lanes build from their own workspaces under `experiments/`, each with its own lockfile. `quasar-escrow`, `quasar-registry`, `quasar-reputation`, `quasar-attestation` and `quasar-escrow-per` all resolve `solana-program-runtime 3.1.14` and `solana-sbpf 0.13.1` through `quasar-svm 0.1.0` — Agave 3.1 as well, so the same conclusion holds for them. That is recorded evidence from reading those lockfiles, not a checked assertion: `npm run check:toolchain:baseline` never opens them.
+- Both lane sets install Agave `v4.2.2` and build with `cargo-build-sbf 4.1.0` / platform-tools `v1.54`, then execute the artifact on an Agave 3.1 in-process runtime. They pass because the build defaults to SBPFv0, which stays loadable under `solana-sbpf 0.13.1` — not because an Agave 4 runtime accepted it.
+- Loader, feature-set, or syscall behaviour that differs between Agave 3.1 and 4.2 is therefore invisible to every lane here.
+
+Do not cite a passing program-test lane, or this baseline, as Agave 4.2 runtime compatibility, deployment readiness, or submission readiness. `config/toolchain/solana-baseline-assets.json` records the split as `programRuntime.agaveRuntimeCompatibility: "unresolved"`, and `npm run check:toolchain:baseline` recomputes the permitted value from the root `Cargo.lock` resolution — the escrow LiteSVM lane, and only that lane — against the CI Agave pin. The Quasar lockfiles under `experiments/` are outside that computation, so the recorded status is a checked statement about the root lockfile and a documented one about them. Version alignment alone can never produce a compatibility claim — the vocabulary is deliberately three-valued:
+
+- `unresolved` — the in-process runtime major differs from the Agave pin. Today's state.
+- `major-aligned` — the majors match. This records dependency alignment and nothing else.
+- `verified` — accepted only when the majors align **and** `programRuntime.runtimeVerificationEvidence` names dedicated Agave runtime qualification.
+
+So bumping `litesvm` moves the recorded value to `major-aligned`, never to `verified`; the checker rejects `verified` outright with no evidence key present. Note that such a bump aligns the escrow lane alone — the Quasar workspaces would still resolve Agave 3.1 until their own lockfiles move — which is another reason `major-aligned` is not a statement about the lane set as a whole. Aligning LiteSVM/Mollusk with the Agave CLI pin is a separate workstream needing its own qualification; do not bump `litesvm` as part of this baseline.
 
 ## Safe install
 
@@ -31,8 +50,8 @@ The script is idempotent and constrained to user-scoped install paths. Re-runnin
 
 - Node is installed with `mise install node@24.20.0`; this does not replace the machine-wide/default Node, so Node 26 remains available for unrelated work.
 - Rust/rustup are installed under `~/.rustup` and `~/.cargo` using a pinned `rustup-init` archive and `--no-modify-path`. `auto-self-update` is disabled only on a rustup this script installed; an existing rustup keeps its own settings.
-- Solana CLI is installed under the baseline-owned `~/.local/share/solana/reddi-agent-protocol-baseline/install` directory using the pinned `agave-install-init` release asset, a config file inside that same install tree, and `--no-modify-path`. The shared default `~/.local/share/solana/install` tree is left untouched by default. If you explicitly set `RAP_BASELINE_SOLANA_INSTALL_DIR=~/.local/share/solana/install`, the installer warns that this relinks the shared `active_release` and may change the user-wide `solana`.
-- AVM manager stays on the verified official `solana-foundation/anchor` `v1.0.0` source tag because compiling AVM `v1.1.2` under the pinned Rust `1.89.0` pulls a dependency requiring Rust `1.91`. The installer verifies both the AVM manager tag and the Anchor `v1.1.2` tag, downloads the official `anchor-1.1.2-x86_64-unknown-linux-gnu` release binary with SHA-256 verification, installs it under `${AVM_HOME:-$HOME/.avm}/bin/anchor-1.1.2`, and selects it through AVM. Do not substitute Anchor 2.0 RC tags, unrecorded AVM sources, or unverified release assets.
+- Solana CLI is installed under the baseline-owned `~/.local/share/solana/reddi-agent-protocol-baseline/install` directory using the pinned `agave-install-init` release asset, a config file inside that same install tree, and `--no-modify-path`. The shared default `~/.local/share/solana/install` tree is left untouched by default. If you explicitly set `RAP_BASELINE_SOLANA_INSTALL_DIR=~/.local/share/solana/install`, the installer warns that this relinks the shared `active_release` and may change the user-wide `solana`. The same tarball supplies `cargo-build-sbf` and `cargo-test-sbf`, so under Agave 4 they land in `<install dir>/active_release/bin` beside `solana`: this script never runs `cargo install` for them and never writes `~/.cargo/bin`, and the whole footprint disappears with the install tree on rollback. Because the PATH this script exports puts `~/.cargo/bin` ahead of the baseline tree, `verify` probes both binaries at their absolute baseline-owned path so an unrelated user-wide copy cannot satisfy the pin.
+- AVM manager stays on the verified official `solana-foundation/anchor` `v1.0.0` source tag while the installer selects the official Anchor CLI `1.1.2` release binary. The installer verifies both the AVM manager tag and the Anchor `v1.1.2` tag, downloads the official `anchor-1.1.2-x86_64-unknown-linux-gnu` release binary with SHA-256 verification, installs it under `${AVM_HOME:-$HOME/.avm}/bin/anchor-1.1.2`, and selects it through AVM. Do not substitute Anchor 2.0 RC tags, unrecorded AVM sources, unqualified AVM-manager changes, or unverified release assets.
 - Surfpool is installed from the verified `v1.5.0` Linux release tarball under `~/.local/share/surfpool/releases/v1.5.0/bin`.
 - Downloaded installer assets are cached in the git-ignored `.tmp/solana-baseline-downloads/` (override with `RAP_BASELINE_DOWNLOAD_DIR`); install roots are overridable with `RAP_BASELINE_SOLANA_INSTALL_DIR` and `RAP_BASELINE_SURFPOOL_ROOT`, which the Surfpool smoke honours too.
 
@@ -71,12 +90,15 @@ npm run test:surfpool:critical
 npm run test:surfpool:quasar-critical
 ```
 
-Focused shell-check coverage for the exact-version matcher:
+Focused regression coverage for the exact-version matcher, the script's mode dispatch, and the three-valued runtime-compatibility vocabulary above:
 
 ```bash
 npm run test:toolchain:version-match
 npm run test:toolchain:modes
+npm run test:toolchain:runtime-status
 ```
+
+All three run beside `npm run check:toolchain:baseline` in the legacy Anchor CI lane, so removing any of the logic they guard — including the runtime-compatibility computation — fails a configured check rather than passing silently.
 
 Only run broader Surfpool lanes when their preconditions are safe in a disposable worktree and no unrelated listeners must be killed. Capture failures as evidence; do not weaken checks to make the baseline pass.
 
@@ -91,8 +113,8 @@ scripts/rollback-solana-baseline.sh --plan
 If rollback is actually needed, run `scripts/rollback-solana-baseline.sh --execute` and type its confirmation phrase. That single phrase is the only gate: `--execute` removes everything the printed plan lists as removed, including the mise Node runtime, the Rust toolchain, the AVM-managed Anchor, and the configured Solana install tree. The default Solana tree is baseline-owned; if you override `RAP_BASELINE_SOLANA_INSTALL_DIR` to the shared `~/.local/share/solana/install` tree, rollback destroys that shared tree and any other Solana releases in it.
 
 1. Remove repository-local Node selection by ignoring/removing `.mise.toml`, or run commands outside this repository. To remove the installed runtime entirely: `mise uninstall node@24.20.0`.
-2. Remove the Rust toolchain: `rustup toolchain uninstall 1.89.0`. If this setup installed rustup only for RAP and nothing else uses it, remove `~/.rustup` and `~/.cargo` after backing up anything you need.
-3. Remove Solana CLI: delete `~/.local/share/solana/reddi-agent-protocol-baseline/install` (or the explicit `RAP_BASELINE_SOLANA_INSTALL_DIR` you chose) or reinstall a prior captured version with the matching `agave-install-init`.
+2. Remove the Rust toolchain: `rustup toolchain uninstall 1.98.0`. If this setup installed rustup only for RAP and nothing else uses it, remove `~/.rustup` and `~/.cargo` after backing up anything you need. To roll the repository back to an earlier Rust baseline, check out the whole toolchain lane (`rust-toolchain.toml`, `config/toolchain/solana-baseline-assets.json`, and `scripts/check-solana-baseline-pins.mjs`) at the pre-upgrade commit: the pins and the assets file must move together. `assets.rust.rustfmtVersionByChannel`/`clippyVersionByChannel` are keyed by channel and only carry the current one, so reverting `rust-toolchain.toml` alone makes `scripts/solana-baseline-toolchain.sh` abort in *every* mode — including `print-pins`, which resolves before mode dispatch, so `verify`, `capture`, `install`, and `npm run check:toolchain:baseline` all fail with a missing-entry error rather than a rollback hint.
+3. Remove Solana CLI: delete `~/.local/share/solana/reddi-agent-protocol-baseline/install` (or the explicit `RAP_BASELINE_SOLANA_INSTALL_DIR` you chose) or reinstall a prior captured version with the matching `agave-install-init`. That also removes the `cargo-build-sbf`/`cargo-test-sbf` that shipped in the same tarball, since they live in `active_release/bin` inside that tree; nothing needs removing from `~/.cargo/bin`. Any platform-tools that `cargo build-sbf` downloaded on demand stays in its own cache and is not baseline-owned. To roll the repository back to an earlier Agave baseline, check out the whole toolchain lane (all four workflow `release.anza.xyz` install URLs, `config/toolchain/solana-baseline-assets.json`, and `scripts/check-solana-baseline-pins.mjs`) at the pre-upgrade commit, for the same reason: `assets.agave.sha256ByVersion` and `assets.sbf.*` are keyed by Agave version and only carry the current one, so reverting the workflow URLs alone aborts the script in every mode.
 4. Remove Anchor/AVM: delete the selected CLI binary with `rm -f "${AVM_HOME:-$HOME/.avm}/bin/anchor-1.1.2"` and clear `${AVM_HOME:-$HOME/.avm}/.version` if it still names `1.1.2`, then remove the AVM Cargo binary if this setup installed it. `avm uninstall 1.1.2` cannot do this on its own: AVM refuses to remove the version it currently has selected, which after `install` is always the pinned one. To roll back specifically to the previous merged Anchor baseline, check out the pre-upgrade commit for the whole toolchain lane (`Anchor.toml`, `programs/escrow/Cargo.toml`, `Cargo.lock`, `config/toolchain/solana-baseline-assets.json`, and `scripts/solana-baseline-toolchain.sh`) before reinstalling `1.0.0` through the same verified AVM path. The installer and its assets file must move together: the current script reads keys (`anchorAvm.managerVersion`, `anchorCli.*`) that the pre-upgrade assets file does not define, and the pre-upgrade script cannot select an Anchor CLI release binary.
 5. Remove Surfpool: delete `~/.local/share/surfpool/releases/v1.5.0`.
 6. Restore shell startup files from the timestamped backup recorded in the capture artifact if any installer or manual PATH edit changed them.

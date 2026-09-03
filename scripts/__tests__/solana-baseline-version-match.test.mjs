@@ -16,9 +16,9 @@ function matches(output, expected) {
 }
 
 test('accepts a pinned version followed by build metadata', () => {
-  assert.equal(matches('rustc 1.89.0 (29483883e 2025-08-04)', 'rustc 1.89.0'), true);
-  assert.equal(matches('solana-cli 3.1.13 (src:devbuild; feat:1, client:Agave)', 'solana-cli 3.1.13'), true);
-  assert.equal(matches('rustfmt 1.8.0-stable (29483883 2025-08-04)', 'rustfmt 1.8.0-stable'), true);
+  assert.equal(matches('rustc 1.98.0 (88d9e12ae 2026-08-18)', 'rustc 1.98.0'), true);
+  assert.equal(matches('solana-cli 4.2.2 (src:devbuild; feat:1, client:Agave)', 'solana-cli 4.2.2'), true);
+  assert.equal(matches('rustfmt 1.9.0-stable (88d9e12ae 2026-08-18)', 'rustfmt 1.9.0-stable'), true);
   assert.equal(matches('v24.20.0', 'v24.20.0'), true);
   assert.equal(matches('11.19.0\n', '11.19.0'), true);
 });

@@ -40,8 +40,11 @@ const rust = parseSimpleToml('rust-toolchain.toml');
 const anchor = parseSimpleToml('Anchor.toml');
 const escrowCargo = parseSimpleToml('programs/escrow/Cargo.toml');
 const escrowAnchorLangReq = escrowCargo.dependencies?.['anchor-lang']?.match(/version\s*=\s*"([^"]+)"/)?.[1];
+const escrowLiteSvmReq = escrowCargo['dev-dependencies']?.litesvm;
 const cargoLock = readFileSync(join(root, 'Cargo.lock'), 'utf8');
 const lockedAnchorLang = cargoLock.match(/^name = "anchor-lang"\nversion = "([^"]+)"/m)?.[1];
+const lockedProgramRuntime = cargoLock.match(/^name = "solana-program-runtime"\nversion = "([^"]+)"/m)?.[1];
+const lockedSolanaSbpf = cargoLock.match(/^name = "solana-sbpf"\nversion = "([^"]+)"/m)?.[1];
 const rootPackage = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const packageLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
 const assets = JSON.parse(readFileSync(join(root, 'config/toolchain/solana-baseline-assets.json'), 'utf8'));
@@ -72,23 +75,73 @@ const setupPins = Object.fromEntries(
     .map((m) => [m[1], m[2]]),
 );
 
+const BASELINE_RUST_VERSION = '1.98.0';
+const BASELINE_AGAVE_VERSION = 'v4.2.2';
+const BASELINE_RUSTFMT_VERSION = '1.9.0-stable';
+const BASELINE_CLIPPY_VERSION = '0.1.98';
 const STABLE_ANCHOR_VERSION = '1.1.2';
 const AVM_MANAGER_VERSION = '1.0.0';
+const BASELINE_CARGO_BUILD_SBF_VERSION = '4.1.0';
+const BASELINE_PLATFORM_TOOLS_VERSION = 'v1.54';
+
+const majorOf = (version) => String(version ?? '').replace(/^v/, '').split('.')[0];
+// The program-test lanes build against the CI Agave pin but execute in-process on whatever SVM
+// LiteSVM pulls in. Version equality between the two is dependency alignment, never a runtime
+// compatibility claim, so aligning them can only ever reach 'major-aligned' here: 'verified'
+// additionally requires recorded evidence of dedicated Agave runtime qualification.
+const inProcessRuntimeMatchesAgavePin =
+  Boolean(lockedProgramRuntime) && majorOf(lockedProgramRuntime) === majorOf(BASELINE_AGAVE_VERSION);
+const alignmentStatus = inProcessRuntimeMatchesAgavePin ? 'major-aligned' : 'unresolved';
+const runtimeVerificationEvidence = assets.programRuntime?.runtimeVerificationEvidence;
+const recordedRuntimeCompatibility = assets.programRuntime?.agaveRuntimeCompatibility;
+const runtimeCompatibilityOk =
+  recordedRuntimeCompatibility === alignmentStatus ||
+  (recordedRuntimeCompatibility === 'verified' &&
+    inProcessRuntimeMatchesAgavePin &&
+    typeof runtimeVerificationEvidence === 'string' &&
+    runtimeVerificationEvidence.trim().length > 0);
 
 const checks = [
   ['.mise.toml pins Node 24.20.0', mise.tools?.node === '24.20.0'],
-  ['rust-toolchain.toml pins Rust 1.89.0', rust.toolchain?.channel === '1.89.0'],
+  [`rust-toolchain.toml pins Rust ${BASELINE_RUST_VERSION}`, rust.toolchain?.channel === BASELINE_RUST_VERSION],
   ['rust-toolchain.toml includes rustfmt', rust.toolchain?.components?.includes('rustfmt')],
   ['rust-toolchain.toml includes clippy', rust.toolchain?.components?.includes('clippy')],
   [`Anchor.toml pins stable Anchor ${STABLE_ANCHOR_VERSION}`, anchor.toolchain?.anchor_version === STABLE_ANCHOR_VERSION],
   ['programs/escrow anchor-lang requirement matches the Anchor.toml pin', escrowAnchorLangReq === anchor.toolchain?.anchor_version],
   ['Cargo.lock resolves anchor-lang to the Anchor.toml pin', lockedAnchorLang === anchor.toolchain?.anchor_version],
   ['CI workflows share one Agave pin', workflowVersions.size === 1],
-  ['CI Agave pin is v3.1.13', workflowVersions.has('v3.1.13')],
-  ['Agave asset checksum exists for CI pin', typeof assets.agave?.sha256ByVersion?.['v3.1.13'] === 'string'],
+  [`CI Agave pin is ${BASELINE_AGAVE_VERSION}`, workflowVersions.has(BASELINE_AGAVE_VERSION)],
+  ['Agave asset checksum exists for CI pin', typeof assets.agave?.sha256ByVersion?.[BASELINE_AGAVE_VERSION] === 'string'],
+  [
+    `SBF build toolchain is recorded for Agave ${BASELINE_AGAVE_VERSION} as cargo-build-sbf ${BASELINE_CARGO_BUILD_SBF_VERSION}`,
+    assets.sbf?.cargoBuildSbfVersionByAgaveVersion?.[BASELINE_AGAVE_VERSION] === BASELINE_CARGO_BUILD_SBF_VERSION,
+  ],
+  [
+    `platform-tools ${BASELINE_PLATFORM_TOOLS_VERSION} is recorded for cargo-build-sbf ${BASELINE_CARGO_BUILD_SBF_VERSION}`,
+    assets.sbf?.platformToolsVersionByCargoBuildSbfVersion?.[BASELINE_CARGO_BUILD_SBF_VERSION] === BASELINE_PLATFORM_TOOLS_VERSION,
+  ],
+  [
+    'recorded LiteSVM pin matches the programs/escrow dev-dependency',
+    typeof escrowLiteSvmReq === 'string' && assets.programRuntime?.liteSvmVersion === escrowLiteSvmReq,
+  ],
+  [
+    'recorded in-process runtime versions match Cargo.lock',
+    assets.programRuntime?.embeddedProgramRuntimeVersion === lockedProgramRuntime &&
+      assets.programRuntime?.embeddedSolanaSbpfVersion === lockedSolanaSbpf,
+  ],
+  [
+    `in-process runtime vs Agave CLI pin is recorded as ${alignmentStatus} (or as evidence-backed 'verified')`,
+    runtimeCompatibilityOk,
+  ],
   ['npm exact probe pin is recorded for Node 24.20.0', assets.node?.npmBundledVersion === '11.19.0'],
-  ['rustfmt exact probe pin is recorded for Rust 1.89.0', assets.rust?.rustfmtVersionByChannel?.['1.89.0'] === '1.8.0-stable'],
-  ['clippy exact probe pin is recorded for Rust 1.89.0', assets.rust?.clippyVersionByChannel?.['1.89.0'] === '0.1.89'],
+  [
+    `rustfmt exact probe pin is recorded for Rust ${BASELINE_RUST_VERSION}`,
+    assets.rust?.rustfmtVersionByChannel?.[BASELINE_RUST_VERSION] === BASELINE_RUSTFMT_VERSION,
+  ],
+  [
+    `clippy exact probe pin is recorded for Rust ${BASELINE_RUST_VERSION}`,
+    assets.rust?.clippyVersionByChannel?.[BASELINE_RUST_VERSION] === BASELINE_CLIPPY_VERSION,
+  ],
   ['rustup-init asset is exact official archive 1.29.0', assets.rustup?.version === '1.29.0' && assets.rustup?.url?.includes('/archive/1.29.0/')],
   ['Surfpool asset pins v1.5.0', assets.surfpool?.version === 'v1.5.0' && assets.surfpool?.url?.includes('/download/v1.5.0/')],
   ['@solana/surfpool SDK package is pinned to the Surfpool asset version', rootPackage.devDependencies?.['@solana/surfpool'] === '1.5.0' && packageLock.packages?.['node_modules/@solana/surfpool']?.version === '1.5.0'],
@@ -102,8 +155,17 @@ const checks = [
   ['setup script resolves Rust pin from rust-toolchain.toml', setupPins.rust === rust.toolchain?.channel],
   ['setup script resolves AVM manager pin from assets', setupPins.avm === assets.anchorAvm?.managerVersion],
   ['setup script resolves Anchor pin from Anchor.toml', setupPins.anchor === anchor.toolchain?.anchor_version],
-  ['setup script resolves Agave pin from CI workflows', setupPins.agave === 'v3.1.13'],
+  ['setup script resolves Agave pin from CI workflows', setupPins.agave === BASELINE_AGAVE_VERSION],
   ['setup script resolves Surfpool pin from assets', setupPins.surfpool === assets.surfpool?.version],
+  [
+    'setup script resolves cargo-build-sbf pin from assets for the CI Agave pin',
+    setupPins['cargo-build-sbf'] === assets.sbf?.cargoBuildSbfVersionByAgaveVersion?.[BASELINE_AGAVE_VERSION],
+  ],
+  [
+    'setup script resolves platform-tools pin from assets for the pinned cargo-build-sbf',
+    setupPins['platform-tools'] ===
+      assets.sbf?.platformToolsVersionByCargoBuildSbfVersion?.[BASELINE_CARGO_BUILD_SBF_VERSION],
+  ],
   [
     'setup script resolves rustfmt pin from assets for the pinned channel',
     setupPins.rustfmt === assets.rust?.rustfmtVersionByChannel?.[rust.toolchain?.channel],
