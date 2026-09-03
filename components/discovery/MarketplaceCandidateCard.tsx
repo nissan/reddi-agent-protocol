@@ -6,7 +6,10 @@ import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
-import type { MarketplaceCandidateCardModel } from "@/lib/discovery/source-facets"
+import type {
+  MarketplaceCandidateCardModel,
+  MarketplaceCandidateField,
+} from "@/lib/discovery/source-facets"
 
 /**
  * Marketplace candidate card (#381) for non-registry discovery sources
@@ -55,6 +58,9 @@ export function MarketplaceCandidateCard({
   detailQuery?: string
 }) {
   const [showReasons, setShowReasons] = useState(false)
+  const imported = new Set(candidate.importedFields)
+  const scope = (field: MarketplaceCandidateField): Record<string, string> =>
+    imported.has(field) ? { "data-claim-scope": "external" } : {}
   const styles = RENDER_STATE_STYLES[candidate.renderState]
   const reasonsId = `candidate-reasons-${candidate.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`
   const detailHref = `/agents/candidates/${encodeURIComponent(candidate.id)}${detailQuery}`
@@ -99,10 +105,10 @@ export function MarketplaceCandidateCard({
 
         <div>
           <h3 className="font-display text-base font-semibold text-white">
-            <span data-claim-scope="external">{candidate.name}</span>
+            <span {...scope("name")}>{candidate.name}</span>
           </h3>
           <p className="mt-1 line-clamp-2 break-all text-sm text-gray-400">
-            <span data-claim-scope="external">{candidate.description}</span>
+            <span {...scope("description")}>{candidate.description}</span>
           </p>
         </div>
 
@@ -112,13 +118,13 @@ export function MarketplaceCandidateCard({
         >
           <div className="flex items-center justify-between gap-2">
             <span>Resource</span>
-            <span className="text-right text-gray-400" data-claim-scope="external">
+            <span className="text-right text-gray-400" {...scope("resourceType")}>
               {candidate.resourceType}
             </span>
           </div>
           <div className="mt-1 flex items-center justify-between gap-2">
             <span>Media type</span>
-            <span className="break-all text-right text-gray-400" data-claim-scope="external">
+            <span className="break-all text-right text-gray-400" {...scope("mediaType")}>
               {candidate.mediaType}
             </span>
           </div>
@@ -128,7 +134,7 @@ export function MarketplaceCandidateCard({
           <div className="flex flex-wrap gap-1.5">
             {candidate.tags.slice(0, 4).map((tag) => (
               <Badge key={tag} variant="outline" className="border-white/10 bg-white/5 text-[11px] text-gray-300">
-                <span data-claim-scope="external">{tag}</span>
+                <span {...scope("tags")}>{tag}</span>
               </Badge>
             ))}
           </div>

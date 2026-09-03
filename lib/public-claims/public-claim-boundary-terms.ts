@@ -323,6 +323,17 @@ export type PublicClaimDomRoute = {
    */
   readyAsText?: true;
   /**
+   * Selector for the controls of a route that renders one step of its copy at
+   * a time. The gate clicks each one in turn and scans after every step, so a
+   * carousel is covered across all of its steps rather than only the first.
+   */
+  stepControls?: string;
+  /**
+   * Progress readout for a stepped route, used to prove the traversal actually
+   * reached the last step rather than silently scanning one of them twice.
+   */
+  stepProgress?: { selector: string; lastStep: (count: number) => string };
+  /**
    * Selector for a route's data-dependent region, where the heading renders
    * above a loading skeleton and so cannot vouch for the copy below it. The
    * gate waits for this too, so the snapshot covers the claim-bearing content
@@ -374,5 +385,10 @@ export const PUBLIC_CLAIM_DOM_ROUTES: PublicClaimDomRoute[] = [
     path: "/tour",
     readyCopy: /Payments prove transfer; RAP Assurance proves paid work/i,
     readyAsText: true,
+    stepControls: '[data-testid="tour-step-link"]',
+    stepProgress: {
+      selector: '[data-testid="tour-step-counter"]',
+      lastStep: (count) => `Step ${count} of ${count}`,
+    },
   },
 ];

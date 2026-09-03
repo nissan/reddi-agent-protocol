@@ -82,6 +82,28 @@ test.describe("public-claim boundary (rendered copy)", () => {
         unqualifiedClaims(rendered),
         `first-party copy at ${route.path} breaks ${PUBLIC_CLAIM_BOUNDARY_DOC_PATH}`,
       ).toEqual([]);
+
+      if (!route.stepControls) return;
+
+      const steps = page.locator(route.stepControls);
+      const stepCount = await steps.count();
+      expect(stepCount, `${route.path} declares step controls but renders none`).toBeGreaterThan(1);
+
+      for (let index = 0; index < stepCount; index += 1) {
+        await steps.nth(index).click();
+        const step = await firstPartyCopy(page);
+        expect(
+          unqualifiedClaims(step),
+          `step ${index + 1} of ${route.path} breaks ${PUBLIC_CLAIM_BOUNDARY_DOC_PATH}`,
+        ).toEqual([]);
+      }
+
+      if (route.stepProgress) {
+        await expect(
+          page.locator(route.stepProgress.selector),
+          "the traversal must end on the last step, so every step was scanned",
+        ).toHaveText(route.stepProgress.lastStep(stepCount));
+      }
     });
   }
 
@@ -126,16 +148,13 @@ test.describe("public-claim boundary (rendered copy)", () => {
 
   /**
    * The exclusion above is asserted against injected nodes; this asserts the
-   * real card still carries the marker on imported fields only, so moving it
-   * would fail here rather than silently drop owned boundary copy (render-state
-   * banners, source/trust/readiness badges, Resource labels) out of the scan.
-   *
-   * Candidate cards, not specialist cards: /api/discovery/candidates is
-   * fixture-backed and takes no network read, so an absent card is a real
-   * breakage rather than a quiet run, and the marked text is fixture text this
-   * repository controls rather than a devnet registrant's.
+   * real card obeys the provenance the model declares. Every candidate source
+   * that renders today (hosted-RAP and ARD) projects repository fixture prose,
+   * repository constants and the repository-owned disclosure vocabulary, so
+   * `importedFields` is empty for all of them and none of their copy may be
+   * hidden from the scan.
    */
-  test("candidate cards exclude imported text and keep owned copy", async ({ page }) => {
+  test("candidate cards keep repository-authored copy in the scan", async ({ page }) => {
     const candidateCard = '[data-testid="marketplace-candidate-card"]';
     await page.goto("/agents");
     await expect(
@@ -145,24 +164,28 @@ test.describe("public-claim boundary (rendered copy)", () => {
       .poll(async () => page.locator(candidateCard).count(), { timeout: 30_000 })
       .toBeGreaterThan(0);
 
-    const card = page.locator(candidateCard).first();
-    const markedFields = card.locator(EXTERNAL_CLAIM_SCOPE_SELECTOR);
-    expect(await markedFields.count(), "candidate cards must mark their imported fields").toBeGreaterThan(0);
+    const cards = page.locator(candidateCard);
+    const cardCount = await cards.count();
+    const cardText: string[] = [];
+    for (let index = 0; index < cardCount; index += 1) {
+      const card = cards.nth(index);
+      expect(
+        await card.locator(EXTERNAL_CLAIM_SCOPE_SELECTOR).count(),
+        "a card whose fields are all repository-authored must mark none of them",
+      ).toBe(0);
+      cardText.push(await card.innerText());
+    }
 
-    const ownedBadge = (await card.locator('[data-testid="candidate-source-badge"]').innerText()).trim();
-    const before = await card.innerText();
-
-    await page.evaluate((selector) => {
-      document.querySelectorAll(selector).forEach((node) => node.remove());
-    }, EXTERNAL_CLAIM_SCOPE_SELECTOR);
-
-    const scanned = await card.innerText();
-    expect(await markedFields.count(), "every marked field must leave the scan").toBe(0);
-    expect(scanned.length, "removing the marked fields must shrink the scanned copy").toBeLessThan(
-      before.length,
-    );
-    expect(scanned, "repository-owned card copy must stay in the scan").toContain("Resource");
-    expect(scanned, "repository-owned source badge must stay in the scan").toContain(ownedBadge);
+    const scanned = await firstPartyCopy(page);
+    for (const text of cardText) {
+      for (const line of text.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean)) {
+        expect(scanned, "repository-authored card copy must survive the scan").toContain(line);
+      }
+    }
+    expect(
+      unqualifiedClaims(scanned),
+      `candidate card copy breaks ${PUBLIC_CLAIM_BOUNDARY_DOC_PATH}`,
+    ).toEqual([]);
   });
 
   test("every forbidden claim is still catchable by its own pattern", async () => {

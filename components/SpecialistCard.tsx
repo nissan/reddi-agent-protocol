@@ -127,10 +127,10 @@ export function SpecialistCard({
         <div className="space-y-3 p-4">
           <div>
             <h3 className="font-display text-base font-semibold text-white">
-              <span data-claim-scope="external">{name ?? shortWallet(wallet)}</span>
+              {name ? <span data-claim-scope="external">{name}</span> : shortWallet(wallet)}
             </h3>
             <p className="text-sm text-gray-400">
-              <span data-claim-scope="external">{model ?? "Specialist endpoint"}</span>
+              {model ? <span data-claim-scope="external">{model}</span> : "Specialist endpoint"}
             </p>
           </div>
 

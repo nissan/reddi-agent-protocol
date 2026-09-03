@@ -178,9 +178,9 @@ export default function TourPage() {
         {/* Right sidebar */}
         <div className="w-60 shrink-0 border-l border-white/10 flex flex-col bg-[#0a0a14]">
           <div className="p-5 border-b border-white/10">
-            <div className="text-xs text-white/30 font-mono mb-1">Step {current + 1} of {total}</div>
+            <div className="text-xs text-white/30 font-mono mb-1" data-testid="tour-step-counter">Step {current + 1} of {total}</div>
             <div className="text-base font-semibold text-white mb-2">{step.title}</div>
-            <div className="text-xs text-white/50 leading-relaxed">{step.caption}</div>
+            <div className="text-xs text-white/50 leading-relaxed" data-testid="tour-step-caption">{step.caption}</div>
             {step.imageStale ? (
               <Link
                 href={step.url}
@@ -203,6 +203,7 @@ export default function TourPage() {
             {filteredSteps.map((s, i) => (
               <button
                 key={s.id}
+                data-testid="tour-step-link"
                 onClick={() => setCurrent(i)}
                 className={`w-full text-left px-4 py-2.5 flex items-start gap-2.5 transition-colors ${
                   i === current ? 'bg-white/5 border-l-2 border-[#9945FF]' : 'border-l-2 border-transparent hover:bg-white/5'
