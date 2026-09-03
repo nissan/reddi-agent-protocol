@@ -338,7 +338,7 @@ export default function Home() {
           <div>
             <p className="section-label">Start faster</p>
             <h2 className="font-display text-2xl font-bold text-white">
-              Start with the 3 proof videos
+              Start with the proof walkthroughs
             </h2>
           </div>
           <Link href="/start" className="text-sm text-[#14F195] hover:text-[#14F195]/80">

@@ -93,68 +93,105 @@ export const FORBIDDEN_PUBLIC_CLAIMS: ForbiddenPublicClaim[] = [
 ];
 
 /**
- * Qualifiers that turn a pattern hit into a stated boundary rather than a
- * claim. Deliberately narrow, and evaluated only against the clause the match
- * sits in: words the remediation sprinkles everywhere ("planned", "fixture",
- * "boundary", "historical") are NOT qualifiers, and a negation elsewhere on
- * the line does not excuse an affirmative claim made in its own clause.
- *
- * A bare `no` is not a qualifier: it exempted any clause that merely trailed
- * "with no extra setup". Nor is a shared list of `no <noun>` compounds, which
- * let "no payment friction" excuse a custody claim. These global entries are
- * negations of whatever predicate they sit with; compounds that only bound one
- * predicate live in CLAIM_SPECIFIC_QUALIFIERS, and QUALIFIER_CASES pins both
- * directions.
+ * Boundary forms that qualify a claim. There are no standalone qualifier
+ * words: every pattern belongs to one claim and contains that claim's own
+ * predicate, so a negation elsewhere in the clause ("with no extra setup",
+ * "without delay", "outside the demo") cannot excuse an affirmative claim it
+ * never touches. QUALIFIER_CASES pins both directions, including the
+ * cross-product of each boundary form against the other claims.
  */
-export const CLAIM_QUALIFIER_PATTERNS: RegExp[] = [
-  /\bnot\b/i,
-  /\bno\s+\S+(?:\s+\S+)?\s+(?:asserts?|claims?|proves?|implies|guarantees?|establishes?)\b/i,
-  /\bnor\b/i,
-  /\bnever\b/i,
-  /\bwithout\b/i,
-  /\bunless\b/i,
-  /\buntil\b/i,
-  /\bavoid\b/i,
-  /\bblocked\b/i,
-  /\brefused\b/i,
-  /\bgated\b/i,
-  /\bout of scope\b/i,
-  /\boutside\b/i,
-  /\bnon-?claims?\b/i,
-];
+const NEGATED_BEFORE = "(?:\\bnot\\b|\\bnever\\b|\\bnor\\b|\\bunless\\b)";
 
-/**
- * Boundary forms that qualify one claim only, because they negate that claim's
- * own predicate. Keyed by claim id so "no spend limits" cannot excuse a custody
- * claim the way a shared list did.
- */
-export const CLAIM_SPECIFIC_QUALIFIERS: Record<string, RegExp[]> = {
-  "live-audd-settlement": [
-    /\bno-(?:custody|spend|settlement)\b/i,
-    /\bno\b[^.;|]{0,24}\b(?:AUDD|USDC|SPL)\b[^.;|]{0,12}\bcustody\b/i,
-  ],
+const CLAIM_PREDICATES: Record<string, string> = {
+  "marketplace-rail": "\\bmarketplace\\s+rail\\b",
+  "payment-facilitator": "\\bpayment\\s+facilitator\\b",
+  "generic-runtime": "\\b(?:generic|hosted|production)\\s+(?:agent\\s+)?runtime\\b",
+  "custody-provider": "\\bcustody\\b",
+  "escrow-provider": "\\bescrow\\s+(?:provider|service|product|finality|guarantee)\\b",
+  "collected-fee": "(?:0\\.05\\s*%|5\\s*bps|protocol\\s+fee|take-?rate)",
+  "production-ready": "\\bproduction[-\\s]?read(?:y|iness)\\b",
+  "mainnet-ready": "\\bmainnet[-\\s]?read(?:y|iness)\\b",
+  "security-audited": "\\baudit(?:ed|s)?\\b",
+  "live-audd-settlement": "\\b(?:live|production|settled|settlement|custody)\\b",
+  "payment-proves-work": "\\b(?:proves|guarantees|certifies)\\b",
 };
+
+function boundaryFormsFor(claimId: string): RegExp[] {
+  const predicate = CLAIM_PREDICATES[claimId];
+  if (!predicate) return [];
+  const forms = [new RegExp(`${NEGATED_BEFORE}[^.;|]{0,260}?${predicate}`, "i")];
+  if (claimId === "escrow-provider") {
+    forms.push(
+      new RegExp(`\\bno\\s+\\S+(?:\\s+\\S+)?\\s+(?:asserts?|claims?|proves?|implies|guarantees?)[^.;|]{0,80}?${predicate}`, "i"),
+    );
+  }
+  if (claimId === "live-audd-settlement") {
+    forms.push(
+      /\bno-(?:custody|spend|settlement)\b/i,
+      /\bno\b[^.;|]{0,24}\b(?:AUDD|USDC|SPL)\b[^.;|]{0,12}\bcustody\b/i,
+      new RegExp(`${predicate}[^.;|]{0,80}?\\b(?:is|are|remains?)\\s+not\\b`, "i"),
+      new RegExp(`${predicate}[^.;|]{0,120}?\\bremains?\\s+outside\\b`, "i"),
+    );
+  }
+  return forms;
+}
+
+/** Per-claim boundary forms, each one binding a negation to that claim's predicate. */
+export const CLAIM_SPECIFIC_QUALIFIERS: Record<string, RegExp[]> = Object.fromEntries(
+  Object.keys(CLAIM_PREDICATES).map((claimId) => [claimId, boundaryFormsFor(claimId)]),
+);
 
 /**
  * Expected `claimIsQualified` verdicts, asserted by the gate's always-on
- * self-test. Negatives are affirmative claims that must stay flagged, including
- * cross-claim bypasses; positives are genuine boundary prose that must stay
- * green.
+ * self-test. Negatives include the cross-product of each boundary form against
+ * claims it must not excuse; positives are the genuine boundary prose each
+ * claim actually ships.
  */
 export const QUALIFIER_CASES: { line: string; claimId: string; qualified: boolean }[] = [
   { line: "RAP provides custody with no extra setup.", claimId: "custody-provider", qualified: false },
   { line: "The protocol takes custody of buyer funds with no delay.", claimId: "custody-provider", qualified: false },
   { line: "RAP provides custody with no payment friction.", claimId: "custody-provider", qualified: false },
   { line: "Our custody service ships with no spend limits.", claimId: "custody-provider", qualified: false },
+  { line: "The protocol takes custody of buyer funds without delay.", claimId: "custody-provider", qualified: false },
+  { line: "The protocol takes custody of buyer funds, gated behind approval.", claimId: "custody-provider", qualified: false },
   { line: "RAP ships production escrow finality with no configuration.", claimId: "escrow-provider", qualified: false },
   { line: "RAP offers an escrow service with no-fee onboarding.", claimId: "escrow-provider", qualified: false },
+  { line: "We ship escrow finality without delay.", claimId: "escrow-provider", qualified: false },
+  { line: "RAP offers an escrow service, blocked elsewhere.", claimId: "escrow-provider", qualified: false },
   { line: "The RAP Assurance stack is production-ready with no caveats.", claimId: "production-ready", qualified: false },
   { line: "The RAP Assurance stack is production-ready with no-claims caveats.", claimId: "production-ready", qualified: false },
+  { line: "The RAP Assurance stack is production-ready outside the demo.", claimId: "production-ready", qualified: false },
+  { line: "The RAP Assurance stack is production-ready until further notice.", claimId: "production-ready", qualified: false },
+  { line: "Quasar is mainnet-ready until further notice.", claimId: "mainnet-ready", qualified: false },
+  { line: "Quasar is mainnet-ready, refused only on request.", claimId: "mainnet-ready", qualified: false },
   { line: "The protocol collects a 0.05% take-rate with no fee cap.", claimId: "collected-fee", qualified: false },
+  { line: "RAP collects a protocol fee, gated behind approval.", claimId: "collected-fee", qualified: false },
   { line: "AUDD settlement is live with no custody limits.", claimId: "live-audd-settlement", qualified: false },
+  { line: "AUDD settlement is live, avoid the demo path.", claimId: "live-audd-settlement", qualified: false },
+  { line: "Reddi Agent Protocol is the marketplace rail with no lock-in.", claimId: "marketplace-rail", qualified: false },
+  { line: "RAP Assurance operates as a payment facilitator without fees.", claimId: "payment-facilitator", qualified: false },
+  { line: "This is a security-audited release with no findings.", claimId: "security-audited", qualified: false },
   {
     line: "- Not a payment facilitator, custody service, escrow provider, wallet SDK, or generic hosted agent runtime.",
     claimId: "custody-provider",
+    qualified: true,
+  },
+  {
+    line: "- Not a payment facilitator, custody service, escrow provider, wallet SDK, or generic hosted agent runtime.",
+    claimId: "escrow-provider",
+    qualified: true,
+  },
+  {
+    line: "It is not a payment facilitator, marketplace operator, custody provider, or production runtime.",
+    claimId: "payment-facilitator",
+    qualified: true,
+  },
+  { line: "- Not mainnet-ready and not a live-funds production deployment.", claimId: "mainnet-ready", qualified: true },
+  { line: "the reputation path is neither audited nor mainnet-ready.", claimId: "mainnet-ready", qualified: true },
+  { line: "- Not a security-audited release;", claimId: "security-audited", qualified: true },
+  {
+    line: "This repository's claims should use this boundary unless a later audited release note supersedes it.",
+    claimId: "security-audited",
     qualified: true,
   },
   {
@@ -163,20 +200,22 @@ export const QUALIFIER_CASES: { line: string; claimId: string; qualified: boolea
     qualified: true,
   },
   {
-    line: "| `quickstart-no-spend-workflow` | the §2 demo end-to-end, including failure states and AUDD proof-metadata/no-custody labels |",
+    line: "AUDD is payment-plan/proof metadata and read-only SPL observation unless a separate approved live rail lands.",
+    claimId: "live-audd-settlement",
+    qualified: true,
+  },
+  { line: "AUDD/SPL custody is not claimed.", claimId: "live-audd-settlement", qualified: true },
+  {
+    line: "See [AUDD non-custodial foundation](#audd-non-custodial-foundation) for the canonical x402 export and read-only observation boundary; actual wallet actions, SPL custody, Quasar escrow, and settlement proof verification remain outside this package.",
     claimId: "live-audd-settlement",
     qualified: true,
   },
   {
-    line: "| AUDD proof-metadata / no-custody state labels | demo stateLabels |",
+    line: "| `quickstart-no-spend-workflow` | failure states and AUDD proof-metadata/no-custody labels |",
     claimId: "live-audd-settlement",
     qualified: true,
   },
-  {
-    line: "- no AUDD custody path is approved in the current contract scope;",
-    claimId: "live-audd-settlement",
-    qualified: true,
-  },
+  { line: "- no AUDD custody path is approved in the current contract scope;", claimId: "live-audd-settlement", qualified: true },
   { line: "scope, and no current AUDD/USDC custody.", claimId: "live-audd-settlement", qualified: true },
 ];
 
@@ -240,10 +279,7 @@ function clauseWindow(line: string, position: number): string {
  * unqualified assertion ride on an earlier boundary sentence.
  */
 export function claimIsQualified(line: string, claim: ForbiddenPublicClaim): boolean {
-  const qualifiers = [
-    ...CLAIM_QUALIFIER_PATTERNS,
-    ...(CLAIM_SPECIFIC_QUALIFIERS[claim.id] ?? []),
-  ];
+  const qualifiers = CLAIM_SPECIFIC_QUALIFIERS[claim.id] ?? [];
   const flags = claim.pattern.flags.includes("g") ? claim.pattern.flags : `${claim.pattern.flags}g`;
   const scanner = new RegExp(claim.pattern.source, flags);
   let match: RegExpExecArray | null;

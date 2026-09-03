@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { OnboardingVideoCard } from "@/components/onboarding/OnboardingVideoCard";
 import { OnboardingVideoGrid } from "@/components/onboarding/OnboardingVideoGrid";
-import { onboardingVideos } from "@/lib/onboarding/video-guides";
+import { hasPlayableRecording, onboardingVideos } from "@/lib/onboarding/video-guides";
 
 const rolePaths = [
   {
@@ -24,6 +24,8 @@ const rolePaths = [
 
 export default function StartPage() {
   const [firstVideo, ...proofVideos] = onboardingVideos;
+  const playableCount = onboardingVideos.filter(hasPlayableRecording).length;
+  const withheldCount = onboardingVideos.length - playableCount;
 
   return (
     <main className="min-h-screen bg-page text-white">
@@ -33,11 +35,15 @@ export default function StartPage() {
           <div className="mt-3 grid gap-8 lg:grid-cols-[1fr_0.9fr] lg:items-center">
             <div className="space-y-5">
               <h1 className="font-display text-4xl font-bold tracking-tight md:text-6xl">
-                Start with a 43s overview, then 3 proof videos
+                {playableCount === 1
+                  ? "Start with the one proof walkthrough that still plays"
+                  : `Start with the ${playableCount} proof walkthroughs that still play`}
               </h1>
               <p className="max-w-2xl text-lg leading-8 text-gray-300">
-                Watch the exact flows, then replicate them: hire a paid specialist from Claude Code,
-                verify a wallet-authorized economic demo, and register a specialist on-chain.
+                Replicate the flows yourself: hire a paid specialist from Claude Code, verify a
+                wallet-authorized economic demo, and register a specialist on-chain. {withheldCount}{" "}
+                {withheldCount === 1 ? "recording is" : "recordings are"} withheld because the
+                captures predate this build&apos;s public-claim remediation.
               </p>
               <div className="flex flex-wrap gap-3">
                 <Link
