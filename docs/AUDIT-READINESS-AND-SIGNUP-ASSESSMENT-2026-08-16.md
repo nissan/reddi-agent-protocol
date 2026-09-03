@@ -30,7 +30,7 @@ The shortest path to both goals: (a) freeze and send the already-prepared audit 
 |---|---|---|
 | Quasar registry / escrow / reputation / attestation | `experiments/quasar-*` | Deployed to devnet (IDs in `config/quasar/deployments.json`); 42 tests across the four programs; CI-gated via `.github/workflows/quasar-program-tests.yml` |
 | Quasar escrow-PER (5th program) | `experiments/quasar-escrow-per/` | 28 tests (most-tested program); **not** in the four-program demo narrative; listed as an active audit target in the handoff doc |
-| Legacy Anchor reference | `programs/escrow/` | 14 instructions, 30 passing LiteSVM tests plus 1 focused Mollusk runtime/conformance test, 2 `magicblock_cpi` encoding unit tests, and 1 devnet-only ignored LiteSVM test under Anchor 1.1.2; historical reference only; CI-gated by `.github/workflows/anchor-program-tests.yml` as regression evidence, not final Quasar proof |
+| Legacy Anchor reference | `programs/escrow/` | 14 instructions, 33 passing LiteSVM tests (including 3 that pin the deterministic LiteSVM profile the lane executes under) plus 1 focused Mollusk runtime/conformance test, 2 `magicblock_cpi` encoding unit tests, and 1 devnet-only ignored LiteSVM test under Anchor 1.1.2; historical reference only; CI-gated by `.github/workflows/anchor-program-tests.yml` as regression evidence, not final Quasar proof |
 
 The reputation program carries the audit-hardened commit-reveal (`sha256(score ‖ salt ‖ job_id ‖ program_id)`, zero-commitment rejection, expire restricted to recorded parties) — remediation verified line-by-line in `docs/QUASAR-PROGRAMS-SECURITY-AUDIT-STAGE2-2026-05-06.md`.
 

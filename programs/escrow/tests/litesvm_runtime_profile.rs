@@ -57,7 +57,7 @@ fn litesvm_default_environment_starts_at_the_mainnet_default_slot() {
 }
 
 #[test]
-fn litesvm_default_environment_installs_the_mainnet_activated_feature_accounts() {
+fn litesvm_default_environment_activates_exactly_the_mainnet_feature_set() {
     let svm = LiteSVM::new();
 
     assert!(
@@ -79,6 +79,22 @@ fn litesvm_default_environment_installs_the_mainnet_activated_feature_accounts()
             "feature account {feature_id} must be funded",
         );
     }
+
+    // `set_feature_accounts` writes one feature-gate-owned account per active feature and is
+    // the only writer of that owner, so this count is the size of the active set. Requiring
+    // equality — not just coverage — is what distinguishes the mainnet-activated set from the
+    // `FeatureSet::all_enabled()` default LiteSVM 0.10 used, which is a strict superset.
+    let installed = svm.get_program_accounts(&feature::id()).len();
+    assert_eq!(
+        installed,
+        MAINNET_ACTIVE_FEATURES.len(),
+        "the lane must activate exactly the mainnet-activated feature set; {installed} \
+         feature accounts are installed against {} mainnet-activated features. A larger \
+         count means the default feature set widened (an all-enabled set would), which \
+         broadens what this lane executes — re-record the deterministic profile before \
+         relying on it",
+        MAINNET_ACTIVE_FEATURES.len(),
+    );
 }
 
 #[test]
