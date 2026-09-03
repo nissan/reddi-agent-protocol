@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { toExplorerTxUrl } from "@/lib/config/explorer";
 
 interface TraceStep {
   delay: number;
@@ -38,26 +37,6 @@ interface RenderedSection {
 
 
 function renderLine(line: string) {
-  // Replace [EXPLORER:txhash] with a real link
-  const match = line.match(/\[EXPLORER:([^\]]+)\]/);
-  if (match) {
-    const txHash = match[1];
-    const before = line.slice(0, match.index);
-    const linkText = "↗";
-    return (
-      <span>
-        {before}
-        <a
-          href={toExplorerTxUrl(txHash)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[#14F195] hover:underline ml-1"
-        >
-          {linkText}
-        </a>
-      </span>
-    );
-  }
   // Colour ✅ lines green
   if (line.startsWith("✅")) {
     return <span className="text-[#14F195]">{line}</span>;

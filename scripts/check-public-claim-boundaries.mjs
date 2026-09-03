@@ -101,6 +101,13 @@ function read(rel) {
 const FENCE = /^\s*(`{3,}|~{3,})(.*)$/;
 
 /**
+ * Opens the injected block in `--negative-control` so the injections never
+ * inherit a prohibition window from the file's last real heading, which would
+ * exempt them and drop that file from the control without any signal.
+ */
+const NEGATIVE_CONTROL_HEADING = "## Negative control injections";
+
+/**
  * Scan one owned-text file. A pattern hit fails unless the matched line itself
  * qualifies the claim, or the line sits under an explicit prohibition heading.
  *
@@ -161,7 +168,7 @@ for (const rel of activeClaimFiles) {
   const text = read(rel);
   if (text === null) continue;
   const injected = negativeControl
-    ? `${text}\n${FORBIDDEN_PUBLIC_CLAIMS.map((claim) => claim.injectionExample).join("\n")}\n`
+    ? `${text}\n${NEGATIVE_CONTROL_HEADING}\n\n${FORBIDDEN_PUBLIC_CLAIMS.map((claim) => claim.injectionExample).join("\n")}\n`
     : text;
   scanClaims(rel, injected);
 }
@@ -205,6 +212,12 @@ for (const rel of packageManifestFiles) {
 }
 
 // --- 5. negative-control self-test (always on) ---
+
+if (PROHIBITION_HEADING_PATTERN.test(NEGATIVE_CONTROL_HEADING)) {
+  failures.push(
+    `self-test: the negative-control heading is itself a prohibition heading, so injections would be exempt: ${NEGATIVE_CONTROL_HEADING}`,
+  );
+}
 
 for (const claim of FORBIDDEN_PUBLIC_CLAIMS) {
   if (!claim.pattern.test(claim.injectionExample)) {
