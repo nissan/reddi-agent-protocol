@@ -28,6 +28,7 @@ scripts/solana-baseline-toolchain.sh verify
 npm run check:toolchain:baseline
 npm run test:toolchain:version-match
 npm run test:toolchain:modes
+npm run test:toolchain:runtime-status
 ```
 
 Legacy Anchor reference checks from the repo root:
