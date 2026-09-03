@@ -23,7 +23,7 @@ Current authority comes from:
 
 ```bash
 npm run check:browser-wallet:preconditions
-npm run check:browser-wallet:devnet-approval -- --approval <approval.json> --now <iso>
+npm run check:browser-wallet:devnet-approval -- --approval <approval.json> [--now <iso>] [--allow-future-partner-confirmed-audd-devnet]
 npm run check:browser-wallet:tier1-contract
 npm run check:browser-wallet:copy-guard
 npm run test:browser-wallet:safety
