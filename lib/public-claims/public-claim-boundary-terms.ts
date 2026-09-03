@@ -46,13 +46,13 @@ export const FORBIDDEN_PUBLIC_CLAIMS: ForbiddenPublicClaim[] = [
     id: "custody-provider",
     pattern: /\b(?:takes?|holds?|provides?|offers?|assumes?)\s+(?:production\s+)?(?:funds?\s+)?custody\b|\bcustody\s+(?:provider|service|product)\b/i,
     reason: "Do not claim custody.",
-    injectionExample: "The protocol takes custody of buyer funds for every paid job.",
+    injectionExample: "The protocol takes custody of buyer funds with no delay.",
   },
   {
     id: "escrow-provider",
     pattern: /\b(?:production\s+)?escrow\s+(?:provider|service|product|finality|guarantee)\b/i,
     reason: "Do not claim an escrow product or escrow finality.",
-    injectionExample: "RAP ships production escrow finality for every paid job.",
+    injectionExample: "RAP ships production escrow finality with no configuration.",
   },
   {
     id: "collected-fee",
@@ -64,7 +64,7 @@ export const FORBIDDEN_PUBLIC_CLAIMS: ForbiddenPublicClaim[] = [
     id: "production-ready",
     pattern: /\b(?:production[-\s]?ready|ready\s+for\s+production|production\s+readiness\s+(?:passed|complete|green))\b/i,
     reason: "Production readiness is not established.",
-    injectionExample: "The RAP Assurance stack is production-ready today.",
+    injectionExample: "The RAP Assurance stack is production-ready with no caveats.",
   },
   {
     id: "mainnet-ready",
@@ -98,10 +98,17 @@ export const FORBIDDEN_PUBLIC_CLAIMS: ForbiddenPublicClaim[] = [
  * sits in: words the remediation sprinkles everywhere ("planned", "fixture",
  * "boundary", "historical") are NOT qualifiers, and a negation elsewhere on
  * the line does not excuse an affirmative claim made in its own clause.
+ *
+ * A bare `no` is not a qualifier either: it exempted any clause that merely
+ * trailed "with no extra setup". Only the explicit boundary compounds this
+ * corpus actually uses ("no-spend", "no-custody") and negated assertions
+ * ("No row here asserts custody…") count, so the injection examples below keep
+ * that regression in the negative control.
  */
 export const CLAIM_QUALIFIER_PATTERNS: RegExp[] = [
   /\bnot\b/i,
-  /\bno\b/i,
+  /\bno[- ](?:custody|spend|escrow|settlement|mainnet|wallet|fee|take-?rate|payment|claims?)\b/i,
+  /\bno\s+\S+(?:\s+\S+)?\s+(?:asserts?|claims?|proves?|implies|guarantees?|establishes?)\b/i,
   /\bnor\b/i,
   /\bnever\b/i,
   /\bwithout\b/i,

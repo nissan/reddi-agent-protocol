@@ -35,6 +35,22 @@ function onboardingCards(page: Page) {
   return page.locator("article");
 }
 
+/**
+ * Every withheld card must disclose why the recording is missing and where the
+ * current copy is. Counting the placeholders alone would pass on an empty span.
+ */
+async function expectWithheldNotices(page: Page, withheld: number) {
+  const notices = page.getByTestId("withheld-recording-notice");
+  await expect(notices).toHaveCount(withheld);
+  for (let index = 0; index < withheld; index += 1) {
+    const notice = await notices.nth(index).innerText();
+    expect(notice, "the notice must say why the recording is missing").toMatch(
+      /predates the public-claim remediation/i,
+    );
+    expect(notice, "the notice must point at the current copy").toMatch(/current copy/i);
+  }
+}
+
 const PROOF_CARD_IDS = ["mcp-x402", "economic-proof", "register-agent"];
 
 test.describe("judge replication onboarding", () => {
@@ -52,7 +68,7 @@ test.describe("judge replication onboarding", () => {
       expect(playable, "the heading promises proof videos, so at least one must still play").toBeGreaterThan(0);
       await expect(onboardingCards(page)).toHaveCount(total);
       await expect(page.locator("video")).toHaveCount(playable);
-      await expect(page.getByTestId("withheld-recording-notice")).toHaveCount(withheld);
+      await expectWithheldNotices(page, withheld);
       for (const title of proofVideos) {
         await expect(page.getByText(title).first()).toBeVisible();
       }
@@ -76,7 +92,7 @@ test.describe("judge replication onboarding", () => {
     await expect(onboardingCards(page)).toHaveCount(total);
     await expect(page.locator("video")).toHaveCount(playable);
     await expect(page.locator('track[kind="captions"]')).toHaveCount(playable);
-    await expect(page.getByTestId("withheld-recording-notice")).toHaveCount(withheld);
+    await expectWithheldNotices(page, withheld);
 
     await expect(page.getByText("Choose your protocol path")).toBeVisible();
     for (const title of proofVideos) {
@@ -114,7 +130,7 @@ test.describe("judge replication onboarding", () => {
     const { total, playable, withheld } = guidesOn(["register-agent"]);
     await expect(onboardingCards(page)).toHaveCount(total);
     await expect(page.locator("video")).toHaveCount(playable);
-    await expect(page.getByTestId("withheld-recording-notice")).toHaveCount(withheld);
+    await expectWithheldNotices(page, withheld);
     await expect(page.getByText(/Connect wallet/i).first()).toBeVisible();
   });
 
