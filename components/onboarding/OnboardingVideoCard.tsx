@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import type { OnboardingVideoGuide } from "@/lib/onboarding/video-guides";
+import { hasPlayableRecording, type OnboardingVideoGuide } from "@/lib/onboarding/video-guides";
 
 type Props = {
   video: OnboardingVideoGuide;
@@ -48,27 +48,7 @@ export function OnboardingVideoCard({ video, layout = "stacked", hostRoute }: Pr
       }`}
     >
       <div className="relative bg-black">
-        {video.mediaStale || !video.videoSrc ? (
-          <div className="flex aspect-video h-full w-full flex-col items-center justify-center gap-2 bg-[#1a1a2e] px-6 text-center">
-            <span className="max-w-sm text-xs leading-relaxed text-white/25">
-              Recording not shown: this capture predates the public-claim remediation and still
-              shows retired marketplace/payment wording.{" "}
-              {video.multiRouteRecording ? (
-                <>It toured several routes, so no single page reproduces it; browse this build for the current copy.</>
-              ) : capturesHostPage ? (
-                <>The current copy is what this page renders.</>
-              ) : (
-                <>
-                  Open{" "}
-                  <Link href={video.route} className="underline hover:text-white/50">
-                    {video.route}
-                  </Link>{" "}
-                  on this build for the current copy.
-                </>
-              )}
-            </span>
-          </div>
-        ) : (
+        {hasPlayableRecording(video) ? (
           <video
             aria-label={`${video.title} onboarding video`}
             className="aspect-video h-full w-full object-cover"
@@ -86,9 +66,32 @@ export function OnboardingVideoCard({ video, layout = "stacked", hostRoute }: Pr
               srcLang="en"
             />
           </video>
+        ) : (
+          <div className="flex aspect-video h-full w-full flex-col items-center justify-center gap-2 bg-[#1a1a2e] px-6 text-center">
+            <span
+              data-testid="withheld-recording-notice"
+              className="max-w-sm text-xs leading-relaxed text-white/25"
+            >
+              Recording not shown: this capture predates the public-claim remediation and still
+              shows retired marketplace/payment wording.{" "}
+              {video.multiRouteRecording ? (
+                <>It toured several routes, so no single page reproduces it; browse this build for the current copy.</>
+              ) : capturesHostPage ? (
+                <>The current copy is what this page renders.</>
+              ) : (
+                <>
+                  Open{" "}
+                  <Link href={video.route} className="underline hover:text-white/50">
+                    {video.route}
+                  </Link>{" "}
+                  on this build for the current copy.
+                </>
+              )}
+            </span>
+          </div>
         )}
         <div className="absolute left-3 top-3 rounded-full border border-[#14F195]/30 bg-black/70 px-3 py-1 text-xs font-semibold text-[#14F195] backdrop-blur">
-          {video.mediaStale ? video.boundary : `${video.duration} · ${video.boundary}`}
+          {hasPlayableRecording(video) ? `${video.duration} · ${video.boundary}` : video.boundary}
         </div>
       </div>
 

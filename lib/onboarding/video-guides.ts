@@ -19,6 +19,18 @@ export type OnboardingVideoGuide = {
   proofLinks?: { label: string; href: string }[];
 };
 
+/**
+ * A guide plays only when its recording is still served and not withheld. The
+ * card body, the duration badge, and the e2e tallies all ask this one question,
+ * so a guide whose media was removed without `mediaStale` cannot be counted as
+ * playable by one caller and withheld by another.
+ */
+export function hasPlayableRecording(
+  guide: OnboardingVideoGuide,
+): guide is OnboardingVideoGuide & { videoSrc: string } {
+  return !guide.mediaStale && Boolean(guide.videoSrc);
+}
+
 export const onboardingVideos: OnboardingVideoGuide[] = [
   {
     id: "overview",

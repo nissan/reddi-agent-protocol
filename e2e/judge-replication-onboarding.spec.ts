@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { onboardingVideos } from "../lib/onboarding/video-guides";
+import { hasPlayableRecording, onboardingVideos } from "../lib/onboarding/video-guides";
 
 const proofVideos = [
   "Claude Code pays a RAP specialist",
@@ -25,8 +25,8 @@ function guidesOn(ids: string[]) {
   });
   return {
     total: guides.length,
-    playable: guides.filter((guide) => !guide.mediaStale).length,
-    withheld: guides.filter((guide) => guide.mediaStale).length,
+    playable: guides.filter((guide) => hasPlayableRecording(guide)).length,
+    withheld: guides.filter((guide) => !hasPlayableRecording(guide)).length,
   };
 }
 
@@ -52,7 +52,7 @@ test.describe("judge replication onboarding", () => {
       expect(playable, "the heading promises proof videos, so at least one must still play").toBeGreaterThan(0);
       await expect(onboardingCards(page)).toHaveCount(total);
       await expect(page.locator("video")).toHaveCount(playable);
-      await expect(page.getByText(/Recording withheld/i)).toHaveCount(withheld);
+      await expect(page.getByTestId("withheld-recording-notice")).toHaveCount(withheld);
       for (const title of proofVideos) {
         await expect(page.getByText(title).first()).toBeVisible();
       }
@@ -76,7 +76,7 @@ test.describe("judge replication onboarding", () => {
     await expect(onboardingCards(page)).toHaveCount(total);
     await expect(page.locator("video")).toHaveCount(playable);
     await expect(page.locator('track[kind="captions"]')).toHaveCount(playable);
-    await expect(page.getByText(/Recording withheld/i)).toHaveCount(withheld);
+    await expect(page.getByTestId("withheld-recording-notice")).toHaveCount(withheld);
 
     await expect(page.getByText("Choose your protocol path")).toBeVisible();
     for (const title of proofVideos) {
@@ -114,7 +114,7 @@ test.describe("judge replication onboarding", () => {
     const { total, playable, withheld } = guidesOn(["register-agent"]);
     await expect(onboardingCards(page)).toHaveCount(total);
     await expect(page.locator("video")).toHaveCount(playable);
-    await expect(page.getByText(/Recording withheld/i)).toHaveCount(withheld);
+    await expect(page.getByTestId("withheld-recording-notice")).toHaveCount(withheld);
     await expect(page.getByText(/Connect wallet/i).first()).toBeVisible();
   });
 
