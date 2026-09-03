@@ -98,20 +98,37 @@ function read(rel) {
   return readFileSync(path, "utf8");
 }
 
+const FENCE = /^\s*(`{3,}|~{3,})(.*)$/;
+
 /**
  * Scan one owned-text file. A pattern hit fails unless the matched line itself
  * qualifies the claim, or the line sits under an explicit prohibition heading.
+ *
+ * Fenced content is still scanned; the fence only suppresses heading detection,
+ * so a `#` comment in a shell block cannot open a prohibition window. Fences
+ * follow CommonMark closing rules — same character, at least as long, no info
+ * string — so a longer fence can wrap a shorter one without the inner one
+ * ending the block. An unterminated fence is a failure rather than a silent
+ * freeze: it would pin the prohibition state for the rest of the file.
  */
 function scanClaims(rel, text) {
   const lines = text.split(/\r?\n/);
   let underProhibitionHeading = false;
-  let insideCodeFence = false;
+  let openFence = null;
   lines.forEach((line, index) => {
-    if (/^\s*(?:```|~~~)/.test(line)) {
-      insideCodeFence = !insideCodeFence;
-      return;
+    const fence = FENCE.exec(line);
+    if (fence) {
+      const [, marker, trailing] = fence;
+      if (!openFence) {
+        openFence = { char: marker[0], length: marker.length, line: index + 1 };
+        return;
+      }
+      if (marker[0] === openFence.char && marker.length >= openFence.length && trailing.trim() === "") {
+        openFence = null;
+        return;
+      }
     }
-    if (!insideCodeFence && /^#{1,6}\s/.test(line)) {
+    if (!openFence && /^#{1,6}\s/.test(line)) {
       underProhibitionHeading = PROHIBITION_HEADING_PATTERN.test(line);
     }
     for (const claim of FORBIDDEN_PUBLIC_CLAIMS) {
@@ -120,6 +137,12 @@ function scanClaims(rel, text) {
       failures.push(`${rel}:${index + 1}: [${claim.id}] ${claim.reason} :: ${line.trim()}`);
     }
   });
+
+  if (openFence) {
+    failures.push(
+      `${rel}:${openFence.line}: unterminated ${openFence.char.repeat(openFence.length)} code fence; prohibition-heading state could not be tracked past it`,
+    );
+  }
 }
 
 // --- 1. central message ---
