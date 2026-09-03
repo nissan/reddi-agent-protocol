@@ -2,27 +2,23 @@ import {
   buildCircleX402CandidateCards,
   buildMarketplaceCandidateCards,
 } from "@/lib/discovery/marketplace-candidate-cards";
-import {
-  MARKETPLACE_CANDIDATE_IMPORTED_FIELDS,
-  type MarketplaceCandidateSourceFacetId,
-} from "@/lib/discovery/source-facets";
 import type { CircleX402Catalog } from "@/lib/integrations/source-adapter/circle-x402-catalog";
 
 /**
  * `importedFields` drives which card values the public-claim DOM gate is
  * allowed to skip (`data-claim-scope="external"`). A field wrongly declared
- * imported takes repository-authored copy out of the scan, so these assert the
- * declaration against what the builders actually emit.
+ * imported takes repository-authored copy out of the scan, so the expectations
+ * here are written out rather than read from the declaration the builders use:
+ * a check that moves with the value it checks cannot catch it changing.
  */
 describe("marketplace candidate card provenance", () => {
   const result = buildMarketplaceCandidateCards();
 
-  it("gives every card the provenance its source declares", () => {
+  it("declares no imported field on the repository-backed sources", () => {
     expect(result.cards.length).toBeGreaterThan(0);
     for (const card of result.cards) {
-      const facet = card.sourceFacet as MarketplaceCandidateSourceFacetId;
-      expect(Object.keys(MARKETPLACE_CANDIDATE_IMPORTED_FIELDS)).toContain(facet);
-      expect(card.importedFields).toEqual([...MARKETPLACE_CANDIDATE_IMPORTED_FIELDS[facet]]);
+      expect(["hosted-rap", "ard-catalog"]).toContain(card.sourceFacet);
+      expect(card.importedFields).toEqual([]);
     }
   });
 
@@ -71,7 +67,7 @@ describe("marketplace candidate card provenance", () => {
     const { cards } = buildCircleX402CandidateCards(catalog);
 
     expect(cards).toHaveLength(1);
-    expect(cards[0].importedFields).toEqual([...MARKETPLACE_CANDIDATE_IMPORTED_FIELDS["circle-x402"]]);
+    expect(cards[0].importedFields).toEqual(["name", "description", "tags"]);
     expect(cards[0].name).toBe("Third Party Provider");
     expect(cards[0].resourceType).toBe("x402 discovery resource");
   });

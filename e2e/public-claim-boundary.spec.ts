@@ -169,7 +169,8 @@ test.describe("public-claim boundary (rendered copy)", () => {
 
     const cards = page.locator(candidateCard);
     const cardCount = await cards.count();
-    const ownedText: string[] = [];
+    const mustSurvive: string[] = [];
+    let ownedCards = 0;
     for (let index = 0; index < cardCount; index += 1) {
       const card = cards.nth(index);
       const facet = (await card.getAttribute("data-source-facet")) ?? "";
@@ -183,15 +184,22 @@ test.describe("public-claim boundary (rendered copy)", () => {
       const marked = await card.locator(EXTERNAL_CLAIM_SCOPE_SELECTOR).count();
       if (declared.length === 0) {
         expect(marked, `${facet} declares no imported field, so it must mark none`).toBe(0);
-        ownedText.push(await card.innerText());
+        ownedCards += 1;
+        mustSurvive.push(await card.innerText());
       } else {
         expect(marked, `${facet} declares imported fields, so it must mark them`).toBeGreaterThan(0);
       }
+
+      // Undeclared fields are repository-owned whatever the facet, so the
+      // resource/media block has to reach the scan on every card.
+      expect(declared).not.toContain("resourceType");
+      expect(declared).not.toContain("mediaType");
+      mustSurvive.push(await card.locator('[data-testid="candidate-resource-type"]').innerText());
     }
-    expect(ownedText.length, "no repository-authored candidate card rendered").toBeGreaterThan(0);
+    expect(ownedCards, "no repository-authored candidate card rendered").toBeGreaterThan(0);
 
     const scanned = await firstPartyCopy(page);
-    for (const text of ownedText) {
+    for (const text of mustSurvive) {
       for (const line of text.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean)) {
         expect(scanned, "repository-authored card copy must survive the scan").toContain(line);
       }
