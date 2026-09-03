@@ -12,25 +12,34 @@ import {
   TransactionSignature,
   VersionedTransaction,
 } from "@solana/web3.js";
+import {
+  PLAYWRIGHT_WALLET_SIGNER_REFUSAL_MESSAGE,
+  checkPlaywrightWalletSignerPreflight,
+} from "@/lib/wallet/playwright-wallet-safety";
 
 export const PLAYWRIGHT_WALLET_NAME = "Playwright Wallet" as WalletName<"Playwright Wallet">;
 
-function loadPlaywrightSigner(): Keypair | null {
-  const raw = process.env.NEXT_PUBLIC_PLAYWRIGHT_WALLET_SECRET_KEY;
-  if (!raw) return null;
+const DEFAULT_PLAYWRIGHT_PUBLIC_KEY = "11111111111111111111111111111111";
+
+export type PlaywrightWalletAdapterOptions = {
+  networkProfileName?: string;
+  rpcHttp?: string;
+  rpcWs?: string;
+  publicKey?: string;
+  signerSecretJson?: string;
+};
+
+function parsePlaywrightSigner(raw: string): Keypair {
   try {
-    const bytes = JSON.parse(raw) as number[];
-    if (!Array.isArray(bytes) || bytes.length === 0) return null;
-    return Keypair.fromSecretKey(Uint8Array.from(bytes));
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed) || parsed.length === 0 || !parsed.every((item) => Number.isInteger(item) && item >= 0 && item <= 255)) {
+      throw new Error("invalid_byte_array");
+    }
+    return Keypair.fromSecretKey(Uint8Array.from(parsed));
   } catch {
-    return null;
+    throw new Error("Playwright wallet signer secret could not be parsed as disposable local-only key material");
   }
 }
-
-const PLAYWRIGHT_SIGNER = loadPlaywrightSigner();
-const PLAYWRIGHT_PUBLIC_KEY = PLAYWRIGHT_SIGNER
-  ? PLAYWRIGHT_SIGNER.publicKey
-  : new PublicKey(process.env.NEXT_PUBLIC_PLAYWRIGHT_WALLET_PUBLIC_KEY ?? "11111111111111111111111111111111");
 
 export class PlaywrightWalletAdapter extends BaseMessageSignerWalletAdapter {
   name = PLAYWRIGHT_WALLET_NAME;
@@ -42,6 +51,17 @@ export class PlaywrightWalletAdapter extends BaseMessageSignerWalletAdapter {
   private _publicKey: PublicKey | null = null;
   private _connected = false;
   private _connecting = false;
+  private _signer: Keypair | null | undefined;
+  private readonly options: PlaywrightWalletAdapterOptions;
+
+  constructor(options: PlaywrightWalletAdapterOptions = {}) {
+    super();
+    this.options = {
+      ...options,
+      signerSecretJson: options.signerSecretJson ?? process.env.NEXT_PUBLIC_PLAYWRIGHT_WALLET_SECRET_KEY,
+      publicKey: options.publicKey ?? process.env.NEXT_PUBLIC_PLAYWRIGHT_WALLET_PUBLIC_KEY,
+    };
+  }
 
   get publicKey() {
     return this._publicKey;
@@ -62,10 +82,14 @@ export class PlaywrightWalletAdapter extends BaseMessageSignerWalletAdapter {
   async connect(): Promise<void> {
     if (this._connected) return;
     this._connecting = true;
-    this._publicKey = PLAYWRIGHT_PUBLIC_KEY;
-    this._connected = true;
-    this._connecting = false;
-    this.emit("connect", this._publicKey);
+    try {
+      const signer = this.loadSignerIfConfigured();
+      this._publicKey = signer?.publicKey ?? new PublicKey(this.options.publicKey ?? DEFAULT_PLAYWRIGHT_PUBLIC_KEY);
+      this._connected = true;
+      this.emit("connect", this._publicKey);
+    } finally {
+      this._connecting = false;
+    }
   }
 
   async disconnect(): Promise<void> {
@@ -80,11 +104,12 @@ export class PlaywrightWalletAdapter extends BaseMessageSignerWalletAdapter {
     connection: Connection,
     options?: SendOptions
   ): Promise<TransactionSignature> {
-    if (PLAYWRIGHT_SIGNER) {
+    const signer = this.loadSignerIfConfigured();
+    if (signer) {
       if (transaction instanceof VersionedTransaction) {
-        transaction.sign([PLAYWRIGHT_SIGNER]);
+        transaction.sign([signer]);
       } else {
-        transaction.partialSign(PLAYWRIGHT_SIGNER);
+        transaction.partialSign(signer);
       }
 
       const raw = transaction.serialize();
@@ -95,14 +120,43 @@ export class PlaywrightWalletAdapter extends BaseMessageSignerWalletAdapter {
   }
 
   async signTransaction<T extends Transaction | VersionedTransaction>(transaction: T): Promise<T> {
+    this.assertSignerBoundaryIfConfigured();
     return transaction;
   }
 
   async signAllTransactions<T extends Transaction | VersionedTransaction>(transactions: T[]): Promise<T[]> {
+    this.assertSignerBoundaryIfConfigured();
     return transactions;
   }
 
   async signMessage(message: Uint8Array): Promise<Uint8Array> {
+    this.assertSignerBoundaryIfConfigured();
     return message;
+  }
+
+  private assertSignerBoundaryIfConfigured(): void {
+    const raw = this.options.signerSecretJson;
+    const preflight = checkPlaywrightWalletSignerPreflight({
+      secretPresent: typeof raw === "string" && raw.length > 0,
+      networkProfileName: this.options.networkProfileName,
+      rpcHttp: this.options.rpcHttp,
+      rpcWs: this.options.rpcWs,
+    });
+    if (!preflight.ok) throw new Error(preflight.message);
+  }
+
+  private loadSignerIfConfigured(): Keypair | null {
+    const raw = this.options.signerSecretJson;
+    if (!raw) return null;
+    const preflight = checkPlaywrightWalletSignerPreflight({
+      secretPresent: true,
+      networkProfileName: this.options.networkProfileName,
+      rpcHttp: this.options.rpcHttp,
+      rpcWs: this.options.rpcWs,
+    });
+    if (!preflight.ok) throw new Error(preflight.message);
+    if (this._signer === undefined) this._signer = parsePlaywrightSigner(raw);
+    if (!this._signer) throw new Error(PLAYWRIGHT_WALLET_SIGNER_REFUSAL_MESSAGE);
+    return this._signer;
   }
 }

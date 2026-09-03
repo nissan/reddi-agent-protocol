@@ -31,7 +31,7 @@ export default defineConfig({
     ? undefined
     : {
         command:
-          "NEXT_PUBLIC_ENABLE_PLAYWRIGHT_WALLET=true node node_modules/next/dist/bin/next dev --webpack --port 3010",
+          "node ./scripts/check-browser-wallet-command-preconditions.mjs --mode playwright-webserver && NEXT_PUBLIC_ENABLE_PLAYWRIGHT_WALLET=true node node_modules/next/dist/bin/next dev --webpack --port 3010",
         url: baseURL,
         reuseExistingServer: true,
         timeout: 60_000,
