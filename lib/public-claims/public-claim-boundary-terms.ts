@@ -119,7 +119,10 @@ const CLAIM_PREDICATES: Record<string, string> = {
 function boundaryFormsFor(claimId: string): RegExp[] {
   const predicate = CLAIM_PREDICATES[claimId];
   if (!predicate) return [];
-  const forms = [new RegExp(`${NEGATED_BEFORE}[^.;|]{0,260}?${predicate}`, "i")];
+  const forms = [
+    new RegExp(`${NEGATED_BEFORE}[^.;|]{0,260}?${predicate}`, "i"),
+    new RegExp(`\\bwithout\\b[^.;|]{0,120}?${predicate}`, "i"),
+  ];
   if (claimId === "escrow-provider") {
     forms.push(
       new RegExp(`\\bno\\s+\\S+(?:\\s+\\S+)?\\s+(?:asserts?|claims?|proves?|implies|guarantees?)[^.;|]{0,80}?${predicate}`, "i"),
@@ -153,6 +156,11 @@ export const QUALIFIER_CASES: { line: string; claimId: string; qualified: boolea
   { line: "RAP provides custody with no payment friction.", claimId: "custody-provider", qualified: false },
   { line: "Our custody service ships with no spend limits.", claimId: "custody-provider", qualified: false },
   { line: "The protocol takes custody of buyer funds without delay.", claimId: "custody-provider", qualified: false },
+  {
+    line: "RAP Assurance is the open receipt and conformance layer for paid MCP/API and agent work. It records terms, policy, payment-proof references, evidence, attestations, replay metadata, and reputation inputs without becoming the payment rail or custody provider.",
+    claimId: "custody-provider",
+    qualified: true,
+  },
   { line: "The protocol takes custody of buyer funds, gated behind approval.", claimId: "custody-provider", qualified: false },
   { line: "RAP ships production escrow finality with no configuration.", claimId: "escrow-provider", qualified: false },
   { line: "RAP offers an escrow service with no-fee onboarding.", claimId: "escrow-provider", qualified: false },

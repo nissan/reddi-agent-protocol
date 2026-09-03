@@ -1,6 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { hasPlayableRecording, onboardingVideos } from "../lib/onboarding/video-guides";
+import {
+  hasPlayableRecording,
+  onboardingVideos,
+  onboardingWalkthroughHeading,
+} from "../lib/onboarding/video-guides";
 
 const proofVideos = [
   "Claude Code pays a RAP specialist",
@@ -63,7 +67,7 @@ test.describe("judge replication onboarding", () => {
     });
 
     await test.step("Then the three proof cards render, playable or explicitly withheld", async () => {
-      await expect(page.getByText("Start with the 3 proof videos")).toBeVisible();
+      await expect(page.getByText("Start with the proof walkthroughs")).toBeVisible();
       const { total, playable, withheld } = guidesOn(PROOF_CARD_IDS);
       expect(playable, "the heading promises proof videos, so at least one must still play").toBeGreaterThan(0);
       await expect(onboardingCards(page)).toHaveCount(total);
@@ -86,7 +90,9 @@ test.describe("judge replication onboarding", () => {
   test("Given a tester opens Start, every card is either playable with captions or explicitly withheld", async ({ page }) => {
     await page.goto("/start");
 
-    await expect(page.getByRole("heading", { name: /Start with a 43s overview, then 3 proof videos/i })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: onboardingWalkthroughHeading(onboardingVideos) }),
+    ).toBeVisible();
     const { total, playable, withheld } = guidesOn(["overview", ...PROOF_CARD_IDS]);
     expect(playable, "the heading promises proof videos, so at least one must still play").toBeGreaterThan(0);
     await expect(onboardingCards(page)).toHaveCount(total);

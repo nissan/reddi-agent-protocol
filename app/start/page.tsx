@@ -2,7 +2,11 @@ import Link from "next/link";
 
 import { OnboardingVideoCard } from "@/components/onboarding/OnboardingVideoCard";
 import { OnboardingVideoGrid } from "@/components/onboarding/OnboardingVideoGrid";
-import { hasPlayableRecording, onboardingVideos } from "@/lib/onboarding/video-guides";
+import {
+  hasPlayableRecording,
+  onboardingVideos,
+  onboardingWalkthroughHeading,
+} from "@/lib/onboarding/video-guides";
 
 const rolePaths = [
   {
@@ -23,7 +27,8 @@ const rolePaths = [
 ];
 
 export default function StartPage() {
-  const [firstVideo, ...proofVideos] = onboardingVideos;
+  const heroVideo = onboardingVideos.find(hasPlayableRecording) ?? onboardingVideos[0];
+  const proofVideos = onboardingVideos.filter((video) => video !== heroVideo);
   const playableCount = onboardingVideos.filter(hasPlayableRecording).length;
   const withheldCount = onboardingVideos.length - playableCount;
 
@@ -35,9 +40,7 @@ export default function StartPage() {
           <div className="mt-3 grid gap-8 lg:grid-cols-[1fr_0.9fr] lg:items-center">
             <div className="space-y-5">
               <h1 className="font-display text-4xl font-bold tracking-tight md:text-6xl">
-                {playableCount === 1
-                  ? "Start with the one proof walkthrough that still plays"
-                  : `Start with the ${playableCount} proof walkthroughs that still play`}
+                {onboardingWalkthroughHeading(onboardingVideos)}
               </h1>
               <p className="max-w-2xl text-lg leading-8 text-gray-300">
                 Replicate the flows yourself: hire a paid specialist from Claude Code, verify a
@@ -63,7 +66,7 @@ export default function StartPage() {
                 Boundary: these walkthroughs show Solana devnet proof unless explicitly stated otherwise.
               </p>
             </div>
-            <OnboardingVideoCard video={firstVideo} hostRoute="/start" />
+            <OnboardingVideoCard video={heroVideo} hostRoute="/start" />
           </div>
         </div>
       </section>

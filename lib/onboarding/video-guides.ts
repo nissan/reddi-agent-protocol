@@ -31,6 +31,18 @@ export function hasPlayableRecording(
   return !guide.mediaStale && Boolean(guide.videoSrc);
 }
 
+/**
+ * Heading for the onboarding hub, derived from what actually plays so a future
+ * `mediaStale` flip cannot leave the promise counting recordings the page
+ * withholds. Shared with the spec that asserts it.
+ */
+export function onboardingWalkthroughHeading(guides: OnboardingVideoGuide[]): string {
+  const playable = guides.filter(hasPlayableRecording).length;
+  if (playable === 0) return "Every walkthrough recording is currently withheld";
+  if (playable === 1) return "Start with the one proof walkthrough that still plays";
+  return `Start with the ${playable} proof walkthroughs that still play`;
+}
+
 export const onboardingVideos: OnboardingVideoGuide[] = [
   {
     id: "overview",
