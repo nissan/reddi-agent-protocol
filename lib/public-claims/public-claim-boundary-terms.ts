@@ -319,7 +319,23 @@ export type PublicClaimDomRoute = {
   settledContent?: string;
 };
 
-/** Public routes whose rendered copy is gated at the DOM layer. */
+/**
+ * Registry- and user-supplied text is marked with this scope so the DOM gate
+ * can drop it before scanning. Specialist and candidate cards render strings a
+ * third party wrote when registering on devnet; this repository cannot edit
+ * them, so they are not part of its owned-copy contract.
+ */
+export const CLAIM_SCOPE_ATTRIBUTE = "data-claim-scope";
+export const EXTERNAL_CLAIM_SCOPE = "external";
+export const EXTERNAL_CLAIM_SCOPE_SELECTOR = `[${CLAIM_SCOPE_ATTRIBUTE}="${EXTERNAL_CLAIM_SCOPE}"]`;
+
+/**
+ * Public routes whose *first-party* rendered copy is gated at the DOM layer.
+ * The gate scans each route's DOM with `EXTERNAL_CLAIM_SCOPE_SELECTOR` subtrees
+ * removed. Routes are listed here only when their owned copy renders
+ * deterministically without a wallet; see docs/PUBLIC-CLAIM-BOUNDARY.md for the
+ * routes deliberately left out and why.
+ */
 export const PUBLIC_CLAIM_DOM_ROUTES: PublicClaimDomRoute[] = [
   { path: "/", readyHeading: /payments prove transfer\. RAP Assurance proves paid work\./i },
   {
@@ -330,4 +346,8 @@ export const PUBLIC_CLAIM_DOM_ROUTES: PublicClaimDomRoute[] = [
   },
   { path: "/spec", readyHeading: /ADL/i },
   { path: "/whitepaper", readyHeading: /Reddi Agent Protocol Whitepaper/i },
+  { path: "/start", readyHeading: /proof walkthrough|walkthrough recording is currently withheld/i },
+  { path: "/playbook", readyHeading: /Start fast, then go deep/i },
+  { path: "/dogfood", readyHeading: /Dogfood Specialist \+ Attestor Flow/i },
+  { path: "/leaderboard", readyHeading: /Specialist Leaderboard/i },
 ];

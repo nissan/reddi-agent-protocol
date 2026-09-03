@@ -63,6 +63,7 @@ export function MarketplaceCandidateCard({
     <Card
       className={cn("flex h-full flex-col overflow-hidden", styles.card)}
       data-testid="marketplace-candidate-card"
+      data-claim-scope="external"
       data-source-facet={candidate.sourceFacet}
       data-render-state={candidate.renderState}
     >

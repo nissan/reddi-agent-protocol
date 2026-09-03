@@ -30,7 +30,11 @@ The boundary is enforced in two halves that share one pattern list (`lib/public-
 | Surface | Check |
 |---|---|
 | Owned prose and package metadata (README/docs/`package.json`) | `npm run check:claims:public` (`.github/workflows/public-claim-boundary.yml`) |
-| Rendered app copy and document metadata | `e2e/public-claim-boundary.spec.ts` (blocking Playwright funnel lane) |
+| First-party rendered copy on 8 gated routes | `e2e/public-claim-boundary.spec.ts` (blocking Playwright funnel lane) |
+
+The DOM half gates exactly these routes: `/`, `/agents`, `/spec`, `/whitepaper`, `/start`, `/playbook`, `/dogfood`, `/leaderboard`. On each it scans the rendered DOM with every `data-claim-scope="external"` subtree removed — specialist and candidate cards carry strings a third-party devnet registrant supplied, which this repository cannot edit and therefore does not claim. A negative control in the same spec proves both directions: injected text inside an external subtree is not scanned, and the identical text in first-party copy is.
+
+Other claim-bearing routes are deliberately not gated at the DOM layer: `/register`, `/planner`, `/onboarding`, `/manager/*` and `/agents/[wallet]` need a wallet or render third-party records as their primary content, and `/economic-demo/paid-workflow` enumerates the contract-only flags it declares false, which the shared pattern list reads as an unqualified AUDD claim. Their copy is covered by review rather than by this gate.
 
 `e2e/home.spec.ts` runs in the same lane but is a separate literal-copy regression spec: it asserts the central message renders in the hero and footer, and does not consume the shared pattern list.
 

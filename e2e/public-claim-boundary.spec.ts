@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import {
   directoryFixtureProfileCount,
@@ -7,6 +7,9 @@ import {
 } from "../lib/assurance/public-metrics";
 import {
   CENTRAL_MESSAGE,
+  CLAIM_SCOPE_ATTRIBUTE,
+  EXTERNAL_CLAIM_SCOPE,
+  EXTERNAL_CLAIM_SCOPE_SELECTOR,
   FORBIDDEN_PUBLIC_CLAIMS,
   PUBLIC_CLAIM_BOUNDARY_DOC_PATH,
   PUBLIC_CLAIM_DOM_ROUTES,
@@ -26,6 +29,31 @@ import {
 // slow; give the route readiness anchors headroom beyond the 30s repo default.
 test.describe.configure({ timeout: 60_000 });
 
+/**
+ * The rendered copy this repository owns: the route's DOM with every
+ * registry/user-supplied subtree removed. Specialist and candidate cards carry
+ * strings a third-party devnet registrant wrote, so scanning them would let an
+ * account nobody here controls turn this blocking lane red.
+ */
+async function firstPartyCopy(page: Page): Promise<string> {
+  return page.evaluate((externalSelector) => {
+    document.querySelectorAll(externalSelector).forEach((node) => node.remove());
+    return document.body.innerText;
+  }, EXTERNAL_CLAIM_SCOPE_SELECTOR);
+}
+
+function unqualifiedClaims(copy: string): string[] {
+  const violations: string[] = [];
+  for (const line of copy.split(/\r?\n/)) {
+    for (const claim of FORBIDDEN_PUBLIC_CLAIMS) {
+      if (!claim.pattern.test(line)) continue;
+      if (claimIsQualified(line, claim)) continue;
+      violations.push(`[${claim.id}] ${claim.reason} :: ${line.trim()}`);
+    }
+  }
+  return violations;
+}
+
 test.describe("public-claim boundary (rendered copy)", () => {
   for (const route of PUBLIC_CLAIM_DOM_ROUTES) {
     test(`${route.path} renders no forbidden affirmative claim`, async ({ page }) => {
@@ -42,24 +70,54 @@ test.describe("public-claim boundary (rendered copy)", () => {
           .toBeGreaterThan(0);
       }
 
-      const rendered = await page.locator("body").innerText();
+      const rendered = await firstPartyCopy(page);
       expect(rendered).toMatch(route.readyHeading);
 
-      const violations: string[] = [];
-      for (const line of rendered.split(/\r?\n/)) {
-        for (const claim of FORBIDDEN_PUBLIC_CLAIMS) {
-          if (!claim.pattern.test(line)) continue;
-          if (claimIsQualified(line, claim)) continue;
-          violations.push(`[${claim.id}] ${claim.reason} :: ${line.trim()}`);
-        }
-      }
-
       expect(
-        violations,
-        `rendered copy at ${route.path} breaks ${PUBLIC_CLAIM_BOUNDARY_DOC_PATH}`,
+        unqualifiedClaims(rendered),
+        `first-party copy at ${route.path} breaks ${PUBLIC_CLAIM_BOUNDARY_DOC_PATH}`,
       ).toEqual([]);
     });
   }
+
+  test("the scan reads first-party copy and ignores registry-supplied text", async ({ page }) => {
+    const injection = FORBIDDEN_PUBLIC_CLAIMS[0].injectionExample;
+    await page.goto("/");
+    await expect(
+      page.getByRole("heading", { name: PUBLIC_CLAIM_DOM_ROUTES[0].readyHeading }).first(),
+    ).toBeVisible({ timeout: 30_000 });
+
+    await page.evaluate(
+      ([attribute, scope, text]) => {
+        const external = document.createElement("div");
+        external.setAttribute(attribute, scope);
+        external.textContent = text;
+        document.body.appendChild(external);
+      },
+      [CLAIM_SCOPE_ATTRIBUTE, EXTERNAL_CLAIM_SCOPE, injection] as const,
+    );
+
+    expect(await page.locator("body").innerText()).toContain(injection);
+    expect(
+      unqualifiedClaims(await firstPartyCopy(page)),
+      "registry-supplied text must not be scanned",
+    ).toEqual([]);
+
+    await page.goto("/");
+    await expect(
+      page.getByRole("heading", { name: PUBLIC_CLAIM_DOM_ROUTES[0].readyHeading }).first(),
+    ).toBeVisible({ timeout: 30_000 });
+    await page.evaluate((text) => {
+      const owned = document.createElement("div");
+      owned.textContent = text;
+      document.body.appendChild(owned);
+    }, injection);
+
+    expect(
+      unqualifiedClaims(await firstPartyCopy(page)),
+      "the same text in first-party copy must still be caught",
+    ).not.toEqual([]);
+  });
 
   test("every forbidden claim is still catchable by its own pattern", async () => {
     for (const claim of FORBIDDEN_PUBLIC_CLAIMS) {

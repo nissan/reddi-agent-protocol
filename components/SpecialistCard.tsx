@@ -90,6 +90,7 @@ export function SpecialistCard({
       href={`/agents/${wallet}`}
       className="block h-full rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400"
       data-testid="agent-card"
+      data-claim-scope="external"
       data-source-facet={sourceFacet?.id}
       data-render-state="rap-native"
       data-trust-state={attested ? "trusted" : "unverified"}
