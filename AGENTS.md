@@ -19,7 +19,7 @@ This is a mixed monorepo: a Next.js web app at the root, Solana programs under `
 
 ## Solana toolchain baseline
 
-Use `docs/SOLANA-TOOLCHAIN-BASELINE.md` and `scripts/solana-baseline-toolchain.sh` for the pinned user-scoped RAP Solana baseline. Keep Node repo-local through `.mise.toml`; do not replace the machine-wide Node used outside this repository. Anchor CLI is pinned to 1.1.2 and selected through the verified Anchor release binary plus AVM 1.0.0 manager; do not change the manager/source path without separate qualification. The Agave pin covers the CLI and SBF build path only: LiteSVM 0.10.0 embeds the Agave 3.1 SVM, so Agave 4 runtime compatibility is recorded as unresolved and no lane here may be cited as Agave 4 runtime, deployment, or submission readiness. Prefer `npm run check:toolchain:surfpool-smoke` for a safe dynamic-port Surfpool smoke; inspect broader Surfpool/devnet scripts before running because some use fixed ports, keypair paths, live RPC, or generated artifacts.
+Use `docs/SOLANA-TOOLCHAIN-BASELINE.md` and `scripts/solana-baseline-toolchain.sh` for the pinned user-scoped RAP Solana baseline. Keep Node repo-local through `.mise.toml`; do not replace the machine-wide Node used outside this repository. Anchor CLI is pinned to 1.1.2 and selected through the verified Anchor release binary plus AVM 1.0.0 manager; do not change the manager/source path without separate qualification. The root legacy-escrow deterministic runtime lane is major-aligned with the Agave 4.2.2 compiler baseline through LiteSVM 0.16.0 / Mollusk 0.15.1 (`solana-program-runtime 4.2.2`, `solana-sbpf 0.21.1`), but this is not deployment, Quasar, mainnet, or submission readiness. Quasar workspaces have separate lockfiles/evidence. Prefer `npm run check:toolchain:surfpool-smoke` for a safe dynamic-port Surfpool smoke; inspect broader Surfpool/devnet scripts before running because some use fixed ports, keypair paths, live RPC, or generated artifacts.
 
 Common safe baseline checks:
 
@@ -28,6 +28,7 @@ scripts/solana-baseline-toolchain.sh verify
 npm run check:toolchain:baseline
 npm run test:toolchain:version-match
 npm run test:toolchain:modes
+npm run test:toolchain:runtime-status
 ```
 
 Legacy Anchor reference checks from the repo root:

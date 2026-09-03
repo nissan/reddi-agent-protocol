@@ -15,28 +15,125 @@ This repository owns a reproducible, user-scoped baseline for local Solana work.
 | AVM manager | `1.0.0` | `config/toolchain/solana-baseline-assets.json`; official `solana-foundation/anchor` tag `v1.0.0` (`f17b37fd1f1fdb4b1c0de68ccb467996d3ba07f3` → `25be6d502ec6957d34d436bc2a6170040fc64153`) |
 | Anchor CLI | `1.1.2` | `Anchor.toml`; official stable `solana-foundation/anchor` tag `v1.1.2` (`0984d7a19ae6cfea19d78fab228b2af016b63021` → `24035e2b0035c87e321acc1c05f97793829a87f1`) and Linux release asset SHA-256 `fdea9979629e9416e5f5e5622ff6c11b8c691d1e559581ece368e903c0c980c1` |
 | `anchor-lang` crate | same version as the Anchor CLI pin | `programs/escrow/Cargo.toml` requirement and the `Cargo.lock` resolution, both cross-checked against `Anchor.toml` by `npm run check:toolchain:baseline` so the program cannot compile against a different Anchor minor than the CLI that generates its IDL |
+| LiteSVM / Mollusk deterministic runtime | `litesvm 0.16.0`; `mollusk-svm 0.15.1` | `programs/escrow/Cargo.toml`, root `Cargo.lock`, and `config/toolchain/solana-baseline-assets.json`; `cargo info` on 2026-09-03 confirmed both planned crate releases exist on crates.io from their upstream repositories, and the lockfile resolves the root in-process runtime to `solana-program-runtime 4.2.2` / `solana-sbpf 0.21.1`. `mollusk-svm-programs-token 0.15.1` also exists but is not a root dependency because the legacy escrow Mollusk check does not exercise SPL Token. |
 | npm | `11.19.0` | bundled with Node `24.20.0`, recorded in `config/toolchain/solana-baseline-assets.json` for exact probes |
 | rustup-init | `1.29.0` | `config/toolchain/solana-baseline-assets.json` official static Rust archive URL and SHA-256 |
 | Surfpool | `v1.5.0` | `config/toolchain/solana-baseline-assets.json` GitHub release URL and SHA-256; the `@solana/surfpool` SDK the critical lanes run in-process is pinned to the same `1.5.0` in `package.json`/`package-lock.json` and cross-checked by `npm run check:toolchain:baseline` |
 
 Run `scripts/solana-baseline-toolchain.sh print-pins` to see the resolved pins the installer will use.
 
-## Agave 4 runtime compatibility is unresolved
+## Agave 4 in-process runtime alignment is major-aligned, not verified
 
-The Agave pin above covers the CLI and the SBF build path only. It is not evidence that the programs execute correctly under an Agave 4 runtime, and nothing in this repository establishes that today:
+The Agave pin above covers the CLI and the SBF build path. The deterministic
+escrow runtime lane now also executes against Agave 4 in-process crates, but the
+recorded claim remains deliberately narrow:
 
-- `programs/escrow` tests run in-process on `litesvm 0.10.0`, which the **root** `Cargo.lock` resolves to the Agave `3.1.12` SVM crates (`solana-program-runtime`, `solana-bpf-loader-program`, `agave-syscalls`) and `solana-sbpf 0.13.1`. This is the only lockfile the baseline check reads.
-- The Quasar program-test lanes build from their own workspaces under `experiments/`, each with its own lockfile. `quasar-escrow`, `quasar-registry`, `quasar-reputation`, `quasar-attestation` and `quasar-escrow-per` all resolve `solana-program-runtime 3.1.14` and `solana-sbpf 0.13.1` through `quasar-svm 0.1.0` — Agave 3.1 as well, so the same conclusion holds for them. That is recorded evidence from reading those lockfiles, not a checked assertion: `npm run check:toolchain:baseline` never opens them.
-- Both lane sets install Agave `v4.2.2` and build with `cargo-build-sbf 4.1.0` / platform-tools `v1.54`, then execute the artifact on an Agave 3.1 in-process runtime. They pass because the build defaults to SBPFv0, which stays loadable under `solana-sbpf 0.13.1` — not because an Agave 4 runtime accepted it.
-- Loader, feature-set, or syscall behaviour that differs between Agave 3.1 and 4.2 is therefore invisible to every lane here.
+- `programs/escrow` tests run in-process on `litesvm 0.16.0`; the **root**
+  `Cargo.lock` resolves that lane to `solana-program-runtime 4.2.2` and
+  `solana-sbpf 0.21.1`, matching the Agave `v4.2.2` CLI major. The focused
+  Mollusk check in `programs/escrow/tests/mollusk_runtime.rs` uses
+  `mollusk-svm 0.15.1` from the same root lockfile to execute the escrow SBF
+  artifact and assert it returns the exact `ZeroAmount` custom error (6004)
+  while metering non-zero compute units. Mollusk returns the caller-supplied
+  input accounts verbatim when an instruction fails, so it cannot witness
+  rollback; atomicity for the rejected lock is asserted against LiteSVM's
+  independently observable post-transaction state in
+  `programs/escrow/tests/test_escrow.rs`.
+- The bump also changes the environment those tests execute in, so the
+  deterministic profile is now recorded and pinned rather than inherited. This
+  is a **per-half** profile: LiteSVM and Mollusk do not share one, and neither
+  half's profile is evidence about the other.
+  - LiteSVM: `0.16.0` activates exactly the features activated on mainnet-beta
+    (`with_mainnet_features`), installs the matching on-chain feature-gate
+    accounts (`with_feature_accounts`), starts the clock at
+    `MAINNET_DEFAULT_SLOT`, and derives the rent sysvar representation from the
+    `deprecate_rent_exemption_threshold` gate — active under that set, so rent
+    is stored in its SIMD-0194 form rather than the legacy pair LiteSVM
+    substitutes when the gate is off.
+    `programs/escrow/tests/litesvm_runtime_profile.rs` asserts each of those
+    properties through LiteSVM's public API, so a later LiteSVM bump that shifts
+    any of them fails that test instead of silently changing what the LiteSVM
+    evidence covers.
 
-Do not cite a passing program-test lane, or this baseline, as Agave 4.2 runtime compatibility, deployment readiness, or submission readiness. `config/toolchain/solana-baseline-assets.json` records the split as `programRuntime.agaveRuntimeCompatibility: "unresolved"`, and `npm run check:toolchain:baseline` recomputes the permitted value from the root `Cargo.lock` resolution — the escrow LiteSVM lane, and only that lane — against the CI Agave pin. The Quasar lockfiles under `experiments/` are outside that computation, so the recorded status is a checked statement about the root lockfile and a documented one about them. Version alignment alone can never produce a compatibility claim — the vocabulary is deliberately three-valued:
+    Describe that change by those observed properties, **not** as a widening or
+    narrowing of coverage. The `litesvm 0.10.0` default it replaces was
+    `FeatureSet::all_enabled()` over the Agave 3.1 gate list, and the two sets
+    are expressed over different Agave majors, so neither contains the other:
+    the bump dropped force-enabled gates that were never activated on mainnet
+    **and** picked up mainnet-activated Agave 4 gates — `limit_instruction_accounts`
+    and `syscall_parameter_address_restrictions` among them — that did not exist
+    in the 3.1 list at all.
+  - Mollusk: `Mollusk::new()` defaults to `SVMFeatureSet::all_enabled()`, so the
+    Mollusk smoke did **not** move with the LiteSVM bump. That default is read
+    from mollusk-svm's source; no test here asserts it. What
+    `mollusk_runtime.rs` asserts is that two representative gates inactive on
+    mainnet — `disable_sbpf_v0_execution` and `account_data_direct_mapping` —
+    are enabled under it. Those two are a drift signal, not an exhaustive pin:
+    `SVMFeatureSet` carries dozens of gate fields and derives no equality, so a
+    Mollusk bump that narrowed some other gate would not fail that test. The
+    Mollusk half proves only the exact error and compute-unit observation it
+    makes, under a profile that is source-observed and only representatively
+    asserted.
 
-- `unresolved` — the in-process runtime major differs from the Agave pin. Today's state.
-- `major-aligned` — the majors match. This records dependency alignment and nothing else.
-- `verified` — accepted only when the majors align **and** `programRuntime.runtimeVerificationEvidence` names dedicated Agave runtime qualification.
+  `config/toolchain/solana-baseline-assets.json` records this split as
+  structured `programRuntime.executionProfiles` entries with a closed
+  `profileEvidence` vocabulary, enforced by `npm run
+  check:toolchain:baseline`. The exact-feature-set label is granted only on
+  positive evidence: the profile must name the `completeSetSource` the checker
+  records **for that runtime** as an enumeration a test can compare the live
+  active set against, so the label cannot be reached by deleting a sampled gate
+  list nor by borrowing another runtime's enumeration. That allowlist lives in
+  `scripts/check-solana-baseline-pins.mjs` keyed by profile, so extending it to
+  another runtime is a reviewed code change rather than a JSON edit — and
+  Mollusk has no entry, because `SVMFeatureSet` derives no equality and sits
+  behind the `agave-unstable-api` cfg, leaving no stable complete comparison to
+  make. Every asserted profile must also cite a `pinnedBy` test
+  that exists in the tree, so a renamed or deleted test fails the check instead
+  of leaving a drift guarantee with nothing behind it.
 
-So bumping `litesvm` moves the recorded value to `major-aligned`, never to `verified`; the checker rejects `verified` outright with no evidence key present. Note that such a bump aligns the escrow lane alone — the Quasar workspaces would still resolve Agave 3.1 until their own lockfiles move — which is another reason `major-aligned` is not a statement about the lane set as a whole. Aligning LiteSVM/Mollusk with the Agave CLI pin is a separate workstream needing its own qualification; do not bump `litesvm` as part of this baseline.
+  Pinning either local profile is not a claim that the lane reproduces
+  mainnet-beta or devnet behaviour, and the two profiles must not be read as
+  runtime-equivalent to each other.
+- The legacy LiteSVM tests that depend on slot passage warp relative to the
+  slot recorded in program state instead of assuming LiteSVM starts at slot 0;
+  this preserves deterministic expiry/cancel assertions across runtime releases.
+- The Quasar program-test lanes build from their own workspaces under
+  `experiments/`, each with its own lockfile. `quasar-escrow`,
+  `quasar-registry`, `quasar-reputation`, `quasar-attestation` and
+  `quasar-escrow-per` still resolve `solana-program-runtime 3.1.14` and
+  `solana-sbpf 0.13.1` through `quasar-svm 0.1.0`. This is recorded evidence
+  from reading those lockfiles, not a checked assertion: `npm run
+  check:toolchain:baseline` never opens them.
+- Loader, feature-set, or syscall behaviour for Quasar remains separately
+  evidenced by the Surfpool/Quasar lanes and must not be inferred from the root
+  LiteSVM/Mollusk lockfile.
+
+Do not cite a passing program-test lane, or this baseline, as deployment
+readiness, Quasar readiness, mainnet readiness, or submission readiness.
+`config/toolchain/solana-baseline-assets.json` records
+`programRuntime.agaveRuntimeCompatibility: "major-aligned"`, and `npm run
+check:toolchain:baseline` recomputes the permitted value from the root
+`Cargo.lock` resolution — the escrow LiteSVM/Mollusk lane, and only that lane —
+against the CI Agave pin. Version alignment alone can never produce an
+attestation-grade compatibility claim; the vocabulary remains three-valued:
+
+- `unresolved` — the in-process runtime major differs from the Agave pin.
+- `major-aligned` — the majors match. This records dependency alignment plus
+  deterministic local runtime execution evidence for the escrow lane; it is not
+  a deployment or product-readiness claim.
+- `verified` — attestation-grade Agave runtime qualification. The checker
+  refuses this value outright today. Now that the majors align permanently, a
+  free-text `programRuntime.runtimeVerificationEvidence` string would be the
+  only thing separating alignment from an attestation-grade label, and the
+  checker cannot distinguish qualification evidence from the alignment prose
+  recorded beside it. Reaching `verified` therefore requires first defining a
+  machine-checkable evidence contract that the checker can validate, not a
+  longer sentence.
+
+So the LiteSVM/Mollusk bump moves the recorded value to `major-aligned`, never
+to `verified`. The alignment applies to the escrow lane alone — the Quasar
+workspaces retain their own Agave 3.1 runtime locks until a separate Quasar
+runtime qualification moves them.
 
 ## Safe install
 

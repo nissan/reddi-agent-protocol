@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -41,8 +41,11 @@ const anchor = parseSimpleToml('Anchor.toml');
 const escrowCargo = parseSimpleToml('programs/escrow/Cargo.toml');
 const escrowAnchorLangReq = escrowCargo.dependencies?.['anchor-lang']?.match(/version\s*=\s*"([^"]+)"/)?.[1];
 const escrowLiteSvmReq = escrowCargo['dev-dependencies']?.litesvm;
+const escrowMolluskSvmReq = escrowCargo['dev-dependencies']?.['mollusk-svm'];
 const cargoLock = readFileSync(join(root, 'Cargo.lock'), 'utf8');
 const lockedAnchorLang = cargoLock.match(/^name = "anchor-lang"\nversion = "([^"]+)"/m)?.[1];
+const lockedLiteSvm = cargoLock.match(/^name = "litesvm"\nversion = "([^"]+)"/m)?.[1];
+const lockedMolluskSvm = cargoLock.match(/^name = "mollusk-svm"\nversion = "([^"]+)"/m)?.[1];
 const lockedProgramRuntime = cargoLock.match(/^name = "solana-program-runtime"\nversion = "([^"]+)"/m)?.[1];
 const lockedSolanaSbpf = cargoLock.match(/^name = "solana-sbpf"\nversion = "([^"]+)"/m)?.[1];
 const rootPackage = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -86,20 +89,71 @@ const BASELINE_PLATFORM_TOOLS_VERSION = 'v1.54';
 
 const majorOf = (version) => String(version ?? '').replace(/^v/, '').split('.')[0];
 // The program-test lanes build against the CI Agave pin but execute in-process on whatever SVM
-// LiteSVM pulls in. Version equality between the two is dependency alignment, never a runtime
-// compatibility claim, so aligning them can only ever reach 'major-aligned' here: 'verified'
-// additionally requires recorded evidence of dedicated Agave runtime qualification.
+// the deterministic LiteSVM/Mollusk root lockfile pulls in. Version equality between the two is
+// dependency alignment, never a runtime compatibility claim, so aligning them can only ever reach
+// 'major-aligned' here. The attestation-grade 'verified' label needs dedicated Agave runtime
+// qualification, and no machine-checkable contract for recording that qualification exists yet:
+// a free-text evidence string is unverifiable prose that this checker cannot tell apart from the
+// alignment notes sitting beside it, so 'verified' is refused outright rather than granted on a
+// non-empty key. Introducing 'verified' means first defining an evidence contract this checker can
+// actually validate.
 const inProcessRuntimeMatchesAgavePin =
   Boolean(lockedProgramRuntime) && majorOf(lockedProgramRuntime) === majorOf(BASELINE_AGAVE_VERSION);
 const alignmentStatus = inProcessRuntimeMatchesAgavePin ? 'major-aligned' : 'unresolved';
-const runtimeVerificationEvidence = assets.programRuntime?.runtimeVerificationEvidence;
 const recordedRuntimeCompatibility = assets.programRuntime?.agaveRuntimeCompatibility;
-const runtimeCompatibilityOk =
-  recordedRuntimeCompatibility === alignmentStatus ||
-  (recordedRuntimeCompatibility === 'verified' &&
-    inProcessRuntimeMatchesAgavePin &&
-    typeof runtimeVerificationEvidence === 'string' &&
-    runtimeVerificationEvidence.trim().length > 0);
+const runtimeCompatibilityOk = recordedRuntimeCompatibility === alignmentStatus;
+
+// The LiteSVM and Mollusk halves of the escrow lane execute under different feature profiles,
+// and the strength of the evidence behind each differs too: LiteSVM's active set is observed
+// exactly, while Mollusk's is read from its source with only named gates asserted. Recording
+// that strength as a closed vocabulary rather than prose keeps a stronger claim from being
+// written for a profile the tests only sample.
+//
+// The exact-set label is granted on positive evidence, never on the absence of a gate list:
+// it requires naming the enumeration COMPLETE_SET_SOURCES records for that runtime, which a
+// test can compare the live active set against for equality. The allowlist is keyed by
+// profile so a runtime cannot borrow another's enumeration, and it lives here rather than in
+// the assets file so that claiming exact-set evidence for a runtime takes a reviewed code
+// change, not a JSON edit. Mollusk has no entry because mollusk-svm 0.15.1 exposes no stable
+// complete comparison: its SVMFeatureSet derives no equality and sits behind the
+// agave-unstable-api cfg, so the Mollusk half stays on named sentinel gates.
+const PROFILE_EVIDENCE_KINDS = new Set([
+  'asserted-complete-feature-set',
+  'asserted-representative-gates',
+  'source-observed',
+]);
+const COMPLETE_SET_SOURCES = new Map([['litesvm', 'litesvm::features::MAINNET_ACTIVE_FEATURES']]);
+const executionProfiles = assets.programRuntime?.executionProfiles;
+const profileEntries = Object.entries(executionProfiles ?? {}).filter(
+  ([, value]) => value !== null && typeof value === 'object' && !Array.isArray(value),
+);
+const executionProfilesOk =
+  profileEntries.length > 0 &&
+  ['litesvm', 'mollusk'].every((half) => profileEntries.some(([name]) => name === half)) &&
+  profileEntries.every(([name, profile]) => {
+    if (!PROFILE_EVIDENCE_KINDS.has(profile.profileEvidence)) return false;
+    const gates = profile.assertedGates;
+    if (gates !== undefined && (!Array.isArray(gates) || gates.length === 0)) return false;
+    const completeSetSource = profile.completeSetSource;
+    const claimsCompleteSet = profile.profileEvidence === 'asserted-complete-feature-set';
+    const expectedCompleteSetSource = COMPLETE_SET_SOURCES.get(name);
+    if (
+      claimsCompleteSet &&
+      (expectedCompleteSetSource === undefined || completeSetSource !== expectedCompleteSetSource)
+    ) {
+      return false;
+    }
+    if (!claimsCompleteSet && completeSetSource !== undefined) return false;
+    // An enumerated gate list samples the profile, so it can never back the exact-set claim.
+    if (gates !== undefined && claimsCompleteSet) return false;
+    if (profile.profileEvidence === 'asserted-representative-gates' && gates === undefined) {
+      return false;
+    }
+    const asserted = profile.profileEvidence !== 'source-observed';
+    const pinned = typeof profile.pinnedBy === 'string' && profile.pinnedBy.length > 0;
+    if (asserted !== pinned) return false;
+    return !pinned || existsSync(join(root, profile.pinnedBy));
+  });
 
 const checks = [
   ['.mise.toml pins Node 24.20.0', mise.tools?.node === '24.20.0'],
@@ -121,8 +175,16 @@ const checks = [
     assets.sbf?.platformToolsVersionByCargoBuildSbfVersion?.[BASELINE_CARGO_BUILD_SBF_VERSION] === BASELINE_PLATFORM_TOOLS_VERSION,
   ],
   [
-    'recorded LiteSVM pin matches the programs/escrow dev-dependency',
-    typeof escrowLiteSvmReq === 'string' && assets.programRuntime?.liteSvmVersion === escrowLiteSvmReq,
+    'recorded LiteSVM pin matches the programs/escrow dev-dependency and lockfile',
+    typeof escrowLiteSvmReq === 'string' &&
+      assets.programRuntime?.liteSvmVersion === escrowLiteSvmReq &&
+      lockedLiteSvm === escrowLiteSvmReq,
+  ],
+  [
+    'recorded Mollusk pin matches the programs/escrow dev-dependency and lockfile',
+    typeof escrowMolluskSvmReq === 'string' &&
+      assets.programRuntime?.molluskSvmVersion === escrowMolluskSvmReq &&
+      lockedMolluskSvm === escrowMolluskSvmReq,
   ],
   [
     'recorded in-process runtime versions match Cargo.lock',
@@ -130,8 +192,12 @@ const checks = [
       assets.programRuntime?.embeddedSolanaSbpfVersion === lockedSolanaSbpf,
   ],
   [
-    `in-process runtime vs Agave CLI pin is recorded as ${alignmentStatus} (or as evidence-backed 'verified')`,
+    `in-process runtime vs Agave CLI pin is recorded as ${alignmentStatus} ('verified' is refused until a machine-checkable qualification contract exists)`,
     runtimeCompatibilityOk,
+  ],
+  [
+    "each execution profile records evidence strength from the closed vocabulary, names an existing pinning test, and reaches 'asserted-complete-feature-set' only by naming a known complete-comparison source",
+    executionProfilesOk,
   ],
   ['npm exact probe pin is recorded for Node 24.20.0', assets.node?.npmBundledVersion === '11.19.0'],
   [

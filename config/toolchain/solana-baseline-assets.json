@@ -44,13 +44,42 @@
     "defaultArch": "v0"
   },
   "programRuntime": {
-    "statusSource": "programs/escrow/Cargo.toml dev-dependencies and the root Cargo.lock, recorded here so the Agave CLI pin cannot be read as Agave 4 runtime evidence. Scope is the escrow LiteSVM lane only: the Quasar program-test workspaces under experiments/ carry their own lockfiles, which scripts/check-solana-baseline-pins.mjs does not read, so this status is not a checked assertion about them",
-    "statusVocabulary": "unresolved = the in-process runtime major differs from the Agave CLI pin; major-aligned = the majors match, which records dependency alignment and is not a compatibility claim; verified = requires major alignment AND a non-empty runtimeVerificationEvidence naming dedicated Agave runtime qualification. scripts/check-solana-baseline-pins.mjs never derives 'verified' from version equality alone.",
-    "liteSvmVersion": "0.10.0",
-    "embeddedProgramRuntimeVersion": "3.1.12",
-    "embeddedSolanaSbpfVersion": "0.13.1",
-    "agaveRuntimeCompatibility": "unresolved",
-    "reason": "The program-test lanes build escrow.so with the pinned Agave 4 SBF toolchain but execute it in-process on the Agave 3.1 SVM crates LiteSVM 0.10.0 embeds, so no lane in this repository runs an Agave 4 runtime. SBPFv0 output keeps those lanes loadable and passing; that is not Agave 4 runtime compatibility. Aligning LiteSVM/Mollusk with the Agave CLI pin is a separate workstream requiring its own qualification."
+    "statusSource": "programs/escrow/Cargo.toml dev-dependencies and the root Cargo.lock, recorded here so the Agave CLI pin cannot be read as executable Agave 4 runtime proof beyond the escrow deterministic runtime lane. Scope is the escrow LiteSVM/Mollusk lane only: the Quasar program-test workspaces under experiments/ carry their own lockfiles, which scripts/check-solana-baseline-pins.mjs does not read, so this status is not a checked assertion about them",
+    "statusVocabulary": "unresolved = the in-process runtime major differs from the Agave CLI pin; major-aligned = the majors match, which records dependency alignment and is not a compatibility claim; verified = attestation-grade Agave runtime qualification, and scripts/check-solana-baseline-pins.mjs refuses it outright today because no machine-checkable evidence contract for that qualification exists. Free-text prose in runtimeVerificationEvidence cannot earn 'verified': the checker only accepts the value it recomputes from the root Cargo.lock against the CI Agave pin.",
+    "liteSvmVersion": "0.16.0",
+    "embeddedProgramRuntimeVersion": "4.2.2",
+    "embeddedSolanaSbpfVersion": "0.21.1",
+    "agaveRuntimeCompatibility": "major-aligned",
+    "reason": "The legacy escrow deterministic tests now compile against LiteSVM 0.16.0 and Mollusk 0.15.1, whose root lockfile resolution embeds the Agave 4.2.2 in-process SVM crates and solana-sbpf 0.21.1, matching the Agave CLI major. The recorded status is therefore major-aligned only: it records exact root lockfile identity plus deterministic escrow test execution and does not claim verified deployment/runtime readiness. Quasar workspaces remain separately locked/evidenced and are not inferred from this root LiteSVM/Mollusk lockfile.",
+    "molluskSvmVersion": "0.15.1",
+    "runtimeAlignmentEvidence": "Cargo.lock resolves litesvm 0.16.0 and mollusk-svm 0.15.1 with solana-program-runtime 4.2.2 and solana-sbpf 0.21.1; cargo test -p escrow executes the legacy escrow SBF fixture under the updated in-process runtime lane, including programs/escrow/tests/mollusk_runtime.rs, which asserts the escrow SBF artifact loads under Mollusk, returns the exact ZeroAmount custom error (6004), and meters non-zero compute units. Mollusk echoes its input accounts on a failed instruction, so rejected-lock atomicity is asserted separately against LiteSVM's post-transaction state in programs/escrow/tests/test_escrow.rs. The two halves of the lane execute under two different feature profiles and neither is evidence about the other. The LiteSVM profile is pinned by programs/escrow/tests/litesvm_runtime_profile.rs, which observes LiteSVM 0.16.0 activating exactly the mainnet-activated feature set (feature-gate accounts installed for every entry in MAINNET_ACTIVE_FEATURES and no others), starting the clock at MAINNET_DEFAULT_SLOT rather than slot 0, and storing the rent sysvar in its SIMD-0194 representation because deprecate_rent_exemption_threshold is active in that set; a later LiteSVM bump that shifts any of those observed properties fails that test. The replaced litesvm 0.10.0 default was FeatureSet::all_enabled() over the Agave 3.1 gate list, which is not comparable to this one as a subset or superset: the two sets are expressed over different Agave majors, so the bump both dropped force-enabled gates that were never activated on mainnet and picked up mainnet-activated Agave 4 gates that did not exist in the 3.1 list at all. Describe the change by these observed properties, not as a widening or narrowing of coverage. Mollusk 0.15.1 is unaffected by that pin. That Mollusk::new() defaults to SVMFeatureSet::all_enabled() is read from mollusk-svm's source, not asserted by any test here; what mollusk_runtime.rs asserts is that two representative gates inactive on mainnet — disable_sbpf_v0_execution and account_data_direct_mapping — are enabled under it. Those two are a drift signal, not an exhaustive pin: SVMFeatureSet carries dozens of gate fields and derives no equality, so a Mollusk bump that narrowed some other gate would not fail that test. Treat the Mollusk half's feature profile as source-observed and only representatively asserted. There is no shared escrow-wide execution profile and no runtime-equivalence claim between the two halves. This is dependency/runtime-lane alignment evidence for the local deterministic profile only, not a claim of mainnet-beta or devnet equivalence, and not deployment, Quasar, mainnet, or product-readiness evidence.",
+    "dependencyEvidence": {
+      "litesvm@0.16.0": "cargo info litesvm@0.16.0; crates.io release exists, repository https://github.com/LiteSVM/litesvm, rust-version 1.89.0, features include default/precompiles/register-tracing/sbpf-debugger; root Cargo.lock resolves its Agave runtime crates to 4.2.2",
+      "mollusk-svm@0.15.1": "cargo info mollusk-svm@0.15.1; crates.io release exists, repository https://github.com/anza-xyz/mollusk, features include all-builtins/precompiles/register-tracing/sbpf-debugger/serde; root Cargo.lock resolves solana-program-runtime 4.2.2",
+      "mollusk-svm-programs-token@0.15.1": "cargo info mollusk-svm-programs-token@0.15.1; crates.io release exists from the same Mollusk repository. Not a root dependency today because the legacy escrow Mollusk check does not exercise SPL Token."
+    },
+    "executionProfiles": {
+      "profileEvidenceVocabulary": "asserted-complete-feature-set = a test compares the runtime's live active feature set for equality against the enumeration named in completeSetSource, so any change to that set fails the test; asserted-representative-gates = a test observes only the named gates in assertedGates, which is a drift signal and NOT a complete pin of the profile; source-observed = read from the dependency's source with no test asserting it. scripts/check-solana-baseline-pins.mjs grants asserted-complete-feature-set only on positive evidence: completeSetSource must match the enumeration the checker records for that specific runtime, so the label cannot be obtained by deleting assertedGates nor by citing another runtime's enumeration. Every asserted profile must also name a pinnedBy test file that exists in the tree.",
+      "comparabilityNote": "Each profile is recorded by its own observed properties. Feature sets expressed over different Agave majors are not comparable as subsets or supersets, so do not record a profile change as a widening or narrowing of coverage.",
+      "litesvm": {
+        "runtime": "litesvm 0.16.0",
+        "featureProfile": "the mainnet-activated set (litesvm::features::MAINNET_ACTIVE_FEATURES)",
+        "profileEvidence": "asserted-complete-feature-set",
+        "completeSetSource": "litesvm::features::MAINNET_ACTIVE_FEATURES",
+        "pinnedBy": "programs/escrow/tests/litesvm_runtime_profile.rs"
+      },
+      "mollusk": {
+        "runtime": "mollusk-svm 0.15.1",
+        "featureProfile": "the SVMFeatureSet::all_enabled() default of Mollusk::new()",
+        "profileEvidence": "asserted-representative-gates",
+        "completeComparisonUnavailable": "mollusk-svm 0.15.1 exposes no stable complete comparison of its default feature set: SVMFeatureSet derives no equality and is gated behind the agave-unstable-api cfg, so there is no enumeration this repository can compare the live set against. The Mollusk half therefore stays on named sentinel gates and must not be recorded as asserted-complete-feature-set.",
+        "pinnedBy": "programs/escrow/tests/mollusk_runtime.rs",
+        "assertedGates": [
+          "disable_sbpf_v0_execution",
+          "account_data_direct_mapping"
+        ]
+      }
+    }
   },
   "surfpool": {
     "version": "v1.5.0",

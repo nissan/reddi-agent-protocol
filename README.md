@@ -175,7 +175,7 @@ npm run demo
 ### Tests
 
 ```bash
-# Legacy Anchor reference program tests (LiteSVM)
+# Legacy Anchor reference program tests (LiteSVM / Mollusk)
 cargo test -p escrow
 
 # Web app Playwright tests (26 tests)

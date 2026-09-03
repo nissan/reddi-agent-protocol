@@ -10,9 +10,15 @@
 ///   - Duplicate nonce (same payer + nonce = account already exists)
 ///   - Zero amount is rejected
 use {
-    anchor_lang::{solana_program::instruction::Instruction, InstructionData, ToAccountMetas},
-    escrow::accounts::{CancelEscrow, LockEscrow, ReleaseEscrow},
+    anchor_lang::{
+        solana_program::instruction::Instruction, AccountDeserialize, InstructionData,
+        ToAccountMetas,
+    },
     escrow::instruction,
+    escrow::{
+        accounts::{CancelEscrow, LockEscrow, ReleaseEscrow},
+        state::EscrowAccount,
+    },
     litesvm::LiteSVM,
     solana_keypair::Keypair,
     solana_message::{Message, VersionedMessage},
@@ -196,8 +202,14 @@ fn test_cancel_escrow_refunds_payer() {
         .map(|a| a.lamports)
         .unwrap_or(0);
 
-    // Warp past the 7-day cancel window (50,400 slots)
-    svm.warp_to_slot(60_000);
+    // Warp past the 7-day cancel window relative to the slot recorded by the
+    // in-process runtime, whose initial slot is not fixed across LiteSVM releases.
+    let escrow_account = svm
+        .get_account(&escrow_pda)
+        .expect("escrow PDA should exist");
+    let escrow_state = EscrowAccount::try_deserialize(&mut escrow_account.data.as_slice())
+        .expect("escrow account should deserialize");
+    svm.warp_to_slot(escrow_state.created_slot + 60_000);
 
     // Cancel
     let cancel_ix = Instruction::new_with_bytes(
@@ -425,7 +437,12 @@ fn test_release_unauthorised_fails() {
     let _ = err; // Error type assertion depends on litesvm version
 }
 
-/// Zero amount is rejected
+/// Zero amount is rejected, and the rejected lock leaves no state behind.
+///
+/// Anchor's `init` constraint creates and funds the escrow PDA during account
+/// resolution, i.e. before `require!(amount > 0)` runs in the handler, so this
+/// also pins transaction-level rollback: the only lamports the payer may lose
+/// are transaction fees, never the PDA's rent-exempt reserve.
 #[test]
 fn test_lock_zero_amount_fails() {
     let (mut svm, _) = make_svm();
@@ -436,6 +453,11 @@ fn test_lock_zero_amount_fails() {
     svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
 
     let (escrow_pda, _) = escrow_pda(&payer.pubkey(), &nonce);
+    let payer_balance_before = svm
+        .get_account(&payer.pubkey())
+        .map(|a| a.lamports)
+        .unwrap_or(0);
+    let escrow_rent_exempt_reserve = svm.minimum_balance_for_rent_exemption(EscrowAccount::LEN);
 
     let ix = Instruction::new_with_bytes(
         escrow::id(),
@@ -450,5 +472,28 @@ fn test_lock_zero_amount_fails() {
     );
 
     let err = send(&mut svm, ix, &[&payer]);
-    let _ = err; // Should fail with EscrowError::ZeroAmount
+    let err_str = format!("{:?}", err);
+    assert!(
+        err_str.contains("Custom(6004)") || err_str.contains("ZeroAmount"),
+        "Expected ZeroAmount error, got: {}",
+        err_str
+    );
+
+    // Independently observable post-transaction state, not an echo of the inputs.
+    assert!(
+        svm.get_account(&escrow_pda)
+            .is_none_or(|a| a.lamports == 0 && a.data.is_empty()),
+        "Rejected zero-amount lock must not leave a created/funded escrow PDA"
+    );
+    let payer_balance_after = svm
+        .get_account(&payer.pubkey())
+        .map(|a| a.lamports)
+        .unwrap_or(0);
+    assert!(
+        payer_balance_before - payer_balance_after < escrow_rent_exempt_reserve,
+        "Rejected zero-amount lock must not debit the payer the escrow rent-exempt \
+         reserve ({} lamports); payer lost {}",
+        escrow_rent_exempt_reserve,
+        payer_balance_before - payer_balance_after
+    );
 }

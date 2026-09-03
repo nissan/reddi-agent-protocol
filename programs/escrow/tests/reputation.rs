@@ -474,8 +474,10 @@ fn test_expire_penalises_non_committer() {
 
     let spec_before = fetch_agent(&svm, &specialist_agent);
 
-    // Warp past the 7-day expiry window
-    svm.warp_to_slot(RATING_EXPIRE_SLOTS + 100);
+    // Warp past the 7-day expiry window relative to the slot recorded by the
+    // in-process runtime, whose initial slot is not fixed across LiteSVM releases.
+    let committed = fetch_rating(&svm, &rating_pk);
+    svm.warp_to_slot(committed.created_slot + RATING_EXPIRE_SLOTS + 100);
 
     // Consumer triggers expiry — specialist ghosted, so specialist is penalised
     send_ok(
