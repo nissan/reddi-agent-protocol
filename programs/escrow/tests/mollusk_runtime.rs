@@ -9,6 +9,13 @@
 /// accounts verbatim, so its result cannot witness rollback. Account-state
 /// atomicity for this path is asserted in `test_escrow.rs` against LiteSVM's
 /// independently observable post-transaction state.
+///
+/// Profile note: Mollusk runs its own all-features-enabled default and does not
+/// share the mainnet-activated profile `litesvm_runtime_profile.rs` pins for the
+/// LiteSVM lane. The two halves of `cargo test -p escrow` therefore execute the
+/// same artifact under two different feature profiles, and this file proves only
+/// what it observes under Mollusk's. Neither profile is evidence about the other,
+/// and neither is a mainnet-beta or devnet equivalence claim.
 use {
     anchor_lang::{InstructionData, ToAccountMetas},
     escrow::{accounts::LockEscrow, instruction},
@@ -52,6 +59,17 @@ fn mollusk_lock_escrow_zero_amount_returns_zero_amount_error_and_consumes_comput
     );
 
     let mollusk = Mollusk::new(&escrow::id(), "escrow");
+
+    // Both gates are absent from LiteSVM's MAINNET_ACTIVE_FEATURES, so seeing them enabled
+    // here is what distinguishes Mollusk's profile from the pinned LiteSVM one.
+    assert!(
+        mollusk.feature_set.disable_sbpf_v0_execution
+            && mollusk.feature_set.account_data_direct_mapping,
+        "Mollusk is expected to run its own all-features-enabled default, force-enabling \
+         gates that are inactive on mainnet and absent from the LiteSVM profile pinned in \
+         litesvm_runtime_profile.rs. Seeing them off means Mollusk's default narrowed; \
+         re-record what this observation covers before relying on it",
+    );
 
     let result = mollusk.process_and_validate_instruction(
         &ix,

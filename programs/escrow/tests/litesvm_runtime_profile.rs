@@ -9,11 +9,15 @@
 /// and derives the rent sysvar representation from a feature gate.
 ///
 /// These tests read the environment through LiteSVM's public API and the sysvar account
-/// byte layouts (a stable on-chain serialization contract), so a future bump that shifts
-/// the profile fails here instead of quietly changing what the escrow evidence covers.
+/// byte layouts (a stable on-chain serialization contract), so a future LiteSVM bump that
+/// shifts the profile fails here instead of quietly changing what the LiteSVM evidence
+/// covers.
 ///
-/// Scope: this pins the local deterministic profile only. It is not a claim that the lane
-/// reproduces mainnet-beta or devnet behaviour, and not a readiness claim of any kind.
+/// Scope: this pins the LiteSVM lane's local deterministic profile and nothing else. The
+/// Mollusk smoke in `mollusk_runtime.rs` runs under Mollusk's own all-features-enabled
+/// default, which these tests say nothing about; there is no shared escrow-wide profile.
+/// This is also not a claim that the lane reproduces mainnet-beta or devnet behaviour, and
+/// not a readiness claim of any kind.
 use {
     escrow::state::EscrowAccount,
     litesvm::{features::MAINNET_ACTIVE_FEATURES, LiteSVM, MAINNET_DEFAULT_SLOT},

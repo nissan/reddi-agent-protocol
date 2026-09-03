@@ -40,22 +40,35 @@ recorded claim remains deliberately narrow:
   independently observable post-transaction state in
   `programs/escrow/tests/test_escrow.rs`.
 - The bump also changes the environment those tests execute in, so the
-  deterministic profile is now recorded and pinned rather than inherited.
-  `litesvm 0.10.0` built `LiteSVM::new()` with `FeatureSet::all_enabled()` and
-  a zero starting slot; `0.16.0` seeds only the features activated on
-  mainnet-beta (`with_mainnet_features`), installs the matching on-chain
-  feature-gate accounts (`with_feature_accounts`), starts the clock at
-  `MAINNET_DEFAULT_SLOT`, and derives the rent sysvar representation from the
-  `deprecate_rent_exemption_threshold` gate — active under that feature set, so
-  rent is stored in its SIMD-0194 form rather than the legacy pair LiteSVM
-  substitutes when the gate is off. The escrow lane therefore
-  exercises a strictly narrower feature set than before the bump: behaviour that
-  only ran because an unactivated feature was force-enabled is no longer
-  covered. `programs/escrow/tests/litesvm_runtime_profile.rs` asserts each of
-  those four properties through LiteSVM's public API, so a later bump that
-  shifts the profile fails the lane instead of silently changing what this
-  evidence covers. Pinning the local profile is not a claim that the lane
-  reproduces mainnet-beta or devnet behaviour.
+  deterministic profile is now recorded and pinned rather than inherited. This
+  is a **per-half** profile: LiteSVM and Mollusk do not share one, and neither
+  half's profile is evidence about the other.
+  - LiteSVM: `litesvm 0.10.0` built `LiteSVM::new()` with
+    `FeatureSet::all_enabled()` and a zero starting slot; `0.16.0` seeds only
+    the features activated on mainnet-beta (`with_mainnet_features`), installs
+    the matching on-chain feature-gate accounts (`with_feature_accounts`),
+    starts the clock at `MAINNET_DEFAULT_SLOT`, and derives the rent sysvar
+    representation from the `deprecate_rent_exemption_threshold` gate — active
+    under that feature set, so rent is stored in its SIMD-0194 form rather than
+    the legacy pair LiteSVM substitutes when the gate is off. The LiteSVM half
+    therefore exercises a strictly narrower feature set than before the bump:
+    behaviour that only ran because an unactivated feature was force-enabled is
+    no longer covered there.
+    `programs/escrow/tests/litesvm_runtime_profile.rs` asserts each of those
+    four properties through LiteSVM's public API, so a later LiteSVM bump that
+    shifts the profile fails that test instead of silently changing what the
+    LiteSVM evidence covers.
+  - Mollusk: `Mollusk::new()` defaults to `SVMFeatureSet::all_enabled()`, so the
+    Mollusk smoke did **not** narrow with the LiteSVM bump. It observes the
+    escrow artifact with gates that are inactive on mainnet — among them
+    `disable_sbpf_v0_execution` and `account_data_direct_mapping` — force
+    enabled, and proves only the exact error and compute-unit observation it
+    makes under that profile. `mollusk_runtime.rs` pins those gates itself so a
+    Mollusk bump that narrows the default fails there.
+
+  Pinning either local profile is not a claim that the lane reproduces
+  mainnet-beta or devnet behaviour, and the two profiles must not be read as
+  runtime-equivalent to each other.
 - The legacy LiteSVM tests that depend on slot passage warp relative to the
   slot recorded in program state instead of assuming LiteSVM starts at slot 0;
   this preserves deterministic expiry/cancel assertions across runtime releases.
