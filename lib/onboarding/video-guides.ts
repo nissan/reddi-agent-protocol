@@ -5,9 +5,10 @@ export type OnboardingVideoGuide = {
   description: string;
   duration: string;
   route: string;
-  videoSrc: string;
-  posterSrc: string;
-  captionsSrc: string;
+  /** Absent once a stale recording is removed from public serving rather than withheld in place. */
+  videoSrc?: string;
+  posterSrc?: string;
+  captionsSrc?: string;
   boundary: string;
   /** Recording predates the public-claim remediation of the page it captures. */
   mediaStale?: true;
@@ -27,9 +28,6 @@ export const onboardingVideos: OnboardingVideoGuide[] = [
       "Take a quick tour of the homepage, setup flow, specialist directory, registration path, economic proof, and verifier command.",
     duration: "43s",
     route: "/start",
-    videoSrc: "/videos/onboarding/overview.mp4",
-    posterSrc: "/videos/onboarding/posters/overview.jpg",
-    captionsSrc: "/videos/onboarding/captions/overview.vtt",
     boundary: "Guided devnet proof tour",
     mediaStale: true,
     multiRouteRecording: true,

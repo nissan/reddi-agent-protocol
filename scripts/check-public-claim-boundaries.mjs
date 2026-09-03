@@ -57,7 +57,6 @@ const activeClaimFiles = [
   "docs/verifiable-agent-protocol/README.md",
   "packages/per-client/README.md",
   "packages/openrouter-specialists/README.md",
-  "public/videos/onboarding/captions/overview.vtt",
   "public/videos/onboarding/captions/hire-agent-x402.vtt",
   "public/videos/onboarding/captions/economic-proof.vtt",
   "public/videos/onboarding/captions/register-agent.vtt",

@@ -153,8 +153,7 @@ export default function TourPage() {
                     <Link href={step.url} className="underline hover:text-white/50">
                       {step.url}
                     </Link>{' '}
-                    on this build to see the current copy. The hosted site has not been redeployed
-                    and still serves the retired wording.
+                    on this build to see the current copy.
                   </span>
                 )}
               </div>

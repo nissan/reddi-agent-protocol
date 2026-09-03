@@ -13,15 +13,15 @@ type Screenshot = {
   src: string;
   title: string;
   route: string;
-  /** Capture visibly asserts a claim this repository has retired, so it is withheld. */
+  /** Capture predates this repository's public-claim remediation, so it is withheld. */
   imageStale?: true;
 };
 
 const screenshots: Screenshot[] = [
   { src: "/whitepaper/landing-overview.png", title: "Landing overview", route: "/", imageStale: true },
   { src: "/whitepaper/marketplace-discovery.png", title: "Directory discovery", route: "/agents", imageStale: true },
-  { src: "/whitepaper/planner-consumption.png", title: "Planner consumption", route: "/planner" },
-  { src: "/whitepaper/register-onboarding.png", title: "Register onboarding", route: "/register" },
+  { src: "/whitepaper/planner-consumption.png", title: "Planner consumption", route: "/planner", imageStale: true },
+  { src: "/whitepaper/register-onboarding.png", title: "Register onboarding", route: "/register", imageStale: true },
   { src: "/whitepaper/dogfood-operator-ui.png", title: "Dogfood operator UI", route: "/dogfood", imageStale: true },
 ];
 
@@ -87,8 +87,7 @@ export default function WhitepaperPage() {
                   <div className="flex h-44 w-full items-center justify-center bg-[#1a1a2e] px-5 text-center">
                     <span className="max-w-xs text-xs leading-relaxed text-white/25">
                       Screenshot withheld: the committed capture predates this repository&apos;s
-                      public-claim remediation and still asserts retired marketplace, live-settlement,
-                      and transaction/volume wording. Open{" "}
+                      public-claim remediation and still shows retired wording. Open{" "}
                       <Link href={shot.route} className="underline hover:text-white/50">
                         {shot.route}
                       </Link>{" "}

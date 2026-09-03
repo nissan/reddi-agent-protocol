@@ -48,11 +48,11 @@ export function OnboardingVideoCard({ video, layout = "stacked", hostRoute }: Pr
       }`}
     >
       <div className="relative bg-black">
-        {video.mediaStale ? (
+        {video.mediaStale || !video.videoSrc ? (
           <div className="flex aspect-video h-full w-full flex-col items-center justify-center gap-2 bg-[#1a1a2e] px-6 text-center">
             <span className="max-w-sm text-xs leading-relaxed text-white/25">
-              Recording withheld: this capture predates the public-claim remediation and still shows
-              retired marketplace/payment wording.{" "}
+              Recording not shown: this capture predates the public-claim remediation and still
+              shows retired marketplace/payment wording.{" "}
               {video.multiRouteRecording ? (
                 <>It toured several routes, so no single page reproduces it; browse this build for the current copy.</>
               ) : capturesHostPage ? (
