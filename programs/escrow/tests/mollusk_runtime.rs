@@ -1,8 +1,14 @@
 /// Focused Mollusk execution checks for the legacy Anchor escrow SBF artifact.
 ///
-/// LiteSVM covers transaction-level flows across the suite. This file keeps a
-/// single-instruction Mollusk assertion so the deterministic runtime lane also
-/// exercises Mollusk's Agave 4 SVM surface and its compute-unit checker.
+/// LiteSVM covers transaction-level flows across the suite, including rollback
+/// of a rejected lock. This file keeps a single-instruction Mollusk assertion so
+/// the deterministic runtime lane also exercises Mollusk's Agave 4 SVM surface
+/// and its compute-unit meter.
+///
+/// Scope note: on a failed instruction Mollusk returns the caller-supplied input
+/// accounts verbatim, so its result cannot witness rollback. Account-state
+/// atomicity for this path is asserted in `test_escrow.rs` against LiteSVM's
+/// independently observable post-transaction state.
 use {
     anchor_lang::{InstructionData, ToAccountMetas},
     escrow::{accounts::LockEscrow, instruction},
@@ -24,7 +30,7 @@ fn escrow_pda(
 }
 
 #[test]
-fn mollusk_lock_escrow_zero_amount_fails_without_state_mutation_and_reports_compute_units() {
+fn mollusk_lock_escrow_zero_amount_returns_zero_amount_error_and_consumes_compute_units() {
     let sbf_out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/deploy");
     std::env::set_var("SBF_OUT_DIR", sbf_out_dir);
 
@@ -45,41 +51,25 @@ fn mollusk_lock_escrow_zero_amount_fails_without_state_mutation_and_reports_comp
         .to_account_metas(None),
     );
 
-    let payer_account = Account::new(1_000_000_000, 0, &system_program::id());
-    let escrow_account = Account::new(0, 0, &system_program::id());
-    let payee_account = Account::new(0, 0, &system_program::id());
     let mollusk = Mollusk::new(&escrow::id(), "escrow");
 
     let result = mollusk.process_and_validate_instruction(
         &ix,
         &[
-            (escrow_pda, escrow_account),
-            (payer.pubkey(), payer_account.clone()),
-            (payee.pubkey(), payee_account.clone()),
+            (escrow_pda, Account::new(0, 0, &system_program::id())),
+            (
+                payer.pubkey(),
+                Account::new(1_000_000_000, 0, &system_program::id()),
+            ),
+            (payee.pubkey(), Account::new(0, 0, &system_program::id())),
             keyed_account_for_system_program(),
         ],
         &[Check::err(anchor_lang::prelude::ProgramError::Custom(6004))],
     );
 
     assert!(
-        result.compute_units_consumed > 0 && result.compute_units_consumed <= 1_400_000,
-        "Mollusk should report bounded compute units for the failed instruction, got {}",
-        result.compute_units_consumed,
-    );
-    assert_eq!(
-        result
-            .get_account(&payer.pubkey())
-            .expect("payer account should be returned")
-            .lamports,
-        payer_account.lamports,
-        "failing zero-amount lock must not debit payer lamports",
-    );
-    assert_eq!(
-        result
-            .get_account(&escrow_pda)
-            .expect("escrow account should be returned")
-            .lamports,
-        0,
-        "failing zero-amount lock must not create/fund the escrow PDA",
+        result.compute_units_consumed > 0,
+        "the escrow SBF artifact must actually execute under the Mollusk runtime, \
+         but no compute units were metered",
     );
 }

@@ -3,7 +3,8 @@
 // `programRuntime.agaveRuntimeCompatibility` from the root Cargo.lock resolution against the CI
 // Agave pin. The current LiteSVM/Mollusk lane is major-aligned, but the whole point of
 // the three-valued vocabulary is that dependency alignment alone must never be able to
-// produce the attestation-grade 'verified' label.
+// produce the attestation-grade 'verified' label — and neither may unverifiable free text,
+// which is why 'verified' is refused until a machine-checkable evidence contract exists.
 //
 // These tests exercise the real checker against a throwaway repository fixture: only the files
 // whose recorded runtime state is under test (the root Cargo.lock and the assets file) are rewritten, and
@@ -138,13 +139,30 @@ test('an unearned verified label is refused even when the majors align', (t) => 
   const blankEvidence = runChecker(dir);
   assert.equal(blankEvidence.status, 1, 'a whitespace-only evidence key must not satisfy a verified claim');
   assertOnlyRuntimeStatusFailed(blankEvidence);
+});
 
-  patchProgramRuntime(dir, {
-    runtimeVerificationEvidence: 'dedicated Agave 4.2 runtime qualification run, artifact XYZ',
-  });
-  const withEvidence = runChecker(dir);
-  assert.equal(withEvidence.status, 0, withEvidence.stderr);
-  assert.match(withEvidence.stdout, /ok: in-process runtime vs Agave CLI pin is recorded as/);
+// The alignment majors now match permanently, so free text is the only thing standing between the
+// recorded status and an attestation-grade label. The checker has no way to tell a qualification
+// record from the alignment prose recorded next to it, so prose must not be able to buy 'verified'.
+test('free-text evidence cannot buy a verified label once the majors align', (t) => {
+  const dir = makeFixture(t);
+  const assets = JSON.parse(readFileSync(join(dir, ASSETS_REL), 'utf8'));
+  const alignmentProse = assets.programRuntime.runtimeAlignmentEvidence;
+  assert.equal(typeof alignmentProse, 'string', 'fixture should record alignment-only evidence prose');
+
+  for (const evidence of [
+    'dedicated Agave 4.2 runtime qualification run, artifact XYZ',
+    alignmentProse,
+  ]) {
+    patchProgramRuntime(dir, {
+      agaveRuntimeCompatibility: 'verified',
+      runtimeVerificationEvidence: evidence,
+    });
+    const result = runChecker(dir);
+    assert.equal(result.status, 1, `free-text evidence must not satisfy a verified claim: ${evidence}`);
+    assertOnlyRuntimeStatusFailed(result);
+    assert.match(result.stderr, /recorded as major-aligned/);
+  }
 });
 
 test('evidence cannot buy a verified label while the in-process runtime major still differs', (t) => {

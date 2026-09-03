@@ -91,19 +91,17 @@ const majorOf = (version) => String(version ?? '').replace(/^v/, '').split('.')[
 // The program-test lanes build against the CI Agave pin but execute in-process on whatever SVM
 // the deterministic LiteSVM/Mollusk root lockfile pulls in. Version equality between the two is
 // dependency alignment, never a runtime compatibility claim, so aligning them can only ever reach
-// 'major-aligned' here: 'verified'
-// additionally requires recorded evidence of dedicated Agave runtime qualification.
+// 'major-aligned' here. The attestation-grade 'verified' label needs dedicated Agave runtime
+// qualification, and no machine-checkable contract for recording that qualification exists yet:
+// a free-text evidence string is unverifiable prose that this checker cannot tell apart from the
+// alignment notes sitting beside it, so 'verified' is refused outright rather than granted on a
+// non-empty key. Introducing 'verified' means first defining an evidence contract this checker can
+// actually validate.
 const inProcessRuntimeMatchesAgavePin =
   Boolean(lockedProgramRuntime) && majorOf(lockedProgramRuntime) === majorOf(BASELINE_AGAVE_VERSION);
 const alignmentStatus = inProcessRuntimeMatchesAgavePin ? 'major-aligned' : 'unresolved';
-const runtimeVerificationEvidence = assets.programRuntime?.runtimeVerificationEvidence;
 const recordedRuntimeCompatibility = assets.programRuntime?.agaveRuntimeCompatibility;
-const runtimeCompatibilityOk =
-  recordedRuntimeCompatibility === alignmentStatus ||
-  (recordedRuntimeCompatibility === 'verified' &&
-    inProcessRuntimeMatchesAgavePin &&
-    typeof runtimeVerificationEvidence === 'string' &&
-    runtimeVerificationEvidence.trim().length > 0);
+const runtimeCompatibilityOk = recordedRuntimeCompatibility === alignmentStatus;
 
 const checks = [
   ['.mise.toml pins Node 24.20.0', mise.tools?.node === '24.20.0'],
@@ -142,7 +140,7 @@ const checks = [
       assets.programRuntime?.embeddedSolanaSbpfVersion === lockedSolanaSbpf,
   ],
   [
-    `in-process runtime vs Agave CLI pin is recorded as ${alignmentStatus} (or as evidence-backed 'verified')`,
+    `in-process runtime vs Agave CLI pin is recorded as ${alignmentStatus} ('verified' is refused until a machine-checkable qualification contract exists)`,
     runtimeCompatibilityOk,
   ],
   ['npm exact probe pin is recorded for Node 24.20.0', assets.node?.npmBundledVersion === '11.19.0'],

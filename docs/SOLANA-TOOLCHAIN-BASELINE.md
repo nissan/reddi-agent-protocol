@@ -33,8 +33,12 @@ recorded claim remains deliberately narrow:
   `solana-sbpf 0.21.1`, matching the Agave `v4.2.2` CLI major. The focused
   Mollusk check in `programs/escrow/tests/mollusk_runtime.rs` uses
   `mollusk-svm 0.15.1` from the same root lockfile to execute the escrow SBF
-  artifact and assert the failed zero-amount lock leaves payer/escrow lamports
-  unchanged while reporting bounded compute units.
+  artifact and assert it returns the exact `ZeroAmount` custom error (6004)
+  while metering non-zero compute units. Mollusk returns the caller-supplied
+  input accounts verbatim when an instruction fails, so it cannot witness
+  rollback; atomicity for the rejected lock is asserted against LiteSVM's
+  independently observable post-transaction state in
+  `programs/escrow/tests/test_escrow.rs`.
 - The legacy LiteSVM tests that depend on slot passage warp relative to the
   slot recorded in program state instead of assuming LiteSVM starts at slot 0;
   this preserves deterministic expiry/cancel assertions across runtime releases.
@@ -62,15 +66,19 @@ attestation-grade compatibility claim; the vocabulary remains three-valued:
 - `major-aligned` — the majors match. This records dependency alignment plus
   deterministic local runtime execution evidence for the escrow lane; it is not
   a deployment or product-readiness claim.
-- `verified` — accepted only when the majors align **and**
-  `programRuntime.runtimeVerificationEvidence` names dedicated Agave runtime
-  qualification beyond version equality.
+- `verified` — attestation-grade Agave runtime qualification. The checker
+  refuses this value outright today. Now that the majors align permanently, a
+  free-text `programRuntime.runtimeVerificationEvidence` string would be the
+  only thing separating alignment from an attestation-grade label, and the
+  checker cannot distinguish qualification evidence from the alignment prose
+  recorded beside it. Reaching `verified` therefore requires first defining a
+  machine-checkable evidence contract that the checker can validate, not a
+  longer sentence.
 
 So the LiteSVM/Mollusk bump moves the recorded value to `major-aligned`, never
-to `verified`; the checker rejects `verified` outright with no evidence key
-present. The alignment applies to the escrow lane alone — the Quasar workspaces
-retain their own Agave 3.1 runtime locks until a separate Quasar runtime
-qualification moves them.
+to `verified`. The alignment applies to the escrow lane alone — the Quasar
+workspaces retain their own Agave 3.1 runtime locks until a separate Quasar
+runtime qualification moves them.
 
 ## Safe install
 
