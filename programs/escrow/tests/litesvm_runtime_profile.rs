@@ -6,7 +6,9 @@
 /// silently. `LiteSVM::new()` changed shape across the 0.10 → 0.16 bump: it seeds the
 /// mainnet-activated feature set instead of `FeatureSet::all_enabled()`, installs on-chain
 /// feature-gate accounts for it, starts the clock at `MAINNET_DEFAULT_SLOT` instead of 0,
-/// and derives the rent sysvar representation from a feature gate.
+/// and derives the rent sysvar representation from a feature gate. Those two feature sets
+/// are expressed over different Agave majors and neither contains the other, so the change
+/// is recorded by the properties observed below, not as more or less coverage.
 ///
 /// These tests read the environment through LiteSVM's public API and the sysvar account
 /// byte layouts (a stable on-chain serialization contract), so a future LiteSVM bump that
@@ -14,8 +16,8 @@
 /// covers.
 ///
 /// Scope: this pins the LiteSVM lane's local deterministic profile and nothing else. The
-/// Mollusk smoke in `mollusk_runtime.rs` runs under Mollusk's own all-features-enabled
-/// default, which these tests say nothing about; there is no shared escrow-wide profile.
+/// Mollusk smoke in `mollusk_runtime.rs` runs under Mollusk's own default feature set,
+/// which these tests say nothing about; there is no shared escrow-wide profile.
 /// This is also not a claim that the lane reproduces mainnet-beta or devnet behaviour, and
 /// not a readiness claim of any kind.
 use {

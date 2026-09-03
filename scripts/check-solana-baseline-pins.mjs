@@ -103,6 +103,38 @@ const alignmentStatus = inProcessRuntimeMatchesAgavePin ? 'major-aligned' : 'unr
 const recordedRuntimeCompatibility = assets.programRuntime?.agaveRuntimeCompatibility;
 const runtimeCompatibilityOk = recordedRuntimeCompatibility === alignmentStatus;
 
+// The LiteSVM and Mollusk halves of the escrow lane execute under different feature profiles,
+// and the strength of the evidence behind each differs too: LiteSVM's active set is observed
+// exactly, while Mollusk's is read from its source with only named gates asserted. Recording
+// that strength as a closed vocabulary rather than prose keeps a stronger claim from being
+// written for a profile the tests only sample.
+const PROFILE_EVIDENCE_KINDS = new Set([
+  'asserted-complete-feature-set',
+  'asserted-representative-gates',
+  'source-observed',
+]);
+const executionProfiles = assets.programRuntime?.executionProfiles;
+const profileEntries = Object.entries(executionProfiles ?? {}).filter(
+  ([, value]) => value !== null && typeof value === 'object' && !Array.isArray(value),
+);
+const executionProfilesOk =
+  profileEntries.length > 0 &&
+  ['litesvm', 'mollusk'].every((half) => profileEntries.some(([name]) => name === half)) &&
+  profileEntries.every(([, profile]) => {
+    if (!PROFILE_EVIDENCE_KINDS.has(profile.profileEvidence)) return false;
+    const gates = profile.assertedGates;
+    if (gates !== undefined && (!Array.isArray(gates) || gates.length === 0)) return false;
+    // An enumerated gate list samples the profile, so it can never back the exact-set claim.
+    if (gates !== undefined && profile.profileEvidence === 'asserted-complete-feature-set') {
+      return false;
+    }
+    if (profile.profileEvidence === 'asserted-representative-gates' && gates === undefined) {
+      return false;
+    }
+    const asserted = profile.profileEvidence !== 'source-observed';
+    return asserted === (typeof profile.pinnedBy === 'string' && profile.pinnedBy.length > 0);
+  });
+
 const checks = [
   ['.mise.toml pins Node 24.20.0', mise.tools?.node === '24.20.0'],
   [`rust-toolchain.toml pins Rust ${BASELINE_RUST_VERSION}`, rust.toolchain?.channel === BASELINE_RUST_VERSION],
@@ -142,6 +174,10 @@ const checks = [
   [
     `in-process runtime vs Agave CLI pin is recorded as ${alignmentStatus} ('verified' is refused until a machine-checkable qualification contract exists)`,
     runtimeCompatibilityOk,
+  ],
+  [
+    "each execution profile records evidence strength from the closed vocabulary, and a profile that enumerates assertedGates cannot claim 'asserted-complete-feature-set'",
+    executionProfilesOk,
   ],
   ['npm exact probe pin is recorded for Node 24.20.0', assets.node?.npmBundledVersion === '11.19.0'],
   [

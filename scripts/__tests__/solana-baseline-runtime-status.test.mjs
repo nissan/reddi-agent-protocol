@@ -177,3 +177,94 @@ test('the recorded in-process runtime versions must match the lockfile they clai
   assert.equal(result.status, 1);
   assert.match(result.stderr, /failed: recorded in-process runtime versions match Cargo\.lock/);
 });
+
+// The two halves of the escrow lane execute under different feature profiles, observed with
+// different strength: LiteSVM's active set is asserted exactly, Mollusk's is read from its
+// source with only two named gates asserted. These cases pin that a stronger evidence label
+// cannot be recorded for a profile the tests merely sample.
+function patchExecutionProfile(dir, half, patch) {
+  const assetsPath = join(dir, ASSETS_REL);
+  const assets = JSON.parse(readFileSync(assetsPath, 'utf8'));
+  const profiles = assets.programRuntime.executionProfiles;
+  profiles[half] = { ...profiles[half], ...patch };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) delete profiles[half][key];
+  }
+  writeFileSync(assetsPath, `${JSON.stringify(assets, null, 2)}\n`);
+}
+
+function assertOnlyExecutionProfilesFailed(result) {
+  const failures = result.stderr
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('solana-baseline-pins: failed:'));
+  assert.equal(failures.length, 1, `expected exactly one failing check, got:\n${result.stderr}`);
+  assert.match(failures[0], /each execution profile records evidence strength/);
+}
+
+test('the recorded execution profiles are accepted as checked in', (t) => {
+  const dir = makeFixture(t);
+  const result = runChecker(dir);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /ok: each execution profile records evidence strength/);
+});
+
+test('a sampled profile cannot be relabelled as an exact feature-set pin', (t) => {
+  const dir = makeFixture(t);
+  const assets = JSON.parse(readFileSync(join(dir, ASSETS_REL), 'utf8'));
+  const mollusk = assets.programRuntime.executionProfiles.mollusk;
+  assert.equal(mollusk.profileEvidence, 'asserted-representative-gates');
+  assert.ok(Array.isArray(mollusk.assertedGates) && mollusk.assertedGates.length > 0);
+
+  // Mollusk's gate list samples ~2 of SVMFeatureSet's dozens of fields, so the exact-set
+  // label would claim a drift guarantee no test backs.
+  patchExecutionProfile(dir, 'mollusk', { profileEvidence: 'asserted-complete-feature-set' });
+  const overclaimed = runChecker(dir);
+  assert.equal(overclaimed.status, 1, 'an enumerated gate list must not back the exact-set claim');
+  assertOnlyExecutionProfilesFailed(overclaimed);
+
+  // Dropping the list to keep the stronger label is refused too: representative evidence
+  // must name the gates it samples.
+  patchExecutionProfile(dir, 'mollusk', { profileEvidence: 'asserted-representative-gates', assertedGates: undefined });
+  const unnamedGates = runChecker(dir);
+  assert.equal(unnamedGates.status, 1, 'representative evidence must name its sampled gates');
+  assertOnlyExecutionProfilesFailed(unnamedGates);
+});
+
+test('an unrecognised evidence strength, or a claim without the test backing it, is refused', (t) => {
+  const dir = makeFixture(t);
+
+  patchExecutionProfile(dir, 'litesvm', { profileEvidence: 'verified' });
+  const outsideVocabulary = runChecker(dir);
+  assert.equal(outsideVocabulary.status, 1, 'evidence strength must come from the closed vocabulary');
+  assertOnlyExecutionProfilesFailed(outsideVocabulary);
+
+  // An asserted profile has to say which test asserts it.
+  patchExecutionProfile(dir, 'litesvm', {
+    profileEvidence: 'asserted-complete-feature-set',
+    pinnedBy: undefined,
+  });
+  const unpinned = runChecker(dir);
+  assert.equal(unpinned.status, 1, 'an asserted profile must name the test that asserts it');
+  assertOnlyExecutionProfilesFailed(unpinned);
+
+  // And a source-observed profile must not pretend a test pins it.
+  patchExecutionProfile(dir, 'litesvm', {
+    profileEvidence: 'source-observed',
+    pinnedBy: 'programs/escrow/tests/litesvm_runtime_profile.rs',
+  });
+  const mislabelled = runChecker(dir);
+  assert.equal(mislabelled.status, 1, 'source-observed evidence must not name a pinning test');
+  assertOnlyExecutionProfilesFailed(mislabelled);
+});
+
+test('both halves of the escrow lane must record a profile', (t) => {
+  const dir = makeFixture(t);
+  const assetsPath = join(dir, ASSETS_REL);
+  const assets = JSON.parse(readFileSync(assetsPath, 'utf8'));
+  delete assets.programRuntime.executionProfiles.mollusk;
+  writeFileSync(assetsPath, `${JSON.stringify(assets, null, 2)}\n`);
+
+  const result = runChecker(dir);
+  assert.equal(result.status, 1, 'dropping a half must not silently narrow what is recorded');
+  assertOnlyExecutionProfilesFailed(result);
+});
