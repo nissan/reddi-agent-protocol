@@ -252,6 +252,8 @@ for (const claim of FORBIDDEN_PUBLIC_CLAIMS) {
 // partitions the real route tree, so it is derived here from the filesystem and
 // the shared route constant rather than trusted.
 
+const PAGE_FILE = /^page\.(?:tsx|ts|jsx|js)$/;
+
 function appRoutes(dir = join(ROOT, "app"), prefix = "") {
   const routes = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -259,7 +261,7 @@ function appRoutes(dir = join(ROOT, "app"), prefix = "") {
       if (entry.name === "api") continue;
       const segment = entry.name.startsWith("(") ? prefix : `${prefix}/${entry.name}`;
       routes.push(...appRoutes(join(dir, entry.name), segment));
-    } else if (entry.name === "page.tsx") {
+    } else if (PAGE_FILE.test(entry.name)) {
       routes.push(prefix === "" ? "/" : prefix);
     }
   }
