@@ -194,16 +194,28 @@ export type PublicClaimDomRoute = {
   path: string;
   /**
    * Heading that only the route's own content tree renders. The DOM gate waits
-   * for it before snapshotting, so a green result cannot come from a skeleton
-   * or an unhydrated shell that never showed the claim-bearing copy.
+   * for it before snapshotting, so a green result cannot come from an
+   * unhydrated shell.
    */
   readyHeading: RegExp;
+  /**
+   * Selector for a route's data-dependent region, where the heading renders
+   * above a loading skeleton and so cannot vouch for the copy below it. The
+   * gate waits for this too, so the snapshot covers the claim-bearing content
+   * rather than the placeholder that stands in for it.
+   */
+  settledContent?: string;
 };
 
 /** Public routes whose rendered copy is gated at the DOM layer. */
 export const PUBLIC_CLAIM_DOM_ROUTES: PublicClaimDomRoute[] = [
   { path: "/", readyHeading: /payments prove transfer\. RAP Assurance proves paid work\./i },
-  { path: "/agents", readyHeading: /specialist directory/i },
+  {
+    path: "/agents",
+    readyHeading: /specialist directory/i,
+    settledContent:
+      '[data-testid="agent-card"], [data-testid="marketplace-candidate-card"], [data-testid="discovery-empty-state"]',
+  },
   { path: "/spec", readyHeading: /ADL/i },
   { path: "/whitepaper", readyHeading: /Reddi Agent Protocol Whitepaper/i },
 ];

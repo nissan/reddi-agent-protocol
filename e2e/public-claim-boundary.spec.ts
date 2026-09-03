@@ -22,8 +22,8 @@ import {
  * `scripts/check-public-claim-boundaries.mjs`, which shares this pattern list.
  */
 
-// /api/registry can take >20s when the devnet RPC is slow; give the route
-// readiness anchors headroom beyond the 30s repo default.
+// `/agents` waits on /api/registry, which can take >20s when the devnet RPC is
+// slow; give the route readiness anchors headroom beyond the 30s repo default.
 test.describe.configure({ timeout: 60_000 });
 
 test.describe("public-claim boundary (rendered copy)", () => {
@@ -35,6 +35,12 @@ test.describe("public-claim boundary (rendered copy)", () => {
       await expect(
         page.getByRole("heading", { name: route.readyHeading }).first(),
       ).toBeVisible({ timeout: 30_000 });
+
+      if (route.settledContent) {
+        await expect
+          .poll(async () => page.locator(route.settledContent!).count(), { timeout: 30_000 })
+          .toBeGreaterThan(0);
+      }
 
       const rendered = await page.locator("body").innerText();
       expect(rendered).toMatch(route.readyHeading);
