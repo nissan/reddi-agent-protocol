@@ -155,14 +155,20 @@ export function validateBrowserWalletApprovalRecord(input, options = {}) {
     requireLiteral(record.status, 'approved', '$.status', 'malformed_browser_wallet_approval', errors);
     requireExactString(record.approvalId, '$.approvalId', errors);
     requireExactString(record.approver, '$.approver', errors);
-    validateTimestamp(record.approvedAt, '$.approvedAt', errors);
+    const approvedAtMs = validateTimestamp(record.approvedAt, '$.approvedAt', errors);
     const expiresAtMs = validateTimestamp(record.expiresAt, '$.expiresAt', errors);
     const nowMs = normalizeNow(options.now);
     if (expiresAtMs !== undefined && expiresAtMs <= nowMs) {
         errors.push(error('expired_browser_wallet_approval', '$.expiresAt', 'approval record is expired'));
     }
+    if (approvedAtMs !== undefined && expiresAtMs !== undefined && approvedAtMs >= expiresAtMs) {
+        errors.push(error('contradictory_browser_wallet_approval', '$.approvedAt', 'approvedAt must be earlier than expiresAt'));
+    }
     validateUsage(record.usage, '$.usage', errors);
-    validateProvider(record.provider, '$.provider', errors);
+    const providerSourceRetrievedAtMs = validateProvider(record.provider, '$.provider', errors);
+    if (providerSourceRetrievedAtMs !== undefined && approvedAtMs !== undefined && providerSourceRetrievedAtMs > approvedAtMs) {
+        errors.push(error('contradictory_browser_wallet_approval', '$.provider.source.retrievedAt', 'provider source retrievedAt must be no later than approvedAt'));
+    }
     validateBrowserProfile(record.browserProfile, record.provider?.name, '$.browserProfile', errors);
     validateWallet(record.wallet, '$.wallet', errors);
     validateNetwork(record.network, '$.network', errors);
@@ -373,7 +379,7 @@ export function validateBrowserWalletIdentityCopyClaims(input) {
     }
     const copyText = collectCopyText(row.copy).join('\n');
     if (copyText) {
-        const forbidden = forbiddenCopyMatches(copyText, row.railEnvironment);
+        const forbidden = forbiddenCopyMatches(copyText);
         for (const match of forbidden) {
             errors.push(error(match.code, '$.copy', match.message));
         }
@@ -477,15 +483,16 @@ function validateProvider(value, path, errors) {
     }
     if (!isPlainObject(value.source)) {
         errors.push(error('missing_browser_wallet_approval_field', `${path}.source`, 'provider source is required'));
-        return;
+        return undefined;
     }
     rejectUnknownKeys(value.source, `${path}.source`, SOURCE_KEYS, errors);
     if (!['official-docs', 'browser-extension-store', 'operator-ui'].includes(String(value.source.kind))) {
         errors.push(error('non_canonical_browser_wallet_identity', `${path}.source.kind`, 'provider source kind is not canonical'));
     }
     requireHttpsUrl(value.source.url, `${path}.source.url`, errors);
-    validateTimestamp(value.source.retrievedAt, `${path}.source.retrievedAt`, errors);
+    const retrievedAtMs = validateTimestamp(value.source.retrievedAt, `${path}.source.retrievedAt`, errors);
     validateOptionalHash(value.source.sha256, `${path}.source.sha256`, errors);
+    return retrievedAtMs;
 }
 function validateBrowserProfile(value, providerName, path, errors) {
     if (!isPlainObject(value)) {
@@ -661,29 +668,51 @@ function validateAsset(value, action, allowFuturePartnerConfirmedAuddDevnet, pat
     }
     // Official AUDD Devnet is deliberately unavailable by default. The dormant
     // future shape below must still fail unless the caller deliberately enables a
-    // future partner-confirmed flow after a separate approval exists.
-    const futureAuddShape = isPlainObject(value.auddPartnerConfirmation)
-        && value.auddDevnetApprovalRef !== undefined
+    // future partner-confirmed flow after a separate approval exists. Even then,
+    // the asset row must be bound exactly to the partner-confirmed Devnet rail
+    // identity so a mainnet or unrelated mint cannot be smuggled through.
+    const partnerConfirmation = isPlainObject(value.auddPartnerConfirmation) ? value.auddPartnerConfirmation : undefined;
+    const futureAuddShape = Boolean(partnerConfirmation)
+        && typeof value.auddDevnetApprovalRef === 'string'
         && value.railEnvironment === 'devnet-unverified'
         && value.source === 'partner-confirmed-audd-devnet'
         && value.official === false;
     if (!futureAuddShape || !allowFuturePartnerConfirmedAuddDevnet) {
         errors.push(error('official_audd_devnet_unavailable', path, 'official AUDD Devnet browser-wallet action is unavailable without future partner confirmation and separate approval'));
     }
-    if (isPlainObject(value.auddPartnerConfirmation)) {
-        rejectUnknownKeys(value.auddPartnerConfirmation, `${path}.auddPartnerConfirmation`, AUDD_PARTNER_CONFIRMATION_KEYS, errors);
-        requireHttpsUrl(value.auddPartnerConfirmation.sourceUrl, `${path}.auddPartnerConfirmation.sourceUrl`, errors);
-        validateTimestamp(value.auddPartnerConfirmation.sourceRetrievedAt, `${path}.auddPartnerConfirmation.sourceRetrievedAt`, errors);
-        validateOptionalHash(value.auddPartnerConfirmation.sourceSha256, `${path}.auddPartnerConfirmation.sourceSha256`, errors);
-        if (!isValidSolanaPublicKey(value.auddPartnerConfirmation.confirmedMint)) {
+    if (partnerConfirmation) {
+        rejectUnknownKeys(partnerConfirmation, `${path}.auddPartnerConfirmation`, AUDD_PARTNER_CONFIRMATION_KEYS, errors);
+        requireHttpsUrl(partnerConfirmation.sourceUrl, `${path}.auddPartnerConfirmation.sourceUrl`, errors);
+        validateTimestamp(partnerConfirmation.sourceRetrievedAt, `${path}.auddPartnerConfirmation.sourceRetrievedAt`, errors);
+        validateOptionalHash(partnerConfirmation.sourceSha256, `${path}.auddPartnerConfirmation.sourceSha256`, errors);
+        if (!isValidSolanaPublicKey(partnerConfirmation.confirmedMint)) {
             errors.push(error('non_canonical_browser_wallet_identity', `${path}.auddPartnerConfirmation.confirmedMint`, 'future AUDD Devnet partner confirmation must name an exact mint'));
         }
-        requireLiteral(value.auddPartnerConfirmation.confirmedDecimals, AUDD_DECIMALS, `${path}.auddPartnerConfirmation.confirmedDecimals`, 'non_canonical_browser_wallet_identity', errors);
-        requireLiteral(value.auddPartnerConfirmation.confirmedTokenProgram, SPL_TOKEN_PROGRAM_ID, `${path}.auddPartnerConfirmation.confirmedTokenProgram`, 'non_canonical_browser_wallet_identity', errors);
+        requireLiteral(partnerConfirmation.confirmedDecimals, AUDD_DECIMALS, `${path}.auddPartnerConfirmation.confirmedDecimals`, 'non_canonical_browser_wallet_identity', errors);
+        requireLiteral(partnerConfirmation.confirmedTokenProgram, SPL_TOKEN_PROGRAM_ID, `${path}.auddPartnerConfirmation.confirmedTokenProgram`, 'non_canonical_browser_wallet_identity', errors);
     }
-    validateOptionalExactString(value.auddDevnetApprovalRef, `${path}.auddDevnetApprovalRef`, errors);
-    requireLiteral(value.tokenProgram, SPL_TOKEN_PROGRAM_ID, `${path}.tokenProgram`, 'non_canonical_browser_wallet_identity', errors);
-    requireLiteral(value.decimals, AUDD_DECIMALS, `${path}.decimals`, 'non_canonical_browser_wallet_identity', errors);
+    requireExactString(value.auddDevnetApprovalRef, `${path}.auddDevnetApprovalRef`, errors);
+    if (!isValidSolanaPublicKey(value.mint)) {
+        errors.push(error('non_canonical_browser_wallet_identity', `${path}.mint`, 'future AUDD Devnet asset must name the exact partner-confirmed Devnet mint'));
+    }
+    else if (partnerConfirmation && isValidSolanaPublicKey(partnerConfirmation.confirmedMint) && value.mint !== partnerConfirmation.confirmedMint) {
+        errors.push(error('contradictory_browser_wallet_approval', `${path}.mint`, 'future AUDD Devnet asset mint must exactly match the partner-confirmed mint'));
+    }
+    requireLiteral(value.railEnvironment, 'devnet-unverified', `${path}.railEnvironment`, 'non_canonical_browser_wallet_identity', errors);
+    requireLiteral(value.source, 'partner-confirmed-audd-devnet', `${path}.source`, 'non_canonical_browser_wallet_identity', errors);
+    requireLiteral(value.official, false, `${path}.official`, 'official_audd_devnet_unavailable', errors);
+    if (partnerConfirmation && partnerConfirmation.confirmedTokenProgram === SPL_TOKEN_PROGRAM_ID) {
+        requireLiteral(value.tokenProgram, partnerConfirmation.confirmedTokenProgram, `${path}.tokenProgram`, 'non_canonical_browser_wallet_identity', errors);
+    }
+    else {
+        requireLiteral(value.tokenProgram, SPL_TOKEN_PROGRAM_ID, `${path}.tokenProgram`, 'non_canonical_browser_wallet_identity', errors);
+    }
+    if (partnerConfirmation && partnerConfirmation.confirmedDecimals === AUDD_DECIMALS) {
+        requireLiteral(value.decimals, partnerConfirmation.confirmedDecimals, `${path}.decimals`, 'non_canonical_browser_wallet_identity', errors);
+    }
+    else {
+        requireLiteral(value.decimals, AUDD_DECIMALS, `${path}.decimals`, 'non_canonical_browser_wallet_identity', errors);
+    }
 }
 function validateEvidence(value, path, errors) {
     if (!isPlainObject(value)) {
@@ -819,22 +848,28 @@ function validateCopyNested(value, path, allowed, errors) {
     }
     rejectUnknownKeys(value, path, allowed, errors);
 }
-function forbiddenCopyMatches(text, environment) {
-    const nonLive = environment === 'deterministic-fixture' || environment === 'local-test-mint' || environment === 'devnet-unverified';
+function forbiddenCopyMatches(text) {
     const matches = [];
-    if (hasAffirmativeClaim(text, /official\s+AUDD|AUDD\s+official|official\s+Devnet\s+AUDD|AUDD\s+Devnet\s+official/i, /(?:not|never|no)\s+(?:an?\s+)?official\s+AUDD/i)) {
-        matches.push({ code: 'official_audd_devnet_unavailable', message: 'copy must not describe fixture, local, or unverified Devnet rows as official AUDD' });
+    const clauses = splitCopyClaimClauses(text);
+    if (clauses.some((clause) => hasAffirmativeClaim(clause, /official\s+AUDD|AUDD\s+official|official\s+Devnet\s+AUDD|AUDD\s+Devnet\s+official/i, /(?:not|never|no)\s+(?:an?\s+)?official\s+AUDD/i))) {
+        matches.push({ code: 'official_audd_devnet_unavailable', message: 'copy must not describe browser-wallet safety rows as official AUDD' });
     }
-    if (hasAffirmativeClaim(text, /grant[-\s]?eligible|eligible\s+for\s+grant|grant\s+volume/i, /(?:not|never|no|non[_-])\s*grant[-\s]?eligible|non_eligible/i)) {
-        matches.push({ code: 'non_canonical_browser_wallet_identity', message: 'copy must not describe fixture, local, or unverified Devnet rows as grant-eligible' });
+    if (clauses.some((clause) => hasAffirmativeClaim(clause, /grant[-\s]?eligible|eligible\s+for\s+grant|grant\s+volume/i, /(?:not|never|no|non[_-])\s*grant[-\s]?eligible|non_eligible/i))) {
+        matches.push({ code: 'non_canonical_browser_wallet_identity', message: 'copy must not describe browser-wallet safety rows as grant-eligible' });
     }
-    if (/observed\s+settlement|settlement\s+observed|settlement\s+finality|final\s+settlement|settled\s+on/i.test(text)) {
-        matches.push({ code: 'settlement_finality_rejected', message: 'copy must not upgrade expected or non-live evidence into observed settlement/finality' });
+    if (clauses.some((clause) => /observed\s+settlement|settlement\s+observed|settlement\s+finality|final\s+settlement|settled\s+on/i.test(clause))) {
+        matches.push({ code: 'settlement_finality_rejected', message: 'copy must not upgrade expected or safety evidence into observed settlement/finality' });
     }
-    if (nonLive && /controlled[-\s]?live|controlled\s+live\s+evidence/i.test(text)) {
-        matches.push({ code: 'non_canonical_browser_wallet_identity', message: 'copy must not describe non-live rows as controlled-live evidence' });
+    if (clauses.some((clause) => /controlled[-\s]?live|controlled\s+live\s+evidence/i.test(clause))) {
+        matches.push({ code: 'non_canonical_browser_wallet_identity', message: 'copy must not describe browser-wallet safety rows as controlled-live evidence' });
     }
     return matches;
+}
+function splitCopyClaimClauses(text) {
+    return text
+        .split(/[\n.;,]+|\s+[–—-]\s+/u)
+        .map((clause) => clause.trim())
+        .filter((clause) => clause.length > 0);
 }
 function hasAffirmativeClaim(text, claimPattern, negatedPattern) {
     return claimPattern.test(text) && !negatedPattern.test(text);

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   AUDD_DETERMINISTIC_FIXTURE_MINT,
+  AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
   BROWSER_WALLET_APPROVAL_SCHEMA_VERSION,
   BROWSER_WALLET_DEVNET_ACTION_DEFAULT_OFF,
   BROWSER_WALLET_IDENTITY_COPY_GUARD_SCHEMA_VERSION,
@@ -239,6 +240,11 @@ describe('manual Devnet browser-wallet approval schema', () => {
     assert.ok(codes(validApproval({ expiresAt: '2026-09-03T12:29:59.000Z' })).includes('expired_browser_wallet_approval'));
   });
 
+  it('rejects contradictory approval and source timestamp ordering', () => {
+    assert.ok(codes(validApproval({ approvedAt: '2026-09-03T14:00:00.000Z', expiresAt: '2026-09-03T13:00:00.000Z' })).includes('contradictory_browser_wallet_approval'));
+    assert.ok(codes(validApproval({ provider: { ...validApproval().provider, source: { ...validApproval().provider.source, retrievedAt: '2026-09-03T12:00:01.000Z' } } })).includes('contradictory_browser_wallet_approval'));
+  });
+
   it('rejects non-single-use, overly broad, and contradictory authority', () => {
     assert.ok(codes(validApproval({ usage: { ...validApproval().usage, consumedUseCount: 1 as 0 } })).includes('non_single_use_browser_wallet_approval'));
     assert.ok(codes(validApproval({ provider: { ...validApproval().provider, version: 'latest' } })).includes('overly_broad_browser_wallet_approval'));
@@ -320,6 +326,37 @@ describe('manual Devnet browser-wallet approval schema', () => {
     });
     assert.ok(codes(audd).includes('official_audd_devnet_unavailable'));
 
+    const partnerConfirmedAudd = validApproval({
+      asset: {
+        symbol: 'AUDD',
+        railEnvironment: 'devnet-unverified',
+        mint: USDC_DEVNET_MINT,
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+        decimals: 6,
+        source: 'partner-confirmed-audd-devnet',
+        official: false,
+        auddPartnerConfirmation: {
+          sourceUrl: 'https://example.com/audd-devnet-confirmation.json',
+          sourceRetrievedAt: '2026-09-03T11:30:00.000Z',
+          confirmedMint: USDC_DEVNET_MINT,
+          confirmedDecimals: 6,
+          confirmedTokenProgram: SPL_TOKEN_PROGRAM_ID,
+        },
+        auddDevnetApprovalRef: 'audd-devnet-partner-approval:20260903',
+      },
+    });
+    assert.equal(validateBrowserWalletApprovalRecord(partnerConfirmedAudd, { now: NOW, allowFuturePartnerConfirmedAuddDevnet: true }).ok, true);
+
+    const mismatchedPartnerConfirmedAudd = validApproval({
+      asset: {
+        ...partnerConfirmedAudd.asset,
+        mint: AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
+      },
+    });
+    const mismatch = validateBrowserWalletApprovalRecord(mismatchedPartnerConfirmedAudd, { now: NOW, allowFuturePartnerConfirmedAuddDevnet: true });
+    assert.equal(mismatch.ok, false);
+    if (!mismatch.ok) assert.ok(mismatch.errors.some((entry) => entry.code === 'contradictory_browser_wallet_approval' && entry.path === '$.asset.mint'));
+
     const localAuddTest = validApproval({
       asset: {
         symbol: 'AUDD_TEST',
@@ -370,6 +407,20 @@ describe('browser-wallet AUDD identity/copy guard', () => {
     assert.equal(result.ok, true);
   });
 
+  it('does not let a non_eligible badge suppress a grant overclaim in another copy clause', () => {
+    const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+      copy: {
+        title: 'This local AUDD_TEST row is grant-eligible for AUDD grant volume',
+        summary: 'Local-only expected terms.',
+        badges: ['local-test-mint', 'non_eligible', 'expected-only'],
+      },
+    }));
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.ok(result.errors.some((entry) => entry.code === 'non_canonical_browser_wallet_identity' && entry.path === '$.copy'));
+    }
+  });
+
   it('rejects official AUDD, grant-eligible, observed-settlement, and controlled-live overclaims for non-live rows', () => {
     const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
       grantEligibility: 'eligible',
@@ -383,6 +434,45 @@ describe('browser-wallet AUDD identity/copy guard', () => {
       copy: {
         title: 'official AUDD local test',
         summary: 'grant-eligible observed settlement with controlled-live evidence',
+      },
+    }));
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      const resultCodes = result.errors.map((entry) => entry.code);
+      assert.ok(resultCodes.includes('official_audd_devnet_unavailable'));
+      assert.ok(resultCodes.includes('non_canonical_browser_wallet_identity'));
+      assert.ok(resultCodes.includes('settlement_finality_rejected'));
+    }
+  });
+
+  it('keeps controlled-live copy claims prohibited until a future evidence-aware path exists', () => {
+    const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+      railEnvironment: 'controlled-live',
+      assetLabel: 'AUDD',
+      networkAlias: 'solana-mainnet-beta',
+      caip2: SOLANA_MAINNET_BETA_CAIP2,
+      mint: AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
+      observationSource: 'parsed-rpc-transaction',
+      grantEligibility: 'eligible',
+      x402Export: {
+        state: 'observed',
+        asset: 'AUDD',
+        networkAlias: 'solana-mainnet-beta',
+        caip2: SOLANA_MAINNET_BETA_CAIP2,
+        mint: AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+        decimals: 6,
+      },
+      policy: { grantEligibility: 'eligible', controlledLive: true },
+      receipt: {
+        claim: 'observed-settlement',
+        observationStatus: 'rpc-observed',
+        settlementFinality: false,
+        controlledLiveEvidence: true,
+      },
+      copy: {
+        title: 'Official AUDD controlled-live evidence',
+        summary: 'Grant-eligible row with observed settlement.',
       },
     }));
     assert.equal(result.ok, false);
