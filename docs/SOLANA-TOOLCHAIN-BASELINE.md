@@ -77,9 +77,20 @@ recorded claim remains deliberately narrow:
 
   `config/toolchain/solana-baseline-assets.json` records this split as
   structured `programRuntime.executionProfiles` entries with a closed
-  `profileEvidence` vocabulary, and `npm run check:toolchain:baseline` refuses
-  an exact-feature-set label for any profile that merely enumerates sampled
-  gates. Pinning either local profile is not a claim that the lane reproduces
+  `profileEvidence` vocabulary, enforced by `npm run
+  check:toolchain:baseline`. The exact-feature-set label is granted only on
+  positive evidence: the profile must name a `completeSetSource` that appears
+  on the checker's own allowlist of enumerations a test can compare the live
+  active set against, so the label cannot be reached by deleting a sampled gate
+  list. That allowlist lives in `scripts/check-solana-baseline-pins.mjs`, so
+  extending it to another runtime is a reviewed code change rather than a JSON
+  edit — and Mollusk has no entry, because `SVMFeatureSet` derives no equality
+  and sits behind the `agave-unstable-api` cfg, leaving no stable complete
+  comparison to make. Every asserted profile must also cite a `pinnedBy` test
+  that exists in the tree, so a renamed or deleted test fails the check instead
+  of leaving a drift guarantee with nothing behind it.
+
+  Pinning either local profile is not a claim that the lane reproduces
   mainnet-beta or devnet behaviour, and the two profiles must not be read as
   runtime-equivalent to each other.
 - The legacy LiteSVM tests that depend on slot passage warp relative to the

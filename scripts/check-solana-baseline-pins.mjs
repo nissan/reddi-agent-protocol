@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -108,11 +108,20 @@ const runtimeCompatibilityOk = recordedRuntimeCompatibility === alignmentStatus;
 // exactly, while Mollusk's is read from its source with only named gates asserted. Recording
 // that strength as a closed vocabulary rather than prose keeps a stronger claim from being
 // written for a profile the tests only sample.
+//
+// The exact-set label is granted on positive evidence, never on the absence of a gate list:
+// it requires naming an enumeration from COMPLETE_SET_SOURCES that a test can compare the
+// live active set against for equality. That allowlist lives here rather than in the assets
+// file so that claiming exact-set evidence for another runtime takes a reviewed code change,
+// not a one-key JSON edit. Mollusk has no entry because mollusk-svm 0.15.1 exposes no stable
+// complete comparison: its SVMFeatureSet derives no equality and sits behind the
+// agave-unstable-api cfg, so the Mollusk half stays on named sentinel gates.
 const PROFILE_EVIDENCE_KINDS = new Set([
   'asserted-complete-feature-set',
   'asserted-representative-gates',
   'source-observed',
 ]);
+const COMPLETE_SET_SOURCES = new Set(['litesvm::features::MAINNET_ACTIVE_FEATURES']);
 const executionProfiles = assets.programRuntime?.executionProfiles;
 const profileEntries = Object.entries(executionProfiles ?? {}).filter(
   ([, value]) => value !== null && typeof value === 'object' && !Array.isArray(value),
@@ -124,15 +133,19 @@ const executionProfilesOk =
     if (!PROFILE_EVIDENCE_KINDS.has(profile.profileEvidence)) return false;
     const gates = profile.assertedGates;
     if (gates !== undefined && (!Array.isArray(gates) || gates.length === 0)) return false;
+    const completeSetSource = profile.completeSetSource;
+    const claimsCompleteSet = profile.profileEvidence === 'asserted-complete-feature-set';
+    if (claimsCompleteSet && !COMPLETE_SET_SOURCES.has(completeSetSource)) return false;
+    if (!claimsCompleteSet && completeSetSource !== undefined) return false;
     // An enumerated gate list samples the profile, so it can never back the exact-set claim.
-    if (gates !== undefined && profile.profileEvidence === 'asserted-complete-feature-set') {
-      return false;
-    }
+    if (gates !== undefined && claimsCompleteSet) return false;
     if (profile.profileEvidence === 'asserted-representative-gates' && gates === undefined) {
       return false;
     }
     const asserted = profile.profileEvidence !== 'source-observed';
-    return asserted === (typeof profile.pinnedBy === 'string' && profile.pinnedBy.length > 0);
+    const pinned = typeof profile.pinnedBy === 'string' && profile.pinnedBy.length > 0;
+    if (asserted !== pinned) return false;
+    return !pinned || existsSync(join(root, profile.pinnedBy));
   });
 
 const checks = [
@@ -176,7 +189,7 @@ const checks = [
     runtimeCompatibilityOk,
   ],
   [
-    "each execution profile records evidence strength from the closed vocabulary, and a profile that enumerates assertedGates cannot claim 'asserted-complete-feature-set'",
+    "each execution profile records evidence strength from the closed vocabulary, names an existing pinning test, and reaches 'asserted-complete-feature-set' only by naming a known complete-comparison source",
     executionProfilesOk,
   ],
   ['npm exact probe pin is recorded for Node 24.20.0', assets.node?.npmBundledVersion === '11.19.0'],

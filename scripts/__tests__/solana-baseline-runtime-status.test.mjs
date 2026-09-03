@@ -39,6 +39,10 @@ const FIXTURE_PATHS = [
   'scripts/check-solana-baseline-pins.mjs',
   'scripts/solana-baseline-toolchain.sh',
   'scripts/lib/solana-baseline-version-match.sh',
+  // The checker resolves each execution profile's pinnedBy against the repository root, so
+  // the tests those profiles cite have to exist in the fixture too.
+  'programs/escrow/tests/litesvm_runtime_profile.rs',
+  'programs/escrow/tests/mollusk_runtime.rs',
 ];
 
 const ASSETS_REL = 'config/toolchain/solana-baseline-assets.json';
@@ -228,6 +232,73 @@ test('a sampled profile cannot be relabelled as an exact feature-set pin', (t) =
   const unnamedGates = runChecker(dir);
   assert.equal(unnamedGates.status, 1, 'representative evidence must name its sampled gates');
   assertOnlyExecutionProfilesFailed(unnamedGates);
+
+  // The mutation that matters: deleting the gate list AND relabelling. The exact-set label
+  // is granted on positive evidence, so removing the list cannot buy it.
+  patchExecutionProfile(dir, 'mollusk', {
+    profileEvidence: 'asserted-complete-feature-set',
+    assertedGates: undefined,
+  });
+  const relabelledWithoutGates = runChecker(dir);
+  assert.equal(
+    relabelledWithoutGates.status,
+    1,
+    'deleting the sampled gate list must not promote the profile to an exact-set pin',
+  );
+  assertOnlyExecutionProfilesFailed(relabelledWithoutGates);
+
+  // Naming a complete-comparison source the checker does not recognise is refused as well,
+  // so the label cannot be bought with prose either.
+  patchExecutionProfile(dir, 'mollusk', {
+    profileEvidence: 'asserted-complete-feature-set',
+    assertedGates: undefined,
+    completeSetSource: 'mollusk_svm::SVMFeatureSet::all_enabled()',
+  });
+  const unknownSource = runChecker(dir);
+  assert.equal(unknownSource.status, 1, 'an unrecognised complete-comparison source must not back the claim');
+  assertOnlyExecutionProfilesFailed(unknownSource);
+});
+
+test('the exact-set label requires a recognised complete-comparison source', (t) => {
+  const dir = makeFixture(t);
+  const assets = JSON.parse(readFileSync(join(dir, ASSETS_REL), 'utf8'));
+  const litesvm = assets.programRuntime.executionProfiles.litesvm;
+  assert.equal(litesvm.profileEvidence, 'asserted-complete-feature-set');
+  assert.equal(typeof litesvm.completeSetSource, 'string');
+
+  // Stripping the source leaves the label with nothing positive behind it.
+  patchExecutionProfile(dir, 'litesvm', { completeSetSource: undefined });
+  const sourceless = runChecker(dir);
+  assert.equal(sourceless.status, 1, 'the exact-set label must name its comparison source');
+  assertOnlyExecutionProfilesFailed(sourceless);
+
+  // And a comparison source may not be recorded for a profile that does not claim the label.
+  patchExecutionProfile(dir, 'litesvm', {
+    profileEvidence: 'source-observed',
+    completeSetSource: litesvm.completeSetSource,
+    pinnedBy: undefined,
+  });
+  const danglingSource = runChecker(dir);
+  assert.equal(danglingSource.status, 1, 'a comparison source without the exact-set label is refused');
+  assertOnlyExecutionProfilesFailed(danglingSource);
+});
+
+test('a drift guarantee cannot cite a pinning test that is not in the tree', (t) => {
+  const dir = makeFixture(t);
+  const assets = JSON.parse(readFileSync(join(dir, ASSETS_REL), 'utf8'));
+  const pinnedBy = assets.programRuntime.executionProfiles.litesvm.pinnedBy;
+
+  patchExecutionProfile(dir, 'litesvm', { pinnedBy: `${pinnedBy}.renamed` });
+  const missingTest = runChecker(dir);
+  assert.equal(missingTest.status, 1, 'a profile must not cite a pinning test that does not exist');
+  assertOnlyExecutionProfilesFailed(missingTest);
+
+  // Deleting the cited test reaches the same failure the other way round.
+  patchExecutionProfile(dir, 'litesvm', { pinnedBy });
+  rmSync(join(dir, pinnedBy), { force: true });
+  const deletedTest = runChecker(dir);
+  assert.equal(deletedTest.status, 1, 'deleting the pinning test must fail the recorded guarantee');
+  assertOnlyExecutionProfilesFailed(deletedTest);
 });
 
 test('an unrecognised evidence strength, or a claim without the test backing it, is refused', (t) => {
