@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
 
-import { reddiReceiptFixtureCases } from "@reddi/agent-protocol/fixtures";
-
-import { demonstratedSourceTrustCaseCount } from "../lib/assurance/source-trust-coverage";
-import { specialistProfiles } from "../packages/openrouter-specialists/src/profiles/index";
+import {
+  directoryFixtureProfileCount,
+  receiptFixtureCaseCount,
+  sourceTrustConformanceCaseCount,
+} from "../lib/assurance/public-metrics";
 import {
   CENTRAL_MESSAGE,
   FORBIDDEN_PUBLIC_CLAIMS,
@@ -67,7 +68,12 @@ test.describe("public-claim boundary (rendered copy)", () => {
     }
   });
 
-  test("landing stats render the counts the shipped corpora actually contain", async ({ page }) => {
+  /**
+   * The published constants are bound to the real corpora Node-side by
+   * `lib/__tests__/public-metrics.test.ts`; this asserts the other half — that
+   * the page actually renders them — so the corpora stay out of this lane.
+   */
+  test("landing stats render the published assurance counts", async ({ page }) => {
     await page.goto("/");
     await expect(
       page.getByRole("heading", { name: PUBLIC_CLAIM_DOM_ROUTES[0].readyHeading }).first(),
@@ -79,13 +85,9 @@ test.describe("public-claim boundary (rendered copy)", () => {
       return Number(value);
     };
 
-    expect(await readStat("Directory fixtures")).toBe(specialistProfiles.length);
-    expect(await readStat("Receipt fixture cases")).toBe(
-      Object.keys(reddiReceiptFixtureCases).length,
-    );
-    expect(await readStat("Source-trust conformance cases")).toBe(
-      demonstratedSourceTrustCaseCount(),
-    );
+    expect(await readStat("Directory fixtures")).toBe(directoryFixtureProfileCount);
+    expect(await readStat("Receipt fixture cases")).toBe(receiptFixtureCaseCount);
+    expect(await readStat("Source-trust conformance cases")).toBe(sourceTrustConformanceCaseCount);
   });
 
   test("landing copy and document metadata carry the central message", async ({ page }) => {
