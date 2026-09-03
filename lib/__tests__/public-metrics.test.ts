@@ -1,4 +1,5 @@
 import { reddiReceiptFixtureCases } from "@reddi/agent-protocol/fixtures";
+import { SOURCE_TRUST_REQUIRED_CASES } from "@reddi/agent-protocol/source-trust-conformance-matrix";
 
 import { specialistProfiles } from "../../packages/openrouter-specialists/src/profiles/index";
 import { demonstratedSourceTrustCaseCount } from "@/lib/assurance/source-trust-coverage";
@@ -9,10 +10,11 @@ import {
 } from "@/lib/assurance/public-metrics";
 
 /**
- * The landing page publishes these three numbers as public claims. Two are
- * pinned constants kept out of the client bundle, so the assertions below are
- * what hold them to the real corpora; the third is checked against classifier
- * behaviour rather than a restatement of its own definition.
+ * The landing page publishes these three numbers as public claims. All three
+ * are pinned constants kept out of the client bundle, so the assertions below
+ * are what hold them to the real corpora Node-side; the source-trust count is
+ * further checked against classifier behaviour so the claimed coverage is
+ * proven end to end.
  */
 describe("landing-page assurance metrics", () => {
   it("publishes the size of the shipped specialist directory registry", () => {
@@ -41,6 +43,7 @@ describe("landing-page assurance metrics", () => {
   });
 
   it("counts the source-trust cases the classifier still demonstrates end to end", () => {
+    expect(sourceTrustConformanceCaseCount).toBe(SOURCE_TRUST_REQUIRED_CASES.length);
     expect(demonstratedSourceTrustCaseCount()).toBe(sourceTrustConformanceCaseCount);
     expect(sourceTrustConformanceCaseCount).toBeGreaterThan(0);
   });
