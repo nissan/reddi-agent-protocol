@@ -130,7 +130,7 @@ function boundaryFormsFor(claimId: string): RegExp[] {
   }
   if (claimId === "live-audd-settlement") {
     forms.push(
-      /\bno-(?:custody|spend|settlement)\b/i,
+      new RegExp(`\\bno-${predicate}`, "i"),
       /\bno\b[^.;|]{0,24}\b(?:AUDD|USDC|SPL)\b[^.;|]{0,12}\bcustody\b/i,
       /\bno\b[^.;|]{0,24}\b(?:AUDD|USDC|SPL)\b[^.;|]{0,40}?\bis\s+(?:settled|escrowed|held|custodied)\b/i,
       new RegExp(`${predicate}[^.;|]{0,80}?\\b(?:is|are|remains?)\\s+not\\b`, "i"),
@@ -178,6 +178,8 @@ export const QUALIFIER_CASES: { line: string; claimId: string; qualified: boolea
   { line: "AUDD settlement is live with no custody limits.", claimId: "live-audd-settlement", qualified: false },
   { line: "No AUDD wallet is needed and settlement is live today.", claimId: "live-audd-settlement", qualified: false },
   { line: "AUDD settlement is live, avoid the demo path.", claimId: "live-audd-settlement", qualified: false },
+  { line: "AUDD custody is available today in the no-spend demo path.", claimId: "live-audd-settlement", qualified: false },
+  { line: "AUDD settlement is live in the no-spend conformance lane.", claimId: "live-audd-settlement", qualified: false },
   { line: "Reddi Agent Protocol is the marketplace rail with no lock-in.", claimId: "marketplace-rail", qualified: false },
   { line: "RAP Assurance operates as a payment facilitator without fees.", claimId: "payment-facilitator", qualified: false },
   { line: "This is a security-audited release with no findings.", claimId: "security-audited", qualified: false },

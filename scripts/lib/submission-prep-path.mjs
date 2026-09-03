@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -35,4 +35,13 @@ export function resolveSubmissionPrepPath() {
   const latest = join(ROOT, SUBMISSION_PREP_LATEST_PATH);
   const newest = committedSubmissionPrepPaths().at(-1);
   return newest ?? latest;
+}
+
+/**
+ * Repository-relative path of the run a guard actually reads. Diagnostics must
+ * name this rather than the `latest` key, which resolves to a file the
+ * repository deliberately does not contain.
+ */
+export function resolveSubmissionPrepRepoPath() {
+  return relative(ROOT, resolveSubmissionPrepPath()).split(sep).join("/");
 }

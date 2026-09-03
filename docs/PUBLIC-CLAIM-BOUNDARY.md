@@ -54,6 +54,14 @@ Three checks hold that in place: `lib/__tests__/marketplace-candidate-provenance
 
 The static gate carries a negative control: `node scripts/check-public-claim-boundaries.mjs --negative-control` injects every forbidden claim's affirmative example and must exit 1, so a gate that has stopped catching overclaims fails CI.
 
+## Withheld stale captures
+
+Screenshots and recordings that predate this remediation are withheld rather than deleted. `mediaStale` on an onboarding guide (`lib/onboarding/video-guides.ts`) and `imageStale` on a `/tour` step or a `/whitepaper` capture take the asset off every rendered surface. `hasPlayableRecording` is the single question the card body, the duration badge, and the walkthrough heading all ask, so a withheld guide cannot be played, counted, or linked, and the page renders a boundary notice naming the route that carries the current copy instead. `e2e/judge-replication-onboarding.spec.ts` holds that: it derives the playable and withheld tallies from the shipped guide data, asserts they account for every rendered card, and requires each withheld card's notice to say why the recording is missing and where the current copy is.
+
+Withholding does not delete the file. `public/videos/onboarding/economic-proof.mp4`, `register-agent.mp4`, their posters, and the captures under `public/tour/` and `public/whitepaper/` stay in the repository and stay fetchable at their unchanged paths. That is inside this boundary because the surface this document gates is rendered copy and owned prose: an asset that no page renders and no link reaches asserts nothing to a reader of the product, and the recording stays available as evidence of the devnet runs the guides cite. Do not reintroduce a link, embed, or `videoSrc`/`image` reference to a withheld capture without re-recording it against current copy.
+
+Deletion is required, not optional, when the asset's own text is scanned prose. The caption tracks under `public/videos/onboarding/captions/` are read by `npm run check:claims:public`; `overview.vtt` carried retired wording, so that recording, its poster, and its caption track were removed outright and the guide now carries no `videoSrc` at all. The two remaining caption tracks pass that gate and stay in the scanned set.
+
 ## Evidence artifacts that are not committed
 
 `artifacts/economic-demo-submission-prep/latest/SUBMISSION-PREP.md` does not exist in this repository and was deliberately not created during the RAP Assurance claim remediation. `latest` is a generated convenience symlink produced by a local prep run; only the timestamped run directories under `artifacts/economic-demo-submission-prep/` are committed.
