@@ -1,6 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import {
+  MARKETPLACE_CANDIDATE_IMPORTED_FIELDS,
+  type MarketplaceCandidateSourceFacetId,
+} from "../lib/discovery/source-facets";
+import {
   directoryFixtureProfileCount,
   receiptFixtureCaseCount,
   sourceTrustConformanceCaseCount,
@@ -148,13 +152,12 @@ test.describe("public-claim boundary (rendered copy)", () => {
 
   /**
    * The exclusion above is asserted against injected nodes; this asserts the
-   * real card obeys the provenance the model declares. Every candidate source
-   * that renders today (hosted-RAP and ARD) projects repository fixture prose,
-   * repository constants and the repository-owned disclosure vocabulary, so
-   * `importedFields` is empty for all of them and none of their copy may be
-   * hidden from the scan.
+   * real cards obey the provenance their source declares. Expectations come
+   * from MARKETPLACE_CANDIDATE_IMPORTED_FIELDS rather than from whichever
+   * sources happen to render, so ingesting a Circle x402 / Pay.sh snapshot
+   * makes this stricter instead of red.
    */
-  test("candidate cards keep repository-authored copy in the scan", async ({ page }) => {
+  test("candidate cards mark imported fields and only imported fields", async ({ page }) => {
     const candidateCard = '[data-testid="marketplace-candidate-card"]';
     await page.goto("/agents");
     await expect(
@@ -166,18 +169,29 @@ test.describe("public-claim boundary (rendered copy)", () => {
 
     const cards = page.locator(candidateCard);
     const cardCount = await cards.count();
-    const cardText: string[] = [];
+    const ownedText: string[] = [];
     for (let index = 0; index < cardCount; index += 1) {
       const card = cards.nth(index);
+      const facet = (await card.getAttribute("data-source-facet")) ?? "";
       expect(
-        await card.locator(EXTERNAL_CLAIM_SCOPE_SELECTOR).count(),
-        "a card whose fields are all repository-authored must mark none of them",
-      ).toBe(0);
-      cardText.push(await card.innerText());
+        Object.keys(MARKETPLACE_CANDIDATE_IMPORTED_FIELDS),
+        `card ${index} renders an undeclared source facet`,
+      ).toContain(facet);
+
+      const declared =
+        MARKETPLACE_CANDIDATE_IMPORTED_FIELDS[facet as MarketplaceCandidateSourceFacetId];
+      const marked = await card.locator(EXTERNAL_CLAIM_SCOPE_SELECTOR).count();
+      if (declared.length === 0) {
+        expect(marked, `${facet} declares no imported field, so it must mark none`).toBe(0);
+        ownedText.push(await card.innerText());
+      } else {
+        expect(marked, `${facet} declares imported fields, so it must mark them`).toBeGreaterThan(0);
+      }
     }
+    expect(ownedText.length, "no repository-authored candidate card rendered").toBeGreaterThan(0);
 
     const scanned = await firstPartyCopy(page);
-    for (const text of cardText) {
+    for (const text of ownedText) {
       for (const line of text.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean)) {
         expect(scanned, "repository-authored card copy must survive the scan").toContain(line);
       }

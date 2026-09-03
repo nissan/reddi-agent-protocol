@@ -2,6 +2,10 @@ import {
   buildCircleX402CandidateCards,
   buildMarketplaceCandidateCards,
 } from "@/lib/discovery/marketplace-candidate-cards";
+import {
+  MARKETPLACE_CANDIDATE_IMPORTED_FIELDS,
+  type MarketplaceCandidateSourceFacetId,
+} from "@/lib/discovery/source-facets";
 import type { CircleX402Catalog } from "@/lib/integrations/source-adapter/circle-x402-catalog";
 
 /**
@@ -13,11 +17,12 @@ import type { CircleX402Catalog } from "@/lib/integrations/source-adapter/circle
 describe("marketplace candidate card provenance", () => {
   const result = buildMarketplaceCandidateCards();
 
-  it("renders repository-backed sources with no imported fields", () => {
+  it("gives every card the provenance its source declares", () => {
     expect(result.cards.length).toBeGreaterThan(0);
     for (const card of result.cards) {
-      expect(["hosted-rap", "ard-catalog"]).toContain(card.sourceFacet);
-      expect(card.importedFields).toEqual([]);
+      const facet = card.sourceFacet as MarketplaceCandidateSourceFacetId;
+      expect(Object.keys(MARKETPLACE_CANDIDATE_IMPORTED_FIELDS)).toContain(facet);
+      expect(card.importedFields).toEqual([...MARKETPLACE_CANDIDATE_IMPORTED_FIELDS[facet]]);
     }
   });
 
@@ -66,7 +71,7 @@ describe("marketplace candidate card provenance", () => {
     const { cards } = buildCircleX402CandidateCards(catalog);
 
     expect(cards).toHaveLength(1);
-    expect(cards[0].importedFields).toEqual(["name", "description", "tags"]);
+    expect(cards[0].importedFields).toEqual([...MARKETPLACE_CANDIDATE_IMPORTED_FIELDS["circle-x402"]]);
     expect(cards[0].name).toBe("Third Party Provider");
     expect(cards[0].resourceType).toBe("x402 discovery resource");
   });

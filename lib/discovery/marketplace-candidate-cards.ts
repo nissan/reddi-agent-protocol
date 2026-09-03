@@ -28,9 +28,9 @@ import {
   mapAdapterAttestationStateToSourceTrustState,
   sourceTrustStateFromLaneState,
   type DiscoverySourceAvailability,
+  importedFieldsFor,
   type DiscoverySourceFacetId,
   type MarketplaceCandidateCardModel,
-  type MarketplaceCandidateField,
 } from "@/lib/discovery/source-facets";
 
 /**
@@ -84,21 +84,6 @@ const GUARDRAILS: MarketplaceCandidateCardsResult["guardrails"] = {
   reputationMutation: false,
 };
 
-/**
- * Per-source field provenance for the `data-claim-scope="external"` marker.
- *
- * Hosted-RAP cards project `marketplace-public-export` fixtures: the name and
- * summary are repository listing prose, the media type is a repository
- * constant, and the tags are the repository-owned `disclosureLabels`
- * vocabulary. ARD cards project `agent-stack-fixtures` the same way, down to a
- * title derived from the fixture key and a media type from a repository union.
- * Only the Circle x402 / Pay.sh catalog snapshots transcribe third-party text,
- * and only in the fields those snapshots populate.
- */
-const HOSTED_RAP_IMPORTED_FIELDS: MarketplaceCandidateField[] = [];
-const ARD_CATALOG_IMPORTED_FIELDS: MarketplaceCandidateField[] = [];
-const EXTERNAL_CATALOG_IMPORTED_FIELDS: MarketplaceCandidateField[] = ["name", "description", "tags"];
-
 function lane(matrix: DiscoveryActionabilityMatrix, laneId: DiscoveryActionabilityLaneId) {
   const found = matrix.lanes.find((cell) => cell.lane === laneId);
   if (!found) throw new Error(`actionability matrix missing lane: ${laneId}`);
@@ -142,7 +127,7 @@ export function buildHostedRapCandidateCards(
       reasonCodes: [...identity.reasonCodes, ...actionability.reasonCodes],
       tags: item.listing.disclosureLabels,
       taskTypes: [],
-      importedFields: HOSTED_RAP_IMPORTED_FIELDS,
+      importedFields: importedFieldsFor("hosted-rap"),
       trustBoundaryNote: matrix.discoveryTrustBoundary.note,
     });
   });
@@ -162,7 +147,7 @@ export function buildHostedRapCandidateCards(
       reasonCodes: [item.recordState, item.readinessStatus, ...item.reasons],
       tags: [],
       taskTypes: [],
-      importedFields: HOSTED_RAP_IMPORTED_FIELDS,
+      importedFields: importedFieldsFor("hosted-rap"),
     }),
   );
 
@@ -197,7 +182,7 @@ export function buildArdCatalogCandidateCards(
       reasonCodes: [...identity.reasonCodes, ...actionability.reasonCodes],
       tags: candidate.riskCategories,
       taskTypes: [],
-      importedFields: ARD_CATALOG_IMPORTED_FIELDS,
+      importedFields: importedFieldsFor("ard-catalog"),
       trustBoundaryNote: matrix.discoveryTrustBoundary.note,
     });
   });
@@ -235,7 +220,7 @@ export function buildCircleX402CandidateCards(
       reasonCodes: candidate.diagnostics.map((item) => item.code),
       tags: [candidate.category, ...candidate.taskTypes],
       taskTypes: [],
-      importedFields: EXTERNAL_CATALOG_IMPORTED_FIELDS,
+      importedFields: importedFieldsFor("circle-x402"),
     });
   });
   return {
@@ -278,7 +263,7 @@ export function buildPayShCandidateCards(
       reasonCodes: candidate.diagnostics.map((item) => item.code),
       tags: [candidate.category, ...candidate.taskTypes],
       taskTypes: [],
-      importedFields: EXTERNAL_CATALOG_IMPORTED_FIELDS,
+      importedFields: importedFieldsFor("pay-sh"),
     });
   });
   return {

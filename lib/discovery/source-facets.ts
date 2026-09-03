@@ -286,6 +286,35 @@ export type MarketplaceCandidateRenderState = "ard-imported" | "untrusted" | "bl
  */
 export type MarketplaceCandidateField = "name" | "description" | "resourceType" | "mediaType" | "tags";
 
+/**
+ * Per-source field provenance for the `data-claim-scope="external"` marker.
+ *
+ * Hosted-RAP cards project `marketplace-public-export` fixtures: the name and
+ * summary are repository listing prose, the media type is a repository
+ * constant, and the tags are the repository-owned `disclosureLabels`
+ * vocabulary. ARD cards project `agent-stack-fixtures` the same way, down to a
+ * title derived from the fixture key and a media type from a repository union.
+ * Only the Circle x402 / Pay.sh catalog snapshots transcribe third-party text,
+ * and only in the fields those snapshots populate.
+ *
+ * Declared here rather than in the builder so the card, the builder, and the
+ * checks that hold them to it all read one source of truth.
+ */
+export const MARKETPLACE_CANDIDATE_IMPORTED_FIELDS = {
+  "hosted-rap": [],
+  "ard-catalog": [],
+  "circle-x402": ["name", "description", "tags"],
+  "pay-sh": ["name", "description", "tags"],
+} as const satisfies Partial<Record<DiscoverySourceFacetId, readonly MarketplaceCandidateField[]>>;
+
+export type MarketplaceCandidateSourceFacetId = keyof typeof MARKETPLACE_CANDIDATE_IMPORTED_FIELDS;
+
+export function importedFieldsFor(
+  facet: MarketplaceCandidateSourceFacetId,
+): MarketplaceCandidateField[] {
+  return [...MARKETPLACE_CANDIDATE_IMPORTED_FIELDS[facet]];
+}
+
 export type MarketplaceCandidateCardModel = {
   id: string;
   sourceFacet: DiscoverySourceFacetId;
