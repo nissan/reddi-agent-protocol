@@ -125,41 +125,29 @@ test('a runtime major mismatch records unresolved, not major-aligned', (t) => {
   assert.match(unresolved.stdout, /ok: in-process runtime vs Agave CLI pin is recorded as unresolved/);
 });
 
-test('an unearned verified label is refused even when the majors align', (t) => {
-  const dir = makeFixture(t);
-  patchProgramRuntime(dir, {
-    agaveRuntimeCompatibility: 'verified',
-  });
-
-  const noEvidence = runChecker(dir);
-  assert.equal(noEvidence.status, 1, 'version alignment alone must not satisfy a verified claim');
-  assertOnlyRuntimeStatusFailed(noEvidence);
-
-  patchProgramRuntime(dir, { runtimeVerificationEvidence: '   ' });
-  const blankEvidence = runChecker(dir);
-  assert.equal(blankEvidence.status, 1, 'a whitespace-only evidence key must not satisfy a verified claim');
-  assertOnlyRuntimeStatusFailed(blankEvidence);
-});
-
-// The alignment majors now match permanently, so free text is the only thing standing between the
-// recorded status and an attestation-grade label. The checker has no way to tell a qualification
-// record from the alignment prose recorded next to it, so prose must not be able to buy 'verified'.
-test('free-text evidence cannot buy a verified label once the majors align', (t) => {
+// The alignment majors now match permanently, so nothing but the evidence key stands between the
+// recorded status and an attestation-grade label — and the checker does not read that key at all.
+// This pins the refusal as unconditional: no evidence string of any shape, including the fixture's
+// own alignment-only prose, may buy 'verified' while the majors align.
+test('a verified label is refused unconditionally, whatever evidence is recorded', (t) => {
   const dir = makeFixture(t);
   const assets = JSON.parse(readFileSync(join(dir, ASSETS_REL), 'utf8'));
   const alignmentProse = assets.programRuntime.runtimeAlignmentEvidence;
   assert.equal(typeof alignmentProse, 'string', 'fixture should record alignment-only evidence prose');
 
-  for (const evidence of [
-    'dedicated Agave 4.2 runtime qualification run, artifact XYZ',
-    alignmentProse,
-  ]) {
+  const evidenceStates = [
+    ['no evidence key at all', undefined],
+    ['a plausible qualification sentence', 'dedicated Agave 4.2 runtime qualification run, artifact XYZ'],
+    ['the alignment-only prose recorded beside it', alignmentProse],
+  ];
+
+  for (const [label, evidence] of evidenceStates) {
     patchProgramRuntime(dir, {
       agaveRuntimeCompatibility: 'verified',
       runtimeVerificationEvidence: evidence,
     });
     const result = runChecker(dir);
-    assert.equal(result.status, 1, `free-text evidence must not satisfy a verified claim: ${evidence}`);
+    assert.equal(result.status, 1, `verified must be refused with ${label}`);
     assertOnlyRuntimeStatusFailed(result);
     assert.match(result.stderr, /recorded as major-aligned/);
   }
