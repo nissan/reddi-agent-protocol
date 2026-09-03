@@ -146,21 +146,21 @@ test.describe("public-claim boundary (rendered copy)", () => {
       .toBeGreaterThan(0);
 
     const card = page.locator(candidateCard).first();
-    const importedText = (await card.locator(EXTERNAL_CLAIM_SCOPE_SELECTOR).allInnerTexts())
-      .map((text) => text.trim())
-      .filter((text) => text.length > 0);
-    expect(importedText.length, "candidate cards must mark their imported fields").toBeGreaterThan(0);
+    const markedFields = card.locator(EXTERNAL_CLAIM_SCOPE_SELECTOR);
+    expect(await markedFields.count(), "candidate cards must mark their imported fields").toBeGreaterThan(0);
 
     const ownedBadge = (await card.locator('[data-testid="candidate-source-badge"]').innerText()).trim();
+    const before = await card.innerText();
 
     await page.evaluate((selector) => {
       document.querySelectorAll(selector).forEach((node) => node.remove());
     }, EXTERNAL_CLAIM_SCOPE_SELECTOR);
 
     const scanned = await card.innerText();
-    for (const text of importedText) {
-      expect(scanned, "imported field text must leave the scan").not.toContain(text);
-    }
+    expect(await markedFields.count(), "every marked field must leave the scan").toBe(0);
+    expect(scanned.length, "removing the marked fields must shrink the scanned copy").toBeLessThan(
+      before.length,
+    );
     expect(scanned, "repository-owned card copy must stay in the scan").toContain("Resource");
     expect(scanned, "repository-owned source badge must stay in the scan").toContain(ownedBadge);
   });
