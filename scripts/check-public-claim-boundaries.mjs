@@ -29,6 +29,7 @@ const {
   CENTRAL_MESSAGE,
   FORBIDDEN_PUBLIC_CLAIMS,
   PROHIBITION_HEADING_PATTERN,
+  QUALIFIER_CASES,
   claimIsQualified,
 } = await import(
   pathToFileURL(join(ROOT, "lib", "public-claims", "public-claim-boundary-terms.ts")).href
@@ -211,6 +212,23 @@ for (const rel of packageManifestFiles) {
 }
 
 // --- 5. negative-control self-test (always on) ---
+
+for (const testCase of QUALIFIER_CASES) {
+  const claim = FORBIDDEN_PUBLIC_CLAIMS.find((entry) => entry.id === testCase.claimId);
+  if (!claim) {
+    failures.push(`self-test: unknown claim id in qualifier case: ${testCase.claimId}`);
+    continue;
+  }
+  if (!claim.pattern.test(testCase.line)) {
+    failures.push(`self-test: [${claim.id}] qualifier case no longer matches its own pattern: ${testCase.line}`);
+    continue;
+  }
+  const actual = claimIsQualified(testCase.line, claim);
+  if (actual !== testCase.qualified) {
+    const expected = testCase.qualified ? "qualified boundary prose" : "an unqualified claim";
+    failures.push(`self-test: [${claim.id}] expected ${expected}, got qualified=${actual}: ${testCase.line}`);
+  }
+}
 
 if (PROHIBITION_HEADING_PATTERN.test(NEGATIVE_CONTROL_HEADING)) {
   failures.push(

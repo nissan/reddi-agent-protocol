@@ -99,15 +99,15 @@ export const FORBIDDEN_PUBLIC_CLAIMS: ForbiddenPublicClaim[] = [
  * "boundary", "historical") are NOT qualifiers, and a negation elsewhere on
  * the line does not excuse an affirmative claim made in its own clause.
  *
- * A bare `no` is not a qualifier either: it exempted any clause that merely
- * trailed "with no extra setup". Only the explicit boundary compounds this
- * corpus actually uses ("no-spend", "no-custody") and negated assertions
- * ("No row here asserts custody…") count, so the injection examples below keep
- * that regression in the negative control.
+ * A bare `no` is not a qualifier: it exempted any clause that merely trailed
+ * "with no extra setup". Nor is a shared list of `no <noun>` compounds, which
+ * let "no payment friction" excuse a custody claim. These global entries are
+ * negations of whatever predicate they sit with; compounds that only bound one
+ * predicate live in CLAIM_SPECIFIC_QUALIFIERS, and QUALIFIER_CASES pins both
+ * directions.
  */
 export const CLAIM_QUALIFIER_PATTERNS: RegExp[] = [
   /\bnot\b/i,
-  /\bno[- ](?:custody|spend|escrow|settlement|mainnet|wallet|fee|take-?rate|payment|claims?)\b/i,
   /\bno\s+\S+(?:\s+\S+)?\s+(?:asserts?|claims?|proves?|implies|guarantees?|establishes?)\b/i,
   /\bnor\b/i,
   /\bnever\b/i,
@@ -121,6 +121,63 @@ export const CLAIM_QUALIFIER_PATTERNS: RegExp[] = [
   /\bout of scope\b/i,
   /\boutside\b/i,
   /\bnon-?claims?\b/i,
+];
+
+/**
+ * Boundary forms that qualify one claim only, because they negate that claim's
+ * own predicate. Keyed by claim id so "no spend limits" cannot excuse a custody
+ * claim the way a shared list did.
+ */
+export const CLAIM_SPECIFIC_QUALIFIERS: Record<string, RegExp[]> = {
+  "live-audd-settlement": [
+    /\bno-(?:custody|spend|settlement)\b/i,
+    /\bno\b[^.;|]{0,24}\b(?:AUDD|USDC|SPL)\b[^.;|]{0,12}\bcustody\b/i,
+  ],
+};
+
+/**
+ * Expected `claimIsQualified` verdicts, asserted by the gate's always-on
+ * self-test. Negatives are affirmative claims that must stay flagged, including
+ * cross-claim bypasses; positives are genuine boundary prose that must stay
+ * green.
+ */
+export const QUALIFIER_CASES: { line: string; claimId: string; qualified: boolean }[] = [
+  { line: "RAP provides custody with no extra setup.", claimId: "custody-provider", qualified: false },
+  { line: "The protocol takes custody of buyer funds with no delay.", claimId: "custody-provider", qualified: false },
+  { line: "RAP provides custody with no payment friction.", claimId: "custody-provider", qualified: false },
+  { line: "Our custody service ships with no spend limits.", claimId: "custody-provider", qualified: false },
+  { line: "RAP ships production escrow finality with no configuration.", claimId: "escrow-provider", qualified: false },
+  { line: "RAP offers an escrow service with no-fee onboarding.", claimId: "escrow-provider", qualified: false },
+  { line: "The RAP Assurance stack is production-ready with no caveats.", claimId: "production-ready", qualified: false },
+  { line: "The RAP Assurance stack is production-ready with no-claims caveats.", claimId: "production-ready", qualified: false },
+  { line: "The protocol collects a 0.05% take-rate with no fee cap.", claimId: "collected-fee", qualified: false },
+  { line: "AUDD settlement is live with no custody limits.", claimId: "live-audd-settlement", qualified: false },
+  {
+    line: "- Not a payment facilitator, custody service, escrow provider, wallet SDK, or generic hosted agent runtime.",
+    claimId: "custody-provider",
+    qualified: true,
+  },
+  {
+    line: "No row here asserts custody, escrow finality, mainnet readiness, or a completed security audit.",
+    claimId: "escrow-provider",
+    qualified: true,
+  },
+  {
+    line: "| `quickstart-no-spend-workflow` | the §2 demo end-to-end, including failure states and AUDD proof-metadata/no-custody labels |",
+    claimId: "live-audd-settlement",
+    qualified: true,
+  },
+  {
+    line: "| AUDD proof-metadata / no-custody state labels | demo stateLabels |",
+    claimId: "live-audd-settlement",
+    qualified: true,
+  },
+  {
+    line: "- no AUDD custody path is approved in the current contract scope;",
+    claimId: "live-audd-settlement",
+    qualified: true,
+  },
+  { line: "scope, and no current AUDD/USDC custody.", claimId: "live-audd-settlement", qualified: true },
 ];
 
 /**
@@ -183,6 +240,10 @@ function clauseWindow(line: string, position: number): string {
  * unqualified assertion ride on an earlier boundary sentence.
  */
 export function claimIsQualified(line: string, claim: ForbiddenPublicClaim): boolean {
+  const qualifiers = [
+    ...CLAIM_QUALIFIER_PATTERNS,
+    ...(CLAIM_SPECIFIC_QUALIFIERS[claim.id] ?? []),
+  ];
   const flags = claim.pattern.flags.includes("g") ? claim.pattern.flags : `${claim.pattern.flags}g`;
   const scanner = new RegExp(claim.pattern.source, flags);
   let match: RegExpExecArray | null;
@@ -191,7 +252,7 @@ export function claimIsQualified(line: string, claim: ForbiddenPublicClaim): boo
     matched = true;
     const assertedAt = Math.max(match.index, match.index + match[0].length - 1);
     const window = clauseWindow(line, assertedAt);
-    if (!CLAIM_QUALIFIER_PATTERNS.some((pattern) => pattern.test(window))) return false;
+    if (!qualifiers.some((pattern) => pattern.test(window))) return false;
     if (match.index === scanner.lastIndex) scanner.lastIndex += 1;
   }
   return matched;
