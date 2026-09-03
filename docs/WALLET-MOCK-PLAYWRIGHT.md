@@ -48,3 +48,6 @@ await page.screenshot({ path: "artifacts/playwright-wallet/planner-wallet.png", 
 - This mode is disabled by default.
 - It only activates when `NEXT_PUBLIC_ENABLE_PLAYWRIGHT_WALLET=true`.
 - Do not set that flag in production deployment environments.
+- Do not set `NEXT_PUBLIC_PLAYWRIGHT_WALLET_SECRET_KEY` for Tier 0 UI/screenshot tests.
+- Because `NEXT_PUBLIC_*` values are browser-bundled by Next.js, any Playwright signer secret is treated as disposable local-only test material. The adapter and Playwright web-server precondition guard refuse it before parsing unless the effective profile is `local-surfpool` and the effective RPC/WS endpoints are loopback-only.
+- Browser Devnet wallet actions remain manual, default-off, and gated by `docs/BROWSER-WALLET-SAFETY-PREFLIGHT.md`; this mock is not a reusable wallet service.

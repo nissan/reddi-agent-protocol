@@ -1,0 +1,129 @@
+{
+  "schemaVersion": "reddi.browser-wallet.single-use-approval.v1",
+  "status": "approved",
+  "approvalId": "browser-wallet-approval:phantom-devnet-connect-20260903",
+  "approver": "captain-reviewer",
+  "approvedAt": "2026-09-03T12:00:00.000Z",
+  "expiresAt": "2026-09-03T14:00:00.000Z",
+  "usage": {
+    "scope": "single-use",
+    "approvedUseCount": 1,
+    "consumedUseCount": 0,
+    "nonce": "browser-wallet-nonce:phantom-devnet-connect-20260903",
+    "reusePolicy": "fresh-approval-required"
+  },
+  "provider": {
+    "name": "Phantom",
+    "version": "25.16.0",
+    "source": {
+      "kind": "official-docs",
+      "url": "https://docs.phantom.com/developer-powertools/testnet-mode",
+      "retrievedAt": "2026-09-03T11:00:00.000Z"
+    },
+    "devnetSupport": "verified-official-docs"
+  },
+  "browserProfile": {
+    "id": "browser-profile:phantom-devnet-manual-20260903",
+    "isolation": "dedicated-disposable",
+    "syncDisabled": true,
+    "primaryProfile": false,
+    "onlyApprovedExtension": "Phantom",
+    "automatedExtensionInstall": false,
+    "deleteAfterRun": true
+  },
+  "wallet": {
+    "publicKey": "So11111111111111111111111111111111111111112",
+    "secretMaterial": false,
+    "productionSeedImported": false,
+    "custody": "human-controlled-devnet-only"
+  },
+  "network": {
+    "rapAlias": "solana-devnet",
+    "caip2": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+    "cluster": "devnet",
+    "rpcHttp": "https://api.devnet.solana.com",
+    "rpcWs": "wss://api.devnet.solana.com"
+  },
+  "uiAction": {
+    "route": "/register",
+    "action": "connect-only",
+    "executionMode": "manual-human-browser-wallet",
+    "defaultOff": true,
+    "exactOnce": true,
+    "devnetActionAvailableByDefault": false
+  },
+  "programs": {
+    "target": "legacy-anchor",
+    "framework": "anchor",
+    "source": "resolved-network-profile",
+    "ids": {
+      "escrow": "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD",
+      "registry": "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD",
+      "reputation": "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD",
+      "attestation": "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD"
+    },
+    "submissionReady": true
+  },
+  "funding": {
+    "source": "human-capped-devnet",
+    "sourceRef": "human-funding-approval:devnet-sol-cap",
+    "humanApproved": true,
+    "aiFaucetUse": false,
+    "autoTopUp": false,
+    "maxBalanceSol": 0.05
+  },
+  "caps": {
+    "perActionBaseUnits": "0",
+    "perSessionBaseUnits": "0",
+    "maxFeeLamports": "0",
+    "maxActions": 1
+  },
+  "retryPolicy": {
+    "allowed": false,
+    "maxRetries": 0,
+    "countsAgainstCaps": true
+  },
+  "asset": {
+    "symbol": "SOL",
+    "railEnvironment": "devnet-unverified",
+    "mint": null,
+    "tokenProgram": null,
+    "decimals": 9,
+    "source": "devnet-sol-fee",
+    "official": false
+  },
+  "evidence": {
+    "destination": "artifacts/browser-wallet-devnet/phantom-connect-20260903/evidence.json",
+    "redaction": {
+      "privateKeys": "forbidden",
+      "seedPhrases": "forbidden",
+      "signerArrays": "forbidden",
+      "authHeaders": "redact",
+      "cookies": "redact",
+      "rawPaymentPayloads": "redact",
+      "screenshots": "redacted-only",
+      "includePublicKey": true,
+      "includeSignatures": "devnet-only"
+    }
+  },
+  "rollback": {
+    "owner": "captain-reviewer",
+    "disconnectRevoke": true,
+    "deleteBrowserProfile": true,
+    "deleteLocalState": true,
+    "preserveRedactedEvidence": true,
+    "incidentSuspend": true,
+    "freshApprovalRequired": true
+  },
+  "boundaries": {
+    "noMainnet": true,
+    "noProduction": true,
+    "noCustody": true,
+    "noSettlementFinality": true,
+    "noOfficialAuddDevnet": true,
+    "noLiveFunds": true,
+    "noAiFaucet": true,
+    "noPayShProduction": true,
+    "noAutomaticTopUp": true
+  }
+}
