@@ -11,6 +11,8 @@ export type OnboardingVideoGuide = {
   boundary: string;
   /** Recording predates the public-claim remediation of the page it captures. */
   mediaStale?: true;
+  /** Recording tours several routes, so no single page reproduces what it showed. */
+  multiRouteRecording?: true;
   primaryCta: { label: string; href: string };
   secondaryCta?: { label: string; href: string };
   proofLinks?: { label: string; href: string }[];
@@ -30,6 +32,7 @@ export const onboardingVideos: OnboardingVideoGuide[] = [
     captionsSrc: "/videos/onboarding/captions/overview.vtt",
     boundary: "Guided devnet proof tour",
     mediaStale: true,
+    multiRouteRecording: true,
     primaryCta: { label: "Choose your path", href: "/start" },
     secondaryCta: { label: "Open replication guide", href: "/judge-replication" },
   },

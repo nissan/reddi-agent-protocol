@@ -9,12 +9,20 @@ const phases = [
   { phase: "Phase 5", title: "QA and publication", status: "Complete (v1.0 candidate package)" },
 ];
 
-const screenshots = [
-  { src: "/whitepaper/landing-overview.png", title: "Landing overview", route: "/" },
-  { src: "/whitepaper/marketplace-discovery.png", title: "Directory discovery", route: "/agents" },
+type Screenshot = {
+  src: string;
+  title: string;
+  route: string;
+  /** Capture visibly asserts a claim this repository has retired, so it is withheld. */
+  imageStale?: true;
+};
+
+const screenshots: Screenshot[] = [
+  { src: "/whitepaper/landing-overview.png", title: "Landing overview", route: "/", imageStale: true },
+  { src: "/whitepaper/marketplace-discovery.png", title: "Directory discovery", route: "/agents", imageStale: true },
   { src: "/whitepaper/planner-consumption.png", title: "Planner consumption", route: "/planner" },
   { src: "/whitepaper/register-onboarding.png", title: "Register onboarding", route: "/register" },
-  { src: "/whitepaper/dogfood-operator-ui.png", title: "Dogfood operator UI", route: "/dogfood" },
+  { src: "/whitepaper/dogfood-operator-ui.png", title: "Dogfood operator UI", route: "/dogfood", imageStale: true },
 ];
 
 export default function WhitepaperPage() {
@@ -71,12 +79,26 @@ export default function WhitepaperPage() {
 
         <section className="space-y-4">
           <h2 className="font-display text-2xl font-semibold">Evidence screenshots</h2>
-          <p className="text-sm text-gray-300">Initial screenshot pack used for bounded technical walkthroughs; screenshots are not production-readiness evidence.</p>
+          <p className="text-sm text-gray-300">Initial screenshot pack used for bounded technical walkthroughs; screenshots are not production-readiness evidence. Captures that still assert retired claims are withheld until they are retaken.</p>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {screenshots.map((shot) => (
               <figure key={shot.src} className="rounded-xl border border-white/10 bg-card/40 overflow-hidden">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={shot.src} alt={shot.title} className="w-full h-44 object-cover" />
+                {shot.imageStale ? (
+                  <div className="flex h-44 w-full items-center justify-center bg-[#1a1a2e] px-5 text-center">
+                    <span className="max-w-xs text-xs leading-relaxed text-white/25">
+                      Screenshot withheld: the committed capture predates this repository&apos;s
+                      public-claim remediation and still asserts retired marketplace, live-settlement,
+                      and transaction/volume wording. Open{" "}
+                      <Link href={shot.route} className="underline hover:text-white/50">
+                        {shot.route}
+                      </Link>{" "}
+                      on this build for the current copy.
+                    </span>
+                  </div>
+                ) : (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={shot.src} alt={shot.title} className="w-full h-44 object-cover" />
+                )}
                 <figcaption className="p-3">
                   <div className="text-sm font-medium text-white">{shot.title}</div>
                   <div className="text-xs text-gray-400 mt-1">Route: {shot.route}</div>

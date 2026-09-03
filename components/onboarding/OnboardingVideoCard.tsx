@@ -53,7 +53,9 @@ export function OnboardingVideoCard({ video, layout = "stacked", hostRoute }: Pr
             <span className="max-w-sm text-xs leading-relaxed text-white/25">
               Recording withheld: this capture predates the public-claim remediation and still shows
               retired marketplace/payment wording.{" "}
-              {capturesHostPage ? (
+              {video.multiRouteRecording ? (
+                <>It toured several routes, so no single page reproduces it; browse this build for the current copy.</>
+              ) : capturesHostPage ? (
                 <>The current copy is what this page renders.</>
               ) : (
                 <>
