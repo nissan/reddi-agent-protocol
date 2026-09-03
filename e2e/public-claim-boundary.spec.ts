@@ -126,41 +126,43 @@ test.describe("public-claim boundary (rendered copy)", () => {
 
   /**
    * The exclusion above is asserted against injected nodes; this asserts the
-   * real cards still carry the marker on registrant-supplied fields only, so
-   * moving it would fail here rather than silently drop owned boundary copy
-   * (render-state banners, trust/readiness badges, Resource labels) out of the
-   * scan.
+   * real card still carries the marker on imported fields only, so moving it
+   * would fail here rather than silently drop owned boundary copy (render-state
+   * banners, source/trust/readiness badges, Resource labels) out of the scan.
+   *
+   * Candidate cards, not specialist cards: /api/discovery/candidates is
+   * fixture-backed and takes no network read, so an absent card is a real
+   * breakage rather than a quiet run, and the marked text is fixture text this
+   * repository controls rather than a devnet registrant's.
    */
-  test("specialist and candidate cards exclude registrant text and keep owned copy", async ({ page }) => {
-    const cards = '[data-testid="agent-card"], [data-testid="marketplace-candidate-card"]';
+  test("candidate cards exclude imported text and keep owned copy", async ({ page }) => {
+    const candidateCard = '[data-testid="marketplace-candidate-card"]';
     await page.goto("/agents");
     await expect(
       page.getByRole("heading", { name: /specialist directory/i }).first(),
     ).toBeVisible({ timeout: 30_000 });
     await expect
-      .poll(async () => page.locator(`${cards}, [data-testid="discovery-empty-state"]`).count(), {
-        timeout: 30_000,
-      })
+      .poll(async () => page.locator(candidateCard).count(), { timeout: 30_000 })
       .toBeGreaterThan(0);
 
-    const cardCount = await page.locator(cards).count();
-    test.skip(cardCount === 0, "no directory or candidate card rendered on this run");
-
-    const card = page.locator(cards).first();
-    const registrantText = (await card.locator(EXTERNAL_CLAIM_SCOPE_SELECTOR).allInnerTexts())
+    const card = page.locator(candidateCard).first();
+    const importedText = (await card.locator(EXTERNAL_CLAIM_SCOPE_SELECTOR).allInnerTexts())
       .map((text) => text.trim())
       .filter((text) => text.length > 0);
-    expect(registrantText.length, "cards must mark their registrant-supplied fields").toBeGreaterThan(0);
+    expect(importedText.length, "candidate cards must mark their imported fields").toBeGreaterThan(0);
+
+    const ownedBadge = (await card.locator('[data-testid="candidate-source-badge"]').innerText()).trim();
 
     await page.evaluate((selector) => {
       document.querySelectorAll(selector).forEach((node) => node.remove());
     }, EXTERNAL_CLAIM_SCOPE_SELECTOR);
 
     const scanned = await card.innerText();
-    for (const text of registrantText) {
-      expect(scanned, "registrant-supplied field text must leave the scan").not.toContain(text);
+    for (const text of importedText) {
+      expect(scanned, "imported field text must leave the scan").not.toContain(text);
     }
     expect(scanned, "repository-owned card copy must stay in the scan").toContain("Resource");
+    expect(scanned, "repository-owned source badge must stay in the scan").toContain(ownedBadge);
   });
 
   test("every forbidden claim is still catchable by its own pattern", async () => {

@@ -145,7 +145,7 @@ export function SpecialistCard({
           <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] text-gray-300">
             <div className="flex items-center justify-between gap-2" data-testid="candidate-resource-type">
               <span>Resource</span>
-              <span className="text-gray-400" data-claim-scope="external">{resourceType} · {mediaType}</span>
+              <span className="text-gray-400">{resourceType} · {mediaType}</span>
             </div>
             <div className="mt-1 flex items-center justify-between gap-2">
               <span>Manifest</span>

@@ -256,8 +256,9 @@ function appRoutes(dir = join(ROOT, "app"), prefix = "") {
   const routes = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.isDirectory()) {
-      if (entry.name.startsWith("(") || entry.name === "api") continue;
-      routes.push(...appRoutes(join(dir, entry.name), `${prefix}/${entry.name}`));
+      if (entry.name === "api") continue;
+      const segment = entry.name.startsWith("(") ? prefix : `${prefix}/${entry.name}`;
+      routes.push(...appRoutes(join(dir, entry.name), segment));
     } else if (entry.name === "page.tsx") {
       routes.push(prefix === "" ? "/" : prefix);
     }
