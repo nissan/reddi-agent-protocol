@@ -18,7 +18,7 @@
  *                       the scanned text; the gate MUST exit 1 (CI runs this
  *                       and asserts failure, proving the gate can still fail).
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -29,6 +29,7 @@ const {
   CENTRAL_MESSAGE,
   FORBIDDEN_PUBLIC_CLAIMS,
   PROHIBITION_HEADING_PATTERN,
+  PUBLIC_CLAIM_DOM_ROUTES,
   QUALIFIER_CASES,
   claimIsQualified,
 } = await import(
@@ -242,6 +243,78 @@ for (const claim of FORBIDDEN_PUBLIC_CLAIMS) {
   } else if (claimIsQualified(claim.injectionExample, claim)) {
     failures.push(`self-test: [${claim.id}] injection example is suppressed by the qualifier list: ${claim.injectionExample}`);
   }
+}
+
+// --- 6. route-coverage documentation check ---
+//
+// docs/PUBLIC-CLAIM-BOUNDARY.md states which app routes the DOM half gates and
+// why each remaining one is not gated. That statement is only true while it
+// partitions the real route tree, so it is derived here from the filesystem and
+// the shared route constant rather than trusted.
+
+function appRoutes(dir = join(ROOT, "app"), prefix = "") {
+  const routes = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith("(") || entry.name === "api") continue;
+      routes.push(...appRoutes(join(dir, entry.name), `${prefix}/${entry.name}`));
+    } else if (entry.name === "page.tsx") {
+      routes.push(prefix === "" ? "/" : prefix);
+    }
+  }
+  return routes;
+}
+
+function documentedRoutes(section) {
+  return new Set(
+    [...section.matchAll(/`(\/[A-Za-z0-9[\]/_-]*)`/g)].map((match) => match[1]),
+  );
+}
+
+const boundaryDoc = read("docs/PUBLIC-CLAIM-BOUNDARY.md");
+if (boundaryDoc !== null) {
+  const routes = new Set(appRoutes());
+  const gatedParagraph = boundaryDoc.slice(boundaryDoc.indexOf("The DOM half gates exactly"));
+  const gatedDocumented = documentedRoutes(gatedParagraph.slice(0, gatedParagraph.indexOf("\n")));
+  const tableStart = gatedParagraph.indexOf("| Not gated | Routes |");
+  const tableEnd = gatedParagraph.indexOf("\n\n", tableStart);
+  const ungatedDocumented = documentedRoutes(gatedParagraph.slice(tableStart, tableEnd));
+
+  const gatedActual = new Set(PUBLIC_CLAIM_DOM_ROUTES.map((route) => route.path));
+  for (const route of gatedActual) {
+    if (!gatedDocumented.has(route)) {
+      failures.push(`docs/PUBLIC-CLAIM-BOUNDARY.md: gated route ${route} is missing from the documented gated list`);
+    }
+  }
+  for (const route of gatedDocumented) {
+    if (!gatedActual.has(route)) {
+      failures.push(`docs/PUBLIC-CLAIM-BOUNDARY.md: documents ${route} as gated, but it is not in PUBLIC_CLAIM_DOM_ROUTES`);
+    }
+    if (ungatedDocumented.has(route)) {
+      failures.push(`docs/PUBLIC-CLAIM-BOUNDARY.md: ${route} is documented as both gated and not gated`);
+    }
+  }
+  for (const route of routes) {
+    if (!gatedActual.has(route) && !ungatedDocumented.has(route)) {
+      failures.push(`docs/PUBLIC-CLAIM-BOUNDARY.md: app route ${route} is neither gated nor accounted for as not gated`);
+    }
+  }
+  for (const route of [...gatedDocumented, ...ungatedDocumented]) {
+    if (!routes.has(route)) {
+      failures.push(`docs/PUBLIC-CLAIM-BOUNDARY.md: documents ${route}, which is not an app route`);
+    }
+  }
+  const counts = [
+    [`gates exactly these ${gatedActual.size} routes`, "gated route count"],
+    [`\`app/\` has ${routes.size} page routes`, "total route count"],
+    [`The ${routes.size - gatedActual.size} that are not DOM-gated`, "not-gated route count"],
+  ];
+  for (const [sentence, label] of counts) {
+    if (!boundaryDoc.includes(sentence)) {
+      failures.push(`docs/PUBLIC-CLAIM-BOUNDARY.md: ${label} is stated incorrectly; expected "${sentence}"`);
+    }
+  }
+  checked.push("docs/PUBLIC-CLAIM-BOUNDARY.md");
 }
 
 if (failures.length > 0) {

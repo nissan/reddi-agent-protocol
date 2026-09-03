@@ -63,7 +63,6 @@ export function MarketplaceCandidateCard({
     <Card
       className={cn("flex h-full flex-col overflow-hidden", styles.card)}
       data-testid="marketplace-candidate-card"
-      data-claim-scope="external"
       data-source-facet={candidate.sourceFacet}
       data-render-state={candidate.renderState}
     >
@@ -99,8 +98,12 @@ export function MarketplaceCandidateCard({
         </div>
 
         <div>
-          <h3 className="font-display text-base font-semibold text-white">{candidate.name}</h3>
-          <p className="mt-1 line-clamp-2 break-all text-sm text-gray-400">{candidate.description}</p>
+          <h3 className="font-display text-base font-semibold text-white">
+            <span data-claim-scope="external">{candidate.name}</span>
+          </h3>
+          <p className="mt-1 line-clamp-2 break-all text-sm text-gray-400">
+            <span data-claim-scope="external">{candidate.description}</span>
+          </p>
         </div>
 
         <div
@@ -109,11 +112,15 @@ export function MarketplaceCandidateCard({
         >
           <div className="flex items-center justify-between gap-2">
             <span>Resource</span>
-            <span className="text-right text-gray-400">{candidate.resourceType}</span>
+            <span className="text-right text-gray-400" data-claim-scope="external">
+              {candidate.resourceType}
+            </span>
           </div>
           <div className="mt-1 flex items-center justify-between gap-2">
             <span>Media type</span>
-            <span className="break-all text-right text-gray-400">{candidate.mediaType}</span>
+            <span className="break-all text-right text-gray-400" data-claim-scope="external">
+              {candidate.mediaType}
+            </span>
           </div>
         </div>
 
@@ -121,7 +128,7 @@ export function MarketplaceCandidateCard({
           <div className="flex flex-wrap gap-1.5">
             {candidate.tags.slice(0, 4).map((tag) => (
               <Badge key={tag} variant="outline" className="border-white/10 bg-white/5 text-[11px] text-gray-300">
-                {tag}
+                <span data-claim-scope="external">{tag}</span>
               </Badge>
             ))}
           </div>

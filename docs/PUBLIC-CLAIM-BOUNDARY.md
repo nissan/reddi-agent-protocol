@@ -30,11 +30,21 @@ The boundary is enforced in two halves that share one pattern list (`lib/public-
 | Surface | Check |
 |---|---|
 | Owned prose and package metadata (README/docs/`package.json`) | `npm run check:claims:public` (`.github/workflows/public-claim-boundary.yml`) |
-| First-party rendered copy on 8 gated routes | `e2e/public-claim-boundary.spec.ts` (blocking Playwright funnel lane) |
+| First-party rendered copy on 17 gated routes | `e2e/public-claim-boundary.spec.ts` (blocking Playwright funnel lane) |
 
-The DOM half gates exactly these routes: `/`, `/agents`, `/spec`, `/whitepaper`, `/start`, `/playbook`, `/dogfood`, `/leaderboard`. On each it scans the rendered DOM with every `data-claim-scope="external"` subtree removed — specialist and candidate cards carry strings a third-party devnet registrant supplied, which this repository cannot edit and therefore does not claim. A negative control in the same spec proves both directions: injected text inside an external subtree is not scanned, and the identical text in first-party copy is.
+The DOM half gates exactly these 17 routes: `/`, `/adl`, `/agents`, `/customize`, `/dogfood`, `/economic-demo/public-proof`, `/faq`, `/feedback`, `/judge-replication`, `/mcp-bridge-demo`, `/playbook`, `/spec`, `/start`, `/testers`, `/tour`, `/updates`, `/whitepaper`. On each it scans the rendered DOM with every `data-claim-scope="external"` subtree removed. That marker is scoped to the individual registrant-supplied fields a card renders — a specialist's `name`, `model`, task types, resource/media type; a candidate's `name`, `description`, tags, resource/media type — and never to a whole card, so the repository's own card copy (render-state banners, source/trust/readiness badges, `Resource` labels, `Attested`/`Unverified`, the downstream-dependency line) stays inside the scan. Two controls in the same spec prove both directions: injected text inside an external subtree is not scanned while the identical text in first-party copy is, and the real `SpecialistCard`/`MarketplaceCandidateCard` on `/agents` are checked to drop their registrant fields and keep their owned copy.
 
-Other claim-bearing routes are deliberately not gated at the DOM layer: `/register`, `/planner`, `/onboarding`, `/manager/*` and `/agents/[wallet]` need a wallet or render third-party records as their primary content, and `/economic-demo/paid-workflow` enumerates the contract-only flags it declares false, which the shared pattern list reads as an unqualified AUDD claim. Their copy is covered by review rather than by this gate.
+`app/` has 45 page routes. The 28 that are not DOM-gated are covered by review rather than by this gate, for these reasons:
+
+| Not gated | Routes |
+|---|---|
+| Copy sits behind a wallet connection or multi-step flow state | `/register`, `/planner`, `/onboarding`, `/onboarding/intake`, `/attestation`, `/consumer`, `/dashboard`, `/economic-demo`, `/economic-demo/z-picture-demo` |
+| Body depends on a live network or API read, so a gate here would put RPC/route latency on a blocking lane | `/leaderboard`, `/runs`, `/audit`, `/demo`, `/circle-x402`, `/orchestrator`, `/specialist`, `/setup`, `/manager`, `/economic-demo/z-picture-proof`, `/economic-demo/z-picture-onchain-proof` |
+| Primary body is a third-party, imported, or user-entered record this repository does not author | `/agents/[wallet]`, `/agents/candidates/[id]`, `/manager/discovery`, `/manager/listings`, `/onboarding/profile-editor`, `/onboarding/readiness-gate` |
+| Known pattern false positive: enumerates the contract-only flags it declares false, which the shared list reads as an unqualified AUDD claim | `/economic-demo/paid-workflow` |
+| Redirect only; renders no copy of its own | `/features` |
+
+`/leaderboard` was gated earlier and was removed: it is `force-dynamic` over a devnet `getProgramAccounts` call that carries no `AbortSignal`, so gating it made a live RPC a blocking-lane dependency.
 
 `e2e/home.spec.ts` runs in the same lane but is a separate literal-copy regression spec: it asserts the central message renders in the hero and footer, and does not consume the shared pattern list.
 

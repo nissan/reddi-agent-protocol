@@ -90,7 +90,6 @@ export function SpecialistCard({
       href={`/agents/${wallet}`}
       className="block h-full rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400"
       data-testid="agent-card"
-      data-claim-scope="external"
       data-source-facet={sourceFacet?.id}
       data-render-state="rap-native"
       data-trust-state={attested ? "trusted" : "unverified"}
@@ -115,7 +114,7 @@ export function SpecialistCard({
               ) : null}
               {taskTypes[0] ? (
                 <Badge variant="outline" className="border-white/15 bg-black/30 text-white">
-                  {taskTypes[0]}
+                  <span data-claim-scope="external">{taskTypes[0]}</span>
                 </Badge>
               ) : null}
               <Badge variant="outline" className={cn("text-[10px] uppercase tracking-wide", freshnessTone)}>
@@ -128,15 +127,17 @@ export function SpecialistCard({
         <div className="space-y-3 p-4">
           <div>
             <h3 className="font-display text-base font-semibold text-white">
-              {name ?? shortWallet(wallet)}
+              <span data-claim-scope="external">{name ?? shortWallet(wallet)}</span>
             </h3>
-            <p className="text-sm text-gray-400">{model ?? "Specialist endpoint"}</p>
+            <p className="text-sm text-gray-400">
+              <span data-claim-scope="external">{model ?? "Specialist endpoint"}</span>
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-1.5">
             {taskTypes.slice(0, 3).map((task) => (
               <Badge key={task} variant="outline" className="border-white/10 bg-white/5 text-[11px] text-gray-300">
-                {task}
+                <span data-claim-scope="external">{task}</span>
               </Badge>
             ))}
           </div>
@@ -144,7 +145,7 @@ export function SpecialistCard({
           <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] text-gray-300">
             <div className="flex items-center justify-between gap-2" data-testid="candidate-resource-type">
               <span>Resource</span>
-              <span className="text-gray-400">{resourceType} · {mediaType}</span>
+              <span className="text-gray-400" data-claim-scope="external">{resourceType} · {mediaType}</span>
             </div>
             <div className="mt-1 flex items-center justify-between gap-2">
               <span>Manifest</span>

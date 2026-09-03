@@ -13,6 +13,7 @@ import {
   FORBIDDEN_PUBLIC_CLAIMS,
   PUBLIC_CLAIM_BOUNDARY_DOC_PATH,
   PUBLIC_CLAIM_DOM_ROUTES,
+  type PublicClaimDomRoute,
   claimIsQualified,
 } from "../lib/public-claims/public-claim-boundary-terms";
 
@@ -54,15 +55,19 @@ function unqualifiedClaims(copy: string): string[] {
   return violations;
 }
 
+function readyAnchor(page: Page, route: PublicClaimDomRoute) {
+  return route.readyAsText
+    ? page.getByText(route.readyCopy).first()
+    : page.getByRole("heading", { name: route.readyCopy }).first();
+}
+
 test.describe("public-claim boundary (rendered copy)", () => {
   for (const route of PUBLIC_CLAIM_DOM_ROUTES) {
     test(`${route.path} renders no forbidden affirmative claim`, async ({ page }) => {
       await page.goto(route.path);
       // Readiness anchor first: without it a skeleton with nav/footer chrome
       // would report a clean scan of copy that never rendered.
-      await expect(
-        page.getByRole("heading", { name: route.readyHeading }).first(),
-      ).toBeVisible({ timeout: 30_000 });
+      await expect(readyAnchor(page, route)).toBeVisible({ timeout: 30_000 });
 
       if (route.settledContent) {
         await expect
@@ -71,7 +76,7 @@ test.describe("public-claim boundary (rendered copy)", () => {
       }
 
       const rendered = await firstPartyCopy(page);
-      expect(rendered).toMatch(route.readyHeading);
+      expect(rendered).toMatch(route.readyCopy);
 
       expect(
         unqualifiedClaims(rendered),
@@ -84,7 +89,7 @@ test.describe("public-claim boundary (rendered copy)", () => {
     const injection = FORBIDDEN_PUBLIC_CLAIMS[0].injectionExample;
     await page.goto("/");
     await expect(
-      page.getByRole("heading", { name: PUBLIC_CLAIM_DOM_ROUTES[0].readyHeading }).first(),
+      page.getByRole("heading", { name: PUBLIC_CLAIM_DOM_ROUTES[0].readyCopy }).first(),
     ).toBeVisible({ timeout: 30_000 });
 
     await page.evaluate(
@@ -105,7 +110,7 @@ test.describe("public-claim boundary (rendered copy)", () => {
 
     await page.goto("/");
     await expect(
-      page.getByRole("heading", { name: PUBLIC_CLAIM_DOM_ROUTES[0].readyHeading }).first(),
+      page.getByRole("heading", { name: PUBLIC_CLAIM_DOM_ROUTES[0].readyCopy }).first(),
     ).toBeVisible({ timeout: 30_000 });
     await page.evaluate((text) => {
       const owned = document.createElement("div");
@@ -117,6 +122,45 @@ test.describe("public-claim boundary (rendered copy)", () => {
       unqualifiedClaims(await firstPartyCopy(page)),
       "the same text in first-party copy must still be caught",
     ).not.toEqual([]);
+  });
+
+  /**
+   * The exclusion above is asserted against injected nodes; this asserts the
+   * real cards still carry the marker on registrant-supplied fields only, so
+   * moving it would fail here rather than silently drop owned boundary copy
+   * (render-state banners, trust/readiness badges, Resource labels) out of the
+   * scan.
+   */
+  test("specialist and candidate cards exclude registrant text and keep owned copy", async ({ page }) => {
+    const cards = '[data-testid="agent-card"], [data-testid="marketplace-candidate-card"]';
+    await page.goto("/agents");
+    await expect(
+      page.getByRole("heading", { name: /specialist directory/i }).first(),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect
+      .poll(async () => page.locator(`${cards}, [data-testid="discovery-empty-state"]`).count(), {
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(0);
+
+    const cardCount = await page.locator(cards).count();
+    test.skip(cardCount === 0, "no directory or candidate card rendered on this run");
+
+    const card = page.locator(cards).first();
+    const registrantText = (await card.locator(EXTERNAL_CLAIM_SCOPE_SELECTOR).allInnerTexts())
+      .map((text) => text.trim())
+      .filter((text) => text.length > 0);
+    expect(registrantText.length, "cards must mark their registrant-supplied fields").toBeGreaterThan(0);
+
+    await page.evaluate((selector) => {
+      document.querySelectorAll(selector).forEach((node) => node.remove());
+    }, EXTERNAL_CLAIM_SCOPE_SELECTOR);
+
+    const scanned = await card.innerText();
+    for (const text of registrantText) {
+      expect(scanned, "registrant-supplied field text must leave the scan").not.toContain(text);
+    }
+    expect(scanned, "repository-owned card copy must stay in the scan").toContain("Resource");
   });
 
   test("every forbidden claim is still catchable by its own pattern", async () => {
@@ -140,7 +184,7 @@ test.describe("public-claim boundary (rendered copy)", () => {
   test("landing stats render the published assurance counts", async ({ page }) => {
     await page.goto("/");
     await expect(
-      page.getByRole("heading", { name: PUBLIC_CLAIM_DOM_ROUTES[0].readyHeading }).first(),
+      page.getByRole("heading", { name: PUBLIC_CLAIM_DOM_ROUTES[0].readyCopy }).first(),
     ).toBeVisible({ timeout: 30_000 });
 
     const readStat = async (label: string) => {

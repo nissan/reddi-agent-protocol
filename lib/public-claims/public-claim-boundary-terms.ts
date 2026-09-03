@@ -132,6 +132,7 @@ function boundaryFormsFor(claimId: string): RegExp[] {
     forms.push(
       /\bno-(?:custody|spend|settlement)\b/i,
       /\bno\b[^.;|]{0,24}\b(?:AUDD|USDC|SPL)\b[^.;|]{0,12}\bcustody\b/i,
+      /\bno\b[^.;|]{0,24}\b(?:AUDD|USDC|SPL)\b[^.;|]{0,40}?\bis\s+(?:settled|escrowed|held|custodied)\b/i,
       new RegExp(`${predicate}[^.;|]{0,80}?\\b(?:is|are|remains?)\\s+not\\b`, "i"),
       new RegExp(`${predicate}[^.;|]{0,120}?\\bremains?\\s+outside\\b`, "i"),
     );
@@ -175,6 +176,7 @@ export const QUALIFIER_CASES: { line: string; claimId: string; qualified: boolea
   { line: "The protocol collects a 0.05% take-rate with no fee cap.", claimId: "collected-fee", qualified: false },
   { line: "RAP collects a protocol fee, gated behind approval.", claimId: "collected-fee", qualified: false },
   { line: "AUDD settlement is live with no custody limits.", claimId: "live-audd-settlement", qualified: false },
+  { line: "No AUDD wallet is needed and settlement is live today.", claimId: "live-audd-settlement", qualified: false },
   { line: "AUDD settlement is live, avoid the demo path.", claimId: "live-audd-settlement", qualified: false },
   { line: "Reddi Agent Protocol is the marketplace rail with no lock-in.", claimId: "marketplace-rail", qualified: false },
   { line: "RAP Assurance operates as a payment facilitator without fees.", claimId: "payment-facilitator", qualified: false },
@@ -213,6 +215,11 @@ export const QUALIFIER_CASES: { line: string; claimId: string; qualified: boolea
     qualified: true,
   },
   { line: "AUDD/SPL custody is not claimed.", claimId: "live-audd-settlement", qualified: true },
+  {
+    line: "No AUDD is settled, escrowed, or held in Quasar custody by this public proof contract.",
+    claimId: "live-audd-settlement",
+    qualified: true,
+  },
   {
     line: "See [AUDD non-custodial foundation](#audd-non-custodial-foundation) for the canonical x402 export and read-only observation boundary; actual wallet actions, SPL custody, Quasar escrow, and settlement proof verification remain outside this package.",
     claimId: "live-audd-settlement",
@@ -305,11 +312,16 @@ export function claimIsQualified(line: string, claim: ForbiddenPublicClaim): boo
 export type PublicClaimDomRoute = {
   path: string;
   /**
-   * Heading that only the route's own content tree renders. The DOM gate waits
+   * Copy that only the route's own content tree renders. The DOM gate waits
    * for it before snapshotting, so a green result cannot come from an
    * unhydrated shell.
    */
-  readyHeading: RegExp;
+  readyCopy: RegExp;
+  /**
+   * Set for routes that render no heading element (the /tour carousel, for
+   * example); the gate then waits on visible text instead of a heading role.
+   */
+  readyAsText?: true;
   /**
    * Selector for a route's data-dependent region, where the heading renders
    * above a loading skeleton and so cannot vouch for the copy below it. The
@@ -337,17 +349,30 @@ export const EXTERNAL_CLAIM_SCOPE_SELECTOR = `[${CLAIM_SCOPE_ATTRIBUTE}="${EXTER
  * routes deliberately left out and why.
  */
 export const PUBLIC_CLAIM_DOM_ROUTES: PublicClaimDomRoute[] = [
-  { path: "/", readyHeading: /payments prove transfer\. RAP Assurance proves paid work\./i },
+  { path: "/", readyCopy: /payments prove transfer\. RAP Assurance proves paid work\./i },
   {
     path: "/agents",
-    readyHeading: /specialist directory/i,
+    readyCopy: /specialist directory/i,
     settledContent:
       '[data-testid="agent-card"], [data-testid="marketplace-candidate-card"], [data-testid="discovery-empty-state"]',
   },
-  { path: "/spec", readyHeading: /ADL/i },
-  { path: "/whitepaper", readyHeading: /Reddi Agent Protocol Whitepaper/i },
-  { path: "/start", readyHeading: /proof walkthrough|walkthrough recording is currently withheld/i },
-  { path: "/playbook", readyHeading: /Start fast, then go deep/i },
-  { path: "/dogfood", readyHeading: /Dogfood Specialist \+ Attestor Flow/i },
-  { path: "/leaderboard", readyHeading: /Specialist Leaderboard/i },
+  { path: "/spec", readyCopy: /ADL/i },
+  { path: "/whitepaper", readyCopy: /Reddi Agent Protocol Whitepaper/i },
+  { path: "/start", readyCopy: /proof walkthrough|walkthrough recording is currently withheld/i },
+  { path: "/playbook", readyCopy: /Start fast, then go deep/i },
+  { path: "/dogfood", readyCopy: /Dogfood Specialist \+ Attestor Flow/i },
+  { path: "/faq", readyCopy: /Common onboarding questions/i },
+  { path: "/updates", readyCopy: /Project updates/i },
+  { path: "/testers", readyCopy: /Help us test RAP Assurance loops/i },
+  { path: "/customize", readyCopy: /Customise Your Agent/i },
+  { path: "/judge-replication", readyCopy: /Verify the Reddi Agent Protocol proof path yourself/i },
+  { path: "/mcp-bridge-demo", readyCopy: /Reddi Agent Protocol MCP Bridge/i },
+  { path: "/adl", readyCopy: /A specification for agents that can discover, pay, verify, and improve each other/i },
+  { path: "/feedback", readyCopy: /Help set the standard/i },
+  { path: "/economic-demo/public-proof", readyCopy: /Public proof rendering for the paid workflow ledger/i },
+  {
+    path: "/tour",
+    readyCopy: /Payments prove transfer; RAP Assurance proves paid work/i,
+    readyAsText: true,
+  },
 ];
