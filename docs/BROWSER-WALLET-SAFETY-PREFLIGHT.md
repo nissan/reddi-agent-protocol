@@ -29,7 +29,7 @@ npm run check:browser-wallet:copy-guard
 npm run test:browser-wallet:safety
 ```
 
-All commands are offline. They read JSON/config/env only and never touch a browser, wallet, faucet, RPC, validator, mint, keypair, signature, blockhash, transaction, token balance, or network.
+All commands are offline. They read JSON/config/env only and never touch a browser, wallet, faucet, RPC, validator, mint, keypair, signature, blockhash, transaction, token balance, or network. `npm run test:browser-wallet:safety` is wired into the RAP package guard workflow with its negative controls so CLI regressions fail hosted CI.
 
 ## Single-use Devnet approval schema
 
@@ -51,7 +51,7 @@ The schema is `reddi.browser-wallet.single-use-approval.v1` and is implemented i
 - Rollback owner and required disconnect/revoke, profile deletion, local-state deletion, redacted evidence preservation, incident suspension, and fresh approval before resume.
 - Explicit boundaries: no mainnet, no production, no custody, no settlement finality, no official AUDD Devnet, no live funds, no AI faucet, no Pay.sh production, no automatic top-up.
 
-The checker rejects missing, malformed, expired, contradictory, unknown, mainnet, overly broad, or non-canonical records with sanitized error codes/paths only.
+The checker rejects missing, malformed, expired, contradictory, unknown, mainnet, overly broad, or non-canonical records with sanitized error codes/paths only. Approval timestamps must be ordered (`approvedAt` before `expiresAt`, provider source `retrievedAt` no later than `approvedAt`). Any future partner-confirmed AUDD Devnet path must bind the asset mint, token program, decimals, and Devnet rail identity exactly to the partner-confirmed approval before it can pass manual review.
 
 ## Playwright signer hardening
 
@@ -81,7 +81,7 @@ This task intentionally does not create a mint, keypair, address, signature, blo
 
 Every quote, policy decision, intent, observation, x402 export, receipt, evidence row, dashboard row, and grant/export row must resolve to one canonical identity: rail environment, RAP network alias, CAIP-2 where public, asset label, mint, token program, decimals, observation source, grant eligibility, approval reference, and receipt reference.
 
-Expected/mock terms must never be described as observed evidence. The executable copy guard rejects deterministic fixtures, local test mints, and unverified Devnet rows when they are labelled as official AUDD, grant-eligible, observed settlement, settlement finality, or controlled-live evidence.
+Expected/mock terms must never be described as observed evidence. The executable copy guard rejects official AUDD, grant-eligible, observed settlement, settlement-finality, and controlled-live copy across every current browser-wallet safety row until a future evidence-aware approved path explicitly replaces this contract. Negations are evaluated within the matched copy clause, so a separate `non_eligible` badge cannot suppress an affirmative grant overclaim elsewhere.
 
 ## Devnet faucet and funding rule
 

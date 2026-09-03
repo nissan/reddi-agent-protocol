@@ -132,7 +132,7 @@ const artifact = {
   blockers: checks.filter((entry) => !entry.ok).map((entry) => entry.id),
   guardrails: [
     "No source-code grepping, network, RPC, wallet, browser, transaction, or settlement action occurs; this validates supplied evidence/copy rows only.",
-    "Deterministic fixtures, local test mints, and unverified Devnet rows must never be represented as official AUDD, grant-eligible, observed settlement, or controlled-live evidence.",
+    "Browser-wallet safety rows must never be represented as official AUDD, grant-eligible, observed settlement, settlement-finality, or controlled-live evidence until a future evidence-aware approval path explicitly replaces this contract.",
   ],
 };
 console.log(JSON.stringify(artifact, null, 2));

@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import localSurfpoolProfile from "./config/networks/local-surfpool.json";
 import { isLoopbackRpcUrl } from "./lib/config/loopback-endpoint";
 
 const PLAYWRIGHT_SIGNER_BUILD_REFUSAL =
@@ -11,11 +12,17 @@ function normalizeBuildProfile(raw: string): "local-surfpool" | "devnet" | "main
   return "devnet";
 }
 
+function localSurfpoolRpcDefaults(): { rpcHttp: string; rpcWs?: string } {
+  const solana = localSurfpoolProfile.solana;
+  return { rpcHttp: solana.rpcHttp, rpcWs: solana.rpcWs };
+}
+
 function assertSafePlaywrightSignerBuildEnv(): void {
   if (!process.env.NEXT_PUBLIC_PLAYWRIGHT_WALLET_SECRET_KEY) return;
   const profile = normalizeBuildProfile(process.env.NETWORK_PROFILE ?? process.env.NEXT_PUBLIC_NETWORK_PROFILE ?? "devnet");
-  const rpcHttp = process.env.NEXT_PUBLIC_RPC_ENDPOINT ?? process.env.NEXT_PUBLIC_RPC_URL ?? process.env.DEMO_DEVNET_RPC ?? (profile === "local-surfpool" ? "http://127.0.0.1:18999" : "");
-  const rpcWs = process.env.NEXT_PUBLIC_RPC_WS_ENDPOINT ?? (profile === "local-surfpool" ? "ws://127.0.0.1:19000" : undefined);
+  const localDefaults = profile === "local-surfpool" ? localSurfpoolRpcDefaults() : undefined;
+  const rpcHttp = process.env.NEXT_PUBLIC_RPC_ENDPOINT ?? process.env.NEXT_PUBLIC_RPC_URL ?? process.env.DEMO_DEVNET_RPC ?? localDefaults?.rpcHttp ?? "";
+  const rpcWs = process.env.NEXT_PUBLIC_RPC_WS_ENDPOINT ?? localDefaults?.rpcWs;
   if (profile !== "local-surfpool" || !isLoopbackRpcUrl(rpcHttp, "http:") || (rpcWs && !isLoopbackRpcUrl(rpcWs, "ws:"))) {
     throw new Error(PLAYWRIGHT_SIGNER_BUILD_REFUSAL);
   }
