@@ -73,6 +73,32 @@ const cases = [
     expectBlockerPrefix: "expired_browser_wallet_approval:",
   },
   {
+    name: "approval checker blocks JSON that parses to a non-object",
+    command: [
+      "scripts/check-browser-wallet-devnet-approval-record.mjs",
+      "--approval",
+      "scripts/fixtures/browser-wallet-devnet-approval/approval.not-an-object.json",
+      "--now",
+      "2026-09-03T12:30:00.000Z",
+    ],
+    env: {},
+    expectExit: 1,
+    expectStatus: "blocked",
+    expectBlocker: "malformed_browser_wallet_approval:$",
+  },
+  {
+    name: "Tier 1 contract checker blocks JSON that parses to a non-object",
+    command: [
+      "scripts/check-browser-wallet-tier1-local-contract.mjs",
+      "--contract",
+      "scripts/fixtures/browser-wallet-devnet-approval/approval.not-an-object.json",
+    ],
+    env: {},
+    expectExit: 1,
+    expectStatus: "blocked",
+    expectBlocker: "malformed_browser_wallet_approval:$",
+  },
+  {
     name: "Tier 1 dormant contract checker passes built-in contract",
     command: ["scripts/check-browser-wallet-tier1-local-contract.mjs"],
     env: {},

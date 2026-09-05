@@ -88,13 +88,13 @@ function readJson(path, checks) {
   const fullPath = resolveRepoPath(path);
   if (!path || !existsSync(fullPath)) {
     checks.push({ id: "approval_record_present", ok: false, summary: "approval JSON file must exist" });
-    return null;
+    return { read: false, value: null };
   }
   try {
-    return JSON.parse(readFileSync(fullPath, "utf8"));
+    return { read: true, value: JSON.parse(readFileSync(fullPath, "utf8")) };
   } catch {
     checks.push({ id: "approval_json_parseable", ok: false, summary: "approval JSON must parse" });
-    return null;
+    return { read: false, value: null };
   }
 }
 
@@ -121,8 +121,8 @@ if (args.unknown) {
 const checks = [];
 const approval = readJson(args.approval, checks);
 const now = args.now && Number.isFinite(Date.parse(args.now)) ? args.now : undefined;
-if (approval) {
-  const result = validateBrowserWalletApprovalRecord(approval, {
+if (approval.read) {
+  const result = validateBrowserWalletApprovalRecord(approval.value, {
     now,
     allowFuturePartnerConfirmedAuddDevnet: args.allowFutureAuddDevnet,
   });
@@ -139,7 +139,7 @@ if (approval) {
   }
 }
 
-const status = checks.every((check) => check.ok) ? "approved_for_manual_review" : "blocked";
+const status = checks.length > 0 && checks.every((check) => check.ok) ? "approved_for_manual_review" : "blocked";
 const artifact = {
   schemaVersion: BROWSER_WALLET_APPROVAL_VALIDATION_SCHEMA_VERSION,
   generatedAt: new Date().toISOString(),

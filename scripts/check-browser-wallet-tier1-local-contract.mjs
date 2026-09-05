@@ -60,17 +60,17 @@ function resolveRepoPath(path) {
   return isAbsolute(path) ? path : join(rootDir, path);
 }
 function readOptionalContract(path, checks) {
-  if (!path) return DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT;
+  if (!path) return { read: true, value: DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT };
   const full = resolveRepoPath(path);
   if (!existsSync(full)) {
     checks.push({ id: "contract_present", ok: false, summary: "Tier 1 contract JSON file must exist" });
-    return null;
+    return { read: false, value: null };
   }
   try {
-    return JSON.parse(readFileSync(full, "utf8"));
+    return { read: true, value: JSON.parse(readFileSync(full, "utf8")) };
   } catch {
     checks.push({ id: "contract_json_parseable", ok: false, summary: "Tier 1 contract JSON must parse" });
-    return null;
+    return { read: false, value: null };
   }
 }
 function help() {
@@ -93,8 +93,8 @@ if (args.unknown) {
 }
 const checks = [];
 const contract = readOptionalContract(args.contract, checks);
-if (contract) {
-  const result = validateBrowserWalletTier1LocalHarnessContract(contract);
+if (contract.read) {
+  const result = validateBrowserWalletTier1LocalHarnessContract(contract.value);
   if (result.ok) {
     checks.push({ id: "tier1_contract", ok: true, summary: "Tier 1 local browser harness contract is dormant, local-only, and canonical" });
   } else {
@@ -103,7 +103,7 @@ if (contract) {
     }
   }
 }
-const status = checks.every((entry) => entry.ok) ? "passed" : "blocked";
+const status = checks.length > 0 && checks.every((entry) => entry.ok) ? "passed" : "blocked";
 const artifact = {
   schemaVersion: BROWSER_WALLET_TIER1_LOCAL_HARNESS_SCHEMA_VERSION,
   generatedAt: new Date().toISOString(),
