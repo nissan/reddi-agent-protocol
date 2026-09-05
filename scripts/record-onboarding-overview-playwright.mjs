@@ -1,4 +1,16 @@
 #!/usr/bin/env node
+/**
+ * Regenerates the `overview` onboarding walkthrough.
+ *
+ * The RAP Assurance claim remediation deleted `public/videos/onboarding/overview.mp4`,
+ * its poster, and its caption track outright, and the `overview` guide in
+ * `lib/onboarding/video-guides.ts` now carries no `videoSrc` at all — see
+ * "Withheld stale captures" in `docs/PUBLIC-CLAIM-BOUNDARY.md`. The default output
+ * paths below still write back to those deleted files, and the scene labels below
+ * still narrate the retired pre-remediation copy. Re-author the scenes and voiceover
+ * against current copy before running this, or the run restores exactly what the
+ * remediation removed.
+ */
 import { chromium } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
