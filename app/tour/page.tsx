@@ -252,10 +252,22 @@ export default function TourPage() {
             >
               <X size={16} /> Close
             </button>
+            <p
+              data-testid="tour-video-boundary-notice"
+              className="mb-3 rounded-lg border border-white/10 bg-[#1a1a2e] px-4 py-3 text-xs leading-relaxed text-white/40"
+            >
+              Recording predates this page&apos;s public-claim remediation: it still narrates
+              retired escrow/marketplace copy and the retired treasury-fee split. Nothing in it is
+              a current claim — browse{' '}
+              <Link href="/" className="underline hover:text-white/60">
+                this build
+              </Link>{' '}
+              for the copy that is.
+            </p>
             <video
               ref={videoRef}
               controls
-              autoPlay
+              preload="none"
               className="w-full rounded-xl border border-white/10 shadow-2xl"
               style={{ aspectRatio: '1280/800' }}
             >
