@@ -678,8 +678,8 @@ export function validateBrowserWalletIdentityCopyClaims(input: unknown): Browser
     if (row.railEnvironment === 'deterministic-fixture' && row.mint !== AUDD_DETERMINISTIC_FIXTURE_MINT) {
       errors.push(error('non_canonical_browser_wallet_identity', '$.mint', 'deterministic AUDD fixture rows must use the fixture sentinel only'));
     }
-    if (row.mint === AUDD_OFFICIAL_SOLANA_MAINNET_MINT) {
-      errors.push(error('mainnet_browser_wallet_rejected', '$.mint', 'fixture, local-test, and unverified Devnet rows must not name the official Solana mainnet AUDD mint'));
+    if (typeof row.mint === 'string' && REJECTED_MAINNET_MINTS.has(row.mint)) {
+      errors.push(error('mainnet_browser_wallet_rejected', '$.mint', 'fixture, local-test, and unverified Devnet rows must not name an official Solana mainnet mint'));
     }
     if (row.railEnvironment === 'local-test-mint' && row.mint === AUDD_DETERMINISTIC_FIXTURE_MINT) {
       errors.push(error('non_canonical_browser_wallet_identity', '$.mint', 'local test mint rows must not reuse the deterministic AUDD fixture mint'));
@@ -1020,8 +1020,8 @@ function validateAsset(
     validateOptionalHash(partnerConfirmation.sourceSha256, `${path}.auddPartnerConfirmation.sourceSha256`, errors);
     if (!isValidSolanaPublicKey(partnerConfirmation.confirmedMint)) {
       errors.push(error('non_canonical_browser_wallet_identity', `${path}.auddPartnerConfirmation.confirmedMint`, 'future AUDD Devnet partner confirmation must name an exact mint'));
-    } else if (partnerConfirmation.confirmedMint === AUDD_OFFICIAL_SOLANA_MAINNET_MINT) {
-      errors.push(error('mainnet_browser_wallet_rejected', `${path}.auddPartnerConfirmation.confirmedMint`, 'the official Solana mainnet AUDD mint is never a partner-confirmed Devnet mint'));
+    } else if (REJECTED_MAINNET_MINTS.has(partnerConfirmation.confirmedMint as string)) {
+      errors.push(error('mainnet_browser_wallet_rejected', `${path}.auddPartnerConfirmation.confirmedMint`, 'an official Solana mainnet mint is never a partner-confirmed Devnet mint'));
     }
     requireLiteral(partnerConfirmation.confirmedDecimals, AUDD_DECIMALS, `${path}.auddPartnerConfirmation.confirmedDecimals`, 'non_canonical_browser_wallet_identity', errors);
     requireLiteral(partnerConfirmation.confirmedTokenProgram, SPL_TOKEN_PROGRAM_ID, `${path}.auddPartnerConfirmation.confirmedTokenProgram`, 'non_canonical_browser_wallet_identity', errors);

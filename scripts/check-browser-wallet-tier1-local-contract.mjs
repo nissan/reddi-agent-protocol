@@ -38,17 +38,19 @@ const {
 } = await import(pathToFileURL(join(rootDir, "packages", "agent-protocol", "src", "browser-wallet-approval.ts")).href);
 
 function parseArgs(argv) {
-  const args = { contract: "", help: false, unknown: "" };
+  const args = { contract: "", contractRequested: false, help: false, unknown: "" };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     const next = argv[index + 1];
     if (arg === "--contract") {
       args.contract = next ?? "";
+      args.contractRequested = true;
       index += 1;
     } else if (arg === "--help" || arg === "-h") {
       args.help = true;
     } else if (!arg.startsWith("--") && !args.contract) {
       args.contract = arg;
+      args.contractRequested = true;
     } else {
       args.unknown = arg;
       break;
@@ -59,8 +61,12 @@ function parseArgs(argv) {
 function resolveRepoPath(path) {
   return isAbsolute(path) ? path : join(rootDir, path);
 }
-function readOptionalContract(path, checks) {
-  if (!path) return { read: true, value: DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT };
+function readOptionalContract(path, requested, checks) {
+  if (!requested) return { read: true, value: DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT };
+  if (!path) {
+    checks.push({ id: "contract_path_supplied", ok: false, summary: "--contract requires an exact Tier 1 contract JSON path" });
+    return { read: false, value: null };
+  }
   const full = resolveRepoPath(path);
   if (!existsSync(full)) {
     checks.push({ id: "contract_present", ok: false, summary: "Tier 1 contract JSON file must exist" });
@@ -92,7 +98,7 @@ if (args.unknown) {
   process.exit(1);
 }
 const checks = [];
-const contract = readOptionalContract(args.contract, checks);
+const contract = readOptionalContract(args.contract, args.contractRequested, checks);
 if (contract.read) {
   const result = validateBrowserWalletTier1LocalHarnessContract(contract.value);
   if (result.ok) {
@@ -108,7 +114,7 @@ const artifact = {
   schemaVersion: BROWSER_WALLET_TIER1_LOCAL_HARNESS_SCHEMA_VERSION,
   generatedAt: new Date().toISOString(),
   status,
-  inputs: { contract: args.contract ? relative(rootDir, resolveRepoPath(args.contract)) : "built-in-dormant-contract" },
+  inputs: { contract: args.contractRequested ? (args.contract ? relative(rootDir, resolveRepoPath(args.contract)) : null) : "built-in-dormant-contract" },
   checks,
   blockers: checks.filter((entry) => !entry.ok).map((entry) => entry.id),
   guardrails: [

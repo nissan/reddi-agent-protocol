@@ -106,6 +106,28 @@ const cases = [
     expectStatus: "passed",
   },
   {
+    name: "Tier 1 contract checker blocks a valueless --contract flag instead of silently using the built-in contract",
+    command: ["scripts/check-browser-wallet-tier1-local-contract.mjs", "--contract"],
+    env: {},
+    expectExit: 1,
+    expectStatus: "blocked",
+    expectBlocker: "contract_path_supplied",
+  },
+  {
+    name: "approval checker blocks an unparseable --now instead of falling back to wall-clock time",
+    command: [
+      "scripts/check-browser-wallet-devnet-approval-record.mjs",
+      "--approval",
+      "scripts/fixtures/browser-wallet-devnet-approval/approval.valid.json",
+      "--now",
+      "2026-13-45",
+    ],
+    env: {},
+    expectExit: 1,
+    expectStatus: "blocked",
+    expectBlocker: "now_parseable",
+  },
+  {
     name: "copy guard passes safe fixtures",
     command: ["scripts/check-browser-wallet-copy-guard.mjs"],
     env: {},
