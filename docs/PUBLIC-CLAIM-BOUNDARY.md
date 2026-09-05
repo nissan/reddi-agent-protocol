@@ -60,7 +60,7 @@ Screenshots and recordings that predate this remediation are withheld rather tha
 
 Withholding does not delete the file. `public/videos/onboarding/economic-proof.mp4`, `register-agent.mp4`, their posters, and the captures under `public/tour/` and `public/whitepaper/` stay in the repository and stay fetchable at their unchanged paths. That is inside this boundary because the surface this document gates is rendered copy and owned prose: an asset that no page renders and no link reaches asserts nothing to a reader of the product, and the recording stays available as evidence of the devnet runs the guides cite. Do not reintroduce a link, embed, or `videoSrc`/`image` reference to a withheld capture without re-recording it against current copy.
 
-Deletion is required, not optional, when the asset's own text is scanned prose. The caption tracks under `public/videos/onboarding/captions/` are read by `npm run check:claims:public`; `overview.vtt` carried retired wording, so that recording, its poster, and its caption track were removed outright and the guide now carries no `videoSrc` at all. The two remaining caption tracks pass that gate and stay in the scanned set.
+Deletion is required, not optional, when the asset's own text is scanned prose. The caption tracks under `public/videos/onboarding/captions/` are read by `npm run check:claims:public`; `overview.vtt` carried retired wording, so that recording, its poster, and its caption track were removed outright and the guide now carries no `videoSrc` at all. Every caption track that remains — `hire-agent-x402.vtt`, `economic-proof.vtt`, and `register-agent.vtt` — passes that gate and stays in the scanned set, including the two whose recordings are withheld.
 
 ## Evidence artifacts that are not committed
 
