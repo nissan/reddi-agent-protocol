@@ -24,12 +24,12 @@ Current authority comes from:
 ```bash
 npm run check:browser-wallet:preconditions
 npm run check:browser-wallet:devnet-approval -- --approval <approval.json> [--now <iso>] [--allow-future-partner-confirmed-audd-devnet]
-npm run check:browser-wallet:tier1-contract
-npm run check:browser-wallet:copy-guard
+npm run check:browser-wallet:tier1-contract [-- --contract <contract.json>]
+npm run check:browser-wallet:copy-guard [-- [--row <row.json>]... [--negative-control]]
 npm run test:browser-wallet:safety
 ```
 
-All commands are offline. They read JSON/config/env only and never touch a browser, wallet, faucet, RPC, validator, mint, keypair, signature, blockhash, transaction, token balance, or network. `npm run test:browser-wallet:safety` is wired into the RAP package guard workflow with its negative controls so CLI regressions fail hosted CI.
+All commands are offline. They read JSON/config/env only and never touch a browser, wallet, faucet, RPC, validator, mint, keypair, signature, blockhash, transaction, token balance, or network. Each command also fails closed on its own inputs rather than falling back to a default: JSON that parses to a non-object, an unparseable `--now`, and a `--contract` flag supplied without a path are all blockers, never a silent fallback to wall-clock time or to the built-in dormant contract. `npm run test:browser-wallet:safety` is wired into the RAP package guard workflow with its negative controls so CLI regressions fail hosted CI.
 
 ## Single-use Devnet approval schema
 
@@ -46,7 +46,7 @@ The schema is `reddi.browser-wallet.single-use-approval.v1` and is implemented i
 - Human funding source reference and maximum Devnet SOL balance at risk; AI faucet use and auto top-ups must be false.
 - Per-action cap, per-session cap, fee cap, `maxActions: 1`.
 - Explicit retry policy; disabled retries require `maxRetries: 0`, enabled retries are bounded and count against caps.
-- Asset identity: SOL fee-only or the existing gated Devnet USDC lane. Local `AUDD_TEST`/`LOCAL_AUDD_TEST` is Tier 1 only. AUDD on Devnet is blocked by default.
+- Asset identity: SOL fee-only or the existing gated Devnet USDC lane, whose mint must equal `CANONICAL_DEVNET_USDC_MINT` in `packages/agent-protocol/src/browser-wallet-approval.ts`. An official Solana mainnet mint (AUDD or USDC) is rejected on every asset path, including a future partner-confirmed AUDD Devnet mint. Local `AUDD_TEST`/`LOCAL_AUDD_TEST` is Tier 1 only. AUDD on Devnet is blocked by default.
 - Evidence destination under the browser-wallet evidence namespace plus redaction policy forbidding private keys, seed phrases, signer arrays, cookies, auth headers, and raw payment payloads.
 - Rollback owner and required disconnect/revoke, profile deletion, local-state deletion, redacted evidence preservation, incident suspension, and fresh approval before resume.
 - Explicit boundaries: no mainnet, no production, no custody, no settlement finality, no official AUDD Devnet, no live funds, no AI faucet, no Pay.sh production, no automatic top-up.
@@ -61,7 +61,7 @@ The checker rejects missing, malformed, expired, contradictory, unknown, mainnet
 2. effective HTTP RPC is explicit loopback `http://` with a port;
 3. effective WS endpoint, when present, is explicit loopback `ws://` with a port.
 
-`next.config.ts` also refuses unsafe build/dev environments before a public signer secret can be bundled. The Playwright web server command runs `scripts/check-browser-wallet-command-preconditions.mjs` before starting Next so a non-local public signer secret is blocked before a bundle is served. Error messages never include env values, endpoint strings, or key material.
+`next.config.ts` also refuses unsafe build/dev environments before a public signer secret can be bundled. The Playwright web server command runs `scripts/check-browser-wallet-command-preconditions.mjs` before starting Next so a non-local public signer secret is blocked before a bundle is served. All three layers decide loopback with the single shared predicate in `lib/config/loopback-endpoint.ts`. Error messages never include env values, endpoint strings, or key material.
 
 ## Dormant Tier 1 local browser-harness contract
 
@@ -81,7 +81,7 @@ This task intentionally does not create a mint, keypair, address, signature, blo
 
 Every quote, policy decision, intent, observation, x402 export, receipt, evidence row, dashboard row, and grant/export row must resolve to one canonical identity: rail environment, RAP network alias, CAIP-2 where public, asset label, mint, token program, decimals, observation source, grant eligibility, approval reference, and receipt reference.
 
-Expected/mock terms must never be described as observed evidence. The executable copy guard rejects official AUDD, grant-eligible, observed settlement, settlement-finality, and controlled-live copy across every current browser-wallet safety row until a future evidence-aware approved path explicitly replaces this contract. Negations are evaluated within the matched copy clause, so a separate `non_eligible` badge cannot suppress an affirmative grant overclaim elsewhere.
+Expected/mock terms must never be described as observed evidence. The executable copy guard rejects official AUDD, grant-eligible, observed settlement, settlement-finality, and controlled-live copy across every current browser-wallet safety row until a future evidence-aware approved path explicitly replaces this contract. Negations are evaluated within the matched copy clause, so a separate `non_eligible` badge cannot suppress an affirmative grant overclaim elsewhere. Any non-live row that names an official Solana mainnet mint (AUDD or USDC) is rejected regardless of its rail environment or asset label.
 
 ## Devnet faucet and funding rule
 
