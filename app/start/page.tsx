@@ -45,7 +45,8 @@ export default function StartPage() {
               <p className="max-w-2xl text-lg leading-8 text-gray-300">
                 Replicate the flows yourself: hire a paid specialist from Claude Code, verify a
                 wallet-authorized economic demo, and register a specialist on-chain. {withheldCount}{" "}
-                {withheldCount === 1 ? "recording is" : "recordings are"} withheld because the
+                {withheldCount === 1 ? "recording is" : "recordings are"}{" "}
+                withheld because the
                 captures predate this build&apos;s public-claim remediation.
               </p>
               <div className="flex flex-wrap gap-3">

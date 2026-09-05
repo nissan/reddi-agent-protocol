@@ -100,6 +100,15 @@ test.describe("judge replication onboarding", () => {
     await expect(page.locator('track[kind="captions"]')).toHaveCount(playable);
     await expectWithheldNotices(page, withheld);
 
+    // The hero tally interpolates the count and its pluralization, and JSX drops the
+    // newline that follows an expression, so each seam needs an explicit space. Read
+    // the rendered sentence back rather than the card count so "recordings arewithheld"
+    // fails here instead of shipping.
+    const heroTally = await page.getByText(/Replicate the flows yourself/).first().innerText();
+    expect(heroTally).toContain(
+      `${withheld} ${withheld === 1 ? "recording is" : "recordings are"} withheld because the captures predate`,
+    );
+
     await expect(page.getByText("Choose your protocol path")).toBeVisible();
     for (const title of proofVideos) {
       await expect(page.getByText(title).first()).toBeVisible();
