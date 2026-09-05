@@ -630,7 +630,7 @@ Given the combined final gate set is now known-good, when an operator wants to r
   - BDD index guard
   - payment-readiness Jest test
   - Quasar submission guard
-- It also verifies `artifacts/economic-demo-submission-prep/latest/SUBMISSION-PREP.md` references a timestamped run report JSON and that the report includes `payShReddix402Compatibility`.
+- It also verifies the submission prep it resolves (the newest committed timestamped run, since the `latest` symlink is not committed) references a timestamped run report JSON and that the report includes `payShReddix402Compatibility`.
 
 ### Validation
 

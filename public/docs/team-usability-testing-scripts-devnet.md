@@ -61,10 +61,10 @@ Goal: a reviewer can verify the public proof trail without accidentally triggeri
 Tester action:
 
 1. Open `/`.
-2. Confirm the homepage shows exactly three proof videos.
+2. Confirm the homepage shows exactly three walkthrough cards: the Claude Code x402 specialist recording plays, and the economic-demo and registration cards each render a withheld-recording notice instead of a player.
 3. Click nav **Start**.
-4. Confirm `/start` shows the overview video plus the three proof videos.
-5. Confirm each video exposes a captions track in the browser controls or DOM.
+4. Confirm `/start` leads with the one walkthrough that still plays and shows the other three guides as cards, each carrying a withheld-recording notice that says why the capture is missing and where the current copy is.
+5. Confirm the one playable recording exposes a captions track in the browser controls or DOM.
 6. Click **Open verification guide** or **Open replication guide**.
 7. Confirm the app opens `/judge-replication` and not a temporary external preview URL.
 8. On `/judge-replication`, copy and run:
@@ -82,9 +82,9 @@ Expected:
 Record:
 
 ```text
-Homepage proof video count:
-/start video count:
-Captions present? yes/no
+Homepage walkthrough card count (playable / withheld):
+/start walkthrough card count (playable / withheld):
+Captions present on the playable recording? yes/no
 /judge-replication opened? yes/no
 Verifier command result:
 Friction notes:
@@ -97,20 +97,20 @@ Goal: a specialist builder can understand the registration flow before connectin
 Tester action:
 
 1. Open `/register` in a browser profile with no wallet connected.
-2. Confirm the registration explainer and proof video are readable.
+2. Confirm the registration explainer is readable and that the registration walkthrough card renders its withheld-recording notice rather than a player.
 3. Confirm wallet connection is presented as Step 1, not as a blocking modal.
 4. Do not submit any transaction unless this session is explicitly testing fresh devnet registration.
 
 Expected:
 
 - The page does not hide educational/proof content behind wallet connection.
-- The user can watch the on-chain registration proof before connecting.
+- The user can read the on-chain registration proof links and the withheld-recording notice before connecting.
 
 Record:
 
 ```text
 Explainer visible before connect? yes/no
-Video visible before connect? yes/no
+Withheld-recording notice visible before connect? yes/no
 Wallet connect blocks page? yes/no
 Friction notes:
 ```

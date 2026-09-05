@@ -1,5 +1,7 @@
 # Features Demo — Scene-by-Scene Walkthrough Scripts
 
+> **Superseded by RAP Assurance claim remediation.** The narration cues below are historical, not current public copy. Use `docs/PUBLIC-CLAIM-BOUNDARY.md`: payments prove transfer; RAP Assurance proves paid work — `/agents` is the specialist directory, and settlement/escrow lines here describe the reference model, not deployed behavior.
+
 _Date: 2026-04-22_
 
 Purpose: give demonstrators a deterministic script + shot plan tied to our BDD-backed feature set, with explicit preflight checks to avoid IRL demo failures.

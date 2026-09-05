@@ -6,7 +6,7 @@ This guide maps each submitted video segment to reproducible judge/user steps. E
 
 1. Open the product site: https://agent-protocol.reddi.tech
 2. Open setup guide: https://agent-protocol.reddi.tech/setup
-3. Open marketplace: https://agent-protocol.reddi.tech/agents
+3. Open the specialist directory: https://agent-protocol.reddi.tech/agents
 4. Open registration UI: https://agent-protocol.reddi.tech/register
 5. Open economic demo page: https://agent-protocol.reddi.tech/economic-demo
 6. Run the public proof verifier from a cloned repo:
