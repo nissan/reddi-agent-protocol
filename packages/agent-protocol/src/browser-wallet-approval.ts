@@ -15,6 +15,10 @@ export const BROWSER_WALLET_TIER1_LOCAL_HARNESS_SCHEMA_VERSION = 'reddi.browser-
 export const BROWSER_WALLET_IDENTITY_COPY_GUARD_SCHEMA_VERSION = 'reddi.browser-wallet.identity-copy-guard.v1' as const;
 
 export const BROWSER_WALLET_DEVNET_ACTION_DEFAULT_OFF = true as const;
+
+export const CANONICAL_DEVNET_USDC_MINT = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU' as const;
+const OFFICIAL_SOLANA_MAINNET_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' as const;
+const REJECTED_MAINNET_MINTS = new Set<string>([AUDD_OFFICIAL_SOLANA_MAINNET_MINT, OFFICIAL_SOLANA_MAINNET_USDC_MINT]);
 export const PHANTOM_DEVNET_BROWSER_WALLET_CANDIDATE = {
   provider: 'Phantom',
   status: 'candidate-only-not-installed-or-selected',
@@ -960,6 +964,9 @@ function validateAsset(
     return;
   }
   rejectUnknownKeys(value, path, ASSET_KEYS, errors);
+  if (typeof value.mint === 'string' && REJECTED_MAINNET_MINTS.has(value.mint)) {
+    errors.push(error('mainnet_browser_wallet_rejected', `${path}.mint`, 'official Solana mainnet mints are never valid for a Devnet browser-wallet approval'));
+  }
   if (!['SOL', 'USDC', 'AUDD', 'AUDD_TEST', 'LOCAL_AUDD_TEST'].includes(String(value.symbol))) {
     errors.push(error('non_canonical_browser_wallet_identity', `${path}.symbol`, 'asset symbol is not canonical for browser-wallet approval'));
     return;
@@ -975,8 +982,8 @@ function validateAsset(
   }
   if (value.symbol === 'USDC') {
     requireLiteral(value.railEnvironment, 'devnet-unverified', `${path}.railEnvironment`, 'non_canonical_browser_wallet_identity', errors);
-    if (!isValidSolanaPublicKey(value.mint)) {
-      errors.push(error('non_canonical_browser_wallet_identity', `${path}.mint`, 'USDC approval must name an exact Devnet mint'));
+    if (value.mint !== CANONICAL_DEVNET_USDC_MINT) {
+      errors.push(error('non_canonical_browser_wallet_identity', `${path}.mint`, 'USDC approval must name the canonical Devnet USDC mint of the existing gated lane'));
     }
     requireLiteral(value.tokenProgram, SPL_TOKEN_PROGRAM_ID, `${path}.tokenProgram`, 'non_canonical_browser_wallet_identity', errors);
     requireLiteral(value.decimals, 6, `${path}.decimals`, 'non_canonical_browser_wallet_identity', errors);
@@ -1024,9 +1031,6 @@ function validateAsset(
     errors.push(error('non_canonical_browser_wallet_identity', `${path}.mint`, 'future AUDD Devnet asset must name the exact partner-confirmed Devnet mint'));
   } else if (partnerConfirmation && isValidSolanaPublicKey(partnerConfirmation.confirmedMint) && value.mint !== partnerConfirmation.confirmedMint) {
     errors.push(error('contradictory_browser_wallet_approval', `${path}.mint`, 'future AUDD Devnet asset mint must exactly match the partner-confirmed mint'));
-  }
-  if (value.mint === AUDD_OFFICIAL_SOLANA_MAINNET_MINT) {
-    errors.push(error('mainnet_browser_wallet_rejected', `${path}.mint`, 'the official Solana mainnet AUDD mint is never a Devnet browser-wallet asset'));
   }
   requireLiteral(value.railEnvironment, 'devnet-unverified', `${path}.railEnvironment`, 'non_canonical_browser_wallet_identity', errors);
   requireLiteral(value.source, 'partner-confirmed-audd-devnet', `${path}.source`, 'non_canonical_browser_wallet_identity', errors);

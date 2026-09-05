@@ -300,6 +300,25 @@ describe('manual Devnet browser-wallet approval schema', () => {
     }), { now: NOW });
     assert.equal(usdc.ok, true);
 
+    const mainnetUsdc = validateBrowserWalletApprovalRecord(validApproval({
+      uiAction: { ...validApproval().uiAction, route: '/economic-demo/paid-workflow', action: 'x402-devnet-usdc-payment' },
+      caps: { ...validApproval().caps, perActionBaseUnits: '10000', perSessionBaseUnits: '10000', maxFeeLamports: '5000' },
+      asset: {
+        symbol: 'USDC',
+        railEnvironment: 'devnet-unverified',
+        mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+        decimals: 6,
+        source: 'existing-gated-devnet-usdc-lane',
+        official: false,
+      },
+    }), { now: NOW });
+    assert.equal(mainnetUsdc.ok, false);
+    if (!mainnetUsdc.ok) {
+      assert.ok(mainnetUsdc.errors.some((entry) => entry.code === 'mainnet_browser_wallet_rejected' && entry.path === '$.asset.mint'));
+      assert.ok(mainnetUsdc.errors.some((entry) => entry.code === 'non_canonical_browser_wallet_identity' && entry.path === '$.asset.mint'));
+    }
+
     const wrongUsdcAction = validApproval({
       asset: {
         symbol: 'USDC',

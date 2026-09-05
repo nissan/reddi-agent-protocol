@@ -5,6 +5,7 @@ export declare const BROWSER_WALLET_APPROVAL_VALIDATION_SCHEMA_VERSION: "reddi.b
 export declare const BROWSER_WALLET_TIER1_LOCAL_HARNESS_SCHEMA_VERSION: "reddi.browser-wallet.tier1-local-harness-contract.v1";
 export declare const BROWSER_WALLET_IDENTITY_COPY_GUARD_SCHEMA_VERSION: "reddi.browser-wallet.identity-copy-guard.v1";
 export declare const BROWSER_WALLET_DEVNET_ACTION_DEFAULT_OFF: true;
+export declare const CANONICAL_DEVNET_USDC_MINT: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 export declare const PHANTOM_DEVNET_BROWSER_WALLET_CANDIDATE: {
     readonly provider: "Phantom";
     readonly status: "candidate-only-not-installed-or-selected";
