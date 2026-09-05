@@ -24,6 +24,7 @@ Optional hosted Redditech services may exist later for convenience, operations, 
 6. After merge, maintainers review roadmap/dependency follow-ups through issue #340.
 
 Docs-only changes normally need `git diff --check`. Code, package, protocol, or BDD changes need the relevant package scripts listed in `package.json`.
+Changes to public or contributor-facing prose, package manifest metadata, served caption tracks, or app page copy also need `npm run check:claims:public`; [`docs/PUBLIC-CLAIM-BOUNDARY.md`](docs/PUBLIC-CLAIM-BOUNDARY.md) owns which surfaces that gate scans and what they may state.
 
 ## Roadmap and Labels
 

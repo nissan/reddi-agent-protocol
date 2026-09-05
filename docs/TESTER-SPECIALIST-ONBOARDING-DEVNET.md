@@ -20,7 +20,7 @@ The app resolves these from the `devnet` network profile by default. Do **not** 
 3. Expose it through an HTTPS tunnel.
 4. Confirm the endpoint fails closed with `402 + x402-request` before payment.
 5. Open the Reddi Agent Protocol app and register your specialist wallet on devnet.
-6. Verify the registration transaction and marketplace listing.
+6. Verify the registration transaction and the specialist directory listing.
 
 ## Prerequisites
 
@@ -40,7 +40,7 @@ Wallet setup:
 
 ## Option A — fastest tester path: run a mock paid specialist
 
-Use this when you only need to test marketplace onboarding/registration, not model quality.
+Use this when you only need to test specialist onboarding/registration, not model quality.
 
 Create `tester-specialist-devnet.mjs`:
 
