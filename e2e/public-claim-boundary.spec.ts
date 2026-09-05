@@ -210,6 +210,44 @@ test.describe("public-claim boundary (rendered copy)", () => {
     ).toEqual([]);
   });
 
+  /**
+   * The /tour explainer is a pre-remediation recording kept playable behind a
+   * disclosure rather than withheld, so the disclosure is the whole boundary.
+   * The route scan snapshots the page with the modal closed; this opens it, so
+   * the modal's own copy is scanned too and the qualification cannot silently
+   * revert to an unannounced autoplay.
+   */
+  test("the /tour explainer discloses what it predates before it can play", async ({ page }) => {
+    await page.goto("/tour");
+    await expect(page.getByText(CENTRAL_MESSAGE).first()).toBeVisible({ timeout: 30_000 });
+
+    await page.getByRole("button", { name: /watch video/i }).click();
+
+    const notice = page.getByTestId("tour-video-boundary-notice");
+    await expect(notice, "the recording must say what it predates").toBeVisible();
+    await expect(notice).toHaveText(/predates[\s\S]*public-claim remediation/i);
+
+    const video = page.locator("video");
+    await expect(video).toHaveCount(1);
+    expect(
+      await video.evaluate((element: HTMLVideoElement) => element.autoplay),
+      "a pre-remediation recording must not start before the notice is read",
+    ).toBe(false);
+    expect(
+      await video.evaluate((element: HTMLVideoElement) => element.preload),
+      "a pre-remediation recording must not be fetched before the notice is read",
+    ).toBe("none");
+    expect(
+      await video.evaluate((element: HTMLVideoElement) => element.currentTime === 0 && element.paused),
+      "the recording must be paused at the start",
+    ).toBe(true);
+
+    expect(
+      unqualifiedClaims(await firstPartyCopy(page)),
+      `the /tour explainer modal breaks ${PUBLIC_CLAIM_BOUNDARY_DOC_PATH}`,
+    ).toEqual([]);
+  });
+
   test("every forbidden claim is still catchable by its own pattern", async () => {
     for (const claim of FORBIDDEN_PUBLIC_CLAIMS) {
       expect(

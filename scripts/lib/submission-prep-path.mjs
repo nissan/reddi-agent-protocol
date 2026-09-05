@@ -7,7 +7,9 @@ import { fileURLToPath } from "node:url";
  * `artifacts/economic-demo-submission-prep/latest` is a generated convenience
  * symlink that is deliberately not committed — only the timestamped run
  * directories are. Guards resolve the newest committed run rather than
- * requiring an artifact the repository does not contain. See
+ * requiring an artifact the repository does not contain. The lookup reads
+ * `HEAD` rather than the index, so a locally generated run that has only been
+ * staged cannot be reported as committed evidence. See
  * docs/PUBLIC-CLAIM-BOUNDARY.md § Evidence artifacts that are not committed.
  */
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -18,7 +20,7 @@ export const SUBMISSION_PREP_LATEST_PATH = "artifacts/economic-demo-submission-p
 function committedSubmissionPrepPaths() {
   const result = spawnSync(
     "git",
-    ["-C", ROOT, "ls-files", "--", "artifacts/economic-demo-submission-prep/*/SUBMISSION-PREP.md"],
+    ["-C", ROOT, "ls-tree", "-r", "--name-only", "HEAD", "--", "artifacts/economic-demo-submission-prep/"],
     { encoding: "utf8" },
   );
   if (result.status !== 0) return [];
