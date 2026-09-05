@@ -120,7 +120,14 @@ if (args.unknown) {
 
 const checks = [];
 const approval = readJson(args.approval, checks);
-const now = args.now && Number.isFinite(Date.parse(args.now)) ? args.now : undefined;
+let now;
+if (args.now) {
+  if (Number.isFinite(Date.parse(args.now))) {
+    now = args.now;
+  } else {
+    checks.push({ id: "now_parseable", ok: false, summary: "--now must be an exact parseable ISO timestamp" });
+  }
+}
 if (approval.read) {
   const result = validateBrowserWalletApprovalRecord(approval.value, {
     now,

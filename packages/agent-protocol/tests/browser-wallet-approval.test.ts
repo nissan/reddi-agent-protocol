@@ -23,6 +23,7 @@ const NOW = '2026-09-03T12:30:00.000Z';
 const DEVNET_PROGRAM_ID = '794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD';
 const WALLET_PUBLIC_KEY = 'So11111111111111111111111111111111111111112';
 const USDC_DEVNET_MINT = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
+const MAINNET_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
 function validApproval(overrides: Partial<BrowserWalletSingleUseApprovalRecord> = {}): BrowserWalletSingleUseApprovalRecord {
   return {
@@ -460,21 +461,23 @@ describe('browser-wallet AUDD identity/copy guard', () => {
     }
   });
 
-  it('rejects the official Solana mainnet AUDD mint on every non-live rail, not only local-test-mint', () => {
+  it('rejects official Solana mainnet mints on every non-live rail, not only local-test-mint', () => {
     for (const railEnvironment of ['local-test-mint', 'devnet-unverified'] as const) {
-      const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
-        railEnvironment,
-        assetLabel: 'AUDD_TEST',
-        networkAlias: railEnvironment === 'devnet-unverified' ? 'solana-devnet' : 'local-surfpool',
-        caip2: null,
-        mint: AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
-        observationSource: 'expected-only',
-        x402Export: undefined,
-        copy: undefined,
-      }));
-      assert.equal(result.ok, false);
-      if (!result.ok) {
-        assert.ok(result.errors.some((entry) => entry.code === 'mainnet_browser_wallet_rejected' && entry.path === '$.mint'));
+      for (const [assetLabel, mint] of [['AUDD_TEST', AUDD_OFFICIAL_SOLANA_MAINNET_MINT], ['USDC', MAINNET_USDC_MINT]] as const) {
+        const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+          railEnvironment,
+          assetLabel,
+          networkAlias: railEnvironment === 'devnet-unverified' ? 'solana-devnet' : 'local-surfpool',
+          caip2: null,
+          mint,
+          observationSource: 'expected-only',
+          x402Export: undefined,
+          copy: undefined,
+        }));
+        assert.equal(result.ok, false);
+        if (!result.ok) {
+          assert.ok(result.errors.some((entry) => entry.code === 'mainnet_browser_wallet_rejected' && entry.path === '$.mint'));
+        }
       }
     }
   });
