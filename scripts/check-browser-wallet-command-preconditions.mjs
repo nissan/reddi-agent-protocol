@@ -8,9 +8,10 @@
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
+const { isLoopbackRpcUrl } = await import(pathToFileURL(join(rootDir, "lib", "config", "loopback-endpoint.ts")).href);
 const localProfile = JSON.parse(readFileSync(join(rootDir, "config", "networks", "local-surfpool.json"), "utf8"));
 const devnetProfile = JSON.parse(readFileSync(join(rootDir, "config", "networks", "devnet.json"), "utf8"));
 const mainnetProfile = JSON.parse(readFileSync(join(rootDir, "config", "networks", "mainnet.json"), "utf8"));
@@ -51,53 +52,6 @@ function effectiveRpc(env, profile) {
     http: env.NEXT_PUBLIC_RPC_ENDPOINT || env.NEXT_PUBLIC_RPC_URL || env.DEMO_DEVNET_RPC || profile.solana.rpcHttp,
     ws: env.NEXT_PUBLIC_RPC_WS_ENDPOINT || profile.solana.rpcWs,
   };
-}
-
-function isLoopbackRpcUrl(raw, expectedProtocol) {
-  if (!raw) return false;
-  let url;
-  try {
-    url = new URL(raw);
-  } catch {
-    return false;
-  }
-  if (expectedProtocol && url.protocol !== expectedProtocol) return false;
-  if (!expectedProtocol && url.protocol !== "http:" && url.protocol !== "ws:") return false;
-  if (!url.port || url.username || url.password) return false;
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "localhost") return true;
-  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (ipv4) {
-    const octets = ipv4.slice(1).map((part) => Number.parseInt(part, 10));
-    return octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255) && octets[0] === 127;
-  }
-  if (!host.includes(":")) return false;
-  return expandIpv6(host) === "0:0:0:0:0:0:0:1";
-}
-
-function expandIpv6(host) {
-  if (host.includes("%")) return undefined;
-  const halves = host.split("::");
-  if (halves.length > 2) return undefined;
-  const parse = (part) => {
-    if (part === "") return [];
-    const hextets = part.split(":");
-    if (hextets.some((hextet) => !/^[0-9a-f]{1,4}$/.test(hextet))) return undefined;
-    return hextets;
-  };
-  const head = parse(halves[0]);
-  const tail = halves.length === 2 ? parse(halves[1]) : [];
-  if (!head || !tail) return undefined;
-  let hextets;
-  if (halves.length === 2) {
-    const fill = 8 - head.length - tail.length;
-    if (fill < 1) return undefined;
-    hextets = [...head, ...Array.from({ length: fill }, () => "0"), ...tail];
-  } else {
-    hextets = head;
-  }
-  if (hextets.length !== 8) return undefined;
-  return hextets.map((hextet) => hextet.replace(/^0+(?=.)/, "")).join(":");
 }
 
 function check(id, ok, summary) {
