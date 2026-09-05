@@ -357,6 +357,26 @@ describe('manual Devnet browser-wallet approval schema', () => {
     assert.equal(mismatch.ok, false);
     if (!mismatch.ok) assert.ok(mismatch.errors.some((entry) => entry.code === 'contradictory_browser_wallet_approval' && entry.path === '$.asset.mint'));
 
+    const mainnetMintOnBothSides = validApproval({
+      asset: {
+        ...partnerConfirmedAudd.asset,
+        mint: AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
+        auddPartnerConfirmation: {
+          sourceUrl: 'https://example.com/audd-devnet-confirmation.json',
+          sourceRetrievedAt: '2026-09-03T11:30:00.000Z',
+          confirmedMint: AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
+          confirmedDecimals: 6,
+          confirmedTokenProgram: SPL_TOKEN_PROGRAM_ID,
+        },
+      },
+    });
+    const mainnetMint = validateBrowserWalletApprovalRecord(mainnetMintOnBothSides, { now: NOW, allowFuturePartnerConfirmedAuddDevnet: true });
+    assert.equal(mainnetMint.ok, false);
+    if (!mainnetMint.ok) {
+      assert.ok(mainnetMint.errors.some((entry) => entry.code === 'mainnet_browser_wallet_rejected' && entry.path === '$.asset.mint'));
+      assert.ok(mainnetMint.errors.some((entry) => entry.code === 'mainnet_browser_wallet_rejected' && entry.path === '$.asset.auddPartnerConfirmation.confirmedMint'));
+    }
+
     const localAuddTest = validApproval({
       asset: {
         symbol: 'AUDD_TEST',
@@ -419,6 +439,49 @@ describe('browser-wallet AUDD identity/copy guard', () => {
     if (!result.ok) {
       assert.ok(result.errors.some((entry) => entry.code === 'non_canonical_browser_wallet_identity' && entry.path === '$.copy'));
     }
+  });
+
+  it('rejects the official Solana mainnet AUDD mint on every non-live rail, not only local-test-mint', () => {
+    for (const railEnvironment of ['local-test-mint', 'devnet-unverified'] as const) {
+      const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+        railEnvironment,
+        assetLabel: 'AUDD_TEST',
+        networkAlias: railEnvironment === 'devnet-unverified' ? 'solana-devnet' : 'local-surfpool',
+        caip2: null,
+        mint: AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
+        observationSource: 'expected-only',
+        x402Export: undefined,
+        copy: undefined,
+      }));
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.ok(result.errors.some((entry) => entry.code === 'mainnet_browser_wallet_rejected' && entry.path === '$.mint'));
+      }
+    }
+  });
+
+  it('does not let a bare non_eligible token in the same clause suppress a grant overclaim', () => {
+    const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+      copy: {
+        title: 'grant-eligible (non_eligible)',
+        summary: 'Local-only expected terms.',
+      },
+    }));
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.ok(result.errors.some((entry) => entry.code === 'non_canonical_browser_wallet_identity' && entry.path === '$.copy'));
+    }
+  });
+
+  it('still accepts a genuine negated grant-eligibility clause', () => {
+    const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+      copy: {
+        title: 'Local AUDD_TEST browser harness contract',
+        summary: 'This row is not grant-eligible.',
+        badges: ['local-test-mint', 'non_eligible', 'expected-only'],
+      },
+    }));
+    assert.equal(result.ok, true);
   });
 
   it('rejects official AUDD, grant-eligible, observed-settlement, and controlled-live overclaims for non-live rows', () => {

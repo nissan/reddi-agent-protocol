@@ -9,7 +9,7 @@ Current authority comes from:
 - `lib/config/network.ts` and `config/networks/*.json` for RAP network/profile resolution.
 - `packages/agent-protocol/src/audd-rail-config.ts` and `packages/agent-protocol/src/payment-records.ts` for AUDD identity, CAIP-2, decimals, mint, grant eligibility, and evidence-environment labels.
 - `packages/x402-solana/src/spl-token-observer.ts` for exact SPL `TransferChecked` observation requirements.
-- The approved source-check report at `/home/nissan/Projects/Redditech/data/reddi-browser-devnet-wallet-test-plan/report.md` for same-day official-source notes: Solana Devnet/faucet, Anza wallet adapter, Phantom Testnet Mode, Solflare verification gap, AUDD mainnet-only public source, and x402 SVM exact semantics.
+- An unarchived local note (`reddi-browser-devnet-wallet-test-plan/report.md`, outside this repository and not resolvable by reviewers or CI) recorded the same-day official-source survey behind these notes: Solana Devnet/faucet, Anza wallet adapter, Phantom Testnet Mode, Solflare verification gap, AUDD mainnet-only public source, and x402 SVM exact semantics. Treat it as background only: it is not archived evidence and no guard below reads it. Every boundary the guards enforce is stated inline in this document and implemented against the in-repo sources listed above, so the contract stands without it.
 
 ## Default state
 
@@ -85,7 +85,7 @@ Expected/mock terms must never be described as observed evidence. The executable
 
 ## Devnet faucet and funding rule
 
-AI agents must not use the Solana faucet. The approved source report recorded that the current Solana faucet page says AI agents should not use it. A human may fund a dedicated public Devnet wallet only under a separate approval that records funding source and maximum balance without exposing secrets.
+AI agents must not use the Solana faucet. The unarchived source note recorded that the current Solana faucet page says AI agents should not use it; this rule is enforced here regardless of that note. A human may fund a dedicated public Devnet wallet only under a separate approval that records funding source and maximum balance without exposing secrets.
 
 ## Suspension and rollback
 

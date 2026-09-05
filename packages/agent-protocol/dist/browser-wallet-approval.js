@@ -370,8 +370,11 @@ export function validateBrowserWalletIdentityCopyClaims(input) {
         if (row.railEnvironment === 'deterministic-fixture' && row.mint !== AUDD_DETERMINISTIC_FIXTURE_MINT) {
             errors.push(error('non_canonical_browser_wallet_identity', '$.mint', 'deterministic AUDD fixture rows must use the fixture sentinel only'));
         }
-        if (row.railEnvironment === 'local-test-mint' && (row.mint === AUDD_DETERMINISTIC_FIXTURE_MINT || row.mint === AUDD_OFFICIAL_SOLANA_MAINNET_MINT)) {
-            errors.push(error('non_canonical_browser_wallet_identity', '$.mint', 'local test mint rows must not reuse official or deterministic AUDD mints'));
+        if (row.mint === AUDD_OFFICIAL_SOLANA_MAINNET_MINT) {
+            errors.push(error('mainnet_browser_wallet_rejected', '$.mint', 'fixture, local-test, and unverified Devnet rows must not name the official Solana mainnet AUDD mint'));
+        }
+        if (row.railEnvironment === 'local-test-mint' && row.mint === AUDD_DETERMINISTIC_FIXTURE_MINT) {
+            errors.push(error('non_canonical_browser_wallet_identity', '$.mint', 'local test mint rows must not reuse the deterministic AUDD fixture mint'));
         }
         if (row.receipt?.claim === 'observed-settlement' || row.receipt?.settlementFinality || row.receipt?.controlledLiveEvidence) {
             errors.push(error('settlement_finality_rejected', '$.receipt', 'non-live rows must not claim observed settlement, settlement finality, or controlled-live evidence'));
@@ -688,6 +691,9 @@ function validateAsset(value, action, allowFuturePartnerConfirmedAuddDevnet, pat
         if (!isValidSolanaPublicKey(partnerConfirmation.confirmedMint)) {
             errors.push(error('non_canonical_browser_wallet_identity', `${path}.auddPartnerConfirmation.confirmedMint`, 'future AUDD Devnet partner confirmation must name an exact mint'));
         }
+        else if (partnerConfirmation.confirmedMint === AUDD_OFFICIAL_SOLANA_MAINNET_MINT) {
+            errors.push(error('mainnet_browser_wallet_rejected', `${path}.auddPartnerConfirmation.confirmedMint`, 'the official Solana mainnet AUDD mint is never a partner-confirmed Devnet mint'));
+        }
         requireLiteral(partnerConfirmation.confirmedDecimals, AUDD_DECIMALS, `${path}.auddPartnerConfirmation.confirmedDecimals`, 'non_canonical_browser_wallet_identity', errors);
         requireLiteral(partnerConfirmation.confirmedTokenProgram, SPL_TOKEN_PROGRAM_ID, `${path}.auddPartnerConfirmation.confirmedTokenProgram`, 'non_canonical_browser_wallet_identity', errors);
     }
@@ -697,6 +703,9 @@ function validateAsset(value, action, allowFuturePartnerConfirmedAuddDevnet, pat
     }
     else if (partnerConfirmation && isValidSolanaPublicKey(partnerConfirmation.confirmedMint) && value.mint !== partnerConfirmation.confirmedMint) {
         errors.push(error('contradictory_browser_wallet_approval', `${path}.mint`, 'future AUDD Devnet asset mint must exactly match the partner-confirmed mint'));
+    }
+    if (value.mint === AUDD_OFFICIAL_SOLANA_MAINNET_MINT) {
+        errors.push(error('mainnet_browser_wallet_rejected', `${path}.mint`, 'the official Solana mainnet AUDD mint is never a Devnet browser-wallet asset'));
     }
     requireLiteral(value.railEnvironment, 'devnet-unverified', `${path}.railEnvironment`, 'non_canonical_browser_wallet_identity', errors);
     requireLiteral(value.source, 'partner-confirmed-audd-devnet', `${path}.source`, 'non_canonical_browser_wallet_identity', errors);
@@ -854,7 +863,7 @@ function forbiddenCopyMatches(text) {
     if (clauses.some((clause) => hasAffirmativeClaim(clause, /official\s+AUDD|AUDD\s+official|official\s+Devnet\s+AUDD|AUDD\s+Devnet\s+official/i, /(?:not|never|no)\s+(?:an?\s+)?official\s+AUDD/i))) {
         matches.push({ code: 'official_audd_devnet_unavailable', message: 'copy must not describe browser-wallet safety rows as official AUDD' });
     }
-    if (clauses.some((clause) => hasAffirmativeClaim(clause, /grant[-\s]?eligible|eligible\s+for\s+grant|grant\s+volume/i, /(?:not|never|no|non[_-])\s*grant[-\s]?eligible|non_eligible/i))) {
+    if (clauses.some((clause) => hasAffirmativeClaim(clause, /grant[-\s]?eligible|eligible\s+for\s+grant|grant\s+volume/i, /(?:not|never|no|non[_-])\s*grant[-\s]?eligible/i))) {
         matches.push({ code: 'non_canonical_browser_wallet_identity', message: 'copy must not describe browser-wallet safety rows as grant-eligible' });
     }
     if (clauses.some((clause) => /observed\s+settlement|settlement\s+observed|settlement\s+finality|final\s+settlement|settled\s+on/i.test(clause))) {
