@@ -35,7 +35,10 @@ function parseArgs(argv) {
 }
 
 function resolveProfileName(env) {
-  const raw = String(env.NETWORK_PROFILE || env.NEXT_PUBLIC_BUILD_NETWORK_PROFILE || env.NEXT_PUBLIC_NETWORK_PROFILE || "devnet").toLowerCase();
+  const selected = [env.NETWORK_PROFILE, env.NEXT_PUBLIC_BUILD_NETWORK_PROFILE, env.NEXT_PUBLIC_NETWORK_PROFILE]
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .find((value) => value.length > 0);
+  const raw = (selected ?? "devnet").toLowerCase();
   if (["local-surfpool", "local", "localnet", "surfpool"].includes(raw)) return "local-surfpool";
   if (["mainnet", "mainnet-beta"].includes(raw)) return "mainnet";
   return "devnet";

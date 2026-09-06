@@ -69,8 +69,6 @@ function parseArgs(argv) {
       args.allowFutureAuddDevnet = true;
     } else if (arg === "--help" || arg === "-h") {
       args.help = true;
-    } else if (!arg.startsWith("--") && !args.approval) {
-      args.approval = arg;
     } else {
       args.unknown = arg;
       break;

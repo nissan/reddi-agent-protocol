@@ -3,15 +3,10 @@ export const BROWSER_WALLET_APPROVAL_SCHEMA_VERSION = 'reddi.browser-wallet.sing
 export const BROWSER_WALLET_APPROVAL_VALIDATION_SCHEMA_VERSION = 'reddi.browser-wallet.approval-validation.v1';
 export const BROWSER_WALLET_TIER1_LOCAL_HARNESS_SCHEMA_VERSION = 'reddi.browser-wallet.tier1-local-harness-contract.v1';
 export const BROWSER_WALLET_IDENTITY_COPY_GUARD_SCHEMA_VERSION = 'reddi.browser-wallet.identity-copy-guard.v1';
-export const BROWSER_WALLET_DEVNET_ACTION_DEFAULT_OFF = true;
 export const CANONICAL_DEVNET_USDC_MINT = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
 const OFFICIAL_SOLANA_MAINNET_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const REJECTED_MAINNET_MINTS = new Set([AUDD_OFFICIAL_SOLANA_MAINNET_MINT, OFFICIAL_SOLANA_MAINNET_USDC_MINT]);
-export const PHANTOM_DEVNET_BROWSER_WALLET_CANDIDATE = {
-    provider: 'Phantom',
-    status: 'candidate-only-not-installed-or-selected',
-    rationale: 'RAP app wiring includes Phantom and current Phantom public docs describe Solana Devnet/Testnet mode; a future manual run still needs a separate one-use approval record.',
-};
+const NON_LIVE_COPY_GUARD_RAIL_ENVIRONMENTS = new Set(['deterministic-fixture', 'local-test-mint', 'devnet-unverified']);
 const SUPPORTED_DEVNET_BROWSER_WALLET_PROVIDERS = new Set(['Phantom']);
 const BROWSER_WALLET_ALLOWED_ACTIONS = new Set(['connect-only', 'register-agent', 'x402-devnet-usdc-payment']);
 const BROAD_STRING_PATTERN = /(^|[\s:/_-])(?:any|all|wildcard|default|latest|current|unknown|tbd|todo|production|prod|mainnet)([\s:/_-]|$)|\*/i;
@@ -143,6 +138,24 @@ const COPY_GUARD_KEYS = new Set([
 const X402_EXPORT_KEYS = new Set(['state', 'asset', 'networkAlias', 'caip2', 'mint', 'tokenProgram', 'decimals']);
 const POLICY_KEYS = new Set(['grantEligibility', 'operatorApprovalRef', 'controlledLive']);
 const RECEIPT_KEYS = new Set(['claim', 'observationStatus', 'settlementFinality', 'controlledLiveEvidence']);
+const OBSERVATION_SOURCE_RANK = {
+    'expected-only': 0,
+    'parsed-transaction-fixture': 1,
+    'local-validator': 2,
+    'parsed-rpc-transaction': 3,
+};
+const RECEIPT_OBSERVATION_STATUS_RANK = {
+    'not-observed': 0,
+    'fixture-observed': 1,
+    'local-observed': 2,
+    'rpc-observed': 3,
+};
+const RECEIPT_CLAIM_RANK = {
+    'expected-only': 0,
+    'fixture-only': 0,
+    'observed-transfer-checked': 2,
+    'observed-settlement': 3,
+};
 const COPY_KEYS = new Set(['title', 'summary', 'badges', 'notes']);
 export function validateBrowserWalletApprovalRecord(input, options = {}) {
     const errors = [];
@@ -320,8 +333,8 @@ export function validateBrowserWalletIdentityCopyClaims(input) {
     const row = input;
     rejectUnknownKeys(row, '$', COPY_GUARD_KEYS, errors);
     requireLiteral(row.schemaVersion, BROWSER_WALLET_IDENTITY_COPY_GUARD_SCHEMA_VERSION, '$.schemaVersion', 'invalid_browser_wallet_approval_schema', errors);
-    if (!isPaymentEnvironment(row.railEnvironment)) {
-        errors.push(error('non_canonical_browser_wallet_identity', '$.railEnvironment', 'railEnvironment must be one of the canonical payment environments'));
+    if (!NON_LIVE_COPY_GUARD_RAIL_ENVIRONMENTS.has(String(row.railEnvironment))) {
+        errors.push(error(isPaymentEnvironment(row.railEnvironment) ? 'mainnet_browser_wallet_rejected' : 'non_canonical_browser_wallet_identity', '$.railEnvironment', 'browser-wallet safety rows are non-live only: railEnvironment must be deterministic-fixture, local-test-mint, or devnet-unverified'));
     }
     requireExactString(row.assetLabel, '$.assetLabel', errors);
     requireExactString(row.networkAlias, '$.networkAlias', errors);
@@ -348,40 +361,35 @@ export function validateBrowserWalletIdentityCopyClaims(input) {
         if (row.policy.grantEligibility !== row.grantEligibility) {
             errors.push(error('contradictory_browser_wallet_approval', '$.policy.grantEligibility', 'policy grant eligibility must match the row label'));
         }
-        if (row.policy.controlledLive && row.railEnvironment !== 'controlled-live') {
-            errors.push(error('non_canonical_browser_wallet_identity', '$.policy.controlledLive', 'controlled-live policy claims require controlled-live rail environment'));
+        if (row.policy.controlledLive) {
+            errors.push(error('non_canonical_browser_wallet_identity', '$.policy.controlledLive', 'browser-wallet safety rows must not carry a controlled-live policy claim'));
         }
     }
     if (row.receipt)
         validateReceiptBoundary(row, errors);
-    const nonLive = row.railEnvironment === 'deterministic-fixture'
-        || row.railEnvironment === 'local-test-mint'
-        || row.railEnvironment === 'devnet-unverified';
-    if (nonLive) {
-        if (row.grantEligibility !== 'non_eligible') {
-            errors.push(error('non_canonical_browser_wallet_identity', '$.grantEligibility', 'fixture, local-test, and unverified Devnet rows must be non_eligible'));
-        }
-        if (String(row.assetLabel).toUpperCase() === AUDD_ASSET && row.railEnvironment !== 'deterministic-fixture' && row.railEnvironment !== 'devnet-unverified') {
-            errors.push(error('non_canonical_browser_wallet_identity', '$.assetLabel', 'local non-live rows must use AUDD_TEST or LOCAL_AUDD_TEST, not official AUDD'));
-        }
-        if (row.railEnvironment === 'local-test-mint' && !['AUDD_TEST', 'LOCAL_AUDD_TEST'].includes(String(row.assetLabel))) {
-            errors.push(error('non_canonical_browser_wallet_identity', '$.assetLabel', 'local-test-mint rows must use the local test AUDD label'));
-        }
-        if (row.railEnvironment === 'devnet-unverified' && String(row.assetLabel).toUpperCase() === AUDD_ASSET) {
-            errors.push(error('official_audd_devnet_unavailable', '$.assetLabel', 'official AUDD Devnet evidence is unavailable without partner confirmation and separate approval'));
-        }
-        if (row.railEnvironment === 'deterministic-fixture' && row.mint !== AUDD_DETERMINISTIC_FIXTURE_MINT) {
-            errors.push(error('non_canonical_browser_wallet_identity', '$.mint', 'deterministic AUDD fixture rows must use the fixture sentinel only'));
-        }
-        if (typeof row.mint === 'string' && REJECTED_MAINNET_MINTS.has(row.mint)) {
-            errors.push(error('mainnet_browser_wallet_rejected', '$.mint', 'fixture, local-test, and unverified Devnet rows must not name an official Solana mainnet mint'));
-        }
-        if (row.railEnvironment === 'local-test-mint' && row.mint === AUDD_DETERMINISTIC_FIXTURE_MINT) {
-            errors.push(error('non_canonical_browser_wallet_identity', '$.mint', 'local test mint rows must not reuse the deterministic AUDD fixture mint'));
-        }
-        if (row.receipt?.claim === 'observed-settlement' || row.receipt?.settlementFinality || row.receipt?.controlledLiveEvidence) {
-            errors.push(error('settlement_finality_rejected', '$.receipt', 'non-live rows must not claim observed settlement, settlement finality, or controlled-live evidence'));
-        }
+    if (row.grantEligibility !== 'non_eligible') {
+        errors.push(error('non_canonical_browser_wallet_identity', '$.grantEligibility', 'browser-wallet safety rows must be non_eligible'));
+    }
+    if (String(row.assetLabel).toUpperCase() === AUDD_ASSET && row.railEnvironment !== 'deterministic-fixture' && row.railEnvironment !== 'devnet-unverified') {
+        errors.push(error('non_canonical_browser_wallet_identity', '$.assetLabel', 'local non-live rows must use AUDD_TEST or LOCAL_AUDD_TEST, not official AUDD'));
+    }
+    if (row.railEnvironment === 'local-test-mint' && !['AUDD_TEST', 'LOCAL_AUDD_TEST'].includes(String(row.assetLabel))) {
+        errors.push(error('non_canonical_browser_wallet_identity', '$.assetLabel', 'local-test-mint rows must use the local test AUDD label'));
+    }
+    if (row.railEnvironment === 'devnet-unverified' && String(row.assetLabel).toUpperCase() === AUDD_ASSET) {
+        errors.push(error('official_audd_devnet_unavailable', '$.assetLabel', 'official AUDD Devnet evidence is unavailable without partner confirmation and separate approval'));
+    }
+    if (row.railEnvironment === 'deterministic-fixture' && row.mint !== AUDD_DETERMINISTIC_FIXTURE_MINT) {
+        errors.push(error('non_canonical_browser_wallet_identity', '$.mint', 'deterministic AUDD fixture rows must use the fixture sentinel only'));
+    }
+    if (typeof row.mint === 'string' && REJECTED_MAINNET_MINTS.has(row.mint)) {
+        errors.push(error('mainnet_browser_wallet_rejected', '$.mint', 'browser-wallet safety rows must not name an official Solana mainnet mint'));
+    }
+    if (row.railEnvironment === 'local-test-mint' && row.mint === AUDD_DETERMINISTIC_FIXTURE_MINT) {
+        errors.push(error('non_canonical_browser_wallet_identity', '$.mint', 'local test mint rows must not reuse the deterministic AUDD fixture mint'));
+    }
+    if (row.receipt?.claim === 'observed-settlement') {
+        errors.push(error('settlement_finality_rejected', '$.receipt', 'browser-wallet safety rows must not claim observed settlement'));
     }
     const copyText = collectCopyText(row.copy).join('\n');
     if (copyText) {
@@ -841,14 +849,18 @@ function validateReceiptBoundary(row, errors) {
     const receipt = row.receipt;
     if (!receipt)
         return;
-    if (receipt.claim === 'observed-settlement' && row.observationSource !== 'parsed-rpc-transaction') {
-        errors.push(error('settlement_finality_rejected', '$.receipt.claim', 'observed settlement claims require verified RPC observation, not expected or fixture terms'));
+    const sourceRank = OBSERVATION_SOURCE_RANK[String(row.observationSource)] ?? -1;
+    if ((RECEIPT_CLAIM_RANK[String(receipt.claim)] ?? Number.MAX_SAFE_INTEGER) > sourceRank) {
+        errors.push(error('settlement_finality_rejected', '$.receipt.claim', 'receipt claim must not exceed the evidence the row observation source provides'));
+    }
+    if ((RECEIPT_OBSERVATION_STATUS_RANK[String(receipt.observationStatus)] ?? Number.MAX_SAFE_INTEGER) > sourceRank) {
+        errors.push(error('settlement_finality_rejected', '$.receipt.observationStatus', 'receipt observation status must not exceed the row observation source'));
     }
     if (receipt.settlementFinality) {
         errors.push(error('settlement_finality_rejected', '$.receipt.settlementFinality', 'settlement finality is not available in browser-wallet safety rows'));
     }
-    if (receipt.controlledLiveEvidence && row.railEnvironment !== 'controlled-live') {
-        errors.push(error('non_canonical_browser_wallet_identity', '$.receipt.controlledLiveEvidence', 'controlled-live evidence flag requires controlled-live rail environment'));
+    if (receipt.controlledLiveEvidence) {
+        errors.push(error('non_canonical_browser_wallet_identity', '$.receipt.controlledLiveEvidence', 'browser-wallet safety rows must not carry controlled-live evidence'));
     }
 }
 function validateCopyNested(value, path, allowed, errors) {
