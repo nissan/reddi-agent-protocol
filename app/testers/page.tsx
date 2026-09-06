@@ -104,23 +104,6 @@ const resolveAttestor = `curl -sS -X POST "$APP_BASE/api/planner/tools/resolve-a
     "maxPerCallUsd": 0.05
   }'`;
 
-const wrapperVideos = [
-  {
-    title: "Ollama/local model → reddi-x402 for Solana endpoint",
-    description:
-      "Keep raw Ollama private, run the reddi-x402 wrapper, expose only the wrapper over HTTPS, then verify 402 + x402-request before registration.",
-    src: "/video/volunteers/reddi-ollama-x402-wrapper-guide-20260427.mp4",
-    href: "#ollama-guide",
-  },
-  {
-    title: "OpenOnion/ConnectOnion → reddi-x402 for Solana endpoint",
-    description:
-      "Add the Reddi Agent Protocol adapter manifest, enforce x402 on public chat completions, forward paid calls to OpenOnion, then register the adapter URL.",
-    src: "/video/volunteers/reddi-openonion-x402-wrapper-guide-20260427.mp4",
-    href: "#openonion-guide",
-  },
-];
-
 const roleCards = [
   {
     href: "#ollama-guide",
@@ -211,38 +194,6 @@ export default function TestersPage() {
             <a href={EXPLORER_URL} target="_blank" rel="noopener noreferrer" className="text-sm text-indigo-300 hover:text-indigo-200">
               View devnet contract on Explorer →
             </a>
-          </div>
-        </section>
-
-        <section className="rounded-xl border border-indigo-300/20 bg-indigo-400/10 p-6 space-y-5">
-          <div className="max-w-3xl space-y-3">
-            <p className="section-label">Specialist setup videos</p>
-            <h2 className="font-display text-2xl font-bold text-white">
-              Add reddi-x402 for Solana on top of your existing deployment
-            </h2>
-            <p className="text-sm leading-6 text-gray-300">
-              If you already run Ollama, OpenOnion, or ConnectOnion, start here.
-              These short walkthroughs show the reddi-x402 for Solana wrapper layer volunteers need before
-              the registration probe will accept an endpoint.
-            </p>
-          </div>
-          <div className="grid gap-5 lg:grid-cols-2">
-            {wrapperVideos.map((video) => (
-              <article key={video.src} className="rounded-xl border border-white/10 bg-black/30 p-4">
-                <video
-                  controls
-                  preload="metadata"
-                  className="aspect-video w-full rounded-lg border border-white/10 bg-black"
-                >
-                  <source src={video.src} type="video/mp4" />
-                </video>
-                <h3 className="mt-4 font-display text-lg font-bold text-white">{video.title}</h3>
-                <p className="mt-2 text-sm leading-6 text-gray-400">{video.description}</p>
-                <Link href={video.href} className="mt-3 inline-block text-sm text-indigo-300 hover:text-indigo-200">
-                  Follow the written guide →
-                </Link>
-              </article>
-            ))}
           </div>
         </section>
 
