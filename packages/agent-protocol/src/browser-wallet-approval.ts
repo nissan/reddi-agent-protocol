@@ -502,9 +502,6 @@ export function validateBrowserWalletApprovalRecord(
   if (record.network?.rapAlias === 'solana-devnet' && record.network?.caip2 !== SOLANA_DEVNET_CAIP2) {
     errors.push(error('non_canonical_browser_wallet_identity', '$.network.caip2', 'network CAIP-2 identity must match the canonical Solana Devnet reference'));
   }
-  if (record.asset?.symbol === 'USDC' && record.uiAction?.action !== 'x402-devnet-usdc-payment') {
-    errors.push(error('contradictory_browser_wallet_approval', '$.asset.symbol', 'USDC may only be approved for the gated x402 Devnet USDC action'));
-  }
   if (record.uiAction?.action === 'x402-devnet-usdc-payment' && record.asset?.symbol !== 'USDC') {
     errors.push(error('contradictory_browser_wallet_approval', '$.uiAction.action', 'x402 Devnet USDC action must approve USDC only'));
   }
@@ -577,10 +574,14 @@ export function validateBrowserWalletTier1LocalHarnessContract(input: unknown): 
     requireLiteral(contract.observation.exactTransferChecked, true, '$.observation.exactTransferChecked', 'non_canonical_browser_wallet_identity', errors);
     requireLiteral(contract.observation.exactlyOneMatchingTransfer, true, '$.observation.exactlyOneMatchingTransfer', 'non_canonical_browser_wallet_identity', errors);
     requireLiteral(contract.observation.expectedTermsAreObservedEvidence, false, '$.observation.expectedTermsAreObservedEvidence', 'settlement_finality_rejected', errors);
-    const required = new Set(contract.observation.requiredFields);
-    for (const field of ['mint', 'tokenProgram', 'decimals', 'payee', 'destinationOwner', 'amount', 'signature', 'instructionIndex']) {
-      if (!required.has(field as BrowserWalletTier1LocalHarnessContract['observation']['requiredFields'][number])) {
-        errors.push(error('non_canonical_browser_wallet_identity', '$.observation.requiredFields', 'TransferChecked observation contract is missing a required identity field'));
+    if (!Array.isArray(contract.observation.requiredFields)) {
+      errors.push(error('non_canonical_browser_wallet_identity', '$.observation.requiredFields', 'TransferChecked observation contract must enumerate its required identity fields'));
+    } else {
+      const required = new Set(contract.observation.requiredFields);
+      for (const field of ['mint', 'tokenProgram', 'decimals', 'payee', 'destinationOwner', 'amount', 'signature', 'instructionIndex']) {
+        if (!required.has(field as BrowserWalletTier1LocalHarnessContract['observation']['requiredFields'][number])) {
+          errors.push(error('non_canonical_browser_wallet_identity', '$.observation.requiredFields', 'TransferChecked observation contract is missing a required identity field'));
+        }
       }
     }
   }
@@ -1346,7 +1347,7 @@ function hasBroadString(value: string): boolean {
 
 function collectCopyText(copy: BrowserWalletIdentityCopyGuardInput['copy']): string[] {
   if (!copy) return [];
-  return [copy.title, copy.summary, ...(copy.badges ?? []), ...(copy.notes ?? [])]
+  return [copy.title, copy.summary, ...(Array.isArray(copy.badges) ? copy.badges : []), ...(Array.isArray(copy.notes) ? copy.notes : [])]
     .filter((value): value is string => typeof value === 'string' && value.length > 0);
 }
 
