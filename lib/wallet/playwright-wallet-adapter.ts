@@ -12,10 +12,7 @@ import {
   TransactionSignature,
   VersionedTransaction,
 } from "@solana/web3.js";
-import {
-  PLAYWRIGHT_WALLET_SIGNER_REFUSAL_MESSAGE,
-  checkPlaywrightWalletSignerPreflight,
-} from "@/lib/wallet/playwright-wallet-safety";
+import { checkPlaywrightWalletSignerPreflight } from "@/lib/wallet/playwright-wallet-safety";
 
 export const PLAYWRIGHT_WALLET_NAME = "Playwright Wallet" as WalletName<"Playwright Wallet">;
 
@@ -51,7 +48,7 @@ export class PlaywrightWalletAdapter extends BaseMessageSignerWalletAdapter {
   private _publicKey: PublicKey | null = null;
   private _connected = false;
   private _connecting = false;
-  private _signer: Keypair | null | undefined;
+  private _signer: Keypair | undefined;
   private readonly options: PlaywrightWalletAdapterOptions;
 
   constructor(options: PlaywrightWalletAdapterOptions = {}) {
@@ -156,7 +153,6 @@ export class PlaywrightWalletAdapter extends BaseMessageSignerWalletAdapter {
     });
     if (!preflight.ok) throw new Error(preflight.message);
     if (this._signer === undefined) this._signer = parsePlaywrightSigner(raw);
-    if (!this._signer) throw new Error(PLAYWRIGHT_WALLET_SIGNER_REFUSAL_MESSAGE);
     return this._signer;
   }
 }

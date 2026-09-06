@@ -1,4 +1,4 @@
-import { AUDD_ASSET, AUDD_DECIMALS, AUDD_DETERMINISTIC_FIXTURE_MINT, AUDD_OFFICIAL_SOLANA_MAINNET_MINT, SOLANA_DEVNET_CAIP2, SOLANA_MAINNET_BETA_CAIP2, SPL_TOKEN_PROGRAM_ID, } from './audd-rail-config.js';
+import { AUDD_ASSET, AUDD_DECIMALS, AUDD_DETERMINISTIC_FIXTURE_MINT, AUDD_OFFICIAL_SOLANA_MAINNET_MINT, AUDD_RAIL_CONFIG, SOLANA_DEVNET_CAIP2, SOLANA_MAINNET_BETA_CAIP2, SPL_TOKEN_PROGRAM_ID, getAuddRailEnvironmentConfig, } from './audd-rail-config.js';
 export const BROWSER_WALLET_APPROVAL_SCHEMA_VERSION = 'reddi.browser-wallet.single-use-approval.v1';
 export const BROWSER_WALLET_APPROVAL_VALIDATION_SCHEMA_VERSION = 'reddi.browser-wallet.approval-validation.v1';
 export const BROWSER_WALLET_TIER1_LOCAL_HARNESS_SCHEMA_VERSION = 'reddi.browser-wallet.tier1-local-harness-contract.v1';
@@ -354,11 +354,6 @@ export function validateBrowserWalletIdentityCopyClaims(input) {
     if (row.caip2 === SOLANA_MAINNET_BETA_CAIP2) {
         errors.push(error('mainnet_browser_wallet_rejected', '$.caip2', 'browser-wallet safety rows must not name the Solana mainnet-beta chain identity'));
     }
-    if (row.tokenProgram !== undefined && row.tokenProgram !== null)
-        requireLiteral(row.tokenProgram, SPL_TOKEN_PROGRAM_ID, '$.tokenProgram', 'non_canonical_browser_wallet_identity', errors);
-    if (row.decimals !== undefined && row.decimals !== null && row.decimals !== AUDD_DECIMALS) {
-        errors.push(error('non_canonical_browser_wallet_identity', '$.decimals', 'AUDD-family copy guard rows must use six decimals'));
-    }
     if (!['expected-only', 'parsed-transaction-fixture', 'local-validator', 'parsed-rpc-transaction'].includes(String(row.observationSource))) {
         errors.push(error('non_canonical_browser_wallet_identity', '$.observationSource', 'observation source is not canonical'));
     }
@@ -398,9 +393,6 @@ export function validateBrowserWalletIdentityCopyClaims(input) {
     }
     if (row.railEnvironment === 'devnet-unverified' && String(row.assetLabel).toUpperCase() === AUDD_ASSET) {
         errors.push(error('official_audd_devnet_unavailable', '$.assetLabel', 'official AUDD Devnet evidence is unavailable without partner confirmation and separate approval'));
-    }
-    if (row.railEnvironment === 'deterministic-fixture' && row.mint !== AUDD_DETERMINISTIC_FIXTURE_MINT) {
-        errors.push(error('non_canonical_browser_wallet_identity', '$.mint', 'deterministic AUDD fixture rows must use the fixture sentinel only'));
     }
     if (typeof row.mint === 'string' && REJECTED_MAINNET_MINTS.has(row.mint)) {
         errors.push(error('mainnet_browser_wallet_rejected', '$.mint', 'browser-wallet safety rows must not name an official Solana mainnet mint'));
@@ -762,18 +754,8 @@ function validateAsset(value, action, allowFuturePartnerConfirmedAuddDevnet, tru
     requireLiteral(value.railEnvironment, 'devnet-unverified', `${path}.railEnvironment`, 'non_canonical_browser_wallet_identity', errors);
     requireLiteral(value.source, 'partner-confirmed-audd-devnet', `${path}.source`, 'non_canonical_browser_wallet_identity', errors);
     requireLiteral(value.official, false, `${path}.official`, 'official_audd_devnet_unavailable', errors);
-    if (partnerConfirmation && partnerConfirmation.confirmedTokenProgram === SPL_TOKEN_PROGRAM_ID) {
-        requireLiteral(value.tokenProgram, partnerConfirmation.confirmedTokenProgram, `${path}.tokenProgram`, 'non_canonical_browser_wallet_identity', errors);
-    }
-    else {
-        requireLiteral(value.tokenProgram, SPL_TOKEN_PROGRAM_ID, `${path}.tokenProgram`, 'non_canonical_browser_wallet_identity', errors);
-    }
-    if (partnerConfirmation && partnerConfirmation.confirmedDecimals === AUDD_DECIMALS) {
-        requireLiteral(value.decimals, partnerConfirmation.confirmedDecimals, `${path}.decimals`, 'non_canonical_browser_wallet_identity', errors);
-    }
-    else {
-        requireLiteral(value.decimals, AUDD_DECIMALS, `${path}.decimals`, 'non_canonical_browser_wallet_identity', errors);
-    }
+    requireLiteral(value.tokenProgram, SPL_TOKEN_PROGRAM_ID, `${path}.tokenProgram`, 'non_canonical_browser_wallet_identity', errors);
+    requireLiteral(value.decimals, AUDD_DECIMALS, `${path}.decimals`, 'non_canonical_browser_wallet_identity', errors);
 }
 function validateEvidence(value, path, errors) {
     if (!isPlainObject(value)) {
@@ -832,26 +814,31 @@ function validateBoundaries(value, path, errors) {
     requireLiteral(value.noPayShProduction, true, `${path}.noPayShProduction`, 'production_browser_wallet_rejected', errors);
     requireLiteral(value.noAutomaticTopUp, true, `${path}.noAutomaticTopUp`, 'ai_faucet_rejected', errors);
 }
+function copyGuardRailConfig(railEnvironment) {
+    const name = String(railEnvironment);
+    return NON_LIVE_COPY_GUARD_RAIL_ENVIRONMENTS.has(name) ? getAuddRailEnvironmentConfig(name) : undefined;
+}
 function validateCopyGuardRailIdentity(row, errors) {
     const requireCopyLiteral = (value, expected, path, message) => {
         if (value !== expected)
             errors.push(error('non_canonical_browser_wallet_identity', path, message));
     };
-    if (row.railEnvironment === 'deterministic-fixture') {
-        requireCopyLiteral(row.networkAlias, 'solana-devnet', '$.networkAlias', 'deterministic fixture rows must use the Solana Devnet network alias');
-        requireCopyLiteral(row.caip2, SOLANA_DEVNET_CAIP2, '$.caip2', 'deterministic fixture rows must use the canonical Solana Devnet CAIP-2 identity');
-        requireCopyLiteral(row.mint, AUDD_DETERMINISTIC_FIXTURE_MINT, '$.mint', 'deterministic fixture rows must use the fixture sentinel mint');
+    const rail = copyGuardRailConfig(row.railEnvironment);
+    if (rail?.environment === 'deterministic-fixture') {
+        requireCopyLiteral(row.networkAlias, rail.networkAlias, '$.networkAlias', 'deterministic fixture rows must use the Solana Devnet network alias');
+        requireCopyLiteral(row.caip2, rail.caip2, '$.caip2', 'deterministic fixture rows must use the canonical Solana Devnet CAIP-2 identity');
+        requireCopyLiteral(row.mint, rail.mint, '$.mint', 'deterministic fixture rows must use the fixture sentinel mint');
     }
-    else if (row.railEnvironment === 'local-test-mint') {
-        requireCopyLiteral(row.networkAlias, 'local-surfpool', '$.networkAlias', 'local test mint rows must use the local-surfpool network alias');
+    else if (rail?.environment === 'local-test-mint') {
+        requireCopyLiteral(row.networkAlias, rail.networkAlias, '$.networkAlias', 'local test mint rows must use the local-surfpool network alias');
         requireCopyLiteral(row.caip2, null, '$.caip2', 'local test mint rows must not claim a live CAIP-2 chain identity');
         if (typeof row.mint !== 'string' || row.mint.length === 0) {
             errors.push(error('missing_browser_wallet_approval_field', '$.mint', 'local test mint rows require one exact per-run mint or deterministic placeholder'));
         }
     }
-    else if (row.railEnvironment === 'devnet-unverified') {
-        requireCopyLiteral(row.networkAlias, 'solana-devnet', '$.networkAlias', 'unverified Devnet rows must use the Solana Devnet network alias');
-        requireCopyLiteral(row.caip2, SOLANA_DEVNET_CAIP2, '$.caip2', 'unverified Devnet rows must use the canonical Solana Devnet CAIP-2 identity');
+    else if (rail?.environment === 'devnet-unverified') {
+        requireCopyLiteral(row.networkAlias, rail.networkAlias, '$.networkAlias', 'unverified Devnet rows must use the Solana Devnet network alias');
+        requireCopyLiteral(row.caip2, rail.caip2, '$.caip2', 'unverified Devnet rows must use the canonical Solana Devnet CAIP-2 identity');
         if (typeof row.mint !== 'string' || row.mint.length === 0) {
             errors.push(error('missing_browser_wallet_approval_field', '$.mint', 'unverified Devnet token rows require one exact mint identity'));
         }
@@ -865,8 +852,8 @@ function validateCopyGuardRailIdentity(row, errors) {
     if (row.assetLabel !== 'USDC' && row.mint === CANONICAL_DEVNET_USDC_MINT) {
         errors.push(error('non_canonical_browser_wallet_identity', '$.mint', 'the canonical Devnet USDC mint must not be labelled as an AUDD-family asset'));
     }
-    requireCopyLiteral(row.tokenProgram, SPL_TOKEN_PROGRAM_ID, '$.tokenProgram', 'browser-wallet token rows must use the canonical SPL Token program');
-    requireCopyLiteral(row.decimals, AUDD_DECIMALS, '$.decimals', 'browser-wallet AUDD-family and USDC rows must use six decimals');
+    requireCopyLiteral(row.tokenProgram, rail?.tokenProgram ?? AUDD_RAIL_CONFIG.tokenPrograms.splToken, '$.tokenProgram', 'browser-wallet token rows must use the canonical SPL Token program');
+    requireCopyLiteral(row.decimals, rail?.decimals ?? AUDD_RAIL_CONFIG.decimals, '$.decimals', 'browser-wallet AUDD-family and USDC rows must use six decimals');
 }
 function validateCopyGuardNestedShapes(row, errors) {
     const x402 = row.x402Export;
