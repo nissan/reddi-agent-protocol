@@ -112,7 +112,7 @@ function help() {
     "Usage: node scripts/check-browser-wallet-devnet-approval-record.mjs --approval <approval.json> [--now <iso>]"
       + " [--allow-future-partner-confirmed-audd-devnet]",
     "",
-    "--allow-future-partner-confirmed-audd-devnet is default-off. It only permits a future partner-confirmed AUDD Devnet asset shape to be reviewed; it never enables official AUDD Devnet, wallet, or transaction activity.",
+    "--allow-future-partner-confirmed-audd-devnet is default-off. It only marks a future partner-confirmed AUDD Devnet asset shape as reviewable. This checker supplies no trusted future AUDD Devnet identity, so official AUDD Devnet stays rejected regardless of the flag, and it never enables wallet or transaction activity.",
     "",
     "Offline fail-closed checker for manual single-use Devnet browser-wallet approval records.",
     "Passing means the approval artifact is internally consistent for human review only; it does not authorize or perform wallet/transaction activity.",
@@ -178,7 +178,7 @@ const artifact = {
     "Offline validator only: no browser extension install/configuration, wallet creation/import/export/inspection/funding, faucet request, signer parsing, RPC call, simulation, submission, confirmation, or transaction observation occurs.",
     "Passing validation only proves the approval JSON is exact and internally consistent for manual review.",
     "Devnet browser-wallet actions remain unavailable by default and require a separate human approval/runbook before execution.",
-    "Official AUDD Devnet remains unavailable unless future partner-confirmed mint/test-token evidence and a separate approval are supplied.",
+    "This command never accepts official AUDD Devnet today: it configures no trusted future partner-confirmed identity, so every AUDD Devnet asset record is rejected.",
   ],
 };
 
