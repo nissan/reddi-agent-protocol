@@ -4,6 +4,7 @@ import {
   MARKETPLACE_CANDIDATE_IMPORTED_FIELDS,
   type MarketplaceCandidateSourceFacetId,
 } from "../lib/discovery/source-facets";
+import { hasPlayableRecording, onboardingVideos } from "../lib/onboarding/video-guides";
 import {
   directoryFixtureProfileCount,
   receiptFixtureCaseCount,
@@ -48,33 +49,42 @@ async function firstPartyCopy(page: Page): Promise<string> {
 }
 
 /**
- * Recordings a gated route plays. `firstPartyCopy()` cannot read narration, so
- * the boundary holds a player two ways: a caption track under
- * `/videos/onboarding/captions/`, whose text `npm run check:claims:public`
- * scans, or the `/tour` explainer's pattern — kept out of the route's default
- * DOM behind a disclosure the test below asserts. A player on a gated route
- * with no scanned caption track is narration nothing reviews, whatever file or
- * identifier it is sourced from.
+ * The recordings a gated route may play, and the caption track each must carry.
+ * `firstPartyCopy()` cannot read narration; a caption track is the only part of
+ * a recording that becomes scannable text, and `check:claims:public` derives
+ * the files it scans from these same `captionsSrc` declarations. So a player is
+ * only reviewed narration when it is one of these guides, playing under the
+ * track whose text the static gate reads. The `/tour` explainer is the one
+ * qualified recording and is kept out of the default DOM behind the disclosure
+ * the test below asserts.
  */
+const scannedRecordings = onboardingVideos.filter(hasPlayableRecording).map((guide) => ({
+  videoSrc: guide.videoSrc,
+  captionsSrc: guide.captionsSrc ?? null,
+}));
+
 async function unscannedRecordings(page: Page): Promise<string[]> {
-  return page.evaluate(() =>
-    [...document.querySelectorAll("video")]
-      .filter(
-        (video) =>
-          ![...video.querySelectorAll("track")].some(
-            (track) =>
-              track.kind === "captions" &&
-              new URL(track.src, location.href).pathname.startsWith("/videos/onboarding/captions/"),
-          ),
-      )
-      .map(
-        (video) =>
-          video.currentSrc ||
-          video.getAttribute("src") ||
-          video.querySelector("source")?.getAttribute("src") ||
-          "(no source)",
-      ),
-  );
+  return page.evaluate((scanned) => {
+    const sourceOf = (video: HTMLVideoElement) =>
+      video.querySelector("source")?.getAttribute("src") ??
+      video.getAttribute("src") ??
+      video.currentSrc;
+
+    return [...document.querySelectorAll("video")]
+      .filter((video) => {
+        const source = sourceOf(video);
+        const guide = source
+          ? scanned.find((entry) => entry.videoSrc === new URL(source, location.href).pathname)
+          : undefined;
+        if (!guide) return true;
+        return ![...video.querySelectorAll("track")].some(
+          (track) =>
+            track.kind === "captions" &&
+            new URL(track.src, location.href).pathname === guide.captionsSrc,
+        );
+      })
+      .map((video) => sourceOf(video) || "(no source)");
+  }, scannedRecordings);
 }
 
 function unqualifiedClaims(copy: string): string[] {
@@ -112,7 +122,7 @@ test.describe("public-claim boundary (rendered copy)", () => {
       // Before `firstPartyCopy()`, which strips subtrees out of the live DOM.
       expect(
         await unscannedRecordings(page),
-        `${route.path} plays a recording whose narration no check reads; withhold it or caption it into the scanned set, per ${PUBLIC_CLAIM_BOUNDARY_DOC_PATH}`,
+        `${route.path} plays a recording that is not a shipped onboarding guide under the caption track the static gate scans, so nothing reviews its narration; see ${PUBLIC_CLAIM_BOUNDARY_DOC_PATH}`,
       ).toEqual([]);
 
       const rendered = await firstPartyCopy(page);

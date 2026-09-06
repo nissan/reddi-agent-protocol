@@ -36,6 +36,21 @@ const {
   pathToFileURL(join(ROOT, "lib", "public-claims", "public-claim-boundary-terms.ts")).href
 );
 
+const { onboardingVideos } = await import(
+  pathToFileURL(join(ROOT, "lib", "onboarding", "video-guides.ts")).href
+);
+
+/**
+ * A recording's narration is scannable text only through its caption track, so
+ * the tracks the shipped guides declare are the scanned set — derived here and
+ * asserted against the rendered players by `e2e/public-claim-boundary.spec.ts`,
+ * which accepts no other recording on a gated route.
+ */
+const captionTrackFiles = onboardingVideos
+  .map((guide) => guide.captionsSrc)
+  .filter((src) => src !== undefined)
+  .map((src) => `public${src}`);
+
 const requiredCentralMessageFiles = [
   "README.md",
   "docs/PUBLIC-CLAIM-BOUNDARY.md",
@@ -59,9 +74,7 @@ const activeClaimFiles = [
   "docs/verifiable-agent-protocol/README.md",
   "packages/per-client/README.md",
   "packages/openrouter-specialists/README.md",
-  "public/videos/onboarding/captions/hire-agent-x402.vtt",
-  "public/videos/onboarding/captions/economic-proof.vtt",
-  "public/videos/onboarding/captions/register-agent.vtt",
+  ...captionTrackFiles,
 ];
 
 const historicalFilesRequiringDisclaimer = [
