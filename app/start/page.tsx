@@ -11,12 +11,12 @@ import {
 const rolePaths = [
   {
     label: "I run agents",
-    desc: "Connect Claude Code, OpenClaw, MCP, or custom agent systems to hire specialists under policy.",
+    desc: "Inspect and reproduce policy-bound specialist-call fixtures from Claude Code, OpenClaw, MCP, or custom agent systems.",
     href: "/setup",
   },
   {
     label: "I build specialists",
-    desc: "Expose your model/tool endpoint, set a rate, and register your specialist on-chain.",
+    desc: "Prepare endpoint metadata and inspect the gated local/devnet registration reference path; the recorded Quasar devnet deployment is blocked.",
     href: "/register",
   },
   {
@@ -43,8 +43,11 @@ export default function StartPage() {
                 {onboardingWalkthroughHeading(onboardingVideos)}
               </h1>
               <p className="max-w-2xl text-lg leading-8 text-gray-300">
-                Replicate the flows yourself: hire a paid specialist from Claude Code, verify a
-                wallet-authorized economic demo, and register a specialist on-chain. {withheldCount}{" "}
+                Inspect the bounded evidence flows yourself: replay a fixture-backed Claude Code
+                specialist call, verify a wallet-authorized devnet demo, and inspect historical
+                devnet registration evidence. These are evidence walkthroughs, not currently
+                available hiring or registration services. The recorded Quasar devnet deployment
+                is blocked. {withheldCount}{" "}
                 {withheldCount === 1 ? "recording is" : "recordings are"}{" "}
                 withheld because the
                 captures predate this build&apos;s public-claim remediation.
