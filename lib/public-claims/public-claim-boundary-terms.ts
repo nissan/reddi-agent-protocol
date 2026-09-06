@@ -90,18 +90,6 @@ export const FORBIDDEN_PUBLIC_CLAIMS: ForbiddenPublicClaim[] = [
     reason: "Payment proves transfer, not work quality.",
     injectionExample: "A payment receipt proves work quality for the buyer.",
   },
-  {
-    id: "paid-specialist-availability",
-    pattern: /\bhire\s+a\s+paid\s+specialist\s+from\s+Claude\s+Code\b/i,
-    reason: "Do not present the fixture-backed Claude Code walkthrough as a currently available hiring service.",
-    injectionExample: "Hire a paid specialist from Claude Code.",
-  },
-  {
-    id: "onchain-registration-availability",
-    pattern: /\bregister\s+(?:a|your)\s+specialist\s+on-chain\b/i,
-    reason: "Do not present the blocked recorded deployment as a currently available registration service.",
-    injectionExample: "Register your specialist on-chain.",
-  },
 ];
 
 /**
@@ -126,8 +114,6 @@ const CLAIM_PREDICATES: Record<string, string> = {
   "security-audited": "\\baudit(?:ed|s)?\\b",
   "live-audd-settlement": "\\b(?:live|production|settled|settlement|custody)\\b",
   "payment-proves-work": "\\b(?:proves|guarantees|certifies)\\b",
-  "paid-specialist-availability": "\\bhire\\s+a\\s+paid\\s+specialist\\s+from\\s+Claude\\s+Code\\b",
-  "onchain-registration-availability": "\\bregister\\s+(?:a|your)\\s+specialist\\s+on-chain\\b",
 };
 
 function boundaryFormsFor(claimId: string): RegExp[] {

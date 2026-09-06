@@ -104,7 +104,7 @@ test.describe("judge replication onboarding", () => {
     // newline that follows an expression, so each seam needs an explicit space. Read
     // the rendered sentence back rather than the card count so "recordings arewithheld"
     // fails here instead of shipping.
-    const heroTally = await page.getByText(/Replicate the flows yourself/).first().innerText();
+    const heroTally = await page.getByText(/Inspect the bounded evidence flows yourself/).first().innerText();
     expect(heroTally).toContain(
       `${withheld} ${withheld === 1 ? "recording is" : "recordings are"} withheld because the captures predate`,
     );
