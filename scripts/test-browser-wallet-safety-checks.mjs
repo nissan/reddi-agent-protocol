@@ -148,6 +148,19 @@ const cases = [
     expectStatus: "passed",
   },
   {
+    name: "copy guard negative control blocks JSON that parses to a non-object",
+    command: [
+      "scripts/check-browser-wallet-copy-guard.mjs",
+      "--negative-control",
+      "--row",
+      "scripts/fixtures/browser-wallet-devnet-approval/approval.not-an-object.json",
+    ],
+    env: {},
+    expectExit: 1,
+    expectStatus: "blocked",
+    expectBlockerPrefix: "malformed_browser_wallet_approval:",
+  },
+  {
     name: "copy guard negative control fails",
     command: ["scripts/check-browser-wallet-copy-guard.mjs", "--negative-control"],
     env: {},

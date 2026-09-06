@@ -12,6 +12,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const { isLoopbackRpcUrl } = await import(pathToFileURL(join(rootDir, "lib", "config", "loopback-endpoint.ts")).href);
+const { resolveNetworkProfileNameFromEnv } = await import(pathToFileURL(join(rootDir, "lib", "config", "network-profile-name.ts")).href);
 const localProfile = JSON.parse(readFileSync(join(rootDir, "config", "networks", "local-surfpool.json"), "utf8"));
 const devnetProfile = JSON.parse(readFileSync(join(rootDir, "config", "networks", "devnet.json"), "utf8"));
 const mainnetProfile = JSON.parse(readFileSync(join(rootDir, "config", "networks", "mainnet.json"), "utf8"));
@@ -34,16 +35,6 @@ function parseArgs(argv) {
   return args;
 }
 
-function resolveProfileName(env) {
-  const selected = [env.NETWORK_PROFILE, env.NEXT_PUBLIC_BUILD_NETWORK_PROFILE, env.NEXT_PUBLIC_NETWORK_PROFILE]
-    .map((value) => (typeof value === "string" ? value.trim() : ""))
-    .find((value) => value.length > 0);
-  const raw = (selected ?? "devnet").toLowerCase();
-  if (["local-surfpool", "local", "localnet", "surfpool"].includes(raw)) return "local-surfpool";
-  if (["mainnet", "mainnet-beta"].includes(raw)) return "mainnet";
-  return "devnet";
-}
-
 function baseProfile(name) {
   if (name === "local-surfpool") return localProfile;
   if (name === "mainnet") return mainnetProfile;
@@ -62,7 +53,7 @@ function check(id, ok, summary) {
 }
 
 function buildArtifact(args, env) {
-  const profileName = resolveProfileName(env);
+  const profileName = resolveNetworkProfileNameFromEnv(env);
   const rpc = effectiveRpc(env, baseProfile(profileName));
   const signerSecretPresent = typeof env.NEXT_PUBLIC_PLAYWRIGHT_WALLET_SECRET_KEY === "string" && env.NEXT_PUBLIC_PLAYWRIGHT_WALLET_SECRET_KEY.length > 0;
   const checks = [
