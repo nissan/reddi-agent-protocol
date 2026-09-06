@@ -47,6 +47,36 @@ async function firstPartyCopy(page: Page): Promise<string> {
   }, EXTERNAL_CLAIM_SCOPE_SELECTOR);
 }
 
+/**
+ * Recordings a gated route plays. `firstPartyCopy()` cannot read narration, so
+ * the boundary holds a player two ways: a caption track under
+ * `/videos/onboarding/captions/`, whose text `npm run check:claims:public`
+ * scans, or the `/tour` explainer's pattern — kept out of the route's default
+ * DOM behind a disclosure the test below asserts. A player on a gated route
+ * with no scanned caption track is narration nothing reviews, whatever file or
+ * identifier it is sourced from.
+ */
+async function unscannedRecordings(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    [...document.querySelectorAll("video")]
+      .filter(
+        (video) =>
+          ![...video.querySelectorAll("track")].some(
+            (track) =>
+              track.kind === "captions" &&
+              new URL(track.src, location.href).pathname.startsWith("/videos/onboarding/captions/"),
+          ),
+      )
+      .map(
+        (video) =>
+          video.currentSrc ||
+          video.getAttribute("src") ||
+          video.querySelector("source")?.getAttribute("src") ||
+          "(no source)",
+      ),
+  );
+}
+
 function unqualifiedClaims(copy: string): string[] {
   const violations: string[] = [];
   for (const line of copy.split(/\r?\n/)) {
@@ -78,6 +108,12 @@ test.describe("public-claim boundary (rendered copy)", () => {
           .poll(async () => page.locator(route.settledContent!).count(), { timeout: 30_000 })
           .toBeGreaterThan(0);
       }
+
+      // Before `firstPartyCopy()`, which strips subtrees out of the live DOM.
+      expect(
+        await unscannedRecordings(page),
+        `${route.path} plays a recording whose narration no check reads; withhold it or caption it into the scanned set, per ${PUBLIC_CLAIM_BOUNDARY_DOC_PATH}`,
+      ).toEqual([]);
 
       const rendered = await firstPartyCopy(page);
       expect(rendered).toMatch(route.readyCopy);

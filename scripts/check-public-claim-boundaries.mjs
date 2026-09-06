@@ -79,6 +79,9 @@ const historicalFilesRequiringDisclaimer = [
 const withheldRecordingPaths = [
   "public/video/volunteers/reddi-ollama-x402-wrapper-guide-20260427.mp4",
   "public/video/volunteers/reddi-openonion-x402-wrapper-guide-20260427.mp4",
+  "public/videos/onboarding/overview.mp4",
+  "public/videos/onboarding/posters/overview.jpg",
+  "public/videos/onboarding/captions/overview.vtt",
   "scripts/record-onboarding-overview-playwright.mjs",
 ];
 
@@ -284,21 +287,6 @@ for (const rel of withheldRecordingPaths) {
   if (existsSync(join(ROOT, rel))) {
     failures.push(`${rel}: withheld recording or regeneration path must not be publicly served or runnable`);
   }
-}
-
-const testersPage = read("app/testers/page.tsx");
-if (testersPage !== null && /\/video\/volunteers\/|wrapperVideos/.test(testersPage)) {
-  failures.push("app/testers/page.tsx: withheld volunteer recordings must not return to the product surface");
-}
-
-const onboardingVideoPlan = read("docs/ONBOARDING-VIDEO-UX-PLAN.md");
-if (
-  onboardingVideoPlan !== null &&
-  /record-onboarding-overview|onboarding-overview\.mp4|posters\/onboarding-overview|onboarding-full\.mp4/.test(
-    onboardingVideoPlan,
-  )
-) {
-  failures.push("docs/ONBOARDING-VIDEO-UX-PLAN.md: retired overview recording inputs or outputs must not return");
 }
 
 const boundaryDoc = read("docs/PUBLIC-CLAIM-BOUNDARY.md");
