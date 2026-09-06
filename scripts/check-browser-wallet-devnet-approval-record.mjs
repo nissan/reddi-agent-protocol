@@ -50,8 +50,9 @@ const { BROWSER_WALLET_APPROVAL_VALIDATION_SCHEMA_VERSION, validateBrowserWallet
 
 function parseArgs(argv) {
   const args = {
-    approval: process.env.BROWSER_WALLET_DEVNET_APPROVAL_RECORD || "",
-    now: process.env.BROWSER_WALLET_DEVNET_APPROVAL_NOW || "",
+    approval: "",
+    now: "",
+    nowRequested: false,
     allowFutureAuddDevnet: false,
     help: false,
     unknown: "",
@@ -64,6 +65,7 @@ function parseArgs(argv) {
       index += 1;
     } else if (arg === "--now") {
       args.now = next ?? "";
+      args.nowRequested = true;
       index += 1;
     } else if (arg === "--allow-future-partner-confirmed-audd-devnet") {
       args.allowFutureAuddDevnet = true;
@@ -119,8 +121,8 @@ if (args.unknown) {
 const checks = [];
 const approval = readJson(args.approval, checks);
 let now;
-if (args.now) {
-  if (Number.isFinite(Date.parse(args.now))) {
+if (args.nowRequested) {
+  if (args.now && Number.isFinite(Date.parse(args.now))) {
     now = args.now;
   } else {
     checks.push({ id: "now_parseable", ok: false, summary: "--now must be an exact parseable ISO timestamp" });

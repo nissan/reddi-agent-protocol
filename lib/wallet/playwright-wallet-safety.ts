@@ -47,8 +47,3 @@ export function checkPlaywrightWalletSignerPreflight(
   }
   return { ok: true, code: "allowed_local_surfpool_loopback", message: "Playwright signer secret is limited to local-surfpool loopback" };
 }
-
-export function assertPlaywrightWalletSignerPreflight(input: PlaywrightWalletSignerPreflightInput): void {
-  const result = checkPlaywrightWalletSignerPreflight(input);
-  if (!result.ok) throw new Error(result.message);
-}
