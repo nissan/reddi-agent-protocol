@@ -21,6 +21,27 @@ export type BrowserWalletApprovalValidationResult<T = BrowserWalletSingleUseAppr
     errors: BrowserWalletApprovalValidationError[];
     warnings: string[];
 };
+export type BrowserWalletProgramIds = {
+    escrow: string;
+    registry: string;
+    reputation: string;
+    attestation: string;
+};
+export type BrowserWalletTrustedFutureAuddDevnetIdentity = {
+    approvalRef: string;
+    sourceUrl: string;
+    sourceRetrievedAt: string;
+    sourceSha256?: string;
+    mint: string;
+    decimals: typeof AUDD_DECIMALS;
+    tokenProgram: typeof SPL_TOKEN_PROGRAM_ID;
+};
+export type BrowserWalletApprovalValidationOptions = {
+    now?: string | Date;
+    trustedDevnetProgramIds?: BrowserWalletProgramIds;
+    allowFuturePartnerConfirmedAuddDevnet?: boolean;
+    trustedFutureAuddDevnetIdentity?: BrowserWalletTrustedFutureAuddDevnetIdentity;
+};
 export type BrowserWalletProviderSource = {
     kind: 'official-docs' | 'browser-extension-store' | 'operator-ui';
     url: string;
@@ -81,12 +102,7 @@ export type BrowserWalletSingleUseApprovalRecord = {
         target: 'legacy-anchor';
         framework: 'anchor';
         source: 'resolved-network-profile';
-        ids: {
-            escrow: string;
-            registry: string;
-            reputation: string;
-            attestation: string;
-        };
+        ids: BrowserWalletProgramIds;
         submissionReady: true;
     };
     funding: {
@@ -262,10 +278,7 @@ export type BrowserWalletIdentityCopyGuardInput = {
 };
 export type BrowserWalletTier1LocalHarnessValidationResult = BrowserWalletApprovalValidationResult<BrowserWalletTier1LocalHarnessContract>;
 export type BrowserWalletIdentityCopyGuardResult = BrowserWalletApprovalValidationResult<BrowserWalletIdentityCopyGuardInput>;
-export declare function validateBrowserWalletApprovalRecord(input: unknown, options?: {
-    now?: string | Date;
-    allowFuturePartnerConfirmedAuddDevnet?: boolean;
-}): BrowserWalletApprovalValidationResult;
+export declare function validateBrowserWalletApprovalRecord(input: unknown, options?: BrowserWalletApprovalValidationOptions): BrowserWalletApprovalValidationResult;
 export declare function validateBrowserWalletTier1LocalHarnessContract(input: unknown): BrowserWalletTier1LocalHarnessValidationResult;
 export declare function validateBrowserWalletIdentityCopyClaims(input: unknown): BrowserWalletIdentityCopyGuardResult;
 export declare const DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT: BrowserWalletTier1LocalHarnessContract;

@@ -13,6 +13,7 @@ import {
   validateBrowserWalletIdentityCopyClaims,
   validateBrowserWalletTier1LocalHarnessContract,
   type BrowserWalletApprovalValidationErrorCode,
+  type BrowserWalletApprovalValidationOptions,
   type BrowserWalletIdentityCopyGuardInput,
   type BrowserWalletSingleUseApprovalRecord,
 } from '../dist/index.js';
@@ -22,6 +23,15 @@ const DEVNET_PROGRAM_ID = '794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD';
 const WALLET_PUBLIC_KEY = 'So11111111111111111111111111111111111111112';
 const USDC_DEVNET_MINT = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
 const MAINNET_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const VALIDATION_OPTIONS: BrowserWalletApprovalValidationOptions = {
+  now: NOW,
+  trustedDevnetProgramIds: {
+    escrow: DEVNET_PROGRAM_ID,
+    registry: DEVNET_PROGRAM_ID,
+    reputation: DEVNET_PROGRAM_ID,
+    attestation: DEVNET_PROGRAM_ID,
+  },
+};
 
 function validApproval(overrides: Partial<BrowserWalletSingleUseApprovalRecord> = {}): BrowserWalletSingleUseApprovalRecord {
   return {
@@ -157,7 +167,7 @@ function validApproval(overrides: Partial<BrowserWalletSingleUseApprovalRecord> 
 }
 
 function codes(record: unknown): BrowserWalletApprovalValidationErrorCode[] {
-  const result = validateBrowserWalletApprovalRecord(record, { now: NOW });
+  const result = validateBrowserWalletApprovalRecord(record, VALIDATION_OPTIONS);
   assert.equal(result.ok, false);
   return result.errors.map((entry) => entry.code);
 }
@@ -205,7 +215,7 @@ function safeCopyRow(overrides: Partial<BrowserWalletIdentityCopyGuardInput> = {
 
 describe('manual Devnet browser-wallet approval schema', () => {
   it('validates a strict single-use Phantom Devnet connect-only approval without enabling execution', () => {
-    const result = validateBrowserWalletApprovalRecord(validApproval(), { now: NOW });
+    const result = validateBrowserWalletApprovalRecord(validApproval(), VALIDATION_OPTIONS);
 
     assert.equal(result.ok, true);
     if (result.ok) {
@@ -226,7 +236,7 @@ describe('manual Devnet browser-wallet approval schema', () => {
 
     const unknownNested = validApproval({ wallet: { ...validApproval().wallet, secretMaterial: false } }) as Record<string, unknown>;
     (unknownNested.wallet as Record<string, unknown>).privateKey = 'DO_NOT_ECHO_TEST_SENTINEL';
-    const result = validateBrowserWalletApprovalRecord(unknownNested, { now: NOW });
+    const result = validateBrowserWalletApprovalRecord(unknownNested, VALIDATION_OPTIONS);
     assert.equal(result.ok, false);
     if (!result.ok) {
       assert.ok(result.errors.some((entry) => entry.path === '$.wallet.privateKey'));
@@ -234,6 +244,7 @@ describe('manual Devnet browser-wallet approval schema', () => {
     }
 
     assert.ok(codes(validApproval({ approvedAt: 'not-an-iso-date' })).includes('malformed_browser_wallet_approval'));
+    assert.ok(codes(validApproval({ approvedAt: '2026-09-03T12:30:00.001Z' })).includes('contradictory_browser_wallet_approval'));
     assert.ok(codes(validApproval({ expiresAt: '2026-09-03T12:29:59.000Z' })).includes('expired_browser_wallet_approval'));
   });
 
@@ -279,6 +290,23 @@ describe('manual Devnet browser-wallet approval schema', () => {
 
     const quasar = validApproval({ programs: { ...validApproval().programs, target: 'quasar' as 'legacy-anchor', framework: 'quasar' as 'anchor' } });
     assert.ok(codes(quasar).includes('production_browser_wallet_rejected'));
+
+    const mismatchedProgram = validApproval({
+      programs: {
+        ...validApproval().programs,
+        ids: { ...validApproval().programs.ids, registry: WALLET_PUBLIC_KEY },
+      },
+    });
+    const programMismatch = validateBrowserWalletApprovalRecord(mismatchedProgram, VALIDATION_OPTIONS);
+    assert.equal(programMismatch.ok, false);
+    if (!programMismatch.ok) {
+      assert.ok(programMismatch.errors.some((entry) => entry.code === 'non_canonical_browser_wallet_identity' && entry.path === '$.programs.ids.registry'));
+    }
+    const missingTrustedPrograms = validateBrowserWalletApprovalRecord(validApproval(), { now: NOW });
+    assert.equal(missingTrustedPrograms.ok, false);
+    if (!missingTrustedPrograms.ok) {
+      assert.ok(missingTrustedPrograms.errors.some((entry) => entry.path === '$.programs.ids.escrow'));
+    }
   });
 
   it('keeps Devnet USDC narrow and official AUDD Devnet unavailable by default', () => {
@@ -294,7 +322,7 @@ describe('manual Devnet browser-wallet approval schema', () => {
         source: 'existing-gated-devnet-usdc-lane',
         official: false,
       },
-    }), { now: NOW });
+    }), VALIDATION_OPTIONS);
     assert.equal(usdc.ok, true);
 
     const mainnetUsdc = validateBrowserWalletApprovalRecord(validApproval({
@@ -309,7 +337,7 @@ describe('manual Devnet browser-wallet approval schema', () => {
         source: 'existing-gated-devnet-usdc-lane',
         official: false,
       },
-    }), { now: NOW });
+    }), VALIDATION_OPTIONS);
     assert.equal(mainnetUsdc.ok, false);
     if (!mainnetUsdc.ok) {
       assert.ok(mainnetUsdc.errors.some((entry) => entry.code === 'mainnet_browser_wallet_rejected' && entry.path === '$.asset.mint'));
@@ -361,7 +389,32 @@ describe('manual Devnet browser-wallet approval schema', () => {
         auddDevnetApprovalRef: 'audd-devnet-partner-approval:20260903',
       },
     });
-    assert.equal(validateBrowserWalletApprovalRecord(partnerConfirmedAudd, { now: NOW, allowFuturePartnerConfirmedAuddDevnet: true }).ok, true);
+    const selfAttestedAudd = validateBrowserWalletApprovalRecord(partnerConfirmedAudd, {
+      ...VALIDATION_OPTIONS,
+      allowFuturePartnerConfirmedAuddDevnet: true,
+    });
+    assert.equal(selfAttestedAudd.ok, false);
+    if (!selfAttestedAudd.ok) {
+      assert.ok(selfAttestedAudd.errors.some((entry) => entry.code === 'official_audd_devnet_unavailable'));
+      assert.ok(selfAttestedAudd.errors.some((entry) => entry.code === 'non_canonical_browser_wallet_identity' && entry.path === '$.asset.mint'));
+    }
+
+    const untrustedUsdcAsAudd = validateBrowserWalletApprovalRecord(partnerConfirmedAudd, {
+      ...VALIDATION_OPTIONS,
+      allowFuturePartnerConfirmedAuddDevnet: true,
+      trustedFutureAuddDevnetIdentity: {
+        approvalRef: 'audd-devnet-partner-approval:20260903',
+        sourceUrl: 'https://example.com/audd-devnet-confirmation.json',
+        sourceRetrievedAt: '2026-09-03T11:30:00.000Z',
+        mint: USDC_DEVNET_MINT,
+        decimals: 6,
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+      },
+    });
+    assert.equal(untrustedUsdcAsAudd.ok, false);
+    if (!untrustedUsdcAsAudd.ok) {
+      assert.ok(untrustedUsdcAsAudd.errors.some((entry) => entry.code === 'non_canonical_browser_wallet_identity' && entry.path === '$.asset.auddPartnerConfirmation.confirmedMint'));
+    }
 
     const mismatchedPartnerConfirmedAudd = validApproval({
       asset: {
@@ -369,7 +422,7 @@ describe('manual Devnet browser-wallet approval schema', () => {
         mint: AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
       },
     });
-    const mismatch = validateBrowserWalletApprovalRecord(mismatchedPartnerConfirmedAudd, { now: NOW, allowFuturePartnerConfirmedAuddDevnet: true });
+    const mismatch = validateBrowserWalletApprovalRecord(mismatchedPartnerConfirmedAudd, { ...VALIDATION_OPTIONS, allowFuturePartnerConfirmedAuddDevnet: true });
     assert.equal(mismatch.ok, false);
     if (!mismatch.ok) assert.ok(mismatch.errors.some((entry) => entry.code === 'contradictory_browser_wallet_approval' && entry.path === '$.asset.mint'));
 
@@ -386,7 +439,7 @@ describe('manual Devnet browser-wallet approval schema', () => {
         },
       },
     });
-    const mainnetMint = validateBrowserWalletApprovalRecord(mainnetMintOnBothSides, { now: NOW, allowFuturePartnerConfirmedAuddDevnet: true });
+    const mainnetMint = validateBrowserWalletApprovalRecord(mainnetMintOnBothSides, { ...VALIDATION_OPTIONS, allowFuturePartnerConfirmedAuddDevnet: true });
     assert.equal(mainnetMint.ok, false);
     if (!mainnetMint.ok) {
       assert.ok(mainnetMint.errors.some((entry) => entry.code === 'mainnet_browser_wallet_rejected' && entry.path === '$.asset.mint'));
@@ -452,6 +505,48 @@ describe('browser-wallet AUDD identity/copy guard', () => {
   it('accepts safe local AUDD_TEST expected-only copy with canonical x402/policy/receipt identity', () => {
     const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow());
     assert.equal(result.ok, true);
+  });
+
+  it('binds every local and Devnet copy row to a complete canonical rail identity', () => {
+    for (const [field, value] of [
+      ['networkAlias', 'solana-devnet'],
+      ['caip2', SOLANA_DEVNET_CAIP2],
+      ['mint', null],
+      ['tokenProgram', null],
+      ['decimals', null],
+    ] as const) {
+      const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+        [field]: value,
+        x402Export: undefined,
+      }));
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.ok(result.errors.some((entry) => entry.path === `$.${field}`));
+      }
+    }
+
+    const wrongDevnetUsdc = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+      railEnvironment: 'devnet-unverified',
+      assetLabel: 'USDC',
+      networkAlias: 'solana-devnet',
+      caip2: SOLANA_DEVNET_CAIP2,
+      mint: 'UnverifiedDevnetAuddMint11111111111111111',
+      observationSource: 'expected-only',
+      x402Export: undefined,
+    }));
+    assert.equal(wrongDevnetUsdc.ok, false);
+    if (!wrongDevnetUsdc.ok) {
+      assert.ok(wrongDevnetUsdc.errors.some((entry) => entry.path === '$.mint'));
+    }
+
+    const usdcMintMislabelledAsAuddTest = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+      mint: USDC_DEVNET_MINT,
+      x402Export: undefined,
+    }));
+    assert.equal(usdcMintMislabelledAsAuddTest.ok, false);
+    if (!usdcMintMislabelledAsAuddTest.ok) {
+      assert.ok(usdcMintMislabelledAsAuddTest.errors.some((entry) => entry.path === '$.mint'));
+    }
   });
 
   it('returns a sanitized blocker instead of throwing when copy badges or notes are not lists', () => {
