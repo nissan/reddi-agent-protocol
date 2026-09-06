@@ -48,6 +48,15 @@ const { BROWSER_WALLET_APPROVAL_VALIDATION_SCHEMA_VERSION, validateBrowserWallet
   pathToFileURL(join(rootDir, "packages", "agent-protocol", "src", "browser-wallet-approval.ts")).href
 );
 
+const devnetProfile = JSON.parse(readFileSync(join(rootDir, "config", "networks", "devnet.json"), "utf8"));
+const trustedDevnetEscrowProgramId = devnetProfile?.programs?.escrowProgramId;
+const trustedDevnetProgramIds = {
+  escrow: trustedDevnetEscrowProgramId,
+  registry: trustedDevnetEscrowProgramId,
+  reputation: trustedDevnetEscrowProgramId,
+  attestation: trustedDevnetEscrowProgramId,
+};
+
 function parseArgs(argv) {
   const args = {
     approval: "",
@@ -134,7 +143,11 @@ if (args.nowRequested) {
 if (approval.read) {
   const result = validateBrowserWalletApprovalRecord(approval.value, {
     now,
+    trustedDevnetProgramIds,
     allowFuturePartnerConfirmedAuddDevnet: args.allowFutureAuddDevnet,
+    // No trusted future AUDD identity is configured in this default-off checker.
+    // A later implementation must supply independently verified partner data and
+    // a separately validated approval reference out of band.
   });
   if (result.ok) {
     checks.push({ id: "approval_schema", ok: true, summary: "approval record matches the browser-wallet single-use schema" });

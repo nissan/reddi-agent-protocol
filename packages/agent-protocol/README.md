@@ -636,13 +636,16 @@ import {
   DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT,
 } from '@reddi/agent-protocol/browser-wallet-approval';
 
-const result = validateBrowserWalletApprovalRecord(approvalJson);
-console.log(result.ok); // false for missing/expired/contradictory records
+const result = validateBrowserWalletApprovalRecord(approvalJson, {
+  now: new Date(),
+  trustedDevnetProgramIds: resolvedDevnetProgramIds,
+});
+console.log(result.ok); // false for missing/expired/contradictory or unbound records
 ```
 
 Browser wallet approval helpers provide offline contracts and pure validators for browser-wallet safety preflight:
 
-- `validateBrowserWalletApprovalRecord` verifies single-use Devnet approval records against `reddi.browser-wallet.single-use-approval.v1`. It enforces strict single-use scope, provider/version/source pinning, disposable profile requirements, public-key-only custody, canonical network/program IDs, ordered timestamps (`approvedAt` before `expiresAt`, provider `retrievedAt` no later than `approvedAt`), and fail-closed AUDD/USDC asset constraints.
+- `validateBrowserWalletApprovalRecord` verifies single-use Devnet approval records against `reddi.browser-wallet.single-use-approval.v1`. It requires trusted Devnet program IDs from the caller and rejects records whose claimed resolved IDs differ. It enforces strict single-use scope, provider/version/source pinning, disposable profile requirements, public-key-only custody, canonical network/program IDs, ordered timestamps (`approvedAt` no later than evaluation time and before `expiresAt`, provider `retrievedAt` no later than `approvedAt`), and fail-closed AUDD/USDC asset constraints. The dormant future-AUDD option also requires independently supplied trusted identity data; fields inside the approval cannot attest themselves.
 - `validateBrowserWalletTier1LocalHarnessContract` validates the dormant Tier 1 local browser harness contract (`DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT`), enforcing `enabledByDefault: false`, local-only loopback, and a six-decimal `AUDD_TEST`/`LOCAL_AUDD_TEST` SPL test mint with `grantEligibility=non_eligible`.
 - `validateBrowserWalletIdentityCopyClaims` validates browser-wallet evidence and copy rows against `reddi.browser-wallet.identity-copy-guard.v1`, evaluating claims per clause so badges cannot suppress overclaims and rejecting official AUDD, grant-eligible, observed-settlement, and controlled-live claims across safety rows.
 
