@@ -100,7 +100,10 @@ function readJson(path, checks) {
 
 function help() {
   return [
-    "Usage: node scripts/check-browser-wallet-devnet-approval-record.mjs --approval <approval.json> [--now <iso>]",
+    "Usage: node scripts/check-browser-wallet-devnet-approval-record.mjs --approval <approval.json> [--now <iso>]"
+      + " [--allow-future-partner-confirmed-audd-devnet]",
+    "",
+    "--allow-future-partner-confirmed-audd-devnet is default-off. It only permits a future partner-confirmed AUDD Devnet asset shape to be reviewed; it never enables official AUDD Devnet, wallet, or transaction activity.",
     "",
     "Offline fail-closed checker for manual single-use Devnet browser-wallet approval records.",
     "Passing means the approval artifact is internally consistent for human review only; it does not authorize or perform wallet/transaction activity.",
