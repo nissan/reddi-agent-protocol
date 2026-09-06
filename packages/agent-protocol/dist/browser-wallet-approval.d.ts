@@ -4,13 +4,7 @@ export declare const BROWSER_WALLET_APPROVAL_SCHEMA_VERSION: "reddi.browser-wall
 export declare const BROWSER_WALLET_APPROVAL_VALIDATION_SCHEMA_VERSION: "reddi.browser-wallet.approval-validation.v1";
 export declare const BROWSER_WALLET_TIER1_LOCAL_HARNESS_SCHEMA_VERSION: "reddi.browser-wallet.tier1-local-harness-contract.v1";
 export declare const BROWSER_WALLET_IDENTITY_COPY_GUARD_SCHEMA_VERSION: "reddi.browser-wallet.identity-copy-guard.v1";
-export declare const BROWSER_WALLET_DEVNET_ACTION_DEFAULT_OFF: true;
 export declare const CANONICAL_DEVNET_USDC_MINT: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
-export declare const PHANTOM_DEVNET_BROWSER_WALLET_CANDIDATE: {
-    readonly provider: "Phantom";
-    readonly status: "candidate-only-not-installed-or-selected";
-    readonly rationale: "RAP app wiring includes Phantom and current Phantom public docs describe Solana Devnet/Testnet mode; a future manual run still needs a separate one-use approval record.";
-};
 declare const LOOPBACK_DYNAMIC_SENTINEL: "dynamic-loopback";
 export type BrowserWalletApprovalValidationErrorCode = 'malformed_browser_wallet_approval' | 'missing_browser_wallet_approval_field' | 'unknown_browser_wallet_approval_field' | 'invalid_browser_wallet_approval_schema' | 'expired_browser_wallet_approval' | 'non_single_use_browser_wallet_approval' | 'unknown_browser_wallet_provider' | 'mainnet_browser_wallet_rejected' | 'production_browser_wallet_rejected' | 'custody_browser_wallet_rejected' | 'settlement_finality_rejected' | 'overly_broad_browser_wallet_approval' | 'non_canonical_browser_wallet_identity' | 'contradictory_browser_wallet_approval' | 'official_audd_devnet_unavailable' | 'secret_material_rejected' | 'ai_faucet_rejected';
 export type BrowserWalletApprovalValidationError = {

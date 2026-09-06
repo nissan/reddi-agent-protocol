@@ -48,8 +48,6 @@ function parseArgs(argv) {
       args.negativeControl = true;
     } else if (arg === "--help" || arg === "-h") {
       args.help = true;
-    } else if (!arg.startsWith("--")) {
-      args.rows.push(arg);
     } else {
       args.unknown = arg;
       break;

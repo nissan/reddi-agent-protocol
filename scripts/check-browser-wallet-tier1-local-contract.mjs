@@ -48,9 +48,6 @@ function parseArgs(argv) {
       index += 1;
     } else if (arg === "--help" || arg === "-h") {
       args.help = true;
-    } else if (!arg.startsWith("--") && !args.contract) {
-      args.contract = arg;
-      args.contractRequested = true;
     } else {
       args.unknown = arg;
       break;

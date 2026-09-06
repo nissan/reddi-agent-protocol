@@ -4,10 +4,8 @@ import {
   AUDD_DETERMINISTIC_FIXTURE_MINT,
   AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
   BROWSER_WALLET_APPROVAL_SCHEMA_VERSION,
-  BROWSER_WALLET_DEVNET_ACTION_DEFAULT_OFF,
   BROWSER_WALLET_IDENTITY_COPY_GUARD_SCHEMA_VERSION,
   DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT,
-  PHANTOM_DEVNET_BROWSER_WALLET_CANDIDATE,
   SOLANA_DEVNET_CAIP2,
   SOLANA_MAINNET_BETA_CAIP2,
   SPL_TOKEN_PROGRAM_ID,
@@ -210,8 +208,6 @@ describe('manual Devnet browser-wallet approval schema', () => {
     const result = validateBrowserWalletApprovalRecord(validApproval(), { now: NOW });
 
     assert.equal(result.ok, true);
-    assert.equal(BROWSER_WALLET_DEVNET_ACTION_DEFAULT_OFF, true);
-    assert.equal(PHANTOM_DEVNET_BROWSER_WALLET_CANDIDATE.status, 'candidate-only-not-installed-or-selected');
     if (result.ok) {
       assert.equal(result.record.provider.name, 'Phantom');
       assert.equal(result.record.uiAction.devnetActionAvailableByDefault, false);
@@ -527,6 +523,74 @@ describe('browser-wallet AUDD identity/copy guard', () => {
       assert.ok(resultCodes.includes('official_audd_devnet_unavailable'));
       assert.ok(resultCodes.includes('non_canonical_browser_wallet_identity'));
       assert.ok(resultCodes.includes('settlement_finality_rejected'));
+    }
+  });
+
+  it('rejects a structurally live row even when its copy carries no forbidden terms', () => {
+    const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+      railEnvironment: 'controlled-live',
+      assetLabel: 'AUDD',
+      networkAlias: 'solana-live',
+      caip2: SOLANA_MAINNET_BETA_CAIP2,
+      mint: AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
+      observationSource: 'parsed-rpc-transaction',
+      grantEligibility: 'eligible',
+      x402Export: {
+        state: 'observed',
+        asset: 'AUDD',
+        networkAlias: 'solana-live',
+        caip2: SOLANA_MAINNET_BETA_CAIP2,
+        mint: AUDD_OFFICIAL_SOLANA_MAINNET_MINT,
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+        decimals: 6,
+      },
+      policy: { grantEligibility: 'eligible', controlledLive: true },
+      receipt: {
+        claim: 'observed-settlement',
+        observationStatus: 'rpc-observed',
+        settlementFinality: false,
+        controlledLiveEvidence: true,
+      },
+      copy: undefined,
+    }));
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      const resultCodes = result.errors.map((entry) => entry.code);
+      assert.ok(resultCodes.includes('mainnet_browser_wallet_rejected'));
+      assert.ok(resultCodes.includes('settlement_finality_rejected'));
+      assert.ok(resultCodes.includes('non_canonical_browser_wallet_identity'));
+    }
+  });
+
+  it('refuses to publish expected-only rows as observed receipts', () => {
+    const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+      railEnvironment: 'devnet-unverified',
+      assetLabel: 'AUDD_TEST',
+      networkAlias: 'solana-devnet',
+      caip2: SOLANA_DEVNET_CAIP2,
+      mint: 'UnverifiedDevnetAuddMint11111111111111111',
+      observationSource: 'expected-only',
+      x402Export: {
+        state: 'expected',
+        asset: 'AUDD_TEST',
+        networkAlias: 'solana-devnet',
+        caip2: SOLANA_DEVNET_CAIP2,
+        mint: 'UnverifiedDevnetAuddMint11111111111111111',
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+        decimals: 6,
+      },
+      receipt: {
+        claim: 'observed-transfer-checked',
+        observationStatus: 'rpc-observed',
+        settlementFinality: false,
+        controlledLiveEvidence: false,
+      },
+    }));
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      const paths = result.errors.filter((entry) => entry.code === 'settlement_finality_rejected').map((entry) => entry.path);
+      assert.ok(paths.includes('$.receipt.claim'));
+      assert.ok(paths.includes('$.receipt.observationStatus'));
     }
   });
 
