@@ -435,12 +435,36 @@ describe('dormant Tier 1 local browser harness contract', () => {
       assert.equal(result.ok, false);
     }
   });
+
+  it('returns a sanitized blocker instead of throwing when requiredFields is not a list', () => {
+    const result = validateBrowserWalletTier1LocalHarnessContract({
+      ...DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT,
+      observation: { ...DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT.observation, requiredFields: { mint: true } },
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.ok(result.errors.some((entry) => entry.path === '$.observation.requiredFields'));
+    }
+  });
 });
 
 describe('browser-wallet AUDD identity/copy guard', () => {
   it('accepts safe local AUDD_TEST expected-only copy with canonical x402/policy/receipt identity', () => {
     const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow());
     assert.equal(result.ok, true);
+  });
+
+  it('returns a sanitized blocker instead of throwing when copy badges or notes are not lists', () => {
+    for (const copy of [
+      { title: 'Local AUDD_TEST row', badges: { leaked: 'sentinel-value' } },
+      { title: 'Local AUDD_TEST row', notes: 7 },
+    ]) {
+      const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({ copy: copy as unknown as BrowserWalletIdentityCopyGuardInput['copy'] }));
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.ok(result.errors.some((entry) => entry.code === 'malformed_browser_wallet_approval' && entry.path.startsWith('$.copy.')));
+      }
+    }
   });
 
   it('does not let a non_eligible badge suppress a grant overclaim in another copy clause', () => {
