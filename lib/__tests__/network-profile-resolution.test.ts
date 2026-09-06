@@ -17,6 +17,7 @@ describe("network profile resolution", () => {
     process.env = { ...originalEnv };
     delete process.env.NETWORK_PROFILE;
     delete process.env.NEXT_PUBLIC_NETWORK_PROFILE;
+    delete process.env.NEXT_PUBLIC_BUILD_NETWORK_PROFILE;
     delete process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET;
     delete process.env.HACKATHON_DEMO_TARGET;
     delete process.env.DEMO_PROGRAM_TARGET;
@@ -50,6 +51,28 @@ describe("network profile resolution", () => {
     process.env.NEXT_PUBLIC_NETWORK_PROFILE = spelling;
     const { resolveNetworkProfileName } = await import("@/lib/config/network");
     expect(resolveNetworkProfileName()).toBe("local-surfpool");
+  });
+
+  it("skips a blank selector so the next key still decides the profile", async () => {
+    delete process.env.NEXT_PUBLIC_BUILD_NETWORK_PROFILE;
+    process.env.NETWORK_PROFILE = "   ";
+    process.env.NEXT_PUBLIC_NETWORK_PROFILE = "surfpool";
+    const { resolveNetworkProfileName } = await import("@/lib/config/network");
+    const { resolveNetworkProfileNameFromEnv } = await import("@/lib/config/network-profile-name");
+
+    expect(resolveNetworkProfileName()).toBe("local-surfpool");
+    expect(resolveNetworkProfileNameFromEnv(process.env)).toBe("local-surfpool");
+  });
+
+  it("lets the build-emitted profile outrank the bundled selector", async () => {
+    delete process.env.NETWORK_PROFILE;
+    process.env.NEXT_PUBLIC_BUILD_NETWORK_PROFILE = "local-surfpool";
+    process.env.NEXT_PUBLIC_NETWORK_PROFILE = "mainnet";
+    const { resolveNetworkProfileName } = await import("@/lib/config/network");
+    const { resolveNetworkProfileNameFromEnv } = await import("@/lib/config/network-profile-name");
+
+    expect(resolveNetworkProfileName()).toBe("local-surfpool");
+    expect(resolveNetworkProfileNameFromEnv(process.env)).toBe("local-surfpool");
   });
 
   it("is case-insensitive for the canonical local profile name", async () => {

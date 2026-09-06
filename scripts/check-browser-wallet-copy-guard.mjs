@@ -81,6 +81,18 @@ function readRows(paths, checks) {
   }
   return rows;
 }
+function isPlainObjectValue(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function withNegativeControlCopy(row) {
+  if (!isPlainObjectValue(row)) return row;
+  const copy = isPlainObjectValue(row.copy) ? row.copy : {};
+  const summary = typeof copy.summary === "string" ? copy.summary : "";
+  return {
+    ...row,
+    copy: { ...copy, summary: `${summary} official AUDD grant-eligible observed settlement controlled-live evidence` },
+  };
+}
 function help() {
   return [
     "Usage: node scripts/check-browser-wallet-copy-guard.mjs [--row <row.json> ...] [--negative-control]",
@@ -104,9 +116,7 @@ const checks = [];
 const rowPaths = args.rows.length ? args.rows : defaultRows();
 const rows = readRows(rowPaths, checks);
 if (args.negativeControl && rows[0]) {
-  rows[0].row = JSON.parse(JSON.stringify(rows[0].row));
-  rows[0].row.copy = rows[0].row.copy || {};
-  rows[0].row.copy.summary = `${rows[0].row.copy.summary || ""} official AUDD grant-eligible observed settlement controlled-live evidence`;
+  rows[0].row = withNegativeControlCopy(rows[0].row);
 }
 for (const { path, row } of rows) {
   const result = validateBrowserWalletIdentityCopyClaims(row);

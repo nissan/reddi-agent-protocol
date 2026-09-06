@@ -4,8 +4,9 @@ import mainnetProfile from "@/config/networks/mainnet.json" with { type: "json" 
 import quasarDeployments from "@/config/quasar/deployments.json" with { type: "json" };
 
 import { isLoopbackRpcUrl } from "@/lib/config/loopback-endpoint";
+import { resolveNetworkProfileNameFromEnv, type NetworkProfileName } from "@/lib/config/network-profile-name";
 
-export type NetworkProfileName = "local-surfpool" | "devnet" | "mainnet";
+export type { NetworkProfileName };
 export type ProgramTarget = "legacy-anchor" | "quasar";
 export type DeploymentStatus = "local-only" | "devnet-deployed" | "mainnet-not-deployed";
 
@@ -135,13 +136,7 @@ export function isValidProgramId(value: string): boolean {
 }
 
 export function resolveNetworkProfileName(): NetworkProfileName {
-  const raw = (
-    pickEnv("NETWORK_PROFILE", "NEXT_PUBLIC_BUILD_NETWORK_PROFILE", "NEXT_PUBLIC_NETWORK_PROFILE") ?? "devnet"
-  ).toLowerCase();
-
-  if (raw === "local-surfpool" || raw === "local" || raw === "localnet" || raw === "surfpool") return "local-surfpool";
-  if (raw === "mainnet" || raw === "mainnet-beta") return "mainnet";
-  return "devnet";
+  return resolveNetworkProfileNameFromEnv(readEnv());
 }
 
 export function resolveProgramTarget(): ProgramTarget {
