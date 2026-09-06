@@ -159,7 +159,7 @@ Tester action:
 
 1. Open `/testers`.
 2. Choose either **Ollama specialist** or **OpenOnion specialist**.
-3. Follow the video/written guide for your path.
+3. Follow the written guide for your path.
 4. Start the endpoint locally.
 5. Expose only the x402 wrapper/gateway over HTTPS with ngrok.
 6. Copy the HTTPS endpoint URL.
