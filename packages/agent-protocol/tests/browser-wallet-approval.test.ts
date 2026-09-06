@@ -594,6 +594,56 @@ describe('browser-wallet AUDD identity/copy guard', () => {
     }
   });
 
+  it('rejects a row that carries the Solana mainnet-beta chain identity', () => {
+    const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+      railEnvironment: 'devnet-unverified',
+      assetLabel: 'AUDD_TEST',
+      networkAlias: 'solana-devnet',
+      caip2: SOLANA_MAINNET_BETA_CAIP2,
+      mint: 'UnverifiedDevnetAuddMint11111111111111111',
+      observationSource: 'expected-only',
+      x402Export: undefined,
+      receipt: { claim: 'expected-only', observationStatus: 'not-observed', settlementFinality: false, controlledLiveEvidence: false },
+    }));
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.ok(result.errors.some((entry) => entry.code === 'mainnet_browser_wallet_rejected' && entry.path === '$.caip2'));
+    }
+  });
+
+  it('rejects a non-string row chain identity', () => {
+    const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+      caip2: 12345 as unknown as string,
+    }));
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.ok(result.errors.some((entry) => entry.path === '$.caip2'));
+    }
+  });
+
+  it('refuses an observation source stronger than its rail environment can produce', () => {
+    const fixture = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+      railEnvironment: 'deterministic-fixture',
+      assetLabel: 'AUDD_TEST',
+      networkAlias: 'solana-devnet',
+      caip2: SOLANA_DEVNET_CAIP2,
+      mint: AUDD_DETERMINISTIC_FIXTURE_MINT,
+      observationSource: 'parsed-rpc-transaction',
+      x402Export: undefined,
+      receipt: { claim: 'observed-transfer-checked', observationStatus: 'rpc-observed', settlementFinality: false, controlledLiveEvidence: false },
+    }));
+    assert.equal(fixture.ok, false);
+    if (!fixture.ok) {
+      assert.ok(fixture.errors.some((entry) => entry.code === 'settlement_finality_rejected' && entry.path === '$.observationSource'));
+    }
+
+    const localMint = validateBrowserWalletIdentityCopyClaims(safeCopyRow({ observationSource: 'parsed-rpc-transaction' }));
+    assert.equal(localMint.ok, false);
+    if (!localMint.ok) {
+      assert.ok(localMint.errors.some((entry) => entry.code === 'settlement_finality_rejected' && entry.path === '$.observationSource'));
+    }
+  });
+
   it('keeps controlled-live copy claims prohibited until a future evidence-aware path exists', () => {
     const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
       railEnvironment: 'controlled-live',

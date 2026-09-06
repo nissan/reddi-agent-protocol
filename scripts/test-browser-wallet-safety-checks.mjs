@@ -128,6 +128,19 @@ const cases = [
     expectBlocker: "now_parseable",
   },
   {
+    name: "approval checker blocks a valueless --now instead of falling back to wall-clock time",
+    command: [
+      "scripts/check-browser-wallet-devnet-approval-record.mjs",
+      "--approval",
+      "scripts/fixtures/browser-wallet-devnet-approval/approval.valid.json",
+      "--now",
+    ],
+    env: {},
+    expectExit: 1,
+    expectStatus: "blocked",
+    expectBlocker: "now_parseable",
+  },
+  {
     name: "copy guard passes safe fixtures",
     command: ["scripts/check-browser-wallet-copy-guard.mjs"],
     env: {},

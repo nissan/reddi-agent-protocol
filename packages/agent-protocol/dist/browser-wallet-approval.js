@@ -150,6 +150,11 @@ const RECEIPT_OBSERVATION_STATUS_RANK = {
     'local-observed': 2,
     'rpc-observed': 3,
 };
+const RAIL_MAX_OBSERVATION_SOURCE = {
+    'deterministic-fixture': 'parsed-transaction-fixture',
+    'local-test-mint': 'local-validator',
+    'devnet-unverified': 'expected-only',
+};
 const RECEIPT_CLAIM_RANK = {
     'expected-only': 0,
     'fixture-only': 0,
@@ -339,6 +344,10 @@ export function validateBrowserWalletIdentityCopyClaims(input) {
     requireExactString(row.assetLabel, '$.assetLabel', errors);
     requireExactString(row.networkAlias, '$.networkAlias', errors);
     validateOptionalExactString(row.mint, '$.mint', errors);
+    validateOptionalExactString(row.caip2, '$.caip2', errors);
+    if (row.caip2 === SOLANA_MAINNET_BETA_CAIP2) {
+        errors.push(error('mainnet_browser_wallet_rejected', '$.caip2', 'browser-wallet safety rows must not name the Solana mainnet-beta chain identity'));
+    }
     if (row.tokenProgram !== undefined && row.tokenProgram !== null)
         requireLiteral(row.tokenProgram, SPL_TOKEN_PROGRAM_ID, '$.tokenProgram', 'non_canonical_browser_wallet_identity', errors);
     if (row.decimals !== undefined && row.decimals !== null && row.decimals !== AUDD_DECIMALS) {
@@ -346,6 +355,11 @@ export function validateBrowserWalletIdentityCopyClaims(input) {
     }
     if (!['expected-only', 'parsed-transaction-fixture', 'local-validator', 'parsed-rpc-transaction'].includes(String(row.observationSource))) {
         errors.push(error('non_canonical_browser_wallet_identity', '$.observationSource', 'observation source is not canonical'));
+    }
+    const railObservationCeiling = RAIL_MAX_OBSERVATION_SOURCE[String(row.railEnvironment)];
+    if (railObservationCeiling !== undefined
+        && (OBSERVATION_SOURCE_RANK[String(row.observationSource)] ?? Number.MAX_SAFE_INTEGER) > OBSERVATION_SOURCE_RANK[railObservationCeiling]) {
+        errors.push(error('settlement_finality_rejected', '$.observationSource', 'observation source must not exceed the evidence the rail environment can produce'));
     }
     if (!isPaymentEligibility(row.grantEligibility)) {
         errors.push(error('non_canonical_browser_wallet_identity', '$.grantEligibility', 'grant eligibility label is not canonical'));
