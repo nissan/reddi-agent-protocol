@@ -53,10 +53,12 @@ async function firstPartyCopy(page: Page): Promise<string> {
  * `firstPartyCopy()` cannot read narration; a caption track is the only part of
  * a recording that becomes scannable text, and `check:claims:public` derives
  * the files it scans from these same `captionsSrc` declarations. So a player is
- * only reviewed narration when it is one of these guides, playing under the
- * track whose text the static gate reads. The `/tour` explainer is the one
- * qualified recording and is kept out of the default DOM behind the disclosure
- * the test below asserts.
+ * only reviewed narration when it is one of these guides that still plays,
+ * under the track whose text the static gate reads. A `src` attribute makes
+ * `<source>` children inert, so the check reads the URLs the browser would
+ * actually resolve and requires every one of them to be the same guide's
+ * recording. The `/tour` explainer is the one qualified recording and is kept
+ * out of the default DOM behind the disclosure the test below asserts.
  */
 const scannedRecordings = onboardingVideos.filter(hasPlayableRecording).map((guide) => ({
   videoSrc: guide.videoSrc,
@@ -65,16 +67,21 @@ const scannedRecordings = onboardingVideos.filter(hasPlayableRecording).map((gui
 
 async function unscannedRecordings(page: Page): Promise<string[]> {
   return page.evaluate((scanned) => {
-    const sourceOf = (video: HTMLVideoElement) =>
-      video.querySelector("source")?.getAttribute("src") ??
-      video.getAttribute("src") ??
-      video.currentSrc;
+    const resolvedSources = (video: HTMLVideoElement) => {
+      const attribute = video.getAttribute("src");
+      const declared =
+        attribute === null
+          ? [...video.querySelectorAll("source")].map((source) => source.getAttribute("src") ?? "")
+          : [attribute];
+      if (video.currentSrc) declared.push(video.currentSrc);
+      return declared.map((value) => (value ? new URL(value, location.href).pathname : ""));
+    };
 
     return [...document.querySelectorAll("video")]
       .filter((video) => {
-        const source = sourceOf(video);
-        const guide = source
-          ? scanned.find((entry) => entry.videoSrc === new URL(source, location.href).pathname)
+        const sources = resolvedSources(video);
+        const guide = sources.length
+          ? scanned.find((entry) => sources.every((source) => source === entry.videoSrc))
           : undefined;
         if (!guide) return true;
         return ![...video.querySelectorAll("track")].some(
@@ -83,7 +90,7 @@ async function unscannedRecordings(page: Page): Promise<string[]> {
             new URL(track.src, location.href).pathname === guide.captionsSrc,
         );
       })
-      .map((video) => sourceOf(video) || "(no source)");
+      .map((video) => resolvedSources(video).find(Boolean) ?? "(no source)");
   }, scannedRecordings);
 }
 

@@ -13,8 +13,11 @@ on:
       - "packages/*/package.json"
       - "lib/public-claims/**"
       - "app/**/page.tsx"
-      - "public/videos/onboarding/captions/**"
+      - "lib/onboarding/**"
+      - "public/videos/onboarding/**"
+      - "public/video/volunteers/**"
       - "scripts/check-public-claim-boundaries.mjs"
+      - "scripts/record-onboarding-*"
       - ".github/workflows/public-claim-boundary.yml"
   pull_request:
     paths:
@@ -27,8 +30,11 @@ on:
       - "packages/*/package.json"
       - "lib/public-claims/**"
       - "app/**/page.tsx"
-      - "public/videos/onboarding/captions/**"
+      - "lib/onboarding/**"
+      - "public/videos/onboarding/**"
+      - "public/video/volunteers/**"
       - "scripts/check-public-claim-boundaries.mjs"
+      - "scripts/record-onboarding-*"
       - ".github/workflows/public-claim-boundary.yml"
   workflow_dispatch:
 
