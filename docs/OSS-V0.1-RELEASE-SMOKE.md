@@ -39,7 +39,7 @@ The script runs:
 - Package `npm pack --dry-run --json` inspection from each package directory.
 - RAP naming guard.
 - RAP Assurance public-claim boundary gate (`npm run check:claims:public`) over owned prose, package
-  manifests, and served caption tracks — see [`PUBLIC-CLAIM-BOUNDARY.md`](./PUBLIC-CLAIM-BOUNDARY.md).
+  manifests, and served `public/` artifacts — see [`PUBLIC-CLAIM-BOUNDARY.md`](./PUBLIC-CLAIM-BOUNDARY.md).
 - Claim-boundary scan for stale x402 package comments and adapter-retention scope. The scan also
   covers the top-level product/readiness surfaces (`README.md`, `SECURITY.md`, `DEPLOY.md`,
   `docs/NETWORK-PROFILES.md`, `packages/agent-protocol/README.md`).

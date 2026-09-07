@@ -29,8 +29,10 @@ The boundary is enforced in two halves that share one pattern list (`lib/public-
 
 | Surface | Check |
 |---|---|
-| Owned prose and package metadata (README/docs/`package.json`) | `npm run check:claims:public` (`.github/workflows/public-claim-boundary.yml`) |
+| Owned prose, package metadata, and the served `public/` artifacts listed below | `npm run check:claims:public` (`.github/workflows/public-claim-boundary.yml`) |
 | First-party rendered copy on 16 gated routes | `e2e/public-claim-boundary.spec.ts` (blocking Playwright funnel lane) |
+
+The static half scans a file whenever its literal text is the published artifact. That is repository prose (README/`docs/`) and package manifests, plus two kinds of file served verbatim out of `public/`: each caption track a shipped onboarding guide declares, and `public/docs/team-usability-testing-scripts-devnet.md`, which `/testers` links as `/docs/team-usability-testing-scripts-devnet.md`. That tester guide is the only copy — `docs/TEAM-USABILITY-TESTING-SCRIPTS-DEVNET.md` is a pointer to it, not a second maintained version — so editing it is editing published prose.
 
 The DOM half gates exactly these 16 routes: `/`, `/adl`, `/customize`, `/dogfood`, `/economic-demo/public-proof`, `/faq`, `/feedback`, `/judge-replication`, `/mcp-bridge-demo`, `/playbook`, `/spec`, `/start`, `/testers`, `/tour`, `/updates`, `/whitepaper`. On each it scans the rendered DOM with every `data-claim-scope="external"` subtree removed. That marker is applied per field, and only where the value really is text this repository did not author. On a specialist card that is the devnet registrant's `name`, `model`, and task types; both call sites resolve their own fallback before passing those props, so a repository-authored stand-in (`Specialist endpoint`, `Ollama`, the shortened wallet) rides inside the marked span and is not scanned. The card's unmarked copy is, including the `Resource`/`Media type` line and its defaults. The marker is never applied to a whole card, so every source and freshness badge, `Resource`/`Media type` label, `Attested`/`Unverified` badge, and progress readout is scanned. `SpecialistCard` is the only component that carries the marker; no other gated route renders one.
 
