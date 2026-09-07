@@ -243,10 +243,10 @@ export type BrowserWalletIdentityCopyGuardInput = {
     railEnvironment: ReddiPaymentEnvironmentLabel;
     assetLabel: string;
     networkAlias: string;
-    caip2?: string | null;
-    mint?: string | null;
-    tokenProgram?: string | null;
-    decimals?: number | null;
+    caip2: string | null;
+    mint: string | null;
+    tokenProgram: string | null;
+    decimals: number | null;
     observationSource: 'expected-only' | 'parsed-transaction-fixture' | 'local-validator' | 'parsed-rpc-transaction';
     grantEligibility: ReddiPaymentEligibilityLabel;
     x402Export?: {

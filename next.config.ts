@@ -11,12 +11,25 @@ function localSurfpoolRpcDefaults(): { rpcHttp: string; rpcWs?: string } {
   return { rpcHttp: solana.rpcHttp, rpcWs: solana.rpcWs };
 }
 
+function firstNonBlank(...values: (string | undefined)[]): string {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) return trimmed;
+  }
+  return "";
+}
+
 function assertSafePlaywrightSignerBuildEnv(): void {
   if (!process.env.NEXT_PUBLIC_PLAYWRIGHT_WALLET_SECRET_KEY) return;
   const profile = resolveNetworkProfileNameFromEnv(process.env);
   const localDefaults = profile === "local-surfpool" ? localSurfpoolRpcDefaults() : undefined;
-  const rpcHttp = process.env.NEXT_PUBLIC_RPC_ENDPOINT ?? process.env.NEXT_PUBLIC_RPC_URL ?? process.env.DEMO_DEVNET_RPC ?? localDefaults?.rpcHttp ?? "";
-  const rpcWs = process.env.NEXT_PUBLIC_RPC_WS_ENDPOINT ?? localDefaults?.rpcWs;
+  const rpcHttp = firstNonBlank(
+    process.env.NEXT_PUBLIC_RPC_ENDPOINT,
+    process.env.NEXT_PUBLIC_RPC_URL,
+    process.env.DEMO_DEVNET_RPC,
+    localDefaults?.rpcHttp,
+  );
+  const rpcWs = firstNonBlank(process.env.NEXT_PUBLIC_RPC_WS_ENDPOINT, localDefaults?.rpcWs);
   if (profile !== "local-surfpool" || !isLoopbackRpcUrl(rpcHttp, "http:") || (rpcWs && !isLoopbackRpcUrl(rpcWs, "ws:"))) {
     throw new Error(PLAYWRIGHT_SIGNER_BUILD_REFUSAL);
   }
