@@ -7,13 +7,15 @@ import { Button } from "@/components/ui/button";
 import { StatsBar } from "@/components/ui/stats-bar";
 import { OnboardingVideoGrid } from "@/components/onboarding/OnboardingVideoGrid";
 import { SpecialistCard } from "@/components/SpecialistCard";
-import { onboardingVideos } from "@/lib/onboarding/video-guides";
+import { onboardingVideos, onboardingWalkthroughHeading } from "@/lib/onboarding/video-guides";
 import {
   directoryFixtureProfileCount,
   receiptFixtureCaseCount,
   sourceTrustConformanceCaseCount,
 } from "@/lib/assurance/public-metrics";
 import type { SpecialistListing } from "@/lib/registry/bridge";
+
+const LANDING_PROOF_GUIDES = onboardingVideos.filter((video) => video.id !== "overview");
 
 const JUDGE_METRICS = {
   specialists: directoryFixtureProfileCount,
@@ -338,14 +340,14 @@ export default function Home() {
           <div>
             <p className="section-label">Start faster</p>
             <h2 className="font-display text-2xl font-bold text-white">
-              Start with the proof walkthroughs
+              {onboardingWalkthroughHeading(LANDING_PROOF_GUIDES)}
             </h2>
           </div>
           <Link href="/start" className="text-sm text-[#14F195] hover:text-[#14F195]/80">
             Open onboarding hub →
           </Link>
         </div>
-        <OnboardingVideoGrid videos={onboardingVideos.filter((video) => video.id !== "overview")} hostRoute="/" />
+        <OnboardingVideoGrid videos={LANDING_PROOF_GUIDES} hostRoute="/" />
       </section>
 
       <section id="verify-demo" className="mx-auto max-w-6xl px-4 pt-10 sm:px-6 lg:px-8">

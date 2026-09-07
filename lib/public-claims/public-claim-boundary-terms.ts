@@ -97,7 +97,11 @@ export const FORBIDDEN_PUBLIC_CLAIMS: ForbiddenPublicClaim[] = [
  * words: every pattern belongs to one claim and contains that claim's own
  * predicate, so a negation elsewhere in the clause ("with no extra setup",
  * "without delay", "outside the demo") cannot excuse an affirmative claim it
- * never touches. QUALIFIER_CASES pins both directions, including the
+ * never touches. Every form anchors its negation to the predicate; none of
+ * them trails a predicate to reach a negation later in the clause, because
+ * `live-audd-settlement` is an alternation of distinct concepts (live /
+ * settlement / custody) and negating one says nothing about another asserted
+ * in the same clause. QUALIFIER_CASES pins both directions, including the
  * cross-product of each boundary form against the other claims.
  */
 const NEGATED_BEFORE = "(?:\\bnot\\b|\\bnever\\b|\\bnor\\b|\\bunless\\b)";
@@ -133,8 +137,6 @@ function boundaryFormsFor(claimId: string): RegExp[] {
       new RegExp(`\\bno-${predicate}`, "i"),
       /\bno\b[^.;|]{0,24}\b(?:AUDD|USDC|SPL)\b[^.;|]{0,12}\bcustody\b/i,
       /\bno\b[^.;|]{0,24}\b(?:AUDD|USDC|SPL)\b[^.;|]{0,40}?\bis\s+(?:settled|escrowed|held|custodied)\b/i,
-      new RegExp(`${predicate}[^.;|]{0,80}?\\b(?:is|are|remains?)\\s+not\\b`, "i"),
-      new RegExp(`${predicate}[^.;|]{0,120}?\\bremains?\\s+outside\\b`, "i"),
     );
   }
   return forms;
@@ -180,6 +182,18 @@ export const QUALIFIER_CASES: { line: string; claimId: string; qualified: boolea
   { line: "AUDD settlement is live, avoid the demo path.", claimId: "live-audd-settlement", qualified: false },
   { line: "AUDD custody is available today in the no-spend demo path.", claimId: "live-audd-settlement", qualified: false },
   { line: "AUDD settlement is live in the no-spend conformance lane.", claimId: "live-audd-settlement", qualified: false },
+  { line: "AUDD settlement is live, and custody is not claimed.", claimId: "live-audd-settlement", qualified: false },
+  { line: "AUDD settlement is live and custody is not claimed.", claimId: "live-audd-settlement", qualified: false },
+  {
+    line: "AUDD settlement is live today, and SPL custody remains outside this package.",
+    claimId: "live-audd-settlement",
+    qualified: false,
+  },
+  {
+    line: "AUDD custody is available today, and mainnet settlement is not enabled.",
+    claimId: "live-audd-settlement",
+    qualified: false,
+  },
   { line: "Reddi Agent Protocol is the marketplace rail with no lock-in.", claimId: "marketplace-rail", qualified: false },
   { line: "RAP Assurance operates as a payment facilitator without fees.", claimId: "payment-facilitator", qualified: false },
   { line: "This is a security-audited release with no findings.", claimId: "security-audited", qualified: false },
@@ -216,14 +230,9 @@ export const QUALIFIER_CASES: { line: string; claimId: string; qualified: boolea
     claimId: "live-audd-settlement",
     qualified: true,
   },
-  { line: "AUDD/SPL custody is not claimed.", claimId: "live-audd-settlement", qualified: true },
+  { line: "No AUDD/SPL custody is claimed.", claimId: "live-audd-settlement", qualified: true },
   {
     line: "No AUDD is settled, escrowed, or held in Quasar custody by this public proof contract.",
-    claimId: "live-audd-settlement",
-    qualified: true,
-  },
-  {
-    line: "See [AUDD non-custodial foundation](#audd-non-custodial-foundation) for the canonical x402 export and read-only observation boundary; actual wallet actions, SPL custody, Quasar escrow, and settlement proof verification remain outside this package.",
     claimId: "live-audd-settlement",
     qualified: true,
   },
@@ -339,9 +348,9 @@ export type PublicClaimDomRoute = {
 
 /**
  * Registry- and user-supplied text is marked with this scope so the DOM gate
- * can drop it before scanning. Specialist and candidate cards render strings a
- * third party wrote when registering on devnet; this repository cannot edit
- * them, so they are not part of its owned-copy contract.
+ * can drop it before scanning. Specialist cards render strings a third party
+ * wrote when registering on devnet; this repository cannot edit them, so they
+ * are not part of its owned-copy contract.
  */
 export const CLAIM_SCOPE_ATTRIBUTE = "data-claim-scope";
 export const EXTERNAL_CLAIM_SCOPE = "external";

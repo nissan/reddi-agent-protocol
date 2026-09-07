@@ -21,12 +21,16 @@ const proofVideos = [
  * account for every card: derived tallies alone would move with the DOM and
  * could not fail on a card that rendered neither branch.
  */
-function guidesOn(ids: string[]) {
-  const guides = ids.map((id) => {
+function guidesFor(ids: string[]) {
+  return ids.map((id) => {
     const guide = onboardingVideos.find((candidate) => candidate.id === id);
     if (!guide) throw new Error(`unknown onboarding guide: ${id}`);
     return guide;
   });
+}
+
+function guidesOn(ids: string[]) {
+  const guides = guidesFor(ids);
   return {
     total: guides.length,
     playable: guides.filter((guide) => hasPlayableRecording(guide)).length,
@@ -67,7 +71,9 @@ test.describe("judge replication onboarding", () => {
     });
 
     await test.step("Then the three proof cards render, playable or explicitly withheld", async () => {
-      await expect(page.getByText("Start with the proof walkthroughs")).toBeVisible();
+      await expect(
+        page.getByText(onboardingWalkthroughHeading(guidesFor(PROOF_CARD_IDS))),
+      ).toBeVisible();
       const { total, playable, withheld } = guidesOn(PROOF_CARD_IDS);
       expect(playable, "the heading promises proof videos, so at least one must still play").toBeGreaterThan(0);
       await expect(onboardingCards(page)).toHaveCount(total);

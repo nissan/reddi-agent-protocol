@@ -76,7 +76,7 @@ It demonstrates that acceptance logic rejects malformed output and withholds app
 
 See Appendix A (`APPENDIX-THREAT-MODEL.md`) and `SECURITY.md` for details. Current controls are threat-model and source/test claims, not a completed external audit. They include receipt validation, credential-leakage rejection, nonce/replay checks, evidence hashing, policy fail-closed behavior, and attestation/reputation separation.
 
-Known open boundaries include mainnet deployment, live-funds operation, audited custody/escrow paths, Quasar devnet redeployment, upgrade authority policy, operational monitoring, and production incident response. AUDD/SPL custody is not claimed.
+Known open boundaries include mainnet deployment, live-funds operation, audited custody/escrow paths, Quasar devnet redeployment, upgrade authority policy, operational monitoring, and production incident response. No AUDD/SPL custody is claimed.
 
 ## 7. Economics and incentives
 

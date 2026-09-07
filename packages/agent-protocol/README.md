@@ -626,7 +626,7 @@ const decision = evaluateAuddPaymentPlanPreflight(auddChallenge, {
 });
 ```
 
-AUDD/Solana payment plans are metadata and policy-preflight helpers for RAP buyer/seller middleware. They represent AUDD quote amount, Solana network, mint, payee/settlement account, expiry, failure/refund policy, and evidence requirements without submitting transactions or requiring hosted RAP infrastructure. Buyer preflight fails closed unless the caller supplies explicit allowed networks, mints, payees, settlement accounts, evidence policy, operator approval, and either a max amount or budget evaluator. See [AUDD non-custodial foundation](#audd-non-custodial-foundation) for the canonical x402 export and read-only observation boundary; actual wallet actions, SPL custody, Quasar escrow, and settlement proof verification remain outside this package.
+AUDD/Solana payment plans are metadata and policy-preflight helpers for RAP buyer/seller middleware. They represent AUDD quote amount, Solana network, mint, payee/settlement account, expiry, failure/refund policy, and evidence requirements without submitting transactions or requiring hosted RAP infrastructure. Buyer preflight fails closed unless the caller supplies explicit allowed networks, mints, payees, settlement accounts, evidence policy, operator approval, and either a max amount or budget evaluator. See [AUDD non-custodial foundation](#audd-non-custodial-foundation) for the canonical x402 export and read-only observation boundary; this package takes no wallet actions and performs no SPL custody, Quasar escrow, or settlement proof verification.
 
 ## ARD No-Spend Quickstart
 
