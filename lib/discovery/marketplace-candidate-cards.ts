@@ -28,7 +28,6 @@ import {
   mapAdapterAttestationStateToSourceTrustState,
   sourceTrustStateFromLaneState,
   type DiscoverySourceAvailability,
-  importedFieldsFor,
   type DiscoverySourceFacetId,
   type MarketplaceCandidateCardModel,
 } from "@/lib/discovery/source-facets";
@@ -127,7 +126,6 @@ export function buildHostedRapCandidateCards(
       reasonCodes: [...identity.reasonCodes, ...actionability.reasonCodes],
       tags: item.listing.disclosureLabels,
       taskTypes: [],
-      importedFields: importedFieldsFor("hosted-rap"),
       trustBoundaryNote: matrix.discoveryTrustBoundary.note,
     });
   });
@@ -147,7 +145,6 @@ export function buildHostedRapCandidateCards(
       reasonCodes: [item.recordState, item.readinessStatus, ...item.reasons],
       tags: [],
       taskTypes: [],
-      importedFields: importedFieldsFor("hosted-rap"),
     }),
   );
 
@@ -182,7 +179,6 @@ export function buildArdCatalogCandidateCards(
       reasonCodes: [...identity.reasonCodes, ...actionability.reasonCodes],
       tags: candidate.riskCategories,
       taskTypes: [],
-      importedFields: importedFieldsFor("ard-catalog"),
       trustBoundaryNote: matrix.discoveryTrustBoundary.note,
     });
   });
@@ -220,7 +216,6 @@ export function buildCircleX402CandidateCards(
       reasonCodes: candidate.diagnostics.map((item) => item.code),
       tags: [candidate.category, ...candidate.taskTypes],
       taskTypes: [],
-      importedFields: importedFieldsFor("circle-x402"),
     });
   });
   return {
@@ -263,7 +258,6 @@ export function buildPayShCandidateCards(
       reasonCodes: candidate.diagnostics.map((item) => item.code),
       tags: [candidate.category, ...candidate.taskTypes],
       taskTypes: [],
-      importedFields: importedFieldsFor("pay-sh"),
     });
   });
   return {
