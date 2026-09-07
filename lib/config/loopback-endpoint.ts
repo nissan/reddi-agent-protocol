@@ -2,10 +2,13 @@
  * Single owner of "is this endpoint provably local?".
  *
  * Local-surfpool Quasar is the only configuration that may resolve to the Quasar target, and it is
- * only meaningful against a Surfnet the lane started on loopback. Both the web resolver
- * (`lib/config/network.ts`) and the demo-agent gate (`packages/demo-agents/src/quasar-target-gate.ts`)
- * consult this predicate, so the two cannot drift apart and let one of them route Quasar-encoded
- * instructions at a live cluster.
+ * only meaningful against a Surfnet the lane started on loopback. Every caller consults this one
+ * predicate rather than reimplementing it, so they cannot drift apart and let one of them route
+ * Quasar-encoded instructions at a live cluster or bundle a browser-exposed Playwright signer secret
+ * against a non-local endpoint: the web resolver (`lib/config/network.ts`), the demo-agent gate
+ * (`packages/demo-agents/src/quasar-target-gate.ts`), the Playwright signer preflight
+ * (`lib/wallet/playwright-wallet-safety.ts`), the build-time signer guard (`next.config.ts`), and the
+ * Playwright web-server precondition check (`scripts/check-browser-wallet-command-preconditions.mjs`).
  *
  * Deliberately strict: anything that is not unambiguously a loopback address under URL parsing is
  * refused rather than interpreted.

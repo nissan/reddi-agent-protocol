@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "reddi.browser-wallet.identity-copy-guard.v1",
+  "railEnvironment": "local-test-mint",
+  "assetLabel": "AUDD_TEST",
+  "networkAlias": "local-surfpool",
+  "caip2": null,
+  "mint": "LocalGeneratedMintPlaceholder11111111111111111",
+  "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+  "decimals": 6,
+  "observationSource": "local-validator",
+  "grantEligibility": "non_eligible",
+  "x402Export": {
+    "state": "expected",
+    "asset": "AUDD_TEST",
+    "networkAlias": "local-surfpool",
+    "caip2": null,
+    "mint": "LocalGeneratedMintPlaceholder11111111111111111",
+    "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "decimals": 6
+  },
+  "policy": {
+    "grantEligibility": "non_eligible",
+    "controlledLive": false
+  },
+  "receipt": {
+    "claim": "fixture-only",
+    "observationStatus": "not-observed",
+    "settlementFinality": false,
+    "controlledLiveEvidence": false
+  },
+  "copy": {
+    "title": "Local AUDD_TEST browser harness contract",
+    "summary": "Dormant local-only contract for future TransferChecked observation against a per-run six-decimal test mint.",
+    "badges": ["local-test-mint", "non_eligible", "expected-only"],
+    "notes": ["Uses a local test label only and is not an AUDD Devnet or mainnet settlement claim."]
+  }
+}

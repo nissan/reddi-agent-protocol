@@ -202,6 +202,10 @@
       "types": "./dist/ranking-explainability.d.ts",
       "import": "./dist/ranking-explainability.js"
     },
+    "./browser-wallet-approval": {
+      "types": "./dist/browser-wallet-approval.d.ts",
+      "import": "./dist/browser-wallet-approval.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

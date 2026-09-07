@@ -233,6 +233,10 @@ test.describe("/onboarding/profile-editor #385", () => {
     expect(externalRequests).toEqual([]);
   });
 
+  // Unlike the other tests here, this one crosses routes without a `page.goto`: the
+  // client-side transition compiles the target route on demand with no navigation
+  // timeout covering it. Those waits use the same 15s budget as the other onboarding
+  // funnel specs rather than Playwright's 5s default, which a loaded CI runner exceeds.
   test("intake results link into the profile editor", async ({ page }) => {
     await page.goto("/onboarding/intake");
     await page.waitForLoadState("networkidle");
@@ -241,8 +245,8 @@ test.describe("/onboarding/profile-editor #385", () => {
     await page.getByTestId("intake-continue").click();
     await page.getByTestId("intake-consent-checkbox").check();
     await page.getByTestId("intake-run-analysis").click();
-    await expect(page.getByTestId("intake-results")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("intake-results")).toBeVisible({ timeout: 15_000 });
     await page.getByTestId("intake-profile-editor-entry").click();
-    await expect(page.getByTestId("profile-editor-page")).toBeVisible();
+    await expect(page.getByTestId("profile-editor-page")).toBeVisible({ timeout: 15_000 });
   });
 });

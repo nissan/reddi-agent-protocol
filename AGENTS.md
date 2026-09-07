@@ -60,6 +60,8 @@ Playwright starts its own dev server and owns the port/wallet-mock env it needs;
 
 The repo has many smoke/evidence/readiness commands. Do not run destructive or live-spend-capable scripts speculatively. Prefer dry-run/plan variants where they exist, for example `plan:economic-demo:devnet-usdc-sender`.
 
+Browser-wallet Devnet/manual and Tier 1 local harness work is default-off and guarded by `docs/BROWSER-WALLET-SAFETY-PREFLIGHT.md`. Use `npm run check:browser-wallet:preconditions`, `npm run check:browser-wallet:devnet-approval -- --approval <approval.json>`, `npm run check:browser-wallet:tier1-contract`, and `npm run check:browser-wallet:copy-guard` for offline preflight only; none of these commands may install extensions, inspect/fund wallets, use faucets, start validators, create mints/keypairs, sign/simulate/submit transactions, or claim settlement.
+
 ## Network profile resolution
 
 Runtime network comes from `lib/config/network.ts` and `config/networks/<profile>.json`.

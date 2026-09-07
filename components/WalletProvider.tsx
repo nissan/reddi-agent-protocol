@@ -30,10 +30,14 @@ const WalletProvider: FC<Props> = ({ children }) => {
       new SolflareWalletAdapter(),
     ];
     if (enablePlaywrightWallet) {
-      adapters.unshift(new PlaywrightWalletAdapter());
+      adapters.unshift(new PlaywrightWalletAdapter({
+        networkProfileName: network.name,
+        rpcHttp: endpoint,
+        rpcWs: network.solana.rpcWs,
+      }));
     }
     return adapters;
-  }, [enablePlaywrightWallet]);
+  }, [enablePlaywrightWallet, endpoint, network.name, network.solana.rpcWs]);
 
   return (
     <ConnectionProvider endpoint={endpoint}>

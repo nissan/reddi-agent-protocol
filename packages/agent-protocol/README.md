@@ -626,6 +626,31 @@ const decision = evaluateAuddPaymentPlanPreflight(auddChallenge, {
 
 AUDD/Solana payment plans are metadata and policy-preflight helpers for RAP buyer/seller middleware. They represent AUDD quote amount, Solana network, mint, payee/settlement account, expiry, failure/refund policy, and evidence requirements without submitting transactions or requiring hosted RAP infrastructure. Buyer preflight fails closed unless the caller supplies explicit allowed networks, mints, payees, settlement accounts, evidence policy, operator approval, and either a max amount or budget evaluator. See [AUDD non-custodial foundation](#audd-non-custodial-foundation) for the canonical x402 export and read-only observation boundary; actual wallet actions, SPL custody, Quasar escrow, and settlement proof verification remain outside this package.
 
+## Browser Wallet Approval Preflight
+
+```typescript
+import {
+  validateBrowserWalletApprovalRecord,
+  validateBrowserWalletTier1LocalHarnessContract,
+  validateBrowserWalletIdentityCopyClaims,
+  DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT,
+} from '@reddi/agent-protocol/browser-wallet-approval';
+
+const result = validateBrowserWalletApprovalRecord(approvalJson, {
+  now: new Date(),
+  trustedDevnetProgramIds: resolvedDevnetProgramIds,
+});
+console.log(result.ok); // false for missing/expired/contradictory or unbound records
+```
+
+Browser wallet approval helpers provide offline contracts and pure validators for browser-wallet safety preflight:
+
+- `validateBrowserWalletApprovalRecord` verifies single-use Devnet approval records against `reddi.browser-wallet.single-use-approval.v1`. It requires trusted Devnet program IDs from the caller and rejects records whose claimed resolved IDs differ. It enforces strict single-use scope, provider/version/source pinning, disposable profile requirements, public-key-only custody, canonical network/program IDs, ordered timestamps (`approvedAt` no later than evaluation time and before `expiresAt`, provider `retrievedAt` no later than `approvedAt`), and fail-closed AUDD/USDC asset constraints. A supplied `now` must itself parse to one exact instant; an unparseable value is rejected instead of falling back to the wall clock (omitting `now` still evaluates against the current time). The dormant future-AUDD option also requires independently supplied trusted identity data; fields inside the approval cannot attest themselves.
+- `validateBrowserWalletTier1LocalHarnessContract` validates the dormant Tier 1 local browser harness contract (`DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT`), enforcing `enabledByDefault: false`, local-only loopback, and a six-decimal `AUDD_TEST`/`LOCAL_AUDD_TEST` SPL test mint with `grantEligibility=non_eligible`.
+- `validateBrowserWalletIdentityCopyClaims` validates browser-wallet evidence and copy rows against `reddi.browser-wallet.identity-copy-guard.v1`, evaluating claims per clause so badges cannot suppress overclaims and rejecting official AUDD, grant-eligible, observed-settlement, and controlled-live claims across safety rows. Every row must carry its full rail identity (`networkAlias`, `caip2`, `mint`, `tokenProgram`, `decimals`, `observationSource`); these fields are required, not optional, and each is bound to the row's rail environment.
+
+These helpers are pure, offline validators. They never install extensions, access wallets or keypairs, request faucet tokens, start validators, or sign, simulate, or submit transactions. See [Browser Wallet Safety Preflight](../../docs/BROWSER-WALLET-SAFETY-PREFLIGHT.md) for full operational runbooks and rollback policies.
+
 ## ARD No-Spend Quickstart
 
 From a fresh checkout, the local proof path should complete in under five minutes:
