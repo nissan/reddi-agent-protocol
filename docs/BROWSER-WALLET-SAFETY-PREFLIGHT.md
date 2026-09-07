@@ -29,7 +29,7 @@ npm run check:browser-wallet:copy-guard [-- [--row <row.json>]... [--negative-co
 npm run test:browser-wallet:safety
 ```
 
-All commands are offline. They read JSON/config/env only and never touch a browser, wallet, faucet, RPC, validator, mint, keypair, signature, blockhash, transaction, token balance, or network. Each command also fails closed on its own inputs rather than falling back to a default: JSON that parses to a non-object, a `--now` flag supplied without a value or with an unparseable value, and a `--contract` flag supplied without a path are all blockers, never a silent fallback to wall-clock time or to the built-in dormant contract. `npm run test:browser-wallet:safety` is wired into the RAP package guard workflow with its negative controls so CLI regressions fail hosted CI.
+All commands are offline. They read JSON/config/env only and never touch a browser, wallet, faucet, RPC, validator, mint, keypair, signature, blockhash, transaction, token balance, or network. Each command also fails closed on its own inputs rather than falling back to a default: JSON that parses to a non-object, a `--now` flag supplied without a value or with an unparseable value, a `--contract` flag supplied without a path, and a `--row` flag supplied without a path are all blockers, never a silent fallback to wall-clock time, to the built-in dormant contract, or to the default fixture rows. `npm run test:browser-wallet:safety` is wired into the RAP package guard workflow with its negative controls so CLI regressions fail hosted CI.
 
 ## Single-use Devnet approval schema
 
