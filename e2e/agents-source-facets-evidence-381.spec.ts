@@ -24,7 +24,7 @@ const viewports = [
 
 async function gotoAgents(page: Page, query = "") {
   await page.goto(`/agents${query}`);
-  await expect(page.getByRole("heading", { name: /available specialists/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /specialist directory/i })).toBeVisible();
   // Wait out the transient Suspense hydration duplicate (see agents-source-facets.spec.ts).
   await expect
     .poll(async () => page.getByTestId("source-facet-filter").count(), { timeout: 30_000 })

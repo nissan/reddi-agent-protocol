@@ -6,7 +6,7 @@ test.describe("Home page", () => {
     await expect(page).toHaveTitle(/Reddi Agent Protocol|AI agents/i);
     await expect(
       page.getByRole("heading", {
-        name: /let your agents hire trusted specialist agents/i,
+        name: /payments prove transfer\. RAP Assurance proves paid work\./i,
       }),
     ).toBeVisible();
   });
@@ -25,17 +25,17 @@ test.describe("Home page", () => {
     ).toBeVisible();
   });
 
-  test("navbar has marketplace link", async ({ page }) => {
+  test("navbar has directory link", async ({ page }) => {
     await page.goto("/");
     await expect(
-      page.getByRole("navigation").getByRole("link", { name: /marketplace/i }),
+      page.getByRole("navigation").getByRole("link", { name: /directory/i }),
     ).toBeVisible();
   });
 
   test("footer contains correct tagline", async ({ page }) => {
     await page.goto("/");
     await expect(
-      page.getByText(/Trust the protocol, not the pitch\./i).first(),
+      page.getByText(/Payments prove transfer; RAP Assurance proves paid work\./i).first(),
     ).toBeVisible();
   });
 });

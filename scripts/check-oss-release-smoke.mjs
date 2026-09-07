@@ -361,6 +361,7 @@ for (const pkg of packageSet) {
 }
 
 run("RAP naming guard", "npm", ["run", "check:rap:naming"]);
+run("RAP Assurance public-claim boundary", "npm", ["run", "check:claims:public"]);
 checkClaimBoundaries();
 checkRootPackageScript();
 

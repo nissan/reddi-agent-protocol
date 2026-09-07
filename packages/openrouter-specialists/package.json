@@ -1,7 +1,7 @@
 {
   "name": "@reddi/openrouter-specialists",
   "version": "0.1.0",
-  "description": "Shared OpenRouter-backed specialist runtime for RAP marketplace agents.",
+  "description": "Shared OpenRouter-backed specialist runtime fixtures for RAP Assurance demos; not production marketplace infrastructure.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

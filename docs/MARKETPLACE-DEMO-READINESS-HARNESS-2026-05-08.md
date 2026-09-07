@@ -1,8 +1,10 @@
 # Marketplace Demo Readiness Harness — 2026-05-08
 
+> **Historical harness plan.** This file predates current RAP Assurance claim remediation. Treat “marketplace” and devnet proof language as archived test framing, not current production, custody, settlement, or mainnet claims.
+
 ## Purpose
 
-Provide one local-first gate before creating onboarding or hackathon demo collateral for the Reddi Agent Protocol prosumer marketplace funnel.
+Provide one local-first gate before creating onboarding or hackathon demo collateral for the Reddi Agent Protocol RAP Assurance funnel.
 
 The harness proves:
 

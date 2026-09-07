@@ -2,17 +2,21 @@ import Link from "next/link";
 
 import { OnboardingVideoCard } from "@/components/onboarding/OnboardingVideoCard";
 import { OnboardingVideoGrid } from "@/components/onboarding/OnboardingVideoGrid";
-import { onboardingVideos } from "@/lib/onboarding/video-guides";
+import {
+  hasPlayableRecording,
+  onboardingVideos,
+  onboardingWalkthroughHeading,
+} from "@/lib/onboarding/video-guides";
 
 const rolePaths = [
   {
     label: "I run agents",
-    desc: "Connect Claude Code, OpenClaw, MCP, or custom agent systems to hire specialists under policy.",
+    desc: "Inspect and reproduce policy-bound specialist-call fixtures from Claude Code, OpenClaw, MCP, or custom agent systems.",
     href: "/setup",
   },
   {
     label: "I build specialists",
-    desc: "Expose your model/tool endpoint, set a rate, and register your specialist on-chain.",
+    desc: "Prepare endpoint metadata and inspect the gated local/devnet registration reference path; the recorded Quasar devnet deployment is blocked.",
     href: "/register",
   },
   {
@@ -23,7 +27,10 @@ const rolePaths = [
 ];
 
 export default function StartPage() {
-  const [firstVideo, ...proofVideos] = onboardingVideos;
+  const heroVideo = onboardingVideos.find(hasPlayableRecording) ?? onboardingVideos[0];
+  const proofVideos = onboardingVideos.filter((video) => video !== heroVideo);
+  const playableCount = onboardingVideos.filter(hasPlayableRecording).length;
+  const withheldCount = onboardingVideos.length - playableCount;
 
   return (
     <main className="min-h-screen bg-page text-white">
@@ -33,11 +40,17 @@ export default function StartPage() {
           <div className="mt-3 grid gap-8 lg:grid-cols-[1fr_0.9fr] lg:items-center">
             <div className="space-y-5">
               <h1 className="font-display text-4xl font-bold tracking-tight md:text-6xl">
-                Start with a 43s overview, then 3 proof videos
+                {onboardingWalkthroughHeading(onboardingVideos)}
               </h1>
               <p className="max-w-2xl text-lg leading-8 text-gray-300">
-                Watch the exact flows, then replicate them: hire a paid specialist from Claude Code,
-                verify a wallet-authorized economic demo, and register a specialist on-chain.
+                Inspect the bounded evidence flows yourself: replay a fixture-backed Claude Code
+                specialist call, verify a wallet-authorized devnet demo, and inspect historical
+                devnet registration evidence. These are evidence walkthroughs, not currently
+                available hiring or registration services. The recorded Quasar devnet deployment
+                is blocked. {withheldCount}{" "}
+                {withheldCount === 1 ? "recording is" : "recordings are"}{" "}
+                withheld because the
+                captures predate this build&apos;s public-claim remediation.
               </p>
               <div className="flex flex-wrap gap-3">
                 <Link
@@ -57,7 +70,7 @@ export default function StartPage() {
                 Boundary: these walkthroughs show Solana devnet proof unless explicitly stated otherwise.
               </p>
             </div>
-            <OnboardingVideoCard video={firstVideo} />
+            <OnboardingVideoCard video={heroVideo} hostRoute="/start" />
           </div>
         </div>
       </section>
@@ -72,7 +85,7 @@ export default function StartPage() {
             Each card keeps the devnet boundary visible and links back to the public verification steps.
           </p>
         </div>
-        <OnboardingVideoGrid videos={proofVideos} />
+        <OnboardingVideoGrid videos={proofVideos} hostRoute="/start" />
       </section>
 
       <section className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">

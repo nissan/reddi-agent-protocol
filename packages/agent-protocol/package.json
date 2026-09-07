@@ -1,7 +1,7 @@
 {
   "name": "@reddi/agent-protocol",
   "version": "0.1.0",
-  "description": "Open protocol primitives for paid agent work: receipts, policy decisions, fixtures, and local conformance helpers.",
+  "description": "Open RAP Assurance primitives for paid agent work: receipts, policy decisions, fixtures, and local conformance helpers.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

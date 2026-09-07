@@ -48,14 +48,4 @@ test.describe('/demo page', () => {
     // Wait for completion (35s stream) then iframe should appear
     await expect(page.locator('iframe')).toBeVisible({ timeout: TRACE_TIMEOUT })
   })
-
-  test.skip('explorer links are present in trace', async ({ page }) => {
-    test.setTimeout(60_000)
-    await page.goto('/demo')
-    await page.locator('textarea').fill('A landing page for a web3 wallet')
-    await page.getByRole('button', { name: /generate/i }).click()
-
-    // Escrow section includes [EXPLORER:txhash] rendered as ↗ links
-    await expect(page.locator('a[href*="explorer.solana.com"]').first()).toBeVisible({ timeout: 25000 })
-  })
 })

@@ -1,130 +1,104 @@
 # Reddi Agent Protocol — Whitepaper (v1.0 Candidate)
 
-_Status: Candidate for publication review_
+_Status: Candidate for publication review; not a production, mainnet, custody, or security-audit claim._
 
 ## Abstract
 
-Reddi Agent Protocol is a trust-minimized coordination and settlement layer for AI-agent commerce on Solana. It enables consumers to discover specialists, execute paid agent tasks, and settle outcomes through auditable protocol flows that include escrow, attestation, and reputation updates.
+Reddi Agent Protocol (RAP) is currently narrowed around **RAP Assurance**: open, integration-first receipts and conformance for paid MCP/API and agent work.
 
-The protocol is designed to separate **service execution** from **settlement integrity**. Agents can run in heterogeneous off-chain environments, while protocol-level trust is enforced through explicit state transitions, payment challenge handling, and post-run quality signaling.
+> Payments prove transfer; RAP Assurance proves paid work.
+
+Payment rails such as x402, MPP/Stripe-style machine payments, Pay.sh/PayAI, and Solana/AUDD adapters can prove payment intent or transfer. RAP Assurance records the paid-work lifecycle around those rails: work terms, buyer authority/policy, payment-proof references, evidence references, attestation outcomes, replay metadata, and reputation inputs. The current repository proves local/offline package behavior, deterministic fixtures, and bounded local/devnet evidence; it does not claim mainnet readiness, production custody, or deployed protocol-fee collection.
 
 ## 1. Problem
 
-AI agents can produce useful work, but agent-to-agent markets still struggle with two systemic failures:
+AI agents and APIs can be paid programmatically, but a successful payment does not answer the operational question buyers care about after a paid task:
 
-1. **Payment trust gap:** buyers risk paying for low-quality output, sellers risk non-payment after delivery.
-2. **Reputation gaming:** opaque ratings can be manipulated or selectively revealed.
+- Was the work authorized under the buyer's policy?
+- What terms, price, and evidence requirements were agreed?
+- Which payment proof was observed, and by which rail-specific verifier?
+- What output was delivered, how was it attested, and can the evidence be replayed?
+- Which reputation or dispute inputs are justified by the record?
 
-Traditional marketplace rails rely on platform trust and centralized adjudication. Protocol-native commerce requires transparent and verifiable settlement semantics that survive untrusted counterparties.
+Simple deterministic API calls may not need RAP. The stronger need appears when work is cross-organization, non-deterministic, high-value, regulated, audited, or reputation-sensitive.
 
 ## 2. System goals
 
-- Enable discoverable specialist markets with explicit capabilities.
-- Support paid execution with deterministic settlement outcomes.
-- Provide quality attestation paths that can gate payout decisions.
-- Accumulate machine-readable reputation signals from completed work.
-- Preserve compatibility with existing agent frameworks and orchestrators.
+- Keep payments, authority, evidence, attestation, replay, and reputation inputs separable and inspectable.
+- Integrate with adjacent standards and products instead of replacing them.
+- Provide local/self-hosted conformance before any hosted Redditech service is needed.
+- Fail closed on missing proof, unsupported rails, credential leakage, custody claims, settlement-finality claims, live-payment claims, and trust/reputation overclaims.
+- Preserve explicit current-state vs roadmap boundaries.
 
 ## 3. Participants and roles
 
-- **Consumer:** initiates task requests and settlement decisions.
-- **Specialist:** performs requested work and receives payout on valid completion.
-- **Attestor/Judge:** evaluates output quality according to defined criteria.
-- **Protocol layer:** enforces state transitions and records auditable traces.
+- **Buyer / consumer agent:** initiates a paid-work request and applies local budget/authority policy.
+- **Specialist / service provider:** exposes capability and pricing metadata and may issue x402-style payment challenges.
+- **Payment rail / verifier:** proves rail-specific payment intent or transfer.
+- **Attestor / judge:** evaluates work output and evidence against agreed criteria.
+- **RAP Assurance layer:** records the receipt, policy decision, evidence binding, replay metadata, and bounded reputation inputs.
 
 ## 4. Core model
 
 ### 4.1 Discovery and routing
 
-Specialists expose capability and policy metadata. Consumer planners resolve candidates according to constraints such as attestation requirements, health checks, and cost limits.
+Specialists expose capability and policy metadata through local fixtures, MCP/AI catalog surfaces, hosted-catalog candidates, or other adapters. Discovery relevance is informational only; it is not trust, payment approval, publication approval, or reputation mutation.
 
-### 4.2 Payment challenge and execution
+### 4.2 Payment challenge and proof reference
 
-Specialist endpoints can return payment challenges (x402-style), after which consumers submit payment proof and retry the call. This creates an explicit payment negotiation boundary rather than implicit trust.
+A specialist or rail can return a payment challenge. RAP records the quote, buyer policy result, and payment-proof reference, but rail-specific payment packages remain responsible for validating transfer-specific evidence. A payment receipt alone does not prove work quality.
 
-### 4.3 Settlement state machine
+### 4.3 Work evidence and replay
 
-A run that satisfies payment requirements enters settlement evaluation.
+The receipt binds the request hash, response hash, evidence reference, attestation state, and replay labels. Deterministic fixtures and local conformance tests exercise happy paths and failures such as missing evidence, unsupported network/asset pairs, malformed challenges, and credential-shaped metadata.
 
-Terminal settlement states:
+### 4.4 Attestation and reputation inputs
 
-- `released` — payout path approved
-- `disputed` / `refunded` — payout denied or reversed per policy
-- `not_required` — non-paid or non-escrow path
+Attestation records and off-chain reputation previews can explain whether evidence supports future routing or dispute decisions. Current public claims stop at bounded inputs and previews unless a separate audited on-chain/live workstream is approved.
 
-### 4.4 Reputation and quality signals
+## 5. Current evidence
 
-Post-run quality signals update routing confidence and reputation pathways. Commit-reveal mechanics and attestation pathways are used to reduce reactive score manipulation.
+Current repository evidence includes:
 
-## 5. Dogfood trust harness
+- `@reddi/agent-protocol` receipt, policy, evidence, rail-neutral proof-chain, and conformance helpers.
+- `@reddi/x402-solana` local x402 parsing, budget preflight, nonce/replay protections, demo receipt handling, gated devnet helpers, and read-only SPL `TransferChecked` observation.
+- `@reddi/rap-mcp-bridge` dry-run specialist discovery, synthetic quotes, receipt verification, and disclosure-ledger tooling.
+- The public conformance suite (`npm run check:conformance:public`) and OSS release smoke (`npm run check:oss-release-smoke`).
+- Recorded/local Solana reference evidence, with the current Quasar devnet deployment explicitly blocked by `config/quasar/deployments.json`.
 
-To validate marketplace behavior under realistic failure conditions, the protocol includes a dogfood harness:
+### 5.1 Dogfood trust harness
 
-- Testing specialist endpoint for `ping -> pong + haiku`
-- Intentional 25% failure injection
-- Independent attestor verifying `pong` presence and 5/7/5 structure
-- Consumer orchestration deciding escrow release vs refund
+The repository ships a dogfood harness that exercises acceptance logic under injected failure: a testing specialist answering `ping -> pong + haiku` (`app/api/dogfood/testing-specialist`), an independent attestor checking for `pong` and 5/7/5 structure, and a consumer run that decides accept vs reject from the attestor verdict (`/dogfood`, `app/api/dogfood/*`). The specialist injects failure randomly on about one call in four; a `force: "pass" | "fail"` request field makes either outcome deterministic for repeatable runs.
 
-This harness demonstrates that acceptance logic can reject malformed outputs and prevent payout on failed attestation.
+It demonstrates that acceptance logic rejects malformed output and withholds approval on failed attestation. The decision it records is an application-level accept/reject over evidence; it is not fund custody, on-chain settlement, or a settlement-finality claim.
 
 ## 6. Security and anti-gaming posture
 
-See detailed control mapping in **Appendix A** (`APPENDIX-THREAT-MODEL.md`).
+See Appendix A (`APPENDIX-THREAT-MODEL.md`) and `SECURITY.md` for details. Current controls are threat-model and source/test claims, not a completed external audit. They include receipt validation, credential-leakage rejection, nonce/replay checks, evidence hashing, policy fail-closed behavior, and attestation/reputation separation.
 
-Current controls include:
-
-- escrow-state gating of settlement transitions
-- attestor verdict integration into payout decisioning
-- run-level evidence hashing (prompt/output/attestation traces)
-- replay-resistant challenge semantics via nonce-bearing payment paths
-
-Planned hardening includes:
-
-- signed attestor verdict binding
-- commit-reveal linkage for output hash commitments
-- challenge windows and slashing-style penalties
-- stronger encrypted result release patterns for payment-first access
+Known open boundaries include mainnet deployment, live-funds operation, audited custody/escrow paths, Quasar devnet redeployment, upgrade authority policy, operational monitoring, and production incident response. AUDD/SPL custody is not claimed.
 
 ## 7. Economics and incentives
 
-Protocol economics are designed around successful completion, with explicit separation between successful and failed settlement outcomes. The model incentivizes:
-
-- specialists for successful delivery,
-- attestors for reliable quality validation,
-- consumers for accurate post-run signaling.
+The planned 0.05% / 5 bps protocol-fee number appears only as product/demo fixture semantics. No deployed on-chain release path currently collects a protocol treasury fee. Future monetization, if approved, should focus on optional hosted evidence retention, receipt search, audit export, conformance certification, support, and managed Arena/community operations while preserving local/self-hosted parity.
 
 ## 8. Integration surfaces
 
-Benchmark and reproducibility guidance for these surfaces is documented in **Appendix B** (`APPENDIX-BENCHMARK-METHODOLOGY.md`).
+RAP Assurance should remain complementary to:
 
-The protocol exposes planner-native tool routes for:
+- x402 and MPP/Stripe-style machine payment flows,
+- AP2-style authority and mandate records,
+- MCP Registry, A2A Agent Cards, and AGNTCY/OASF capability/discovery surfaces,
+- Solana/AUDD, Pay.sh/PayAI, and other rail-specific payment adapters,
+- observability/evaluation systems that can supply or retain evidence references.
 
-- consumer registration,
-- specialist resolution,
-- attestor resolution,
-- paid invocation,
-- settlement decision,
-- quality signaling.
+## 9. Roadmap boundaries
 
-This supports framework-agnostic integration patterns (tool-calling orchestrators, SDK wrappers, and custom automation layers).
-
-## 9. Roadmap
-
-### Near-term
-
-- publish benchmark appendix with reproducible scripts
-- add formal threat matrix per control area
-- ship production-grade whitepaper microsite with evidence gallery
-
-### Mid-term
-
-- stronger attestor-cryptographic binding for settlement decisions
-- expanded policy controls for dispute arbitration and refund windows
-- richer cross-agent trust telemetry and routing transparency
+Near-term work should improve local conformance, receipt/replay evidence, adapter interoperability, public claim hygiene, and a no-spend or explicitly devnet-bounded RAP Assurance demo. Mainnet, live funds, custody, hosted production services, package publication, partner claims, and security/compliance claims require separate approval and evidence.
 
 ## 10. Conclusion
 
-Reddi Agent Protocol treats agent commerce as a protocol problem, not just a UX problem. By giving payment, quality, and reputation their own verifiable lifecycle, the protocol makes agent markets more robust under adversarial behavior while staying composable for builders.
+RAP Assurance treats paid agent work as an evidence problem above payment. Payment products can prove value moved; RAP records whether the paid work was authorized, delivered, evidenced, attested, replayable, and safe to use as reputation/dispute input.
 
 ## Appendices
 
@@ -133,6 +107,8 @@ Reddi Agent Protocol treats agent commerce as a protocol problem, not just a UX 
 
 ## Companion docs
 
+- Public claim boundary: `../PUBLIC-CLAIM-BOUNDARY.md`
+- Receipt policy: `../RAP-RECEIPT-POLICY-V1.md`
 - Glossary: `GLOSSARY.md`
 - Claims traceability: `CLAIMS-TRACEABILITY.md`
 - Changelog: `CHANGELOG.md`

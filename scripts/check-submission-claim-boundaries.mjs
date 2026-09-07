@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync } from "node:fs";
 
+import {
+  SUBMISSION_PREP_LATEST_PATH,
+  resolveSubmissionPrepPath,
+  resolveSubmissionPrepRepoPath,
+} from "./lib/submission-prep-path.mjs";
+
 const files = process.argv.slice(2).length
   ? process.argv.slice(2)
   : [
@@ -86,27 +92,30 @@ const forbiddenSafeClaimPatterns = [
 ];
 
 for (const file of files) {
-  if (!existsSync(file)) {
-    failures.push(`${file}: missing file`);
+  const isLatestKey = file === SUBMISSION_PREP_LATEST_PATH;
+  const resolved = isLatestKey ? resolveSubmissionPrepPath() : file;
+  const reported = isLatestKey ? resolveSubmissionPrepRepoPath() : file;
+  if (!existsSync(resolved)) {
+    failures.push(`${reported}: missing file`);
     continue;
   }
-  const text = readFileSync(file, "utf8");
+  const text = readFileSync(resolved, "utf8");
   for (const phrase of requiredByFile[file] ?? []) {
-    if (!text.includes(phrase)) failures.push(`${file}: missing required boundary phrase: ${phrase}`);
+    if (!text.includes(phrase)) failures.push(`${reported}: missing required boundary phrase: ${phrase}`);
   }
   const safeSection = text.split(/(?:Do not claim|Not safe to say yet|What is explicitly not claimed|Hard no-go list unless Nissan explicitly approves)/i)[0] ?? text;
   for (const pattern of forbiddenSafeClaimPatterns) {
-    if (pattern.test(safeSection)) failures.push(`${file}: forbidden overclaim in safe/proven section: ${pattern}`);
+    if (pattern.test(safeSection)) failures.push(`${reported}: forbidden overclaim in safe/proven section: ${pattern}`);
   }
   for (const pattern of forbiddenStaleMagicBlockPatterns) {
-    if (pattern.test(text)) failures.push(`${file}: stale MagicBlock TEE execution boundary phrase: ${pattern}`);
+    if (pattern.test(text)) failures.push(`${reported}: stale MagicBlock TEE execution boundary phrase: ${pattern}`);
   }
   for (const [index, line] of safeSection.split(/\r?\n/).entries()) {
     if (/MagicBlock/i.test(line) && /(?:successful PER settlement|settled PER|PER settlement proof)/i.test(line) && !/(?:not|No|without|blocked|weak)/i.test(line)) {
-      failures.push(`${file}:${index + 1}: forbidden MagicBlock PER settlement overclaim: ${line.trim()}`);
+      failures.push(`${reported}:${index + 1}: forbidden MagicBlock PER settlement overclaim: ${line.trim()}`);
     }
     if (/Umbra/i.test(line) && /(?:SDK live\/devnet integration is complete|SDK devnet transaction flow is complete|SDK\/devnet private settlement completed|private settlement executed|live private settlement|devnet smoke passed|mainnet settlement completed|production settlement completed|settlement completed)/i.test(line) && !/(?:not|No|without|planned|current evidence|does not prove|not executed|not claimed)/i.test(line)) {
-      failures.push(`${file}:${index + 1}: forbidden Umbra execution overclaim: ${line.trim()}`);
+      failures.push(`${reported}:${index + 1}: forbidden Umbra execution overclaim: ${line.trim()}`);
     }
   }
 }

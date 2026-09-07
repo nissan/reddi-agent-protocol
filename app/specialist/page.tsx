@@ -119,7 +119,7 @@ export default function SpecialistDashboard() {
       {/* Header */}
       <div className="space-y-1">
         <h1 className="text-3xl font-bold">Specialist Dashboard</h1>
-        <p className="text-sm text-muted-foreground">Monitor your agent&apos;s status, reputation, and earnings.</p>
+        <p className="text-sm text-muted-foreground">Monitor your agent&apos;s status, reputation inputs, and labelled demo earnings.</p>
       </div>
 
       {/* Wallet lookup */}

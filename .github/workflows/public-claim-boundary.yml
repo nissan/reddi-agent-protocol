@@ -1,0 +1,67 @@
+name: Public Claim Boundary
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - "DEPLOY.md"
+      - "SECURITY.md"
+      - "docs/**"
+      - "packages/*/README.md"
+      - "packages/*/package.json"
+      - "lib/public-claims/**"
+      - "app/**/page.tsx"
+      - "lib/onboarding/**"
+      - "public/videos/onboarding/**"
+      - "public/video/volunteers/**"
+      - "scripts/check-public-claim-boundaries.mjs"
+      - "scripts/record-onboarding-*"
+      - ".github/workflows/public-claim-boundary.yml"
+  pull_request:
+    paths:
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - "DEPLOY.md"
+      - "SECURITY.md"
+      - "docs/**"
+      - "packages/*/README.md"
+      - "packages/*/package.json"
+      - "lib/public-claims/**"
+      - "app/**/page.tsx"
+      - "lib/onboarding/**"
+      - "public/videos/onboarding/**"
+      - "public/video/volunteers/**"
+      - "scripts/check-public-claim-boundaries.mjs"
+      - "scripts/record-onboarding-*"
+      - ".github/workflows/public-claim-boundary.yml"
+  workflow_dispatch:
+
+jobs:
+  public-claim-boundary-gate:
+    name: RAP Assurance public-claim boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      # No dependency install: the gate reads owned prose and package manifests
+      # and imports one dependency-free terms module.
+      - name: Public-claim boundary gate
+        run: node scripts/check-public-claim-boundaries.mjs
+
+      - name: Public-claim boundary negative control (must fail)
+        run: |
+          if node scripts/check-public-claim-boundaries.mjs --negative-control; then
+            echo "Negative control did not fail — the gate can no longer catch forbidden claims."
+            exit 1
+          fi
+          echo "Negative control failed as expected (gate exits 1 on injected forbidden claims)."

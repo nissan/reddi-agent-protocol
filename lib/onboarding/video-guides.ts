@@ -5,14 +5,43 @@ export type OnboardingVideoGuide = {
   description: string;
   duration: string;
   route: string;
-  videoSrc: string;
-  posterSrc: string;
-  captionsSrc: string;
+  /** Absent once a stale recording is removed from public serving rather than withheld in place. */
+  videoSrc?: string;
+  posterSrc?: string;
+  captionsSrc?: string;
   boundary: string;
+  /** Recording predates the public-claim remediation of the page it captures. */
+  mediaStale?: true;
+  /** Recording tours several routes, so no single page reproduces what it showed. */
+  multiRouteRecording?: true;
   primaryCta: { label: string; href: string };
   secondaryCta?: { label: string; href: string };
   proofLinks?: { label: string; href: string }[];
 };
+
+/**
+ * A guide plays only when its recording is still served and not withheld. The
+ * card body, the duration badge, and the e2e tallies all ask this one question,
+ * so a guide whose media was removed without `mediaStale` cannot be counted as
+ * playable by one caller and withheld by another.
+ */
+export function hasPlayableRecording(
+  guide: OnboardingVideoGuide,
+): guide is OnboardingVideoGuide & { videoSrc: string } {
+  return !guide.mediaStale && Boolean(guide.videoSrc);
+}
+
+/**
+ * Heading for the onboarding hub, derived from what actually plays so a future
+ * `mediaStale` flip cannot leave the promise counting recordings the page
+ * withholds. Shared with the spec that asserts it.
+ */
+export function onboardingWalkthroughHeading(guides: OnboardingVideoGuide[]): string {
+  const playable = guides.filter(hasPlayableRecording).length;
+  if (playable === 0) return "Every walkthrough recording is currently withheld";
+  if (playable === 1) return "Start with the one proof walkthrough that still plays";
+  return `Start with the ${playable} proof walkthroughs that still play`;
+}
 
 export const onboardingVideos: OnboardingVideoGuide[] = [
   {
@@ -20,13 +49,12 @@ export const onboardingVideos: OnboardingVideoGuide[] = [
     eyebrow: "Start here",
     title: "Choose your protocol path",
     description:
-      "Take a quick tour of the homepage, setup flow, marketplace, registration path, economic proof, and verifier command.",
+      "Take a quick tour of the homepage, setup flow, specialist directory, registration path, economic proof, and verifier command.",
     duration: "43s",
     route: "/start",
-    videoSrc: "/videos/onboarding/overview.mp4",
-    posterSrc: "/videos/onboarding/posters/overview.jpg",
-    captionsSrc: "/videos/onboarding/captions/overview.vtt",
     boundary: "Guided devnet proof tour",
+    mediaStale: true,
+    multiRouteRecording: true,
     primaryCta: { label: "Choose your path", href: "/start" },
     secondaryCta: { label: "Open replication guide", href: "/judge-replication" },
   },
@@ -63,6 +91,7 @@ export const onboardingVideos: OnboardingVideoGuide[] = [
     posterSrc: "/videos/onboarding/posters/economic-proof.jpg",
     captionsSrc: "/videos/onboarding/captions/economic-proof.vtt",
     boundary: "Devnet settlement + demo-local reputation",
+    mediaStale: true,
     primaryCta: { label: "Try economic demo", href: "/economic-demo#video-guide" },
     secondaryCta: { label: "Verify recorded txs", href: "/judge-replication" },
   },
@@ -78,6 +107,7 @@ export const onboardingVideos: OnboardingVideoGuide[] = [
     posterSrc: "/videos/onboarding/posters/register-agent.jpg",
     captionsSrc: "/videos/onboarding/captions/register-agent.vtt",
     boundary: "Devnet registry proof",
+    mediaStale: true,
     primaryCta: { label: "Register a specialist", href: "/register#video-guide" },
     secondaryCta: { label: "Open CLI steps", href: "/judge-replication" },
     proofLinks: [

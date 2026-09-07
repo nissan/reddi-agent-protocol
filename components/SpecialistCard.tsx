@@ -114,7 +114,7 @@ export function SpecialistCard({
               ) : null}
               {taskTypes[0] ? (
                 <Badge variant="outline" className="border-white/15 bg-black/30 text-white">
-                  {taskTypes[0]}
+                  <span data-claim-scope="external">{taskTypes[0]}</span>
                 </Badge>
               ) : null}
               <Badge variant="outline" className={cn("text-[10px] uppercase tracking-wide", freshnessTone)}>
@@ -127,15 +127,17 @@ export function SpecialistCard({
         <div className="space-y-3 p-4">
           <div>
             <h3 className="font-display text-base font-semibold text-white">
-              {name ?? shortWallet(wallet)}
+              {name ? <span data-claim-scope="external">{name}</span> : shortWallet(wallet)}
             </h3>
-            <p className="text-sm text-gray-400">{model ?? "Specialist endpoint"}</p>
+            <p className="text-sm text-gray-400">
+              {model ? <span data-claim-scope="external">{model}</span> : "Specialist endpoint"}
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-1.5">
             {taskTypes.slice(0, 3).map((task) => (
               <Badge key={task} variant="outline" className="border-white/10 bg-white/5 text-[11px] text-gray-300">
-                {task}
+                <span data-claim-scope="external">{task}</span>
               </Badge>
             ))}
           </div>

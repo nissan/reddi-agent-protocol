@@ -1,8 +1,10 @@
 # @reddi/agent-protocol
 
-Open protocol primitives for paid agent work.
+Open RAP Assurance primitives for paid agent work.
 
-This package is the local-first Reddi Agent Protocol surface above payment rails such as `@reddi/x402-solana`. It defines receipt envelopes, policy decisions, deterministic fixtures, and validation helpers that run without hosted Reddi infrastructure, wallet keys, devnet/mainnet spend, or paid provider calls.
+> Payments prove transfer; RAP Assurance proves paid work.
+
+This package is the local-first Reddi Agent Protocol surface above payment rails such as `@reddi/x402-solana`. It defines receipt envelopes, policy decisions, deterministic fixtures, and validation helpers that run without hosted Reddi infrastructure, wallet keys, devnet/mainnet spend, or paid provider calls. It is not a payment facilitator, marketplace operator, custody provider, or production runtime.
 
 **Publication status:** repo-local v0.1 candidate. It is not published on npm yet; real publication is tracked by issue #603 and requires explicit operator approval.
 
@@ -42,7 +44,7 @@ const policyDecision = policyDecisionFromBudgetPolicyDecision({
 });
 ```
 
-Use payment-rail packages to settle and verify payment-specific proofs. RAP receipts record the policy, payment-proof reference, evidence reference, and trust metadata around the paid agent workflow.
+Use payment-rail packages to settle and verify payment-specific proofs. RAP receipts record the policy, payment-proof reference, evidence reference, and trust metadata around the paid agent workflow; they do not upgrade payment proof into work-quality, settlement-finality, or production-readiness claims.
 
 ## AUDD non-custodial foundation
 
@@ -101,7 +103,7 @@ console.log(matrix.map((case_) => case_.key));
 
 Buyer authority policy examples make an agent's spending authority explicit before it discovers, quotes, preflights, invokes, or simulates payment for another agent. The static contract covers spend caps, allowed rails and currencies, seller allowlists, expiry, receipt/evidence requirements, refund/failure policy, operator approval thresholds, and support-state constraints.
 
-The built-in fixture matrix covers allow, deny, expired, approval-required, unsupported rail, unsupported currency, seller-not-allowlisted, missing-receipt, missing-evidence, refund/failure-policy mismatch, and spend-cap-exceeded states. Downstream #543 framework-template conformance and #375 seller-wrapper flows should consume these reason-coded cases instead of inventing parallel buyer-authority semantics. AUDD/SOL/USDC remain proof, preflight, and support metadata only unless a separate audited custody or settlement workstream is approved.
+The built-in fixture matrix covers allow, deny, expired, approval-required, unsupported rail, unsupported currency, seller-not-allowlisted, missing-receipt, missing-evidence, refund/failure-policy mismatch, and spend-cap-exceeded states. Downstream #543 framework-template conformance and #375 seller-wrapper flows should consume these reason-coded cases instead of inventing parallel buyer-authority semantics. AUDD/SOL/USDC remain proof, preflight, and support metadata only unless a separate audited live rail, custody, or settlement workstream is approved.
 
 The helper is no-spend and non-secret. It rejects credential-shaped metadata, live-payment approval, wallet/RPC/provider-call material, signing/transfer instructions, custody claims, and settlement-finality claims. It does not contact Airwallex, invoke providers, call wallets/RPC endpoints, transfer SPL tokens, activate Pay.sh, or settle funds.
 
@@ -366,7 +368,7 @@ console.log(diagnostics.capabilityMatch.scoreMeaning); // relevance_only_not_tru
 console.log(diagnostics.policyDecision.reasonCodes); // machine-readable allow/deny reasons
 ```
 
-Source-aware diagnostics expose separate lanes for capability match, discovery source, publisher identity, trust evidence, policy decision, payment fit, and reputation evidence. ARD and registry relevance scores are always labelled as relevance only; they are never collapsed into trust, policy, payment, or reputation approval.
+Source-aware diagnostics expose separate lanes, one per returned field: `capabilityMatch`, `discoverySource`, `publisherIdentity`, `trustEvidence` (the evidence a trust claim would rest on, not a trust verdict), `policyDecision`, `paymentFit`, and `reputationEvidence`. ARD and registry relevance scores are always labelled as relevance only; they are never collapsed into trust, policy, payment, or reputation approval.
 
 ## Source/Trust Conformance Matrix
 

@@ -1,5 +1,7 @@
 # Economic Demo Live Storytelling Plan — 2026-05-08
 
+> **Historical plan.** This file predates current RAP Assurance claim remediation and is not current public copy or approval to run hosted/live/devnet payments. Use `docs/PUBLIC-CLAIM-BOUNDARY.md`: payments prove transfer; RAP Assurance proves paid work.
+
 ## Why this exists
 
 Nissan flagged that `/economic-demo` feels cluttered and hard to decode at a glance. The current page is evidence-rich but not story-led: it mixes historical artifacts, dry-run panels, balances, Surfpool rehearsal, Pay.sh readiness, Umbra, Torque, OpenRouter, wallet state, and final recording notes without a single obvious “watch this happen live” spine.
@@ -39,9 +41,9 @@ The current page reverses that: artifacts first, story second.
 
 ## Target demo story
 
-One sentence:
+One sentence (superseded wording):
 
-> “Ask Reddi Agent Protocol for an output; it discovers specialist agents, quotes the work, routes the request through hosted endpoints, records payment/evidence boundaries, and returns an attested result you can inspect.”
+> “Ask Reddi Agent Protocol for an output; it discovers specialist agents, quotes the work, records payment/evidence boundaries, and returns a bounded receipt/evidence record you can inspect.”
 
 ## Proposed page modes
 
@@ -52,7 +54,7 @@ Purpose: prove this is not fake without forcing wallet friction.
 Flow:
 
 1. Select a safe template prompt:
-   - “Generate a landing page for a trustless AI agent marketplace.”
+   - “Generate a landing page for a paid-work assurance demo.”
    - “Analyze this product idea and produce implementation tasks.”
    - “Write and verify a concise launch brief.”
 2. Click **Run live specialist workflow**.

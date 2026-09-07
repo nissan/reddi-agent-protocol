@@ -1,7 +1,7 @@
 {
   "name": "@reddi/rap-mcp-bridge",
   "version": "0.1.0",
-  "description": "MCP bridge for Reddi Agent Protocol specialist discovery, synthetic quotes, verification, and disclosure ledgers.",
+  "description": "Dry-run MCP bridge for RAP Assurance specialist discovery, synthetic quotes, verification, and disclosure ledgers.",
   "type": "module",
   "bin": {
     "rap-mcp-bridge": "dist/src/server.js"

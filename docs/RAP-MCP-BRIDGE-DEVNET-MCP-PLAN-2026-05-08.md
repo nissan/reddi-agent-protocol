@@ -1,5 +1,7 @@
 # RAP MCP Bridge — Live Devnet MCP Plan (2026-05-08)
 
+> **Historical plan.** This file predates current RAP Assurance claim remediation. It is not approval to run devnet/live payments, expose payment tools, claim settlement, or publish production MCP services. Current bridge public claims are dry-run/no-spend unless an approved gated release supersedes them.
+
 ## Context
 
 PR #254 establishes the safe baseline:

@@ -8,15 +8,24 @@ import { StatsBar } from "@/components/ui/stats-bar";
 import { OnboardingVideoGrid } from "@/components/onboarding/OnboardingVideoGrid";
 import { SpecialistCard } from "@/components/SpecialistCard";
 import { onboardingVideos } from "@/lib/onboarding/video-guides";
+import {
+  directoryFixtureProfileCount,
+  receiptFixtureCaseCount,
+  sourceTrustConformanceCaseCount,
+} from "@/lib/assurance/public-metrics";
 import type { SpecialistListing } from "@/lib/registry/bridge";
 
-const JUDGE_METRICS = { specialists: 30, paidCalls: 4, devnetUsdc: "0.13" };
+const JUDGE_METRICS = {
+  specialists: directoryFixtureProfileCount,
+  receiptCases: receiptFixtureCaseCount,
+  conformanceCases: sourceTrustConformanceCaseCount,
+};
 
 const ECOSYSTEM_PROOFS = [
   {
     name: "Quasar",
-    status: "Live devnet proof",
-    desc: "Final on-chain path uses Quasar-compiled Registry, Escrow, Reputation, and Attestation programs.",
+    status: "Local/blocked boundary",
+    desc: "Current Quasar sources are exercised in the local Surfpool lane; the recorded devnet deployment is blocked and not a live target.",
     href: "/economic-demo",
   },
   {
@@ -27,8 +36,8 @@ const ECOSYSTEM_PROOFS = [
   },
   {
     name: "OpenRouter specialists",
-    status: "Marketplace surface",
-    desc: "30 specialist profiles power the human-triggered workflow story without hidden paid calls on page load.",
+    status: "Directory fixture",
+    desc: "Specialist profiles support the workflow story without hidden paid calls, automatic publication, or live invocation on page load.",
     href: "/agents",
   },
   {
@@ -40,25 +49,25 @@ const ECOSYSTEM_PROOFS = [
   {
     name: "Surfpool",
     status: "Local rehearsal",
-    desc: "Local validator rehearsal proves payment ordering, budget reconciliation, and Quasar confidence before devnet.",
+    desc: "Local validator rehearsal exercises payment ordering, budget reconciliation, and Quasar assumptions before any devnet claim.",
     href: "/economic-demo",
   },
   {
     name: "Torque",
     status: "Retention layer",
-    desc: "Leaderboard and custom-event plumbing show how completed jobs can become retention and reward signals.",
+    desc: "Leaderboard and custom-event plumbing show how completed-job evidence could become retention and reward signals.",
     href: "/leaderboard",
   },
   {
     name: "MagicBlock",
-    status: "Delegation + TEE auth proven; settlement bounded",
-    desc: "Quasar-native MagicBlock permission/delegation succeeds live on devnet; patched Quasar PER now proves bounded agent-vault settlement via MagicBlock TEE, while arbitrary-wallet/private payee lamport settlement is not claimed.",
+    status: "PER evidence bounded",
+    desc: "MagicBlock/PER material remains reference evidence with explicit boundaries; it is not a mainnet, custody, or broad private-payee settlement claim.",
     href: "/economic-demo",
   },
   {
     name: "ElizaOS + SendAI",
     status: "Adapter evidence",
-    desc: "Framework packages expose x402 agent-commerce adapters for distribution beyond the web demo.",
+    desc: "Framework packages are experimental/deferred adapter evidence, not public production package claims.",
     href: "/testers",
   },
 ];
@@ -100,13 +109,13 @@ export default function Home() {
         n: "02",
         icon: "💳",
         title: "Pay",
-        desc: "x402 gates quote the job, enforce budget, and return receipts for every paid call.",
+        desc: "Payment rails or fixtures quote the job; RAP records the payment-proof reference and budget decision.",
       },
       {
         n: "03",
         icon: "✅",
         title: "Verify",
-        desc: "Attestors inspect outputs and receipt chains before reputation updates make the result reusable.",
+        desc: "Attestors inspect outputs and receipt chains before reputation inputs are reused."
       },
     ],
     [],
@@ -116,19 +125,19 @@ export default function Home() {
     () => [
       {
         title: "I run agents",
-        desc: "Connect OpenClaw, Claude/MCP, OpenSwarm-style systems, ElizaOS, or custom agents to discover trusted specialists under budget policy.",
+        desc: "Connect OpenClaw, Claude/MCP, OpenSwarm-style systems, ElizaOS, or custom agents to discover specialists and inspect policy/evidence before trust changes.",
         href: "/mcp-bridge-demo",
         cta: "Connect your agent system →",
       },
       {
         title: "I build specialist agents",
-        desc: "Add reddi-x402 payment gates, publish capabilities and pricing, and let marketplace consumers hire your agent for scoped work.",
+        desc: "Add x402-style payment gates, publish capability/pricing metadata, and attach scoped work to RAP Assurance receipts.",
         href: "/register",
-        cta: "Monetize your specialist →",
+        cta: "Describe your specialist →",
       },
       {
         title: "I verify work",
-        desc: "Run attestor agents that validate outputs, receipt chains, release criteria, and reputation updates for paid workflows.",
+        desc: "Run attestor agents that validate outputs, receipt chains, release criteria, and reputation inputs for paid workflows.",
         href: "/attestation",
         cta: "Become an attestor →",
       },
@@ -145,12 +154,13 @@ export default function Home() {
           <div className="max-w-3xl space-y-6">
             <span className="section-label">Reddi Agent Protocol</span>
             <h1 className="font-display text-4xl font-bold text-white sm:text-5xl lg:text-6xl">
-              Let your agents hire trusted specialist agents
+              Payments prove transfer. RAP Assurance proves paid work.
             </h1>
             <p className="max-w-2xl text-base leading-7 text-gray-400 sm:text-lg">
-              Reddi Agent Protocol is the marketplace rail for agents that need
-              to discover, pay, verify, and rate specialist agents — with x402
-              payment gates, receipts, attestations, and reputation built in.
+              RAP Assurance is the open receipt and conformance layer for paid
+              MCP/API and agent work. It records terms, policy, payment-proof
+              references, evidence, attestations, replay metadata, and reputation
+              inputs without becoming the payment rail or custody provider.
             </p>
             <div className="flex flex-wrap gap-3 pt-2">
               <Link href="/economic-demo">
@@ -168,7 +178,7 @@ export default function Home() {
               </Link>
               <Link href="/agents">
                 <Button size="lg" variant="outline">
-                  Explore marketplace
+                  Explore directory
                 </Button>
               </Link>
             </div>
@@ -177,7 +187,7 @@ export default function Home() {
                 OpenClaw, Claude/MCP, OpenSwarm + custom agents
               </span>
               <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1">
-                reddi-x402 for specialist monetization
+                x402/Solana helpers are adapter primitives
               </span>
               <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1">
                 No wallet required for default demo
@@ -198,9 +208,9 @@ export default function Home() {
       <div className="mx-auto -mt-6 max-w-6xl px-4 sm:px-6 lg:px-8 relative z-20">
         <StatsBar
           stats={[
-            { label: "Hosted specialists", value: stats.specialists },
-            { label: "Paid devnet calls", value: stats.paidCalls },
-            { label: "Devnet USDC spent", value: stats.devnetUsdc },
+            { label: "Directory fixtures", value: stats.specialists },
+            { label: "Receipt fixture cases", value: stats.receiptCases },
+            { label: "Source-trust conformance cases", value: stats.conformanceCases },
           ]}
         />
       </div>
@@ -210,12 +220,12 @@ export default function Home() {
           <div className="max-w-3xl">
             <p className="section-label">Choose your role</p>
             <h2 className="font-display text-2xl font-bold text-white sm:text-3xl">
-              One protocol, three ways to participate
+              One assurance layer, three ways to integrate
             </h2>
             <p className="mt-3 text-sm leading-6 text-gray-400">
-              Bring your existing agents, publish specialist capabilities, or
-              verify paid work. The marketplace works because every role has
-              receipts and reputation.
+              Bring your existing agents, describe specialist capabilities, or
+              verify paid work. The assurance layer works because payment proof,
+              evidence, and reputation inputs stay separate and inspectable.
             </p>
           </div>
           <div className="grid gap-4 md:grid-cols-3">
@@ -244,14 +254,14 @@ export default function Home() {
         <div className="rounded-xl border border-[#14F195]/20 bg-[#14F195]/10 p-6 glow-border">
           <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
-              <p className="section-label">One paid agent job, end to end</p>
+              <p className="section-label">One paid-work receipt, end to end</p>
               <h2 className="font-display text-2xl font-bold text-white">
-                Discover. Pay. Verify.
+                Discover. Decide. Prove.
               </h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-300">
-                Your agent discovers a specialist, receives an x402 price
-                challenge, pays under policy, gets work back, and updates
-                reputation after attestation.
+                Your agent discovers a specialist, evaluates price and authority
+                policy, records payment-proof and evidence references, then uses
+                attestation/replay data to decide what the paid work proves.
               </p>
             </div>
             <Link
@@ -265,7 +275,7 @@ export default function Home() {
             {[
               "User request",
               "Specialist quote",
-              "x402 payment",
+              "Payment-proof reference",
               "Attested work",
               "Reputation trail",
             ].map((step, index) => (
@@ -328,14 +338,14 @@ export default function Home() {
           <div>
             <p className="section-label">Start faster</p>
             <h2 className="font-display text-2xl font-bold text-white">
-              Start with the 3 proof videos
+              Start with the proof walkthroughs
             </h2>
           </div>
           <Link href="/start" className="text-sm text-[#14F195] hover:text-[#14F195]/80">
             Open onboarding hub →
           </Link>
         </div>
-        <OnboardingVideoGrid videos={onboardingVideos.filter((video) => video.id !== "overview")} />
+        <OnboardingVideoGrid videos={onboardingVideos.filter((video) => video.id !== "overview")} hostRoute="/" />
       </section>
 
       <section id="verify-demo" className="mx-auto max-w-6xl px-4 pt-10 sm:px-6 lg:px-8">
@@ -381,14 +391,14 @@ export default function Home() {
         <div className="rounded-xl border border-emerald-300/20 bg-emerald-400/10 p-6 glow-border">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="max-w-3xl space-y-2">
-              <p className="section-label">Devnet participants wanted</p>
+              <p className="section-label">Devnet/local testers wanted</p>
               <h2 className="font-display text-2xl font-bold text-white">
-                List a specialist, connect a consumer agent, or run an attestor
+                Describe a specialist, connect a consumer agent, or run an attestor
               </h2>
               <p className="text-sm leading-6 text-gray-300">
                 Bring an Ollama-style local specialist, an OpenOnion adapter, or
-                an existing agent system. Use reddi-x402 and MCP rails to
-                participate without mainnet funds.
+                an existing agent system. Use x402/MCP helpers to exercise the
+                assurance path without mainnet funds or custody claims.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -408,14 +418,14 @@ export default function Home() {
           <div>
             <p className="section-label mb-2">Featured specialists</p>
             <h2 className="font-display text-2xl font-bold text-white sm:text-3xl">
-              Featured Specialists
+              Directory Specialists
             </h2>
           </div>
           <Link
             href="/agents"
             className="text-sm text-indigo-300 hover:text-indigo-200"
           >
-            View marketplace →
+            View directory →
           </Link>
         </div>
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -448,7 +458,7 @@ export default function Home() {
 
       <section className="mx-auto max-w-6xl px-4 pb-8 sm:px-6 lg:px-8">
         <div className="rounded-xl bg-surface p-6 glow-border">
-          <p className="section-label mb-3">How agent commerce works</p>
+          <p className="section-label mb-3">How paid-work assurance works</p>
           <div className="grid gap-5 md:grid-cols-3">
             {steps.map((step) => (
               <div key={step.n} className="space-y-3">
@@ -476,8 +486,8 @@ export default function Home() {
           </h2>
           <p className="text-sm text-gray-400 max-w-3xl">
             Whether you are new, integrating an existing app, or listing your
-            own specialist, you can start today without waiting on a full local
-            build.
+            own specialist, you can inspect current no-spend and devnet-bounded
+            proof paths without treating them as production services.
           </p>
 
           <div className="grid gap-4 md:grid-cols-3">
@@ -486,8 +496,8 @@ export default function Home() {
                 1) Try the workflow
               </p>
               <p className="text-xs text-gray-400">
-                Watch one request turn into paid specialist work, attestation,
-                receipts, and reputation.
+                Watch one request turn into paid-work evidence, attestation,
+                receipts, and reputation inputs.
               </p>
               <Link
                 href="/economic-demo"
@@ -516,8 +526,8 @@ export default function Home() {
                 3) List your specialist
               </p>
               <p className="text-xs text-gray-400">
-                Integrate reddi-x402, publish capabilities and pricing, then
-                earn from useful work.
+                Integrate x402-style helpers, publish capability metadata, then
+                attach useful work to receipts and evidence.
               </p>
               <Link
                 href="/register"
@@ -553,7 +563,7 @@ export default function Home() {
 
       <footer className="mt-16 border-t border-surface py-8 text-center text-sm text-gray-500">
         <div className="space-y-2">
-          <p>Trust the protocol, not the pitch.</p>
+          <p>Payments prove transfer; RAP Assurance proves paid work.</p>
           <a
             href="https://x.com/reddiagent"
             target="_blank"

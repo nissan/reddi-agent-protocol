@@ -80,13 +80,13 @@ export default function ZPictureDemoPage() {
   return (
     <main className="min-h-screen bg-page text-white">
       <section className="mx-auto max-w-7xl px-6 py-10">
-        <p className="section-label">Economic demo · live Z picture call</p>
-        <h1 className="mt-3 max-w-5xl font-display text-4xl font-bold sm:text-5xl">Wallet-backed Agent Protocol call → image proof → devnet payment proof → PER privacy lane → Torque reputation</h1>
-        <p className="mt-4 max-w-4xl text-gray-300">This page executes the picture scenario from the web interface. Connect the funded Phantom devnet wallet, sign the authorization, then trigger the Reddi Agent Protocol devnet x402 run that generates a new image showing “Z”, emits Torque-compatible reputation events, and displays Explorer + MagicBlock PER proof links.</p>
+        <p className="section-label">Economic demo · gated Z picture call</p>
+        <h1 className="mt-3 max-w-5xl font-display text-4xl font-bold sm:text-5xl">Agent Protocol call → image evidence → payment-proof refs → bounded PER evidence → reputation inputs</h1>
+        <p className="mt-4 max-w-4xl text-gray-300">Payments prove transfer; RAP Assurance proves paid work. This page is a gated devnet/demo surface: wallet authorization and any transfer references must stay bounded, and replay fallback does not imply production, custody, or mainnet readiness.</p>
         <div className="mt-6 rounded-2xl border border-white/10 bg-card/80 p-5">
           <p className="text-xs uppercase tracking-wide text-gray-500">1 · Select funded devnet wallet</p>
           <div className="mt-3 flex flex-wrap items-center gap-3"><WalletMultiButton /><span className="font-mono text-sm text-[#14F195]">{connected && publicKey ? publicKey.toBase58() : "No wallet connected"}</span></div>
-          <p className="mt-2 text-xs text-gray-400">The wallet signature is recorded as client authorization for this browser-run demo. x402 transfers remain bounded Solana devnet proof transactions.</p>
+          <p className="mt-2 text-xs text-gray-400">The wallet signature is recorded as client authorization for this browser-run demo. x402 transfer references remain bounded Solana devnet proof metadata.</p>
         </div>
         <div className="mt-6 rounded-2xl border border-[#14F195]/25 bg-[#14F195]/10 p-5">
           <p className="text-xs uppercase tracking-wide text-[#14F195]">2 · Prompt + execution</p>
@@ -97,7 +97,7 @@ export default function ZPictureDemoPage() {
 
         {result && (
           <div className="mt-8 grid gap-6 lg:grid-cols-2">
-            {result.replay && <section className="rounded-2xl border border-yellow-400/25 bg-yellow-400/10 p-5 lg:col-span-2"><p className="section-label">Production replay mode</p><h2 className="mt-2 text-2xl font-semibold">Signed interaction captured; replaying the completed devnet proof</h2><p className="mt-3 text-sm leading-6 text-yellow-50/90">The browser wallet signature was captured, but this deployment is replaying the frozen completed proof because the live image/payment runner is not guaranteed inside Vercel serverless runtime. Fallback reason: <span className="font-mono">{result.fallbackReason}</span></p></section>}
+            {result.replay && <section className="rounded-2xl border border-yellow-400/25 bg-yellow-400/10 p-5 lg:col-span-2"><p className="section-label">Replay fallback mode</p><h2 className="mt-2 text-2xl font-semibold">Signed interaction captured; replaying the completed devnet proof</h2><p className="mt-3 text-sm leading-6 text-yellow-50/90">The browser wallet signature was captured, but this deployment is replaying the frozen completed proof because the image/payment runner is not guaranteed inside Vercel serverless runtime. Fallback reason: <span className="font-mono">{result.fallbackReason}</span></p></section>}
             <section className="rounded-2xl border border-white/10 bg-card/80 p-5">
               <p className="section-label">Returned image proof</p>
               <h2 className="mt-2 text-2xl font-semibold">The generated image contains “Z”</h2>
@@ -108,10 +108,10 @@ export default function ZPictureDemoPage() {
 
             <section className="rounded-2xl border border-white/10 bg-card/80 p-5">
               <p className="section-label">Wallet-authorized Agent Protocol run</p>
-              <h2 className="mt-2 text-2xl font-semibold">Devnet x402 payments submitted</h2>
+              <h2 className="mt-2 text-2xl font-semibold">Devnet x402 payment-proof references</h2>
               <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
                 <div className="rounded-xl border border-white/10 bg-black/30 p-3"><dt className="text-gray-500">Status</dt><dd className="mt-1 text-[#14F195]">{result.paidRun.status}</dd></div>
-                <div className="rounded-xl border border-white/10 bg-black/30 p-3"><dt className="text-gray-500">Spent</dt><dd className="mt-1 text-[#14F195]">{result.paidRun.spentUsdc} USDC</dd></div>
+                <div className="rounded-xl border border-white/10 bg-black/30 p-3"><dt className="text-gray-500">Recorded spend</dt><dd className="mt-1 text-[#14F195]">{result.paidRun.spentUsdc} USDC</dd></div>
                 <div className="rounded-xl border border-white/10 bg-black/30 p-3 sm:col-span-2"><dt className="text-gray-500">Connected Phantom wallet</dt><dd className="mt-1 break-all font-mono text-[#14F195]">{result.walletAuthorization?.wallet ?? publicKey?.toBase58()}</dd></div>
                 <div className="rounded-xl border border-white/10 bg-black/30 p-3 sm:col-span-2"><dt className="text-gray-500">x402 payment signer</dt><dd className="mt-1 break-all font-mono text-[#14F195]">{result.paidRun.orchestratorWallet}</dd></div>
                 <div className="rounded-xl border border-white/10 bg-black/30 p-3 sm:col-span-2"><dt className="text-gray-500">Wallet authorization signature</dt><dd className="mt-1 break-all font-mono text-xs text-[#14F195]">{short(result.walletAuthorization?.signature)}</dd></div>
@@ -122,8 +122,8 @@ export default function ZPictureDemoPage() {
             </section>
 
             <section className="rounded-2xl border border-accent-purple/25 bg-accent-purple/10 p-5">
-              <p className="section-label">MagicBlock PER privacy proof</p>
-              <h2 className="mt-2 text-2xl font-semibold">Private execution lane evidence</h2>
+              <p className="section-label">MagicBlock PER reference proof</p>
+              <h2 className="mt-2 text-2xl font-semibold">Bounded execution-lane evidence</h2>
               <p className="mt-3 text-sm leading-6 text-gray-200">{result.perProof.claim}</p>
               <dl className="mt-4 grid gap-3 text-sm">
                 <div className="rounded-xl border border-white/10 bg-black/30 p-3"><dt className="text-gray-500">TEE RPC</dt><dd className="mt-1 font-mono text-accent-purple">{result.perProof.teeRpcUrl}</dd></div>

@@ -54,35 +54,35 @@ await page.bringToFront();
 await page.waitForTimeout(4500);
 await page.getByText('Returned image proof', { exact: true }).scrollIntoViewIfNeeded();
 await page.waitForTimeout(5000);
-await page.getByText('2 · x402 payment transactions', { exact: true }).scrollIntoViewIfNeeded();
+await page.getByText('2 · x402 transfer references', { exact: true }).scrollIntoViewIfNeeded();
 await page.waitForTimeout(4000);
 
 await waitForExplorer(page, x402.planning, '01-x402-planning');
 await page.goto(local, { waitUntil: 'networkidle' });
-await page.getByText('2 · x402 payment transactions', { exact: true }).scrollIntoViewIfNeeded();
+await page.getByText('2 · x402 transfer references', { exact: true }).scrollIntoViewIfNeeded();
 await page.waitForTimeout(2500);
 await waitForExplorer(page, x402.codegen, '02-x402-codegen');
 
 await page.goto(local, { waitUntil: 'networkidle' });
-await page.getByText('3 · MagicBlock PER on-chain evidence', { exact: true }).scrollIntoViewIfNeeded();
+await page.getByText('3 · MagicBlock PER reference evidence', { exact: true }).scrollIntoViewIfNeeded();
 await page.waitForTimeout(5500);
 await waitForExplorer(page, magic.delegate, '03-magicblock-delegate');
 await page.goto(local, { waitUntil: 'networkidle' });
-await page.getByText('3 · MagicBlock PER on-chain evidence', { exact: true }).scrollIntoViewIfNeeded();
+await page.getByText('3 · MagicBlock PER reference evidence', { exact: true }).scrollIntoViewIfNeeded();
 await page.waitForTimeout(2500);
 await waitForExplorer(page, magic.release, '04-magicblock-release-tee-rpc', teeExplorer(magic.release));
 
 await page.goto(local, { waitUntil: 'networkidle' });
-await page.getByText('4 · Umbra private settlement adapter evidence', { exact: true }).scrollIntoViewIfNeeded();
+await page.getByText('4 · Umbra adapter evidence boundary', { exact: true }).scrollIntoViewIfNeeded();
 await page.waitForTimeout(5500);
 await waitForExplorer(page, umbra.create, '05-umbra-create-utxo');
 await page.goto(local, { waitUntil: 'networkidle' });
-await page.getByText('4 · Umbra private settlement adapter evidence', { exact: true }).scrollIntoViewIfNeeded();
+await page.getByText('4 · Umbra adapter evidence boundary', { exact: true }).scrollIntoViewIfNeeded();
 await page.waitForTimeout(2500);
 await waitForExplorer(page, umbra.claim, '06-umbra-claim');
 
 await page.goto(local, { waitUntil: 'networkidle' });
-await page.getByText('5 · Torque reputation update boundary', { exact: true }).scrollIntoViewIfNeeded();
+await page.getByText('5 · Torque reputation-input boundary', { exact: true }).scrollIntoViewIfNeeded();
 await page.waitForTimeout(8000);
 await page.screenshot({ path: join(outDir, '07-torque-boundary.png'), fullPage: false });
 const video = page.video();

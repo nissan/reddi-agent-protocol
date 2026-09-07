@@ -94,7 +94,7 @@ function CandidateDetailContent() {
             data-testid="candidate-detail-back"
             className="text-sm text-indigo-300 transition hover:text-indigo-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400"
           >
-            ← Back to marketplace discovery
+            ← Back to directory discovery
           </Link>
           <p className="mt-3 text-xs font-medium uppercase tracking-wide text-gray-500">Discovery candidate detail</p>
         </div>
@@ -107,7 +107,7 @@ function CandidateDetailContent() {
             <p className="mt-2 text-sm text-gray-400">{loadError}</p>
             <div className="mt-4">
               <Link href={backHref} className="text-sm text-indigo-300 hover:text-indigo-200">
-                ← Back to marketplace discovery
+                ← Back to directory discovery
               </Link>
             </div>
           </div>

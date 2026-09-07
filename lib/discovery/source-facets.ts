@@ -277,6 +277,44 @@ export function classifySpecialistListingSourceFacet(
  */
 export type MarketplaceCandidateRenderState = "ard-imported" | "untrusted" | "blocked";
 
+/**
+ * Card fields whose value can come from text this repository did not author.
+ * Only the fields a source actually populates from an imported snapshot are
+ * declared imported; a field carrying repository fixture prose, a repository
+ * constant, or a derived label is repository-owned regardless of which card
+ * renders it.
+ */
+export type MarketplaceCandidateField = "name" | "description" | "resourceType" | "mediaType" | "tags";
+
+/**
+ * Per-source field provenance for the `data-claim-scope="external"` marker.
+ *
+ * Hosted-RAP cards project `marketplace-public-export` fixtures: the name and
+ * summary are repository listing prose, the media type is a repository
+ * constant, and the tags are the repository-owned `disclosureLabels`
+ * vocabulary. ARD cards project `agent-stack-fixtures` the same way, down to a
+ * title derived from the fixture key and a media type from a repository union.
+ * Only the Circle x402 / Pay.sh catalog snapshots transcribe third-party text,
+ * and only in the fields those snapshots populate.
+ *
+ * Declared here rather than in the builder so the card, the builder, and the
+ * checks that hold them to it all read one source of truth.
+ */
+export const MARKETPLACE_CANDIDATE_IMPORTED_FIELDS = {
+  "hosted-rap": [],
+  "ard-catalog": [],
+  "circle-x402": ["name", "description", "tags"],
+  "pay-sh": ["name", "description", "tags"],
+} as const satisfies Partial<Record<DiscoverySourceFacetId, readonly MarketplaceCandidateField[]>>;
+
+export type MarketplaceCandidateSourceFacetId = keyof typeof MARKETPLACE_CANDIDATE_IMPORTED_FIELDS;
+
+export function importedFieldsFor(
+  facet: MarketplaceCandidateSourceFacetId,
+): MarketplaceCandidateField[] {
+  return [...MARKETPLACE_CANDIDATE_IMPORTED_FIELDS[facet]];
+}
+
 export type MarketplaceCandidateCardModel = {
   id: string;
   sourceFacet: DiscoverySourceFacetId;
@@ -298,6 +336,8 @@ export type MarketplaceCandidateCardModel = {
   taskTypes: string[];
   /** Trust-boundary copy carried per card (discovery ≠ trust). */
   trustBoundaryNote: string;
+  /** Fields this card populates from imported, non-repository-authored text. */
+  importedFields: MarketplaceCandidateField[];
 };
 
 export type DiscoverySourceAvailability = {

@@ -15,12 +15,12 @@ await page.getByRole('button', { name: /Execute Agent Protocol Z image call/i })
 await page.waitForTimeout(1500);
 await page.getByRole('button', { name: /Execute Agent Protocol Z image call/i }).click();
 await page.waitForTimeout(1500);
-await page.getByText('Returned image proof').waitFor({ timeout: 180_000 });
+await page.getByText('Returned image proof', { exact: true }).waitFor({ timeout: 180_000 });
 await page.waitForTimeout(2500);
 
-await page.getByText('Returned image proof').scrollIntoViewIfNeeded();
+await page.getByText('Returned image proof', { exact: true }).scrollIntoViewIfNeeded();
 await page.waitForTimeout(6000);
-await page.getByText('Wallet-backed Agent Protocol run').scrollIntoViewIfNeeded();
+await page.getByText('Wallet-authorized Agent Protocol run', { exact: true }).scrollIntoViewIfNeeded();
 await page.waitForTimeout(5000);
 
 const observed = await page.evaluate(async () => {
@@ -36,7 +36,7 @@ if (observed.paymentLinks[0]) {
   await page.waitForTimeout(2500);
 }
 
-await page.getByText('MagicBlock PER privacy proof').scrollIntoViewIfNeeded();
+await page.getByText('MagicBlock PER reference proof', { exact: true }).scrollIntoViewIfNeeded();
 await page.waitForTimeout(5000);
 const releaseUrl = observed.paymentLinks.find((url) => url.includes('2Hj5pFtu')) ?? observed.paymentLinks[6];
 if (releaseUrl) {
@@ -46,7 +46,7 @@ if (releaseUrl) {
   await page.waitForTimeout(2500);
 }
 
-await page.getByText('Torque reputation dashboard').scrollIntoViewIfNeeded();
+await page.getByText('Torque reputation dashboard', { exact: true }).scrollIntoViewIfNeeded();
 await page.waitForTimeout(9000);
 await page.screenshot({ path: join(outDir, 'final-torque-dashboard.png'), fullPage: false });
 await browser.close();

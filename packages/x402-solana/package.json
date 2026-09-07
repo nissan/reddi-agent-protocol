@@ -1,6 +1,7 @@
 {
   "name": "@reddi/x402-solana",
   "version": "0.1.0",
+  "description": "Repo-local x402/Solana proof-reference helpers for RAP Assurance; not production payment infrastructure.",
   "license": "MIT",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
