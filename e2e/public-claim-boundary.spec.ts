@@ -10,12 +10,13 @@ import {
   CENTRAL_MESSAGE,
   CLAIM_SCOPE_ATTRIBUTE,
   EXTERNAL_CLAIM_SCOPE,
+  EXTERNAL_CLAIM_SCOPE_SELECTOR,
   FORBIDDEN_PUBLIC_CLAIMS,
   PUBLIC_CLAIM_BOUNDARY_DOC_PATH,
   PUBLIC_CLAIM_DOM_ROUTES,
   type PublicClaimDomRoute,
+  claimIsQualified,
 } from "../lib/public-claims/public-claim-boundary-terms";
-import { firstPartyCopy, unqualifiedClaims } from "./helpers/public-claim-copy";
 
 /**
  * DOM layer of the RAP Assurance public-claim boundary.
@@ -29,6 +30,31 @@ import { firstPartyCopy, unqualifiedClaims } from "./helpers/public-claim-copy";
 // Every gated route waits up to 30s on its readiness anchor while the dev
 // server compiles it, so give each test headroom beyond the 30s repo default.
 test.describe.configure({ timeout: 60_000 });
+
+/**
+ * The rendered copy this repository owns: the route's DOM with every
+ * registry/user-supplied subtree removed. Specialist cards carry strings a
+ * third-party devnet registrant wrote, so scanning them would let an account
+ * nobody here controls turn this blocking lane red.
+ */
+async function firstPartyCopy(page: Page): Promise<string> {
+  return page.evaluate((externalSelector) => {
+    document.querySelectorAll(externalSelector).forEach((node) => node.remove());
+    return document.body.innerText;
+  }, EXTERNAL_CLAIM_SCOPE_SELECTOR);
+}
+
+function unqualifiedClaims(copy: string): string[] {
+  const violations: string[] = [];
+  for (const line of copy.split(/\r?\n/)) {
+    for (const claim of FORBIDDEN_PUBLIC_CLAIMS) {
+      if (!claim.pattern.test(line)) continue;
+      if (claimIsQualified(line, claim)) continue;
+      violations.push(`[${claim.id}] ${claim.reason} :: ${line.trim()}`);
+    }
+  }
+  return violations;
+}
 
 /**
  * The recordings a gated route may play, and the caption track each must carry.

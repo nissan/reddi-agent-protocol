@@ -30,7 +30,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # Blocking lane for the user-facing signup/get-started funnel only.
-      # No lane runs the full 40-spec suite: the nightly integration lane runs
+      # No lane runs the full 39-spec suite: the nightly integration lane runs
       # e2e/integration.spec.ts alone, and the rest (evidence-capture specs,
       # the all-routes navigation smoke that needs a warm server, and the
       # /agents specs that wait on a devnet RPC read) run locally via
