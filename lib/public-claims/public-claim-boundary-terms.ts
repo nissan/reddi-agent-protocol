@@ -97,13 +97,8 @@ export const FORBIDDEN_PUBLIC_CLAIMS: ForbiddenPublicClaim[] = [
  * words: every pattern belongs to one claim and contains that claim's own
  * predicate, so a negation elsewhere in the clause ("with no extra setup",
  * "without delay", "outside the demo") cannot excuse an affirmative claim it
- * never touches. `live-audd-settlement` and `generic-runtime` are alternations
- * of distinct concepts (live / settlement / custody; generic / hosted /
- * production runtime), so a form matching one of them must not excuse another
- * asserted in a separate predication; CLAUSE_SEPARATOR is what keeps those
- * apart, in either order, while leaving serial-comma enumerations whole.
- * QUALIFIER_CASES pins both directions, including the cross-product of each
- * boundary form against the other claims.
+ * never touches. QUALIFIER_CASES pins both directions, including the
+ * cross-product of each boundary form against the other claims.
  */
 const NEGATED_BEFORE = "(?:\\bnot\\b|\\bnever\\b|\\bnor\\b|\\bunless\\b)";
 
@@ -184,7 +179,6 @@ export const QUALIFIER_CASES: { line: string; claimId: string; qualified: boolea
   { line: "AUDD custody is available today in the no-spend demo path.", claimId: "live-audd-settlement", qualified: false },
   { line: "AUDD settlement is live in the no-spend conformance lane.", claimId: "live-audd-settlement", qualified: false },
   { line: "AUDD settlement is live, and custody is not claimed.", claimId: "live-audd-settlement", qualified: false },
-  { line: "Custody is not claimed, and AUDD settlement is live today.", claimId: "live-audd-settlement", qualified: false },
   {
     line: "- Not a payment facilitator, custody service, custody provider, escrow provider, or wallet SDK.",
     claimId: "custody-provider",
@@ -198,21 +192,6 @@ export const QUALIFIER_CASES: { line: string; claimId: string; qualified: boolea
     qualified: true,
   },
   { line: "- Not a security-audited release and no audit passed.", claimId: "security-audited", qualified: true },
-  {
-    line: "This is not a custody product, and AUDD settlement is live today.",
-    claimId: "live-audd-settlement",
-    qualified: false,
-  },
-  {
-    line: "RAP is not production infrastructure, and AUDD custody is available for every invoice.",
-    claimId: "live-audd-settlement",
-    qualified: false,
-  },
-  {
-    line: "We are not a generic runtime, and the hosted agent runtime is live for every registered specialist.",
-    claimId: "generic-runtime",
-    qualified: false,
-  },
   { line: "AUDD settlement is live and custody is not claimed.", claimId: "live-audd-settlement", qualified: false },
   {
     line: "AUDD settlement is live today, and SPL custody remains outside this package.",
@@ -287,31 +266,27 @@ export const QUALIFIER_CASES: { line: string; claimId: string; qualified: boolea
 export const PROHIBITION_HEADING_PATTERN =
   /^#{1,6}\s.*\b(?:must not|do not|does not|not yet|non-?claims?|not claim(?:ed|ing)?|out of scope|prohibited|forbidden|never claim)\b/i;
 
-/** Verbs that open a new predication rather than continue a noun list. */
-const FINITE_VERB =
-  "(?:is|are|was|were|has|have|had|does|do|remains?|becomes?|provides?|offers?|takes?|ships?|collects?|operates?|runs?|supports?|enables?|delivers?|handles?|serves?|acts?|will|can|may)";
-
 /**
  * Separators that end a clause. Sentence terminators require trailing space so
  * `0.05%`, `5/7/5`, and `deployments.json` do not split a clause apart. A comma
- * ends a clause before a contrastive conjunction, which starts a new
+ * ends a clause only before a contrastive conjunction, which starts a new
  * independent clause ("…takes custody of buyer funds, but no mainnet claim is
  * made").
  *
- * `, and`/`, or` are ambiguous: they carry both the serial-comma tail of an
- * enumeration governed by one leading negation ("Not a payment facilitator,
- * custody service, escrow provider, or wallet SDK") and a second independent
- * clause ("custody is not claimed, and AUDD settlement is live"). Splitting on
- * all of them flags the boundary lists this repository ships; splitting on
- * none of them lets a negation in the first clause excuse an assertion in the
- * second. What separates the two is a finite verb: a list tail is bare noun
- * phrases, while a new clause predicates something. So the split fires only
- * when a subject and a finite verb follow.
+ * `, and`/`, or` are deliberately not separators. They carry two shapes this
+ * regex cannot tell apart: the serial-comma tail of an enumeration governed by
+ * one leading negation ("Not a payment facilitator, custody service, escrow
+ * provider, or wallet SDK"), and a second independent clause ("custody is not
+ * claimed, and AUDD settlement is live"). Splitting on all of them flags the
+ * boundary lists this repository ships. Splitting only before a finite verb
+ * was tried and is worse: it still flags truthful prose ("…, and no escrow
+ * service is offered"), and any verb outside the list still carries the
+ * overclaim through ("…, and AUDD settlement went live today"). So a claim
+ * joined to an unrelated negation by ", and"/", or" stays a reviewer's call,
+ * not the regex's -- see the KNOWN LIMIT on `claimIsQualified`.
  */
-const CLAUSE_SEPARATOR = new RegExp(
-  `[.!?](?=\\s|$)|[;|]|—|–|,\\s+(?:but|yet|so|while|whereas|though|although|however)\\b|,\\s+(?:and|or)\\s+(?=[\\w/-]+(?:\\s+[\\w/-]+){0,3}\\s+${FINITE_VERB}\\b)`,
-  "g",
-);
+const CLAUSE_SEPARATOR =
+  /[.!?](?=\s|$)|[;|]|—|–|,\s+(?:but|yet|so|while|whereas|though|although|however)\b/g;
 
 /** The single clause containing `position`. */
 function clauseWindow(line: string, position: number): string {
@@ -343,6 +318,17 @@ function clauseWindow(line: string, position: number): string {
  * whole match would let a pattern's greedy middle reach back into an earlier
  * negated clause, and stopping at the first occurrence would let a later
  * unqualified assertion ride on an earlier boundary sentence.
+ *
+ * KNOWN LIMIT: a negation in one clause can excuse an affirmative claim in a
+ * second clause joined to it by ", and"/", or" ("custody is not claimed, and
+ * AUDD settlement is live today" reads as qualified). Two attempts to close
+ * it -- binding a form to the asserted predicate occurrence, and splitting the
+ * clause before a finite verb -- each rejected truthful boundary enumerations
+ * this repository ships while still admitting the same overclaim under a verb
+ * they did not anticipate. Deciding which noun a negation governs is not
+ * something this pattern list can do, so the gate does not pretend to: prose
+ * of that shape is a reviewer's call. Widening a claim's pattern or predicate
+ * to a new concept makes this window wider -- prefer a separate claim entry.
  */
 export function claimIsQualified(line: string, claim: ForbiddenPublicClaim): boolean {
   const qualifiers = CLAIM_SPECIFIC_QUALIFIERS[claim.id] ?? [];
