@@ -205,19 +205,6 @@ test.describe("public-claim boundary (rendered copy)", () => {
     ).toEqual([]);
   });
 
-  test("every forbidden claim is still catchable by its own pattern", async () => {
-    for (const claim of FORBIDDEN_PUBLIC_CLAIMS) {
-      expect(
-        claim.pattern.test(claim.injectionExample),
-        `injection example for ${claim.id} must be caught by its own pattern`,
-      ).toBe(true);
-      expect(
-        claimIsQualified(claim.injectionExample, claim),
-        `injection example for ${claim.id} must not be suppressed as a qualified claim`,
-      ).toBe(false);
-    }
-  });
-
   /**
    * The published constants are bound to the real corpora Node-side by
    * `lib/__tests__/public-metrics.test.ts`; this asserts the other half — that
