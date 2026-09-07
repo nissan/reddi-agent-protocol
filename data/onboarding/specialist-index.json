@@ -48,7 +48,7 @@
     "reputation_score": 4.7,
     "schema_version": 2,
     "ranking_formula_version": 1,
-    "freshness_state": "warm",
+    "freshness_state": "stale",
     "ranking_score": 2.74
   },
   {
@@ -101,7 +101,7 @@
     "reputation_score": 4.8,
     "schema_version": 2,
     "ranking_formula_version": 1,
-    "freshness_state": "warm",
+    "freshness_state": "stale",
     "ranking_score": 2.53
   },
   {
