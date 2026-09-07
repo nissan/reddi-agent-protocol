@@ -673,9 +673,13 @@ export function validateBrowserWalletIdentityCopyClaims(input: unknown): Browser
   rejectUnknownKeys(row, '$', COPY_GUARD_KEYS, errors);
   requireLiteral(row.schemaVersion, BROWSER_WALLET_IDENTITY_COPY_GUARD_SCHEMA_VERSION, '$.schemaVersion', 'invalid_browser_wallet_approval_schema', errors);
 
-  if (!NON_LIVE_COPY_GUARD_RAIL_ENVIRONMENTS.has(String(row.railEnvironment))) {
+  const railEnvironment = typeof row.railEnvironment === 'string' ? row.railEnvironment : undefined;
+  const observationSource = typeof row.observationSource === 'string' ? row.observationSource : undefined;
+  if (railEnvironment === undefined) {
+    errors.push(error('malformed_browser_wallet_approval', '$.railEnvironment', 'rail environment must be one exact string value'));
+  } else if (!NON_LIVE_COPY_GUARD_RAIL_ENVIRONMENTS.has(railEnvironment)) {
     errors.push(error(
-      isPaymentEnvironment(row.railEnvironment) ? 'mainnet_browser_wallet_rejected' : 'non_canonical_browser_wallet_identity',
+      isPaymentEnvironment(railEnvironment) ? 'mainnet_browser_wallet_rejected' : 'non_canonical_browser_wallet_identity',
       '$.railEnvironment',
       'browser-wallet safety rows are non-live only: railEnvironment must be deterministic-fixture, local-test-mint, or devnet-unverified',
     ));
@@ -688,12 +692,14 @@ export function validateBrowserWalletIdentityCopyClaims(input: unknown): Browser
   if (row.caip2 === SOLANA_MAINNET_BETA_CAIP2) {
     errors.push(error('mainnet_browser_wallet_rejected', '$.caip2', 'browser-wallet safety rows must not name the Solana mainnet-beta chain identity'));
   }
-  if (!['expected-only', 'parsed-transaction-fixture', 'local-validator', 'parsed-rpc-transaction'].includes(String(row.observationSource))) {
+  if (observationSource === undefined) {
+    errors.push(error('malformed_browser_wallet_approval', '$.observationSource', 'observation source must be one exact string value'));
+  } else if (!['expected-only', 'parsed-transaction-fixture', 'local-validator', 'parsed-rpc-transaction'].includes(observationSource)) {
     errors.push(error('non_canonical_browser_wallet_identity', '$.observationSource', 'observation source is not canonical'));
   }
-  const railObservationCeiling = RAIL_MAX_OBSERVATION_SOURCE[String(row.railEnvironment)];
-  if (railObservationCeiling !== undefined
-    && (OBSERVATION_SOURCE_RANK[String(row.observationSource)] ?? Number.MAX_SAFE_INTEGER) > OBSERVATION_SOURCE_RANK[railObservationCeiling]) {
+  const railObservationCeiling = railEnvironment === undefined ? undefined : RAIL_MAX_OBSERVATION_SOURCE[railEnvironment];
+  if (railObservationCeiling !== undefined && observationSource !== undefined
+    && (OBSERVATION_SOURCE_RANK[observationSource] ?? Number.MAX_SAFE_INTEGER) > OBSERVATION_SOURCE_RANK[railObservationCeiling]) {
     errors.push(error('settlement_finality_rejected', '$.observationSource', 'observation source must not exceed the evidence the rail environment can produce'));
   }
   if (!isPaymentEligibility(row.grantEligibility)) {
@@ -852,7 +858,7 @@ function validateProvider(value: unknown, path: string, errors: BrowserWalletApp
     return undefined;
   }
   rejectUnknownKeys(value.source, `${path}.source`, SOURCE_KEYS, errors);
-  if (!['official-docs', 'browser-extension-store', 'operator-ui'].includes(String(value.source.kind))) {
+  if (typeof value.source.kind !== 'string' || !['official-docs', 'browser-extension-store', 'operator-ui'].includes(value.source.kind)) {
     errors.push(error('non_canonical_browser_wallet_identity', `${path}.source.kind`, 'provider source kind is not canonical'));
   }
   requireHttpsUrl(value.source.url, `${path}.source.url`, errors);
@@ -1028,7 +1034,7 @@ function validateAsset(
   if (typeof value.mint === 'string' && REJECTED_MAINNET_MINTS.has(value.mint)) {
     errors.push(error('mainnet_browser_wallet_rejected', `${path}.mint`, 'official Solana mainnet mints are never valid for a Devnet browser-wallet approval'));
   }
-  if (!['SOL', 'USDC', 'AUDD', 'AUDD_TEST', 'LOCAL_AUDD_TEST'].includes(String(value.symbol))) {
+  if (typeof value.symbol !== 'string' || !['SOL', 'USDC', 'AUDD', 'AUDD_TEST', 'LOCAL_AUDD_TEST'].includes(value.symbol)) {
     errors.push(error('non_canonical_browser_wallet_identity', `${path}.symbol`, 'asset symbol is not canonical for browser-wallet approval'));
     return;
   }
@@ -1173,8 +1179,9 @@ function validateBoundaries(value: unknown, path: string, errors: BrowserWalletA
 }
 
 function copyGuardRailConfig(railEnvironment: unknown): AuddRailEnvironmentConfig | undefined {
-  const name = String(railEnvironment);
-  return NON_LIVE_COPY_GUARD_RAIL_ENVIRONMENTS.has(name) ? getAuddRailEnvironmentConfig(name as AuddRailEnvironment) : undefined;
+  return typeof railEnvironment === 'string' && NON_LIVE_COPY_GUARD_RAIL_ENVIRONMENTS.has(railEnvironment)
+    ? getAuddRailEnvironmentConfig(railEnvironment as AuddRailEnvironment)
+    : undefined;
 }
 
 function validateCopyGuardRailIdentity(row: BrowserWalletIdentityCopyGuardInput, errors: BrowserWalletApprovalValidationError[]): void {
@@ -1234,8 +1241,8 @@ function validateCopyGuardNestedShapes(row: BrowserWalletIdentityCopyGuardInput,
   }
   const receipt = row.receipt;
   if (receipt) {
-    if (!['expected-only', 'fixture-only', 'observed-transfer-checked', 'observed-settlement'].includes(String(receipt.claim))) errors.push(error('malformed_browser_wallet_approval', '$.receipt.claim', 'receipt claim is invalid'));
-    if (!['not-observed', 'fixture-observed', 'local-observed', 'rpc-observed'].includes(String(receipt.observationStatus))) errors.push(error('malformed_browser_wallet_approval', '$.receipt.observationStatus', 'receipt observation status is invalid'));
+    if (typeof receipt.claim !== 'string' || !['expected-only', 'fixture-only', 'observed-transfer-checked', 'observed-settlement'].includes(receipt.claim)) errors.push(error('malformed_browser_wallet_approval', '$.receipt.claim', 'receipt claim is invalid'));
+    if (typeof receipt.observationStatus !== 'string' || !['not-observed', 'fixture-observed', 'local-observed', 'rpc-observed'].includes(receipt.observationStatus)) errors.push(error('malformed_browser_wallet_approval', '$.receipt.observationStatus', 'receipt observation status is invalid'));
     if (typeof receipt.settlementFinality !== 'boolean') errors.push(error('malformed_browser_wallet_approval', '$.receipt.settlementFinality', 'receipt settlementFinality flag must be boolean'));
     if (typeof receipt.controlledLiveEvidence !== 'boolean') errors.push(error('malformed_browser_wallet_approval', '$.receipt.controlledLiveEvidence', 'receipt controlledLiveEvidence flag must be boolean'));
   }
@@ -1262,11 +1269,11 @@ function validateCanonicalX402Export(row: BrowserWalletIdentityCopyGuardInput, e
 function validateReceiptBoundary(row: BrowserWalletIdentityCopyGuardInput, errors: BrowserWalletApprovalValidationError[]): void {
   const receipt = row.receipt;
   if (!receipt) return;
-  const sourceRank = OBSERVATION_SOURCE_RANK[String(row.observationSource)] ?? -1;
-  if ((RECEIPT_CLAIM_RANK[String(receipt.claim)] ?? Number.MAX_SAFE_INTEGER) > sourceRank) {
+  const sourceRank = (typeof row.observationSource === 'string' ? OBSERVATION_SOURCE_RANK[row.observationSource] : undefined) ?? -1;
+  if (((typeof receipt.claim === 'string' ? RECEIPT_CLAIM_RANK[receipt.claim] : undefined) ?? Number.MAX_SAFE_INTEGER) > sourceRank) {
     errors.push(error('settlement_finality_rejected', '$.receipt.claim', 'receipt claim must not exceed the evidence the row observation source provides'));
   }
-  if ((RECEIPT_OBSERVATION_STATUS_RANK[String(receipt.observationStatus)] ?? Number.MAX_SAFE_INTEGER) > sourceRank) {
+  if (((typeof receipt.observationStatus === 'string' ? RECEIPT_OBSERVATION_STATUS_RANK[receipt.observationStatus] : undefined) ?? Number.MAX_SAFE_INTEGER) > sourceRank) {
     errors.push(error('settlement_finality_rejected', '$.receipt.observationStatus', 'receipt observation status must not exceed the row observation source'));
   }
   if (receipt.settlementFinality) {
@@ -1437,11 +1444,11 @@ function collectCopyText(copy: BrowserWalletIdentityCopyGuardInput['copy']): str
 }
 
 function isPaymentEnvironment(value: unknown): value is ReddiPaymentEnvironmentLabel {
-  return ['deterministic-fixture', 'local-test-mint', 'devnet-unverified', 'mainnet-gated', 'controlled-live'].includes(String(value));
+  return typeof value === 'string' && ['deterministic-fixture', 'local-test-mint', 'devnet-unverified', 'mainnet-gated', 'controlled-live'].includes(value);
 }
 
 function isPaymentEligibility(value: unknown): value is ReddiPaymentEligibilityLabel {
-  return ['non_eligible', 'pending_partner_acceptance', 'eligible', 'excluded'].includes(String(value));
+  return typeof value === 'string' && ['non_eligible', 'pending_partner_acceptance', 'eligible', 'excluded'].includes(value);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
