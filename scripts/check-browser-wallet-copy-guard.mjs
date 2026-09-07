@@ -68,6 +68,10 @@ function defaultRows() {
 function readRows(paths, checks) {
   const rows = [];
   for (const path of paths) {
+    if (!path) {
+      checks.push({ id: "row_path_supplied", ok: false, summary: "--row requires an exact copy-guard row JSON path" });
+      continue;
+    }
     const full = resolveRepoPath(path);
     if (!existsSync(full)) {
       checks.push({ id: `row_present:${relative(rootDir, full)}`, ok: false, summary: "copy-guard row JSON file must exist" });

@@ -179,10 +179,13 @@ export function validateBrowserWalletApprovalRecord(input, options = {}) {
     const approvedAtMs = validateTimestamp(record.approvedAt, '$.approvedAt', errors);
     const expiresAtMs = validateTimestamp(record.expiresAt, '$.expiresAt', errors);
     const nowMs = normalizeNow(options.now);
-    if (expiresAtMs !== undefined && expiresAtMs <= nowMs) {
+    if (nowMs === undefined) {
+        errors.push(error('malformed_browser_wallet_approval', '$', 'the supplied evaluation instant must be one exact parseable timestamp'));
+    }
+    if (nowMs !== undefined && expiresAtMs !== undefined && expiresAtMs <= nowMs) {
         errors.push(error('expired_browser_wallet_approval', '$.expiresAt', 'approval record is expired'));
     }
-    if (approvedAtMs !== undefined && approvedAtMs > nowMs) {
+    if (nowMs !== undefined && approvedAtMs !== undefined && approvedAtMs > nowMs) {
         errors.push(error('contradictory_browser_wallet_approval', '$.approvedAt', 'approval record is not valid before approvedAt'));
     }
     if (approvedAtMs !== undefined && expiresAtMs !== undefined && approvedAtMs >= expiresAtMs) {
@@ -1068,11 +1071,13 @@ function parseBaseUnits(value, path, errors) {
     return BigInt(value);
 }
 function normalizeNow(now) {
+    if (now === undefined)
+        return Date.now();
     if (now instanceof Date && Number.isFinite(now.getTime()))
         return now.getTime();
     if (typeof now === 'string' && Number.isFinite(Date.parse(now)))
         return Date.parse(now);
-    return Date.now();
+    return undefined;
 }
 function hasBroadString(value) {
     return BROAD_STRING_PATTERN.test(value.trim());

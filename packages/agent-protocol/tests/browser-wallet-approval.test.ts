@@ -309,6 +309,20 @@ describe('manual Devnet browser-wallet approval schema', () => {
     }
   });
 
+  it('refuses a supplied but unparseable evaluation instant instead of falling back to the wall clock', () => {
+    for (const now of ['2026-13-05T00:00:00.000Z', 'nope', new Date('nope')]) {
+      const result = validateBrowserWalletApprovalRecord(validApproval(), { ...VALIDATION_OPTIONS, now });
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.ok(result.errors.some((entry) => entry.code === 'malformed_browser_wallet_approval' && entry.path === '$'));
+      }
+    }
+    const omittedNow = validateBrowserWalletApprovalRecord(validApproval(), {
+      trustedDevnetProgramIds: VALIDATION_OPTIONS.trustedDevnetProgramIds,
+    });
+    assert.ok(omittedNow.ok || omittedNow.errors.every((entry) => entry.path !== '$'));
+  });
+
   it('keeps Devnet USDC narrow and official AUDD Devnet unavailable by default', () => {
     const usdc = validateBrowserWalletApprovalRecord(validApproval({
       uiAction: { ...validApproval().uiAction, route: '/economic-demo/paid-workflow', action: 'x402-devnet-usdc-payment' },

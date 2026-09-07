@@ -141,6 +141,14 @@ const cases = [
     expectBlocker: "now_parseable",
   },
   {
+    name: "copy guard blocks a valueless --row flag instead of reading the repository root",
+    command: ["scripts/check-browser-wallet-copy-guard.mjs", "--row"],
+    env: {},
+    expectExit: 1,
+    expectStatus: "blocked",
+    expectBlocker: "row_path_supplied",
+  },
+  {
     name: "copy guard passes safe fixtures",
     command: ["scripts/check-browser-wallet-copy-guard.mjs"],
     env: {},
