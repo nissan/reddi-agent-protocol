@@ -97,13 +97,13 @@ export const FORBIDDEN_PUBLIC_CLAIMS: ForbiddenPublicClaim[] = [
  * words: every pattern belongs to one claim and contains that claim's own
  * predicate, so a negation elsewhere in the clause ("with no extra setup",
  * "without delay", "outside the demo") cannot excuse an affirmative claim it
- * never touches. A form must also reach the predicate occurrence the claim
- * actually asserted -- see `claimIsQualified` -- because `live-audd-settlement`
- * and `generic-runtime` are alternations of distinct concepts (live /
- * settlement / custody; generic / hosted / production runtime), and negating
- * one of them says nothing about another asserted in the same clause, in
- * either order. QUALIFIER_CASES pins both directions, including the
- * cross-product of each boundary form against the other claims.
+ * never touches. `live-audd-settlement` and `generic-runtime` are alternations
+ * of distinct concepts (live / settlement / custody; generic / hosted /
+ * production runtime), so a form matching one of them must not excuse another
+ * asserted in a separate predication; CLAUSE_SEPARATOR is what keeps those
+ * apart, in either order, while leaving serial-comma enumerations whole.
+ * QUALIFIER_CASES pins both directions, including the cross-product of each
+ * boundary form against the other claims.
  */
 const NEGATED_BEFORE = "(?:\\bnot\\b|\\bnever\\b|\\bnor\\b|\\bunless\\b)";
 
@@ -185,6 +185,19 @@ export const QUALIFIER_CASES: { line: string; claimId: string; qualified: boolea
   { line: "AUDD settlement is live in the no-spend conformance lane.", claimId: "live-audd-settlement", qualified: false },
   { line: "AUDD settlement is live, and custody is not claimed.", claimId: "live-audd-settlement", qualified: false },
   { line: "Custody is not claimed, and AUDD settlement is live today.", claimId: "live-audd-settlement", qualified: false },
+  {
+    line: "- Not a payment facilitator, custody service, custody provider, escrow provider, or wallet SDK.",
+    claimId: "custody-provider",
+    qualified: true,
+  },
+  { line: "- Not an escrow provider, escrow service, or wallet SDK.", claimId: "escrow-provider", qualified: true },
+  { line: "RAP is not a custody provider or a custody service.", claimId: "custody-provider", qualified: true },
+  {
+    line: "It is not a payment facilitator, marketplace operator, custody provider, custody service, or production runtime.",
+    claimId: "custody-provider",
+    qualified: true,
+  },
+  { line: "- Not a security-audited release and no audit passed.", claimId: "security-audited", qualified: true },
   {
     line: "This is not a custody product, and AUDD settlement is live today.",
     claimId: "live-audd-settlement",
@@ -274,24 +287,34 @@ export const QUALIFIER_CASES: { line: string; claimId: string; qualified: boolea
 export const PROHIBITION_HEADING_PATTERN =
   /^#{1,6}\s.*\b(?:must not|do not|does not|not yet|non-?claims?|not claim(?:ed|ing)?|out of scope|prohibited|forbidden|never claim)\b/i;
 
+/** Verbs that open a new predication rather than continue a noun list. */
+const FINITE_VERB =
+  "(?:is|are|was|were|has|have|had|does|do|remains?|becomes?|provides?|offers?|takes?|ships?|collects?|operates?|runs?|supports?|enables?|delivers?|handles?|serves?|acts?|will|can|may)";
+
 /**
  * Separators that end a clause. Sentence terminators require trailing space so
  * `0.05%`, `5/7/5`, and `deployments.json` do not split a clause apart. A comma
- * ends a clause only before a contrastive conjunction, which starts a new
+ * ends a clause before a contrastive conjunction, which starts a new
  * independent clause ("…takes custody of buyer funds, but no mainnet claim is
- * made"). `and`/`or` are excluded because they are the serial-comma tail of an
+ * made").
+ *
+ * `, and`/`, or` are ambiguous: they carry both the serial-comma tail of an
  * enumeration governed by one leading negation ("Not a payment facilitator,
- * custody service, escrow provider, or wallet SDK"). Splitting on those two as
- * well was tried and fails closed the wrong way: it flags the serial-comma
- * boundary lists this repository actually ships. So a claim joined to an
- * unrelated negation by ", and"/", or" stays a reviewer's call, not the
- * regex's.
+ * custody service, escrow provider, or wallet SDK") and a second independent
+ * clause ("custody is not claimed, and AUDD settlement is live"). Splitting on
+ * all of them flags the boundary lists this repository ships; splitting on
+ * none of them lets a negation in the first clause excuse an assertion in the
+ * second. What separates the two is a finite verb: a list tail is bare noun
+ * phrases, while a new clause predicates something. So the split fires only
+ * when a subject and a finite verb follow.
  */
-const CLAUSE_SEPARATOR =
-  /[.!?](?=\s|$)|[;|]|—|–|,\s+(?:but|yet|so|while|whereas|though|although|however)\b/g;
+const CLAUSE_SEPARATOR = new RegExp(
+  `[.!?](?=\\s|$)|[;|]|—|–|,\\s+(?:but|yet|so|while|whereas|though|although|however)\\b|,\\s+(?:and|or)\\s+(?=[\\w/-]+(?:\\s+[\\w/-]+){0,3}\\s+${FINITE_VERB}\\b)`,
+  "g",
+);
 
-/** Bounds of the single clause containing `position`. */
-function clauseBounds(line: string, position: number): { from: number; to: number } {
+/** The single clause containing `position`. */
+function clauseWindow(line: string, position: number): string {
   const boundaries = [0];
   CLAUSE_SEPARATOR.lastIndex = 0;
   let separator: RegExpExecArray | null;
@@ -309,45 +332,7 @@ function clauseBounds(line: string, position: number): { from: number; to: numbe
     }
     from = boundary;
   }
-  return { from, to };
-}
-
-/**
- * Where inside `span` the claim's predicate is actually asserted. Claim
- * patterns carry a subject as well ("AUDD ... live"), so the assertion is the
- * predicate occurrence itself, not the end of the match. Falls back to the
- * whole span when a claim's pattern and predicate do not overlap textually.
- */
-function assertedSpan(span: string, offset: number, predicateSource: string | undefined): { start: number; end: number } {
-  const whole = { start: offset, end: offset + span.length };
-  if (!predicateSource) return whole;
-  const scanner = new RegExp(predicateSource, "gi");
-  let last: RegExpExecArray | null = null;
-  let hit: RegExpExecArray | null;
-  while ((hit = scanner.exec(span)) !== null) {
-    last = hit;
-    if (hit.index === scanner.lastIndex) scanner.lastIndex += 1;
-  }
-  return last ? { start: offset + last.index, end: offset + last.index + last[0].length } : whole;
-}
-
-/**
- * Whether `form` matches somewhere that reaches the asserted predicate. A
- * negation bound to a different alternative -- "custody is not claimed, and
- * AUDD settlement is live" -- stops short of the assertion and cannot excuse
- * it. Every start position is tried, and each one yields the form's own
- * (lazy) shortest match, so a negation binds to the nearest predicate rather
- * than stretching across the clause to the asserted one.
- */
-function reachesAssertion(form: RegExp, window: string, start: number, end: number): boolean {
-  const flags = form.flags.includes("g") ? form.flags : `${form.flags}g`;
-  const scanner = new RegExp(form.source, flags);
-  let hit: RegExpExecArray | null;
-  while ((hit = scanner.exec(window)) !== null) {
-    if (hit.index < end && hit.index + hit[0].length > start) return true;
-    scanner.lastIndex = hit.index + 1;
-  }
-  return false;
+  return line.slice(from, to);
 }
 
 /**
@@ -368,10 +353,8 @@ export function claimIsQualified(line: string, claim: ForbiddenPublicClaim): boo
   while ((match = scanner.exec(line)) !== null) {
     matched = true;
     const assertedAt = Math.max(match.index, match.index + match[0].length - 1);
-    const { from, to } = clauseBounds(line, assertedAt);
-    const window = line.slice(from, to);
-    const { start, end } = assertedSpan(match[0], match.index - from, CLAIM_PREDICATES[claim.id]);
-    if (!qualifiers.some((form) => reachesAssertion(form, window, start, end))) return false;
+    const window = clauseWindow(line, assertedAt);
+    if (!qualifiers.some((form) => form.test(window))) return false;
     if (match.index === scanner.lastIndex) scanner.lastIndex += 1;
   }
   return matched;
