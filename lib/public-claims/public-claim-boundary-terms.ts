@@ -97,11 +97,12 @@ export const FORBIDDEN_PUBLIC_CLAIMS: ForbiddenPublicClaim[] = [
  * words: every pattern belongs to one claim and contains that claim's own
  * predicate, so a negation elsewhere in the clause ("with no extra setup",
  * "without delay", "outside the demo") cannot excuse an affirmative claim it
- * never touches. Every form anchors its negation to the predicate; none of
- * them trails a predicate to reach a negation later in the clause, because
- * `live-audd-settlement` is an alternation of distinct concepts (live /
- * settlement / custody) and negating one says nothing about another asserted
- * in the same clause. QUALIFIER_CASES pins both directions, including the
+ * never touches. A form must also reach the predicate occurrence the claim
+ * actually asserted -- see `claimIsQualified` -- because `live-audd-settlement`
+ * and `generic-runtime` are alternations of distinct concepts (live /
+ * settlement / custody; generic / hosted / production runtime), and negating
+ * one of them says nothing about another asserted in the same clause, in
+ * either order. QUALIFIER_CASES pins both directions, including the
  * cross-product of each boundary form against the other claims.
  */
 const NEGATED_BEFORE = "(?:\\bnot\\b|\\bnever\\b|\\bnor\\b|\\bunless\\b)";
@@ -183,6 +184,22 @@ export const QUALIFIER_CASES: { line: string; claimId: string; qualified: boolea
   { line: "AUDD custody is available today in the no-spend demo path.", claimId: "live-audd-settlement", qualified: false },
   { line: "AUDD settlement is live in the no-spend conformance lane.", claimId: "live-audd-settlement", qualified: false },
   { line: "AUDD settlement is live, and custody is not claimed.", claimId: "live-audd-settlement", qualified: false },
+  { line: "Custody is not claimed, and AUDD settlement is live today.", claimId: "live-audd-settlement", qualified: false },
+  {
+    line: "This is not a custody product, and AUDD settlement is live today.",
+    claimId: "live-audd-settlement",
+    qualified: false,
+  },
+  {
+    line: "RAP is not production infrastructure, and AUDD custody is available for every invoice.",
+    claimId: "live-audd-settlement",
+    qualified: false,
+  },
+  {
+    line: "We are not a generic runtime, and the hosted agent runtime is live for every registered specialist.",
+    claimId: "generic-runtime",
+    qualified: false,
+  },
   { line: "AUDD settlement is live and custody is not claimed.", claimId: "live-audd-settlement", qualified: false },
   {
     line: "AUDD settlement is live today, and SPL custody remains outside this package.",
@@ -273,8 +290,8 @@ export const PROHIBITION_HEADING_PATTERN =
 const CLAUSE_SEPARATOR =
   /[.!?](?=\s|$)|[;|]|—|–|,\s+(?:but|yet|so|while|whereas|though|although|however)\b/g;
 
-/** The single clause containing `position`. */
-function clauseWindow(line: string, position: number): string {
+/** Bounds of the single clause containing `position`. */
+function clauseBounds(line: string, position: number): { from: number; to: number } {
   const boundaries = [0];
   CLAUSE_SEPARATOR.lastIndex = 0;
   let separator: RegExpExecArray | null;
@@ -292,7 +309,45 @@ function clauseWindow(line: string, position: number): string {
     }
     from = boundary;
   }
-  return line.slice(from, to);
+  return { from, to };
+}
+
+/**
+ * Where inside `span` the claim's predicate is actually asserted. Claim
+ * patterns carry a subject as well ("AUDD ... live"), so the assertion is the
+ * predicate occurrence itself, not the end of the match. Falls back to the
+ * whole span when a claim's pattern and predicate do not overlap textually.
+ */
+function assertedSpan(span: string, offset: number, predicateSource: string | undefined): { start: number; end: number } {
+  const whole = { start: offset, end: offset + span.length };
+  if (!predicateSource) return whole;
+  const scanner = new RegExp(predicateSource, "gi");
+  let last: RegExpExecArray | null = null;
+  let hit: RegExpExecArray | null;
+  while ((hit = scanner.exec(span)) !== null) {
+    last = hit;
+    if (hit.index === scanner.lastIndex) scanner.lastIndex += 1;
+  }
+  return last ? { start: offset + last.index, end: offset + last.index + last[0].length } : whole;
+}
+
+/**
+ * Whether `form` matches somewhere that reaches the asserted predicate. A
+ * negation bound to a different alternative -- "custody is not claimed, and
+ * AUDD settlement is live" -- stops short of the assertion and cannot excuse
+ * it. Every start position is tried, and each one yields the form's own
+ * (lazy) shortest match, so a negation binds to the nearest predicate rather
+ * than stretching across the clause to the asserted one.
+ */
+function reachesAssertion(form: RegExp, window: string, start: number, end: number): boolean {
+  const flags = form.flags.includes("g") ? form.flags : `${form.flags}g`;
+  const scanner = new RegExp(form.source, flags);
+  let hit: RegExpExecArray | null;
+  while ((hit = scanner.exec(window)) !== null) {
+    if (hit.index < end && hit.index + hit[0].length > start) return true;
+    scanner.lastIndex = hit.index + 1;
+  }
+  return false;
 }
 
 /**
@@ -313,8 +368,10 @@ export function claimIsQualified(line: string, claim: ForbiddenPublicClaim): boo
   while ((match = scanner.exec(line)) !== null) {
     matched = true;
     const assertedAt = Math.max(match.index, match.index + match[0].length - 1);
-    const window = clauseWindow(line, assertedAt);
-    if (!qualifiers.some((pattern) => pattern.test(window))) return false;
+    const { from, to } = clauseBounds(line, assertedAt);
+    const window = line.slice(from, to);
+    const { start, end } = assertedSpan(match[0], match.index - from, CLAIM_PREDICATES[claim.id]);
+    if (!qualifiers.some((form) => reachesAssertion(form, window, start, end))) return false;
     if (match.index === scanner.lastIndex) scanner.lastIndex += 1;
   }
   return matched;
