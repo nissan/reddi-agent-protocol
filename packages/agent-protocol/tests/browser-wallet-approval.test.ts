@@ -562,6 +562,40 @@ describe('browser-wallet AUDD identity/copy guard', () => {
     }
   });
 
+  it('refuses a non-string observation source instead of accepting observed x402 export as expected evidence', () => {
+    const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+      observationSource: ['expected-only'] as unknown as BrowserWalletIdentityCopyGuardInput['observationSource'],
+      x402Export: {
+        state: 'observed',
+        asset: 'AUDD_TEST',
+        networkAlias: 'local-surfpool',
+        caip2: null,
+        mint: 'LocalGeneratedMintPlaceholder11111111111111111',
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+        decimals: 6,
+      },
+    }));
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.ok(result.errors.some((entry) => entry.code === 'malformed_browser_wallet_approval' && entry.path === '$.observationSource'));
+      assert.ok(result.errors.every((entry) => !entry.message.includes(JSON.stringify(['expected-only']))));
+    }
+  });
+
+  it('refuses a non-string rail environment instead of skipping the rail-specific label and mint rules', () => {
+    const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+      railEnvironment: ['local-test-mint'] as unknown as BrowserWalletIdentityCopyGuardInput['railEnvironment'],
+      assetLabel: 'NOTALABEL',
+      mint: AUDD_DETERMINISTIC_FIXTURE_MINT,
+      x402Export: undefined,
+    }));
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.ok(result.errors.some((entry) => entry.code === 'malformed_browser_wallet_approval' && entry.path === '$.railEnvironment'));
+      assert.ok(result.errors.every((entry) => !entry.message.includes(JSON.stringify(['local-test-mint']))));
+    }
+  });
+
   it('does not let a non_eligible badge suppress a grant overclaim in another copy clause', () => {
     const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
       copy: {
