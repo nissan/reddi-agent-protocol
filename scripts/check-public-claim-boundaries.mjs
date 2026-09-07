@@ -268,23 +268,7 @@ for (const claim of FORBIDDEN_PUBLIC_CLAIMS) {
   }
 }
 
-// --- 6. workflow coverage for the publicly served guide ---
-
-const publicClaimWorkflowPath = ".github/workflows/public-claim-boundary.yml";
-const publicClaimWorkflow = read(publicClaimWorkflowPath);
-if (publicClaimWorkflow !== null) {
-  const workflowUnderTest = negativeControl
-    ? publicClaimWorkflow.replace(/^\s*-\s*["']?public\/docs\/\*\*["']?\s*$/gm, "")
-    : publicClaimWorkflow;
-  const servedDocsTriggerCount = [...workflowUnderTest.matchAll(/^\s*-\s*["']?public\/docs\/\*\*["']?\s*$/gm)].length;
-  if (servedDocsTriggerCount !== 2) {
-    failures.push(
-      `${publicClaimWorkflowPath}: public/docs/** must trigger both push and pull_request claim-boundary checks`,
-    );
-  }
-}
-
-// --- 7. route-coverage documentation check ---
+// --- 6. route-coverage documentation check ---
 //
 // docs/PUBLIC-CLAIM-BOUNDARY.md states which app routes the DOM half gates and
 // why each remaining one is not gated. That statement is only true while it

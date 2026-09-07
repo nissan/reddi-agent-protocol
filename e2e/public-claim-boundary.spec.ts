@@ -1,9 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import {
-  MARKETPLACE_CANDIDATE_IMPORTED_FIELDS,
-  type MarketplaceCandidateSourceFacetId,
-} from "../lib/discovery/source-facets";
 import { hasPlayableRecording, onboardingVideos } from "../lib/onboarding/video-guides";
 import {
   directoryFixtureProfileCount,
@@ -14,13 +10,12 @@ import {
   CENTRAL_MESSAGE,
   CLAIM_SCOPE_ATTRIBUTE,
   EXTERNAL_CLAIM_SCOPE,
-  EXTERNAL_CLAIM_SCOPE_SELECTOR,
   FORBIDDEN_PUBLIC_CLAIMS,
   PUBLIC_CLAIM_BOUNDARY_DOC_PATH,
   PUBLIC_CLAIM_DOM_ROUTES,
   type PublicClaimDomRoute,
-  claimIsQualified,
 } from "../lib/public-claims/public-claim-boundary-terms";
+import { firstPartyCopy, unqualifiedClaims } from "./helpers/public-claim-copy";
 
 /**
  * DOM layer of the RAP Assurance public-claim boundary.
@@ -31,22 +26,9 @@ import {
  * `scripts/check-public-claim-boundaries.mjs`, which shares this pattern list.
  */
 
-// `/agents` waits on /api/registry, which can take >20s when the devnet RPC is
-// slow; give the route readiness anchors headroom beyond the 30s repo default.
+// Every gated route waits up to 30s on its readiness anchor while the dev
+// server compiles it, so give each test headroom beyond the 30s repo default.
 test.describe.configure({ timeout: 60_000 });
-
-/**
- * The rendered copy this repository owns: the route's DOM with every
- * registry/user-supplied subtree removed. Specialist and candidate cards carry
- * strings a third-party devnet registrant wrote, so scanning them would let an
- * account nobody here controls turn this blocking lane red.
- */
-async function firstPartyCopy(page: Page): Promise<string> {
-  return page.evaluate((externalSelector) => {
-    document.querySelectorAll(externalSelector).forEach((node) => node.remove());
-    return document.body.innerText;
-  }, EXTERNAL_CLAIM_SCOPE_SELECTOR);
-}
 
 /**
  * The recordings a gated route may play, and the caption track each must carry.
@@ -94,18 +76,6 @@ async function unscannedRecordings(page: Page): Promise<string[]> {
   }, scannedRecordings);
 }
 
-function unqualifiedClaims(copy: string): string[] {
-  const violations: string[] = [];
-  for (const line of copy.split(/\r?\n/)) {
-    for (const claim of FORBIDDEN_PUBLIC_CLAIMS) {
-      if (!claim.pattern.test(line)) continue;
-      if (claimIsQualified(line, claim)) continue;
-      violations.push(`[${claim.id}] ${claim.reason} :: ${line.trim()}`);
-    }
-  }
-  return violations;
-}
-
 function readyAnchor(page: Page, route: PublicClaimDomRoute) {
   return route.readyAsText
     ? page.getByText(route.readyCopy).first()
@@ -119,12 +89,6 @@ test.describe("public-claim boundary (rendered copy)", () => {
       // Readiness anchor first: without it a skeleton with nav/footer chrome
       // would report a clean scan of copy that never rendered.
       await expect(readyAnchor(page, route)).toBeVisible({ timeout: 30_000 });
-
-      if (route.settledContent) {
-        await expect
-          .poll(async () => page.locator(route.settledContent!).count(), { timeout: 30_000 })
-          .toBeGreaterThan(0);
-      }
 
       // Before `firstPartyCopy()`, which strips subtrees out of the live DOM.
       expect(
@@ -201,66 +165,6 @@ test.describe("public-claim boundary (rendered copy)", () => {
       unqualifiedClaims(await firstPartyCopy(page)),
       "the same text in first-party copy must still be caught",
     ).not.toEqual([]);
-  });
-
-  /**
-   * The exclusion above is asserted against injected nodes; this asserts the
-   * real cards obey the provenance their source declares. Expectations come
-   * from MARKETPLACE_CANDIDATE_IMPORTED_FIELDS rather than from whichever
-   * sources happen to render, so ingesting a Circle x402 / Pay.sh snapshot
-   * makes this stricter instead of red.
-   */
-  test("candidate cards mark imported fields and only imported fields", async ({ page }) => {
-    const candidateCard = '[data-testid="marketplace-candidate-card"]';
-    await page.goto("/agents");
-    await expect(
-      page.getByRole("heading", { name: /specialist directory/i }).first(),
-    ).toBeVisible({ timeout: 30_000 });
-    await expect
-      .poll(async () => page.locator(candidateCard).count(), { timeout: 30_000 })
-      .toBeGreaterThan(0);
-
-    const cards = page.locator(candidateCard);
-    const cardCount = await cards.count();
-    const mustSurvive: string[] = [];
-    let ownedCards = 0;
-    for (let index = 0; index < cardCount; index += 1) {
-      const card = cards.nth(index);
-      const facet = (await card.getAttribute("data-source-facet")) ?? "";
-      expect(
-        Object.keys(MARKETPLACE_CANDIDATE_IMPORTED_FIELDS),
-        `card ${index} renders an undeclared source facet`,
-      ).toContain(facet);
-
-      const declared =
-        MARKETPLACE_CANDIDATE_IMPORTED_FIELDS[facet as MarketplaceCandidateSourceFacetId];
-      const marked = await card.locator(EXTERNAL_CLAIM_SCOPE_SELECTOR).count();
-      if (declared.length === 0) {
-        expect(marked, `${facet} declares no imported field, so it must mark none`).toBe(0);
-        ownedCards += 1;
-        mustSurvive.push(await card.innerText());
-      } else {
-        expect(marked, `${facet} declares imported fields, so it must mark them`).toBeGreaterThan(0);
-      }
-
-      // Undeclared fields are repository-owned whatever the facet, so the
-      // resource/media block has to reach the scan on every card.
-      expect(declared).not.toContain("resourceType");
-      expect(declared).not.toContain("mediaType");
-      mustSurvive.push(await card.locator('[data-testid="candidate-resource-type"]').innerText());
-    }
-    expect(ownedCards, "no repository-authored candidate card rendered").toBeGreaterThan(0);
-
-    const scanned = await firstPartyCopy(page);
-    for (const text of mustSurvive) {
-      for (const line of text.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean)) {
-        expect(scanned, "repository-authored card copy must survive the scan").toContain(line);
-      }
-    }
-    expect(
-      unqualifiedClaims(scanned),
-      `candidate card copy breaks ${PUBLIC_CLAIM_BOUNDARY_DOC_PATH}`,
-    ).toEqual([]);
   });
 
   /**

@@ -335,13 +335,6 @@ export type PublicClaimDomRoute = {
    * reached the last step rather than silently scanning one of them twice.
    */
   stepProgress?: { selector: string; lastStep: (count: number) => string };
-  /**
-   * Selector for a route's data-dependent region, where the heading renders
-   * above a loading skeleton and so cannot vouch for the copy below it. The
-   * gate waits for this too, so the snapshot covers the claim-bearing content
-   * rather than the placeholder that stands in for it.
-   */
-  settledContent?: string;
 };
 
 /**
@@ -358,17 +351,12 @@ export const EXTERNAL_CLAIM_SCOPE_SELECTOR = `[${CLAIM_SCOPE_ATTRIBUTE}="${EXTER
  * Public routes whose *first-party* rendered copy is gated at the DOM layer.
  * The gate scans each route's DOM with `EXTERNAL_CLAIM_SCOPE_SELECTOR` subtrees
  * removed. Routes are listed here only when their owned copy renders
- * deterministically without a wallet; see docs/PUBLIC-CLAIM-BOUNDARY.md for the
- * routes deliberately left out and why.
+ * deterministically without a wallet and without a live network read, so this
+ * blocking lane never depends on RPC latency; see
+ * docs/PUBLIC-CLAIM-BOUNDARY.md for the routes deliberately left out and why.
  */
 export const PUBLIC_CLAIM_DOM_ROUTES: PublicClaimDomRoute[] = [
   { path: "/", readyCopy: /payments prove transfer\. RAP Assurance proves paid work\./i },
-  {
-    path: "/agents",
-    readyCopy: /specialist directory/i,
-    settledContent:
-      '[data-testid="agent-card"], [data-testid="marketplace-candidate-card"], [data-testid="discovery-empty-state"]',
-  },
   { path: "/spec", readyCopy: /ADL/i },
   { path: "/whitepaper", readyCopy: /Reddi Agent Protocol Whitepaper/i },
   { path: "/start", readyCopy: /proof walkthrough|walkthrough recording is currently withheld/i },

@@ -30,7 +30,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # Blocking lane for the user-facing signup/get-started funnel only.
-      # The full 38-spec suite (incl. evidence-capture specs and the
+      # The full 40-spec suite (incl. evidence-capture specs and the
       # all-routes navigation smoke, which needs a warm server) stays on
       # the non-blocking nightly integration lane.
       - name: Run funnel specs
