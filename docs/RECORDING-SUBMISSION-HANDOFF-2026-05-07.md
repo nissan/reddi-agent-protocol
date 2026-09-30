@@ -9,7 +9,7 @@ Use clean `main` at `f3000708` or later.
 - Route: `/economic-demo`
 - Final recording packet: `artifacts/final-recording-packet-20260507.md`
 - Latest run report: `artifacts/economic-demo-run-report/20260507T084258Z/run-report.json`
-- Latest submission prep: `artifacts/economic-demo-submission-prep/latest/SUBMISSION-PREP.md`
+- Latest submission prep: `artifacts/economic-demo-submission-prep/latest/SUBMISSION-PREP.md` — generated symlink, not committed. Use the newest committed timestamped run under `artifacts/economic-demo-submission-prep/` (see `docs/PUBLIC-CLAIM-BOUNDARY.md` § Evidence artifacts that are not committed).
 - Umbra private-payment plan: `docs/UMBRA-PRIVACY-PAYMENTS-BOUNTY-FIT-2026-05-07.md`
 - Umbra private x402 adapter evidence: `artifacts/umbra-private-x402/20260507T074334Z/SUMMARY.md`
 - Umbra devnet encrypted-balance deposit evidence: `artifacts/umbra-devnet-smoke/20260507T075904Z/SUMMARY.json`

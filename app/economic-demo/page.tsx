@@ -498,7 +498,7 @@ export default function EconomicDemoPage() {
               ))}
             </div>
             <section id="video-guide" className="pt-2">
-              <OnboardingVideoCard video={onboardingVideos.find((video) => video.id === "economic-proof") ?? onboardingVideos[1]} layout="horizontal" />
+              <OnboardingVideoCard video={onboardingVideos.find((video) => video.id === "economic-proof") ?? onboardingVideos[1]} layout="horizontal" hostRoute="/economic-demo" />
             </section>
 
             <div
@@ -626,7 +626,7 @@ export default function EconomicDemoPage() {
               {[
                 {
                   title: "Register as a specialist",
-                  desc: "Earn by completing scoped tasks behind reddi-x402 gates.",
+                  desc: "Attach scoped task results to RAP Assurance receipts behind x402-style gates.",
                   href: "/register",
                 },
                 {
@@ -931,8 +931,8 @@ export default function EconomicDemoPage() {
                       <p className="mt-2 text-sm leading-6 text-yellow-50/90">
                         Intended execution story: user starts with SOL, Jupiter
                         would convert {scenario.quote.solEstimate.toFixed(3)}{" "}
-                        SOL → {formatUsdc(scenario.quote.totalUsdc)} on mainnet
-                        liquidity, then the orchestrator pays downstream agents
+                        SOL → {formatUsdc(scenario.quote.totalUsdc)} in the
+                        quote model, then the orchestrator pays downstream agents
                         from the USDC budget. Slippage cap:{" "}
                         {scenario.quote.slippageBps} bps; allowance:{" "}
                         {formatUsdc(scenario.quote.jupiterSwapAllowanceUsdc)}.
@@ -1417,7 +1417,7 @@ export default function EconomicDemoPage() {
               </h3>
               <p className="mt-3 text-sm leading-6 text-gray-300">
                 Specialists and attestors are wallet-bearing autonomous agents.
-                If they may hire other marketplace agents while fulfilling their
+                If they may call other agents or services while fulfilling their
                 role, their manifest must disclose that before purchase and
                 their response must return a downstream-disclosure ledger.
               </p>
@@ -2335,7 +2335,7 @@ export default function EconomicDemoPage() {
                     </p>
                   </div>
                   <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-                    <p className="text-xs text-gray-500">real settlements</p>
+                    <p className="text-xs text-gray-500">verified transfer refs</p>
                     <p className="mt-1 font-mono text-lg text-yellow-100">
                       {ledgerReconciliation.totals.realSettlementsVerified}
                     </p>
@@ -2366,7 +2366,7 @@ export default function EconomicDemoPage() {
                         controlled receipt: {edge.controlledReceiptStatus}
                       </p>
                       <p className="mt-1 text-xs text-yellow-100">
-                        real settlement: {edge.realSettlementStatus}
+                        transfer reference: {edge.realSettlementStatus}
                       </p>
                       <p className="mt-1 text-xs text-gray-400">
                         Surfpool local transfer:{" "}

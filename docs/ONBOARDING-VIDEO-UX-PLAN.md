@@ -1,5 +1,7 @@
 # Onboarding Video + UX Plan — Reddi Agent Protocol
 
+> **Superseded by RAP Assurance claim remediation.** This historical video plan is not current public copy. Use `docs/PUBLIC-CLAIM-BOUNDARY.md`: payments prove transfer; RAP Assurance proves paid work.
+
 Purpose: turn the proof videos and judge replication guide into a guided onboarding path for website visitors, builders, specialists, and judges.
 
 Core framing: **these are proof walkthroughs, not ads**. Each video should show what happened, what can be replicated, and the devnet/mainnet boundary.
@@ -8,38 +10,9 @@ Core framing: **these are proof walkthroughs, not ads**. Each video should show 
 
 ## Recommended video set
 
-### 1. Start Here — Website Tour + Setup Guide
+### 1. Start Here — Website Tour + Setup Guide (retired)
 
-**Target user:** first-time visitor, judge, developer, or agent builder.
-**Goal:** explain what Reddi Agent Protocol is and route users to the right path.
-
-**Length:** 60–75s.
-**Capture:** scripted Playwright. No wallet/private desktop required.
-
-**Voiceover draft (~45s):**
-
-> Reddi Agent Protocol is a marketplace rail for agents that need other agents.
-> The flow is simple: discover a specialist, pay through an x402 boundary, verify the work, then write reputation back into the protocol.
-> On the homepage, start with the three paths: connect your agent system, register a specialist, or try the economic demo.
-> If you run local compute, the setup guide walks you through exposing Ollama, defining tools and skills, testing the endpoint, and registering on-chain.
-> If you’re judging the proof, open the economic demo and replication guide.
-> This is devnet evidence, not a mainnet settlement claim.
-> Start with the path that matches what you are: consumer, specialist, or verifier.
-
-**Visual beats:**
-
-| Time | Scene |
-|---|---|
-| 0–6s | Homepage hero; freeze on headline. |
-| 6–14s | Highlight CTAs: connect agent system, register specialist, economic demo. |
-| 14–24s | Scroll discover → pay → verify section. |
-| 24–42s | `/setup` tabs: Connect → Tools → Skills → Test. |
-| 42–52s | `/register` overview; show wallet/register form without implying live tx. |
-| 52–65s | `/economic-demo` proof panels + replication CTA. |
-
-**CTA:** `Choose your path: consumer, specialist, or verifier.`
-
-**Script to create:** `scripts/record-onboarding-overview-playwright.mjs`
+The pre-remediation overview recording, poster, captions, recorder, and production recipe are removed. They used retired product framing and must not be regenerated. Use the current `/start` route and `docs/PUBLIC-CLAIM-BOUNDARY.md` as the source of truth; any future recording needs a new, separately reviewed plan based on current rendered copy.
 
 ---
 
@@ -49,7 +22,7 @@ Core framing: **these are proof walkthroughs, not ads**. Each video should show 
 **Goal:** show that an agent can discover and call a paid specialist under policy.
 
 **Length:** 35–45s.
-**Capture:** reuse Loop 45 proof, optionally prepend 8–12s Playwright marketplace framing.
+**Capture:** reuse Loop 45 proof, optionally prepend 8–12s Playwright specialist-directory framing.
 
 **Canonical asset:**
 
@@ -174,19 +147,9 @@ Core framing: **these are proof walkthroughs, not ads**. Each video should show 
 
 ---
 
-## Optional full onboarding cut
+## Optional full onboarding cut (retired)
 
-Create one stitched 2.5–3 minute overview:
-
-| Time | Segment |
-|---|---|
-| 0:00–0:45 | Website overview / choose your path. |
-| 0:45–1:15 | Hire/pay proof from Loop 45. |
-| 1:15–2:00 | Economic proof from Loop 50. |
-| 2:00–2:45 | Registration proof from Loop 51. |
-| 2:45–3:00 | Judge replication CTA. |
-
-Output: `public/videos/onboarding-full.mp4`
+The proposed compilation depended on the removed overview recording and is not an approved output. A future compilation requires a new review against the current public-claim boundary.
 
 ---
 
@@ -198,18 +161,6 @@ Create `lib/onboarding/video-guides.ts`:
 
 ```ts
 export const onboardingVideos = [
-  {
-    id: "overview",
-    title: "Start using Reddi Agent Protocol",
-    eyebrow: "Start here",
-    duration: "60s",
-    route: "/start",
-    videoSrc: "/videos/onboarding-overview.mp4",
-    posterSrc: "/videos/posters/onboarding-overview.jpg",
-    boundary: "Devnet proof walkthrough",
-    primaryCta: { label: "Choose your path", href: "/start" },
-    secondaryCta: { label: "Verify the proof", href: "/start#verify" },
-  },
   {
     id: "mcp-x402",
     title: "Claude Code pays a RAP specialist",
@@ -302,8 +253,7 @@ Recommended route: `/start`.
 Page structure:
 
 1. Hero: `Start using Reddi Agent Protocol in 3 videos`
-2. Four cards:
-   - Website overview
+2. Three cards:
    - Use RAP from Claude Code
    - Run the paid economic demo
    - Register your own specialist
@@ -341,15 +291,15 @@ CTAs:
 
 Also add a “Watch before configuring” chip inside the Connect tab.
 
-### Marketplace `/agents`
+### Specialist directory `/agents`
 
 Placement: above filters, below page header.
 
 Module title:
 
-> How marketplace discovery works
+> How specialist discovery works
 
-Use the Claude/MCP video here. Marketplace users need to understand discover → select → paid call before browsing cards.
+Use the Claude/MCP video here. Visitors need to understand discover → select → paid call before browsing cards.
 
 CTAs:
 
@@ -358,7 +308,7 @@ CTAs:
 
 Empty/loading fallback:
 
-> New here? Watch the 30s marketplace call before choosing a specialist.
+> New here? Watch the 30s specialist call before choosing a specialist.
 
 ### Register `/register`
 
@@ -412,32 +362,24 @@ Desktop side-card near evidence archive:
 
 Create:
 
-1. `scripts/record-onboarding-overview-playwright.mjs`
-   - captures public pages only.
-   - outputs screenshots, MP4, contact sheet.
-   - no wallet, no private desktop.
-
-2. `scripts/record-orchestrator-onboarding-playwright.mjs`
-   - captures marketplace/setup/demo framing.
+1. `scripts/record-orchestrator-onboarding-playwright.mjs`
+   - captures directory/setup/demo framing.
    - stitches with Loop 45 proof.
 
-3. `scripts/record-agent-registration-onboarding.mjs`
+2. `scripts/record-agent-registration-onboarding.mjs`
    - captures `/register` intro only.
    - stitches with Loop 51 proof.
    - does **not** rerun registration by default.
 
-4. `scripts/build-onboarding-video-bundle.mjs` or `.sh`
+3. `scripts/build-onboarding-video-bundle.mjs` or `.sh`
    - copies/compresses canonical videos to `public/videos/`.
    - generates posters with ffmpeg.
-   - optionally stitches `onboarding-full.mp4`.
 
 Recommended public video outputs:
 
-- `public/videos/onboarding-overview.mp4`
 - `public/videos/onboarding-hire-agent-x402.mp4`
 - `public/videos/onboarding-register-agent.mp4`
 - `public/videos/onboarding-economic-proof.mp4`
-- `public/videos/onboarding-full.mp4` optional
 - `public/videos/posters/*.jpg`
 
 If final MP4s are too large for the repo/Vercel build, host them via GitHub Releases or Vercel Blob and reference external URLs.
@@ -450,9 +392,7 @@ If final MP4s are too large for the repo/Vercel build, host them via GitHub Rele
 2. Copy/compress existing Loop 45/50/51 videos into `public/videos/` and generate posters.
 3. Add contextual modules to `/setup`, `/register`, `/economic-demo`.
 4. Add homepage video row.
-5. Add marketplace helper module.
-6. Produce the new Playwright website overview video.
-7. Optional: stitch full 2.5–3 minute onboarding compilation.
+5. Add a specialist-directory helper module.
 
 ---
 

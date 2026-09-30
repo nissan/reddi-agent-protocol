@@ -20,12 +20,15 @@ const defaultFiles = [
 ];
 
 const files = process.argv.slice(2).length ? process.argv.slice(2) : defaultFiles;
-const standaloneReddi = /\bReddi\b(?! Agent Protocol| Engage|tech)/;
+// "Reddi Arena" is a distinct product, and "Reddi-hosted" is the hosted-deployment adjective the
+// sibling `check:rap:naming` guard also permits; neither is standalone shorthand for the protocol.
+const standaloneReddi = /\bReddi\b(?! Agent Protocol| Engage| Arena|tech|-hosted)/;
 const allowStandaloneWhenExplainingRule = [
   "not standalone",
   "standalone “Reddi”",
   "standalone \"Reddi\"",
   "Do not use standalone",
+  "standalone-Reddi",
 ];
 
 const failures = [];

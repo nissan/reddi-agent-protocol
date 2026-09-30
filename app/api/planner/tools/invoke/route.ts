@@ -28,7 +28,7 @@ export async function POST(req: Request) {
       return Response.json(
         {
           ok: false,
-          error: "Specialist marketplace is disabled. Enable it in /orchestrator settings.",
+          error: "Specialist directory policy is disabled. Enable it in /orchestrator settings.",
         },
         { status: 403 }
       );

@@ -75,9 +75,9 @@ export default function ManagerPage() {
     <div className="mx-auto max-w-6xl px-4 py-10 space-y-8">
       <header className="space-y-3">
         <p className="text-xs uppercase tracking-[0.24em] text-[#14F195]">Agent Manager Operations</p>
-        <h1 className="text-3xl font-bold">Marketplace readiness board</h1>
+        <h1 className="text-3xl font-bold">RAP Assurance readiness board</h1>
         <p className="max-w-3xl text-sm text-muted-foreground">
-          One human-facing launchpad for the four roles: Specialist, Attestor, Consumer, and Agent Manager. Use it to clear setup blockers before demos or live marketplace use.
+          One human-facing launchpad for the four roles: Specialist, Attestor, Consumer, and Agent Manager. Use it to clear setup blockers before demos or any separately approved live service.
         </p>
         <div className="flex flex-wrap gap-2">
           <Link
@@ -124,7 +124,7 @@ export default function ManagerPage() {
 
         {readiness && (
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Stat label="Specialists" value={readiness.counts.specialists} detail={`${readiness.counts.liveSpecialists} live`} />
+            <Stat label="Specialists" value={readiness.counts.specialists} detail={`${readiness.counts.liveSpecialists} reachable`} />
             <Stat label="Attestations" value={readiness.counts.attestationRecords} detail={`${readiness.counts.onchainAttestations} on-chain`} />
             <Stat label="Consumers" value={readiness.counts.consumers} detail="profiles" />
             <Stat label="Operator" value={readiness.counts.operatorReady ? "Ready" : "Needs key"} detail="attestor gate" />

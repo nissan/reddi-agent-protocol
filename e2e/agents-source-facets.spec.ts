@@ -17,7 +17,7 @@ test.describe.configure({ timeout: 60_000 });
 
 async function gotoAgents(page: Page, query = "") {
   await page.goto(`/agents${query}`);
-  await expect(page.getByRole("heading", { name: /available specialists/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /specialist directory/i })).toBeVisible();
   // The Suspense boundary briefly renders the server tree alongside the
   // hydrating client tree (~100ms in dev); wait for it to settle to exactly
   // one filter group before asserting anything else.
@@ -155,7 +155,7 @@ test.describe("/agents source facets (#381)", () => {
     await expect(empty).toContainText(/filters are too narrow/i);
     await expect(page.getByTestId("filters-too-narrow")).toContainText(/transcribe/i);
 
-    // Clearing filters restores the unfiltered marketplace.
+    // Clearing filters restores the unfiltered directory.
     await page.getByTestId("clear-filters").click();
     await expect(page).not.toHaveURL(/[?&](source|task)=/);
     await waitForResults(page);

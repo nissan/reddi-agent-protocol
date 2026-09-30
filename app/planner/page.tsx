@@ -293,8 +293,8 @@ function PlannerInner() {
       <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8 space-y-8">
         <PageHeader
           label="Consumer agent path"
-          title="Connect your agent system to marketplace specialists"
-          subtitle="Use the planner/MCP flow to discover specialists, enforce budget and trust policy, execute paid work, then inspect receipts before feedback."
+          title="Connect your agent system to RAP Assurance"
+          subtitle="Use the planner/MCP flow to discover specialists, enforce budget and authority policy, bind payment-proof and evidence references, then inspect receipts before feedback."
           actions={
             <Link href="/runs">
               <Button variant="outline" size="sm">

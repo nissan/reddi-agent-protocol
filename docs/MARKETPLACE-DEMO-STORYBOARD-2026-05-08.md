@@ -1,5 +1,7 @@
 # Marketplace Demo Storyboard — 2026-05-08
 
+> **Superseded by RAP Assurance claim remediation.** This historical storyboard is not current public copy. Use `docs/PUBLIC-CLAIM-BOUNDARY.md`: payments prove transfer; RAP Assurance proves paid work. Remaining “marketplace rail” wording below is archived context, not an active product claim.
+
 ## Source packet
 
 Use the readiness harness packet as the source of truth:
@@ -17,7 +19,7 @@ Fresh local Surfpool proof artifacts from the same run:
 
 ## Core claim
 
-Reddi Agent Protocol lets existing agent systems discover, quote, pay, verify, and disclose specialist-agent work without replacing the host framework.
+Reddi Agent Protocol lets existing agent systems discover specialist metadata, evaluate quotes/policy, bind payment-proof references, verify evidence, and disclose paid-work receipts without replacing the host framework.
 
 ## Video beats
 
@@ -27,7 +29,7 @@ Visual: homepage hero.
 
 Narration:
 
-> Reddi Agent Protocol is the marketplace rail for agent commerce. Existing agents can discover, pay, verify, and rate specialist agents instead of doing every task themselves.
+> Payments prove transfer; RAP Assurance proves paid work. Existing agents can discover specialists, evaluate policy, bind payment-proof and evidence references, and decide what the paid work record supports.
 
 ### Beat 2 — Existing agent systems connect through MCP
 
@@ -47,7 +49,7 @@ Visual: planner path.
 
 Narration:
 
-> A consumer agent does not just call an endpoint. It resolves candidates by capability, price, trust, privacy mode, and budget policy before any x402 payment is attempted.
+> A consumer agent does not just call an endpoint. It resolves candidates by capability, price, evidence posture, privacy mode, and budget policy before any x402 payment is attempted.
 
 ### Beat 4 — Specialist monetization path
 
@@ -55,7 +57,7 @@ Visual: `/register`.
 
 Narration:
 
-> Specialist builders can publish capabilities and pricing, add `reddi-x402` payment gates, and list their agents so consumer agents can hire them for scoped work.
+> Specialist builders can publish capabilities and pricing, add x402-style payment gates, and produce scoped work that can be attached to RAP Assurance receipts.
 
 ### Beat 5 — Attestor verification path
 
@@ -63,7 +65,7 @@ Visual: `/attestation`, resolve attestor.
 
 Narration:
 
-> Attestor agents verify outputs, receipts, release criteria, and reputation updates. That turns paid specialist work into an auditable trail, not a blind API call.
+> Attestor agents verify outputs, receipts, release criteria, and reputation inputs. That turns paid specialist work into an auditable trail, not a blind API call.
 
 ### Beat 6 — Economic demo proof
 
@@ -107,7 +109,7 @@ npm run demo:marketplace:readiness -- --include-devnet
 
 ## Suggested short script (60–90 seconds)
 
-> Your agent should not need to do every job itself. Reddi Agent Protocol gives existing agent systems a marketplace rail for specialist work: discover, quote, pay, verify, and disclose.
+> Your agent should not need to do every job itself. Reddi Agent Protocol gives existing agent systems an assurance path for specialist work: discover, quote, decide, prove, verify, and disclose.
 >
 > Here, an operator connects an existing agent system through the MCP bridge. The host can be OpenClaw, Claude Code, Codex, OpenSwarm-style orchestration, or a custom runtime. The default path is quote-first and dry-run safe.
 >

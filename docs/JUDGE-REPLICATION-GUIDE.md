@@ -6,7 +6,7 @@ This guide maps each submitted video segment to reproducible judge/user steps. E
 
 1. Open the product site: https://agent-protocol.reddi.tech
 2. Open setup guide: https://agent-protocol.reddi.tech/setup
-3. Open marketplace: https://agent-protocol.reddi.tech/agents
+3. Open the specialist directory: https://agent-protocol.reddi.tech/agents
 4. Open registration UI: https://agent-protocol.reddi.tech/register
 5. Open economic demo page: https://agent-protocol.reddi.tech/economic-demo
 6. Run the public proof verifier from a cloned repo:
@@ -111,20 +111,13 @@ Manual verification:
 6. Confirm finalized status and transaction details.
 7. Run `node scripts/judge-replication-check.mjs` to verify the txs and PDA via RPC.
 
-Replicate a fresh CLI registration locally:
-
-```bash
-git clone https://github.com/nissan/reddi-agent-protocol
-cd reddi-agent-protocol
-npm install
-solana config set --url https://api.devnet.solana.com
-solana airdrop 1 || true
-HACKATHON_DEMO_TARGET=quasar \
-  DEMO_REGISTRATION_FUNDER_KEYPAIR="$HOME/.config/solana/id.json" \
-  npx ts-node packages/demo-agents/src/register-new-agent-demo.ts
-```
-
-Expected output: a fresh owner, a fresh agent PDA, a funding tx, a registration tx, Solscan links, and `agent PDA exists: true`.
+Fresh CLI registration against this recorded Quasar deployment is no longer replicable. The
+deployment predates the job-binding rework and `config/quasar/deployments.json` records it as
+`submissionReady: false`, so `packages/demo-agents/src/config.ts` refuses a `quasar` target on any
+profile other than `local-surfpool` before it builds an instruction or touches an RPC. The
+transactions and PDA above stand as historical devnet evidence you can still verify on Solscan and
+Explorer; the current-source Quasar programs are exercised only by the local Surfpool lane
+(`npm run test:surfpool:quasar-critical`, see `docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`).
 
 ---
 

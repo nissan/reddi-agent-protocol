@@ -1,10 +1,12 @@
 # @reddi/openrouter-specialists
 
-Shared runtime for Reddi Agent Protocol marketplace specialists backed by OpenRouter.
+Shared runtime fixtures for Reddi Agent Protocol specialist demos backed by OpenRouter.
 
-Iteration 3 includes the default attestor path: `verification-validation-agent` is both a `specialist` and `attestor`, can evaluate specialist outputs plus receipt chains, and returns a structured `reddi.attestation.v1` deterministic local settlement recommendation.
+These fixtures support RAP Assurance evidence and testing. They are not production marketplace infrastructure, a payment facilitator, custody path, or a hosted runtime claim.
 
-Iteration 4 starts agent-to-agent composability in dry-run mode: consumer-capable specialists can return a deterministic marketplace delegation plan without performing downstream x402 negotiation or spending devnet SOL.
+Iteration 3 includes the default attestor path: `verification-validation-agent` is both a `specialist` and `attestor`, can evaluate specialist outputs plus receipt chains, and returns a structured `reddi.attestation.v1` deterministic local release/refund/dispute recommendation.
+
+Iteration 4 starts agent-to-agent composability in dry-run mode: consumer-capable specialists can return a deterministic specialist delegation plan without performing downstream x402 negotiation or spending devnet SOL.
 
 Iteration 4.5 hardens dry-run discovery with a manifest-backed discovery adapter and a no-spend deployment readiness report. It still does not deploy, fund wallets, inspect secrets, sign transactions, or execute live downstream x402 calls.
 
@@ -22,7 +24,7 @@ Iteration 5b adds signer-safe wallet provenance, devnet-only funding helpers, an
 - `ENABLE_AGENT_TO_AGENT_CALLS` defaults to disabled. Iteration 4 supports dry-run delegation plans only; live delegation requests fail closed with `live_delegation_not_implemented` until a later guarded live-call iteration.
 - Caller-controlled strings such as `paid:` or JSON containing `signature` are not treated as payment proof.
 - Until real x402 settlement verification is wired, production deployments should leave `ALLOW_DEMO_X402_PAYMENT` unset and fail closed on unpaid requests.
-- Attestation verdicts are settlement recommendations only: `release` pays the specialist, `refund` returns funds to requester, and `dispute` holds for human/secondary review.
+- Attestation verdicts are recommendations only: `release`, `refund`, and `dispute` are policy outputs for a caller-controlled settlement path, not proof that this package paid, refunded, held, or settled funds.
 
 ## Attestation mode
 
@@ -47,7 +49,7 @@ Minimal request body:
 
 Response body includes `verdictSource="deterministic_local_evaluator"`, `verdict.schemaVersion`, `score`, `checks`, `summary`, `recommendedAction`, regulated-domain caveats when relevant, and explicit release/refund/dispute semantics. The runtime still sends an attestation prompt envelope through the configured OpenRouter/mock client for auditability and future LLM attestor parsing, but the returned settlement recommendation is currently produced by the deterministic local evaluator. A future live-LLM attestor must parse and validate upstream `reddi.attestation.v1` output and fail closed/dispute on malformed output.
 
-## Dry-run marketplace delegation mode
+## Dry-run specialist delegation mode
 
 Use a consumer-capable profile such as `planning-agent` with `POST /v1/chat/completions`, a satisfied x402 payment, and `metadata.mode="delegation_plan"`.
 
@@ -68,7 +70,7 @@ Minimal request body:
 }
 ```
 
-Response body includes `object="reddi.delegation.plan"`, deterministic candidate ranking by capability match, price, reputation, and freshness, estimated cost, required attestor, and guardrails. `downstreamCallsExecuted` is always `0` in this iteration. No signer/private-key material is used and no downstream paid call is attempted.
+Response body includes `object="reddi.delegation.plan"`, deterministic candidate ranking by capability match, price, evidence/reputation inputs, and freshness, estimated cost, required attestor, and guardrails. `downstreamCallsExecuted` is always `0` in this iteration. No signer/private-key material is used and no downstream paid call is attempted.
 
 The dry-run planner can use the public wallet manifest as a discovery source. Malformed manifest candidates are excluded with explicit reasons in `discoveryDiagnostics`; they are not silently ranked.
 

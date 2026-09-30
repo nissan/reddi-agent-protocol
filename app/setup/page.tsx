@@ -602,7 +602,7 @@ export default function SetupPage() {
         </div>
 
         <section id="mcp-video" className="mb-8">
-          <OnboardingVideoCard video={onboardingVideos.find((video) => video.id === "mcp-x402") ?? onboardingVideos[0]} layout="horizontal" />
+          <OnboardingVideoCard video={onboardingVideos.find((video) => video.id === "mcp-x402") ?? onboardingVideos[0]} layout="horizontal" hostRoute="/setup" />
         </section>
 
         <Tabs defaultValue="connect" className="w-full">

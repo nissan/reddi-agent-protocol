@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { toExplorerTxUrl } from "@/lib/config/explorer";
 
 interface TraceStep {
   delay: number;
@@ -38,26 +37,6 @@ interface RenderedSection {
 
 
 function renderLine(line: string) {
-  // Replace [EXPLORER:txhash] with a real link
-  const match = line.match(/\[EXPLORER:([^\]]+)\]/);
-  if (match) {
-    const txHash = match[1];
-    const before = line.slice(0, match.index);
-    const linkText = "↗";
-    return (
-      <span>
-        {before}
-        <a
-          href={toExplorerTxUrl(txHash)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[#14F195] hover:underline ml-1"
-        >
-          {linkText}
-        </a>
-      </span>
-    );
-  }
   // Colour ✅ lines green
   if (line.startsWith("✅")) {
     return <span className="text-[#14F195]">{line}</span>;
@@ -213,11 +192,11 @@ export default function DemoPage() {
         {mode === "live" ? (
           <span className="flex items-center gap-1.5 text-xs font-medium text-[#14F195] bg-[#14F195]/10 border border-[#14F195]/20 px-3 py-1.5 rounded-full">
             <span className="inline-block w-2 h-2 rounded-full bg-[#14F195] animate-pulse" />
-            Live — real Ollama call · real devnet
+            Live — real Ollama call · devnet RPC read only · escrow steps simulated
           </span>
         ) : (
           <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground bg-white/5 border border-white/10 px-3 py-1.5 rounded-full">
-            ⟳ Replay — recorded real run · all TX IDs verifiable on-chain
+            ⟳ Scripted trace — illustrative pipeline shape, not a recorded on-chain run
           </span>
         )}
       </div>
@@ -227,11 +206,13 @@ export default function DemoPage() {
         <div className="lg:col-span-2 space-y-6">
           <div className="space-y-2">
             <h1 className="text-3xl font-bold sol-gradient-text pb-1">
-              Watch the agent economy work in real time
+              Watch a paid-work pipeline trace, step by step
             </h1>
             <p className="text-muted-foreground text-sm">
-              Enter a brief. The consumer agent coordinates specialists, handles escrow, and returns
-              a scored result — all on-chain.
+              Enter a brief and watch a scripted walkthrough of the stages: planning, discovery,
+              payment-proof reference, specialist response, and attestation scoring. The escrow and
+              settlement steps are illustrative placeholders — no funds move and nothing is settled
+              on-chain from this page.
             </p>
           </div>
 
@@ -257,7 +238,7 @@ export default function DemoPage() {
             <textarea
               value={brief}
               onChange={(e) => setBrief(e.target.value)}
-              placeholder="e.g. A landing page for a Solana-native AI agent marketplace targeting developers"
+              placeholder="e.g. A landing page for a paid-work assurance demo targeting developers"
               rows={4}
               className="w-full rounded-xl border border-white/10 bg-card/30 p-3 text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-1 focus:ring-[#9945FF]/60"
             />

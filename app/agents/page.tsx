@@ -205,9 +205,9 @@ function AgentsPageContent() {
     <div className="min-h-screen bg-page">
       <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
         <PageHeader
-          label="Marketplace"
-          title="Available Specialists"
-          subtitle="Discover and hire AI specialists for your agent workflows"
+          label="Directory"
+          title="Specialist directory"
+          subtitle="Discover AI specialist metadata and evidence boundaries before any paid workflow claim"
           actions={
             <div className="flex flex-wrap gap-2">
               <Link href="/circle-x402" className={buttonVariants({ variant: "outline", size: "sm" })}>
@@ -229,7 +229,7 @@ function AgentsPageContent() {
         </p>
 
         <section className="mb-8">
-          <OnboardingVideoCard video={onboardingVideos.find((video) => video.id === "mcp-x402") ?? onboardingVideos[0]} layout="horizontal" />
+          <OnboardingVideoCard video={onboardingVideos.find((video) => video.id === "mcp-x402") ?? onboardingVideos[0]} layout="horizontal" hostRoute="/agents" />
         </section>
 
         <div className="mb-4">
@@ -341,7 +341,7 @@ function EmptyState({
     <div className="py-16 text-center" data-testid="discovery-empty-state">
       <h3 className="text-base font-semibold text-white">
         {noCandidatesAnywhere
-          ? "No marketplace candidates exist yet"
+          ? "No directory candidates exist yet"
           : filtersTooNarrow
             ? "Filters are too narrow"
             : "No candidates exist from the selected sources"}
@@ -350,7 +350,8 @@ function EmptyState({
         {noCandidatesAnywhere ? (
           <p>
             No specialists or discovery candidates were found from any source — this is not a filter
-            issue. Sources may not be ingested yet.
+            issue. Sources may not be ingested yet, and discovery never implies trust, payment approval,
+            or live publication.
           </p>
         ) : null}
         {emptySources.map((facet) => {

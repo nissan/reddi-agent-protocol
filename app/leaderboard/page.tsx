@@ -32,7 +32,7 @@ export default async function LeaderboardPage() {
                 <th className="text-left py-3 px-4 font-semibold">Specialist</th>
                 <th className="text-right py-3 px-4 font-semibold">Jobs Completed</th>
                 <th className="text-right py-3 px-4 font-semibold">On-chain Reputation</th>
-                <th className="text-right py-3 px-4 font-semibold">Rewards Earned</th>
+                <th className="text-right py-3 px-4 font-semibold">Demo Rewards</th>
               </tr>
             </thead>
             <tbody>

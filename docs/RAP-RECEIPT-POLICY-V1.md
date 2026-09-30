@@ -2,7 +2,7 @@
 
 Issue: [#341](https://github.com/nissan/reddi-agent-protocol/issues/341)
 
-This document defines the first public Reddi Agent Protocol receipt and policy primitives for OSS v0.1. Payment rails settle value; RAP records the policy, evidence, and trust metadata around paid agent work.
+This document defines the first public Reddi Agent Protocol receipt and policy primitives for OSS v0.1. Payments prove transfer; RAP Assurance proves paid work by recording the policy, payment-proof reference, evidence, attestation, replay, and trust metadata around paid agent work.
 
 ## Receipt Envelope
 
@@ -75,4 +75,4 @@ The test suite verifies every exported fixture case.
 
 ## Claim Boundary
 
-RAP receipts prove that a workflow recorded policy, payment-reference, evidence-reference, and trust metadata. They do not by themselves prove final settlement, mainnet execution, provider quality, or legal/compliance approval. Payment adapters and verifiers are responsible for validating settlement-specific proofs.
+RAP receipts prove that a workflow recorded policy, payment-proof reference, evidence reference, attestation/replay status, and trust metadata. They do not by themselves prove final settlement, mainnet execution, provider quality, legal/compliance approval, custody, or live reputation mutation. Payment adapters and verifiers are responsible for validating transfer-specific proofs.

@@ -1,5 +1,7 @@
 # Deployment Guide
 
+Status: historical/reference deployment notes. This guide does not authorize redeployments, live funds, mainnet, custody, or public production claims.
+
 ## Current deployments (devnet)
 
 **The recorded Quasar devnet program set is blocked.** `config/quasar/deployments.json`
@@ -29,7 +31,9 @@ Redeploy the legacy Anchor program if:
 - The program account runs out of rent (unlikely for demo scale)
 - A fresh devnet keypair is needed
 
-### Redeploy steps
+### Historical redeploy steps
+
+Do not run these steps without explicit operator approval. They can spend devnet SOL, change public devnet state, or create generated key material.
 
 ```bash
 # 1. Build (ignore-keys skips keygen for deterministic build)
@@ -66,15 +70,11 @@ See `.env.devnet.example` for the required format.
 ### Airdrop rate limits
 
 Devnet airdrop is rate-limited to ~2 SOL per request, ~2 requests per day per address.
-If rate-limited, use a pre-funded wallet from 1Password:
-```bash
-op read "op://OpenClaw/Devnet Faucet Keypair/credential"
-```
-If that item doesn't exist, request smaller amounts:
+If rate-limited, stop and request operator guidance instead of reaching for shared or pre-funded wallet material. For approved devnet-only testing, prefer smaller faucet requests such as:
 ```bash
 solana airdrop 1 <wallet> --url devnet
 ```
 
 ### MagicBlock PER
 
-The TEE endpoint (`devnet-tee.magicblock.app`) is intermittent. If unreachable, `demo.ts` automatically falls back to L1 settlement and logs `"L1 fallback used"`. The demo works either way.
+The TEE endpoint (`devnet-tee.magicblock.app`) has been intermittent in historical testing. Treat MagicBlock/PER behavior here as reference evidence only, not a production settlement or privacy guarantee.

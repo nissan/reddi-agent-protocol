@@ -9,12 +9,20 @@ const phases = [
   { phase: "Phase 5", title: "QA and publication", status: "Complete (v1.0 candidate package)" },
 ];
 
-const screenshots = [
-  { src: "/whitepaper/landing-overview.png", title: "Landing overview", route: "/" },
-  { src: "/whitepaper/marketplace-discovery.png", title: "Marketplace discovery", route: "/agents" },
-  { src: "/whitepaper/planner-consumption.png", title: "Planner consumption", route: "/planner" },
-  { src: "/whitepaper/register-onboarding.png", title: "Register onboarding", route: "/register" },
-  { src: "/whitepaper/dogfood-operator-ui.png", title: "Dogfood operator UI", route: "/dogfood" },
+type Screenshot = {
+  src: string;
+  title: string;
+  route: string;
+  /** Capture predates this repository's public-claim remediation, so it is withheld. */
+  imageStale?: true;
+};
+
+const screenshots: Screenshot[] = [
+  { src: "/whitepaper/landing-overview.png", title: "Landing overview", route: "/", imageStale: true },
+  { src: "/whitepaper/marketplace-discovery.png", title: "Directory discovery", route: "/agents", imageStale: true },
+  { src: "/whitepaper/planner-consumption.png", title: "Planner consumption", route: "/planner", imageStale: true },
+  { src: "/whitepaper/register-onboarding.png", title: "Register onboarding", route: "/register", imageStale: true },
+  { src: "/whitepaper/dogfood-operator-ui.png", title: "Dogfood operator UI", route: "/dogfood", imageStale: true },
 ];
 
 export default function WhitepaperPage() {
@@ -25,8 +33,8 @@ export default function WhitepaperPage() {
           <p className="section-label">Protocol Documentation</p>
           <h1 className="font-display text-4xl sm:text-5xl font-bold">Reddi Agent Protocol Whitepaper</h1>
           <p className="max-w-3xl text-gray-300">
-            A phased documentation program covering system model, economics, threat posture, and evidence-backed
-            product flows.
+            Candidate documentation for RAP Assurance: payments prove transfer; RAP Assurance proves paid work.
+            Current claims are local/offline or explicitly devnet-bounded, not production or mainnet readiness.
           </p>
           <div className="flex flex-wrap gap-3">
             <Link href="https://github.com/nissan/reddi-agent-protocol/blob/main/docs/whitepaper/WHITEPAPER-v1.md" className="rounded-lg bg-white text-black px-4 py-2 text-sm font-medium">
@@ -71,12 +79,25 @@ export default function WhitepaperPage() {
 
         <section className="space-y-4">
           <h2 className="font-display text-2xl font-semibold">Evidence screenshots</h2>
-          <p className="text-sm text-gray-300">Initial screenshot pack used for technical claims and protocol walkthroughs.</p>
+          <p className="text-sm text-gray-300">Initial screenshot pack used for bounded technical walkthroughs; screenshots are not production-readiness evidence. Captures that still assert retired claims are withheld until they are retaken.</p>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {screenshots.map((shot) => (
               <figure key={shot.src} className="rounded-xl border border-white/10 bg-card/40 overflow-hidden">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={shot.src} alt={shot.title} className="w-full h-44 object-cover" />
+                {shot.imageStale ? (
+                  <div className="flex h-44 w-full items-center justify-center bg-[#1a1a2e] px-5 text-center">
+                    <span className="max-w-xs text-xs leading-relaxed text-white/25">
+                      Screenshot withheld: the committed capture predates this repository&apos;s
+                      public-claim remediation and still shows retired wording. Open{" "}
+                      <Link href={shot.route} className="underline hover:text-white/50">
+                        {shot.route}
+                      </Link>{" "}
+                      on this build for the current copy.
+                    </span>
+                  </div>
+                ) : (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={shot.src} alt={shot.title} className="w-full h-44 object-cover" />
+                )}
                 <figcaption className="p-3">
                   <div className="text-sm font-medium text-white">{shot.title}</div>
                   <div className="text-xs text-gray-400 mt-1">Route: {shot.route}</div>
@@ -91,7 +112,7 @@ export default function WhitepaperPage() {
           <ul className="list-disc pl-5 text-sm text-gray-300 space-y-1">
             <li>Run final technical review pass and sign-off on claim wording.</li>
             <li>Attach dated benchmark result snapshots to Appendix B.</li>
-            <li>Tag whitepaper release version and publish announcement.</li>
+            <li>Keep any release announcement gated on current evidence, not roadmap intent.</li>
           </ul>
         </section>
       </div>

@@ -86,9 +86,9 @@ export default function OrchestratorSettingsPage() {
       <div className="rounded-xl border border-white/10 bg-card/30 p-5 space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="font-semibold">Specialist marketplace</h2>
+            <h2 className="font-semibold">Specialist directory policy</h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              When enabled, your agent can discover and hire specialists automatically during planning.
+              When enabled, your agent can discover specialist metadata during planning, then apply policy before any paid-work path.
             </p>
           </div>
           <button
@@ -106,7 +106,7 @@ export default function OrchestratorSettingsPage() {
         </div>
         {policy.enabled && (
           <div className="text-xs text-[#14F195] bg-[#14F195]/10 border border-[#14F195]/20 rounded-lg px-3 py-2">
-            ✓ Specialist marketplace active — agents will query and hire specialists during planning.
+            ✓ Specialist directory policy active — agents can query candidates during planning, with payment still gated by policy.
           </div>
         )}
       </div>

@@ -1,7 +1,7 @@
 {
   "name": "@reddi/per-client",
   "version": "0.1.0",
-  "description": "MagicBlock PER (Private Ephemeral Rollup) delegation client for Reddi Agent Protocol",
+  "description": "Repo-local MagicBlock PER delegation evidence client for Reddi Agent Protocol; not production custody or settlement.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

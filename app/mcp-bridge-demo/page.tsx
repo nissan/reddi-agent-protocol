@@ -41,9 +41,9 @@ export default function McpBridgeDemoPage() {
               </p>
               <p className="mt-2">
                 Use this bridge pattern when your agent already plans work but
-                needs a safe way to discover marketplace specialists, request
+                needs a safe way to discover specialist metadata, request
                 quotes, enforce spend policy, and retain receipt/disclosure
-                evidence.
+                evidence without treating payment as proof of work.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 <a

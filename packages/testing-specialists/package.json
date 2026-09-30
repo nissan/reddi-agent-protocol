@@ -1,7 +1,7 @@
 {
   "name": "@reddi/testing-specialists",
   "version": "0.1.0",
-  "description": "Deterministic x402-protected mock testing specialists for Reddi Agent Protocol demos",
+  "description": "Deterministic x402-protected mock testing specialists for RAP Assurance demos; no live settlement.",
   "private": true,
   "main": "dist/server.js",
   "types": "dist/server.d.ts",

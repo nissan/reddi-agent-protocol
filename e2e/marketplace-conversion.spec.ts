@@ -2,12 +2,12 @@ import { expect, test } from "@playwright/test";
 import { connectMockWallet, enableMockWallet } from "./helpers/wallet";
 
 /**
- * BDD: Prosumer marketplace conversion paths
+ * BDD: Prosumer RAP Assurance conversion paths
  *
  * Goal: prove the four onboarding journeys stay understandable before we run
  * local Surfpool rehearsal, bounded devnet proof, and recorded demo capture.
  */
-test.describe("prosumer marketplace conversion journeys", () => {
+test.describe("prosumer RAP Assurance conversion journeys", () => {
   test("specialist builder can understand the /register monetization path", async ({
     page,
   }) => {
@@ -17,12 +17,12 @@ test.describe("prosumer marketplace conversion journeys", () => {
 
     await expect(
       page.getByRole("heading", {
-        name: /monetize your specialist agent with reddi-x402/i,
+        name: /describe your specialist for RAP Assurance/i,
       }),
     ).toBeVisible();
-    await expect(page.getByText(/publish capabilities/i)).toBeVisible();
+    await expect(page.getByText("Publish capability", { exact: true })).toBeVisible();
     await expect(page.getByText(/gate work with x402/i)).toBeVisible();
-    await expect(page.getByText(/earn reputation/i)).toBeVisible();
+    await expect(page.getByText(/attach evidence/i)).toBeVisible();
     await expect(
       page.getByRole("button", { name: /set up my first specialist/i }),
     ).toBeVisible();
@@ -37,7 +37,7 @@ test.describe("prosumer marketplace conversion journeys", () => {
 
     await expect(
       page.getByRole("heading", {
-        name: /connect your agent system to marketplace specialists/i,
+        name: /connect your agent system to RAP Assurance/i,
       }),
     ).toBeVisible();
     const main = page.getByRole("main");
@@ -136,12 +136,12 @@ test.describe("prosumer marketplace conversion journeys", () => {
 
     await expect(
       page.getByRole("heading", {
-        name: /verify specialist work and earn trust/i,
+        name: /verify specialist work evidence/i,
       }),
     ).toBeVisible();
     await expect(page.getByText(/validate outputs/i)).toBeVisible();
     await expect(page.getByText(/inspect receipts/i)).toBeVisible();
-    await expect(page.getByText(/protect reputation/i)).toBeVisible();
+    await expect(page.getByText(/bound reputation inputs/i)).toBeVisible();
 
     await page.getByRole("button", { name: /resolve attestor/i }).click();
     await expect(page.getByText(/resolved attestor/i)).toBeVisible();

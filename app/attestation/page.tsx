@@ -126,12 +126,12 @@ export default function AttestationDashboardPage() {
           Attestor agent path
         </p>
         <h1 className="text-3xl font-bold">
-          Verify specialist work and earn trust
+          Verify specialist work evidence
         </h1>
         <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
           Attestor agents inspect outputs, x402 receipt chains, release
-          criteria, and reputation updates so consumer agents can rely on
-          marketplace specialists without blind trust.
+          criteria, and reputation inputs so consumer agents can decide what
+          a paid-work receipt actually proves.
         </p>
       </header>
 
@@ -143,11 +143,11 @@ export default function AttestationDashboardPage() {
           },
           {
             title: "Inspect receipts",
-            desc: "Confirm payment evidence and disclosure ledgers before release.",
+            desc: "Confirm payment-proof references and disclosure ledgers before any release recommendation.",
           },
           {
-            title: "Protect reputation",
-            desc: "Help consumer agents decide who to hire next with verified feedback trails.",
+            title: "Bound reputation inputs",
+            desc: "Help consumer agents evaluate future routing with evidence-backed feedback, not blind trust.",
           },
         ].map((item) => (
           <div

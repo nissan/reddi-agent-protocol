@@ -1,5 +1,7 @@
 # Colosseum Final Quasar Proof Map — 2026-05-06
 
+> **Historical campaign evidence.** This file predates current RAP Assurance claim remediation. Do not use it as current public copy for Quasar, marketplace, custody, settlement, production, mainnet, MagicBlock/PER, or fee claims. Current truth lives in `config/quasar/deployments.json`, `docs/PUBLIC-CLAIM-BOUNDARY.md`, and current package/conformance docs.
+
 ## Status
 
 Final-demo target: **Quasar-compiled Solana programs** for all demo-critical on-chain paths. PR #244 is merged to main as `bbfa0a92`, so the Quasar shared-builder/runtime path is now the mainline baseline.

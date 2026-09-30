@@ -40,7 +40,7 @@ export default function DogfoodPage() {
       <div className="mx-auto max-w-5xl px-6 py-10 space-y-6">
         <h1 className="text-3xl font-semibold" data-testid="dogfood-heading">Dogfood Specialist + Attestor Flow</h1>
         <p className="text-sm text-muted-foreground">
-          End-to-end ping/pong+haiku verification with attested settlement gating.
+          End-to-end ping/pong+haiku verification with attested release/refund recommendations; no settlement finality implied.
         </p>
 
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">

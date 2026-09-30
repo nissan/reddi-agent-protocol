@@ -88,6 +88,8 @@ rot.
 
 Preserve the hard boundaries enforced by package/readiness checks: AUDD is payment-plan/proof metadata only, not custody or settled escrow; mainnet/live payment paths are gated; package/source conformance must remain no-spend/offline unless a task explicitly authorizes otherwise.
 
+`docs/PUBLIC-CLAIM-BOUNDARY.md` owns what public and contributor-facing copy may claim ("payments prove transfer; RAP Assurance proves paid work") and is enforced by `npm run check:claims:public` over owned prose plus `e2e/public-claim-boundary.spec.ts` over rendered routes. Read it before editing README/docs/package metadata or app page copy.
+
 ## Repository conventions
 
 `STATUS.md` is a rolling log, not a source of truth about current code state; the newest entry is at the top and older entries describe intermediate states.

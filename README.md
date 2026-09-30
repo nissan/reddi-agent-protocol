@@ -1,119 +1,129 @@
 # Reddi Agent Protocol
 
-**A devnet/local-first AI agent marketplace prototype on Solana.**
+**RAP Assurance: open receipts for paid MCP/API and agent work.**
 
-Running a local specialist — Ollama, vLLM, or OpenOnion — to offer agent services is the same spirit as running a blockchain validator. You contribute real compute to a decentralised network. No permission needed. Your infrastructure, your rules. Current devnet evidence exercises the honesty mechanisms, but unresolved Quasar readiness gates still block mainnet/live-funds claims.
+> Payments prove transfer; RAP Assurance proves paid work.
 
-🌐 **Web app:** https://agent-protocol.reddi.tech (public site; not a mainnet deployment claim)
-🐦 **X:** https://x.com/reddiagent
-📦 **Protocol repo:** https://github.com/nissan/reddi-agent-protocol
-🧪 **Judge replication guide:** [`docs/JUDGE-REPLICATION-GUIDE.md`](docs/JUDGE-REPLICATION-GUIDE.md)
-📦 **OSS v0.1 package plan:** [`docs/OSS-V0.1-PACKAGE-PLAN.md`](docs/OSS-V0.1-PACKAGE-PLAN.md)
-💸 **Hosted self-funding boundary:** [`docs/HOSTED-SELF-FUNDING-OFFER.md`](docs/HOSTED-SELF-FUNDING-OFFER.md)
-📘 **Whitepaper docs:** `docs/whitepaper/` + `/whitepaper` web route
-🧠 **Design KB:** `docs/AGENT-MARKETPLACE-DISCLOSURE-GUIDELINES.md` (agent composition disclosure + zk-attestable checkpoint pattern)
-🤝 **Contributing:** [`CONTRIBUTING.md`](CONTRIBUTING.md)
-🏛️ **Open-source governance:** [`docs/OPEN-SOURCE-GOVERNANCE.md`](docs/OPEN-SOURCE-GOVERNANCE.md)
-🔐 **Security:** [`SECURITY.md`](SECURITY.md)
-📄 **License scope:** [`NOTICE.md`](NOTICE.md)
-🔗 **Solana program (devnet):** see below
-🧰 **Pinned Solana workstation baseline:** [`docs/SOLANA-TOOLCHAIN-BASELINE.md`](docs/SOLANA-TOOLCHAIN-BASELINE.md)
+Reddi Agent Protocol (RAP) is an open, local-first assurance layer for paid agent workflows. It does not try to be a payment rail, marketplace operator, generic hosted runtime, custody provider, or wallet/action toolkit. Instead, RAP Assurance binds work terms, buyer policy, payment-proof references, evidence references, attestation outcomes, replay metadata, and reputation inputs so builders can verify what happened around a paid MCP/API or agent-to-agent job.
+
+Current shipped behavior is local/offline and devnet-bounded unless a page or command explicitly says otherwise. The recorded Quasar devnet deployment is blocked (`submissionReady: false` in `config/quasar/deployments.json`), mainnet/live-funds paths are not ready, and no deployed on-chain release path collects a protocol treasury fee.
+
+- 🌐 **Web app:** https://agent-protocol.reddi.tech (public demo site; not a mainnet deployment claim)
+- 🐦 **X:** https://x.com/reddiagent
+- 📦 **Protocol repo:** https://github.com/nissan/reddi-agent-protocol
+- 🧪 **Judge replication guide:** [`docs/JUDGE-REPLICATION-GUIDE.md`](docs/JUDGE-REPLICATION-GUIDE.md)
+- 📦 **OSS v0.1 package plan:** [`docs/OSS-V0.1-PACKAGE-PLAN.md`](docs/OSS-V0.1-PACKAGE-PLAN.md)
+- 💸 **Hosted self-funding boundary:** [`docs/HOSTED-SELF-FUNDING-OFFER.md`](docs/HOSTED-SELF-FUNDING-OFFER.md)
+- 📘 **Whitepaper docs:** `docs/whitepaper/` + `/whitepaper` web route
+- 🧠 **Public claim boundary:** [`docs/PUBLIC-CLAIM-BOUNDARY.md`](docs/PUBLIC-CLAIM-BOUNDARY.md)
+- 🤝 **Contributing:** [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- 🏛️ **Open-source governance:** [`docs/OPEN-SOURCE-GOVERNANCE.md`](docs/OPEN-SOURCE-GOVERNANCE.md)
+- 🔐 **Security:** [`SECURITY.md`](SECURITY.md)
+- 📄 **License scope:** [`NOTICE.md`](NOTICE.md)
+- 🧰 **Pinned Solana workstation baseline:** [`docs/SOLANA-TOOLCHAIN-BASELINE.md`](docs/SOLANA-TOOLCHAIN-BASELINE.md)
 
 ---
 
 ## What it is
 
-A devnet evidence build where:
-- **Specialists** can register their inference runtime (Ollama, vLLM, or OpenOnion), set a per-call rate, and exercise SOL-denominated demo flows
-- **Judges (Attestation agents)** score other agents' work in the devnet attestation/reputation loop
-- **Consumers** can exercise on-chain SOL escrow demos and receipt/evidence flows; this is not a mainnet funds or production-readiness claim
-- **Protocol-fee examples** model a planned 0.05% / 5 bps rail fee in TypeScript fixtures, but no deployed on-chain release path currently collects a protocol treasury fee
-- **MCP clients** (Claude Code, Cursor, etc.) reach registered specialists through the repo-local [`rap-mcp-bridge`](packages/rap-mcp-bridge); ElizaOS and SendAI Agent Kit integrations remain experimental/deferred adapter packages unless a later release issue promotes them
+RAP Assurance is a proof and conformance layer where:
 
-The protocol is built on four Quasar Solana primitives: AgentRegistry, EscrowState, attestation, and commit-reveal reputation. The recorded Quasar devnet deployment is currently blocked and Quasar is validated only on a local Surfpool lane — see [Solana programs](#solana-programs-devnet). The legacy Anchor program remains a reference/comparison surface.
+- **Buyers and agent operators** can evaluate quotes, budget policy, payment-proof references, receipts, evidence, and replay metadata before trusting a paid result.
+- **Specialist builders** can expose capabilities and x402-style payment challenges while keeping payment settlement in external rails or explicitly gated devnet fixtures.
+- **Attestors/judges** can inspect outputs and evidence references to produce bounded quality signals for routing, dispute, and reputation previews.
+- **Conformance suites** exercise receipt shape, policy decisions, proof-chain fixtures, evidence binding, no-spend workflows, and package artifact boundaries from a clean checkout.
+
+RAP is intentionally complementary to adjacent standards and products: x402 and MPP/Stripe-style systems can prove transfer; AP2 can describe authority; MCP Registry, A2A, and AGNTCY/OASF can expose discovery/capability metadata; Pay.sh/PayAI and Solana/AUDD adapters can provide payment-specific rails. RAP Assurance records the paid-work lifecycle above and around those systems.
+
+## What it is not yet
+
+- Not a broad production agent marketplace or app store.
+- Not a payment facilitator, custody service, escrow provider, wallet SDK, or generic hosted agent runtime.
+- Not mainnet-ready and not a live-funds production deployment.
+- Not a security-audited release; `SECURITY.md` is a threat-model and disclosure boundary.
+- Not proof that AUDD/Solana custody or settlement is supported beyond the explicitly labelled proof/payment-plan/read-only observation paths.
+- Not an implemented transaction take-rate: 0.05% / 5 bps examples are planned/product-fixture economics only.
 
 ## Open-source core and hosted boundary
 
 Reddi Agent Protocol is open-source-first. The core protocol, SDKs, middleware, MCP bridge, conformance tests, local/devnet examples, and documentation should remain usable without a hosted Reddi account, private deployment URL, paid-provider credential, or Redditech-operated service.
 
-Optional hosted Reddi services may later provide convenience layers such as managed relays, hosted marketplace listings, reputation/attestation indexes, audit-log retention, dashboards, support, or SLA-backed registries. Those services must stay replaceable adapters around the OSS core, not prerequisites for running or validating the protocol.
+Optional hosted Redditech services may later provide convenience layers such as managed relays, evidence retention, receipt search, audit export, conformance certification, support, or managed Arena/community operations. Those services must stay replaceable adapters around the OSS core, not prerequisites for running or validating the protocol.
 
-See [`docs/OPEN-SOURCE-GOVERNANCE.md`](docs/OPEN-SOURCE-GOVERNANCE.md) for the open-core boundary, roadmap labels, contribution rules, and post-merge roadmap review workflow.
+See [`docs/OPEN-SOURCE-GOVERNANCE.md`](docs/OPEN-SOURCE-GOVERNANCE.md) and [`docs/PUBLIC-CLAIM-BOUNDARY.md`](docs/PUBLIC-CLAIM-BOUNDARY.md) for the open-core and public-claim boundaries.
 
 ---
 
 ## Architecture
 
-```
-┌──────────────── OFF-CHAIN ─────────────────┐  ┌───── ON-CHAIN (Solana devnet) ──────────────────────┐
-│                                            │  │                                                     │
-│  Consumer Agent (TypeScript)               │  │  AgentRegistry PDA                                  │
-│  ├── query /agents → filter by type/rep    │──┼──► register_agent / update_agent / deregister_agent │
-│  ├── lock_escrow tx                        │──┼──► EscrowAccount PDA (SOL lamports on devnet)       │
-│  │                                         │  │                                                     │
-│  Specialist Agent (Ollama/vLLM/OpenOnion)  │  │  MagicBlock PER (Private Ephemeral Rollup)          │
-│  ├── serve inference via HTTP              │  │  ├── delegate_escrow → TEE session                  │
-│  └── receive settlement evidence           │──┼──► public release path; PER evidence bounded/gated  │
-│                                            │  │  └── L1 fallback if TEE unreachable                │
-│  Judge Agent (Attestation)                 │  │                                                     │
-│  ├── attest_quality (5-dim score)          │──┼──► AttestationAccount PDA                           │
-│  └── confirm / dispute                     │  │                                                     │
-│                                            │  │  Blind Reputation                                   │
-│  @reddi/x402-solana                        │  │  ├── commit_rating (sha256(score‖salt))             │
-│  ├── nonce guard (replay protection)       │  │  ├── reveal_rating                                  │
-│  └── payment validation middleware         │  │  └── expire_rating                                  │
-│                                            │  │       rolling avg: 90% weight × prior score         │
-│  ElizaOS plugin / SendAI Agent Kit         │  │                                                     │
-│  └── plug-in surface for AI frameworks     │  │  Quasar programs: registry / escrow / reputation / attestation
-└────────────────────────────────────────────┘  └─────────────────────────────────────────────────────┘
+```text
+┌──────────────── OFF-CHAIN / LOCAL-FIRST ASSURANCE ───────────────┐
+│                                                                  │
+│  Buyer / Consumer Agent                                          │
+│  ├── discover candidates from local, MCP, registry, or adapter data│
+│  ├── evaluate quote + budget + authority policy before payment    │
+│  └── retain receipt, evidence refs, replay metadata, and outcome  │
+│                                                                  │
+│  Specialist Agent / API                                           │
+│  ├── exposes capability and pricing metadata                      │
+│  ├── may issue x402-style 402 challenges                          │
+│  └── returns work output only through caller-owned integration     │
+│                                                                  │
+│  Attestor / Judge                                                 │
+│  ├── evaluates output and evidence against agreed criteria         │
+│  └── produces bounded attestation/reputation inputs               │
+│                                                                  │
+│  RAP Assurance packages                                           │
+│  ├── receipts, policies, proof refs, evidence binding, replay      │
+│  ├── local MCP bridge and no-spend conformance fixtures           │
+│  └── x402/Solana/AUDD adapter helpers where explicitly gated       │
+└──────────────────────────────────────────────────────────────────┘
+
+┌──────────── OPTIONAL / BOUNDED ON-CHAIN REFERENCE SURFACES ───────┐
+│  Legacy Anchor reference program: historical comparison only       │
+│  Quasar programs: local Surfpool lane only for current sources     │
+│  Recorded Quasar devnet ids: blocked, not a current demo target    │
+│  Mainnet: no audited deployment registered                         │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-**Payment flow:**
-```
-Consumer locks SOL escrow → Specialist delivers → settlement release
-  Current deployed programs: SOL lamports move to the specialist; no on-chain protocol treasury fee is collected
-  Demo fixtures: may model a planned 99.95% / 0.05% split for product economics only
-  Judge attests quality → reputation updated on-chain; current Quasar readiness gates remain open before mainnet
+**Payment/assurance boundary:**
+
+```text
+Payment rail proves transfer or payment intent
+        ↓
+RAP Assurance records work terms + policy + payment-proof ref + evidence ref
+        ↓
+Attestation/replay/conformance decide what the paid work evidence supports
 ```
 
 ---
 
-## Getting started — exercise the devnet specialist flow
+## Getting started — local no-spend proof
 
-**You need:** a supported runtime (Ollama, vLLM, or OpenOnion) running locally + a Solana wallet + devnet SOL (devnet faucet is free)
+The fastest externally supportable path is the local `@reddi/agent-protocol` conformance workflow. It does not require a wallet, RPC endpoint, hosted Reddi service, provider key, paid API call, or live payment.
 
-The quickstart below uses Ollama as the reference runtime; vLLM and OpenOnion follow the same registration flow with a different `RUNTIME` env var.
-
-See the full setup guide: **https://agent-protocol.reddi.tech/setup**
-
-Quick version:
 ```bash
-# 1. Clone and install
 git clone https://github.com/nissan/reddi-agent-protocol
 cd reddi-agent-protocol
 npm install
-
-# 2. Pull a model
-ollama pull qwen2.5:7b
-
-# 3. Configure
-cp .env.example .env
-# Edit .env: set OLLAMA_MODEL, SOLANA_KEYPAIR_PATH, your preferred rate
-
-# 4. Start your specialist server
-npm run specialist -- --name my-agent
-
-# 5. Expose it (ngrok)
-ngrok http 3334
-
-# 6. Register on-chain (devnet evidence path, not mainnet production)
-# Go to https://agent-protocol.reddi.tech/register
-# Connect wallet, paste your ngrok URL, set rate, pay the devnet registration fee
+npm run check:conformance:public
 ```
 
-## Verify the demo yourself
+For the package-level quickstart:
 
-The hackathon videos are backed by a public replication guide and verifier script.
+```bash
+cd packages/agent-protocol
+npm ci
+npm run example:ard:no-spend
+npm run conformance
+```
+
+See [`docs/RAP-V0.1-DEVELOPER-QUICKSTART-AND-CONFORMANCE.md`](docs/RAP-V0.1-DEVELOPER-QUICKSTART-AND-CONFORMANCE.md) for the current developer entry point.
+
+## Verify recorded demo evidence
+
+The hackathon-era videos are backed by a public replication guide and verifier script. Treat the results as recorded devnet/local evidence, not as production or mainnet readiness.
 
 ```bash
 git clone https://github.com/nissan/reddi-agent-protocol
@@ -122,135 +132,100 @@ npm install
 node scripts/judge-replication-check.mjs
 ```
 
-The verifier checks the public product routes, recorded Solana devnet transactions, and the Loop 51 registered agent PDA. Full step-by-step instructions are in [`docs/JUDGE-REPLICATION-GUIDE.md`](docs/JUDGE-REPLICATION-GUIDE.md).
+The verifier checks public product routes, recorded Solana devnet transactions, and the Loop 51 registered agent PDA. Full step-by-step instructions are in [`docs/JUDGE-REPLICATION-GUIDE.md`](docs/JUDGE-REPLICATION-GUIDE.md).
+
+## Protocol economics boundary
+
+| Topic | Current repository behavior |
+|---|---|
+| Protocol fee | No deployed on-chain release path collects a protocol treasury fee. |
+| 0.05% / 5 bps | Planned/product-fixture semantics only; zero fee is modeled on failed examples. |
+| Registration fee | The legacy registry burn constant is a devnet-era anti-sybil fixture, not protocol revenue. |
+| Custody | Current shipped public package flows are no-spend/proof-reference/read-only observation helpers. |
+| AUDD/Solana | AUDD is payment-plan/proof metadata and read-only SPL observation unless a separate approved live rail lands. |
+
+## Reputation and attestation boundary
+
+RAP receipts and attestation records can bind evidence and make reputation inputs inspectable. They do not by themselves prove final settlement, mainnet execution, provider quality, legal/compliance approval, or live reputation mutation. Current Quasar readiness still has unresolved gates; do not treat the on-chain reputation system as mainnet-ready until those are closed and re-reviewed.
+
+### Commit-reveal reputation (reference mechanism)
+
+The reference programs implement rating as commit-reveal, mirrored in `lib/program.ts`: each party submits `sha256(score || salt)` via `commit_rating`, neither side sees the other's score at commit time, and `reveal_rating` is verified against the stored hash before any score is written. `expire_rating` covers the non-reveal path.
+
+The intended property is that neither party can react to the other's score. This is a mechanism description, not a readiness claim: the CRITICAL-4 reveal/expiry griefing gate in `SECURITY.md` is still open, so the reputation path is neither audited nor mainnet-ready.
+
+## RPC configuration
+
+Solana RPC latency matters for the lock/verify/read loops in the reference and devnet paths, so the endpoint is configurable rather than hard-coded.
+
+```bash
+# .env.local
+NEXT_PUBLIC_RPC_ENDPOINT=https://<your-rpc-endpoint>
+```
+
+`NEXT_PUBLIC_RPC_ENDPOINT` overrides the RPC endpoint resolved from the active network profile (`lib/config/network.ts`, `config/networks/<profile>.json`). Program-id overrides are separate and are ignored on devnet unless the build explicitly opted in — see [`docs/NETWORK-PROFILES.md`](docs/NETWORK-PROFILES.md). No RPC provider is endorsed, and no throughput or production-capacity claim is made here.
 
 ---
 
-## Protocol economics
-
-| Event | Current on-chain behavior | Product/demo fixture behavior |
-|---|---|---|
-| Successful delivery | SOL lamports are released to the specialist | Some fixtures model 99.95% specialist / 0.05% protocol |
-| Failed delivery / refund | SOL refund path in escrow surfaces | Zero protocol fee in examples |
-| Attestation | Devnet attestation/reputation records | Judge-fee economics are product fixtures, not deployed treasury collection |
-| Registration | Registry burns the devnet-era 0.01 SOL anti-sybil fee to the incinerator | Not protocol revenue |
-
-Current escrow custody is SOL-only; there is no deployed USDC or AUDD custody path. Escrow durability changed after PR #645, so older "escrow closes at settlement" summaries should be treated as historical until the current Quasar docs are re-reviewed.
-Solana gas examples are illustrative and do not by themselves establish production readiness.
-
----
-
-## Reputation system (commit-reveal)
-
-After each job, both parties submit `sha256(score || salt)`. Neither sees the other's score when submitting. Both reveal only after both have committed. The on-chain program verifies each hash before writing scores.
-
-The intended property is that neither party sees the other's score before committing. Current devnet readiness still has an unresolved CRITICAL-4 reveal/expiry griefing gate; do not treat the reputation system as mainnet-ready until that design is closed and re-reviewed.
-
----
-
-## Running the protocol locally
+## Running protocol/reference checks locally
 
 ### Prerequisites
+
 - Pinned user-scoped Solana/Anchor toolchain from [`docs/SOLANA-TOOLCHAIN-BASELINE.md`](docs/SOLANA-TOOLCHAIN-BASELINE.md) (Anchor 1.1.2; Agave/Solana CLI 4.2.2; Rust 1.98.0; repo-local Node 24.20.0)
-- [Ollama](https://ollama.ai) with at least one model
+- Node dependencies installed with `npm install`
+- [Ollama](https://ollama.ai) with at least one model for local demo simulations that invoke a local model
 
-### Local validator + program
+### Common safe checks
 
 ```bash
-# Terminal 1 — start local validator
-solana-test-validator
-
-# Terminal 2 — build + deploy Anchor program
-cd programs/agent-registry
-anchor build
-anchor deploy --provider.cluster localnet
-
-# Terminal 3 — start index API
-npm run index-api
-
-# Terminal 4 — run demo simulation (registers 4 agents, runs full pipeline)
-npm run demo
+npm test -- --ci --maxWorkers=2
+npm run lint
+npm run build
+npm run check:conformance:public
+npm run check:oss-release-smoke
+npm run check:claims:public
 ```
 
-### Tests
+Legacy Anchor reference checks (no live deployment):
 
 ```bash
-# Legacy Anchor reference program tests (LiteSVM / Mollusk)
+cargo build-sbf --manifest-path programs/escrow/Cargo.toml --sbf-out-dir target/deploy
 cargo test -p escrow
-
-# Web app Playwright tests (26 tests)
-cd ../reddi-agent-protocol
-npm run test:e2e
+anchor idl build -p escrow --skip-lint -o .tmp/escrow-idl.json -t .tmp/escrow-idl.ts
 ```
 
----
+Inspect scripts before running anything with `devnet`, `live`, `surfpool`, or `evidence` in the name; some scripts use wallets, fixed ports, RPC endpoints, generated artifacts, or live-spend gates.
 
 ## Web app pages
 
 | Page | URL | Purpose |
 |---|---|---|
-| Landing | `/` | Protocol overview + validator analogy |
-| Browse | `/agents` | Search agents by type, rep, rate |
-| Setup | `/setup` | "Wrap your Ollama" — 4 templates, 6 steps |
-| Demo | `/demo` | Live debug playground — streaming pipeline trace |
-| Register | `/register` | Wallet connect → on-chain registration |
-| Customize | `/customize` | Prompts, tools, reputation strategy |
-| Dashboard | `/dashboard` | Your agents, earnings, recent jobs |
+| Landing | `/` | RAP Assurance overview and claim boundary |
+| Directory | `/agents` | Browse specialists and discovery candidates with trust/payment boundaries |
+| Setup | `/setup` | Local endpoint setup helper |
+| Demo | `/demo` and `/economic-demo` | Labelled local/devnet proof walkthroughs |
+| Register | `/register` | Devnet/local specialist registration UI with readiness gates |
+| Planner | `/planner` | Buyer policy and receipt inspection flow |
+| Dashboard | `/dashboard` | Local/demo role dashboards |
+| Whitepaper | `/whitepaper` | Candidate documentation with explicit current-state boundaries |
 
----
+## Solana programs
 
-## Solana programs (devnet)
+The four **Quasar** program ids recorded for devnet live in [`config/quasar/deployments.json`](config/quasar/deployments.json), which is the single source of truth for their status. That deployment is currently **blocked** (`submissionReady: false`): the binaries predate the job-binding rework and no longer match the in-repo client, so the Quasar target is refused on devnet before any instruction is built, any signer is touched, or any RPC call is made. No redeploy is claimed or performed.
 
-The four **Quasar** program ids recorded for devnet live in
-[`config/quasar/deployments.json`](config/quasar/deployments.json), which is the single
-source of truth for their status. That deployment is currently **blocked**
-(`submissionReady: false`): the binaries predate the job-binding rework and no longer
-match the in-repo client, so the Quasar target is refused on devnet before any
-instruction is built, any signer is touched, or any RPC call is made. No redeploy is
-claimed or performed.
+Quasar is therefore experimental, and the only retained Quasar evidence is the local Surfpool lane described in [`docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`](docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md), which builds current sources and runs them against a loopback local validator.
 
-Quasar is therefore experimental, and the only retained Quasar evidence is the local
-Surfpool lane described in
-[`docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`](docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md),
-which builds the current sources and runs them against a loopback local validator.
-
-The legacy Anchor deployment (`794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD`) is
-historical/reference only. Deployment guidance is in [`DEPLOY.md`](DEPLOY.md).
-
----
+The legacy Anchor deployment (`794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD`) is historical/reference only. Deployment guidance is in [`DEPLOY.md`](DEPLOY.md).
 
 ## Stack
 
-- **On-chain:** Quasar (Rust) — four programs: Registry, Escrow, Reputation, Attestation
-- **Off-chain index:** Node.js + Express — subscribes to Solana event logs
-- **Consumer agent:** TypeScript orchestrator with MCP `find_agents` tool
-- **Specialist server:** Node.js HTTP server — x402 payment gate fronting Ollama, vLLM, or OpenOnion inference
-- **MCP bridge:** [`packages/rap-mcp-bridge`](packages/rap-mcp-bridge) — repo-local bridge for specialist discovery and x402 proof paths
-- **Framework adapters:** [`packages/eliza-plugin-x402`](packages/eliza-plugin-x402), [`packages/sendai-x402`](packages/sendai-x402) — experimental/deferred repo-local integrations, not public v0.1 package claims
+- **Assurance packages:** `@reddi/agent-protocol`, `@reddi/x402-solana`, `@reddi/rap-mcp-bridge`
+- **Conformance:** deterministic Jest, Node, and package dry-run checks
+- **Reference Solana code:** legacy Anchor program plus experimental Quasar sources/lane
+- **MCP bridge:** repo-local bridge for discovery, synthetic quotes, dry-run verification, and disclosure ledgers
+- **Framework adapters:** experimental/deferred repo-local integrations, not public v0.1 package claims
 - **Web app:** Next.js 16 (App Router) + React 19 + Tailwind v4 + shadcn/ui + Solana wallet adapter
 
 ---
 
-## Hackathon
-
-Built for the **Reddi Agent Economy Hackathon** · March 2026
-Deadline: March 27, 2026
-
-*Built on Solana. Powered by Ollama. Governed by math.*
-
-## RPC Configuration
-
-For agent micropayments, low-latency RPC is not optional. Sub-100ms RPC keeps lock/release/verification loops tight enough to avoid user-visible delays in high-frequency flows.
-
-**Why this matters at scale:**
-- With 1,000 active specialists, heartbeat checks alone can generate ~24,000 RPC calls/day.
-- Add escrow lifecycle calls, attestation reads, and settlement confirmations, and RPC performance becomes a core reliability dependency.
-
-Set your endpoint in `.env.local`:
-
-```bash
-NEXT_PUBLIC_RPC_ENDPOINT=https://<your-rpc-endpoint>
-```
-
-For production, we recommend RPC Fast:
-https://rpcfast.com
+Built for the Reddi Agent Economy Hackathon evidence track and now narrowed around RAP Assurance.

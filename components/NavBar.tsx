@@ -19,7 +19,7 @@ function abbrev(addr: string) {
 const navLinks: { href: string; label: string; badge?: string }[] = [
   { href: "/start", label: "Start" },
   { href: "/economic-demo", label: "Demo" },
-  { href: "/agents", label: "Marketplace" },
+  { href: "/agents", label: "Directory" },
   { href: "/register", label: "Register" },
   { href: "/setup", label: "Setup" },
   { href: "/#verify-demo", label: "Verify" },

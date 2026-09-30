@@ -105,7 +105,8 @@
     "check:oss-release-smoke": "node ./scripts/check-oss-release-smoke.mjs",
     "check:package:artifacts": "node ./scripts/check-package-artifact-contents.mjs",
     "check:conformance:public": "node ./scripts/run-public-conformance.mjs",
-    "check:copy:paid-workflow": "node ./scripts/check-paid-workflow-copy-boundaries.mjs"
+    "check:copy:paid-workflow": "node ./scripts/check-paid-workflow-copy-boundaries.mjs",
+    "check:claims:public": "node ./scripts/check-public-claim-boundaries.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",

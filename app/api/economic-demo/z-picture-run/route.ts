@@ -18,7 +18,7 @@ const PER_PROOF = {
   delegateTx: "3JCzpBo7Wz7hi6hP89ggRhfcvBDz9mGAgfjKDQxzaNtkkK7nbWEkiaQH7nE3HyjmbAxpywpGSV3CujsBwdoGxb5P",
   releaseTx: "2Hj5pFtuAeDuYEDe5PP6hEi3ybVbfNXW5BVSAEimNGgvs1VVR8d7xqofkeVqkTZ9dQhDZr25nhCWATU2GGk1M7TC",
   commitTx: "Wamr7MNcub7pbVNnmMgF7bEXGVSztRarqnT6UBshcthbDk816KdGjhQuQxH3GJuWT9sMBZRGbYU2LVUG6CZeZAK",
-  claim: "MagicBlock PER proof: Quasar-owned agent-vault settlement executed via MagicBlock TEE with redacted TEE auth and delegated account ownership; not an arbitrary-wallet mainnet/private-payee claim.",
+  claim: "MagicBlock PER reference proof: bounded Quasar-owned agent-vault experiment with redacted TEE auth and delegated account ownership; not a production privacy, custody, mainnet, or arbitrary-wallet/private-payee settlement claim.",
 };
 
 function solscan(signature?: string) {
@@ -39,7 +39,7 @@ function walletAuthorizationFromBody(body: ZPictureBody) {
         wallet: String(body.walletAuthorization.wallet),
         signature: String(body.walletAuthorization.signature),
         message: String(body.walletAuthorization.message).slice(0, 500),
-        boundary: "Client Phantom signature authorizes this browser demo run; x402 transfer signer is reported separately in paidRun.orchestratorWallet.",
+        boundary: "Client Phantom signature authorizes this browser demo run; any x402 transfer signer is reported separately in paidRun.orchestratorWallet and does not imply mainnet or production readiness.",
       }
     : null;
 }
@@ -50,7 +50,7 @@ function staticReplayResult(body: ZPictureBody, prompt: string, reason: string) 
     ...Z_PICTURE_STATIC_PROOF,
     ok: true,
     replay: true,
-    source: "static-production-replay",
+    source: "static-bounded-replay",
     fallbackReason: reason,
     prompt,
     image: { ...Z_PICTURE_STATIC_PROOF.image, imageUrl: Z_PICTURE_STATIC_IMAGE_URL },

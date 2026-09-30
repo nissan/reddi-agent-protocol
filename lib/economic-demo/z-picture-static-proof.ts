@@ -1,4 +1,4 @@
-/* Auto-generated static production fallback for /economic-demo/z-picture-proof. */
+/* Static bounded replay fixture for /economic-demo/z-picture-proof. */
 
 export const Z_PICTURE_STATIC_IMAGE_URL = "/proofs/z-picture-2026-05-09T002401254Z-ce217dd3.png";
 
@@ -15,7 +15,7 @@ export const Z_PICTURE_STATIC_PROOF = {
     "wallet": "HkKCys9nF8Y9vqU4KjkZ7C68djpGqRK7u2K6map2uDLj",
     "signature": "tkA7sI8N4L1YqZKsYATTDUwBwV3jHz+XqDxi+Ca1VZXsXf3r0KYKEBVKqLwBE5fzo0wN87UtMCsQq+e3hnP8CA==",
     "message": "Authorize Reddi Agent Protocol economic demo Z image call on Solana devnet for wallet HkKCys9nF8Y9vqU4KjkZ7C68djpGqRK7u2K6map2uDLj at 2026-05-09T00:23:51.397Z",
-    "boundary": "Client Phantom signature authorizes this browser demo run; x402 transfer signer is reported separately in paidRun.orchestratorWallet."
+    "boundary": "Client Phantom signature authorizes this browser demo run; x402 transfer signer is reported separately in paidRun.orchestratorWallet and does not imply mainnet or production readiness."
   },
   "paidRun": {
     "runId": "economic-demo-paid-devnet-b9734abe-5c30-447c-844c-cf78b9d0efb8",
@@ -60,7 +60,7 @@ export const Z_PICTURE_STATIC_PROOF = {
     "delegateTx": "3JCzpBo7Wz7hi6hP89ggRhfcvBDz9mGAgfjKDQxzaNtkkK7nbWEkiaQH7nE3HyjmbAxpywpGSV3CujsBwdoGxb5P",
     "releaseTx": "2Hj5pFtuAeDuYEDe5PP6hEi3ybVbfNXW5BVSAEimNGgvs1VVR8d7xqofkeVqkTZ9dQhDZr25nhCWATU2GGk1M7TC",
     "commitTx": "Wamr7MNcub7pbVNnmMgF7bEXGVSztRarqnT6UBshcthbDk816KdGjhQuQxH3GJuWT9sMBZRGbYU2LVUG6CZeZAK",
-    "claim": "MagicBlock PER proof: Quasar-owned agent-vault settlement executed via MagicBlock TEE with redacted TEE auth and delegated account ownership; not an arbitrary-wallet mainnet/private-payee claim.",
+    "claim": "MagicBlock PER reference proof: bounded Quasar-owned agent-vault experiment with redacted TEE auth and delegated account ownership; not a production privacy, custody, mainnet, or arbitrary-wallet/private-payee settlement claim.",
     "solscan": {
       "lock": "https://solscan.io/tx/5ytS8ZckXSwDCgBi3hsvJa21tMA8DMLp4B18rnPpFYPQiGtbakVsZE8cC4MZdwzzpJ6EK5VhXrRRuFEBqhNYtcPQ?cluster=devnet",
       "delegate": "https://solscan.io/tx/3JCzpBo7Wz7hi6hP89ggRhfcvBDz9mGAgfjKDQxzaNtkkK7nbWEkiaQH7nE3HyjmbAxpywpGSV3CujsBwdoGxb5P?cluster=devnet",
@@ -85,5 +85,5 @@ export const Z_PICTURE_STATIC_PROOF = {
       "note": "Dashboard score is the demo-local Torque reputation projection immediately after emitting Torque-compatible events; external campaign leaderboard may lag or remain empty in sandbox mode."
     }
   },
-  "claimBoundary": "Static production fallback for the completed wallet-backed devnet proof. Claims devnet x402 payments plus bounded MagicBlock PER privacy-lane evidence only; no mainnet or production private settlement claim."
+  "claimBoundary": "Static bounded replay fixture for the completed devnet proof. Records devnet x402 payment-proof references plus bounded MagicBlock PER reference evidence only; no mainnet, custody, production readiness, or production private settlement claim."
 } as const;

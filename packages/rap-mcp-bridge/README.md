@@ -1,10 +1,12 @@
 # @reddi/rap-mcp-bridge
 
-MCP bridge for Reddi Agent Protocol specialist discovery, synthetic quotes, dry-run verification, and disclosure ledgers.
+Dry-run MCP bridge for RAP Assurance specialist discovery, synthetic quotes, receipt verification, and disclosure ledgers.
+
+> Payments prove transfer; RAP Assurance proves paid work.
 
 ## First PR boundary
 
-This package is **dry-run only**.
+This package is **dry-run only**. It is not a payment tool, marketplace operator, custody path, hosted runtime, or production settlement surface.
 
 Exposed tools:
 

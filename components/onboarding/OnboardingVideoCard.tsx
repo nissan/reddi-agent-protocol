@@ -1,14 +1,20 @@
 import Link from "next/link";
 
-import type { OnboardingVideoGuide } from "@/lib/onboarding/video-guides";
+import { hasPlayableRecording, type OnboardingVideoGuide } from "@/lib/onboarding/video-guides";
 
 type Props = {
   video: OnboardingVideoGuide;
   layout?: "stacked" | "horizontal";
+  /** Route this card is rendered on, so a withheld capture of this same page does not link to itself. */
+  hostRoute?: string;
 };
 
 function isExternal(href: string) {
   return href.startsWith("http://") || href.startsWith("https://");
+}
+
+function samePage(a: string, b: string) {
+  return a.split("#")[0] === b.split("#")[0];
 }
 
 function CtaLink({ href, label, primary = false }: { href: string; label: string; primary?: boolean }) {
@@ -31,8 +37,9 @@ function CtaLink({ href, label, primary = false }: { href: string; label: string
   );
 }
 
-export function OnboardingVideoCard({ video, layout = "stacked" }: Props) {
+export function OnboardingVideoCard({ video, layout = "stacked", hostRoute }: Props) {
   const horizontal = layout === "horizontal";
+  const capturesHostPage = hostRoute !== undefined && samePage(hostRoute, video.route);
 
   return (
     <article
@@ -41,25 +48,50 @@ export function OnboardingVideoCard({ video, layout = "stacked" }: Props) {
       }`}
     >
       <div className="relative bg-black">
-        <video
-          aria-label={`${video.title} onboarding video`}
-          className="aspect-video h-full w-full object-cover"
-          controls
-          playsInline
-          preload="metadata"
-          poster={video.posterSrc}
-        >
-          <source src={video.videoSrc} type="video/mp4" />
-          <track
-            default
-            kind="captions"
-            label="English captions"
-            src={video.captionsSrc}
-            srcLang="en"
-          />
-        </video>
+        {hasPlayableRecording(video) ? (
+          <video
+            aria-label={`${video.title} onboarding video`}
+            className="aspect-video h-full w-full object-cover"
+            controls
+            playsInline
+            preload="metadata"
+            poster={video.posterSrc}
+          >
+            <source src={video.videoSrc} type="video/mp4" />
+            <track
+              default
+              kind="captions"
+              label="English captions"
+              src={video.captionsSrc}
+              srcLang="en"
+            />
+          </video>
+        ) : (
+          <div className="flex aspect-video h-full w-full flex-col items-center justify-center gap-2 bg-[#1a1a2e] px-6 text-center">
+            <span
+              data-testid="withheld-recording-notice"
+              className="max-w-sm text-xs leading-relaxed text-white/25"
+            >
+              Recording not shown: this capture predates the public-claim remediation and still
+              shows retired marketplace/payment wording.{" "}
+              {video.multiRouteRecording ? (
+                <>It toured several routes, so no single page reproduces it; browse this build for the current copy.</>
+              ) : capturesHostPage ? (
+                <>The current copy is what this page renders.</>
+              ) : (
+                <>
+                  Open{" "}
+                  <Link href={video.route} className="underline hover:text-white/50">
+                    {video.route}
+                  </Link>{" "}
+                  on this build for the current copy.
+                </>
+              )}
+            </span>
+          </div>
+        )}
         <div className="absolute left-3 top-3 rounded-full border border-[#14F195]/30 bg-black/70 px-3 py-1 text-xs font-semibold text-[#14F195] backdrop-blur">
-          {video.duration} · {video.boundary}
+          {hasPlayableRecording(video) ? `${video.duration} · ${video.boundary}` : video.boundary}
         </div>
       </div>
 

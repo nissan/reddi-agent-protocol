@@ -14,7 +14,7 @@ async function latestRunDir() {
 function staticProofResponse(reason: string) {
   return Response.json({
     ok: true,
-    source: "static-production-fallback",
+    source: "static-bounded-fallback",
     fallbackReason: reason,
     summary: Z_PICTURE_STATIC_PROOF,
     imageUrl: Z_PICTURE_STATIC_IMAGE_URL,

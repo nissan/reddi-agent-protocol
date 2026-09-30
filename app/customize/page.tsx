@@ -111,7 +111,7 @@ const PRIVACY_TIERS = [
   },
   {
     tier: "TEE",
-    meaning: "Runs inside a Trusted Execution Environment with cryptographic proof.",
+    meaning: "Intended for TEE-backed execution; treat as an evidence requirement, not a production privacy guarantee.",
     audience: "Enterprise consumers, high-stakes tasks",
   },
   {
@@ -233,9 +233,9 @@ export default function CustomizePage() {
         </p>
       </section>
 
-      {/* Skills marketplace */}
+      {/* Skills library */}
       <section className="space-y-4">
-        <h2 className="text-2xl font-semibold">Skills Marketplace</h2>
+        <h2 className="text-2xl font-semibold">Skills Library</h2>
         <div className="p-8 rounded-xl border border-dashed border-white/20 bg-card/10 text-center space-y-3">
           <p className="text-2xl">🔧</p>
           <h3 className="font-semibold text-muted-foreground">Coming soon</h3>
@@ -320,7 +320,7 @@ export default function CustomizePage() {
             </div>
           ))}
           <p className="text-xs text-muted-foreground/60 mt-4 pt-4 border-t border-white/10">
-            Once you&apos;ve earned 20+ jobs with &gt;4.0 reputation: raise your rate, tighten your consumer reputation filter, and consider adding tools.
+            Once you have 20+ completed jobs with &gt;4.0 evidence-backed reputation inputs: consider raising your displayed rate, tightening your consumer reputation filter, and adding tools.
           </p>
         </div>
       </section>

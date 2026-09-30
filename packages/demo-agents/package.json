@@ -1,7 +1,7 @@
 {
   "name": "@reddi/demo-agents",
   "version": "0.1.0",
-  "description": "Demo A\u2192B\u2192C agent cycle on Solana devnet",
+  "description": "Historical devnet demo A→B→C agent cycle for RAP Assurance evidence; not production/mainnet.",
   "private": true,
   "scripts": {
     "fund": "ts-node src/fund-agents.ts",

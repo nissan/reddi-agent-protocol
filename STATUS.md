@@ -556,7 +556,7 @@ Delivered:
 Validation:
 - `git diff --check` PASS.
 
-RESUME FROM HERE: Review the package plan and, once #341/#342 land, use it to scaffold `packages/agent-protocol` without adding live payment or hosted Reddi dependencies to the default package validation path.
+RESUME FROM HERE: Review the package plan and, once #341/#342 land, use it to scaffold `packages/agent-protocol` without adding live payment or hosted Reddi Agent Protocol dependencies to the default package validation path.
 
 ## Latest Update — RAP positioning and Solana coupling map drafted (2026-05-13 AEST)
 

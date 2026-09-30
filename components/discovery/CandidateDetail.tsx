@@ -400,7 +400,7 @@ export function CandidateDetailView({ detail, backHref }: { detail: DiscoveryCan
           data-testid="candidate-detail-back-bottom"
           className="text-sm text-indigo-300 transition hover:text-indigo-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400"
         >
-          ← Back to marketplace discovery
+          ← Back to directory discovery
         </Link>
       </div>
     </div>
@@ -449,7 +449,7 @@ export function CandidateDetailUnavailable({
           data-testid="candidate-detail-back-bottom"
           className="text-sm text-indigo-300 transition hover:text-indigo-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400"
         >
-          ← Back to marketplace discovery
+          ← Back to directory discovery
         </Link>
       </div>
     </div>

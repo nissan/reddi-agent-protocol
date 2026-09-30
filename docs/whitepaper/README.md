@@ -1,6 +1,6 @@
 # Whitepaper Program — Reddi Agent Protocol
 
-This folder contains the phased documentation program for publishing a protocol-grade whitepaper and supporting technical documentation.
+This folder contains candidate protocol documentation for RAP Assurance. It is a publication-review surface, not a production, mainnet, custody, or security-audit claim.
 
 ## Files
 
@@ -16,7 +16,7 @@ This folder contains the phased documentation program for publishing a protocol-
 
 ## Publishing intent
 
-1. Keep claims evidence-linked (code paths, tests, and on-chain references).
+1. Keep claims evidence-linked (code paths, tests, recorded/local evidence, and explicitly bounded on-chain references).
 2. Separate **current state** vs **roadmap** clearly.
 3. Provide both technical depth and narrative clarity for non-engineer readers.
-4. Integrate into the web app under `/whitepaper` with an accessible summary and links.
+4. Integrate into the web app under `/whitepaper` with an accessible summary, links, and the central claim: “payments prove transfer; RAP Assurance proves paid work.”

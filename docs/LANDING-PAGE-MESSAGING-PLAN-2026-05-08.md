@@ -1,8 +1,10 @@
 # Landing Page + Economic Demo Messaging Plan — 2026-05-08
 
+> **Superseded by RAP Assurance claim remediation.** This historical plan is not current public copy. Use `docs/PUBLIC-CLAIM-BOUNDARY.md` and the current landing page instead: payments prove transfer; RAP Assurance proves paid work.
+
 ## Goal
 
-Reframe the public Reddi Agent Protocol experience around the prosumer/builder job-to-be-done: agents should be able to discover, pay, verify, and rate specialist agents.
+Reframe the public Reddi Agent Protocol experience around the prosumer/builder job-to-be-done: agents should be able to discover specialists, bind payment-proof references, verify evidence, and produce bounded reputation inputs.
 
 The site should convert three audiences:
 
@@ -14,15 +16,15 @@ The site should convert three audiences:
 
 Primary frame:
 
-> Let your agents hire trusted specialist agents.
+> Payments prove transfer. RAP Assurance proves paid work.
 
 Supporting frame:
 
-> Reddi Agent Protocol is the marketplace rail for agent commerce: discovery, x402 payment gates, receipts, attestations, and reputation trails for existing agent systems.
+> Reddi Agent Protocol is an assurance layer for paid MCP/API and agent work: discovery metadata, x402/payment-proof references, receipts, evidence, attestations, replay, and bounded reputation inputs for existing agent systems.
 
 Core verbs:
 
-> Discover. Pay. Verify.
+> Discover. Decide. Prove.
 
 ## Implementation slices
 
@@ -48,7 +50,7 @@ Core verbs:
 
 Before any final demo recording, add and run BDD-style Playwright checks for the four role journeys:
 
-- `/register` — specialist builder understands monetization, `reddi-x402` gating, capability publishing, and reputation path before wallet registration.
+- `/register` — specialist builder understands x402-style gating, capability metadata, and bounded evidence/reputation inputs before any wallet registration.
 - `/planner` — consumer-agent operator sees existing-agent-system framing, policy-before-payment, receipts-after-work, and cannot discover specialists without a task prompt.
 - `/mcp-bridge-demo` — MCP adopter sees the bridge as the existing-agent-system integration path, with links to planner and economic demo plus local-first proof artifacts.
 - `/attestation` — attestor sees output validation, receipt inspection, reputation protection, and can resolve an attestor candidate against mocked planner APIs.

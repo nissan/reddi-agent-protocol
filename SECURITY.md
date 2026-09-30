@@ -23,9 +23,9 @@ These addresses are recorded history, not an active demo target: `config/quasar/
 
 ### 2) Replay attack protection (nonce + PDA uniqueness)
 
-- x402 and settlement flows use nonces, and request identity is bound to unique PDA derivations.
-- Replayed payloads fail because nonce/PDA combinations are consumed or already initialized.
-- Payment verification enforces one-time semantics for challenge-response settlement attempts.
+- x402 helpers use nonces and replay stores where configured, and on-chain reference paths use PDA derivations.
+- Replayed payloads are rejected by the local/package replay guards or source-level state checks under test.
+- Payment verification enforces one-time semantics only for the explicitly configured verifier or fixture; it is not a settlement-finality claim.
 
 ### 3) Double-release prevention
 
@@ -46,24 +46,25 @@ These addresses are recorded history, not an active demo target: `config/quasar/
 - Cancels outside allowed windows fail at program-level checks.
 - This blocks griefing where one party attempts late cancellation after service delivery.
 
-## PER (TEE) Privacy Guarantees and L1 Fallback
+## PER (TEE) reference boundary
 
-- Private Ephemeral Rollup (PER) mode executes settlement in a TEE-backed environment to reduce data exposure and metadata leakage.
-- If TEE/PER availability degrades, protocol supports L1 fallback so settlement guarantees remain live.
-- Security model: confidentiality improves in PER mode; integrity remains anchored by on-chain verification and fallback paths.
+- Private Ephemeral Rollup (PER) material is reference evidence and client-side tooling, not a production privacy or settlement guarantee.
+- Current public claims must stay bounded to the explicitly labelled local/devnet artifacts and source-level behavior.
+- Mainnet, live-funds, arbitrary private-payee settlement, and confidentiality guarantees require separate compatibility qualification, audit, deployment approval, and operational gates.
 
 ## x402 Payment Verification Security
 
 ### Trusted path
 
-- Verifier and settlement middleware are controlled by protocol services.
-- Nonce issuance, signature checks, and payment proofs are validated before releasing compute access.
+- Local verifier and middleware code validates nonce, policy, and payment-proof references before accepting a paid-work receipt path.
+- Rail-specific payment packages remain responsible for validating transfer-specific proofs.
+- Hosted or production verifier operation is not claimed by this document.
 
 ### Untrusted path assumptions
 
 - Third-party relays/verifiers are treated as potentially adversarial.
-- On-chain escrow constraints remain final source of truth.
-- Clients should treat off-chain 402 responses as hints until chain-confirmed.
+- Chain-confirmed transfer evidence, when present, is rail-specific payment proof rather than proof of paid-work quality.
+- Clients should treat off-chain 402 responses as hints until the relevant payment verifier and RAP receipt/evidence checks pass.
 
 ### Nonce collision handling
 
@@ -88,8 +89,8 @@ Key risks considered:
 Current mitigations:
 
 - On-chain attestation records and dispute states are auditable.
-- Reputation penalties and attestation-accuracy adjustments create economic disincentives for dishonest judging.
-- Dispute paths are explicit state transitions, reducing ambiguous off-chain arbitration.
+- Reputation penalties and attestation-accuracy adjustments are modeled as source/test semantics, not deployed economic guarantees.
+- Dispute paths are explicit state transitions in the reference model, reducing ambiguous off-chain arbitration only where the corresponding implementation is live and reviewed.
 
 ## Known Limitations (Current Phase)
 
@@ -104,7 +105,7 @@ Current mitigations:
 
 ## Audit Credit Use
 
-Adevar Labs audit credits will be used to fund a pre-mainnet security review covering escrow invariants, replay resistance, access control constraints, attestation/dispute logic, and integration boundaries across x402 and PER paths.
+Adevar Labs audit credits are intended for a future pre-mainnet security review covering escrow invariants, replay resistance, access control constraints, attestation/dispute logic, and integration boundaries across x402 and PER paths. No completed external audit is claimed here.
 
 ## Responsible Disclosure
 
@@ -115,7 +116,7 @@ If you identify a security issue:
 3. If private vulnerability reporting is unavailable, open a public GitHub issue titled `Security contact request` and include only that you need a private channel. Do not include exploit details, private keys, payloads, logs, screenshots, or reproduction steps in the public issue.
 4. Allow reasonable remediation time before disclosure.
 
-We will acknowledge valid reports, prioritize fixes by severity, and coordinate transparent postmortems once patched.
+Maintainers intend to acknowledge valid reports, prioritize fixes by severity, and coordinate transparent postmortems once patched; this is not an SLA or managed security-service commitment.
 
 Do not open a public GitHub issue with details for exploitable vulnerabilities, private-key exposure, credential leakage, bypassable payment gates, escrow-release flaws, attestation manipulation, replay attacks, or unauthenticated access to private data.
 

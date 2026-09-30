@@ -97,7 +97,7 @@ export default function SpecialistDetailPage() {
       <div className="mx-auto max-w-6xl px-4 py-16 space-y-4">
         <p className="text-red-300">Specialist not found.</p>
         <Link href="/agents">
-          <Button variant="outline">← Back to marketplace</Button>
+          <Button variant="outline">← Back to directory</Button>
         </Link>
       </div>
     )
@@ -109,7 +109,7 @@ export default function SpecialistDetailPage() {
     <div className="min-h-screen bg-page">
       <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8 space-y-8">
         <Link href="/agents" className="text-sm text-gray-400 hover:text-white">
-          ← Back to marketplace
+          ← Back to directory
         </Link>
 
         <PageHeader
@@ -216,9 +216,9 @@ export default function SpecialistDetailPage() {
                   {manifest?.disclosure_policy || "No explicit downstream disclosure policy has been published for this specialist."}
                 </p>
                 <div className="mt-4 grid gap-4 sm:grid-cols-3">
-                  <ManifestList title="Marketplace agents it may call" items={marketplaceAgentCalls} empty="No marketplace-agent calls disclosed." />
+                  <ManifestList title="Directory agents it may call" items={marketplaceAgentCalls} empty="No downstream agent calls disclosed." />
                   <ManifestList title="External MCP servers" items={externalMcpServers} empty="No external MCP servers disclosed." />
-                  <ManifestList title="Non-marketplace agents/services" items={nonMarketplaceAgentCalls} empty="No non-marketplace agents disclosed." />
+                  <ManifestList title="External agents/services" items={nonMarketplaceAgentCalls} empty="No external agents disclosed." />
                 </div>
               </div>
 
@@ -232,7 +232,7 @@ export default function SpecialistDetailPage() {
                   <p className="mt-1 text-lg text-white">{listing.onchain.attestationAccuracy}%</p>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs text-gray-500">Settlement</p>
+                  <p className="text-xs text-gray-500">Payment/evidence boundary</p>
                   <p className="mt-1 text-lg text-white">{privacyModes.join(", ") || "public"}</p>
                 </div>
               </div>
@@ -244,7 +244,7 @@ export default function SpecialistDetailPage() {
               <div>
                 <p className="section-label mb-2">Hire this Specialist</p>
                 <p className="text-3xl font-display text-white">◎ {(Number(listing.onchain.rateLamports) / 1_000_000_000).toFixed(4)} SOL/call</p>
-                <p className="mt-1 text-sm text-gray-400">Settlement mode, payment, and execution are routed through the planner.</p>
+                <p className="mt-1 text-sm text-gray-400">Payment mode, evidence, and execution are routed through the planner; settlement finality is not implied.</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 {privacyModes.map((mode) => (

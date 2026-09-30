@@ -1,83 +1,81 @@
-# PAYMENT FLOW ARCHITECTURE
+# Payment and RAP Assurance Architecture
 
-## Dodo Payments sidetrack framing
+Status: current public-claim boundary. This document replaces older “we handle settlement + escrow” framing with the narrower RAP Assurance message.
 
-**Dodo = FIAT→USDC on-ramp; we = USDC→agent settlement + escrow + dispute.**
+> Payments prove transfer; RAP Assurance proves paid work.
 
-Dodo brings users into stablecoin rails. Reddi Agent Protocol handles what happens next: trust-minimized agent-to-agent settlement with escrow protection and on-chain dispute/attestation paths.
+## Current framing
 
-## End-to-end flow
+Reddi Agent Protocol should not be presented as a payment facilitator, custody provider, escrow provider, broad marketplace, or generic runtime. Payment rails and adapters can prove payment intent or transfer. RAP Assurance records the paid-work context around those rails: terms, buyer policy, payment-proof references, evidence references, attestation outcomes, replay metadata, and bounded reputation inputs.
+
+## Integration-first flow
 
 ```text
 Agent A (buyer/consumer)
     |
-    | 1) HTTP request to specialist endpoint
+    | 1) Discover specialist metadata from local fixtures, MCP/AI catalog,
+    |    registry/search adapters, or a future hosted catalog.
     v
-x402 challenge (HTTP 402 Payment Required)
+Quote / 402 challenge / payment plan
     |
-    | 2) Agent A signs payment intent, attaches x402 headers
+    | 2) Evaluate buyer budget, authority, rail support, evidence requirements,
+    |    allowlists, expiry, and operator-approval gates.
     v
-USDC transfer + escrow lock (SPL Token Program)
+Payment rail or fixture
     |
-    | 3) Funds held in escrow PDA until completion/dispute
+    | 3) Rail-specific verifier proves payment intent/transfer, or the route
+    |    stays dry-run/no-spend. RAP stores only the proof reference.
     v
-Escrow PDA (program-owned state + token custody)
+Specialist work + evidence
     |
-    | 4) Agent B delivers result
+    | 4) Request/response hashes, evidence refs, disclosure ledgers, and replay
+    |    labels bind the work to the agreed terms.
     v
-Agent B (seller/specialist)
+RAP Assurance receipt
     |
-    | 5) release instruction (or dispute/cancel path)
-    v
-Settlement: payout to Agent B, protocol fee, escrow close
+    | 5) Attestation/replay/conformance decide which reputation or dispute inputs
+    |    are justified. Payment alone is never work-quality proof.
 ```
 
-## Settlement modes
+## Current supported claims
 
-1. **Public mode (L1 Solana):**
-   - Full on-chain settlement and visibility.
-   - Best for maximum transparency.
+- Local/offline receipt, policy, evidence-binding, replay, and conformance helpers.
+- x402 challenge parsing, budget preflight, nonce/replay checks, and explicit proof-reference handling.
+- Read-only SVM SPL `TransferChecked` observation for parsed transaction evidence; no wallet, signer, RPC fetch, or live submission is added by that verifier.
+- AUDD as payment-plan/proof metadata unless a separate audited live rail is approved.
+- Recorded or local/devnet evidence only where a page, script, or artifact explicitly labels the boundary.
 
-2. **PER mode (MagicBlock TEE):**
-   - Privacy-enhanced execution path via TEE-backed infrastructure.
-   - Lower metadata leakage, with L1-backed guarantees/fallback.
+## Explicit non-claims
 
-3. **Vanish Core mode (roadmap):**
-   - Planned deeper privacy and execution abstraction layer.
-   - Keeps the same escrow/dispute trust guarantees with stronger confidentiality goals.
+- No production settlement-finality claim.
+- No mainnet readiness claim.
+- No custody or escrow-provider claim.
+- No default live payment, wallet, RPC, or paid-provider call.
+- No hosted marketplace/facilitator readiness claim.
+- No collected on-chain protocol treasury fee; 0.05% / 5 bps remains fixture/planned economics only.
 
-## SPL USDC flow details
+## x402 challenge/response semantics (implemented in `packages/x402-solana`)
 
-- Payment asset: SPL USDC.
-- Buyer funds move from buyer token account to escrow-owned token account/PDA lifecycle.
-- Release moves funds from escrow custody to recipient and fee destinations according to protocol rules.
-- Cancel/dispute paths enforce state- and time-based constraints before any token movement.
+These are protocol mechanics the repository actually implements, not a settlement claim.
 
-## HTTP 402 header format (conceptual)
+- Request header: `x402-request`, a JSON payload parsed by `parseX402Header`.
+- Required fields: `amount` (positive), `currency`, `paymentAddress`/`payTo` (strict base58 32-byte Solana public key), `nonce`.
+- Optional fields: `network`, `endpoint`, `memo`, `payerCurrency`, `payerAddress`, `autoSwap`.
+- `buildX402Challenge` rejects unsupported networks, non-positive amounts, and missing nonce/currency/endpoint.
+- Replay protection: `checkAndStoreNonce` rejects a repeated nonce with HTTP 409 before any payment path runs.
+- Response header: `x402-payment`, carrying the receipt the caller can retain as a payment-proof reference.
 
-x402 requests use a challenge/response header model. Typical fields include:
+The invariants are challenge binding, anti-replay nonce, amount/asset binding, and payer authorization proof. Parsing and gating these is not itself proof that funds moved, that work was performed, or that any live rail is enabled.
 
-- `X-Payment-Protocol`: protocol identifier/version
-- `X-Payment-Nonce`: anti-replay nonce
-- `X-Payment-Amount`: required amount (USDC units)
-- `X-Payment-Asset`: token mint identifier
-- `X-Payment-Signature`: payer proof/signature over challenge payload
+## Escrow PDA lifecycle (legacy Anchor reference program only)
 
-Exact naming can vary by middleware implementation, but the required semantics are invariant: challenge binding, anti-replay nonce, amount/asset binding, and payer authorization proof.
+`programs/escrow/` is historical/reference evidence. It is not deployed as a current target, holds lamports/SOL only, and is not an escrow product, custody offering, or settlement-finality claim.
 
-## Escrow PDA lifecycle
+- PDA seeds: `[b"escrow", payer, nonce]`; the payer-scoped nonce prevents duplicate escrows.
+- `EscrowStatus` has exactly three states: `Locked` (funds locked awaiting resolution), `Released` (paid to the payee), `Cancelled` (returned to the payer).
+- Instructions: `lock_escrow`, `release_escrow`, `cancel_escrow`, plus the MagicBlock PER state-tracking pair `delegate_escrow` / `release_escrow_per`.
+- `Released` and `Cancelled` are terminal, which is what prevents double-resolution in the reference program.
 
-1. **Initialize/lock**: create escrow PDA and lock funds.
-2. **Active**: delivery window where specialist performs work.
-3. **Resolve**:
-   - success → release payout and close escrow,
-   - failure/dispute → dispute workflow,
-   - timeout/cancel window → controlled cancel path.
-4. **Terminal**: closed/finalized state prevents double-settlement.
+## Reference Solana surfaces
 
-## Auditability and run logs
-
-- Every payment has at least one on-chain transaction trail (lock + resolve path).
-- Escrow state transitions are verifiable from chain history.
-- Off-chain orchestration logs are persisted in `/runs` for operational traceability.
-- Combined, this gives cryptographic settlement records plus application-level diagnostics.
+The repository still contains Solana reference code and demos. The legacy Anchor program is historical/reference evidence. The recorded Quasar devnet deployment is blocked by `config/quasar/deployments.json` and refused outside the local Surfpool lane before instruction building, signer access, or RPC. Future custody or settlement work must land behind separate approval, audit, deployment, and public-claim gates.

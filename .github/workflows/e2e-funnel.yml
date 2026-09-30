@@ -30,9 +30,11 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # Blocking lane for the user-facing signup/get-started funnel only.
-      # The full 38-spec suite (incl. evidence-capture specs and the
-      # all-routes navigation smoke, which needs a warm server) stays on
-      # the non-blocking nightly integration lane.
+      # No lane runs the full 39-spec suite: the nightly integration lane runs
+      # e2e/integration.spec.ts alone, and the rest (evidence-capture specs,
+      # the all-routes navigation smoke that needs a warm server, and the
+      # /agents specs that wait on a devnet RPC read) run locally via
+      # npm run test:e2e.
       - name: Run funnel specs
         env:
           PLAYWRIGHT_SCREENSHOT: off
@@ -40,6 +42,7 @@ jobs:
         run: >
           npx playwright test
           e2e/home.spec.ts
+          e2e/public-claim-boundary.spec.ts
           e2e/setup.spec.ts
           e2e/register.spec.ts
           e2e/register-local-sim.spec.ts

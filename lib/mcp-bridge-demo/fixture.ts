@@ -85,16 +85,16 @@ export const mcpBridgeDemoFixture: McpBridgeDemoFixture = {
   generatedAt: "2026-05-08T00:00:00+10:00",
   title: "Reddi Agent Protocol MCP Bridge",
   subtitle:
-    "A payment and verification bridge that lets OpenClaw, Claude/MCP agents, OpenSwarm-style systems, Cursor, and custom agent stacks discover, quote, verify, and disclose paid specialist-agent work.",
+    "An assurance bridge pattern for OpenClaw, Claude/MCP agents, OpenSwarm-style systems, Cursor, and custom agent stacks to discover, quote, verify, and disclose paid specialist-agent work without becoming a payment rail.",
   permissionBoundary:
-    "Devnet spends are allowed only after the same flow is proven in the local Surfpool validator environment. Mainnet is out of scope.",
+    "Default bridge mode is dry-run/no-spend. Bounded devnet evidence is labelled separately; mainnet, custody, and production settlement are out of scope.",
   proofArtifacts: [
     {
       label: "Surfpool local transaction proof",
       boundary: "local_validator_only_no_devnet_no_mainnet",
       artifactPath:
         "artifacts/rap-mcp-bridge-surfpool-local/20260507T145133Z/SUMMARY.md",
-      result: "local payment semantics: pass",
+      result: "local payment-ordering semantics: pass",
       txSignatures: [
         "5KFhkP2tHHEQ5RVVRJymbmKrMVWCF4Vu9RTioVc5eqd3chEdW7CxRtuhAZ6fxU6fSzzQX3pUXLEthURkQSymu4P6",
         "bdrZg71EfwfhHsNimR9X12UhxpwkUXsPAaRFdrTgEdqk1qY5Df5YZkLdKXzDPBEDv65LewxYfqYjLzve1XhwdD9",
@@ -105,7 +105,7 @@ export const mcpBridgeDemoFixture: McpBridgeDemoFixture = {
       boundary: "solana_devnet_only_no_mainnet_no_specialist_http_invocation",
       artifactPath:
         "artifacts/rap-mcp-bridge-devnet-proof/20260507T145907Z/SUMMARY.md",
-      result: "devnet payment semantics: pass; cap: 100050 lamports",
+      result: "bounded devnet transfer evidence: pass; cap: 100050 lamports",
       txSignatures: [
         "62CP7sHi9KyUDbnVFgM5WCvwiSq2p5WCkThsTkNrpqYnUxLGN9QNRDjye1nBDB7UWjgqtonoYbuKxawjzAvWrUgD",
         "5kV43JjPAWQBbzTohbP3y8ZsUCXPZpBSDLbPkmw1odSVoZXtJER3LJ7PiRBUL3DuD5jPUPM66NjMxSQTcuQcUsjp",
@@ -124,7 +124,7 @@ export const mcpBridgeDemoFixture: McpBridgeDemoFixture = {
           label: "Discover specialists",
           status: "pass",
           detail:
-            "The Reddi Agent Protocol registry/planner can rank eligible specialists by capability, price, health, and trust signals.",
+            "The Reddi Agent Protocol registry/planner can rank eligible specialists by capability, price, health, and disclosed evidence signals.",
         },
         {
           id: "quote",
@@ -154,14 +154,14 @@ export const mcpBridgeDemoFixture: McpBridgeDemoFixture = {
           label: "Local settlement semantics",
           status: "pass",
           detail:
-            "Local Surfpool artifact proves quote → local transfer semantics → receipt → disclosure ledger before devnet.",
+            "Local Surfpool artifact exercises quote → local transfer semantics → receipt → disclosure ledger before any devnet claim.",
         },
         {
           id: "local-verifier",
           label: "Local verifier",
           status: "pass",
           detail:
-            "Local verifier passed with specialist credit and 0.05% protocol fee semantics.",
+            "Local verifier passed with specialist credit; any 0.05% protocol-fee split is fixture economics only.",
         },
       ],
     },

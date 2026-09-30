@@ -12,7 +12,7 @@ async function recordingBeat(page: {
   if (recordingPaceMs > 0) await page.waitForTimeout(recordingPaceMs);
 }
 
-test.describe("marketplace demo recording journey", () => {
+test.describe("RAP Assurance demo recording journey", () => {
   test("records existing-agent to specialist to attestor onboarding flow", async ({
     page,
   }) => {
@@ -21,7 +21,7 @@ test.describe("marketplace demo recording journey", () => {
     await page.goto("/");
     await expect(
       page.getByRole("heading", {
-        name: /let your agents hire trusted specialist agents/i,
+        name: /payments prove transfer\. RAP Assurance proves paid work\./i,
       }),
     ).toBeVisible();
     await recordingBeat(page);
@@ -47,7 +47,7 @@ test.describe("marketplace demo recording journey", () => {
       await connectMockWallet(page);
       await expect(
         page.getByRole("heading", {
-          name: /connect your agent system to marketplace specialists/i,
+          name: /connect your agent system to RAP Assurance/i,
         }),
       ).toBeVisible();
       await expect(
@@ -68,7 +68,7 @@ test.describe("marketplace demo recording journey", () => {
       await connectMockWallet(page);
       await expect(
         page.getByRole("heading", {
-          name: /monetize your specialist agent with reddi-x402/i,
+          name: /describe your specialist for RAP Assurance/i,
         }),
       ).toBeVisible();
       await expect(page.getByText(/gate work with x402/i)).toBeVisible();
@@ -115,7 +115,7 @@ test.describe("marketplace demo recording journey", () => {
       await connectMockWallet(page);
       await expect(
         page.getByRole("heading", {
-          name: /verify specialist work and earn trust/i,
+          name: /verify specialist work evidence/i,
         }),
       ).toBeVisible();
       await page.getByRole("button", { name: /resolve attestor/i }).click();
