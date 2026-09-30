@@ -58,6 +58,8 @@ Nothing asserts that `SpecialistCard` marks the right fields. Widening the marke
 
 The static gate carries a negative control: `node scripts/check-public-claim-boundaries.mjs --negative-control` injects every forbidden claim's affirmative example and must exit 1, so a gate that has stopped catching overclaims fails CI.
 
+Neither half is complete semantic enforcement. A leading negation qualifies every same-family item in the enumeration it governs ("not a custody provider or a custody service"), but the gate cannot tell which noun a negation governs across independent clauses: a claim joined to an unrelated negation by ", and"/", or" ("custody is not claimed, and AUDD settlement is live today") passes the gate. Prose of that shape is a reviewer's call; see the known limit on `claimIsQualified` in `lib/public-claims/public-claim-boundary-terms.ts`.
+
 ## Withheld stale captures
 
 Screenshots and recordings that predate this remediation are withheld rather than deleted. `mediaStale` on an onboarding guide (`lib/onboarding/video-guides.ts`) and `imageStale` on a `/tour` step or a `/whitepaper` capture take the asset off every rendered surface. `hasPlayableRecording` is the single question the card body, the duration badge, and the walkthrough heading all ask, so a withheld guide cannot be played, counted, or linked, and the page renders a boundary notice naming the route that carries the current copy instead. `e2e/judge-replication-onboarding.spec.ts` holds that: it derives the playable and withheld tallies from the shipped guide data, asserts they account for every rendered card, and requires each withheld card's notice to say why the recording is missing and where the current copy is.
