@@ -5,7 +5,7 @@
  * Owned-text contract only. Every file scanned here is one whose literal text
  * IS the published artifact: repository prose (README/docs), package manifest
  * metadata, and the files served verbatim out of /public -- the WebVTT caption
- * tracks and every Markdown file under public/docs.
+ * tracks and every Markdown file under public/docs and public/downloads.
  *
  * Rendered app copy is a claim only once it renders, so it is gated at the DOM
  * layer by `e2e/public-claim-boundary.spec.ts`, the only other consumer of the
@@ -73,7 +73,7 @@ function markdownFilesUnder(relDir) {
   return files.sort();
 }
 
-const servedPublicDocs = markdownFilesUnder("public/docs");
+const servedPublicDocs = ["public/docs", "public/downloads"].flatMap(markdownFilesUnder);
 
 const activeClaimFiles = [
   ...requiredCentralMessageFiles,
