@@ -82,20 +82,24 @@ async function unscannedRecordings(page: Page): Promise<string[]> {
           ? [...video.querySelectorAll("source")].map((source) => source.getAttribute("src") ?? "")
           : [attribute];
       if (video.currentSrc) declared.push(video.currentSrc);
-      return declared.map((value) => (value ? new URL(value, location.href).pathname : ""));
+      return declared.map((value) => (value ? new URL(value, location.href).href : ""));
     };
 
     return [...document.querySelectorAll("video")]
       .filter((video) => {
         const sources = resolvedSources(video);
         const guide = sources.length
-          ? scanned.find((entry) => sources.every((source) => source === entry.videoSrc))
+          ? scanned.find((entry) => {
+              const expectedVideo = new URL(entry.videoSrc, location.origin).href;
+              return sources.every((source) => source === expectedVideo);
+            })
           : undefined;
         if (!guide) return true;
+        const expectedCaptions = guide.captionsSrc
+          ? new URL(guide.captionsSrc, location.origin).href
+          : null;
         return ![...video.querySelectorAll("track")].some(
-          (track) =>
-            track.kind === "captions" &&
-            new URL(track.src, location.href).pathname === guide.captionsSrc,
+          (track) => track.kind === "captions" && track.src === expectedCaptions,
         );
       })
       .map((video) => resolvedSources(video).find(Boolean) ?? "(no source)");
@@ -191,6 +195,41 @@ test.describe("public-claim boundary (rendered copy)", () => {
       unqualifiedClaims(await firstPartyCopy(page)),
       "the same text in first-party copy must still be caught",
     ).not.toEqual([]);
+  });
+
+  test("the recording gate rejects foreign origins that reuse reviewed paths", async ({ page }) => {
+    await page.goto("/");
+    await expect(
+      page.getByRole("heading", { name: PUBLIC_CLAIM_DOM_ROUTES[0].readyCopy }).first(),
+    ).toBeVisible({ timeout: 30_000 });
+
+    const guide = scannedRecordings[0];
+    expect(guide?.captionsSrc, "the negative control needs a reviewed caption track").toBeTruthy();
+
+    await page.evaluate((entry) => {
+      const video = document.createElement("video");
+      video.src = new URL(entry.videoSrc, "https://unreviewed.example").href;
+      const track = document.createElement("track");
+      track.kind = "captions";
+      track.src = new URL(entry.captionsSrc!, location.origin).href;
+      video.appendChild(track);
+      document.body.appendChild(video);
+    }, guide!);
+    expect(await unscannedRecordings(page)).toContain(
+      new URL(guide!.videoSrc, "https://unreviewed.example").href,
+    );
+
+    await page.goto("/");
+    await page.evaluate((entry) => {
+      const video = document.createElement("video");
+      video.src = new URL(entry.videoSrc, location.origin).href;
+      const track = document.createElement("track");
+      track.kind = "captions";
+      track.src = new URL(entry.captionsSrc!, "https://unreviewed.example").href;
+      video.appendChild(track);
+      document.body.appendChild(video);
+    }, guide!);
+    expect(await unscannedRecordings(page)).toContain(new URL(guide!.videoSrc, page.url()).href);
   });
 
   /**
