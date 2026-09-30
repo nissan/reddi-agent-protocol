@@ -62,6 +62,19 @@ const requiredCentralMessageFiles = [
   "packages/rap-mcp-bridge/README.md",
 ];
 
+function markdownFilesUnder(relDir) {
+  const root = join(ROOT, relDir);
+  const files = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const rel = `${relDir}/${entry.name}`;
+    if (entry.isDirectory()) files.push(...markdownFilesUnder(rel));
+    else if (entry.isFile() && entry.name.endsWith(".md")) files.push(rel);
+  }
+  return files.sort();
+}
+
+const servedPublicDocs = markdownFilesUnder("public/docs");
+
 const activeClaimFiles = [
   ...requiredCentralMessageFiles,
   "CONTRIBUTING.md",
@@ -75,7 +88,7 @@ const activeClaimFiles = [
   "docs/verifiable-agent-protocol/README.md",
   "packages/per-client/README.md",
   "packages/openrouter-specialists/README.md",
-  "public/docs/team-usability-testing-scripts-devnet.md",
+  ...servedPublicDocs,
   ...captionTrackFiles,
 ];
 
