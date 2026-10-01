@@ -39,6 +39,10 @@ export type BrowserWalletTrustedFutureAuddDevnetIdentity = {
 export type BrowserWalletApprovalValidationOptions = {
     now?: string | Date;
     trustedDevnetProgramIds?: BrowserWalletProgramIds;
+    trustedDevnetRpcEndpoints?: {
+        rpcHttp: string;
+        rpcWs?: string;
+    };
     allowFuturePartnerConfirmedAuddDevnet?: boolean;
     trustedFutureAuddDevnetIdentity?: BrowserWalletTrustedFutureAuddDevnetIdentity;
 };

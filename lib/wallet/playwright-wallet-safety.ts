@@ -8,7 +8,8 @@ export type PlaywrightWalletSignerPreflightCode =
   | "allowed_local_surfpool_loopback"
   | "profile_not_local_surfpool"
   | "rpc_not_loopback"
-  | "websocket_not_loopback";
+  | "websocket_not_loopback"
+  | "submission_rpc_mismatch";
 
 export type PlaywrightWalletSignerPreflightInput = {
   secretPresent: boolean;
@@ -46,4 +47,24 @@ export function checkPlaywrightWalletSignerPreflight(
     return { ok: false, code: "websocket_not_loopback", message: PLAYWRIGHT_WALLET_SIGNER_REFUSAL_MESSAGE };
   }
   return { ok: true, code: "allowed_local_surfpool_loopback", message: "Playwright signer secret is limited to local-surfpool loopback" };
+}
+
+/** Refuse before signer parsing when the submission connection is not the exact approved loopback RPC. */
+export function checkPlaywrightWalletSignerSubmissionRpc(
+  input: PlaywrightWalletSignerPreflightInput & { submissionRpcHttp?: string },
+): PlaywrightWalletSignerPreflightResult {
+  const preflight = checkPlaywrightWalletSignerPreflight(input);
+  if (!preflight.ok || !input.secretPresent) return preflight;
+  if (!isLoopbackRpcUrl(input.submissionRpcHttp, "http:") || canonicalUrl(input.submissionRpcHttp) !== canonicalUrl(input.rpcHttp)) {
+    return { ok: false, code: "submission_rpc_mismatch", message: PLAYWRIGHT_WALLET_SIGNER_REFUSAL_MESSAGE };
+  }
+  return preflight;
+}
+
+function canonicalUrl(value: string | undefined): string | undefined {
+  try {
+    return value ? new URL(value).href : undefined;
+  } catch {
+    return undefined;
+  }
 }

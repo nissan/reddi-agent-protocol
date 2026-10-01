@@ -56,6 +56,10 @@ const trustedDevnetProgramIds = {
   reputation: trustedDevnetEscrowProgramId,
   attestation: trustedDevnetEscrowProgramId,
 };
+const trustedDevnetRpcEndpoints = {
+  rpcHttp: devnetProfile?.solana?.rpcHttp,
+  rpcWs: devnetProfile?.solana?.rpcWs,
+};
 
 function parseArgs(argv) {
   const args = {
@@ -144,6 +148,7 @@ if (approval.read) {
   const result = validateBrowserWalletApprovalRecord(approval.value, {
     now,
     trustedDevnetProgramIds,
+    trustedDevnetRpcEndpoints,
     allowFuturePartnerConfirmedAuddDevnet: args.allowFutureAuddDevnet,
     // No trusted future AUDD identity is configured in this default-off checker.
     // A later implementation must supply independently verified partner data and

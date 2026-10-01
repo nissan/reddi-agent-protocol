@@ -229,6 +229,10 @@ export type BrowserWalletTrustedFutureAuddDevnetIdentity = {
 export type BrowserWalletApprovalValidationOptions = {
   now?: string | Date;
   trustedDevnetProgramIds?: BrowserWalletProgramIds;
+  trustedDevnetRpcEndpoints?: {
+    rpcHttp: string;
+    rpcWs?: string;
+  };
   allowFuturePartnerConfirmedAuddDevnet?: boolean;
   trustedFutureAuddDevnetIdentity?: BrowserWalletTrustedFutureAuddDevnetIdentity;
 };
@@ -516,7 +520,7 @@ export function validateBrowserWalletApprovalRecord(
   }
   validateBrowserProfile(record.browserProfile, record.provider?.name, '$.browserProfile', errors);
   validateWallet(record.wallet, '$.wallet', errors);
-  validateNetwork(record.network, '$.network', errors);
+  validateNetwork(record.network, options.trustedDevnetRpcEndpoints, '$.network', errors);
   validateUiAction(record.uiAction, '$.uiAction', errors);
   validatePrograms(record.programs, options.trustedDevnetProgramIds, '$.programs', errors);
   validateFunding(record.funding, '$.funding', errors);
@@ -901,7 +905,12 @@ function validateWallet(value: unknown, path: string, errors: BrowserWalletAppro
   requireLiteral(value.custody, 'human-controlled-devnet-only', `${path}.custody`, 'custody_browser_wallet_rejected', errors);
 }
 
-function validateNetwork(value: unknown, path: string, errors: BrowserWalletApprovalValidationError[]): void {
+function validateNetwork(
+  value: unknown,
+  trustedDevnetRpcEndpoints: BrowserWalletApprovalValidationOptions['trustedDevnetRpcEndpoints'],
+  path: string,
+  errors: BrowserWalletApprovalValidationError[],
+): void {
   if (!isPlainObject(value)) {
     errors.push(error('missing_browser_wallet_approval_field', path, 'network identity is required'));
     return;
@@ -915,6 +924,12 @@ function validateNetwork(value: unknown, path: string, errors: BrowserWalletAppr
   requireLiteral(value.cluster, 'devnet', `${path}.cluster`, 'non_canonical_browser_wallet_identity', errors);
   requireHttpsUrl(value.rpcHttp, `${path}.rpcHttp`, errors);
   validateOptionalWssUrl(value.rpcWs, `${path}.rpcWs`, errors);
+  if (!trustedDevnetRpcEndpoints) {
+    errors.push(error('missing_browser_wallet_approval_field', `${path}.rpcHttp`, 'trusted Devnet RPC identity context is required'));
+  } else {
+    requireLiteral(value.rpcHttp, trustedDevnetRpcEndpoints.rpcHttp, `${path}.rpcHttp`, 'non_canonical_browser_wallet_identity', errors);
+    requireLiteral(value.rpcWs ?? null, trustedDevnetRpcEndpoints.rpcWs ?? null, `${path}.rpcWs`, 'non_canonical_browser_wallet_identity', errors);
+  }
 }
 
 function validateUiAction(value: unknown, path: string, errors: BrowserWalletApprovalValidationError[]): void {

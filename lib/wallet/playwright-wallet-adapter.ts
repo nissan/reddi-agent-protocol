@@ -12,7 +12,10 @@ import {
   TransactionSignature,
   VersionedTransaction,
 } from "@solana/web3.js";
-import { checkPlaywrightWalletSignerPreflight } from "@/lib/wallet/playwright-wallet-safety";
+import {
+  checkPlaywrightWalletSignerPreflight,
+  checkPlaywrightWalletSignerSubmissionRpc,
+} from "@/lib/wallet/playwright-wallet-safety";
 
 export const PLAYWRIGHT_WALLET_NAME = "Playwright Wallet" as WalletName<"Playwright Wallet">;
 
@@ -101,6 +104,7 @@ export class PlaywrightWalletAdapter extends BaseMessageSignerWalletAdapter {
     connection: Connection,
     options?: SendOptions
   ): Promise<TransactionSignature> {
+    this.assertSignerSubmissionBoundaryIfConfigured(connection.rpcEndpoint);
     const signer = this.loadSignerIfConfigured();
     if (signer) {
       if (transaction instanceof VersionedTransaction) {
@@ -129,6 +133,18 @@ export class PlaywrightWalletAdapter extends BaseMessageSignerWalletAdapter {
   async signMessage(message: Uint8Array): Promise<Uint8Array> {
     this.assertSignerBoundaryIfConfigured();
     return message;
+  }
+
+  private assertSignerSubmissionBoundaryIfConfigured(submissionRpcHttp: string): void {
+    const raw = this.options.signerSecretJson;
+    const preflight = checkPlaywrightWalletSignerSubmissionRpc({
+      secretPresent: typeof raw === "string" && raw.length > 0,
+      networkProfileName: this.options.networkProfileName,
+      rpcHttp: this.options.rpcHttp,
+      rpcWs: this.options.rpcWs,
+      submissionRpcHttp,
+    });
+    if (!preflight.ok) throw new Error(preflight.message);
   }
 
   private assertSignerBoundaryIfConfigured(): void {

@@ -31,6 +31,10 @@ const VALIDATION_OPTIONS: BrowserWalletApprovalValidationOptions = {
     reputation: DEVNET_PROGRAM_ID,
     attestation: DEVNET_PROGRAM_ID,
   },
+  trustedDevnetRpcEndpoints: {
+    rpcHttp: 'https://api.devnet.solana.com',
+    rpcWs: 'wss://api.devnet.solana.com',
+  },
 };
 
 function validApproval(overrides: Partial<BrowserWalletSingleUseApprovalRecord> = {}): BrowserWalletSingleUseApprovalRecord {
@@ -288,6 +292,19 @@ describe('manual Devnet browser-wallet approval schema', () => {
     });
     assert.ok(codes(nonCanonical).includes('non_canonical_browser_wallet_identity'));
 
+    const neutralHostedMainnet = validApproval({
+      network: {
+        ...validApproval().network,
+        rpcHttp: 'https://rpc.provider.example/v1/cluster',
+        rpcWs: 'wss://rpc.provider.example/v1/cluster',
+      },
+    });
+    const endpointMismatch = validateBrowserWalletApprovalRecord(neutralHostedMainnet, VALIDATION_OPTIONS);
+    assert.equal(endpointMismatch.ok, false);
+    if (!endpointMismatch.ok) {
+      assert.ok(endpointMismatch.errors.some((entry) => entry.code === 'non_canonical_browser_wallet_identity' && entry.path === '$.network.rpcHttp'));
+    }
+
     const quasar = validApproval({ programs: { ...validApproval().programs, target: 'quasar' as 'legacy-anchor', framework: 'quasar' as 'anchor' } });
     assert.ok(codes(quasar).includes('production_browser_wallet_rejected'));
 
@@ -306,6 +323,7 @@ describe('manual Devnet browser-wallet approval schema', () => {
     assert.equal(missingTrustedPrograms.ok, false);
     if (!missingTrustedPrograms.ok) {
       assert.ok(missingTrustedPrograms.errors.some((entry) => entry.path === '$.programs.ids.escrow'));
+      assert.ok(missingTrustedPrograms.errors.some((entry) => entry.path === '$.network.rpcHttp'));
     }
   });
 

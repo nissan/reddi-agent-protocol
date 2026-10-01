@@ -37,11 +37,10 @@ function assertSafePlaywrightSignerBuildEnv(): void {
 
 assertSafePlaywrightSignerBuildEnv();
 
-const buildNetworkProfile = (
-  process.env.NETWORK_PROFILE ??
-  process.env.NEXT_PUBLIC_NETWORK_PROFILE ??
-  ""
-).trim();
+// Emit the exact same effective profile that the signer guard validated. In
+// particular, a stale/manual NEXT_PUBLIC_BUILD_NETWORK_PROFILE must never let
+// the guard validate local-surfpool and then emit a conflicting public profile.
+const buildNetworkProfile = resolveNetworkProfileNameFromEnv(process.env);
 const buildAllowUnsafeEscrowOverride = (process.env.ALLOW_UNSAFE_ESCROW_OVERRIDE ?? "").trim();
 
 const buildEnv: Record<string, string> = {};

@@ -1,6 +1,7 @@
 import {
   PLAYWRIGHT_WALLET_SIGNER_REFUSAL_MESSAGE,
   checkPlaywrightWalletSignerPreflight,
+  checkPlaywrightWalletSignerSubmissionRpc,
 } from "@/lib/wallet/playwright-wallet-safety";
 import { PlaywrightWalletAdapter } from "@/lib/wallet/playwright-wallet-adapter";
 
@@ -56,5 +57,43 @@ describe("Playwright wallet signer safety", () => {
 
     expect(result.ok).toBe(true);
     expect(result.code).toBe("allowed_local_surfpool_loopback");
+  });
+
+  it("rejects a caller connection that differs from the approved loopback RPC before signer use", () => {
+    const remote = checkPlaywrightWalletSignerSubmissionRpc({
+      secretPresent: true,
+      networkProfileName: "local-surfpool",
+      rpcHttp: "http://127.0.0.1:18999",
+      rpcWs: "ws://localhost:19000",
+      submissionRpcHttp: "https://rpc.provider.example/v1/cluster",
+    });
+    const otherLoopback = checkPlaywrightWalletSignerSubmissionRpc({
+      secretPresent: true,
+      networkProfileName: "local-surfpool",
+      rpcHttp: "http://127.0.0.1:18999",
+      rpcWs: "ws://localhost:19000",
+      submissionRpcHttp: "http://127.0.0.1:19001",
+    });
+
+    expect(remote).toEqual({ ok: false, code: "submission_rpc_mismatch", message: PLAYWRIGHT_WALLET_SIGNER_REFUSAL_MESSAGE });
+    expect(otherLoopback).toEqual({ ok: false, code: "submission_rpc_mismatch", message: PLAYWRIGHT_WALLET_SIGNER_REFUSAL_MESSAGE });
+  });
+
+  it("emits the same effective build profile that the signer guard validates", async () => {
+    const previous = { ...process.env };
+    jest.resetModules();
+    process.env.NEXT_PUBLIC_PLAYWRIGHT_WALLET_SECRET_KEY = "presence-only-test-sentinel";
+    process.env.NEXT_PUBLIC_BUILD_NETWORK_PROFILE = "local-surfpool";
+    process.env.NEXT_PUBLIC_NETWORK_PROFILE = "mainnet";
+    process.env.NEXT_PUBLIC_RPC_ENDPOINT = "http://127.0.0.1:18999";
+    process.env.NEXT_PUBLIC_RPC_WS_ENDPOINT = "ws://127.0.0.1:19000";
+    delete process.env.NETWORK_PROFILE;
+    try {
+      const config = (await import("../../next.config")).default;
+      expect(config.env?.NEXT_PUBLIC_BUILD_NETWORK_PROFILE).toBe("local-surfpool");
+    } finally {
+      process.env = previous;
+      jest.resetModules();
+    }
   });
 });

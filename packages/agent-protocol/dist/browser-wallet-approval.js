@@ -198,7 +198,7 @@ export function validateBrowserWalletApprovalRecord(input, options = {}) {
     }
     validateBrowserProfile(record.browserProfile, record.provider?.name, '$.browserProfile', errors);
     validateWallet(record.wallet, '$.wallet', errors);
-    validateNetwork(record.network, '$.network', errors);
+    validateNetwork(record.network, options.trustedDevnetRpcEndpoints, '$.network', errors);
     validateUiAction(record.uiAction, '$.uiAction', errors);
     validatePrograms(record.programs, options.trustedDevnetProgramIds, '$.programs', errors);
     validateFunding(record.funding, '$.funding', errors);
@@ -560,7 +560,7 @@ function validateWallet(value, path, errors) {
     requireLiteral(value.productionSeedImported, false, `${path}.productionSeedImported`, 'secret_material_rejected', errors);
     requireLiteral(value.custody, 'human-controlled-devnet-only', `${path}.custody`, 'custody_browser_wallet_rejected', errors);
 }
-function validateNetwork(value, path, errors) {
+function validateNetwork(value, trustedDevnetRpcEndpoints, path, errors) {
     if (!isPlainObject(value)) {
         errors.push(error('missing_browser_wallet_approval_field', path, 'network identity is required'));
         return;
@@ -574,6 +574,13 @@ function validateNetwork(value, path, errors) {
     requireLiteral(value.cluster, 'devnet', `${path}.cluster`, 'non_canonical_browser_wallet_identity', errors);
     requireHttpsUrl(value.rpcHttp, `${path}.rpcHttp`, errors);
     validateOptionalWssUrl(value.rpcWs, `${path}.rpcWs`, errors);
+    if (!trustedDevnetRpcEndpoints) {
+        errors.push(error('missing_browser_wallet_approval_field', `${path}.rpcHttp`, 'trusted Devnet RPC identity context is required'));
+    }
+    else {
+        requireLiteral(value.rpcHttp, trustedDevnetRpcEndpoints.rpcHttp, `${path}.rpcHttp`, 'non_canonical_browser_wallet_identity', errors);
+        requireLiteral(value.rpcWs ?? null, trustedDevnetRpcEndpoints.rpcWs ?? null, `${path}.rpcWs`, 'non_canonical_browser_wallet_identity', errors);
+    }
 }
 function validateUiAction(value, path, errors) {
     if (!isPlainObject(value)) {
