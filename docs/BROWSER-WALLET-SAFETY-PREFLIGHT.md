@@ -40,7 +40,7 @@ The schema is `reddi.browser-wallet.single-use-approval.v1` and is implemented i
 - Exact provider: current allowlist is Phantom only, with exact version, official/source URL, source timestamp, and Devnet support verified from official docs. Phantom is only the current narrowest candidate for a later manual run; it is not installed or selected by this repository change.
 - Isolated browser profile identifier, dedicated disposable profile, sync disabled, primary profile false, no automated extension install, delete after run.
 - Wallet public key only; no secret material, no production seed import, human-controlled Devnet-only custody.
-- Canonical network: `solana-devnet` plus `solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1`, exact HTTPS RPC, optional exact WSS endpoint, never mainnet.
+- Canonical network: `solana-devnet` plus `solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1`, exact HTTPS RPC and optional exact WSS endpoint, both bound to the caller-trusted Devnet endpoints (the checker supplies the committed Devnet profile RPC endpoints), never mainnet.
 - Exact route/action, manual-human browser-wallet execution, default-off, exactly once.
 - Exact program IDs from the resolved network profile; the checker supplies the committed Devnet profile IDs as trusted validation context and rejects self-asserted or mismatched IDs. Devnet Quasar is not accepted.
 - Human funding source reference and maximum Devnet SOL balance at risk; AI faucet use and auto top-ups must be false.
