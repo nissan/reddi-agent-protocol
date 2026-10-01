@@ -6,6 +6,14 @@ on:
       - "packages/agent-protocol/**"
       - "app/economic-demo/paid-workflow/**"
       - "lib/economic-demo/**"
+      - "lib/wallet/playwright-wallet-*.ts"
+      - "scripts/check-browser-wallet-*.mjs"
+      - "scripts/test-browser-wallet-safety-checks.mjs"
+      - "scripts/fixtures/browser-wallet-*/**"
+      - "docs/BROWSER-WALLET-SAFETY-PREFLIGHT.md"
+      - "docs/WALLET-MOCK-PLAYWRIGHT.md"
+      - "next.config.ts"
+      - "playwright.config.ts"
       - "scripts/check-paid-workflow-copy-boundaries.mjs"
       - "e2e/economic-demo-paid-workflow*.ts"
       - "docs/DISCOVER-DECIDE-PROVE-BOUNDARIES.md"
@@ -86,3 +94,6 @@ jobs:
             exit 1
           fi
           echo "Negative control failed as expected (gate exits 1 on injected forbidden copy)."
+
+      - name: Browser-wallet safety preflight suite
+        run: npm run test:browser-wallet:safety
