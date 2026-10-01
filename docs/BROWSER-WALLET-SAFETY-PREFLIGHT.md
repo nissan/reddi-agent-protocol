@@ -61,6 +61,8 @@ The checker rejects missing, malformed, expired, future-dated, contradictory, un
 2. effective HTTP RPC is explicit loopback `http://` with a port;
 3. effective WS endpoint, when present, is explicit loopback `ws://` with a port.
 
+`sendTransaction` additionally refuses, before parsing the signer, unless the submitting `Connection` endpoint is loopback `http://` and canonically identical to that effective HTTP RPC.
+
 `next.config.ts` also refuses unsafe build/dev environments before a public signer secret can be bundled. The Playwright web server command runs `scripts/check-browser-wallet-command-preconditions.mjs` before starting Next so a non-local public signer secret is blocked before a bundle is served. All three layers decide loopback with the single shared predicate in `lib/config/loopback-endpoint.ts` and resolve the effective profile with the single shared resolver in `lib/config/network-profile-name.ts`, which `lib/config/network.ts` also uses. Error messages never include env values, endpoint strings, or key material.
 
 ## Dormant Tier 1 local browser-harness contract
