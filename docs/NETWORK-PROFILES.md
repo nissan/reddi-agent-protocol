@@ -2,6 +2,8 @@
 
 This project supports configuration-first network switching using `NETWORK_PROFILE`.
 
+Stable Anchor `1.1.2` is the authoritative reference target. Quasar is frozen historical experimental evidence and retired from product/production critical paths; the selector and loopback-only lane remain solely to reproduce preserved evidence and must not be treated as a deployment/promotion mechanism. Anchor v2 is a separate default-off alpha pilot. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+
 ## Supported profiles
 
 - `local-surfpool`
@@ -49,7 +51,7 @@ NEXT_PUBLIC_RPC_ENDPOINT=http://127.0.0.1:<local-validator-port>
 NEXT_PUBLIC_ESCROW_PROGRAM_ID=<local-deployed-program-id>
 ```
 
-`local-surfpool` is the only profile on which the Quasar target is usable, and only
+`local-surfpool` is the only profile on which the frozen experimental Quasar target can be reproduced, and only
 when all four local program ids (`NEXT_PUBLIC_ESCROW_PROGRAM_ID`,
 `NEXT_PUBLIC_REGISTRY_PROGRAM_ID`, `NEXT_PUBLIC_REPUTATION_PROGRAM_ID`,
 `NEXT_PUBLIC_ATTESTATION_PROGRAM_ID`) are supplied, valid, and distinct **and** the

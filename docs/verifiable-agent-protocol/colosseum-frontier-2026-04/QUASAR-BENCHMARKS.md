@@ -1,5 +1,7 @@
 # Quasar Escrow POC — Benchmarks
 
+> **Historical, superseded 2026-10-02:** Preserve the values below as POC observations only. They do not qualify as an Anchor comparison: Quasar hot-path measurements are compared with a full-protocol Anchor binary and estimated Anchor CU values; semantics and runtime profiles differ; no raw machine-readable comparison artifact is committed; and the named Quasar commit `4bf5772` is absent from this clone. Quasar is frozen and retired from current critical paths. See [`../../QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](../../QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md). Cross-runtime, deployment, throughput, security, and cost conclusions are `not_evaluated`.
+
 _Date: 2026-04-11_
 _POC commit: experiment/quasar-escrow-poc @ 4bf5772_
 _Anchor baseline: reddi-agent-protocol-code @ c42d47a (Phase 5 merged)_
@@ -30,7 +32,7 @@ Testing framework: QuasarSVM (in-process SBF harness)
 
 **Context:** The Anchor binary includes all phases (registry, reputation, attestation, PER — 15+ instructions). A fair comparison requires an Anchor build with only lock/release/cancel, which would still be larger due to framework overhead (Borsh codegen, IDL metadata, discriminator routing machinery all expand the binary).
 
-Conservative Anchor hot-path-only estimate: ~80–120 KB based on reference Anchor single-program benchmarks from the community.
+Historical estimate only: ~80–120 KB was attributed generally to community single-program benchmarks, without a pinned primary source or a semantics-matched build. It is not evidence and must not be used to calculate a framework delta.
 
 ---
 
@@ -38,9 +40,9 @@ Conservative Anchor hot-path-only estimate: ~80–120 KB based on reference Anch
 
 | Instruction | Anchor (estimated) | Quasar (measured) | Estimated savings |
 |---|---|---|---|
-| `lock_escrow` / `make` | ~6,000–8,000 CU | **3,966 CU** | ~35–50% |
-| `release_escrow` / `take` | ~3,000–4,000 CU | **626 CU** | ~80–84% |
-| `cancel_escrow` / `refund` | ~2,500–3,500 CU | **602 CU** | ~76–83% |
+| `lock_escrow` / `make` | ~6,000–8,000 CU (historical estimate; not measured) | **3,966 CU** | `not_evaluated` |
+| `release_escrow` / `take` | ~3,000–4,000 CU (historical estimate; not measured) | **626 CU** | `not_evaluated` |
+| `cancel_escrow` / `refund` | ~2,500–3,500 CU (historical estimate; not measured) | **602 CU** | `not_evaluated` |
 
 **Notes:**
 - Anchor CU figures are estimates derived from Anchor documentation, community benchmarks, and the known overhead of: Borsh account deserialization, 8-byte discriminator routing, `Context<T>` construction, and CPI wrapper ergonomics.

@@ -1,6 +1,6 @@
 # Deployment Guide
 
-Status: historical/reference deployment notes. This guide does not authorize redeployments, live funds, mainnet, custody, or public production claims.
+Status: historical/reference deployment notes. This guide does not authorize redeployments, live funds, mainnet, custody, or public production claims. Stable Anchor `1.1.2` is the authoritative source reference. Quasar is frozen historical experimental evidence and is not a deployment candidate; see [`docs/QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](docs/QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
 
 ## Current deployments (devnet)
 
@@ -10,9 +10,11 @@ because the deployed binaries predate the job-binding rework and no longer match
 in-repo client. Requesting the Quasar target outside `local-surfpool` is refused before
 any instruction, signer, or RPC call. No redeploy is authorized or performed here.
 
-Quasar sources live under `experiments/quasar-*`; build/test via
-`bash scripts/run-quasar-program-tests.sh`, and validate current sources locally with
-the lane in `docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`.
+Quasar sources under `experiments/quasar-*`, vendored framework code, and the local
+Surfpool lane are retained only for historical reproducibility. They are explicit
+experimental opt-ins, not product dependencies or promotion steps. Do not run the
+historical build, validator, smoke, deployment, signing, or RPC procedures without a
+new authorization that supersedes the freeze.
 
 ## Legacy Anchor reference program
 

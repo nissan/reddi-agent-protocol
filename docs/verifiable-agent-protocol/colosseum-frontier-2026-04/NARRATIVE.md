@@ -1,5 +1,7 @@
 # Narrative Strategy — Colosseum Frontier (Quasar Variant)
 
+> **Historical, superseded 2026-10-02:** This file preserves hackathon-era narrative and must not be used as current product, submission, deployment, or readiness copy. Quasar is frozen as experimental and retired from critical paths; the recorded devnet deployment is blocked. Stable Anchor `1.1.2` is authoritative and Anchor v2 remains a default-off alpha pilot. See [`../../QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](../../QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md). All “ships now,” “canonical,” “final,” and performance statements below describe the superseded 2026 hackathon posture only.
+
 **Phase 2 — Pitch-Flow Playbook**
 _Audience: Colosseum Frontier hackathon judges (primary), investors / technical evaluators (secondary)_
 _Time limit: 180 seconds_
