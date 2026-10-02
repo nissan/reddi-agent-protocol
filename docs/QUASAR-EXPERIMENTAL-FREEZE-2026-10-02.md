@@ -6,7 +6,7 @@ Quasar is frozen as a historical, explicitly experimental implementation. It is 
 
 No deployment, upgrade, transaction, signing, simulation, wallet/key creation, funding, RPC execution, mainnet activation, audit-readiness claim, or production-readiness claim is authorized by this decision.
 
-The repository retains `experiments/quasar-*`, `third_party/quasar`, historical artifacts, and the loopback-only Surfpool lane for reproducibility and provenance. Retention is not adoption. Any future reconsideration requires a new decision based on qualifying primary comparison evidence and a separate security review.
+The repository retains `experiments/quasar-*`, `third_party/quasar`, historical artifacts, approval-gated devnet operator scripts, and the loopback-only Surfpool lane for reproducibility and provenance. The hosted `Surfpool Quasar Critical SDK` workflow also still invokes that local lane automatically for its existing broad path filters, including stable Anchor and root-manifest changes. This freeze does not physically remove or disable those preserved dependencies, scripts, or CI safeguards; retention and automated regression coverage are not product adoption. Any future reconsideration requires a new decision based on qualifying primary comparison evidence and a separate security review.
 
 ## Evidence decision
 
@@ -30,6 +30,8 @@ The historical Quasar numbers remain observations about their original POC. They
 - Historical “Quasar canonical/final/critical submission path” language is superseded and must not be reused as current guidance.
 - The blocked devnet IDs in `config/quasar/deployments.json` are provenance records only. Their client/ABI and job-binding mismatch remains unresolved; no redeployment is planned or authorized.
 - Quasar-specific readiness commands describe experimental/historical compatibility only. A passing local guard cannot make Quasar submission-ready or reverse this freeze.
+- Existing root package scripts still expose historical Quasar devnet/PER smoke commands that can load signer material and submit transactions. They are preserved operator surfaces, not disabled by this documentation decision, and remain approval-gated; this freeze does not authorize running them.
+- The hosted Quasar Surfpool workflow remains an automatic regression dependency for its existing broad trigger set. That retained CI role must not be described as product adoption or primary benchmark evidence.
 - No future work should add Quasar to a default package manifest, root Cargo workspace, web default, or production runtime path without a separately approved unfreeze decision.
 
 ## Dependency and runtime boundary
@@ -39,10 +41,11 @@ At this decision point:
 - root `package.json` has no Quasar package dependency;
 - root `Cargo.toml` includes `programs/*`, not `experiments/quasar-*` or `third_party/quasar`;
 - `.env.example` selects `legacy-anchor`, and an unset selector resolves to `legacy-anchor`;
-- devnet Quasar is blocked and mainnet Quasar is refused;
-- the only runnable current-source Quasar lane is an explicit local-Surfpool opt-in using loopback endpoints and four caller-supplied local program IDs.
+- the web/runtime selector blocks the recorded devnet Quasar target and refuses mainnet Quasar, but this does not disable separate historical operator scripts;
+- current-source Quasar execution is confined to the local-Surfpool mechanism using loopback endpoints and four caller-supplied local program IDs; direct operator invocation is opt-in, while the existing hosted workflow invokes it automatically when its path filters match;
+- `experiments/quasar-*`, `third_party/quasar`, Quasar scripts, and their automatic hosted regression workflow remain preserved dependencies of the experimental evidence lane.
 
-These boundaries are the minimum non-destructive retirement: public receipt schemas, payment-rail-neutral interfaces, stable Anchor behavior, historical artifacts, and reproducibility sources remain intact while Quasar has no default dependency role.
+These boundaries are the minimum non-destructive **product/runtime** retirement: public receipt schemas, payment-rail-neutral interfaces, stable Anchor behavior, historical artifacts, and reproducibility sources remain intact while Quasar has no default product target, package dependency, or production runtime role. Quasar is not completely dependency- or CI-retired; its experimental source, operator, and automatic regression roles remain until separately authorized removal work is safe.
 
 ## Reconsideration bar
 

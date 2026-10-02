@@ -10,11 +10,14 @@ because the deployed binaries predate the job-binding rework and no longer match
 in-repo client. Requesting the Quasar target outside `local-surfpool` is refused before
 any instruction, signer, or RPC call. No redeploy is authorized or performed here.
 
-Quasar sources under `experiments/quasar-*`, vendored framework code, and the local
-Surfpool lane are retained only for historical reproducibility. They are explicit
-experimental opt-ins, not product dependencies or promotion steps. Do not run the
-historical build, validator, smoke, deployment, signing, or RPC procedures without a
-new authorization that supersedes the freeze.
+Quasar sources under `experiments/quasar-*`, vendored framework code, historical
+operator scripts, and the local Surfpool lane are retained only for historical
+reproducibility. Direct operator use is an explicit experimental opt-in, not a product
+or promotion step. The hosted Quasar Surfpool workflow still invokes the local lane
+automatically for its existing broad path filters; this preserved regression role is
+not product adoption or benchmark evidence. Do not manually run the historical build,
+validator, smoke, deployment, signing, or RPC procedures without a new authorization
+that supersedes the freeze.
 
 ## Legacy Anchor reference program
 
