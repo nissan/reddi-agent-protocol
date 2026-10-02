@@ -32,7 +32,7 @@ Both declare the existing program ID solely to preserve discriminator, PDA, acco
 After activating the repository-pinned toolchain, run the explicit opt-in command:
 
 ```bash
-npm run pilot:anchor-v2:update-agent
+./scripts/run-anchor-v2-update-agent-pilot.sh
 ```
 
 The runner:
@@ -45,7 +45,7 @@ The runner:
 6. invokes each binary directly through Mollusk `0.15.1`, without a transaction or signature; and
 7. writes machine-readable output to `.tmp/anchor-v2-update-agent-pilot/evidence.json`.
 
-The command is absent from default builds/tests and no workflow invokes it automatically.
+The full evidence command is absent from default builds/tests and no workflow invokes it automatically. A dedicated hosted check runs only shell/Node syntax checks, formatting, clippy, and the host-native generated-client compatibility test. It does not run `cargo build-sbf`, IDL generation, Mollusk, a validator, key generation, signing, deployment, or transaction code.
 
 ## Observed evidence
 
@@ -69,4 +69,6 @@ The stable generated IDL includes PDA derivation metadata for `agent`; the alpha
 
 Compute was observed only because Mollusk exposes an instruction-level meter without requiring transaction construction or signing. This pilot uses the existing Mollusk `0.15.1` / `solana-program-runtime 4.2.2` lane and makes no claim about LiteSVM's separately pinned mainnet-activated profile. LiteSVM execution was intentionally not added because the current local harness constructs and signs transactions, which is outside this task's authority. The pilot does not compare Mollusk values to LiteSVM, devnet, mainnet, or deployed execution.
 
-No generated binary, IDL, TypeScript type, or `.tmp` evidence file is committed as a release artifact. The source, lockfiles, checks, and runner are tracked; rerunning is the evidence procedure and deleting `pilots/anchor-v2-update-agent/` plus its npm script cleanly removes the pilot.
+No generated binary, IDL, TypeScript type, or `.tmp` evidence file is committed as a release artifact. The source, lockfiles, checks, and runner are tracked; rerunning is the evidence procedure and deleting `pilots/anchor-v2-update-agent/`, its dedicated workflow, and `scripts/run-anchor-v2-update-agent-pilot.sh` cleanly removes the pilot.
+
+The first PR head accidentally coupled this pilot to root `package.json`, which triggered an existing hosted Surfpool lane outside the pilot's authority. That completed run is not pilot evidence and is documented, rather than erased, in [`ANCHOR-V2-PILOT-HOSTED-CI-SAFETY-AUDIT-2026-10-02.md`](./ANCHOR-V2-PILOT-HOSTED-CI-SAFETY-AUDIT-2026-10-02.md).

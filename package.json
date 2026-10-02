@@ -98,7 +98,6 @@
     "inspect:pay-sh:mcp": "node ./scripts/inspect-pay-sh-mcp.mjs",
     "check:rap:naming": "node ./scripts/check-rap-naming.mjs",
     "check:toolchain:baseline": "node ./scripts/check-solana-baseline-pins.mjs",
-    "pilot:anchor-v2:update-agent": "./scripts/run-anchor-v2-update-agent-pilot.sh",
     "check:toolchain:surfpool-smoke": "./scripts/smoke-solana-baseline-surfpool.sh",
     "test:toolchain:version-match": "node --test ./scripts/__tests__/solana-baseline-version-match.test.mjs",
     "test:toolchain:modes": "node --test ./scripts/__tests__/solana-baseline-toolchain-modes.test.mjs",
