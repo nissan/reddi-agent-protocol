@@ -1,0 +1,19 @@
+[package]
+name = "anchor-v2-update-agent-runtime"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+escrow = { path = "../../../programs/escrow", features = ["cpi"] }
+anchor-lang = "=1.1.2"
+mollusk-svm = "=0.15.1"
+sha2 = "0.10"
+solana-account = "=4.3.2"
+solana-instruction = "=3.4.0"
+solana-sdk-ids = "=3.1.0"
+
+[workspace]
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(target_os, values("solana"))'] }

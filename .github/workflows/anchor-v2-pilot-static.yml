@@ -1,0 +1,63 @@
+name: Anchor v2 Pilot Static Safety
+
+on:
+  pull_request:
+    paths:
+      - "pilots/anchor-v2-update-agent/**"
+      - "scripts/run-anchor-v2-update-agent-pilot.sh"
+      - "docs/ANCHOR-V2-UPDATE-AGENT-PILOT-2026-10-02.md"
+      - "docs/ANCHOR-V2-PILOT-HOSTED-CI-SAFETY-AUDIT-2026-10-02.md"
+      - ".github/workflows/anchor-v2-pilot-static.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-non-signing:
+    name: Static, clippy, and generated-client contract only
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.98.0"
+          components: rustfmt, clippy
+
+      - name: Check runner and evidence-generator syntax
+        run: |
+          bash -n scripts/run-anchor-v2-update-agent-pilot.sh
+          node --check pilots/anchor-v2-update-agent/compare-evidence.mjs
+
+      - name: Check formatting
+        run: |
+          cargo fmt --manifest-path pilots/anchor-v2-update-agent/Cargo.toml --all --check
+          cargo fmt --manifest-path pilots/anchor-v2-update-agent/runtime-harness/Cargo.toml --all --check
+
+      - name: Check host-native crates without executing runtime programs
+        run: |
+          cargo clippy --locked --manifest-path pilots/anchor-v2-update-agent/Cargo.toml --all-targets -- -D warnings
+
+      - name: Verify generated-client compatibility without SBF or transactions
+        run: >-
+          cargo test --locked
+          --manifest-path pilots/anchor-v2-update-agent/Cargo.toml
+          -p alpha-update-agent
+          generated_clients_match_the_canonical_stable_wire_contract
+          -- --nocapture
+
+      - name: Refuse generated keypair material
+        run: |
+          if find pilots/anchor-v2-update-agent -type f -iname '*keypair*.json' -print -quit | grep -q .; then
+            echo "Hosted pilot validation generated forbidden keypair material." >&2
+            exit 1
+          fi
+
+# This workflow deliberately does not call cargo build-sbf, anchor idl build,
+# Mollusk, LiteSVM, Surfpool, a validator, deployment, wallets, signing, RPC,
+# transaction construction/submission, faucets, or funding.

@@ -1,0 +1,32 @@
+[package]
+name = "alpha-update-agent"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "alpha_update_agent"
+
+[features]
+default = ["no-log-ix-name"]
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+no-idl = []
+no-log-ix-name = []
+idl-build = []
+
+[dependencies]
+anchor-lang = { git = "https://github.com/otter-sec/anchor.git", rev = "917b27754a6175cbe41d558f00ec7895390e1819", default-features = false, features = ["alloc"] }
+# Anchor v2 alpha currently declares a broad solana-address range, but its
+# wincode 0.6 derives require the matching 2.8 implementation.
+solana-address = "=2.8.0"
+
+[dev-dependencies]
+stable-update-agent = { path = "../stable", features = ["cpi"] }
+escrow = { path = "../../../../programs/escrow", features = ["cpi"] }
+anchor-lang-v1 = { package = "anchor-lang", version = "=1.1.2" }
+sha2 = "0.10"
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(target_os, values("solana"))'] }
