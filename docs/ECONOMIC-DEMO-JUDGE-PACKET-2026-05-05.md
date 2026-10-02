@@ -1,5 +1,7 @@
 # Economic Demo Judge Packet
 
+> **Historical, superseded 2026-10-02:** This hackathon packet is not current guidance. Quasar is frozen as experimental and retired from critical paths, and the recorded devnet deployment is blocked. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+
 _Date:_ 2026-05-05 AEST
 _Status:_ Final Quasar devnet proof packet; live PER/TEE and paid/live provider actions remain approval-gated
 _Demo route:_ `/economic-demo`

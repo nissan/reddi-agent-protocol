@@ -67,7 +67,7 @@ The two cheap regressions do not depend on that job to be observed. `npm run tes
 
 The Quasar devnet programs recorded in `config/quasar/deployments.json` predate the 2026-08 job-binding rework and no longer match the in-repo client, which encodes the current `experiments/quasar-*` sources. `config/quasar/deployments.json` therefore records `submissionReady: false` with explicit ABI, PDA-derivation, commitment-pre-image, and lock-signer known gaps, and its historical `devnet-full-flow-demo` PASS is marked superseded and not reproducible.
 
-No redeploy is claimed or performed. The only retained Quasar evidence is this local-surfpool lane, run against locally built current-source programs on a loopback Surfnet.
+No redeploy is claimed, planned, or authorized. The only retained Quasar evidence is this local-surfpool lane, run against locally built current-source programs on a loopback Surfnet; it is preserved for historical reproducibility under the experimental freeze in [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md), and a local pass is not adoption or readiness.
 
 ## Quasar ABI: current sources vs the recorded deployment
 

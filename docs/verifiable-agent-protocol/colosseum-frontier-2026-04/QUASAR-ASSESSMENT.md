@@ -1,5 +1,7 @@
 # Quasar for Solana — Prize + Integration Assessment (Colosseum Frontier)
 
+> **Historical, superseded 2026-10-02:** This hackathon assessment is not a current roadmap. Quasar is frozen as experimental and retired from product/production critical paths; its existing benchmark does not provide a semantics-matched primary Anchor comparison. Stable Anchor `1.1.2` remains authoritative and Anchor v2 remains a default-off alpha pilot. See [`../../QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](../../QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+
 _Last updated: 2026-04-11 AEST_
 
 ## Executive summary

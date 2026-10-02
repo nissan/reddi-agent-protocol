@@ -2,7 +2,7 @@
 
 ## Reddi Agent Protocol Security Overview (Adevar Labs audit credits submission)
 
-This document summarizes the current threat model and security posture for the Reddi Agent Protocol prior to a full pre-mainnet audit. It is a readiness boundary, not a production-readiness claim: current deployed evidence is devnet-only, and mainnet/live funds remain blocked until the gates in [Known Limitations](#known-limitations-current-phase) are closed.
+This document summarizes the current threat model and security posture for the Reddi Agent Protocol prior to a full pre-mainnet audit. It is a readiness boundary, not a production-readiness claim: current deployed evidence is devnet-only, and mainnet/live funds remain blocked until the gates in [Known Limitations](#known-limitations-current-phase) are closed. Stable Anchor `1.1.2` is the authoritative source reference; Quasar is frozen historical experimental evidence, not an audit or deployment candidate. See [`docs/QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](docs/QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
 
 ## Deployed Program Addresses (Solana devnet)
 
@@ -95,8 +95,8 @@ Current mitigations:
 ## Known Limitations (Current Phase)
 
 - **Devnet only:** no mainnet deployment is registered. `config/networks/mainnet.json` still contains a placeholder escrow id, and registry/reputation/attestation mainnet ids are unset.
-- **Quasar readiness gates open:** CRITICAL-4 remains open in `docs/QUASAR-C4-DURABLE-JOB-RECORD-DESIGN-2026-08-26.md`, and the attestation-squat boundary widened when escrows became durable; judge nomination remains unresolved before mainnet.
-- **Deployed devnet binaries lag `main`:** `config/quasar/deployments.json` records the last devnet deployment as 2026-05-06, before the job-binding series (#642-#645) and the CRITICAL-4 durability change. Protections described above as source-level are not yet live on the devnet addresses listed at the top of this document; escrow must be redeployed with or before reputation/attestation.
+- **Quasar frozen, not pending promotion:** Quasar is retired from current product/production, deployment, submission, audit, and mainnet plans. The historical CRITICAL-4 and judge-nomination gaps remain unresolved; they are preserved as reasons the experiment cannot support readiness, not as an active redeployment backlog.
+- **Deployed devnet binaries lag `main`:** `config/quasar/deployments.json` records the last devnet deployment as 2026-05-06, before the job-binding series (#642-#645) and the CRITICAL-4 durability change. Protections described above as source-level are not live on the recorded devnet addresses. No redeployment is planned or authorized under the experimental freeze.
 - **Audit packet needs refresh:** `docs/SOLANA-EXTERNAL-AUDIT-HANDOFF-2026-06-24.md` predates the job-binding series and must be re-frozen before external auditor engagement.
 - **SOL-only program custody:** current Quasar/Anchor escrow custody is lamports/SOL only. USDC and AUDD are proof/payment-plan metadata unless a separately approved SPL custody workstream lands.
 - **No on-chain protocol treasury fee:** 0.05% / 5 bps protocol-fee examples are fixture or demo semantics only; no deployed release path currently collects that fee on-chain.

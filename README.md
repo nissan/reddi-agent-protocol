@@ -6,7 +6,7 @@
 
 Reddi Agent Protocol (RAP) is an open, local-first assurance layer for paid agent workflows. It does not try to be a payment rail, marketplace operator, generic hosted runtime, custody provider, or wallet/action toolkit. Instead, RAP Assurance binds work terms, buyer policy, payment-proof references, evidence references, attestation outcomes, replay metadata, and reputation inputs so builders can verify what happened around a paid MCP/API or agent-to-agent job.
 
-Current shipped behavior is local/offline and devnet-bounded unless a page or command explicitly says otherwise. The recorded Quasar devnet deployment is blocked (`submissionReady: false` in `config/quasar/deployments.json`), mainnet/live-funds paths are not ready, and no deployed on-chain release path collects a protocol treasury fee.
+Current shipped behavior is local/offline and devnet-bounded unless a page or command explicitly says otherwise. Stable Anchor `1.1.2` is the authoritative on-chain reference; Anchor v2 remains a default-off alpha pilot. Quasar is frozen as historical experimental evidence and retired from product/production critical paths because the existing benchmark is not a semantics-matched primary comparison. Its recorded devnet deployment remains blocked (`submissionReady: false` in `config/quasar/deployments.json`), mainnet/live-funds paths are not ready, and no deployed on-chain release path collects a protocol treasury fee. See [`docs/QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](docs/QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
 
 - 🌐 **Web app:** https://agent-protocol.reddi.tech (public demo site; not a mainnet deployment claim)
 - 🐦 **X:** https://x.com/reddiagent
@@ -211,11 +211,13 @@ Inspect scripts before running anything with `devnet`, `live`, `surfpool`, or `e
 
 ## Solana programs
 
-The four **Quasar** program ids recorded for devnet live in [`config/quasar/deployments.json`](config/quasar/deployments.json), which is the single source of truth for their status. That deployment is currently **blocked** (`submissionReady: false`): the binaries predate the job-binding rework and no longer match the in-repo client, so the Quasar target is refused on devnet before any instruction is built, any signer is touched, or any RPC call is made. No redeploy is claimed or performed.
+Stable Anchor `1.1.2` under `programs/escrow/` is the authoritative reference implementation. The Anchor v2 `update_agent` pilot is isolated, default-off alpha research only.
 
-Quasar is therefore experimental, and the only retained Quasar evidence is the local Surfpool lane described in [`docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`](docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md), which builds current sources and runs them against a loopback local validator.
+The four historical **Quasar** program ids recorded for devnet live in [`config/quasar/deployments.json`](config/quasar/deployments.json), which is the single source of truth for their blocked status. The binaries predate the job-binding rework and no longer match the in-repo client, so the Quasar target is blocked before instruction construction, signer access, or RPC. Quasar is frozen and retired from current product, production, submission, deployment, audit, and mainnet planning; the existing size/CU document does not provide a semantics-matched primary Anchor comparison. See the [experimental freeze decision](docs/QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
 
-The legacy Anchor deployment (`794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD`) is historical/reference only. Deployment guidance is in [`DEPLOY.md`](DEPLOY.md).
+Quasar sources, artifacts, and the explicit loopback-only Surfpool lane remain solely for historical reproducibility. Their retention and any local pass do not imply adoption or readiness. No redeploy is claimed, planned, or authorized.
+
+The recorded Anchor devnet deployment (`794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD`) is also historical/reference only. Deployment guidance is in [`DEPLOY.md`](DEPLOY.md).
 
 ## Stack
 

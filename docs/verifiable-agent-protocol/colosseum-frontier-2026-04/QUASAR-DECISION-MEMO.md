@@ -1,6 +1,6 @@
 # Quasar Escrow POC — Decision Memo
 
-> **2026-05-08 supersession note:** This memo is historical. The final critical submission path has since moved to Quasar-native devnet programs for escrow, registry, reputation, and attestation. Do not reuse the old “Keep Anchor” or “MagicBlock PER wired” language as current judge copy. Current MagicBlock claim boundary: Quasar-native permission/delegation succeeds live on devnet, and patched Quasar PER executes inside MagicBlock TEE for private authorization/commit evidence; successful private payee lamport settlement is not claimed.
+> **Historical, superseded 2026-10-02:** Neither this memo nor its 2026-05-08 Quasar cutover posture is current guidance. Quasar is frozen as experimental and retired from product/production critical paths. The recorded devnet deployment is blocked and no redeployment or live claim is authorized. The existing benchmark does not provide a semantics-matched primary Anchor comparison. Stable Anchor `1.1.2` remains authoritative and Anchor v2 remains a default-off alpha pilot. See [`../../QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](../../QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
 _Date: 2026-04-11_
 _Author: Kit_
 _For: Loki / Nissan (Colosseum Frontier submission decision)_
