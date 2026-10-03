@@ -6,6 +6,8 @@ _Date: 2026-04-11_
 _POC commit: experiment/quasar-escrow-poc @ 4bf5772_
 _Anchor baseline: reddi-agent-protocol-code @ c42d47a (Phase 5 merged)_
 
+> **Current interpretation (2026-10-03; original dated record preserved below):** Everything after this block is the original author's 2026-04-11/12 assertion and transcription, not current guidance. No measured, semantics-matched Anchor comparator or pinned raw comparison artifact is committed; the named Quasar POC commit is unavailable in this clone, including for the post-refactor 7/7 output. The omitted cancel-window/Clock behavior was not measured, so identical cost cannot be inferred. The record therefore establishes neither parity nor savings nor a general Quasar or Anchor-framework advantage. The original wording and raw-output transcription remain below solely as dated provenance.
+
 ---
 
 ## Test Suite Results

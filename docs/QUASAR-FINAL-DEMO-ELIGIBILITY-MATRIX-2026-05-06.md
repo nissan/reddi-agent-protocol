@@ -1,5 +1,7 @@
 # Quasar Final Demo Eligibility Matrix — 2026-05-06
 
+> **DATED campaign matrix — superseded 2026-10-02.** The classifications, recommendations, and commands below record the May 2026 campaign; they are not current eligibility or operating guidance. Quasar is frozen and the recorded deployment is blocked. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+
 ## Goal
 
 Move the Colosseum Frontier submission from legacy Anchor-compiled program evidence to Quasar-compiled Solana program evidence, while visibly using the identified ecosystem/bounty products: MagicBlock, x402, Jupiter, OpenRouter specialist agents, Surfpool, and supporting integrations such as Torque/ElizaOS/SendAI where the evidence exists.
