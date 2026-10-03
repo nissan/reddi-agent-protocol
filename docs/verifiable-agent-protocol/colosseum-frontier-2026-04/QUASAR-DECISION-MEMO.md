@@ -88,7 +88,7 @@ Migrating now would create regression risk without adding user-facing feature va
 
 **Priority: Medium** — pursue Quasar migration in Phase 8 or beyond.
 
-The efficiency numbers are real and meaningful. When:
+At the time, the POC numbers were treated as meaningful observations. They are now unpinned and non-comparable: the named POC commit/raw artifacts are unavailable here, and no semantics-matched measured Anchor comparator exists. The historical roadmap assumed that when:
 - The nonce seed workaround is chosen (recommend u64 counter)
 - Quasar exits Beta
 - Time allows a proper test-surface port
@@ -108,8 +108,8 @@ The efficiency numbers are real and meaningful. When:
 
 | Question | Answer |
 |---|---|
-| Does Quasar work for our use case? | **Yes** — POC proves parity |
-| Are the efficiency gains real? | **Yes** — CU reductions confirmed, binary 13x smaller |
+| Does Quasar work for our use case? | **Historical claim only** — the POC exercised a simplified, non-equivalent scope; parity was not established |
+| Are the efficiency gains real? | **Not established as a comparison** — historical Quasar observations lack a pinned raw artifact and a semantics-matched measured Anchor comparator |
 | Is it safe to migrate now? | **No** — nonce blocker + Beta risk + test porting cost |
 | Should we migrate eventually? | **Yes** — post-hackathon Phase 8 |
 | Is the main submission at risk? | **No** — parallel repo, zero changes to main path |

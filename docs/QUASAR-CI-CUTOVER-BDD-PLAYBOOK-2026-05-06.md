@@ -1,5 +1,7 @@
 # Quasar CI Cutover BDD Playbook — 2026-05-06
 
+> **DATED CI migration record — superseded 2026-10-02.** Preserve this playbook and implementation log as historical provenance. Retained Quasar workflows are experimental regression only, not final-proof, deployment, audit, or promotion gates. The current workflow inventory and authority are in [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+
 ## Goal
 
 Replace final-demo integrity checks that currently depend on legacy Anchor `programs/escrow` with required CI that compiles and tests the Quasar-based Solana programs used by the final Colosseum demo.

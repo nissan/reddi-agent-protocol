@@ -1,5 +1,7 @@
 # Quasar Final Hackathon Demo Loop — 2026-05-06
 
+> **DATED campaign record — superseded 2026-10-02.** The goals, commands, deployment actions, and approvals below describe the May 2026 campaign and are retained unchanged as provenance; they are not current instructions or authorization. Quasar is frozen, its recorded deployment is blocked, and no live demo/redeployment is planned. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+
 ## Controlling goal
 
 The Colosseum Frontier submission is successful only if the final demo moves from legacy Anchor-compiled Solana programs to Quasar-compiled Solana programs for every demo-critical on-chain path, while visibly using the identified ecosystem/bounty products in the demo story: MagicBlock, x402, Jupiter, OpenRouter specialist agents, Surfpool, and supporting products where evidence exists.

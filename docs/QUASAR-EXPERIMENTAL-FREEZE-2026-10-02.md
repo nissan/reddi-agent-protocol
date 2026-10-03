@@ -72,7 +72,21 @@ An unfreeze proposal must supply all of the following before implementation is c
 4. A demonstrated material advantage that stable Anchor or an approved Anchor 2 release cannot provide. Estimated comparator values, full-protocol versus hot-path comparisons, and cross-runtime CU comparisons do not qualify.
 5. Closure or explicit acceptance of all relevant security gaps, followed by an independent security review and a new authorization decision.
 
-Anchor v2 remains alpha, unaudited, commit-pinned research. Its pilot cannot satisfy this bar for production adoption, but it invalidates the assumption that historical Anchor v1 framework overhead is necessarily unavailable to the Anchor line.
+Anchor v2 remains alpha, unaudited, commit-pinned research. Its pilot cannot satisfy this bar for production adoption. Its single non-custodial `update_agent` measurement shows only that this measured comparator can reduce overhead; it does not establish an escrow result, a general Anchor v2 benefit, framework parity, or production suitability.
+
+## Retained workflow inventory
+
+This inventory is a source-level account of retained automation, not execution evidence or authorization. A green job means only that the named regression completed in its stated environment; it does not promote Quasar, validate the historical devnet deployment, or reverse this freeze.
+
+| Workflow / trigger | Relevant job and commands | Actual role and effect boundary |
+|---|---|---|
+| [Quasar Readiness Guard](../.github/workflows/quasar-readiness-guard.yml): path-filtered pull requests; manual `workflow_dispatch` | `quasar-readiness`: `npm ci`; `npm run check:quasar:submission`; `node --test scripts/__tests__/quasar-operator-default-off.test.mjs`; runtime-compatibility and Surfpool lane-boundary tests | Static recorded compatibility/config checks plus the inert refusal suite for all four disabled operators and their two aliases. The legacy `critical-success` output reached by the submission check is historical/regression terminology, not readiness or promotion. No validator or historical operator body runs. |
+| [Quasar Program Tests](../.github/workflows/quasar-program-tests.yml): path-filtered pushes to `main`, `feature/**`, and `feat/**`; path-filtered pull requests to `main`; manual `workflow_dispatch` | `quasar-program-tests`: installs the declared Rust/Solana toolchains, then `bash scripts/run-quasar-program-tests.sh` | Hosted, ephemeral compile/test regression over the preserved Quasar program sources using QuasarSVM/LiteSVM and SBF builds. It is source regression, not deployment, audit, live-network acceptance, or proof that recorded IDs match current source. |
+| [Surfpool Quasar Critical SDK](../.github/workflows/surfpool-quasar-critical-sdk.yml): broad path-filtered pushes and pull requests; manual `workflow_dispatch` | `surfpool-quasar-critical-sdk`: lifecycle, evidence-manifest, lane-boundary, runtime-schema, and target-refusal tests; then `npm run test:surfpool:quasar-critical`; uploads local artifacts | Hosted ephemeral execution in an offline, disposable, loopback-only Surfnet with generated keys. Its broad filters intentionally include stable Anchor/root toolchain inputs. It is historical/current-source local reproducibility, not devnet/live execution or promotion. See [the lane boundary](./SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md). |
+| [RAP Package Publication Guard](../.github/workflows/rap-package-guard.yml): path-filtered pull requests; manual `workflow_dispatch` | `paid-workflow-copy-boundary-gate` also runs `npm run test:surfpool:lane-boundaries` | Independent lightweight witness for workflow trigger/safety-boundary structure. It does not run Quasar programs or an operator path. |
+| [Surfpool Acceptance (Manual)](../.github/workflows/surfpool-acceptance-manual.yml): manual `workflow_dispatch` only | The fixed `quasar-critical` lane selects `npm run test:surfpool:quasar-critical` | Manually callable hosted form of the same disposable loopback lane. Manual availability is not permission for devnet/live operation and is not an automatic regression. |
+
+The automatic Quasar execution surfaces are therefore the readiness guard, program tests, and Surfpool critical SDK workflow; the package guard is an automatic structural witness. The manual acceptance workflow is listed to avoid confusing callable hosted regression with automatic coverage. The four refused devnet/PER operator files are not invoked as historical implementations by any of these jobs.
 
 ## Safe validation plan for this freeze
 

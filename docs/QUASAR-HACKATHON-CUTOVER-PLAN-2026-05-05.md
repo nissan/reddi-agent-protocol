@@ -1,5 +1,7 @@
 # Quasar Hackathon Cutover Plan
 
+> **DATED campaign plan — superseded 2026-10-02.** Preserve the phases, commands, and contemporaneous approvals below as historical provenance only. They do not authorize execution now. Quasar is frozen; the recorded deployment is blocked and the retained loopback Surfpool lane is reproducibility evidence, not readiness or promotion. Current authority: [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+
 _Date:_ 2026-05-05 AEST
 _Issue:_ #236
 _Status:_ Phase 0 plan/spec. No signing, deployment, wallet mutation, env mutation, or live paid/provider calls performed.

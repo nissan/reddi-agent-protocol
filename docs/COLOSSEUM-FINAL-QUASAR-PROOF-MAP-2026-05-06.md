@@ -1,6 +1,6 @@
 # Colosseum Final Quasar Proof Map — 2026-05-06
 
-> **Historical campaign evidence.** This file predates current RAP Assurance claim remediation. Do not use it as current public copy for Quasar, marketplace, custody, settlement, production, mainnet, MagicBlock/PER, or fee claims. Current truth lives in `config/quasar/deployments.json`, `docs/PUBLIC-CLAIM-BOUNDARY.md`, and current package/conformance docs.
+> **DATED historical campaign evidence — superseded 2026-10-02.** Preserve the claims, commands, and transaction records below as contemporaneous provenance; do not execute them as current guidance. This file predates current RAP Assurance claim remediation. Quasar is frozen, the recorded deployment is blocked, and the former operator paths are technically refused. Do not use this as current public copy for Quasar, marketplace, custody, settlement, production, mainnet, MagicBlock/PER, or fee claims. Current boundaries live in [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md), `config/quasar/deployments.json`, `docs/PUBLIC-CLAIM-BOUNDARY.md`, and current package/conformance docs.
 
 ## Status
 
