@@ -18,6 +18,8 @@ const entryPaths = [
   "scripts/run-quasar-per-agent-vault-settlement-smoke.mjs",
 ].map((entry) => path.join(repoRoot, entry));
 const aliases = ["smoke:quasar:per-devnet", "smoke:quasar:per-magicblock-cpi"];
+const aliasArgs = ["--approve", "--force"];
+const packageScripts = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")).scripts;
 const refusalText = "[quasar-operator] DISABLED: this historical Quasar operator entrypoint is frozen";
 
 function npmCliPath() {
@@ -52,6 +54,10 @@ function makeSandbox(t) {
     HOME: home,
     TMPDIR: root,
     npm_config_cache: path.join(root, "npm-cache"),
+    npm_config_update_notifier: "false",
+    npm_config_offline: "true",
+    npm_config_audit: "false",
+    npm_config_fund: "false",
     NODE_NO_WARNINGS: "1",
     NODE_OPTIONS: `--require=${preloadPath} --experimental-loader=${loaderPath}`,
     QUASAR_REFUSAL_TARGETS: entryPaths.join(path.delimiter),
@@ -105,14 +111,38 @@ for (const entryPath of entryPaths) {
 for (const alias of aliases) {
   test(`npm alias resolves to a refusing real entrypoint: ${alias}`, (t) => {
     const sandbox = makeSandbox(t);
-    const result = spawnSync(process.execPath, [npmCliPath(), "--prefix", repoRoot, "run", alias, "--", "--approve", "--force"], {
+    const npmCli = npmCliPath();
+    const result = spawnSync(process.execPath, [npmCli, "--prefix", repoRoot, "run", alias, "--", ...aliasArgs], {
       cwd: sandbox.cwd,
-      env: sandbox.env,
+      env: {
+        ...sandbox.env,
+        QUASAR_REFUSAL_NPM_PARENT: npmCli,
+        QUASAR_REFUSAL_NPM_LAUNCH: [packageScripts[alias], ...aliasArgs].join(" "),
+      },
       encoding: "utf8",
     });
     assertRefused(result, sandbox);
   });
 }
+
+test("npm-parent positive control rejects and records network, signer, and non-launch child processes", (t) => {
+  const sandbox = makeSandbox(t);
+  const fixture = path.join(fixtureDir, "quasar-operator-npm-parent-positive.cjs");
+  const result = spawnSync(process.execPath, [fixture], {
+    cwd: sandbox.cwd,
+    env: {
+      ...sandbox.env,
+      QUASAR_REFUSAL_NPM_PARENT: fixture,
+      QUASAR_REFUSAL_NPM_LAUNCH: "synthetic-permitted-launch",
+    },
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, `an npm-parent effect was not rejected before it started: ${result.stderr}`);
+  assert.deepEqual(
+    readEffects(sandbox.effectsPath).map((effect) => effect.type),
+    ["signer-read", "network", "network", "http", "fetch", "child-process", "child-process"],
+  );
+});
 
 test("instrumentation positive controls detect imports, signer reads, network calls, child processes, and artifacts", (t) => {
   const sandbox = makeSandbox(t);

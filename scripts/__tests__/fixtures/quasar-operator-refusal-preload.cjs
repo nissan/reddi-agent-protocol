@@ -9,6 +9,7 @@ const dgram = require("node:dgram");
 const moduleBuiltin = require("node:module");
 
 const originalAppendFileSync = fs.appendFileSync.bind(fs);
+const originalSpawn = childProcess.spawn.bind(childProcess);
 const effectsPath = process.env.QUASAR_REFUSAL_EFFECTS;
 const signerSentinel = process.env.QUASAR_REFUSAL_SIGNER_SENTINEL
   ? path.resolve(process.env.QUASAR_REFUSAL_SIGNER_SENTINEL)
@@ -22,9 +23,14 @@ const targetPaths = new Set(
 const positiveFixture = process.env.QUASAR_REFUSAL_EFFECT_FIXTURE
   ? path.resolve(process.env.QUASAR_REFUSAL_EFFECT_FIXTURE)
   : null;
+const npmParent = process.env.QUASAR_REFUSAL_NPM_PARENT
+  ? path.resolve(process.env.QUASAR_REFUSAL_NPM_PARENT)
+  : null;
+const npmLaunch = process.env.QUASAR_REFUSAL_NPM_LAUNCH;
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : null;
+const isNpmParent = Boolean(invokedPath) && invokedPath === npmParent;
 
-if (invokedPath && (targetPaths.has(invokedPath) || invokedPath === positiveFixture)) {
+if (invokedPath && (isNpmParent || targetPaths.has(invokedPath) || invokedPath === positiveFixture)) {
   const record = (effect) => {
     if (effectsPath) originalAppendFileSync(effectsPath, `${JSON.stringify(effect)}\n`);
   };
@@ -63,6 +69,12 @@ if (invokedPath && (targetPaths.has(invokedPath) || invokedPath === positiveFixt
     [childProcess, ["exec", "execFile", "fork", "spawn", "execSync", "execFileSync", "spawnSync"], "child-process"],
   ]) {
     for (const method of methods) owner[method] = (...args) => reject(type, `${method}:${String(args[0] || "")}`);
+  }
+  if (isNpmParent && npmLaunch) {
+    childProcess.spawn = (command, args, ...rest) => {
+      if (Array.isArray(args) && args.at(-1) === npmLaunch) return originalSpawn(command, args, ...rest);
+      return reject("child-process", `spawn:${String(command || "")}`);
+    };
   }
   globalThis.fetch = (...args) => reject("fetch", args[0]);
   moduleBuiltin.syncBuiltinESMExports();
