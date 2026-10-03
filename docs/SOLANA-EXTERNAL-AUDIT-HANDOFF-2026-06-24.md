@@ -48,13 +48,13 @@ In scope for handoff:
   - `lib/register/registration-instruction.ts`
   - `packages/demo-agents/src/registration-instruction.ts`
   - `packages/per-client/src/client.ts`
-- Scripted proof lanes:
+- Scripted checks and proof-lane evidence:
   - `scripts/run-quasar-program-tests.sh`
   - `scripts/check-quasar-boundary-guard.mjs`
   - `scripts/check-quasar-runtime-compatibility.mjs`
   - `scripts/check-quasar-deployment-inventory.mjs`
-  - `scripts/run-quasar-per-agent-vault-delegation-smoke.mjs`
-  - `scripts/run-quasar-per-agent-vault-settlement-smoke.mjs`
+  - `scripts/run-quasar-per-agent-vault-delegation-smoke.mjs` (current disabled entrypoint; former body retained in Git history)
+  - `scripts/run-quasar-per-agent-vault-settlement-smoke.mjs` (current disabled entrypoint; former body retained in Git history)
   - `scripts/run-surfpool-critical-smoke.sh`
 
 Explicitly out of scope unless a later approved issue changes scope:

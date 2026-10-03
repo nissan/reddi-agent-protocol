@@ -334,12 +334,13 @@ Active client/interface surfaces that auditors need in the handoff path:
     confirmation semantics, and claims that mention private settlement or
     mainnet finalization.
 - `scripts/run-quasar-per-agent-vault-delegation-smoke.mjs`,
-  `scripts/run-quasar-per-agent-vault-settlement-smoke.mjs`, and related
-  `scripts/run-quasar-*` / `scripts/run-surfpool-*` files.
-  - Scripted proof paths for local/devnet/PER evidence.
-  - Audit focus: explicit approval gates, wallet/RPC requirements, artifact
-    capture, transaction counts, spend caps, and separation between local
-    evidence and deploy/mainnet claims.
+  `scripts/run-quasar-per-agent-vault-settlement-smoke.mjs`, and the other two
+  disabled Quasar devnet/PER operator entrypoints.
+  - Current unconditional refusal paths; their former scripted proof bodies are
+    historical Git evidence documented in the Quasar freeze decision.
+  - Audit focus: fail-closed behavior before SDK/signer/RPC work, absence of an
+    activation route, preserved historical provenance, and separation from the
+    still-distinct local Surfpool evidence lane.
 
 These client surfaces are active audit inputs, but this document does not run
 them and does not approve transaction submission. Any code change in these files
