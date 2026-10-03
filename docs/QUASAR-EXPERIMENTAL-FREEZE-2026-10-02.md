@@ -6,7 +6,7 @@ Quasar is frozen as a historical, explicitly experimental implementation. It is 
 
 No deployment, upgrade, transaction, signing, simulation, wallet/key creation, funding, RPC execution, mainnet activation, audit-readiness claim, or production-readiness claim is authorized by this decision.
 
-The repository retains `experiments/quasar-*`, `third_party/quasar`, historical artifacts, and the loopback-only Surfpool lane for reproducibility and provenance. The four former devnet/PER operator entrypoints are retained at their original paths as unconditional refusal programs; unlike the former human-process approval boundary, they now fail closed before any SDK import, signer access, RPC use, or transaction work. The hosted `Surfpool Quasar Critical SDK` workflow also still invokes its separate local lane automatically for its existing broad path filters, including stable Anchor and root-manifest changes. This freeze does not physically remove the preserved experimental dependencies, evidence, or CI safeguards; retention and automated regression coverage are not product adoption. Any future reconsideration requires a new decision based on qualifying primary comparison evidence and a separate security review.
+The repository retains `experiments/quasar-*`, `third_party/quasar`, historical artifacts, and the loopback-only Surfpool lane for reproducibility and provenance. A separate 2026-10-03 follow-up retained the four former devnet/PER operator entrypoints at their original paths as unconditional refusal programs; unlike the former human-process approval boundary that existed when this freeze was decided, they now fail closed before any SDK import, signer access, RPC use, or transaction work. The hosted `Surfpool Quasar Critical SDK` workflow also still invokes its separate local lane automatically for its existing broad path filters, including stable Anchor and root-manifest changes. This freeze does not physically remove the preserved experimental dependencies, evidence, or CI safeguards; retention and automated regression coverage are not product adoption. Any future reconsideration requires a new decision based on qualifying primary comparison evidence and a separate security review.
 
 ## Evidence decision
 
@@ -47,7 +47,7 @@ At this decision point:
 
 These boundaries are the minimum non-destructive **product/runtime** retirement: public receipt schemas, payment-rail-neutral interfaces, stable Anchor behavior, historical artifacts, and reproducibility sources remain intact while Quasar has no default product target, package dependency, or production runtime role. Quasar is not completely dependency- or CI-retired; its experimental source and automatic local-regression roles remain until separately authorized removal work is safe, while the four named devnet/PER operator paths are disabled.
 
-## Historical operator provenance
+## Historical operator provenance (2026-10-03 follow-up)
 
 The full pre-disable bodies of the four operator scripts remain exactly recoverable at source commit `801d0d1cb980b25448f400d6290b006e77a7a33d`:
 

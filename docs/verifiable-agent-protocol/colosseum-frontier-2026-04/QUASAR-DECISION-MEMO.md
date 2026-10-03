@@ -5,6 +5,8 @@ _Date: 2026-04-11_
 _Author: Kit_
 _For: Loki / Nissan (Colosseum Frontier submission decision)_
 
+> **Current interpretation (2026-10-03; original dated memo preserved below):** Everything after this block is the original author's 2026-04-11 recommendation and assertion, not current guidance. The unavailable named POC commit and missing pinned raw artifacts prevent independent reproduction here; no measured, semantics-matched Anchor comparator exists, and the POC omitted material behavior. Its historical “parity,” “real gains,” savings, and roadmap conclusions are therefore not established current findings and do not show a general Quasar or Anchor-framework advantage. The original wording remains below solely as dated decision provenance; the 2026-10-02 freeze linked above controls.
+
 ---
 
 ## Executive Summary
@@ -88,7 +90,7 @@ Migrating now would create regression risk without adding user-facing feature va
 
 **Priority: Medium** — pursue Quasar migration in Phase 8 or beyond.
 
-At the time, the POC numbers were treated as meaningful observations. They are now unpinned and non-comparable: the named POC commit/raw artifacts are unavailable here, and no semantics-matched measured Anchor comparator exists. The historical roadmap assumed that when:
+The efficiency numbers are real and meaningful. When:
 - The nonce seed workaround is chosen (recommend u64 counter)
 - Quasar exits Beta
 - Time allows a proper test-surface port
@@ -108,8 +110,8 @@ At the time, the POC numbers were treated as meaningful observations. They are n
 
 | Question | Answer |
 |---|---|
-| Does Quasar work for our use case? | **Historical claim only** — the POC exercised a simplified, non-equivalent scope; parity was not established |
-| Are the efficiency gains real? | **Not established as a comparison** — historical Quasar observations lack a pinned raw artifact and a semantics-matched measured Anchor comparator |
+| Does Quasar work for our use case? | **Yes** — POC proves parity |
+| Are the efficiency gains real? | **Yes** — CU reductions confirmed, binary 13x smaller |
 | Is it safe to migrate now? | **No** — nonce blocker + Beta risk + test porting cost |
 | Should we migrate eventually? | **Yes** — post-hackathon Phase 8 |
 | Is the main submission at risk? | **No** — parallel repo, zero changes to main path |
