@@ -6,7 +6,7 @@ Quasar is frozen as a historical, explicitly experimental implementation. It is 
 
 No deployment, upgrade, transaction, signing, simulation, wallet/key creation, funding, RPC execution, mainnet activation, audit-readiness claim, or production-readiness claim is authorized by this decision.
 
-The repository retains `experiments/quasar-*`, `third_party/quasar`, historical artifacts, approval-gated devnet operator scripts, and the loopback-only Surfpool lane for reproducibility and provenance. The hosted `Surfpool Quasar Critical SDK` workflow also still invokes that local lane automatically for its existing broad path filters, including stable Anchor and root-manifest changes. This freeze does not physically remove or disable those preserved dependencies, scripts, or CI safeguards; retention and automated regression coverage are not product adoption. Any future reconsideration requires a new decision based on qualifying primary comparison evidence and a separate security review.
+The repository retains `experiments/quasar-*`, `third_party/quasar`, historical artifacts, and the loopback-only Surfpool lane for reproducibility and provenance. The four former devnet/PER operator entrypoints are retained at their original paths as unconditional refusal programs; unlike the former human-process approval boundary, they now fail closed before any SDK import, signer access, RPC use, or transaction work. The hosted `Surfpool Quasar Critical SDK` workflow also still invokes its separate local lane automatically for its existing broad path filters, including stable Anchor and root-manifest changes. This freeze does not physically remove the preserved experimental dependencies, evidence, or CI safeguards; retention and automated regression coverage are not product adoption. Any future reconsideration requires a new decision based on qualifying primary comparison evidence and a separate security review.
 
 ## Evidence decision
 
@@ -30,7 +30,7 @@ The historical Quasar numbers remain observations about their original POC. They
 - Historical “Quasar canonical/final/critical submission path” language is superseded and must not be reused as current guidance.
 - The blocked devnet IDs in `config/quasar/deployments.json` are provenance records only. Their client/ABI and job-binding mismatch remains unresolved; no redeployment is planned or authorized.
 - Quasar-specific readiness commands describe experimental/historical compatibility only. A passing local guard cannot make Quasar submission-ready or reverse this freeze.
-- Existing root package scripts still expose historical Quasar devnet/PER smoke commands that can load signer material and submit transactions. They are preserved operator surfaces, not disabled by this documentation decision, and remain approval-gated; this freeze does not authorize running them.
+- The two root Quasar devnet/PER smoke aliases and all four direct historical operator paths are disabled entrypoints. They always exit nonzero and provide no approval flag, environment token, file, unsafe override, cluster opt-in, or dynamic activation branch. Historical implementations remain recoverable from immutable Git history, not from a second executable archive.
 - The hosted Quasar Surfpool workflow remains an automatic regression dependency for its existing broad trigger set. That retained CI role must not be described as product adoption or primary benchmark evidence.
 - No future work should add Quasar to a default package manifest, root Cargo workspace, web default, or production runtime path without a separately approved unfreeze decision.
 
@@ -41,11 +41,26 @@ At this decision point:
 - root `package.json` has no Quasar package dependency;
 - root `Cargo.toml` includes `programs/*`, not `experiments/quasar-*` or `third_party/quasar`;
 - `.env.example` selects `legacy-anchor`, and an unset selector resolves to `legacy-anchor`;
-- the web/runtime selector blocks the recorded devnet Quasar target and refuses mainnet Quasar, but this does not disable separate historical operator scripts;
-- current-source Quasar execution is confined to the local-Surfpool mechanism using loopback endpoints and four caller-supplied local program IDs; direct operator invocation is opt-in, while the existing hosted workflow invokes it automatically when its path filters match;
+- the web/runtime selector blocks the recorded devnet Quasar target and refuses mainnet Quasar; the four separately owned historical operator entrypoints are now also disabled by their own unconditional refusals;
+- current-source Quasar execution is confined to the separate local-Surfpool mechanism using loopback endpoints and four caller-supplied local program IDs; the four devnet/PER operator entrypoints are unconditionally disabled, while the existing hosted workflow invokes only its local Surfpool lane automatically when its path filters match;
 - `experiments/quasar-*`, `third_party/quasar`, Quasar scripts, and their automatic hosted regression workflow remain preserved dependencies of the experimental evidence lane.
 
-These boundaries are the minimum non-destructive **product/runtime** retirement: public receipt schemas, payment-rail-neutral interfaces, stable Anchor behavior, historical artifacts, and reproducibility sources remain intact while Quasar has no default product target, package dependency, or production runtime role. Quasar is not completely dependency- or CI-retired; its experimental source, operator, and automatic regression roles remain until separately authorized removal work is safe.
+These boundaries are the minimum non-destructive **product/runtime** retirement: public receipt schemas, payment-rail-neutral interfaces, stable Anchor behavior, historical artifacts, and reproducibility sources remain intact while Quasar has no default product target, package dependency, or production runtime role. Quasar is not completely dependency- or CI-retired; its experimental source and automatic local-regression roles remain until separately authorized removal work is safe, while the four named devnet/PER operator paths are disabled.
+
+## Historical operator provenance
+
+The full pre-disable bodies of the four operator scripts remain exactly recoverable at source commit `801d0d1cb980b25448f400d6290b006e77a7a33d`:
+
+| Current disabled entrypoint | Historical Git blob |
+|---|---|
+| `scripts/run-quasar-per-devnet-smoke.mjs` | `234638a34adc81772c3b5acdefad862f97ed35b3` |
+| `scripts/run-quasar-per-magicblock-cpi-smoke.mjs` | `6621f244dddb7576431594c29f00e16952f907f5` |
+| `scripts/run-quasar-per-agent-vault-delegation-smoke.mjs` | `3bfb976d756ad8f181b13ddd422ea6c44018c741` |
+| `scripts/run-quasar-per-agent-vault-settlement-smoke.mjs` | `1e3a7195143cfd0d3d8ea153f8cdce4227902215` |
+
+For inspection only, use `git show 801d0d1cb980b25448f400d6290b006e77a7a33d:<path>`. This provenance preserves the exact historical code without adding an executable archive or reactivation route. Existing generated artifacts are unchanged and remain dated historical evidence, not proof that the current entrypoints execute or that the former deployments were safe.
+
+This control is deliberately narrow. It disables the four named owned entrypaths and their two existing npm aliases; it does not claim that every legacy-Anchor tool, read probe, third-party surface, local Surfpool lane, or arbitrary externally supplied Node preload is disabled. Reactivation would require a separately reviewed source change and authorization; there is no approval protocol in this delivery.
 
 ## Reconsideration bar
 

@@ -1,8 +1,10 @@
 # Quasar Devnet Validation Runbook — 2026-05-06
 
+> **Historical record:** This dated runbook records a completed former process and is not current operator guidance. The four Quasar devnet/PER scripts named in the current freeze document now refuse unconditionally before SDK, signer, RPC, or transaction work. No prior approval described below can enable them. The separate demo-agent commands recorded here remain outside that four-entrypoint control and are not authorized by this document.
+
 ## Purpose
 
-Prepare the approval-gated step after local Surfpool confidence: read-only registry inspection first, then explicit Nissan-approved devnet signing for Quasar demo-agent registration and optional legacy cleanup.
+Record the formerly approval-gated step after local Surfpool confidence: read-only registry inspection first, then explicitly approved devnet signing for Quasar demo-agent registration and optional legacy cleanup.
 
 ## Current read-only findings
 

@@ -104,7 +104,7 @@ Purpose: single lookup from BDD feature file -> bucket -> executable verificatio
   - `npx jest lib/__tests__/quasar-demo-program-config.test.ts lib/__tests__/quasar-demo-agent-guard.test.ts lib/__tests__/quasar-agent-account-decoder.test.ts lib/__tests__/quasar-instructions.test.ts --runInBand`
   - `cargo test --manifest-path experiments/quasar-escrow-per/Cargo.toml`
   - `npm run test:surfpool:quasar-critical`
-  - Devnet cycle, when fresh devnet validation is explicitly approved: `npm run smoke:quasar:per-devnet`
+  - Historical devnet operator entrypoint (always refuses under the current freeze): `npm run smoke:quasar:per-devnet`
 
 ## Drift guard
 - Validate index coverage against feature files:

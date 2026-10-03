@@ -248,14 +248,15 @@ claim settlement finality.
 - `scripts/check-quasar-deployment-inventory.mjs`
   - Checks deployment inventory metadata.
 - `scripts/run-quasar-per-agent-vault-delegation-smoke.mjs`
-  - PER delegation proof lane.
+  - Disabled operator entrypoint; the historical PER delegation body remains in
+    the exact Git provenance identified by the Quasar freeze decision.
 - `scripts/run-quasar-per-agent-vault-settlement-smoke.mjs`
-  - PER settlement/vault proof lane.
+  - Disabled operator entrypoint; the historical PER settlement/vault body
+    remains in the exact Git provenance identified by the Quasar freeze decision.
 - `scripts/run-surfpool-critical-smoke.sh`
   - Surfpool critical smoke lane.
 
-These scripts are evidence inputs, not approvals. This appendix does not approve transaction submission.
-Anything that starts Surfpool/devnet, loads wallets, sends transactions, or deploys programs still requires the #441 promotion gate and explicit approval.
+These scripts and their history are audit evidence inputs, not approvals. The four Quasar devnet/PER operator entrypoints now refuse unconditionally; approval-looking input cannot activate them. This appendix does not approve transaction submission. The separate local Surfpool lane remains governed by its existing boundary. Any later source change that adds wallet, devnet, transaction, or deployment capability requires the #441 promotion gate and explicit approval, plus a separately authorized review.
 
 ## Payment Rail Contract Relevance
 
