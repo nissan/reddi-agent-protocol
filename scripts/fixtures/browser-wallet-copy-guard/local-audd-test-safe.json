@@ -32,6 +32,6 @@
     "title": "Local AUDD_TEST browser harness contract",
     "summary": "Dormant local-only contract for future TransferChecked observation against a per-run six-decimal test mint.",
     "badges": ["local-test-mint", "non_eligible", "expected-only"],
-    "notes": ["Uses a local test label only and is not an AUDD Devnet or mainnet settlement claim."]
+    "notes": ["Synthetic public-key-shape fixture only; the address is not an actual six-decimal AUDD mint and proves no observed asset or settlement."]
   }
 }

@@ -12,14 +12,22 @@ const walletBaseStub = `data:text/javascript,${encodeURIComponent(`
   export const WalletReadyState = { Installed: "Installed" };
 `)}`;
 const web3Stub = `data:text/javascript,${encodeURIComponent(`
+  globalThis.__rapBrowserWalletFakeEffects = { parse: 0, sign: 0, partialSign: 0, serialize: 0 };
+  const effects = globalThis.__rapBrowserWalletFakeEffects;
   export class Connection {}
   export class PublicKey { constructor(value) { this.value = value; } }
   export class SendOptions {}
   export class TransactionSignature {}
-  export class Transaction {}
-  export class VersionedTransaction {}
+  export class Transaction {
+    partialSign() { effects.partialSign += 1; throw new Error("synthetic partialSign effect reached"); }
+    serialize() { effects.serialize += 1; throw new Error("synthetic serialize effect reached"); }
+  }
+  export class VersionedTransaction {
+    sign() { effects.sign += 1; throw new Error("synthetic sign effect reached"); }
+    serialize() { effects.serialize += 1; throw new Error("synthetic serialize effect reached"); }
+  }
   export class Keypair {
-    static fromSecretKey() { throw new Error("synthetic key parsing effect reached"); }
+    static fromSecretKey() { effects.parse += 1; throw new Error("synthetic key parsing effect reached"); }
   }
 `)}`;
 
@@ -48,14 +56,15 @@ registerHooks({
 
 const { PlaywrightWalletAdapter } = await import("../../lib/wallet/playwright-wallet-adapter.ts");
 const { PLAYWRIGHT_WALLET_SIGNER_REFUSAL_MESSAGE } = await import("../../lib/wallet/playwright-wallet-safety.ts");
+const { Keypair, Transaction, VersionedTransaction } = await import("@solana/web3.js");
 
 test("real adapter refuses mismatched caller HTTP before parse, sign, serialize, or send effects", async () => {
-  let serializeCalls = 0;
   let sendCalls = 0;
-  const transaction = { serialize() { serializeCalls += 1; throw new Error("serialize effect reached"); } };
+  const effects = globalThis.__rapBrowserWalletFakeEffects;
+  const transaction = new Transaction();
   const connection = {
     rpcEndpoint: "http://127.0.0.1:19001",
-    sendRawTransaction() { sendCalls += 1; throw new Error("send effect reached"); },
+    sendRawTransaction() { sendCalls += 1; throw new Error("synthetic send effect reached"); },
   };
   const adapter = new PlaywrightWalletAdapter({
     networkProfileName: "local-surfpool",
@@ -68,7 +77,7 @@ test("real adapter refuses mismatched caller HTTP before parse, sign, serialize,
     adapter.sendTransaction(transaction, connection),
     (error) => error instanceof Error && error.message === PLAYWRIGHT_WALLET_SIGNER_REFUSAL_MESSAGE,
   );
-  assert.equal(serializeCalls, 0);
+  assert.deepEqual(effects, { parse: 0, sign: 0, partialSign: 0, serialize: 0 });
   assert.equal(sendCalls, 0);
 
   const inertAdapter = new PlaywrightWalletAdapter({
@@ -81,6 +90,17 @@ test("real adapter refuses mismatched caller HTTP before parse, sign, serialize,
     rpcEndpoint: "http://127.0.0.1:18999",
     sendRawTransaction() { sendCalls += 1; },
   }), "playwright-mock-signature");
-  assert.equal(serializeCalls, 0);
+  assert.deepEqual(effects, { parse: 0, sign: 0, partialSign: 0, serialize: 0 });
   assert.equal(sendCalls, 0);
+
+  // Prove each fake effect trap is live with explicitly synthetic direct calls. No valid key
+  // material is parsed, nothing is signed, no real transaction is serialized, and no send occurs.
+  assert.throws(() => Keypair.fromSecretKey(new Uint8Array([0])), /synthetic key parsing effect reached/);
+  assert.throws(() => transaction.partialSign({}), /synthetic partialSign effect reached/);
+  const versioned = new VersionedTransaction();
+  assert.throws(() => versioned.sign([]), /synthetic sign effect reached/);
+  assert.throws(() => transaction.serialize(), /synthetic serialize effect reached/);
+  assert.throws(() => connection.sendRawTransaction(new Uint8Array()), /synthetic send effect reached/);
+  assert.deepEqual(effects, { parse: 1, sign: 1, partialSign: 1, serialize: 1 });
+  assert.equal(sendCalls, 1);
 });

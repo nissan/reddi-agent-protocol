@@ -178,6 +178,20 @@ const cases = [
     expectBlockerPrefix: "malformed_browser_wallet_approval:",
   },
   {
+    name: "approval checker rejects a calendar-normalized but impossible --now",
+    command: [
+      "scripts/check-browser-wallet-devnet-approval-record.mjs",
+      "--approval",
+      "scripts/fixtures/browser-wallet-devnet-approval/approval.valid.json",
+      "--now",
+      "2026-02-30T12:30:00.000Z",
+    ],
+    env: {},
+    expectExit: 1,
+    expectStatus: "blocked",
+    expectBlockerPrefix: "malformed_browser_wallet_approval:",
+  },
+  {
     name: "approval checker blocks a valueless --now instead of falling back to wall-clock time",
     command: [
       "scripts/check-browser-wallet-devnet-approval-record.mjs",
@@ -224,6 +238,18 @@ const cases = [
       "scripts/check-browser-wallet-copy-guard.mjs",
       "--row",
       "scripts/fixtures/browser-wallet-devnet-approval/copy.brand-derivative.invalid.json",
+    ],
+    env: {},
+    expectExit: 1,
+    expectStatus: "blocked",
+    expectBlockerPrefix: "non_canonical_browser_wallet_identity:",
+  },
+  {
+    name: "copy guard rejects soft-hyphen format ambiguity through its public interface",
+    command: [
+      "scripts/check-browser-wallet-copy-guard.mjs",
+      "--row",
+      "scripts/fixtures/browser-wallet-devnet-approval/copy.soft-hyphen.invalid.json",
     ],
     env: {},
     expectExit: 1,

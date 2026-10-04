@@ -211,7 +211,7 @@ function safeCopyRow(overrides: Partial<BrowserWalletIdentityCopyGuardInput> = {
       title: 'Local AUDD_TEST browser harness contract',
       summary: 'Dormant local-only TransferChecked contract for a per-run six-decimal test mint.',
       badges: ['local-test-mint', 'non_eligible', 'expected-only'],
-      notes: ['Local test label only; no Devnet or mainnet settlement claim.'],
+      notes: ['Synthetic public-key-shape fixture only; not an actual six-decimal AUDD mint or observed asset.'],
     },
     ...overrides,
   };
@@ -248,12 +248,13 @@ describe('manual Devnet browser-wallet approval schema', () => {
     }
 
     assert.ok(codes(validApproval({ approvedAt: 'not-an-iso-date' })).includes('malformed_browser_wallet_approval'));
+    assert.ok(codes(validApproval({ approvedAt: '2026-02-30T12:00:00.000Z' })).includes('malformed_browser_wallet_approval'));
     assert.ok(codes(validApproval({ approvedAt: '2026-09-03T12:30:00.001Z' })).includes('contradictory_browser_wallet_approval'));
     assert.ok(codes(validApproval({ expiresAt: '2026-09-03T12:29:59.000Z' })).includes('expired_browser_wallet_approval'));
   });
 
   it('rejects non-canonical evaluation instants and query-bearing persisted RPC URLs', () => {
-    for (const now of ['2026', '2026-09-03T21:30:00+09:00', '2026-09-03T12:30:00.0000Z']) {
+    for (const now of ['2026', '2026-09-03T21:30:00+09:00', '2026-09-03T12:30:00.0000Z', '2026-02-30T12:30:00.000Z']) {
       const result = validateBrowserWalletApprovalRecord(validApproval(), { ...VALIDATION_OPTIONS, now });
       assert.equal(result.ok, false);
       if (!result.ok) assert.ok(result.errors.some((entry) => entry.path === '$'));
@@ -263,7 +264,10 @@ describe('manual Devnet browser-wallet approval schema', () => {
       { ...validApproval().network, rpcHttp: 'https://api.devnet.solana.com?token=DO_NOT_ECHO_SENTINEL' },
       { ...validApproval().network, rpcWs: 'wss://api.devnet.solana.com?token=DO_NOT_ECHO_SENTINEL' },
     ]) {
-      const result = validateBrowserWalletApprovalRecord(validApproval({ network }), VALIDATION_OPTIONS);
+      const result = validateBrowserWalletApprovalRecord(validApproval({ network }), {
+        ...VALIDATION_OPTIONS,
+        trustedDevnetRpcEndpoints: { rpcHttp: network.rpcHttp, rpcWs: network.rpcWs },
+      });
       assert.equal(result.ok, false);
       if (!result.ok) {
         assert.ok(result.errors.some((entry) => entry.path === '$.network.rpcHttp' || entry.path === '$.network.rpcWs'));
@@ -684,10 +688,18 @@ describe('browser-wallet AUDD identity/copy guard', () => {
       safeCopyRow({ copy: { title: 'not official AUDD but official AUDD', summary: 'Expected only.' } }),
       safeCopyRow({ copy: { title: 'Local AUDD_TEST', summary: 'not grant-eligible but grant-eligible' } }),
       safeCopyRow({ copy: { title: 'Local AUDD_TEST', summary: 'not official AU\u200BDD' } }),
+      safeCopyRow({ copy: { title: 'Local AUDD_TEST', summary: 'not offi\u00ADcial AUDD' } }),
     ]) {
       const result = validateBrowserWalletIdentityCopyClaims(row);
       assert.equal(result.ok, false);
     }
+  });
+
+  it('accepts canonical ASCII copy with ordinary tab and line whitespace', () => {
+    const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+      copy: { title: 'Local AUDD_TEST\trow', summary: 'Expected only.\nNot grant-eligible.' },
+    }));
+    assert.equal(result.ok, true);
   });
 
   it('does not let a non_eligible badge suppress a grant overclaim in another copy clause', () => {

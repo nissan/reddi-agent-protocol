@@ -533,7 +533,7 @@ export function validateBrowserWalletApprovalRecord(
   const expiresAtMs = validateTimestamp(record.expiresAt, '$.expiresAt', errors);
   const nowMs = normalizeNow(options.now);
   if (nowMs === undefined) {
-    errors.push(error('malformed_browser_wallet_approval', '$', 'the supplied evaluation instant must be one exact parseable timestamp'));
+    errors.push(error('malformed_browser_wallet_approval', '$', 'the supplied evaluation instant must be one real canonical UTC ISO-8601 calendar instant'));
   }
   if (nowMs !== undefined && expiresAtMs !== undefined && expiresAtMs <= nowMs) {
     errors.push(error('expired_browser_wallet_approval', '$.expiresAt', 'approval record is expired'));
@@ -1353,8 +1353,10 @@ function validateCopyGuardAssetLabel(
 function validateUnambiguousCopyText(text: string, errors: BrowserWalletApprovalValidationError[]): void {
   const nonAsciiLetterOrNumber = [...text].some((character) =>
     (character.codePointAt(0) ?? 0) > 0x7f && /[\p{L}\p{N}]/u.test(character));
-  if (text.normalize('NFKC') !== text || nonAsciiLetterOrNumber || /[\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/u.test(text)) {
-    errors.push(error('non_canonical_browser_wallet_identity', '$.copy', 'copy must not use Unicode normalization, non-ASCII letters/numbers, or invisible direction/format characters'));
+  const disallowedControlOrFormat = /[\p{Cf}\p{Cs}]/u.test(text)
+    || /\p{Cc}/u.test(text.replace(/[\t\n\r]/g, ''));
+  if (text.normalize('NFKC') !== text || nonAsciiLetterOrNumber || disallowedControlOrFormat) {
+    errors.push(error('non_canonical_browser_wallet_identity', '$.copy', 'copy must not use Unicode normalization, non-ASCII letters/numbers, format/surrogate characters, or controls other than plain whitespace'));
   }
 }
 
@@ -1477,9 +1479,9 @@ function validateTimestamp(value: unknown, path: string, errors: BrowserWalletAp
     errors.push(error('missing_browser_wallet_approval_field', path, 'timestamp is required'));
     return undefined;
   }
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) {
-    errors.push(error('malformed_browser_wallet_approval', path, 'timestamp must be canonical UTC ISO-8601'));
+  const parsed = parseCanonicalUtcTimestamp(value);
+  if (parsed === undefined) {
+    errors.push(error('malformed_browser_wallet_approval', path, 'timestamp must be a real canonical UTC ISO-8601 calendar instant'));
     return undefined;
   }
   return parsed;
@@ -1503,9 +1505,16 @@ function parseBaseUnits(value: unknown, path: string, errors: BrowserWalletAppro
 function normalizeNow(now?: string | Date): number | undefined {
   if (now === undefined) return Date.now();
   if (now instanceof Date && Number.isFinite(now.getTime())) return now.getTime();
-  if (typeof now !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(now)) return undefined;
-  const parsed = Date.parse(now);
-  return Number.isFinite(parsed) ? parsed : undefined;
+  return typeof now === 'string' ? parseCanonicalUtcTimestamp(now) : undefined;
+}
+
+function parseCanonicalUtcTimestamp(value: string): number | undefined {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) return undefined;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  const canonical = new Date(parsed).toISOString();
+  if (value === canonical) return parsed;
+  return canonical.endsWith('.000Z') && value === canonical.replace('.000Z', 'Z') ? parsed : undefined;
 }
 
 function hasExactStringSet(value: unknown, expected: readonly string[]): boolean {
