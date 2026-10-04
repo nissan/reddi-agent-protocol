@@ -183,7 +183,7 @@ function safeCopyRow(overrides: Partial<BrowserWalletIdentityCopyGuardInput> = {
     assetLabel: 'AUDD_TEST',
     networkAlias: 'local-surfpool',
     caip2: null,
-    mint: 'LocalGeneratedMintPlaceholder11111111111111111',
+    mint: WALLET_PUBLIC_KEY,
     tokenProgram: SPL_TOKEN_PROGRAM_ID,
     decimals: 6,
     observationSource: 'local-validator',
@@ -193,7 +193,7 @@ function safeCopyRow(overrides: Partial<BrowserWalletIdentityCopyGuardInput> = {
       asset: 'AUDD_TEST',
       networkAlias: 'local-surfpool',
       caip2: null,
-      mint: 'LocalGeneratedMintPlaceholder11111111111111111',
+      mint: WALLET_PUBLIC_KEY,
       tokenProgram: SPL_TOKEN_PROGRAM_ID,
       decimals: 6,
     },
@@ -250,6 +250,26 @@ describe('manual Devnet browser-wallet approval schema', () => {
     assert.ok(codes(validApproval({ approvedAt: 'not-an-iso-date' })).includes('malformed_browser_wallet_approval'));
     assert.ok(codes(validApproval({ approvedAt: '2026-09-03T12:30:00.001Z' })).includes('contradictory_browser_wallet_approval'));
     assert.ok(codes(validApproval({ expiresAt: '2026-09-03T12:29:59.000Z' })).includes('expired_browser_wallet_approval'));
+  });
+
+  it('rejects non-canonical evaluation instants and query-bearing persisted RPC URLs', () => {
+    for (const now of ['2026', '2026-09-03T21:30:00+09:00', '2026-09-03T12:30:00.0000Z']) {
+      const result = validateBrowserWalletApprovalRecord(validApproval(), { ...VALIDATION_OPTIONS, now });
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.ok(result.errors.some((entry) => entry.path === '$'));
+    }
+
+    for (const network of [
+      { ...validApproval().network, rpcHttp: 'https://api.devnet.solana.com?token=DO_NOT_ECHO_SENTINEL' },
+      { ...validApproval().network, rpcWs: 'wss://api.devnet.solana.com?token=DO_NOT_ECHO_SENTINEL' },
+    ]) {
+      const result = validateBrowserWalletApprovalRecord(validApproval({ network }), VALIDATION_OPTIONS);
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.ok(result.errors.some((entry) => entry.path === '$.network.rpcHttp' || entry.path === '$.network.rpcWs'));
+        assert.doesNotMatch(JSON.stringify(result.errors), /DO_NOT_ECHO_SENTINEL/);
+      }
+    }
   });
 
   it('rejects contradictory approval and source timestamp ordering', () => {
@@ -521,6 +541,33 @@ describe('dormant Tier 1 local browser harness contract', () => {
     }
   });
 
+  it('requires exact closed Tier 1 field and prohibited-action identifiers', () => {
+    for (const contract of [
+      {
+        ...DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT,
+        observation: {
+          ...DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT.observation,
+          requiredFields: [...DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT.observation.requiredFields, 'extra'] as never,
+        },
+      },
+      {
+        ...DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT,
+        prohibitedActions: [...DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT.prohibitedActions, 'no transaction but transaction allowed'] as never,
+      },
+      {
+        ...DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT,
+        prohibitedActions: DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT.prohibitedActions.map((value, index) =>
+          index === 1 ? DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT.prohibitedActions[0] : value) as never,
+      },
+    ]) {
+      assert.equal(validateBrowserWalletTier1LocalHarnessContract(contract).ok, false);
+    }
+    assert.equal(validateBrowserWalletTier1LocalHarnessContract({
+      ...DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT,
+      prohibitedActions: [...DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT.prohibitedActions].reverse(),
+    }).ok, true);
+  });
+
   it('returns a sanitized blocker instead of throwing when requiredFields is not a list', () => {
     const result = validateBrowserWalletTier1LocalHarnessContract({
       ...DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT,
@@ -602,7 +649,7 @@ describe('browser-wallet AUDD identity/copy guard', () => {
         asset: 'AUDD_TEST',
         networkAlias: 'local-surfpool',
         caip2: null,
-        mint: 'LocalGeneratedMintPlaceholder11111111111111111',
+        mint: WALLET_PUBLIC_KEY,
         tokenProgram: SPL_TOKEN_PROGRAM_ID,
         decimals: 6,
       },
@@ -625,6 +672,21 @@ describe('browser-wallet AUDD identity/copy guard', () => {
     if (!result.ok) {
       assert.ok(result.errors.some((entry) => entry.code === 'malformed_browser_wallet_approval' && entry.path === '$.railEnvironment'));
       assert.ok(result.errors.every((entry) => !entry.message.includes(JSON.stringify(['local-test-mint']))));
+    }
+  });
+
+  it('rejects reserved brand derivatives, Unicode ambiguity, invalid mints, and mixed negation', () => {
+    for (const row of [
+      safeCopyRow({ assetLabel: 'AUDDOfficial' }),
+      safeCopyRow({ assetLabel: 'ＡＵＤＤ_TEST' }),
+      safeCopyRow({ assetLabel: 'AУDD_TEST' }),
+      safeCopyRow({ mint: 'not-a-public-key', x402Export: undefined }),
+      safeCopyRow({ copy: { title: 'not official AUDD but official AUDD', summary: 'Expected only.' } }),
+      safeCopyRow({ copy: { title: 'Local AUDD_TEST', summary: 'not grant-eligible but grant-eligible' } }),
+      safeCopyRow({ copy: { title: 'Local AUDD_TEST', summary: 'not official AU\u200BDD' } }),
+    ]) {
+      const result = validateBrowserWalletIdentityCopyClaims(row);
+      assert.equal(result.ok, false);
     }
   });
 
@@ -911,6 +973,36 @@ describe('browser-wallet AUDD identity/copy guard', () => {
       assert.ok(devnet.errors.some((entry) => entry.code === 'official_audd_devnet_unavailable'));
       assert.ok(devnet.errors.some((entry) => entry.code === 'settlement_finality_rejected'));
     }
+  });
+
+  it('uses fixture-observed only for parsed deterministic fixture exports', () => {
+    const fixtureRow = safeCopyRow({
+      railEnvironment: 'deterministic-fixture',
+      assetLabel: 'AUDD',
+      networkAlias: 'solana-devnet',
+      caip2: SOLANA_DEVNET_CAIP2,
+      mint: AUDD_DETERMINISTIC_FIXTURE_MINT,
+      observationSource: 'parsed-transaction-fixture',
+      x402Export: {
+        state: 'fixture-observed',
+        asset: 'AUDD',
+        networkAlias: 'solana-devnet',
+        caip2: SOLANA_DEVNET_CAIP2,
+        mint: AUDD_DETERMINISTIC_FIXTURE_MINT,
+        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+        decimals: 6,
+      },
+      receipt: { claim: 'fixture-only', observationStatus: 'fixture-observed', settlementFinality: false, controlledLiveEvidence: false },
+      copy: { title: 'AUDD deterministic fixture', summary: 'Fixture-only parsed transfer.' },
+    });
+    assert.equal(validateBrowserWalletIdentityCopyClaims(fixtureRow).ok, true);
+    assert.equal(validateBrowserWalletIdentityCopyClaims({
+      ...fixtureRow,
+      x402Export: { ...fixtureRow.x402Export!, state: 'observed' },
+    }).ok, false);
+    assert.equal(validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+      x402Export: { ...safeCopyRow().x402Export!, state: 'fixture-observed' },
+    })).ok, false);
   });
 
   it('fails when x402 export identity drifts from policy/receipt row identity', () => {

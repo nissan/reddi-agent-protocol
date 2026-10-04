@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /** Offline executable guard for browser-wallet AUDD identity/copy rows. */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { registerHooks } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { loadBrowserWalletRegisterHooks } from "./lib/browser-wallet-cli-runtime.mjs";
 
+const registerHooks = await loadBrowserWalletRegisterHooks();
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const defaultDir = join(rootDir, "scripts", "fixtures", "browser-wallet-copy-guard");
 

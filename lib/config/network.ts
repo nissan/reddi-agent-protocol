@@ -3,6 +3,7 @@ import localSurfpoolProfile from "@/config/networks/local-surfpool.json" with { 
 import mainnetProfile from "@/config/networks/mainnet.json" with { type: "json" };
 import quasarDeployments from "@/config/quasar/deployments.json" with { type: "json" };
 
+import { resolveLegacyAnchorProgramIds } from "@/lib/config/legacy-program-ids";
 import { isLoopbackRpcUrl } from "@/lib/config/loopback-endpoint";
 import { resolveNetworkProfileNameFromEnv, type NetworkProfileName } from "@/lib/config/network-profile-name";
 
@@ -224,20 +225,26 @@ export function getNetworkProfile(): NetworkProfile {
   };
 
   const effectiveEscrowProgramId = applyProgramIdOverride("escrow", escrowOverride, targetProgramId);
+  const legacyProgramIds = resolveLegacyAnchorProgramIds({
+    escrowProgramId: effectiveEscrowProgramId,
+    registryProgramId: base.programs.registryProgramId,
+    reputationProgramId: base.programs.reputationProgramId,
+    attestationProgramId: base.programs.attestationProgramId,
+  });
   const effectiveRegistryProgramId = applyProgramIdOverride(
     "registry",
     registryOverride,
-    target === "quasar" ? quasarPrograms.registry : effectiveEscrowProgramId,
+    target === "quasar" ? quasarPrograms.registry : legacyProgramIds.registry,
   );
   const effectiveReputationProgramId = applyProgramIdOverride(
     "reputation",
     reputationOverride,
-    target === "quasar" ? quasarPrograms.reputation : effectiveEscrowProgramId,
+    target === "quasar" ? quasarPrograms.reputation : legacyProgramIds.reputation,
   );
   const effectiveAttestationProgramId = applyProgramIdOverride(
     "attestation",
     attestationOverride,
-    target === "quasar" ? quasarPrograms.attestation : effectiveEscrowProgramId,
+    target === "quasar" ? quasarPrograms.attestation : legacyProgramIds.attestation,
   );
 
   const malformedOverrideKnownGaps = malformedOverrides.length

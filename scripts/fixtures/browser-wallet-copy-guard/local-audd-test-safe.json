@@ -4,7 +4,7 @@
   "assetLabel": "AUDD_TEST",
   "networkAlias": "local-surfpool",
   "caip2": null,
-  "mint": "LocalGeneratedMintPlaceholder11111111111111111",
+  "mint": "So11111111111111111111111111111111111111112",
   "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
   "decimals": 6,
   "observationSource": "local-validator",
@@ -14,7 +14,7 @@
     "asset": "AUDD_TEST",
     "networkAlias": "local-surfpool",
     "caip2": null,
-    "mint": "LocalGeneratedMintPlaceholder11111111111111111",
+    "mint": "So11111111111111111111111111111111111111112",
     "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
     "decimals": 6
   },

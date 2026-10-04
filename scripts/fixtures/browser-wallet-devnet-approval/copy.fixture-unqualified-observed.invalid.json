@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "reddi.browser-wallet.identity-copy-guard.v1",
+  "railEnvironment": "deterministic-fixture",
+  "assetLabel": "AUDD",
+  "networkAlias": "solana-devnet",
+  "caip2": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+  "mint": "AUDDdev111111111111111111111111111111111111",
+  "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+  "decimals": 6,
+  "observationSource": "parsed-transaction-fixture",
+  "grantEligibility": "non_eligible",
+  "x402Export": {
+    "state": "observed",
+    "asset": "AUDD",
+    "networkAlias": "solana-devnet",
+    "caip2": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+    "mint": "AUDDdev111111111111111111111111111111111111",
+    "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "decimals": 6
+  },
+  "policy": { "grantEligibility": "non_eligible", "controlledLive": false },
+  "receipt": {
+    "claim": "fixture-only",
+    "observationStatus": "fixture-observed",
+    "settlementFinality": false,
+    "controlledLiveEvidence": false
+  },
+  "copy": { "title": "AUDD deterministic fixture", "summary": "Fixture-only parsed transfer." }
+}

@@ -1,11 +1,19 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const node = process.execPath;
 const fakeSecret = "DO_NOT_ECHO_PLAYWRIGHT_SIGNER_TEST_SENTINEL";
+const temporaryFixtureDir = mkdtempSync(join(tmpdir(), "rap-browser-wallet-safety-"));
+process.on("exit", () => rmSync(temporaryFixtureDir, { recursive: true, force: true }));
+const queryApprovalPath = join(temporaryFixtureDir, "approval.query-url.invalid.json");
+const queryApproval = JSON.parse(readFileSync(join(rootDir, "scripts/fixtures/browser-wallet-devnet-approval/approval.valid.json"), "utf8"));
+queryApproval.network.rpcHttp = "https://api.devnet.solana.com?token=DO_NOT_ECHO_QUERY_SENTINEL";
+writeFileSync(queryApprovalPath, JSON.stringify(queryApproval));
 
 const cases = [
   {
@@ -38,6 +46,19 @@ const cases = [
     mustNotInclude: fakeSecret,
   },
   {
+    name: "preconditions trim blank endpoint overrides like runtime resolution",
+    command: ["scripts/check-browser-wallet-command-preconditions.mjs", "--mode", "playwright-webserver"],
+    env: {
+      NETWORK_PROFILE: " local-surfpool ",
+      NEXT_PUBLIC_RPC_ENDPOINT: "   ",
+      NEXT_PUBLIC_RPC_WS_ENDPOINT: "   ",
+      NEXT_PUBLIC_PLAYWRIGHT_WALLET_SECRET_KEY: fakeSecret,
+    },
+    expectExit: 0,
+    expectStatus: "passed",
+    mustNotInclude: fakeSecret,
+  },
+  {
     name: "tier1 local preflight rejects default devnet profile",
     command: ["scripts/check-browser-wallet-command-preconditions.mjs", "--mode", "tier1-local-browser-harness"],
     env: { NETWORK_PROFILE: "devnet" },
@@ -57,6 +78,21 @@ const cases = [
     env: {},
     expectExit: 0,
     expectStatus: "approved_for_manual_review",
+  },
+  {
+    name: "approval checker rejects query-bearing persisted RPC without reflecting it",
+    command: [
+      "scripts/check-browser-wallet-devnet-approval-record.mjs",
+      "--approval",
+      queryApprovalPath,
+      "--now",
+      "2026-09-03T12:30:00.000Z",
+    ],
+    env: {},
+    expectExit: 1,
+    expectStatus: "blocked",
+    expectBlockerPrefix: "non_canonical_browser_wallet_identity:",
+    mustNotInclude: "DO_NOT_ECHO_QUERY_SENTINEL",
   },
   {
     name: "approval checker fails expired approval",
@@ -125,7 +161,21 @@ const cases = [
     env: {},
     expectExit: 1,
     expectStatus: "blocked",
-    expectBlocker: "now_parseable",
+    expectBlockerPrefix: "malformed_browser_wallet_approval:",
+  },
+  {
+    name: "approval checker rejects a parseable but non-canonical --now",
+    command: [
+      "scripts/check-browser-wallet-devnet-approval-record.mjs",
+      "--approval",
+      "scripts/fixtures/browser-wallet-devnet-approval/approval.valid.json",
+      "--now",
+      "2026",
+    ],
+    env: {},
+    expectExit: 1,
+    expectStatus: "blocked",
+    expectBlockerPrefix: "malformed_browser_wallet_approval:",
   },
   {
     name: "approval checker blocks a valueless --now instead of falling back to wall-clock time",
@@ -169,6 +219,30 @@ const cases = [
     expectBlockerPrefix: "malformed_browser_wallet_approval:",
   },
   {
+    name: "copy guard rejects reserved brand derivatives through its public interface",
+    command: [
+      "scripts/check-browser-wallet-copy-guard.mjs",
+      "--row",
+      "scripts/fixtures/browser-wallet-devnet-approval/copy.brand-derivative.invalid.json",
+    ],
+    env: {},
+    expectExit: 1,
+    expectStatus: "blocked",
+    expectBlockerPrefix: "non_canonical_browser_wallet_identity:",
+  },
+  {
+    name: "copy guard rejects unqualified observed state for parsed fixture export",
+    command: [
+      "scripts/check-browser-wallet-copy-guard.mjs",
+      "--row",
+      "scripts/fixtures/browser-wallet-devnet-approval/copy.fixture-unqualified-observed.invalid.json",
+    ],
+    env: {},
+    expectExit: 1,
+    expectStatus: "blocked",
+    expectBlockerPrefix: "settlement_finality_rejected:",
+  },
+  {
     name: "copy guard negative control fails",
     command: ["scripts/check-browser-wallet-copy-guard.mjs", "--negative-control"],
     env: {},
@@ -181,7 +255,7 @@ const cases = [
 const failures = [];
 for (const testCase of cases) {
   const env = {
-    ...process.env,
+    PATH: process.env.PATH,
     ...testCase.env,
   };
   if (testCase.env.NEXT_PUBLIC_PLAYWRIGHT_WALLET_SECRET_KEY === "") delete env.NEXT_PUBLIC_PLAYWRIGHT_WALLET_SECRET_KEY;

@@ -20,6 +20,17 @@ export const NETWORK_PROFILE_ENV_KEYS = [
   "NEXT_PUBLIC_NETWORK_PROFILE",
 ] as const;
 
+export function firstNonBlankEnvValue(
+  env: Record<string, string | undefined>,
+  ...keys: string[]
+): string | undefined {
+  for (const key of keys) {
+    const value = env[key]?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
 export function normalizeNetworkProfileName(raw: string): NetworkProfileName {
   const value = raw.trim().toLowerCase();
   if (value === "local-surfpool" || value === "local" || value === "localnet" || value === "surfpool") return "local-surfpool";
@@ -28,9 +39,6 @@ export function normalizeNetworkProfileName(raw: string): NetworkProfileName {
 }
 
 export function resolveNetworkProfileNameFromEnv(env: Record<string, string | undefined>): NetworkProfileName {
-  for (const key of NETWORK_PROFILE_ENV_KEYS) {
-    const value = env[key]?.trim();
-    if (value) return normalizeNetworkProfileName(value);
-  }
-  return "devnet";
+  const value = firstNonBlankEnvValue(env, ...NETWORK_PROFILE_ENV_KEYS);
+  return value ? normalizeNetworkProfileName(value) : "devnet";
 }
