@@ -751,6 +751,34 @@ describe('browser-wallet AUDD identity/copy guard', () => {
     }
   });
 
+  it('refuses double negation and negated settlement or controlled-live copy', () => {
+    for (const [summary, code] of [
+      ['never not official AUDD', 'official_audd_devnet_unavailable'],
+      ['not non-grant-eligible', 'non_canonical_browser_wallet_identity'],
+      ['not official Devnet AUDD', 'official_audd_devnet_unavailable'],
+      ['not observed settlement', 'settlement_finality_rejected'],
+      ['No settlement finality risk remains', 'settlement_finality_rejected'],
+      ['no controlled-live restrictions apply', 'non_canonical_browser_wallet_identity'],
+    ] as const) {
+      const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+        copy: { title: 'Local AUDD_TEST browser harness contract', summary },
+      }));
+      assert.equal(result.ok, false, summary);
+      if (!result.ok) {
+        assert.ok(result.errors.some((entry) => entry.code === code && entry.path === '$.copy'), summary);
+      }
+    }
+  });
+
+  it('accepts directly negated official-AUDD and grant-eligibility copy', () => {
+    for (const summary of ['This row is not official AUDD.', 'Never an official AUDD row.', 'This row is non-grant-eligible.']) {
+      const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
+        copy: { title: 'Local AUDD_TEST browser harness contract', summary },
+      }));
+      assert.equal(result.ok, true, summary);
+    }
+  });
+
   it('still accepts a genuine negated grant-eligibility clause', () => {
     const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
       copy: {

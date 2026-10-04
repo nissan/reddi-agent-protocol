@@ -111,7 +111,7 @@
     "check:browser-wallet:devnet-approval": "node ./scripts/check-browser-wallet-devnet-approval-record.mjs",
     "check:browser-wallet:tier1-contract": "node ./scripts/check-browser-wallet-tier1-local-contract.mjs",
     "check:browser-wallet:copy-guard": "node ./scripts/check-browser-wallet-copy-guard.mjs",
-    "test:browser-wallet:safety": "node ./scripts/test-browser-wallet-safety-checks.mjs"
+    "test:browser-wallet:safety": "node ./scripts/test-browser-wallet-safety-checks.mjs && node --test ./scripts/__tests__/browser-wallet-cli-runtime.test.mjs ./scripts/__tests__/legacy-program-ids.test.mjs ./scripts/__tests__/playwright-wallet-adapter-boundary.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",

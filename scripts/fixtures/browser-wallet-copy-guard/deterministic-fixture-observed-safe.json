@@ -30,7 +30,7 @@
   },
   "copy": {
     "title": "AUDD deterministic fixture",
-    "summary": "Fixture-only parsed transfer output; not observed settlement.",
+    "summary": "Fixture-only parsed transfer output; expected terms only.",
     "badges": ["deterministic-fixture", "non_eligible", "fixture-observed"]
   }
 }

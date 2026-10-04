@@ -1363,16 +1363,16 @@ function validateUnambiguousCopyText(text: string, errors: BrowserWalletApproval
 function forbiddenCopyMatches(text: string): Array<{ code: BrowserWalletApprovalValidationErrorCode; message: string }> {
   const matches: Array<{ code: BrowserWalletApprovalValidationErrorCode; message: string }> = [];
   const clauses = splitCopyClaimClauses(text);
-  if (clauses.some((clause) => hasUnnegatedClaim(clause, /official\s+AUDD|AUDD\s+official|official\s+Devnet\s+AUDD|AUDD\s+Devnet\s+official/gi))) {
+  if (clauses.some((clause) => hasUnnegatedClaim(clause, /official\s+AUDD|AUDD\s+official|official\s+Devnet\s+AUDD|AUDD\s+Devnet\s+official/i, /(?<!\b(?:not|never|no|non)[\s_-]+)\b(?:not|never|no)\s+(?:an?\s+)?official\s+AUDD/gi))) {
     matches.push({ code: 'official_audd_devnet_unavailable', message: 'copy must not describe browser-wallet safety rows as official AUDD' });
   }
-  if (clauses.some((clause) => hasUnnegatedClaim(clause, /grant[-\s]?eligible|eligible\s+for\s+grant|grant\s+volume/gi))) {
+  if (clauses.some((clause) => hasUnnegatedClaim(clause, /grant[-\s]?eligible|eligible\s+for\s+grant|grant\s+volume/i, /(?<!\b(?:not|never|no|non)[\s_-]+)\b(?:not|never|no|non[_-])\s*grant[-\s]?eligible/gi))) {
     matches.push({ code: 'non_canonical_browser_wallet_identity', message: 'copy must not describe browser-wallet safety rows as grant-eligible' });
   }
-  if (clauses.some((clause) => hasUnnegatedClaim(clause, /observed\s+settlement|settlement\s+observed|settlement\s+finality|final\s+settlement|settled\s+on/gi))) {
+  if (clauses.some((clause) => /observed\s+settlement|settlement\s+observed|settlement\s+finality|final\s+settlement|settled\s+on/i.test(clause))) {
     matches.push({ code: 'settlement_finality_rejected', message: 'copy must not upgrade expected or safety evidence into observed settlement/finality' });
   }
-  if (clauses.some((clause) => hasUnnegatedClaim(clause, /controlled[-\s]?live|controlled\s+live\s+evidence/gi))) {
+  if (clauses.some((clause) => /controlled[-\s]?live|controlled\s+live\s+evidence/i.test(clause))) {
     matches.push({ code: 'non_canonical_browser_wallet_identity', message: 'copy must not describe browser-wallet safety rows as controlled-live evidence' });
   }
   return matches;
@@ -1385,12 +1385,8 @@ function splitCopyClaimClauses(text: string): string[] {
     .filter((clause) => clause.length > 0);
 }
 
-function hasUnnegatedClaim(text: string, claimPattern: RegExp): boolean {
-  for (const match of text.matchAll(claimPattern)) {
-    const prefix = text.slice(Math.max(0, (match.index ?? 0) - 24), match.index);
-    if (!/(?:^|\b)(?:not|never|no)\s+(?:an?\s+)?$/i.test(prefix)) return true;
-  }
-  return false;
+function hasUnnegatedClaim(text: string, claimPattern: RegExp, negatedClaimPattern: RegExp): boolean {
+  return claimPattern.test(text.replace(negatedClaimPattern, ' | '));
 }
 
 function rejectUnknownKeys(value: Record<string, unknown>, path: string, allowed: Set<string>, errors: BrowserWalletApprovalValidationError[]): void {
