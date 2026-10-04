@@ -696,7 +696,7 @@ describe('browser-wallet AUDD identity/copy guard', () => {
     }
   });
 
-  it('accepts canonical ASCII copy with ordinary tab and line whitespace', () => {
+  it('accepts canonical copy with ordinary whitespace and normalization-stable punctuation', () => {
     const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
       copy: { title: 'Local AUDD_TEST\trow', summary: 'Expected only — fixture punctuation.\nNot grant-eligible.' },
     }));
