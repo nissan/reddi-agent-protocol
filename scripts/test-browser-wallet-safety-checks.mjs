@@ -257,6 +257,18 @@ const cases = [
     expectBlockerPrefix: "non_canonical_browser_wallet_identity:",
   },
   {
+    name: "copy guard rejects combining-grapheme-joiner ambiguity through its public interface",
+    command: [
+      "scripts/check-browser-wallet-copy-guard.mjs",
+      "--row",
+      "scripts/fixtures/browser-wallet-devnet-approval/copy.combining-grapheme-joiner.invalid.json",
+    ],
+    env: {},
+    expectExit: 1,
+    expectStatus: "blocked",
+    expectBlockerPrefix: "non_canonical_browser_wallet_identity:",
+  },
+  {
     name: "copy guard rejects unqualified observed state for parsed fixture export",
     command: [
       "scripts/check-browser-wallet-copy-guard.mjs",

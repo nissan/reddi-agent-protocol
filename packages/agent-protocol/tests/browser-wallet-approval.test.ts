@@ -689,6 +689,7 @@ describe('browser-wallet AUDD identity/copy guard', () => {
       safeCopyRow({ copy: { title: 'Local AUDD_TEST', summary: 'not grant-eligible but grant-eligible' } }),
       safeCopyRow({ copy: { title: 'Local AUDD_TEST', summary: 'not official AU\u200BDD' } }),
       safeCopyRow({ copy: { title: 'Local AUDD_TEST', summary: 'not offi\u00ADcial AUDD' } }),
+      safeCopyRow({ copy: { title: 'Local AUDD_TEST', summary: 'not offi\u034Fcial AUDD' } }),
     ]) {
       const result = validateBrowserWalletIdentityCopyClaims(row);
       assert.equal(result.ok, false);
@@ -697,7 +698,7 @@ describe('browser-wallet AUDD identity/copy guard', () => {
 
   it('accepts canonical ASCII copy with ordinary tab and line whitespace', () => {
     const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
-      copy: { title: 'Local AUDD_TEST\trow', summary: 'Expected only.\nNot grant-eligible.' },
+      copy: { title: 'Local AUDD_TEST\trow', summary: 'Expected only — fixture punctuation.\nNot grant-eligible.' },
     }));
     assert.equal(result.ok, true);
   });

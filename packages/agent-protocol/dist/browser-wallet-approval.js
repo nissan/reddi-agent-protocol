@@ -988,11 +988,11 @@ function validateCopyGuardAssetLabel(value, railEnvironment, errors) {
     }
 }
 function validateUnambiguousCopyText(text, errors) {
-    const nonAsciiLetterOrNumber = [...text].some((character) => (character.codePointAt(0) ?? 0) > 0x7f && /[\p{L}\p{N}]/u.test(character));
-    const disallowedControlOrFormat = /[\p{Cf}\p{Cs}]/u.test(text)
+    const nonAsciiLetterNumberOrMark = [...text].some((character) => (character.codePointAt(0) ?? 0) > 0x7f && /[\p{L}\p{N}\p{M}]/u.test(character));
+    const disallowedControlOrFormat = /[\p{Default_Ignorable_Code_Point}\p{Cf}\p{Cs}]/u.test(text)
         || /\p{Cc}/u.test(text.replace(/[\t\n\r]/g, ''));
-    if (text.normalize('NFKC') !== text || nonAsciiLetterOrNumber || disallowedControlOrFormat) {
-        errors.push(error('non_canonical_browser_wallet_identity', '$.copy', 'copy must not use Unicode normalization, non-ASCII letters/numbers, format/surrogate characters, or controls other than plain whitespace'));
+    if (text.normalize('NFKC') !== text || nonAsciiLetterNumberOrMark || disallowedControlOrFormat) {
+        errors.push(error('non_canonical_browser_wallet_identity', '$.copy', 'copy must not use Unicode normalization, default-ignorable characters, non-ASCII letters/numbers/marks, format/surrogate characters, or controls other than plain whitespace'));
     }
 }
 function forbiddenCopyMatches(text) {
