@@ -81,7 +81,7 @@ The generated `.ts` files are IDL type outputs only. Their historical labels are
 
 The 2026-10-02 description called the SBF and IDL compilation locked. In the current runner, `--locked` is present on the two Cargo test invocations but not on `cargo build-sbf` or either underlying `anchor idl build` Cargo invocation; [#665](https://github.com/nissan/reddi-agent-protocol/issues/665) tracks locked builds and executable lockfile byte-identity evidence. Even where used, `--locked` freezes dependency resolution; it does not mean offline. Cargo git/registry dependencies or the selected platform tools can still be acquired when absent. Such tool acquisition is distinct from, and does not authorize, a Solana RPC connection, wallet use, signing, simulation, transaction submission, or deployment.
 
-Finally, both isolated programs reuse the canonical production program ID only so locally compiled bytes, discriminators, PDA derivation, account ownership, and generated interfaces can be compared. The identity does not make either pilot binary deployable, authorized for deployment, or evidence of a deployed upgrade.
+Finally, both isolated programs reuse the canonical production program ID only so locally compiled bytes, discriminators, PDA derivation, account ownership, and generated interfaces can be compared. The outputs are not authorized or release-qualified deployment artifacts, and they are not evidence of a deployed upgrade. This qualification boundary is not a claim that a loader could never deploy otherwise valid compiled bytes under separate authority; the pilot neither grants nor evaluates such authority or a deployment path.
 
 ### Client limitation observed
 
