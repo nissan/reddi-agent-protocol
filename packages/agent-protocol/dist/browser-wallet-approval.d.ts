@@ -6,6 +6,10 @@ export declare const BROWSER_WALLET_TIER1_LOCAL_HARNESS_SCHEMA_VERSION: "reddi.b
 export declare const BROWSER_WALLET_IDENTITY_COPY_GUARD_SCHEMA_VERSION: "reddi.browser-wallet.identity-copy-guard.v1";
 export declare const CANONICAL_DEVNET_USDC_MINT: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 declare const LOOPBACK_DYNAMIC_SENTINEL: "dynamic-loopback";
+declare const TIER1_REQUIRED_OBSERVATION_FIELDS: readonly ["mint", "tokenProgram", "decimals", "payee", "destinationOwner", "amount", "memo", "signature", "instructionIndex"];
+declare const TIER1_PROHIBITED_ACTION_IDS: readonly ["no-mainnet", "no-devnet-rpc", "no-faucet-or-airdrop", "no-committed-key-material", "no-signature-generation", "no-blockhash-generation", "no-transaction-action", "no-runtime-artifacts"];
+export type BrowserWalletTier1ProhibitedActionId = (typeof TIER1_PROHIBITED_ACTION_IDS)[number];
+export declare const BROWSER_WALLET_TIER1_PROHIBITED_ACTION_EXPLANATIONS: Readonly<Record<BrowserWalletTier1ProhibitedActionId, string>>;
 export type BrowserWalletApprovalValidationErrorCode = 'malformed_browser_wallet_approval' | 'missing_browser_wallet_approval_field' | 'unknown_browser_wallet_approval_field' | 'invalid_browser_wallet_approval_schema' | 'expired_browser_wallet_approval' | 'non_single_use_browser_wallet_approval' | 'unknown_browser_wallet_provider' | 'mainnet_browser_wallet_rejected' | 'production_browser_wallet_rejected' | 'custody_browser_wallet_rejected' | 'settlement_finality_rejected' | 'overly_broad_browser_wallet_approval' | 'non_canonical_browser_wallet_identity' | 'contradictory_browser_wallet_approval' | 'official_audd_devnet_unavailable' | 'secret_material_rejected' | 'ai_faucet_rejected';
 export type BrowserWalletApprovalValidationError = {
     code: BrowserWalletApprovalValidationErrorCode;
@@ -218,7 +222,7 @@ export type BrowserWalletTier1LocalHarnessContract = {
         source: 'local-validator';
         exactTransferChecked: true;
         exactlyOneMatchingTransfer: true;
-        requiredFields: Array<'mint' | 'tokenProgram' | 'decimals' | 'payee' | 'destinationOwner' | 'amount' | 'memo' | 'signature' | 'instructionIndex'>;
+        requiredFields: Array<(typeof TIER1_REQUIRED_OBSERVATION_FIELDS)[number]>;
         expectedTermsAreObservedEvidence: false;
     };
     railIdentity: {
@@ -240,7 +244,7 @@ export type BrowserWalletTier1LocalHarnessContract = {
         incidentSuspend: true;
         freshApprovalRequired: true;
     };
-    prohibitedActions: string[];
+    prohibitedActions: BrowserWalletTier1ProhibitedActionId[];
 };
 export type BrowserWalletIdentityCopyGuardInput = {
     schemaVersion: typeof BROWSER_WALLET_IDENTITY_COPY_GUARD_SCHEMA_VERSION;
@@ -254,7 +258,7 @@ export type BrowserWalletIdentityCopyGuardInput = {
     observationSource: 'expected-only' | 'parsed-transaction-fixture' | 'local-validator' | 'parsed-rpc-transaction';
     grantEligibility: ReddiPaymentEligibilityLabel;
     x402Export?: {
-        state: 'expected' | 'observed';
+        state: 'expected' | 'fixture-observed' | 'observed';
         asset: string;
         networkAlias: string;
         caip2?: string | null;

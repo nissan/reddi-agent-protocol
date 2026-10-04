@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "reddi.browser-wallet.identity-copy-guard.v1",
+  "railEnvironment": "local-test-mint",
+  "assetLabel": "AUDDOfficial",
+  "networkAlias": "local-surfpool",
+  "caip2": null,
+  "mint": "So11111111111111111111111111111111111111112",
+  "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+  "decimals": 6,
+  "observationSource": "local-validator",
+  "grantEligibility": "non_eligible",
+  "policy": { "grantEligibility": "non_eligible", "controlledLive": false },
+  "receipt": {
+    "claim": "fixture-only",
+    "observationStatus": "not-observed",
+    "settlementFinality": false,
+    "controlledLiveEvidence": false
+  },
+  "copy": { "title": "Local test row", "summary": "Expected only." }
+}

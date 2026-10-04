@@ -5,10 +5,11 @@
  * parses secret material, requests faucet funds, signs, simulates, submits, confirms, or observes a transaction.
  */
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { registerHooks } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { loadBrowserWalletRegisterHooks } from "./lib/browser-wallet-cli-runtime.mjs";
 
+const registerHooks = await loadBrowserWalletRegisterHooks();
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 function asFile(path) {
@@ -48,14 +49,14 @@ const { BROWSER_WALLET_APPROVAL_VALIDATION_SCHEMA_VERSION, validateBrowserWallet
   pathToFileURL(join(rootDir, "packages", "agent-protocol", "src", "browser-wallet-approval.ts")).href
 );
 
+const { resolveLegacyAnchorProgramIds } = await import(
+  pathToFileURL(join(rootDir, "lib", "config", "legacy-program-ids.ts")).href
+);
 const devnetProfile = JSON.parse(readFileSync(join(rootDir, "config", "networks", "devnet.json"), "utf8"));
-const trustedDevnetEscrowProgramId = devnetProfile?.programs?.escrowProgramId;
-const trustedDevnetProgramIds = {
-  escrow: trustedDevnetEscrowProgramId,
-  registry: trustedDevnetEscrowProgramId,
-  reputation: trustedDevnetEscrowProgramId,
-  attestation: trustedDevnetEscrowProgramId,
-};
+// The stable Devnet profile currently registers one legacy Anchor program. The authoritative
+// profile resolver aliases registry/reputation/attestation to escrow unless distinct IDs exist;
+// approval trust context deliberately uses that same resolver rather than duplicating the alias.
+const trustedDevnetProgramIds = resolveLegacyAnchorProgramIds(devnetProfile.programs);
 const trustedDevnetRpcEndpoints = {
   rpcHttp: devnetProfile?.solana?.rpcHttp,
   rpcWs: devnetProfile?.solana?.rpcWs,
@@ -138,10 +139,10 @@ const checks = [];
 const approval = readJson(args.approval, checks);
 let now;
 if (args.nowRequested) {
-  if (args.now && Number.isFinite(Date.parse(args.now))) {
+  if (args.now) {
     now = args.now;
   } else {
-    checks.push({ id: "now_parseable", ok: false, summary: "--now must be an exact parseable ISO timestamp" });
+    checks.push({ id: "now_parseable", ok: false, summary: "--now must be one canonical UTC ISO-8601 timestamp" });
   }
 }
 if (approval.read) {

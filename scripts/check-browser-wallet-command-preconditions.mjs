@@ -9,10 +9,12 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { loadBrowserWalletRegisterHooks } from "./lib/browser-wallet-cli-runtime.mjs";
 
+await loadBrowserWalletRegisterHooks();
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const { isLoopbackRpcUrl } = await import(pathToFileURL(join(rootDir, "lib", "config", "loopback-endpoint.ts")).href);
-const { resolveNetworkProfileNameFromEnv } = await import(pathToFileURL(join(rootDir, "lib", "config", "network-profile-name.ts")).href);
+const { firstNonBlankEnvValue, resolveNetworkProfileNameFromEnv } = await import(pathToFileURL(join(rootDir, "lib", "config", "network-profile-name.ts")).href);
 const localProfile = JSON.parse(readFileSync(join(rootDir, "config", "networks", "local-surfpool.json"), "utf8"));
 const devnetProfile = JSON.parse(readFileSync(join(rootDir, "config", "networks", "devnet.json"), "utf8"));
 const mainnetProfile = JSON.parse(readFileSync(join(rootDir, "config", "networks", "mainnet.json"), "utf8"));
@@ -43,8 +45,8 @@ function baseProfile(name) {
 
 function effectiveRpc(env, profile) {
   return {
-    http: env.NEXT_PUBLIC_RPC_ENDPOINT || env.NEXT_PUBLIC_RPC_URL || env.DEMO_DEVNET_RPC || profile.solana.rpcHttp,
-    ws: env.NEXT_PUBLIC_RPC_WS_ENDPOINT || profile.solana.rpcWs,
+    http: firstNonBlankEnvValue(env, "NEXT_PUBLIC_RPC_ENDPOINT", "NEXT_PUBLIC_RPC_URL", "DEMO_DEVNET_RPC") ?? profile.solana.rpcHttp,
+    ws: firstNonBlankEnvValue(env, "NEXT_PUBLIC_RPC_WS_ENDPOINT") ?? profile.solana.rpcWs,
   };
 }
 
@@ -93,7 +95,7 @@ function buildArtifact(args, env) {
     blockers: checks.filter((entry) => !entry.ok).map((entry) => entry.id),
     guardrails: [
       "No browser, extension, wallet, faucet, validator, mint, keypair, blockhash, signature, transaction, balance, network, or RPC action is performed.",
-      "Public-prefixed Playwright signer material is refused before Next.js starts unless the effective profile/RPC are local-surfpool loopback.",
+      "When this guard owns Next.js startup, public-prefixed Playwright signer material is refused before startup unless the effective profile/RPC are local-surfpool loopback.",
       "Tier 1 preflight is a dormant contract check; it is not approval to generate local mint or signer material.",
     ],
   };

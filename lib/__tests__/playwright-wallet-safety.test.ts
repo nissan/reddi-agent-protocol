@@ -79,6 +79,35 @@ describe("Playwright wallet signer safety", () => {
     expect(otherLoopback).toEqual({ ok: false, code: "submission_rpc_mismatch", message: PLAYWRIGHT_WALLET_SIGNER_REFUSAL_MESSAGE });
   });
 
+  it("refuses a mismatched caller endpoint before parsing, signing, serializing, or sending", async () => {
+    const transaction = { serialize: jest.fn(() => { throw new Error("serialize effect reached"); }) };
+    const connection = {
+      rpcEndpoint: "http://127.0.0.1:19001",
+      sendRawTransaction: jest.fn(() => { throw new Error("send effect reached"); }),
+    };
+    const adapter = new PlaywrightWalletAdapter({
+      networkProfileName: "local-surfpool",
+      rpcHttp: "http://127.0.0.1:18999",
+      rpcWs: "ws://127.0.0.1:19000",
+      signerSecretJson: "SYNTHETIC_INVALID_NON_KEYPAIR_SENTINEL",
+    });
+
+    await expect(adapter.sendTransaction(transaction as never, connection as never)).rejects.toThrow(PLAYWRIGHT_WALLET_SIGNER_REFUSAL_MESSAGE);
+    expect(transaction.serialize).not.toHaveBeenCalled();
+    expect(connection.sendRawTransaction).not.toHaveBeenCalled();
+
+    const inertAdapter = new PlaywrightWalletAdapter({
+      networkProfileName: "local-surfpool",
+      rpcHttp: "http://127.0.0.1:18999",
+      rpcWs: "ws://127.0.0.1:19000",
+      signerSecretJson: "",
+    });
+    const inertConnection = { rpcEndpoint: "http://127.0.0.1:18999", sendRawTransaction: jest.fn() };
+    await expect(inertAdapter.sendTransaction(transaction as never, inertConnection as never)).resolves.toBe("playwright-mock-signature");
+    expect(transaction.serialize).not.toHaveBeenCalled();
+    expect(inertConnection.sendRawTransaction).not.toHaveBeenCalled();
+  });
+
   it("emits the same effective build profile that the signer guard validates", async () => {
     const previous = { ...process.env };
     jest.resetModules();

@@ -14,6 +14,7 @@ All notable changes to this package are documented here. Dates are AEST.
 
 ### Changed
 
+- Browser-wallet approval/copy contracts now require canonical evaluation instants and query-free persisted RPC identities, validate concrete mint public keys, reject reserved-brand and Unicode ambiguity per positive claim occurrence, use closed dormant Tier 1 identifiers, and qualify parsed fixture x402 exports as `fixture-observed`; these remain offline/default-off checks and do not add durable approval consumption.
 - The AUDD mainnet gate now canonicalises the plan network alias and fires on any plan that names mainnet by alias or CAIP-2 network, or that names the official AUDD mainnet mint, whether or not the plan declares `railEnvironment`. `requireX402Exact` additionally rejects network aliases that do not resolve to a known CAIP-2 network.
 - `createAuddPaymentIntentDraft` derives the environment label from the plan instead of always defaulting to `deterministic-fixture`: mainnet-targeting plans are labelled `mainnet-gated` (keeping operator approval required), a plan with no derivable environment throws `audd_payment_plan_environment_undeclared`, local test mints throw `audd_payment_plan_local_test_mint_not_exportable`, and supplied labels that do not exactly match the canonical rail throw `audd_payment_plan_label_environment_mismatch`.
 - `controlled-live` payment record labels now require `partnerAcceptanceRef` before they can be marked grant eligible, matching the existing `mainnet-gated` rule.

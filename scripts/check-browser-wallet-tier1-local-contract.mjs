@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /** Offline checker for the dormant Tier 1 local browser-harness contract. */
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { registerHooks } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { loadBrowserWalletRegisterHooks } from "./lib/browser-wallet-cli-runtime.mjs";
 
+const registerHooks = await loadBrowserWalletRegisterHooks();
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 function asFile(path) {
@@ -33,6 +34,7 @@ registerHooks({
 
 const {
   BROWSER_WALLET_TIER1_LOCAL_HARNESS_SCHEMA_VERSION,
+  BROWSER_WALLET_TIER1_PROHIBITED_ACTION_EXPLANATIONS,
   DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT,
   validateBrowserWalletTier1LocalHarnessContract,
 } = await import(pathToFileURL(join(rootDir, "packages", "agent-protocol", "src", "browser-wallet-approval.ts")).href);
@@ -95,10 +97,15 @@ if (args.unknown) {
   process.exit(1);
 }
 const checks = [];
+let prohibitedActionExplanations = [];
 const contract = readOptionalContract(args.contract, args.contractRequested, checks);
 if (contract.read) {
   const result = validateBrowserWalletTier1LocalHarnessContract(contract.value);
   if (result.ok) {
+    prohibitedActionExplanations = result.record.prohibitedActions.map((id) => ({
+      id,
+      summary: BROWSER_WALLET_TIER1_PROHIBITED_ACTION_EXPLANATIONS[id],
+    }));
     checks.push({ id: "tier1_contract", ok: true, summary: "Tier 1 local browser harness contract is dormant, local-only, and canonical" });
   } else {
     for (const validationError of result.errors) {
@@ -114,6 +121,7 @@ const artifact = {
   inputs: { contract: args.contractRequested ? (args.contract ? relative(rootDir, resolveRepoPath(args.contract)) : null) : "built-in-dormant-contract" },
   checks,
   blockers: checks.filter((entry) => !entry.ok).map((entry) => entry.id),
+  prohibitedActionExplanations,
   guardrails: [
     "Interfaces/preflight only: no browser, wallet, extension, faucet, RPC, validator, mint, keypair, signature, blockhash, transaction, state, or token balance is created or inspected.",
     "The local test asset is AUDD_TEST/LOCAL_AUDD_TEST with grantEligibility=non_eligible; it is never official AUDD.",
