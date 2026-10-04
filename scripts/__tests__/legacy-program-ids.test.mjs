@@ -49,4 +49,3 @@ test("explicit non-Devnet role IDs remain distinct and cannot equal stale alias 
   assert.equal(distinct.attestation, DISTINCT_PROGRAM);
   assert.notDeepEqual(distinct, aliased);
 });
-
