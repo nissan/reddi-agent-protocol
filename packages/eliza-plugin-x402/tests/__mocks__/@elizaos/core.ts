@@ -7,9 +7,9 @@ export interface Memory {
   content: unknown;
 }
 
-export interface State {}
+export type State = NonNullable<unknown>;
 
-export interface IAgentRuntime {}
+export type IAgentRuntime = NonNullable<unknown>;
 
 export type HandlerCallback = (response: {
   text?: string;
