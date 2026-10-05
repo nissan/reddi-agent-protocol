@@ -22,6 +22,10 @@ The existing Quasar benchmark does **not** establish a material advantage unavai
 | Anchor v2 pilot | Commit-pinned, generated-client and Mollusk evidence for one non-custodial `update_agent` instruction | `bounded_only`; it shows substantial size/CU reduction is possible in Anchor v2 alpha, but does not compare escrow or establish general superiority/safety |
 | Cross-runtime, deployed, security, throughput, or cost comparison | No qualifying primary artifact | `not_evaluated` |
 
+### Dated qualification — 2026-10-05
+
+The Anchor v2 row above is preserved as part of the original 2026-10-02 record. The later [pilot interpretation](./ANCHOR-V2-UPDATE-AGENT-PILOT-2026-10-02.md#dated-interpretation-update--2026-10-05) records that its stable and alpha comparators used asymmetric logging, crate-default, and dependency-feature profiles. The observed size and CU differences therefore do not isolate the framework version and must not be attributed solely to Anchor v2. This qualification adds no runtime-parity, audit, deployment-authority, or general superiority claim.
+
 The historical Quasar numbers remain observations about their original POC. They must not be presented as an Anchor comparison, a production benefit, or a reason to retain Quasar on RAP's critical path.
 
 ## What is retired

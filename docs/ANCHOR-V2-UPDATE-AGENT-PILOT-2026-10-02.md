@@ -61,6 +61,28 @@ The verified local run on 2026-10-02 produced:
 
 The evidence JSON includes SHA-256 values for both binaries. Sizes, hashes, and CU values are observations, not frozen expectations; the runner recomputes them instead of projecting them across compiler/runtime changes.
 
+### Dated interpretation update — 2026-10-05
+
+The 2026-10-02 size and CU values above are preserved historical observations, but their build profiles were asymmetric:
+
+| Profile input | Stable Anchor 1.1.2 | Anchor v2 alpha |
+|---|---|---|
+| Pilot crate default features | empty (`default = []`) | `no-log-ix-name` |
+| Instruction-name logging | enabled | suppressed by `no-log-ix-name` |
+| `anchor-lang` dependency defaults | Anchor 1.1.2's empty default feature set | disabled with `default-features = false` |
+| Explicit `anchor-lang` dependency features | none | `alloc` only |
+| Alpha `guardrails` | not applicable to Anchor 1.1.2 | not enabled, although it is part of the pinned alpha's upstream default set |
+
+Both binaries were measured as built; they were not built under a symmetric logging/default-feature profile. Framework generation, implementation, and enabled features are therefore confounders. The smaller binary and lower CU observations must not be attributed solely to the Anchor version. No binary or runtime evidence was regenerated for this interpretation update.
+
+The machine evidence also has narrower provenance than the summary labels alone suggest. Binary sizes and SHA-256 values come from the generated SBF files, and CU values come from the runtime log. The compatibility, TypeScript-generation, and deterministic-behavior labels are fixed values emitted after preceding checks: the comparator does not consume separate generated-client or runtime result artifacts, does not take the generated TypeScript paths as inputs, and does not directly compare the alpha account discriminator with the authoritative `programs/escrow` discriminator. Those executable evidence improvements remain tracked in [#669](https://github.com/nissan/reddi-agent-protocol/issues/669); this dated disclosure does not claim they have landed.
+
+The generated `.ts` files are IDL type outputs only. Their historical labels are not proof of a usable Anchor v2 TypeScript runtime client, signing client, or transaction path. Likewise, the keypair safety check uses pre-created sentinels at the two expected SBF output paths and scans the pilot output directory for matching files. It does not inspect toolchain or dependency caches, prove the whole dependency closure incapable of signing, or establish a general key-material audit.
+
+The 2026-10-02 description called the SBF and IDL compilation locked. In the current runner, `--locked` is present on the two Cargo test invocations but not on `cargo build-sbf` or either underlying `anchor idl build` Cargo invocation; [#665](https://github.com/nissan/reddi-agent-protocol/issues/665) tracks locked builds and executable lockfile byte-identity evidence. Even where used, `--locked` freezes dependency resolution; it does not mean offline. Cargo git/registry dependencies or the selected platform tools can still be acquired when absent. Such tool acquisition is distinct from, and does not authorize, a Solana RPC connection, wallet use, signing, simulation, transaction submission, or deployment.
+
+Finally, both isolated programs reuse the canonical production program ID only so locally compiled bytes, discriminators, PDA derivation, account ownership, and generated interfaces can be compared. The outputs are not authorized or release-qualified deployment artifacts, and they are not evidence of a deployed upgrade. This qualification boundary is not a claim that a loader could never deploy otherwise valid compiled bytes under separate authority; the pilot neither grants nor evaluates such authority or a deployment path.
+
 ### Client limitation observed
 
 The stable generated IDL includes PDA derivation metadata for `agent`; the alpha generated IDL omits that hint for the stored-bump constraint. The alpha generated Rust client still produces equivalent bytes and metas when supplied the canonical agent PDA explicitly. This is recorded as a compatibility limitation, not parity. The alpha TypeScript output is only a generated IDL type; a v2 TypeScript runtime was `not_evaluated` because the official alpha limitations say no stable v2 TypeScript package is published.
@@ -68,6 +90,8 @@ The stable generated IDL includes PDA derivation metadata for `agent`; the alpha
 ## Runtime-profile limits
 
 Compute was observed only because Mollusk exposes an instruction-level meter without requiring transaction construction or signing. This pilot uses the existing Mollusk `0.15.1` / `solana-program-runtime 4.2.2` lane and makes no claim about LiteSVM's separately pinned mainnet-activated profile. LiteSVM execution was intentionally not added because the current local harness constructs and signs transactions, which is outside this task's authority. The pilot does not compare Mollusk values to LiteSVM, devnet, mainnet, or deployed execution.
+
+This documentation update is only a partial disposition. Instruction-level authorization rejection cases remain in [#666](https://github.com/nissan/reddi-agent-protocol/issues/666), exact serialized success-state and account-metadata checks remain in [#667](https://github.com/nissan/reddi-agent-protocol/issues/667), and fresh evidence under an explicitly recorded profile remains in [#670](https://github.com/nissan/reddi-agent-protocol/issues/670). Immutable action identity for the dedicated static workflow remains the policy decision tracked in [#672](https://github.com/nissan/reddi-agent-protocol/issues/672); no action pin or repository-wide policy is selected here.
 
 No generated binary, IDL, TypeScript type, or `.tmp` evidence file is committed as a release artifact. The source, lockfiles, checks, and runner are tracked; rerunning is the evidence procedure and deleting `pilots/anchor-v2-update-agent/`, its dedicated workflow, and `scripts/run-anchor-v2-update-agent-pilot.sh` cleanly removes the pilot.
 
