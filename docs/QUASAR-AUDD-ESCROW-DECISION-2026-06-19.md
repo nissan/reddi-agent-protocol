@@ -1,5 +1,7 @@
 # AUDD / Quasar Escrow Decision Spike
 
+> **Dated applicability correction — 2026-10-05:** The adapter/proof-only, no-custody, no-live-default RAP v0.1 boundary below remains applicable. Its Quasar-specific custody options and follow-ups are historical, not a current roadmap or authorization; Quasar is frozen. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+
 Date: 2026-06-19
 
 Issue: #392

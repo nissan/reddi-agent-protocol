@@ -1,5 +1,7 @@
 # Quasar Surfpool And Devnet Promotion Checklist
 
+> **Dated applicability correction — 2026-10-05:** The non-Quasar Solana safety gates below remain applicable, but the Quasar-specific promotion and devnet-eligibility language is historical. Quasar is frozen with no current promotion path, and this checklist grants no approval or execution authority. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+
 Issue: [#441](https://github.com/nissan/reddi-agent-protocol/issues/441)
 
 This checklist is the approval boundary for any future Solana or Quasar instruction-builder, program, or deploy-path PR. It does not authorize a deploy. It defines when local Surfpool evidence is required and what must be true before a devnet-funded wallet is used.

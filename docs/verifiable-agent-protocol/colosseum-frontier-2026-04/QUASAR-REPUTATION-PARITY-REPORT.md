@@ -1,5 +1,7 @@
 # Quasar Reputation Parity Report
 
+> **Dated historical snapshot — qualification added 2026-10-05; superseded for current applicability 2026-10-02.** The test counts, CU observations, and “parity achieved” claim below are preserved as a bounded April 2026 report; they do not establish current general parity, deployment eligibility, or readiness. Quasar is frozen and stable Anchor `1.1.2` remains authoritative. See [`../../QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](../../QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+
 _Generated: 2026-04-12 AEST_  
 _Phase: 3 — Blind Commit-Reveal Reputation_  
 _Branch: `feature/quasar-reputation-parity` on `reddinft/reddi-agent-protocol-parallel`_  
