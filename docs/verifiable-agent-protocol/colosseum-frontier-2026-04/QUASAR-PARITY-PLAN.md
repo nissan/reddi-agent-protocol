@@ -1,5 +1,7 @@
 # Quasar Full Parity Plan (Fork-Only)
 
+> **Dated historical plan — superseded 2026-10-02.** This fork, parity, and cutover plan is preserved as April 2026 planning, not a current roadmap or promotion path. Quasar is frozen and stable Anchor `1.1.2` remains authoritative. See [`../../QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](../../QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+
 _Last updated: 2026-04-12 AEST_
 
 ## Non-negotiable isolation rule

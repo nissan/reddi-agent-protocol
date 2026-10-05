@@ -1,5 +1,7 @@
 # Quasar Programs — Security Audit Remediation Log
 
+> **Dated remediation record — superseded for current applicability 2026-10-02.** The fixed/open matrices and conclusions below are preserved unchanged as 2026-05-06 source history; they do not establish present closure, a current audit, deployment authority, or readiness. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+
 _Date:_ 2026-05-06 AEST  
 _Source audit:_ `docs/QUASAR-PROGRAMS-SECURITY-AUDIT-2026-05-06.md`
 
