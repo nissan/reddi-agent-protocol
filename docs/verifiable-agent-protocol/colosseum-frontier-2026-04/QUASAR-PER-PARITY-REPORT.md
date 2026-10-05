@@ -1,5 +1,7 @@
 # Quasar PER Parity Report
 
+> **Dated historical snapshot — qualification added 2026-10-05; superseded for current applicability 2026-10-02.** The implementation status, test results, and parity findings below are preserved as a bounded April 2026 report; they do not establish current general parity, deployment eligibility, or readiness. Quasar is frozen and stable Anchor `1.1.2` remains authoritative. See [`../../QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](../../QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+
 _Generated: 2026-04-12 AEST_  
 _Phase: 5 — PER path parity_  
 _Repo: `reddi-agent-protocol-code`_  

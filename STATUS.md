@@ -1,5 +1,7 @@
 # Reddi Agent Protocol — Status
 
+> **Quasar freeze note — qualification added 2026-10-05; freeze/supersession effective 2026-10-02.** Quasar-specific entries in this rolling log (cutover, parity, deployment, readiness, and submission statements) are preserved as dated historical records, not current guidance or proof. Quasar is frozen, its recorded deployment is blocked, and stable Anchor `1.1.2` remains authoritative. This note qualifies Quasar entries only; all other entries are unchanged. See [`docs/QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](docs/QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+
 ## Latest Update — v0.2.0-beta release announcement on /updates + org-link fixes (2026-08-16 AEST)
 
 Release-wave slice for the ADL v0.2.0-beta publish (release artifacts and announcement pack live in `reddiagent-lab` `docs/release/` + `docs/announcements/`; publish runbook: `docs/release/RELEASE-RUNBOOK-v0.2.0-beta.md` there).

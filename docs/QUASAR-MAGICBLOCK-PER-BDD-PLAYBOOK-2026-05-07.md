@@ -1,5 +1,7 @@
 # Quasar-native MagicBlock PER — BDD iterative build playbook
 
+> **Dated historical campaign record — qualification added 2026-10-05; superseded 2026-10-02.** This playbook, including its north star, decisions, phase plans, and commands, is preserved as 2026-05-07 campaign planning, not current guidance or proof. Quasar is frozen, its recorded deployment is blocked, and stable Anchor `1.1.2` remains authoritative. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+
 _Date:_ 2026-05-07 AEST  
 _Issue:_ #253  
 _Goal:_ Build a MagicBlock PER-specific Quasar escrow path without mutating the existing reusable Quasar escrow ABI.

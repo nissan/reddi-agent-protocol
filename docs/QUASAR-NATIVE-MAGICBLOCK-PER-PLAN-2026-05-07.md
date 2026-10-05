@@ -1,5 +1,7 @@
 # Quasar-native MagicBlock PER plan — 2026-05-07
 
+> **Dated historical campaign record — qualification added 2026-10-05; superseded 2026-10-02.** This plan and the 2026-05-08 note below, including its reference to “current submission copy”, are preserved as May 2026 campaign records, not current guidance or proof. Quasar is frozen, its recorded deployment is blocked, and stable Anchor `1.1.2` remains authoritative. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+
 > **2026-05-08 supersession note:** This plan is historical. PR #274 later proved bounded MagicBlock PER AgentVault settlement for the Quasar-owned agent-vault route (`artifacts/quasar-per-agent-vault-settlement-smoke/20260508T031640Z/summary.json`). Use this file for design lineage only; current submission copy must say arbitrary-wallet/private payee settlement remains unclaimed, not that MagicBlock is authorization-only or TEE-blocked.
 
 ## Executive summary
