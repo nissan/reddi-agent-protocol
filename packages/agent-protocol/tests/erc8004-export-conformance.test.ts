@@ -383,13 +383,13 @@ describe('ERC-8004 conformance suite (#562, reddi.erc8004-export-conformance.v1)
   });
 
   it('imports nothing from the network / web3 / ethers stacks (offline-only guard)', () => {
-    for (const module of ['../src/erc8004-export.ts', '../src/erc8004-export-conformance.ts']) {
-      const sourcePath = fileURLToPath(new URL(module, import.meta.url));
+    for (const sourceModule of ['../src/erc8004-export.ts', '../src/erc8004-export-conformance.ts']) {
+      const sourcePath = fileURLToPath(new URL(sourceModule, import.meta.url));
       const source = readFileSync(sourcePath, 'utf8');
       for (const banned of ['ethers', 'web3', 'viem', 'node:net', 'node:http', 'node:https', 'fetch(', 'XMLHttpRequest']) {
-        assert.ok(!source.includes(banned), `${module} must not reference ${banned}`);
+        assert.ok(!source.includes(banned), `${sourceModule} must not reference ${banned}`);
       }
-      assert.ok(!/\basync\b/.test(source), `${module} must not contain async code`);
+      assert.ok(!/\basync\b/.test(source), `${sourceModule} must not contain async code`);
     }
   });
 

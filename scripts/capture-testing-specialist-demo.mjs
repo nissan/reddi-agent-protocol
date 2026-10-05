@@ -51,7 +51,7 @@ async function main() {
   }
 
   await page.setContent(`<!doctype html>
-<html><head><meta charset="utf-8"><title>`reddi-x402` testing specialist capture</title>
+<html><head><meta charset="utf-8"><title>reddi-x402 testing specialist capture</title>
 <style>
 body{font-family:Inter,ui-sans-serif,system-ui;background:#0b1020;color:#eef2ff;margin:0;padding:40px} .card{background:#111936;border:1px solid #2d3b70;border-radius:18px;padding:24px;margin:0 0 24px;box-shadow:0 20px 60px #0005} h1{font-size:34px;margin:0 0 8px}.ok{color:#75f0b1}.warn{color:#ffd166} pre{white-space:pre-wrap;background:#050816;padding:18px;border-radius:12px;overflow:auto}.grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}.pill{display:inline-block;padding:6px 10px;border-radius:999px;background:#19315f;margin-right:8px}</style>
 </head><body>
