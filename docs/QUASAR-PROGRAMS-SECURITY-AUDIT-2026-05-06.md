@@ -1,6 +1,6 @@
 # Quasar Programs — Security Audit Report
 
-> **Dated audit record — superseded for current applicability 2026-10-02.** The findings below are preserved unchanged as an audit of the scoped 2026-05-06 source snapshot; this record is not a current-source audit, closure statement, deployment authorization, or readiness claim. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+> **Dated audit record — qualification added 2026-10-05; superseded for current applicability 2026-10-02.** The findings below are preserved unchanged as an audit of the scoped 2026-05-06 source snapshot; this record is not a current-source audit, closure statement, deployment authorization, or readiness claim. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
 
 **Auditor:** Claude (Opus 4.7), acting as security reviewer
 **Date:** 2026-05-06

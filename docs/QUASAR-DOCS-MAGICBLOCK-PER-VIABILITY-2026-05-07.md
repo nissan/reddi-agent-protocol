@@ -1,6 +1,6 @@
 # Quasar docs analysis for MagicBlock PER viability — 2026-05-07
 
-> **Dated historical analysis — superseded 2026-10-02.** The crawl findings and feasibility recommendation below are preserved as 2026-05-07 technical analysis, not an active implementation or deployment plan and not execution authority. Quasar is frozen. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+> **Dated historical analysis — qualification added 2026-10-05; superseded 2026-10-02.** The crawl findings and feasibility recommendation below are preserved as 2026-05-07 technical analysis, not an active implementation or deployment plan and not execution authority. Quasar is frozen. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
 
 ## Purpose
 

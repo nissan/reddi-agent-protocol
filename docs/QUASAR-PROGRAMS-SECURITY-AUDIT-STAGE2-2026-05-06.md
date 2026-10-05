@@ -1,6 +1,6 @@
 # Quasar Programs — Stage-2 Security Audit (Remediation Verification)
 
-> **Dated remediation-verification record — superseded for current applicability 2026-10-02.** The branch-local findings and verdict below are preserved unchanged as 2026-05-06 history. Its merge verdict is not a current audit, deployment authorization, or readiness claim. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+> **Dated remediation-verification record — qualification added 2026-10-05; superseded for current applicability 2026-10-02.** The branch-local findings and verdict below are preserved unchanged as 2026-05-06 history. Its merge verdict is not a current audit, deployment authorization, or readiness claim. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
 
 **Auditor:** Claude (Opus 4.7), security reviewer
 **Date:** 2026-05-06

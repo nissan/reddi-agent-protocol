@@ -1,6 +1,6 @@
 # Quasar Programs — Audit Response
 
-> **Dated audit-response record — superseded for current applicability 2026-10-02.** The immediate-fix claims and open architectural blockers below are preserved unchanged as 2026-05-06 history; they do not establish present closure, a current audit, deployment authority, or readiness. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+> **Dated audit-response record — qualification added 2026-10-05; superseded for current applicability 2026-10-02.** The immediate-fix claims and open architectural blockers below are preserved unchanged as 2026-05-06 history; they do not establish present closure, a current audit, deployment authority, or readiness. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
 
 _Date:_ 2026-05-06 AEST  
 _Primary audit:_ `docs/QUASAR-PROGRAMS-SECURITY-AUDIT-2026-05-06.md`  

@@ -1,6 +1,6 @@
 # Quasar Scoped Judge Proof
 
-> **Dated historical campaign record — superseded 2026-10-02.** This packet, including its target, deployment, command, and judge-copy claims, is preserved as 2026-05-06 campaign evidence, not current guidance or proof. Quasar is frozen and its recorded deployment is blocked. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+> **Dated historical campaign record — qualification added 2026-10-05; superseded 2026-10-02.** This packet, including its target, deployment, command, and judge-copy claims, is preserved as 2026-05-06 campaign evidence, not current guidance or proof. Quasar is frozen and its recorded deployment is blocked. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
 
 _Date:_ 2026-05-06 AEST  
 _Issue:_ #236  
