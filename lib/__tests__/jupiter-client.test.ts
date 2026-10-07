@@ -49,25 +49,23 @@ describe('getJupiterClient', () => {
     process.env.JUPITER_API_BASE = 'https://custom.jup.ag/swap/v2';
     process.env.JUPITER_QUOTE_API_BASE = 'https://custom.jup.ag/swap/v1';
     const constructorOptions: Array<ConstructorParameters<typeof JupiterSwapV2Client>[0]> = [];
-    jest.doMock('@reddi/x402-solana', () => ({
+    jest.doMock('../../packages/x402-solana/src/index', () => ({
       JupiterSwapV2Client: class {
         constructor(options: ConstructorParameters<typeof JupiterSwapV2Client>[0]) {
           constructorOptions.push(options);
         }
       },
-    }), { virtual: true });
+    }));
     try {
-      jest.isolateModules(() => {
-        const { getJupiterClient } = require('../jupiter-client') as typeof import('../jupiter-client');
-        getJupiterClient();
-      });
+      const { getJupiterClient } = await import('../jupiter-client');
+      getJupiterClient();
       expect(constructorOptions).toEqual([{
         apiBaseUrl: 'https://custom.jup.ag/swap/v2',
         quoteApiBaseUrl: 'https://custom.jup.ag/swap/v1',
         apiKey: 'test-key-123',
       }]);
     } finally {
-      jest.dontMock('@reddi/x402-solana');
+      jest.dontMock('../../packages/x402-solana/src/index');
     }
   });
 
