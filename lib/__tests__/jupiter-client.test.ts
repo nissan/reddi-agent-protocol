@@ -6,6 +6,8 @@
  * F1.6: getJupiterClient() returns singleton and honors env configuration
  */
 
+import type { JupiterSwapV2Client } from '@reddi/x402-solana';
+
 describe('getJupiterClient', () => {
   const originalEnv = process.env;
 
@@ -46,10 +48,25 @@ describe('getJupiterClient', () => {
     process.env.JUPITER_API_KEY = 'test-key-123';
     process.env.JUPITER_API_BASE = 'https://custom.jup.ag/swap/v2';
     process.env.JUPITER_QUOTE_API_BASE = 'https://custom.jup.ag/swap/v1';
-    const { getJupiterClient } = await import('../jupiter-client');
-    const client = getJupiterClient() as any;
-    expect(client.apiBaseUrl).toBe('https://custom.jup.ag/swap/v2');
-    expect(client.quoteApiBaseUrl).toBe('https://custom.jup.ag/swap/v1');
+    const constructorOptions: Array<ConstructorParameters<typeof JupiterSwapV2Client>[0]> = [];
+    jest.doMock('@reddi/x402-solana', () => ({
+      JupiterSwapV2Client: class {
+        constructor(options: ConstructorParameters<typeof JupiterSwapV2Client>[0]) {
+          constructorOptions.push(options);
+        }
+      },
+    }));
+    try {
+      const { getJupiterClient } = await import('../jupiter-client');
+      getJupiterClient();
+      expect(constructorOptions).toEqual([{
+        apiBaseUrl: 'https://custom.jup.ag/swap/v2',
+        quoteApiBaseUrl: 'https://custom.jup.ag/swap/v1',
+        apiKey: 'test-key-123',
+      }]);
+    } finally {
+      jest.dontMock('@reddi/x402-solana');
+    }
   });
 
   it('getJupiterSlippageBps returns 50 by default', async () => {
