@@ -55,7 +55,7 @@ describe('getJupiterClient', () => {
           constructorOptions.push(options);
         }
       },
-    }));
+    }), { virtual: true });
     try {
       const { getJupiterClient } = await import('../jupiter-client');
       getJupiterClient();
