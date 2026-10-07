@@ -57,8 +57,8 @@ describe('getJupiterClient', () => {
       },
     }), { virtual: true });
     try {
-      await jest.isolateModulesAsync(async () => {
-        const { getJupiterClient } = await import('../jupiter-client');
+      jest.isolateModules(() => {
+        const { getJupiterClient } = require('../jupiter-client') as typeof import('../jupiter-client');
         getJupiterClient();
       });
       expect(constructorOptions).toEqual([{
