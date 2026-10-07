@@ -57,8 +57,10 @@ describe('getJupiterClient', () => {
       },
     }), { virtual: true });
     try {
-      const { getJupiterClient } = await import('../jupiter-client');
-      getJupiterClient();
+      await jest.isolateModulesAsync(async () => {
+        const { getJupiterClient } = await import('../jupiter-client');
+        getJupiterClient();
+      });
       expect(constructorOptions).toEqual([{
         apiBaseUrl: 'https://custom.jup.ag/swap/v2',
         quoteApiBaseUrl: 'https://custom.jup.ag/swap/v1',
