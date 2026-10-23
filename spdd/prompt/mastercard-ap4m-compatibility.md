@@ -97,6 +97,21 @@ Every compatibility row and object field uses one classification:
 
 Required proof metadata: `sourceId`, `sourceClass`, `observedOrPublishedAt`, `confidence` (`high|medium|low|unknown`), `proofStrength` (`claim_only|fixture_asserted|schema_verified|signature_verified|network_observed|unknown`), `claimBoundary`, and optional `supersedesSourceId`.
 
+Every concept mapping is keyed `AP4M-M01` through `AP4M-M13` and is normatively bound to concrete source ids, confidence, proof strength, an explicit reason, and claim boundary in the companion [mapping classification ledger](../../docs/MASTERCARD-AP4M-COMPATIBILITY.md#normative-mapping-classification-ledger). Missing, duplicate, or unregistered mapping keys block the report; prose elsewhere cannot supply an implicit classification.
+
+### Sandbox gate record
+
+`mastercard_ap4m_sandbox_gated` requires a valid `reddi.mastercard-ap4m-sandbox-gate.v1` record with:
+
+- immutable `gateRecordId` and non-secret `decisionRef`;
+- `authority.kind` (`owner|delegated_operator`), non-secret `actorRef`, decision `sourceClass` (`owner_decision|delegated_authority_decision`), and matching registered `sourceId`;
+- closed allowed-operation scope, explicit subjects and data classes, sandbox-only environment, and literal zero maximum value;
+- RFC 3339 `decidedAt` and mandatory `expiresAt`;
+- explicit revocation status plus timestamp/reference/reason when revoked; and
+- literal-false non-implications for access granted, testing completed, credentials obtained, schema verified, sandbox/live support, execution/payment authorization, settlement observation, and partner status.
+
+The exact machine-reviewable field contract is in the companion [sandbox gate-record contract](../../docs/MASTERCARD-AP4M-COMPATIBILITY.md#sandbox-gate-record-contract). Missing, malformed, expired, or revoked records fail closed. A valid record authorizes only the named future evaluation; it is not evidence of access, testing, credentials, support, or execution.
+
 ## A — Approach / key decisions
 
 ### Chosen approach
@@ -119,6 +134,14 @@ Required proof metadata: `sourceId`, `sourceClass`, `observedOrPublishedAt`, `co
 | `unsupported` | deliberately rejected or outside RAP's safe contract; fail closed with a reason code |
 
 At the present baseline, no external AP4M API field mapping may be `lossless`; concept-level RAP mappings are `lossy`, `metadata_only`, `unknown`, or `gated` unless the row maps a RAP-owned value to itself.
+
+### Closed refusal vocabulary
+
+The static report may emit only these reason codes, in input/source → gate → authority/binding → proof/finality → sensitive/live evaluation order:
+
+`input_malformed`, `source_classification_missing`, `source_claim_contradictory`, `normative_schema_missing`, `public_input_support_upgrade_denied`, `fixture_support_upgrade_denied`, `sandbox_gate_missing`, `sandbox_gate_malformed`, `sandbox_gate_expired`, `sandbox_gate_revoked`, `authority_widening_denied`, `duplicate_or_replayed_reference`, `authority_or_voucher_expired`, `subject_binding_mismatch`, `spend_cap_exceeded`, `voucher_verification_unproven`, `assurance_presented_as_settlement`, `redemption_presented_as_settlement`, `non_final_settlement_presented_as_final`, `identity_proof_class_collapse`, `work_evidence_proof_class_collapse`, `unknown_field_defaulted`, `sensitive_material_rejected`, `adjacent_standard_conflated`, `live_capability_flag_rejected`, `live_ap4m_unsupported`.
+
+The companion [reason-code table and exact fixture expectations](../../docs/MASTERCARD-AP4M-COMPATIBILITY.md#closed-reason-code-vocabulary) are normative. Unknown codes invalidate the report. Compound failures concatenate applicable codes in the documented order and de-duplicate without reordering; prose-only failure states are not conformant.
 
 ### Voucher-versus-settlement schema boundary
 
@@ -160,12 +183,13 @@ No runtime, `lib/onboarding`, source adapter, wallet, RPC, API route, UI, deploy
 1. Accept this spec at an immutable reviewed head; otherwise revise the spec only.
 2. Under fresh implementation authority, add closed vocabularies and RAP-owned data types.
 3. Add source register and per-field mapping table with complete classification coverage.
-4. Implement a pure validator/report builder that defaults missing/unsafe input to `unsupported_live_mastercard_ap4m` or a blocked report.
-5. Add static redacted fixtures and conformance runner.
-6. Prove negative/authority/no-upgrade boundaries and deterministic output.
-7. Run focused package tests, full package tests, export checks, naming checks, artifact checks, credential/leak scan, forbidden-import/no-I/O guard, and `git diff --check`.
-8. Obtain fresh independent exact-head review; remediate and repeat after every material change.
-9. Merge only under the repository's normal authority. Then refresh STATUS, #338/#679/#691, and child dependencies. Do not automatically start #693–#697.
+4. Add the closed refusal vocabulary and sandbox gate-record validator; reject unknown codes and invalid/expired/revoked gate records.
+5. Implement a pure validator/report builder that defaults missing/unsafe input to `unsupported_live_mastercard_ap4m` or a blocked report.
+6. Add static redacted fixtures and conformance runner with the exact ordered reason expectations.
+7. Prove negative/authority/no-upgrade boundaries and deterministic output.
+8. Run focused package tests, full package tests, export checks, naming checks, artifact checks, credential/leak scan, forbidden-import/no-I/O guard, and `git diff --check`.
+9. Obtain fresh independent exact-head review; remediate and repeat after every material change.
+10. Merge only under the repository's normal authority. Then refresh STATUS, #338/#679/#691, and child dependencies. Do not automatically start #693–#697.
 
 ## N — Norms
 
@@ -183,7 +207,9 @@ No runtime, `lib/onboarding`, source adapter, wallet, RPC, API route, UI, deploy
 - [ ] No network, async I/O, fetch, API route, environment-variable, wallet, signing, RPC, subprocess, filesystem-write, or provider dependency in static implementation modules.
 - [ ] Every result includes literal false guardrails for credentials held, live signature verified, execution authorized, voucher issued, payment executed, redemption submitted, settlement observed, custody claimed, deployment enabled, and partner support claimed.
 - [ ] Public-only and fixture inputs can produce only public-spec/fixture states; never sandbox/live support.
-- [ ] `sandbox_gated` requires an operator-gate record and still does not mean tested or supported.
+- [ ] Every concept row resolves through one registered mapping id to concrete sources, confidence, proof strength, reason, and claim boundary.
+- [ ] Reason arrays use only the closed vocabulary and exactly match the ordered negative-fixture expectations.
+- [ ] `sandbox_gated` requires a valid, unexpired, unrevoked gate record and still does not mean access, tested, credentialed, supported, or executable.
 - [ ] Unknown external fields remain absent and classified `unknown`; no guessed aliases/defaults.
 - [ ] Credential-, secret-, key-, PAN-, token-, signature-material-, and raw-voucher-shaped inputs are rejected or reduced to explicitly permitted opaque fixture refs.
 - [ ] Identity cannot authorize; authority cannot prove payment; voucher cannot prove assurance/settlement; assurance cannot prove settlement; settlement cannot prove work; work evidence cannot self-attest.
@@ -206,3 +232,4 @@ No runtime, `lib/onboarding`, source adapter, wallet, RPC, API route, UI, deploy
 | Date | Divergence | Artifact update | Code/test update |
 |---|---|---|---|
 | 2026-10-23 | Initial spec; no implementation exists | Created outcome-first contract and exact later file plan | None authorized |
+| 2026-10-23 | Round-1 review found unbound mapping metadata, no closed refusal vocabulary, and an underspecified sandbox gate record | Bound all concept rows through keyed metadata, added exact reason/fixture contracts, and defined the gate record | None authorized |
