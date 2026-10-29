@@ -76,7 +76,7 @@ These addresses are recorded history, not an active demo target: `config/quasar/
 - Ratings are committed as hash commitments first, then revealed later with salt.
 - This mitigates front-running and score-copying during the commit phase.
 - Delayed reveal reduces strategic retaliation and vote-manipulation pressure.
-- Expiry/penalty paths are intended to discourage selective non-reveal behavior, but CRITICAL-4 remains open; current docs must not present this as a closed mainnet-ready defense.
+- Expiry/penalty paths are intended to discourage selective non-reveal behavior, but the authoritative Anchor source still has unresolved finalization-availability and rating job-binding/authorization concerns. See the non-operational assessment in [`docs/MAINNET-PRODUCTION-READINESS-2026-08-28.md`](docs/MAINNET-PRODUCTION-READINESS-2026-08-28.md#1-anchor-reputation-findings-requiring-security-review); current docs must not present this as a closed mainnet-ready defense.
 
 ## Attestation Judge Dispute Resolution Attack Surface
 
