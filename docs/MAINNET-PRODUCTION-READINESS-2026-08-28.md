@@ -36,44 +36,30 @@ All instruction paths below are relative to `programs/escrow/src/instructions/`.
 
 ### 1.1 No timeout exit from `BothCommitted`
 
-- `commit_rating.rs`, `commit_rating_handler`: two nonzero commitments advance the
-  rating to `RatingState::BothCommitted`.
-- `reveal_rating.rs`, `reveal_rating_handler`: reveal requires `BothCommitted`;
-  reputation updates and transition to `Revealed` require both scores.
-- `expire_rating.rs`, `expire_rating_handler`: expiry requires `Pending`.
-
-Thus a party withholding its reveal can prevent finalization through these paths;
-`expire_rating` cannot resolve this state. `BothCommitted` is not literally absorbing:
-mutual reveal exits it. The inspected handlers provide no timeout penalty for this
-state. This supports a selective-non-reveal concern, not a proof that withholding is
-universally dominant or that all negative ratings are unrecordable. No observed
-exploitation or deployed vulnerability is asserted. Historical Quasar CRITICAL-4
+The inspected Anchor rating state machine has no timeout resolution after both
+commitments are recorded. A participant can therefore prevent rating finalization,
+and the available expiry path does not cover that state. This is an availability and
+reputation-integrity concern, not proof that all negative ratings are unrecordable or
+that the behavior has been exploited in a deployment. Historical Quasar CRITICAL-4
 material is context, not proof of identical behavior or an approved Anchor remedy.
 
-### 1.2 Caller-supplied parties without a job account; unrestricted expiry caller
+### 1.2 Rating identity and expiry authorization are not job-bound
 
-`CommitRating` accepts a rating PDA, signer and system program, but no escrow or
-completed-job account. On initialization, instruction arguments supply both parties.
-The handler **does** enforce that the committing signer matches its recorded role;
-the concern is absence of a verified job binding, not absence of every signer check.
-`ExpireRating` requires a signer but does not require that caller to equal either
-recorded party. Its agent PDAs are constrained to the parties stored in the rating.
+The inspected Anchor rating initialization accepts caller-supplied parties without a
+verified completed-job account, while expiry authorization is not limited to a
+recorded party. The committing signer is checked against its recorded role, and the
+agent accounts used by expiry are constrained to the stored parties, but those checks
+do not establish that the rating represents a real completed job. This boundary may
+permit unauthorized reputation penalties and repeated integrity harm; no exploitation,
+deployed exposure, or quantitative impact is asserted here.
 
-A source-derived abuse scenario is therefore: a signer chooses a fresh `job_id`,
-records itself as consumer and a registered victim as specialist, and supplies a
-nonzero consumer commitment. After `RATING_EXPIRE_SLOTS`, expiry of this pending
-rating subtracts `RATING_EXPIRE_PENALTY` from the noncommitting specialist and
-saturating-increments `jobs_failed`. Both corresponding agent accounts must exist
-for expiry; registration burns 0.01 SOL. Constants are 1,512,000 slots and 500 score
-units (5 points on a 0–100 scale), respectively. Slot duration is not a guaranteed
-wall-clock deadline. Distinct job IDs suggest repeatability subject to account,
-rent and transaction requirements; this has not been executed or quantitatively
-validated. Counters saturate, so "arbitrary" unbounded failure inflation is inaccurate.
-
-These are candidates for independent security triage and behavioral regression tests,
-not an implementation mandate. Frozen Quasar job-binding code can inform comparison
-but is not an approved specification to port wholesale. The historical audit packs
-inventory the Anchor rating instructions without resolving these specific concerns.
+These findings require independent security triage, behavioral regression coverage,
+and an explicitly approved remediation before readiness can be reconsidered. Detailed
+reproduction guidance belongs only in the private coordinated disclosure process in
+[SECURITY.md](../SECURITY.md), not this public assessment. Frozen Quasar job-binding
+code can inform comparison but is not an approved specification to port wholesale.
+The historical audit packs inventory the Anchor rating instructions without resolving
+these specific concerns.
 
 ## 2. Audit packet is historical, not ready for dispatch
 
