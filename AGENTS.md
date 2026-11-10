@@ -124,6 +124,9 @@ When updating this file, preserve this bar for all agents and keep entries conci
   it is not already met on the default branch. The other
   [delivery practices](docs/agent-settings/DELIVERY-PRACTICES.md) (readiness line,
   read-back before hashing, draft scenarios) apply too.
+- **Checks and roles.** [docs/agent-settings/CHECKS.md](docs/agent-settings/CHECKS.md) says who
+  builds and who reviews here, the one check command and what each check needs.
+  A Claude session builds; the builder reviews its own work.
 - Apart from the two rules above, everything else in this file and this repository wins
   over that folder.
 
