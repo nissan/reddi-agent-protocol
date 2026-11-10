@@ -112,4 +112,17 @@ When updating this file, preserve this bar for all agents and keep entries conci
   prompting profile for `claude-fable-5-2`, where the operator's Claude mods are, and
   the pinned Stageshow illustration skill and its rules (ask the operator before
   running its tooling; never use its brand marks).
-- Everything else in this file and this repository wins over that folder.
+- **Review: the builder reviews its own work** as a build step before reporting it done:
+  re-read the whole diff, run the checks and the negative cases, check each claim against
+  a result. A separate independent review happens when the owner asks for one. This
+  replaces any rule elsewhere in this file or repository that requires an independent or
+  non-author review, or forbids a builder from approving its own change (owner decision,
+  11 November 2026). Merge authority, and any automated pipeline or delivery-mode gate,
+  are unchanged. Never describe a review of your own work as independent.
+- **Evidence.** Where CI exists, the CI run on the final commit is the proof that tests
+  pass; a check that could not run is a stop, not a pass. Before building an issue, check
+  it is not already met on the default branch. The other
+  [delivery practices](docs/agent-settings/DELIVERY-PRACTICES.md) (readiness line,
+  read-back before hashing, draft scenarios) apply too.
+- Apart from the two rules above, everything else in this file and this repository wins
+  over that folder.
