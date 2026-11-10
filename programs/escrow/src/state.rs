@@ -54,7 +54,7 @@ impl EscrowAccount {
 
 /// Classic SPL Token escrow, separate from the unchanged SOL account layout.
 /// PDA: [b"token-escrow", payer, nonce]; vault: [b"token-vault", escrow].
-/// Terminal records remain allocated to prevent nonce reuse/replay.
+/// Release and cancel close the record and vault to the payer, like the SOL rail.
 #[account]
 pub struct TokenEscrowAccount {
     pub payer: Pubkey,

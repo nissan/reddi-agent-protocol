@@ -2,9 +2,8 @@
  * Requirements: root @solana/web3.js and @solana/spl-token dependencies (or NODE_PATH),
  * pinned solana-test-validator, a freshly built target/deploy/escrow.so.
  * Run: RAP_LOCAL_TEST_DIR=/absolute/disposable/path node programs/escrow/tests/local_token_escrow.cjs
- * Optional RAP_TEST_TOKEN_PROGRAM_SO supplies an explicit classic SPL Token SBF fixture (e.g.
- * litesvm-0.16.0/src/programs/elf/spl_token-3.5.0.so from the Cargo registry).
- * Optional: RAP_TEST_VALIDATOR=/absolute/path/to/solana-test-validator
+ * Optional: RAP_TEST_VALIDATOR=/absolute/path/to/solana-test-validator (the solana CLI is
+ * resolved beside it, or from PATH when only a bare command name is given).
  * All keys are generated in memory. Nothing reads the operator wallet. The test
  * starts its own loopback validator and loads the program at genesis. Refund
  * proof reloads an exact public-account snapshot from the successful local lock
@@ -36,8 +35,6 @@ async function main() {
   const validatorBin = process.env.RAP_TEST_VALIDATOR || 'solana-test-validator';
   const version = execFileSync(validatorBin, ['--version'], { encoding: 'utf8' }).trim();
   assert.match(version, /^solana-test-validator 4\.2\.2\b/);
-  const tokenElf = process.env.RAP_TEST_TOKEN_PROGRAM_SO;
-  assert(!tokenElf || path.isAbsolute(tokenElf), 'RAP_TEST_TOKEN_PROGRAM_SO must be absolute when supplied');
   const payer = Keypair.generate(), payee = Keypair.generate(), attacker = Keypair.generate();
   // Reserve/check both TCP and UDP sockets before selecting ports; never kill a listener.
   async function available(port) {
@@ -71,23 +68,21 @@ async function main() {
       '--dynamic-port-range', `${base + 4}-${base + 40}`, '--mint', payer.publicKey.toBase58(),
       '--bpf-program', PROGRAM.toBase58(), escrowElf, '--reset'];
     if (snapshot) args.push('--account-dir', snapshot, '--warp-slot', String(warp));
-    if (tokenElf) args.push('--bpf-program', TOKEN.toBase58(), tokenElf);
     validator = spawn(validatorBin, args, { stdio: ['ignore', log, log] });
     fs.closeSync(log);
     const deadline = Date.now() + 120000;
     while (Date.now() < deadline) {
       assert(validator.exitCode === null, `validator exited: ${validator.exitCode}; inspect task-local log`);
-      try {
-        if (await conn.getSlot('confirmed') >= warp + 5) {
-          const tokenAccount = await conn.getAccountInfo(TOKEN, 'confirmed');
-          assert(tokenAccount?.executable, 'classic Token program is not executable');
-          const tokenInfo = execFileSync(path.join(path.dirname(validatorBin), 'solana'),
-            ['--config', config, '--url', rpc, 'account', TOKEN.toBase58(), '--output', 'json'], { encoding: 'utf8' });
-          fs.writeFileSync(path.join(dir, snapshot ? 'token-account-refund.json' : 'token-account.json'), tokenInfo);
-          console.log(`Local validator ready at slot ${await conn.getSlot()}; Tokenkeg executable`);
-          return;
-        }
-      } catch (error) { if (error.code === 'ERR_ASSERTION') throw error; }
+      const slot = await conn.getSlot('confirmed').catch(() => null);
+      if (slot !== null && slot >= warp + 5) {
+        const tokenAccount = await conn.getAccountInfo(TOKEN, 'confirmed');
+        assert(tokenAccount?.executable, 'classic Token program is not executable');
+        const tokenInfo = execFileSync(path.join(path.dirname(validatorBin), 'solana'),
+          ['--config', config, '--url', rpc, 'account', TOKEN.toBase58(), '--output', 'json'], { encoding: 'utf8' });
+        fs.writeFileSync(path.join(dir, snapshot ? 'token-account-refund.json' : 'token-account.json'), tokenInfo);
+        console.log(`Local validator ready at slot ${slot}; Tokenkeg executable`);
+        return;
+      }
       await sleep(500);
     }
     throw new Error('local validator startup timed out');
@@ -164,16 +159,15 @@ async function main() {
     signatures.push(await send([settle(nonce, false)]));
     assert.deepEqual(await balances(), [600_000n, 400_000n]);
     assert.equal(await conn.getAccountInfo(vaultPda(escrowPda(nonce))), null);
-    assert.equal((await conn.getAccountInfo(escrowPda(nonce))).data[192], 1); // Released Borsh enum.
+    assert.equal(await conn.getAccountInfo(escrowPda(nonce)), null);
     await rejected(settle(nonce, false));
-    await rejected(lock(nonce, 400_000));
     signatures.push(await send([lock(refundNonce, 200_000)]));
     await rejected(settle(refundNonce, true));
     const lockedState = (await conn.getAccountInfo(escrowPda(refundNonce))).data;
     const createdSlot = Number(lockedState.readBigUInt64LE(193));
     const refundSlot = createdSlot + 50_400;
     const snapshotKeys = [mint.publicKey, source.publicKey, recipient.publicKey,
-      escrowPda(nonce), escrowPda(refundNonce), vaultPda(escrowPda(refundNonce))];
+      escrowPda(refundNonce), vaultPda(escrowPda(refundNonce))];
     const snapshotAccounts = await conn.getMultipleAccountsInfo(snapshotKeys);
     // Preserve u64 rentEpoch exactly. Parsing it through web3.js/JS Number can
     // round u64::MAX beyond the validator JSON account loader's accepted range.
@@ -209,17 +203,16 @@ async function main() {
     signatures.push(await send([settle(refundNonce, true)]));
     assert.deepEqual(await balances(), [600_000n, 400_000n]);
     assert.equal(await conn.getAccountInfo(vaultPda(escrowPda(refundNonce))), null);
-    assert.equal((await conn.getAccountInfo(escrowPda(refundNonce))).data[192], 2); // Cancelled.
+    assert.equal(await conn.getAccountInfo(escrowPda(refundNonce)), null);
     await rejected(settle(refundNonce, true));
     await rejected(settle(refundNonce, false));
     const evidence = { label: 'LOCAL TEST MINT ONLY — not AUDD; no devnet proof', validator: version, rpc,
       mint: mint.publicKey.toBase58(), tokenProgram: TOKEN.toBase58(), decimals: 6,
-      tokenElfSha256: tokenElf ? createHash('sha256').update(fs.readFileSync(tokenElf)).digest('hex') : null,
       escrowElfSha256, createdSlot, refundSlot, snapshotHashes,
       method: 'normal-slot local validator lock/release; byte-identical public-account snapshot reloaded into fresh local validator with slot warp for refund',
 
       program: PROGRAM.toBase58(), signatures, sourceBalance: '600000', recipientBalance: '400000',
-      checks: ['exact lock', 'payer-authorized recorded-recipient release', 'slot-gated original-source refund', 'closed vaults', 'terminal state and replay rejection'] };
+      checks: ['exact lock', 'payer-authorized recorded-recipient release', 'slot-gated original-source refund', 'closed escrow records and vaults', 'replay rejection'] };
     fs.writeFileSync(path.join(dir, 'result.json'), `${JSON.stringify(evidence, null, 2)}\n`);
     console.log(JSON.stringify(evidence, null, 2));
   } finally { await stop(); }

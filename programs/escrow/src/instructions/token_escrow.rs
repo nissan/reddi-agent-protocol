@@ -99,8 +99,7 @@ pub fn settle_token_escrow_handler(ctx: Context<SettleTokenEscrow>, refund: bool
     let signer = &[seeds];
     let destination_before = ctx.accounts.destination.amount;
     // Anyone can donate tokens to a vault. Sweep any surplus to the same recorded
-    // beneficiary so a donation cannot block closing or strand funds. The amount
-    // originally locked remains recorded separately in the terminal escrow.
+    // beneficiary so a donation cannot block closing or strand funds.
     let payout = ctx.accounts.vault.amount;
     token::transfer_checked(
         CpiContext::new_with_signer(
@@ -132,13 +131,6 @@ pub fn settle_token_escrow_handler(ctx: Context<SettleTokenEscrow>, refund: bool
         },
         signer,
     ))?;
-    // Retain this small terminal record: closing it would allow the payer to
-    // recreate the same nonce and replay a previously approved instruction.
-    ctx.accounts.escrow.status = if refund {
-        EscrowStatus::Cancelled
-    } else {
-        EscrowStatus::Released
-    };
     Ok(())
 }
 
@@ -173,7 +165,7 @@ pub struct LockTokenEscrow<'info> {
 pub struct SettleTokenEscrow<'info> {
     #[account(mut, seeds = [TOKEN_ESCROW_SEED, payer.key().as_ref(), escrow.nonce.as_ref()],
         bump = escrow.bump, has_one = payer @ EscrowError::UnauthorisedSigner, has_one = mint,
-        constraint = escrow.status == EscrowStatus::Locked @ EscrowError::NotLocked)]
+        constraint = escrow.status == EscrowStatus::Locked @ EscrowError::NotLocked, close = payer)]
     pub escrow: Account<'info, TokenEscrowAccount>,
     #[account(mut, seeds = [TOKEN_VAULT_SEED, escrow.key().as_ref()], bump,
         token::mint = mint, token::authority = escrow, token::token_program = token_program)]

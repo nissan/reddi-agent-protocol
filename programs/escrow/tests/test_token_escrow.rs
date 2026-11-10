@@ -193,6 +193,14 @@ impl Fixture {
             .map(|a| TokenAccount::unpack(&a.data).unwrap().amount)
             .unwrap_or(0)
     }
+    fn lamports(&self, key: Pubkey) -> u64 {
+        self.svm.get_account(&key).map(|a| a.lamports).unwrap_or(0)
+    }
+    fn closed(&self, key: Pubkey) -> bool {
+        self.svm
+            .get_account(&key)
+            .is_none_or(|a| a.lamports == 0 && a.data.is_empty())
+    }
     fn state(&self) -> TokenEscrowAccount {
         TokenEscrowAccount::try_deserialize(
             &mut self.svm.get_account(&self.escrow).unwrap().data.as_slice(),
@@ -232,7 +240,7 @@ impl Fixture {
 }
 
 #[test]
-fn token_lock_release_conserves_assets_and_records_terminal_state() {
+fn token_lock_release_conserves_assets_and_closes_records_to_payer() {
     let mut f = Fixture::new();
     f.lock();
     assert_eq!(
@@ -251,6 +259,8 @@ fn token_lock_release_conserves_assets_and_records_terminal_state() {
     let vault = TokenAccount::unpack(&f.svm.get_account(&f.vault).unwrap().data).unwrap();
     assert_eq!(vault.owner, f.escrow);
     assert_eq!(vault.mint, f.mint);
+    let rent_held = f.lamports(f.escrow) + f.lamports(f.vault);
+    let payer_before = f.lamports(f.payer.pubkey());
     let ix = f.settle_ix(false);
     send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
     assert_eq!(
@@ -261,11 +271,29 @@ fn token_lock_release_conserves_assets_and_records_terminal_state() {
         ),
         (600_000, 0, 400_000)
     );
-    assert_eq!(f.state().status, EscrowStatus::Released);
-    assert!(f.svm.get_account(&f.vault).is_none_or(|a| a.lamports == 0));
-    for ix in [f.settle_ix(false), f.settle_ix(true), f.lock_ix(400_000)] {
+    assert!(f.closed(f.escrow), "escrow record must close on release");
+    assert!(f.closed(f.vault), "vault must close on release");
+    // Both rent reserves return to the payer net of at most the transaction fee,
+    // which is far below the smallest rent-exempt reserve.
+    let recovered = f.lamports(f.payer.pubkey()) - payer_before;
+    assert!(
+        recovered <= rent_held
+            && rent_held - recovered < f.svm.minimum_balance_for_rent_exemption(0),
+        "payer recovered {recovered} of {rent_held} rent lamports"
+    );
+    for ix in [f.settle_ix(false), f.settle_ix(true)] {
         f.reject(ix, false);
     }
+    f.lock();
+    assert_eq!(
+        (
+            f.balance(f.source),
+            f.balance(f.vault),
+            f.balance(f.recipient)
+        ),
+        (200_000, 400_000, 400_000)
+    );
+    assert_eq!(f.state().status, EscrowStatus::Locked);
 }
 
 #[test]
@@ -291,8 +319,9 @@ fn token_refund_obeys_exact_existing_slot_boundary_and_original_source() {
         ),
         (1_000_000, 0, 0)
     );
-    assert_eq!(f.state().status, EscrowStatus::Cancelled);
-    for ix in [f.settle_ix(false), f.settle_ix(true), f.lock_ix(400_000)] {
+    assert!(f.closed(f.escrow), "escrow record must close on refund");
+    assert!(f.closed(f.vault), "vault must close on refund");
+    for ix in [f.settle_ix(false), f.settle_ix(true)] {
         f.reject(ix, false);
     }
 }
@@ -305,8 +334,8 @@ fn token_lock_rejects_zero_insufficient_funds_duplicate_and_wrong_accounts() {
         if amount == 0 {
             assert!(err.contains("Custom(6004)"), "{err}");
         }
-        assert!(f.svm.get_account(&f.escrow).is_none_or(|a| a.lamports == 0));
-        assert!(f.svm.get_account(&f.vault).is_none_or(|a| a.lamports == 0));
+        assert!(f.closed(f.escrow));
+        assert!(f.closed(f.vault));
     }
     // Mismatched source authority, recipient authority, mint, program, and vault.
     for (index, key) in [
@@ -421,8 +450,8 @@ fn token_lock_rejects_other_valid_mint_and_token2022_owned_mint() {
     ix.accounts[7].pubkey = token2022;
     let err = f.reject(ix, false);
     assert!(err.contains("InvalidProgramId"), "{err}");
-    assert!(f.svm.get_account(&f.escrow).is_none_or(|a| a.lamports == 0));
-    assert!(f.svm.get_account(&f.vault).is_none_or(|a| a.lamports == 0));
+    assert!(f.closed(f.escrow));
+    assert!(f.closed(f.vault));
 }
 
 #[test]
