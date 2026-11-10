@@ -12,6 +12,8 @@ on:
       - "scripts/check-quasar-*.mjs"
       - "scripts/run-quasar-per-*.mjs"
       - "scripts/__tests__/quasar-operator-default-off.test.mjs"
+      - "scripts/__tests__/quasar-workflow-inventory.test.mjs"
+      - ".github/workflows/**"
       - "scripts/__tests__/fixtures/quasar-operator-*.mjs"
       - "scripts/__tests__/fixtures/quasar-operator-*.cjs"
       - "scripts/__tests__/fixtures/synthetic-business.mjs"
@@ -53,6 +55,9 @@ jobs:
 
       - name: Verify the runtime-compatibility schema is enforced
         run: npm run test:quasar:runtime-compatibility
+
+      - name: Verify every workflow that mentions Quasar is in the freeze inventory
+        run: node --test scripts/__tests__/quasar-workflow-inventory.test.mjs
 
       # Cheap enough to run here rather than in the 90-minute Surfpool lane, and running it in two
       # independent lightweight workflows is what keeps either one from being its own only witness.

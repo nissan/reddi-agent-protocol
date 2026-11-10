@@ -92,6 +92,8 @@ This inventory is a source-level account of retained automation, not execution e
 
 The automatic Quasar execution surfaces are therefore the readiness guard, program tests, and Surfpool critical SDK workflow; the package guard is an automatic structural witness. The manual acceptance workflow is listed to avoid confusing callable hosted regression with automatic coverage. The four refused devnet/PER operator files are not invoked as historical implementations by any of these jobs.
 
+One more workflow names Quasar files without running Quasar. [Anchor Program Tests](../.github/workflows/anchor-program-tests.yml) lists `quasar-program-tests.yml`, `surfpool-acceptance-manual.yml` and `surfpool-quasar-critical-sdk.yml` only as path triggers, so the stable Anchor regression re-runs when those workflow files change; its jobs build and test `programs/escrow` and execute no Quasar source. It is recorded here so that every workflow mentioning Quasar is accounted for; `scripts/__tests__/quasar-workflow-inventory.test.mjs` fails when a workflow mentions Quasar and this section does not name it.
+
 ## Safe validation plan for this freeze
 
 Only offline/static checks are in scope:
