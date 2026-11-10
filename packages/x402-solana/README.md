@@ -211,4 +211,4 @@ MIT
 
 ## Classic SPL escrow challenge flow
 
-The repo-local `escrow-http` and `token-escrow` exports add a RAP-specific HTTP 402 → finalized SPL lock → paid retry → seller verification → locked receipt flow. See [the runnable synthetic puzzle seller/buyer](examples/README.md). Mint address, classic token program and decimals are explicit configuration; the disposable validator harness uses a labelled local test mint, not AUDD. The locked receipt is distinct from settlement and from service correctness. These additions do not establish public npm publication or authorize devnet signing.
+The repo-local `token-escrow` and `escrow-http` modules, re-exported from the package root, add a RAP-specific HTTP 402 → finalized SPL lock → paid retry → seller verification → locked receipt flow. See [the runnable synthetic puzzle seller/buyer](examples/README.md). Mint address, classic token program and decimals are explicit configuration; the disposable validator harness uses a labelled local test mint, not AUDD. The locked receipt is distinct from settlement and from service correctness. These additions do not establish public npm publication or authorize devnet signing.

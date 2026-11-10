@@ -8,6 +8,7 @@ All notable changes to this package are documented here. Dates are AEST.
 
 - Read-only SPL `TransferChecked` observation verifier for parsed deterministic transaction fixtures. It checks successful transaction metadata, confirmation metadata, transaction-signature match, exact mint/program/payee owner/destination/amount, optional memo binding, exactly one match, and replay protection without RPC, wallets, signers, secrets, or live submission.
 - AUDD bridge in `SolanaReceiptVerifier` that uses the stricter x402 v2 SVM `exact` verifier only when an AUDD mint is explicitly configured (never inferred from the receipt), while retaining legacy SOL/USDC compatibility.
+- `token-escrow` and `escrow-http` modules, re-exported from the package root (no new subpath exports): classic SPL token-escrow instruction builders/decoder and the RAP-specific `rap-spl-escrow-v1` HTTP 402 → finalized lock → paid retry → `locked` receipt flow (`EscrowSeller`, `buyWithEscrow`, `verifyEscrowLock`). Mint, classic token program and decimals are explicit parameters. A runnable loopback-only seller/buyer example lives in `examples/` (not shipped in the tarball); see `examples/README.md`. No public npm publication, devnet signing, or settlement claim is established.
 
 ### Changed
 
