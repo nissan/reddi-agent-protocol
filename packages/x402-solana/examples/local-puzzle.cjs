@@ -71,9 +71,6 @@ async function main() {
       if (slot !== null && slot >= warp + 5) {
         const tokenAccount = await conn.getAccountInfo(TOKEN, 'confirmed');
         assert(tokenAccount?.executable, 'classic Token program is not executable');
-        const tokenInfo = execFileSync(path.join(path.dirname(validatorBin), 'solana'),
-          ['--config', config, '--url', rpc, 'account', TOKEN.toBase58(), '--output', 'json'], { encoding: 'utf8' });
-        fs.writeFileSync(path.join(dir, snapshot ? 'token-account-snapshot.json' : 'token-account.json'), tokenInfo);
         console.log(`Local validator ready at slot ${slot}; Tokenkeg executable`);
         return;
       }

@@ -17,7 +17,7 @@ function tokenEscrowAddresses(t) {
 }
 const meta = (pubkey, isWritable = false, isSigner = false) => ({ pubkey, isWritable, isSigner });
 function buildLockTokenEscrowInstruction(t) {
-    if (t.tokenProgram && !t.tokenProgram.equals(spl_token_1.TOKEN_PROGRAM_ID))
+    if (!t.tokenProgram.equals(spl_token_1.TOKEN_PROGRAM_ID))
         throw new Error('classic SPL Token only');
     if (t.amount <= 0n || t.amount > 0xffffffffffffffffn)
         throw new Error('amount must be a positive u64');

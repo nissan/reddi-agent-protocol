@@ -1,7 +1,7 @@
 import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 export interface TokenEscrowTerms {
     programId: PublicKey;
-    tokenProgram?: PublicKey;
+    tokenProgram: PublicKey;
     payer: PublicKey;
     payee: PublicKey;
     mint: PublicKey;

@@ -5,7 +5,7 @@ import { TOKEN_PROGRAM_ID, NATIVE_MINT } from '@solana/spl-token';
 const disc = (kind: string, name: string) => createHash('sha256').update(`${kind}:${name}`).digest().subarray(0, 8);
 export interface TokenEscrowTerms {
   programId: PublicKey;
-  tokenProgram?: PublicKey;
+  tokenProgram: PublicKey;
   payer: PublicKey;
   payee: PublicKey;
   mint: PublicKey;
@@ -22,7 +22,7 @@ export function tokenEscrowAddresses(t: Pick<TokenEscrowTerms, 'programId' | 'pa
 }
 const meta = (pubkey: PublicKey, isWritable = false, isSigner = false) => ({ pubkey, isWritable, isSigner });
 export function buildLockTokenEscrowInstruction(t: TokenEscrowTerms): TransactionInstruction {
-  if (t.tokenProgram && !t.tokenProgram.equals(TOKEN_PROGRAM_ID)) throw new Error('classic SPL Token only');
+  if (!t.tokenProgram.equals(TOKEN_PROGRAM_ID)) throw new Error('classic SPL Token only');
   if (t.amount <= 0n || t.amount > 0xffffffffffffffffn) throw new Error('amount must be a positive u64');
   if (t.mint.equals(NATIVE_MINT)) throw new Error('native mint unsupported');
   const { escrow, vault } = tokenEscrowAddresses(t);
