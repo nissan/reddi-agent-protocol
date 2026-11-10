@@ -83,3 +83,7 @@ packages/agent-protocol/dist-tests/
 # AI session transcripts exported for grants / proofs (may contain PII, wallets, secrets)
 claude-session*.jsonl
 codex-session*.jsonl
+
+# Stageshow skill: installed locally, never committed (docs/agent-settings/STAGESHOW.md)
+.claude/skills/stageshow/
+.claude/skills/.stageshow-*/
