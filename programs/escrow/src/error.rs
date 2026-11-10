@@ -70,4 +70,9 @@ pub enum EscrowError {
 
     #[msg("Escrow is already delegated to PER")]
     AlreadyDelegated,
+    #[msg("Invalid token mint, account, or authority")]
+    InvalidTokenAccount,
+
+    #[msg("Token balance change did not match the escrow transfer")]
+    InvalidTokenAmount,
 }

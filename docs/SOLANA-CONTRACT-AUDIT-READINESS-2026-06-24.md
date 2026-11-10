@@ -208,6 +208,8 @@ Audit impact:
 - USDC proof validation belongs to package/receipt/evidence checks unless a
   later issue creates audited SPL custody.
 
+> **Dated source-state note — 2026-11-10:** The "no SPL custody account or token program state" statement above, and the later audit-target item that requires a new design issue rather than retrofitting a token rail into the "SOL-only escrow claim", record the 2026-06-24 state. The stable Anchor `1.1.2` source in `programs/escrow/` on this branch adds a classic SPL Token lock/release/refund rail beside the SOL escrow. That is branch source only, covered by LiteSVM tests and a loopback local-validator exercise against a clearly labelled local test mint; it is not deployed anywhere, is not an AUDD or USDC identity, is not x402 integration, is not devnet or mainnet readiness, and changes nothing about Quasar. The historical text in this record is preserved unchanged; current program custody facts live in [`PAYMENT-FLOW-ARCHITECTURE.md`](./PAYMENT-FLOW-ARCHITECTURE.md) and [`SECURITY.md`](../SECURITY.md). No audit scope, target, or packet decision is changed by this note.
+
 ### AUDD
 
 AUDD is a first-class roadmap rail for grant delivery, but current v0.1 support

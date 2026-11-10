@@ -52,6 +52,8 @@ export const DEVNET_RPC = network.solana.rpcHttp;
 // ── PDA seeds (must match programs/escrow/src/constants.rs) ──────────────────
 
 export const ESCROW_SEED = Buffer.from("escrow");
+export const TOKEN_ESCROW_SEED = Buffer.from("token-escrow");
+export const TOKEN_VAULT_SEED = Buffer.from("token-vault");
 export const AGENT_SEED = Buffer.from("agent");
 export const RATING_SEED = Buffer.from("rating");
 export const ATTESTATION_SEED = Buffer.from("attestation");
@@ -71,6 +73,9 @@ export const IX = {
   register_agent: disc("global", "register_agent"),
   update_agent: disc("global", "update_agent"),
   deregister_agent: disc("global", "deregister_agent"),
+  lock_token_escrow: disc("global", "lock_token_escrow"),
+  release_token_escrow: disc("global", "release_token_escrow"),
+  cancel_token_escrow: disc("global", "cancel_token_escrow"),
   lock_escrow: disc("global", "lock_escrow"),
   release_escrow: disc("global", "release_escrow"),
   release_escrow_per: disc("global", "release_escrow_per"),
@@ -84,6 +89,7 @@ export const IX = {
 
 export const ACCOUNT_DISC = {
   AgentAccount: disc("account", "AgentAccount"),
+  TokenEscrowAccount: disc("account", "TokenEscrowAccount"),
   EscrowAccount: disc("account", "EscrowAccount"),
   RatingAccount: disc("account", "RatingAccount"),
   AttestationAccount: disc("account", "AttestationAccount"),

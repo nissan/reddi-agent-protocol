@@ -41,6 +41,8 @@ first AUDD rollout.
 | USDC | `dry-run`, `proof-metadata-only`, `live-gated` | Generic payment challenge and x402/Solana helper surfaces can express USDC | Generic buyer preflight can allow USDC through `allowedRails` and budget policy | Receipt v1 allowlist includes USDC on devnet, testnet, and mainnet-beta fixtures | No current Quasar/Anchor SPL-token custody |
 | AUDD | `dry-run`, `proof-metadata-only`, `live-gated` | `reddi.audd-payment-plan.v1` expresses AUDD quote/payment-plan metadata and can export a canonical x402 v2 SVM `exact` requirement | AUDD preflight validates the canonical rail identity, payee, settlement account, amount, expiry, evidence, approval, and budget policy | Receipt/evidence binding accepts canonically labelled AUDD observations; the read-only SPL observer verifies deterministic parsed `TransferChecked` fixtures | No current Quasar/Anchor SPL-token custody |
 
+> **Dated source-state note — 2026-11-10:** The "Contract custody" column above records the 2026-06-24 state. The stable Anchor `1.1.2` source in `programs/escrow/` on this branch adds a classic SPL Token lock/release/refund rail beside the SOL escrow. That is branch source only, covered by LiteSVM tests and a loopback local-validator exercise against a clearly labelled local test mint; it is not deployed anywhere, is not an AUDD or USDC identity, is not x402 integration, is not devnet or mainnet readiness, and changes nothing about Quasar. The historical text in this record is preserved unchanged; current program custody facts live in [`PAYMENT-FLOW-ARCHITECTURE.md`](./PAYMENT-FLOW-ARCHITECTURE.md) and [`SECURITY.md`](../SECURITY.md).
+
 ## Quote And Payment-Plan Acceptance
 
 SOL and USDC:

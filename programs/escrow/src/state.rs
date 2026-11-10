@@ -52,6 +52,30 @@ impl EscrowAccount {
         + 1; // bump
 }
 
+/// Classic SPL Token escrow, separate from the unchanged SOL account layout.
+/// PDA: [b"token-escrow", payer, nonce]; vault: [b"token-vault", escrow].
+/// Release and cancel close the record and vault to the payer, like the SOL rail.
+#[account]
+pub struct TokenEscrowAccount {
+    pub payer: Pubkey,
+    pub payee: Pubkey,
+    pub mint: Pubkey,
+    /// Exact original payer token account, also the only refund destination.
+    pub source: Pubkey,
+    /// Exact payee token account recorded at lock time.
+    pub recipient: Pubkey,
+    /// Amount in raw token units, never an assumed currency or decimal scale.
+    pub amount: u64,
+    pub nonce: [u8; 16],
+    pub status: EscrowStatus,
+    pub created_slot: u64,
+    pub bump: u8,
+}
+
+impl TokenEscrowAccount {
+    pub const LEN: usize = 8 + 32 * 5 + 8 + 16 + 1 + 8 + 1;
+}
+
 /// Type of work an agent supports in the marketplace.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, Debug)]
 pub enum AgentType {
