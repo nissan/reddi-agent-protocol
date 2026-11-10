@@ -105,7 +105,7 @@ Current mitigations:
 
 ### Token escrow limitations
 
-Before any separately approved non-local use, assess the [token escrow limitations](docs/PAYMENT-FLOW-ARCHITECTURE.md#token-escrow-limitations): an accepted mint's freeze authority can freeze the vault and block both release and refund indefinitely until thawed; the refund window cannot override issuer control. Settlement binds to the exact recorded recipient/source token accounts, so a closed recipient blocks release while unavailable and refund requires the original source after the cancel window. Only the payer can release or refund; the payee has no forced-release path. Successful settlement closes the vault and record without persisting `Released`/`Cancelled`, and the same `(payer, nonce)` can then be reused. Clients must retain distinct job IDs and transaction history across PDA lifetimes. These source limitations are not live-rail approval or recovery guarantees.
+The classic SPL Token rail accepts mints whose freeze authority can freeze the vault and block both release and refund until thawed; the cancel window cannot override that issuer control. Settlement is payer-only and bound to the exact token accounts recorded at lock, and closure reopens the `(payer, nonce)` PDA. The [token escrow limitations](docs/PAYMENT-FLOW-ARCHITECTURE.md#token-escrow-limitations) section owns the full list, which must be assessed before any separately approved non-local use; none of it is live-rail approval or a recovery guarantee.
 
 ## Audit Credit Use
 
