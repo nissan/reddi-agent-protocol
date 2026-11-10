@@ -322,3 +322,13 @@ export function buildDisputeAttestationData(jobId: Uint8Array): Buffer {
 
 /** Hardcoded incinerator address (matches on-chain AGENT_FEE_BURN_ADDRESS) */
 export const INCINERATOR = new PublicKey("1nc1nerator11111111111111111111111111111111");
+
+// Classic SPL client mirrors live in the independently buildable x402 package.
+// Explicit programId arguments keep construction offline and profile selection caller-owned.
+export {
+  tokenEscrowAddresses,
+  buildLockTokenEscrowInstruction,
+  buildSettleTokenEscrowInstruction,
+  decodeTokenEscrowAccount,
+} from '../packages/x402-solana/src/token-escrow';
+export type { TokenEscrowTerms } from '../packages/x402-solana/src/token-escrow';
