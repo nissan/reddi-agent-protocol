@@ -69,12 +69,13 @@ The invariants are challenge binding, anti-replay nonce, amount/asset binding, a
 
 ## Escrow PDA lifecycle (legacy Anchor reference program only)
 
-`programs/escrow/` is historical/reference evidence. It is not deployed as a current target, holds lamports/SOL only, and is not an escrow product, custody offering, or settlement-finality claim.
+`programs/escrow/` is historical/reference evidence. It is not deployed as a current target and is not an escrow product, custody offering, or settlement-finality claim. The source holds lamports/SOL in the original escrow and, on a separate classic SPL Token rail, raw token units in a per-escrow vault; the two rails share no account layout, and only the SOL rail exists on any recorded deployment.
 
-- PDA seeds: `[b"escrow", payer, nonce]`; the payer-scoped nonce prevents duplicate escrows.
+- SOL PDA seeds: `[b"escrow", payer, nonce]`; the payer-scoped nonce prevents duplicate escrows.
 - `EscrowStatus` has exactly three states: `Locked` (funds locked awaiting resolution), `Released` (paid to the payee), `Cancelled` (returned to the payer).
-- Instructions: `lock_escrow`, `release_escrow`, `cancel_escrow`, plus the MagicBlock PER state-tracking pair `delegate_escrow` / `release_escrow_per`.
+- SOL instructions: `lock_escrow`, `release_escrow`, `cancel_escrow`, plus the MagicBlock PER state-tracking pair `delegate_escrow` / `release_escrow_per`.
 - `Released` and `Cancelled` are terminal, which is what prevents double-resolution in the reference program.
+- Classic SPL Token rail: `TokenEscrowAccount` at `[b"token-escrow", payer, nonce]` with a program-owned vault at `[b"token-vault", escrow]`; instructions `lock_token_escrow`, `release_token_escrow`, `cancel_token_escrow`. Only the classic SPL Token program is accepted (the native SOL mint, Token-2022, and transfer hooks are refused). Release pays only the exact recipient token account recorded at lock, cancel refunds only the exact original source account after the same cancel window as SOL, and both close the record and vault to the payer. Amounts are raw token units with no assumed currency or decimals; coverage is LiteSVM (`programs/escrow/tests/test_token_escrow.rs`) plus a loopback local-validator exercise (`programs/escrow/tests/local_token_escrow.cjs`) against a labelled local test mint, never an AUDD or USDC identity.
 
 ## Reference Solana surfaces
 
