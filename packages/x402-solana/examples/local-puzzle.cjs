@@ -17,8 +17,7 @@ const { Connection, Keypair, PublicKey, Transaction } = require('@solana/web3.js
 const token = require('@solana/spl-token');
 const PROGRAM = new PublicKey('794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD');
 const TOKEN = token.TOKEN_PROGRAM_ID;
-const decimals = Number(process.env.RAP_DECIMALS || '6');
-assert(Number.isInteger(decimals) && decimals >= 0 && decimals <= 9, 'local test decimals: 0..9');
+const decimals = 6;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function main() {
@@ -26,9 +25,10 @@ async function main() {
   assert(dir && path.isAbsolute(dir), 'RAP_LOCAL_EXAMPLE_DIR must name a fresh absolute disposable directory');
   const validatorBin = process.env.RAP_TEST_VALIDATOR;
   assert(validatorBin && path.isAbsolute(validatorBin), 'RAP_TEST_VALIDATOR must name the absolute path of the pinned Agave 4.2.2 solana-test-validator');
-  fs.mkdirSync(dir, { recursive: false, mode: 0o700 }); // Never reuse a ledger or another task's keys.
   const version = execFileSync(validatorBin, ['--version'], { encoding: 'utf8' }).trim();
   assert.match(version, /^solana-test-validator 4\.2\.2\b/);
+  const escrowElf = process.env.RAP_ESCROW_SO || path.resolve(__dirname, '../../../target/deploy/escrow.so');
+  const escrowElfSha256 = createHash('sha256').update(fs.readFileSync(escrowElf)).digest('hex');
   const payer = Keypair.generate(), payee = Keypair.generate();
   // Reserve/check both TCP and UDP sockets before selecting ports; never kill a listener.
   async function available(port) {
@@ -49,11 +49,10 @@ async function main() {
   }
   assert(base, 'no free port range found');
   const rpc = `http://127.0.0.1:${base}`;
+  fs.mkdirSync(dir, { recursive: false, mode: 0o700 }); // Never reuse a ledger or another task's keys.
   const config = path.join(dir, 'cli.yml');
   fs.writeFileSync(config, `json_rpc_url: ${rpc}\nwebsocket_url: ws://127.0.0.1:${base + 1}\nkeypair_path: ${path.join(dir, 'unused-wallet.json')}\ncommitment: confirmed\n`);
   const conn = new Connection(rpc, 'confirmed');
-  const escrowElf = process.env.RAP_ESCROW_SO || path.resolve(__dirname, '../../../target/deploy/escrow.so');
-  const escrowElfSha256 = createHash('sha256').update(fs.readFileSync(escrowElf)).digest('hex');
   let validator;
   async function start(snapshot, warp = 0) {
     const log = fs.openSync(path.join(dir, snapshot ? 'validator-snapshot.log' : 'validator.log'), 'w', 0o600);
