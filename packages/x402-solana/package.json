@@ -51,23 +51,12 @@
       "import": "./dist/types.js",
       "require": "./dist/types.js"
     },
-    "./package.json": "./package.json",
-    "./token-escrow": {
-      "types": "./dist/token-escrow.d.ts",
-      "import": "./dist/token-escrow.js",
-      "require": "./dist/token-escrow.js"
-    },
-    "./escrow-http": {
-      "types": "./dist/escrow-http.d.ts",
-      "import": "./dist/escrow-http.js",
-      "require": "./dist/escrow-http.js"
-    }
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "README.md",
-    "CHANGELOG.md",
-    "examples"
+    "CHANGELOG.md"
   ],
   "sideEffects": false,
   "scripts": {

@@ -32,10 +32,12 @@ test('finalized exact lock yields a locked receipt, never a correctness or settl
   expect(receipt.status).toBe('locked'); expect(receipt.escrow).toBe(f.addresses.escrow.toBase58());
   expect(f.rpc.getTransaction).toHaveBeenCalledWith(f.proof.lockSignature, { commitment: 'finalized', maxSupportedTransactionVersion: 0 });
 });
-test.each([8, 40, 72, 104, 136, 168, 176, 192, 201])('reject changed escrow field at %i', async offset => {
-  const f = fixture(); f.state[offset] ^= 1;
-  await expect(verifyEscrowLock(f.rpc as unknown as Connection, f.c, f.proof)).rejects.toThrow();
-});
+test.each([[8, 'wrong escrow payer'], [40, 'wrong escrow payee'], [72, 'wrong escrow mint'], [104, 'wrong escrow source'], [136, 'wrong escrow recipient'],
+  [168, 'escrow terms mismatch'], [176, 'escrow terms mismatch'], [192, 'escrow terms mismatch'], [201, 'escrow terms mismatch']] as const)(
+  'reject changed escrow field at %i with %s', async (offset, message) => {
+    const f = fixture(); f.state[offset] ^= 1;
+    await expect(verifyEscrowLock(f.rpc as unknown as Connection, f.c, f.proof)).rejects.toThrow(message);
+  });
 test('reject failed or unrelated transaction and wrong genesis', async () => {
   const f = fixture(); f.rpc.getGenesisHash.mockResolvedValueOnce('other');
   await expect(verifyEscrowLock(f.rpc as unknown as Connection, f.c, f.proof)).rejects.toThrow('wrong cluster');
@@ -43,7 +45,7 @@ test('reject failed or unrelated transaction and wrong genesis', async () => {
   await expect(verifyEscrowLock(f.rpc as unknown as Connection, f.c, f.proof)).rejects.toThrow('does not prove');
 });
 test('reject closed record, wrong owner, insufficient vault and wrong decimals', async () => {
-  for (const kind of ['closed', 'owner', 'amount', 'decimals']) {
+  for (const [kind, message] of [['closed', 'escrow missing or wrong owner'], ['owner', 'escrow missing or wrong owner'], ['amount', 'vault mismatch'], ['decimals', 'mint decimals mismatch']]) {
     const f = fixture(), original = f.rpc.getAccountInfo.getMockImplementation()!;
     f.rpc.getAccountInfo.mockImplementation(async key => {
       const info = await original(key);
@@ -53,7 +55,7 @@ test('reject closed record, wrong owner, insufficient vault and wrong decimals',
       if (key.equals(f.t.mint) && kind === 'decimals') info.data[44] = 9;
       return info;
     });
-    await expect(verifyEscrowLock(f.rpc as unknown as Connection, f.c, f.proof)).rejects.toThrow();
+    await expect(verifyEscrowLock(f.rpc as unknown as Connection, f.c, f.proof)).rejects.toThrow(message);
   }
 });
 test('server stores authoritative terms, binds request and rejects concurrent/repeated redemption', async () => {

@@ -24,8 +24,9 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function main() {
   const dir = process.env.RAP_LOCAL_EXAMPLE_DIR;
   assert(dir && path.isAbsolute(dir), 'RAP_LOCAL_EXAMPLE_DIR must name a fresh absolute disposable directory');
+  const validatorBin = process.env.RAP_TEST_VALIDATOR;
+  assert(validatorBin && path.isAbsolute(validatorBin), 'RAP_TEST_VALIDATOR must name the absolute path of the pinned Agave 4.2.2 solana-test-validator');
   fs.mkdirSync(dir, { recursive: false, mode: 0o700 }); // Never reuse a ledger or another task's keys.
-  const validatorBin = process.env.RAP_TEST_VALIDATOR || 'solana-test-validator';
   const version = execFileSync(validatorBin, ['--version'], { encoding: 'utf8' }).trim();
   assert.match(version, /^solana-test-validator 4\.2\.2\b/);
   const payer = Keypair.generate(), payee = Keypair.generate();
