@@ -29,9 +29,9 @@ These addresses are recorded history, not an active demo target: `config/quasar/
 
 ### 3) Double-release prevention
 
-- Escrow accounts have terminal states.
-- A successful release marks escrow complete, and subsequent release instructions fail due to state mismatch.
-- Idempotency is enforced by account state transition rules, not client trust.
+- Successful reference escrow settlement closes the record; attempts to settle that closed account fail.
+- Token escrows never persist `Released` or `Cancelled`; clients must retain transaction evidence for the outcome.
+- A later lock can reuse the closed PDA, so closure does not provide permanent job-level idempotency.
 
 ### 4) Unauthorized release prevention (explicit signer and PDA checks)
 
@@ -69,7 +69,7 @@ These addresses are recorded history, not an active demo target: `config/quasar/
 ### Nonce collision handling
 
 - Nonces are expected to be high-entropy and single-use.
-- Collision or reuse attempts are rejected by replay guards and PDA uniqueness assumptions.
+- Replay-store protection is scoped to the configured store. Escrow PDA uniqueness lasts only while the record exists: `(payer, nonce)` can be reused after closure on both SOL and token rails. Clients must not use that pair as a globally unique job ID.
 
 ## Blind Commit-Reveal Rating Security Properties
 
@@ -102,6 +102,10 @@ Current mitigations:
 - **No on-chain protocol treasury fee:** 0.05% / 5 bps protocol-fee examples are fixture or demo semantics only; no deployed release path currently collects that fee on-chain.
 - **Upgrade authority / custody unresolved:** mainnet upgrade authority ownership, multisig/immutability policy, and compromise procedure are not yet documented or approved.
 - **Operational gates unresolved:** paid mainnet RPC/fallback, on-chain monitoring, incident response, safe-harbour/bounty terms, and the historical Jupiter key rotation are still owed before production readiness.
+
+### Token escrow limitations
+
+The classic SPL Token rail accepts mints whose freeze authority can freeze the vault and block both release and refund until thawed; the cancel window cannot override that issuer control. Settlement is payer-only and bound to the exact token accounts recorded at lock, and closure reopens the `(payer, nonce)` PDA. The [token escrow limitations](docs/PAYMENT-FLOW-ARCHITECTURE.md#token-escrow-limitations) section owns the full list, which must be assessed before any separately approved non-local use; none of it is live-rail approval or a recovery guarantee.
 
 ## Audit Credit Use
 

@@ -455,6 +455,60 @@ fn token_lock_rejects_other_valid_mint_and_token2022_owned_mint() {
 }
 
 #[test]
+fn token_lock_rejects_native_mint_without_moving_wrapped_sol_or_creating_records() {
+    let mut f = Fixture::new();
+    let mut mint_account = f.svm.get_account(&f.mint).unwrap();
+    spl_token::state::Mint::pack(
+        spl_token::state::Mint {
+            decimals: spl_token::native_mint::DECIMALS,
+            is_initialized: true,
+            ..Default::default()
+        },
+        &mut mint_account.data,
+    )
+    .unwrap();
+    f.mint = spl_token::native_mint::ID;
+    f.svm.set_account(f.mint, mint_account).unwrap();
+    // Initialize real wrapped-SOL accounts through SPL Token so account
+    // constraints pass and the handler's explicit native-mint guard is exercised.
+    let mut tokens = Vec::new();
+    for owner in [f.payer.pubkey(), f.payee.pubkey()] {
+        let account = Keypair::new();
+        send(
+            &mut f.svm,
+            &[
+                system_instruction::create_account(
+                    &f.payer.pubkey(),
+                    &account.pubkey(),
+                    10_000_000,
+                    TokenAccount::LEN as u64,
+                    &spl_token::ID,
+                ),
+                token_ix::initialize_account3(&spl_token::ID, &account.pubkey(), &f.mint, &owner)
+                    .unwrap(),
+            ],
+            &[&f.payer, &account],
+        )
+        .unwrap();
+        let state =
+            TokenAccount::unpack(&f.svm.get_account(&account.pubkey()).unwrap().data).unwrap();
+        assert!(state.is_native.is_some());
+        tokens.push(account.pubkey());
+    }
+    f.source = tokens[0];
+    f.recipient = tokens[1];
+    let source_before = f.svm.get_account(&f.source).unwrap();
+    let recipient_before = f.svm.get_account(&f.recipient).unwrap();
+    let err = f.reject(f.lock_ix(400_000), false);
+    assert!(err.contains("Custom(6023)"), "{err}");
+    assert!(err.contains("InvalidTokenAccount"), "{err}");
+    assert_eq!(f.svm.get_account(&f.source).unwrap(), source_before);
+    assert_eq!(f.svm.get_account(&f.recipient).unwrap(), recipient_before);
+    assert!(f.closed(f.escrow));
+    assert!(f.closed(f.vault));
+}
+
+#[test]
 fn token_settlement_checks_recorded_address_even_for_same_owner_and_mint() {
     let mut f = Fixture::new();
     f.lock();

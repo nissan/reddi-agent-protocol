@@ -71,11 +71,21 @@ The invariants are challenge binding, anti-replay nonce, amount/asset binding, a
 
 `programs/escrow/` is historical/reference evidence. It is not deployed as a current target and is not an escrow product, custody offering, or settlement-finality claim. The source holds lamports/SOL in the original escrow and, on a separate classic SPL Token rail, raw token units in a per-escrow vault; the two rails share no account layout, and only the SOL rail exists on any recorded deployment.
 
-- SOL PDA seeds: `[b"escrow", payer, nonce]`; the payer-scoped nonce prevents duplicate escrows.
+- SOL PDA seeds: `[b"escrow", payer, nonce]`; the payer-scoped nonce prevents duplicate active escrows.
 - `EscrowStatus` has exactly three states: `Locked` (funds locked awaiting resolution), `Released` (paid to the payee), `Cancelled` (returned to the payer).
 - SOL instructions: `lock_escrow`, `release_escrow`, `cancel_escrow`, plus the MagicBlock PER state-tracking pair `delegate_escrow` / `release_escrow_per`.
-- `Released` and `Cancelled` are terminal, which is what prevents double-resolution in the reference program.
+- On the SOL rail, settlement closes the record; `Released` and `Cancelled` are not retained as durable on-chain history.
 - Classic SPL Token rail: `TokenEscrowAccount` at `[b"token-escrow", payer, nonce]` with a program-owned vault at `[b"token-vault", escrow]`; instructions `lock_token_escrow`, `release_token_escrow`, `cancel_token_escrow`. Only the classic SPL Token program is accepted (the native SOL mint, Token-2022, and transfer hooks are refused). Release pays only the exact recipient token account recorded at lock, cancel refunds only the exact original source account after the same cancel window as SOL, and both close the record and vault to the payer. Amounts are raw token units with no assumed currency or decimals; coverage is LiteSVM (`programs/escrow/tests/test_token_escrow.rs`) plus a loopback local-validator exercise (`programs/escrow/tests/local_token_escrow.cjs`) against a labelled local test mint, never an AUDD or USDC identity.
+
+## Token escrow limitations
+
+These are limitations of the local/source-only classic SPL Token reference rail, to be assessed before any separately approved non-local use; they do not authorize deployment or live funds.
+
+- **Issuer freeze control:** mints with a freeze authority are accepted. That authority can freeze the vault, causing both release and refund to fail until it is thawed. The cancel window does not bypass a freeze, and RAP cannot guarantee recovery against issuer control. Assess the actual mint's authorities rather than assuming a currency label is safe.
+- **Exact account binding:** release uses the recipient token account recorded at lock; refund uses the original source token account. Another account with the same owner and mint cannot substitute. A closed recipient account blocks release while it remains unavailable; the payer must wait for the refund window to refund to the original source, which must also remain valid and transferable.
+- **Payer-only settlement:** only the payer can sign release or refund. The payee cannot force release, and no automatic release or third-party arbitration path exists on this rail.
+- **Closure is terminal:** successful release or refund closes both the vault and token escrow record to the payer. `Released` and `Cancelled` are never persisted for token escrows; record closure is the terminal account signal. Retain transaction evidence to distinguish release from refund; absence alone does not prove which occurred.
+- **Nonce reuse:** after closure, the same `(payer, nonce)` can create another escrow at the same PDA, as on the SOL rail. This is uniqueness among active escrows, not permanent replay protection or a globally unique job ID. Clients must retain separate job identifiers and settlement history, including transaction references, across account lifetimes.
 
 ## Reference Solana surfaces
 
