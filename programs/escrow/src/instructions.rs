@@ -27,3 +27,6 @@ pub use release_escrow::*;
 pub use release_escrow_per::*;
 pub use reveal_rating::*;
 pub use update_agent::*;
+
+pub mod token_escrow;
+pub use token_escrow::*;

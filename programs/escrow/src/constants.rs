@@ -1,6 +1,8 @@
 use anchor_lang::prelude::{pubkey, Pubkey};
 
 pub const ESCROW_SEED: &[u8] = b"escrow";
+pub const TOKEN_ESCROW_SEED: &[u8] = b"token-escrow";
+pub const TOKEN_VAULT_SEED: &[u8] = b"token-vault";
 pub const AGENT_SEED: &[u8] = b"agent";
 pub const ESCROW_DISCRIMINATOR_SIZE: usize = 8;
 /// Minimum slots before a payer can cancel (~7 days at 400ms/slot)

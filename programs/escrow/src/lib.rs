@@ -1,5 +1,6 @@
 #![allow(clippy::diverging_sub_expression)] // Anchor #[program] macro false positive
 
+pub mod classic_token;
 pub mod constants;
 pub mod error;
 pub mod instructions;
@@ -30,6 +31,22 @@ pub mod escrow {
 
     pub fn cancel_escrow(ctx: Context<CancelEscrow>) -> Result<()> {
         instructions::cancel_escrow::cancel_escrow_handler(ctx)
+    }
+
+    pub fn lock_token_escrow(
+        ctx: Context<LockTokenEscrow>,
+        amount: u64,
+        nonce: [u8; 16],
+    ) -> Result<()> {
+        instructions::token_escrow::lock_token_escrow_handler(ctx, amount, nonce)
+    }
+
+    pub fn release_token_escrow(ctx: Context<SettleTokenEscrow>) -> Result<()> {
+        instructions::token_escrow::settle_token_escrow_handler(ctx, false)
+    }
+
+    pub fn cancel_token_escrow(ctx: Context<SettleTokenEscrow>) -> Result<()> {
+        instructions::token_escrow::settle_token_escrow_handler(ctx, true)
     }
 
     // ── Phase 3: Agent Registry ──────────────────────────────────────────────
