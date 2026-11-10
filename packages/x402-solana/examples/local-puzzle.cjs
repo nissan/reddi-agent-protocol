@@ -16,8 +16,7 @@ const { startSeller, runBuyer, syntheticRequest, checkAnalysis } = require('./pu
 const { Connection, Keypair, PublicKey, Transaction } = require('@solana/web3.js');
 const token = require('@solana/spl-token');
 const PROGRAM = new PublicKey('794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD');
-const TOKEN = new PublicKey(process.env.RAP_TOKEN_PROGRAM || token.TOKEN_PROGRAM_ID.toBase58());
-assert(TOKEN.equals(token.TOKEN_PROGRAM_ID), 'classic SPL Token only');
+const TOKEN = token.TOKEN_PROGRAM_ID;
 const decimals = Number(process.env.RAP_DECIMALS || '6');
 assert(Number.isInteger(decimals) && decimals >= 0 && decimals <= 9, 'local test decimals: 0..9');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -140,9 +139,8 @@ async function main() {
     await token.mintTo(conn, payer, mint, source, payer, 1000000n, [], { commitment: 'finalized' }, TOKEN);
     const config = { network: 'solana-local-validator', genesisHash: await conn.getGenesisHash(),
       programId: PROGRAM.toBase58(), payer: payer.publicKey.toBase58(), payee: payee.publicKey.toBase58(),
-      mint: process.env.RAP_MINT || mint.toBase58(), source: source.toBase58(), recipient: recipient.toBase58(),
+      mint: mint.toBase58(), source: source.toBase58(), recipient: recipient.toBase58(),
       tokenProgram: TOKEN.toBase58(), decimals, amount: '400000' };
-    assert.equal(config.mint, mint.toBase58(), 'RAP_MINT must match the freshly provisioned LOCAL TEST MINT; use service API for an already provisioned mint');
     server = await startSeller(conn, config);
     const { result, receipt, challenge } = await runBuyer(conn, payer, config, server.endpoint);
     checkAnalysis(syntheticRequest, result);
