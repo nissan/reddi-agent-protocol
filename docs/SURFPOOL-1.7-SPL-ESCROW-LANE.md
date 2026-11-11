@@ -35,7 +35,8 @@ not installed.
 
 1. Refuses to start if escrow sources (`programs/escrow`, `Cargo.toml`, `Cargo.lock`,
    `rust-toolchain.toml`, `Anchor.toml`) differ from `HEAD`, then records the commit and tree hashes.
-2. Builds `target/deploy/escrow.so` with the pinned `cargo-build-sbf` and records its SHA-256.
+2. Builds `target/deploy/escrow.so` with the pinned `cargo-build-sbf`, fails if the build left any of
+   those source paths (including `Cargo.lock`) differing from `HEAD`, and records the ELF SHA-256.
 3. Runs `programs/escrow/tests/local_token_escrow.cjs` unchanged (its own loopback validator, snapshot
    reload and slot warp) and confirms its RPC port refuses connections afterwards.
 4. Starts an embedded Surfnet through `startLocalSurfnet` in `scripts/lib/surfpool-sdk-lifecycle.mjs`,

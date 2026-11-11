@@ -58,6 +58,7 @@ assert.equal(process.version, NODE_VERSION, `repo-local Node ${NODE_VERSION} req
 assert.equal(`${process.platform}-${process.arch}`, "linux-x64",
   `this lane runs on Linux x64 only (@solana/surfpool-linux-x64-gnu); found ${process.platform}-${process.arch}`);
 const versions = installedVersions();
+const proofDependencies = resolvedProofDependencies();
 
 const { Surfnet } = require("@solana/surfpool");
 const { createSolanaRpc, address } = require("@solana/kit");
@@ -196,9 +197,42 @@ function installedVersions() {
   return result;
 }
 
-function sourceProvenance() {
+/**
+ * The validator proof's @solana/web3.js and @solana/spl-token: Node resolves them from the nearest
+ * ancestor node_modules (normally the root install) and consults NODE_PATH only when none holds them.
+ */
+function resolvedProofDependencies() {
+  const rootLock = JSON.parse(fs.readFileSync(path.join(repoRoot, "package-lock.json"), "utf8"));
+  const dependencies = {};
+  for (const name of ["@solana/web3.js", "@solana/spl-token"]) {
+    assert.equal(rootLock.packages?.[`node_modules/${name}`]?.version, PINS[name], `root lockfile ${name} differs from the lane pin`);
+    const resolved = proofDependency(name);
+    assert.equal(resolved.version, PINS[name], `validator proof resolves ${name} ${resolved.version} from ${resolved.path}; lane pins ${PINS[name]}`);
+    dependencies[name] = resolved;
+  }
+  return dependencies;
+}
+
+/** The install the proof's require() will load `name` from: nearest ancestor node_modules, else the lane's NODE_PATH. */
+function proofDependency(name) {
+  const candidates = [];
+  for (let dir = path.join(repoRoot, "programs", "escrow", "tests"); ; dir = path.dirname(dir)) {
+    candidates.push(path.join(dir, "node_modules", name));
+    if (path.dirname(dir) === dir) break;
+  }
+  candidates.push(path.join(laneDir, "node_modules", name));
+  const dir = candidates.find((candidate) => fs.existsSync(path.join(candidate, "package.json")));
+  assert(dir, `${name} is not resolvable for the validator proof`);
+  return { path: dir, version: JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).version };
+}
+
+function assertSourcesClean(when) {
   const dirty = git("status", "--porcelain", "--untracked-files=all", "--", ...SOURCE_DIRTY_PATHS);
-  assert.equal(dirty, "", `escrow sources differ from HEAD; commit or discard before proving:\n${dirty}`);
+  assert.equal(dirty, "", `escrow sources differ from HEAD ${when}:\n${dirty}`);
+}
+
+function sourceProvenance() {
+  assertSourcesClean("; commit or discard before proving");
   return {
     commit: git("rev-parse", "HEAD"),
     escrowTree: git("rev-parse", "HEAD:programs/escrow"),
@@ -223,6 +257,7 @@ function buildEscrowElf() {
       stdio: ["ignore", "inherit", "inherit"],
       env: { ...process.env, CARGO_TARGET_DIR: cargoTargetDir, PATH: `${agaveBin}${path.delimiter}${process.env.PATH}` },
     });
+  assertSourcesClean("after the build (cargo rewrote a source or lock file; regenerate and commit it first)");
   const bytes = fs.readFileSync(elfPath);
   return { path: "target/deploy/escrow.so", sha256: sha256(bytes), bytes: bytes.length, builtAtCommit: evidence.source.commit };
 }
@@ -232,16 +267,6 @@ async function runValidatorProof() {
   const dir = path.join(outDir, "validator");
   const childTmp = path.join(outDir, "validator-tmp");
   fs.mkdirSync(childTmp, { mode: 0o700 });
-  // Node resolves the proof's @solana/web3.js and @solana/spl-token from the nearest ancestor
-  // node_modules (normally the root install) and consults NODE_PATH only when none holds them.
-  const rootLock = JSON.parse(fs.readFileSync(path.join(repoRoot, "package-lock.json"), "utf8"));
-  const dependencies = {};
-  for (const name of ["@solana/web3.js", "@solana/spl-token"]) {
-    assert.equal(rootLock.packages?.[`node_modules/${name}`]?.version, PINS[name], `root lockfile ${name} differs from the lane pin`);
-    const resolved = proofDependency(name);
-    assert.equal(resolved.version, PINS[name], `validator proof resolves ${name} ${resolved.version} from ${resolved.path}; lane pins ${PINS[name]}`);
-    dependencies[name] = resolved;
-  }
   const env = localChildEnv({ RAP_LOCAL_TEST_DIR: dir, RAP_TEST_VALIDATOR: path.join(agaveBin, "solana-test-validator"),
     NODE_PATH: path.join(laneDir, "node_modules") }, { repoRoot, childTmpDir: childTmp });
   console.log("[surfpool-1.7] running unchanged validator proof");
@@ -266,20 +291,7 @@ async function runValidatorProof() {
   const result = JSON.parse(fs.readFileSync(path.join(dir, "result.json"), "utf8"));
   const rpcClosed = await waitForPortClosed(result.rpc, { timeoutMs: 20_000 });
   cleanup.push({ step: "validator proof stopped its own validator", ok: rpcClosed, rpcPortRefused: rpcClosed });
-  return { ...result, dependencies };
-}
-
-/** The install the proof's require() will load `name` from: nearest ancestor node_modules, else the lane's NODE_PATH. */
-function proofDependency(name) {
-  const candidates = [];
-  for (let dir = path.join(repoRoot, "programs", "escrow", "tests"); ; dir = path.dirname(dir)) {
-    candidates.push(path.join(dir, "node_modules", name));
-    if (path.dirname(dir) === dir) break;
-  }
-  candidates.push(path.join(laneDir, "node_modules", name));
-  const dir = candidates.find((candidate) => fs.existsSync(path.join(candidate, "package.json")));
-  assert(dir, `${name} is not resolvable for the validator proof`);
-  return { path: dir, version: JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).version };
+  return { ...result, dependencies: proofDependencies };
 }
 
 async function runSurfpoolProof() {
