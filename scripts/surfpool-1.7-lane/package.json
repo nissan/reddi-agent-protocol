@@ -1,0 +1,15 @@
+{
+  "name": "rap-surfpool-1-7-spl-escrow-lane",
+  "private": true,
+  "description": "Opt-in, offline, version-qualified Surfpool 1.7.0 local proof lane for the classic SPL token escrow. Isolated from the root 1.5.0 baseline pin.",
+  "type": "module",
+  "engines": {
+    "node": "24.20.0"
+  },
+  "dependencies": {
+    "@solana/kit": "8.6.0",
+    "@solana/spl-token": "0.4.14",
+    "@solana/surfpool": "1.7.0",
+    "@solana/web3.js": "1.98.4"
+  }
+}

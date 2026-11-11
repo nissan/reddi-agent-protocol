@@ -187,6 +187,8 @@ npm run test:surfpool:critical
 npm run test:surfpool:quasar-critical
 ```
 
+An opt-in Surfpool `1.7.0` proof lane for the classic SPL token escrow runs beside the unchanged local-validator proof against the same built ELF. It installs its own exact pins under `scripts/surfpool-1.7-lane/` and does not change the `v1.5.0` baseline above; see `docs/SURFPOOL-1.7-SPL-ESCROW-LANE.md`.
+
 Focused regression coverage for the exact-version matcher, the script's mode dispatch, and the three-valued runtime-compatibility vocabulary above:
 
 ```bash
