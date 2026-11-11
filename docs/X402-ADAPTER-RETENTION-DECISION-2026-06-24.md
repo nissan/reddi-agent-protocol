@@ -39,6 +39,7 @@ Manifest: `packages/sendai-x402/package.json`
 - Scripts: `clean`, `build`, `test`
 - Runtime dependencies: `@reddi/x402-solana` via `file:../x402-solana`, `@solana/web3.js`
 - Peer dependency: `@sendai/agent-kit >=0.1.0`
+  - Updated 2026-11-12 (issue #716): this peer dependency has been removed. No package of that name exists on the npm registry, so the adapter could not be installed, and nothing under `src/` imports it. The retention decision above is unchanged: the adapter stays experimental, private and repo-local.
 - Dev dependencies: Jest, ts-jest, TypeScript, Node/Jest types
 - README/docs: none found in the package directory
 

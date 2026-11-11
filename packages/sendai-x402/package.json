@@ -14,9 +14,6 @@
     "@reddi/x402-solana": "file:../x402-solana",
     "@solana/web3.js": "^1.95.8"
   },
-  "peerDependencies": {
-    "@sendai/agent-kit": ">=0.1.0"
-  },
   "devDependencies": {
     "@types/jest": "^29",
     "@types/node": "^20",

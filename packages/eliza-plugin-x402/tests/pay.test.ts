@@ -31,7 +31,9 @@ const makeMemory = (content: unknown) => ({ content } as any);
 const PAYMENT_REQUEST = JSON.stringify({
   amount: 5000,
   currency: "SOL",
-  paymentAddress: "PayeeAddress111111111111111111111111111",
+  // A syntactically valid Solana public key (derived from a fixed test seed, holds
+  // nothing): the x402 header parser rejects anything that is not one.
+  paymentAddress: "GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB",
   nonce: "test-nonce-001",
 });
 
