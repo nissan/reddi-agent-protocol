@@ -34,6 +34,8 @@ Testing framework: QuasarSVM (in-process SBF harness)
 
 **Context:** The Anchor binary includes all phases (registry, reputation, attestation, PER — 15+ instructions). A fair comparison requires an Anchor build with only lock/release/cancel, which would still be larger due to framework overhead (Borsh codegen, IDL metadata, discriminator routing machinery all expand the binary).
 
+> **Qualification added 2026-11-11 (original text above/below preserved unchanged):** “would still be larger” is the original author's unmeasured expectation under the superseded posture. No lock/release/cancel-only Anchor build was made or measured, so no size ordering between the frameworks is established.
+
 Historical estimate only: ~80–120 KB was attributed generally to community single-program benchmarks, without a pinned primary source or a semantics-matched build. It is not evidence and must not be used to calculate a framework delta.
 
 ---
@@ -76,11 +78,14 @@ Historical estimate only: ~80–120 KB was attributed generally to community sin
 The following Anchor features were simplified or omitted for the POC benchmark:
 1. **Nonce seed migration:** Anchor uses `[b"escrow", payer, nonce_16_bytes]`. Quasar `#[seeds]` does not support `[u8; 16]` in this path. POC now uses the approved migration pattern: per-payer `u64` counter PDA + escrow seeds `[b"escrow", payer, escrow_id_u64]` (multi-escrow supported).
 2. **7-day cancel window:** Omitted from POC (benchmark would be identical; just an additional Clock check).
+   - **Qualification added 2026-11-11 (original text on this item preserved unchanged):** “benchmark would be identical” was asserted, not measured. The cancel window and its Clock read were never benchmarked, so their cost is unknown.
 3. **Clock/timestamp:** `created_at` stored as 0 (Clock sysvar not wired in POC state init).
 
 ---
 
 ## 2026-04-12 Addendum — Option 1 Counter-Seed Refactor
+
+> **Qualification added 2026-11-11 (original text below preserved unchanged):** The 7/7 result and the CU values in this addendum are a transcription of QuasarSVM output from the POC branch. Like the tables above, they have no pinned commit available in this clone and no committed raw artifact, and no Anchor comparator was measured alongside them. They are historical observations, not a benchmark result.
 
 Nissan-approved blocker path (Option 1) is now implemented in the Quasar POC branch:
 - Added `UserEscrowCounter` PDA (`[b"counter", payer]`)

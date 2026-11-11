@@ -1,5 +1,7 @@
 # CRITICAL-4 — durable job record
 
+> **Quasar freeze pointer — added 2026-11-11; freeze effective 2026-10-02.** This document predates the freeze and is preserved unchanged below as a dated record of experimental Quasar work. Quasar is frozen and retired from product, production, deployment, submission, audit and mainnet critical paths; the recorded devnet deployment is blocked; stable Anchor `1.1.2` remains authoritative. Nothing here is current deployment or readiness guidance. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+
 _Date:_ 2026-08-26 · _Status:_ **implemented, and it does NOT close CRITICAL-4**
 _Closes:_ the settlement-race lockout only. CRITICAL-4 remains **OPEN**.
 

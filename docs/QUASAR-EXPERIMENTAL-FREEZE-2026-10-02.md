@@ -94,6 +94,42 @@ The automatic Quasar execution surfaces are therefore the readiness guard, progr
 
 One more workflow names Quasar files without running Quasar. [Anchor Program Tests](../.github/workflows/anchor-program-tests.yml) lists `quasar-program-tests.yml`, `surfpool-acceptance-manual.yml` and `surfpool-quasar-critical-sdk.yml` only as path triggers, so the stable Anchor regression re-runs when those workflow files change; its jobs build and test `programs/escrow` and execute no Quasar source. It is recorded here so that every workflow mentioning Quasar is accounted for; `scripts/__tests__/quasar-workflow-inventory.test.mjs` fails when a workflow mentions Quasar and this section does not name it.
 
+## Qualified historical documents (index added 2026-11-11)
+
+Each Quasar document below carries a dated banner or pointer in its first lines saying that it is a historical or experimental record and naming this decision. Their bodies are preserved; the banner, not the body, is current. The benchmark record and the decision memo also carry inline dated qualifications beside the assertions this decision does not accept (the unmeasured size ordering, the unmeasured cancel-window cost, the 2026-04-12 addendum values, and the “parity” and “real gains” answers).
+
+- [`COLOSSEUM-FINAL-QUASAR-PROOF-MAP-2026-05-06.md`](./COLOSSEUM-FINAL-QUASAR-PROOF-MAP-2026-05-06.md)
+- [`MAGICBLOCK-QUASAR-TEE-REPRO-2026-05-07.md`](./MAGICBLOCK-QUASAR-TEE-REPRO-2026-05-07.md)
+- [`QUASAR-AUDD-ESCROW-DECISION-2026-06-19.md`](./QUASAR-AUDD-ESCROW-DECISION-2026-06-19.md)
+- [`QUASAR-BDD-ITERATIVE-PLAYBOOK-2026-05-05.md`](./QUASAR-BDD-ITERATIVE-PLAYBOOK-2026-05-05.md)
+- [`QUASAR-C4-DURABLE-JOB-RECORD-DESIGN-2026-08-26.md`](./QUASAR-C4-DURABLE-JOB-RECORD-DESIGN-2026-08-26.md)
+- [`QUASAR-CI-CUTOVER-BDD-PLAYBOOK-2026-05-06.md`](./QUASAR-CI-CUTOVER-BDD-PLAYBOOK-2026-05-06.md)
+- [`QUASAR-DEVNET-VALIDATION-RUNBOOK-2026-05-06.md`](./QUASAR-DEVNET-VALIDATION-RUNBOOK-2026-05-06.md)
+- [`QUASAR-DOCS-MAGICBLOCK-PER-VIABILITY-2026-05-07.md`](./QUASAR-DOCS-MAGICBLOCK-PER-VIABILITY-2026-05-07.md)
+- [`QUASAR-FINAL-DEMO-ELIGIBILITY-MATRIX-2026-05-06.md`](./QUASAR-FINAL-DEMO-ELIGIBILITY-MATRIX-2026-05-06.md)
+- [`QUASAR-FINAL-HACKATHON-DEMO-LOOP-2026-05-06.md`](./QUASAR-FINAL-HACKATHON-DEMO-LOOP-2026-05-06.md)
+- [`QUASAR-HACKATHON-CUTOVER-PLAN-2026-05-05.md`](./QUASAR-HACKATHON-CUTOVER-PLAN-2026-05-05.md)
+- [`QUASAR-JOB-BINDING-DESIGN-2026-08-24.md`](./QUASAR-JOB-BINDING-DESIGN-2026-08-24.md)
+- [`QUASAR-MAGICBLOCK-PER-BDD-PLAYBOOK-2026-05-07.md`](./QUASAR-MAGICBLOCK-PER-BDD-PLAYBOOK-2026-05-07.md)
+- [`QUASAR-NATIVE-MAGICBLOCK-PER-PLAN-2026-05-07.md`](./QUASAR-NATIVE-MAGICBLOCK-PER-PLAN-2026-05-07.md)
+- [`QUASAR-PROGRAMS-SECURITY-AUDIT-2026-05-06.md`](./QUASAR-PROGRAMS-SECURITY-AUDIT-2026-05-06.md)
+- [`QUASAR-PROGRAMS-SECURITY-AUDIT-RESPONSE-2026-05-06.md`](./QUASAR-PROGRAMS-SECURITY-AUDIT-RESPONSE-2026-05-06.md)
+- [`QUASAR-PROGRAMS-SECURITY-AUDIT-STAGE2-2026-05-06.md`](./QUASAR-PROGRAMS-SECURITY-AUDIT-STAGE2-2026-05-06.md)
+- [`QUASAR-PROGRAMS-SECURITY-REMEDIATION-2026-05-06.md`](./QUASAR-PROGRAMS-SECURITY-REMEDIATION-2026-05-06.md)
+- [`QUASAR-REPUTATION-INTENT-SPEC-2026-07-07.md`](./QUASAR-REPUTATION-INTENT-SPEC-2026-07-07.md)
+- [`QUASAR-SCOPED-JUDGE-PROOF-2026-05-06.md`](./QUASAR-SCOPED-JUDGE-PROOF-2026-05-06.md)
+- [`QUASAR-SURFPOOL-DEVNET-PROMOTION-CHECKLIST.md`](./QUASAR-SURFPOOL-DEVNET-PROMOTION-CHECKLIST.md)
+- [`verifiable-agent-protocol/colosseum-frontier-2026-04/QUASAR-ASSESSMENT.md`](./verifiable-agent-protocol/colosseum-frontier-2026-04/QUASAR-ASSESSMENT.md)
+- [`verifiable-agent-protocol/colosseum-frontier-2026-04/QUASAR-ATTESTATION-PARITY-REPORT.md`](./verifiable-agent-protocol/colosseum-frontier-2026-04/QUASAR-ATTESTATION-PARITY-REPORT.md)
+- [`verifiable-agent-protocol/colosseum-frontier-2026-04/QUASAR-BENCHMARKS.md`](./verifiable-agent-protocol/colosseum-frontier-2026-04/QUASAR-BENCHMARKS.md)
+- [`verifiable-agent-protocol/colosseum-frontier-2026-04/QUASAR-DECISION-MEMO.md`](./verifiable-agent-protocol/colosseum-frontier-2026-04/QUASAR-DECISION-MEMO.md)
+- [`verifiable-agent-protocol/colosseum-frontier-2026-04/QUASAR-PARITY-PLAN.md`](./verifiable-agent-protocol/colosseum-frontier-2026-04/QUASAR-PARITY-PLAN.md)
+- [`verifiable-agent-protocol/colosseum-frontier-2026-04/QUASAR-PER-PARITY-REPORT.md`](./verifiable-agent-protocol/colosseum-frontier-2026-04/QUASAR-PER-PARITY-REPORT.md)
+- [`verifiable-agent-protocol/colosseum-frontier-2026-04/QUASAR-REGISTRY-PARITY-REPORT.md`](./verifiable-agent-protocol/colosseum-frontier-2026-04/QUASAR-REGISTRY-PARITY-REPORT.md)
+- [`verifiable-agent-protocol/colosseum-frontier-2026-04/QUASAR-REPUTATION-PARITY-REPORT.md`](./verifiable-agent-protocol/colosseum-frontier-2026-04/QUASAR-REPUTATION-PARITY-REPORT.md)
+
+[`SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md`](./SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md) is not in this list: it documents the retained loopback-only local lane described under "Dependency and runtime boundary", and a local pass there is not adoption or readiness.
+
 ## Safe validation plan for this freeze
 
 Only offline/static checks are in scope:

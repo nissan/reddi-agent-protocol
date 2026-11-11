@@ -1,5 +1,7 @@
 # Quasar-Backed Reputation Instruction Fixture Gate — `reddi.quasar-reputation-intent.v2` (#443)
 
+> **Quasar freeze pointer — added 2026-11-11; freeze effective 2026-10-02.** This document predates the freeze and is preserved unchanged below as a dated record of experimental Quasar work. Quasar is frozen and retired from product, production, deployment, submission, audit and mainnet critical paths; the recorded devnet deployment is blocked; stable Anchor `1.1.2` remains authoritative. Nothing here is current deployment or readiness guidance. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
+
 **Status: v2 fixture/intent gate (parent epics #394 / #388).**
 
 `v2` supersedes `v1` and is a breaking record shape, so the identifier changes rather than being
