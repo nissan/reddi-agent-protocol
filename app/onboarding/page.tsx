@@ -503,7 +503,11 @@ export default function OnboardingPage() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-10 space-y-8">
+    <div
+      className="max-w-3xl mx-auto px-4 py-10 space-y-8"
+      data-onboarding-wizard=""
+      data-hydrated={hydrated ? "true" : "false"}
+    >
       <div className="space-y-2">
         <h1 className="text-3xl font-bold">Specialist Onboarding Wizard</h1>
         <p className="text-sm text-muted-foreground">
