@@ -1,4 +1,5 @@
-const { analyze, checkAnalysis, syntheticRequest } = require('../examples/puzzle-service.cjs');
+import { createRequire } from 'node:module';
+const { analyze, checkAnalysis, syntheticRequest } = createRequire(__filename)('../examples/puzzle-service.cjs');
 test('synthetic service gives independently checked exact count without a payment receipt', () => {
   const result = analyze(syntheticRequest);
   expect(result.count).toBe(1);

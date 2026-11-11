@@ -1,4 +1,4 @@
-import { Keypair, PublicKey, Transaction, Connection, SystemProgram } from '@solana/web3.js';
+import { Keypair, PublicKey, Transaction, Connection, SystemProgram, type AccountInfo, type TransactionError } from '@solana/web3.js';
 import { AccountLayout, MintLayout, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { createHash } from 'node:crypto';
 import { createEscrowChallenge, escrowTerms, escrowRequestHash, verifyEscrowLock, EscrowSeller, buyWithEscrow } from '../src/escrow-http';
@@ -20,9 +20,9 @@ function fixture() {
   const mint = Buffer.alloc(MintLayout.span);
   MintLayout.encode({ mintAuthorityOption: 0, mintAuthority: PublicKey.default, supply: t.amount, decimals: 6, isInitialized: true, freezeAuthorityOption: 0, freezeAuthority: PublicKey.default }, mint);
   const message = new Transaction({ feePayer: payer.publicKey, recentBlockhash: pk().toBase58() }).add(buildLockTokenEscrowInstruction(t)).compileMessage();
-  const tx = { slot: 100, meta: { err: null }, transaction: { message } };
+  const tx = { slot: 100, meta: { err: null as TransactionError | null }, transaction: { message } };
   const rpc = { getGenesisHash: jest.fn(async () => c.genesisHash), getTransaction: jest.fn(async () => tx),
-    getAccountInfo: jest.fn(async (key: PublicKey) => ({ data: key.equals(addresses.escrow) ? state : key.equals(t.mint) ? mint : vault,
+    getAccountInfo: jest.fn(async (key: PublicKey): Promise<AccountInfo<Buffer> | null> => ({ data: key.equals(addresses.escrow) ? state : key.equals(t.mint) ? mint : vault,
       owner: key.equals(addresses.escrow) ? t.programId : TOKEN_PROGRAM_ID, executable: false, lamports: 2000000, rentEpoch: 0 })) };
   const proof = { nonce: c.nonce, lockSignature: '2'.repeat(88) };
   return { c, t, state, rpc, proof, tx, addresses };
@@ -48,8 +48,8 @@ test('reject closed record, wrong owner, insufficient vault and wrong decimals',
   for (const [kind, message] of [['closed', 'escrow missing or wrong owner'], ['owner', 'escrow missing or wrong owner'], ['amount', 'vault mismatch'], ['decimals', 'mint decimals mismatch']]) {
     const f = fixture(), original = f.rpc.getAccountInfo.getMockImplementation()!;
     f.rpc.getAccountInfo.mockImplementation(async key => {
-      const info = await original(key);
-      if (key.equals(f.addresses.escrow) && kind === 'closed') return null as any;
+      const info = (await original(key))!;
+      if (key.equals(f.addresses.escrow) && kind === 'closed') return null;
       if (key.equals(f.addresses.escrow) && kind === 'owner') info.owner = pk();
       if (key.equals(f.addresses.vault) && kind === 'amount') info.data.writeBigUInt64LE(1n, 64);
       if (key.equals(f.t.mint) && kind === 'decimals') info.data[44] = 9;
@@ -68,7 +68,7 @@ test('server stores authoritative terms, binds request and rejects concurrent/re
   f.rpc.getAccountInfo.mockImplementation(async key => original(key.equals(tokenEscrowAddresses(t).escrow) ? f.addresses.escrow : key));
   // Vault authority also must match this new escrow.
   const original2 = f.rpc.getAccountInfo.getMockImplementation()!;
-  f.rpc.getAccountInfo.mockImplementation(async key => { const info = await original2(key); if (key.equals(tokenEscrowAddresses(t).vault)) tokenEscrowAddresses(t).escrow.toBuffer().copy(info.data, 32); return info; });
+  f.rpc.getAccountInfo.mockImplementation(async key => { const info = (await original2(key))!; if (key.equals(tokenEscrowAddresses(t).vault)) tokenEscrowAddresses(t).escrow.toBuffer().copy(info.data, 32); return info; });
   const proof = { ...f.proof, nonce: c.nonce };
   await expect(seller.accept(c.endpoint, 'changed', proof)).rejects.toThrow('mismatched');
   const first = seller.accept(c.endpoint, '{}', proof);
@@ -95,7 +95,7 @@ test('buyer requires approval before lock; rejects challenge substitution withou
 test('expired proof and failed transaction fail closed', async () => {
   const f = fixture();
   await expect(verifyEscrowLock(f.rpc as unknown as Connection, { ...f.c, expiresAt: 1 }, f.proof)).rejects.toThrow('expired');
-  f.tx.meta.err = { InstructionError: [0, 'failed'] } as any;
+  f.tx.meta.err = { InstructionError: [0, 'failed'] };
   await expect(verifyEscrowLock(f.rpc as unknown as Connection, f.c, f.proof)).rejects.toThrow('failed');
 });
 test('paid retry transport failure preserves proof and never locks twice', async () => {
