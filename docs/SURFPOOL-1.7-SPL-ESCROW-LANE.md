@@ -8,22 +8,28 @@ shared Surfpool `v1.5.0` baseline in `config/toolchain/solana-baseline-assets.js
 
 ```bash
 npm run setup:surfpool:spl-escrow-1.7
-RAP_AGAVE_BIN_DIR=/abs/agave-4.2.2/bin RAP_SURFPOOL_LANE_OUT_DIR=/abs/fresh/dir npm run test:surfpool:spl-escrow-1.7
+RAP_SURFPOOL_LANE_OUT_DIR=/abs/fresh/dir npm run test:surfpool:spl-escrow-1.7
 ```
 
-`RAP_AGAVE_BIN_DIR` defaults to the baseline-owned Agave tree installed by
-`scripts/solana-baseline-toolchain.sh install`; it must hold `cargo-build-sbf 4.1.0` and
-`solana-test-validator 4.2.2`. `RAP_SURFPOOL_LANE_OUT_DIR` must not exist yet; it defaults to a fresh
-directory under `.tmp/`. The run writes `result.json` plus the validator proof's log and ledger there.
+The lane runs on Linux x64 only. It builds the ELF and runs the validator proof with the
+baseline-owned Agave tree installed by `scripts/solana-baseline-toolchain.sh install`
+(`~/.local/share/solana/reddi-agent-protocol-baseline/install/active_release/bin`), which must hold
+`cargo-build-sbf 4.1.0` and `solana-test-validator 4.2.2`; no other Agave location is accepted.
+`RAP_SURFPOOL_LANE_OUT_DIR` must not exist yet; it defaults to a fresh directory under `.tmp/`. The run
+writes `result.json` plus the validator proof's log and ledger there.
 
 ## Pins
 
 The lane installs into `scripts/surfpool-1.7-lane/` from its own exact lockfile, isolated from the root
-install: `@solana/surfpool 1.7.0` (native `@solana/surfpool-linux-x64-gnu 1.7.0`), `@solana/kit 8.6.0`,
-and the root lockfile's `@solana/web3.js 1.98.4` / `@solana/spl-token 0.4.14`. The script refuses to
-run if an installed version differs from the pin or the lockfile, if the root lockfile's web3/spl-token
-differ from the lane pin, or if Node is not the repository's `24.20.0`. The Kit RPC/signer plugins are
-not used, so they are not installed.
+install: `@solana/surfpool 1.7.0` (native `@solana/surfpool-linux-x64-gnu 1.7.0`, so Linux x64 only),
+`@solana/kit 8.6.0`, and the root lockfile's `@solana/web3.js 1.98.4` / `@solana/spl-token 0.4.14`. The
+script refuses to run if the platform is not Linux x64, if an installed lane version differs from the pin
+or the lockfile, if the root lockfile's web3/spl-token differ from the lane pin, or if Node is not the
+repository's `24.20.0`. The unchanged validator proof loads web3/spl-token through Node's normal lookup,
+which is the root `node_modules` when it is installed and the lane's install (through `NODE_PATH`) only
+otherwise; the script resolves that install the same way, refuses to run if its version differs from the
+pin, and records the path and version it will load. The Kit RPC/signer plugins are not used, so they are
+not installed.
 
 ## What one run does
 
@@ -84,7 +90,8 @@ seconds), stops the Surfnet, writes a `FAIL` `result.json` and exits 130 or 124.
 
 - Source: commit, escrow tree, `Cargo.lock` blob and validator-proof blob.
 - Toolchain: Node, every lane package version and lockfile integrity, the Surfpool native module file
-  and SHA-256, `cargo-build-sbf` and `solana-test-validator` versions.
+  and SHA-256, `cargo-build-sbf` and `solana-test-validator` versions, and the
+  install path and version of `@solana/web3.js` / `@solana/spl-token` the validator proof loads.
 - ELF: path, SHA-256 and size.
 - Surfpool runtime: `getVersion` (`surfnet-version`, `solana-core`, `feature-set`), startup info,
   effective config (offline, no remote RPC, SDK default feature set, no feature overrides), executable

@@ -7,8 +7,8 @@
  *
  * Setup:  npm run setup:surfpool:spl-escrow-1.7
  * Run:    RAP_SURFPOOL_LANE_OUT_DIR=/absolute/fresh/dir npm run test:surfpool:spl-escrow-1.7
- * Optional: RAP_AGAVE_BIN_DIR=/absolute/dir holding cargo-build-sbf 4.1.0 and solana-test-validator
- * 4.2.2 (default: the baseline-owned Agave tree from scripts/solana-baseline-toolchain.sh).
+ * Linux x64 only. The ELF is built and the validator proof is run with the baseline-owned Agave tree
+ * from scripts/solana-baseline-toolchain.sh (cargo-build-sbf 4.1.0, solana-test-validator 4.2.2).
  *
  * Boundaries: embedded SDK only, offline (no remoteRpcUrl), loopback RPC/WS on dynamic ports, keys
  * generated in memory and never printed, explicit fixed program id plus the verified ELF. SOL
@@ -55,6 +55,8 @@ const SOURCE_DIRTY_PATHS = ["programs/escrow", "Cargo.toml", "Cargo.lock", "rust
 
 assertLocalOnlyEnvironment(process.env);
 assert.equal(process.version, NODE_VERSION, `repo-local Node ${NODE_VERSION} required (.mise.toml)`);
+assert.equal(`${process.platform}-${process.arch}`, "linux-x64",
+  `this lane runs on Linux x64 only (@solana/surfpool-linux-x64-gnu); found ${process.platform}-${process.arch}`);
 const versions = installedVersions();
 
 const { Surfnet } = require("@solana/surfpool");
@@ -65,8 +67,7 @@ const token = require("@solana/spl-token");
 const runId = `surfpool-1.7-spl-escrow-${randomUUID()}`;
 const outDir = path.resolve(process.env.RAP_SURFPOOL_LANE_OUT_DIR?.trim() || path.join(repoRoot, ".tmp", "surfpool-1.7-spl-escrow", runId));
 assert(!fs.existsSync(outDir), `RAP_SURFPOOL_LANE_OUT_DIR must not exist yet: ${outDir}`);
-const agaveBin = path.resolve(process.env.RAP_AGAVE_BIN_DIR?.trim()
-  || path.join(os.homedir(), ".local/share/solana/reddi-agent-protocol-baseline/install/active_release/bin"));
+const agaveBin = path.join(os.homedir(), ".local/share/solana/reddi-agent-protocol-baseline/install/active_release/bin");
 const elfPath = path.join(repoRoot, "target", "deploy", "escrow.so");
 const cargoTargetDir = path.join(repoRoot, ".tmp", "surfpool-1.7-spl-escrow-cargo-target");
 
@@ -75,6 +76,7 @@ const cleanup = [];
 let lease;
 let activeChild;
 let stopReason;
+let aborting;
 let finishing;
 const overallTimeoutMs = 20 * 60_000;
 const timeout = setTimeout(() => abortRun("timeout"), overallTimeoutMs);
@@ -106,6 +108,7 @@ function finish() {
 }
 
 async function writeOutcome() {
+  await aborting;
   if (lease) await stopSurfnet();
   evidence.cleanup = cleanup;
   if (stopReason) {
@@ -128,20 +131,23 @@ async function abortRun(reason) {
   if (stopReason) return;
   stopReason = reason;
   console.error(`[surfpool-1.7] ${reason}: stopping local runtimes`);
-  const child = activeChild;
-  if (child) {
-    const exited = child.exitCode === null && child.signalCode === null ? new Promise((resolve) => child.once("exit", resolve)) : null;
-    terminateChildProcess(child, "SIGINT", { killDelayMs: 15_000 });
-    if (exited) await exited;
-    // The proof's validator shares the group and may outlive the proof itself; wait for the group.
-    const deadline = Date.now() + 20_000;
-    while (processGroupAlive(child.pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 200));
-    const groupGone = !processGroupAlive(child.pid);
-    cancelChildEscalations(child);
-    cleanup.push({ step: "validator proof process group terminated", ok: groupGone, reason });
-  }
+  aborting = terminateValidatorProof(activeChild, reason);
+  await aborting;
   await finish();
   process.exit(process.exitCode);
+}
+
+async function terminateValidatorProof(child, reason) {
+  if (!child) return;
+  const exited = child.exitCode === null && child.signalCode === null ? new Promise((resolve) => child.once("exit", resolve)) : null;
+  terminateChildProcess(child, "SIGINT", { killDelayMs: 15_000 });
+  if (exited) await exited;
+  // The proof's validator shares the group and may outlive the proof itself; wait for the group.
+  const deadline = Date.now() + 20_000;
+  while (processGroupAlive(child.pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 200));
+  const groupGone = !processGroupAlive(child.pid);
+  cancelChildEscalations(child);
+  cleanup.push({ step: "validator proof process group terminated", ok: groupGone, reason });
 }
 
 function processGroupAlive(pid) {
@@ -184,7 +190,7 @@ function installedVersions() {
   }
   const nativeDir = path.join(laneDir, "node_modules", "@solana/surfpool-linux-x64-gnu");
   const nativeModule = fs.readdirSync(nativeDir).find((name) => name.endsWith(".node"));
-  assert(nativeModule, "Surfpool native module missing");
+  assert(nativeModule, "Surfpool Linux x64 native module missing");
   result["@solana/surfpool-linux-x64-gnu"].nativeModule = nativeModule;
   result["@solana/surfpool-linux-x64-gnu"].nativeModuleSha256 = sha256(fs.readFileSync(path.join(nativeDir, nativeModule)));
   return result;
@@ -206,7 +212,7 @@ function agaveToolchain() {
   assert.match(cargoBuildSbf, CARGO_BUILD_SBF, `cargo-build-sbf 4.1.0 required in ${agaveBin}`);
   const validator = execFileSync(path.join(agaveBin, "solana-test-validator"), ["--version"], { encoding: "utf8" }).trim();
   assert.match(validator, TEST_VALIDATOR, `solana-test-validator 4.2.2 required in ${agaveBin}`);
-  return { agaveBinSource: process.env.RAP_AGAVE_BIN_DIR?.trim() ? "RAP_AGAVE_BIN_DIR" : "baseline-owned Agave tree", cargoBuildSbf, solanaTestValidator: validator };
+  return { cargoBuildSbf, solanaTestValidator: validator };
 }
 
 function buildEscrowElf() {
@@ -226,11 +232,15 @@ async function runValidatorProof() {
   const dir = path.join(outDir, "validator");
   const childTmp = path.join(outDir, "validator-tmp");
   fs.mkdirSync(childTmp, { mode: 0o700 });
-  // The proof resolves @solana/web3.js and @solana/spl-token from NODE_PATH (its documented
-  // alternative to root node_modules); the lane pins the exact versions the root lockfile resolves.
+  // Node resolves the proof's @solana/web3.js and @solana/spl-token from the nearest ancestor
+  // node_modules (normally the root install) and consults NODE_PATH only when none holds them.
   const rootLock = JSON.parse(fs.readFileSync(path.join(repoRoot, "package-lock.json"), "utf8"));
+  const dependencies = {};
   for (const name of ["@solana/web3.js", "@solana/spl-token"]) {
     assert.equal(rootLock.packages?.[`node_modules/${name}`]?.version, PINS[name], `root lockfile ${name} differs from the lane pin`);
+    const resolved = proofDependency(name);
+    assert.equal(resolved.version, PINS[name], `validator proof resolves ${name} ${resolved.version} from ${resolved.path}; lane pins ${PINS[name]}`);
+    dependencies[name] = resolved;
   }
   const env = localChildEnv({ RAP_LOCAL_TEST_DIR: dir, RAP_TEST_VALIDATOR: path.join(agaveBin, "solana-test-validator"),
     NODE_PATH: path.join(laneDir, "node_modules") }, { repoRoot, childTmpDir: childTmp });
@@ -251,11 +261,25 @@ async function runValidatorProof() {
   const groupGone = !processGroupAlive(child.pid);
   if (!groupGone) try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ }
   cleanup.push({ step: "validator proof process group exited", ok: groupGone });
+  checkStopped();
   assert.equal(exitCode, 0, "validator proof failed; see validator-proof.log");
   const result = JSON.parse(fs.readFileSync(path.join(dir, "result.json"), "utf8"));
   const rpcClosed = await waitForPortClosed(result.rpc, { timeoutMs: 20_000 });
   cleanup.push({ step: "validator proof stopped its own validator", ok: rpcClosed, rpcPortRefused: rpcClosed });
-  return result;
+  return { ...result, dependencies };
+}
+
+/** The install the proof's require() will load `name` from: nearest ancestor node_modules, else the lane's NODE_PATH. */
+function proofDependency(name) {
+  const candidates = [];
+  for (let dir = path.join(repoRoot, "programs", "escrow", "tests"); ; dir = path.dirname(dir)) {
+    candidates.push(path.join(dir, "node_modules", name));
+    if (path.dirname(dir) === dir) break;
+  }
+  candidates.push(path.join(laneDir, "node_modules", name));
+  const dir = candidates.find((candidate) => fs.existsSync(path.join(candidate, "package.json")));
+  assert(dir, `${name} is not resolvable for the validator proof`);
+  return { path: dir, version: JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).version };
 }
 
 async function runSurfpoolProof() {
