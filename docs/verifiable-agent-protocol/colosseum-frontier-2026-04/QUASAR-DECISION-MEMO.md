@@ -115,3 +115,5 @@ The efficiency numbers are real and meaningful. When:
 | Is it safe to migrate now? | **No** — nonce blocker + Beta risk + test porting cost |
 | Should we migrate eventually? | **Yes** — post-hackathon Phase 8 |
 | Is the main submission at risk? | **No** — parallel repo, zero changes to main path |
+
+> **Qualification added 2026-11-11 (original text above preserved unchanged):** “POC proves parity” and the “gains are real” answer are the 2026-04-11 author's conclusions under the superseded posture. The POC omitted material behavior and no semantics-matched Anchor comparator was measured, so neither parity nor an efficiency gain is established; “migrate eventually” is not a current plan. See the [freeze decision](../../QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
