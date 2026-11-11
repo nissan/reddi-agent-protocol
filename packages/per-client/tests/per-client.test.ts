@@ -115,7 +115,7 @@ describe("releaseEscrowViaPer", () => {
     );
 
     // The signed transaction goes to the TEE endpoint, without preflight...
-    expect(sig).toBe("per_sig_abc123");
+    expect(sig).toBe("per_sig_SEEDED_FAILURE");
     expect(perConnectionArgs).toEqual([[PER_DEVNET_RPC, "confirmed"]]);
     expect(perSendRawTransaction).toHaveBeenCalledTimes(1);
     expect(perSendRawTransaction.mock.calls[0][1]).toEqual({ skipPreflight: true });
