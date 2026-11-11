@@ -34,6 +34,8 @@
     "test:surfpool:onboarding": "./scripts/run-surfpool-onboarding-attestation-smoke.sh",
     "test:surfpool:onboarding-wrapper": "./scripts/run-surfpool-onboarding-wrapper-smoke.sh",
     "test:surfpool:jupiter-invoke": "./scripts/run-surfpool-jupiter-invoke-smoke.sh",
+    "setup:surfpool:spl-escrow-1.7": "npm ci --prefix ./scripts/surfpool-1.7-lane --no-audit --no-fund",
+    "test:surfpool:spl-escrow-1.7": "node ./scripts/surfpool-1.7-lane/spl-escrow-proof.mjs",
     "test:source:conformance": "./scripts/run-source-conformance.sh --source openclaw --mode smoke",
     "test:source:matrix": "./scripts/run-source-conformance-matrix.sh",
     "check:okf-openkb:fixtures": "node ./scripts/check-okf-openkb-fixture-corpus.mjs",
