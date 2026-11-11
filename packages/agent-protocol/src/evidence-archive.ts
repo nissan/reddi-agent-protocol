@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { canonicalizePaymentObject } from './payment-records.js';
 
 export const EVIDENCE_ARCHIVE_RECORD_SCHEMA_VERSION = 'reddi.evidence-archive.v1' as const;
 
@@ -25,7 +26,8 @@ export type EvidenceArchiveValidationErrorCode =
   | 'malformed_evidence_record'
   | 'hash_mismatch'
   | 'evidence_missing'
-  | 'credential_leakage_rejected';
+  | 'credential_leakage_rejected'
+  | 'evidence_id_conflict';
 
 export type EvidenceArchiveValidationError = {
   code: EvidenceArchiveValidationErrorCode;
@@ -234,20 +236,39 @@ export function createEvidenceArchiveRecord(input: EvidenceArchiveCreateInput): 
   return validation.record;
 }
 
+/**
+ * A stored record is never replaced. Putting the identical record again is a no-op that
+ * succeeds; putting different content under an existing id is refused with
+ * `evidence_id_conflict` and the first record stays as it was, so a retry cannot erase the
+ * first observation without anyone knowing (#724).
+ */
 export function createLocalEvidenceArchive(initialRecords: EvidenceArchiveRecord[] = []): LocalEvidenceArchive {
   const records = new Map<string, EvidenceArchiveRecord>();
+
+  function conflictWithStored(record: EvidenceArchiveRecord): EvidenceArchiveValidationError | undefined {
+    const stored = records.get(record.id);
+    if (stored === undefined || canonicalizePaymentObject(stored) === canonicalizePaymentObject(record)) return undefined;
+    return error('evidence_id_conflict', '$.id', `A different evidence archive record is already stored under ${record.id}`);
+  }
+
   for (const record of initialRecords) {
     const result = validateEvidenceArchiveRecord(record, undefined, { requireEvidencePayloadOrPointer: false });
     if (!result.ok) {
       throw new Error(`invalid_initial_evidence_archive_record:${result.errors.map((item) => item.code).join(',')}`);
     }
-    records.set(record.id, record);
+    const conflict = conflictWithStored(result.record);
+    if (conflict) {
+      throw new Error(`invalid_initial_evidence_archive_record:${conflict.code}`);
+    }
+    records.set(record.id, result.record);
   }
 
   return {
     put(record: EvidenceArchiveRecord): EvidenceArchiveValidationResult {
       const result = validateEvidenceArchiveRecord(record, undefined, { requireEvidencePayloadOrPointer: false });
       if (!result.ok) return result;
+      const conflict = conflictWithStored(result.record);
+      if (conflict) return { ok: false, errors: [conflict] };
       records.set(record.id, result.record);
       return result;
     },

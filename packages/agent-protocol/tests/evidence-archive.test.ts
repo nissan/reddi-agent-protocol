@@ -50,6 +50,35 @@ describe('RAP EvidenceArchive v1', () => {
     assert.equal(archive.list().length, 1);
   });
 
+  it('keeps the first record when an id is reused (#724)', () => {
+    const archive = createLocalEvidenceArchive();
+    assert.equal(archive.put(evidenceArchiveFixtureRecord).ok, true);
+
+    // RAP-ARCHIVE-S1: the identical record again is a no-op that succeeds.
+    assert.equal(archive.put({ ...evidenceArchiveFixtureRecord }).ok, true);
+    assert.equal(archive.list().length, 1);
+
+    // RAP-ARCHIVE-S2: different content under the same id is refused and changes nothing.
+    const different = { ...evidenceArchiveFixtureRecord, receiptId: 'job:planning-retry' };
+    const refused = archive.put(different);
+    assert.equal(refused.ok, false);
+    if (!refused.ok) {
+      assert.deepEqual(refused.errors.map((item) => [item.code, item.path]), [['evidence_id_conflict', '$.id']]);
+    }
+    const lookup = archive.get(evidenceArchiveFixtureRecord.id);
+    assert.equal(lookup.ok, true);
+    if (lookup.ok) assert.equal(lookup.record.receiptId, evidenceArchiveFixtureRecord.receiptId);
+    assert.equal(archive.list().length, 1);
+  });
+
+  it('refuses conflicting initial records but accepts an identical repeat', () => {
+    assert.equal(createLocalEvidenceArchive([evidenceArchiveFixtureRecord, { ...evidenceArchiveFixtureRecord }]).list().length, 1);
+    assert.throws(
+      () => createLocalEvidenceArchive([evidenceArchiveFixtureRecord, { ...evidenceArchiveFixtureRecord, sourceId: 'source:other' }]),
+      /invalid_initial_evidence_archive_record:evidence_id_conflict/,
+    );
+  });
+
   it('fails closed for tampered evidence payload hashes', () => {
     const tampered = validateEvidenceArchiveRecord(evidenceArchiveFixtureRecord, {
       ...evidenceArchiveFixtures.evidencePayload,
