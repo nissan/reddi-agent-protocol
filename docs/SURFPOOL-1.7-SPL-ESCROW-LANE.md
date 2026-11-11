@@ -90,9 +90,10 @@ seconds), stops the Surfnet, writes a `FAIL` `result.json` and exits 130 or 124.
 
 - Source: commit, escrow tree, `Cargo.lock` blob and validator-proof blob.
 - Toolchain: Node, every lane package version and lockfile integrity, the Surfpool native module file
-  and SHA-256, `cargo-build-sbf` and `solana-test-validator` versions, and the
-  install path and version of `@solana/web3.js` / `@solana/spl-token` the validator proof loads.
+  and SHA-256, `cargo-build-sbf` and `solana-test-validator` versions.
 - ELF: path, SHA-256 and size.
+- Validator lane: the unchanged proof's own `result.json` plus `dependencies`, the install path and
+  version of `@solana/web3.js` / `@solana/spl-token` it loaded.
 - Surfpool runtime: `getVersion` (`surfnet-version`, `solana-core`, `feature-set`), startup info,
   effective config (offline, no remote RPC, SDK default feature set, no feature overrides), executable
   owner and hashes for the escrow program and the built-in Tokenkeg, rent amounts.
