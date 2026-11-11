@@ -33,6 +33,7 @@ name the machine that has to run it.
 | Public claim boundary | `npm run check:claims:public` | Node | not tried |
 | Anchor program build and tests | `cargo test -p escrow` | the pinned Solana and Anchor toolchain (docs/SOLANA-TOOLCHAIN-BASELINE.md) | no |
 | Devnet, Surfpool and browser-wallet scripts | inspect before running | owner approval; some spend devnet SOL or use live RPC | no |
+| Package tests (three packages) | `npm ci && npm test in packages/x402-solana, rap-mcp-bridge, openrouter-specialists (build x402-solana first)` | Node 24 and npm 11; no secrets or network beyond the package registry | yes, on a current Node |
 
 ## After a merge
 
@@ -40,4 +41,4 @@ The hosted checks are set to run on the default branch after a merge, within the
 
 ## Tests no gate names
 
-Audited 11 November 2026 with `scripts/ungated_tests.py` from Reddi Workbench. The script lists candidates for a person to read; it cannot see a runner that finds tests by convention. 83 candidates of 267 test files, read on 11 November 2026. 54 are run after all: 49 in `packages/agent-protocol` by the package guard workflow's `npm test`, and 5 under `lib/` and `packages/demo-agents` by the root Jest run. 29 are run by no workflow: `packages/rap-mcp-bridge` (9), `packages/openrouter-specialists` (8), `packages/x402-solana` (6), `packages/eliza-plugin-x402` (3), `packages/sendai-x402` (2) and `packages/per-client` (1, whose workflow is triggered by its path but does not run its tests).
+Audited 11 November 2026 with `scripts/ungated_tests.py` from Reddi Workbench, then read by hand. The script lists candidates; it cannot see a runner that finds tests by convention, so it still lists test files that are in fact run. Run by a workflow: the 49 test files in `packages/agent-protocol` (package guard), 5 under `lib/` and `packages/demo-agents` (root Jest), and since the package tests workflow of 11 November the 23 in `packages/x402-solana`, `packages/rap-mcp-bridge` and `packages/openrouter-specialists`. Run by no workflow: 6 test files in `packages/eliza-plugin-x402` (3), `packages/sendai-x402` (2) and `packages/per-client` (1), whose tests or install fail on main (issue 716).
