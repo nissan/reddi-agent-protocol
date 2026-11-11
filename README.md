@@ -119,7 +119,7 @@ npm run example:ard:no-spend
 npm run conformance
 ```
 
-See [`docs/RAP-V0.1-DEVELOPER-QUICKSTART-AND-CONFORMANCE.md`](docs/RAP-V0.1-DEVELOPER-QUICKSTART-AND-CONFORMANCE.md) for the current developer entry point.
+See [`docs/RAP-V0.1-DEVELOPER-QUICKSTART-AND-CONFORMANCE.md`](docs/RAP-V0.1-DEVELOPER-QUICKSTART-AND-CONFORMANCE.md) for the current developer entry point. To read a RAP record without mistaking permission, observation or a receipt for settlement, see the interim [interpretation guide](docs/RAP-INTERPRETATION-GUIDE-INTERIM.md).
 
 ## Verify recorded demo evidence
 
