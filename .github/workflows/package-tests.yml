@@ -2,8 +2,8 @@ name: Package tests
 
 # Runs each listed package's own `npm test`. Before this workflow these packages' tests
 # ran in no workflow at all (issue 714). Offline: no secrets, no RPC endpoint, no wallet.
-# packages/per-client is not listed: one of its tests makes a real call to a devnet
-# endpoint and passes only when that call fails quickly; see issue 716.
+# packages/per-client's tests replace the client's internal TEE connection with a
+# recorder, so none of them reaches devnet.
 
 on:
   pull_request:
@@ -13,6 +13,7 @@ on:
       - "packages/openrouter-specialists/**"
       - "packages/eliza-plugin-x402/**"
       - "packages/sendai-x402/**"
+      - "packages/per-client/**"
       - ".github/workflows/package-tests.yml"
   push:
     branches: [main]
@@ -22,6 +23,7 @@ on:
       - "packages/openrouter-specialists/**"
       - "packages/eliza-plugin-x402/**"
       - "packages/sendai-x402/**"
+      - "packages/per-client/**"
       - ".github/workflows/package-tests.yml"
   workflow_dispatch:
 
@@ -39,7 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [x402-solana, rap-mcp-bridge, openrouter-specialists, eliza-plugin-x402, sendai-x402]
+        package: [x402-solana, rap-mcp-bridge, openrouter-specialists, eliza-plugin-x402, sendai-x402, per-client]
 
     steps:
       - name: Checkout

@@ -8,7 +8,26 @@
  *
  * Full TEE integration requires a live devnet-tee.magicblock.app connection;
  * those tests are marked @skip and documented separately.
+ *
+ * No test here reaches the network: the `Connection` the client builds internally for
+ * the TEE endpoint is replaced below with a recorder (#714).
  */
+
+// Every `new Connection(...)` made by the code under test returns this recorder. Tests
+// pass their own mock objects for the public connection, so only the client's internal
+// TEE connection is built through it.
+const perSendRawTransaction = jest.fn();
+const perConnectionArgs: unknown[][] = [];
+jest.mock("@solana/web3.js", () => {
+  const actual = jest.requireActual("@solana/web3.js");
+  return {
+    ...actual,
+    Connection: jest.fn().mockImplementation((...args: unknown[]) => {
+      perConnectionArgs.push(args);
+      return { sendRawTransaction: perSendRawTransaction };
+    }),
+  };
+});
 
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import {
@@ -71,16 +90,10 @@ describe("delegateEscrow", () => {
 
 describe("releaseEscrowViaPer", () => {
   it("BDD happy path: routes release_escrow_per to TEE RPC endpoint", async () => {
-    // Mock a separate "PER connection" that the function creates internally
-    const originalConnection = jest.requireActual("@solana/web3.js").Connection;
-    const mockPerSendRaw = jest.fn().mockResolvedValue("per_sig_abc123");
-
-    // We can't easily intercept the internal 'new Connection(PER_DEVNET_RPC)' call
-    // without mocking the module. Instead, verify the function builds the right instruction data
-    // and that PER_DEVNET_RPC is the TEE endpoint.
+    perConnectionArgs.length = 0;
+    perSendRawTransaction.mockReset().mockResolvedValue("per_sig_abc123");
     expect(PER_DEVNET_RPC).toBe("https://devnet-tee.magicblock.app");
 
-    // Verify the function signature accepts the right params
     const escrowProgramId = new PublicKey("11111111111111111111111111111111");
     const escrowPda = Keypair.generate().publicKey;
     const payee = Keypair.generate().publicKey;
@@ -92,24 +105,27 @@ describe("releaseEscrowViaPer", () => {
       ttlSlots: 1_512_000,
     };
 
-    // The call will fail because our mock connection can't simulate the PER endpoint
-    // — we mock the module to verify the routing logic
-    await expect(
-      releaseEscrowViaPer(
-        escrowProgramId,
-        escrowPda,
-        payee,
-        payer,
-        session,
-        mockPublicConnection
-      )
-    ).rejects.toThrow(); // fails because PER_DEVNET_RPC is unreachable in tests — expected
+    const sig = await releaseEscrowViaPer(
+      escrowProgramId,
+      escrowPda,
+      payee,
+      payer,
+      session,
+      mockPublicConnection
+    );
 
-    // This confirms the function DOES try to use a separate PER connection
-    // (it doesn't re-use the mock connection we passed, so no sendRawTransaction on it)
+    // The signed transaction goes to the TEE endpoint, without preflight...
+    expect(sig).toBe("per_sig_abc123");
+    expect(perConnectionArgs).toEqual([[PER_DEVNET_RPC, "confirmed"]]);
+    expect(perSendRawTransaction).toHaveBeenCalledTimes(1);
+    expect(perSendRawTransaction.mock.calls[0][1]).toEqual({ skipPreflight: true });
+    // ...and never to the public connection, which is used only for the blockhash.
     expect(
       (mockPublicConnection.sendRawTransaction as jest.Mock).mock.calls.length
     ).toBe(0);
+    expect(
+      (mockPublicConnection.getLatestBlockhash as jest.Mock).mock.calls.length
+    ).toBe(1);
   });
 });
 
