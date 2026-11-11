@@ -1,0 +1,66 @@
+name: Package tests
+
+# Runs each listed package's own `npm test`. Before this workflow these packages' tests
+# ran in no workflow at all (issue 714). Offline: no secrets, no RPC endpoint, no wallet.
+# packages/eliza-plugin-x402, packages/sendai-x402 and packages/per-client are not listed
+# yet because their tests or install fail on main; see issue 716.
+
+on:
+  pull_request:
+    paths:
+      - "packages/x402-solana/**"
+      - "packages/rap-mcp-bridge/**"
+      - "packages/openrouter-specialists/**"
+      - ".github/workflows/package-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "packages/x402-solana/**"
+      - "packages/rap-mcp-bridge/**"
+      - "packages/openrouter-specialists/**"
+      - ".github/workflows/package-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [x402-solana, rap-mcp-bridge, openrouter-specialists]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # rap-mcp-bridge and openrouter-specialists depend on the built x402-solana
+      # package through a file: dependency.
+      - name: Install and build the shared x402-solana package
+        if: matrix.package != 'x402-solana'
+        working-directory: packages/x402-solana
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install dependencies
+        working-directory: packages/${{ matrix.package }}
+        run: npm ci
+
+      - name: Run the package's tests
+        working-directory: packages/${{ matrix.package }}
+        run: npm test
