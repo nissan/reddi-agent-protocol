@@ -64,7 +64,8 @@
     "test": "jest",
     "clean": "rm -rf dist",
     "check:artifacts": "node ../../scripts/check-package-artifact-contents.mjs --dir packages/x402-solana",
-    "release:dry-run": "npm run clean && npm run build && npm test -- --runInBand && npm run check:artifacts && npm pack --dry-run"
+    "release:dry-run": "npm run clean && npm run build && npm test -- --runInBand && npm run check:artifacts && npm pack --dry-run",
+    "example:local": "node examples/local-puzzle.cjs"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.14",

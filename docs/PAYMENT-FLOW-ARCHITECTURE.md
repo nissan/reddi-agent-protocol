@@ -67,6 +67,8 @@ These are protocol mechanics the repository actually implements, not a settlemen
 
 The invariants are challenge binding, anti-replay nonce, amount/asset binding, and payer authorization proof. Parsing and gating these is not itself proof that funds moved, that work was performed, or that any live rail is enabled.
 
+A separate RAP-specific `rap-spl-escrow-v1` challenge flow (HTTP 402 → finalized classic SPL escrow lock → paid retry → `locked` receipt) also lives in the same package; it is not the interoperable x402 SVM `exact` scheme and uses its own header payloads. `packages/x402-solana/README.md` owns its description and boundaries.
+
 ## Escrow PDA lifecycle (legacy Anchor reference program only)
 
 `programs/escrow/` is historical/reference evidence. It is not deployed as a current target and is not an escrow product, custody offering, or settlement-finality claim. The source holds lamports/SOL in the original escrow and, on a separate classic SPL Token rail, raw token units in a per-escrow vault; the two rails share no account layout, and only the SOL rail exists on any recorded deployment.
