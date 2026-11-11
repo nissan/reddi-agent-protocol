@@ -112,6 +112,7 @@ async function writeOutcome() {
   await aborting;
   if (lease) await stopSurfnet();
   evidence.cleanup = cleanup;
+  evidence.stopReason = stopReason ?? null;
   if (stopReason) {
     evidence.status = "FAIL";
     evidence.failure ??= `stopped: ${stopReason}`;
@@ -144,11 +145,16 @@ async function terminateValidatorProof(child, reason) {
   terminateChildProcess(child, "SIGINT", { killDelayMs: 15_000 });
   if (exited) await exited;
   // The proof's validator shares the group and may outlive the proof itself; wait for the group.
-  const deadline = Date.now() + 20_000;
-  while (processGroupAlive(child.pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 200));
-  const groupGone = !processGroupAlive(child.pid);
+  const groupGone = await waitForProcessGroupExit(child.pid);
   cancelChildEscalations(child);
   cleanup.push({ step: "validator proof process group terminated", ok: groupGone, reason });
+}
+
+/** True once no process in `pid`'s group remains, false if some still do at the deadline. */
+async function waitForProcessGroupExit(pid, timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (processGroupAlive(pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 200));
+  return !processGroupAlive(pid);
 }
 
 function processGroupAlive(pid) {
@@ -281,16 +287,16 @@ async function runValidatorProof() {
   const exitCode = await new Promise((resolve) => child.once("exit", (code, signal) => resolve(code ?? signal)));
   activeChild = undefined;
   await new Promise((resolve) => log.end(resolve));
-  const deadline = Date.now() + 20_000;
-  while (processGroupAlive(child.pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 200));
-  const groupGone = !processGroupAlive(child.pid);
+  const groupGone = await waitForProcessGroupExit(child.pid);
   if (!groupGone) try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ }
   cleanup.push({ step: "validator proof process group exited", ok: groupGone });
   checkStopped();
   assert.equal(exitCode, 0, "validator proof failed; see validator-proof.log");
   const result = JSON.parse(fs.readFileSync(path.join(dir, "result.json"), "utf8"));
-  const rpcClosed = await waitForPortClosed(result.rpc, { timeoutMs: 20_000 });
-  cleanup.push({ step: "validator proof stopped its own validator", ok: rpcClosed, rpcPortRefused: rpcClosed });
+  const probe = await waitForPortClosed(result.rpc, { timeoutMs: 20_000 })
+    .then(() => ({ ok: true }), (error) => ({ ok: false, error: String(error?.message ?? error) }));
+  cleanup.push({ step: "validator proof stopped its own validator", rpcPortRefused: probe.ok, ...probe });
+  assert(probe.ok, `validator proof left its RPC endpoint open: ${probe.error}`);
   return { ...result, dependencies: proofDependencies };
 }
 

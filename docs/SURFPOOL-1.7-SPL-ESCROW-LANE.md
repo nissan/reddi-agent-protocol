@@ -85,7 +85,10 @@ including the validator it started, to be gone and confirms its RPC port refuses
 Surfnet is stopped through the lifecycle helper and both its ports must refuse connections. Any
 cleanup step that cannot be confirmed fails the run. On `SIGINT`, `SIGTERM` or the 20-minute overall
 timeout, the lane interrupts the validator proof's process group (escalating to `SIGKILL` after 15
-seconds), stops the Surfnet, writes a `FAIL` `result.json` and exits 130 or 124.
+seconds), stops the Surfnet, writes a `FAIL` `result.json` whose `stopReason` names the signal or
+`timeout` (`null` on an uninterrupted run), and exits 130 or 124. The one exception is an interrupt
+during the synchronous `cargo-build-sbf` step: the build fails first, so that run records the build
+error and exits 1.
 
 ## Provenance in `result.json`
 
