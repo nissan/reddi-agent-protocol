@@ -115,12 +115,12 @@ AUDD in this package is payment-plan and proof metadata only. It is not custody 
 
 - **Record ids are deterministic.** `deriveReddiPaymentId` hashes the canonical payload, so the same content always has the same id. Two records with one id are one record seen twice.
 - **This package keeps no replay ledger.** Nothing in `@reddi/agent-protocol` remembers what it has seen. The consumer must compare ids.
-- **The local evidence archive keeps one record per id.** A second `put` with the same id replaces the first and returns success. There is no warning and no history.
+- **The local evidence archive never replaces a stored record.** Putting the identical record again succeeds and changes nothing. Putting different content under an existing id is refused with `evidence_id_conflict`, and the first record stays (#724).
 - **Nonce replay is checked in a different package.** `packages/x402-solana/src/nonce.ts` rejects a nonce it has already stored. Its default store is in memory and is lost on restart; the file says a persistent store is the caller's job.
 - **Out-of-order detection. Not implemented.** No function orders records or flags a refund that arrives before its payment. A refund record must name its original observation by id, and that is the only link.
 - **Reconciliation. Not implemented.** There is no reconciliation function. Until records agree, the honest status is unknown.
 
-**Proposed, not implemented:** issue #679 asks that a retry never erases the first observation. The archive behaviour above does not meet that today.
+Issue #679 asks that a retry never erases the first observation. For the local evidence archive this holds since #724. A consumer's own store still has to enforce it.
 
 ## Refunds and reversals
 
@@ -175,7 +175,7 @@ The command prints one JSON document with a row per scenario: what the current c
 | S9 | Mainnet evidence labelled eligible without partner acceptance | `mainnet_partner_acceptance_missing` | Refuse the label. |
 | S10 | Receipt on an unsupported network and asset | `unsupported_network_asset` | Refuse; wait for adapter support. |
 | S11 | Same payload derived twice | same id | One record seen twice. |
-| S12 | Same evidence record stored twice | one record kept | The second write replaced the first. |
+| S12 | Same id stored twice: identical, then different | one record kept; the different one refused with `evidence_id_conflict` | A retry cannot erase the first record. |
 | S13 | Refund requested | valid; state `requested`; no refund observation | Money has not moved back. |
 | S14 | Card-rail reversal event | `revocable_event_rejected` | Not a receipt; the earlier receipt is unchanged. |
 | S15 | Credential-shaped metadata | `credential_leakage_rejected` | Remove the field. |

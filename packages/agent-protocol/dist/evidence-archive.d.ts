@@ -17,7 +17,7 @@ export type EvidenceArchiveRecord = {
     createdAt: string;
     metadata?: Record<string, unknown>;
 };
-export type EvidenceArchiveValidationErrorCode = 'malformed_evidence_record' | 'hash_mismatch' | 'evidence_missing' | 'credential_leakage_rejected';
+export type EvidenceArchiveValidationErrorCode = 'malformed_evidence_record' | 'hash_mismatch' | 'evidence_missing' | 'credential_leakage_rejected' | 'evidence_id_conflict';
 export type EvidenceArchiveValidationError = {
     code: EvidenceArchiveValidationErrorCode;
     path: string;
@@ -52,6 +52,12 @@ export type LocalEvidenceArchive = {
 };
 export declare function validateEvidenceArchiveRecord(input: unknown, evidencePayload?: unknown, options?: EvidenceArchiveValidationOptions): EvidenceArchiveValidationResult;
 export declare function createEvidenceArchiveRecord(input: EvidenceArchiveCreateInput): EvidenceArchiveRecord;
+/**
+ * A stored record is never replaced. Putting the identical record again is a no-op that
+ * succeeds; putting different content under an existing id is refused with
+ * `evidence_id_conflict` and the first record stays as it was, so a retry cannot erase the
+ * first observation without anyone knowing (#724).
+ */
 export declare function createLocalEvidenceArchive(initialRecords?: EvidenceArchiveRecord[]): LocalEvidenceArchive;
 export declare const evidenceArchiveFixtures: {
     readonly evidencePayload: {
