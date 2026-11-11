@@ -2,24 +2,27 @@ import { test, expect, type Page } from '@playwright/test'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
+// The wizard restores its saved state from localStorage in an effect after hydration and
+// marks its root with data-hydrated="true" once that has run. Acting before then races the
+// restore: a click on server-rendered markup is not seen by React, or toggles a box the
+// restore has just ticked (#726).
+async function waitForWizard(page: Page) {
+  await expect(page.locator('[data-onboarding-wizard][data-hydrated="true"]')).toBeVisible({ timeout: 15000 })
+}
+
+// Ticks a consent box through a real click, so the wizard's state changes with it. There is
+// deliberately no fallback that sets the DOM property directly: React does not see that, so
+// the box would look ticked while Next stayed disabled (#726).
 async function checked(page: Page, label: RegExp) {
   const input = page.getByLabel(label)
   await expect(input).toBeVisible({ timeout: 10000 })
-  if (!(await input.isChecked())) {
-    await input.check({ force: true }).catch(async () => {
-      await input.evaluate((node) => {
-        const checkbox = node as HTMLInputElement
-        checkbox.checked = true
-        checkbox.dispatchEvent(new Event('input', { bubbles: true }))
-        checkbox.dispatchEvent(new Event('change', { bubbles: true }))
-      })
-    })
-  }
+  await input.check()
   await expect(input).toBeChecked({ timeout: 10000 })
 }
 
 async function completeStep1(page: Page) {
   await page.waitForLoadState('networkidle')
+  await waitForWizard(page)
   await checked(page, /I consent to exposing my local runtime API/i)
   await checked(page, /I consent to protocol-funded onboarding transactions/i)
   const next = page.getByRole('button', { name: 'Next', exact: true })
@@ -100,9 +103,10 @@ test.describe('/onboarding page', () => {
   // ── Step 8 — Planner UI ───────────────────────────────────────────────────
 
   test('step 8 planner — visible and contains prompt textarea + run button', async ({ page }) => {
-    await page.goto('/onboarding')
     // Inject state with everything completed up to step 7
-    await page.evaluate(() => {
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem('e2e-wizard-seeded')) return
+      sessionStorage.setItem('e2e-wizard-seeded', '1')
       const state = {
         consentExposeEndpoint: true,
         consentProtocolOps: true,
@@ -165,7 +169,7 @@ test.describe('/onboarding page', () => {
       }
       localStorage.setItem('reddi-onboarding-wizard-v1', JSON.stringify(state))
     })
-    await page.reload()
+    await page.goto('/onboarding')
     await completeStep1(page)
     // Navigate to step 8
     for (let i = 0; i < 6; i++) {
@@ -177,8 +181,9 @@ test.describe('/onboarding page', () => {
   })
 
   test('step 8 planner — completion button is visible and enabled once attested', async ({ page }) => {
-    await page.goto('/onboarding')
-    await page.evaluate(() => {
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem('e2e-wizard-seeded')) return
+      sessionStorage.setItem('e2e-wizard-seeded', '1')
       const state = {
         consentExposeEndpoint: true,
         consentProtocolOps: true,
@@ -241,7 +246,7 @@ test.describe('/onboarding page', () => {
       }
       localStorage.setItem('reddi-onboarding-wizard-v1', JSON.stringify(state))
     })
-    await page.reload()
+    await page.goto('/onboarding')
     await completeStep1(page)
     for (let i = 0; i < 6; i++) {
       await page.getByRole('button', { name: 'Next', exact: true }).click()
@@ -266,8 +271,9 @@ test.describe('/onboarding page', () => {
   })
 
   test('step 8 planner — run button disabled when prompt is empty', async ({ page }) => {
-    await page.goto('/onboarding')
-    await page.evaluate(() => {
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem('e2e-wizard-seeded')) return
+      sessionStorage.setItem('e2e-wizard-seeded', '1')
       const state = {
         consentExposeEndpoint: true, consentProtocolOps: true, platform: 'macos',
         ollamaPort: '11434', protocolDomain: 'https://reddi.tech',
@@ -296,7 +302,7 @@ test.describe('/onboarding page', () => {
       }
       localStorage.setItem('reddi-onboarding-wizard-v1', JSON.stringify(state))
     })
-    await page.reload()
+    await page.goto('/onboarding')
     await completeStep1(page)
     for (let i = 0; i < 6; i++) {
       await page.getByRole('button', { name: 'Next', exact: true }).click()
