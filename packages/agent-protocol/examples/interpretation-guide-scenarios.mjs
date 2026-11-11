@@ -156,15 +156,20 @@ const scenarios = [
   },
   {
     id: 'S12',
-    name: 'Duplicate: the local evidence archive keeps one record per id',
+    name: 'Duplicate: the local evidence archive never replaces a stored record',
     run: () => {
       const archive = createLocalEvidenceArchive();
       archive.put(evidenceArchiveFixtureRecord);
-      archive.put(evidenceArchiveFixtureRecord);
-      return { stored: archive.list().length };
+      const repeat = archive.put(evidenceArchiveFixtureRecord);
+      const conflict = archive.put({ ...evidenceArchiveFixtureRecord, receiptId: 'job:retry' });
+      return {
+        stored: archive.list().length,
+        repeatOk: repeat.ok,
+        conflictCodes: conflict.ok ? [] : conflict.errors.map((item) => item.code),
+      };
     },
-    expect: { stored: 1 },
-    reading: 'A second write with the same id replaces the first without a warning. Keep your own history if order matters.',
+    expect: { stored: 1, repeatOk: true, conflictCodes: ['evidence_id_conflict'] },
+    reading: 'The same record again is accepted once. Different content under the same id is refused, and the first record stays.',
   },
   {
     id: 'S13',
