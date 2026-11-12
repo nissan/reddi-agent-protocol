@@ -696,6 +696,22 @@ describe('browser-wallet AUDD identity/copy guard', () => {
     }
   });
 
+  it('rejects compact official branding and direct AUDD endorsements across copy surfaces', () => {
+    for (const row of [
+      safeCopyRow({ copy: { title: 'AUDDOfficial' } }),
+      safeCopyRow({ copy: { summary: 'AUDD endorses this token.' } }),
+      safeCopyRow({ copy: { badges: ['AUDD-endorsed'] } }),
+      safeCopyRow({ copy: { notes: ['Endorsed by AUDD.'] } }),
+      safeCopyRow({ copy: { summary: 'Not official AUDD, but AUDD endorses this token.' } }),
+    ]) {
+      const result = validateBrowserWalletIdentityCopyClaims(row);
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.ok(result.errors.some((entry) => entry.code === 'official_audd_devnet_unavailable' && entry.path === '$.copy'));
+      }
+    }
+  });
+
   it('accepts canonical copy with ordinary whitespace and normalization-stable punctuation', () => {
     const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
       copy: { title: 'Local AUDD_TEST\trow', summary: 'Expected only — fixture punctuation.\nNot grant-eligible.' },
@@ -754,6 +770,7 @@ describe('browser-wallet AUDD identity/copy guard', () => {
   it('refuses double negation and negated settlement or controlled-live copy', () => {
     for (const [summary, code] of [
       ['never not official AUDD', 'official_audd_devnet_unavailable'],
+      ['not not endorsed by AUDD', 'official_audd_devnet_unavailable'],
       ['not non-grant-eligible', 'non_canonical_browser_wallet_identity'],
       ['not official Devnet AUDD', 'official_audd_devnet_unavailable'],
       ['not observed settlement', 'settlement_finality_rejected'],
@@ -771,7 +788,15 @@ describe('browser-wallet AUDD identity/copy guard', () => {
   });
 
   it('accepts directly negated official-AUDD and grant-eligibility copy', () => {
-    for (const summary of ['This row is not official AUDD.', 'Never an official AUDD row.', 'This row is non-grant-eligible.']) {
+    for (const summary of [
+      'This row is not official AUDD.',
+      'Never an official AUDD row.',
+      'This row is non-grant-eligible.',
+      'Not OfficialAUDD.',
+      'No endorsement by AUDD.',
+      'This row is not AUDD-endorsed.',
+      'AUDD does not endorse this token.',
+    ]) {
       const result = validateBrowserWalletIdentityCopyClaims(safeCopyRow({
         copy: { title: 'Local AUDD_TEST browser harness contract', summary },
       }));

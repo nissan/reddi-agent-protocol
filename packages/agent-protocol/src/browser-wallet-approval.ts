@@ -179,6 +179,8 @@ const RECEIPT_CLAIM_RANK: Record<string, number> = {
   'observed-settlement': 3,
 };
 const COPY_KEYS = new Set(['title', 'summary', 'badges', 'notes']);
+const AUDD_IDENTITY_CLAIM_PATTERN = /official[\s_-]*AUDD|AUDD[\s_-]*official|official\s+Devnet\s+AUDD|AUDD\s+Devnet\s+official|AUDD[\s_-]*endorse(?:s|d|ment)?|endorse(?:d|ment)[\s_-]*(?:by|from)[\s_-]*AUDD/i;
+const DIRECTLY_NEGATED_AUDD_IDENTITY_PATTERN = /(?<!\b(?:not|never|no|non)[\s_-]+)\b(?:not|never|no)\s+(?:an?\s+)?(?:official[\s_-]*AUDD|AUDD[\s_-]*official|AUDD[\s_-]*endorse(?:d|ment)|endorse(?:d|ment)[\s_-]*(?:by|from)[\s_-]*AUDD)/gi;
 const TIER1_REQUIRED_OBSERVATION_FIELDS = [
   'mint',
   'tokenProgram',
@@ -1363,8 +1365,8 @@ function validateUnambiguousCopyText(text: string, errors: BrowserWalletApproval
 function forbiddenCopyMatches(text: string): Array<{ code: BrowserWalletApprovalValidationErrorCode; message: string }> {
   const matches: Array<{ code: BrowserWalletApprovalValidationErrorCode; message: string }> = [];
   const clauses = splitCopyClaimClauses(text);
-  if (clauses.some((clause) => hasUnnegatedClaim(clause, /official\s+AUDD|AUDD\s+official|official\s+Devnet\s+AUDD|AUDD\s+Devnet\s+official/i, /(?<!\b(?:not|never|no|non)[\s_-]+)\b(?:not|never|no)\s+(?:an?\s+)?official\s+AUDD/gi))) {
-    matches.push({ code: 'official_audd_devnet_unavailable', message: 'copy must not describe browser-wallet safety rows as official AUDD' });
+  if (clauses.some((clause) => hasUnnegatedClaim(clause, AUDD_IDENTITY_CLAIM_PATTERN, DIRECTLY_NEGATED_AUDD_IDENTITY_PATTERN))) {
+    matches.push({ code: 'official_audd_devnet_unavailable', message: 'copy must not claim official AUDD identity or AUDD endorsement' });
   }
   if (clauses.some((clause) => hasUnnegatedClaim(clause, /grant[-\s]?eligible|eligible\s+for\s+grant|grant\s+volume/i, /(?<!\b(?:not|never|no|non)[\s_-]+)\b(?:not|never|no|non[_-])\s*grant[-\s]?eligible/gi))) {
     matches.push({ code: 'non_canonical_browser_wallet_identity', message: 'copy must not describe browser-wallet safety rows as grant-eligible' });
