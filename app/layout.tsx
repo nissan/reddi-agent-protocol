@@ -31,11 +31,11 @@ export const metadata: Metadata = {
   },
   applicationName: "Reddi Agent Protocol",
   description: "Payments prove transfer; RAP Assurance proves paid work.",
-  metadataBase: new URL("https://agent-protocol.reddi.tech"),
+  metadataBase: new URL("https://app.agent-protocol.reddi.tech"),
   openGraph: {
     title: "Reddi Agent Protocol",
     description: "Payments prove transfer; RAP Assurance proves paid work.",
-    url: "https://agent-protocol.reddi.tech",
+    url: "https://app.agent-protocol.reddi.tech",
     siteName: "Reddi Agent Protocol",
     images: [{ url: "/icon.png", width: 1024, height: 1024, alt: "Reddi Agent Protocol logo" }],
   },

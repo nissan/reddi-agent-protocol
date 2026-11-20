@@ -43,7 +43,7 @@ function parsePlaywrightSigner(raw: string): Keypair {
 
 export class PlaywrightWalletAdapter extends BaseMessageSignerWalletAdapter {
   name = PLAYWRIGHT_WALLET_NAME;
-  url = "https://agent-protocol.reddi.tech";
+  url = "https://app.agent-protocol.reddi.tech";
   icon =
     "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect width='64' height='64' rx='12' fill='%23111827'/%3E%3Cpath d='M18 46V18h14c8 0 14 6 14 14s-6 14-14 14H18zm8-8h6c3.3 0 6-2.7 6-6s-2.7-6-6-6h-6v12z' fill='%239945FF'/%3E%3C/svg%3E";
 

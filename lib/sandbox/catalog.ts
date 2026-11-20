@@ -124,8 +124,8 @@ export const SANDBOX_SCENARIOS: readonly SandboxScenario[] = [
   {
     id: "try-to-cheat",
     title: "Try to cheat",
-    persona: "You are the adversary. Reuse a payment, underpay, or edit the answer after the fact.",
-    hook: "Three ways to cheat, and what each one runs into.",
+    persona: "You are the adversary. Reuse a payment, underpay, pay the wrong wallet, or edit the answer after the fact.",
+    hook: "Four ways to cheat, and what each one runs into.",
     takeaway: "A payment settles one call, the amount and payee are checked against the challenge, and an edited answer no longer matches its receipt.",
     prompt: "Summarise the risk in one sentence: we store session tokens in localStorage.",
     providerIds: ["swift-infer"],

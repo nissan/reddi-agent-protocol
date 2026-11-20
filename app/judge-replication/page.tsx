@@ -132,7 +132,7 @@ export default function JudgeReplicationPage() {
                   href={route}
                   className="min-w-0 break-all rounded-xl border border-white/10 bg-white/5 px-4 py-3 font-mono text-sm text-gray-200 transition hover:border-[#14F195]/40 hover:text-[#14F195]"
                 >
-                  https://agent-protocol.reddi.tech{route}
+                  https://app.agent-protocol.reddi.tech{route}
                 </Link>
               ))}
             </div>
