@@ -62,10 +62,13 @@ export const DEV_LINKS = [
   { title: "Spec and whitepaper", body: "The agent description spec and the working whitepaper draft.", path: "/spec" },
 ] as const;
 
+// The four scenarios mirror the devnet sandbox catalog in the developer app (lib/sandbox/catalog.ts at the repository root).
+// `id` is the sandbox's own scenario id and becomes the ?scenario= deep link; keep the two lists in step.
 export const SCENARIOS = [
-  { tag: "BUYER", title: "Did I get the model I paid for?", body: "Send the same prompt to two providers. Compare the receipts: who answered, which model each one declared, what each call cost." },
-  { tag: "AGENT", title: "Give an agent a budget, not a blank cheque.", body: "Set a spend limit, let an agent buy inference call by call, and read the receipt trail it leaves behind." },
-  { tag: "PROVIDER", title: "Earn a track record from your first call.", body: "Stand up a test provider, serve a paid request, and watch a signed receipt become the first line of your public record." },
+  { id: "buy-a-review", tag: "BUYER", title: "Buy a code review.", body: "One request, one small payment, one receipt you can check yourself: the provider, the declared model, and hashes of what was asked and answered." },
+  { id: "shop-around", tag: "AGENT", title: "Shop around.", body: "Same prompt, three prices, three track records. The cheapest provider fails a spot check, and its score drops where you can see it." },
+  { id: "try-to-cheat", tag: "ADVERSARY", title: "Try to cheat.", body: "Reuse a payment, underpay, or edit the answer afterwards. See what each attempt runs into." },
+  { id: "provider-offline", tag: "FAILURE", title: "Provider goes dark.", body: "Call a provider that is listed but not answering. Nothing is paid and no receipt is written." },
 ] as const;
 
 export const FAQ = [

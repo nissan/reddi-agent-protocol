@@ -60,7 +60,7 @@ export default function Home() {
       </section>
 
       <section id="sandbox" className="section wrap">
-        <div className="section-heading"><div><p className="eyebrow">03 / TRY IT ON DEVNET</p><h2>A sandbox with nothing to lose.</h2></div><p>Three short scenarios on Solana devnet, with test funds only. {sandboxUrl ? 'Open the sandbox and pick one.' : 'The sandbox is being built. Sign up and we will tell you the day it opens.'}</p></div>
+        <div className="section-heading"><div><p className="eyebrow">03 / TRY IT ON DEVNET</p><h2>A sandbox with nothing to lose.</h2></div><p>Four short scenarios on Solana devnet, with test funds only. {sandboxUrl ? 'Open the sandbox and pick one.' : 'The sandbox is being built. Sign up and we will tell you the day it opens.'}</p></div>
         <Scenarios />
         <p className="section-cta">{sandboxUrl ? <a className="button primary" href={sandboxUrl} rel="noopener noreferrer">Open the sandbox ↗</a> : <a className="button" href="#updates">Tell me when the sandbox opens</a>} <Link className="text-link" href="/sandbox">About the sandbox ↗</Link></p>
       </section>
