@@ -107,8 +107,23 @@ Source-level, added 20 November 2026; nothing is deployed and no page calls thes
 
 A listing states one price: whole base units of one mint, or `SOL`. The database names
 mainnet `solana-mainnet`; payment code calls it `solana-mainnet-beta`.
-`listingNetworkForProfile` is the one place that maps between them. The existing
-file-backed onboarding and planner routes still read `data/` and move in later changes.
+`listingNetworkForProfile` is the one place that maps between them.
+
+When the public database settings are present, the planner (`executePlannerSpecialistCall`)
+and the registry view (`fetchSpecialistListings`) read listings from the database through
+`lib/listings/listing-index.ts`, and a failed read yields no listings instead of falling
+back to files. Without those settings they read `data/` as before, which is the local
+development path. A dollar price is stated only for a listing priced in a US dollar
+stablecoin; there is no exchange rate. Attestation and feedback are not in the database
+yet, so a database listing is never shown as attested.
+
+Health is observed by the server: `/api/cron/heartbeat` calls each listed endpoint's
+`/healthz` without following redirects and records pass or fail. The planner requires a
+pass by default, so a new listing is not routed to until the first sweep has reached it.
+If `CRON_SECRET` is set, the sweep only runs for a request that carries it. Listing
+endpoints must be public https names: IP addresses and internal-looking hosts are refused.
+
+The onboarding pages still write `data/` and do not call `PUT /api/listings` yet.
 
 ## Replay store
 

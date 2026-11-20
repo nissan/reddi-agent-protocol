@@ -30,6 +30,7 @@ import {
   computeSpecialistRankingScore,
   type SpecialistIndexEntry,
 } from "@/lib/onboarding/specialist-index";
+import { loadListingIndex } from "@/lib/listings/listing-index";
 import { enrichCapabilityIndexWithOpenRouterProfiles } from "@/lib/registry/openrouter-enrichment";
 import type { TaskTypeId, InputModeId, OutputModeId, PrivacyModeId, RuntimeCapability, ContextRequirement } from "@/lib/capabilities/taxonomy";
 
@@ -183,9 +184,12 @@ export async function fetchSpecialistListings(): Promise<{
   indexedCount: number;
   error?: string;
 }> {
-  const capIndex = loadCapabilityIndex();
-  const attestations = loadAttestations();
-  const profiles = loadProfiles();
+  // With a database configured it is the only source of listings; files are the local development path.
+  const stored = await loadListingIndex();
+  const capIndex = stored.source === "database" ? stored.entries : loadCapabilityIndex();
+  // Files on disk say nothing about database listings, so they cannot mark one healthy or attested.
+  const attestations = stored.source === "database" ? [] : loadAttestations();
+  const profiles = stored.source === "database" ? [] : loadProfiles();
 
   let onchainAgents: { pda: string; agent: OnchainAgent }[] = [];
 

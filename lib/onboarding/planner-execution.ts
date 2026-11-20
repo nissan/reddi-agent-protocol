@@ -5,6 +5,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { SwapClient } from "@reddi/x402-solana";
 import { routePlannerPolicy, type PlannerPolicyInput } from "@/lib/onboarding/planner-router";
+import { loadListingIndex } from "@/lib/listings/listing-index";
 import { processX402Challenge } from "@/lib/onboarding/x402-settlement";
 import { receiptHeaderForProvider } from "@/lib/payments/wallet-direct-payment";
 import { emitTorqueEvent } from "@/lib/torque/client";
@@ -110,7 +111,9 @@ export async function executePlannerSpecialistCall(input: PlannerExecuteInput) {
   const promptSha256 = createHash("sha256").update(input.prompt).digest("hex");
   const trace: string[] = [];
 
-  const routed = routePlannerPolicy(policy);
+  // With a database configured it is the only source of listings; files are the local development path.
+  const index = await loadListingIndex();
+  const routed = routePlannerPolicy(policy, index.source === "database" ? index.entries : undefined);
   if (!routed.selected || !routed.selected.endpointUrl) {
     const failed: PlannerRunRecord = {
       runId,

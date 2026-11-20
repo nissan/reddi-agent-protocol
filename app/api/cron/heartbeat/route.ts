@@ -7,6 +7,8 @@ import {
   type SpecialistIndexEntry,
 } from "@/lib/onboarding/specialist-index";
 
+import { observeListedHealth } from "@/lib/listings/listing-health";
+
 export const runtime = "nodejs";
 
 const DATA_DIR = join(process.cwd(), "data", "onboarding");
@@ -21,7 +23,19 @@ function readHistory(): Array<{ polled_at: string; specialists_checked: number; 
   }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  // When the operator sets CRON_SECRET the scheduler sends it, and nobody else can trigger a sweep.
+  const secret = process.env.CRON_SECRET?.trim();
+  if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+
+  // With a database configured, listings and their health live there, not in files.
+  const sweep = await observeListedHealth();
+  if (sweep.source === "database") {
+    return NextResponse.json({ ok: sweep.available, specialists_checked: sweep.checked, updated_at: new Date().toISOString() }, { status: sweep.available ? 200 : 503 });
+  }
+
   mkdirSync(DATA_DIR, { recursive: true });
 
   const index = listSpecialistIndex();
