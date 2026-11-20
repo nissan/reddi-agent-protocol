@@ -12,6 +12,7 @@ import { getNetworkProfile, resolveNetworkProfileName } from "@/lib/config/netwo
 import { readOwnListing } from "@/lib/listings/listing-store";
 import { verifyAndRecordPaidCall, type PaidCallOutcome } from "@/lib/jobs/paid-call";
 import { checkAndStoreProviderReceipt, PROVIDER_RECEIPT_HEADER } from "@/lib/jobs/provider-receipt";
+import { refreshProviderStats } from "@/lib/jobs/provider-stats";
 import { emitTorqueEvent } from "@/lib/torque/client";
 import { TORQUE_EVENTS } from "@/lib/torque/events";
 
@@ -529,7 +530,12 @@ async function executeWithWalletPayment(input: PlannerExecuteInput, ctx: WalletR
     if (ctx.listingSource === "database") {
       const recorded = await recordWalletPaidJob(input, ctx, { delivered: paid.ok, responseText: paid.ok ? text : undefined });
       run.trace.push(recorded.recorded ? "job:recorded" : `job:not_recorded:${recorded.reason}`);
-      if (recorded.recorded) run.jobId = recorded.jobId;
+      if (recorded.recorded) {
+        run.jobId = recorded.jobId;
+        // The provider's public counts are recounted from the jobs table, delivered or not.
+        const stats = await refreshProviderStats(ctx.selectedWallet).catch(() => ({ updated: false as const, reason: "refresh_failed" }));
+        run.trace.push(stats.updated ? "provider_stats:updated" : `provider_stats:not_updated:${stats.reason}`);
+      }
       // A provider's signed receipt is kept only for a recorded, delivered job, and only if it checks out.
       const receiptNetwork = paymentNetworkForProfile(resolveNetworkProfileName());
       if (recorded.recorded && paid.ok && (receiptNetwork === "solana-devnet" || receiptNetwork === "solana-mainnet-beta")) {
