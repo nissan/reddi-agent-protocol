@@ -140,7 +140,7 @@ export default function FeedbackPage() {
               href="/spec"
               className="rounded-lg border border-[#14F195]/40 bg-[#14F195]/10 px-4 py-2 text-sm font-medium text-[#14F195] hover:bg-[#14F195]/15"
             >
-              ADL v0.2.0-beta spec →
+              ADL v0.3 spec →
             </Link>
             <Link
               href="/updates"

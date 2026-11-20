@@ -4,10 +4,10 @@ _Anchor issues: #310, #311._
 
 ## Goal
 
-ADL v0.2 keeps ReddiAgent's canonical document shape aligned across prose,
+ADL v0.3 keeps ReddiAgent's canonical document shape aligned across prose,
 JSON Schema, and checked examples. The v0.2 canonical instruction shape is an
 object with either `inline` text or a `path` reference. A bare string path is not
-valid ADL v0.2. Permission policies are structured capability declarations so
+valid ADL v0.3. Permission policies are structured capability declarations so
 compatibility checks can fail closed before execution.
 
 ## Requirement Keywords
@@ -20,7 +20,7 @@ keywords carry requirement force regardless of capitalization.
 ## Top-Level Shape
 
 ```yaml
-apiVersion: reddiagent.dev/v0.2
+apiVersion: reddiagent.dev/v0.3
 kind: Agent
 metadata:
   name: research-assistant
@@ -54,7 +54,7 @@ extensions: {}
 ## Field Contract
 
 The field contract below is intentionally machine checked against
-`specs/ADL-v0.2.schema.json`.
+`specs/ADL-v0.3.schema.json`.
 
 ```json
 {
@@ -86,13 +86,13 @@ The field contract below is intentionally machine checked against
 
 ## Supporting Spec Index
 
-ADL v0.2 is the canonical document shape. Supporting specs own the deeper
+ADL v0.3 is the canonical document shape. Supporting specs own the deeper
 semantics below, and validators should cite the owning spec when reporting
 builder-facing diagnostics.
 
 | ADL section | Supporting spec owner | Ownership boundary |
 |---|---|---|
-| `apiVersion`, `kind`, `metadata`, top-level shape | `specs/ADL-v0.2.md` and `specs/ADL-v0.2.schema.json` | Canonical syntax, required fields, and strict schema validation. |
+| `apiVersion`, `kind`, `metadata`, top-level shape | `specs/ADL-v0.3.md` and `specs/ADL-v0.3.schema.json` | Canonical syntax, required fields, and strict schema validation. |
 | `model.capability`, `model.providers`, `model.requirements` | `specs/PROVIDER-MAPPING-v0.1.md` and `specs/PROVIDER-COMPATIBILITY-REPORT-v0.1.md` | Provider vocabulary, model capability requirements, report-only adapter diagnostics, and loss metadata. |
 | `harness.instructions`, `harness.runtime`, `harness.recovery` | `specs/HARNESS-LIFECYCLE-v0.1.md` and `specs/RUNTIME-DEPLOYMENT-v0.1.md` | Runtime lifecycle, activation boundaries, rollback/disable semantics, and no-execution compatibility checks. |
 | `harness.tools`, `harness.functions`, `harness.skills` | `specs/TOOL-REGISTRY-v0.1.md`, `specs/LOCAL-RUNNER-PLUGIN-INTERFACE-v0.1.md`, and `specs/SKILL-PACKAGE-CONTRACT-v0.1.md` | Tool identity, static contract metadata, policy linkage, plugin boundaries, and skill package handoff. |
@@ -101,12 +101,12 @@ builder-facing diagnostics.
 | `harness.policies` | `specs/SECURITY-PERMISSIONS-v0.1.md` | Capability policies, allow/deny effects, enforcement target/phase, approval, and limits. |
 | `harness.evalGates` | `specs/EVAL-GATES-v0.1.md` | Required gate completion semantics, severity, retry behavior, failure handling, and evidence shape. |
 | `harness.observability` | `specs/OBSERVABILITY-v0.1.md` and `specs/TRACE-EVENTS-v0.1.md` | Required trace events, summaries, destinations, redaction, retention, receipts, and export evidence. |
-| `extensions.x402`, `extensions.receipts`, `extensions.reputation` | `specs/PAYMENT-REPUTATION-EXTENSION-v0.1.md`, `specs/X402-DRY-RUN-RECEIPT-v0.1.md`, and `specs/RAP-BRIDGE-v0.1.md` | Payment authority, dry-run rails, receipt binding, reputation signals, and bridge metadata. |
+| `extensions.x402`, `extensions.receipts`, `extensions.reputation` | `specs/PAYMENT-REPUTATION-EXTENSION-v0.1.md`, `specs/X402-DRY-RUN-RECEIPT-v0.1.md`, and `specs/RAP-BRIDGE-v0.1.md` | Payment authority, receipt binding, reputation signals, and bridge metadata. Where those v0.1 documents describe `x402-dry-run` as a rail or a `currency` field, this document wins. |
 | `conformance` | `specs/CONFORMANCE-v0.1.md` | Requested/achieved conformance levels, required field sets, forbidden capability reporting, and evidence outputs. |
 
 ## Conformance Profile Matrix
 
-ADL v0.2 validators must report both the requested and achieved conformance
+ADL v0.3 validators must report both the requested and achieved conformance
 level without activating runtimes, providers, MCP servers, payment rails, or
 hosted deployments. An ADL may declare `conformance.requestedLevel`; validators
 may also accept an operator-selected requested level. Higher levels include the
@@ -118,12 +118,12 @@ required evidence output for levels `0..requestedLevel` is absent.
 | 0 | schema-valid | `apiVersion`, `kind`, `metadata.name`, `metadata.description`, `model`, `harness` | `conformance`, `extensions` | none | JSON Schema validation diagnostics |
 | 1 | local-python runnable | Level 0 plus `harness.instructions`, `harness.runtime.target`, `harness.evalGates`, and Level 1 observability events | `harness.memory`, `harness.tools`, `harness.dataSources` | payment/reputation extension; production deployment descriptor | local Level 1 trace; `completion.requiredGateStatus`; `trace.started`; `trace.completed`; `task.completed`; `task.failed` |
 | 2 | provider-adapter compatible | Level 1 plus `model.capability`, `model.providers.preferred`, `model.requirements`, `harness.policies`, `harness.evalGates`, and Level 2 observability events | `harness.tools`, `harness.dataSources`, `harness.memory` | payment/reputation extension; production deployment descriptor | provider compatibility report; unsupported-execution boundary; `model.called`; `policy.checked`; `eval.checked` |
-| 3 | payment/reputation extension compatible | Level 2 plus `extensions.x402.enabled=true`, spend/refund intents with authority, scope, receipt, audit, revocation, and policy refs, `extensions.receipts.required=true`, `extensions.receipts.refs`, `extensions.reputation.emitSignals`, and Level 3 observability events | `extensions.identity`; `x-*` or URI extension namespaces as strict metadata | production deployment descriptor; live payment rails before a separately reviewed lane | receipt evidence; reputation signal evidence; payment policy evidence; `payment.intent.created`; `receipt.emitted`; `reputation.signal.emitted` |
+| 3 | payment/reputation extension compatible | Level 2 plus `extensions.x402.enabled=true`, `extensions.x402.mode`, spend/refund intents with authority, scope, receipt, audit, revocation, and policy refs, charge intents with `price`, `payTo`, `settlement`, receipt, and policy refs, `extensions.receipts.required=true`, `extensions.receipts.refs` with `format: reddi.receipt.v2`, `extensions.reputation.emitSignals`, and Level 3 observability events | `extensions.identity`; `x-*` or URI extension namespaces as strict metadata | production deployment descriptor; in `live` mode, any rail other than `solana`; a mainnet mint that is not the allowlisted one; a protocol fee other than 5 bps | receipt evidence; reputation signal evidence; payment policy evidence; `payment.intent.created`; `receipt.emitted`; `reputation.signal.emitted` |
 | 4 | production deployment compatible | Level 3 plus `harness.runtime.target` of `hosted-container`, `serverless`, `platform-native`, or `openclaw`, `harness.deployment.environment`, `harness.deployment.rollback`, `harness.observability.events`, `harness.recovery.disable`, and Level 4 observability events | `harness.deployment.healthCheck`, `harness.observability.destinations` | mainnet remains separately approval-gated | deployment readiness report; observability trace config; rollback/disable evidence; `deployment.health.checked`; `adapter.loss.reported` |
 
 Conformance output must include:
 
-- `requestedLevel`: the requested ADL v0.2 conformance level.
+- `requestedLevel`: the requested ADL v0.3 conformance level.
 - `achievedLevel`: the highest contiguous level whose required fields and
   live-gated capability checks pass.
 - `missingFieldsByLevel`: missing required fields grouped by level.
@@ -136,7 +136,7 @@ syntax but must report missing Level 3 fields and a failed conformance status.
 
 ## Provider And Model Capability Contract
 
-ADL v0.2 constrains model provider identifiers so adapters do not infer
+ADL v0.3 constrains model provider identifiers so adapters do not infer
 provider-specific behavior from arbitrary strings. `model.providers.preferred`
 and `model.providers.fallbacks` use the canonical provider-id vocabulary below:
 
@@ -206,7 +206,7 @@ harness:
 
 ## Permission Policy Shape
 
-`harness.policies` entries must be machine-readable. ADL v0.2 does not accept
+`harness.policies` entries must be machine-readable. ADL v0.3 does not accept
 free-form permission prose as the policy contract. Each policy carries:
 
 - `id`: stable policy identifier referenced by risky capabilities.
@@ -241,38 +241,116 @@ compatibility before execution.
 
 ## Extension And Payment Authority Contract
 
-ADL v0.2 strict mode recognizes ReddiAgent-owned extension namespaces only when
+ADL v0.3 strict mode recognizes ReddiAgent-owned extension namespaces only when
 they have a schema. The known namespaces are `x402`, `receipts`, `reputation`,
 and `identity`. Experimental or third-party namespaces must be explicitly
 prefixed with `x-` or use an `http://` or `https://` URI key; unprefixed
 unknown namespaces fail schema validation so payment-like metadata cannot hide
 behind a loose extension name.
 
-`extensions.x402` is metadata only. A spend-capable or refund-capable intent
-must declare:
+`extensions.x402` is a declaration. Validating a document never makes a
+payment, and a valid document proves nothing about a deployment.
 
-- `extensions.x402.intents[*].policyRefs`;
-- the actor authority: `principal`, `spender`, `maxAmount`, `currency`, and
-  `rails`;
+### Mode
+
+`extensions.x402.mode` is required and is the one place that says whether
+payments are real:
+
+- `dry-run`: no payment is made, whatever rail an intent names. Reports state
+  `paymentMade: false`.
+- `live`: intents describe real payments. The only live rail is `solana`,
+  through the Reddi Agent Protocol. `base`, `stripe`, and `other-x402` remain
+  vocabulary so validators can report them deterministically as unsupported
+  live payment rails.
+
+`x402-dry-run` is no longer a rail.
+
+### Asset
+
+Every intent and authority names an `asset` in place of the v0.2 `currency`:
+
+```yaml
+asset:
+  symbol: AUDD            # SOL, USDC, PYUSD, USDG, or AUDD
+  network: solana-mainnet-beta   # or solana-devnet
+  mint: AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw
+```
+
+`mint` is required for every token and forbidden for `SOL`. On
+`solana-mainnet-beta` the mint must be the one the protocol allowlists:
+
+| Symbol | Mint on solana-mainnet-beta | Token program |
+| --- | --- | --- |
+| USDC | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` | SPL Token |
+| AUDD | `AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw` | SPL Token |
+| PYUSD | `2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo` | Token-2022 |
+| USDG | `2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH` | Token-2022 |
+
+Devnet mints are chosen by the operator and are not table-checked. `USD`,
+`EUR`, and `GBP` are not assets in v0.3. Each intent names one `rail`.
+
+### Spend and refund intents
+
+A spend-capable or refund-capable intent must declare:
+
+- `maxAmount`, `extensions.x402.intents[*].policyRefs`;
+- the actor authority: `principal`, `spender`, `maxAmount`, `asset`, and
+  `rail`, equal to the intent's;
 - bounded purpose and scope on both the intent and authority;
 - an ISO-like UTC `expiresAt` timestamp;
 - a revocation path with `operator`, `policy-engine`, or `human-review` mode;
 - an audit path and evidence reference;
 - `requireReceipt: true`, `receiptRef`, and `policyRefs`.
 
+### Charge intents
+
+A `direction: charge` intent is the seller side and is checked like the buyer
+side. It must declare:
+
+- `price`: `{ amount, per: call }`, the listed price as a decimal string;
+- `payTo`: the provider wallet that is paid;
+- `settlement`: `direct` (paid per call) or `escrow` (held for a larger job);
+- `requireReceipt: true`, `receiptRef`, and `policyRefs`, with a payment
+  policy for `x402:intent:<id>` whose `limits.asset` is the asset symbol and
+  whose `limits.maxAmount` equals the price.
+
+An `authority` block is optional on a charge; one that is declared must agree
+with the intent.
+
+### Protocol fee
+
+`extensions.x402.protocolFee` declares the fee the protocol takes:
+
+```yaml
+protocolFee:
+  bps: 5
+  rounding: down
+  paidBy: provider
+```
+
+The fee is 5 basis points of the listed price, rounded down to the asset's
+smallest unit, and comes out of the price: the buyer pays the price and the
+provider receives the price minus the fee. A different `bps` fails Level 3. A
+`live` document with a charge intent must declare it.
+
+### Receipts
+
 The matching receipt declaration lives in `extensions.receipts.refs` and binds
-`intentRef`, receipt `evidenceRef`, and the policy references used by the
-intent. Reputation declarations remain derived metadata: `emitSignals` must be
-one of the known ReddiAgent signals and may list supporting basis/evidence refs.
-Provider compatibility reports preserve this metadata but keep
-`paymentAccess=false`; `x402-dry-run` is the only report-only compatible rail.
-Rails such as `solana`, `base`, `stripe`, or `other-x402` are valid vocabulary
-only so validators can report them deterministically as unsupported live payment
-rails until a separately approved wallet/facilitator/settlement lane exists.
+`intentRef`, the receipt `format`, the receipt `evidenceRef`, and the policy
+references used by the intent. The only format is `reddi.receipt.v2`: a
+receipt the provider signs, naming the provider, the model it declares it
+served, the request and response hashes, and the payment (transaction, asset,
+amount, fee, settlement). "Declared model" is a declaration, not proof of
+which model ran.
+
+Reputation declarations remain derived metadata: `emitSignals` must be one of
+the known ReddiAgent signals and may list supporting basis/evidence refs.
+Provider compatibility reports preserve this metadata and keep
+`paymentAccess=false`: a checker never pays.
 
 ## Tool Contract Metadata
 
-ADL v0.2 tool declarations may include static contract metadata so validators
+ADL v0.3 tool declarations may include static contract metadata so validators
 and adapters can fail closed before invoking a tool:
 
 - `permissions`: normalized capability tags requested by the tool. Supported
@@ -340,7 +418,7 @@ harness:
 
 ## Data Source Boundary Contract
 
-ADL v0.2 uses one canonical `harness.dataSources[*].type` vocabulary:
+ADL v0.3 uses one canonical `harness.dataSources[*].type` vocabulary:
 
 - `file`: local or packaged file/document content. Legacy `document` aliases
   must be rewritten to `file`.
@@ -352,7 +430,7 @@ ADL v0.2 uses one canonical `harness.dataSources[*].type` vocabulary:
 - `mcp`: MCP-shaped output metadata. This is a static source boundary and does
   not permit live MCP invocation.
 
-The legacy `knowledge-base` alias is not valid in ADL v0.2. Builders must
+The legacy `knowledge-base` alias is not valid in ADL v0.3. Builders must
 choose the concrete backing type (`file`, `url`, `api`, `database`,
 `vector-index`, or `mcp`) so adapters do not invent source semantics.
 
@@ -396,8 +474,8 @@ harness:
     - id: project_docs
       type: file
       description: Reviewed local project documentation.
-      sourceRef: file:specs/ADL-v0.2.md
-      path: specs/ADL-v0.2.md
+      sourceRef: file:specs/ADL-v0.3.md
+      path: specs/ADL-v0.3.md
       trust: approved
       citationRequired: true
       sourceCheck:
@@ -455,7 +533,7 @@ harness:
 
 ## Eval Gate Completion Contract
 
-ADL v0.2 eval gates define the task completion contract before a runtime,
+ADL v0.3 eval gates define the task completion contract before a runtime,
 adapter, or exporter treats work as complete. Each `harness.evalGates` entry
 carries:
 
@@ -546,7 +624,7 @@ harness:
 
 ## Runtime And Deployment Descriptor
 
-ADL v0.2 normalizes runtime and deployment constraints into typed harness
+ADL v0.3 normalizes runtime and deployment constraints into typed harness
 sections so adapters can reject unsupported behavior before execution. These
 fields are declarations, not permission to activate a runtime, read secrets,
 open a network connection, start a scheduler, publish a deployment, or mutate a
@@ -1043,7 +1121,7 @@ harness:
   compatibility before any execution path.
 - Required eval gates fail closed when evidence is missing or failing; warning
   gates remain visible and non-blocking.
-- Data source aliases fail validation in ADL v0.2; adapters and reports must
+- Data source aliases fail validation in ADL v0.3; adapters and reports must
   use only the canonical `file`, `url`, `api`, `database`, `vector-index`, and
   `mcp` vocabulary.
 - Source boundary declarations must match their source type, trust state,
