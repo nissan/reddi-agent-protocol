@@ -22,7 +22,7 @@ const rolePaths = [
   {
     label: "I want proof",
     desc: "Open the recorded proof paths, inspect devnet transactions, and run the verifier script.",
-    href: "/economic-demo",
+    href: "/judge-replication",
   },
 ];
 

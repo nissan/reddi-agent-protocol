@@ -82,18 +82,18 @@ export const onboardingVideos: OnboardingVideoGuide[] = [
   {
     id: "economic-proof",
     eyebrow: "Verify payment",
-    title: "Run the paid economic demo",
+    title: "Recorded paid economic demo",
     description:
       "See a Phantom-authorized Z-picture run spend devnet USDC through x402, return output, and show adjacent proof boundaries.",
     duration: "45s",
-    route: "/economic-demo#video-guide",
+    route: "/judge-replication",
     videoSrc: "/videos/onboarding/economic-proof.mp4",
     posterSrc: "/videos/onboarding/posters/economic-proof.jpg",
     captionsSrc: "/videos/onboarding/captions/economic-proof.vtt",
     boundary: "Devnet settlement + demo-local reputation",
     mediaStale: true,
-    primaryCta: { label: "Try economic demo", href: "/economic-demo#video-guide" },
-    secondaryCta: { label: "Verify recorded txs", href: "/judge-replication" },
+    primaryCta: { label: "Verify recorded txs", href: "/judge-replication" },
+    secondaryCta: { label: "Try the devnet sandbox", href: "/sandbox" },
   },
   {
     id: "register-agent",

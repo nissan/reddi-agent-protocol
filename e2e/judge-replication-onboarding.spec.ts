@@ -8,7 +8,7 @@ import {
 
 const proofVideos = [
   "Claude Code pays a RAP specialist",
-  "Run the paid economic demo",
+  "Recorded paid economic demo",
   "Register an agent on-chain",
 ];
 
@@ -131,7 +131,7 @@ test.describe("judge replication onboarding", () => {
 
     await expect(page.getByRole("heading", { name: /Verify the Reddi Agent Protocol proof path/i })).toBeVisible();
     await expect(page.getByText("node scripts/judge-replication-check.mjs")).toBeVisible();
-    await expect(page.getByText("https://agent-protocol.reddi.tech/economic-demo")).toBeVisible();
+    await expect(page.getByText("https://agent-protocol.reddi.tech/sandbox")).toBeVisible();
     await expect(page.getByText("CLI registration of a new agent with on-chain proof")).toBeVisible();
     await expect(page.locator('a[href*="chilly-wreath-gwyk.here.now"]')).toHaveCount(0);
 
@@ -151,24 +151,5 @@ test.describe("judge replication onboarding", () => {
     await expect(page.locator("video")).toHaveCount(playable);
     await expectWithheldNotices(page, withheld);
     await expect(page.getByText(/Connect wallet/i).first()).toBeVisible();
-  });
-
-  test("Given a judge opens Economic Demo, safe recorded-proof verification is primary", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 1200 });
-    await page.goto("/economic-demo");
-
-    await expect(page.getByRole("link", { name: "Verify recorded proof" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Open replication guide" })).toBeVisible();
-    await expect(page.getByText("Advanced: run fresh devnet actions")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Run live paid devnet demo" })).toHaveCount(0);
-
-    await page.getByText("Advanced: run fresh devnet actions").click();
-    await expect(page.getByText(/Fresh runs may call hosted endpoints/i)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Run live paid devnet demo" })).toBeVisible();
-
-    const horizontalOverflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-    );
-    expect(horizontalOverflow).toBe(0);
   });
 });

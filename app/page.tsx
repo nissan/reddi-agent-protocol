@@ -26,12 +26,12 @@ const ECOSYSTEM_PROOFS = [
     name: "Quasar",
     status: "Local/blocked boundary",
     desc: "Current Quasar sources are exercised in the local Surfpool lane; the recorded devnet deployment is blocked and not a live target.",
-    href: "/economic-demo",
+    href: "/judge-replication",
   },
   {
     name: "x402",
     status: "Visible payment boundary",
-    desc: "Planner, onboarding, tester guides, and economic demo show 402 challenges, receipts, and fail-closed paid calls.",
+    desc: "Planner, onboarding, tester guides, and the devnet sandbox show 402 challenges, receipts, and fail-closed paid calls.",
     href: "/planner",
   },
   {
@@ -44,13 +44,13 @@ const ECOSYSTEM_PROOFS = [
     name: "Jupiter",
     status: "Boundary proof",
     desc: "SOL→USDC quote/build/sign is evidenced; public devnet execution is not claimed. Surfpool provides the successful no-real-funds visual.",
-    href: "/economic-demo",
+    href: "/judge-replication",
   },
   {
     name: "Surfpool",
     status: "Local rehearsal",
     desc: "Local validator rehearsal exercises payment ordering, budget reconciliation, and Quasar assumptions before any devnet claim.",
-    href: "/economic-demo",
+    href: "/judge-replication",
   },
   {
     name: "Torque",
@@ -62,7 +62,7 @@ const ECOSYSTEM_PROOFS = [
     name: "MagicBlock",
     status: "PER evidence bounded",
     desc: "MagicBlock/PER material remains reference evidence with explicit boundaries; it is not a mainnet, custody, or broad private-payee settlement claim.",
-    href: "/economic-demo",
+    href: "/judge-replication",
   },
   {
     name: "ElizaOS + SendAI",
@@ -302,7 +302,7 @@ export default function Home() {
               </h2>
             </div>
             <Link
-              href="/economic-demo"
+              href="/judge-replication"
               className="text-sm text-indigo-300 hover:text-indigo-200"
             >
               Inspect proof →

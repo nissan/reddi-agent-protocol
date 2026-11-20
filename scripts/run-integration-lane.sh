@@ -84,7 +84,6 @@ accepted_surfpool_summary() {
 
 SURFPOOL_CRITICAL_SUMMARY="$(accepted_surfpool_summary "artifacts/surfpool-smoke" "legacy-anchor")"
 SURFPOOL_QUASAR_SUMMARY="$(accepted_surfpool_summary "artifacts/surfpool-quasar-smoke" "quasar")"
-SURFPOOL_ECONOMIC_SUMMARY="$(latest_summary "${ROOT_DIR}/artifacts/economic-demo-surfpool-rehearsal/*")"
 
 set +e
 npx playwright test e2e/integration.spec.ts \
@@ -135,7 +134,6 @@ cat > "$OUT_DIR/SUMMARY.md" <<EOF
 - Playwright infra hint: ${INFRA_HINT:-n/a}
 
 ## Surfpool Runtime Evidence Snapshot
-- Economic demo Surfpool rehearsal: ${SURFPOOL_ECONOMIC_SUMMARY}
 - A→B→C Surfpool critical lane: ${SURFPOOL_CRITICAL_SUMMARY}
 - Quasar Surfpool critical lane: ${SURFPOOL_QUASAR_SUMMARY}
 

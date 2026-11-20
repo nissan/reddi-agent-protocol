@@ -4,7 +4,7 @@
  * Everything here is sandbox data. Providers answer from a script, not from a
  * running model, so each declared model id carries the `sandbox/` prefix and no
  * receipt names a model that did not run. Payee addresses are the public devnet
- * wallets already recorded in lib/economic-demo/openrouter-endpoints.ts.
+ * wallets first recorded for the earlier economic demo.
  */
 
 export const SANDBOX_NETWORK = "solana-devnet" as const;

@@ -4,7 +4,6 @@ on:
   pull_request:
     paths:
       - "packages/agent-protocol/**"
-      - "lib/economic-demo/**"
       - "lib/wallet/playwright-wallet-*.ts"
       - "scripts/check-browser-wallet-*.mjs"
       - "scripts/test-browser-wallet-safety-checks.mjs"

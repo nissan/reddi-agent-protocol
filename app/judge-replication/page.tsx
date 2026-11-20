@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-const routeChecks = ["/", "/setup", "/agents", "/register", "/economic-demo"];
+const routeChecks = ["/", "/setup", "/agents", "/register", "/sandbox"];
 
 const proofGroups = [
   {
@@ -22,17 +22,16 @@ const proofGroups = [
     ],
   },
   {
-    title: "Phantom-authorized Z-picture economic demo",
+    title: "Phantom-authorized Z-picture economic demo (recorded)",
     video: "Economic proof video",
     summary:
-      "A browser wallet authorizes a devnet image request, spends devnet USDC through x402, and displays generated output plus proof boundaries.",
+      "A browser wallet authorized a devnet image request and spent devnet USDC through x402. The demo page has been retired; the recorded devnet transactions stay inspectable.",
     checks: [
-      "Open the economic demo page and verify recorded proof by default.",
       "Inspect the four recorded x402 payment transactions.",
-      "Only expand advanced devnet actions when deliberately testing fresh state.",
+      "To make a paid call yourself, use the devnet sandbox.",
     ],
     links: [
-      { label: "Economic demo", href: "/economic-demo" },
+      { label: "Devnet sandbox", href: "/sandbox" },
       {
         label: "Planning tx",
         href: "https://explorer.solana.com/tx/2TwZD3kGTCLu3hbKa4ebkfPDVEtJbCqTcuCyw1JRENxfg9G7S4VNwDU5TKvXdnn1gHRemveoQHPdKt5B4rno8aGX?cluster=devnet",
