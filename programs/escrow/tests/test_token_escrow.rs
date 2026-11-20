@@ -11,7 +11,8 @@ use anchor_spl::token::spl_token::{self, instruction as token_ix, state::Account
 use escrow::{
     accounts, instruction,
     state::{EscrowStatus, TokenEscrowAccount},
-    CANCEL_WINDOW_SLOTS,
+    CANCEL_WINDOW_SLOTS, CLAIM_WINDOW_SLOTS, MAX_TOKEN_ESCROW_BASE_UNITS, USDC_DEVNET_MINT,
+    USDC_MAINNET_MINT,
 };
 use litesvm::LiteSVM;
 use solana_keypair::Keypair;
@@ -27,6 +28,32 @@ fn send(svm: &mut LiteSVM, ixs: &[Instruction], signers: &[&Keypair]) -> Result<
     svm.send_transaction(tx)
         .map(|_| ())
         .map_err(|err| format!("{err:?}"))
+}
+
+fn install_mint(svm: &mut LiteSVM, address: Pubkey, authority: Pubkey, decimals: u8) {
+    let mut data = vec![0u8; spl_token::state::Mint::LEN];
+    spl_token::state::Mint::pack(
+        spl_token::state::Mint {
+            mint_authority: Some(authority).into(),
+            supply: 0,
+            decimals,
+            is_initialized: true,
+            freeze_authority: None.into(),
+        },
+        &mut data,
+    )
+    .unwrap();
+    svm.set_account(
+        address,
+        solana_account::Account {
+            lamports: 10_000_000,
+            data,
+            owner: spl_token::ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
 }
 
 struct Fixture {
@@ -45,9 +72,11 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        Self::with_decimals(6)
+        Self::with_mint(USDC_MAINNET_MINT, 6)
     }
-    fn with_decimals(decimals: u8) -> Self {
+    /// A complete, internally consistent fixture around a local mint installed
+    /// at `mint` with `decimals`.
+    fn with_mint(mint: Pubkey, decimals: u8) -> Self {
         let mut svm = LiteSVM::new();
         svm.add_program(
             escrow::id(),
@@ -59,29 +88,11 @@ impl Fixture {
         let attacker = Keypair::new();
         svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
         svm.airdrop(&attacker.pubkey(), 1_000_000_000).unwrap();
-        let mint = Keypair::new();
-        send(
-            &mut svm,
-            &[
-                system_instruction::create_account(
-                    &payer.pubkey(),
-                    &mint.pubkey(),
-                    10_000_000,
-                    82,
-                    &spl_token::ID,
-                ),
-                token_ix::initialize_mint2(
-                    &spl_token::ID,
-                    &mint.pubkey(),
-                    &payer.pubkey(),
-                    None,
-                    decimals,
-                )
-                .unwrap(),
-            ],
-            &[&payer, &mint],
-        )
-        .unwrap();
+        svm.airdrop(&payee.pubkey(), 1_000_000_000).unwrap();
+        // The program accepts allowlisted mints only, so the fixture places a
+        // disposable local mint at the allowlisted address. No real USDC, RPC,
+        // or operator wallet is involved.
+        install_mint(&mut svm, mint, payer.pubkey(), decimals);
         let mut tokens = Vec::new();
         for owner in [payer.pubkey(), payee.pubkey(), attacker.pubkey()] {
             let account = Keypair::new();
@@ -95,13 +106,8 @@ impl Fixture {
                         165,
                         &spl_token::ID,
                     ),
-                    token_ix::initialize_account3(
-                        &spl_token::ID,
-                        &account.pubkey(),
-                        &mint.pubkey(),
-                        &owner,
-                    )
-                    .unwrap(),
+                    token_ix::initialize_account3(&spl_token::ID, &account.pubkey(), &mint, &owner)
+                        .unwrap(),
                 ],
                 &[&payer, &account],
             )
@@ -112,7 +118,7 @@ impl Fixture {
             &mut svm,
             &[token_ix::mint_to(
                 &spl_token::ID,
-                &mint.pubkey(),
+                &mint,
                 &tokens[0],
                 &payer.pubkey(),
                 &[],
@@ -135,7 +141,7 @@ impl Fixture {
             payer,
             payee,
             attacker,
-            mint: mint.pubkey(),
+            mint,
             source: tokens[0],
             recipient: tokens[1],
             attacker_token: tokens[2],
@@ -166,25 +172,70 @@ impl Fixture {
             .to_account_metas(None),
         )
     }
-    fn settle_ix(&self, refund: bool) -> Instruction {
-        let metas = accounts::SettleTokenEscrow {
-            escrow: self.escrow,
-            vault: self.vault,
-            payer: self.payer.pubkey(),
-            mint: self.mint,
-            destination: if refund { self.source } else { self.recipient },
-            token_program: spl_token::ID,
-        }
-        .to_account_metas(None);
+    fn release_ix(&self) -> Instruction {
+        self.payout_ix(self.payer.pubkey())
+    }
+    /// Payout signed by `authority`, paid to the recorded recipient account.
+    fn payout_ix(&self, authority: Pubkey) -> Instruction {
         Instruction::new_with_bytes(
             escrow::id(),
-            &if refund {
-                instruction::CancelTokenEscrow {}.data()
-            } else {
-                instruction::ReleaseTokenEscrow {}.data()
-            },
-            metas,
+            &instruction::ReleaseTokenEscrow {}.data(),
+            accounts::ReleaseTokenEscrow {
+                escrow: self.escrow,
+                vault: self.vault,
+                authority,
+                payer: self.payer.pubkey(),
+                mint: self.mint,
+                destination: self.recipient,
+                token_program: spl_token::ID,
+            }
+            .to_account_metas(None),
         )
+    }
+    /// Refund signed by `authority`, paid to the payer's original source account.
+    fn cancel_ix(&self, authority: Pubkey) -> Instruction {
+        Instruction::new_with_bytes(
+            escrow::id(),
+            &instruction::CancelTokenEscrow {}.data(),
+            accounts::CancelTokenEscrow {
+                escrow: self.escrow,
+                vault: self.vault,
+                authority,
+                payer: self.payer.pubkey(),
+                mint: self.mint,
+                destination: self.source,
+                token_program: spl_token::ID,
+            }
+            .to_account_metas(None),
+        )
+    }
+    fn payer_cancel_ix(&self) -> Instruction {
+        self.cancel_ix(self.payer.pubkey())
+    }
+    fn new_token_account(&mut self, owner: Pubkey) -> Pubkey {
+        let account = Keypair::new();
+        send(
+            &mut self.svm,
+            &[
+                system_instruction::create_account(
+                    &self.payer.pubkey(),
+                    &account.pubkey(),
+                    10_000_000,
+                    165,
+                    &spl_token::ID,
+                ),
+                token_ix::initialize_account3(
+                    &spl_token::ID,
+                    &account.pubkey(),
+                    &self.mint,
+                    &owner,
+                )
+                .unwrap(),
+            ],
+            &[&self.payer, &account],
+        )
+        .unwrap();
+        account.pubkey()
     }
     fn balance(&self, key: Pubkey) -> u64 {
         self.svm
@@ -212,17 +263,20 @@ impl Fixture {
         send(&mut self.svm, &[ix], &[&self.payer]).unwrap();
     }
     fn reject(&mut self, ix: Instruction, attacker: bool) -> String {
+        let signer = if attacker {
+            self.attacker.insecure_clone()
+        } else {
+            self.payer.insecure_clone()
+        };
+        self.reject_as(ix, &signer)
+    }
+    fn reject_as(&mut self, ix: Instruction, signer: &Keypair) -> String {
         let before = [
             self.balance(self.source),
             self.balance(self.vault),
             self.balance(self.recipient),
             self.balance(self.attacker_token),
         ];
-        let signer = if attacker {
-            &self.attacker
-        } else {
-            &self.payer
-        };
         let err =
             send(&mut self.svm, &[ix], &[signer]).expect_err("must reject invalid instruction");
         assert_eq!(
@@ -237,20 +291,32 @@ impl Fixture {
         );
         err
     }
+    fn mint_to_source(&mut self, amount: u64) {
+        let ix = token_ix::mint_to(
+            &spl_token::ID,
+            &self.mint,
+            &self.source,
+            &self.payer.pubkey(),
+            &[],
+            amount,
+        )
+        .unwrap();
+        send(&mut self.svm, &[ix], &[&self.payer]).unwrap();
+    }
+    fn triple(&self) -> (u64, u64, u64) {
+        (
+            self.balance(self.source),
+            self.balance(self.vault),
+            self.balance(self.recipient),
+        )
+    }
 }
 
 #[test]
 fn token_lock_release_conserves_assets_and_closes_records_to_payer() {
     let mut f = Fixture::new();
     f.lock();
-    assert_eq!(
-        (
-            f.balance(f.source),
-            f.balance(f.vault),
-            f.balance(f.recipient)
-        ),
-        (600_000, 400_000, 0)
-    );
+    assert_eq!(f.triple(), (600_000, 400_000, 0));
     let state = f.state();
     assert_eq!(state.status, EscrowStatus::Locked);
     assert_eq!(state.mint, f.mint);
@@ -261,16 +327,9 @@ fn token_lock_release_conserves_assets_and_closes_records_to_payer() {
     assert_eq!(vault.mint, f.mint);
     let rent_held = f.lamports(f.escrow) + f.lamports(f.vault);
     let payer_before = f.lamports(f.payer.pubkey());
-    let ix = f.settle_ix(false);
+    let ix = f.release_ix();
     send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
-    assert_eq!(
-        (
-            f.balance(f.source),
-            f.balance(f.vault),
-            f.balance(f.recipient)
-        ),
-        (600_000, 0, 400_000)
-    );
+    assert_eq!(f.triple(), (600_000, 0, 400_000));
     assert!(f.closed(f.escrow), "escrow record must close on release");
     assert!(f.closed(f.vault), "vault must close on release");
     // Both rent reserves return to the payer net of at most the transaction fee,
@@ -281,49 +340,148 @@ fn token_lock_release_conserves_assets_and_closes_records_to_payer() {
             && rent_held - recovered < f.svm.minimum_balance_for_rent_exemption(0),
         "payer recovered {recovered} of {rent_held} rent lamports"
     );
-    for ix in [f.settle_ix(false), f.settle_ix(true)] {
+    for ix in [f.release_ix(), f.payer_cancel_ix()] {
         f.reject(ix, false);
     }
     f.lock();
-    assert_eq!(
-        (
-            f.balance(f.source),
-            f.balance(f.vault),
-            f.balance(f.recipient)
-        ),
-        (200_000, 400_000, 400_000)
-    );
+    assert_eq!(f.triple(), (200_000, 400_000, 400_000));
     assert_eq!(f.state().status, EscrowStatus::Locked);
 }
 
 #[test]
-fn token_refund_obeys_exact_existing_slot_boundary_and_original_source() {
+fn token_refund_window_boundary_is_exact_and_strangers_cannot_refund() {
     let mut f = Fixture::new();
     f.lock();
     let created = f.state().created_slot;
     f.svm.warp_to_slot(created + CANCEL_WINDOW_SLOTS - 1);
-    let err = f.reject(f.settle_ix(true), false);
+    let err = f.reject(f.payer_cancel_ix(), false);
     assert!(err.contains("Custom(6006)"), "{err}");
     assert_eq!(f.state().status, EscrowStatus::Locked);
+
     f.svm.warp_to_slot(created + CANCEL_WINDOW_SLOTS);
-    let mut redirected = f.settle_ix(true);
-    redirected.accounts[4].pubkey = f.attacker_token;
-    f.reject(redirected, false);
-    let ix = f.settle_ix(true);
+    // A stranger can never refund, wherever it points the money.
+    let err = f.reject(f.cancel_ix(f.attacker.pubkey()), true);
+    assert!(err.contains("Custom(6000)"), "{err}");
+    let mut redirected = f.cancel_ix(f.attacker.pubkey());
+    redirected.accounts[5].pubkey = f.attacker_token;
+    f.reject(redirected, true);
+    // The payer cannot send its refund to an account it does not own.
+    let mut wrong_owner = f.payer_cancel_ix();
+    wrong_owner.accounts[5].pubkey = f.attacker_token;
+    let err = f.reject(wrong_owner, false);
+    assert!(err.contains("Custom(6023)"), "{err}");
+
+    let rent_held = f.lamports(f.escrow) + f.lamports(f.vault);
+    let payer_before = f.lamports(f.payer.pubkey());
+    let ix = f.payer_cancel_ix();
     send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
-    assert_eq!(
-        (
-            f.balance(f.source),
-            f.balance(f.vault),
-            f.balance(f.recipient)
-        ),
-        (1_000_000, 0, 0)
-    );
+    assert_eq!(f.triple(), (1_000_000, 0, 0));
     assert!(f.closed(f.escrow), "escrow record must close on refund");
     assert!(f.closed(f.vault), "vault must close on refund");
-    for ix in [f.settle_ix(false), f.settle_ix(true)] {
+    let recovered = f.lamports(f.payer.pubkey()) - payer_before;
+    assert!(
+        recovered <= rent_held
+            && rent_held - recovered < f.svm.minimum_balance_for_rent_exemption(0),
+        "payer recovered {recovered} of {rent_held} rent lamports"
+    );
+    for ix in [f.release_ix(), f.payer_cancel_ix()] {
         f.reject(ix, false);
     }
+}
+
+#[test]
+fn payee_claim_boundary_is_exact_and_pays_only_the_recorded_recipient() {
+    let mut f = Fixture::new();
+    f.lock();
+    let payee = f.payee.insecure_clone();
+    let created = f.state().created_slot;
+    f.svm.warp_to_slot(created + CLAIM_WINDOW_SLOTS - 1);
+    let err = f.reject_as(f.payout_ix(payee.pubkey()), &payee);
+    assert!(err.contains("Custom(6027)"), "{err}");
+
+    f.svm.warp_to_slot(created + CLAIM_WINDOW_SLOTS);
+    // A stranger cannot pay the escrow out, and the payee cannot redirect it.
+    let err = f.reject(f.payout_ix(f.attacker.pubkey()), true);
+    assert!(err.contains("Custom(6000)"), "{err}");
+    let other = f.new_token_account(payee.pubkey());
+    let mut redirected = f.payout_ix(payee.pubkey());
+    redirected.accounts[5].pubkey = other;
+    let err = f.reject_as(redirected, &payee);
+    assert!(err.contains("Custom(6023)"), "{err}");
+
+    let rent_held = f.lamports(f.escrow) + f.lamports(f.vault);
+    let payer_before = f.lamports(f.payer.pubkey());
+    let ix = f.payout_ix(payee.pubkey());
+    send(&mut f.svm, &[ix], &[&payee]).unwrap();
+    assert_eq!(f.triple(), (600_000, 0, 400_000));
+    assert!(f.closed(f.escrow));
+    assert!(f.closed(f.vault));
+    assert_eq!(
+        f.lamports(f.payer.pubkey()),
+        payer_before + rent_held,
+        "both rent reserves return to the payer on a claim"
+    );
+}
+
+#[test]
+fn payer_refund_before_the_claim_window_beats_a_later_claim() {
+    let mut f = Fixture::new();
+    f.lock();
+    let payee = f.payee.insecure_clone();
+    let created = f.state().created_slot;
+    f.svm.warp_to_slot(created + CLAIM_WINDOW_SLOTS - 1);
+    let ix = f.payer_cancel_ix();
+    send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
+    f.svm.warp_to_slot(created + CLAIM_WINDOW_SLOTS + 1);
+    f.reject_as(f.payout_ix(payee.pubkey()), &payee);
+    assert_eq!(f.triple(), (1_000_000, 0, 0));
+}
+
+#[test]
+fn payee_can_decline_immediately_and_cannot_take_the_tokens() {
+    let mut f = Fixture::new();
+    f.lock();
+    let payee = f.payee.insecure_clone();
+    // Declining pays the payer. The payee cannot name its own account.
+    let mut to_self = f.cancel_ix(payee.pubkey());
+    to_self.accounts[5].pubkey = f.recipient;
+    let err = f.reject_as(to_self, &payee);
+    assert!(err.contains("Custom(6023)"), "{err}");
+    // Nor can it claim before the claim window.
+    let err = f.reject_as(f.payout_ix(payee.pubkey()), &payee);
+    assert!(err.contains("Custom(6027)"), "{err}");
+
+    let rent_held = f.lamports(f.escrow) + f.lamports(f.vault);
+    let payer_before = f.lamports(f.payer.pubkey());
+    let ix = f.cancel_ix(payee.pubkey());
+    send(&mut f.svm, &[ix], &[&payee]).unwrap();
+    assert_eq!(f.triple(), (1_000_000, 0, 0));
+    assert!(f.closed(f.escrow));
+    assert!(f.closed(f.vault));
+    assert_eq!(f.lamports(f.payer.pubkey()), payer_before + rent_held);
+}
+
+#[test]
+fn refund_can_go_to_another_token_account_the_payer_owns() {
+    let mut f = Fixture::new();
+    f.lock();
+    let other = f.new_token_account(f.payer.pubkey());
+    let created = f.state().created_slot;
+    f.svm.warp_to_slot(created + CANCEL_WINDOW_SLOTS);
+    // Only the payer may pick a different account. The payee declining into
+    // that same payer-owned account is refused.
+    let payee = f.payee.insecure_clone();
+    let mut ix = f.cancel_ix(payee.pubkey());
+    ix.accounts[5].pubkey = other;
+    let err = f.reject_as(ix, &payee);
+    assert!(err.contains("Custom(6023)"), "{err}");
+    assert_eq!(f.balance(other), 0);
+    let mut ix = f.payer_cancel_ix();
+    ix.accounts[5].pubkey = other;
+    send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
+    assert_eq!(f.triple(), (600_000, 0, 0));
+    assert_eq!(f.balance(other), 400_000);
+    assert!(f.closed(f.escrow));
 }
 
 #[test]
@@ -354,27 +512,74 @@ fn token_lock_rejects_zero_insufficient_funds_duplicate_and_wrong_accounts() {
 }
 
 #[test]
+fn token_lock_cap_is_enforced_at_the_exact_boundary() {
+    let mut f = Fixture::new();
+    f.mint_to_source(MAX_TOKEN_ESCROW_BASE_UNITS);
+    let err = f.reject(f.lock_ix(MAX_TOKEN_ESCROW_BASE_UNITS + 1), false);
+    assert!(err.contains("Custom(6025)"), "{err}");
+    assert!(f.closed(f.escrow));
+    assert!(f.closed(f.vault));
+    let ix = f.lock_ix(MAX_TOKEN_ESCROW_BASE_UNITS);
+    send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
+    assert_eq!(f.balance(f.vault), MAX_TOKEN_ESCROW_BASE_UNITS);
+}
+
+#[test]
+fn token_lock_rejects_payer_as_payee() {
+    let mut f = Fixture::new();
+    let mut ix = f.lock_ix(400_000);
+    ix.accounts[3].pubkey = f.payer.pubkey();
+    ix.accounts[6].pubkey = f.new_token_account(f.payer.pubkey());
+    let err = f.reject(ix, false);
+    assert!(err.contains("Custom(6007)"), "{err}");
+    assert!(f.closed(f.escrow));
+}
+
+#[test]
 fn token_settlement_rejects_unauthorized_or_substituted_accounts() {
     let mut f = Fixture::new();
     f.lock();
-    for refund in [false, true] {
-        let mut unsigned = f.settle_ix(refund);
-        unsigned.accounts[2].is_signer = false;
-        let err = f.reject(unsigned, true);
-        assert!(err.contains("AccountNotSigner"), "{err}");
-        let mut ix = f.settle_ix(refund);
-        ix.accounts[2].pubkey = f.attacker.pubkey();
-        f.reject(ix, true);
-        for (index, key) in [
-            (1, f.attacker_token),
-            (3, f.source),
-            (4, f.attacker_token),
-            (5, system_program::id()),
-        ] {
-            let mut ix = f.settle_ix(refund);
-            ix.accounts[index].pubkey = key;
-            f.reject(ix, false);
-        }
+    let created = f.state().created_slot;
+    // Past the window, so every cancel rejection below is an account check and
+    // not the window check.
+    f.svm.warp_to_slot(created + CANCEL_WINDOW_SLOTS);
+
+    // Release: the authority must sign, and no account may be swapped.
+    let mut unsigned = f.release_ix();
+    unsigned.accounts[2].is_signer = false;
+    let err = f.reject(unsigned, true);
+    assert!(err.contains("AccountNotSigner"), "{err}");
+    for (index, key) in [
+        (1, f.attacker_token),
+        (3, f.attacker.pubkey()),
+        (4, f.source),
+        (5, f.attacker_token),
+        (5, f.source),
+        (5, f.vault),
+        (6, system_program::id()),
+    ] {
+        let mut ix = f.release_ix();
+        ix.accounts[index].pubkey = key;
+        f.reject(ix, false);
+    }
+
+    // Cancel: some authority must sign, and no account may be swapped.
+    let mut unsigned = f.payer_cancel_ix();
+    unsigned.accounts[2].is_signer = false;
+    let err = f.reject(unsigned, true);
+    assert!(err.contains("AccountNotSigner"), "{err}");
+    for (index, key) in [
+        (1, f.attacker_token),
+        (3, f.attacker.pubkey()),
+        (4, f.source),
+        (5, f.attacker_token),
+        (5, f.recipient),
+        (5, f.vault),
+        (6, system_program::id()),
+    ] {
+        let mut ix = f.payer_cancel_ix();
+        ix.accounts[index].pubkey = key;
+        f.reject(ix, false);
     }
     assert_eq!(f.state().status, EscrowStatus::Locked);
     assert_eq!(f.balance(f.vault), 400_000);
@@ -396,37 +601,48 @@ fn unsolicited_vault_tokens_do_not_block_settlement_or_leave_assets_stranded() {
     )
     .unwrap();
     send(&mut f.svm, &[donate], &[&f.payer]).unwrap();
-    let ix = f.settle_ix(false);
+    let ix = f.release_ix();
     send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
-    assert_eq!(
-        (
-            f.balance(f.source),
-            f.balance(f.vault),
-            f.balance(f.recipient)
-        ),
-        (599_993, 0, 400_007)
-    );
+    assert_eq!(f.triple(), (599_993, 0, 400_007));
 }
 
 #[test]
-fn token_amounts_use_mint_decimals_without_currency_assumptions() {
+fn token_lock_rejects_an_allowlisted_address_with_the_wrong_decimals() {
     for decimals in [0, 9] {
-        let mut f = Fixture::with_decimals(decimals);
-        f.lock();
-        let ix = f.settle_ix(false);
-        send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
-        assert_eq!(
-            (f.balance(f.source), f.balance(f.recipient)),
-            (600_000, 400_000)
-        );
+        let mut f = Fixture::with_mint(USDC_MAINNET_MINT, decimals);
+        let err = f.reject(f.lock_ix(400_000), false);
+        assert!(err.contains("Custom(6026)"), "{err}");
+        assert!(f.closed(f.escrow));
+        assert!(f.closed(f.vault));
     }
+}
+
+#[test]
+fn token_lock_rejects_a_consistent_mint_that_is_not_allowlisted() {
+    // Everything about this mint and its accounts is valid; only its address is
+    // not on the allowlist.
+    let mut f = Fixture::with_mint(Pubkey::new_unique(), 6);
+    let err = f.reject(f.lock_ix(400_000), false);
+    assert!(err.contains("Custom(6026)"), "{err}");
+    assert!(err.contains("MintNotAllowed"), "{err}");
+    assert!(f.closed(f.escrow));
+    assert!(f.closed(f.vault));
+}
+
+/// The default (mainnet) build must not accept devnet USDC.
+#[cfg(not(feature = "devnet"))]
+#[test]
+fn default_build_rejects_devnet_usdc() {
+    let mut f = Fixture::with_mint(USDC_DEVNET_MINT, 6);
+    let err = f.reject(f.lock_ix(400_000), false);
+    assert!(err.contains("Custom(6026)"), "{err}");
 }
 
 #[test]
 fn token_lock_rejects_other_valid_mint_and_token2022_owned_mint() {
     let mut f = Fixture::new();
-    // Arbitrary local fixture identities only. A structurally valid classic mint
-    // still must match both source and destination; no currency allowlist assumed.
+    // A structurally valid classic mint still must match both source and
+    // destination.
     let other_mint = Pubkey::new_unique();
     let mint_account = f.svm.get_account(&f.mint).unwrap();
     f.svm.set_account(other_mint, mint_account.clone()).unwrap();
@@ -470,38 +686,22 @@ fn token_lock_rejects_native_mint_without_moving_wrapped_sol_or_creating_records
     f.mint = spl_token::native_mint::ID;
     f.svm.set_account(f.mint, mint_account).unwrap();
     // Initialize real wrapped-SOL accounts through SPL Token so account
-    // constraints pass and the handler's explicit native-mint guard is exercised.
+    // constraints pass and the handler's own mint checks are exercised.
     let mut tokens = Vec::new();
     for owner in [f.payer.pubkey(), f.payee.pubkey()] {
-        let account = Keypair::new();
-        send(
-            &mut f.svm,
-            &[
-                system_instruction::create_account(
-                    &f.payer.pubkey(),
-                    &account.pubkey(),
-                    10_000_000,
-                    TokenAccount::LEN as u64,
-                    &spl_token::ID,
-                ),
-                token_ix::initialize_account3(&spl_token::ID, &account.pubkey(), &f.mint, &owner)
-                    .unwrap(),
-            ],
-            &[&f.payer, &account],
-        )
-        .unwrap();
-        let state =
-            TokenAccount::unpack(&f.svm.get_account(&account.pubkey()).unwrap().data).unwrap();
+        let account = f.new_token_account(owner);
+        let state = TokenAccount::unpack(&f.svm.get_account(&account).unwrap().data).unwrap();
         assert!(state.is_native.is_some());
-        tokens.push(account.pubkey());
+        tokens.push(account);
     }
     f.source = tokens[0];
     f.recipient = tokens[1];
     let source_before = f.svm.get_account(&f.source).unwrap();
     let recipient_before = f.svm.get_account(&f.recipient).unwrap();
+    // Wrapped SOL is not on the allowlist, so the allowlist rejects it before
+    // the older native-mint guard is reached.
     let err = f.reject(f.lock_ix(400_000), false);
-    assert!(err.contains("Custom(6023)"), "{err}");
-    assert!(err.contains("InvalidTokenAccount"), "{err}");
+    assert!(err.contains("Custom(6026)"), "{err}");
     assert_eq!(f.svm.get_account(&f.source).unwrap(), source_before);
     assert_eq!(f.svm.get_account(&f.recipient).unwrap(), recipient_before);
     assert!(f.closed(f.escrow));
@@ -509,35 +709,15 @@ fn token_lock_rejects_native_mint_without_moving_wrapped_sol_or_creating_records
 }
 
 #[test]
-fn token_settlement_checks_recorded_address_even_for_same_owner_and_mint() {
+fn token_release_checks_recorded_address_even_for_same_owner_and_mint() {
     let mut f = Fixture::new();
     f.lock();
-    let other = Keypair::new();
-    send(
-        &mut f.svm,
-        &[
-            system_instruction::create_account(
-                &f.payer.pubkey(),
-                &other.pubkey(),
-                10_000_000,
-                165,
-                &spl_token::ID,
-            ),
-            token_ix::initialize_account3(
-                &spl_token::ID,
-                &other.pubkey(),
-                &f.mint,
-                &f.payee.pubkey(),
-            )
-            .unwrap(),
-        ],
-        &[&f.payer, &other],
-    )
-    .unwrap();
-    let mut ix = f.settle_ix(false);
-    ix.accounts[4].pubkey = other.pubkey();
-    f.reject(ix, false);
-    assert_eq!(f.balance(other.pubkey()), 0);
+    let other = f.new_token_account(f.payee.pubkey());
+    let mut ix = f.release_ix();
+    ix.accounts[5].pubkey = other;
+    let err = f.reject(ix, false);
+    assert!(err.contains("Custom(6023)"), "{err}");
+    assert_eq!(f.balance(other), 0);
     assert_eq!(f.state().status, EscrowStatus::Locked);
 }
 

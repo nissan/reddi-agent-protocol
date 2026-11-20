@@ -81,8 +81,24 @@ test('strict raw u64, classic program and nonce boundaries; settlement selects r
   expect(() => escrowTerms({ ...f.c, amount: '18446744073709551616' })).toThrow();
   expect(() => escrowTerms({ ...f.c, tokenProgram: pk().toBase58() })).toThrow('classic');
   expect(() => escrowTerms({ ...f.c, nonce: 'z'.repeat(32) })).toThrow();
-  expect(buildSettleTokenEscrowInstruction(f.t).keys[4].pubkey.equals(f.t.recipient)).toBe(true);
-  expect(buildSettleTokenEscrowInstruction(f.t, true).keys[4].pubkey.equals(f.t.source)).toBe(true);
+  const release = buildSettleTokenEscrowInstruction(f.t);
+  expect(release.keys).toHaveLength(7);
+  expect(release.keys[2]).toMatchObject({ isSigner: true, isWritable: false });
+  expect(release.keys[2].pubkey.equals(f.t.payer)).toBe(true);
+  expect(release.keys[5].pubkey.equals(f.t.recipient)).toBe(true);
+  const claim = buildSettleTokenEscrowInstruction(f.t, false, f.t.payee);
+  expect(claim.keys[2].pubkey.equals(f.t.payee)).toBe(true);
+  expect(claim.keys[5].pubkey.equals(f.t.recipient)).toBe(true);
+  const refund = buildSettleTokenEscrowInstruction(f.t, true);
+  expect(refund.keys).toHaveLength(7);
+  expect(refund.keys[2]).toMatchObject({ isSigner: true, isWritable: false });
+  expect(refund.keys[2].pubkey.equals(f.t.payer)).toBe(true);
+  expect(refund.keys[3]).toMatchObject({ isSigner: false, isWritable: true });
+  expect(refund.keys[3].pubkey.equals(f.t.payer)).toBe(true);
+  expect(refund.keys[5].pubkey.equals(f.t.source)).toBe(true);
+  const declined = buildSettleTokenEscrowInstruction(f.t, true, f.t.payee);
+  expect(declined.keys[2].pubkey.equals(f.t.payee)).toBe(true);
+  expect(declined.keys[3].pubkey.equals(f.t.payer)).toBe(true);
   expect(decodeTokenEscrowAccount(f.state).createdSlot).toBe(100n);
 });
 test('buyer requires approval before lock; rejects challenge substitution without spending', async () => {

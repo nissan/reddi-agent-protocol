@@ -1,5 +1,7 @@
 # Surfpool 1.7.0 SPL escrow proof lane (opt-in)
 
+> **Status, 20 November 2026:** this lane predates the trimmed nine-instruction program (#736). The refund account list, the mint allowlist and the settlement rules (payer refund from 648,000 slots, payee claim from 1,512,000 slots, not a 50,400-slot payer-only window) have changed, so the lane does not pass against the current source until it is updated (#746). The evidence described below is for the earlier source.
+
 An opt-in, offline, version-qualified local proof lane that runs the classic SPL token escrow on an
 embedded Surfpool `1.7.0` runtime beside the existing local-validator proof, against the same escrow
 ELF, and requires both to agree. It is not run by default scripts or CI, and it does not change the

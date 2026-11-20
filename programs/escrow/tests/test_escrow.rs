@@ -1,9 +1,11 @@
 /// Escrow program — LiteSVM unit tests
 ///
 /// These tests cover the three core instructions:
-///   lock_escrow   — creates PDA, transfers lamports
-///   release_escrow — sends funds to payee, closes PDA
-///   cancel_escrow  — refunds payer, closes PDA
+///   lock_escrow   — creates PDA, transfers lamports (capped per escrow)
+///   release_escrow — sends funds to payee, closes PDA (payer any time; payee
+///                    after the claim window)
+///   cancel_escrow  — refunds payer, closes PDA (payee any time; payer after
+///                    the cancel window)
 ///
 /// Edge cases:
 ///   - Unauthorised release (non-payer cannot release)
@@ -18,6 +20,7 @@ use {
     escrow::{
         accounts::{CancelEscrow, LockEscrow, ReleaseEscrow},
         state::EscrowAccount,
+        CANCEL_WINDOW_SLOTS, CLAIM_WINDOW_SLOTS, MAX_SOL_ESCROW_LAMPORTS,
     },
     litesvm::LiteSVM,
     solana_keypair::Keypair,
@@ -209,7 +212,7 @@ fn test_cancel_escrow_refunds_payer() {
         .expect("escrow PDA should exist");
     let escrow_state = EscrowAccount::try_deserialize(&mut escrow_account.data.as_slice())
         .expect("escrow account should deserialize");
-    svm.warp_to_slot(escrow_state.created_slot + 60_000);
+    svm.warp_to_slot(escrow_state.created_slot + CANCEL_WINDOW_SLOTS);
 
     // Cancel
     let cancel_ix = Instruction::new_with_bytes(
@@ -217,6 +220,7 @@ fn test_cancel_escrow_refunds_payer() {
         &instruction::CancelEscrow {}.data(),
         CancelEscrow {
             escrow: escrow_pda,
+            authority: payer.pubkey(),
             payer: payer.pubkey(),
             system_program: anchor_lang::solana_program::system_program::id(),
         }
@@ -274,6 +278,7 @@ fn test_cancel_window_not_elapsed() {
         &instruction::CancelEscrow {}.data(),
         CancelEscrow {
             escrow: escrow_pda,
+            authority: payer.pubkey(),
             payer: payer.pubkey(),
             system_program: anchor_lang::solana_program::system_program::id(),
         }
@@ -496,4 +501,451 @@ fn test_lock_zero_amount_fails() {
         escrow_rent_exempt_reserve,
         payer_balance_before - payer_balance_after
     );
+}
+
+// ── Guarded-beta rules: cap, decline, and refund after the window ────────────
+
+fn lock_ix(
+    payer: &Keypair,
+    payee: &anchor_lang::prelude::Pubkey,
+    amount: u64,
+    nonce: [u8; 16],
+) -> Instruction {
+    Instruction::new_with_bytes(
+        escrow::id(),
+        &instruction::LockEscrow { amount, nonce }.data(),
+        LockEscrow {
+            escrow: escrow_pda(&payer.pubkey(), &nonce).0,
+            payer: payer.pubkey(),
+            payee: *payee,
+            system_program: anchor_lang::solana_program::system_program::id(),
+        }
+        .to_account_metas(None),
+    )
+}
+
+fn cancel_ix(
+    payer: &anchor_lang::prelude::Pubkey,
+    authority: &anchor_lang::prelude::Pubkey,
+    nonce: [u8; 16],
+) -> Instruction {
+    Instruction::new_with_bytes(
+        escrow::id(),
+        &instruction::CancelEscrow {}.data(),
+        CancelEscrow {
+            escrow: escrow_pda(payer, &nonce).0,
+            authority: *authority,
+            payer: *payer,
+            system_program: anchor_lang::solana_program::system_program::id(),
+        }
+        .to_account_metas(None),
+    )
+}
+
+fn lamports(svm: &LiteSVM, key: &anchor_lang::prelude::Pubkey) -> u64 {
+    svm.get_account(key).map(|a| a.lamports).unwrap_or(0)
+}
+
+fn created_slot(svm: &LiteSVM, escrow: &anchor_lang::prelude::Pubkey) -> u64 {
+    let account = svm.get_account(escrow).expect("escrow PDA should exist");
+    EscrowAccount::try_deserialize(&mut account.data.as_slice())
+        .expect("escrow account should deserialize")
+        .created_slot
+}
+
+/// The cap is inclusive: exactly 0.5 SOL locks, one lamport more does not.
+#[test]
+fn test_lock_cap_is_enforced_at_the_exact_boundary() {
+    let (mut svm, _) = make_svm();
+    let payer = Keypair::new();
+    let payee = Keypair::new();
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+
+    let over = [20u8; 16];
+    let err = send(
+        &mut svm,
+        lock_ix(&payer, &payee.pubkey(), MAX_SOL_ESCROW_LAMPORTS + 1, over),
+        &[&payer],
+    );
+    let err_str = format!("{:?}", err);
+    assert!(
+        err_str.contains("Custom(6025)"),
+        "expected AmountAboveCap, got: {err_str}"
+    );
+    assert!(
+        svm.get_account(&escrow_pda(&payer.pubkey(), &over).0)
+            .is_none_or(|a| a.lamports == 0 && a.data.is_empty()),
+        "a rejected over-cap lock must leave no escrow behind"
+    );
+
+    let at = [21u8; 16];
+    send_ok(
+        &mut svm,
+        lock_ix(&payer, &payee.pubkey(), MAX_SOL_ESCROW_LAMPORTS, at),
+        &[&payer],
+    );
+    assert!(lamports(&svm, &escrow_pda(&payer.pubkey(), &at).0) >= MAX_SOL_ESCROW_LAMPORTS);
+}
+
+/// An escrow that pays its own payer is refused.
+#[test]
+fn test_lock_rejects_payer_as_payee() {
+    let (mut svm, _) = make_svm();
+    let payer = Keypair::new();
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    let err = send(
+        &mut svm,
+        lock_ix(&payer, &payer.pubkey(), 1_000_000, [22u8; 16]),
+        &[&payer],
+    );
+    let err_str = format!("{:?}", err);
+    assert!(
+        err_str.contains("Custom(6007)"),
+        "expected InvalidPayee, got: {err_str}"
+    );
+}
+
+/// The payee can decline immediately; the money and rent go to the payer, and
+/// the payee gains nothing.
+#[test]
+fn test_payee_can_decline_immediately_and_payer_is_made_whole() {
+    let (mut svm, _) = make_svm();
+    let payer = Keypair::new();
+    let payee = Keypair::new();
+    let nonce = [23u8; 16];
+    let amount = 250_000_000u64;
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    svm.airdrop(&payee.pubkey(), 1_000_000_000).unwrap();
+
+    send_ok(
+        &mut svm,
+        lock_ix(&payer, &payee.pubkey(), amount, nonce),
+        &[&payer],
+    );
+    let payer_after_lock = lamports(&svm, &payer.pubkey());
+    let held = lamports(&svm, &escrow_pda(&payer.pubkey(), &nonce).0);
+    assert!(held > amount, "escrow holds the amount plus its rent");
+    let payee_before = lamports(&svm, &payee.pubkey());
+
+    send_ok(
+        &mut svm,
+        cancel_ix(&payer.pubkey(), &payee.pubkey(), nonce),
+        &[&payee],
+    );
+
+    assert!(svm
+        .get_account(&escrow_pda(&payer.pubkey(), &nonce).0)
+        .is_none());
+    assert_eq!(
+        lamports(&svm, &payer.pubkey()),
+        payer_after_lock + held,
+        "payer must get back the amount and the rent"
+    );
+    assert!(
+        lamports(&svm, &payee.pubkey()) < payee_before,
+        "payee pays only the transaction fee and receives nothing"
+    );
+}
+
+/// One slot before the cancel window the payer cannot refund. At the exact
+/// boundary slot it can. A stranger can never trigger a refund.
+#[test]
+fn test_refund_window_boundary_is_exact_and_strangers_cannot_refund() {
+    let (mut svm, _) = make_svm();
+    let payer = Keypair::new();
+    let payee = Keypair::new();
+    let stranger = Keypair::new();
+    let nonce = [24u8; 16];
+    let amount = 300_000_000u64;
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
+
+    send_ok(
+        &mut svm,
+        lock_ix(&payer, &payee.pubkey(), amount, nonce),
+        &[&payer],
+    );
+    let escrow = escrow_pda(&payer.pubkey(), &nonce).0;
+    let created = created_slot(&svm, &escrow);
+    let held = lamports(&svm, &escrow);
+
+    svm.warp_to_slot(created + CANCEL_WINDOW_SLOTS - 1);
+    let err = format!(
+        "{:?}",
+        send(
+            &mut svm,
+            cancel_ix(&payer.pubkey(), &payer.pubkey(), nonce),
+            &[&payer]
+        )
+    );
+    assert!(
+        err.contains("Custom(6006)"),
+        "expected CancelWindowNotElapsed, got: {err}"
+    );
+
+    // Past every window a stranger still cannot refund.
+    svm.warp_to_slot(created + CLAIM_WINDOW_SLOTS + 10);
+    let err = format!(
+        "{:?}",
+        send(
+            &mut svm,
+            cancel_ix(&payer.pubkey(), &stranger.pubkey(), nonce),
+            &[&stranger],
+        )
+    );
+    assert!(
+        err.contains("Custom(6000)"),
+        "expected UnauthorisedSigner, got: {err}"
+    );
+    assert_eq!(lamports(&svm, &escrow), held, "escrow must be untouched");
+}
+
+#[test]
+fn test_payer_can_refund_at_the_exact_cancel_boundary() {
+    let (mut svm, _) = make_svm();
+    let payer = Keypair::new();
+    let payee = Keypair::new();
+    let nonce = [27u8; 16];
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    send_ok(
+        &mut svm,
+        lock_ix(&payer, &payee.pubkey(), 300_000_000, nonce),
+        &[&payer],
+    );
+    let escrow = escrow_pda(&payer.pubkey(), &nonce).0;
+    let created = created_slot(&svm, &escrow);
+    let held = lamports(&svm, &escrow);
+    svm.warp_to_slot(created + CANCEL_WINDOW_SLOTS);
+    let payer_before = lamports(&svm, &payer.pubkey());
+    send_ok(
+        &mut svm,
+        cancel_ix(&payer.pubkey(), &payer.pubkey(), nonce),
+        &[&payer],
+    );
+    assert!(svm.get_account(&escrow).is_none());
+    let fee = payer_before + held - lamports(&svm, &payer.pubkey());
+    assert!(
+        fee < 100_000,
+        "payer gets amount and rent back, less the fee; lost {fee}"
+    );
+}
+
+fn claim_ix(
+    payer: &anchor_lang::prelude::Pubkey,
+    payee: &anchor_lang::prelude::Pubkey,
+    nonce: [u8; 16],
+) -> Instruction {
+    // Same instruction and accounts as a release, but the payee signs.
+    let mut metas = ReleaseEscrow {
+        escrow: escrow_pda(payer, &nonce).0,
+        payer: *payer,
+        payee: *payee,
+        system_program: anchor_lang::solana_program::system_program::id(),
+    }
+    .to_account_metas(None);
+    metas[1].is_signer = false;
+    metas[2].is_signer = true;
+    Instruction::new_with_bytes(escrow::id(), &instruction::ReleaseEscrow {}.data(), metas)
+}
+
+/// The payee cannot claim one slot before the claim window, and can at the
+/// exact boundary. The amount goes to the payee and the rent back to the payer.
+#[test]
+fn test_payee_claim_boundary_is_exact_and_pays_the_payee() {
+    let (mut svm, _) = make_svm();
+    let payer = Keypair::new();
+    let payee = Keypair::new();
+    let nonce = [28u8; 16];
+    let amount = 300_000_000u64;
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    svm.airdrop(&payee.pubkey(), 1_000_000_000).unwrap();
+    send_ok(
+        &mut svm,
+        lock_ix(&payer, &payee.pubkey(), amount, nonce),
+        &[&payer],
+    );
+    let escrow = escrow_pda(&payer.pubkey(), &nonce).0;
+    let created = created_slot(&svm, &escrow);
+    let rent = lamports(&svm, &escrow) - amount;
+
+    svm.warp_to_slot(created + CLAIM_WINDOW_SLOTS - 1);
+    let err = format!(
+        "{:?}",
+        send(
+            &mut svm,
+            claim_ix(&payer.pubkey(), &payee.pubkey(), nonce),
+            &[&payee]
+        )
+    );
+    assert!(
+        err.contains("Custom(6027)"),
+        "expected ClaimWindowNotElapsed, got: {err}"
+    );
+    assert!(svm.get_account(&escrow).is_some());
+
+    svm.warp_to_slot(created + CLAIM_WINDOW_SLOTS);
+    svm.expire_blockhash();
+    let payer_before = lamports(&svm, &payer.pubkey());
+    let payee_before = lamports(&svm, &payee.pubkey());
+    send_ok(
+        &mut svm,
+        claim_ix(&payer.pubkey(), &payee.pubkey(), nonce),
+        &[&payee],
+    );
+    assert!(svm.get_account(&escrow).is_none());
+    assert_eq!(lamports(&svm, &payer.pubkey()), payer_before + rent);
+    let fee = payee_before + amount - lamports(&svm, &payee.pubkey());
+    assert!(
+        fee < 100_000,
+        "payee receives the amount, less the fee; lost {fee}"
+    );
+}
+
+/// A payout needs the payer's or the payee's signature. A stranger who signs
+/// the transaction but is neither cannot pay the escrow out, at any time.
+#[test]
+fn test_stranger_cannot_trigger_a_payout() {
+    let (mut svm, _) = make_svm();
+    let payer = Keypair::new();
+    let payee = Keypair::new();
+    let stranger = Keypair::new();
+    let nonce = [29u8; 16];
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
+    send_ok(
+        &mut svm,
+        lock_ix(&payer, &payee.pubkey(), 1_000_000, nonce),
+        &[&payer],
+    );
+    let escrow = escrow_pda(&payer.pubkey(), &nonce).0;
+    let created = created_slot(&svm, &escrow);
+    svm.warp_to_slot(created + CLAIM_WINDOW_SLOTS + 10);
+
+    let mut ix = claim_ix(&payer.pubkey(), &payee.pubkey(), nonce);
+    ix.accounts[2].is_signer = false;
+    let blockhash = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&stranger.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&stranger]).unwrap();
+    let err = format!(
+        "{:?}",
+        svm.send_transaction(tx).expect_err("must be refused")
+    );
+    assert!(
+        err.contains("Custom(6000)"),
+        "expected UnauthorisedSigner, got: {err}"
+    );
+    assert!(svm.get_account(&escrow).is_some());
+}
+
+/// Between the cancel window and the claim window the payer can refund, and a
+/// refunded escrow leaves nothing for the payee to claim later.
+#[test]
+fn test_payer_refund_before_the_claim_window_beats_a_later_claim() {
+    let (mut svm, _) = make_svm();
+    let payer = Keypair::new();
+    let payee = Keypair::new();
+    let nonce = [30u8; 16];
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    svm.airdrop(&payee.pubkey(), 1_000_000_000).unwrap();
+    send_ok(
+        &mut svm,
+        lock_ix(&payer, &payee.pubkey(), 1_000_000, nonce),
+        &[&payer],
+    );
+    let escrow = escrow_pda(&payer.pubkey(), &nonce).0;
+    let created = created_slot(&svm, &escrow);
+    svm.warp_to_slot(created + CLAIM_WINDOW_SLOTS - 1);
+    send_ok(
+        &mut svm,
+        cancel_ix(&payer.pubkey(), &payer.pubkey(), nonce),
+        &[&payer],
+    );
+    svm.warp_to_slot(created + CLAIM_WINDOW_SLOTS + 1);
+    let payee_before = lamports(&svm, &payee.pubkey());
+    let _ = send(
+        &mut svm,
+        claim_ix(&payer.pubkey(), &payee.pubkey(), nonce),
+        &[&payee],
+    );
+    assert!(lamports(&svm, &payee.pubkey()) <= payee_before);
+}
+
+/// A stranger cannot redirect a refund by naming themselves as the payer.
+#[test]
+fn test_refund_cannot_be_redirected_to_another_account() {
+    let (mut svm, _) = make_svm();
+    let payer = Keypair::new();
+    let payee = Keypair::new();
+    let stranger = Keypair::new();
+    let nonce = [25u8; 16];
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
+
+    send_ok(
+        &mut svm,
+        lock_ix(&payer, &payee.pubkey(), 1_000_000, nonce),
+        &[&payer],
+    );
+    let escrow = escrow_pda(&payer.pubkey(), &nonce).0;
+    let created = created_slot(&svm, &escrow);
+    svm.warp_to_slot(created + CANCEL_WINDOW_SLOTS);
+
+    let mut ix = cancel_ix(&payer.pubkey(), &stranger.pubkey(), nonce);
+    ix.accounts[2].pubkey = stranger.pubkey();
+    let err = send(&mut svm, ix, &[&stranger]);
+    let err_str = format!("{:?}", err);
+    assert!(
+        err_str.contains("ConstraintSeeds") || err_str.contains("Custom(2006)"),
+        "expected a seeds mismatch, got: {err_str}"
+    );
+    assert!(svm.get_account(&escrow).is_some());
+}
+
+/// A settled escrow cannot be settled again by either path.
+#[test]
+fn test_settled_escrow_cannot_be_settled_twice() {
+    let (mut svm, _) = make_svm();
+    let payer = Keypair::new();
+    let payee = Keypair::new();
+    let nonce = [26u8; 16];
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    svm.airdrop(&payee.pubkey(), 1_000_000_000).unwrap();
+
+    send_ok(
+        &mut svm,
+        lock_ix(&payer, &payee.pubkey(), 1_000_000, nonce),
+        &[&payer],
+    );
+    send_ok(
+        &mut svm,
+        cancel_ix(&payer.pubkey(), &payee.pubkey(), nonce),
+        &[&payee],
+    );
+    let payee_after = lamports(&svm, &payee.pubkey());
+
+    let release_ix = Instruction::new_with_bytes(
+        escrow::id(),
+        &instruction::ReleaseEscrow {}.data(),
+        ReleaseEscrow {
+            escrow: escrow_pda(&payer.pubkey(), &nonce).0,
+            payer: payer.pubkey(),
+            payee: payee.pubkey(),
+            system_program: anchor_lang::solana_program::system_program::id(),
+        }
+        .to_account_metas(None),
+    );
+    let _ = send(&mut svm, release_ix, &[&payer]);
+    svm.expire_blockhash();
+    let _ = send(
+        &mut svm,
+        cancel_ix(&payer.pubkey(), &payee.pubkey(), nonce),
+        &[&payee],
+    );
+    assert!(
+        lamports(&svm, &payee.pubkey()) <= payee_after,
+        "the payee gains nothing after settlement"
+    );
+    assert!(svm
+        .get_account(&escrow_pda(&payer.pubkey(), &nonce).0)
+        .is_none());
 }

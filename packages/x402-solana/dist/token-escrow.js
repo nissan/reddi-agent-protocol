@@ -31,13 +31,17 @@ function buildLockTokenEscrowInstruction(t) {
         keys: [meta(escrow, true), meta(vault, true), meta(t.payer, true, true), meta(t.payee), meta(t.mint),
             meta(t.source, true), meta(t.recipient), meta(spl_token_1.TOKEN_PROGRAM_ID), meta(web3_js_1.SystemProgram.programId)] });
 }
-/** Destination is always taken from the original lock terms. Only payer can settle. */
-function buildSettleTokenEscrowInstruction(t, refund = false) {
+/**
+ * Destination is always taken from the original lock terms. `authority` signs and defaults to the payer.
+ * Release: the program accepts the payer at any time, or the payee once the claim window has elapsed.
+ * Refund: the program accepts the payee at any time (decline), or the payer once the cancel window has elapsed.
+ */
+function buildSettleTokenEscrowInstruction(t, refund = false, authority = t.payer) {
     buildLockTokenEscrowInstruction(t);
     const { escrow, vault } = tokenEscrowAddresses(t);
     return new web3_js_1.TransactionInstruction({ programId: t.programId,
         data: disc('global', refund ? 'cancel_token_escrow' : 'release_token_escrow'),
-        keys: [meta(escrow, true), meta(vault, true), meta(t.payer, true, true), meta(t.mint),
+        keys: [meta(escrow, true), meta(vault, true), meta(authority, false, true), meta(t.payer, true), meta(t.mint),
             meta(refund ? t.source : t.recipient, true), meta(spl_token_1.TOKEN_PROGRAM_ID)] });
 }
 function decodeTokenEscrowAccount(data) {

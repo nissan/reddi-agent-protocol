@@ -1,25 +1,73 @@
 use anchor_lang::prelude::*;
 
-use crate::constants::{CANCEL_WINDOW_SLOTS, ESCROW_SEED};
+use crate::constants::{CANCEL_WINDOW_SLOTS, CLAIM_WINDOW_SLOTS, ESCROW_SEED};
 use crate::error::EscrowError;
+use crate::events::{EscrowSettled, SettlementOutcome};
 use crate::state::{EscrowAccount, EscrowStatus};
 
-/// Cancel an escrow and refund the payer.
-/// Can only be called by the payer (Agent A) after the cancel window has elapsed.
-/// Closes the PDA and returns rent + locked funds to payer.
+/// Who may end a locked escrow by refunding the payer, and why.
+///
+/// - The payee may decline at any time.
+/// - The payer may refund itself once the cancel window has elapsed, for as long
+///   as the payee has not claimed.
+/// - Nobody else may refund.
+pub fn refund_outcome(
+    authority: &Pubkey,
+    payer: &Pubkey,
+    payee: &Pubkey,
+    created_slot: u64,
+    current_slot: u64,
+) -> Result<SettlementOutcome> {
+    if authority == payee {
+        return Ok(SettlementOutcome::DeclinedByPayee);
+    }
+    require_keys_eq!(*authority, *payer, EscrowError::UnauthorisedSigner);
+    require!(
+        current_slot.saturating_sub(created_slot) >= CANCEL_WINDOW_SLOTS,
+        EscrowError::CancelWindowNotElapsed
+    );
+    Ok(SettlementOutcome::RefundedAfterWindow)
+}
+
+/// Who may end a locked escrow by paying the payee, and why.
+///
+/// - The payer may release at any time.
+/// - The payee may claim once the claim window has elapsed, for as long as the
+///   payer has not refunded.
+/// - Nobody else may pay out.
+pub fn payout_outcome(
+    authority: &Pubkey,
+    payer: &Pubkey,
+    payee: &Pubkey,
+    created_slot: u64,
+    current_slot: u64,
+) -> Result<SettlementOutcome> {
+    if authority == payer {
+        return Ok(SettlementOutcome::Released);
+    }
+    require_keys_eq!(*authority, *payee, EscrowError::UnauthorisedSigner);
+    require!(
+        current_slot.saturating_sub(created_slot) >= CLAIM_WINDOW_SLOTS,
+        EscrowError::ClaimWindowNotElapsed
+    );
+    Ok(SettlementOutcome::ClaimedByPayee)
+}
+
+/// Refund a locked SOL escrow to its payer and close it.
 pub fn cancel_escrow_handler(ctx: Context<CancelEscrow>) -> Result<()> {
     require!(
         ctx.accounts.escrow.status == EscrowStatus::Locked,
         EscrowError::NotLocked
     );
 
-    // Enforce 7-day cancel window
-    let current_slot = Clock::get()?.slot;
-    let elapsed = current_slot.saturating_sub(ctx.accounts.escrow.created_slot);
-    require!(
-        elapsed >= CANCEL_WINDOW_SLOTS,
-        EscrowError::CancelWindowNotElapsed
-    );
+    let slot = Clock::get()?.slot;
+    let outcome = refund_outcome(
+        &ctx.accounts.authority.key(),
+        &ctx.accounts.escrow.payer,
+        &ctx.accounts.escrow.payee,
+        ctx.accounts.escrow.created_slot,
+        slot,
+    )?;
 
     let amount = ctx.accounts.escrow.amount;
 
@@ -34,11 +82,16 @@ pub fn cancel_escrow_handler(ctx: Context<CancelEscrow>) -> Result<()> {
     // Mark cancelled (account will be closed by `close = payer` constraint)
     ctx.accounts.escrow.status = EscrowStatus::Cancelled;
 
-    msg!(
-        "Escrow cancelled: payer={}, refund={}",
-        ctx.accounts.payer.key(),
+    emit!(EscrowSettled {
+        escrow: ctx.accounts.escrow.key(),
+        payer: ctx.accounts.payer.key(),
+        payee: ctx.accounts.escrow.payee,
+        mint: None,
         amount,
-    );
+        nonce: ctx.accounts.escrow.nonce,
+        outcome,
+        slot,
+    });
 
     Ok(())
 }
@@ -54,8 +107,14 @@ pub struct CancelEscrow<'info> {
     )]
     pub escrow: Account<'info, EscrowAccount>,
 
+    /// The payee (to decline at any time) or the payer (after the cancel
+    /// window).
+    pub authority: Signer<'info>,
+
+    /// CHECK: The recorded payer, bound by the escrow seeds and `has_one`. Receives
+    /// the refund and the rent; does not need to sign.
     #[account(mut)]
-    pub payer: Signer<'info>,
+    pub payer: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }
