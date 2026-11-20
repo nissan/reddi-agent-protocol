@@ -665,7 +665,7 @@ fn default_build_rejects_devnet_usdc() {
 }
 
 #[test]
-fn token_lock_rejects_other_valid_mint_and_token2022_owned_mint() {
+fn token_lock_rejects_other_valid_mint_and_a_mismatched_token_program() {
     let mut f = Fixture::new();
     // A structurally valid classic mint still must match both source and
     // destination.
@@ -675,10 +675,10 @@ fn token_lock_rejects_other_valid_mint_and_token2022_owned_mint() {
     let mut ix = f.lock_ix(400_000);
     ix.accounts[4].pubkey = other_mint;
     let err = f.reject(ix, false);
-    assert!(err.contains("ConstraintTokenMint"), "{err}");
+    assert!(err.contains("Custom(6023)"), "{err}");
 
-    // Token-2022 base mint bytes can resemble classic bytes. Ownership, not
-    // layout alone, must reject it before any token transfer or persistent init.
+    // An allowlisted classic address whose mint account is owned by Token-2022
+    // is refused: the allowlist names the program each mint must belong to.
     let token2022: Pubkey = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         .parse()
         .unwrap();
@@ -686,10 +686,16 @@ fn token_lock_rejects_other_valid_mint_and_token2022_owned_mint() {
     token2022_mint.owner = token2022;
     f.svm.set_account(f.mint, token2022_mint).unwrap();
     let err = f.reject(f.lock_ix(400_000), false);
-    assert!(err.contains("AccountOwnedByWrongProgram"), "{err}");
+    assert!(err.contains("Custom(6026)"), "{err}");
     f.svm.set_account(f.mint, mint_account).unwrap();
+    // Naming Token-2022 for a classic mint and classic accounts is refused.
     let mut ix = f.lock_ix(400_000);
     ix.accounts[7].pubkey = token2022;
+    let err = f.reject(ix, false);
+    assert!(err.contains("Custom(6023)"), "{err}");
+    // Any other program in the token program slot is refused outright.
+    let mut ix = f.lock_ix(400_000);
+    ix.accounts[7].pubkey = system_program::id();
     let err = f.reject(ix, false);
     assert!(err.contains("InvalidProgramId"), "{err}");
     assert!(f.closed(f.escrow));

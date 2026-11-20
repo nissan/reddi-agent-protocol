@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { PublicKey, SystemProgram, TransactionInstruction } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID, NATIVE_MINT } from '@solana/spl-token';
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, NATIVE_MINT } from '@solana/spl-token';
 
 const disc = (kind: string, name: string) => createHash('sha256').update(`${kind}:${name}`).digest().subarray(0, 8);
 export interface TokenEscrowTerms {
@@ -22,7 +22,8 @@ export function tokenEscrowAddresses(t: Pick<TokenEscrowTerms, 'programId' | 'pa
 }
 const meta = (pubkey: PublicKey, isWritable = false, isSigner = false) => ({ pubkey, isWritable, isSigner });
 export function buildLockTokenEscrowInstruction(t: TokenEscrowTerms): TransactionInstruction {
-  if (!t.tokenProgram.equals(TOKEN_PROGRAM_ID)) throw new Error('classic SPL Token only');
+  // The on-chain allowlist decides which mint goes with which program; this only rejects any third program.
+  if (!t.tokenProgram.equals(TOKEN_PROGRAM_ID) && !t.tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) throw new Error('token program must be classic SPL Token or Token-2022');
   if (t.amount <= 0n || t.amount > 0xffffffffffffffffn) throw new Error('amount must be a positive u64');
   if (t.mint.equals(NATIVE_MINT)) throw new Error('native mint unsupported');
   const { escrow, vault } = tokenEscrowAddresses(t);
@@ -30,7 +31,7 @@ export function buildLockTokenEscrowInstruction(t: TokenEscrowTerms): Transactio
   return new TransactionInstruction({ programId: t.programId,
     data: Buffer.concat([disc('global', 'lock_token_escrow'), amount, Buffer.from(t.nonce)]),
     keys: [meta(escrow, true), meta(vault, true), meta(t.payer, true, true), meta(t.payee), meta(t.mint),
-      meta(t.source, true), meta(t.recipient), meta(TOKEN_PROGRAM_ID), meta(SystemProgram.programId)] });
+      meta(t.source, true), meta(t.recipient), meta(t.tokenProgram), meta(SystemProgram.programId)] });
 }
 /**
  * Destination is always taken from the original lock terms. `authority` signs and defaults to the payer.
@@ -43,7 +44,7 @@ export function buildSettleTokenEscrowInstruction(t: TokenEscrowTerms, refund = 
   return new TransactionInstruction({ programId: t.programId,
     data: disc('global', refund ? 'cancel_token_escrow' : 'release_token_escrow'),
     keys: [meta(escrow, true), meta(vault, true), meta(authority, false, true), meta(t.payer, true), meta(t.mint),
-      meta(refund ? t.source : t.recipient, true), meta(TOKEN_PROGRAM_ID)] });
+      meta(refund ? t.source : t.recipient, true), meta(t.tokenProgram)] });
 }
 export function decodeTokenEscrowAccount(data: Buffer) {
   if (data.length !== 202 || !data.subarray(0, 8).equals(disc('account', 'TokenEscrowAccount'))) throw new Error('invalid token escrow layout');

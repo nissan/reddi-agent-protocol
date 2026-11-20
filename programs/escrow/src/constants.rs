@@ -38,12 +38,36 @@ pub const USDC_DEVNET_MINT: Pubkey = pubkey!("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERY
 /// holds a freeze authority over AUDD token accounts, including escrow vaults.
 pub const AUDD_MAINNET_MINT: Pubkey = pubkey!("AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw");
 
-/// Mints a token escrow may hold. The default build accepts mainnet USDC and
-/// mainnet AUDD only. Both are classic SPL Token mints.
+/// PayPal USD on Solana mainnet-beta: Token-2022, six decimals.
+pub const PYUSD_MAINNET_MINT: Pubkey = pubkey!("2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo");
+/// Global Dollar (USDG) on Solana mainnet-beta: Token-2022, six decimals.
+pub const USDG_MAINNET_MINT: Pubkey = pubkey!("2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH");
+
+/// Classic SPL Token mints a token escrow may hold. The default build accepts
+/// mainnet USDC and mainnet AUDD only.
 #[cfg(not(feature = "devnet"))]
 pub const ALLOWED_MINTS: &[Pubkey] = &[USDC_MAINNET_MINT, AUDD_MAINNET_MINT];
 #[cfg(feature = "devnet")]
 pub const ALLOWED_MINTS: &[Pubkey] = &[USDC_MAINNET_MINT, AUDD_MAINNET_MINT, USDC_DEVNET_MINT];
+
+/// Token-2022 mints a token escrow may hold. Both are issued by Paxos with the
+/// same extension set: a permanent delegate and a freeze authority (the issuer
+/// can move or freeze a vault's tokens), a transfer-fee configuration set to
+/// zero, and an unset transfer hook. The escrow cannot prevent issuer action;
+/// see `token_escrow::settle` for how settlement behaves under it.
+pub const ALLOWED_TOKEN_2022_MINTS: &[Pubkey] = &[PYUSD_MAINNET_MINT, USDG_MAINNET_MINT];
+
+/// The token program an allowlisted mint must be owned by, or `None` for a
+/// mint that is not on either allowlist.
+pub fn allowed_token_program(mint: &Pubkey) -> Option<Pubkey> {
+    if ALLOWED_MINTS.contains(mint) {
+        Some(anchor_spl::token::ID)
+    } else if ALLOWED_TOKEN_2022_MINTS.contains(mint) {
+        Some(crate::token_accounts::TOKEN_2022_ID)
+    } else {
+        None
+    }
+}
 
 pub const AGENT_REGISTRATION_FEE: u64 = 10_000_000; // 0.01 SOL in lamports
 pub const AGENT_MODEL_MAX_LEN: usize = 64;

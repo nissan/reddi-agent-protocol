@@ -17,8 +17,9 @@ function tokenEscrowAddresses(t) {
 }
 const meta = (pubkey, isWritable = false, isSigner = false) => ({ pubkey, isWritable, isSigner });
 function buildLockTokenEscrowInstruction(t) {
-    if (!t.tokenProgram.equals(spl_token_1.TOKEN_PROGRAM_ID))
-        throw new Error('classic SPL Token only');
+    // The on-chain allowlist decides which mint goes with which program; this only rejects any third program.
+    if (!t.tokenProgram.equals(spl_token_1.TOKEN_PROGRAM_ID) && !t.tokenProgram.equals(spl_token_1.TOKEN_2022_PROGRAM_ID))
+        throw new Error('token program must be classic SPL Token or Token-2022');
     if (t.amount <= 0n || t.amount > 0xffffffffffffffffn)
         throw new Error('amount must be a positive u64');
     if (t.mint.equals(spl_token_1.NATIVE_MINT))
@@ -29,7 +30,7 @@ function buildLockTokenEscrowInstruction(t) {
     return new web3_js_1.TransactionInstruction({ programId: t.programId,
         data: Buffer.concat([disc('global', 'lock_token_escrow'), amount, Buffer.from(t.nonce)]),
         keys: [meta(escrow, true), meta(vault, true), meta(t.payer, true, true), meta(t.payee), meta(t.mint),
-            meta(t.source, true), meta(t.recipient), meta(spl_token_1.TOKEN_PROGRAM_ID), meta(web3_js_1.SystemProgram.programId)] });
+            meta(t.source, true), meta(t.recipient), meta(t.tokenProgram), meta(web3_js_1.SystemProgram.programId)] });
 }
 /**
  * Destination is always taken from the original lock terms. `authority` signs and defaults to the payer.
@@ -42,7 +43,7 @@ function buildSettleTokenEscrowInstruction(t, refund = false, authority = t.paye
     return new web3_js_1.TransactionInstruction({ programId: t.programId,
         data: disc('global', refund ? 'cancel_token_escrow' : 'release_token_escrow'),
         keys: [meta(escrow, true), meta(vault, true), meta(authority, false, true), meta(t.payer, true), meta(t.mint),
-            meta(refund ? t.source : t.recipient, true), meta(spl_token_1.TOKEN_PROGRAM_ID)] });
+            meta(refund ? t.source : t.recipient, true), meta(t.tokenProgram)] });
 }
 function decodeTokenEscrowAccount(data) {
     if (data.length !== 202 || !data.subarray(0, 8).equals(disc('account', 'TokenEscrowAccount')))

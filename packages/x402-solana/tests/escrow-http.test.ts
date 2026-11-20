@@ -120,3 +120,15 @@ test('paid retry transport failure preserves proof and never locks twice', async
   await expect(buyWithEscrow({ endpoint: f.c.endpoint, body: '{}', request, approve: async () => {}, lock })).rejects.toMatchObject({ name: 'EscrowPurchaseError', challenge: f.c, proof: f.proof });
   expect(lock).toHaveBeenCalledTimes(1); expect(request).toHaveBeenCalledTimes(2);
 });
+
+test('token escrow instructions carry the token program from the terms, for classic and Token-2022 only', () => {
+  const { TOKEN_2022_PROGRAM_ID } = require('@solana/spl-token');
+  const base = { programId: pk(), payer: pk(), payee: pk(), mint: pk(), source: pk(), recipient: pk(), amount: 400000n, nonce: new Uint8Array(16).fill(3) };
+  for (const tokenProgram of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) {
+    const t = { ...base, tokenProgram };
+    expect(buildLockTokenEscrowInstruction(t).keys[7].pubkey.equals(tokenProgram)).toBe(true);
+    expect(buildSettleTokenEscrowInstruction(t).keys[6].pubkey.equals(tokenProgram)).toBe(true);
+    expect(buildSettleTokenEscrowInstruction(t, true).keys[6].pubkey.equals(tokenProgram)).toBe(true);
+  }
+  expect(() => buildLockTokenEscrowInstruction({ ...base, tokenProgram: pk() })).toThrow('classic SPL Token or Token-2022');
+});
