@@ -1,12 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SolanaReceiptVerifier = exports.DemoPaymentVerifier = exports.isValidPaymentAddress = void 0;
+exports.SolanaReceiptVerifier = exports.DEFAULT_MAX_TRANSACTION_AGE_SECONDS = exports.SOLANA_GENESIS_HASHES = exports.DemoPaymentVerifier = exports.isValidPaymentAddress = void 0;
 exports.isValidSolanaPublicKey = isValidSolanaPublicKey;
 exports.buildX402Challenge = buildX402Challenge;
 exports.parseX402Header = parseX402Header;
 exports.parseX402PaymentHeader = parseX402PaymentHeader;
 exports.verifyDemoPaymentReceipt = verifyDemoPaymentReceipt;
 exports.transactionReplayKey = transactionReplayKey;
+exports.solAmountToLamports = solAmountToLamports;
 exports.sendPayment = sendPayment;
 const web3_js_1 = require("@solana/web3.js");
 const jupiter_1 = require("./jupiter");
@@ -180,9 +181,69 @@ class DemoPaymentVerifier {
     }
 }
 exports.DemoPaymentVerifier = DemoPaymentVerifier;
+/** Genesis hashes of the public Solana clusters. */
+exports.SOLANA_GENESIS_HASHES = {
+    'solana-mainnet-beta': '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d',
+    'solana-devnet': 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG',
+    'solana-testnet': '4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY',
+};
+/** Default limit on how old a payment transaction may be when it is presented. */
+exports.DEFAULT_MAX_TRANSACTION_AGE_SECONDS = 900;
+/** Tolerance for a block time slightly ahead of the verifier's clock. */
+const MAX_CLOCK_SKEW_SECONDS = 60;
 class SolanaReceiptVerifier {
     constructor(options) {
         this.options = options;
+    }
+    /**
+     * Confirms the RPC endpoint serves the challenged network, so a transaction from
+     * a cheaper cluster cannot settle a challenge for another. Always enforced on
+     * solana-mainnet-beta against the public genesis hash. On other networks it runs
+     * only when expectedGenesisHash is set, so local validators keep working.
+     * A successful answer is remembered; a failure is asked again.
+     */
+    async clusterFailure(network) {
+        const mainnet = network === 'solana-mainnet-beta';
+        const configured = this.options.expectedGenesisHash;
+        if (!mainnet && configured === undefined)
+            return undefined;
+        const expected = mainnet ? exports.SOLANA_GENESIS_HASHES[network] : configured;
+        if (mainnet && configured !== undefined && configured !== expected) {
+            return { ok: false, reason: 'unsupported_receipt', message: 'expectedGenesisHash cannot replace the public mainnet genesis hash' };
+        }
+        const connection = this.options.connection;
+        if (typeof connection.getGenesisHash !== 'function') {
+            return { ok: false, reason: 'unsupported_receipt', message: 'network check requires a connection that reports its genesis hash' };
+        }
+        const actual = this.verifiedGenesisHash ?? await connection.getGenesisHash();
+        if (actual !== expected) {
+            return { ok: false, reason: 'wrong_network', message: 'RPC endpoint does not serve the challenged network', expected, actual };
+        }
+        this.verifiedGenesisHash = actual;
+        return undefined;
+    }
+    /** Refuses a transaction older than the configured limit, or one with no usable block time when a limit applies. */
+    ageFailure(parsed, network) {
+        const configured = this.options.maxTransactionAgeSeconds;
+        if (configured !== undefined && !(Number.isFinite(configured) && configured > 0)) {
+            return { ok: false, reason: 'unsupported_receipt', message: 'maxTransactionAgeSeconds must be a positive number' };
+        }
+        const limit = configured ?? (network === 'solana-mainnet-beta' ? exports.DEFAULT_MAX_TRANSACTION_AGE_SECONDS : undefined);
+        if (limit === undefined)
+            return undefined;
+        const blockTime = parsed.blockTime;
+        if (typeof blockTime !== 'number' || !Number.isSafeInteger(blockTime) || blockTime <= 0) {
+            return { ok: false, reason: 'invalid_receipt', message: 'transaction has no block time yet; present the receipt again shortly' };
+        }
+        const nowSeconds = Math.floor((this.options.now ?? Date.now)() / 1000);
+        const age = nowSeconds - blockTime;
+        if (age > limit) {
+            return { ok: false, reason: 'invalid_receipt', message: 'transaction is older than the accepted payment window', expected: `at most ${limit} seconds old`, actual: `${age} seconds old` };
+        }
+        if (age < -MAX_CLOCK_SKEW_SECONDS) {
+            return { ok: false, reason: 'invalid_receipt', message: 'transaction block time is in the future', actual: blockTime };
+        }
+        return undefined;
     }
     async verifyReceipt(receiptInput, challenge, replayStore) {
         if (!this.options.allowRealPayment) {
@@ -197,6 +258,9 @@ class SolanaReceiptVerifier {
         const signature = receipt.signature ?? receipt.txSignature;
         if (!signature)
             return { ok: false, reason: 'invalid_receipt', message: 'receipt signature is required' };
+        const wrongCluster = await this.clusterFailure(challenge.network);
+        if (wrongCluster)
+            return wrongCluster;
         const parsed = asRecord(await this.options.connection.getParsedTransaction(signature, {
             commitment: 'confirmed',
             maxSupportedTransactionVersion: 0,
@@ -204,6 +268,9 @@ class SolanaReceiptVerifier {
         const meta = asRecord(parsed?.meta);
         if (!parsed || !meta || meta.err)
             return { ok: false, reason: 'invalid_receipt', message: 'transaction is missing or failed' };
+        const tooOld = this.ageFailure(parsed, challenge.network);
+        if (tooOld)
+            return tooOld;
         const unpaid = await this.challengePaymentFailure(parsed, receipt, challenge, signature, replayStore);
         if (unpaid)
             return unpaid;
@@ -228,7 +295,7 @@ class SolanaReceiptVerifier {
     /** Returns a failure result when the parsed transaction does not settle the challenge, otherwise undefined. */
     async challengePaymentFailure(parsed, receipt, challenge, signature, replayStore) {
         if (challenge.currency === 'SOL') {
-            return transactionHasSolTransfer(parsed, receipt.payer, challenge.payTo, Number(challenge.amount))
+            return transactionHasSolTransfer(parsed, receipt.payer, challenge.payTo, challenge.amount)
                 ? undefined
                 : unsatisfiedChallenge();
         }
@@ -300,17 +367,55 @@ function validateReceiptShape(receipt, challenge) {
         return { ok: false, reason: 'invalid_nonce', message: 'receipt nonce does not match challenge', expected: challenge.nonce, actual: receipt.nonce };
     return undefined;
 }
+/**
+ * Converts a SOL amount to lamports without floating point multiplication, which
+ * can land one lamport above the exact value (0.00051 SOL becomes 510000.00000000006,
+ * which rounds up to 510001 and rejects an exact payment).
+ * Returns undefined for anything that is not a positive amount with at most nine
+ * decimal places.
+ */
+function solAmountToLamports(amount) {
+    let text;
+    if (typeof amount === 'number') {
+        if (!Number.isFinite(amount) || amount <= 0)
+            return undefined;
+        // toFixed avoids exponent notation for small numbers; ten places exposes a
+        // value finer than a lamport instead of silently rounding it.
+        text = amount.toFixed(10).replace(/0+$/, '').replace(/\.$/, '');
+    }
+    else {
+        text = amount;
+    }
+    const match = /^(\d+)(?:\.(\d{1,9}))?$/.exec(text);
+    if (!match)
+        return undefined;
+    const lamports = BigInt(match[1]) * BigInt(web3_js_1.LAMPORTS_PER_SOL) + BigInt((match[2] ?? '').padEnd(9, '0'));
+    return lamports > BigInt(0) ? lamports : undefined;
+}
+function lamportsOf(value) {
+    if (typeof value === 'bigint')
+        return value >= BigInt(0) ? value : undefined;
+    if (typeof value === 'number')
+        return Number.isSafeInteger(value) && value >= 0 ? BigInt(value) : undefined;
+    if (typeof value === 'string' && /^\d+$/.test(value))
+        return BigInt(value);
+    return undefined;
+}
 function transactionHasSolTransfer(parsed, payer, payTo, amountSol) {
-    const lamports = Math.ceil(amountSol * web3_js_1.LAMPORTS_PER_SOL);
+    const lamports = solAmountToLamports(amountSol);
+    if (lamports === undefined)
+        return false;
     const instructions = parsedInstructions(parsed);
     return instructions.some((ix) => {
         const parsedInstruction = asRecord(ix.parsed);
         const info = asRecord(parsedInstruction?.info);
+        const paid = lamportsOf(info?.lamports);
         return publicKeyText(ix.programId) === web3_js_1.SystemProgram.programId.toBase58()
             && parsedInstruction?.type === 'transfer'
             && (!payer || info?.source === payer)
             && info?.destination === payTo
-            && Number(info?.lamports) >= lamports;
+            && paid !== undefined
+            && paid >= lamports;
     });
 }
 /**
