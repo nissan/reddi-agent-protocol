@@ -9,6 +9,7 @@ export * from './types';
 export * from './nonce';
 export * from './payment';
 export * from './direct-payment';
+export * from './buyer';
 export * from './spl-token-observer';
 export * from './middleware';
 export * from './jupiter';
