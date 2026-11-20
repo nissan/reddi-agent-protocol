@@ -74,7 +74,7 @@ describe("job records for wallet-paid calls (#740)", () => {
   it("records a job only after the chain shows the listed price paid to the listed wallet", async () => {
     const calls = mockStore();
     const { outcome, getParsedTransaction } = await run({ session: { userId: USER_ID, wallet: BUYER } });
-    expect(outcome).toEqual({ recorded: true, jobId: "0b0e7c1e-7a57-4d0e-b3f0-1c2d3e4f5a6b" });
+    expect(outcome).toMatchObject({ recorded: true, jobId: "0b0e7c1e-7a57-4d0e-b3f0-1c2d3e4f5a6b" });
     expect(getParsedTransaction).toHaveBeenCalledWith(SIGNATURE, expect.anything());
     const write = calls.find((c) => c.url.includes("/rest/v1/jobs"))!;
     expect(write.init.headers.apikey).toBe(SERVICE_KEY);

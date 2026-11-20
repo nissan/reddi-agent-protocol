@@ -43,9 +43,14 @@ const result = verifyReddiReceiptV2(signedReceipt, {
 });
 ```
 
-`reddi.receipt.v2` is a receipt the provider issues and signs. It carries the provider's wallet, the model the provider declares it served, the request and response hashes and the payment transaction, signed with the provider's wallet key (ed25519 over a fixed-order canonical form). Verification is offline. Pass what you know yourself as the expectation: without it, a pass only says that some key signed some statement. A valid signature shows what the provider declared. It does not show which model ran.
+`reddi.receipt.v2` is the receipt for every paid call in V1. The provider issues and signs it with its wallet key (ed25519 over a fixed-order canonical form). It carries:
 
-v2 is a new version, not a superset of v1. `reddi.receipt.v1` stays frozen and keeps its own validator; `validateReddiReceipt` rejects a v2 receipt and `validateReddiReceiptV2` rejects a v1 receipt. v2 does not carry v1's buyer-side fields (job, source, policy decision, attestation status) or an amount: the amount paid is read from the transaction the receipt names. These are source-level helpers; no deployed provider issues v2 receipts yet.
+- `providerId`, `declaredModel`, `requestHash`, `responseHash`, `issuedAt`, and optionally `jobId`;
+- `payment`: `network`, `txSignature`, `currency` (SOL, USDC, PYUSD, USDG or AUDD), `mint` (every currency except SOL), `amount` (the listed price in the smallest unit), `fee` (`amount` and the `treasury` that received it), `settlement` (`direct` or `escrow`) and, when the provider checked it, `payer`.
+
+Verification is offline. Pass what you know yourself as the expectation: without it, a pass only says that some key signed some statement. The payment fields are the provider's statement; check the named transaction on chain before relying on them. A valid signature shows what the provider declared. It does not show which model ran.
+
+`reddi.receipt.v1` is deprecated and is not used by the V1 paid-call path; `validateReddiReceipt` rejects a v2 receipt and `validateReddiReceiptV2` rejects a v1 receipt. These are source-level helpers; no deployed provider issues v2 receipts yet.
 
 ## Policy Decisions
 
