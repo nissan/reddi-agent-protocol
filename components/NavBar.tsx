@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { WalletSignIn } from "@/components/auth/WalletSignIn";
 
 const WalletMultiButton = dynamic(
   async () =>
@@ -158,14 +159,20 @@ export default function NavBar() {
               {mobileOpen ? "Close" : "Menu"}
             </button>
 
-            <div className="hidden sm:flex items-center">{walletControl}</div>
+            <div className="hidden sm:flex items-center gap-2">
+              <WalletSignIn />
+              {walletControl}
+            </div>
           </div>
         </div>
 
         {mobileOpen && (
           <div className="md:hidden pb-4">
             <div className="rounded-lg border border-white/10 bg-card/90 p-3 space-y-2">
-              <div className="sm:hidden pb-1">{walletControl}</div>
+              <div className="sm:hidden pb-1 flex flex-wrap items-center gap-2">
+                {walletControl}
+                <WalletSignIn />
+              </div>
 
               <a
                 href="https://x.com/reddiagent"

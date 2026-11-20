@@ -75,15 +75,23 @@ only in the server environment.
 
 ## Sign-in
 
-Wallet signature sign-in (Sign-In With Solana): the app asks the wallet to sign a
-statement containing the site origin, a server-issued nonce and an expiry; the server
-verifies the signature and nonce, creates or finds the auth user, and upserts
-`profiles`. Sessions are cookie-based and checked on every write route.
+Wallet signature sign-in (Sign-In With Solana) through Supabase Auth's built-in Web3
+provider: the browser calls `signInWithWeb3({ chain: "solana" })` with the connected
+wallet, the wallet signs a message (never a transaction) naming the site and an expiry,
+and the auth service verifies it and issues the session.
 
-Open point to settle when the project exists: use Supabase Auth's built-in Solana
-wallet sign-in if it is available on the project's plan and version, otherwise verify
-the signature in a Next.js route and mint the session there. The tables and rules above
-are the same either way.
+Settled on 20 November 2026: use the built-in provider and do not verify signatures in
+our own route. The session lives in the browser and is sent to our write routes as a
+bearer token, not a cookie, so a write cannot be triggered from another site.
+
+- `lib/auth/wallet-session.ts` asks the auth service who a token belongs to and reads
+  the wallet from the recorded sign-in identity (`web3:solana:<address>`). It never
+  trusts a wallet in the request and never reads `user_metadata`, which a user can edit.
+- `POST /api/auth/session` upserts `profiles` with the server's service role.
+- `components/auth/WalletSignIn.tsx` is the control in the navigation bar. It renders
+  nothing until `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set.
+
+The owner must switch on "Sign in with Web3" for Solana in the project's auth settings.
 
 ## Replay store
 
