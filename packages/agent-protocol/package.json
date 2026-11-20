@@ -14,6 +14,10 @@
       "types": "./dist/receipts.d.ts",
       "import": "./dist/receipts.js"
     },
+    "./provider-receipt-extension": {
+      "types": "./dist/provider-receipt-extension.d.ts",
+      "import": "./dist/provider-receipt-extension.js"
+    },
     "./policy": {
       "types": "./dist/policy.d.ts",
       "import": "./dist/policy.js"
