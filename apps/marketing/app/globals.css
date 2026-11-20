@@ -167,3 +167,8 @@ nav{gap:16px;font-size:14px;flex-wrap:wrap}
 blockquote p{font-size:19px}
 }
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+.updates{list-style:none;padding:0;margin-top:34px}
+.updates li{padding-block:26px;border-top:1px solid var(--line)}
+.updates h2{margin-top:6px;font-size:26px}
+.update-date{font-family:var(--mono);font-size:12px;letter-spacing:.08em;font-weight:700;color:#5b5f57}
+.update-draft{color:var(--violet)}
