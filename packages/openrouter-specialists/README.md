@@ -159,3 +159,17 @@ From repo root:
 ```bash
 docker build -f packages/openrouter-specialists/Dockerfile -t reddi-openrouter-specialists:iter1 .
 ```
+
+## Replay store
+
+The runtime remembers each payment it has accepted so the same receipt cannot buy a second
+answer. `src/replay-store.ts` picks the store at start-up:
+
+- `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` set: the durable store, which calls the
+  `replay_check_and_store` database function. It survives restarts and is shared by every
+  instance. If the database cannot answer, the request gets a 503 and nothing is served.
+- Neither set: the in-memory store, which forgets on restart. With
+  `ALLOW_REAL_X402_PAYMENT` on, the server refuses to start on it unless
+  `ALLOW_MEMORY_REPLAY_STORE=1` is set, which is for local development only.
+
+The service key is a server secret. Supply it through the host's secret store; never commit it.
