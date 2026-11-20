@@ -2,7 +2,7 @@ import { Keypair, PublicKey, Transaction, Connection, SystemProgram, type Accoun
 import { AccountLayout, MintLayout, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { createHash } from 'node:crypto';
 import { createEscrowChallenge, escrowTerms, escrowRequestHash, verifyEscrowLock, EscrowSeller, buyWithEscrow } from '../src/escrow-http';
-import { buildLockTokenEscrowInstruction, buildSettleTokenEscrowInstruction, tokenEscrowAddresses, decodeTokenEscrowAccount } from '../src/token-escrow';
+import { buildLockTokenEscrowInstruction, buildSettleTokenEscrowInstruction, tokenEscrowAddresses, decodeTokenEscrowAccount, treasuryTokenAccount } from '../src/token-escrow';
 const pk = () => Keypair.generate().publicKey;
 function fixture() {
   const payer = Keypair.generate();
@@ -10,7 +10,7 @@ function fixture() {
     requestHash: escrowRequestHash('{}'), programId: pk().toBase58(), payer: payer.publicKey.toBase58(), payee: pk().toBase58(),
     mint: pk().toBase58(), source: pk().toBase58(), recipient: pk().toBase58(), amount: '400000', tokenProgram: TOKEN_PROGRAM_ID.toBase58(), decimals: 6, expiresAt: Date.now() + 60000 });
   const t = escrowTerms(c), addresses = tokenEscrowAddresses(t);
-  const state = Buffer.alloc(202);
+  const state = Buffer.alloc(203);
   createHash('sha256').update('account:TokenEscrowAccount').digest().copy(state, 0, 0, 8);
   [t.payer, t.payee, t.mint, t.source, t.recipient].forEach((p, n) => p.toBuffer().copy(state, 8 + n * 32));
   state.writeBigUInt64LE(t.amount, 168); Buffer.from(t.nonce).copy(state, 176); state.writeBigUInt64LE(100n, 193); state[201] = addresses.bump;
@@ -82,7 +82,18 @@ test('strict raw u64, classic program and nonce boundaries; settlement selects r
   expect(() => escrowTerms({ ...f.c, tokenProgram: pk().toBase58() })).toThrow('classic');
   expect(() => escrowTerms({ ...f.c, nonce: 'z'.repeat(32) })).toThrow();
   const release = buildSettleTokenEscrowInstruction(f.t);
-  expect(release.keys).toHaveLength(7);
+  expect(release.keys).toHaveLength(9);
+  // Fee to the treasury's token account, anything unused back to the recorded source.
+  expect(release.keys[6].pubkey.equals(treasuryTokenAccount(f.t))).toBe(true);
+  expect(release.keys[7].pubkey.equals(f.t.source)).toBe(true);
+  const settle = buildSettleTokenEscrowInstruction(f.t, false, f.t.payee, { actual: 123n });
+  expect(settle.data.subarray(8).readBigUInt64LE()).toBe(123n);
+  expect(settle.data.subarray(0, 8).equals(createHash('sha256').update('global:settle_token_escrow').digest().subarray(0, 8))).toBe(true);
+  expect(() => buildSettleTokenEscrowInstruction(f.t, false, f.t.payee, { actual: 0n })).toThrow('at most the locked amount');
+  expect(() => buildSettleTokenEscrowInstruction(f.t, false, f.t.payee, { actual: f.t.amount + 1n })).toThrow('at most the locked amount');
+  expect(() => buildSettleTokenEscrowInstruction(f.t, true, f.t.payee, { actual: 1n })).toThrow('no settled amount');
+  const meteredLock = buildLockTokenEscrowInstruction({ ...f.t, metered: true });
+  expect(meteredLock.data.subarray(0, 8).equals(createHash('sha256').update('global:lock_metered_token_escrow').digest().subarray(0, 8))).toBe(true);
   expect(release.keys[2]).toMatchObject({ isSigner: true, isWritable: false });
   expect(release.keys[2].pubkey.equals(f.t.payer)).toBe(true);
   expect(release.keys[5].pubkey.equals(f.t.recipient)).toBe(true);
@@ -100,6 +111,7 @@ test('strict raw u64, classic program and nonce boundaries; settlement selects r
   expect(declined.keys[2].pubkey.equals(f.t.payee)).toBe(true);
   expect(declined.keys[3].pubkey.equals(f.t.payer)).toBe(true);
   expect(decodeTokenEscrowAccount(f.state).createdSlot).toBe(100n);
+  expect(decodeTokenEscrowAccount(f.state).metered).toBe(false);
 });
 test('buyer requires approval before lock; rejects challenge substitution without spending', async () => {
   const f = fixture(), lock = jest.fn(), approve = jest.fn(async () => { throw new Error('cap exceeded'); });
@@ -127,7 +139,7 @@ test('token escrow instructions carry the token program from the terms, for clas
   for (const tokenProgram of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) {
     const t = { ...base, tokenProgram };
     expect(buildLockTokenEscrowInstruction(t).keys[7].pubkey.equals(tokenProgram)).toBe(true);
-    expect(buildSettleTokenEscrowInstruction(t).keys[6].pubkey.equals(tokenProgram)).toBe(true);
+    expect(buildSettleTokenEscrowInstruction(t).keys[8].pubkey.equals(tokenProgram)).toBe(true);
     expect(buildSettleTokenEscrowInstruction(t, true).keys[6].pubkey.equals(tokenProgram)).toBe(true);
   }
   expect(() => buildLockTokenEscrowInstruction({ ...base, tokenProgram: pk() })).toThrow('classic SPL Token or Token-2022');

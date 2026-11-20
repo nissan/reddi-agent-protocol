@@ -14,8 +14,8 @@ use escrow::{
     accounts, instruction,
     state::TokenEscrowAccount,
     token_accounts::{TOKEN_2022_ID, TOKEN_2022_VAULT_LEN},
-    CANCEL_WINDOW_SLOTS, CLAIM_WINDOW_SLOTS, PYUSD_MAINNET_MINT, USDC_MAINNET_MINT,
-    USDG_MAINNET_MINT,
+    CANCEL_WINDOW_SLOTS, CLAIM_WINDOW_SLOTS, PROTOCOL_TREASURY, PYUSD_MAINNET_MINT,
+    USDC_MAINNET_MINT, USDG_MAINNET_MINT,
 };
 use litesvm::LiteSVM;
 use solana_keypair::Keypair;
@@ -68,6 +68,7 @@ struct Fixture {
     source: Pubkey,
     recipient: Pubkey,
     issuer_token: Pubkey,
+    treasury_token: Pubkey,
     escrow: Pubkey,
     vault: Pubkey,
     nonce: [u8; 16],
@@ -122,6 +123,7 @@ impl Fixture {
             source: Pubkey::default(),
             recipient: Pubkey::default(),
             issuer_token: Pubkey::default(),
+            treasury_token: Pubkey::default(),
             escrow,
             vault,
             nonce,
@@ -129,6 +131,11 @@ impl Fixture {
         f.source = f.new_token_account(f.payer.pubkey());
         f.recipient = f.new_token_account(f.payee.pubkey());
         f.issuer_token = f.new_token_account(f.issuer.pubkey());
+        // The treasury's token account must sit at its associated address.
+        let made = f.new_token_account(PROTOCOL_TREASURY);
+        f.treasury_token = escrow::treasury_token_address(&mint, &TOKEN_2022_ID);
+        let account = f.svm.get_account(&made).unwrap();
+        f.svm.set_account(f.treasury_token, account).unwrap();
         f.mint_to(f.source, 1_000_000);
         f.mint_to(f.issuer_token, 1_000_000);
         f
@@ -226,20 +233,32 @@ impl Fixture {
             .to_account_metas(None),
         )
     }
+    fn payout_accounts(&self, authority: Pubkey) -> Vec<anchor_lang::prelude::AccountMeta> {
+        accounts::ReleaseTokenEscrow {
+            escrow: self.escrow,
+            vault: self.vault,
+            authority,
+            payer: self.payer.pubkey(),
+            mint: self.mint,
+            destination: self.recipient,
+            treasury_token: self.treasury_token,
+            refund: self.source,
+            token_program: TOKEN_2022_ID,
+        }
+        .to_account_metas(None)
+    }
     fn payout_ix(&self, authority: Pubkey) -> Instruction {
         Instruction::new_with_bytes(
             escrow::id(),
             &instruction::ReleaseTokenEscrow {}.data(),
-            accounts::ReleaseTokenEscrow {
-                escrow: self.escrow,
-                vault: self.vault,
-                authority,
-                payer: self.payer.pubkey(),
-                mint: self.mint,
-                destination: self.recipient,
-                token_program: TOKEN_2022_ID,
-            }
-            .to_account_metas(None),
+            self.payout_accounts(authority),
+        )
+    }
+    fn settle_ix(&self, authority: Pubkey, actual: u64) -> Instruction {
+        Instruction::new_with_bytes(
+            escrow::id(),
+            &instruction::SettleTokenEscrow { actual }.data(),
+            self.payout_accounts(authority),
         )
     }
     fn cancel_ix(&self, authority: Pubkey) -> Instruction {
@@ -341,7 +360,8 @@ fn pyusd_and_usdg_lock_then_release_refund_decline_and_claim() {
         );
         assert_eq!(f.svm.get_account(&f.vault).unwrap().owner, TOKEN_2022_ID);
         f.release().unwrap();
-        assert_eq!(f.triple(), (600_000, 0, 400_000));
+        assert_eq!(f.triple(), (600_000, 0, 390_000));
+        assert_eq!(f.balance(f.treasury_token), 10_000);
         assert!(f.closed(f.escrow) && f.closed(f.vault));
 
         // Decline by the payee, at once.
@@ -380,7 +400,8 @@ fn pyusd_and_usdg_lock_then_release_refund_decline_and_claim() {
         f.svm.warp_to_slot(created + CLAIM_WINDOW_SLOTS);
         let ix = f.payout_ix(payee.pubkey());
         send(&mut f.svm, &[ix], &[&payee]).unwrap();
-        assert_eq!(f.triple(), (600_000, 0, 400_000));
+        assert_eq!(f.triple(), (600_000, 0, 390_000));
+        assert_eq!(f.balance(f.treasury_token), 10_000);
         assert!(f.closed(f.escrow) && f.closed(f.vault));
     }
 }
@@ -436,7 +457,7 @@ fn settlement_refuses_the_wrong_token_program() {
     f.lock();
     let payer = f.payer.insecure_clone();
     let mut ix = f.payout_ix(payer.pubkey());
-    ix.accounts[6].pubkey = spl_token::ID;
+    ix.accounts[8].pubkey = spl_token::ID;
     let err = send(&mut f.svm, &[ix], &[&payer]).unwrap_err();
     assert!(err.contains("Custom(6023)"), "{err}");
     assert_eq!(f.triple(), (600_000, 400_000, 0));
@@ -461,8 +482,10 @@ fn a_transfer_fee_switched_on_after_lock_does_not_strand_the_escrow() {
     f.lock();
     f.set_transfer_fee(100);
     f.release().unwrap();
-    // 1% of 400,000 is withheld by the token program on the recipient account.
-    assert_eq!(f.triple(), (600_000, 0, 396_000));
+    // The payee is sent 390,000 and the treasury 10,000; the token program
+    // withholds 1% of each on the receiving account.
+    assert_eq!(f.triple(), (600_000, 0, 386_100));
+    assert_eq!(f.balance(f.treasury_token), 9_900);
     assert!(f.closed(f.escrow) && f.closed(f.vault));
 
     let mut f = Fixture::new(USDG_MAINNET_MINT);
@@ -486,8 +509,11 @@ fn a_fee_bearing_donation_cannot_block_settlement() {
         .unwrap();
     assert_eq!(f.balance(f.vault), 409_900);
     f.release().unwrap();
-    // 409,900 leaves the vault and 1% of it is withheld on the way out.
-    assert_eq!(f.balance(f.recipient), 405_801);
+    // 390,000 goes to the payee, 10,000 to the treasury and the 9,900 surplus
+    // back to the payer; the token program withholds 1% of each on arrival.
+    assert_eq!(f.balance(f.recipient), 386_100);
+    assert_eq!(f.balance(f.treasury_token), 9_900);
+    assert_eq!(f.balance(f.source), 609_801);
     assert_eq!(f.balance(f.vault), 0);
     assert!(f.closed(f.escrow));
     // The vault stays open, empty, holding only the withheld fee.
@@ -503,7 +529,9 @@ fn a_permanent_delegate_taking_vault_tokens_does_not_strand_the_escrow() {
     f.transfer(f.vault, f.issuer_token, &issuer, 150_000)
         .unwrap();
     f.release().unwrap();
+    // The payee is paid first from what is left; nothing remains for the fee.
     assert_eq!(f.triple(), (600_000, 0, 250_000));
+    assert_eq!(f.balance(f.treasury_token), 0);
     assert!(f.closed(f.escrow) && f.closed(f.vault));
 
     // Fully drained: nothing is paid, and both records still close.
@@ -541,16 +569,38 @@ fn a_frozen_vault_cannot_settle_until_thawed() {
         );
     send(&mut f.svm, &[thaw], &[&issuer]).unwrap();
     f.release().unwrap();
-    assert_eq!(f.triple(), (600_000, 0, 400_000));
+    assert_eq!(f.triple(), (600_000, 0, 390_000));
 }
 
 #[test]
-fn a_donation_without_a_fee_is_swept_to_the_beneficiary() {
+fn a_donation_without_a_fee_is_returned_to_the_payer() {
     let mut f = Fixture::new(USDG_MAINNET_MINT);
     f.lock();
     let issuer = f.issuer.insecure_clone();
     f.transfer(f.issuer_token, f.vault, &issuer, 7).unwrap();
     f.release().unwrap();
-    assert_eq!(f.triple(), (600_000, 0, 400_007));
+    assert_eq!(f.triple(), (600_007, 0, 390_000));
+    assert_eq!(f.balance(f.treasury_token), 10_000);
     assert!(f.closed(f.escrow) && f.closed(f.vault));
+}
+
+#[test]
+fn pyusd_and_usdg_metered_escrow_settles_actual_cost_with_the_fee() {
+    for mint in [PYUSD_MAINNET_MINT, USDG_MAINNET_MINT] {
+        let mut f = Fixture::new(mint);
+        let mut ix = f.lock_ix(400_000);
+        ix.data = instruction::LockMeteredTokenEscrow {
+            amount: 400_000,
+            nonce: f.nonce,
+        }
+        .data();
+        let payer = f.payer.insecure_clone();
+        send(&mut f.svm, &[ix], &[&payer]).unwrap();
+        let payee = f.payee.insecure_clone();
+        let ix = f.settle_ix(payee.pubkey(), 100_000);
+        send(&mut f.svm, &[ix], &[&payee]).unwrap();
+        assert_eq!(f.triple(), (900_000, 0, 97_500));
+        assert_eq!(f.balance(f.treasury_token), 2_500);
+        assert!(f.closed(f.escrow) && f.closed(f.vault));
+    }
 }

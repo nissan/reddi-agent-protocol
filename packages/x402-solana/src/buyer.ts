@@ -83,7 +83,8 @@ export function parseX402Challenge(value: unknown): X402Challenge | undefined {
     if (typeof f.bps !== 'number' || !Number.isInteger(f.bps) || f.bps < 0) return undefined;
     if (!isText(f.payTo) || !isValidSolanaPublicKey(f.payTo)) return undefined;
     if (!isText(f.amount) || !isText(f.providerAmount)) return undefined;
-    fee = { bps: f.bps, payTo: f.payTo, amount: f.amount, providerAmount: f.providerAmount };
+    if (f.cap !== undefined && !isText(f.cap)) return undefined;
+    fee = { bps: f.bps, payTo: f.payTo, amount: f.amount, providerAmount: f.providerAmount, ...(isText(f.cap) ? { cap: f.cap } : {}) };
   }
   const challenge: X402Challenge = {
     version: isText(c.version) ? c.version : '1',

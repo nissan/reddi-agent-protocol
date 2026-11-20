@@ -1,4 +1,4 @@
-//! The default build is the mainnet build. It must answer exactly the nine V1
+//! The default build is the mainnet build. It must answer exactly the thirteen V1
 //! instructions and treat everything else, including the rating, attestation
 //! and PER instructions kept behind the `extended` feature, as unknown.
 //!
@@ -15,12 +15,16 @@ use solana_message::{Message, VersionedMessage};
 use solana_signer::Signer;
 use solana_transaction::versioned::VersionedTransaction;
 
-const V1_INSTRUCTIONS: [&str; 9] = [
+const V1_INSTRUCTIONS: [&str; 13] = [
     "lock_escrow",
+    "lock_metered_escrow",
     "release_escrow",
+    "settle_escrow",
     "cancel_escrow",
     "lock_token_escrow",
+    "lock_metered_token_escrow",
     "release_token_escrow",
+    "settle_token_escrow",
     "cancel_token_escrow",
     "register_agent",
     "update_agent",
@@ -63,7 +67,7 @@ fn call(name: &str) -> String {
 }
 
 #[test]
-fn default_build_answers_the_nine_v1_instructions() {
+fn default_build_answers_the_thirteen_v1_instructions() {
     for name in V1_INSTRUCTIONS {
         let err = call(name);
         assert!(

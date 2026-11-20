@@ -69,6 +69,49 @@ pub fn allowed_token_program(mint: &Pubkey) -> Option<Pubkey> {
     }
 }
 
+/// Protocol fee on every payout to a payee: 250 basis points (2.5%) of the
+/// amount paid out, rounded down, taken out of the payee's share. The payer never
+/// pays more than the amount it locked.
+pub const PROTOCOL_FEE_BPS: u64 = 250;
+pub const BPS_DENOMINATOR: u64 = 10_000;
+/// Ceiling on the protocol fee for a SOL payout: 0.1 SOL. Token payouts have no
+/// ceiling (owner decision, 20 November 2026).
+pub const SOL_FEE_CAP_LAMPORTS: u64 = 100_000_000;
+/// Protocol fee treasury: the "Reddi Agent Protocol" Squads vault (2 of 3).
+/// Token fees go to this owner's token account for the escrow mint, which must
+/// exist before the first fee in that mint.
+pub const PROTOCOL_TREASURY: Pubkey = pubkey!("5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe");
+
+/// The associated token account program.
+pub const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey =
+    pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+
+/// The treasury's associated token account for `mint` under `token_program`:
+/// the only account a token fee may be paid to, so fees land where the Squads
+/// vault shows them.
+pub fn treasury_token_address(mint: &Pubkey, token_program: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(
+        &[
+            PROTOCOL_TREASURY.as_ref(),
+            token_program.as_ref(),
+            mint.as_ref(),
+        ],
+        &ASSOCIATED_TOKEN_PROGRAM_ID,
+    )
+    .0
+}
+
+/// Protocol fee on a payout of `paid` base units. `sol` applies the SOL ceiling.
+pub const fn protocol_fee(paid: u64, sol: bool) -> u64 {
+    // u128 so a large payout cannot overflow before the division.
+    let fee = (paid as u128 * PROTOCOL_FEE_BPS as u128 / BPS_DENOMINATOR as u128) as u64;
+    if sol && fee > SOL_FEE_CAP_LAMPORTS {
+        SOL_FEE_CAP_LAMPORTS
+    } else {
+        fee
+    }
+}
+
 pub const AGENT_REGISTRATION_FEE: u64 = 10_000_000; // 0.01 SOL in lamports
 pub const AGENT_MODEL_MAX_LEN: usize = 64;
 pub const AGENT_FEE_BURN_ADDRESS: Pubkey = pubkey!("1nc1nerator11111111111111111111111111111111");

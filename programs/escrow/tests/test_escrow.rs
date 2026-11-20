@@ -36,6 +36,9 @@ fn make_svm() -> (LiteSVM, anchor_lang::prelude::Pubkey) {
     let mut svm = LiteSVM::new();
     let bytes = include_bytes!("../../../target/deploy/escrow.so");
     svm.add_program(program_id, bytes).unwrap();
+    // The treasury must already hold its rent-exempt minimum to receive a fee.
+    svm.airdrop(&escrow::PROTOCOL_TREASURY, 1_000_000_000)
+        .unwrap();
     (svm, program_id)
 }
 
@@ -146,6 +149,7 @@ fn test_release_escrow_success() {
         escrow::id(),
         &instruction::ReleaseEscrow {}.data(),
         ReleaseEscrow {
+            treasury: escrow::PROTOCOL_TREASURY,
             escrow: escrow_pda,
             payer: payer.pubkey(),
             payee: payee.pubkey(),
@@ -168,8 +172,8 @@ fn test_release_escrow_success() {
         .unwrap_or(0);
     assert_eq!(
         payee_balance_after,
-        payee_balance_before + amount,
-        "Payee should have received exactly the locked amount"
+        payee_balance_before + amount - escrow::protocol_fee(amount, true),
+        "Payee should have received the locked amount less the 2.5% fee"
     );
 }
 
@@ -329,6 +333,7 @@ fn test_release_payer_constraint() {
         escrow::id(),
         &instruction::ReleaseEscrow {}.data(),
         ReleaseEscrow {
+            treasury: escrow::PROTOCOL_TREASURY,
             escrow: escrow_pda,       // correct PDA
             payer: attacker.pubkey(), // wrong payer — has_one = payer should reject
             payee: payee.pubkey(),
@@ -429,6 +434,7 @@ fn test_release_unauthorised_fails() {
         escrow::id(),
         &instruction::ReleaseEscrow {}.data(),
         ReleaseEscrow {
+            treasury: escrow::PROTOCOL_TREASURY,
             escrow: fake_escrow.pubkey(),
             payer: attacker.pubkey(),
             payee: payee.pubkey(),
@@ -740,6 +746,7 @@ fn claim_ix(
         escrow: escrow_pda(payer, &nonce).0,
         payer: *payer,
         payee: *payee,
+        treasury: escrow::PROTOCOL_TREASURY,
         system_program: anchor_lang::solana_program::system_program::id(),
     }
     .to_account_metas(None);
@@ -794,10 +801,12 @@ fn test_payee_claim_boundary_is_exact_and_pays_the_payee() {
     );
     assert!(svm.get_account(&escrow).is_none());
     assert_eq!(lamports(&svm, &payer.pubkey()), payer_before + rent);
-    let fee = payee_before + amount - lamports(&svm, &payee.pubkey());
+    let protocol_fee = escrow::protocol_fee(amount, true);
+    assert_eq!(protocol_fee, 7_500_000, "2.5% of 0.3 SOL");
+    let fee = payee_before + amount - protocol_fee - lamports(&svm, &payee.pubkey());
     assert!(
         fee < 100_000,
-        "payee receives the amount, less the fee; lost {fee}"
+        "payee receives the amount less the protocol fee and its transaction fee; lost {fee}"
     );
 }
 
@@ -927,6 +936,7 @@ fn test_settled_escrow_cannot_be_settled_twice() {
         escrow::id(),
         &instruction::ReleaseEscrow {}.data(),
         ReleaseEscrow {
+            treasury: escrow::PROTOCOL_TREASURY,
             escrow: escrow_pda(&payer.pubkey(), &nonce).0,
             payer: payer.pubkey(),
             payee: payee.pubkey(),
@@ -948,4 +958,286 @@ fn test_settled_escrow_cannot_be_settled_twice() {
     assert!(svm
         .get_account(&escrow_pda(&payer.pubkey(), &nonce).0)
         .is_none());
+}
+
+// ── Metered (per-token) settlement and the 2.5% protocol fee ─────────────────
+
+fn metered_lock_ix(
+    payer: &Keypair,
+    payee: &anchor_lang::prelude::Pubkey,
+    amount: u64,
+    nonce: [u8; 16],
+) -> Instruction {
+    Instruction::new_with_bytes(
+        escrow::id(),
+        &instruction::LockMeteredEscrow { amount, nonce }.data(),
+        LockEscrow {
+            escrow: escrow_pda(&payer.pubkey(), &nonce).0,
+            payer: payer.pubkey(),
+            payee: *payee,
+            system_program: anchor_lang::solana_program::system_program::id(),
+        }
+        .to_account_metas(None),
+    )
+}
+
+fn settle_ix(
+    payer: &anchor_lang::prelude::Pubkey,
+    payee: &anchor_lang::prelude::Pubkey,
+    nonce: [u8; 16],
+    actual: u64,
+    payee_signs: bool,
+    treasury: anchor_lang::prelude::Pubkey,
+) -> Instruction {
+    let mut metas = ReleaseEscrow {
+        escrow: escrow_pda(payer, &nonce).0,
+        payer: *payer,
+        payee: *payee,
+        treasury,
+        system_program: anchor_lang::solana_program::system_program::id(),
+    }
+    .to_account_metas(None);
+    metas[1].is_signer = !payee_signs;
+    metas[2].is_signer = payee_signs;
+    Instruction::new_with_bytes(
+        escrow::id(),
+        &instruction::SettleEscrow { actual }.data(),
+        metas,
+    )
+}
+
+#[test]
+fn test_protocol_fee_is_2_5_percent_rounded_down_with_a_sol_ceiling() {
+    assert_eq!(escrow::protocol_fee(1_000_000, true), 25_000);
+    assert_eq!(escrow::protocol_fee(39, true), 0, "rounds down, no minimum");
+    assert_eq!(escrow::protocol_fee(41, false), 1);
+    // The 0.1 SOL ceiling binds from 4 SOL of actual cost.
+    assert_eq!(escrow::protocol_fee(4_000_000_000, true), 100_000_000);
+    assert_eq!(escrow::protocol_fee(10_000_000_000, true), 100_000_000);
+    // Tokens have no ceiling.
+    assert_eq!(escrow::protocol_fee(10_000_000_000, false), 250_000_000);
+    assert_eq!(escrow::protocol_fee(u64::MAX, false), u64::MAX / 40);
+}
+
+/// The payee settles a metered escrow at its actual cost before any window:
+/// it gets the cost less 2.5%, the treasury gets 2.5%, and the unused part of
+/// the authorised maximum goes back to the payer with the rent.
+#[test]
+fn test_payee_settles_a_metered_escrow_at_actual_cost() {
+    let (mut svm, _) = make_svm();
+    let payer = Keypair::new();
+    let payee = Keypair::new();
+    let nonce = [40u8; 16];
+    let max = 400_000_000u64;
+    let actual = 123_456_789u64;
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    svm.airdrop(&payee.pubkey(), 1_000_000_000).unwrap();
+    send_ok(
+        &mut svm,
+        metered_lock_ix(&payer, &payee.pubkey(), max, nonce),
+        &[&payer],
+    );
+    let escrow = escrow_pda(&payer.pubkey(), &nonce).0;
+    let held = lamports(&svm, &escrow);
+    let payer_before = lamports(&svm, &payer.pubkey());
+    let payee_before = lamports(&svm, &payee.pubkey());
+    let treasury_before = lamports(&svm, &escrow::PROTOCOL_TREASURY);
+
+    send_ok(
+        &mut svm,
+        settle_ix(
+            &payer.pubkey(),
+            &payee.pubkey(),
+            nonce,
+            actual,
+            true,
+            escrow::PROTOCOL_TREASURY,
+        ),
+        &[&payee],
+    );
+
+    let fee = actual * 250 / 10_000;
+    assert_eq!(fee, 3_086_419);
+    assert!(svm.get_account(&escrow).is_none());
+    assert_eq!(
+        lamports(&svm, &escrow::PROTOCOL_TREASURY),
+        treasury_before + fee
+    );
+    assert_eq!(
+        lamports(&svm, &payer.pubkey()),
+        payer_before + held - actual
+    );
+    let tx_fee = payee_before + actual - fee - lamports(&svm, &payee.pubkey());
+    assert!(
+        tx_fee < 100_000,
+        "payee lost only its transaction fee; lost {tx_fee}"
+    );
+}
+
+/// Settlement must be above zero and at most the locked maximum.
+#[test]
+fn test_settle_amount_must_be_within_the_authorised_maximum() {
+    let (mut svm, _) = make_svm();
+    let payer = Keypair::new();
+    let payee = Keypair::new();
+    let nonce = [41u8; 16];
+    let max = 10_000_000u64;
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    svm.airdrop(&payee.pubkey(), 1_000_000_000).unwrap();
+    send_ok(
+        &mut svm,
+        metered_lock_ix(&payer, &payee.pubkey(), max, nonce),
+        &[&payer],
+    );
+    for actual in [0, max + 1] {
+        svm.expire_blockhash();
+        let err = format!(
+            "{:?}",
+            send(
+                &mut svm,
+                settle_ix(
+                    &payer.pubkey(),
+                    &payee.pubkey(),
+                    nonce,
+                    actual,
+                    true,
+                    escrow::PROTOCOL_TREASURY
+                ),
+                &[&payee]
+            )
+        );
+        assert!(
+            err.contains("Custom(6028)"),
+            "expected InvalidSettleAmount for {actual}, got: {err}"
+        );
+    }
+    // Exactly the maximum is allowed.
+    svm.expire_blockhash();
+    send_ok(
+        &mut svm,
+        settle_ix(
+            &payer.pubkey(),
+            &payee.pubkey(),
+            nonce,
+            max,
+            true,
+            escrow::PROTOCOL_TREASURY,
+        ),
+        &[&payee],
+    );
+}
+
+/// On a fixed-price escrow the payee cannot settle early; only the payer can
+/// (a partial release), which pays the fee on what was released.
+#[test]
+fn test_only_the_payer_settles_a_fixed_price_escrow_early() {
+    let (mut svm, _) = make_svm();
+    let payer = Keypair::new();
+    let payee = Keypair::new();
+    let nonce = [42u8; 16];
+    let amount = 200_000_000u64;
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    svm.airdrop(&payee.pubkey(), 1_000_000_000).unwrap();
+    send_ok(
+        &mut svm,
+        lock_ix(&payer, &payee.pubkey(), amount, nonce),
+        &[&payer],
+    );
+    let err = format!(
+        "{:?}",
+        send(
+            &mut svm,
+            settle_ix(
+                &payer.pubkey(),
+                &payee.pubkey(),
+                nonce,
+                1_000_000,
+                true,
+                escrow::PROTOCOL_TREASURY
+            ),
+            &[&payee]
+        )
+    );
+    assert!(
+        err.contains("Custom(6029)"),
+        "expected NotMetered, got: {err}"
+    );
+
+    let payee_before = lamports(&svm, &payee.pubkey());
+    let treasury_before = lamports(&svm, &escrow::PROTOCOL_TREASURY);
+    send_ok(
+        &mut svm,
+        settle_ix(
+            &payer.pubkey(),
+            &payee.pubkey(),
+            nonce,
+            100_000_000,
+            false,
+            escrow::PROTOCOL_TREASURY,
+        ),
+        &[&payer],
+    );
+    assert_eq!(lamports(&svm, &payee.pubkey()), payee_before + 97_500_000);
+    assert_eq!(
+        lamports(&svm, &escrow::PROTOCOL_TREASURY),
+        treasury_before + 2_500_000
+    );
+}
+
+/// The fee can only go to the protocol treasury, and a stranger cannot settle.
+#[test]
+fn test_fee_cannot_be_redirected_and_strangers_cannot_settle() {
+    let (mut svm, _) = make_svm();
+    let payer = Keypair::new();
+    let payee = Keypair::new();
+    let stranger = Keypair::new();
+    let nonce = [43u8; 16];
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    svm.airdrop(&payee.pubkey(), 1_000_000_000).unwrap();
+    svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
+    send_ok(
+        &mut svm,
+        metered_lock_ix(&payer, &payee.pubkey(), 50_000_000, nonce),
+        &[&payer],
+    );
+
+    let err = format!(
+        "{:?}",
+        send(
+            &mut svm,
+            settle_ix(
+                &payer.pubkey(),
+                &payee.pubkey(),
+                nonce,
+                40_000_000,
+                true,
+                stranger.pubkey()
+            ),
+            &[&payee]
+        )
+    );
+    assert!(
+        err.contains("Custom(6030)"),
+        "expected InvalidTreasury, got: {err}"
+    );
+
+    // A stranger signs as fee payer but neither party signs.
+    let mut ix = settle_ix(
+        &payer.pubkey(),
+        &payee.pubkey(),
+        nonce,
+        40_000_000,
+        true,
+        escrow::PROTOCOL_TREASURY,
+    );
+    ix.accounts[2].is_signer = false;
+    svm.expire_blockhash();
+    let err = format!("{:?}", send(&mut svm, ix, &[&stranger]));
+    assert!(
+        err.contains("Custom(6000)"),
+        "expected UnauthorisedSigner, got: {err}"
+    );
+    assert!(svm
+        .get_account(&escrow_pda(&payer.pubkey(), &nonce).0)
+        .is_some());
 }

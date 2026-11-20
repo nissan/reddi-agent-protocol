@@ -13,7 +13,9 @@ RAP_SURFPOOL_LANE_OUT_DIR=/abs/fresh/dir npm run test:surfpool:spl-escrow-1.7
 
 The lane is written for the trimmed nine-instruction program (#736, #746): allowlisted 6-decimal mints
 only, a 100-unit cap per escrow, an `authority` signer on release and refund, payee decline at any time,
-payer refund from 648,000 slots and payee claim from 1,512,000 slots.
+payer refund from 648,000 slots and payee claim from 1,512,000 slots. It also covers the 2.5% protocol
+fee that every payout sends to the treasury's token account, and metered escrows that the payee settles
+at their actual cost (#792).
 
 Because neither the Apple Silicon development machine nor a default cloud workspace is Linux x64 with
 the pinned toolchain, the lane can also be run on demand in GitHub Actions: the
@@ -58,25 +60,30 @@ not installed.
 6. Funds in-memory keypairs with lamports. The program accepts only allowlisted mints, so the lane
    writes a zero-supply stand-in mint, whose authority is the in-memory payer, at the allowlisted
    mainnet USDC address with the `setAccount` cheatcode (the validator proof does the same with a
-   genesis account file). Only the address is reused; this is not USDC. Token accounts are created
+   genesis account file). Only the address is reused; this is not USDC. The treasury's associated token account
+   for the stand-in mint is created locally; nothing is signed by the treasury. Token accounts are created
    and every balance is minted and moved with real SPL instructions; no token-balance cheatcode is used.
 7. Exercises, in the validator proof's order: zero-amount, above-cap and non-allowlisted-mint lock
    rejection; exact lock; stranger, early-payee-claim and wrong-recipient release rejection; payer
-   release; payee decline with stranger, early-payer-refund and wrong-destination rejection; then, for
+   release, with 2.5% of the amount going to the treasury token account; payee decline with stranger,
+   early-payer-refund and wrong-destination rejection, with no fee; a metered escrow that a stranger
+   cannot settle, that cannot be settled for zero or for more than its maximum, and that the payee
+   settles at its actual cost, with the fee to the treasury and the unused part back to the payer
+   (a payee settle of an escrow that is not metered is refused); then, for
    two more escrows, a refund attempt 10 slots before the 648,000-slot cancel window, `timeTravelToSlot`
    past it, stranger and still-too-early payee-claim rejection, payer refund, a claim attempt 10 slots
    before the 1,512,000-slot claim window, `timeTravelToSlot` past it, stranger and wrong-destination
    rejection and payee claim. Every settlement is followed by record and vault closure, replay and
-   cross-path replay rejection. It ends with a surplus-donation sweep on a payer release and on a
-   payee decline.
+   cross-path replay rejection. It ends with a surplus donation on a payer release, which returns
+   to the payer, and on a payee decline, which goes with the refund.
 8. Stops the Surfnet and confirms both RPC and WebSocket ports refuse connections.
 9. Requires parity: same ELF hash in both lanes, same program, mint address, token program, decimals,
-   cancel window and claim window, identical source/recipient balances at the point the validator
+   cancel window and claim window, the same fee rate and treasury, identical source, recipient and treasury balances at the point the validator
    proof ends, and a Surfpool check for every outcome the validator proof records.
 
 Every successful transaction is checked for lamport conservation twice: from the runtime's own
 `preBalances`/`postBalances` (only the fee leaves), and across all tracked accounts read before and
-after. Mint supply must equal the tokens held by the source, recipient and every vault at every
+after. Mint supply must equal the tokens held by the source, recipient, treasury token account and every vault at every
 checkpoint. Every rejected transaction must leave every tracked account byte-identical. Closure must
 return exactly the record and vault rent to the payer.
 
@@ -96,8 +103,8 @@ only, never public-cluster settlement.
 
 Rejections are asserted by Anchor error code where the program reaches a distinct one: `ZeroAmount`,
 `AmountAboveCap`, `MintNotAllowed`, `InvalidTokenAccount` for a wrong recipient or destination,
-`CancelWindowNotElapsed`, `ClaimWindowNotElapsed`, and `UnauthorisedSigner` for a signer that is neither
-the payer nor the payee. Replays are only required to fail and change nothing, because the closed
+`CancelWindowNotElapsed`, `ClaimWindowNotElapsed`, `InvalidSettleAmount`, `NotMetered`, and
+`UnauthorisedSigner` for a signer that is neither the payer nor the payee. Replays are only required to fail and change nothing, because the closed
 escrow record no longer exists.
 
 ## Cleanup

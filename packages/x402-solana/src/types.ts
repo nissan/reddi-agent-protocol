@@ -43,6 +43,8 @@ export interface X402FeeTerms {
   amount: string;
   /** What the provider receives: listed amount minus the fee. */
   providerAmount: string;
+  /** Fee ceiling in the challenge currency, when there is one (0.1 for SOL). */
+  cap?: string;
 }
 
 /** Operator configuration for the protocol fee. Never taken from a buyer or a provider. */

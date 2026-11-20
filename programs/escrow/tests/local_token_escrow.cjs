@@ -1,7 +1,9 @@
 /* Local-validator exercise for Reddi Agent Protocol classic SPL escrow (#746).
  * Written for the trimmed program: allowlisted 6-decimal mints only, a 100-unit cap,
  * `authority` signer on release and refund, payee decline at any time, payer refund after
- * 648,000 slots and payee claim after 1,512,000 slots.
+ * 648,000 slots and payee claim after 1,512,000 slots. Every payout sends a 2.5% protocol
+ * fee (rounded down) to the treasury's token account, and a metered escrow can be settled
+ * by the payee at its actual cost, with the unused part returned to the payer.
  * Requirements: root @solana/web3.js and @solana/spl-token dependencies (or NODE_PATH),
  * pinned solana-test-validator, a freshly built default-feature target/deploy/escrow.so.
  * Run: RAP_LOCAL_TEST_DIR=/absolute/disposable/path node programs/escrow/tests/local_token_escrow.cjs
@@ -33,6 +35,8 @@ const TOKEN = token.TOKEN_PROGRAM_ID;
 const MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const CANCEL_WINDOW_SLOTS = 648_000; // constants.rs CANCEL_WINDOW_SLOTS
 const CLAIM_WINDOW_SLOTS = 1_512_000; // constants.rs CLAIM_WINDOW_SLOTS
+// constants.rs PROTOCOL_TREASURY. Only the address is used: its associated token account is created locally; nothing is signed by it.
+const TREASURY = new PublicKey('5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const disc = name => createHash('sha256').update(`global:${name}`).digest().subarray(0, 8);
 const u64 = value => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(value)); return b; };
@@ -131,29 +135,37 @@ async function main() {
     throw new Error(`local confirmation timeout: ${signature}`);
   }
   const source = Keypair.generate(), recipient = Keypair.generate();
-  const nonces = { release: Buffer.alloc(16, 91), decline: Buffer.alloc(16, 92), refund: Buffer.alloc(16, 93), claim: Buffer.alloc(16, 94) };
+  // Token fees are only accepted at the treasury's associated token account for the mint.
+  const treasuryToken = { publicKey: token.getAssociatedTokenAddressSync(MINT, TREASURY, true, TOKEN) };
+  const nonces = { release: Buffer.alloc(16, 91), decline: Buffer.alloc(16, 92), refund: Buffer.alloc(16, 93), claim: Buffer.alloc(16, 94),
+    metered: Buffer.alloc(16, 97) };
   const escrowPda = nonce => PublicKey.findProgramAddressSync([Buffer.from('token-escrow'), payer.publicKey.toBuffer(), nonce], PROGRAM)[0];
   const vaultPda = escrow => PublicKey.findProgramAddressSync([Buffer.from('token-vault'), escrow.toBuffer()], PROGRAM)[0];
-  const lock = (nonce, amount, accounts = { mint: MINT, source: source.publicKey, recipient: recipient.publicKey }) => {
+  const lock = (nonce, amount, accounts = { mint: MINT, source: source.publicKey, recipient: recipient.publicKey }, metered = false) => {
     const escrow = escrowPda(nonce), vault = vaultPda(escrow);
-    return new TransactionInstruction({ programId: PROGRAM, data: Buffer.concat([disc('lock_token_escrow'), u64(amount), nonce]), keys: [
+    return new TransactionInstruction({ programId: PROGRAM,
+      data: Buffer.concat([disc(metered ? 'lock_metered_token_escrow' : 'lock_token_escrow'), u64(amount), nonce]), keys: [
       meta(escrow, true), meta(vault, true), meta(payer.publicKey, true, true), meta(payee.publicKey), meta(accounts.mint),
       meta(accounts.source, true), meta(accounts.recipient), meta(TOKEN), meta(SystemProgram.programId),
     ] });
   };
-  // Release and refund share one account list: escrow, vault, authority (signer), payer (rent), mint, destination, token program.
-  const settle = (nonce, refund, authority, dest = refund ? source.publicKey : recipient.publicKey) => {
+  // Refund: escrow, vault, authority (signer), payer (rent), mint, destination, token program.
+  // Release and settle-at-actual-cost add the treasury token account and the payer's refund account before the token program.
+  const settle = (nonce, kind, authority, dest = kind === 'refund' ? source.publicKey : recipient.publicKey, actual) => {
     const escrow = escrowPda(nonce);
-    return new TransactionInstruction({ programId: PROGRAM, data: disc(refund ? 'cancel_token_escrow' : 'release_token_escrow'), keys: [
-      meta(escrow, true), meta(vaultPda(escrow), true), meta(authority.publicKey, false, true), meta(payer.publicKey, true),
-      meta(MINT), meta(dest, true), meta(TOKEN),
-    ] });
+    const head = [meta(escrow, true), meta(vaultPda(escrow), true), meta(authority.publicKey, false, true), meta(payer.publicKey, true),
+      meta(MINT), meta(dest, true)];
+    if (kind === 'refund') return new TransactionInstruction({ programId: PROGRAM, data: disc('cancel_token_escrow'), keys: [...head, meta(TOKEN)] });
+    return new TransactionInstruction({ programId: PROGRAM,
+      data: kind === 'settle' ? Buffer.concat([disc('settle_token_escrow'), u64(actual)]) : disc('release_token_escrow'),
+      keys: [...head, meta(treasuryToken.publicKey, true), meta(source.publicKey, true), meta(TOKEN)] });
   };
-  const release = (nonce, authority, dest) => settle(nonce, false, authority, dest);
-  const refund = (nonce, authority, dest) => settle(nonce, true, authority, dest);
+  const release = (nonce, authority, dest) => settle(nonce, 'release', authority, dest);
+  const refund = (nonce, authority, dest) => settle(nonce, 'refund', authority, dest);
+  const settleActual = (nonce, authority, actual) => settle(nonce, 'settle', authority, undefined, actual);
   const signersFor = authority => (authority === payer ? [payer] : [payer, authority]);
   const balance = async key => (await token.getAccount(conn, key)).amount;
-  const balances = async () => [await balance(source.publicKey), await balance(recipient.publicKey)];
+  const balances = async () => [await balance(source.publicKey), await balance(recipient.publicKey), await balance(treasuryToken.publicKey)];
   async function rejected(ix, signers = [payer]) {
     const before = await balances();
     await assert.rejects(send([ix], signers));
@@ -215,6 +227,7 @@ async function main() {
     assert(installed.mintAuthority.equals(payer.publicKey) && installed.decimals === 6, 'stand-in mint not installed as written');
     signatures.push(await tokenAccount(source, MINT, payer.publicKey));
     signatures.push(await tokenAccount(recipient, MINT, payee.publicKey));
+    signatures.push(await send([token.createAssociatedTokenAccountInstruction(payer.publicKey, treasuryToken.publicKey, TREASURY, MINT, TOKEN)]));
     signatures.push(await send([token.createMintToInstruction(MINT, source.publicKey, payer.publicKey, 200_000_000n)]));
 
     // Lock refusals: zero amount, above the 100-unit cap, and a mint that is not allowlisted (RAP-LANE-S2).
@@ -235,35 +248,48 @@ async function main() {
 
     // Payer release to the recorded recipient.
     signatures.push(await send([lock(nonces.release, 400_000)]));
-    assert.deepEqual(await balances(), [199_600_000n, 0n]);
+    assert.deepEqual(await balances(), [199_600_000n, 0n, 0n]);
     assert.equal(await balance(vaultPda(escrowPda(nonces.release))), 400_000n);
     await rejected(release(nonces.release, attacker), signersFor(attacker));
     await rejected(release(nonces.release, payee), signersFor(payee)); // payee claim before the claim window
     await rejected(release(nonces.release, payer, source.publicKey));
+    await rejected(settleActual(nonces.release, payee, 100_000), signersFor(payee)); // not metered: the payee cannot settle early
     signatures.push(await send([release(nonces.release, payer)]));
-    assert.deepEqual(await balances(), [199_600_000n, 400_000n]);
+    assert.deepEqual(await balances(), [199_600_000n, 390_000n, 10_000n]); // 2.5% of 400,000 to the treasury
     await closed(nonces.release);
     await rejected(release(nonces.release, payer)); // replay
 
     // Payee decline at any time, back to the recorded source only.
     signatures.push(await send([lock(nonces.decline, 200_000)]));
-    assert.deepEqual(await balances(), [199_400_000n, 400_000n]);
+    assert.deepEqual(await balances(), [199_400_000n, 390_000n, 10_000n]);
     await rejected(refund(nonces.decline, attacker), signersFor(attacker));
     await rejected(refund(nonces.decline, payer)); // payer refund before the cancel window
     await rejected(refund(nonces.decline, payee, recipient.publicKey), signersFor(payee));
     signatures.push(await send([refund(nonces.decline, payee)], signersFor(payee)));
-    assert.deepEqual(await balances(), [199_600_000n, 400_000n]);
+    assert.deepEqual(await balances(), [199_600_000n, 390_000n, 10_000n]); // a refund pays no fee
     await closed(nonces.decline);
     await rejected(refund(nonces.decline, payee), signersFor(payee)); // replay
+
+    // Metered escrow: the payer locks a maximum, the payee settles the actual cost at any time.
+    signatures.push(await send([lock(nonces.metered, 300_000, undefined, true)]));
+    assert.deepEqual(await balances(), [199_300_000n, 390_000n, 10_000n]);
+    await rejected(settleActual(nonces.metered, attacker, 120_000), signersFor(attacker));
+    await rejected(settleActual(nonces.metered, payee, 0), signersFor(payee));
+    await rejected(settleActual(nonces.metered, payee, 300_001), signersFor(payee)); // above the authorised maximum
+    signatures.push(await send([settleActual(nonces.metered, payee, 120_000)], signersFor(payee)));
+    // 117,000 to the payee, 3,000 to the treasury, the unused 180,000 back to the payer.
+    assert.deepEqual(await balances(), [199_480_000n, 507_000n, 13_000n]);
+    await closed(nonces.metered);
+    await rejected(settleActual(nonces.metered, payee, 120_000), signersFor(payee)); // replay
 
     // Two escrows for the time-gated cases.
     signatures.push(await send([lock(nonces.refund, 150_000)]));
     signatures.push(await send([lock(nonces.claim, 100_000)]));
-    assert.deepEqual(await balances(), [199_350_000n, 400_000n]);
+    assert.deepEqual(await balances(), [199_230_000n, 507_000n, 13_000n]);
     const refundCreatedSlot = await createdSlotOf(nonces.refund), claimCreatedSlot = await createdSlotOf(nonces.claim);
     const lastCreatedSlot = Math.max(refundCreatedSlot, claimCreatedSlot);
     const refundSlot = lastCreatedSlot + CANCEL_WINDOW_SLOTS, claimSlot = claimCreatedSlot + CLAIM_WINDOW_SLOTS;
-    const tokenKeys = [MINT, source.publicKey, recipient.publicKey];
+    const tokenKeys = [MINT, source.publicKey, recipient.publicKey, treasuryToken.publicKey];
     const lockedShot = await snapshot('locked-account-snapshot', [...tokenKeys,
       escrowPda(nonces.refund), vaultPda(escrowPda(nonces.refund)), escrowPda(nonces.claim), vaultPda(escrowPda(nonces.claim))]);
 
@@ -273,7 +299,7 @@ async function main() {
     await rejected(refund(nonces.refund, attacker), signersFor(attacker));
     await rejected(release(nonces.claim, payee), signersFor(payee));
     signatures.push(await send([refund(nonces.refund, payer)]));
-    assert.deepEqual(await balances(), [199_500_000n, 400_000n]);
+    assert.deepEqual(await balances(), [199_380_000n, 507_000n, 13_000n]);
     await closed(nonces.refund);
     await rejected(refund(nonces.refund, payer)); // replay
     await rejected(release(nonces.refund, payer));
@@ -284,7 +310,7 @@ async function main() {
     await rejected(release(nonces.claim, attacker), signersFor(attacker));
     await rejected(release(nonces.claim, payee, source.publicKey), signersFor(payee));
     signatures.push(await send([release(nonces.claim, payee)], signersFor(payee)));
-    assert.deepEqual(await balances(), [199_500_000n, 500_000n]);
+    assert.deepEqual(await balances(), [199_380_000n, 604_500n, 15_500n]); // 97,500 to the payee, 2,500 to the treasury
     await closed(nonces.claim);
     await rejected(release(nonces.claim, payee), signersFor(payee)); // replay
     await rejected(refund(nonces.claim, payer));
@@ -295,11 +321,13 @@ async function main() {
       refundCreatedSlot, claimCreatedSlot, refundSlot, claimSlot,
       snapshotHashes: { locked: lockedShot.hashes, claim: claimShot.hashes },
       method: 'normal-slot local validator for lock, release and decline; byte-identical public-account snapshots reloaded into fresh local validators with a slot warp for payer refund and payee claim',
-      program: PROGRAM.toBase58(), signatures, sourceBalance: '199500000', recipientBalance: '500000',
+      program: PROGRAM.toBase58(), signatures, sourceBalance: '199380000', recipientBalance: '604500', treasuryBalance: '15500',
+      protocolFeeBps: 250, treasury: TREASURY.toBase58(),
       checks: ['zero, above-cap and non-allowlisted locks refused', 'exact lock', 'payer release to the recorded recipient',
         'payee decline to the recorded source', 'payer refund refused before and allowed after the cancel window',
         'payee claim refused before and allowed after the claim window', 'stranger refused on every path',
-        'closed escrow records and vaults', 'replay rejection'] };
+        'closed escrow records and vaults', 'replay rejection',
+        'protocol fee of 2.5% to the treasury on every payout', 'metered escrow settled by the payee at its actual cost'] };
     fs.writeFileSync(path.join(dir, 'result.json'), `${JSON.stringify(evidence, null, 2)}\n`);
     console.log(JSON.stringify(evidence, null, 2));
   } finally { await stop(); }

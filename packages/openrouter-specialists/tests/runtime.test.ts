@@ -806,7 +806,7 @@ test("402 challenge states the protocol fee split only when a treasury is config
   const withFee = await unpaid({ ...config, protocolFeeTreasury: treasury });
   assert.equal(withFee.status, 402);
   const challenge = withFee.body.x402 as { amount: string | number; fee: { bps: number; payTo: string; amount: string; providerAmount: string } };
-  assert.equal(challenge.fee.bps, 5);
+  assert.equal(challenge.fee.bps, 250);
   assert.equal(challenge.fee.payTo, treasury);
   // The buyer pays the listed amount in total: provider share plus fee equals the price.
   assert.ok(Math.abs(Number(challenge.fee.amount) + Number(challenge.fee.providerAmount) - Number(challenge.amount)) < 1e-12);

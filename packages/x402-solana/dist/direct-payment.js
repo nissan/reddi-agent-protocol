@@ -31,7 +31,8 @@ function buildDirectPaymentInstructions(input) {
         const maxFeeBps = input.maxFeeBps ?? payment_1.PROTOCOL_FEE_BPS;
         if (challenge.fee.bps > maxFeeBps)
             throw new Error(`challenge fee of ${challenge.fee.bps} bps exceeds the accepted ${maxFeeBps} bps`);
-        feeUnits = (0, payment_1.protocolFeeBaseUnits)(price, challenge.fee.bps);
+        // The ceiling is the buyer's own rule for the currency, never the challenge's.
+        feeUnits = (0, payment_1.protocolFeeBaseUnits)(price, challenge.fee.bps, (0, payment_1.protocolFeeCapBaseUnits)(challenge.currency));
         providerUnits = price - feeUnits;
         const statedFee = challenge.fee.amount === '0' ? BigInt(0) : (0, payment_1.decimalToBaseUnits)(challenge.fee.amount, decimals);
         const statedProvider = (0, payment_1.decimalToBaseUnits)(challenge.fee.providerAmount, decimals);

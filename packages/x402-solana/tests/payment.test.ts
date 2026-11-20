@@ -10,6 +10,7 @@ import {
   DEFAULT_MAX_TRANSACTION_AGE_SECONDS,
   solAmountToLamports,
   PROTOCOL_FEE_BPS,
+  protocolFeeCapBaseUnits,
   protocolFeeBaseUnits,
   protocolFeeTerms,
   decimalToBaseUnits,
@@ -700,14 +701,19 @@ describe('protocol fee on direct per-call payments', () => {
     connection: { async getParsedTransaction() { return tx; } },
   });
 
-  it('computes 0.05% rounded down, with no minimum', () => {
-    expect(PROTOCOL_FEE_BPS).toBe(5);
-    expect(protocolFeeBaseUnits(BigInt(1_000_000))).toBe(BigInt(500));
-    expect(protocolFeeBaseUnits(BigInt(2_000))).toBe(BigInt(1));
-    expect(protocolFeeBaseUnits(BigInt(1_999))).toBe(BigInt(0));
-    expect(protocolFeeBaseUnits(BigInt(1_000))).toBe(BigInt(0));
-    expect(protocolFeeBaseUnits(BigInt(3_999))).toBe(BigInt(1));
-    expect(protocolFeeBaseUnits(BigInt(100_000_000))).toBe(BigInt(50_000));
+  it('computes 2.5% rounded down, with no minimum, and caps SOL at 0.1 SOL', () => {
+    expect(PROTOCOL_FEE_BPS).toBe(250);
+    expect(protocolFeeBaseUnits(BigInt(1_000_000))).toBe(BigInt(25_000));
+    expect(protocolFeeBaseUnits(BigInt(40))).toBe(BigInt(1));
+    expect(protocolFeeBaseUnits(BigInt(39))).toBe(BigInt(0));
+    expect(protocolFeeBaseUnits(BigInt(79))).toBe(BigInt(1));
+    expect(protocolFeeBaseUnits(BigInt(100_000_000))).toBe(BigInt(2_500_000));
+    // The 0.1 SOL ceiling binds from 4 SOL; tokens have none.
+    expect(protocolFeeCapBaseUnits('SOL')).toBe(BigInt(100_000_000));
+    expect(protocolFeeCapBaseUnits('USDC')).toBeUndefined();
+    expect(protocolFeeBaseUnits(BigInt(4_000_000_000), 250, protocolFeeCapBaseUnits('SOL'))).toBe(BigInt(100_000_000));
+    expect(protocolFeeBaseUnits(BigInt(10_000_000_000), 250, protocolFeeCapBaseUnits('SOL'))).toBe(BigInt(100_000_000));
+    expect(protocolFeeBaseUnits(BigInt(10_000_000_000), 250, protocolFeeCapBaseUnits('USDC'))).toBe(BigInt(250_000_000));
     expect(() => protocolFeeBaseUnits(BigInt(1), 1.5)).toThrow();
     expect(() => protocolFeeBaseUnits(BigInt(1), 1_001)).toThrow();
     expect(() => protocolFeeBaseUnits(BigInt(-1))).toThrow();
@@ -729,7 +735,7 @@ describe('protocol fee on direct per-call payments', () => {
   // RAP-FEE-S1
   it('states the fee, the provider share and the treasury in the challenge', () => {
     const challenge = usdcChallenge('1.000000', 'fee-s1');
-    expect(challenge.fee).toEqual({ bps: 5, payTo: treasury, amount: '0.0005', providerAmount: '0.9995' });
+    expect(challenge.fee).toEqual({ bps: 250, payTo: treasury, amount: '0.025', providerAmount: '0.975' });
     expect(challenge.amount).toBe('1.000000');
     expect(usdcChallenge('1', 'fee-none', false).fee).toBeUndefined();
   });
@@ -744,14 +750,14 @@ describe('protocol fee on direct per-call payments', () => {
 
   // RAP-FEE-S2
   it('accepts a payment with both transfers and records both amounts', async () => {
-    const result = await verifier(usdcTx([leg('provider-ta', '999500'), leg('treasury-ta', '500')]))
+    const result = await verifier(usdcTx([leg('provider-ta', '975000'), leg('treasury-ta', '25000')]))
       .verifyReceipt(usdcReceipt('1.000000', 'fee-s2'), usdcChallenge('1.000000', 'fee-s2'), new MemoryNonceReplayStore());
-    expect(result).toMatchObject({ ok: true, demo: false, fee: { bps: 5, payTo: treasury, amount: '0.0005', providerAmount: '0.9995' } });
+    expect(result).toMatchObject({ ok: true, demo: false, fee: { bps: 250, payTo: treasury, amount: '0.025', providerAmount: '0.975' } });
   });
 
   it('reads the amounts from uiAmountString when the raw amount is absent', async () => {
     const uiLeg = (destination: string, ui: string) => ({ program: 'spl-token', programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', parsed: { type: 'transferChecked', info: { mint: usdcMint, authority: buyer, destination, tokenAmount: { uiAmountString: ui } } } });
-    const result = await verifier(usdcTx([uiLeg('treasury-ta', '0.0005'), uiLeg('provider-ta', '0.9995')]))
+    const result = await verifier(usdcTx([uiLeg('treasury-ta', '0.025'), uiLeg('provider-ta', '0.975')]))
       .verifyReceipt(usdcReceipt('1', 'fee-ui'), usdcChallenge('1', 'fee-ui'), new MemoryNonceReplayStore());
     expect(result.ok).toBe(true);
   });
@@ -768,18 +774,18 @@ describe('protocol fee on direct per-call payments', () => {
 
   // RAP-FEE-S4
   it('refuses a payment whose fee goes somewhere other than the configured treasury', async () => {
-    const result = await verifier(usdcTx([leg('provider-ta', '999500'), leg('stranger-ta', '500')]))
+    const result = await verifier(usdcTx([leg('provider-ta', '975000'), leg('stranger-ta', '25000')]))
       .verifyReceipt(usdcReceipt('1', 'fee-s4'), usdcChallenge('1', 'fee-s4'), new MemoryNonceReplayStore());
     expect(result).toMatchObject({ ok: false, reason: 'invalid_receipt' });
   });
 
   it('refuses a short provider share, a short fee, another mint, and one transfer counted twice', async () => {
     const cases: unknown[][] = [
-      [leg('provider-ta', '999499'), leg('treasury-ta', '500')],
-      [leg('provider-ta', '999500'), leg('treasury-ta', '499')],
-      [leg('provider-ta', '999500'), leg('treasury-ta', '500', stranger)],
-      [leg('provider-ta', '999500')],
-      [leg('treasury-ta', '500')],
+      [leg('provider-ta', '974999'), leg('treasury-ta', '25000')],
+      [leg('provider-ta', '975000'), leg('treasury-ta', '24999')],
+      [leg('provider-ta', '975000'), leg('treasury-ta', '25000', stranger)],
+      [leg('provider-ta', '975000')],
+      [leg('treasury-ta', '25000')],
     ];
     for (const [index, instructions] of cases.entries()) {
       const nonce = `fee-bad-${index}`;
@@ -790,8 +796,8 @@ describe('protocol fee on direct per-call payments', () => {
   });
 
   it('takes the treasury from the verifier, not from the challenge', async () => {
-    const forged = { ...usdcChallenge('1', 'fee-forged'), fee: { bps: 5, payTo: stranger, amount: '0.0005', providerAmount: '0.9995' } };
-    const result = await verifier(usdcTx([leg('provider-ta', '999500'), leg('stranger-ta', '500')]))
+    const forged = { ...usdcChallenge('1', 'fee-forged'), fee: { bps: 250, payTo: stranger, amount: '0.025', providerAmount: '0.975' } };
+    const result = await verifier(usdcTx([leg('provider-ta', '975000'), leg('stranger-ta', '25000')]))
       .verifyReceipt(usdcReceipt('1', 'fee-forged'), forged, new MemoryNonceReplayStore());
     expect(result).toMatchObject({ ok: false, reason: 'unsupported_receipt' });
 
@@ -806,23 +812,23 @@ describe('protocol fee on direct per-call payments', () => {
     const whole = await verifier(usdcTx([leg('provider-ta', '1000000')]))
       .verifyReceipt(usdcReceipt('1', 'fee-bare'), bare, new MemoryNonceReplayStore());
     expect(whole.ok).toBe(false);
-    const split = await verifier(usdcTx([leg('provider-ta', '999500'), leg('treasury-ta', '500')]))
+    const split = await verifier(usdcTx([leg('provider-ta', '975000'), leg('treasury-ta', '25000')]))
       .verifyReceipt(usdcReceipt('1', 'fee-bare'), bare, new MemoryNonceReplayStore());
     expect(split.ok).toBe(true);
   });
 
   // RAP-FEE-S5
   it('charges no fee on a price too small to yield one base unit, and accepts a single transfer', async () => {
-    const challenge = usdcChallenge('0.001000', 'fee-s5');
-    expect(challenge.fee).toEqual({ bps: 5, payTo: treasury, amount: '0', providerAmount: '0.001' });
-    const result = await verifier(usdcTx([{ program: 'spl-token', programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', parsed: { type: 'transferChecked', info: { mint: usdcMint, authority: buyer, destination: 'provider-ta', tokenAmount: { amount: '1000', decimals: 6, uiAmountString: '0.001000' } } } }]))
-      .verifyReceipt(usdcReceipt('0.001000', 'fee-s5'), challenge, new MemoryNonceReplayStore());
+    const challenge = usdcChallenge('0.000039', 'fee-s5');
+    expect(challenge.fee).toEqual({ bps: 250, payTo: treasury, amount: '0', providerAmount: '0.000039' });
+    const result = await verifier(usdcTx([{ program: 'spl-token', programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', parsed: { type: 'transferChecked', info: { mint: usdcMint, authority: buyer, destination: 'provider-ta', tokenAmount: { amount: '39', decimals: 6, uiAmountString: '0.000039' } } } }]))
+      .verifyReceipt(usdcReceipt('0.000039', 'fee-s5'), challenge, new MemoryNonceReplayStore());
     expect(result.ok).toBe(true);
   });
 
   it('refuses a challenge that states a fee when the verifier has none configured', async () => {
     for (const config of [null, 'disabled']) {
-      const result = await verifier(usdcTx([leg('provider-ta', '999500'), leg('treasury-ta', '500')]), config)
+      const result = await verifier(usdcTx([leg('provider-ta', '975000'), leg('treasury-ta', '25000')]), config)
         .verifyReceipt(usdcReceipt('1', 'fee-off'), usdcChallenge('1', 'fee-off'), new MemoryNonceReplayStore());
       expect(result).toMatchObject({ ok: false, reason: 'unsupported_receipt' });
     }
@@ -841,18 +847,18 @@ describe('protocol fee on direct per-call payments', () => {
       new SolanaReceiptVerifier({ allowRealPayment: true, connection: { async getParsedTransaction() { return tx; } }, ...extra });
 
     it('states and accepts a SOL split: 0.01 SOL pays 9,995,000 lamports to the provider and 5,000 to the treasury', async () => {
-      expect(solChallenge('solana-devnet', 'sol-terms').fee).toEqual({ bps: 5, payTo: treasury, amount: '0.000005', providerAmount: '0.009995' });
-      const result = await solVerifier(solTx([transfer(provider, 9_995_000), transfer(treasury, 5_000)]))
+      expect(solChallenge('solana-devnet', 'sol-terms').fee).toEqual({ bps: 250, payTo: treasury, amount: '0.00025', providerAmount: '0.00975', cap: '0.1' });
+      const result = await solVerifier(solTx([transfer(provider, 9_750_000), transfer(treasury, 250_000)]))
         .verifyReceipt(solReceipt('solana-devnet', 'sol-ok'), solChallenge('solana-devnet', 'sol-ok'), new MemoryNonceReplayStore());
-      expect(result).toMatchObject({ ok: true, fee: { amount: '0.000005' } });
+      expect(result).toMatchObject({ ok: true, fee: { amount: '0.00025' } });
     });
 
     it('refuses a SOL payment with no fee transfer, a short fee, or the fee sent to someone else', async () => {
       const cases = [
         [transfer(provider, 10_000_000)],
-        [transfer(provider, 9_995_000), transfer(treasury, 4_999)],
-        [transfer(provider, 9_995_000), transfer(stranger, 5_000)],
-        [transfer(provider, 9_994_999), transfer(treasury, 5_000)],
+        [transfer(provider, 9_750_000), transfer(treasury, 249_999)],
+        [transfer(provider, 9_750_000), transfer(stranger, 250_000)],
+        [transfer(provider, 9_749_999), transfer(treasury, 250_000)],
       ];
       for (const [index, instructions] of cases.entries()) {
         const nonce = `sol-bad-${index}`;
@@ -869,7 +875,7 @@ describe('protocol fee on direct per-call payments', () => {
         allowRealPayment: true,
         now: () => NOW,
         connection: {
-          async getParsedTransaction() { return solTx([transfer(provider, 9_995_000), transfer(treasury, 5_000)], NOW / 1000 - 30); },
+          async getParsedTransaction() { return solTx([transfer(provider, 9_750_000), transfer(treasury, 250_000)], NOW / 1000 - 30); },
           async getGenesisHash() { return SOLANA_GENESIS_HASHES['solana-mainnet-beta']; },
         },
         ...extra,
@@ -892,9 +898,9 @@ describe('protocol fee on direct per-call payments', () => {
       expect(instructions).toHaveLength(2);
       expect(instructions.every((ix) => ix.programId.equals(SystemProgram.programId))).toBe(true);
       expect(instructions[0].keys[1].pubkey.toBase58()).toBe(provider);
-      expect(instructions[0].data.readBigUInt64LE(4)).toBe(BigInt(9_995_000));
+      expect(instructions[0].data.readBigUInt64LE(4)).toBe(BigInt(9_750_000));
       expect(instructions[1].keys[1].pubkey.toBase58()).toBe(treasury);
-      expect(instructions[1].data.readBigUInt64LE(4)).toBe(BigInt(5_000));
+      expect(instructions[1].data.readBigUInt64LE(4)).toBe(BigInt(250_000));
     });
 
     it('builds two USDC transfers to the associated token accounts of the provider and the treasury', () => {
@@ -907,18 +913,18 @@ describe('protocol fee on direct per-call payments', () => {
       expect(instructions[0].keys[0].pubkey.equals(ata(buyer))).toBe(true);
       expect(instructions[0].keys[1].pubkey.equals(mint)).toBe(true);
       expect(instructions[0].keys[2].pubkey.equals(ata(provider))).toBe(true);
-      expect(instructions[0].data.readBigUInt64LE(1)).toBe(BigInt(999_500));
+      expect(instructions[0].data.readBigUInt64LE(1)).toBe(BigInt(975_000));
       expect(instructions[1].keys[2].pubkey.equals(ata(treasury))).toBe(true);
-      expect(instructions[1].data.readBigUInt64LE(1)).toBe(BigInt(500));
+      expect(instructions[1].data.readBigUInt64LE(1)).toBe(BigInt(25_000));
     });
 
     it('builds a single transfer when there is no fee or it rounds to zero', () => {
       const none = buildX402Challenge({ network: 'solana-devnet', payTo: provider, amount: '0.01', currency: 'SOL', endpoint, nonce: 'build-none' });
       expect(buildDirectPaymentInstructions({ challenge: none, payer: new PublicKey(buyer) })).toHaveLength(1);
-      const tiny = usdcChallenge('0.001', 'build-tiny');
+      const tiny = usdcChallenge('0.000039', 'build-tiny');
       const instructions = buildDirectPaymentInstructions({ challenge: tiny, payer: new PublicKey(buyer), usdcMint: new PublicKey(usdcMint) });
       expect(instructions).toHaveLength(1);
-      expect(instructions[0].data.readBigUInt64LE(1)).toBe(BigInt(1_000));
+      expect(instructions[0].data.readBigUInt64LE(1)).toBe(BigInt(39));
     });
 
     it('refuses fee terms that do not add up to the listed price, an unknown currency, and a missing mint', () => {

@@ -12,7 +12,7 @@ use escrow::{
     accounts, instruction,
     state::{EscrowStatus, TokenEscrowAccount},
     AUDD_MAINNET_MINT, CANCEL_WINDOW_SLOTS, CLAIM_WINDOW_SLOTS, MAX_TOKEN_ESCROW_BASE_UNITS,
-    USDC_DEVNET_MINT, USDC_MAINNET_MINT,
+    PROTOCOL_TREASURY, USDC_DEVNET_MINT, USDC_MAINNET_MINT,
 };
 use litesvm::LiteSVM;
 use solana_keypair::Keypair;
@@ -65,6 +65,7 @@ struct Fixture {
     source: Pubkey,
     recipient: Pubkey,
     attacker_token: Pubkey,
+    treasury_token: Pubkey,
     escrow: Pubkey,
     vault: Pubkey,
     nonce: [u8; 16],
@@ -94,7 +95,12 @@ impl Fixture {
         // or operator wallet is involved.
         install_mint(&mut svm, mint, payer.pubkey(), decimals);
         let mut tokens = Vec::new();
-        for owner in [payer.pubkey(), payee.pubkey(), attacker.pubkey()] {
+        for owner in [
+            payer.pubkey(),
+            payee.pubkey(),
+            attacker.pubkey(),
+            PROTOCOL_TREASURY,
+        ] {
             let account = Keypair::new();
             send(
                 &mut svm,
@@ -136,6 +142,10 @@ impl Fixture {
         .0;
         let vault =
             Pubkey::find_program_address(&[b"token-vault", escrow.as_ref()], &escrow::id()).0;
+        // The treasury's token account must sit at its associated address.
+        let treasury_token = escrow::treasury_token_address(&mint, &spl_token::ID);
+        let account = svm.get_account(&tokens[3]).unwrap();
+        svm.set_account(treasury_token, account).unwrap();
         Self {
             svm,
             payer,
@@ -145,6 +155,7 @@ impl Fixture {
             source: tokens[0],
             recipient: tokens[1],
             attacker_token: tokens[2],
+            treasury_token,
             escrow,
             vault,
             nonce,
@@ -172,24 +183,47 @@ impl Fixture {
             .to_account_metas(None),
         )
     }
+    fn metered_lock_ix(&self, amount: u64) -> Instruction {
+        let mut ix = self.lock_ix(amount);
+        ix.data = instruction::LockMeteredTokenEscrow {
+            amount,
+            nonce: self.nonce,
+        }
+        .data();
+        ix
+    }
     fn release_ix(&self) -> Instruction {
         self.payout_ix(self.payer.pubkey())
     }
-    /// Payout signed by `authority`, paid to the recorded recipient account.
+    fn payout_accounts(&self, authority: Pubkey) -> Vec<anchor_lang::prelude::AccountMeta> {
+        accounts::ReleaseTokenEscrow {
+            escrow: self.escrow,
+            vault: self.vault,
+            authority,
+            payer: self.payer.pubkey(),
+            mint: self.mint,
+            destination: self.recipient,
+            treasury_token: self.treasury_token,
+            refund: self.source,
+            token_program: spl_token::ID,
+        }
+        .to_account_metas(None)
+    }
+    /// Payout signed by `authority`, paid to the recorded recipient account
+    /// less the fee, which goes to the treasury's token account.
     fn payout_ix(&self, authority: Pubkey) -> Instruction {
         Instruction::new_with_bytes(
             escrow::id(),
             &instruction::ReleaseTokenEscrow {}.data(),
-            accounts::ReleaseTokenEscrow {
-                escrow: self.escrow,
-                vault: self.vault,
-                authority,
-                payer: self.payer.pubkey(),
-                mint: self.mint,
-                destination: self.recipient,
-                token_program: spl_token::ID,
-            }
-            .to_account_metas(None),
+            self.payout_accounts(authority),
+        )
+    }
+    /// Settlement at `actual`, signed by `authority`.
+    fn settle_ix(&self, authority: Pubkey, actual: u64) -> Instruction {
+        Instruction::new_with_bytes(
+            escrow::id(),
+            &instruction::SettleTokenEscrow { actual }.data(),
+            self.payout_accounts(authority),
         )
     }
     /// Refund signed by `authority`, paid to the payer's original source account.
@@ -329,7 +363,9 @@ fn token_lock_release_conserves_assets_and_closes_records_to_payer() {
     let payer_before = f.lamports(f.payer.pubkey());
     let ix = f.release_ix();
     send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
-    assert_eq!(f.triple(), (600_000, 0, 400_000));
+    // 2.5% of 400_000 goes to the treasury; the payee gets the rest.
+    assert_eq!(f.triple(), (600_000, 0, 390_000));
+    assert_eq!(f.balance(f.treasury_token), 10_000);
     assert!(f.closed(f.escrow), "escrow record must close on release");
     assert!(f.closed(f.vault), "vault must close on release");
     // Both rent reserves return to the payer net of at most the transaction fee,
@@ -344,7 +380,7 @@ fn token_lock_release_conserves_assets_and_closes_records_to_payer() {
         f.reject(ix, false);
     }
     f.lock();
-    assert_eq!(f.triple(), (200_000, 400_000, 400_000));
+    assert_eq!(f.triple(), (200_000, 400_000, 390_000));
     assert_eq!(f.state().status, EscrowStatus::Locked);
 }
 
@@ -413,7 +449,8 @@ fn payee_claim_boundary_is_exact_and_pays_only_the_recorded_recipient() {
     let payer_before = f.lamports(f.payer.pubkey());
     let ix = f.payout_ix(payee.pubkey());
     send(&mut f.svm, &[ix], &[&payee]).unwrap();
-    assert_eq!(f.triple(), (600_000, 0, 400_000));
+    assert_eq!(f.triple(), (600_000, 0, 390_000));
+    assert_eq!(f.balance(f.treasury_token), 10_000);
     assert!(f.closed(f.escrow));
     assert!(f.closed(f.vault));
     assert_eq!(
@@ -556,7 +593,11 @@ fn token_settlement_rejects_unauthorized_or_substituted_accounts() {
         (5, f.attacker_token),
         (5, f.source),
         (5, f.vault),
-        (6, system_program::id()),
+        (6, f.attacker_token),
+        (6, f.recipient),
+        (7, f.attacker_token),
+        (7, f.recipient),
+        (8, system_program::id()),
     ] {
         let mut ix = f.release_ix();
         ix.accounts[index].pubkey = key;
@@ -603,7 +644,10 @@ fn unsolicited_vault_tokens_do_not_block_settlement_or_leave_assets_stranded() {
     send(&mut f.svm, &[donate], &[&f.payer]).unwrap();
     let ix = f.release_ix();
     send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
-    assert_eq!(f.triple(), (599_993, 0, 400_007));
+    // The payee gets the locked amount less the fee; the donation goes back
+    // to the payer's source account.
+    assert_eq!(f.triple(), (600_000, 0, 390_000));
+    assert_eq!(f.balance(f.treasury_token), 10_000);
 }
 
 #[test]
@@ -640,7 +684,8 @@ fn audd_mainnet_mint_locks_releases_and_refunds() {
     assert_eq!(f.balance(f.vault), 400_000);
     let ix = f.release_ix();
     send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
-    assert_eq!(f.triple(), (before.0 - 400_000, 0, before.2 + 400_000));
+    assert_eq!(f.triple(), (before.0 - 400_000, 0, before.2 + 390_000));
+    assert_eq!(f.balance(f.treasury_token), 10_000);
     assert!(f.closed(f.escrow));
     assert!(f.closed(f.vault));
 
@@ -772,6 +817,7 @@ fn token_state_serializes_to_exact_allocated_size_for_all_statuses() {
             status: status.clone(),
             created_slot: u64::MAX,
             bump: 255,
+            metered: true,
         };
         let mut bytes = Vec::new();
         state.try_serialize(&mut bytes).unwrap();
@@ -781,4 +827,112 @@ fn token_state_serializes_to_exact_allocated_size_for_all_statuses() {
         assert_eq!(decoded.amount, u64::MAX);
         assert_eq!(decoded.mint, state.mint);
     }
+}
+
+// ── Metered (per-token) settlement and the 2.5% protocol fee ─────────────────
+
+/// The payee settles a metered escrow at its actual cost straight away: it
+/// gets the cost less 2.5%, the treasury 2.5%, and the payer the rest.
+#[test]
+fn payee_settles_a_metered_token_escrow_at_actual_cost() {
+    let mut f = Fixture::new();
+    let ix = f.metered_lock_ix(400_000);
+    send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
+    assert!(f.state().metered);
+    let payee = f.payee.insecure_clone();
+    let rent_held = f.lamports(f.escrow) + f.lamports(f.vault);
+    let payer_before = f.lamports(f.payer.pubkey());
+    let ix = f.settle_ix(payee.pubkey(), 123_457);
+    send(&mut f.svm, &[ix], &[&payee]).unwrap();
+    // fee = 123_457 * 250 / 10_000 = 3_086 (rounded down)
+    assert_eq!(f.balance(f.treasury_token), 3_086);
+    assert_eq!(f.triple(), (1_000_000 - 123_457, 0, 123_457 - 3_086));
+    assert!(f.closed(f.escrow));
+    assert!(f.closed(f.vault));
+    assert_eq!(f.lamports(f.payer.pubkey()), payer_before + rent_held);
+}
+
+#[test]
+fn token_settlement_stays_within_the_authorised_maximum() {
+    let mut f = Fixture::new();
+    let ix = f.metered_lock_ix(400_000);
+    send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
+    let payee = f.payee.insecure_clone();
+    for actual in [0, 400_001] {
+        let err = f.reject_as(f.settle_ix(payee.pubkey(), actual), &payee);
+        assert!(err.contains("Custom(6028)"), "{err}");
+    }
+    // The payee cannot send the refund to an account the payer does not own.
+    let mut ix = f.settle_ix(payee.pubkey(), 1_000);
+    ix.accounts[7].pubkey = f.attacker_token;
+    let err = f.reject_as(ix, &payee);
+    assert!(err.contains("Custom(6023)"), "{err}");
+    // Nor can the fee go to anyone but the treasury's associated account, even
+    // another account the treasury owns.
+    let mut ix = f.settle_ix(payee.pubkey(), 1_000);
+    ix.accounts[6].pubkey = f.attacker_token;
+    let err = f.reject_as(ix, &payee);
+    assert!(err.contains("Custom(6030)"), "{err}");
+    let stray = f.new_token_account(PROTOCOL_TREASURY);
+    let mut ix = f.settle_ix(payee.pubkey(), 1_000);
+    ix.accounts[6].pubkey = stray;
+    let err = f.reject_as(ix, &payee);
+    assert!(err.contains("Custom(6030)"), "{err}");
+    // A stranger cannot settle.
+    let err = f.reject(f.settle_ix(f.attacker.pubkey(), 1_000), true);
+    assert!(err.contains("Custom(6000)"), "{err}");
+    // Exactly the maximum is allowed.
+    let ix = f.settle_ix(payee.pubkey(), 400_000);
+    send(&mut f.svm, &[ix], &[&payee]).unwrap();
+    assert_eq!(f.triple(), (600_000, 0, 390_000));
+    assert_eq!(f.balance(f.treasury_token), 10_000);
+}
+
+/// On a fixed-price escrow only the payer can settle early (a partial
+/// release); the payee must wait for the claim window.
+#[test]
+fn only_the_payer_settles_a_fixed_price_token_escrow_early() {
+    let mut f = Fixture::new();
+    f.lock();
+    assert!(!f.state().metered);
+    let payee = f.payee.insecure_clone();
+    let err = f.reject_as(f.settle_ix(payee.pubkey(), 1_000), &payee);
+    assert!(err.contains("Custom(6029)"), "{err}");
+    let ix = f.settle_ix(f.payer.pubkey(), 200_000);
+    send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
+    assert_eq!(f.triple(), (800_000, 0, 195_000));
+    assert_eq!(f.balance(f.treasury_token), 5_000);
+    assert!(f.closed(f.escrow));
+}
+
+/// The payer re-owning its source account after locking cannot block the
+/// payee's settlement: the refund goes to another account the payer owns.
+#[test]
+fn payee_settles_even_after_the_payer_gives_away_its_source_account() {
+    let mut f = Fixture::new();
+    let ix = f.metered_lock_ix(400_000);
+    send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
+    let give_away = token_ix::set_authority(
+        &spl_token::ID,
+        &f.source,
+        Some(&f.attacker.pubkey()),
+        token_ix::AuthorityType::AccountOwner,
+        &f.payer.pubkey(),
+        &[],
+    )
+    .unwrap();
+    send(&mut f.svm, &[give_away], &[&f.payer]).unwrap();
+    let payee = f.payee.insecure_clone();
+    // The recorded source is no longer the payer's, so it is refused...
+    let err = f.reject_as(f.settle_ix(payee.pubkey(), 100_000), &payee);
+    assert!(err.contains("Custom(6023)"), "{err}");
+    // ...and any account the payer does own works.
+    let other = f.new_token_account(f.payer.pubkey());
+    let mut ix = f.settle_ix(payee.pubkey(), 100_000);
+    ix.accounts[7].pubkey = other;
+    send(&mut f.svm, &[ix], &[&payee]).unwrap();
+    assert_eq!(f.balance(other), 300_000);
+    assert_eq!(f.balance(f.recipient), 97_500);
+    assert_eq!(f.balance(f.treasury_token), 2_500);
+    assert!(f.closed(f.escrow));
 }

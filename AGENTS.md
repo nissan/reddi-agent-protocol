@@ -86,14 +86,16 @@ The `77rkRQxe…UZXmX` program id still quoted in some older `declare_id!` macro
 
 ## Protocol economics and claim boundaries
 
-The **planned** protocol fee is 0.05% per transaction, modelled as settlement-only (zero on failure). This is a
-product/fixture model, not implemented behaviour: no deployed on-chain release path collects a protocol treasury fee
-today — the only on-chain economic constant is `AGENT_REGISTRATION_FEE` (the 0.01 SOL registration burn). Describe the
-0.05% figure as planned or fixture semantics, never as an implemented fee. `packages/x402-solana` carries source-level
-helpers for a 5 bps split on direct per-call payments (taken from the listed price, rounded down, no minimum, off unless
-an operator configures a treasury; a mainnet verifier must be given a treasury or an explicit `disabled`); nothing
-deployed is configured with one, and the escrow program takes no fee. Older 16.7% / 83.3% figures are stale doc
-rot.
+Owner decision, 20 November 2026: listings are priced per token (input and output, per million), with an estimated
+cost and a buyer-authorised maximum. The protocol fee is 2.5% (250 bps) of the amount actually paid, rounded down, taken
+out of the provider's share, capped at 0.1 SOL for SOL payments only (stablecoins have no ceiling). It replaces the
+earlier 0.05% / 5 bps plan (#744). Per-token calls settle through a metered escrow: the buyer locks the maximum
+(`lock_metered_escrow` / `lock_metered_token_escrow`), and after the response the payee settles the actual cost
+(`settle_escrow` / `settle_token_escrow`); the program sends the fee to `PROTOCOL_TREASURY` (the Squads vault), the rest
+to the payee, and returns the unused maximum to the payer. Release and claim pay the fee too. Fee math mirrors:
+`protocol_fee` in `programs/escrow/src/constants.rs`, `protocolFeeBaseUnits` and `settleMeteredCall` in
+`packages/x402-solana`. Nothing is deployed with this yet, so in public copy the fee stays "planned" until a mainnet
+release collects it (`collected-fee` claim pattern).
 
 Owner decision, 20 November 2026 (#751): V1 source accepts AUDD, PYUSD and USDG next to SOL and USDC for direct per-call
 payments (`DIRECT_PAYMENT_CURRENCIES` in `packages/x402-solana`; PYUSD and USDG are Token-2022 mints) and the escrow

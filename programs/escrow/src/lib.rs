@@ -25,11 +25,25 @@ pub mod escrow {
     // ── Phase 2: Escrow ──────────────────────────────────────────────────────
 
     pub fn lock_escrow(ctx: Context<LockEscrow>, amount: u64, nonce: [u8; 16]) -> Result<()> {
-        instructions::lock_escrow::lock_escrow_handler(ctx, amount, nonce)
+        instructions::lock_escrow::lock_escrow_handler(ctx, amount, nonce, false)
+    }
+
+    /// Lock a buyer-authorised maximum for a metered (per-token) call.
+    pub fn lock_metered_escrow(
+        ctx: Context<LockEscrow>,
+        amount: u64,
+        nonce: [u8; 16],
+    ) -> Result<()> {
+        instructions::lock_escrow::lock_escrow_handler(ctx, amount, nonce, true)
     }
 
     pub fn release_escrow(ctx: Context<ReleaseEscrow>) -> Result<()> {
         instructions::release_escrow::release_escrow_handler(ctx)
+    }
+
+    /// Settle at the actual cost, at most the locked amount.
+    pub fn settle_escrow(ctx: Context<ReleaseEscrow>, actual: u64) -> Result<()> {
+        instructions::release_escrow::settle_escrow_handler(ctx, actual)
     }
 
     pub fn cancel_escrow(ctx: Context<CancelEscrow>) -> Result<()> {
@@ -41,11 +55,25 @@ pub mod escrow {
         amount: u64,
         nonce: [u8; 16],
     ) -> Result<()> {
-        instructions::token_escrow::lock_token_escrow_handler(ctx, amount, nonce)
+        instructions::token_escrow::lock_token_escrow_handler(ctx, amount, nonce, false)
+    }
+
+    /// Lock a buyer-authorised maximum in tokens for a metered (per-token) call.
+    pub fn lock_metered_token_escrow(
+        ctx: Context<LockTokenEscrow>,
+        amount: u64,
+        nonce: [u8; 16],
+    ) -> Result<()> {
+        instructions::token_escrow::lock_token_escrow_handler(ctx, amount, nonce, true)
     }
 
     pub fn release_token_escrow(ctx: Context<ReleaseTokenEscrow>) -> Result<()> {
         instructions::token_escrow::release_token_escrow_handler(ctx)
+    }
+
+    /// Settle a token escrow at the actual cost, at most the locked amount.
+    pub fn settle_token_escrow(ctx: Context<ReleaseTokenEscrow>, actual: u64) -> Result<()> {
+        instructions::token_escrow::settle_token_escrow_handler(ctx, actual)
     }
 
     pub fn cancel_token_escrow(ctx: Context<CancelTokenEscrow>) -> Result<()> {

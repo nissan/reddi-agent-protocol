@@ -13,6 +13,9 @@ pub enum SettlementOutcome {
     RefundedAfterWindow,
     /// Paid to the payee by the payee's own claim after the claim window.
     ClaimedByPayee,
+    /// Metered escrow settled at its actual cost: the payee was paid that cost
+    /// less the fee, and the rest went back to the payer.
+    SettledActual,
 }
 
 #[event]
@@ -34,9 +37,14 @@ pub struct EscrowSettled {
     pub payee: Pubkey,
     /// `None` for native SOL.
     pub mint: Option<Pubkey>,
-    /// Amount moved to the beneficiary, including any swept vault surplus.
+    /// Amount moved to the beneficiary, including any swept vault surplus. For a
+    /// payout this is the payee's share after the fee.
     pub amount: u64,
     pub nonce: [u8; 16],
     pub outcome: SettlementOutcome,
     pub slot: u64,
+    /// Protocol fee sent to the treasury. Zero for a refund.
+    pub fee: u64,
+    /// Amount returned to the payer by a settlement below the locked amount.
+    pub refunded: u64,
 }
