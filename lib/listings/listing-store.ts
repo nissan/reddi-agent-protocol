@@ -70,6 +70,11 @@ function publicHttpsUrl(value: unknown): string | undefined {
     return undefined;
   }
   if (url.protocol !== "https:" || !url.hostname || url.username || url.password || url.hash) return undefined;
+  // The server calls this address for health checks and paid requests, so it must be a public name:
+  // no IP literal, no single-label or internal-looking host.
+  const host = url.hostname.toLowerCase();
+  if (host.startsWith("[") || /^[0-9.]+$/.test(host) || !host.includes(".")) return undefined;
+  if (/(^|\.)(localhost|local|internal|lan|home|corp|test|invalid)$/.test(host)) return undefined;
   return url.toString();
 }
 
@@ -248,6 +253,27 @@ export async function readPublicListings(network: ListingNetwork, deps: ListingS
     if (!Array.isArray(rows)) return UNAVAILABLE;
     const listings = rows.map(fromRow).filter((l): l is Listing => l !== undefined && l.status === "listed" && l.network === network);
     return { ok: true, listings };
+  } catch {
+    return UNAVAILABLE;
+  }
+}
+
+/**
+ * Records what the server observed when it called a listing's endpoint. Only
+ * the server calls this; an owner cannot set these fields.
+ */
+export async function recordListingHealth(wallet: string, status: "pass" | "fail", deps: ListingStoreDeps & { now?: () => Date } = {}): Promise<{ ok: true } | ListingRefusal> {
+  const credentials = serverCredentials(deps);
+  if (!credentials || !WALLET.test(wallet)) return UNAVAILABLE;
+  const fetchImpl = deps.fetchImpl ?? (fetch as unknown as FetchLike);
+  try {
+    const response = await fetchImpl(`${credentials.origin}/rest/v1/providers?wallet=eq.${wallet}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", apikey: credentials.serviceKey, authorization: `Bearer ${credentials.serviceKey}`, prefer: "return=minimal" },
+      body: JSON.stringify({ health_status: status, last_seen_at: (deps.now ?? (() => new Date()))().toISOString() }),
+      signal: AbortSignal.timeout(5000),
+    });
+    return response.ok ? { ok: true } : UNAVAILABLE;
   } catch {
     return UNAVAILABLE;
   }

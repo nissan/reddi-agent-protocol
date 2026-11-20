@@ -79,8 +79,12 @@ function candidateScore(entry: SpecialistIndexEntry, policy: PlannerPolicyInput)
   };
 }
 
-export function routePlannerPolicy(policy: PlannerPolicyInput) {
-  const { results } = listSpecialistIndex();
+/**
+ * Picks a specialist for a policy. `entries` is the listing index to choose
+ * from; when omitted the file index is read, which is the local development path.
+ */
+export function routePlannerPolicy(policy: PlannerPolicyInput, entries?: SpecialistIndexEntry[]) {
+  const results = entries ?? listSpecialistIndex().results;
 
   const accepted: PlannerCandidate[] = [];
   const rejected: Array<{ walletAddress: string; reasons: string[] }> = [];
