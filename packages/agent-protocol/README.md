@@ -30,20 +30,22 @@ console.log(Object.keys(reddiReceiptFixtureCases)); // happy/denial/failure fixt
 
 Receipt validation fails closed for malformed envelopes, missing payment proof references, unsupported v1 network/asset pairs, and credential-bearing metadata.
 
-## Provider Receipt Extension
+## Receipt v2
 
 ```ts
-import { hashProviderReceiptBody, verifyProviderReceiptExtension } from '@reddi/agent-protocol/provider-receipt-extension';
+import { hashReddiReceiptV2Body, verifyReddiReceiptV2 } from '@reddi/agent-protocol/receipt-v2';
 
-const result = verifyProviderReceiptExtension(signedBlock, {
+const result = verifyReddiReceiptV2(signedReceipt, {
   providerId: providerWalletYouPaid,
-  requestHash: hashProviderReceiptBody(requestBodyYouSent),
-  responseHash: hashProviderReceiptBody(responseBodyYouReceived),
+  requestHash: hashReddiReceiptV2Body(requestBodyYouSent),
+  responseHash: hashReddiReceiptV2Body(responseBodyYouReceived),
   payment: { network: 'solana-devnet', txSignature: paymentYouMade },
 });
 ```
 
-`reddi.receipt.provider-extension.v1` is a separately signed block that sits next to a `reddi.receipt.v1` receipt and does not change it. The provider states its wallet, the model it declares it served, the request and response hashes and the payment transaction, and signs them with its wallet key (ed25519 over a fixed-order canonical form). Verification is offline. Pass what you know yourself as the expectation: without it, a pass only says that some key signed some statement. A valid signature shows what the provider declared. It does not show which model ran. These are source-level helpers; no provider runtime issues these blocks yet.
+`reddi.receipt.v2` is a receipt the provider issues and signs. It carries the provider's wallet, the model the provider declares it served, the request and response hashes and the payment transaction, signed with the provider's wallet key (ed25519 over a fixed-order canonical form). Verification is offline. Pass what you know yourself as the expectation: without it, a pass only says that some key signed some statement. A valid signature shows what the provider declared. It does not show which model ran.
+
+v2 is a new version, not a superset of v1. `reddi.receipt.v1` stays frozen and keeps its own validator; `validateReddiReceipt` rejects a v2 receipt and `validateReddiReceiptV2` rejects a v1 receipt. v2 does not carry v1's buyer-side fields (job, source, policy decision, attestation status) or an amount: the amount paid is read from the transaction the receipt names. These are source-level helpers; no deployed provider issues v2 receipts yet.
 
 ## Policy Decisions
 

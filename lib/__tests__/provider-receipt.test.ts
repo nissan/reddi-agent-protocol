@@ -3,7 +3,7 @@ jest.mock("server-only", () => ({}));
 
 import { generateKeyPairSync, sign as edSign } from "crypto";
 import { PublicKey } from "@solana/web3.js";
-import { PROVIDER_RECEIPT_EXTENSION_VERSION, hashProviderReceiptBody, signProviderReceiptExtension, type ProviderReceiptExtension } from "@reddi/agent-protocol/provider-receipt-extension";
+import { REDDI_RECEIPT_V2_VERSION, hashReddiReceiptV2Body, signReddiReceiptV2, type ReddiReceiptV2 } from "@reddi/agent-protocol/receipt-v2";
 
 import { checkAndStoreProviderReceipt, parseProviderReceiptHeader } from "@/lib/jobs/provider-receipt";
 
@@ -20,14 +20,14 @@ function testProvider() {
   return { address: new PublicKey(raw).toBase58(), signer: (message: Uint8Array) => edSign(null, message, privateKey) };
 }
 
-async function headerFor(provider: ReturnType<typeof testProvider>, overrides: Partial<ProviderReceiptExtension> = {}): Promise<string> {
-  const signed = await signProviderReceiptExtension(
+async function headerFor(provider: ReturnType<typeof testProvider>, overrides: Partial<ReddiReceiptV2> = {}): Promise<string> {
+  const signed = await signReddiReceiptV2(
     {
-      schemaVersion: PROVIDER_RECEIPT_EXTENSION_VERSION,
+      schemaVersion: REDDI_RECEIPT_V2_VERSION,
       providerId: provider.address,
       declaredModel: "llama3.1:8b",
-      requestHash: hashProviderReceiptBody(REQUEST),
-      responseHash: hashProviderReceiptBody(RESPONSE),
+      requestHash: hashReddiReceiptV2Body(REQUEST),
+      responseHash: hashReddiReceiptV2Body(RESPONSE),
       payment: { network: "solana-devnet", txSignature: TX },
       issuedAt: "2026-11-20T09:00:00Z",
       ...overrides,
@@ -59,8 +59,8 @@ describe("provider receipt check and store", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe(`${URL_BASE}/rest/v1/receipts`);
     expect(calls[0].body.job_id).toBe(JOB_ID);
-    expect(calls[0].body.schema_version).toBe(PROVIDER_RECEIPT_EXTENSION_VERSION);
-    expect((calls[0].body.receipt as ProviderReceiptExtension).providerId).toBe(provider.address);
+    expect(calls[0].body.schema_version).toBe(REDDI_RECEIPT_V2_VERSION);
+    expect((calls[0].body.receipt as ReddiReceiptV2).providerId).toBe(provider.address);
     expect(typeof calls[0].body.provider_signature).toBe("string");
   });
 
@@ -93,11 +93,11 @@ describe("provider receipt check and store", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("refuses a tampered block", async () => {
+  it("refuses a tampered receipt", async () => {
     const provider = testProvider();
     const { calls, deps } = store();
     const signed = JSON.parse(Buffer.from(await headerFor(provider), "base64url").toString("utf8"));
-    signed.extension.declaredModel = "bigger-model";
+    signed.receipt.declaredModel = "bigger-model";
     const header = Buffer.from(JSON.stringify(signed), "utf8").toString("base64url");
     expect(await checkAndStoreProviderReceipt(inputFor(provider, header), deps)).toEqual({ stored: false, reason: "signature_invalid" });
     expect(calls).toHaveLength(0);
@@ -109,7 +109,7 @@ describe("provider receipt check and store", () => {
     for (const header of ["not base64url!", Buffer.from("not json").toString("base64url"), "A".repeat(5000)]) {
       expect(await checkAndStoreProviderReceipt(inputFor(provider, header), deps)).toEqual({ stored: false, reason: "unreadable" });
     }
-    expect(await checkAndStoreProviderReceipt(inputFor(provider, Buffer.from("{}").toString("base64url")), deps)).toEqual({ stored: false, reason: "malformed_extension" });
+    expect(await checkAndStoreProviderReceipt(inputFor(provider, Buffer.from("{}").toString("base64url")), deps)).toEqual({ stored: false, reason: "malformed_receipt" });
     expect(calls).toHaveLength(0);
     expect(parseProviderReceiptHeader("")).toBeUndefined();
   });

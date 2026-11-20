@@ -155,15 +155,18 @@ to the provider's answer. The provider's own verification is not taken as proof.
   for SOL and the mints this app knows on the job's own network; any other mint is shown
   in base units (`lib/jobs/job-display.ts`).
 
-The provider-signed receipt has a format and an offline verifier
-(`packages/agent-protocol/src/provider-receipt-extension.ts`, schema
-`reddi.receipt.provider-extension.v1`). It is a separate signed block, so the
-`reddi.receipt.v1` contract is unchanged; the owner's choice between this and a new
-receipt version is still open. It records a declared model, never verified execution.
+The provider-signed receipt is `reddi.receipt.v2`, with an offline verifier
+(`packages/agent-protocol/src/receipt-v2.ts`). The owner chose a new receipt version over
+an extension block next to v1 (20 November 2026). v2 is issued and signed by the
+provider and carries the provider wallet, declared model, request and response hashes
+and the payment transaction. It is not a superset of v1: `reddi.receipt.v1` stays frozen
+with its own validator, each validator rejects the other version, and v2 carries no
+amount (the amount is read from the transaction it names). It records a declared model,
+never verified execution.
 
 After a delivered, recorded job the app reads the `x-reddi-provider-receipt` response
-header (base64url JSON of the signed block) and saves it to `receipts` only if the
-signature verifies against the paid listing's wallet and the block names the request and
+header (base64url JSON of the signed v2 receipt) and saves it to `receipts` only if the
+signature verifies against the paid listing's wallet and the receipt names the request and
 response bytes the app sent and received and the transaction it checked on chain
 (`lib/jobs/provider-receipt.ts`). A missing or failed receipt never changes the job.
 

@@ -4,7 +4,7 @@ import test from "node:test";
 import { MockOpenRouterClient } from "../src/openrouter.js";
 import { getProfile } from "../src/profiles/index.js";
 import {
-  PROVIDER_RECEIPT_EXTENSION_VERSION,
+  REDDI_RECEIPT_V2_VERSION,
   PROVIDER_RECEIPT_HEADER,
   buildProviderReceiptHeader,
   handleRuntimeRequest,
@@ -33,7 +33,7 @@ function paymentHeaders(receipt: unknown): Headers {
 
 function recordingSigner() {
   const statements: ProviderReceiptStatement[] = [];
-  return { statements, sign: (statement: ProviderReceiptStatement) => { statements.push(statement); return { extension: statement, proof: { type: "ed25519", signature: "test-signature" } }; } };
+  return { statements, sign: (statement: ProviderReceiptStatement) => { statements.push(statement); return { receipt: statement, proof: { type: "ed25519", signature: "test-signature" } }; } };
 }
 
 const sha = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
@@ -51,8 +51,8 @@ test("a receipt states the provider wallet, configured model, body hashes and th
   assert.ok(header);
   assert.match(header, /^[A-Za-z0-9_-]+$/);
   const decoded = JSON.parse(Buffer.from(header, "base64url").toString("utf8"));
-  assert.deepEqual(decoded.extension, {
-    schemaVersion: PROVIDER_RECEIPT_EXTENSION_VERSION,
+  assert.deepEqual(decoded.receipt, {
+    schemaVersion: REDDI_RECEIPT_V2_VERSION,
     providerId: profile.walletAddress,
     declaredModel: profile.model,
     requestHash: sha(REQUEST),
