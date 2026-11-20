@@ -2,8 +2,8 @@ use anchor_lang::prelude::*;
 
 use crate::{
     constants::{
-        allowed_token_program, ALLOWED_MINT_DECIMALS, MAX_TOKEN_ESCROW_BASE_UNITS,
-        TOKEN_ESCROW_SEED, TOKEN_VAULT_SEED,
+        allowed_token_program, protocol_fee, ALLOWED_MINT_DECIMALS, MAX_TOKEN_ESCROW_BASE_UNITS,
+        PROTOCOL_TREASURY, TOKEN_ESCROW_SEED, TOKEN_VAULT_SEED,
     },
     error::EscrowError,
     events::{EscrowLocked, EscrowSettled, SettlementOutcome},
@@ -18,6 +18,7 @@ pub fn lock_token_escrow_handler(
     ctx: Context<LockTokenEscrow>,
     amount: u64,
     nonce: [u8; 16],
+    metered: bool,
 ) -> Result<()> {
     require!(amount > 0, EscrowError::ZeroAmount);
     // The mint must be allowlisted, be owned by the token program the allowlist
@@ -82,6 +83,7 @@ pub fn lock_token_escrow_handler(
     escrow.status = EscrowStatus::Locked;
     escrow.created_slot = Clock::get()?.slot;
     escrow.bump = ctx.bumps.escrow;
+    escrow.metered = metered;
     emit!(EscrowLocked {
         escrow: escrow.key(),
         payer: escrow.payer,
@@ -94,8 +96,9 @@ pub fn lock_token_escrow_handler(
     Ok(())
 }
 
-/// Pay the recorded recipient token account. Signed by the payer at any time
-/// (release) or by the payee once the claim window has elapsed (claim).
+/// Pay the recorded recipient token account the whole locked amount, less the
+/// protocol fee. Signed by the payer at any time (release) or by the payee once
+/// the claim window has elapsed (claim).
 pub fn release_token_escrow_handler(ctx: Context<ReleaseTokenEscrow>) -> Result<()> {
     let escrow = &ctx.accounts.escrow;
     let outcome = payout_outcome(
@@ -105,25 +108,177 @@ pub fn release_token_escrow_handler(ctx: Context<ReleaseTokenEscrow>) -> Result<
         escrow.created_slot,
         Clock::get()?.slot,
     )?;
+    let amount = escrow.amount;
+    pay_out(ctx.accounts, amount, outcome)
+}
+
+/// Settle a token escrow at its actual cost: the recorded recipient receives
+/// `actual` less the protocol fee, the treasury's token account receives the
+/// fee, and the rest of the vault returns to the payer.
+///
+/// The payee may settle a metered escrow at any time; the payer may settle any
+/// escrow at any time, which is a partial release.
+pub fn settle_token_escrow_handler(ctx: Context<ReleaseTokenEscrow>, actual: u64) -> Result<()> {
+    let escrow = &ctx.accounts.escrow;
+    let authority = ctx.accounts.authority.key();
+    require!(
+        actual > 0 && actual <= escrow.amount,
+        EscrowError::InvalidSettleAmount
+    );
+    if authority != escrow.payer {
+        require_keys_eq!(authority, escrow.payee, EscrowError::UnauthorisedSigner);
+        require!(escrow.metered, EscrowError::NotMetered);
+    }
+    let outcome = if actual == escrow.amount && authority == escrow.payer {
+        SettlementOutcome::Released
+    } else {
+        SettlementOutcome::SettledActual
+    };
+    pay_out(ctx.accounts, actual, outcome)
+}
+
+/// Split the vault: `paid` less the fee to the payee's recorded recipient, the
+/// fee to the treasury, and everything else (the unused part of the locked
+/// amount and any donation) back to the payer. Closes the vault.
+///
+/// Classic SPL Token: the vault can only grow, so it must still hold at least
+/// the locked amount and every destination must receive exactly what is sent.
+/// Token-2022: the issuer can shrink the vault or switch on a transfer fee, so
+/// the payee is paid first from what is there, then the fee, then the refund,
+/// and each destination may receive less than was sent. See `settle`.
+fn pay_out(accounts: &mut ReleaseTokenEscrow, paid: u64, outcome: SettlementOutcome) -> Result<()> {
+    let escrow = &accounts.escrow;
+    let issuer_controlled = accounts.token_program.key() == TOKEN_2022_ID;
     require_keys_eq!(
-        ctx.accounts.destination.key(),
+        accounts.destination.key(),
         escrow.recipient,
         EscrowError::InvalidTokenAccount
     );
     require_keys_eq!(
-        ctx.accounts.destination.owner,
+        accounts.destination.owner,
         escrow.payee,
         EscrowError::InvalidTokenAccount
     );
-    let parts = SettleParts {
-        escrow: &ctx.accounts.escrow,
-        vault: &mut ctx.accounts.vault,
-        mint: &ctx.accounts.mint,
-        destination: &mut ctx.accounts.destination,
-        rent_to: ctx.accounts.payer.to_account_info(),
-        token_program: ctx.accounts.token_program.to_account_info(),
-    };
-    settle(parts, outcome)
+    require_keys_eq!(
+        accounts.refund.owner,
+        escrow.payer,
+        EscrowError::InvalidTokenAccount
+    );
+    if accounts.authority.key() != escrow.payer {
+        require_keys_eq!(
+            accounts.refund.key(),
+            escrow.source,
+            EscrowError::InvalidTokenAccount
+        );
+    }
+    // Every destination is a different account, so each balance change below
+    // measures one transfer.
+    let vault_key = accounts.vault.key();
+    let keys = [
+        accounts.destination.key(),
+        accounts.treasury_token.key(),
+        accounts.refund.key(),
+    ];
+    for (i, key) in keys.iter().enumerate() {
+        require_keys_neq!(*key, vault_key, EscrowError::InvalidTokenAccount);
+        for other in keys.iter().skip(i + 1) {
+            require_keys_neq!(*key, *other, EscrowError::InvalidTokenAccount);
+        }
+    }
+
+    let available = accounts.vault.amount;
+    require!(
+        issuer_controlled || available >= escrow.amount,
+        EscrowError::InvalidTokenAmount
+    );
+    let fee = protocol_fee(paid, false);
+    let to_payee = paid.checked_sub(fee).ok_or(EscrowError::Overflow)?;
+    let payee_part = to_payee.min(available);
+    let fee_part = fee.min(available - payee_part);
+    let refund_part = available - payee_part - fee_part;
+
+    let bump = [escrow.bump];
+    let seeds: &[&[u8]] = &[
+        TOKEN_ESCROW_SEED,
+        escrow.payer.as_ref(),
+        &escrow.nonce,
+        &bump,
+    ];
+    let signer = &[seeds];
+    let token_program = accounts.token_program.to_account_info();
+    let mint_info = accounts.mint.to_account_info();
+    let vault_info = accounts.vault.to_account_info();
+    let escrow_info = escrow.to_account_info();
+    let decimals = accounts.mint.decimals;
+    let before = [
+        accounts.destination.amount,
+        accounts.treasury_token.amount,
+        accounts.refund.amount,
+    ];
+    let sends = [payee_part, fee_part, refund_part];
+    let targets = [
+        accounts.destination.to_account_info(),
+        accounts.treasury_token.to_account_info(),
+        accounts.refund.to_account_info(),
+    ];
+    for (to, units) in targets.iter().zip(sends) {
+        if units > 0 {
+            token::transfer_checked(
+                Transfer {
+                    token_program: &token_program,
+                    from: &vault_info,
+                    mint: &mint_info,
+                    to,
+                    authority: &escrow_info,
+                },
+                units,
+                decimals,
+                signer,
+            )?;
+        }
+    }
+    accounts.vault.reload()?;
+    accounts.destination.reload()?;
+    accounts.treasury_token.reload()?;
+    accounts.refund.reload()?;
+    let after = [
+        accounts.destination.amount,
+        accounts.treasury_token.amount,
+        accounts.refund.amount,
+    ];
+    let mut received = [0u64; 3];
+    for i in 0..3 {
+        received[i] = after[i]
+            .checked_sub(before[i])
+            .ok_or(EscrowError::InvalidTokenAmount)?;
+        require!(
+            received[i] == sends[i] || (issuer_controlled && received[i] <= sends[i]),
+            EscrowError::InvalidTokenAmount
+        );
+    }
+    require!(accounts.vault.amount == 0, EscrowError::InvalidTokenAmount);
+    if accounts.vault.withheld_fees == 0 {
+        token::close_account(
+            &token_program,
+            &vault_info,
+            &accounts.payer.to_account_info(),
+            &escrow_info,
+            signer,
+        )?;
+    }
+    emit!(EscrowSettled {
+        escrow: escrow.key(),
+        payer: escrow.payer,
+        payee: escrow.payee,
+        mint: Some(escrow.mint),
+        amount: received[0],
+        nonce: escrow.nonce,
+        outcome,
+        slot: Clock::get()?.slot,
+        fee: received[1],
+        refunded: received[2],
+    });
+    Ok(())
 }
 
 /// Refund the payer. The payee may decline at any time; the payer may refund
@@ -256,6 +411,8 @@ fn settle(parts: SettleParts, outcome: SettlementOutcome) -> Result<()> {
         nonce: escrow.nonce,
         outcome,
         slot: Clock::get()?.slot,
+        fee: 0,
+        refunded: 0,
     });
     Ok(())
 }
@@ -314,6 +471,18 @@ pub struct ReleaseTokenEscrow<'info> {
         constraint = destination.mint == mint.key()
             && *destination.to_account_info().owner == token_program.key() @ EscrowError::InvalidTokenAccount)]
     pub destination: InterfaceAccount<'info, TokenAccount>,
+    /// The protocol treasury's token account for the escrow mint.
+    #[account(mut,
+        constraint = treasury_token.mint == mint.key()
+            && *treasury_token.to_account_info().owner == token_program.key() @ EscrowError::InvalidTokenAccount,
+        constraint = treasury_token.owner == PROTOCOL_TREASURY @ EscrowError::InvalidTreasury)]
+    pub treasury_token: InterfaceAccount<'info, TokenAccount>,
+    /// Where anything above the paid amount returns: the recorded source, or,
+    /// when the payer itself signs, any token account of the mint it owns.
+    #[account(mut,
+        constraint = refund.mint == mint.key()
+            && *refund.to_account_info().owner == token_program.key() @ EscrowError::InvalidTokenAccount)]
+    pub refund: InterfaceAccount<'info, TokenAccount>,
     pub token_program: Interface<'info, TokenPrograms>,
 }
 

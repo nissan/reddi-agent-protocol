@@ -35,6 +35,9 @@ pub struct EscrowAccount {
     pub per_session_key: Option<Pubkey>,
     /// PDA bump seed
     pub bump: u8,
+    /// Metered (per-token) escrow: the amount is the buyer's authorised maximum,
+    /// and the payee may settle the actual cost, up to it, at any time.
+    pub metered: bool,
 }
 
 impl EscrowAccount {
@@ -49,7 +52,8 @@ impl EscrowAccount {
         + 8    // created_slot
         + 1    // delegated_to_per
         + 33   // per_session_key (Option<Pubkey>: 1 + 32)
-        + 1; // bump
+        + 1    // bump
+        + 1; // metered
 }
 
 /// Classic SPL Token escrow, separate from the unchanged SOL account layout.
@@ -70,10 +74,12 @@ pub struct TokenEscrowAccount {
     pub status: EscrowStatus,
     pub created_slot: u64,
     pub bump: u8,
+    /// Metered (per-token) escrow; see `EscrowAccount::metered`.
+    pub metered: bool,
 }
 
 impl TokenEscrowAccount {
-    pub const LEN: usize = 8 + 32 * 5 + 8 + 16 + 1 + 8 + 1;
+    pub const LEN: usize = 8 + 32 * 5 + 8 + 16 + 1 + 8 + 1 + 1;
 }
 
 /// Type of work an agent supports in the marketplace.

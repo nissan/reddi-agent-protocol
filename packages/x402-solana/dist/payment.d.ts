@@ -8,8 +8,10 @@ import type { NonceReplayStore, ProtocolFeeConfig, ReceiptVerificationResult, Re
 export declare function isValidSolanaPublicKey(address: string): boolean;
 /** Backwards-compatible alias for older callers. */
 export declare const isValidPaymentAddress: typeof isValidSolanaPublicKey;
-/** Protocol fee rate: 5 basis points, which is 0.05% of the listed price. */
-export declare const PROTOCOL_FEE_BPS = 5;
+/** Protocol fee rate: 250 basis points, which is 2.5% of the price paid. */
+export declare const PROTOCOL_FEE_BPS = 250;
+/** Ceiling on the protocol fee for a SOL payment: 0.1 SOL. Token payments have no ceiling. */
+export declare const SOL_PROTOCOL_FEE_CAP_LAMPORTS: bigint;
 /** A currency a direct per-call payment can be made in. `tokenProgram` is absent for native SOL. */
 export interface DirectPaymentCurrency {
     decimals: number;
@@ -41,8 +43,13 @@ export declare const MAINNET_STABLECOIN_MINTS: Readonly<{
 export declare function decimalToBaseUnits(amount: string | number, decimals: number): bigint | undefined;
 /** Renders whole base units as a decimal string with no trailing zeros. */
 export declare function baseUnitsToDecimal(units: bigint, decimals: number): string;
-/** Fee in base units: the listed price times the rate, rounded down. There is no minimum fee. */
-export declare function protocolFeeBaseUnits(priceBaseUnits: bigint, bps?: number): bigint;
+/**
+ * Fee in base units: the price times the rate, rounded down, never above
+ * `capBaseUnits` when one is given. There is no minimum fee.
+ */
+export declare function protocolFeeBaseUnits(priceBaseUnits: bigint, bps?: number, capBaseUnits?: bigint): bigint;
+/** Fee ceiling for a currency in its base units: 0.1 SOL for SOL, none for tokens. */
+export declare function protocolFeeCapBaseUnits(currency: string): bigint | undefined;
 /** Fee terms for a listed price, as a challenge states them. Throws on an unusable amount, currency or configuration. */
 export declare function protocolFeeTerms(amount: string | number, currency: string, payTo: string, config: ProtocolFeeConfig): X402FeeTerms;
 export interface BuildX402ChallengeOptions {

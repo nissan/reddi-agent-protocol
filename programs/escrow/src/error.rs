@@ -85,4 +85,13 @@ pub enum EscrowError {
 
     #[msg("Claim window not elapsed: the payee cannot claim yet")]
     ClaimWindowNotElapsed,
+
+    #[msg("Settled amount must be above zero and at most the locked amount")]
+    InvalidSettleAmount,
+
+    #[msg("Only a metered escrow can be settled by the payee before the claim window")]
+    NotMetered,
+
+    #[msg("Fee must go to the protocol treasury")]
+    InvalidTreasury,
 }

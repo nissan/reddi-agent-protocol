@@ -11,7 +11,12 @@ use crate::state::{EscrowAccount, EscrowStatus};
 ///
 /// PDA: seeds = [b"escrow", payer, nonce]
 /// This prevents duplicate nonces for the same payer.
-pub fn lock_escrow_handler(ctx: Context<LockEscrow>, amount: u64, nonce: [u8; 16]) -> Result<()> {
+pub fn lock_escrow_handler(
+    ctx: Context<LockEscrow>,
+    amount: u64,
+    nonce: [u8; 16],
+    metered: bool,
+) -> Result<()> {
     require!(amount > 0, EscrowError::ZeroAmount);
     require!(
         amount <= MAX_SOL_ESCROW_LAMPORTS,
@@ -39,6 +44,7 @@ pub fn lock_escrow_handler(ctx: Context<LockEscrow>, amount: u64, nonce: [u8; 16
     escrow.created_at = clock.unix_timestamp;
     escrow.created_slot = clock.slot;
     escrow.bump = ctx.bumps.escrow;
+    escrow.metered = metered;
 
     // Transfer lamports from payer to escrow PDA.
     // Anchor 1.x on the Agave 3.x baseline expects the program id here.

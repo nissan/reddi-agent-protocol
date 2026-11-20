@@ -44,7 +44,9 @@ function parseX402Challenge(value) {
             return undefined;
         if (!isText(f.amount) || !isText(f.providerAmount))
             return undefined;
-        fee = { bps: f.bps, payTo: f.payTo, amount: f.amount, providerAmount: f.providerAmount };
+        if (f.cap !== undefined && !isText(f.cap))
+            return undefined;
+        fee = { bps: f.bps, payTo: f.payTo, amount: f.amount, providerAmount: f.providerAmount, ...(isText(f.cap) ? { cap: f.cap } : {}) };
     }
     const challenge = {
         version: isText(c.version) ? c.version : '1',

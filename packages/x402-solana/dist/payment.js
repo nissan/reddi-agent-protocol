@@ -1,11 +1,12 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SolanaReceiptVerifier = exports.DEFAULT_MAX_TRANSACTION_AGE_SECONDS = exports.SOLANA_GENESIS_HASHES = exports.DemoPaymentVerifier = exports.MAINNET_STABLECOIN_MINTS = exports.DIRECT_PAYMENT_CURRENCIES = exports.PROTOCOL_FEE_BPS = exports.isValidPaymentAddress = void 0;
+exports.SolanaReceiptVerifier = exports.DEFAULT_MAX_TRANSACTION_AGE_SECONDS = exports.SOLANA_GENESIS_HASHES = exports.DemoPaymentVerifier = exports.MAINNET_STABLECOIN_MINTS = exports.DIRECT_PAYMENT_CURRENCIES = exports.SOL_PROTOCOL_FEE_CAP_LAMPORTS = exports.PROTOCOL_FEE_BPS = exports.isValidPaymentAddress = void 0;
 exports.isValidSolanaPublicKey = isValidSolanaPublicKey;
 exports.directPaymentCurrency = directPaymentCurrency;
 exports.decimalToBaseUnits = decimalToBaseUnits;
 exports.baseUnitsToDecimal = baseUnitsToDecimal;
 exports.protocolFeeBaseUnits = protocolFeeBaseUnits;
+exports.protocolFeeCapBaseUnits = protocolFeeCapBaseUnits;
 exports.protocolFeeTerms = protocolFeeTerms;
 exports.buildX402Challenge = buildX402Challenge;
 exports.parseX402Header = parseX402Header;
@@ -35,8 +36,10 @@ function isValidSolanaPublicKey(address) {
 }
 /** Backwards-compatible alias for older callers. */
 exports.isValidPaymentAddress = isValidSolanaPublicKey;
-/** Protocol fee rate: 5 basis points, which is 0.05% of the listed price. */
-exports.PROTOCOL_FEE_BPS = 5;
+/** Protocol fee rate: 250 basis points, which is 2.5% of the price paid. */
+exports.PROTOCOL_FEE_BPS = 250;
+/** Ceiling on the protocol fee for a SOL payment: 0.1 SOL. Token payments have no ceiling. */
+exports.SOL_PROTOCOL_FEE_CAP_LAMPORTS = BigInt(100000000);
 const BPS_DENOMINATOR = 10000;
 /** Highest fee rate this package will state or verify: 10%. Guards against a mistyped configuration. */
 const MAX_PROTOCOL_FEE_BPS = 1000;
@@ -98,13 +101,21 @@ function baseUnitsToDecimal(units, decimals) {
     const fraction = decimals === 0 ? '' : text.slice(text.length - decimals).replace(/0+$/, '');
     return fraction ? `${whole}.${fraction}` : whole;
 }
-/** Fee in base units: the listed price times the rate, rounded down. There is no minimum fee. */
-function protocolFeeBaseUnits(priceBaseUnits, bps = exports.PROTOCOL_FEE_BPS) {
+/**
+ * Fee in base units: the price times the rate, rounded down, never above
+ * `capBaseUnits` when one is given. There is no minimum fee.
+ */
+function protocolFeeBaseUnits(priceBaseUnits, bps = exports.PROTOCOL_FEE_BPS, capBaseUnits) {
     if (!Number.isInteger(bps) || bps < 0 || bps > MAX_PROTOCOL_FEE_BPS)
         throw new Error(`protocol fee bps must be a whole number from 0 to ${MAX_PROTOCOL_FEE_BPS}`);
     if (priceBaseUnits < BigInt(0))
         throw new Error('price must not be negative');
-    return (priceBaseUnits * BigInt(bps)) / BigInt(BPS_DENOMINATOR);
+    const fee = (priceBaseUnits * BigInt(bps)) / BigInt(BPS_DENOMINATOR);
+    return capBaseUnits !== undefined && fee > capBaseUnits ? capBaseUnits : fee;
+}
+/** Fee ceiling for a currency in its base units: 0.1 SOL for SOL, none for tokens. */
+function protocolFeeCapBaseUnits(currency) {
+    return currency === 'SOL' ? exports.SOL_PROTOCOL_FEE_CAP_LAMPORTS : undefined;
 }
 function feeSplit(amount, currency, payTo, config) {
     const decimals = directPaymentCurrency(currency)?.decimals;
@@ -118,7 +129,8 @@ function feeSplit(amount, currency, payTo, config) {
     const price = decimalToBaseUnits(amount, decimals);
     if (price === undefined)
         throw new Error(`amount must be a positive ${currency} amount with at most ${decimals} decimal places`);
-    const feeUnits = protocolFeeBaseUnits(price, bps);
+    const cap = protocolFeeCapBaseUnits(currency);
+    const feeUnits = protocolFeeBaseUnits(price, bps, cap);
     const providerUnits = price - feeUnits;
     return {
         decimals,
@@ -129,6 +141,7 @@ function feeSplit(amount, currency, payTo, config) {
             payTo: config.treasury,
             amount: baseUnitsToDecimal(feeUnits, decimals),
             providerAmount: baseUnitsToDecimal(providerUnits, decimals),
+            ...(cap !== undefined ? { cap: baseUnitsToDecimal(cap, decimals) } : {}),
         },
     };
 }

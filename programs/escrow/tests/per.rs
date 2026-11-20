@@ -36,6 +36,9 @@ fn make_svm() -> LiteSVM {
     let mut svm = LiteSVM::new();
     let bytes = include_bytes!("../../../target/deploy/escrow.so");
     svm.add_program(escrow::id(), bytes).unwrap();
+    // The treasury must already hold its rent-exempt minimum to receive a fee.
+    svm.airdrop(&escrow::PROTOCOL_TREASURY, 1_000_000_000)
+        .unwrap();
     svm
 }
 
@@ -123,6 +126,7 @@ fn release_l1_ix(escrow_pda: Pk, payer: &Keypair, payee: Pk) -> Instruction {
         escrow::id(),
         &instruction::ReleaseEscrow {}.data(),
         ReleaseEscrow {
+            treasury: escrow::PROTOCOL_TREASURY,
             escrow: escrow_pda,
             payer: payer.pubkey(),
             payee,

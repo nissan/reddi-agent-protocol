@@ -39,7 +39,7 @@ describe('buyer direct payment plan', () => {
     expect(result.instructions.every((ix) => ix.programId.equals(SystemProgram.programId))).toBe(true);
     const paid = result.instructions.reduce((sum, ix) => sum + ix.data.readBigUInt64LE(4), BigInt(0));
     expect(paid).toBe(BigInt(10_000_000));
-    expect(result.fee).toMatchObject({ bps: 5, payTo: treasury, amount: '0.000005', providerAmount: '0.009995' });
+    expect(result.fee).toMatchObject({ bps: 250, payTo: treasury, amount: '0.00025', providerAmount: '0.00975', cap: '0.1' });
     expect(result.receiptFor('5ig')).toEqual({
       network: 'solana-devnet', payTo: provider, amount: '0.01', currency: 'SOL', nonce: 'buyer-1', signature: '5ig', payer: buyer.toBase58(),
     });
@@ -74,9 +74,9 @@ describe('buyer direct payment plan', () => {
     ['a price above the listing', { amount: '0.010000001', fee: undefined }, {}, 'price_above_listing'],
     ['a price above the spend cap', {}, { spendCap: '0.009999999' }, 'above_spend_cap'],
     ['a zero spend cap', {}, { spendCap: 0 }, 'above_spend_cap'],
-    ['a fee rate above the accepted rate', { fee: { bps: 50, payTo: treasury, amount: '0.00005', providerAmount: '0.00995' } }, {}, 'fee_terms_rejected'],
-    ['fee terms that do not add up', { fee: { bps: 5, payTo: treasury, amount: '0.000005', providerAmount: '0.01' } }, {}, 'fee_terms_rejected'],
-    ['a fee paid to the payee', { fee: { bps: 5, payTo: provider, amount: '0.000005', providerAmount: '0.009995' } }, {}, 'fee_terms_rejected'],
+    ['a fee rate above the accepted rate', { fee: { bps: 500, payTo: treasury, amount: '0.0005', providerAmount: '0.0095' } }, {}, 'fee_terms_rejected'],
+    ['fee terms that do not add up', { fee: { bps: 250, payTo: treasury, amount: '0.00025', providerAmount: '0.01' } }, {}, 'fee_terms_rejected'],
+    ['a fee paid to the payee', { fee: { bps: 250, payTo: provider, amount: '0.00025', providerAmount: '0.00975' } }, {}, 'fee_terms_rejected'],
     ['a missing nonce', { nonce: '' }, {}, 'invalid_challenge'],
     ['an invalid payee address', { payTo: 'not-a-key' }, {}, 'invalid_challenge'],
     ['a negative amount', { amount: '-1', fee: undefined }, {}, 'invalid_challenge'],

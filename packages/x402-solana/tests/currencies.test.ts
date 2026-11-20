@@ -47,7 +47,7 @@ const verifier = (parsed: unknown, options: Record<string, unknown> = { mints })
   ...options,
 } as never);
 const splitTx = (currency: string, programId: string, mint = mints[currency]) =>
-  tx(mint, [leg(programId, mint, 'provider-ta', '999500'), leg(programId, mint, 'treasury-ta', '500')]);
+  tx(mint, [leg(programId, mint, 'provider-ta', '975000'), leg(programId, mint, 'treasury-ta', '25000')]);
 
 describe('direct payment currencies', () => {
   it('fixes the token program and six decimals for each stablecoin', () => {
@@ -74,8 +74,8 @@ describe('direct payment currencies', () => {
       expect(instructions[0].keys[1].pubkey.equals(mint)).toBe(true);
       expect(instructions[0].keys[2].pubkey.equals(ata(provider))).toBe(true);
       expect(instructions[1].keys[2].pubkey.equals(ata(treasury))).toBe(true);
-      expect(instructions[0].data.readBigUInt64LE(1)).toBe(BigInt(999_500));
-      expect(instructions[1].data.readBigUInt64LE(1)).toBe(BigInt(500));
+      expect(instructions[0].data.readBigUInt64LE(1)).toBe(BigInt(975_000));
+      expect(instructions[1].data.readBigUInt64LE(1)).toBe(BigInt(25_000));
     });
 
     it('plans a buyer payment and names the configured mint on the receipt', () => {
@@ -96,7 +96,7 @@ describe('direct payment currencies', () => {
     it('verifies a split paid under its own token program', async () => {
       const result = await verifier(splitTx(currency, program))
         .verifyReceipt(receiptFor(currency, 'ok'), challengeFor(currency, 'ok'), new MemoryNonceReplayStore());
-      expect(result).toMatchObject({ ok: true, fee: { amount: '0.0005', providerAmount: '0.9995' } });
+      expect(result).toMatchObject({ ok: true, fee: { amount: '0.025', providerAmount: '0.975' } });
     });
 
     it('refuses the same transfers made under the other token program', async () => {

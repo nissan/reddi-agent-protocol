@@ -91,6 +91,8 @@ pub fn cancel_escrow_handler(ctx: Context<CancelEscrow>) -> Result<()> {
         nonce: ctx.accounts.escrow.nonce,
         outcome,
         slot,
+        fee: 0,
+        refunded: 0,
     });
 
     Ok(())

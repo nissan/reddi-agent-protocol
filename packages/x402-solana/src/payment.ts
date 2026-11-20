@@ -33,8 +33,10 @@ export function isValidSolanaPublicKey(address: string): boolean {
 /** Backwards-compatible alias for older callers. */
 export const isValidPaymentAddress = isValidSolanaPublicKey;
 
-/** Protocol fee rate: 5 basis points, which is 0.05% of the listed price. */
-export const PROTOCOL_FEE_BPS = 5;
+/** Protocol fee rate: 250 basis points, which is 2.5% of the price paid. */
+export const PROTOCOL_FEE_BPS = 250;
+/** Ceiling on the protocol fee for a SOL payment: 0.1 SOL. Token payments have no ceiling. */
+export const SOL_PROTOCOL_FEE_CAP_LAMPORTS = BigInt(100_000_000);
 const BPS_DENOMINATOR = 10_000;
 /** Highest fee rate this package will state or verify: 10%. Guards against a mistyped configuration. */
 const MAX_PROTOCOL_FEE_BPS = 1_000;
@@ -104,11 +106,20 @@ export function baseUnitsToDecimal(units: bigint, decimals: number): string {
   return fraction ? `${whole}.${fraction}` : whole;
 }
 
-/** Fee in base units: the listed price times the rate, rounded down. There is no minimum fee. */
-export function protocolFeeBaseUnits(priceBaseUnits: bigint, bps: number = PROTOCOL_FEE_BPS): bigint {
+/**
+ * Fee in base units: the price times the rate, rounded down, never above
+ * `capBaseUnits` when one is given. There is no minimum fee.
+ */
+export function protocolFeeBaseUnits(priceBaseUnits: bigint, bps: number = PROTOCOL_FEE_BPS, capBaseUnits?: bigint): bigint {
   if (!Number.isInteger(bps) || bps < 0 || bps > MAX_PROTOCOL_FEE_BPS) throw new Error(`protocol fee bps must be a whole number from 0 to ${MAX_PROTOCOL_FEE_BPS}`);
   if (priceBaseUnits < BigInt(0)) throw new Error('price must not be negative');
-  return (priceBaseUnits * BigInt(bps)) / BigInt(BPS_DENOMINATOR);
+  const fee = (priceBaseUnits * BigInt(bps)) / BigInt(BPS_DENOMINATOR);
+  return capBaseUnits !== undefined && fee > capBaseUnits ? capBaseUnits : fee;
+}
+
+/** Fee ceiling for a currency in its base units: 0.1 SOL for SOL, none for tokens. */
+export function protocolFeeCapBaseUnits(currency: string): bigint | undefined {
+  return currency === 'SOL' ? SOL_PROTOCOL_FEE_CAP_LAMPORTS : undefined;
 }
 
 interface FeeSplit {
@@ -126,7 +137,8 @@ function feeSplit(amount: string | number, currency: string, payTo: string, conf
   const bps = config.bps ?? PROTOCOL_FEE_BPS;
   const price = decimalToBaseUnits(amount, decimals);
   if (price === undefined) throw new Error(`amount must be a positive ${currency} amount with at most ${decimals} decimal places`);
-  const feeUnits = protocolFeeBaseUnits(price, bps);
+  const cap = protocolFeeCapBaseUnits(currency);
+  const feeUnits = protocolFeeBaseUnits(price, bps, cap);
   const providerUnits = price - feeUnits;
   return {
     decimals,
@@ -137,6 +149,7 @@ function feeSplit(amount: string | number, currency: string, payTo: string, conf
       payTo: config.treasury,
       amount: baseUnitsToDecimal(feeUnits, decimals),
       providerAmount: baseUnitsToDecimal(providerUnits, decimals),
+      ...(cap !== undefined ? { cap: baseUnitsToDecimal(cap, decimals) } : {}),
     },
   };
 }
