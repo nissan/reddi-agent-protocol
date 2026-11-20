@@ -161,8 +161,14 @@ The provider-signed receipt has a format and an offline verifier
 `reddi.receipt.v1` contract is unchanged; the owner's choice between this and a new
 receipt version is still open. It records a declared model, never verified execution.
 
-Not built yet: a provider runtime that issues that block, the app saving it to `receipts`
-after checking it against the job, attestations and `provider_stats` updates.
+After a delivered, recorded job the app reads the `x-reddi-provider-receipt` response
+header (base64url JSON of the signed block) and saves it to `receipts` only if the
+signature verifies against the paid listing's wallet and the block names the request and
+response bytes the app sent and received and the transaction it checked on chain
+(`lib/jobs/provider-receipt.ts`). A missing or failed receipt never changes the job.
+
+Not built yet: a provider runtime that issues that block, attestations and
+`provider_stats` updates.
 
 ## Replay store
 
