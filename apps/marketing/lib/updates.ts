@@ -32,10 +32,11 @@ export const UPDATES: readonly Update[] = [
       "Nothing is on mainnet yet. The status page lists what exists today, what is being built and what is only planned.",
     ],
     links: [
-      { label: "Open the sandbox", href: "https://agent-protocol.reddi.tech/sandbox" },
+      { label: "Open the sandbox", href: "https://app.agent-protocol.reddi.tech/sandbox" },
       { label: "Read the source", href: "https://github.com/nissan/reddi-agent-protocol" },
     ],
-    status: "draft",
+    status: "published",
+    newsletterSend: true,
   },
 ];
 
