@@ -3,7 +3,7 @@
 const origin = (process.env.SMOKE_ORIGIN ?? "http://127.0.0.1:3000").replace(/\/$/, "");
 const problems = [];
 const check = (ok, what) => { if (!ok) problems.push(what); };
-const pages = { "/": "Get the receipt", "/status": "What we do not claim", "/sandbox": "Devnet tokens have no value", "/privacy": "confirmed opt-in", "/terms": "No financial or investment advice", "/newsletter/closed": "does not collect email addresses yet", "/newsletter/confirm": "NEWSLETTER" };
+const pages = { "/": "Get the receipt", "/status": "What we do not claim", "/sandbox": "Devnet tokens have no value", "/privacy": "confirmed opt-in", "/terms": "No financial or investment advice", "/updates": "What has been built", "/newsletter/closed": "does not collect email addresses yet", "/newsletter/confirm": "NEWSLETTER" };
 for (const [path, phrase] of Object.entries(pages)) {
   const res = await fetch(origin + path);
   const html = await res.text();
@@ -26,6 +26,8 @@ for (const action of ["confirm", "unsubscribe"]) {
   const body = await res.json().catch(() => ({}));
   check(body.state === "closed", `POST /api/newsletter/${action}: state ${body.state}, expected closed`);
 }
+const issues = await fetch(origin + "/api/newsletter/issues");
+check(issues.status === 401 || issues.status === 503, `GET /api/newsletter/issues without a bearer: status ${issues.status}`);
 const prune = await fetch(origin + "/api/newsletter/prune");
 check(prune.status === 401 || prune.status === 503 || prune.status === 200, `GET /api/newsletter/prune: status ${prune.status}`);
 check((await fetch(origin + "/nope")).status === 404, "/nope: not 404");

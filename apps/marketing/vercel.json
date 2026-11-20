@@ -1,1 +1,1 @@
-{"framework":"nextjs","installCommand":"npm ci --ignore-scripts","buildCommand":"npm run build","ignoreCommand":"git diff --quiet HEAD^ HEAD ./","crons":[{"path":"/api/newsletter/prune","schedule":"0 17 * * *"}]}
+{"framework":"nextjs","installCommand":"npm ci --ignore-scripts","buildCommand":"npm run build","ignoreCommand":"git diff --quiet HEAD^ HEAD ./","crons":[{"path":"/api/newsletter/prune","schedule":"0 17 * * *"},{"path":"/api/newsletter/issues","schedule":"10 23 * * *"}]}

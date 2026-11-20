@@ -50,13 +50,29 @@ With no environment variables the site builds and serves, the signup form render
 | `BLOB_STORE_ID` (or legacy `BLOB_READ_WRITE_TOKEN`) | The Vercel Blob store that holds the list (private; one JSON document per contact, keyed by a hash of the address) |
 | `NEWSLETTER_ALLOWED_RECIPIENTS` | Comma-separated addresses or `@domains` allowed while testing; required until `NEWSLETTER_PUBLIC=1` |
 | `NEWSLETTER_PUBLIC=1` | Lifts the allowlist: public collection |
-| `CRON_SECRET` | Lets the daily cron `/api/newsletter/prune` delete unconfirmed addresses after seven days |
+| `CRON_SECRET` | Lets the daily crons run: `/api/newsletter/prune` deletes unconfirmed addresses after seven days, `/api/newsletter/issues` sends due issues |
+| `NEWSLETTER_AUTOSEND=1` | Lets `/api/newsletter/issues` email updates flagged `newsletterSend: true`. Default off. Needs `NEWSLETTER_ENABLED` and `CRON_SECRET` too |
 | `SITE_PUBLIC=1` | The indexing switch: with a Vercel production build, drops `noindex` and opens `robots.txt` |
 
 Newsletter rules (confirmed opt-in, three confirmation emails per address per day, same reply for known and unknown
 addresses, one welcome email on confirmation that carries the first unsubscribe link, one-click unsubscribe,
 conditional writes) are enforced in `lib/newsletter/flow.ts` and covered by
 `tests/newsletter.test.ts`. The application logs no address.
+
+### Build updates and newsletter issues
+
+Build updates live in `lib/updates.ts` as typed records and appear on `/updates` and `/updates/<slug>`. A `draft` is
+shown only on previews and local builds; only `published` updates reach the public site, the sitemap or an email.
+`tests/updates.test.ts` validates the records and `tests/claims.test.ts` holds their wording to the public-claim boundary.
+
+An update with `newsletterSend: true` is emailed to confirmed subscribers once it is published and its date (a calendar
+day in Sydney) has arrived. The reviewed, merged change that sets the flag is the owner's approval; never set it without
+the owner. `vercel.json` runs `/api/newsletter/issues` daily at 23:10 UTC (mid-morning in Sydney). One run sends at most
+one issue, oldest first, through `broadcast`, whose ledger makes a send exactly-once and resumable. It is fail-closed:
+nothing is sent without `CRON_SECRET`, `NEWSLETTER_ENABLED` and `NEWSLETTER_AUTOSEND=1`, and until `NEWSLETTER_PUBLIC=1`
+only allowlisted addresses receive anything. An issue that falls due with nobody to send to is closed and is not
+emailed to people who join later. To see what the next run would do without sending, call the route with the bearer and
+`?dry-run=1`; it answers with slugs and counts only.
 
 ## Vercel
 
@@ -66,5 +82,5 @@ project, setting variables and pointing a domain at it are owner steps.
 
 ## Not in this first slice
 
-Devlog posts and automatic newsletter issues, a health endpoint and uptime alert, analytics with consent, and video
+A health endpoint and uptime alert, analytics with consent, and video
 pages. The BattleBlocks site has each of these and they can be ported the same way.

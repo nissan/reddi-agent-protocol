@@ -27,6 +27,7 @@ export default function Layout({ children }: Readonly<{ children: React.ReactNod
             <Link href="/#how">How it works</Link>
             <Link href="/sandbox">Sandbox</Link>
             <Link href="/status">Status</Link>
+            <Link href="/updates">Updates</Link>
             <Link className="nav-cta" href="/#updates">Get updates</Link>
           </nav>
         </header>
@@ -40,6 +41,7 @@ export default function Layout({ children }: Readonly<{ children: React.ReactNod
             <div className="footer-links">
               <Link href="/status">Status</Link>
               <Link href="/sandbox">Sandbox</Link>
+              <Link href="/updates">Updates</Link>
               <a href={APP_URL} rel="noopener noreferrer">Developer app</a>
               <a href={GITHUB_URL} rel="noopener noreferrer">GitHub</a>
               <a href={X_URL} rel="noopener noreferrer">X</a>
