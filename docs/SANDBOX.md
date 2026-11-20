@@ -13,11 +13,11 @@ claim about mainnet, live models, or settlement.
 |---|---|
 | HTTP flow | Real. `POST /api/sandbox/v1/chat/completions` answers 402 with an x402 challenge, then 200 once a payment is presented. It works from curl. |
 | Challenge and payment checks | Real code from `packages/x402-solana`: `buildX402Challenge`, `verifyDemoPaymentReceipt`, and `SolanaReceiptVerifier` with the devnet genesis-hash check and a 900 second age limit. |
-| Simulated payment | No transaction. The receipt's payment proof reads `simulated:<nonce>` and `paymentMode` is `simulated`. |
+| Simulated payment | No transaction. The call returns a sandbox simulated receipt (`reddi.sandbox.simulated-receipt.v1`) in the `x-reddi-sandbox-simulated-receipt` header: the v2 field layout without `payment.txSignature`, signed over its own version string. Every `reddi.receipt.v2` validator refuses it, and the page says it is not a v2 receipt. |
 | Wallet payment | A real devnet SOL transfer the visitor's own wallet signs, to a public devnet wallet from `lib/economic-demo/openrouter-endpoints.ts`. The server only reads it back from devnet. |
 | Provider answers | Scripted in `lib/sandbox/catalog.ts`. No model runs, so every model id starts with `sandbox/` and each receipt carries `scripted: true`. |
-| Receipt | A `reddi.receipt.v1` envelope with a sandbox preview of the model-naming fields under `metadata.inference` and an Ed25519 provider signature. The V1 field layout is still the owner's decision on issue 739. |
-| Provider signing keys | Public test keys derived from a fixed label (`lib/sandbox/keys.ts`). Anyone can recompute them. They hold no funds and control nothing. |
+| Receipt | A call paid with a devnet transfer returns a signed `reddi.receipt.v2` receipt in the `x-reddi-provider-receipt` header (base64url JSON), the header and format a V1 provider uses. It names the provider address, the declared model, the SHA-256 of the request and response body bytes, and the payment: transaction, SOL, the price in lamports, a zero fee, the payer and `direct`. `verifyReddiReceiptV2` from `packages/agent-protocol` accepts it; the gateway tests hold the browser check and the package verifier together. |
+| Provider signing keys | Public test keys derived from a fixed label (`lib/sandbox/keys.ts`). Anyone can recompute them. They hold no funds and control nothing. A receipt's `providerId` is the base58 address of that test key, listed as `receiptProviderId` by `/models`; it is not the wallet that is paid. A real provider signs with its own wallet key. |
 | Spot check and reputation | Simulated. The outcome is fixed per provider and the score lives in the visitor's browser tab. Nothing is written to a chain or a database. |
 | Replay memory | Held in one server instance. A reused payment is refused while that instance lives; V1 uses the durable store. |
 
@@ -59,17 +59,18 @@ Deep links: `/sandbox?scenario=<id>`.
 BASE=https://<host>/api/sandbox/v1
 BODY='{"model":"sandbox/swift-coder-small","messages":[{"role":"user","content":"Explain exponential backoff in two sentences."}]}'
 
-curl -s $BASE/models                                   # providers, prices, signing keys
+curl -s $BASE/models                                   # providers, prices, receipt provider addresses
 curl -si -X POST $BASE/chat/completions -H 'content-type: application/json' -d "$BODY"   # 402 + challenge
 curl -s  -X POST $BASE/chat/completions -H 'content-type: application/json' \
-  -H 'x402-payment: demo:<nonce from the challenge>' -d "$BODY"                           # 200 + receipt
+  -H 'x402-payment: demo:<nonce from the challenge>' -d "$BODY"                           # 200, receipt in a response header (add -i to see it)
 ```
 
 ## Tests
 
 - `lib/__tests__/sandbox-gateway.test.ts`: gateway, payment refusals, devnet verification against a
-  stubbed RPC, and receipt verification including forged and edited receipts. A receipt from each
-  payment lane is also held to the `packages/agent-protocol` validator there.
+  stubbed RPC, and receipt verification including forged and edited receipts. The devnet-transfer
+  receipt is held to `verifyReddiReceiptV2` from `packages/agent-protocol`, with every tampered form
+  refused by both checks; the simulated receipt is shown to fail every v2 validator.
 - `e2e/sandbox.spec.ts`: the four scenarios through the simulated lane, with the public-claim
   pattern list applied to the rendered copy at each stage.
 
