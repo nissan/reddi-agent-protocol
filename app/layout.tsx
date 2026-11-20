@@ -1,22 +1,26 @@
 import type { Metadata } from "next";
-import { DM_Sans, Fraunces } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import WalletProvider from "@/components/WalletProvider";
 import NavBar from "@/components/NavBar";
 import Footer from "@/components/Footer";
 import DevnetModeBanner from "@/components/DevnetModeBanner";
 
-const dmSans = DM_Sans({
+// Both fonts are served from files in app/fonts (latin subset, variable weight,
+// SIL Open Font License) so a build never depends on downloading them.
+const dmSans = localFont({
+  src: "./fonts/dm-sans-latin-wght-normal.woff2",
   variable: "--font-dm-sans",
-  subsets: ["latin"],
-  weight: ["400", "500", "700"],
+  weight: "100 1000",
+  style: "normal",
   display: "swap",
 });
 
-const fraunces = Fraunces({
+const fraunces = localFont({
+  src: "./fonts/fraunces-latin-wght-normal.woff2",
   variable: "--font-fraunces",
-  subsets: ["latin"],
-  weight: ["600", "700", "900"],
+  weight: "100 900",
+  style: "normal",
   display: "swap",
 });
 
