@@ -366,8 +366,10 @@ async function runSurfpoolProof() {
   assert(installedMint.mintAuthority.equals(payer.publicKey) && installedMint.decimals === 6 && installedMint.supply === 0n,
     "stand-in mint not installed as written");
 
-  const source = Keypair.generate(), recipient = Keypair.generate(), treasuryToken = Keypair.generate(), stray = Keypair.generate();
+  const source = Keypair.generate(), recipient = Keypair.generate(), stray = Keypair.generate();
   const TREASURY = new PublicKey(PROTOCOL_TREASURY);
+  // Token fees are only accepted at the treasury's associated token account for the mint.
+  const treasuryToken = { publicKey: token.getAssociatedTokenAddressSync(MINT, TREASURY, true, TOKEN) };
   const otherMint = Keypair.generate(), otherSource = Keypair.generate(), otherRecipient = Keypair.generate();
   const nonces = { release: Buffer.alloc(16, 91), decline: Buffer.alloc(16, 92), refund: Buffer.alloc(16, 93), claim: Buffer.alloc(16, 94),
     sweepRelease: Buffer.alloc(16, 95), sweepDecline: Buffer.alloc(16, 96), metered: Buffer.alloc(16, 97) };
@@ -516,7 +518,7 @@ async function runSurfpoolProof() {
   // Token accounts and balances come from real SPL instructions (no token cheatcodes).
   await tokenAccount("source", source, MINT, payer.publicKey);
   await tokenAccount("recipient", recipient, MINT, payee.publicKey);
-  await tokenAccount("treasury", treasuryToken, MINT, TREASURY);
+  await send("create the treasury associated token account", [token.createAssociatedTokenAccountInstruction(payer.publicKey, treasuryToken.publicKey, TREASURY, MINT, TOKEN)]);
   await tokenAccount("stray (attacker-owned)", stray, MINT, attacker.publicKey);
   await send("mint 200000000 to source", [token.createMintToInstruction(MINT, source.publicKey, payer.publicKey, 200_000_000n)]);
 

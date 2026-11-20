@@ -35,7 +35,7 @@ const TOKEN = token.TOKEN_PROGRAM_ID;
 const MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const CANCEL_WINDOW_SLOTS = 648_000; // constants.rs CANCEL_WINDOW_SLOTS
 const CLAIM_WINDOW_SLOTS = 1_512_000; // constants.rs CLAIM_WINDOW_SLOTS
-// constants.rs PROTOCOL_TREASURY. Only the address is used: a local token account is created for it; nothing is signed by it.
+// constants.rs PROTOCOL_TREASURY. Only the address is used: its associated token account is created locally; nothing is signed by it.
 const TREASURY = new PublicKey('5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const disc = name => createHash('sha256').update(`global:${name}`).digest().subarray(0, 8);
@@ -134,7 +134,9 @@ async function main() {
     }
     throw new Error(`local confirmation timeout: ${signature}`);
   }
-  const source = Keypair.generate(), recipient = Keypair.generate(), treasuryToken = Keypair.generate();
+  const source = Keypair.generate(), recipient = Keypair.generate();
+  // Token fees are only accepted at the treasury's associated token account for the mint.
+  const treasuryToken = { publicKey: token.getAssociatedTokenAddressSync(MINT, TREASURY, true, TOKEN) };
   const nonces = { release: Buffer.alloc(16, 91), decline: Buffer.alloc(16, 92), refund: Buffer.alloc(16, 93), claim: Buffer.alloc(16, 94),
     metered: Buffer.alloc(16, 97) };
   const escrowPda = nonce => PublicKey.findProgramAddressSync([Buffer.from('token-escrow'), payer.publicKey.toBuffer(), nonce], PROGRAM)[0];
@@ -225,7 +227,7 @@ async function main() {
     assert(installed.mintAuthority.equals(payer.publicKey) && installed.decimals === 6, 'stand-in mint not installed as written');
     signatures.push(await tokenAccount(source, MINT, payer.publicKey));
     signatures.push(await tokenAccount(recipient, MINT, payee.publicKey));
-    signatures.push(await tokenAccount(treasuryToken, MINT, TREASURY));
+    signatures.push(await send([token.createAssociatedTokenAccountInstruction(payer.publicKey, treasuryToken.publicKey, TREASURY, MINT, TOKEN)]));
     signatures.push(await send([token.createMintToInstruction(MINT, source.publicKey, payer.publicKey, 200_000_000n)]));
 
     // Lock refusals: zero amount, above the 100-unit cap, and a mint that is not allowlisted (RAP-LANE-S2).

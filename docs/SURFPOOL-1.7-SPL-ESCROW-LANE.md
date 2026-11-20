@@ -60,8 +60,8 @@ not installed.
 6. Funds in-memory keypairs with lamports. The program accepts only allowlisted mints, so the lane
    writes a zero-supply stand-in mint, whose authority is the in-memory payer, at the allowlisted
    mainnet USDC address with the `setAccount` cheatcode (the validator proof does the same with a
-   genesis account file). Only the address is reused; this is not USDC. A local token account is
-   created for the fixed treasury address; nothing is signed by the treasury. Token accounts are created
+   genesis account file). Only the address is reused; this is not USDC. The treasury's associated token account
+   for the stand-in mint is created locally; nothing is signed by the treasury. Token accounts are created
    and every balance is minted and moved with real SPL instructions; no token-balance cheatcode is used.
 7. Exercises, in the validator proof's order: zero-amount, above-cap and non-allowlisted-mint lock
    rejection; exact lock; stranger, early-payee-claim and wrong-recipient release rejection; payer
