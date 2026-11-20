@@ -26,10 +26,10 @@ export function refusalClass(status: number): "rate-limit" | "4xx" | "5xx" | "ot
   return "other";
 }
 
-// WEB-59: the one greppable line for a refused send: `newsletter-provider-refusal op=<confirmation|issue> class=<rate-limit|4xx|5xx|other>`.
+// WEB-59: the one greppable line for a refused send: `newsletter-provider-refusal op=<confirmation|welcome|issue> class=<rate-limit|4xx|5xx|other>`.
 // Built from two fixed labels only: never an address, subject, token, link, message id or response body. Anything that is
 // not a ProviderRefusal (a network error, a bug) writes nothing here; the existing handlers deal with it as before.
-export function logProviderRefusal(op: "confirmation" | "issue", error: unknown): void {
+export function logProviderRefusal(op: "confirmation" | "welcome" | "issue", error: unknown): void {
   if (!(error instanceof ProviderRefusal)) return;
   console.error(`newsletter-provider-refusal op=${op} class=${refusalClass(error.status)}`);
 }

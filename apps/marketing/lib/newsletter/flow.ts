@@ -112,8 +112,31 @@ export async function confirm(deps: Deps, token: string): Promise<ConfirmOutcome
     if (contact.unsubscribedAt !== null && v.payload.iat <= contact.unsubscribedAt) return "superseded";
     if (contact.status === "confirmed") return "already-confirmed";
     await deps.store.putContact(v.payload.k, { ...contact, status: "confirmed", confirmedAt: now }, { version: stored.version });
+    await sendWelcome(deps, contact.email, v.payload.k);
     return "confirmed";
   });
+}
+
+// The welcome message: sent once, on the transition to confirmed (a repeat of the link returns "already-confirmed"
+// above and sends nothing). It is the first message that carries the unsubscribe link and the RFC 8058 one-click
+// headers, so a subscriber can leave before any issue exists. Best effort: the confirmation has already been stored,
+// so a mailer failure is logged as a refusal and never turns a successful confirmation into an error.
+async function sendWelcome(deps: Deps, email: string, key: string): Promise<void> {
+  const token = () => encodeURIComponent(issueToken(deps.config.signingSecret, "unsubscribe", key, deps.now()));
+  const unsub = `${deps.siteUrl}/api/newsletter/unsubscribe?t=${token()}`;
+  const unsubPage = `${deps.siteUrl}/newsletter/unsubscribe?t=${token()}`;
+  const catchUp = catchUpLink(deps.siteUrl);
+  try {
+    await deps.mailer.send({
+      to: email,
+      subject: SIGNUP_COPY.welcome.subject,
+      text: SIGNUP_COPY.welcome.text(unsubPage, catchUp),
+      html: SIGNUP_COPY.welcome.html(unsubPage, catchUp),
+      headers: { "List-Unsubscribe": `<${unsub}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+    });
+  } catch (error) {
+    logProviderRefusal("welcome", error);
+  }
 }
 
 export type UnsubscribeOutcome = "unsubscribed" | "already-unsubscribed" | "invalid";
@@ -333,7 +356,7 @@ export async function broadcast(deps: Deps, issue: Issue, approval: { approved: 
         to: c.email,
         subject: issue.title,
         text: `${issue.text}\n\nRead on the site: ${issue.url}${issue.catchUpUrl ? `\n\n${CATCH_UP_LABEL}: ${issue.catchUpUrl}` : ""}${extra ? `\n\n${extra.text}` : ""}\n\nUnsubscribe: ${unsubPage}`,
-        html: `${issue.html}<p><a href="${issue.url}">Read on the site</a></p>${issue.catchUpUrl ? `<p><a href="${issue.catchUpUrl}">${CATCH_UP_LABEL}</a></p>` : ""}${extra ? extra.html : ""}<p><a href="${unsubPage}">Unsubscribe</a> with one click. You're receiving this because you confirmed your subscription at battleblocks.app.</p>`,
+        html: `${issue.html}<p><a href="${issue.url}">Read on the site</a></p>${issue.catchUpUrl ? `<p><a href="${issue.catchUpUrl}">${CATCH_UP_LABEL}</a></p>` : ""}${extra ? extra.html : ""}<p><a href="${unsubPage}">Unsubscribe</a> with one click. You're receiving this because you confirmed your Reddi Agent Protocol signup.</p>`,
         headers: { "List-Unsubscribe": `<${unsub}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
       });
     } catch (error) {

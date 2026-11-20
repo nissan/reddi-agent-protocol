@@ -20,11 +20,17 @@ export const SIGNUP_COPY = {
   confirmButton: "Confirm my signup",
   confirmedTitle: "You're on the list.",
   catchUpLabel: "See what exists today",
-  confirmedBody: "We'll email you when the devnet sandbox opens and when the guarded beta opens, and send the build updates until then. Nothing is on mainnet yet. Every message carries a one-click unsubscribe link, and nothing else is sent to this address.",
+  confirmedBody: "We'll email you when the devnet sandbox opens and when the guarded beta opens, and send the build updates until then. Nothing is on mainnet yet. A short welcome email is on its way with a one-click unsubscribe link; every message carries one, and nothing else is sent to this address.",
   closedStateBody: "This site does not collect email addresses yet.",
   email: {
     subject: "Confirm your Reddi Agent Protocol signup",
     text: (link: string, catchUp?: string) => `You asked to be told when the Reddi Agent Protocol sandbox and guarded beta open, and to get the build updates. Nothing is on mainnet yet. Open this link and press the button to confirm (the link expires in 48 hours):\n\n${link}\n\nIf you did not ask for this, ignore this email and nothing more will be sent.${catchUp ? `\n\nSee what exists today: ${catchUp}` : ""}`,
     html: (link: string, catchUp?: string) => `<p>You asked to be told when the Reddi Agent Protocol sandbox and guarded beta open, and to get the build updates. Nothing is on mainnet yet.</p><p><a href="${link}">Confirm your signup</a> (opens a page with one button; the link expires in 48 hours).</p><p>If you did not ask for this, ignore this email and nothing more will be sent.</p>${catchUp ? `<p><a href="${catchUp}">See what exists today</a></p>` : ""}`,
+  },
+  // Sent once, right after the confirm button is pressed. It is the first message with the unsubscribe link.
+  welcome: {
+    subject: "You're on the Reddi Agent Protocol list",
+    text: (unsubscribe: string, catchUp?: string) => `You're on the list. We'll email you when the devnet sandbox opens and when the guarded beta opens, and send the build updates until then. Nothing is on mainnet yet.${catchUp ? `\n\nSee what exists today: ${catchUp}` : ""}\n\nUnsubscribe: ${unsubscribe}`,
+    html: (unsubscribe: string, catchUp?: string) => `<p>You're on the list. We'll email you when the devnet sandbox opens and when the guarded beta opens, and send the build updates until then. Nothing is on mainnet yet.</p>${catchUp ? `<p><a href="${catchUp}">See what exists today</a></p>` : ""}<p><a href="${unsubscribe}">Unsubscribe</a> with one click. You're receiving this because you confirmed your Reddi Agent Protocol signup.</p>`,
   },
 } as const;

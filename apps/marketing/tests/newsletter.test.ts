@@ -63,10 +63,10 @@ test("S01 confirmed opt-in: one link, used once, rate limited, unconfirmed never
   assert.equal(await confirm(d, token), "already-confirmed");
   assert.equal(await status(d, "alice@owner-test.example"), "confirmed");
   assert.equal(await subscribe(d, "alice@owner-test.example"), "already-confirmed");
-  assert.equal(d.mailer.sent.length, 1);
+  assert.equal(d.mailer.sent.length, 2); // the confirmation and one welcome; the repeated link and the repeated signup sent nothing
   for (let i = 0; i < MAX_CONFIRM_SENDS_PER_DAY; i++) assert.equal(await subscribe(d, "bob@owner-test.example"), "accepted");
   assert.equal(await subscribe(d, "bob@owner-test.example"), "rate-limited");
-  assert.equal(d.mailer.sent.length, 1 + MAX_CONFIRM_SENDS_PER_DAY);
+  assert.equal(d.mailer.sent.length, 2 + MAX_CONFIRM_SENDS_PER_DAY);
   d.clock.t += 24 * 60 * 60 * 1000;
   assert.equal(await subscribe(d, "bob@owner-test.example"), "accepted");
   d.clock.t += CONFIRM_TTL_MS + 1;
@@ -629,4 +629,31 @@ test("WEB-28-S01 deferral is proven: a provider slower than the floor does not d
     for (const k of Object.keys(env)) delete process.env[k];
     Object.assign(process.env, saved);
   }
+});
+
+test("welcome: one message on confirmation carries a working unsubscribe link and one-click headers; a mailer failure never undoes the confirmation", async () => {
+  const d = deps();
+  await subscribe(d, "w1@owner-test.example");
+  assert.equal(await confirm(d, tokenFrom(d.mailer)), "confirmed");
+  const welcome = d.mailer.sent.at(-1)!;
+  assert.equal(welcome.to, "w1@owner-test.example");
+  assert.match(welcome.subject, /on the Reddi Agent Protocol list/);
+  assert.ok(!/\/newsletter\/confirm\?/.test(welcome.text));
+  assert.match(welcome.headers!["List-Unsubscribe"], /^<https:\/\/preview\.example\/api\/newsletter\/unsubscribe\?t=[^>]+>$/);
+  assert.equal(welcome.headers!["List-Unsubscribe-Post"], "List-Unsubscribe=One-Click");
+  assert.ok(welcome.html.includes("/newsletter/unsubscribe?t="));
+  // the link in the body and the one in the header both unsubscribe
+  const headerToken = decodeURIComponent(welcome.headers!["List-Unsubscribe"].match(/\?t=([^>]+)>/)![1]);
+  assert.equal(await unsubscribe(d, tokenFrom(d.mailer, "unsubscribe")), "unsubscribed");
+  assert.equal(await unsubscribe(d, headerToken), "already-unsubscribed");
+  assert.equal(await status(d, "w1@owner-test.example"), "unsubscribed");
+  // provider failure on the welcome: still confirmed, nothing thrown, no second attempt on a repeated link
+  await subscribe(d, "w2@owner-test.example");
+  const t2 = tokenFrom(d.mailer);
+  const before = d.mailer.sent.length;
+  d.mailer.failNext = true;
+  assert.equal(await confirm(d, t2), "confirmed");
+  assert.equal(await status(d, "w2@owner-test.example"), "confirmed");
+  assert.equal(await confirm(d, t2), "already-confirmed");
+  assert.equal(d.mailer.sent.length, before);
 });

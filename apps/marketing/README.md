@@ -54,7 +54,8 @@ With no environment variables the site builds and serves, the signup form render
 | `SITE_PUBLIC=1` | The indexing switch: with a Vercel production build, drops `noindex` and opens `robots.txt` |
 
 Newsletter rules (confirmed opt-in, three confirmation emails per address per day, same reply for known and unknown
-addresses, one-click unsubscribe, conditional writes) are enforced in `lib/newsletter/flow.ts` and covered by
+addresses, one welcome email on confirmation that carries the first unsubscribe link, one-click unsubscribe,
+conditional writes) are enforced in `lib/newsletter/flow.ts` and covered by
 `tests/newsletter.test.ts`. The application logs no address.
 
 ## Vercel
