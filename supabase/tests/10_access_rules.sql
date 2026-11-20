@@ -37,6 +37,21 @@ select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a
 insert into public.providers (wallet, owner_user_id, display_name, endpoint_url, price_per_call_base_units, price_mint, network, status)
 values ('3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', '00000000-0000-0000-0000-00000000000a', 'A', 'https://a.example.test', 10000, 'mint', 'solana-devnet', 'listed');
 
+-- A per-token listing keeps the per-call price at its zero default, and refuses negative prices.
+update public.providers set price_input_per_million_base_units = 150000, price_output_per_million_base_units = 600000
+  where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr';
+do $$ begin
+  if (select price_output_per_million_base_units from public.providers where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr') <> 600000
+    then raise exception 'owner cannot set per-token prices'; end if;
+end $$;
+do $$ begin
+  begin
+    update public.providers set price_input_per_million_base_units = -1 where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr';
+  exception when check_violation then return;
+  end;
+  raise exception 'negative per-token price was accepted';
+end $$;
+
 select pg_temp.expect_denied('A lists a provider under B''s wallet', $q$
   insert into public.providers (wallet, owner_user_id, display_name, endpoint_url, price_per_call_base_units, price_mint, network)
   values ('6uiQbwMor4UrWYiDtAJcgHKYW4vUaM3BUVChPgzdALse', '00000000-0000-0000-0000-00000000000a', 'x', 'https://x.example.test', 1, 'mint', 'solana-devnet') $q$);

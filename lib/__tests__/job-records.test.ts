@@ -14,7 +14,7 @@ const LAMPORTS = 2_000_000;
 
 const listing: Listing = {
   wallet: PROVIDER, displayName: "Fast summaries", endpointUrl: "https://provider.example/v1", declaredModels: [], capabilities: {},
-  pricePerCallBaseUnits: String(LAMPORTS), priceMint: "SOL", network: "solana-devnet", status: "listed", healthStatus: "pass", lastSeenAt: null, updatedAt: null,
+  pricePerCallBaseUnits: String(LAMPORTS), priceInputPerMillionBaseUnits: "0", priceOutputPerMillionBaseUnits: "0", priceMint: "SOL", network: "solana-devnet", status: "listed", healthStatus: "pass", lastSeenAt: null, updatedAt: null,
 };
 
 function receipt(overrides: Record<string, unknown> = {}) {

@@ -31,14 +31,21 @@ describe("publishing a listing from onboarding (#740)", () => {
     const built = listingBodyFromOnboarding(INPUT);
     expect(built.ok).toBe(true);
     if (!built.ok) return;
-    expect(Object.keys(built.body).sort()).toEqual(["capabilities", "declaredModels", "displayName", "endpointUrl", "priceMint", "pricePerCallBaseUnits", "status"]);
+    expect(Object.keys(built.body).sort()).toEqual(["capabilities", "declaredModels", "displayName", "endpointUrl", "priceInputPerMillionBaseUnits", "priceMint", "priceOutputPerMillionBaseUnits", "pricePerCallBaseUnits", "status"]);
     expect(built.body.endpointUrl).toBe("https://provider.example/v1");
     expect(built.body.pricePerCallBaseUnits).toBe("2500");
     expect(JSON.stringify(built.body.capabilities)).not.toContain("health");
   });
 
+  it("publishes a per-token listing with no per-job price", () => {
+    const built = listingBodyFromOnboarding({ ...INPUT, perCallUsd: "", inputPerMillionUsd: "0.15", outputPerMillionUsd: "0.6" });
+    expect(built).toMatchObject({ ok: true, body: { pricePerCallBaseUnits: "0", priceInputPerMillionBaseUnits: "150000", priceOutputPerMillionBaseUnits: "600000" } });
+  });
+
   it("explains what is missing instead of publishing a listing without a price or endpoint", () => {
     expect(listingBodyFromOnboarding({ ...INPUT, perCallUsd: "" })).toMatchObject({ ok: false });
+    expect(listingBodyFromOnboarding({ ...INPUT, perCallUsd: "0", inputPerMillionUsd: " ", outputPerMillionUsd: "0" })).toMatchObject({ ok: false });
+    expect(listingBodyFromOnboarding({ ...INPUT, inputPerMillionUsd: "-1" })).toMatchObject({ ok: false });
     expect(listingBodyFromOnboarding({ ...INPUT, endpointUrl: "  " })).toMatchObject({ ok: false });
     expect(listingBodyFromOnboarding({ ...INPUT, profile: "local-surfpool" })).toMatchObject({ ok: false });
   });

@@ -29,7 +29,11 @@ create table public.providers (
   declared_models text[] not null default '{}',
   capabilities jsonb not null default '{}'::jsonb,
   capability_hash text check (capability_hash ~ '^[0-9a-f]{64}$'),
-  price_per_call_base_units bigint not null check (price_per_call_base_units >= 0),
+  -- Price of a fixed-price escrow job. Inference calls are priced per token below.
+  price_per_call_base_units bigint not null default 0 check (price_per_call_base_units >= 0),
+  -- Per-token prices, in whole base units of price_mint per million tokens.
+  price_input_per_million_base_units bigint not null default 0 check (price_input_per_million_base_units >= 0),
+  price_output_per_million_base_units bigint not null default 0 check (price_output_per_million_base_units >= 0),
   price_mint text not null,
   network text not null check (network in ('solana-devnet', 'solana-mainnet')),
   status text not null default 'draft' check (status in ('draft', 'listed', 'paused', 'removed')),
@@ -229,16 +233,19 @@ grant select on public.attestations, public.provider_stats to anon, authenticate
 -- providers: clients read every column except owner_user_id, which is an
 -- internal account id. Clients must name columns (select * is refused).
 grant select (wallet, display_name, endpoint_url, declared_models, capabilities, capability_hash,
-              price_per_call_base_units, price_mint, network, status, health_status,
+              price_per_call_base_units, price_input_per_million_base_units,
+              price_output_per_million_base_units, price_mint, network, status, health_status,
               last_seen_at, created_at, updated_at)
   on public.providers to anon, authenticated;
 -- Owners may set only the descriptive columns. Health, timestamps and ownership
 -- changes are server-owned. No client delete.
 grant insert (wallet, owner_user_id, display_name, endpoint_url, declared_models, capabilities,
-              capability_hash, price_per_call_base_units, price_mint, network, status)
+              capability_hash, price_per_call_base_units, price_input_per_million_base_units,
+              price_output_per_million_base_units, price_mint, network, status)
   on public.providers to authenticated;
 grant update (display_name, endpoint_url, declared_models, capabilities, capability_hash,
-              price_per_call_base_units, price_mint, status)
+              price_per_call_base_units, price_input_per_million_base_units,
+              price_output_per_million_base_units, price_mint, status)
   on public.providers to authenticated;
 
 -- payment_replay has no client policy and no client privilege. Server only.

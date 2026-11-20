@@ -29,10 +29,26 @@ function usdMints(network: ListingNetwork): Set<string> {
 
 /** The listed price in US dollars, when the listing is priced in a US dollar stablecoin. There is no exchange rate here. */
 export function listingPerCallUsd(listing: Pick<Listing, "pricePerCallBaseUnits" | "priceMint" | "network">): number | undefined {
+  return baseUnitsToUsd(listing.pricePerCallBaseUnits, listing);
+}
+
+/** The listed per-million-token prices in US dollars, when priced in a US dollar stablecoin. A zero price is left out. */
+export function listingTokenPricesUsd(
+  listing: Pick<Listing, "priceInputPerMillionBaseUnits" | "priceOutputPerMillionBaseUnits" | "priceMint" | "network">,
+): { inputPerMillionUsd?: number; outputPerMillionUsd?: number } {
+  const inputPerMillionUsd = baseUnitsToUsd(listing.priceInputPerMillionBaseUnits, listing);
+  const outputPerMillionUsd = baseUnitsToUsd(listing.priceOutputPerMillionBaseUnits, listing);
+  return {
+    ...(inputPerMillionUsd ? { inputPerMillionUsd } : {}),
+    ...(outputPerMillionUsd ? { outputPerMillionUsd } : {}),
+  };
+}
+
+function baseUnitsToUsd(value: string, listing: Pick<Listing, "priceMint" | "network">): number | undefined {
   if (!usdMints(listing.network).has(listing.priceMint)) return undefined;
   let units: bigint;
   try {
-    units = BigInt(listing.pricePerCallBaseUnits);
+    units = BigInt(value);
   } catch {
     return undefined;
   }
@@ -68,7 +84,8 @@ export function listingToIndexEntry(listing: Listing): SpecialistIndexEntry {
       outputModes: strings(caps.outputModes),
       privacyModes: strings(caps.privacyModes).filter((m): m is "public" | "per" | "vanish" => m === "public" || m === "per" || m === "vanish"),
       tags: strings(caps.tags),
-      pricing: { baseUsd: 0, ...(perCallUsd === undefined ? {} : { perCallUsd }) },
+      // A per-call price of zero means the listing is priced per token only.
+      pricing: { baseUsd: 0, ...(perCallUsd ? { perCallUsd } : {}), ...listingTokenPricesUsd(listing) },
       context_requirements: [],
       runtime_capabilities: [],
     },

@@ -21,8 +21,12 @@ export interface ListingInput {
   endpointUrl: string;
   declaredModels: string[];
   capabilities: Record<string, unknown>;
-  /** Whole base units of the price mint, as a decimal string. */
+  /** Price of a fixed-price escrow job: whole base units of the price mint, as a decimal string. May be "0". */
   pricePerCallBaseUnits: string;
+  /** Inference price per million input tokens, in whole base units of the price mint. */
+  priceInputPerMillionBaseUnits: string;
+  /** Inference price per million output tokens, in whole base units of the price mint. */
+  priceOutputPerMillionBaseUnits: string;
   /** A mint address, or "SOL" for native SOL. */
   priceMint: string;
   status: ListingStatus;
@@ -47,7 +51,7 @@ const MAX_CAPABILITIES_BYTES = 16 * 1024;
 
 /** Columns a client role may read. `owner_user_id` is never selected. */
 const LISTING_COLUMNS =
-  "wallet,display_name,endpoint_url,declared_models,capabilities,price_per_call_base_units,price_mint,network,status,health_status,last_seen_at,updated_at";
+  "wallet,display_name,endpoint_url,declared_models,capabilities,price_per_call_base_units,price_input_per_million_base_units,price_output_per_million_base_units,price_mint,network,status,health_status,last_seen_at,updated_at";
 
 /** The database's name for the network this deployment serves. A local profile has none. */
 export function listingNetworkForProfile(profile: NetworkProfileName): ListingNetwork | undefined {
@@ -99,8 +103,12 @@ export function validateListingInput(body: unknown): { ok: true; input: ListingI
   if (!capabilities || typeof capabilities !== "object" || Array.isArray(capabilities)) return invalid("Capabilities must be an object.");
   if (Buffer.byteLength(JSON.stringify(capabilities), "utf8") > MAX_CAPABILITIES_BYTES) return invalid("Capabilities are too large.");
 
-  const price = typeof b.pricePerCallBaseUnits === "string" ? b.pricePerCallBaseUnits : "";
+  const price = b.pricePerCallBaseUnits === undefined ? "0" : typeof b.pricePerCallBaseUnits === "string" ? b.pricePerCallBaseUnits : "";
   if (!BASE_UNITS.test(price)) return invalid("The price must be a whole number of base units, sent as text.");
+  const inputPrice = b.priceInputPerMillionBaseUnits === undefined ? "0" : typeof b.priceInputPerMillionBaseUnits === "string" ? b.priceInputPerMillionBaseUnits : "";
+  const outputPrice = b.priceOutputPerMillionBaseUnits === undefined ? "0" : typeof b.priceOutputPerMillionBaseUnits === "string" ? b.priceOutputPerMillionBaseUnits : "";
+  if (!BASE_UNITS.test(inputPrice) || !BASE_UNITS.test(outputPrice)) return invalid("Per-token prices must be whole numbers of base units per million tokens, sent as text.");
+  if (price === "0" && inputPrice === "0" && outputPrice === "0") return invalid("Set a price per million tokens, or a price per job.");
 
   const priceMint = typeof b.priceMint === "string" ? b.priceMint : "";
   if (priceMint !== "SOL" && !WALLET.test(priceMint)) return invalid("The price currency must be SOL or a mint address.");
@@ -110,7 +118,7 @@ export function validateListingInput(body: unknown): { ok: true; input: ListingI
 
   return {
     ok: true,
-    input: { displayName, endpointUrl, declaredModels, capabilities: capabilities as Record<string, unknown>, pricePerCallBaseUnits: price, priceMint, status: status as ListingStatus },
+    input: { displayName, endpointUrl, declaredModels, capabilities: capabilities as Record<string, unknown>, pricePerCallBaseUnits: price, priceInputPerMillionBaseUnits: inputPrice, priceOutputPerMillionBaseUnits: outputPrice, priceMint, status: status as ListingStatus },
   };
 }
 
@@ -133,10 +141,13 @@ function fromRow(row: unknown): Listing | undefined {
   if (r.network !== "solana-devnet" && r.network !== "solana-mainnet") return undefined;
   if (typeof r.status !== "string" || !STATUSES.includes(r.status as ListingStatus)) return undefined;
   // bigint columns arrive as a JSON number; keep the exact digits and refuse anything that lost precision.
-  const price = typeof r.price_per_call_base_units === "number" && Number.isSafeInteger(r.price_per_call_base_units)
-    ? String(r.price_per_call_base_units)
-    : typeof r.price_per_call_base_units === "string" ? r.price_per_call_base_units : "";
-  if (!BASE_UNITS.test(price)) return undefined;
+  const units = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value)
+    ? String(value)
+    : typeof value === "string" ? value : value === undefined || value === null ? "0" : "";
+  const price = units(r.price_per_call_base_units);
+  const inputPrice = units(r.price_input_per_million_base_units);
+  const outputPrice = units(r.price_output_per_million_base_units);
+  if (![price, inputPrice, outputPrice].every((p) => BASE_UNITS.test(p))) return undefined;
   return {
     wallet: r.wallet,
     displayName: typeof r.display_name === "string" ? r.display_name : "",
@@ -144,6 +155,8 @@ function fromRow(row: unknown): Listing | undefined {
     declaredModels: Array.isArray(r.declared_models) ? r.declared_models.filter((m): m is string => typeof m === "string") : [],
     capabilities: r.capabilities && typeof r.capabilities === "object" && !Array.isArray(r.capabilities) ? (r.capabilities as Record<string, unknown>) : {},
     pricePerCallBaseUnits: price,
+    priceInputPerMillionBaseUnits: inputPrice,
+    priceOutputPerMillionBaseUnits: outputPrice,
     priceMint: typeof r.price_mint === "string" ? r.price_mint : "",
     network: r.network,
     status: r.status as ListingStatus,
@@ -201,6 +214,8 @@ export async function saveOwnListing(
         declared_models: input.declaredModels,
         capabilities: input.capabilities,
         price_per_call_base_units: input.pricePerCallBaseUnits,
+        price_input_per_million_base_units: input.priceInputPerMillionBaseUnits,
+        price_output_per_million_base_units: input.priceOutputPerMillionBaseUnits,
         price_mint: input.priceMint,
         network,
         status: input.status,
