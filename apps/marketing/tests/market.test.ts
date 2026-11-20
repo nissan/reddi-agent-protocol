@@ -14,13 +14,12 @@ test('every shown figure has a dated https source or is marked as our estimate',
   for (const s of Object.values(SOURCES)) assert.match(s.url, /^https:\/\//, s.label);
 });
 
-test('the planned fee is 5 bps of the listed price, rounded down, with no minimum', () => {
-  assert.equal(feeFor(1_000_000), 500); // 1 USDC -> 0.0005 USDC (issue #744, RAP-FEE-S1)
-  assert.equal(feeFor(1_000), 0); // 0.001 USDC pays no fee (RAP-FEE-S5)
-  assert.equal(feeFor(1_999), 0);
-  assert.equal(feeFor(2_000), 1);
-  assert.equal(priceRow(0.001).rapFee, 0);
-  assert.equal(priceRow(1).rapFee, 0.0005);
+test('the planned fee is 2.5% of the actual cost, rounded down, with no minimum', () => {
+  assert.equal(feeFor(1_000_000), 25_000); // 1 USDC -> 0.025 USDC (PR #792)
+  assert.equal(feeFor(39), 0); // under 0.00004 USDC pays no fee
+  assert.equal(feeFor(40), 1);
+  assert.equal(priceRow(0.001).rapFee, 0.000025);
+  assert.equal(priceRow(1).rapFee, 0.025);
 });
 
 test('card and network shares are computed, not typed', () => {
@@ -28,15 +27,15 @@ test('card and network shares are computed, not typed', () => {
   assert.equal(priceRow(1).networkPct.toFixed(4), '0.0365');
 });
 
-test('scenario revenue is volume times 5 bps and the scenarios are ordered', () => {
+test('scenario revenue is volume times 2.5% and the scenarios are ordered', () => {
   const rows = SCENARIOS.map(scenarioRow);
   for (const r of rows) {
-    assert.ok(Math.abs(r.revenue2030 - r.som * 0.0005) < 1e-6);
-    assert.equal(r.revenue2027, r.volume2027 * 0.0005);
+    assert.ok(Math.abs(r.revenue2030 - r.som * 0.025) < 1e-3);
+    assert.ok(Math.abs(r.revenue2027 - r.volume2027 * 0.025) < 1e-6);
   }
   assert.ok(rows[0].som < rows[1].som && rows[1].som < rows[2].som);
-  assert.equal(Math.round(rows[1].revenue2030), 127490);
-  assert.equal(volumeFor(1_000_000), 2_000_000_000);
+  assert.equal(Math.round(rows[1].revenue2030), 6374500);
+  assert.equal(volumeFor(1_000_000), 40_000_000);
 });
 
 test('the page labels SAM, SOM and scenario volumes as estimates and says no fee is collected today', () => {
@@ -72,5 +71,5 @@ test('the revenue stack adds up and its settlement line matches the base-fee mod
     assert.ok(Math.abs(st.total - st.lines.reduce((t, l) => t + l.revenue, 0)) < 1e-6);
     assert.ok(Math.abs(st.lines.find((l) => l.key === 'settle')!.revenue - scenarioRow(s).revenue2030) < 1e-6);
   }
-  assert.equal(Math.round(stackRow(SCENARIOS[1]).total / 1000), 1327);
+  assert.equal(Math.round(stackRow(SCENARIOS[1]).total / 1000), 7255);
 });

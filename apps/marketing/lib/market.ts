@@ -18,11 +18,16 @@ const S = {
   coinbase: { label: 'Coinbase CDP x402 FAQ', url: 'https://docs.cdp.coinbase.com/x402/support/faq' },
   mnm: { label: 'MarketsandMarkets (Feb 2025)', url: 'https://www.marketsandmarkets.com/PressReleases/ai-inference.asp' },
   juniper: { label: 'Juniper Research (Apr 2026)', url: 'https://www.juniperresearch.com/press/agentic-commerce-set-to-generate-15-trillion-globally-by-2030-as-payments-infrastructure-leaders-revealed/' },
-  feeIssue: { label: 'Fee design, issue #744', url: 'https://github.com/nissan/reddi-agent-protocol/issues/744' },
+  feeIssue: { label: 'Fee design, pull request #792', url: 'https://github.com/nissan/reddi-agent-protocol/pull/792' },
+  openRouterFee: { label: 'OpenRouter, platform fee (updated 11 Jun 2026)', url: 'https://openrouter.ai/announcements/simplifying-our-platform-fee' },
 } satisfies Record<string, Source>;
 
-/** Planned V1 fee: 5 basis points of the listed price, rounded down to the token's smallest unit. */
-export const FEE_BPS = 5;
+/**
+ * Planned V1 fee: 250 basis points (2.5%) of a call's actual cost, rounded down to the token's smallest unit,
+ * taken out of the provider's share. Capped at 0.1 SOL on SOL payments; stablecoins have no ceiling.
+ */
+export const FEE_BPS = 250;
+export const SOL_FEE_CAP = 0.1;
 export const feeFor = (priceBaseUnits: number) => Math.floor((priceBaseUnits * FEE_BPS) / 10_000);
 export const USDC_DECIMALS = 6;
 
@@ -103,12 +108,12 @@ export const BUILD_HISTORY: Figure[] = [
 export const RFS_MAP = [
   { rfs: 'choose', ours: 'An OpenAI-style request to any registered provider, and a public reputation to choose by.' },
   { rfs: 'verify', ours: 'A provider-signed receipt naming the model it says it ran, with hashes of the request and response.' },
-  { rfs: 'pay', ours: 'Per-call payment over x402 on Solana, with the payment bound to the receipt.' },
+  { rfs: 'pay', ours: 'Per-token prices like any AI API, paid over x402 on Solana, with the payment bound to the receipt.' },
   { rfs: 'reputation', ours: 'Receipts and checks feed a provider record anyone can read.' },
-  { rfs: 'payment channels', ours: 'Escrow for larger jobs today; batched and streamed payment is on the roadmap.' },
+  { rfs: 'payment channels', ours: 'The buyer locks a maximum, the provider settles the real token cost, and the rest comes back. Batched and streamed payment is on the roadmap.' },
 ];
 
-// ---- Revenue roadmap: more lines beyond the 5 bps settlement fee. All amounts are our estimates. ----
+// ---- Revenue roadmap: more lines beyond the 2.5% settlement fee. All amounts are our estimates. ----
 export type Stage = 'First mainnet release' | 'Planned' | 'Exploring';
 export type RevenueLine = {
   key: string; name: string; payer: string; fee: string; stage: Stage; rfs: string; nonCustodial: string;
@@ -123,28 +128,23 @@ export const ATTACH: Record<Scenario['key'], Attach> = {
   high: { verified: 0.4, checked: 0.3, escrowMultiple: 1, lookupsPerCall: 1, providers: 10_000, privateShare: 0.1 },
 };
 const BENCH = {
-  uniswap: { label: 'Uniswap', url: 'https://blog.uniswap.org/unification' },
   near: { label: 'NEAR AI Cloud', url: 'https://near.ai/cloud' },
   jupiter: { label: 'Jupiter docs', url: 'https://developers.jup.ag/docs/ultra/fees.md' },
-  akash: { label: 'Akash AEP-76', url: 'https://akash.network/roadmap/aep-76/' },
   uma: { label: 'UMA docs', url: 'https://docs.uma.xyz/developers/setting-custom-bond-and-liveness-parameters' },
   graph: { label: 'The Graph pricing', url: 'https://thegraph.com/pricing.md' },
   arcium: { label: 'Arcium docs', url: 'https://docs.arcium.com/computations/pricing-and-incentives' },
 } satisfies Record<string, Source>;
 
 export const REVENUE_LINES: RevenueLine[] = [
-  { key: 'settle', name: 'Settlement fee', payer: 'Buyer, on each direct per-call payment', fee: '0.05% of the listed price', stage: 'First mainnet release', rfs: 'pay',
-    nonCustodial: 'Split inside the buyer’s own payment transaction.', benchmark: { text: 'Uniswap’s protocol share is 1/6 of the swap fee', source: BENCH.uniswap },
-    revenue: (s) => s.som * 0.0005 },
+  { key: 'settle', name: 'Settlement fee', payer: 'Provider, out of every paid call and escrow job', fee: '2.5% of the actual cost, at most 0.1 SOL on SOL payments', stage: 'First mainnet release', rfs: 'pay',
+    nonCustodial: 'The escrow program splits the payment when the call settles. The treasury only receives.', benchmark: { text: 'OpenRouter charges 5.5% on card top-ups and 5% in crypto', source: S.openRouterFee },
+    revenue: (s) => s.som * 0.025 },
   { key: 'verified', name: 'Verified receipts', payer: 'Buyer who wants a receipt backed by a hardware (TEE) attestation or a proof', fee: '+0.20% on that call', stage: 'Planned', rfs: 'verify',
     nonCustodial: 'Same split as the settlement fee. We check the evidence, never the funds.', benchmark: { text: 'Private TEE inference sells at the ordinary per-token price', source: BENCH.near },
     revenue: (s, a) => s.som * a.verified * 0.002 },
   { key: 'checks', name: 'Independent spot checks', payer: 'Buyer who opts into attestors re-running sampled calls', fee: '10% of the attestor’s fee', stage: 'Planned', rfs: 'verify',
     nonCustodial: 'Buyer pays the attestor directly; the protocol share is split in the same transaction.', benchmark: { text: 'Jupiter keeps 20% of integrator fees', source: BENCH.jupiter },
     revenue: (s, a) => s.som * a.checked * 0.03 * 0.1 },
-  { key: 'escrow', name: 'Escrow for larger jobs', payer: 'Buyer, when a job is released', fee: '0.25% on release', stage: 'Planned', rfs: 'payment channels',
-    nonCustodial: 'Funds sit in the on-chain program and move only by its rules.', benchmark: { text: 'Akash is moving to a spread of up to 25 bps', source: BENCH.akash },
-    revenue: (s, a) => s.som * a.escrowMultiple * 0.0025 },
   { key: 'lookups', name: 'Reputation and receipt lookups', payer: 'Agents checking a provider before they pay', fee: '$0.0002 per lookup, paid over x402', stage: 'Planned', rfs: 'reputation',
     nonCustodial: 'The record stays public on-chain. Anyone can run their own index; we sell the fast path.', benchmark: { text: 'The Graph sells queries at $2 per 100,000', source: BENCH.graph },
     revenue: (s, a) => s.calls2030 * a.lookupsPerCall * 0.0002 },
