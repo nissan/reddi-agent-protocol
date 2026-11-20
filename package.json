@@ -122,6 +122,7 @@
     "@solana/wallet-adapter-react-ui": "^0.9.39",
     "@solana/wallet-adapter-wallets": "^0.19.37",
     "@solana/web3.js": "^1.98.4",
+    "@supabase/supabase-js": "^2.119.2",
     "@umbra-privacy/sdk": "^4.0.0",
     "@umbra-privacy/web-zk-prover": "^2.0.1",
     "class-variance-authority": "^0.7.1",
