@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resolveAppUrl } from "../lib/copy.ts";
-import { resolveSandboxUrl } from "../lib/sandbox.ts";
+import { resolveAppUrl, SCENARIOS } from "../lib/copy.ts";
+import { resolveSandboxUrl, scenarioUrl } from "../lib/sandbox.ts";
 import { APEX_ORIGIN, resolveIndexable, resolveSiteUrl, robotsRules } from "../lib/site.ts";
 
 test("sandbox link: only a well-formed https address opens it", () => {
@@ -35,4 +35,10 @@ test("developer app link: https origin only, otherwise the default address", () 
   assert.equal(resolveAppUrl("http://app.example"), fallback);
   assert.equal(resolveAppUrl("javascript:alert(1)"), fallback);
   assert.equal(resolveAppUrl("https://app.agent-protocol.reddi.tech/some/path"), "https://app.agent-protocol.reddi.tech");
+});
+
+test("sandbox scenarios: the four sandbox ids, each with a deep link only when the sandbox is open", () => {
+  assert.deepEqual(SCENARIOS.map((s) => s.id), ["buy-a-review", "shop-around", "try-to-cheat", "provider-offline"]);
+  assert.equal(scenarioUrl(null, "shop-around"), null);
+  assert.equal(scenarioUrl("https://app.example/sandbox", "shop-around"), "https://app.example/sandbox?scenario=shop-around");
 });

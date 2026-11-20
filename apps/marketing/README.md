@@ -39,7 +39,7 @@ With no environment variables the site builds and serves, the signup form render
 
 | Variable | Purpose |
 |---|---|
-| `NEXT_PUBLIC_SANDBOX_URL` | https address of the devnet sandbox. Build time. Unset or not https: "opens soon" |
+| `NEXT_PUBLIC_SANDBOX_URL` | https address of the devnet sandbox. Build time. Unset or not https: "opens soon". Each scenario card links to it with `?scenario=<id>`; the ids in `lib/copy.ts` mirror the sandbox catalog in the developer app |
 | `NEXT_PUBLIC_APP_URL` | https address of the developer app that the "For developers" links open. Build time. Unset or not https: `https://reddi-agent-protocol.vercel.app` |
 | `NEXT_PUBLIC_CONTACT_EMAIL` | Contact address printed on the privacy page. Unset: the page points to the repository |
 | `NEXT_PUBLIC_NEWSLETTER_FORM=1` | Build-time switch that enables the signup form |

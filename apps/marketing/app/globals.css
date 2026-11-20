@@ -79,9 +79,10 @@ blockquote cite{font-style:normal;font-size:14px;color:#b9b6ab}
 .steps span{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--violet);display:block;margin-bottom:28px}
 .steps p{font-size:15px;margin:0;color:#2c2f2a}
 
-.scenarios{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.scenarios{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
 .scenarios article{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:24px}
 .scenarios p{font-size:15px;margin:0;color:#2c2f2a}
+.scenarios p+p{margin-top:14px}
 .tag{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.08em;padding:3px 8px;border:1.5px solid var(--ink);margin-bottom:18px}
 
 .devlinks{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}

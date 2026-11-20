@@ -4,7 +4,7 @@ import { pageMetadata } from '../../lib/metadata';
 import { sandboxUrl } from '../../lib/sandbox';
 import { siteUrl } from '../../lib/site';
 
-export const metadata = pageMetadata(siteUrl, { path: '/sandbox', title: 'Devnet sandbox', description: 'Three short scenarios for trying receipted inference on Solana devnet with test funds only.' });
+export const metadata = pageMetadata(siteUrl, { path: '/sandbox', title: 'Devnet sandbox', description: 'Four short scenarios for trying receipted inference on Solana devnet with test funds only.' });
 
 export default function Sandbox() {
   return (
@@ -18,10 +18,11 @@ export default function Sandbox() {
         : <div className="notice"><h2>Opens soon</h2><p>We will email the list the day it opens. Until then, the developer demo in the repository shows the same flow in a rougher form.</p><p><Link className="button" href="/#updates">Tell me when it opens</Link></p></div>}
       <h2>What you will need</h2>
       <ul className="plain">
-        <li>A Solana wallet set to devnet. No real funds.</li>
+        <li>A browser. The default payment is simulated, so no wallet is needed.</li>
+        <li>Optionally, a Solana wallet set to devnet if you want to pay with test SOL. No real funds.</li>
         <li>A few minutes per scenario.</li>
-        <li>Nothing else: the sandbox supplies test tokens and a test provider.</li>
       </ul>
+      <p>The sandbox providers answer from a script, not from a running model, and every receipt says so.</p>
     </main>
   );
 }
