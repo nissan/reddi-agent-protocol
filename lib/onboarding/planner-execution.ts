@@ -8,6 +8,9 @@ import { routePlannerPolicy, type PlannerPolicyInput } from "@/lib/onboarding/pl
 import { loadListingIndex } from "@/lib/listings/listing-index";
 import { processX402Challenge } from "@/lib/onboarding/x402-settlement";
 import { receiptHeaderForProvider } from "@/lib/payments/wallet-direct-payment";
+import { getNetworkProfile, resolveNetworkProfileName } from "@/lib/config/network";
+import { readOwnListing } from "@/lib/listings/listing-store";
+import { verifyAndRecordPaidCall, type PaidCallOutcome } from "@/lib/jobs/paid-call";
 import { emitTorqueEvent } from "@/lib/torque/client";
 import { TORQUE_EVENTS } from "@/lib/torque/events";
 
@@ -27,6 +30,8 @@ export type PlannerExecuteInput = {
   paymentMode?: "wallet";
   /** Wallet mode only: the receipt for a transaction the buyer's wallet signed and sent. */
   paymentReceipt?: unknown;
+  /** The signed-in buyer, from a checked session. Never taken from the request body. */
+  buyerSession?: { userId: string; wallet: string };
 };
 
 /** Handed to the browser so the buyer's wallet can pay. Never contains a signature. */
@@ -54,6 +59,8 @@ export type PlannerRunRecord = {
   paymentSatisfied: boolean;
   x402TxSignature?: string;
   x402ReceiptNonce?: string;
+  /** Set when the server verified the payment on chain and stored a job record. */
+  jobId?: string;
   reputationCommitTx?: string;
   responseStatus?: number;
   responsePreview?: string;
@@ -147,6 +154,8 @@ export async function executePlannerSpecialistCall(input: PlannerExecuteInput) {
 
   if (input.paymentMode === "wallet") {
     return executeWithWalletPayment(input, {
+      listingSource: index.source,
+      model: payload.model,
       runId,
       createdAt,
       policy,
@@ -319,6 +328,8 @@ export async function executePlannerSpecialistCall(input: PlannerExecuteInput) {
 }
 
 type WalletRunContext = {
+  listingSource: "files" | "database";
+  model: string;
   runId: string;
   createdAt: string;
   policy: PlannerPolicyInput;
@@ -330,6 +341,46 @@ type WalletRunContext = {
   payload: unknown;
   candidates: unknown[];
 };
+
+/**
+ * Checks a wallet-paid call on chain and stores a job record for it. Any
+ * failure here leaves no record; it never changes what the buyer is told
+ * about the provider's answer.
+ */
+async function recordWalletPaidJob(
+  input: PlannerExecuteInput,
+  ctx: WalletRunContext,
+  outcome: { delivered: boolean; responseText?: string },
+): Promise<PaidCallOutcome> {
+  try {
+    const listing = await readOwnListing(ctx.selectedWallet);
+    if (!listing.ok || !listing.listing) return { recorded: false, reason: "listing_not_found" };
+    return await verifyAndRecordPaidCall(
+      {
+        receipt: input.paymentReceipt,
+        listing: listing.listing,
+        profile: resolveNetworkProfileName(),
+        requestHash: ctx.promptSha256,
+        responseHash: outcome.responseText === undefined ? undefined : createHash("sha256").update(outcome.responseText).digest("hex"),
+        declaredModel: ctx.model,
+        delivered: outcome.delivered,
+        session: input.buyerSession,
+      },
+      {
+        rpcUrl: getNetworkProfile().solana.rpcHttp,
+        mints: {
+          USDC: process.env.NEXT_PUBLIC_X402_USDC_MINT,
+          AUDD: process.env.NEXT_PUBLIC_X402_AUDD_MINT,
+          PYUSD: process.env.NEXT_PUBLIC_X402_PYUSD_MINT,
+          USDG: process.env.NEXT_PUBLIC_X402_USDG_MINT,
+        },
+        feeTreasury: process.env.X402_PROTOCOL_FEE_TREASURY?.trim() || undefined,
+      },
+    );
+  } catch {
+    return { recorded: false, reason: "job_check_failed" };
+  }
+}
 
 /**
  * Wallet-paid call. Without a receipt it asks the provider for its terms and
@@ -472,6 +523,12 @@ async function executeWithWalletPayment(input: PlannerExecuteInput, ctx: WalletR
           : `Specialist call failed after wallet payment (${paid.status}).`,
       trace: [...ctx.trace, `retry:status:${paid.status}`, paid.ok ? "planner:completed" : "planner:failed"],
     };
+    // With a database configured, the server checks the payment on chain itself and only then keeps a job record.
+    if (ctx.listingSource === "database") {
+      const recorded = await recordWalletPaidJob(input, ctx, { delivered: paid.ok, responseText: paid.ok ? text : undefined });
+      run.trace.push(recorded.recorded ? "job:recorded" : `job:not_recorded:${recorded.reason}`);
+      if (recorded.recorded) run.jobId = recorded.jobId;
+    }
     appendRun(run);
     if (paid.ok) {
       void emitTorqueEvent({

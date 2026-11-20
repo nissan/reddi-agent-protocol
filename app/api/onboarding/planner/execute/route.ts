@@ -1,3 +1,4 @@
+import { authenticateWalletRequest, bearerToken } from "@/lib/auth/wallet-session";
 import { executePlannerSpecialistCall, listPlannerRuns } from "@/lib/onboarding/planner-execution";
 
 export const runtime = "nodejs";
@@ -20,7 +21,15 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+    // Optional: a signed-in buyer gets the job linked to their account. The wallet comes from the
+    // checked session only. A missing or invalid session never blocks the call.
+    let buyerSession: { userId: string; wallet: string } | undefined;
+    if (bearerToken(req.headers)) {
+      const session = await authenticateWalletRequest(req.headers);
+      if (session.ok) buyerSession = { userId: session.userId, wallet: session.wallet };
+    }
     const result = await executePlannerSpecialistCall({
+      buyerSession,
       prompt: String(body.prompt || ""),
       consumerWallet: typeof body.consumerWallet === "string" ? body.consumerWallet : undefined,
       preferredWallet: typeof body.preferredWallet === "string" ? body.preferredWallet : undefined,
