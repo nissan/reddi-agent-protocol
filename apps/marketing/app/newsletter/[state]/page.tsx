@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import FunnelBeacon from "../../../components/FunnelBeacon";
 import { SIGNUP_COPY as C } from "../../../lib/newsletter/copy";
 
 const STATES = {
@@ -18,5 +19,5 @@ export default async function NewsletterState({ params }: { params: Promise<{ st
   const { state } = await params;
   const copy = STATES[state as keyof typeof STATES];
   if (!copy) notFound();
-  return <main id="main" className="wrap article"><p className="eyebrow">NEWSLETTER</p><h1>{copy.title}</h1><p className="lead">{copy.body}</p>{state === "confirmed" && <p><Link className="text-link" href="/status">{C.catchUpLabel} ↗</Link></p>}<Link className="text-link" href="/">Back to the home page ↗</Link></main>;
+  return <main id="main" className="wrap article"><p className="eyebrow">NEWSLETTER</p><h1>{copy.title}</h1><p className="lead">{copy.body}</p>{state === "confirmed" && <p><Link className="text-link" href="/status">{C.catchUpLabel} ↗</Link></p>}<Link className="text-link" href="/">Back to the home page ↗</Link>{state === "confirmed" && <FunnelBeacon event="signup_confirmed" />}</main>;
 }
