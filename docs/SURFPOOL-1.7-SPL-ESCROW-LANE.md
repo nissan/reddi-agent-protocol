@@ -1,7 +1,5 @@
 # Surfpool 1.7.0 SPL escrow proof lane (opt-in)
 
-> **Status, 20 November 2026:** this lane predates the trimmed nine-instruction program (#736). The refund account list, the mint allowlist and the settlement rules (payer refund from 648,000 slots, payee claim from 1,512,000 slots, not a 50,400-slot payer-only window) have changed, so the lane does not pass against the current source until it is updated (#746). The evidence described below is for the earlier source.
-
 An opt-in, offline, version-qualified local proof lane that runs the classic SPL token escrow on an
 embedded Surfpool `1.7.0` runtime beside the existing local-validator proof, against the same escrow
 ELF, and requires both to agree. It is not run by default scripts or CI, and it does not change the
@@ -12,6 +10,17 @@ shared Surfpool `v1.5.0` baseline in `config/toolchain/solana-baseline-assets.js
 npm run setup:surfpool:spl-escrow-1.7
 RAP_SURFPOOL_LANE_OUT_DIR=/abs/fresh/dir npm run test:surfpool:spl-escrow-1.7
 ```
+
+The lane is written for the trimmed nine-instruction program (#736, #746): allowlisted 6-decimal mints
+only, a 100-unit cap per escrow, an `authority` signer on release and refund, payee decline at any time,
+payer refund from 648,000 slots and payee claim from 1,512,000 slots.
+
+Because neither the Apple Silicon development machine nor a default cloud workspace is Linux x64 with
+the pinned toolchain, the lane can also be run on demand in GitHub Actions: the
+`Surfpool 1.7 SPL escrow lane (on demand)` workflow (`.github/workflows/surfpool-spl-escrow-1.7-lane.yml`)
+installs the pinned Agave release from the checksummed installer named in
+`config/toolchain/solana-baseline-assets.json`, runs the lane and uploads `result.json`. It is not a
+required check; it also runs when a pull request changes the lane itself.
 
 The lane runs on Linux x64 only. It builds the ELF and runs the validator proof with the
 baseline-owned Agave tree installed by `scripts/solana-baseline-toolchain.sh install`
@@ -46,17 +55,24 @@ not installed.
    `remoteRpcUrl`. It never runs `surfpool start` and never reads a wallet or `*-keypair.json`.
 5. Deploys the built ELF at the fixed program id `794nTFNy…dcZD` and checks the deployed programdata
    bytes equal the ELF.
-6. Funds in-memory keypairs with lamports, then creates a fresh local mint and token accounts with real
-   SPL instructions. No token cheatcode is used, so token balances come only from real transfers.
-7. Exercises zero-amount rejection, exact lock, wrong signer and wrong recipient rejection, release,
-   record and vault closure, replay rejection, early and near-boundary refund rejection,
-   `timeTravelToSlot` past the 50,400-slot cancel window, wrong signer and wrong destination refund
-   rejection, refund, closure, replay and cross-path replay rejection, and surplus-donation sweep on
-   both release and refund.
+6. Funds in-memory keypairs with lamports. The program accepts only allowlisted mints, so the lane
+   writes a zero-supply stand-in mint, whose authority is the in-memory payer, at the allowlisted
+   mainnet USDC address with the `setAccount` cheatcode (the validator proof does the same with a
+   genesis account file). Only the address is reused; this is not USDC. Token accounts are created
+   and every balance is minted and moved with real SPL instructions; no token-balance cheatcode is used.
+7. Exercises, in the validator proof's order: zero-amount, above-cap and non-allowlisted-mint lock
+   rejection; exact lock; stranger, early-payee-claim and wrong-recipient release rejection; payer
+   release; payee decline with stranger, early-payer-refund and wrong-destination rejection; then, for
+   two more escrows, a refund attempt 10 slots before the 648,000-slot cancel window, `timeTravelToSlot`
+   past it, stranger and still-too-early payee-claim rejection, payer refund, a claim attempt 10 slots
+   before the 1,512,000-slot claim window, `timeTravelToSlot` past it, stranger and wrong-destination
+   rejection and payee claim. Every settlement is followed by record and vault closure, replay and
+   cross-path replay rejection. It ends with a surplus-donation sweep on a payer release and on a
+   payee decline.
 8. Stops the Surfnet and confirms both RPC and WebSocket ports refuse connections.
-9. Requires parity: same ELF hash in both lanes, same program, token program, decimals and cancel
-   window, identical source/recipient balances at the point the validator proof ends, and a Surfpool
-   check for every outcome the validator proof records.
+9. Requires parity: same ELF hash in both lanes, same program, mint address, token program, decimals,
+   cancel window and claim window, identical source/recipient balances at the point the validator
+   proof ends, and a Surfpool check for every outcome the validator proof records.
 
 Every successful transaction is checked for lamport conservation twice: from the runtime's own
 `preBalances`/`postBalances` (only the fee leaves), and across all tracked accounts read before and
@@ -69,16 +85,20 @@ return exactly the record and vault rent to the payer.
 On Surfpool `1.7.0` with transaction-mode blocks, `timeTravelToSlot` moves the `processed` slot to the
 target immediately while `confirmed` and `finalized` stay where they were until the next transaction
 lands. The lane therefore asserts the target against `processed`, records all three commitments before
-the jump, immediately after it and after the first post-jump transaction, and asserts that the refund
-transaction landed at or after the cancel-window slot. The refund attempted 10 slots before the window
-must fail with `CancelWindowNotElapsed`, and the `processed` slot read after that rejection must still be
-below the window. Locked account data, owner, lamports and rent epoch must be identical before and after
-the jump. Transaction confirmation waits for a local `finalized` status. That is local-runtime evidence
+each jump and immediately after it, and asserts that the refund transaction landed at or after the
+cancel-window slot and before the claim-window slot, and that the claim landed at or after the
+claim-window slot. The refund attempted 10 slots before the cancel window must fail with
+`CancelWindowNotElapsed`, the claim attempted 10 slots before the claim window must fail with
+`ClaimWindowNotElapsed`, and the `processed` slot read after each rejection must still be below its
+window. Locked account data, owner, lamports and rent epoch must be identical before and after each
+jump. Transaction confirmation waits for a local `finalized` status. That is local-runtime evidence
 only, never public-cluster settlement.
 
 Rejections are asserted by Anchor error code where the program reaches a distinct one: `ZeroAmount`,
-`InvalidTokenAccount` for a wrong recipient or destination, `CancelWindowNotElapsed`, and
-`ConstraintSeeds` for a wrong signer, because the escrow address is derived from the recorded payer.
+`AmountAboveCap`, `MintNotAllowed`, `InvalidTokenAccount` for a wrong recipient or destination,
+`CancelWindowNotElapsed`, `ClaimWindowNotElapsed`, and `UnauthorisedSigner` for a signer that is neither
+the payer nor the payee. Replays are only required to fail and change nothing, because the closed
+escrow record no longer exists.
 
 ## Cleanup
 
@@ -110,7 +130,8 @@ error and exits 1.
 
 Fidelity is a LiteSVM-based local runtime: no consensus, gossip or cluster-finality equivalence, and the
 built-in Tokenkeg is the runtime's own rather than a public snapshot. A pass is not deployment,
-mainnet, audit or submission readiness, and the mint is a labelled local test mint, never AUDD or USDC.
+mainnet, audit or submission readiness, and the mint is a labelled local stand-in at the allowlisted
+address, never real AUDD or USDC.
 This lane does not exercise the x402 HTTP 402 challenge, paid retry, replay or application-correctness
 assertions, and leaves every existing x402 test and proof unchanged. Adopting Surfpool `1.7.0` as the shared
 baseline is a separate change that would update `config/toolchain/solana-baseline-assets.json`, the root
