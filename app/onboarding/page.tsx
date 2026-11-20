@@ -17,6 +17,10 @@ import StepIndicator from "@/components/StepIndicator";
 import { showToast } from "@/components/ui/toast";
 import { RUNTIME_CAPABILITIES } from "@/lib/capabilities/taxonomy";
 import { toExplorerTxUrl } from "@/lib/config/explorer";
+import { resolveNetworkProfileName } from "@/lib/config/network";
+import { currentAccessToken } from "@/components/auth/WalletSignIn";
+import { publishListing } from "@/lib/listings/listing-client";
+import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { emitOnboardingCompletedEvent } from "@/lib/onboarding/torque-onboarding";
 import {
   AGENT_TYPE_ENUM,
@@ -1473,10 +1477,31 @@ export default function OnboardingPage() {
                       return;
                     }
 
+                    // With a database configured, the listing buyers are routed to is the one
+                    // published here under the signed-in wallet. Without one this step is skipped.
+                    let listingNote = "";
+                    if (getBrowserSupabase()) {
+                      const outcome = await publishListing(
+                        {
+                          walletAddress: state.walletAddress,
+                          endpointUrl: state.endpointUrl,
+                          perCallUsd: state.capabilityPerCallUsd,
+                          taskTypes: splitList(state.capabilityTaskTypes),
+                          inputModes: splitList(state.capabilityInputModes),
+                          outputModes: splitList(state.capabilityOutputModes),
+                          privacyModes: splitList(state.capabilityPrivacyModes),
+                          tags: splitList(state.capabilityTags),
+                          profile: resolveNetworkProfileName(),
+                        },
+                        await currentAccessToken(),
+                      );
+                      listingNote = ` ${outcome.message}`;
+                    }
+
                     setState((s) => ({
                       ...s,
                       capabilitySaved: true,
-                      capabilityNote: "Capability profile saved.",
+                      capabilityNote: `Capability profile saved.${listingNote}`,
                     }));
                   } catch {
                     setState((s) => ({
