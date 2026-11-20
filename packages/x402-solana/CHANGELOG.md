@@ -12,6 +12,7 @@ All notable changes to this package are documented here. Dates are AEST.
 
 ### Changed
 
+- `SolanaReceiptVerifier` binds a verified receipt to its transaction (#738). A real receipt now requires a replay store; the transaction signature is recorded after the payment is verified, so one transaction satisfies one challenge even when the presenter chooses a fresh nonce. USDC verification requires a configured `usdcMint` and never falls back to a receipt-supplied mint, and accepts only `transferChecked` (a plain `transfer` names no mint and reports raw base units). Callers that verified real SOL/USDC receipts without a replay store or without `usdcMint` are now refused with `unsupported_receipt`. The supplied in-memory store still does not survive a restart; a durable store is tracked in #723.
 - `SplTransferCheckedObservation.blockTime` is optional: a confirmed transaction whose node reports no block time for the slot is still observable, and only a present-but-invalid `blockTime` is rejected. `slot` remains mandatory.
 - An AUDD challenge verified without a configured `auddMint` now fails as `unsupported_receipt` (operator misconfiguration) rather than `invalid_receipt`, and AUDD observer failures surface their specific reason in the failure message.
 - `SolanaReceiptVerifier` marks AUDD observations it derives from `getParsedTransaction` output as `evidence.source: 'parsed-rpc-transaction'` instead of leaving the fixture default.

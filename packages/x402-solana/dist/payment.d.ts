@@ -47,6 +47,8 @@ export declare class SolanaReceiptVerifier implements ReceiptVerifier {
     /** Returns a failure result when the parsed transaction does not settle the challenge, otherwise undefined. */
     private challengePaymentFailure;
 }
+/** Replay key for a settled transaction; namespaced so it cannot collide with a caller-chosen nonce. */
+export declare function transactionReplayKey(network: string, signature: string): string;
 export interface SendPaymentOptions {
     swapClient?: SwapClient;
     slippageBps?: number;

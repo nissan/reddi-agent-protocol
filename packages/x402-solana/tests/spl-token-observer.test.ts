@@ -333,7 +333,7 @@ describe('SPL TransferChecked observation verifier', () => {
       signature: SIGNATURE,
       destinationTokenAccount: DEST_TOKEN,
       mint: MINT,
-    }, challenge);
+    }, challenge, new MemoryNonceReplayStore());
 
     expect(result.ok).toBe(true);
 
