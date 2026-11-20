@@ -5,7 +5,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
-import { useWallet } from "@solana/wallet-adapter-react";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { Transaction } from "@solana/web3.js";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,24 @@ import {
   summarizeConsumerPolicy,
   summarizeConsumerReceipt,
 } from "@/lib/consumer/guided-paid-call";
+import { getNetworkProfile } from "@/lib/config/network";
+import {
+  lamportsToSolAmount,
+  planWalletDirectPayment,
+  walletDirectPaymentEnabled,
+} from "@/lib/payments/wallet-direct-payment";
 import type { SpecialistListing } from "@/lib/registry/bridge";
+
+// Read once at build time. Wallet-signed payment stays off unless the operator turns it on.
+const WALLET_PAYMENT_ENABLED = walletDirectPaymentEnabled(
+  process.env.NEXT_PUBLIC_WALLET_DIRECT_PAYMENT,
+);
+const BUYER_MINTS = {
+  USDC: process.env.NEXT_PUBLIC_X402_USDC_MINT,
+  AUDD: process.env.NEXT_PUBLIC_X402_AUDD_MINT,
+  PYUSD: process.env.NEXT_PUBLIC_X402_PYUSD_MINT,
+  USDG: process.env.NEXT_PUBLIC_X402_USDG_MINT,
+};
 
 const WalletMultiButton = dynamic(
   async () =>
@@ -88,7 +106,11 @@ function launchConfetti() {
 const STEPS = ["Describe task", "Select specialist", "Execute", "Feedback"];
 
 function PlannerInner() {
-  const { connected } = useWallet();
+  const { connected, publicKey, sendTransaction } = useWallet();
+  const { connection } = useConnection();
+  const [paymentNote, setPaymentNote] = useState<string | null>(null);
+  // A receipt for a transaction that was sent but not yet accepted by the provider.
+  const [pendingReceipt, setPendingReceipt] = useState<unknown>(null);
   const searchParams = useSearchParams();
   const preferredWallet = searchParams.get("specialist") ?? "";
 
@@ -218,35 +240,142 @@ function PlannerInner() {
     }
   }
 
+  function runRequestBody(extra: Record<string, unknown> = {}) {
+    return JSON.stringify({
+      prompt,
+      preferredWallet: selectedWallet,
+      policy: {
+        requiredPrivacyMode: privacyMode,
+        requiresHealthPass: true,
+        requiresAttested,
+        maxPerCallUsd: maxSpend,
+        preferredWallet: selectedWallet,
+      },
+      ...extra,
+    });
+  }
+
+  function showRun(data: { ok?: boolean; error?: string; result?: { result?: PlannerRun } | PlannerRun | null }) {
+    const outer = data.result as { result?: PlannerRun } | PlannerRun | null | undefined;
+    const nextRun = (outer && "result" in outer ? outer.result : (outer as PlannerRun | null | undefined)) ?? null;
+    setRun(nextRun);
+    setStep(2);
+    if (data.ok) showToast("Execution complete", "success");
+    else showToast(data.error ?? nextRun?.error ?? "Execution failed", "error");
+  }
+
+  /** Presents a receipt for a payment already sent. Never asks the wallet to sign. */
+  async function presentReceipt(receipt: unknown) {
+    const res = await fetch("/api/onboarding/planner/execute", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: runRequestBody({ paymentMode: "wallet", paymentReceipt: receipt, consumerWallet: publicKey?.toBase58() }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      setPendingReceipt(null);
+      setPaymentNote(null);
+    } else {
+      setPaymentNote("Your payment was sent, but the provider has not accepted it yet. Present it again; do not pay twice.");
+    }
+    showRun(data);
+  }
+
+  async function executeWithWallet() {
+    if (!publicKey || !sendTransaction) {
+      setPaymentNote("Connect a wallet to pay for this call.");
+      return;
+    }
+    if (pendingReceipt) {
+      await presentReceipt(pendingReceipt);
+      return;
+    }
+    setPaymentNote(null);
+    const res = await fetch("/api/onboarding/planner/execute", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: runRequestBody({ paymentMode: "wallet", consumerWallet: publicKey.toBase58() }),
+    });
+    const data = await res.json();
+    if (!data.paymentRequired) {
+      showRun(data);
+      return;
+    }
+    const listing = [...candidates, ...allAgents].find((a) => a.walletAddress === selectedWallet);
+    if (!listing || data.paymentRequired.selectedWallet !== selectedWallet) {
+      setPaymentNote("The provider that answered is not the one you selected. Nothing was signed.");
+      return;
+    }
+    const solAmount = lamportsToSolAmount(listing.onchain.rateLamports);
+    const plan = planWalletDirectPayment({
+      challenge: data.paymentRequired.challenge,
+      listing: {
+        walletAddress: listing.walletAddress,
+        perCallUsd: listing.capabilities?.perCallUsd,
+        perCall: solAmount ? { amount: solAmount, currency: "SOL" } : undefined,
+      },
+      profile: getNetworkProfile().name,
+      maxPerCallUsd: maxSpend,
+      // For SOL the limit is the price shown on the listing the buyer picked.
+      spendCap: solAmount && /"currency"\s*:\s*"SOL"/.test(String(data.paymentRequired.challenge)) ? solAmount : undefined,
+      payer: publicKey.toBase58(),
+      mints: BUYER_MINTS,
+    });
+    if (!plan.ok) {
+      setPaymentNote(`Payment request refused: ${plan.message} Nothing was signed.`);
+      return;
+    }
+    setPaymentNote(`Your wallet will ask you to approve ${plan.amount} ${plan.currency} to ${plan.payTo.slice(0, 4)}…${plan.payTo.slice(-4)} on ${plan.network}.`);
+    let signature: string;
+    const latest = await connection.getLatestBlockhash("confirmed");
+    try {
+      const transaction = new Transaction({
+        feePayer: publicKey,
+        blockhash: latest.blockhash,
+        lastValidBlockHeight: latest.lastValidBlockHeight,
+      }).add(...plan.instructions);
+      signature = await sendTransaction(transaction, connection);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      setPaymentNote(
+        /reject|denied|cancel/i.test(message)
+          ? "You declined the payment. Nothing was charged."
+          : "The payment was not sent. Check your wallet's network and balance, then try again.",
+      );
+      return;
+    }
+    const receipt = plan.receiptFor(signature);
+    // From here the transfer may be on chain, so it is remembered before anything else can fail.
+    setPendingReceipt(receipt);
+    setPaymentNote("Payment sent. Waiting for confirmation before presenting it to the provider.");
+    try {
+      await connection.confirmTransaction(
+        { signature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
+        "confirmed",
+      );
+    } catch {
+      setPaymentNote("Your payment was sent but is not confirmed yet. Present it again in a few seconds; do not pay twice.");
+      return;
+    }
+    await presentReceipt(receipt);
+  }
+
   async function executeRun() {
     if (!prompt.trim()) return;
     setExecuting(true);
     try {
+      if (WALLET_PAYMENT_ENABLED) {
+        await executeWithWallet();
+        return;
+      }
       const res = await fetch("/api/onboarding/planner/execute", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          prompt,
-          preferredWallet: selectedWallet,
-          policy: {
-            requiredPrivacyMode: privacyMode,
-            requiresHealthPass: true,
-            requiresAttested,
-            maxPerCallUsd: maxSpend,
-            preferredWallet: selectedWallet,
-          },
-        }),
+        body: runRequestBody(),
       });
-      const data = await res.json();
-      const nextRun = data.result?.result ?? data.result ?? null;
-      setRun(nextRun);
-      if (data.ok) {
-        setStep(2);
-        showToast("Execution complete", "success");
-      } else {
-        setStep(2);
-        showToast(data.error ?? nextRun?.error ?? "Execution failed", "error");
-      }
+      showRun(await res.json());
+    } catch {
+      showToast("Execution failed", "error");
     } finally {
       setExecuting(false);
     }
@@ -505,8 +634,21 @@ function PlannerInner() {
                   >
                     {executing
                       ? "Executing…"
-                      : "Execute with this specialist →"}
+                      : pendingReceipt
+                        ? "Present payment again →"
+                        : WALLET_PAYMENT_ENABLED
+                          ? "Pay and execute with this specialist →"
+                          : "Execute with this specialist →"}
                   </Button>
+                  {paymentNote ? (
+                    <p
+                      className="rounded-lg border border-white/10 bg-black/30 p-3 text-sm text-gray-300"
+                      data-testid="planner-payment-note"
+                      role="status"
+                    >
+                      {paymentNote}
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
 
