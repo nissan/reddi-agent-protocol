@@ -80,9 +80,13 @@ export class PlaywrightWalletAdapter extends BaseMessageSignerWalletAdapter {
   }
 
   async connect(): Promise<void> {
-    if (this._connected) return;
+    if (this._connected || this._connecting) return;
     this._connecting = true;
     try {
+      // Yield once before emitting, like a real wallet. The provider's auto-connect effect calls
+      // this during a commit; a connect event emitted inside that commit is undone when React
+      // re-runs the effect in development, and the provider then stays disconnected.
+      await Promise.resolve();
       const signer = this.loadSignerIfConfigured();
       this._publicKey = signer?.publicKey ?? new PublicKey(this.options.publicKey ?? DEFAULT_PLAYWRIGHT_PUBLIC_KEY);
       this._connected = true;
