@@ -134,6 +134,8 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
   const [providerKeys, setProviderKeys] = useState<Record<string, string>>({});
   const [origin, setOrigin] = useState("https://agent-protocol.reddi.tech");
   const [pendingWalletPayment, setPendingWalletPayment] = useState<string | null>(null);
+  // True once the page is interactive and the provider key listing has settled.
+  const [ready, setReady] = useState(false);
 
   const { publicKey, signTransaction, connected } = useWallet();
   const devnet = useMemo(() => new Connection(DEVNET_RPC, "confirmed"), []);
@@ -153,7 +155,10 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
         }
         setProviderKeys(keys);
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setReady(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -386,7 +391,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
   const proofRef = answered?.receipt.payment.paymentProofRef ?? "";
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-10" data-testid="sandbox-console" data-ready={ready ? "true" : "false"}>
       <section aria-labelledby="sandbox-scenarios">
         <h2 id="sandbox-scenarios" className="font-display text-2xl font-bold text-white">Pick a scenario</h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -444,7 +449,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
               />
             </label>
             <div className="flex flex-wrap items-center gap-3">
-              <button type="button" data-testid="sandbox-send" className={actionButton} disabled={busy !== null || prompt.trim().length === 0} onClick={sendRequest}>
+              <button type="button" data-testid="sandbox-send" className={actionButton} disabled={!ready || busy !== null || prompt.trim().length === 0} onClick={sendRequest}>
                 {busy === "request" ? "Sending…" : phase === "idle" ? "Send request" : "Send again"}
               </button>
               <span className="text-xs text-gray-400">An OpenAI-style chat request to {provider.name}. No payment attached yet.</span>

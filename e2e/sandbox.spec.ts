@@ -26,6 +26,10 @@ async function expectCopyInsideClaimBoundary(page: Page) {
 async function open(page: Page, scenario?: string) {
   await page.goto(scenario ? `/sandbox?scenario=${scenario}` : "/sandbox");
   await expect(page.getByRole("heading", { name: /Pay for an answer\. Check the receipt yourself\./ })).toBeVisible({ timeout: 60_000 });
+  // The send button is rendered by the server before React attaches to it, so a
+  // click can land on a page that is not listening yet. The console marks itself
+  // ready only after it has hydrated and loaded the provider key listing.
+  await expect(page.getByTestId("sandbox-console")).toHaveAttribute("data-ready", "true", { timeout: 30_000 });
   await expect(page.getByTestId("sandbox-send")).toBeEnabled();
 }
 
@@ -37,6 +41,29 @@ async function sendAndPay(page: Page) {
 }
 
 test.describe("/sandbox", () => {
+  // The dev server compiles each route on first use. Doing that here keeps the
+  // first compile of the page and its two endpoints out of the timed steps.
+  test.beforeAll(async ({ request }) => {
+    await request.get("/sandbox", { timeout: 60_000 });
+    await request.get("/api/sandbox/v1/models", { timeout: 60_000 });
+    await request.post("/api/sandbox/v1/chat/completions", { data: { model: "sandbox/swift-coder-small", messages: [{ role: "user", content: "warm up" }] }, timeout: 60_000 });
+  });
+
+  // If a step fails, say what the page did: a reload or a script error explains
+  // a missing element better than the missing element does.
+  test.beforeEach(async ({ page }, testInfo) => {
+    const events: string[] = [];
+    page.on("framenavigated", (frame) => { if (frame === page.mainFrame()) events.push(`navigated ${frame.url()}`); });
+    page.on("pageerror", (error) => events.push(`pageerror ${error.message}`));
+    page.on("console", (message) => { if (message.type() === "error" || /reload|refresh/i.test(message.text())) events.push(`console.${message.type()} ${message.text().slice(0, 300)}`); });
+    (testInfo as unknown as { sandboxEvents: string[] }).sandboxEvents = events;
+  });
+  test.afterEach(async ({}, testInfo) => {
+    if (testInfo.status !== testInfo.expectedStatus) {
+      console.log(`[sandbox.spec] page events for "${testInfo.title}":\n${(testInfo as unknown as { sandboxEvents: string[] }).sandboxEvents.join("\n")}`);
+    }
+  });
+
   test("states its limits before anything is run", async ({ page }) => {
     await open(page);
     const boundary = page.getByTestId("sandbox-boundary");
