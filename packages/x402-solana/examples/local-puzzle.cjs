@@ -1,4 +1,6 @@
-/* Reddi Agent Protocol disposable LOCAL TEST MINT example. No wallet files, external RPC or devnet signing.
+/* STALE since #736: the escrow program now accepts allowlisted mints only, so this example's
+ * random local mint is refused until the example is updated (#746).
+ * Reddi Agent Protocol disposable LOCAL TEST MINT example. No wallet files, external RPC or devnet signing.
  * Start with RAP_LOCAL_EXAMPLE_DIR=/fresh/absolute/task/path node packages/x402-solana/examples/local-puzzle.cjs
  * Requires pinned Agave 4.2.2 RAP_TEST_VALIDATOR and freshly built target/deploy/escrow.so.
  */

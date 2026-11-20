@@ -16,8 +16,12 @@ export declare function tokenEscrowAddresses(t: Pick<TokenEscrowTerms, 'programI
     bump: number;
 };
 export declare function buildLockTokenEscrowInstruction(t: TokenEscrowTerms): TransactionInstruction;
-/** Destination is always taken from the original lock terms. Only payer can settle. */
-export declare function buildSettleTokenEscrowInstruction(t: TokenEscrowTerms, refund?: boolean): TransactionInstruction;
+/**
+ * Destination is always taken from the original lock terms. `authority` signs and defaults to the payer.
+ * Release: the program accepts the payer at any time, or the payee once the claim window has elapsed.
+ * Refund: the program accepts the payee at any time (decline), or the payer once the cancel window has elapsed.
+ */
+export declare function buildSettleTokenEscrowInstruction(t: TokenEscrowTerms, refund?: boolean, authority?: PublicKey): TransactionInstruction;
 export declare function decodeTokenEscrowAccount(data: Buffer): {
     payer: PublicKey;
     payee: PublicKey;

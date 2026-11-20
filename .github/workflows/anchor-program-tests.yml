@@ -86,8 +86,25 @@ jobs:
       # The LiteSVM tests embed target/deploy/escrow.so via include_bytes!, and
       # the Mollusk smoke loads the same artifact through SBF_OUT_DIR, so the SBF
       # build must complete before the test crate compiles.
-      - name: Build escrow program (SBF)
+      # The default build is the mainnet candidate: nine instructions only.
+      # tests/instruction_surface.rs asserts that against the built artifact.
+      - name: Build escrow program (SBF, default nine-instruction build)
         run: cargo build-sbf --manifest-path programs/escrow/Cargo.toml
 
-      - name: Run LiteSVM and Mollusk tests
+      - name: Run LiteSVM and Mollusk tests (default build)
         run: cargo test -p escrow
+
+      - name: Record default build size and hash
+        run: |
+          ls -l target/deploy/escrow.so
+          sha256sum target/deploy/escrow.so
+
+      # Rating, attestation and PER stay compiled and tested behind the
+      # `extended` feature so they do not rot, but they are not part of the
+      # default build. This step overwrites target/deploy/escrow.so, so it runs
+      # last and the tests below embed the extended artifact.
+      - name: Build escrow program (SBF, extended feature)
+        run: cargo build-sbf --manifest-path programs/escrow/Cargo.toml --features extended
+
+      - name: Run LiteSVM and Mollusk tests (extended build)
+        run: cargo test -p escrow --features extended

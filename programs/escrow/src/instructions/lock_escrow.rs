@@ -1,8 +1,9 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
-use crate::constants::ESCROW_SEED;
+use crate::constants::{ESCROW_SEED, MAX_SOL_ESCROW_LAMPORTS};
 use crate::error::EscrowError;
+use crate::events::EscrowLocked;
 use crate::state::{EscrowAccount, EscrowStatus};
 
 /// Lock SOL into an escrow PDA.
@@ -12,6 +13,21 @@ use crate::state::{EscrowAccount, EscrowStatus};
 /// This prevents duplicate nonces for the same payer.
 pub fn lock_escrow_handler(ctx: Context<LockEscrow>, amount: u64, nonce: [u8; 16]) -> Result<()> {
     require!(amount > 0, EscrowError::ZeroAmount);
+    require!(
+        amount <= MAX_SOL_ESCROW_LAMPORTS,
+        EscrowError::AmountAboveCap
+    );
+    // A payer paying themselves, or the escrow account itself, is never a real job.
+    require_keys_neq!(
+        ctx.accounts.payee.key(),
+        ctx.accounts.payer.key(),
+        EscrowError::InvalidPayee
+    );
+    require_keys_neq!(
+        ctx.accounts.payee.key(),
+        ctx.accounts.escrow.key(),
+        EscrowError::InvalidPayee
+    );
 
     let escrow = &mut ctx.accounts.escrow;
     escrow.payer = ctx.accounts.payer.key();
@@ -37,13 +53,15 @@ pub fn lock_escrow_handler(ctx: Context<LockEscrow>, amount: u64, nonce: [u8; 16
         amount,
     )?;
 
-    msg!(
-        "Escrow locked: payer={}, payee={}, amount={}, nonce={:?}",
-        ctx.accounts.payer.key(),
-        ctx.accounts.payee.key(),
+    emit!(EscrowLocked {
+        escrow: ctx.accounts.escrow.key(),
+        payer: ctx.accounts.payer.key(),
+        payee: ctx.accounts.payee.key(),
+        mint: None,
         amount,
         nonce,
-    );
+        created_slot: clock.slot,
+    });
 
     Ok(())
 }

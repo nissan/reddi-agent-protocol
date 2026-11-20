@@ -20,7 +20,7 @@ pub enum EscrowError {
     #[msg("Arithmetic overflow")]
     Overflow,
 
-    #[msg("Cancel window not elapsed (7 days required)")]
+    #[msg("Cancel window not elapsed: the payer cannot refund yet")]
     CancelWindowNotElapsed,
 
     #[msg("Invalid payee")]
@@ -75,4 +75,14 @@ pub enum EscrowError {
 
     #[msg("Token balance change did not match the escrow transfer")]
     InvalidTokenAmount,
+
+    // New codes are appended so existing numbers never change.
+    #[msg("Amount exceeds the per-escrow cap")]
+    AmountAboveCap,
+
+    #[msg("Token mint is not on the escrow allowlist")]
+    MintNotAllowed,
+
+    #[msg("Claim window not elapsed: the payee cannot claim yet")]
+    ClaimWindowNotElapsed,
 }
