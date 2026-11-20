@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The marketing site is an isolated app with its own install, build and tests (apps/marketing/README.md).
+    "apps/**",
   ]),
   // x402's tsc build emits CommonJS into tracked dist JavaScript, retained for
   // file: consumers (docs/PACKAGE-ARTIFACT-POLICY.md). Only the emitted module

@@ -1,4 +1,6 @@
 /* Local-validator exercise for Reddi Agent Protocol classic SPL escrow.
+ * STALE since #736: written for the earlier any-mint behaviour, refund account list and
+ * 50,400-slot window. It fails against the current program until updated (#746).
  * Requirements: root @solana/web3.js and @solana/spl-token dependencies (or NODE_PATH),
  * pinned solana-test-validator, a freshly built target/deploy/escrow.so.
  * Run: RAP_LOCAL_TEST_DIR=/absolute/disposable/path node programs/escrow/tests/local_token_escrow.cjs

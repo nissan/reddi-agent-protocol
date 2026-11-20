@@ -3,13 +3,16 @@
 pub mod classic_token;
 pub mod constants;
 pub mod error;
+pub mod events;
 pub mod instructions;
+#[cfg(feature = "extended")]
 pub mod magicblock_cpi;
 pub mod state;
 
 use anchor_lang::prelude::*;
 
 pub use constants::*;
+pub use events::*;
 pub use instructions::*;
 pub use state::*;
 
@@ -41,12 +44,12 @@ pub mod escrow {
         instructions::token_escrow::lock_token_escrow_handler(ctx, amount, nonce)
     }
 
-    pub fn release_token_escrow(ctx: Context<SettleTokenEscrow>) -> Result<()> {
-        instructions::token_escrow::settle_token_escrow_handler(ctx, false)
+    pub fn release_token_escrow(ctx: Context<ReleaseTokenEscrow>) -> Result<()> {
+        instructions::token_escrow::release_token_escrow_handler(ctx)
     }
 
-    pub fn cancel_token_escrow(ctx: Context<SettleTokenEscrow>) -> Result<()> {
-        instructions::token_escrow::settle_token_escrow_handler(ctx, true)
+    pub fn cancel_token_escrow(ctx: Context<CancelTokenEscrow>) -> Result<()> {
+        instructions::token_escrow::cancel_token_escrow_handler(ctx)
     }
 
     // ── Phase 3: Agent Registry ──────────────────────────────────────────────
@@ -82,6 +85,7 @@ pub mod escrow {
 
     // ── Phase 4: Reputation ───────────────────────────────────────────────────
 
+    #[cfg(feature = "extended")]
     pub fn commit_rating(
         ctx: Context<CommitRating>,
         job_id: [u8; 16],
@@ -100,6 +104,7 @@ pub mod escrow {
         )
     }
 
+    #[cfg(feature = "extended")]
     pub fn reveal_rating(
         ctx: Context<RevealRating>,
         job_id: [u8; 16],
@@ -109,12 +114,14 @@ pub mod escrow {
         instructions::reveal_rating::reveal_rating_handler(ctx, job_id, score, salt)
     }
 
+    #[cfg(feature = "extended")]
     pub fn expire_rating(ctx: Context<ExpireRating>, job_id: [u8; 16]) -> Result<()> {
         instructions::expire_rating::expire_rating_handler(ctx, job_id)
     }
 
     // ── Phase 5: MagicBlock PER ────────────────────────────────────────────────
 
+    #[cfg(feature = "extended")]
     /// Mark a locked escrow as delegated to a MagicBlock PER session.
     /// TypeScript client calls Permission/Delegation Programs then calls this
     /// to record the TEE-issued session key on-chain.
@@ -122,6 +129,7 @@ pub mod escrow {
         instructions::delegate_escrow::delegate_escrow_handler(ctx, session_key)
     }
 
+    #[cfg(feature = "extended")]
     /// Release an escrow via the PER path (routed through TEE by the TS client).
     /// Validates the session key and clears delegation state on success.
     pub fn release_escrow_per(ctx: Context<ReleaseEscrowPer>, session_key: Pubkey) -> Result<()> {
@@ -130,6 +138,7 @@ pub mod escrow {
 
     // ── Phase 4b: Attestation Judges ─────────────────────────────────────────
 
+    #[cfg(feature = "extended")]
     pub fn attest_quality(
         ctx: Context<AttestQuality>,
         job_id: [u8; 16],
@@ -139,10 +148,12 @@ pub mod escrow {
         instructions::attest_quality::attest_quality_handler(ctx, job_id, scores, consumer)
     }
 
+    #[cfg(feature = "extended")]
     pub fn confirm_attestation(ctx: Context<ConfirmAttestation>, job_id: [u8; 16]) -> Result<()> {
         instructions::confirm_attestation::confirm_attestation_handler(ctx, job_id)
     }
 
+    #[cfg(feature = "extended")]
     pub fn dispute_attestation(ctx: Context<DisputeAttestation>, job_id: [u8; 16]) -> Result<()> {
         instructions::dispute_attestation::dispute_attestation_handler(ctx, job_id)
     }

@@ -2,16 +2,37 @@ use anchor_lang::prelude::*;
 
 use crate::constants::ESCROW_SEED;
 use crate::error::EscrowError;
+use crate::events::EscrowSettled;
+use crate::instructions::cancel_escrow::payout_outcome;
 use crate::state::{EscrowAccount, EscrowStatus};
 
-/// Release locked SOL to the payee.
-/// Can only be called by the payer (Agent A) once goods/services are delivered.
-/// Closes the PDA and returns rent to the payer.
+/// Pay locked SOL to the payee and close the escrow, returning rent to the payer.
+///
+/// Signed by the payer at any time (release), or by the payee once the claim
+/// window has elapsed (claim). The account list is unchanged from earlier
+/// versions: whichever of `payer` and `payee` signed is the authority, and the
+/// payer is preferred when both did.
 pub fn release_escrow_handler(ctx: Context<ReleaseEscrow>) -> Result<()> {
     require!(
         ctx.accounts.escrow.status == EscrowStatus::Locked,
         EscrowError::NotLocked
     );
+
+    let authority = if ctx.accounts.payer.is_signer {
+        ctx.accounts.payer.key()
+    } else if ctx.accounts.payee.is_signer {
+        ctx.accounts.payee.key()
+    } else {
+        return err!(EscrowError::UnauthorisedSigner);
+    };
+    let slot = Clock::get()?.slot;
+    let outcome = payout_outcome(
+        &authority,
+        &ctx.accounts.escrow.payer,
+        &ctx.accounts.escrow.payee,
+        ctx.accounts.escrow.created_slot,
+        slot,
+    )?;
 
     let amount = ctx.accounts.escrow.amount;
 
@@ -30,11 +51,16 @@ pub fn release_escrow_handler(ctx: Context<ReleaseEscrow>) -> Result<()> {
     ctx.accounts.escrow.delegated_to_per = false;
     ctx.accounts.escrow.per_session_key = None;
 
-    msg!(
-        "Escrow released (L1): payee={}, amount={}",
-        ctx.accounts.payee.key(),
+    emit!(EscrowSettled {
+        escrow: ctx.accounts.escrow.key(),
+        payer: ctx.accounts.payer.key(),
+        payee: ctx.accounts.payee.key(),
+        mint: None,
         amount,
-    );
+        nonce: ctx.accounts.escrow.nonce,
+        outcome,
+        slot,
+    });
 
     Ok(())
 }
@@ -51,10 +77,13 @@ pub struct ReleaseEscrow<'info> {
     )]
     pub escrow: Account<'info, EscrowAccount>,
 
+    /// CHECK: The recorded payer, bound by the escrow seeds and `has_one`. Receives
+    /// the rent. Signs to release; the handler checks who signed.
     #[account(mut)]
-    pub payer: Signer<'info>,
+    pub payer: UncheckedAccount<'info>,
 
-    /// CHECK: Payee receives funds — validated by has_one constraint on escrow
+    /// CHECK: Payee receives funds — validated by has_one constraint on escrow.
+    /// Signs to claim after the claim window; the handler checks who signed.
     #[account(mut)]
     pub payee: UncheckedAccount<'info>,
 
