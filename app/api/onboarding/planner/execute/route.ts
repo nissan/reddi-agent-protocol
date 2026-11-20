@@ -24,6 +24,8 @@ export async function POST(req: Request) {
       prompt: String(body.prompt || ""),
       consumerWallet: typeof body.consumerWallet === "string" ? body.consumerWallet : undefined,
       preferredWallet: typeof body.preferredWallet === "string" ? body.preferredWallet : undefined,
+      paymentMode: body.paymentMode === "wallet" ? "wallet" : undefined,
+      paymentReceipt: body.paymentMode === "wallet" ? body.paymentReceipt : undefined,
       policy: {
         requiredPrivacyMode:
           body.policy?.requiredPrivacyMode === "public" ||
@@ -47,6 +49,10 @@ export async function POST(req: Request) {
       },
     });
 
+    if ("paymentRequired" in result && result.paymentRequired) {
+      // Not an error: the buyer's wallet has to pay before the provider answers.
+      return Response.json({ ok: false, paymentRequired: result.paymentRequired, result }, { status: 402 });
+    }
     return Response.json({ ok: result.ok, result }, { status: result.ok ? 200 : 400 });
   } catch (error) {
     return Response.json(
