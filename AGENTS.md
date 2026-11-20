@@ -91,7 +91,12 @@ an operator configures a treasury; a mainnet verifier must be given a treasury o
 deployed is configured with one, and the escrow program takes no fee. Older 16.7% / 83.3% figures are stale doc
 rot.
 
-Preserve the hard boundaries enforced by package/readiness checks: AUDD is payment-plan/proof metadata only, not custody or settled escrow; mainnet/live payment paths are gated; package/source conformance must remain no-spend/offline unless a task explicitly authorizes otherwise.
+Owner decision, 20 November 2026 (#751): V1 source accepts AUDD, PYUSD and USDG next to SOL and USDC for direct per-call
+payments (`DIRECT_PAYMENT_CURRENCIES` in `packages/x402-solana`; PYUSD and USDG are Token-2022 mints) and the escrow
+allowlist is being widened to match. This is source-level: mints come from operator configuration, and no deployed
+service or program accepts them yet.
+
+Preserve the hard boundaries enforced by package/readiness checks: in public copy AUDD stays payment-plan/proof metadata only, not custody or settled escrow, until a release says otherwise; mainnet/live payment paths are gated; package/source conformance must remain no-spend/offline unless a task explicitly authorizes otherwise.
 
 `docs/PUBLIC-CLAIM-BOUNDARY.md` owns what public and contributor-facing copy may claim ("payments prove transfer; RAP Assurance proves paid work") and is enforced by `npm run check:claims:public` over owned prose plus `e2e/public-claim-boundary.spec.ts` over rendered routes. Read it before editing README/docs/package metadata or app page copy.
 

@@ -1,7 +1,7 @@
 export const SPL_TRANSFER_CHECKED_OBSERVATION_SCHEMA_VERSION = 'reddi.svm-spl-transfer-checked-observation.v1' as const;
 export const SPL_TRANSFER_CHECKED_OBSERVER_VERSION = 'reddi.x402-solana.spl-transfer-checked-observer.v1' as const;
 export const SPL_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' as const;
-export const TOKEN_2022_PROGRAM_ID = 'TokenzQdBNbLqP5VEhdkAS6EP8pNJGvvnzQ74d7Gkwb' as const;
+export const TOKEN_2022_PROGRAM_ID = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb' as const;
 export const SPL_MEMO_PROGRAM_ID = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr' as const;
 
 export type SplTransferCheckedCommitment = 'confirmed' | 'finalized';

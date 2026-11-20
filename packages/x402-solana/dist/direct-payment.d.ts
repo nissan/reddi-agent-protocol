@@ -4,7 +4,12 @@ export interface DirectPaymentInput {
     challenge: X402Challenge;
     /** Wallet that pays and signs. */
     payer: PublicKey;
-    /** Required for USDC. The buyer's own configured mint, never one named by the seller. */
+    /**
+     * Required for a token currency (USDC, AUDD, PYUSD, USDG): the buyer's own
+     * configured mint for that currency, never one named by the seller.
+     */
+    mint?: PublicKey;
+    /** Older name for `mint`, kept for USDC callers. */
     usdcMint?: PublicKey;
     /** Buyer's token account. Defaults to the buyer's associated token account. */
     payerTokenAccount?: PublicKey;

@@ -814,4 +814,9 @@ test("402 challenge states the protocol fee split only when a treasury is config
 
   assert.equal(createRuntimeConfig({ X402_PROTOCOL_FEE_TREASURY: treasury }).protocolFeeTreasury, treasury);
   assert.equal(createRuntimeConfig({}).protocolFeeTreasury, undefined);
+  assert.deepEqual(createRuntimeConfig({}).paymentMints, {});
+  assert.deepEqual(
+    createRuntimeConfig({ X402_AUDD_MINT: " audd-mint ", X402_PYUSD_MINT: "pyusd-mint", X402_USDG_MINT: "", X402_EURC_MINT: "ignored" }).paymentMints,
+    { AUDD: "audd-mint", PYUSD: "pyusd-mint" },
+  );
 });

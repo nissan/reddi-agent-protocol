@@ -1,7 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SolanaReceiptVerifier = exports.DEFAULT_MAX_TRANSACTION_AGE_SECONDS = exports.SOLANA_GENESIS_HASHES = exports.DemoPaymentVerifier = exports.PROTOCOL_FEE_BPS = exports.isValidPaymentAddress = void 0;
+exports.SolanaReceiptVerifier = exports.DEFAULT_MAX_TRANSACTION_AGE_SECONDS = exports.SOLANA_GENESIS_HASHES = exports.DemoPaymentVerifier = exports.MAINNET_STABLECOIN_MINTS = exports.DIRECT_PAYMENT_CURRENCIES = exports.PROTOCOL_FEE_BPS = exports.isValidPaymentAddress = void 0;
 exports.isValidSolanaPublicKey = isValidSolanaPublicKey;
+exports.directPaymentCurrency = directPaymentCurrency;
 exports.decimalToBaseUnits = decimalToBaseUnits;
 exports.baseUnitsToDecimal = baseUnitsToDecimal;
 exports.protocolFeeBaseUnits = protocolFeeBaseUnits;
@@ -39,8 +40,32 @@ exports.PROTOCOL_FEE_BPS = 5;
 const BPS_DENOMINATOR = 10000;
 /** Highest fee rate this package will state or verify: 10%. Guards against a mistyped configuration. */
 const MAX_PROTOCOL_FEE_BPS = 1000;
-/** Decimal places of the currencies a protocol fee can be taken in. */
-const FEE_CURRENCY_DECIMALS = { SOL: 9, USDC: 6 };
+/**
+ * Currencies accepted for direct per-call payments. The token program is fixed
+ * per currency: USDC and AUDD are classic SPL Token mints, PYUSD and USDG are
+ * Token-2022 mints. The mint address itself always comes from configuration.
+ */
+exports.DIRECT_PAYMENT_CURRENCIES = Object.freeze({
+    SOL: { decimals: 9 },
+    USDC: { decimals: 6, tokenProgram: spl_token_observer_1.SPL_TOKEN_PROGRAM_ID },
+    AUDD: { decimals: 6, tokenProgram: spl_token_observer_1.SPL_TOKEN_PROGRAM_ID },
+    PYUSD: { decimals: 6, tokenProgram: spl_token_observer_1.TOKEN_2022_PROGRAM_ID },
+    USDG: { decimals: 6, tokenProgram: spl_token_observer_1.TOKEN_2022_PROGRAM_ID },
+});
+/** Looks up a direct payment currency without reading inherited object keys. */
+function directPaymentCurrency(currency) {
+    return Object.prototype.hasOwnProperty.call(exports.DIRECT_PAYMENT_CURRENCIES, currency) ? exports.DIRECT_PAYMENT_CURRENCIES[currency] : undefined;
+}
+/**
+ * Mainnet mint addresses, read on-chain on 20 November 2026. Reference values
+ * for operator configuration; nothing in this package uses them by default.
+ */
+exports.MAINNET_STABLECOIN_MINTS = Object.freeze({
+    USDC: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+    AUDD: 'AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw',
+    PYUSD: '2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo',
+    USDG: '2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH',
+});
 /**
  * Converts a decimal amount to whole base units without floating point
  * multiplication. Returns undefined for anything that is not a positive amount
@@ -82,7 +107,7 @@ function protocolFeeBaseUnits(priceBaseUnits, bps = exports.PROTOCOL_FEE_BPS) {
     return (priceBaseUnits * BigInt(bps)) / BigInt(BPS_DENOMINATOR);
 }
 function feeSplit(amount, currency, payTo, config) {
-    const decimals = FEE_CURRENCY_DECIMALS[currency];
+    const decimals = directPaymentCurrency(currency)?.decimals;
     if (decimals === undefined)
         throw new Error(`a protocol fee is not supported for currency ${currency}`);
     if (!isValidSolanaPublicKey(config.treasury))
@@ -426,24 +451,34 @@ class SolanaReceiptVerifier {
                 ? undefined
                 : unsatisfiedChallenge();
         }
-        if (challenge.currency === 'USDC') {
-            const mint = this.options.usdcMint;
+        const token = directPaymentCurrency(challenge.currency);
+        const configuredMints = this.options.mints;
+        const configuredMint = (configuredMints && Object.prototype.hasOwnProperty.call(configuredMints, challenge.currency)
+            ? configuredMints[challenge.currency]
+            : undefined) ?? (challenge.currency === 'USDC' ? this.options.usdcMint : undefined);
+        if (token?.tokenProgram && (configuredMint || challenge.currency !== 'AUDD' || !this.options.auddMint)) {
+            const mint = configuredMint;
             if (!mint) {
-                return { ok: false, reason: 'unsupported_receipt', message: 'USDC receipt verification requires a configured usdcMint' };
+                return { ok: false, reason: 'unsupported_receipt', message: `${challenge.currency} receipt verification requires a configured ${challenge.currency === 'USDC' ? 'usdcMint' : `mint (mints.${challenge.currency}${challenge.currency === 'AUDD' ? ' or the legacy auddMint' : ''})`}` };
             }
             if (receipt.mint !== undefined && receipt.mint !== mint) {
-                return unsatisfiedChallenge('receipt mint does not match the configured USDC mint', mint, receipt.mint);
+                return unsatisfiedChallenge(`receipt mint does not match the configured ${challenge.currency} mint`, mint, receipt.mint);
             }
             if (fee) {
-                return transactionHasTokenSplit(parsed, receipt, challenge, mint, fee)
+                return transactionHasTokenSplit(parsed, receipt, challenge, mint, token.tokenProgram, fee)
                     ? undefined
                     : unsatisfiedChallenge('transaction does not pay both the provider share and the protocol fee', fee.terms);
             }
-            return transactionHasTokenTransfer(parsed, receipt, challenge, mint)
+            return transactionHasTokenTransfer(parsed, receipt, challenge, mint, token.tokenProgram)
                 ? undefined
                 : unsatisfiedChallenge();
         }
         if (challenge.currency === 'AUDD') {
+            // Legacy AUDD exact receipts state the amount in base units and carry no
+            // fee split. A deployment that takes a fee must configure `mints.AUDD`.
+            if (split) {
+                return { ok: false, reason: 'unsupported_receipt', message: 'a protocol fee on AUDD requires the AUDD mint in `mints`, not the legacy auddMint option' };
+            }
             const mint = this.options.auddMint;
             if (!mint) {
                 return { ok: false, reason: 'unsupported_receipt', message: 'AUDD receipt verification requires a configured auddMint' };
@@ -572,11 +607,13 @@ function tokenTransferBaseUnits(info, decimals) {
  * `transferChecked` instructions of the configured mint: the provider's share to
  * a token account the payee owns, and the fee to a token account the treasury owns.
  */
-function transactionHasTokenSplit(parsed, receipt, challenge, mint, split) {
+function transactionHasTokenSplit(parsed, receipt, challenge, mint, tokenProgram, split) {
     const legs = parsedInstructions(parsed).map((ix) => {
         const parsedInstruction = asRecord(ix.parsed);
         const info = asRecord(parsedInstruction?.info);
         if (!info || parsedInstruction?.type !== 'transferChecked')
+            return undefined;
+        if (!instructionIsFromTokenProgram(ix, tokenProgram))
             return undefined;
         if (info.mint !== mint)
             return undefined;
@@ -601,13 +638,19 @@ function transactionHasTokenSplit(parsed, receipt, challenge, mint, split) {
  * Only `transferChecked` is accepted: it names its mint and carries a decimal-aware
  * amount, whereas a plain `transfer` names no mint and reports raw base units.
  */
-function transactionHasTokenTransfer(parsed, receipt, challenge, mint) {
+/** True only when a parsed instruction names the token program the currency is issued under. */
+function instructionIsFromTokenProgram(ix, tokenProgram) {
+    return publicKeyText(ix.programId) === tokenProgram;
+}
+function transactionHasTokenTransfer(parsed, receipt, challenge, mint, tokenProgram) {
     const expectedAmount = String(challenge.amount);
     const instructions = parsedInstructions(parsed);
     return instructions.some((ix) => {
         const parsedInstruction = asRecord(ix.parsed);
         const info = asRecord(parsedInstruction?.info);
         if (!info || parsedInstruction?.type !== 'transferChecked')
+            return false;
+        if (!instructionIsFromTokenProgram(ix, tokenProgram))
             return false;
         if (info.mint !== mint)
             return false;

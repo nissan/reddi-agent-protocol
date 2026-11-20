@@ -24,6 +24,16 @@ import type { AttestationRequest, ChatCompletionRequest, OpenRouterClient, Runti
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const PAYMENT_NETWORK = "solana-devnet" as const;
 
+/** Reads X402_USDC_MINT, X402_AUDD_MINT, X402_PYUSD_MINT and X402_USDG_MINT. Unset currencies stay unaccepted. */
+function paymentMintsFromEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  const mints: Record<string, string> = {};
+  for (const currency of ["USDC", "AUDD", "PYUSD", "USDG"]) {
+    const value = env[`X402_${currency}_MINT`]?.trim();
+    if (value) mints[currency] = value;
+  }
+  return mints;
+}
+
 export function createRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
   return {
     profileId: env.SPECIALIST_PROFILE_ID ?? "planning-agent",
@@ -36,6 +46,7 @@ export function createRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runti
     allowRealPayment: env.ALLOW_REAL_X402_PAYMENT === "1" || env.ALLOW_REAL_X402_PAYMENT === "true",
     solanaRpcUrl: env.SOLANA_RPC_URL ?? "https://api.devnet.solana.com",
     usdcDevnetMint: env.X402_USDC_DEVNET_MINT,
+    paymentMints: paymentMintsFromEnv(env),
     protocolFeeTreasury: env.X402_PROTOCOL_FEE_TREASURY || undefined,
     enableAgentToAgentCalls: env.ENABLE_AGENT_TO_AGENT_CALLS === "1" || env.ENABLE_AGENT_TO_AGENT_CALLS === "true",
     enableLiveDelegationExecutor: env.ENABLE_LIVE_DELEGATION_EXECUTOR === "1" || env.ENABLE_LIVE_DELEGATION_EXECUTOR === "true",
@@ -110,6 +121,7 @@ export async function verifyPayment(input: {
     allowRealPayment: true,
     connection: new Connection(input.config.solanaRpcUrl ?? "https://api.devnet.solana.com"),
     usdcMint: input.config.usdcDevnetMint,
+    mints: input.config.paymentMints,
     protocolFee: input.config.protocolFeeTreasury ? { treasury: input.config.protocolFeeTreasury } : undefined,
   });
   return realVerifier.verifyReceipt(parsed, challenge, input.replayStore);

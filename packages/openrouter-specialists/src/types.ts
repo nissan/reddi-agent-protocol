@@ -3,7 +3,7 @@ export type SpecialistRole = "specialist" | "attestor" | "consumer";
 export type SafetyMode = "standard" | "regulated-informational" | "attestation";
 
 export interface SpecialistPrice {
-  currency: "USDC" | "SOL";
+  currency: "USDC" | "SOL" | "AUDD" | "PYUSD" | "USDG";
   amount: string;
   unit: "request" | "1k_tokens";
 }
@@ -35,6 +35,12 @@ export interface RuntimeConfig {
   allowRealPayment?: boolean;
   solanaRpcUrl?: string;
   usdcDevnetMint?: string;
+  /**
+   * Accepted mint address per token currency (USDC, AUDD, PYUSD, USDG). A
+   * currency with no mint here cannot be verified, so it cannot be paid in.
+   * Operator configuration only.
+   */
+  paymentMints?: Record<string, string>;
   /**
    * Treasury owner address for the protocol fee on per-call payments. When set,
    * challenges state the fee split and real receipts must include the fee
