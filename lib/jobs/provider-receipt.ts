@@ -4,15 +4,15 @@ import "server-only";
  * Checks a provider's signed receipt for a paid call and saves it next to the
  * job (#739, #740).
  *
- * A provider may return a signed block in the `x-reddi-provider-receipt`
+ * A provider may return a signed receipt in the `x-reddi-provider-receipt`
  * response header. It is kept only if the signature verifies against the wallet
- * of the listing that was paid, and the block names the bytes this server sent
+ * of the listing that was paid, and the receipt names the bytes this server sent
  * and received and the transaction this server already checked on chain. The
- * block records the model the provider declares; it is not proof of which
+ * receipt records the model the provider declares; it is not proof of which
  * model ran.
  */
 
-import { hashProviderReceiptBody, verifyProviderReceiptExtension, type ProviderReceiptNetwork, type SignedProviderReceiptExtension } from "@reddi/agent-protocol/provider-receipt-extension";
+import { hashReddiReceiptV2Body, verifyReddiReceiptV2, type ReddiReceiptV2Network, type SignedReddiReceiptV2 } from "@reddi/agent-protocol/receipt-v2";
 
 import { supabaseOrigin } from "@/lib/supabase/config";
 
@@ -33,7 +33,7 @@ export interface ProviderReceiptInput {
   requestBody: string;
   /** Exact response body this server received. */
   responseBody: string;
-  network: ProviderReceiptNetwork;
+  network: ReddiReceiptV2Network;
   /** The payment transaction this server verified on chain. */
   txSignature: string;
 }
@@ -47,7 +47,7 @@ export interface ProviderReceiptDeps {
   fetchImpl?: FetchLike;
 }
 
-/** Decodes the header: base64url of the signed block as JSON. Undefined when it is not that. */
+/** Decodes the header: base64url of the signed receipt as JSON. Undefined when it is not that. */
 export function parseProviderReceiptHeader(value: string): unknown {
   if (value.length === 0 || value.length > MAX_HEADER_CHARS || !/^[A-Za-z0-9_-]+$/.test(value)) return undefined;
   try {
@@ -63,10 +63,10 @@ export async function checkAndStoreProviderReceipt(input: ProviderReceiptInput, 
   const parsed = parseProviderReceiptHeader(input.headerValue);
   if (parsed === undefined) return { stored: false, reason: "unreadable" };
 
-  const verified = verifyProviderReceiptExtension(parsed, {
+  const verified = verifyReddiReceiptV2(parsed, {
     providerId: input.providerWallet,
-    requestHash: hashProviderReceiptBody(input.requestBody),
-    responseHash: hashProviderReceiptBody(input.responseBody),
+    requestHash: hashReddiReceiptV2Body(input.requestBody),
+    responseHash: hashReddiReceiptV2Body(input.responseBody),
     payment: { network: input.network, txSignature: input.txSignature },
   });
   if (!verified.ok) return { stored: false, reason: verified.errors[0]?.code ?? "invalid" };
@@ -74,7 +74,7 @@ export async function checkAndStoreProviderReceipt(input: ProviderReceiptInput, 
   const origin = supabaseOrigin(deps.url ?? process.env.NEXT_PUBLIC_SUPABASE_URL);
   const serviceKey = (deps.serviceKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY)?.trim();
   if (!origin || !serviceKey) return { stored: false, reason: "store_unavailable" };
-  const signed = parsed as SignedProviderReceiptExtension;
+  const signed = parsed as SignedReddiReceiptV2;
   const fetchImpl = deps.fetchImpl ?? (fetch as unknown as FetchLike);
   try {
     const response = await fetchImpl(`${origin}/rest/v1/receipts`, {
@@ -82,15 +82,15 @@ export async function checkAndStoreProviderReceipt(input: ProviderReceiptInput, 
       headers: { "content-type": "application/json", apikey: serviceKey, authorization: `Bearer ${serviceKey}`, prefer: "return=minimal" },
       body: JSON.stringify({
         job_id: input.jobId,
-        receipt: verified.extension,
+        receipt: verified.receipt,
         provider_signature: signed.proof.signature,
-        schema_version: verified.extension.schemaVersion,
+        schema_version: verified.receipt.schemaVersion,
       }),
       signal: AbortSignal.timeout(5000),
     });
     if (response.status === 409) return { stored: false, reason: "already_stored" };
     if (!response.ok) return { stored: false, reason: "store_unavailable" };
-    return { stored: true, declaredModel: verified.extension.declaredModel };
+    return { stored: true, declaredModel: verified.receipt.declaredModel };
   } catch {
     return { stored: false, reason: "store_unavailable" };
   }

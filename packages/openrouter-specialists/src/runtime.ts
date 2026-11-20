@@ -470,17 +470,17 @@ const REPLAY_UNAVAILABLE: RuntimeResponse = {
 
 /** Response header that carries the provider's signed receipt, as base64url JSON. */
 export const PROVIDER_RECEIPT_HEADER = "x-reddi-provider-receipt";
-export const PROVIDER_RECEIPT_EXTENSION_VERSION = "reddi.receipt.provider-extension.v1" as const;
+export const REDDI_RECEIPT_V2_VERSION = "reddi.receipt.v2" as const;
 const MAX_PROVIDER_RECEIPT_HEADER_CHARS = 4096;
 const TX_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
 
 /**
  * What this provider states about one paid call. Same shape as
- * `ProviderReceiptExtension` in `@reddi/agent-protocol`. The model is the one
+ * `ReddiReceiptV2` in `@reddi/agent-protocol`. The model is the one
  * this runtime is configured to call: a declaration, not proof of execution.
  */
 export interface ProviderReceiptStatement {
-  schemaVersion: typeof PROVIDER_RECEIPT_EXTENSION_VERSION;
+  schemaVersion: typeof REDDI_RECEIPT_V2_VERSION;
   providerId: string;
   declaredModel: string;
   requestHash: string;
@@ -494,7 +494,7 @@ export interface RuntimeDeps {
   replayStore?: NonceReplayStore;
   /**
    * Signs a receipt statement with the provider wallet's key and returns the
-   * signed block (`signProviderReceiptExtension` from `@reddi/agent-protocol`
+   * signed receipt (`signReddiReceiptV2` from `@reddi/agent-protocol`
    * does this). The key stays with the operator; this runtime never reads one.
    * When absent, no receipt is issued.
    */
@@ -538,7 +538,7 @@ export async function buildProviderReceiptHeader(input: {
   if (!txSignature) return undefined;
   try {
     const signed = await input.deps.signProviderReceipt({
-      schemaVersion: PROVIDER_RECEIPT_EXTENSION_VERSION,
+      schemaVersion: REDDI_RECEIPT_V2_VERSION,
       providerId: input.profile.walletAddress,
       declaredModel: input.profile.model,
       requestHash: sha256Hex(input.requestText),
