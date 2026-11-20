@@ -44,11 +44,11 @@ Nothing asserts that `SpecialistCard` marks the right fields. Widening the marke
 
 `/tour` renders one carousel step at a time. The gate does not scan only the first: it clicks each step control in turn, scans after every step, and then asserts the step counter reads the last step, so all of the tour captions are covered without autoplay, timers, or a network call.
 
-`app/` has 46 page routes. The 29 that are not DOM-gated are covered by review rather than by this gate, for these reasons:
+`app/` has 47 page routes. The 30 that are not DOM-gated are covered by review rather than by this gate, for these reasons:
 
 | Not gated | Routes |
 |---|---|
-| Copy sits behind a wallet connection or multi-step flow state | `/register`, `/planner`, `/onboarding`, `/onboarding/intake`, `/attestation`, `/consumer`, `/dashboard`, `/economic-demo`, `/economic-demo/z-picture-demo` |
+| Copy sits behind a wallet connection or multi-step flow state | `/register`, `/planner`, `/onboarding`, `/onboarding/intake`, `/attestation`, `/consumer`, `/dashboard`, `/jobs`, `/economic-demo`, `/economic-demo/z-picture-demo` |
 | Body depends on a live network or API read, so a gate here would put RPC/route latency on a blocking lane | `/agents`, `/leaderboard`, `/runs`, `/audit`, `/demo`, `/circle-x402`, `/orchestrator`, `/specialist`, `/setup`, `/manager`, `/economic-demo/z-picture-proof`, `/economic-demo/z-picture-onchain-proof` |
 | Primary body is a third-party, imported, or user-entered record this repository does not author | `/agents/[wallet]`, `/agents/candidates/[id]`, `/manager/discovery`, `/manager/listings`, `/onboarding/profile-editor`, `/onboarding/readiness-gate` |
 | Known pattern false positive: enumerates the contract-only flags it declares false, which the shared list reads as an unqualified AUDD claim | `/economic-demo/paid-workflow` |

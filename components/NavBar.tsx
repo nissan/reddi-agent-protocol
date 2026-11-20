@@ -30,6 +30,7 @@ const navLinks: { href: string; label: string; badge?: string }[] = [
   { href: "/playbook", label: "Playbook", badge: "New" },
   { href: "/planner", label: "Planner" },
   { href: "/runs", label: "History" },
+  { href: "/jobs", label: "My jobs" },
   { href: "/leaderboard", label: "Leaderboard" },
   { href: "/onboarding", label: "Onboarding Lab" },
   { href: "/dashboard", label: "Dashboards" },

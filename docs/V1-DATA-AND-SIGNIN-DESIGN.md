@@ -151,9 +151,12 @@ to the provider's answer. The provider's own verification is not taken as proof.
   `X402_PROTOCOL_FEE_TREASURY`, or its check will not match the split payment.
 - `GET /api/jobs` lists the signed-in user's own jobs, read with their session so the
   database's access rules pick the rows.
+- `/jobs` shows those rows to the signed-in user. Amounts are shown in a currency only
+  for SOL and the mints this app knows on the job's own network; any other mint is shown
+  in base units (`lib/jobs/job-display.ts`).
 
-Not built yet: the provider-signed receipt in `receipts`, attestations, `provider_stats`
-updates, and a page that shows a user their jobs.
+Not built yet: the provider-signed receipt in `receipts`, attestations and `provider_stats`
+updates.
 
 ## Replay store
 
