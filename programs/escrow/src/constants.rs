@@ -43,8 +43,7 @@ pub const AUDD_MAINNET_MINT: Pubkey = pubkey!("AUDDttiEpCydTm7joUMbYddm72jAWXZnC
 #[cfg(not(feature = "devnet"))]
 pub const ALLOWED_MINTS: &[Pubkey] = &[USDC_MAINNET_MINT, AUDD_MAINNET_MINT];
 #[cfg(feature = "devnet")]
-pub const ALLOWED_MINTS: &[Pubkey] =
-    &[USDC_MAINNET_MINT, AUDD_MAINNET_MINT, USDC_DEVNET_MINT];
+pub const ALLOWED_MINTS: &[Pubkey] = &[USDC_MAINNET_MINT, AUDD_MAINNET_MINT, USDC_DEVNET_MINT];
 
 pub const AGENT_REGISTRATION_FEE: u64 = 10_000_000; // 0.01 SOL in lamports
 pub const AGENT_MODEL_MAX_LEN: usize = 64;

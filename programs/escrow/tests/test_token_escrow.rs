@@ -11,8 +11,8 @@ use anchor_spl::token::spl_token::{self, instruction as token_ix, state::Account
 use escrow::{
     accounts, instruction,
     state::{EscrowStatus, TokenEscrowAccount},
-    AUDD_MAINNET_MINT, CANCEL_WINDOW_SLOTS, CLAIM_WINDOW_SLOTS, MAX_TOKEN_ESCROW_BASE_UNITS, USDC_DEVNET_MINT,
-    USDC_MAINNET_MINT,
+    AUDD_MAINNET_MINT, CANCEL_WINDOW_SLOTS, CLAIM_WINDOW_SLOTS, MAX_TOKEN_ESCROW_BASE_UNITS,
+    USDC_DEVNET_MINT, USDC_MAINNET_MINT,
 };
 use litesvm::LiteSVM;
 use solana_keypair::Keypair;
