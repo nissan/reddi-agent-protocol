@@ -175,7 +175,10 @@ response bytes the app sent and received and the transaction it checked on chain
 The specialist runtime (`packages/openrouter-specialists`) can issue that header for a
 delivered chat completion paid with a real, verified payment. It is off unless the
 operator passes a `signProviderReceipt` function to `handleRuntimeRequest`; the runtime
-reads no key itself and `server.ts` passes none yet. It issues nothing while demo
+reads no key itself. `server.ts` builds that function from the keypair file named by
+`PROVIDER_RECEIPT_KEYPAIR_PATH` (owner-only file, public key equal to the profile's
+wallet), and refuses to start without it when real payments are on and demo payments are
+off (#776). No deployed specialist has been given a key. It issues nothing while demo
 payments are allowed.
 
 After a job is recorded, delivered or not, the server recounts that provider's rows in
@@ -185,7 +188,7 @@ finishing together cannot lose an update, and nothing is written if any count ca
 read. These are counts of recorded jobs, not a quality score: a provider who pays their
 own listing adds to their own count. No page shows the counts yet.
 
-Not built yet: how an operator supplies the provider signing key to `server.ts`, and
+Not built yet: the runtime's mainnet network setting (receipts name `solana-devnet`), and
 writing attestations.
 
 ## Replay store
