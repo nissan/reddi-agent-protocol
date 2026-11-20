@@ -1,6 +1,5 @@
 #![allow(clippy::diverging_sub_expression)] // Anchor #[program] macro false positive
 
-pub mod classic_token;
 pub mod constants;
 pub mod error;
 pub mod events;
@@ -8,6 +7,7 @@ pub mod instructions;
 #[cfg(feature = "extended")]
 pub mod magicblock_cpi;
 pub mod state;
+pub mod token_accounts;
 
 use anchor_lang::prelude::*;
 

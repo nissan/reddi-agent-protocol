@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { Connection } from '@solana/web3.js';
 import { PublicKey } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID, unpackAccount, unpackMint } from '@solana/spl-token';
+import { unpackAccount, unpackMint } from '@solana/spl-token';
 import { buildLockTokenEscrowInstruction, decodeTokenEscrowAccount, tokenEscrowAddresses, TokenEscrowTerms } from './token-escrow';
 
 /** RAP-specific escrow extension; not the interoperable x402 SVM exact scheme. */
@@ -76,7 +76,7 @@ export async function verifyEscrowLock(connection: Connection, c: EscrowChalleng
   if (!mintInfo || unpackMint(t.mint, mintInfo, t.tokenProgram).decimals !== c.decimals) throw new Error('mint decimals mismatch');
   const info = await connection.getAccountInfo(vault, { commitment: 'finalized', minContextSlot: tx.slot });
   if (!info) throw new Error('vault missing');
-  const token = unpackAccount(vault, info, TOKEN_PROGRAM_ID);
+  const token = unpackAccount(vault, info, t.tokenProgram);
   if (!token.owner.equals(escrow) || !token.mint.equals(t.mint) || token.amount < t.amount || !token.isInitialized || token.isFrozen) throw new Error('vault mismatch');
   return { ...proof, scheme: c.scheme, status: 'locked', escrow: escrow.toBase58(), amount: c.amount, mint: c.mint, requestHash: c.requestHash, slot: tx.slot };
 }

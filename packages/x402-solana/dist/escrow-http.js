@@ -65,7 +65,7 @@ async function verifyEscrowLock(connection, c, proof) {
     const info = await connection.getAccountInfo(vault, { commitment: 'finalized', minContextSlot: tx.slot });
     if (!info)
         throw new Error('vault missing');
-    const token = (0, spl_token_1.unpackAccount)(vault, info, spl_token_1.TOKEN_PROGRAM_ID);
+    const token = (0, spl_token_1.unpackAccount)(vault, info, t.tokenProgram);
     if (!token.owner.equals(escrow) || !token.mint.equals(t.mint) || token.amount < t.amount || !token.isInitialized || token.isFrozen)
         throw new Error('vault mismatch');
     return { ...proof, scheme: c.scheme, status: 'locked', escrow: escrow.toBase58(), amount: c.amount, mint: c.mint, requestHash: c.requestHash, slot: tx.slot };
