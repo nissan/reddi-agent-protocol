@@ -1,0 +1,63 @@
+name: Marketing site
+
+# Builds and tests the isolated marketing app in apps/marketing. Offline: no secrets, no email provider, no store.
+# The claims test also reads lib/public-claims, so a change to the shared claim patterns re-runs it.
+
+on:
+  pull_request:
+    paths:
+      - "apps/marketing/**"
+      - "lib/public-claims/**"
+      - ".github/workflows/marketing-site.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/marketing/**"
+      - "lib/public-claims/**"
+      - ".github/workflows/marketing-site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketing-site-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  marketing-site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/marketing
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Build
+        run: npm run build
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Unit and claim-boundary tests
+        run: npm test
+
+      - name: HTTP smoke (everything-off state)
+        run: |
+          npm run start -- --port 3000 > /tmp/marketing.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf -o /dev/null http://127.0.0.1:3000/ && break; sleep 1; done
+          npm run smoke
