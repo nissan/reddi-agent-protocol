@@ -35,6 +35,12 @@ export interface RuntimeConfig {
   allowRealPayment?: boolean;
   solanaRpcUrl?: string;
   usdcDevnetMint?: string;
+  /**
+   * Treasury owner address for the protocol fee on per-call payments. When set,
+   * challenges state the fee split and real receipts must include the fee
+   * transfer. Operator configuration only.
+   */
+  protocolFeeTreasury?: string;
   enableAgentToAgentCalls?: boolean;
   enableLiveDelegationExecutor?: boolean;
   maxDownstreamCalls?: number;

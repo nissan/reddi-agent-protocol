@@ -36,6 +36,7 @@ export function createRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runti
     allowRealPayment: env.ALLOW_REAL_X402_PAYMENT === "1" || env.ALLOW_REAL_X402_PAYMENT === "true",
     solanaRpcUrl: env.SOLANA_RPC_URL ?? "https://api.devnet.solana.com",
     usdcDevnetMint: env.X402_USDC_DEVNET_MINT,
+    protocolFeeTreasury: env.X402_PROTOCOL_FEE_TREASURY || undefined,
     enableAgentToAgentCalls: env.ENABLE_AGENT_TO_AGENT_CALLS === "1" || env.ENABLE_AGENT_TO_AGENT_CALLS === "true",
     enableLiveDelegationExecutor: env.ENABLE_LIVE_DELEGATION_EXECUTOR === "1" || env.ENABLE_LIVE_DELEGATION_EXECUTOR === "true",
     maxDownstreamCalls: env.MAX_DOWNSTREAM_CALLS ? Number.parseInt(env.MAX_DOWNSTREAM_CALLS, 10) : 0,
@@ -59,7 +60,7 @@ export function buildProfileChallenge(profile: SpecialistProfile, config: Runtim
     endpoint: `${config.endpointBaseUrl}${endpointPath}`,
     nonce,
     memo: `reddi:${profile.id}:${endpointPath}`,
-  });
+  }, config.protocolFeeTreasury ? { protocolFee: { treasury: config.protocolFeeTreasury } } : {});
 }
 
 function paymentRequired(challenge: X402Challenge): RuntimeResponse {
@@ -109,6 +110,7 @@ export async function verifyPayment(input: {
     allowRealPayment: true,
     connection: new Connection(input.config.solanaRpcUrl ?? "https://api.devnet.solana.com"),
     usdcMint: input.config.usdcDevnetMint,
+    protocolFee: input.config.protocolFeeTreasury ? { treasury: input.config.protocolFeeTreasury } : undefined,
   });
   return realVerifier.verifyReceipt(parsed, challenge, input.replayStore);
 }

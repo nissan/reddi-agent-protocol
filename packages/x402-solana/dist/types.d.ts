@@ -25,8 +25,32 @@ export interface X402ChallengeInput {
     nonce: string;
     memo?: string;
 }
+/**
+ * Protocol fee stated in a challenge so the buyer sees the split before paying.
+ * The fee comes out of the listed amount: the buyer pays `amount` in total, the
+ * provider receives `providerAmount` and `payTo` (the treasury) receives `amount`
+ * of this block. Amounts are decimal strings in the challenge currency.
+ */
+export interface X402FeeTerms {
+    /** Fee rate in basis points of the listed amount. */
+    bps: number;
+    /** Treasury owner address that receives the fee. */
+    payTo: string;
+    /** Fee, rounded down to the currency's smallest unit. "0" when the price is too small to yield one unit. */
+    amount: string;
+    /** What the provider receives: listed amount minus the fee. */
+    providerAmount: string;
+}
+/** Operator configuration for the protocol fee. Never taken from a buyer or a provider. */
+export interface ProtocolFeeConfig {
+    /** Treasury owner address. */
+    treasury: string;
+    /** Fee rate in basis points. Defaults to PROTOCOL_FEE_BPS. */
+    bps?: number;
+}
 export interface X402Challenge extends X402ChallengeInput {
     version: string;
+    fee?: X402FeeTerms;
 }
 /**
  * Receipt shape used by specialist-side verifiers. This package deliberately
@@ -69,6 +93,7 @@ export type ReceiptVerificationResult = {
     ok: true;
     receipt: X402PaymentReceipt;
     demo: boolean;
+    fee?: X402FeeTerms;
 } | {
     ok: false;
     reason: ReceiptVerificationFailureReason;

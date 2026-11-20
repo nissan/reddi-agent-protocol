@@ -789,3 +789,29 @@ test("HTTP core routes expose health, models, tags, metadata, attestation, and c
   assert.equal(attestationBody.reddi.downstreamDisclosureLedger.disclosureScope, "no_downstream_calls");
   assert.deepEqual(attestationBody.reddi.downstreamDisclosureLedger.entries, []);
 });
+
+test("402 challenge states the protocol fee split only when a treasury is configured", async () => {
+  const treasury = "BeybScaYnvJEL8i3s1TL3a2GRpiD3KTbu2Cfsxx5oX6H";
+  const unpaid = (runtimeConfig: RuntimeConfig) => handleChatCompletions({
+    headers: new Headers(),
+    body: { messages: [{ role: "user", content: "Build a plan" }] },
+    config: runtimeConfig,
+    client: new MockOpenRouterClient(),
+  });
+
+  const without = await unpaid(config);
+  assert.equal(without.status, 402);
+  assert.equal((without.body.x402 as { fee?: unknown }).fee, undefined);
+
+  const withFee = await unpaid({ ...config, protocolFeeTreasury: treasury });
+  assert.equal(withFee.status, 402);
+  const challenge = withFee.body.x402 as { amount: string | number; fee: { bps: number; payTo: string; amount: string; providerAmount: string } };
+  assert.equal(challenge.fee.bps, 5);
+  assert.equal(challenge.fee.payTo, treasury);
+  // The buyer pays the listed amount in total: provider share plus fee equals the price.
+  assert.ok(Math.abs(Number(challenge.fee.amount) + Number(challenge.fee.providerAmount) - Number(challenge.amount)) < 1e-12);
+  assert.equal(JSON.parse(withFee.headers["x402-request"]).fee.payTo, treasury);
+
+  assert.equal(createRuntimeConfig({ X402_PROTOCOL_FEE_TREASURY: treasury }).protocolFeeTreasury, treasury);
+  assert.equal(createRuntimeConfig({}).protocolFeeTreasury, undefined);
+});
