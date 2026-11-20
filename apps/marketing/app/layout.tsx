@@ -2,6 +2,9 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { indexable, siteUrl } from '../lib/site';
 import { APP_URL, DEFAULT_DESCRIPTION, GITHUB_URL, SITE_NAME, STAGE, X_URL } from '../lib/copy';
+import Analytics from '../components/Analytics';
+import Consent from '../components/Consent';
+import { ANALYTICS_ENABLED } from '../lib/analytics/enabled';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -48,9 +51,11 @@ export default function Layout({ children }: Readonly<{ children: React.ReactNod
               <Link href="/privacy">Privacy</Link>
               <Link href="/terms">Terms</Link>
             </div>
+            {ANALYTICS_ENABLED && <Consent />}
             <p className="footer-note"><span>© 2026 Reddi Agent Protocol. Open source.</span><span>{STAGE}</span></p>
           </div>
         </footer>
+        {ANALYTICS_ENABLED && <Analytics />}
       </body>
     </html>
   );

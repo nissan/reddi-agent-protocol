@@ -2,6 +2,7 @@ import { CONTACT_EMAIL, POLICY } from '../../lib/policy';
 import { GITHUB_URL } from '../../lib/copy';
 import { pageMetadata } from '../../lib/metadata';
 import { siteUrl } from '../../lib/site';
+import { ANALYTICS_ENABLED, ANALYTICS_REGION } from '../../lib/analytics/enabled';
 
 export const metadata = pageMetadata(siteUrl, { path: '/privacy', title: 'Privacy', description: 'What this website collects, why, and how to have it removed.' });
 
@@ -18,7 +19,14 @@ export default function Privacy() {
       <h2>Posts from X</h2>
       <p>The home page can show posts from our X account. Nothing is loaded from X until you press the button that shows them. When you do, X receives your address and may set cookies under its own policy.</p>
       <h2>Analytics and cookies</h2>
-      <p>This site sets no cookies of its own and runs no analytics or advertising trackers. Our hosting provider keeps ordinary request logs for security and reliability.</p>
+      {ANALYTICS_ENABLED
+        ? <>
+          <p>Measurement is optional and off until you choose. The first time you visit, the site asks, and nothing is loaded, sent or stored for measurement before you answer. Your answer is saved in this browser only.</p>
+          <p>If you allow it, we use PostHog{ANALYTICS_REGION ? ` (${ANALYTICS_REGION})` : ''} to count page views, clicks on links to other sites, sign-up steps and which build updates are opened, and to see which of our own campaign links brought you here. It uses a random anonymous ID kept in this browser. It never receives your email address or a wallet address, it does not record your screen, and it sets no advertising trackers.</p>
+          <p>You can change your mind at any time with Privacy settings at the foot of every page. Withdrawing stops collection at once and removes PostHog&apos;s identifiers from this browser.</p>
+        </>
+        : <p>This site sets no cookies of its own and runs no analytics or advertising trackers.</p>}
+      <p>Our hosting provider keeps ordinary request logs for security and reliability.</p>
       <h2>Your choices</h2>
       <p>You can unsubscribe with the link in any message. To have your address deleted, or to ask what we hold, {CONTACT_EMAIL ? <>write to <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.</> : <>open an issue on <a href={GITHUB_URL} rel="noopener noreferrer">the public repository</a> without including your address, and we will arrange a private channel.</>}</p>
     </main>

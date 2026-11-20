@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import FunnelBeacon from '../../../components/FunnelBeacon';
 import { notFound } from 'next/navigation';
 import { pageMetadata } from '../../../lib/metadata';
 import { showDrafts, siteUrl } from '../../../lib/site';
@@ -28,6 +29,7 @@ export default async function UpdatePage({ params }: { params: Promise<{ slug: s
       <h2>Check it yourself</h2>
       <ul>{u.links.map((l) => <li key={l.href}><a href={l.href} rel="noopener noreferrer">{l.label}</a></li>)}</ul>
       <p><Link className="text-link" href="/updates">All updates ↗</Link><Link className="text-link" href="/#updates">Get these by email ↗</Link></p>
+      <FunnelBeacon event="update_opened" slug={u.slug} />
     </main>
   );
 }

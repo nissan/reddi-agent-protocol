@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import FunnelBeacon from "./FunnelBeacon";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { SIGNUP_COPY as C } from "../lib/newsletter/copy";
@@ -38,6 +39,8 @@ export default function NewsletterAction({ action }: { action: "confirm" | "unsu
       <p className="lead">{copy.body}</p>
       <p><button type="button" className="button primary" onClick={submit} disabled={busy}>{busy ? "Working…" : copy.button}</button></p>
       {error && <p className="signup-notice" role="status">{error}</p>}
+      {/* The confirm page was opened from an emailed link. The beacon takes no data: the token stays here. */}
+      {action === "confirm" && <FunnelBeacon event="signup_confirm_opened" />}
       <Link className="text-link" href="/">Back to the home page ↗</Link>
     </main>
   );

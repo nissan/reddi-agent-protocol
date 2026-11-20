@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { signupSectionSeenOnce, signupSubmitted } from "../lib/analytics/funnel";
 import { SIGNUP_COPY as C } from "../lib/newsletter/copy";
 
 // The form is enabled only when the build sets NEXT_PUBLIC_NEWSLETTER_FORM=1. Without it the form renders disabled and
@@ -11,8 +12,23 @@ export default function Signup() {
   const [email, setEmail] = useState("");
   const [state, setState] = useState<{ kind: "idle" | "busy" | "done" | "error"; message?: string }>({ kind: "idle" });
 
+  // signup_section_seen, once per page view, when the section is mostly in view. Observing changes no layout.
+  const root = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const node = root.current;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const once = signupSectionSeenOnce();
+    // Seen before the visitor accepted is not recorded; keep watching until one sighting after acceptance goes out.
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting) && once.happened()) observer.disconnect();
+    }, { threshold: 0.4 });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    try { signupSubmitted(); } catch { /* analytics can never interrupt, delay or alter the request */ }
     setState({ kind: "busy" });
     try {
       const res = await fetch("/api/subscribe", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) });
@@ -25,7 +41,7 @@ export default function Signup() {
 
   if (!FORM_ENABLED) {
     return (
-      <section className="signup-root" id="newsletter" aria-labelledby="newsletter-title">
+      <section ref={root} className="signup-root" id="newsletter" aria-labelledby="newsletter-title">
         <h2 id="newsletter-title">{C.formTitle}</h2>
         <p id="newsletter-unavailable" className="signup-notice">{C.closedNotice}</p>
         <div className="signup-controls">
@@ -38,7 +54,7 @@ export default function Signup() {
   }
 
   return (
-    <section className="signup-root" id="newsletter" aria-labelledby="newsletter-title">
+    <section ref={root} className="signup-root" id="newsletter" aria-labelledby="newsletter-title">
       <h2 id="newsletter-title">{C.formTitle}</h2>
       <p>{C.formBody}</p>
       <form className="signup-controls" onSubmit={submit} noValidate>
