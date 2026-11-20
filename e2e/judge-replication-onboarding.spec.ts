@@ -131,7 +131,7 @@ test.describe("judge replication onboarding", () => {
 
     await expect(page.getByRole("heading", { name: /Verify the Reddi Agent Protocol proof path/i })).toBeVisible();
     await expect(page.getByText("node scripts/judge-replication-check.mjs")).toBeVisible();
-    await expect(page.getByText("https://agent-protocol.reddi.tech/sandbox")).toBeVisible();
+    await expect(page.getByText("https://app.agent-protocol.reddi.tech/sandbox")).toBeVisible();
     await expect(page.getByText("CLI registration of a new agent with on-chain proof")).toBeVisible();
     await expect(page.locator('a[href*="chilly-wreath-gwyk.here.now"]')).toHaveCount(0);
 

@@ -149,7 +149,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
   const [reputation, setReputation] = useState(() => initialSandboxReputation(SANDBOX_PROVIDERS));
   const [receipts, setReceipts] = useState<SandboxReceipt[]>([]);
   const [providerKeys, setProviderKeys] = useState<Record<string, string>>({});
-  const [origin, setOrigin] = useState("https://agent-protocol.reddi.tech");
+  const [origin, setOrigin] = useState("https://app.agent-protocol.reddi.tech");
   const [pendingWalletPayment, setPendingWalletPayment] = useState<string | null>(null);
   // True once the page is interactive and the provider key listing has settled.
   const [ready, setReady] = useState(false);

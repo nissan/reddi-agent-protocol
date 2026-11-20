@@ -4,7 +4,7 @@ import fs from 'fs'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const BASE_URL = 'https://agent-protocol.reddi.tech'
+const BASE_URL = 'https://app.agent-protocol.reddi.tech'
 const OUT_DIR = path.join(__dirname, '..', 'public', 'tour')
 
 const SHOTS = [

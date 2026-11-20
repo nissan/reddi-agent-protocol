@@ -5,11 +5,11 @@ const RPC = process.env.DEMO_DEVNET_RPC || 'https://api.devnet.solana.com';
 const connection = new Connection(RPC, 'confirmed');
 
 const publicRoutes = [
-  'https://agent-protocol.reddi.tech/',
-  'https://agent-protocol.reddi.tech/setup',
-  'https://agent-protocol.reddi.tech/agents',
-  'https://agent-protocol.reddi.tech/register',
-  'https://agent-protocol.reddi.tech/sandbox',
+  'https://app.agent-protocol.reddi.tech/',
+  'https://app.agent-protocol.reddi.tech/setup',
+  'https://app.agent-protocol.reddi.tech/agents',
+  'https://app.agent-protocol.reddi.tech/register',
+  'https://app.agent-protocol.reddi.tech/sandbox',
 ];
 
 const txs = [
