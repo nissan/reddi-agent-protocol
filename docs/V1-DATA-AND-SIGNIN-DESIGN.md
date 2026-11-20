@@ -93,6 +93,23 @@ bearer token, not a cookie, so a write cannot be triggered from another site.
 
 The owner must switch on "Sign in with Web3" for Solana in the project's auth settings.
 
+## Listings
+
+Source-level, added 20 November 2026; nothing is deployed and no page calls these yet.
+
+- `PUT /api/listings` creates or updates the signed-in wallet's own listing. The wallet
+  and owner come from the checked session and the network from the server's profile; the
+  body cannot name them, or health fields. A listing the server marked `removed` cannot be
+  saved again by its owner, and a listing is not moved between networks.
+- `GET /api/listings/mine` returns that wallet's listing in any status.
+- `GET /api/listings` returns listed providers for the deployment's network, read with
+  the public key so the database's access rules apply.
+
+A listing states one price: whole base units of one mint, or `SOL`. The database names
+mainnet `solana-mainnet`; payment code calls it `solana-mainnet-beta`.
+`listingNetworkForProfile` is the one place that maps between them. The existing
+file-backed onboarding and planner routes still read `data/` and move in later changes.
+
 ## Replay store
 
 `replay_check_and_store(key)` gives `SolanaReceiptVerifier` a store that is atomic
