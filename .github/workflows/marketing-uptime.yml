@@ -1,0 +1,56 @@
+name: Marketing site uptime
+
+# Checks the live marketing site once an hour with apps/marketing/tests/live-check.mjs. Read only: public pages and
+# the health report, no secrets. When a run fails it opens one issue (or adds a comment to the open one); when a later
+# run passes it closes that issue. GitHub also emails the workflow's owner about a failed scheduled run.
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: marketing-uptime
+  cancel-in-progress: false
+
+jobs:
+  live-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ISSUE_TITLE: "Marketing site check is failing"
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: apps/marketing/tests
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Check the live site
+        id: check
+        run: node apps/marketing/tests/live-check.mjs 2>&1 | tee /tmp/live-check.log
+
+      - name: Open or update the issue
+        if: failure() && steps.check.outcome == 'failure'
+        run: |
+          { echo "The hourly check of https://agent-protocol.reddi.tech failed."; echo; echo '```'; tail -n 40 /tmp/live-check.log; echo '```'; echo; echo "Run: $RUN_URL"; } > /tmp/body.md
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$ISSUE_TITLE\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body-file /tmp/body.md
+          else gh issue create --repo "$GITHUB_REPOSITORY" --title "$ISSUE_TITLE" --body-file /tmp/body.md; fi
+
+      - name: Close the issue once the site is back
+        if: success()
+        run: |
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$ISSUE_TITLE\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then gh issue close "$number" --repo "$GITHUB_REPOSITORY" --comment "The check passed again. Run: $RUN_URL"; fi

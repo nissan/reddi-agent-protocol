@@ -76,6 +76,28 @@ only allowlisted addresses receive anything. An issue that falls due with nobody
 emailed to people who join later. To see what the next run would do without sending, call the route with the bearer and
 `?dry-run=1`; it answers with slugs and counts only.
 
+### Health and uptime
+
+`/api/health` answers 200 with a small JSON report: which build is answering, whether the site is indexable, which
+newsletter switches are on and how many updates and videos are published. It holds no secret, address or subscriber
+count (`lib/health.ts`, `tests/health-videos-prompts.test.ts`).
+
+`.github/workflows/marketing-uptime.yml` runs `tests/live-check.mjs` against the live site once an hour. It reads public
+pages only. A failed run opens the issue "Marketing site check is failing" (or comments on the open one) and a later
+passing run closes it. Run it by hand with `node tests/live-check.mjs`; set `LIVE_ORIGIN` to check another address.
+
+### Watch page
+
+`/watch` lists the videos in `lib/videos.ts`. Videos are hosted on YouTube and nothing is loaded from YouTube until the
+visitor presses play (`components/VideoEmbed.tsx`, the no-cookie player). A `draft` video shows only on previews and
+local builds; publishing one is the owner's decision. The Watch link in the header and footer and the sitemap entry
+appear once a video is published.
+
+### Image prompt log
+
+`lib/image-prompts.ts` records the exact prompt behind every generated image on the site; the rules and the scoring
+rubric are in `docs/IMAGE_PROMPTS.md`. A file under `public/art/` with no logged run fails the tests.
+
 ## Vercel
 
 Create a separate Vercel project with **Root Directory `apps/marketing`**, framework Next.js, Node 24. `vercel.json`

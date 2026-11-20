@@ -3,7 +3,7 @@
 const origin = (process.env.SMOKE_ORIGIN ?? "http://127.0.0.1:3000").replace(/\/$/, "");
 const problems = [];
 const check = (ok, what) => { if (!ok) problems.push(what); };
-const pages = { "/": "Get the receipt", "/status": "What we do not claim", "/sandbox": "Devnet tokens have no value", "/privacy": "confirmed opt-in", "/terms": "No financial or investment advice", "/updates": "What has been built", "/newsletter/closed": "does not collect email addresses yet", "/newsletter/confirm": "NEWSLETTER" };
+const pages = { "/": "Get the receipt", "/status": "What we do not claim", "/sandbox": "Devnet tokens have no value", "/privacy": "confirmed opt-in", "/terms": "No financial or investment advice", "/updates": "What has been built", "/watch": "See it explained", "/newsletter/closed": "does not collect email addresses yet", "/newsletter/confirm": "NEWSLETTER" };
 for (const [path, phrase] of Object.entries(pages)) {
   const res = await fetch(origin + path);
   const html = await res.text();
@@ -28,8 +28,13 @@ for (const action of ["confirm", "unsubscribe"]) {
 }
 const issues = await fetch(origin + "/api/newsletter/issues");
 check(issues.status === 401 || issues.status === 503, `GET /api/newsletter/issues without a bearer: status ${issues.status}`);
+const health = await fetch(origin + "/api/health");
+const report = await health.json().catch(() => ({}));
+check(health.status === 200 && report.status === "ok" && report.site === "rap-marketing", `GET /api/health: status ${health.status}`);
+check(report.indexable === false && report.newsletter?.enabled === false && report.newsletter?.autosend === false, "/api/health: a switch reads on in the everything-off state");
+check(!/@|re_[A-Za-z0-9]|Bearer/.test(JSON.stringify(report)), "/api/health: something that looks like an address or a key");
 const prune = await fetch(origin + "/api/newsletter/prune");
 check(prune.status === 401 || prune.status === 503 || prune.status === 200, `GET /api/newsletter/prune: status ${prune.status}`);
 check((await fetch(origin + "/nope")).status === 404, "/nope: not 404");
 if (problems.length) { for (const p of problems) console.error(`FAIL ${p}`); process.exit(1); }
-console.log(`smoke ok: ${Object.keys(pages).length} pages, closed newsletter endpoints, robots, 404`);
+console.log(`smoke ok: ${Object.keys(pages).length} pages, closed newsletter endpoints, health, robots, 404`);
