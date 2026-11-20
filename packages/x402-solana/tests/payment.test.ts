@@ -193,7 +193,7 @@ describe('x402 Payment Module', () => {
           },
         },
       });
-      const result = await verifier.verifyReceipt({ network: 'solana-devnet', payTo: validAddress, amount: 0.001, currency: 'SOL', nonce: 'nonce-sol', payer: otherValidAddress, signature: 'sig-sol' }, solChallenge);
+      const result = await verifier.verifyReceipt({ network: 'solana-devnet', payTo: validAddress, amount: 0.001, currency: 'SOL', nonce: 'nonce-sol', payer: otherValidAddress, signature: 'sig-sol' }, solChallenge, new MemoryNonceReplayStore());
       expect(result.ok).toBe(true);
     });
 
@@ -224,7 +224,7 @@ describe('x402 Payment Module', () => {
           },
         },
       });
-      const result = await verifier.verifyReceipt({ network: 'solana-devnet', payTo: validAddress, amount: '0.03', currency: 'USDC', nonce: challenge.nonce, payer: otherValidAddress, signature: 'sig-usdc', destinationTokenAccount: 'dest-token-account' }, challenge);
+      const result = await verifier.verifyReceipt({ network: 'solana-devnet', payTo: validAddress, amount: '0.03', currency: 'USDC', nonce: challenge.nonce, payer: otherValidAddress, signature: 'sig-usdc', destinationTokenAccount: 'dest-token-account' }, challenge, new MemoryNonceReplayStore());
       expect(result.ok).toBe(true);
     });
 
@@ -287,6 +287,118 @@ describe('x402 Payment Module', () => {
       const result = await verifier.verifyReceipt({ network: 'solana-devnet', payTo: validAddress, amount: '0.03', currency: 'USDC', nonce: challenge.nonce, signature: 'sig-usdc', destinationTokenAccount: 'claimed-dest-token-account' }, challenge);
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.reason).toBe('invalid_receipt');
+    });
+
+    describe('receipt-to-transaction binding', () => {
+      const usdcMint = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
+      const otherMint = 'So11111111111111111111111111111111111111112';
+      const solTransaction = () => ({
+        meta: { err: null },
+        transaction: {
+          message: {
+            instructions: [
+              {
+                programId: { toString: () => '11111111111111111111111111111111' },
+                parsed: { type: 'transfer', info: { source: otherValidAddress, destination: validAddress, lamports: 1_000_000 } },
+              },
+            ],
+          },
+        },
+      });
+      const usdcTransaction = (instruction: Record<string, unknown>, balanceMint = usdcMint) => ({
+        meta: { err: null, postTokenBalances: [{ accountIndex: 1, mint: balanceMint, owner: validAddress }] },
+        transaction: {
+          message: {
+            accountKeys: ['source-token-account', 'dest-token-account'],
+            instructions: [{ program: 'spl-token', parsed: instruction }],
+          },
+        },
+      });
+      const solChallengeFor = (nonce: string) => buildX402Challenge({
+        network: 'solana-devnet',
+        payTo: validAddress,
+        amount: 0.001,
+        currency: 'SOL',
+        endpoint: 'https://planning.example.test/v1/chat/completions',
+        nonce,
+      });
+      const solReceipt = (nonce: string, signature = 'sig-shared') => ({ network: 'solana-devnet', payTo: validAddress, amount: 0.001, currency: 'SOL', nonce, payer: otherValidAddress, signature });
+      const usdcReceipt = (extra: Record<string, unknown> = {}) => ({ network: 'solana-devnet', payTo: validAddress, amount: '0.03', currency: 'USDC', nonce: challenge.nonce, payer: otherValidAddress, signature: 'sig-usdc', ...extra });
+      const verifierFor = (transaction: unknown, mint?: string) => new SolanaReceiptVerifier({
+        allowRealPayment: true,
+        usdcMint: mint,
+        connection: { async getParsedTransaction() { return transaction; } },
+      });
+
+      it('refuses a second challenge paid with an already-used transaction signature, even under a fresh nonce', async () => {
+        const store = new MemoryNonceReplayStore();
+        const verifier = verifierFor(solTransaction());
+        const first = await verifier.verifyReceipt(solReceipt('nonce-one'), solChallengeFor('nonce-one'), store);
+        expect(first.ok).toBe(true);
+        const second = await verifier.verifyReceipt(solReceipt('nonce-two'), solChallengeFor('nonce-two'), store);
+        expect(second.ok).toBe(false);
+        if (!second.ok) {
+          expect(second.reason).toBe('duplicate_nonce');
+          expect(second.message).toMatch(/transaction signature/);
+        }
+      });
+
+      it('accepts two different transactions for two challenges', async () => {
+        const store = new MemoryNonceReplayStore();
+        const verifier = verifierFor(solTransaction());
+        expect((await verifier.verifyReceipt(solReceipt('nonce-one', 'sig-one'), solChallengeFor('nonce-one'), store)).ok).toBe(true);
+        expect((await verifier.verifyReceipt(solReceipt('nonce-two', 'sig-two'), solChallengeFor('nonce-two'), store)).ok).toBe(true);
+      });
+
+      it('refuses a real receipt when no replay store is supplied', async () => {
+        const result = await verifierFor(solTransaction()).verifyReceipt(solReceipt('nonce-one'), solChallengeFor('nonce-one'));
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.reason).toBe('unsupported_receipt');
+          expect(result.message).toMatch(/replay store/);
+        }
+      });
+
+      it('does not record a signature when the transaction fails to pay the challenge', async () => {
+        const store = new MemoryNonceReplayStore();
+        const verifier = verifierFor(solTransaction());
+        const wrongPayer = await verifier.verifyReceipt({ ...solReceipt('nonce-one'), payer: validAddress }, solChallengeFor('nonce-one'), store);
+        expect(wrongPayer.ok).toBe(false);
+        expect(store.size).toBe(0);
+        const rightful = await verifier.verifyReceipt(solReceipt('nonce-one'), solChallengeFor('nonce-one'), store);
+        expect(rightful.ok).toBe(true);
+      });
+
+      it('reports an unconfigured USDC mint as unsupported instead of trusting the receipt mint', async () => {
+        const transaction = usdcTransaction({ type: 'transferChecked', info: { mint: otherMint, authority: otherValidAddress, destination: 'dest-token-account', tokenAmount: { uiAmountString: '0.03' } } }, otherMint);
+        const result = await verifierFor(transaction).verifyReceipt(usdcReceipt({ mint: otherMint }), challenge, new MemoryNonceReplayStore());
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.reason).toBe('unsupported_receipt');
+          expect(result.message).toMatch(/usdcMint/);
+        }
+      });
+
+      it('rejects a receipt that names a mint other than the configured USDC mint', async () => {
+        const transaction = usdcTransaction({ type: 'transferChecked', info: { mint: otherMint, authority: otherValidAddress, destination: 'dest-token-account', tokenAmount: { uiAmountString: '0.03' } } }, otherMint);
+        const result = await verifierFor(transaction, usdcMint).verifyReceipt(usdcReceipt({ mint: otherMint }), challenge, new MemoryNonceReplayStore());
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.reason).toBe('invalid_receipt');
+      });
+
+      it('rejects a transfer of another mint even when the receipt names no mint', async () => {
+        const transaction = usdcTransaction({ type: 'transferChecked', info: { mint: otherMint, authority: otherValidAddress, destination: 'dest-token-account', tokenAmount: { uiAmountString: '0.03' } } }, otherMint);
+        const result = await verifierFor(transaction, usdcMint).verifyReceipt(usdcReceipt(), challenge, new MemoryNonceReplayStore());
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.reason).toBe('invalid_receipt');
+      });
+
+      it('rejects an unchecked token transfer, which names no mint and reports raw base units', async () => {
+        const transaction = usdcTransaction({ type: 'transfer', info: { authority: otherValidAddress, destination: 'dest-token-account', amount: '0.03' } });
+        const result = await verifierFor(transaction, usdcMint).verifyReceipt(usdcReceipt(), challenge, new MemoryNonceReplayStore());
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.reason).toBe('invalid_receipt');
+      });
     });
 
     it('reports an unconfigured AUDD mint as an unsupported receipt rather than a bad buyer receipt', async () => {

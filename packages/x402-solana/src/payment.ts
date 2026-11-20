@@ -216,10 +216,21 @@ export class SolanaReceiptVerifier implements ReceiptVerifier {
     const unpaid = await this.challengePaymentFailure(parsed, receipt, challenge, signature, replayStore);
     if (unpaid) return unpaid;
 
-    if (replayStore) {
-      const accepted = await replayStore.checkAndStore(receipt.nonce);
-      if (!accepted) return { ok: false, reason: 'duplicate_nonce', message: 'receipt nonce has already been used', actual: receipt.nonce };
+    // A verified on-chain payment satisfies exactly one challenge. The nonce alone
+    // cannot enforce that, because the caller that presents the receipt may also
+    // choose the nonce, so the transaction signature is recorded as well. Without a
+    // replay store there is nothing to record it in, and the receipt is refused.
+    if (!replayStore) {
+      return { ok: false, reason: 'unsupported_receipt', message: 'real Solana receipt verification requires a replay store' };
     }
+    // Recorded only after the transaction is shown to pay this challenge, so a
+    // third party cannot burn someone else's signature with a non-matching receipt.
+    const signatureAccepted = await replayStore.checkAndStore(transactionReplayKey(challenge.network, signature));
+    if (!signatureAccepted) {
+      return { ok: false, reason: 'duplicate_nonce', message: 'transaction signature has already been used for a payment', actual: signature };
+    }
+    const accepted = await replayStore.checkAndStore(receipt.nonce);
+    if (!accepted) return { ok: false, reason: 'duplicate_nonce', message: 'receipt nonce has already been used', actual: receipt.nonce };
     return { ok: true, receipt, demo: false };
   }
 
@@ -237,7 +248,14 @@ export class SolanaReceiptVerifier implements ReceiptVerifier {
         : unsatisfiedChallenge();
     }
     if (challenge.currency === 'USDC') {
-      return transactionHasTokenTransfer(parsed, receipt, challenge, this.options.usdcMint)
+      const mint = this.options.usdcMint;
+      if (!mint) {
+        return { ok: false, reason: 'unsupported_receipt', message: 'USDC receipt verification requires a configured usdcMint' };
+      }
+      if (receipt.mint !== undefined && receipt.mint !== mint) {
+        return unsatisfiedChallenge('receipt mint does not match the configured USDC mint', mint, receipt.mint);
+      }
+      return transactionHasTokenTransfer(parsed, receipt, challenge, mint)
         ? undefined
         : unsatisfiedChallenge();
     }
@@ -278,6 +296,11 @@ export class SolanaReceiptVerifier implements ReceiptVerifier {
   }
 }
 
+/** Replay key for a settled transaction; namespaced so it cannot collide with a caller-chosen nonce. */
+export function transactionReplayKey(network: string, signature: string): string {
+  return `x402:tx:${network}:${signature}`;
+}
+
 function unsatisfiedChallenge(
   message = 'transaction does not satisfy x402 challenge payment terms',
   expected?: unknown,
@@ -310,22 +333,25 @@ function transactionHasSolTransfer(parsed: Record<string, unknown>, payer: strin
   });
 }
 
-function transactionHasTokenTransfer(parsed: Record<string, unknown>, receipt: X402PaymentReceipt, challenge: X402Challenge, expectedMint?: string): boolean {
-  if (!expectedMint && !receipt.mint) return false;
-  const mint = expectedMint ?? receipt.mint;
+/**
+ * `mint` is the verifier's configured mint, never a value taken from the receipt.
+ * Only `transferChecked` is accepted: it names its mint and carries a decimal-aware
+ * amount, whereas a plain `transfer` names no mint and reports raw base units.
+ */
+function transactionHasTokenTransfer(parsed: Record<string, unknown>, receipt: X402PaymentReceipt, challenge: X402Challenge, mint: string): boolean {
   const expectedAmount = String(challenge.amount);
   const instructions = parsedInstructions(parsed);
 
   return instructions.some((ix) => {
     const parsedInstruction = asRecord(ix.parsed);
     const info = asRecord(parsedInstruction?.info);
-    if (!info || !['transfer', 'transferChecked'].includes(String(parsedInstruction?.type))) return false;
-    if (info.mint && info.mint !== mint) return false;
+    if (!info || parsedInstruction?.type !== 'transferChecked') return false;
+    if (info.mint !== mint) return false;
     if (receipt.payer && info.authority && info.authority !== receipt.payer) return false;
     if (receipt.destinationTokenAccount && info.destination !== receipt.destinationTokenAccount) return false;
 
     const tokenAmountRecord = asRecord(info.tokenAmount);
-    const tokenAmount = tokenAmountRecord?.uiAmountString ?? tokenAmountRecord?.uiAmount ?? info.amount;
+    const tokenAmount = tokenAmountRecord?.uiAmountString ?? tokenAmountRecord?.uiAmount;
     if (String(tokenAmount) !== expectedAmount) return false;
 
     const destination = typeof info.destination === 'string' ? info.destination : receipt.destinationTokenAccount;

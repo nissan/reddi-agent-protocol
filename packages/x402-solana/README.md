@@ -108,7 +108,7 @@ if (checkAndStoreNonce(nonce)) {
 
 Read-only verifier for SVM SPL Token / Token-2022 `TransferChecked` observations. It consumes an already parsed transaction object and checks transaction success, confirmation metadata, transaction-signature match, exact mint, exact token program, destination token-account ownership by `payTo`, exact base-unit amount, optional authority, optional decimals, exactly one matching transfer, replay store, and required memo binding. It does not fetch RPC, submit transactions, load wallets, sign, or hold funds.
 
-`SolanaReceiptVerifier` retains legacy SOL/USDC behavior and bridges AUDD receipts to this stricter x402 v2 SVM `exact` verifier only when the verifier is configured with an explicit `auddMint`; it will not trust a receipt-supplied mint as the AUDD identity. AUDD amounts are base units, not UI decimal strings.
+`SolanaReceiptVerifier` requires a replay store for real receipts and records the transaction signature, so one transaction satisfies one challenge; USDC needs a configured `usdcMint` and a `transferChecked` instruction. It bridges AUDD receipts to this stricter x402 v2 SVM `exact` verifier only when the verifier is configured with an explicit `auddMint`; it will not trust a receipt-supplied mint as the AUDD identity. AUDD amounts are base units, not UI decimal strings.
 
 ### `sendPayment(request: X402Request): Promise<PaymentReceipt>`
 
