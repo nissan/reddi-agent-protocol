@@ -1,7 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SolanaReceiptVerifier = exports.DEFAULT_MAX_TRANSACTION_AGE_SECONDS = exports.SOLANA_GENESIS_HASHES = exports.DemoPaymentVerifier = exports.isValidPaymentAddress = void 0;
+exports.SolanaReceiptVerifier = exports.DEFAULT_MAX_TRANSACTION_AGE_SECONDS = exports.SOLANA_GENESIS_HASHES = exports.DemoPaymentVerifier = exports.PROTOCOL_FEE_BPS = exports.isValidPaymentAddress = void 0;
 exports.isValidSolanaPublicKey = isValidSolanaPublicKey;
+exports.decimalToBaseUnits = decimalToBaseUnits;
+exports.baseUnitsToDecimal = baseUnitsToDecimal;
+exports.protocolFeeBaseUnits = protocolFeeBaseUnits;
+exports.protocolFeeTerms = protocolFeeTerms;
 exports.buildX402Challenge = buildX402Challenge;
 exports.parseX402Header = parseX402Header;
 exports.parseX402PaymentHeader = parseX402PaymentHeader;
@@ -30,7 +34,84 @@ function isValidSolanaPublicKey(address) {
 }
 /** Backwards-compatible alias for older callers. */
 exports.isValidPaymentAddress = isValidSolanaPublicKey;
-function buildX402Challenge(input) {
+/** Protocol fee rate: 5 basis points, which is 0.05% of the listed price. */
+exports.PROTOCOL_FEE_BPS = 5;
+const BPS_DENOMINATOR = 10000;
+/** Highest fee rate this package will state or verify: 10%. Guards against a mistyped configuration. */
+const MAX_PROTOCOL_FEE_BPS = 1000;
+/** Decimal places of the currencies a protocol fee can be taken in. */
+const FEE_CURRENCY_DECIMALS = { SOL: 9, USDC: 6 };
+/**
+ * Converts a decimal amount to whole base units without floating point
+ * multiplication. Returns undefined for anything that is not a positive amount
+ * with at most `decimals` decimal places.
+ */
+function decimalToBaseUnits(amount, decimals) {
+    if (!Number.isInteger(decimals) || decimals < 0 || decimals > 18)
+        return undefined;
+    let text;
+    if (typeof amount === 'number') {
+        if (!Number.isFinite(amount) || amount <= 0)
+            return undefined;
+        // toFixed avoids exponent notation for small numbers; one extra place exposes
+        // a value finer than the smallest unit instead of silently rounding it.
+        text = amount.toFixed(decimals + 1).replace(/0+$/, '').replace(/\.$/, '');
+    }
+    else {
+        text = amount;
+    }
+    const match = new RegExp(`^(\\d+)(?:\\.(\\d{1,${Math.max(decimals, 1)}}))?$`).exec(text);
+    if (!match || (decimals === 0 && match[2] !== undefined))
+        return undefined;
+    const units = BigInt(match[1]) * BigInt(10) ** BigInt(decimals) + BigInt((match[2] ?? '').padEnd(decimals, '0') || '0');
+    return units > BigInt(0) ? units : undefined;
+}
+/** Renders whole base units as a decimal string with no trailing zeros. */
+function baseUnitsToDecimal(units, decimals) {
+    const text = units.toString().padStart(decimals + 1, '0');
+    const whole = text.slice(0, text.length - decimals);
+    const fraction = decimals === 0 ? '' : text.slice(text.length - decimals).replace(/0+$/, '');
+    return fraction ? `${whole}.${fraction}` : whole;
+}
+/** Fee in base units: the listed price times the rate, rounded down. There is no minimum fee. */
+function protocolFeeBaseUnits(priceBaseUnits, bps = exports.PROTOCOL_FEE_BPS) {
+    if (!Number.isInteger(bps) || bps < 0 || bps > MAX_PROTOCOL_FEE_BPS)
+        throw new Error(`protocol fee bps must be a whole number from 0 to ${MAX_PROTOCOL_FEE_BPS}`);
+    if (priceBaseUnits < BigInt(0))
+        throw new Error('price must not be negative');
+    return (priceBaseUnits * BigInt(bps)) / BigInt(BPS_DENOMINATOR);
+}
+function feeSplit(amount, currency, payTo, config) {
+    const decimals = FEE_CURRENCY_DECIMALS[currency];
+    if (decimals === undefined)
+        throw new Error(`a protocol fee is not supported for currency ${currency}`);
+    if (!isValidSolanaPublicKey(config.treasury))
+        throw new Error('protocol fee treasury must be a valid Solana public key');
+    if (config.treasury === payTo)
+        throw new Error('protocol fee treasury must differ from the payee');
+    const bps = config.bps ?? exports.PROTOCOL_FEE_BPS;
+    const price = decimalToBaseUnits(amount, decimals);
+    if (price === undefined)
+        throw new Error(`amount must be a positive ${currency} amount with at most ${decimals} decimal places`);
+    const feeUnits = protocolFeeBaseUnits(price, bps);
+    const providerUnits = price - feeUnits;
+    return {
+        decimals,
+        feeUnits,
+        providerUnits,
+        terms: {
+            bps,
+            payTo: config.treasury,
+            amount: baseUnitsToDecimal(feeUnits, decimals),
+            providerAmount: baseUnitsToDecimal(providerUnits, decimals),
+        },
+    };
+}
+/** Fee terms for a listed price, as a challenge states them. Throws on an unusable amount, currency or configuration. */
+function protocolFeeTerms(amount, currency, payTo, config) {
+    return feeSplit(amount, currency, payTo, config).terms;
+}
+function buildX402Challenge(input, options = {}) {
     if (!SUPPORTED_NETWORKS.includes(input.network))
         throw new Error(`unsupported Solana network: ${input.network}`);
     if (!isValidSolanaPublicKey(input.payTo))
@@ -43,7 +124,10 @@ function buildX402Challenge(input) {
         throw new Error('amount must be positive');
     if (!input.endpoint || typeof input.endpoint !== 'string')
         throw new Error('endpoint is required');
-    return { version: input.version ?? '1', ...input };
+    const challenge = { version: input.version ?? '1', ...input };
+    if (options.protocolFee)
+        challenge.fee = protocolFeeTerms(input.amount, input.currency, input.payTo, options.protocolFee);
+    return challenge;
 }
 /**
  * Parse x402-request header into structured request.
@@ -258,6 +342,10 @@ class SolanaReceiptVerifier {
         const signature = receipt.signature ?? receipt.txSignature;
         if (!signature)
             return { ok: false, reason: 'invalid_receipt', message: 'receipt signature is required' };
+        const feeDecision = this.feeSplitFor(challenge);
+        if ('failure' in feeDecision)
+            return feeDecision.failure;
+        const split = feeDecision.split;
         const wrongCluster = await this.clusterFailure(challenge.network);
         if (wrongCluster)
             return wrongCluster;
@@ -271,7 +359,7 @@ class SolanaReceiptVerifier {
         const tooOld = this.ageFailure(parsed, challenge.network);
         if (tooOld)
             return tooOld;
-        const unpaid = await this.challengePaymentFailure(parsed, receipt, challenge, signature, replayStore);
+        const unpaid = await this.challengePaymentFailure(parsed, receipt, challenge, signature, replayStore, split);
         if (unpaid)
             return unpaid;
         // A verified on-chain payment satisfies exactly one challenge. The nonce alone
@@ -290,11 +378,50 @@ class SolanaReceiptVerifier {
         const accepted = await replayStore.checkAndStore(receipt.nonce);
         if (!accepted)
             return { ok: false, reason: 'duplicate_nonce', message: 'receipt nonce has already been used', actual: receipt.nonce };
-        return { ok: true, receipt, demo: false };
+        return split ? { ok: true, receipt, demo: false, fee: split.terms } : { ok: true, receipt, demo: false };
+    }
+    /**
+     * Works out the fee split this verifier requires for a challenge, from its own
+     * configuration. Fee terms printed in the challenge are only compared against
+     * that, so a challenge cannot lower the fee or redirect it.
+     */
+    feeSplitFor(challenge) {
+        const config = this.options.protocolFee;
+        if (config === undefined && challenge.network === 'solana-mainnet-beta') {
+            return { failure: { ok: false, reason: 'unsupported_receipt', message: "mainnet receipt verification requires a protocol fee treasury, or protocolFee: 'disabled'" } };
+        }
+        if (config === undefined || config === 'disabled') {
+            if (challenge.fee !== undefined) {
+                return { failure: { ok: false, reason: 'unsupported_receipt', message: 'challenge states a protocol fee but this verifier has none configured', actual: challenge.fee } };
+            }
+            return {};
+        }
+        let split;
+        try {
+            split = feeSplit(challenge.amount, challenge.currency, challenge.payTo, config);
+        }
+        catch (error) {
+            return { failure: { ok: false, reason: 'unsupported_receipt', message: error instanceof Error ? error.message : 'protocol fee cannot be computed for this challenge' } };
+        }
+        const stated = challenge.fee;
+        if (stated !== undefined && (stated.bps !== split.terms.bps
+            || stated.payTo !== split.terms.payTo
+            || stated.amount !== split.terms.amount
+            || stated.providerAmount !== split.terms.providerAmount)) {
+            return { failure: { ok: false, reason: 'unsupported_receipt', message: 'challenge fee terms do not match the configured protocol fee', expected: split.terms, actual: stated } };
+        }
+        return { split };
     }
     /** Returns a failure result when the parsed transaction does not settle the challenge, otherwise undefined. */
-    async challengePaymentFailure(parsed, receipt, challenge, signature, replayStore) {
+    async challengePaymentFailure(parsed, receipt, challenge, signature, replayStore, split) {
+        // A fee that rounds down to zero leaves a single transfer of the full price.
+        const fee = split && split.feeUnits > BigInt(0) ? split : undefined;
         if (challenge.currency === 'SOL') {
+            if (fee) {
+                return transactionHasSolSplit(parsed, receipt.payer, challenge.payTo, fee)
+                    ? undefined
+                    : unsatisfiedChallenge('transaction does not pay both the provider share and the protocol fee', fee.terms);
+            }
             return transactionHasSolTransfer(parsed, receipt.payer, challenge.payTo, challenge.amount)
                 ? undefined
                 : unsatisfiedChallenge();
@@ -306,6 +433,11 @@ class SolanaReceiptVerifier {
             }
             if (receipt.mint !== undefined && receipt.mint !== mint) {
                 return unsatisfiedChallenge('receipt mint does not match the configured USDC mint', mint, receipt.mint);
+            }
+            if (fee) {
+                return transactionHasTokenSplit(parsed, receipt, challenge, mint, fee)
+                    ? undefined
+                    : unsatisfiedChallenge('transaction does not pay both the provider share and the protocol fee', fee.terms);
             }
             return transactionHasTokenTransfer(parsed, receipt, challenge, mint)
                 ? undefined
@@ -375,22 +507,7 @@ function validateReceiptShape(receipt, challenge) {
  * decimal places.
  */
 function solAmountToLamports(amount) {
-    let text;
-    if (typeof amount === 'number') {
-        if (!Number.isFinite(amount) || amount <= 0)
-            return undefined;
-        // toFixed avoids exponent notation for small numbers; ten places exposes a
-        // value finer than a lamport instead of silently rounding it.
-        text = amount.toFixed(10).replace(/0+$/, '').replace(/\.$/, '');
-    }
-    else {
-        text = amount;
-    }
-    const match = /^(\d+)(?:\.(\d{1,9}))?$/.exec(text);
-    if (!match)
-        return undefined;
-    const lamports = BigInt(match[1]) * BigInt(web3_js_1.LAMPORTS_PER_SOL) + BigInt((match[2] ?? '').padEnd(9, '0'));
-    return lamports > BigInt(0) ? lamports : undefined;
+    return decimalToBaseUnits(amount, 9);
 }
 function lamportsOf(value) {
     if (typeof value === 'bigint')
@@ -417,6 +534,67 @@ function transactionHasSolTransfer(parsed, payer, payTo, amountSol) {
             && paid !== undefined
             && paid >= lamports;
     });
+}
+/**
+ * Both legs of a fee-bearing SOL payment must be present as separate transfers:
+ * the provider's share to the payee and the fee to the treasury. One transfer
+ * cannot count for both.
+ */
+function transactionHasSolSplit(parsed, payer, payTo, split) {
+    const transfers = parsedInstructions(parsed).map((ix) => {
+        const parsedInstruction = asRecord(ix.parsed);
+        const info = asRecord(parsedInstruction?.info);
+        const paid = lamportsOf(info?.lamports);
+        const isTransfer = publicKeyText(ix.programId) === web3_js_1.SystemProgram.programId.toBase58()
+            && parsedInstruction?.type === 'transfer'
+            && (!payer || info?.source === payer)
+            && paid !== undefined;
+        return isTransfer ? { destination: info?.destination, paid: paid } : undefined;
+    });
+    const providerLeg = transfers.findIndex((t) => t !== undefined && t.destination === payTo && t.paid >= split.providerUnits);
+    const feeLeg = transfers.findIndex((t, index) => index !== providerLeg && t !== undefined && t.destination === split.terms.payTo && t.paid >= split.feeUnits);
+    return providerLeg !== -1 && feeLeg !== -1;
+}
+/** Raw base units moved by a parsed `transferChecked`, or undefined when they cannot be read exactly. */
+function tokenTransferBaseUnits(info, decimals) {
+    const tokenAmount = asRecord(info.tokenAmount);
+    if (!tokenAmount)
+        return undefined;
+    if (tokenAmount.decimals !== undefined && tokenAmount.decimals !== decimals)
+        return undefined;
+    if (typeof tokenAmount.amount === 'string' && /^\d+$/.test(tokenAmount.amount))
+        return BigInt(tokenAmount.amount);
+    const ui = tokenAmount.uiAmountString;
+    return typeof ui === 'string' ? decimalToBaseUnits(ui, decimals) : undefined;
+}
+/**
+ * Both legs of a fee-bearing token payment must be present as separate
+ * `transferChecked` instructions of the configured mint: the provider's share to
+ * a token account the payee owns, and the fee to a token account the treasury owns.
+ */
+function transactionHasTokenSplit(parsed, receipt, challenge, mint, split) {
+    const legs = parsedInstructions(parsed).map((ix) => {
+        const parsedInstruction = asRecord(ix.parsed);
+        const info = asRecord(parsedInstruction?.info);
+        if (!info || parsedInstruction?.type !== 'transferChecked')
+            return undefined;
+        if (info.mint !== mint)
+            return undefined;
+        if (receipt.payer && info.authority && info.authority !== receipt.payer)
+            return undefined;
+        const units = tokenTransferBaseUnits(info, split.decimals);
+        if (units === undefined || typeof info.destination !== 'string')
+            return undefined;
+        return { destination: info.destination, units };
+    });
+    const providerLeg = legs.findIndex((leg) => leg !== undefined
+        && leg.units === split.providerUnits
+        && (!receipt.destinationTokenAccount || leg.destination === receipt.destinationTokenAccount)
+        && transactionTokenAccountOwnedBy(parsed, leg.destination, mint, challenge.payTo));
+    const feeLeg = legs.findIndex((leg, index) => index !== providerLeg && leg !== undefined
+        && leg.units === split.feeUnits
+        && transactionTokenAccountOwnedBy(parsed, leg.destination, mint, split.terms.payTo));
+    return providerLeg !== -1 && feeLeg !== -1;
 }
 /**
  * `mint` is the verifier's configured mint, never a value taken from the receipt.

@@ -85,7 +85,10 @@ The `77rkRQxe…UZXmX` program id still quoted in some older `declare_id!` macro
 The **planned** protocol fee is 0.05% per transaction, modelled as settlement-only (zero on failure). This is a
 product/fixture model, not implemented behaviour: no deployed on-chain release path collects a protocol treasury fee
 today — the only on-chain economic constant is `AGENT_REGISTRATION_FEE` (the 0.01 SOL registration burn). Describe the
-0.05% figure as planned or fixture semantics, never as an implemented fee. Older 16.7% / 83.3% figures are stale doc
+0.05% figure as planned or fixture semantics, never as an implemented fee. `packages/x402-solana` carries source-level
+helpers for a 5 bps split on direct per-call payments (taken from the listed price, rounded down, no minimum, off unless
+an operator configures a treasury; a mainnet verifier must be given a treasury or an explicit `disabled`); nothing
+deployed is configured with one, and the escrow program takes no fee. Older 16.7% / 83.3% figures are stale doc
 rot.
 
 Preserve the hard boundaries enforced by package/readiness checks: AUDD is payment-plan/proof metadata only, not custody or settled escrow; mainnet/live payment paths are gated; package/source conformance must remain no-spend/offline unless a task explicitly authorizes otherwise.

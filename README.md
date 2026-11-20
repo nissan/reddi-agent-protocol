@@ -139,7 +139,7 @@ The verifier checks public product routes, recorded Solana devnet transactions, 
 | Topic | Current repository behavior |
 |---|---|
 | Protocol fee | No deployed on-chain release path collects a protocol treasury fee. |
-| 0.05% / 5 bps | Planned/product-fixture semantics only; zero fee is modeled on failed examples. |
+| 0.05% / 5 bps | Planned/product-fixture semantics only; zero fee is modeled on failed examples. `packages/x402-solana` has source-level helpers that state and verify a 5 bps split on a direct per-call payment when an operator configures a treasury; no deployed service is configured with one. |
 | Registration fee | The legacy registry burn constant is a devnet-era anti-sybil fixture, not protocol revenue. |
 | Custody | Current shipped public package flows are no-spend/proof-reference/read-only observation helpers. |
 | AUDD/Solana | AUDD is payment-plan/proof metadata and read-only SPL observation unless a separate approved live rail lands. |
