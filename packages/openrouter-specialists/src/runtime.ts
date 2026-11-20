@@ -456,7 +456,25 @@ export async function handleChatCompletions(input: {
   };
 }
 
-export async function handleRuntimeRequest(request: Request, config = createRuntimeConfig(), client = createOpenRouterClient(config)): Promise<Response> {
+/** True for the error a durable replay store raises when it cannot answer. */
+function isReplayStoreFailure(error: unknown): boolean {
+  return error instanceof Error && /^replay store /.test(error.message);
+}
+
+const REPLAY_UNAVAILABLE: RuntimeResponse = {
+  status: 503,
+  headers: JSON_HEADERS,
+  // Nothing was accepted or recorded, so the same receipt can be presented again.
+  body: { error: { code: "payment_check_unavailable", message: "The payment could not be checked right now. Nothing was accepted; present the same receipt again." } },
+};
+
+export interface RuntimeDeps {
+  /** Where accepted payments are remembered. Defaults to the in-memory store. */
+  replayStore?: NonceReplayStore;
+}
+
+export async function handleRuntimeRequest(request: Request, config = createRuntimeConfig(), client = createOpenRouterClient(config), deps: RuntimeDeps = {}): Promise<Response> {
+  const replayStore = deps.replayStore ?? defaultNonceReplayStore;
   const url = new URL(request.url);
   const profile = getProfile(config.profileId);
   if (!profile) return toResponse({ status: 500, headers: JSON_HEADERS, body: { error: { code: "unknown_profile" } } });
@@ -473,11 +491,21 @@ export async function handleRuntimeRequest(request: Request, config = createRunt
   if (request.method === "GET" && url.pathname === "/.well-known/reddi-agent.json") return toResponse({ status: 200, headers: JSON_HEADERS, body: marketplaceMetadata(profile, config) });
   if (request.method === "POST" && url.pathname === "/v1/attestations") {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    return toResponse(await handleAttestationEvaluation({ headers: request.headers, body, config, client, replayStore: defaultNonceReplayStore, endpointPath: "/v1/attestations" }));
+    try {
+      return toResponse(await handleAttestationEvaluation({ headers: request.headers, body, config, client, replayStore, endpointPath: "/v1/attestations" }));
+    } catch (error) {
+      if (isReplayStoreFailure(error)) return toResponse(REPLAY_UNAVAILABLE);
+      throw error;
+    }
   }
   if (request.method === "POST" && url.pathname === "/v1/chat/completions") {
     const body = (await request.json().catch(() => ({}))) as ChatCompletionRequest;
-    return toResponse(await handleChatCompletions({ headers: request.headers, body, config, client, replayStore: defaultNonceReplayStore }));
+    try {
+      return toResponse(await handleChatCompletions({ headers: request.headers, body, config, client, replayStore }));
+    } catch (error) {
+      if (isReplayStoreFailure(error)) return toResponse(REPLAY_UNAVAILABLE);
+      throw error;
+    }
   }
   return toResponse({ status: 404, headers: JSON_HEADERS, body: { error: { code: "not_found" } } });
 }
