@@ -110,6 +110,17 @@ Read-only verifier for SVM SPL Token / Token-2022 `TransferChecked` observations
 
 `SolanaReceiptVerifier` requires a replay store for real receipts and records the transaction signature, so one transaction satisfies one challenge; USDC needs a configured `usdcMint` and a `transferChecked` instruction. It bridges AUDD receipts to this stricter x402 v2 SVM `exact` verifier only when the verifier is configured with an explicit `auddMint`; it will not trust a receipt-supplied mint as the AUDD identity. AUDD amounts are base units, not UI decimal strings.
 
+For a `solana-mainnet-beta` challenge the verifier also refuses a transaction older than 900 seconds (`maxTransactionAgeSeconds`) or without a block time, and requires the connection to report the public mainnet genesis hash. On other networks those two checks run only when `maxTransactionAgeSeconds` or `expectedGenesisHash` is set.
+
+`MemoryNonceReplayStore` forgets everything on restart. `DatabaseReplayStore` keeps replay keys in a database through an atomic function you provide:
+
+```ts
+// server side only; `client` is a database client with a service credential
+const replayStore = new DatabaseReplayStore({ rpc: (fn, args) => client.rpc(fn, args) });
+```
+
+It throws when the database is unreachable, so a payment is never accepted without being recorded.
+
 ### `sendPayment(request: X402Request): Promise<PaymentReceipt>`
 
 Legacy demo helper for local tests. Do not use it as a production payment path.

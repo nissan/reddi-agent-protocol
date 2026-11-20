@@ -15,3 +15,29 @@ export declare const defaultNonceReplayStore: NonceReplayStore;
 export declare function clearNonces(): void;
 /** Get count of stored nonces (for debugging). */
 export declare function getNonceCount(): number;
+/** Result shape of a database remote procedure call, as returned by supabase-js `rpc`. */
+export interface ReplayRpcResult {
+    data: unknown;
+    error: unknown;
+}
+export interface DatabaseReplayStoreOptions {
+    /**
+     * Calls a database function by name. With supabase-js, pass
+     * `(fn, args) => client.rpc(fn, args)` using a server-side client.
+     */
+    rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<ReplayRpcResult>;
+    /** Defaults to `replay_check_and_store`, which takes `p_key` and returns a boolean. */
+    functionName?: string;
+}
+/**
+ * Durable replay store backed by an atomic database function, so a key is
+ * accepted once across restarts and across every instance of the service.
+ * Fails closed: a database error or an unexpected answer throws, and the payment
+ * is not accepted.
+ */
+export declare class DatabaseReplayStore implements NonceReplayStore {
+    private readonly options;
+    private readonly functionName;
+    constructor(options: DatabaseReplayStoreOptions);
+    checkAndStore(key: string): Promise<boolean>;
+}
