@@ -10,7 +10,6 @@ import { SpecialistCard } from "@/components/SpecialistCard";
 import { onboardingVideos, onboardingWalkthroughHeading } from "@/lib/onboarding/video-guides";
 import {
   directoryFixtureProfileCount,
-  receiptFixtureCaseCount,
   sourceTrustConformanceCaseCount,
 } from "@/lib/assurance/public-metrics";
 import type { SpecialistListing } from "@/lib/registry/bridge";
@@ -19,7 +18,6 @@ const LANDING_PROOF_GUIDES = onboardingVideos.filter((video) => video.id !== "ov
 
 const JUDGE_METRICS = {
   specialists: directoryFixtureProfileCount,
-  receiptCases: receiptFixtureCaseCount,
   conformanceCases: sourceTrustConformanceCaseCount,
 };
 
@@ -165,8 +163,8 @@ export default function Home() {
               inputs without becoming the payment rail or custody provider.
             </p>
             <div className="flex flex-wrap gap-3 pt-2">
-              <Link href="/economic-demo">
-                <Button size="lg">Try the economic demo →</Button>
+              <Link href="/sandbox">
+                <Button size="lg">Try the devnet sandbox →</Button>
               </Link>
               <Link href="/register">
                 <Button size="lg" variant="outline">
@@ -211,7 +209,6 @@ export default function Home() {
         <StatsBar
           stats={[
             { label: "Directory fixtures", value: stats.specialists },
-            { label: "Receipt fixture cases", value: stats.receiptCases },
             { label: "Source-trust conformance cases", value: stats.conformanceCases },
           ]}
         />
@@ -267,10 +264,10 @@ export default function Home() {
               </p>
             </div>
             <Link
-              href="/economic-demo"
+              href="/sandbox"
               className="text-sm text-[#14F195] hover:text-[#14F195]/80"
             >
-              Watch the economic demo →
+              Try the devnet sandbox →
             </Link>
           </div>
           <div className="grid gap-3 md:grid-cols-5">
@@ -502,10 +499,10 @@ export default function Home() {
                 receipts, and reputation inputs.
               </p>
               <Link
-                href="/economic-demo"
+                href="/sandbox"
                 className="text-xs text-indigo-300 hover:text-indigo-200"
               >
-                Try economic demo →
+                Try the devnet sandbox →
               </Link>
             </div>
             <div className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-2">

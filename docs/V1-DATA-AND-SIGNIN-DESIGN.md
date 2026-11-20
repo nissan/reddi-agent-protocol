@@ -161,8 +161,8 @@ an extension block next to v1 (20 November 2026). v2 is issued and signed by the
 provider and carries the provider wallet, declared model, request and response hashes
 and the payment: transaction, currency and mint, the listed price and the protocol fee in
 smallest units, the fee treasury, `direct` or `escrow`, and the payer when the provider
-checked it (#776). v2 is the one receipt for V1 paid calls; `reddi.receipt.v1` is
-deprecated and each validator rejects the other version. The payment fields are the
+checked it (#776). v2 is the one receipt for V1 paid calls; `reddi.receipt.v1` and the
+modules built on it were removed, and the validator rejects any other version. The payment fields are the
 provider's statement: the app saves a receipt only when they equal what it verified on
 chain. It records a declared model, never verified execution.
 

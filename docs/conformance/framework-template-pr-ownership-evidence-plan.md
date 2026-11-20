@@ -1,5 +1,7 @@
 # Framework Template PR Ownership And Evidence Plan
 
+> **Status, 20 November 2026:** the `@reddi/agent-protocol` modules this document describes were removed before V1 with `reddi.receipt.v1` ([#776](https://github.com/nissan/reddi-agent-protocol/issues/776)). `reddi.receipt.v2` is the only receipt. This document is kept as a historical record and does not describe current code.
+
 Issue: #554
 
 This plan is the dispatch gate for the first parallel framework-template tranche. It applies after #552 shared contract fixtures and #553 no-live conformance checker are merged, and before #544 LangGraph, #546 ADK, and #545 Strands implementation work starts.

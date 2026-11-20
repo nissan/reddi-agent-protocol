@@ -12,7 +12,6 @@ import {
 } from "@/lib/onboarding/attestation-resolution";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { SellerWrapperConfigPreview } from "@/components/onboarding/SellerWrapperConfigPreview";
 import StepIndicator from "@/components/StepIndicator";
 import { showToast } from "@/components/ui/toast";
 import { RUNTIME_CAPABILITIES } from "@/lib/capabilities/taxonomy";
@@ -533,7 +532,6 @@ export default function OnboardingPage() {
         })}
       </div>
 
-      <SellerWrapperConfigPreview />
 
       <div className="rounded-xl border border-white/10 bg-card/30 p-6 space-y-5">
         {step === 1 && (

@@ -1,7 +1,8 @@
 /**
  * Devnet sandbox gateway: an OpenAI-style chat completion endpoint that answers
  * from a script, charges per call with an x402 challenge, and returns a signed
- * sandbox receipt.
+ * receipt in a response header: `reddi.receipt.v2` for a devnet transfer, the
+ * sandbox simulated form for a simulated payment.
  *
  * Server-side only. It is pinned to Solana devnet whatever network profile the
  * app runs with, holds no wallet, and submits no transaction: a visitor either
@@ -30,15 +31,19 @@ import {
   type SandboxProvider,
   type SandboxSpotCheck,
 } from "./catalog";
-import { sandboxProviderPublicKey, signAsSandboxProvider } from "./keys";
+import { sandboxProviderAddress, signAsSandboxProvider } from "./keys";
 import {
-  hashSandboxRequest,
-  hashSandboxResponse,
-  SANDBOX_RECEIPT_PROTOCOL_VERSION,
-  SANDBOX_SIGNATURE_ALGORITHM,
-  sandboxSigningPayload,
+  canonicalizeSandboxReceipt,
+  encodeReceiptHeader,
+  PROVIDER_RECEIPT_HEADER,
+  REDDI_RECEIPT_V2_VERSION,
+  SANDBOX_PROOF_TYPE,
+  SANDBOX_SIMULATED_RECEIPT_HEADER,
+  SANDBOX_SIMULATED_RECEIPT_VERSION,
+  sha256Hex,
   type SandboxChatMessage,
   type SandboxReceipt,
+  type SandboxReceiptBody,
 } from "./receipt";
 
 export const SANDBOX_MAX_MESSAGES = 16;
@@ -59,10 +64,14 @@ export type SandboxGatewayResponse = {
   status: number;
   headers: Record<string, string>;
   body: Record<string, unknown>;
+  /** The exact response body bytes, as text. A receipt's responseHash covers these. */
+  bodyText: string;
 };
 
 export type SandboxGatewayRequest = {
   body: unknown;
+  /** The request body bytes as received, as text. A receipt's requestHash covers these. */
+  rawBody: string;
   /** Raw value of the x402-payment (or x-payment) header, if any. */
   paymentHeader?: string | null;
   /** Origin the endpoint is served from, used in the challenge. */
@@ -71,8 +80,12 @@ export type SandboxGatewayRequest = {
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 
+function respond(status: number, body: Record<string, unknown>, headers: Record<string, string> = {}): SandboxGatewayResponse {
+  return { status, headers: { ...JSON_HEADERS, ...headers }, body, bodyText: JSON.stringify(body) };
+}
+
 function failure(status: number, code: string, message: string, extra: Record<string, unknown> = {}): SandboxGatewayResponse {
-  return { status, headers: { ...JSON_HEADERS }, body: { error: { code, message }, ...extra } };
+  return respond(status, { error: { code, message }, ...extra });
 }
 
 function randomNonce(): string {
@@ -186,57 +199,35 @@ async function verifySandboxPayment(header: string, provider: SandboxProvider, o
 
 async function writeReceipt(input: {
   provider: SandboxProvider;
-  model: string;
-  messages: SandboxChatMessage[];
-  answer: string;
+  requestBody: string;
+  responseBody: string;
   payment: Extract<PaymentOutcome, { ok: true }>;
-  origin: string;
-  createdAt: string;
+  issuedAt: string;
 }): Promise<SandboxReceipt> {
   const { provider, payment } = input;
   const lamports = solAmountToLamports(provider.priceSol);
   if (lamports === undefined) throw new Error(`sandbox provider ${provider.id} has an invalid price`);
-  const requestHash = await hashSandboxRequest(input.model, input.messages);
-  const responseHash = await hashSandboxResponse(input.answer);
-  const unsigned = {
-    schemaVersion: "reddi.receipt.v1" as const,
-    job: { id: `sandbox-${payment.nonce}`, type: "inference.chat-completion" },
-    source: { id: "rap-devnet-sandbox", type: "sandbox" },
-    payer: payment.mode === "devnet-transfer" ? { id: payment.payerId, address: payment.payerAddress } : { id: payment.payerId },
-    specialist: { id: provider.id, endpoint: `${input.origin}${SANDBOX_ENDPOINT_PATH}` },
-    protocol: { name: "Reddi Agent Protocol" as const, version: SANDBOX_RECEIPT_PROTOCOL_VERSION },
-    payment: { network: SANDBOX_NETWORK, asset: SANDBOX_CURRENCY, amount: lamports.toString(), paymentProofRef: payment.proofRef },
-    requestHash,
-    responseHash,
-    evidenceRef: `sandbox:response-sha256:${responseHash}`,
-    policyDecision: {
-      schemaVersion: "reddi.policy-decision.v1" as const,
-      allowed: true,
-      reasonCodes: ["allowed" as const],
-      quotedAmount: { amount: lamports.toString(), asset: SANDBOX_CURRENCY, network: SANDBOX_NETWORK, specialist: provider.id },
-      asset: SANDBOX_CURRENCY,
+  const paid = payment.mode === "devnet-transfer";
+  const receipt: SandboxReceiptBody = {
+    schemaVersion: paid ? REDDI_RECEIPT_V2_VERSION : SANDBOX_SIMULATED_RECEIPT_VERSION,
+    providerId: await sandboxProviderAddress(provider.id),
+    declaredModel: provider.model,
+    requestHash: await sha256Hex(input.requestBody),
+    responseHash: await sha256Hex(input.responseBody),
+    payment: {
       network: SANDBOX_NETWORK,
-      approvalState: "approved" as const,
-      auditNotes: ["Sandbox call: price and payee come from the sandbox catalog."],
+      ...(paid ? { txSignature: payment.proofRef } : {}),
+      currency: SANDBOX_CURRENCY,
+      amount: lamports.toString(),
+      // The sandbox takes no protocol fee.
+      fee: { amount: "0" },
+      ...(paid ? { payer: payment.payerAddress } : {}),
+      settlement: "direct",
     },
-    attestationStatus: "not_requested" as const,
-    createdAt: input.createdAt,
-    metadata: {
-      sandbox: true as const,
-      inference: {
-        providerId: provider.id,
-        providerName: provider.name,
-        declaredModel: provider.model,
-        paymentMode: payment.mode,
-        scripted: true as const,
-      },
-    },
+    issuedAt: input.issuedAt,
   };
-  const signed = await signAsSandboxProvider(provider.id, sandboxSigningPayload(unsigned));
-  return {
-    ...unsigned,
-    metadata: { ...unsigned.metadata, providerSignature: { algorithm: SANDBOX_SIGNATURE_ALGORITHM, publicKey: signed.publicKey, value: signed.value } },
-  };
+  const signed = await signAsSandboxProvider(provider.id, canonicalizeSandboxReceipt(receipt));
+  return { receipt, proof: { type: SANDBOX_PROOF_TYPE, signature: signed.signature } };
 }
 
 export async function handleSandboxChatCompletion(request: SandboxGatewayRequest, deps: SandboxGatewayDeps): Promise<SandboxGatewayResponse> {
@@ -253,10 +244,9 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
   const header = request.paymentHeader?.trim();
   if (!header) {
     const challenge = sandboxChallenge(provider, request.origin, (deps.newNonce ?? randomNonce)());
-    return {
-      status: 402,
-      headers: { ...JSON_HEADERS, "x402-request": JSON.stringify(challenge) },
-      body: {
+    return respond(
+      402,
+      {
         error: { code: "payment_required", message: "x402 payment is required before the provider answers." },
         x402: challenge,
         sandbox: {
@@ -264,7 +254,8 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
           devnetPayment: "Or transfer the amount in devnet SOL to payTo from your own wallet and resend with a JSON x402-payment receipt naming txSignature and payer.",
         },
       },
-    };
+      { "x402-request": JSON.stringify(challenge) },
+    );
   }
 
   const payment = await verifySandboxPayment(header, provider, request.origin, deps);
@@ -280,22 +271,19 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
   const prompt = [...messages].reverse().find((message) => message.role === "user")?.content ?? messages[messages.length - 1].content;
   const answer = scriptedSandboxAnswer(provider, prompt);
   const nowMs = (deps.now ?? Date.now)();
-  const receipt = await writeReceipt({ provider, model, messages, answer, payment, origin: request.origin, createdAt: new Date(nowMs).toISOString() });
   const spotCheck: SandboxSpotCheck = simulatedSpotCheck(provider);
-
-  return {
-    status: 200,
-    headers: { ...JSON_HEADERS },
-    body: {
-      id: `chatcmpl-sandbox-${payment.nonce}`,
-      object: "chat.completion",
-      created: Math.floor(nowMs / 1000),
-      model,
-      choices: [{ index: 0, message: { role: "assistant", content: answer }, finish_reason: "stop" }],
-      rap_receipt: receipt,
-      rap_sandbox: { scripted: true, paymentMode: payment.mode, spotCheck },
-    },
-  };
+  const response = respond(200, {
+    id: `chatcmpl-sandbox-${payment.nonce}`,
+    object: "chat.completion",
+    created: Math.floor(nowMs / 1000),
+    model,
+    choices: [{ index: 0, message: { role: "assistant", content: answer }, finish_reason: "stop" }],
+    rap_sandbox: { scripted: true, paymentMode: payment.mode, spotCheck },
+  });
+  // The receipt travels in a header, as in V1, because it commits to the hash of the whole response body.
+  const receipt = await writeReceipt({ provider, requestBody: request.rawBody, responseBody: response.bodyText, payment, issuedAt: new Date(nowMs).toISOString() });
+  response.headers[payment.mode === "devnet-transfer" ? PROVIDER_RECEIPT_HEADER : SANDBOX_SIMULATED_RECEIPT_HEADER] = encodeReceiptHeader(receipt);
+  return response;
 }
 
 export async function sandboxModelsListing(): Promise<Record<string, unknown>> {
@@ -315,7 +303,8 @@ export async function sandboxModelsListing(): Promise<Record<string, unknown>> {
         available: provider.behaviour !== "offline",
         price: { amount: provider.priceSol, currency: SANDBOX_CURRENCY, network: SANDBOX_NETWORK },
         payTo: provider.payTo,
-        signingKey: { algorithm: SANDBOX_SIGNATURE_ALGORITHM, publicKey: await sandboxProviderPublicKey(provider.id) },
+        // The base58 address receipts from this provider name as providerId. A published test key, not a wallet.
+        receiptProviderId: await sandboxProviderAddress(provider.id),
       },
     }))),
   };

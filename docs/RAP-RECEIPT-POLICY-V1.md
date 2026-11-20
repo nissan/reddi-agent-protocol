@@ -1,5 +1,7 @@
 # Reddi Receipt And Policy Decision v1
 
+> **Status, 20 November 2026:** the `@reddi/agent-protocol` modules this document describes were removed before V1 with `reddi.receipt.v1` ([#776](https://github.com/nissan/reddi-agent-protocol/issues/776)). `reddi.receipt.v2` is the only receipt. This document is kept as a historical record and does not describe current code.
+
 Issue: [#341](https://github.com/nissan/reddi-agent-protocol/issues/341)
 
 This document defines the first public Reddi Agent Protocol receipt and policy primitives for OSS v0.1. Payments prove transfer; RAP Assurance proves paid work by recording the policy, payment-proof reference, evidence, attestation, replay, and trust metadata around paid agent work.

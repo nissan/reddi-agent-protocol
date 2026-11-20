@@ -18,7 +18,7 @@ describe('interpretation guide scenarios (#679, interim)', () => {
 
   it('every scenario returns what the guide says it returns', () => {
     assert.equal(output.ok, true);
-    assert.equal(output.scenarios.length, 19);
+    assert.equal(output.scenarios.length, 15);
     for (const scenario of output.scenarios) {
       assert.equal(scenario.matches, true, `${scenario.id} no longer matches the guide`);
     }
@@ -36,10 +36,8 @@ describe('interpretation guide scenarios (#679, interim)', () => {
 
   it('keeps the refusal scenarios refusing', () => {
     const byId = new Map(output.scenarios.map((scenario) => [scenario.id, scenario.observed]));
-    assert.equal(byId.get('S3')?.policyAllowed, false);
-    for (const id of ['S4', 'S5', 'S6']) assert.equal(byId.get(id)?.allowed, false, id);
-    for (const id of ['S7', 'S8', 'S9', 'S10', 'S14', 'S15']) assert.equal(byId.get(id)?.ok, false, id);
-    assert.equal(byId.get('S17')?.status, 'observation_inconclusive');
+    for (const id of ['S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10']) assert.equal(byId.get(id)?.ok, false, id);
+    assert.equal(byId.get('S14')?.status, 'observation_inconclusive');
   });
 
   it('is described by a guide that names every scenario', () => {

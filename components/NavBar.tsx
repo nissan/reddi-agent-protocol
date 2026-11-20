@@ -19,7 +19,7 @@ function abbrev(addr: string) {
 
 const navLinks: { href: string; label: string; badge?: string }[] = [
   { href: "/start", label: "Start" },
-  { href: "/economic-demo", label: "Demo" },
+  { href: "/sandbox", label: "Demo" },
   { href: "/agents", label: "Directory" },
   { href: "/register", label: "Register" },
   { href: "/setup", label: "Setup" },
@@ -46,7 +46,7 @@ const navLinks: { href: string; label: string; badge?: string }[] = [
   { href: "/orchestrator", label: "Settings" },
 ];
 
-const primaryHrefs = ["/start", "/economic-demo", "/agents", "/register", "/setup", "/#verify-demo"];
+const primaryHrefs = ["/start", "/sandbox", "/agents", "/register", "/setup", "/#verify-demo"];
 const primaryLinks = navLinks.filter((l) => primaryHrefs.includes(l.href));
 const secondaryLinks = navLinks.filter((l) => !primaryHrefs.includes(l.href));
 

@@ -2,13 +2,13 @@ import {
   classifySourceTrustCandidate,
   sourceTrustConformanceFixtureCases,
 } from "@reddi/agent-protocol/source-trust-conformance-matrix";
-import { deriveAttestationReputationBridge } from "@reddi/agent-protocol/attestation-reputation-bridge";
 import type { DiscoveryCandidatePolicy } from "@reddi/agent-protocol/discovery-source";
 
 import {
   ARD_CANDIDATE_DIAGNOSTICS_SCHEMA_VERSION,
   deriveArdCandidateDiagnostics,
 } from "@/lib/manager/ard-candidate-diagnostics";
+import type { ReputationListingProjection } from "@/lib/manager/hosted-attestation-types";
 import { searchHostedMarketplaceCatalog } from "@/lib/manager/marketplace-public-search";
 
 const STRICT_POLICY: DiscoveryCandidatePolicy = {
@@ -106,24 +106,21 @@ describe("ARD candidate diagnostics read model (#344)", () => {
     expect(diagnostics.relevance.scoreMeaning).toBe("relevance_only_not_trust");
   });
 
-  it("composes the #606 bridge listing projection as the reputation state section", () => {
+  it("uses a supplied listing projection as the reputation state section", () => {
     const { item, generatedAt } = hostedSearchItem();
-    const bridge = deriveAttestationReputationBridge({
-      id: "bridge:ard-diagnostics-test",
-      createdAt: "2026-07-16T00:00:00Z",
-    });
+    const projection: ReputationListingProjection = {
+      offchainPreview: "available",
+      hostedAttestation: "pending",
+      quasar: "not_backed",
+      buyerFacingClaimsAllowed: false,
+      evidenceRefs: ["evidence:ard-diagnostics-test"],
+      blockedReasons: [],
+    };
 
-    const diagnostics = deriveArdCandidateDiagnostics(item, {
-      generatedAt,
-      reputationProjection: bridge.bridge.listingProjection,
-    });
-    expect(diagnostics.reputationState.offchainPreview).toBe(
-      bridge.bridge.listingProjection.offchainPreview,
-    );
-    expect(diagnostics.reputationState.hostedAttestation).toBe(
-      bridge.bridge.listingProjection.hostedAttestation,
-    );
-    expect(diagnostics.reputationState.quasar).toBe(bridge.bridge.listingProjection.quasar);
+    const diagnostics = deriveArdCandidateDiagnostics(item, { generatedAt, reputationProjection: projection });
+    expect(diagnostics.reputationState.offchainPreview).toBe("available");
+    expect(diagnostics.reputationState.hostedAttestation).toBe("pending");
+    expect(diagnostics.reputationState.quasar).toBe("not_backed");
     expect(diagnostics.reputationState.buyerFacingClaimsAllowed).toBe(false);
   });
 

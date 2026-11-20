@@ -7,7 +7,7 @@ import {
   type RankingCandidateEvidenceInput,
   type RankingCandidateExplainability,
 } from "@reddi/agent-protocol/ranking-explainability";
-import type { AttestationReputationBridgeListingProjection } from "@reddi/agent-protocol/attestation-reputation-bridge";
+import type { ReputationListingProjection } from "@/lib/manager/hosted-attestation-types";
 import type {
   SourceTrustConformanceRow,
   SourceTrustDiagnosticsProjectionMessage,
@@ -48,7 +48,7 @@ export type ArdCandidateDiagnosticsOptions = {
   /** #593 conformance row for this candidate's source metadata, when classified. */
   sourceTrustRow?: SourceTrustConformanceRow;
   /** #606 bridge listing projection carrying the candidate's reputation state. */
-  reputationProjection?: AttestationReputationBridgeListingProjection;
+  reputationProjection?: ReputationListingProjection;
   /** Prior receipt/attestation/settlement evidence references, if any exist. */
   evidence?: RankingCandidateEvidenceInput;
   /** Snapshot metadata from the discovery surface. */
@@ -98,9 +98,9 @@ export type ArdCandidateDiagnostics = {
   };
   reputationState: {
     assigned: boolean;
-    offchainPreview: AttestationReputationBridgeListingProjection["offchainPreview"];
-    hostedAttestation: AttestationReputationBridgeListingProjection["hostedAttestation"];
-    quasar: AttestationReputationBridgeListingProjection["quasar"];
+    offchainPreview: ReputationListingProjection["offchainPreview"];
+    hostedAttestation: ReputationListingProjection["hostedAttestation"];
+    quasar: ReputationListingProjection["quasar"];
     buyerFacingClaimsAllowed: false;
     blockedReasons: string[];
     summary: string;
@@ -129,7 +129,7 @@ export type ArdCandidateDiagnostics = {
   };
 };
 
-const NO_REPUTATION_PROJECTION: AttestationReputationBridgeListingProjection = {
+const NO_REPUTATION_PROJECTION: ReputationListingProjection = {
   offchainPreview: "not_available",
   hostedAttestation: "not_available",
   quasar: "not_backed",

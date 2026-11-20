@@ -5,7 +5,7 @@ import type {
   MarketplaceReadinessResult,
 } from "@/lib/manager/marketplace-readiness-gate";
 import { evaluateMarketplaceReadiness } from "@/lib/manager/marketplace-readiness-gate";
-import type { HostedAttestationClaim } from "@reddi/agent-protocol/hosted-attestation-claim";
+import type { HostedAttestationClaim } from "@/lib/manager/hosted-attestation-types";
 
 export const MARKETPLACE_PUBLICATION_ELIGIBILITY_SCHEMA_VERSION =
   "reddi.marketplace-publication-eligibility.v1" as const;
