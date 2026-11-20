@@ -1,0 +1,220 @@
+import { expect, test, type Page } from "@playwright/test";
+
+import { connectMockWallet, enableMockWallet } from "./helpers/wallet";
+import { FORBIDDEN_PUBLIC_CLAIMS, claimIsQualified } from "../lib/public-claims/public-claim-boundary-terms";
+
+/**
+ * The devnet sandbox, walked through its simulated-payment lane. Nothing here
+ * touches a wallet, a Solana RPC, or any network beyond this app's own routes.
+ */
+test.describe.configure({ timeout: 90_000 });
+
+function unqualifiedClaims(copy: string): string[] {
+  const violations: string[] = [];
+  for (const line of copy.split(/\r?\n/)) {
+    for (const claim of FORBIDDEN_PUBLIC_CLAIMS) {
+      if (claim.pattern.test(line) && !claimIsQualified(line, claim)) violations.push(`${claim.id}: ${line.trim()}`);
+    }
+  }
+  return violations;
+}
+
+async function expectCopyInsideClaimBoundary(page: Page) {
+  expect(unqualifiedClaims(await page.locator("body").innerText())).toEqual([]);
+}
+
+async function open(page: Page, scenario?: string) {
+  await page.goto(scenario ? `/sandbox?scenario=${scenario}` : "/sandbox");
+  await expect(page.getByRole("heading", { name: /Pay for an answer\. Check the receipt yourself\./ })).toBeVisible({ timeout: 60_000 });
+  // The send button is rendered by the server before React attaches to it, so a
+  // click can land on a page that is not listening yet. The console marks itself
+  // ready only after it has hydrated and loaded the provider key listing.
+  await expect(page.getByTestId("sandbox-console")).toHaveAttribute("data-ready", "true", { timeout: 30_000 });
+  await expect(page.getByTestId("sandbox-send")).toBeEnabled();
+}
+
+async function sendAndPay(page: Page) {
+  await page.getByTestId("sandbox-send").click();
+  await expect(page.getByTestId("sandbox-challenge")).toBeVisible();
+  await page.getByTestId("sandbox-pay").click();
+  await expect(page.getByTestId("sandbox-verification")).toHaveAttribute("data-ok", "true");
+}
+
+test.describe("/sandbox", () => {
+  // The dev server compiles each route on first use. Doing that here keeps the
+  // first compile of the page and its two endpoints out of the timed steps.
+  test.beforeAll(async ({ request }) => {
+    await request.get("/sandbox", { timeout: 60_000 });
+    await request.get("/api/sandbox/v1/models", { timeout: 60_000 });
+    await request.post("/api/sandbox/v1/chat/completions", { data: { model: "sandbox/swift-coder-small", messages: [{ role: "user", content: "warm up" }] }, timeout: 60_000 });
+  });
+
+  // If a step fails, say what the page did: a reload or a script error explains
+  // a missing element better than the missing element does.
+  test.beforeEach(async ({ page }, testInfo) => {
+    const events: string[] = [];
+    page.on("framenavigated", (frame) => { if (frame === page.mainFrame()) events.push(`navigated ${frame.url()}`); });
+    page.on("pageerror", (error) => events.push(`pageerror ${error.message}`));
+    page.on("console", (message) => { if (message.type() === "error" || /reload|refresh/i.test(message.text())) events.push(`console.${message.type()} ${message.text().slice(0, 300)}`); });
+    (testInfo as unknown as { sandboxEvents: string[] }).sandboxEvents = events;
+  });
+  test.afterEach(async ({}, testInfo) => {
+    if (testInfo.status !== testInfo.expectedStatus) {
+      console.log(`[sandbox.spec] page events for "${testInfo.title}":\n${(testInfo as unknown as { sandboxEvents: string[] }).sandboxEvents.join("\n")}`);
+    }
+  });
+
+  test("states its limits before anything is run", async ({ page }) => {
+    await open(page);
+    const boundary = page.getByTestId("sandbox-boundary");
+    await expect(boundary).toContainText("Solana devnet only.");
+    await expect(boundary).toContainText("Answers come from a script, not a running model");
+    await expect(boundary).toContainText("It does not prove which model ran.");
+    await expectCopyInsideClaimBoundary(page);
+  });
+
+  test("buy a review: challenge, simulated payment, verified receipt, reputation", async ({ page }) => {
+    await open(page);
+    await page.getByTestId("sandbox-send").click();
+    const challenge = page.getByTestId("sandbox-challenge");
+    await expect(challenge).toContainText("0.002 SOL");
+    await expect(challenge).toContainText("solana-devnet");
+    await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("0");
+
+    await page.getByTestId("sandbox-pay").click();
+    await expect(page.getByTestId("sandbox-verification")).toHaveAttribute("data-ok", "true");
+    for (const check of ["shape", "request-hash", "response-hash", "provider-key", "signature"]) {
+      await expect(page.getByTestId(`sandbox-check-${check}`)).toHaveAttribute("data-passed", "true");
+    }
+    const receipt = page.getByTestId("sandbox-receipt");
+    await expect(receipt).toContainText("Atlas Review (atlas-review)");
+    await expect(receipt).toContainText("sandbox/atlas-coder-large");
+    await expect(receipt).toContainText("simulated, no transaction");
+    await expect(page.getByTestId("sandbox-answer")).toHaveValue(/Three issues before this ships\./);
+    await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("1");
+    await expect(page.getByTestId("sandbox-reputation-change")).toContainText("★ 4.80 → ★ 4.80");
+    await expect(page.getByTestId("sandbox-wire")).toContainText("x402-payment");
+    await expectCopyInsideClaimBoundary(page);
+  });
+
+  test("an edited answer fails the receipt check, and the original passes again", async ({ page }) => {
+    await open(page);
+    await sendAndPay(page);
+    await page.getByTestId("sandbox-tamper").click();
+    await expect(page.getByTestId("sandbox-verification")).toHaveAttribute("data-ok", "false");
+    await expect(page.getByTestId("sandbox-check-response-hash")).toHaveAttribute("data-passed", "false");
+    await expect(page.getByTestId("sandbox-check-signature")).toHaveAttribute("data-passed", "true");
+    await page.getByTestId("sandbox-restore").click();
+    await expect(page.getByTestId("sandbox-verification")).toHaveAttribute("data-ok", "true");
+
+    await page.getByTestId("sandbox-answer").fill("Looks good to me.");
+    await expect(page.getByTestId("sandbox-verification")).toHaveAttribute("data-ok", "false");
+  });
+
+  test("try to cheat: underpaying, paying the wrong wallet and reusing a payment are each refused", async ({ page }) => {
+    await open(page, "try-to-cheat");
+    await expect(page.getByTestId("sandbox-scenario-try-to-cheat")).toHaveAttribute("aria-pressed", "true");
+    await page.getByTestId("sandbox-send").click();
+    await expect(page.getByTestId("sandbox-challenge")).toBeVisible();
+
+    await page.getByTestId("sandbox-underpay").click();
+    await expect(page.getByTestId("sandbox-notice")).toContainText("wrong_amount");
+    await page.getByTestId("sandbox-wrong-payee").click();
+    await expect(page.getByTestId("sandbox-notice")).toContainText("wrong_payee");
+    await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("0");
+
+    // The refused attempts did not use up the challenge: an honest payment still settles it.
+    await page.getByTestId("sandbox-pay").click();
+    await expect(page.getByTestId("sandbox-verification")).toHaveAttribute("data-ok", "true");
+
+    await page.getByTestId("sandbox-reuse").click();
+    const notice = page.getByTestId("sandbox-notice");
+    await expect(notice).toHaveAttribute("data-tone", "good");
+    await expect(notice).toContainText("Refused with 409");
+    await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("1");
+    await expectCopyInsideClaimBoundary(page);
+  });
+
+  test("shop around: the provider that fails the spot check loses reputation", async ({ page }) => {
+    await open(page, "shop-around");
+    await page.getByTestId("sandbox-provider-bargain-models").click();
+    await expect(page.getByTestId("sandbox-reputation-bargain-models")).toContainText("3.20 from 18 receipts");
+    await sendAndPay(page);
+    await expect(page.getByTestId("sandbox-receipt")).toContainText("sandbox/bargain-general-small");
+    const change = page.getByTestId("sandbox-reputation-change");
+    await expect(change).toContainText("★ 3.20 → ★ 3.08");
+    await expect(change).toContainText("fell");
+    await expect(page.getByTestId("sandbox-reputation-bargain-models")).toContainText("3.08 from 19 receipts");
+
+    await page.getByTestId("sandbox-provider-swift-infer").click();
+    await sendAndPay(page);
+    await expect(page.getByTestId("sandbox-reputation-change")).toContainText("★ 4.10 → ★ 4.12");
+    await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("2");
+  });
+
+  test("provider goes dark: no challenge, no payment, no receipt", async ({ page }) => {
+    await open(page, "provider-offline");
+    await page.getByTestId("sandbox-send").click();
+    const notice = page.getByTestId("sandbox-notice");
+    await expect(notice).toContainText("You paid nothing.");
+    await expect(page.getByTestId("sandbox-challenge")).toHaveCount(0);
+    await expect(page.getByTestId("sandbox-pay")).toHaveCount(0);
+    await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("0");
+
+    await page.getByTestId("sandbox-provider-swift-infer").click();
+    await sendAndPay(page);
+    await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("1");
+    await expectCopyInsideClaimBoundary(page);
+  });
+
+  test.describe("wallet lane guards (mock wallet, stubbed devnet RPC)", () => {
+    const DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
+    const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+
+    /** Answers the browser's devnet JSON-RPC calls locally and records which methods were asked. */
+    async function stubDevnetRpc(page: Page, answers: { genesis: string; lamports: number }) {
+      const methods: string[] = [];
+      await page.route("https://api.devnet.solana.com/**", async (route) => {
+        const call = route.request().postDataJSON() as { id: unknown; method: string };
+        methods.push(call.method);
+        const result =
+          call.method === "getGenesisHash" ? answers.genesis
+          : call.method === "getBalance" ? { context: { slot: 1 }, value: answers.lamports }
+          : null;
+        await route.fulfill({ status: result === null ? 500 : 200, contentType: "application/json", body: JSON.stringify({ jsonrpc: "2.0", id: call.id, result }) });
+      });
+      return methods;
+    }
+
+    async function reachWalletPayment(page: Page) {
+      await enableMockWallet(page);
+      await open(page);
+      await connectMockWallet(page);
+      await page.getByTestId("sandbox-send").click();
+      await expect(page.getByTestId("sandbox-challenge")).toBeVisible();
+      await page.getByTestId("sandbox-mode-wallet").click();
+      await expect(page.getByTestId("sandbox-pay-wallet")).toBeEnabled();
+    }
+
+    test("refuses to build a transfer when the RPC endpoint is not devnet", async ({ page }) => {
+      const methods = await stubDevnetRpc(page, { genesis: MAINNET_GENESIS, lamports: 5_000_000_000 });
+      await reachWalletPayment(page);
+      await page.getByTestId("sandbox-pay-wallet").click();
+      await expect(page.getByTestId("sandbox-notice")).toContainText("Not connected to devnet");
+      expect(methods).toEqual(["getGenesisHash"]);
+      await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("0");
+    });
+
+    test("points a wallet without test SOL at the faucet instead of asking it to sign", async ({ page }) => {
+      const methods = await stubDevnetRpc(page, { genesis: DEVNET_GENESIS, lamports: 1_000 });
+      await reachWalletPayment(page);
+      await page.getByTestId("sandbox-pay-wallet").click();
+      const notice = page.getByTestId("sandbox-notice");
+      await expect(notice).toContainText("This wallet needs devnet SOL");
+      await expect(notice).toContainText("faucet.solana.com");
+      expect(methods).toEqual(["getGenesisHash", "getBalance"]);
+      await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("0");
+      await expectCopyInsideClaimBoundary(page);
+    });
+  });
+});
