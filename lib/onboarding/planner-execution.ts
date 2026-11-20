@@ -7,10 +7,11 @@ import type { SwapClient } from "@reddi/x402-solana";
 import { routePlannerPolicy, type PlannerPolicyInput } from "@/lib/onboarding/planner-router";
 import { loadListingIndex } from "@/lib/listings/listing-index";
 import { processX402Challenge } from "@/lib/onboarding/x402-settlement";
-import { receiptHeaderForProvider } from "@/lib/payments/wallet-direct-payment";
+import { paymentNetworkForProfile, receiptHeaderForProvider } from "@/lib/payments/wallet-direct-payment";
 import { getNetworkProfile, resolveNetworkProfileName } from "@/lib/config/network";
 import { readOwnListing } from "@/lib/listings/listing-store";
 import { verifyAndRecordPaidCall, type PaidCallOutcome } from "@/lib/jobs/paid-call";
+import { checkAndStoreProviderReceipt, PROVIDER_RECEIPT_HEADER } from "@/lib/jobs/provider-receipt";
 import { emitTorqueEvent } from "@/lib/torque/client";
 import { TORQUE_EVENTS } from "@/lib/torque/events";
 
@@ -498,11 +499,12 @@ async function executeWithWalletPayment(input: PlannerExecuteInput, ctx: WalletR
   }
 
   ctx.trace.push(`request:paid:${url}`);
+  const requestBody = JSON.stringify(ctx.payload);
   try {
     const paid = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json", "x402-payment": receipt.header },
-      body: JSON.stringify(ctx.payload),
+      body: requestBody,
       signal: AbortSignal.timeout(30000),
     });
     const text = await paid.text();
@@ -528,6 +530,20 @@ async function executeWithWalletPayment(input: PlannerExecuteInput, ctx: WalletR
       const recorded = await recordWalletPaidJob(input, ctx, { delivered: paid.ok, responseText: paid.ok ? text : undefined });
       run.trace.push(recorded.recorded ? "job:recorded" : `job:not_recorded:${recorded.reason}`);
       if (recorded.recorded) run.jobId = recorded.jobId;
+      // A provider's signed receipt is kept only for a recorded, delivered job, and only if it checks out.
+      const receiptNetwork = paymentNetworkForProfile(resolveNetworkProfileName());
+      if (recorded.recorded && paid.ok && (receiptNetwork === "solana-devnet" || receiptNetwork === "solana-mainnet-beta")) {
+        const kept = await checkAndStoreProviderReceipt({
+          headerValue: paid.headers.get(PROVIDER_RECEIPT_HEADER),
+          jobId: recorded.jobId,
+          providerWallet: ctx.selectedWallet,
+          requestBody,
+          responseBody: text,
+          network: receiptNetwork,
+          txSignature: receipt.signature,
+        }).catch(() => ({ stored: false as const, reason: "check_failed" }));
+        run.trace.push(kept.stored ? "provider_receipt:stored" : `provider_receipt:not_stored:${kept.reason}`);
+      }
     }
     appendRun(run);
     if (paid.ok) {
