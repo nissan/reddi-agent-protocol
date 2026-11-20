@@ -122,13 +122,5 @@ test.describe("RAP Assurance demo recording journey", () => {
       await expect(page.getByText(/resolved attestor/i)).toBeVisible();
     }
     await recordingBeat(page);
-
-    await page.goto("/economic-demo");
-    await expect(
-      page.getByRole("heading", { name: /watch an agent hire specialists/i }),
-    ).toBeVisible();
-    await expect(page.getByText(/payload \+ money graph|money \+ work graph/i).first()).toBeVisible();
-    await expect(page.getByText(/boundary:/i).first()).toBeVisible();
-    await recordingBeat(page);
   });
 });

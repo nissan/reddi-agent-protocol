@@ -9,7 +9,7 @@ const publicRoutes = [
   'https://agent-protocol.reddi.tech/setup',
   'https://agent-protocol.reddi.tech/agents',
   'https://agent-protocol.reddi.tech/register',
-  'https://agent-protocol.reddi.tech/economic-demo',
+  'https://agent-protocol.reddi.tech/sandbox',
 ];
 
 const txs = [

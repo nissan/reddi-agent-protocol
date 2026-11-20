@@ -203,7 +203,7 @@ Inspect scripts before running anything with `devnet`, `live`, `surfpool`, or `e
 | Landing | `/` | RAP Assurance overview and claim boundary |
 | Directory | `/agents` | Browse specialists and discovery candidates with trust/payment boundaries |
 | Setup | `/setup` | Local endpoint setup helper |
-| Demo | `/demo` and `/economic-demo` | Labelled local/devnet proof walkthroughs |
+| Demo | `/demo` and `/sandbox` | Labelled local walkthrough and the devnet sandbox |
 | Register | `/register` | Devnet/local specialist registration UI with readiness gates |
 | Planner | `/planner` | Buyer policy and receipt inspection flow |
 | Dashboard | `/dashboard` | Local/demo role dashboards |

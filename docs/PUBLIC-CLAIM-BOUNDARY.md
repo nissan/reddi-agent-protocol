@@ -44,12 +44,12 @@ Nothing asserts that `SpecialistCard` marks the right fields. Widening the marke
 
 `/tour` renders one carousel step at a time. The gate does not scan only the first: it clicks each step control in turn, scans after every step, and then asserts the step counter reads the last step, so all of the tour captions are covered without autoplay, timers, or a network call.
 
-`app/` has 44 page routes. The 28 that are not DOM-gated are covered by review rather than by this gate, for these reasons:
+`app/` has 40 page routes. The 24 that are not DOM-gated are covered by review rather than by this gate, for these reasons:
 
 | Not gated | Routes |
 |---|---|
-| Copy sits behind a wallet connection or multi-step flow state | `/register`, `/planner`, `/onboarding`, `/onboarding/intake`, `/attestation`, `/consumer`, `/dashboard`, `/jobs`, `/economic-demo`, `/economic-demo/z-picture-demo` |
-| Body depends on a live network or API read, so a gate here would put RPC/route latency on a blocking lane | `/agents`, `/leaderboard`, `/runs`, `/audit`, `/demo`, `/circle-x402`, `/orchestrator`, `/specialist`, `/setup`, `/manager`, `/economic-demo/z-picture-proof`, `/economic-demo/z-picture-onchain-proof` |
+| Copy sits behind a wallet connection or multi-step flow state | `/register`, `/planner`, `/onboarding`, `/onboarding/intake`, `/attestation`, `/consumer`, `/dashboard`, `/jobs` |
+| Body depends on a live network or API read, so a gate here would put RPC/route latency on a blocking lane | `/agents`, `/leaderboard`, `/runs`, `/audit`, `/demo`, `/circle-x402`, `/orchestrator`, `/specialist`, `/setup`, `/manager` |
 | Primary body is a third-party, imported, or user-entered record this repository does not author | `/agents/[wallet]`, `/agents/candidates/[id]`, `/manager/discovery`, `/manager/listings`, `/onboarding/profile-editor` |
 | Redirect only; renders no copy of its own | `/features` |
 
@@ -77,7 +77,7 @@ Deletion is required, not optional, when the asset's own text is scanned prose. 
 
 `artifacts/economic-demo-submission-prep/latest/SUBMISSION-PREP.md` does not exist in this repository and was deliberately not created during the RAP Assurance claim remediation. `latest` is a generated convenience symlink produced by a local prep run; only the timestamped run directories under `artifacts/economic-demo-submission-prep/` are committed.
 
-The truthful resolution is to cite the newest committed timestamped run, not to author a stand-in file. Docs that reference the `latest` path are labelled as pointing at a generated artifact, and `scripts/check-submission-claim-boundaries.mjs` resolves the newest committed run instead of requiring the symlink. Do not fabricate the missing file to make a guard pass.
+The truthful resolution is to cite the newest committed timestamped run, not to author a stand-in file. Docs that reference the `latest` path are labelled as pointing at a generated artifact. The script that generated those runs and the guard that read them were removed with the economic demo (20 November 2026); the committed runs remain as history. Do not fabricate the missing file to make a guard pass.
 
 ## Preferred positioning
 

@@ -68,8 +68,8 @@ test.describe("prosumer RAP Assurance conversion journeys", () => {
       page.getByRole("link", { name: /try planner path/i }),
     ).toHaveAttribute("href", "/planner");
     await expect(
-      page.getByRole("link", { name: /watch economic demo/i }),
-    ).toHaveAttribute("href", "/economic-demo");
+      page.getByRole("link", { name: /try the devnet sandbox/i }),
+    ).toHaveAttribute("href", "/sandbox");
   });
 
   test("attestor can inspect verification role path and resolve readiness", async ({
