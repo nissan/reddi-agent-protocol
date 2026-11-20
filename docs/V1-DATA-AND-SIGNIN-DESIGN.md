@@ -129,6 +129,32 @@ publishes the listing through `PUT /api/listings` with the wallet sign-in sessio
 units for the profile's USDC mint. Signed out, nothing is sent and the page says to sign
 in. The page still writes `data/` as well, for the steps that have not moved yet.
 
+## Jobs
+
+Source-level, added 20 November 2026; not run against a live project or a real payment.
+
+A job row says a call was paid for, so the app server checks the payment on chain
+itself before writing one (`lib/jobs/paid-call.ts`). After a wallet-paid call on
+`/planner`, with the database configured, the server reads the selected listing, rebuilds
+what must have been paid from that listing alone (listed wallet, listed price, listed
+currency), and asks `SolanaReceiptVerifier` whether the buyer's transaction paid it. Only
+then is a `jobs` row written with the service role, as `delivered` or `failed` according
+to the provider's answer. The provider's own verification is not taken as proof.
+
+- The app keeps no replay ledger of its own. The `jobs` table's unique
+  `(network, tx_signature)` refuses a second record for one transaction.
+- The job is linked to a signed-in account only when that account's wallet is the payer.
+- If anything needed for the check is missing (RPC, a mint for the currency, a fee
+  decision on mainnet), nothing is recorded. The buyer's result is unaffected; the run
+  trace says `job:not_recorded:<reason>`.
+- If the provider takes the protocol fee, the app must be given the same treasury in
+  `X402_PROTOCOL_FEE_TREASURY`, or its check will not match the split payment.
+- `GET /api/jobs` lists the signed-in user's own jobs, read with their session so the
+  database's access rules pick the rows.
+
+Not built yet: the provider-signed receipt in `receipts`, attestations, `provider_stats`
+updates, and a page that shows a user their jobs.
+
 ## Replay store
 
 `replay_check_and_store(key)` gives `SolanaReceiptVerifier` a store that is atomic

@@ -21,6 +21,7 @@ import {
   summarizeConsumerReceipt,
 } from "@/lib/consumer/guided-paid-call";
 import { getNetworkProfile } from "@/lib/config/network";
+import { currentAccessToken } from "@/components/auth/WalletSignIn";
 import {
   lamportsToSolAmount,
   planWalletDirectPayment,
@@ -266,9 +267,11 @@ function PlannerInner() {
 
   /** Presents a receipt for a payment already sent. Never asks the wallet to sign. */
   async function presentReceipt(receipt: unknown) {
+    // When signed in, the session lets the server link the job record to this account.
+    const token = await currentAccessToken().catch(() => undefined);
     const res = await fetch("/api/onboarding/planner/execute", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
       body: runRequestBody({ paymentMode: "wallet", paymentReceipt: receipt, consumerWallet: publicKey?.toBase58() }),
     });
     const data = await res.json();
