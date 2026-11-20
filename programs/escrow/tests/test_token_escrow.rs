@@ -11,8 +11,8 @@ use anchor_spl::token::spl_token::{self, instruction as token_ix, state::Account
 use escrow::{
     accounts, instruction,
     state::{EscrowStatus, TokenEscrowAccount},
-    CANCEL_WINDOW_SLOTS, CLAIM_WINDOW_SLOTS, MAX_TOKEN_ESCROW_BASE_UNITS, USDC_DEVNET_MINT,
-    USDC_MAINNET_MINT,
+    AUDD_MAINNET_MINT, CANCEL_WINDOW_SLOTS, CLAIM_WINDOW_SLOTS, MAX_TOKEN_ESCROW_BASE_UNITS,
+    USDC_DEVNET_MINT, USDC_MAINNET_MINT,
 };
 use litesvm::LiteSVM;
 use solana_keypair::Keypair;
@@ -625,6 +625,32 @@ fn token_lock_rejects_a_consistent_mint_that_is_not_allowlisted() {
     let err = f.reject(f.lock_ix(400_000), false);
     assert!(err.contains("Custom(6026)"), "{err}");
     assert!(err.contains("MintNotAllowed"), "{err}");
+    assert!(f.closed(f.escrow));
+    assert!(f.closed(f.vault));
+}
+
+/// RAP-TOK-S1 for AUDD: the allowlisted classic mint locks, releases and
+/// refunds exactly like USDC.
+#[test]
+fn audd_mainnet_mint_locks_releases_and_refunds() {
+    let mut f = Fixture::with_mint(AUDD_MAINNET_MINT, 6);
+    let before = f.triple();
+    f.lock();
+    assert_eq!(f.state().mint, AUDD_MAINNET_MINT);
+    assert_eq!(f.balance(f.vault), 400_000);
+    let ix = f.release_ix();
+    send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
+    assert_eq!(f.triple(), (before.0 - 400_000, 0, before.2 + 400_000));
+    assert!(f.closed(f.escrow));
+    assert!(f.closed(f.vault));
+
+    let mut f = Fixture::with_mint(AUDD_MAINNET_MINT, 6);
+    let before = f.triple();
+    f.lock();
+    let payee = f.payee.insecure_clone();
+    let ix = f.cancel_ix(payee.pubkey());
+    send(&mut f.svm, &[ix], &[&payee]).unwrap();
+    assert_eq!(f.triple(), before);
     assert!(f.closed(f.escrow));
     assert!(f.closed(f.vault));
 }

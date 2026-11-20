@@ -24,7 +24,7 @@ const _: () = assert!(CLAIM_WINDOW_SLOTS > CANCEL_WINDOW_SLOTS);
 /// not what a third party may later send to the escrow account.
 pub const MAX_SOL_ESCROW_LAMPORTS: u64 = 500_000_000;
 /// Guarded-beta cap on one token escrow, in base units of a 6-decimal mint:
-/// 100 USDC. Bounds the amount named at lock; a later donation to the vault is
+/// 100 units of any allowlisted stablecoin. Bounds the amount named at lock; a later donation to the vault is
 /// swept to whoever the escrow settles to.
 pub const MAX_TOKEN_ESCROW_BASE_UNITS: u64 = 100_000_000;
 /// Decimals every allowlisted mint must have, so the cap means what it says.
@@ -34,11 +34,16 @@ pub const USDC_MAINNET_MINT: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wE
 /// USDC on Solana devnet (Circle). Accepted only in builds with the `devnet` feature.
 pub const USDC_DEVNET_MINT: Pubkey = pubkey!("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
 
-/// Mints a token escrow may hold. The default build accepts mainnet USDC only.
+/// AUDD on Solana mainnet-beta: classic SPL Token, six decimals. The issuer
+/// holds a freeze authority over AUDD token accounts, including escrow vaults.
+pub const AUDD_MAINNET_MINT: Pubkey = pubkey!("AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw");
+
+/// Mints a token escrow may hold. The default build accepts mainnet USDC and
+/// mainnet AUDD only. Both are classic SPL Token mints.
 #[cfg(not(feature = "devnet"))]
-pub const ALLOWED_MINTS: &[Pubkey] = &[USDC_MAINNET_MINT];
+pub const ALLOWED_MINTS: &[Pubkey] = &[USDC_MAINNET_MINT, AUDD_MAINNET_MINT];
 #[cfg(feature = "devnet")]
-pub const ALLOWED_MINTS: &[Pubkey] = &[USDC_MAINNET_MINT, USDC_DEVNET_MINT];
+pub const ALLOWED_MINTS: &[Pubkey] = &[USDC_MAINNET_MINT, AUDD_MAINNET_MINT, USDC_DEVNET_MINT];
 
 pub const AGENT_REGISTRATION_FEE: u64 = 10_000_000; // 0.01 SOL in lamports
 pub const AGENT_MODEL_MAX_LEN: usize = 64;
