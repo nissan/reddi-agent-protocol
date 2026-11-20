@@ -87,7 +87,9 @@ test.describe("/sandbox", () => {
       await expect(page.getByTestId(`sandbox-check-${check}`)).toHaveAttribute("data-passed", "true");
     }
     const receipt = page.getByTestId("sandbox-receipt");
-    await expect(receipt).toContainText("Atlas Review (atlas-review)");
+    await expect(receipt).toContainText("Atlas Review (");
+    await expect(receipt).toContainText("sandbox test key");
+    await expect(receipt).toContainText("Sandbox simulated receipt. Not a reddi.receipt.v2 receipt");
     await expect(receipt).toContainText("sandbox/atlas-coder-large");
     await expect(receipt).toContainText("simulated, no transaction");
     await expect(page.getByTestId("sandbox-answer")).toHaveValue(/Three issues before this ships\./);

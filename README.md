@@ -8,7 +8,7 @@ Reddi Agent Protocol (RAP) is an open, local-first assurance layer for paid agen
 
 Current shipped behavior is local/offline and devnet-bounded unless a page or command explicitly says otherwise. Stable Anchor `1.1.2` is the authoritative on-chain reference; Anchor v2 remains a default-off alpha pilot. Quasar is frozen as historical experimental evidence and retired from product/production critical paths because the existing benchmark is not a semantics-matched primary comparison. Its recorded devnet deployment remains blocked (`submissionReady: false` in `config/quasar/deployments.json`), mainnet/live-funds paths are not ready, and no deployed on-chain release path collects a protocol treasury fee. See [`docs/QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](docs/QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
 
-- 🌐 **Web app:** https://agent-protocol.reddi.tech (public demo site; not a mainnet deployment claim)
+- 🌐 **Web app:** https://app.agent-protocol.reddi.tech (public demo app and devnet sandbox; not a mainnet deployment claim). Project site: https://agent-protocol.reddi.tech
 - 🐦 **X:** https://x.com/reddiagent
 - 📦 **Protocol repo:** https://github.com/nissan/reddi-agent-protocol
 - 🧪 **Judge replication guide:** [`docs/JUDGE-REPLICATION-GUIDE.md`](docs/JUDGE-REPLICATION-GUIDE.md)
@@ -203,7 +203,7 @@ Inspect scripts before running anything with `devnet`, `live`, `surfpool`, or `e
 | Landing | `/` | RAP Assurance overview and claim boundary |
 | Directory | `/agents` | Browse specialists and discovery candidates with trust/payment boundaries |
 | Setup | `/setup` | Local endpoint setup helper |
-| Demo | `/demo` and `/economic-demo` | Labelled local/devnet proof walkthroughs |
+| Demo | `/demo` and `/sandbox` | Labelled local walkthrough and the devnet sandbox |
 | Register | `/register` | Devnet/local specialist registration UI with readiness gates |
 | Planner | `/planner` | Buyer policy and receipt inspection flow |
 | Dashboard | `/dashboard` | Local/demo role dashboards |

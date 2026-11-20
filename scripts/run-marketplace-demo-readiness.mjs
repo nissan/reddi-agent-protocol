@@ -60,14 +60,6 @@ const steps = [
     skipped: skipSurfpool,
   },
   {
-    id: "economic_demo_surfpool",
-    label: "Economic demo Surfpool rehearsal",
-    command: "npm",
-    args: ["run", "smoke:economic-demo:surfpool"],
-    required: !skipSurfpool,
-    skipped: skipSurfpool,
-  },
-  {
     id: "onboarding_attestation_surfpool",
     label: "Onboarding/attestation Surfpool smoke",
     command: "npm",

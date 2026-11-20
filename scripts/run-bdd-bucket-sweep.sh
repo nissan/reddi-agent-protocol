@@ -69,11 +69,8 @@ run_step "Bucket H (consumer orchestrator lifecycle contracts)" \
 run_step "Bucket I (agent manager operations)" \
   npx jest lib/__tests__/manager-readiness-route.test.ts lib/__tests__/manager-evidence-pack.test.ts lib/__tests__/manager-evidence-route.test.ts --runInBand
 
-run_step "Bucket J (end-user economic demo contracts)" \
-  npx jest lib/__tests__/economic-demo-dry-run.test.ts lib/__tests__/economic-demo-balances.test.ts lib/__tests__/economic-demo-payment-readiness.test.ts lib/__tests__/economic-demo-hosted-challenge-probe.test.ts lib/__tests__/economic-demo-live-run.test.ts lib/__tests__/economic-demo-live-paid-devnet-run.test.ts lib/__tests__/economic-demo-ledger-reconciliation.test.ts lib/__tests__/economic-demo-surfpool-rehearsal.test.ts lib/__tests__/economic-demo-webpage-live-workflow-evidence.test.ts --runInBand
-
-run_step "Bucket J e2e (economic demo + judge replication UX)" \
-  npx playwright test e2e/economic-demo.spec.ts e2e/judge-replication-onboarding.spec.ts
+run_step "Bucket J e2e (judge replication UX)" \
+  npx playwright test e2e/judge-replication-onboarding.spec.ts
 
 run_step "Bucket S (source adapter conformance contracts)" \
   npx jest lib/__tests__/source-adapter-schema.test.ts lib/__tests__/register-probe-route.test.ts lib/__tests__/source-adapter-openclaw-profile.test.ts lib/__tests__/source-adapter-openclaw-connector.test.ts lib/__tests__/source-adapter-hermes-profile.test.ts lib/__tests__/source-adapter-hermes-attestor.test.ts lib/__tests__/source-adapter-pi-profile.test.ts lib/__tests__/source-adapter-pi-extension-bundle.test.ts lib/__tests__/source-adapter-routing-policy.test.ts lib/__tests__/planner-resolve-route.test.ts --runInBand

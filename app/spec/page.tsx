@@ -3,16 +3,16 @@ import Link from "next/link";
 import { Download, FileJson, FileText, MessageSquare } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "ReddiAgent ADL v0.2.0-beta",
+  title: "ReddiAgent ADL v0.3",
   description:
     "The open Agent Definition Language — define an AI agent once: model envelope, operating harness, and payment authority. Validate it deterministically and export compatibility reports."
 };
 
 const badges = [
-  { label: "v0.2.0-beta", hot: true },
+  { label: "v0.3", hot: true },
   { label: "Apache-2.0 code", hot: false },
   { label: "CC BY 4.0 specs", hot: false },
-  { label: "235-test suite", hot: false },
+  { label: "280-test suite", hot: false },
   { label: "5-level conformance", hot: false },
 ];
 
@@ -31,11 +31,11 @@ const delegationCards = [
   },
   {
     title: "Seller side",
-    desc: "Three delegation services (research, pricing, review) other agents can discover and pay — charge intents, receipt binding, reputation signals.",
+    desc: "Three delegation services (research, pricing, review) other agents can discover and pay — charge intents with a price per call, receipt binding, reputation signals.",
   },
   {
-    title: "Dry-run rail only",
-    desc: "Every example runs on x402-dry-run. Live settlement stays gated behind external audit — fail-closed by design.",
+    title: "Dry-run or live, stated once",
+    desc: "Every definition says whether payments are dry-run or live. v0.3 can describe live Solana payments in SOL, USDC, PYUSD, USDG and AUDD with a provider-signed receipt. Validating a definition never makes a payment.",
   },
 ];
 
@@ -146,15 +146,15 @@ export default function SpecPage() {
           <h2 className="font-display text-2xl font-semibold">Download</h2>
           <div className="flex flex-wrap gap-3">
             <a
-              href="/downloads/adl-v0.2.0-beta.zip"
+              href="/downloads/adl-v0.3.zip"
               download
               className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#14F195] px-4 py-2 text-sm font-bold text-black hover:opacity-90"
             >
               <Download aria-hidden="true" size={16} />
-              Spec bundle (.zip, 75 KB)
+              Spec bundle (.zip, 82 KB)
             </a>
             <a
-              href="/downloads/ADL-v0.2.md"
+              href="/downloads/ADL-v0.3.md"
               download
               className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#14F195]/40 px-4 py-2 text-sm font-semibold text-[#14F195] hover:border-[#14F195]/70"
             >
@@ -162,7 +162,7 @@ export default function SpecPage() {
               Spec (Markdown)
             </a>
             <a
-              href="/downloads/ADL-v0.2.schema.json"
+              href="/downloads/ADL-v0.3.schema.json"
               download
               className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#14F195]/40 px-4 py-2 text-sm font-semibold text-[#14F195] hover:border-[#14F195]/70"
             >
@@ -171,11 +171,11 @@ export default function SpecPage() {
             </a>
           </div>
           <p className="max-w-3xl text-sm leading-6 text-gray-300">
-            The bundle: canonical spec + machine-checked schema + 16 validated
-            examples + v0.1→v0.2 migration guide + the receipt-integrity
+            The bundle: canonical spec + machine-checked schema + 17 validated
+            examples + v0.2→v0.3 migration guide + the receipt-integrity
             validator and conformance checker (runnable:{" "}
             <code className="rounded border border-white/10 bg-black/30 px-1.5 py-0.5 text-xs">
-              python3 scripts/adl_v02_conformance.py examples/v0.2/simple-agent.yaml
+              python3 scripts/adl_v03_conformance.py examples/v0.3/simple-agent.yaml
             </code>
             ).
           </p>
@@ -196,9 +196,11 @@ export default function SpecPage() {
             — issues and structured review intake included.
           </p>
           <div className="rounded-lg border-l-2 border-accent-pink bg-surface/60 px-4 py-3 text-sm text-gray-400">
-            Treat this page as a beta specification surface. Downloadable examples
-            are local/conformance artifacts, not production payment, custody, or
-            mainnet-readiness claims.
+            Treat this page as a beta specification surface. v0.3 replaces
+            v0.2 with no compatibility mode. Downloadable examples are
+            local/conformance artifacts: a definition that declares a live
+            Solana payment is a declaration, not a production payment, custody,
+            or mainnet-readiness claim.
           </div>
           <div className="flex flex-wrap gap-3 pt-1">
             <Link

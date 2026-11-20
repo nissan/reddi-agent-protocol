@@ -1,12 +1,19 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import Scenarios from '../../components/Scenarios';
 import { pageMetadata } from '../../lib/metadata';
-import { sandboxUrl } from '../../lib/sandbox';
+import { SCENARIOS } from '../../lib/copy';
+import { sandboxUrl, scenarioUrl } from '../../lib/sandbox';
 import { siteUrl } from '../../lib/site';
 
 export const metadata = pageMetadata(siteUrl, { path: '/sandbox', title: 'Devnet sandbox', description: 'Four short scenarios for trying receipted inference on Solana devnet with test funds only.' });
 
-export default function Sandbox() {
+// The sandbox used to live at this address. A deep link to one scenario (?scenario=<id>) is sent on to the sandbox itself, so
+// links shared before the site took this domain still open the scenario. Unknown ids just show this page.
+export default async function Sandbox({ searchParams }: { searchParams: Promise<{ scenario?: string | string[] }> }) {
+  const { scenario } = await searchParams;
+  const target = typeof scenario === 'string' && SCENARIOS.some((s) => s.id === scenario) ? scenarioUrl(sandboxUrl, scenario) : null;
+  if (target) redirect(target);
   return (
     <main id="main" className="wrap page">
       <p className="eyebrow">DEVNET SANDBOX</p>

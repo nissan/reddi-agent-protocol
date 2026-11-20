@@ -7,11 +7,13 @@
  * provider signs those fields with its wallet key, so the receipt can be
  * checked offline against the provider's address.
  *
- * It is a new version, not a superset of `reddi.receipt.v1`. v1 stays frozen
- * and is validated by `receipts.ts`; a v1 validator rejects a v2 receipt and
- * this module rejects a v1 receipt. v2 does not carry v1's buyer-side fields
- * (job, source, policy decision, attestation status) or an amount: the amount
- * paid is read from the transaction it names.
+ * It is the receipt for every paid call in V1 (#776). It also states what was
+ * paid: the currency and mint, the listed price, the protocol fee and where it
+ * went, and whether the call was paid directly or through escrow. A v1
+ * validator rejects a v2 receipt and this module rejects a v1 receipt.
+ *
+ * The payment fields are the provider's statement. A verifier that needs to
+ * rely on them checks the named transaction on chain; this module does not.
  *
  * What a valid signature shows: the holder of the provider key stated these
  * fields. It does not show which model actually ran. "Declared model" is a
@@ -24,6 +26,31 @@
 export declare const REDDI_RECEIPT_V2_VERSION: "reddi.receipt.v2";
 export declare const REDDI_RECEIPT_V2_PROOF_TYPE: "ed25519";
 export type ReddiReceiptV2Network = 'solana-devnet' | 'solana-mainnet-beta';
+export declare const REDDI_RECEIPT_V2_CURRENCIES: readonly ["SOL", "USDC", "PYUSD", "USDG", "AUDD"];
+export type ReddiReceiptV2Currency = (typeof REDDI_RECEIPT_V2_CURRENCIES)[number];
+export type ReddiReceiptV2Settlement = 'direct' | 'escrow';
+export type ReddiReceiptV2Payment = {
+    network: ReddiReceiptV2Network;
+    /** Signature of the transaction that paid for this call (base58). */
+    txSignature: string;
+    currency: ReddiReceiptV2Currency;
+    /** Token mint address (base58). Required for every currency except SOL, which has none. */
+    mint?: string;
+    /** Listed price the buyer paid in total, in the currency's smallest unit, as a decimal string. */
+    amount: string;
+    /**
+     * Protocol fee taken out of `amount`, in the smallest unit. "0" when no fee
+     * applied. `treasury` is the address that received it and is required when
+     * the fee is above zero.
+     */
+    fee: {
+        amount: string;
+        treasury?: string;
+    };
+    /** Paying wallet (base58). Present only when the provider checked it against the transaction. */
+    payer?: string;
+    settlement: ReddiReceiptV2Settlement;
+};
 export type ReddiReceiptV2 = {
     schemaVersion: typeof REDDI_RECEIPT_V2_VERSION;
     /** The provider's Solana wallet address (base58). The signature must verify against it. */
@@ -34,11 +61,9 @@ export type ReddiReceiptV2 = {
     requestHash: string;
     /** SHA-256 of the response body bytes, lowercase hex. */
     responseHash: string;
-    payment: {
-        network: ReddiReceiptV2Network;
-        /** Signature of the transaction that paid for this call (base58). */
-        txSignature: string;
-    };
+    payment: ReddiReceiptV2Payment;
+    /** The job this call was recorded as, when the provider knows it. */
+    jobId?: string;
     /** ISO 8601 UTC time the provider issued this receipt. */
     issuedAt: string;
 };
@@ -69,9 +94,15 @@ export type ReddiReceiptV2Expectation = {
     declaredModel?: string;
     requestHash?: string;
     responseHash?: string;
+    /** `network` and `txSignature` always compare; each other field compares when given. */
     payment?: {
         network: ReddiReceiptV2Network;
         txSignature: string;
+    } & Partial<Omit<ReddiReceiptV2Payment, 'network' | 'txSignature' | 'fee'>> & {
+        fee?: {
+            amount: string;
+            treasury?: string;
+        };
     };
 };
 /** Signs the canonical bytes with the provider's key and returns the 64-byte signature. The key never enters this module. */

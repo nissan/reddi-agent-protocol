@@ -124,7 +124,7 @@ export default function TourPage() {
             {autoplay ? 'Pause' : 'Auto-play'}
           </button>
           <Link
-            href="https://agent-protocol.reddi.tech"
+            href="https://app.agent-protocol.reddi.tech"
             target="_blank"
             className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg font-medium text-black"
             style={{ background: 'linear-gradient(135deg, #9945FF 0%, #14F195 100%)' }}
@@ -190,7 +190,7 @@ export default function TourPage() {
               </Link>
             ) : (
               <Link
-                href={`https://agent-protocol.reddi.tech${step.url}`}
+                href={`https://app.agent-protocol.reddi.tech${step.url}`}
                 target="_blank"
                 className="mt-3 flex items-center gap-1 text-xs text-[#9945FF] hover:text-[#14F195] transition-colors"
               >

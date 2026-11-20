@@ -4,7 +4,7 @@ Open RAP Assurance primitives for paid agent work.
 
 > Payments prove transfer; RAP Assurance proves paid work.
 
-This package is the local-first Reddi Agent Protocol surface above payment rails such as `@reddi/x402-solana`. It defines receipt envelopes, policy decisions, deterministic fixtures, and validation helpers that run without hosted Reddi infrastructure, wallet keys, devnet/mainnet spend, or paid provider calls. It is not a payment facilitator, marketplace operator, custody provider, or production runtime.
+This package is the local-first Reddi Agent Protocol surface above payment rails such as `@reddi/x402-solana`. It defines the provider-signed receipt (`reddi.receipt.v2`), payment records, evidence and attestation records, discovery and trust metadata, deterministic fixtures, and validation helpers that run without hosted Reddi infrastructure, wallet keys, devnet/mainnet spend, or paid provider calls. It is not a payment facilitator, marketplace operator, custody provider, or production runtime.
 
 **Publication status:** repo-local v0.1 candidate. It is not published on npm yet; real publication is tracked by issue #603 and requires explicit operator approval.
 
@@ -17,18 +17,6 @@ cd packages/agent-protocol
 npm ci
 npm run release:dry-run
 ```
-
-## Receipt Validation
-
-```typescript
-import { createReddiReceipt, reddiReceiptFixtureCases, reddiReceiptFixtures } from '@reddi/agent-protocol';
-
-const receipt = createReddiReceipt(reddiReceiptFixtures.happyPath);
-console.log(receipt.schemaVersion); // reddi.receipt.v1
-console.log(Object.keys(reddiReceiptFixtureCases)); // happy/denial/failure fixture cases
-```
-
-Receipt validation fails closed for malformed envelopes, missing payment proof references, unsupported v1 network/asset pairs, and credential-bearing metadata.
 
 ## Receipt v2
 
@@ -43,9 +31,14 @@ const result = verifyReddiReceiptV2(signedReceipt, {
 });
 ```
 
-`reddi.receipt.v2` is a receipt the provider issues and signs. It carries the provider's wallet, the model the provider declares it served, the request and response hashes and the payment transaction, signed with the provider's wallet key (ed25519 over a fixed-order canonical form). Verification is offline. Pass what you know yourself as the expectation: without it, a pass only says that some key signed some statement. A valid signature shows what the provider declared. It does not show which model ran.
+`reddi.receipt.v2` is the receipt for every paid call in V1. The provider issues and signs it with its wallet key (ed25519 over a fixed-order canonical form). It carries:
 
-v2 is a new version, not a superset of v1. `reddi.receipt.v1` stays frozen and keeps its own validator; `validateReddiReceipt` rejects a v2 receipt and `validateReddiReceiptV2` rejects a v1 receipt. v2 does not carry v1's buyer-side fields (job, source, policy decision, attestation status) or an amount: the amount paid is read from the transaction the receipt names. These are source-level helpers; no deployed provider issues v2 receipts yet.
+- `providerId`, `declaredModel`, `requestHash`, `responseHash`, `issuedAt`, and optionally `jobId`;
+- `payment`: `network`, `txSignature`, `currency` (SOL, USDC, PYUSD, USDG or AUDD), `mint` (every currency except SOL), `amount` (the listed price in the smallest unit), `fee` (`amount` and the `treasury` that received it), `settlement` (`direct` or `escrow`) and, when the provider checked it, `payer`.
+
+Verification is offline. Pass what you know yourself as the expectation: without it, a pass only says that some key signed some statement. The payment fields are the provider's statement; check the named transaction on chain before relying on them. A valid signature shows what the provider declared. It does not show which model ran.
+
+`reddi.receipt.v2` is the only receipt this package accepts. `reddi.receipt.v1` and the modules built on it were removed before V1 (#776), and `validateReddiReceiptV2` rejects any other version. These are source-level helpers; no deployed provider issues v2 receipts yet.
 
 ## Policy Decisions
 
@@ -61,7 +54,7 @@ const policyDecision = policyDecisionFromBudgetPolicyDecision({
 });
 ```
 
-Use payment-rail packages to settle and verify payment-specific proofs. RAP receipts record the policy, payment-proof reference, evidence reference, and trust metadata around the paid agent workflow; they do not upgrade payment proof into work-quality, settlement-finality, or production-readiness claims.
+Use payment-rail packages to settle and verify payment-specific proofs. A RAP receipt records what the provider declared about one paid call; it does not upgrade payment proof into work-quality, settlement-finality, or production-readiness claims.
 
 ## AUDD non-custodial foundation
 
@@ -69,118 +62,7 @@ Use payment-rail packages to settle and verify payment-specific proofs. RAP rece
 
 `@reddi/agent-protocol/payment-records` adds rail-neutral canonical IDs for job, agreement, payment intent, payment observation, and refund records using stable canonical JSON SHA-256 hashing. Fixture, local-test-mint, and devnet-unverified labels are rejected if marked grant-volume eligible. Local-test-mint is configuration/test-only and has no public CAIP-2 export path.
 
-AUDD payment plans remain `reddi.audd-payment-plan.v1` for legacy callers, with optional x402 v2 SVM `exact` fields (`caip2Network`, token program, decimals, memo, payment-flow, evidence/refund labels). Use `createAuddX402SvmExactPaymentPlan`, `createAuddPaymentIntentDraft`, and `createAuddX402SvmExactPaymentRequired` for the new bridge. Models create draft intents only; non-fixture spend still requires buyer policy and operator approval, and mainnet AUDD additionally requires a separate exact gate.
-
-## Seller Wrapper Config Examples
-
-```typescript
-import {
-  generateSellerWrapperConfigExamples,
-  runSellerWrapperConfigNoSpendCheck,
-} from '@reddi/agent-protocol/seller-wrapper-config';
-
-const config = generateSellerWrapperConfigExamples();
-console.log(config.endpoints[0].wrapper.quoteRoute); // /seller-wrapper/listing-writer-http/quote
-console.log(config.endpoints[0].rails.map((rail) => rail.asset)); // SOL, USDC, AUDD
-console.log(config.buyerAuthorityPolicy.fixtureStates.map((case_) => case_.key));
-
-const check = await runSellerWrapperConfigNoSpendCheck();
-console.log(check.validation.valid); // true
-console.log(check.auddFlow.preflight.allowed); // true for the local no-spend AUDD flow
-```
-
-Seller-wrapper config examples turn the local rail-state fixture into MCP and HTTP/OpenAPI wrapper metadata: quote route, policy preflight route, mocked invocation route, receipt hook, evidence hook, and SOL/USDC/AUDD rail states. AUDD is represented as first-class payment-plan/proof metadata with mint, payee, settlement account, expiry, failure policy, refund policy, and evidence requirements.
-
-Seller-wrapper config also carries buyer-authority policy contract metadata for onboarding and downstream templates. It references the buyer policy schema, #550 fixture matrix states, spend caps, allowed rails/currencies, seller allowlist, expiry, receipt/evidence requirements, refund/failure policy, operator approval, support-state constraints, and the discovery -> quote -> buyer-policy-preflight -> operator-approval -> invocation -> receipt/evidence lifecycle. The config points #543 framework-template conformance and #375 seller-wrapper flows at the same reason-coded matrix instead of creating parallel policy semantics.
-
-The helper is no-spend and non-secret. It rejects credential-shaped metadata, live-payment approval, wallet/RPC/signing/transfer instructions, custody claims, and settlement-finality claims. It does not publish packages, invoke providers, call wallets/RPC endpoints, submit Pay.sh payments, or activate live rails.
-
-## Buyer Authority Policy Examples
-
-```typescript
-import {
-  buyerAuthorityPolicyExamples,
-  evaluateBuyerAuthorityPolicy,
-  listBuyerAuthorityPolicyFixtureMatrix,
-} from '@reddi/agent-protocol/buyer-authority-policy';
-
-const example = buyerAuthorityPolicyExamples.allow;
-const result = evaluateBuyerAuthorityPolicy(example.policy, example.request);
-console.log(result.allowed); // true in local no-live fixture mode
-
-const denied = evaluateBuyerAuthorityPolicy(
-  buyerAuthorityPolicyExamples.missingEvidenceRequirement.policy,
-  buyerAuthorityPolicyExamples.missingEvidenceRequirement.request,
-);
-console.log(denied.reasonCodes); // evidence_requirement_missing
-
-const matrix = listBuyerAuthorityPolicyFixtureMatrix();
-console.log(matrix.map((case_) => case_.key));
-```
-
-Buyer authority policy examples make an agent's spending authority explicit before it discovers, quotes, preflights, invokes, or simulates payment for another agent. The static contract covers spend caps, allowed rails and currencies, seller allowlists, expiry, receipt/evidence requirements, refund/failure policy, operator approval thresholds, and support-state constraints.
-
-The built-in fixture matrix covers allow, deny, expired, approval-required, unsupported rail, unsupported currency, seller-not-allowlisted, missing-receipt, missing-evidence, refund/failure-policy mismatch, and spend-cap-exceeded states. Downstream #543 framework-template conformance and #375 seller-wrapper flows should consume these reason-coded cases instead of inventing parallel buyer-authority semantics. AUDD/SOL/USDC remain proof, preflight, and support metadata only unless a separate audited live rail, custody, or settlement workstream is approved.
-
-The helper is no-spend and non-secret. It rejects credential-shaped metadata, live-payment approval, wallet/RPC/provider-call material, signing/transfer instructions, custody claims, and settlement-finality claims. It does not contact Airwallex, invoke providers, call wallets/RPC endpoints, transfer SPL tokens, activate Pay.sh, or settle funds.
-
-## Framework Template Contract
-
-```typescript
-import {
-  frameworkTemplateFixtures,
-  listFrameworkTemplateFixtures,
-  validateFrameworkTemplateContract,
-} from '@reddi/agent-protocol/framework-template-contract';
-
-const fixtures = listFrameworkTemplateFixtures();
-console.log(fixtures.map((fixture) => fixture.kind)); // discovery, quote, preflight, ...
-
-const result = validateFrameworkTemplateContract(frameworkTemplateFixtures.preflight.contract);
-console.log(result.valid); // true in local static fixture mode
-```
-
-Framework-template contract fixtures define the shared surface that LangGraph, Strands, and ADK templates should consume before they add framework-specific scaffolding. The contract covers buyer-enabled, seller-enabled, and dual-mode profiles; agent identity; framework id; capability tags; invocation modes; seller profile; buyer authority policy matrix; execution result; receipt/evidence references; failure/refund state; and support-state metadata.
-
-The built-in fixtures cover discovery, quote, buyer-policy preflight, operator approval, invocation, receipt/evidence binding, denial, and failure outcomes. They consume the #549 buyer-authority schema, #550 fixture matrix, and #551 seller-wrapper buyer-authority contract. Template implementations for #544/#545/#546 should import this contract instead of inventing framework-specific payment, policy, receipt, failure/refund, or support-state semantics.
-
-The helper is static and no-live. It rejects credential-shaped metadata, truncated buyer-authority matrices, unsafe support states, live-payment approval, wallet/RPC/provider-call material, signing/transfer instructions, custody claims, missing receipt/evidence refs for allowed invocations, and settlement-finality claims.
-
-## Framework Template Conformance
-
-```typescript
-import {
-  runFrameworkTemplateNoLiveConformanceCheck,
-} from '@reddi/agent-protocol/framework-template-conformance';
-
-const check = runFrameworkTemplateNoLiveConformanceCheck();
-console.log(check.valid); // true for the built-in local/static cases
-```
-
-The conformance checker is the #553 no-live gate for framework templates. It runs the shared #552 lifecycle fixtures plus explicit buyer-enabled, seller-enabled, and dual-mode profile cases before #544 LangGraph, #545 Strands, #546 ADK, or #547 comparison docs claim compatibility.
-
-The checker validates required lifecycle fixtures, profile modes, agent identity, invocation modes, buyer-authority policy metadata, seller profile metadata, receipt/evidence refs for allowed invocations, failure/refund state, support-state metadata, and the same no-secret/no-wallet/no-RPC/no-provider/no-custody/no-transfer/no-settlement-finality boundary enforced by the contract validator.
-
-This checker is local/static only. It does not install LangGraph, Strands, or ADK packages, scaffold projects, publish packages, call cloud or provider APIs, register hosted agents, access wallets/RPC endpoints, execute live or devnet payments, custody assets, transfer SPL tokens, or claim settlement finality.
-
-## LangGraph RAP Template
-
-```typescript
-import {
-  createLangGraphRapTemplateFixture,
-  validateLangGraphRapTemplate,
-} from '@reddi/agent-protocol/langgraph-rap-template';
-
-const template = createLangGraphRapTemplateFixture();
-const result = validateLangGraphRapTemplate(template);
-console.log(result.valid); // true for the allowed local no-live fixture
-```
-
-The LangGraph template fixture maps RAP lifecycle state onto graph-shaped nodes without installing LangGraph or calling LangSmith, providers, wallets, RPC endpoints, or payment rails. It includes discovery, quote, buyer-policy preflight, operator approval, paid-agent invocation, receipt/evidence binding, and seller-wrapper endpoint helper nodes.
-
-The fixture consumes the shared #552 framework-template contract and #553 no-live conformance checker. It stores framework-neutral RAP refs in graph state instead of inventing LangGraph-specific payment, policy, receipt, failure/refund, support-state, custody, or settlement semantics.
-
-Built-in cases cover allowed no-live invocation, policy denial, missing approval, malformed quote/payment plan, credential-shaped output, and unsafe live/custody/provider claims. The validator fails closed for missing graph nodes, missing middleware, missing seller-wrapper helper routes, missing receipt/evidence refs, malformed shared contracts, credentials, wallet/RPC/provider material, custody claims, transfer instructions, and settlement-finality claims.
+The AUDD payment-plan and x402 bridge helpers were removed with receipt v1 (#776). AUDD here is rail identity and record metadata only.
 
 ## AI Catalog Ingestion
 
@@ -351,26 +233,6 @@ archive.put(record);
 
 EvidenceArchive v1 stores request, response, receipt, source, attestation, and evidence hash references without embedding private payloads in public receipts. The local archive is deterministic for tests and demos. Walrus, Seal, IPFS, and custom archive pointers are represented as future sidecar references, not required product-core dependencies.
 
-## Pay.sh Sandbox Evidence
-
-```typescript
-import {
-  derivePayShSandboxEvidenceFixture,
-  payShSandboxEvidenceSummaries,
-} from '@reddi/agent-protocol/pay-sh-sandbox-evidence';
-
-const result = derivePayShSandboxEvidenceFixture(payShSandboxEvidenceSummaries.singleCharge);
-
-if (result.ok) {
-  console.log(result.fixture.status); // proven_single_charge
-  console.log(result.fixture.bindingRefs.source.kind); // source-adapter
-}
-```
-
-Pay.sh sandbox evidence fixtures normalize the historical RAP x402 artifact set into receipt/evidence binding references for quote, recipient, nonce, session, authorization, receipt, source service, and operator approval. The proven single-charge fixture records the sandbox 402 challenge and paid retry receipt. Capped-session and split-payment extension fixtures stay `probe_only` with the `pay_sh_0_16_returns_402_after_payment` blocker.
-
-The helper is fixture-only. It does not run Pay.sh setup or CLI commands, call wallets/RPC endpoints, invoke providers, submit catalogs, write hosted registries, publish marketplace listings, upgrade trust, mutate reputation, or activate live payments. Malformed receipts and live-path markers fail closed.
-
 ## Source-Aware Diagnostics
 
 ```typescript
@@ -429,94 +291,6 @@ Attestation v1 records include schema version, evidence reference, evidence hash
 
 Reputation updates are deterministic and local-first. Invalid or incomplete rubrics fail closed and return the previous reputation state unchanged. Failed, disputed, and refunded work produce explicit status and routing-impact reason codes. Self-attested and external-attested records are evidence inputs, not verified claims; `reddi_attested` and `verified` boundaries must come from RAP-side verification or operator-controlled attestations.
 
-## Off-Chain Reputation Preview
-
-```typescript
-import {
-  deriveOffchainReputationPreview,
-} from '@reddi/agent-protocol/offchain-reputation-preview';
-
-const result = deriveOffchainReputationPreview({
-  id: 'preview:listing:planning-001',
-  binding: receiptEvidenceBinding,
-  subject: { id: 'listing:planning-001', type: 'listing' },
-  createdAt: new Date().toISOString(),
-});
-
-console.log(result.preview.status); // preview_ready / insufficient_evidence / blocked
-console.log(result.preview.display.buyerFacingClaimAllowed); // false
-```
-
-Off-chain reputation preview consumes `reddi.receipt-evidence-binding.v1` records and projects an explanatory reputation preview without mutating reputation state. It requires safe binding guardrails, allowed policy/payment preflight metadata, evidence refs, attestation evidence, and matching reputation-event drafts before returning a score preview. Missing attestation or reputation draft data stays `insufficient_evidence`; denied policy/payment, malformed evidence, unsafe live guardrails, failed attestations, or mismatched event ids are blocked.
-
-This preview is not Quasar-backed and does not build instruction flows while #390 compatibility is pending. It never performs wallet signing, RPC calls, hosted registry writes, marketplace publication, live payment execution, provider calls, or reputation mutation, and it never allows buyer-facing trust/reputation claims from preview data alone.
-
-## Hosted Attestation Claim
-
-```typescript
-import {
-  deriveHostedAttestationClaim,
-} from '@reddi/agent-protocol/hosted-attestation-claim';
-
-const result = deriveHostedAttestationClaim({
-  id: 'hosted-claim:listing:research-agent',
-  binding,
-  preview,
-  hostedAttestationProof: {
-    sourceProofRef: 'source-proof:research-agent',
-    attestationProofRef: 'hosted-attestation-proof:research-agent',
-    hostedBy: 'reddi',
-  },
-  operatorApproval: {
-    approved: true,
-    evidenceRef: 'operator-approval:research-agent',
-  },
-  publicationGate: {
-    issue: 395,
-    state: 'claim_contract_ready',
-    evidenceRef: 'publication-gate:research-agent',
-  },
-  createdAt: new Date().toISOString(),
-});
-
-console.log(result.claim.status); // hosted_attestation_ready / publication_gate_pending / insufficient_evidence / blocked
-console.log(result.claim.display.buyerFacingClaimAllowed); // false
-```
-
-Hosted attestation claims consume `reddi.receipt-evidence-binding.v1` records plus `reddi.offchain-reputation-preview.v1` previews. A hosted-backed claim requires matching evidence, passed attestation, preview-ready reputation draft, explicit hosted source/attestation proof refs, operator approval evidence, and #395 publication-gate metadata. Missing hosted proof, operator approval, or publication-gate metadata remains `publication_gate_pending`; malformed, failed, disputed, refunded, mismatched, unsafe, or blocked evidence fails closed.
-
-This is a claim contract for downstream publication gates, not marketplace publication itself. It does not mutate reputation, build Quasar instructions, sign wallets, call RPC, write hosted registries, execute live payments, call providers, or permit buyer-facing trust/reputation claims. Quasar-backed instruction fixtures remain separate work after the Surfpool/devnet promotion checklist.
-
-## Attestation/Reputation Bridge
-
-```typescript
-import {
-  deriveAttestationReputationBridge,
-} from '@reddi/agent-protocol/attestation-reputation-bridge';
-
-const result = deriveAttestationReputationBridge({
-  id: 'reputation-bridge:listing:research-agent',
-  binding,            // reddi.receipt-evidence-binding.v1 (omit for external listings)
-  compatibility,      // reddi.quasar-registry-compatibility.v1 (#390)
-  hosted: {           // optional #442 hosted attestation gate metadata
-    proof: hostedAttestationProof,
-    operatorApproval,
-    publicationGate,
-  },
-  createdAt: new Date().toISOString(),
-});
-
-console.log(result.bridge.status);
-// hosted_attestation_backed / quasar_intent_fixtures / offchain_preview
-// / insufficient_evidence / unverified_external / blocked
-console.log(result.bridge.lanes.quasar.instructionFlow);          // not_built
-console.log(result.bridge.display.buyerFacingClaimAllowed);       // false
-```
-
-The attestation/reputation bridge (`reddi.attestation-reputation-bridge.v1`, #394) composes the off-chain reputation preview, the Quasar reputation-intent fixture gate, and the hosted attestation claim into one read-model per listing/job record set, so a UI/API surface can explain in a single call whether reputation is an off-chain preview, backed by hosted attestation evidence, or has fixture-level Quasar intent records — and if none of those, why. External listings without a receipt/evidence binding are marked `unverified_external` instead of receiving any reputation surface, and `listingProjection` exposes per-lane states in the marketplace evidence vocabulary.
-
-Honesty contract: the Quasar lane never reports "Quasar-backed" reputation. Its strongest state is `quasar_intent_fixtures` with `instructionFlow: 'not_built'` and `quasarBackedReputation: false`, because #443 intent records are data, not instructions. All composed derivations keep their own fail-closed gates, so failed policy, missing evidence, failed attestation, or unverified payment proof never produce a reputation surface, and nothing in the bridge signs, calls RPC, writes hosted registries, executes payments, or mutates reputation.
-
 ## Quasar Registry Compatibility
 
 ```typescript
@@ -546,104 +320,6 @@ Quasar registry compatibility separates compact on-chain `AgentAccount` fields f
 The mapper is a compatibility report only. It does not build Quasar instructions, sign wallets, call RPC, deploy programs, activate live payments, or publish hosted listings. Imported/static listings without an explicit owner and native SOL lamport rate stay `metadata_only` rather than becoming register instructions.
 
 Future PRs that move from compatibility reports into instruction builders, transaction assembly, Surfpool validation, or devnet wallet use must follow the Quasar Surfpool/devnet promotion checklist in [`../../docs/QUASAR-SURFPOOL-DEVNET-PROMOTION-CHECKLIST.md`](../../docs/QUASAR-SURFPOOL-DEVNET-PROMOTION-CHECKLIST.md). Package/read-model work like this mapper does not require Surfpool or devnet.
-
-## Buyer Client And Seller Middleware
-
-```typescript
-import {
-  createPaymentChallenge,
-  evaluateBuyerPaymentChallenge,
-  handlePaidSpecialistRequest,
-} from '@reddi/agent-protocol/buyer-seller';
-
-const challenge = createPaymentChallenge({
-  mode: 'dry-run',
-  quote: {
-    amount: '50000',
-    asset: 'USDC',
-    network: 'solana-devnet',
-    source: 'source:planning',
-    specialist: 'specialist:coder',
-  },
-  payTo: 'solana:seller-demo',
-  nonce: 'unit-001',
-  endpoint: 'http://localhost:4021/specialist',
-});
-
-const buyerDecision = evaluateBuyerPaymentChallenge(challenge, {
-  allowedRails: [{ asset: 'USDC', network: 'solana-devnet' }],
-  paymentProofRef: 'dry-run:unit-001',
-});
-
-const response = await handlePaidSpecialistRequest({
-  challenge,
-  request: { body: { task: 'plan' }, paymentProofRef: buyerDecision.paymentProofRef },
-  policyDecision: buyerDecision.policyDecision,
-  specialist: async (body) => ({ ok: true, body }),
-});
-```
-
-The buyer/seller helpers are local OSS SDK primitives. They do not run a server, submit payment, access a wallet, fetch a hosted registry, or invoke external providers by themselves. Seller middleware can return a structured `402` challenge in dry-run, fixture, or separately approved live mode. Buyer preflight parses the challenge, checks allowed rails, can call the completed local budget evaluator from `@reddi/x402-solana`, and returns machine-readable denial reasons before any payment or invocation. Approved dry-run requests execute only the bounded specialist function supplied by the caller and return a Reddi receipt plus EvidenceArchive record.
-
-Run the local no-spend example:
-
-```bash
-npm run example:buyer-seller:dry-run
-```
-
-## AUDD/Solana Payment Plans
-
-```typescript
-import {
-  createAuddPaymentChallenge,
-  createAuddSolanaPaymentPlan,
-  evaluateAuddPaymentPlanPreflight,
-} from '@reddi/agent-protocol/audd-payment-plan';
-
-const paymentPlan = createAuddSolanaPaymentPlan({
-  network: 'solana-devnet',
-  mint: 'AUDDdev111111111111111111111111111111111111',
-  payee: 'solana:seller-demo',
-  settlementAccount: 'solana:seller-demo',
-  amount: '2500000',
-  quoteExpiresAt: '2026-06-18T15:00:00.000Z',
-  failurePolicy: {
-    mode: 'no_charge_on_failure',
-    description: 'Dry-run jobs do not charge when the specialist fails.',
-  },
-  refundPolicy: {
-    mode: 'manual_review',
-    description: 'Live refunds require operator review before settlement.',
-  },
-  evidenceRequired: true,
-  paymentMode: 'dry-run',
-});
-
-const auddChallenge = createAuddPaymentChallenge({
-  mode: 'dry-run',
-  paymentPlan,
-  quote: {
-    source: 'source:ard-catalog',
-    specialist: 'specialist:listing-writer',
-  },
-  nonce: 'audd-001',
-  endpoint: 'http://localhost:4021/specialist',
-});
-
-const decision = evaluateAuddPaymentPlanPreflight(auddChallenge, {
-  allowedNetworks: ['solana-devnet'],
-  allowedMints: ['AUDDdev111111111111111111111111111111111111'],
-  allowedPayees: ['solana:seller-demo'],
-  allowedSettlementAccounts: ['solana:seller-demo'],
-  maxAmount: '3000000',
-  requireEvidence: true,
-  approvalState: 'approved',
-  paymentProofRef: 'dry-run:audd-001',
-  now: '2026-06-18T14:00:00.000Z',
-});
-```
-
-AUDD/Solana payment plans are metadata and policy-preflight helpers for RAP buyer/seller middleware. They represent AUDD quote amount, Solana network, mint, payee/settlement account, expiry, failure/refund policy, and evidence requirements without submitting transactions or requiring hosted RAP infrastructure. Buyer preflight fails closed unless the caller supplies explicit allowed networks, mints, payees, settlement accounts, evidence policy, operator approval, and either a max amount or budget evaluator. See [AUDD non-custodial foundation](#audd-non-custodial-foundation) for the canonical x402 export and read-only observation boundary; this package takes no wallet actions and performs no SPL custody, Quasar escrow, or settlement proof verification.
 
 ## Browser Wallet Approval Preflight
 
@@ -682,18 +358,16 @@ npm ci
 npm run example:ard:no-spend
 ```
 
-The ARD no-spend example is a deterministic Discover -> Decide -> Prove workflow. It starts from `examples/ard-no-spend-ai-catalog.json`, validates the AI Catalog fixture, creates a discovery candidate, runs source-aware diagnostics, evaluates local policy/trust/payment gates, executes a bounded dry-run specialist function, and emits receipt, EvidenceArchive, attestation draft, reputation update, AUDD dry-run payment-plan/preflight, and source diagnostics output.
+The ARD no-spend example is a deterministic Discover -> Decide -> Prove workflow. It starts from `examples/ard-no-spend-ai-catalog.json`, validates the AI Catalog fixture, creates a discovery candidate, runs source-aware diagnostics and the buyer's discovery policy preflight, calls a local fixture specialist, has the fixture provider sign a `reddi.receipt.v2`, verifies that receipt offline against what the buyer knows, and records evidence, an attestation and a reputation projection.
 
 The JSON output labels the run as fixture-only and no-spend:
 
-- `payment.mode` is `dry-run`, with `paymentProofRef` set to a local `dry-run:*` ref.
-- `receiptEvidenceBinding` links the receipt, EvidenceArchive record, payment proof ref, request hash, response hash, and evidence ref using `bindingMode: "local_fixture_refs_only"`.
-- `railNeutralProofChain` includes the #489 rail-neutral proof-chain fixture bridge: the Pay.sh sandbox single-charge fixture is `binding_ready` by refs/hashes only, while Tempo unsupported network, unsupported asset/network, malformed receipt, policy denied, and live-path overclaim cases fail closed.
-- `downstreamPublicProofContracts` names the app-level public proof data contract (`reddi.economic-demo.public-proof-page-data.v1`) and paid workflow proof UI fixture pack (`reddi.economic-demo.paid-workflow-proof-ui-fixture-pack.v1`) so downstream pages can consume the same proof states without inventing another schema.
-- `downstreamPublicProofContracts.stateLabels` includes `fixture_zero_spend`, `planned_dry_run`, `simulated`, `devnet_proof_metadata`, `live_gated`, and `production_live_disabled`.
-- `boundaries` keeps hosted service, paid provider, wallet access, RPC call, SPL transfer, Quasar custody, settlement-finality proof, trust upgrade, reputation mutation, and live payment flags false.
+- `receipt` shows the verified `reddi.receipt.v2`: provider, declared model, request and response hashes and the payment the provider states. `payment.fixtureTransaction` is `true`: the transaction signature is a made-up fixture value and no payment was made.
+- `receipt.reading` says what a pass means: the provider declared this model and this payment. It is not proof of which model ran.
+- `evidence` links the EvidenceArchive record to the receipt's job id and names the signed receipt by hash.
+- `boundaries` records that the run does not use a hosted service, paid provider, wallet, RPC call or SPL transfer, and does not claim Quasar custody, settlement finality, model execution, a trust upgrade, a reputation mutation or a live payment: every flag is false.
 
-The example also prints expected failure states for policy denial, malformed challenge, missing evidence, missing operator/payment setup, unsupported AUDD/Solana network, and unsafe/credential-shaped evidence metadata. It does not start a server, fetch an ARD registry, call hosted Reddi infrastructure, use secrets, invoke a paid provider, access a wallet, submit RPC/SPL transfers, mutate trust or reputation state, publish to a marketplace, claim AUDD escrow custody, prove settlement finality, or perform a live payment.
+The example also prints failure states, each of which must refuse: discovery policy denial, unsupported network, a response that is not the one signed, a different provider than the one chosen, a receipt edited after signing, a different payment, a removed receipt version, missing evidence, and credential-shaped evidence metadata. The provider key in the example is derived from a public label in the file and is a fixture, not a wallet. The example does not start a server, fetch an ARD registry, call hosted Reddi infrastructure, use secrets, invoke a paid provider, access a wallet, submit RPC/SPL transfers, mutate trust or reputation state, publish to a marketplace, claim AUDD escrow custody, prove settlement finality, or perform a live payment.
 
 Run the deterministic conformance check for this quickstart:
 
@@ -703,7 +377,7 @@ npm test -- --test-name-pattern "ARD no-spend demo"
 
 ## Public Conformance Suite
 
-A single deterministic command composes the per-module conformance suites (receipt shape, policy-decision shape, source metadata, 402 challenge handling, evidence binding, secret-leakage rejection, the quickstart workflow, interop conformance modules) and the packed-artifact secret/content guard:
+A single deterministic command composes the per-module conformance suites (receipt v2 shape and signature, payment records, source metadata, challenge shapes, evidence and attestation, secret-leakage rejection, the quickstart workflow, interop conformance modules) and the packed-artifact secret/content guard:
 
 ```bash
 npm run conformance

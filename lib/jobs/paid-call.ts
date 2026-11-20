@@ -12,15 +12,25 @@ import "server-only";
  */
 
 import { Connection } from "@solana/web3.js";
-import { SolanaReceiptVerifier, baseUnitsToDecimal, directPaymentCurrency, type ParsedTransactionConnection } from "@reddi/x402-solana/payment";
+import { SolanaReceiptVerifier, baseUnitsToDecimal, decimalToBaseUnits, directPaymentCurrency, type ParsedTransactionConnection } from "@reddi/x402-solana/payment";
 import type { X402Challenge } from "@reddi/x402-solana/types";
 import type { NetworkProfileName } from "@/lib/config/network-profile-name";
 import { buyerMintFor, paymentNetworkForProfile } from "@/lib/payments/wallet-direct-payment";
 import { listingNetworkForProfile, type Listing } from "@/lib/listings/listing-store";
 import { recordVerifiedJob, type JobStoreDeps } from "@/lib/jobs/job-store";
 
+/** What this server verified on chain for the call, in smallest units. */
+export interface VerifiedPayment {
+  currency: string;
+  /** Token mint, or undefined for SOL. */
+  mint?: string;
+  amountBaseUnits: string;
+  payer: string;
+  fee: { amount: string; treasury?: string };
+}
+
 export type PaidCallOutcome =
-  | { recorded: true; jobId: string }
+  | { recorded: true; jobId: string; paid: VerifiedPayment }
   | { recorded: false; reason: string };
 
 export interface PaidCallInput {
@@ -124,5 +134,14 @@ export async function verifyAndRecordPaidCall(input: PaidCallInput, deps: PaidCa
     },
     deps,
   );
-  return written.ok ? { recorded: true, jobId: written.id } : { recorded: false, reason: written.code };
+  if (!written.ok) return { recorded: false, reason: written.code };
+  const feeUnits = verified.fee ? decimalToBaseUnits(verified.fee.amount, terms.decimals) ?? BigInt(0) : BigInt(0);
+  const paid: VerifiedPayment = {
+    currency,
+    ...(currency === "SOL" ? {} : { mint: expectedMint }),
+    amountBaseUnits: price.toString(),
+    payer,
+    fee: verified.fee && feeUnits > BigInt(0) ? { amount: feeUnits.toString(), treasury: verified.fee.payTo } : { amount: "0" },
+  };
+  return { recorded: true, jobId: written.id, paid };
 }

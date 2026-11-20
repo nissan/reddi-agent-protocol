@@ -1,19 +1,29 @@
-import { createHash } from 'node:crypto';
+// ARD no-spend quickstart: Discover -> Decide -> Prove on local fixtures.
+//
+// Discover a specialist from an AI Catalog, decide with a buyer-side discovery
+// policy, call a local fixture specialist, and prove the call with a
+// provider-signed reddi.receipt.v2 that the buyer verifies offline.
+//
+// Nothing here spends, opens a wallet, calls an RPC endpoint or a provider, or
+// reads a credential. The provider key is derived from a public label inside
+// this file, and the transaction signature in the receipt is a made-up fixture
+// value: no payment was made and none is claimed.
+import { createHash, createPrivateKey, createPublicKey, sign } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  AUDD_DETERMINISTIC_FIXTURE_MINT,
   createAiCatalogSnapshot,
-  createAuddPaymentChallenge,
-  createAuddSolanaPaymentPlan,
+  createEvidenceArchiveRecord,
   createLocalEvidenceArchive,
-  createPaymentChallenge,
-  evaluateAuddPaymentPlanPreflight,
-  evaluateBuyerPaymentChallenge,
-  handlePaidSpecialistRequest,
+  hashReddiReceiptV2Body,
+  signReddiReceiptV2,
   validateAiCatalog,
   validateEvidenceArchiveRecord,
+  validateReddiReceiptV2,
+  verifyReddiReceiptV2,
 } from '../dist/index.js';
 import {
   createAiCatalogDiscoveryCandidates,
@@ -25,20 +35,43 @@ import {
   createAttestationRecord,
   createInitialReputationState,
 } from '../dist/attestation-reputation.js';
-import { railNeutralProofChainFixtures } from '../dist/rail-neutral-proof-chain-fixture.js';
 
 const createdAt = '2026-06-19T07:45:00.000Z';
-const nonce = 'ard-no-spend-001';
+const jobId = 'job:ard-no-spend-001';
+const evidenceId = 'evidence:ard-no-spend-001';
 const sourceId = 'source:ard-local-catalog';
 const specialistId = 'specialist:listing-writer';
-const auddMint = 'AUDDdev111111111111111111111111111111111111';
-const payee = 'solana:seller-demo';
-const settlementAccount = 'solana:settlement-demo';
+const declaredModel = 'fixture/listing-writer-v1';
+const network = 'solana-devnet';
+const amount = '2500000';
 const catalogPath = join(dirname(fileURLToPath(import.meta.url)), 'ard-no-spend-ai-catalog.json');
 const catalog = JSON.parse(await readFile(catalogPath, 'utf8'));
 
-function hashJson(value) {
-  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+const BASE58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function base58(bytes) {
+  let value = BigInt(`0x${Buffer.from(bytes).toString('hex') || '0'}`);
+  let out = '';
+  while (value > 0n) {
+    out = BASE58[Number(value % 58n)] + out;
+    value /= 58n;
+  }
+  for (const byte of bytes) {
+    if (byte !== 0) break;
+    out = `1${out}`;
+  }
+  return out;
+}
+
+/** A fixture ed25519 identity derived from a public label. Never use this pattern for a real key. */
+function fixtureIdentity(label) {
+  const seed = createHash('sha256').update(label).digest();
+  const privateKey = createPrivateKey({
+    key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seed]),
+    format: 'der',
+    type: 'pkcs8',
+  });
+  const publicKey = createPublicKey(privateKey).export({ format: 'der', type: 'spki' }).subarray(-32);
+  return { address: base58(publicKey), signer: (message) => sign(null, Buffer.from(message), privateKey) };
 }
 
 function assertOk(result, label) {
@@ -48,6 +81,11 @@ function assertOk(result, label) {
   return result;
 }
 
+function errorCodes(result) {
+  return result.ok ? [] : [...new Set(result.errors.map((item) => item.code))];
+}
+
+// --- Discover -----------------------------------------------------------------
 const catalogValidation = assertOk(validateAiCatalog(catalog, {
   rawSnapshotRef: 'file://examples/ard-no-spend-ai-catalog.json',
 }), 'catalog_validation');
@@ -71,103 +109,112 @@ const normalized = assertOk(createAiCatalogDiscoveryCandidates(snapshot, {
   },
 }), 'candidate_normalization');
 
-const paymentPlan = createAuddSolanaPaymentPlan({
-  network: 'solana-devnet',
-  mint: auddMint,
-  payee,
-  settlementAccount,
-  amount: '2500000',
-  quoteExpiresAt: '2026-06-19T08:45:00.000Z',
-  failurePolicy: {
-    mode: 'no_charge_on_failure',
-    description: 'Dry-run fixture jobs do not charge on failure.',
-  },
-  refundPolicy: {
-    mode: 'manual_review',
-    description: 'Live refunds require operator review before settlement.',
-  },
-  evidenceRequired: true,
-  paymentMode: 'dry-run',
-});
+const provider = fixtureIdentity('reddi:ard-no-spend:fixture-provider');
+const otherProvider = fixtureIdentity('reddi:ard-no-spend:another-provider');
 
 const candidate = {
   ...normalized.candidates[0],
   quote: {
-    amount: paymentPlan.amount,
+    amount,
     asset: 'AUDD',
-    network: paymentPlan.network,
-    expiresAt: paymentPlan.quoteExpiresAt,
-    payee,
+    network,
+    expiresAt: '2026-06-19T08:45:00.000Z',
+    payee: provider.address,
   },
 };
 
-const discoveryDecision = evaluateDiscoveryCandidatePolicyPreflight(candidate, {
+// --- Decide -------------------------------------------------------------------
+const discoveryPolicy = {
   allowedSourceKinds: ['direct-ai-catalog'],
   requireVerifiedTrust: true,
   allowedAssets: ['AUDD'],
-  allowedNetworks: ['solana-devnet'],
-  maxQuote: { amount: '3000000', asset: 'AUDD', network: 'solana-devnet' },
-});
-
+  allowedNetworks: [network],
+  maxQuote: { amount: '3000000', asset: 'AUDD', network },
+};
+const discoveryDecision = evaluateDiscoveryCandidatePolicyPreflight(candidate, discoveryPolicy);
 const diagnostics = createSourceAwareCandidateDiagnostics(candidate, {
   policyDecision: discoveryDecision,
   reputation: { receiptCount: 0, attestationCount: 0 },
 });
-
-const challenge = createAuddPaymentChallenge({
-  mode: 'dry-run',
-  paymentPlan,
-  quote: {
-    source: sourceId,
-    specialist: specialistId,
-  },
-  nonce,
-  endpoint: 'fixture://specialists/listing-writer',
-});
-
-const auddDecision = evaluateAuddPaymentPlanPreflight(challenge, {
-  allowedNetworks: ['solana-devnet'],
-  allowedMints: [auddMint],
-  allowedPayees: [payee],
-  allowedSettlementAccounts: [settlementAccount],
-  maxAmount: '3000000',
-  requireEvidence: true,
-  approvalState: 'approved',
-  paymentProofRef: `dry-run:${nonce}`,
-  now: '2026-06-19T07:45:01.000Z',
-});
-
-const requestBody = {
-  brief: 'Create a public marketplace listing for a local RAP-compatible documentation specialist.',
-};
-const specialistResponse = await handlePaidSpecialistRequest({
-  challenge,
-  request: {
-    body: requestBody,
-    paymentProofRef: auddDecision.paymentProofRef,
-  },
-  policyDecision: auddDecision.policyDecision,
-  createdAt,
-  specialist: async (body) => ({
-    title: 'RAP Documentation Listing Writer',
-    summary: `Local fixture drafted a listing for: ${body.brief}`,
-    reviewRequired: true,
-    noSpend: true,
-  }),
-});
-
-if (specialistResponse.status !== 200) {
-  throw new Error(`specialist_response:${JSON.stringify(specialistResponse, null, 2)}`);
+if (!discoveryDecision.allowed) {
+  throw new Error(`discovery_policy_denied:${discoveryDecision.reasonCodes.join(',')}`);
 }
 
-const archive = createLocalEvidenceArchive([specialistResponse.evidence]);
+// --- Call a local fixture specialist ------------------------------------------
+const requestBody = JSON.stringify({
+  brief: 'Create a public marketplace listing for a local RAP-compatible documentation specialist.',
+});
+const responseBody = JSON.stringify({
+  title: 'RAP Documentation Listing Writer',
+  summary: 'Local fixture drafted a listing for the brief.',
+  reviewRequired: true,
+  noSpend: true,
+});
+const requestHash = hashReddiReceiptV2Body(requestBody);
+const responseHash = hashReddiReceiptV2Body(responseBody);
+
+// --- Prove: the provider signs a receipt, the buyer verifies it offline --------
+// A made-up transaction signature: this quickstart pays nothing.
+const fixtureTxSignature = base58(createHash('sha512').update('reddi:ard-no-spend:fixture-transaction').digest());
+const payment = {
+  network,
+  txSignature: fixtureTxSignature,
+  currency: 'AUDD',
+  mint: AUDD_DETERMINISTIC_FIXTURE_MINT,
+  amount,
+  fee: { amount: '0' },
+  settlement: 'direct',
+};
+const signedReceipt = await signReddiReceiptV2({
+  schemaVersion: 'reddi.receipt.v2',
+  providerId: provider.address,
+  declaredModel,
+  requestHash,
+  responseHash,
+  payment,
+  jobId,
+  issuedAt: createdAt,
+}, provider.signer);
+
+// The buyer passes only what it knows itself: who it chose, what it sent and
+// received, and the payment it would have made.
+const buyerExpectation = {
+  providerId: provider.address,
+  declaredModel,
+  requestHash,
+  responseHash,
+  payment: { network, txSignature: fixtureTxSignature, currency: 'AUDD', mint: AUDD_DETERMINISTIC_FIXTURE_MINT, amount, settlement: 'direct' },
+};
+const verification = assertOk(verifyReddiReceiptV2(signedReceipt, buyerExpectation), 'receipt_verification');
+
+// --- Evidence, attestation, reputation ----------------------------------------
+// The archive refuses signature-shaped fields, so the evidence names the signed
+// receipt by hash and keeps the receipt itself beside it.
+const evidencePayload = {
+  signedReceiptHash: `sha256:${hashReddiReceiptV2Body(JSON.stringify(signedReceipt))}`,
+  sourceId,
+  specialistId,
+};
+const evidence = createEvidenceArchiveRecord({
+  id: evidenceId,
+  receiptId: jobId,
+  sourceId,
+  requestHash: `sha256:${requestHash}`,
+  responseHash: `sha256:${responseHash}`,
+  evidenceRef: 'file://artifacts/ard-no-spend/evidence-001.json',
+  createdAt,
+  evidencePayload,
+  metadata: { publicLabel: 'ARD no-spend quickstart fixture' },
+});
+const archive = createLocalEvidenceArchive([evidence]);
+
 const attestation = createAttestationRecord({
   schemaVersion: 'reddi.attestation.v1',
-  id: `attestation:${nonce}`,
-  receiptId: specialistResponse.receipt.job.id,
-  evidenceId: specialistResponse.evidence.id,
-  evidenceRef: specialistResponse.evidence.evidenceRef,
-  evidenceHash: specialistResponse.evidence.evidenceHash,
+  id: 'attestation:ard-no-spend-001',
+  receiptId: jobId,
+  evidenceId: evidence.id,
+  evidenceRef: evidence.evidenceRef,
+  evidenceHash: evidence.evidenceHash,
   attestor: { id: 'attestor:local-fixture', type: 'local-fixture' },
   trustBoundary: 'self_attested',
   verdict: 'passed',
@@ -175,8 +222,8 @@ const attestation = createAttestationRecord({
   confidence: 82,
   rubric: {
     dimensions: [
-      { id: 'evidence_integrity', score: 88, weight: 1, summary: 'Receipt and evidence hashes are present.', reasonCodes: ['evidence_attached'] },
-      { id: 'policy_compliance', score: 92, weight: 1, summary: 'AUDD preflight and discovery policy allowed the dry-run.', reasonCodes: ['policy_allowed'] },
+      { id: 'evidence_integrity', score: 88, weight: 1, summary: 'Signed receipt and evidence hashes are present.', reasonCodes: ['evidence_attached'] },
+      { id: 'policy_compliance', score: 92, weight: 1, summary: 'Discovery policy allowed the fixture call.', reasonCodes: ['policy_allowed'] },
       { id: 'delivery_quality', score: 84, weight: 1, summary: 'Fixture produced a deterministic listing draft.', reasonCodes: ['specialist_completed'] },
     ],
   },
@@ -188,70 +235,38 @@ const reputation = applyAttestationToReputation(
   { now: createdAt },
 );
 
-const unsupportedNetwork = evaluateAuddPaymentPlanPreflight(challenge, {
-  allowedNetworks: ['solana-mainnet-beta'],
-  allowedMints: [auddMint],
-  allowedPayees: [payee],
-  allowedSettlementAccounts: [settlementAccount],
-  maxAmount: '3000000',
-  requireEvidence: true,
-  approvalState: 'approved',
-  now: '2026-06-19T07:45:01.000Z',
-});
+// --- Failure states: each one must refuse --------------------------------------
 const policyDenial = evaluateDiscoveryCandidatePolicyPreflight(candidate, {
-  allowedSourceKinds: ['direct-ai-catalog'],
-  requireVerifiedTrust: true,
-  allowedAssets: ['AUDD'],
-  allowedNetworks: ['solana-devnet'],
-  maxQuote: { amount: '1000', asset: 'AUDD', network: 'solana-devnet' },
+  ...discoveryPolicy,
+  maxQuote: { amount: '1000', asset: 'AUDD', network },
 });
-const malformedChallenge = evaluateBuyerPaymentChallenge({
-  ...createPaymentChallenge({
-    mode: 'dry-run',
-    quote: {
-      amount: '2500000',
-      asset: 'AUDD',
-      network: 'solana-devnet',
-      source: sourceId,
-      specialist: specialistId,
-    },
-    payTo: payee,
-    nonce: 'malformed-demo',
-    endpoint: 'fixture://specialists/listing-writer',
-  }),
-  quote: { amount: 2500000 },
+const unsupportedNetwork = evaluateDiscoveryCandidatePolicyPreflight(candidate, {
+  ...discoveryPolicy,
+  allowedNetworks: ['solana-mainnet-beta'],
+  maxQuote: { amount: '3000000', asset: 'AUDD', network: 'solana-mainnet-beta' },
 });
-const missingEvidence = validateEvidenceArchiveRecord(specialistResponse.evidence);
-const missingPaymentSetup = evaluateAuddPaymentPlanPreflight(challenge, {
-  allowedNetworks: ['solana-devnet'],
-  allowedMints: [auddMint],
-  allowedPayees: [payee],
-  allowedSettlementAccounts: [settlementAccount],
-  maxAmount: '3000000',
-  requireEvidence: true,
-  approvalState: 'pending',
-  now: '2026-06-19T07:45:01.000Z',
+const tamperedResponse = verifyReddiReceiptV2(signedReceipt, {
+  ...buyerExpectation,
+  responseHash: hashReddiReceiptV2Body(`${responseBody} `),
 });
+const wrongProvider = verifyReddiReceiptV2(signedReceipt, { ...buyerExpectation, providerId: otherProvider.address });
+const editedAfterSigning = verifyReddiReceiptV2({
+  ...signedReceipt,
+  receipt: { ...signedReceipt.receipt, declaredModel: 'fixture/a-bigger-model' },
+});
+const differentPayment = verifyReddiReceiptV2(signedReceipt, {
+  ...buyerExpectation,
+  payment: { ...buyerExpectation.payment, amount: '1' },
+});
+const removedVersion = validateReddiReceiptV2({ ...signedReceipt.receipt, schemaVersion: 'reddi.receipt.v1' });
+const missingEvidence = validateEvidenceArchiveRecord(evidence);
 const unsafeMetadata = validateEvidenceArchiveRecord({
-  ...specialistResponse.evidence,
+  ...evidence,
   metadata: {
     publicLabel: 'unsafe metadata fixture',
     api_key: 'redacted',
   },
-}, {
-  resultRef: specialistResponse.evidence.evidenceRef,
-});
-
-const railNeutralProofCases = Object.values(railNeutralProofChainFixtures).map((item) => ({
-  case: item.case,
-  status: item.status,
-  rail: item.sourceRef.rail,
-  sourceId: item.sourceRef.sourceId,
-  paymentProofRef: item.bindingRefs.paymentProofRef,
-  evidenceRef: item.bindingRefs.evidenceRef,
-  blockedBy: item.blockedBy?.map((error) => error.code) ?? [],
-  claimBoundaryLabels: item.claimBoundaryLabels,
-}));
+}, evidencePayload);
 
 console.log(JSON.stringify({
   ok: true,
@@ -282,33 +297,29 @@ console.log(JSON.stringify({
       payment: diagnostics.paymentFit.summary,
     },
   },
-  payment: {
-    asset: paymentPlan.asset,
-    network: paymentPlan.network,
-    mint: paymentPlan.mint,
-    mode: paymentPlan.paymentMode,
-    allowed: auddDecision.allowed,
-    reasonCodes: auddDecision.reasonCodes,
-    paymentProofRef: auddDecision.paymentProofRef,
+  receipt: {
+    schemaVersion: verification.receipt.schemaVersion,
+    verified: verification.ok,
+    providerId: verification.receipt.providerId,
+    declaredModel: verification.receipt.declaredModel,
+    jobId: verification.receipt.jobId,
+    requestHash: verification.receipt.requestHash,
+    responseHash: verification.receipt.responseHash,
+    payment: {
+      currency: verification.receipt.payment.currency,
+      network: verification.receipt.payment.network,
+      amount: verification.receipt.payment.amount,
+      settlement: verification.receipt.payment.settlement,
+      fixtureTransaction: true,
+    },
+    reading: 'The provider declared this model and this payment. It is not proof of which model ran, and no payment was made.',
   },
-  execution: {
-    status: specialistResponse.status,
-    result: specialistResponse.result,
-    receiptId: specialistResponse.receipt.job.id,
-    evidenceId: specialistResponse.evidence.id,
-    evidenceRef: specialistResponse.evidence.evidenceRef,
-    requestHash: specialistResponse.receipt.requestHash,
-    responseHash: specialistResponse.receipt.responseHash,
-    archiveHasEvidence: archive.has(specialistResponse.evidence.id),
-  },
-  receiptEvidenceBinding: {
-    receiptId: specialistResponse.receipt.job.id,
-    evidenceId: specialistResponse.evidence.id,
-    paymentProofRef: auddDecision.paymentProofRef,
-    requestHash: specialistResponse.receipt.requestHash,
-    responseHash: specialistResponse.receipt.responseHash,
-    evidenceRef: specialistResponse.evidence.evidenceRef,
-    bindingMode: 'local_fixture_refs_only',
+  evidence: {
+    evidenceId: evidence.id,
+    receiptId: evidence.receiptId,
+    evidenceRef: evidence.evidenceRef,
+    evidenceHash: evidence.evidenceHash,
+    archiveHasEvidence: archive.has(evidence.id),
   },
   attestation: {
     id: attestation.id,
@@ -318,48 +329,15 @@ console.log(JSON.stringify({
     routingImpact: reputation.ok ? reputation.state.routingImpact : undefined,
   },
   failures: {
-    policyDenial: {
-      allowed: policyDenial.allowed,
-      reasonCodes: policyDenial.reasonCodes,
-    },
-    malformedChallenge: {
-      allowed: malformedChallenge.allowed,
-      reasonCodes: malformedChallenge.reasonCodes,
-    },
-    missingEvidence: {
-      ok: missingEvidence.ok,
-      errorCodes: missingEvidence.ok ? [] : missingEvidence.errors.map((item) => item.code),
-    },
-    missingPaymentSetup: {
-      allowed: missingPaymentSetup.allowed,
-      reasonCodes: missingPaymentSetup.reasonCodes,
-    },
-    unsupportedRailNetwork: {
-      allowed: unsupportedNetwork.allowed,
-      reasonCodes: unsupportedNetwork.reasonCodes,
-    },
-    unsafeMetadata: {
-      ok: unsafeMetadata.ok,
-      errorCodes: unsafeMetadata.ok ? [] : unsafeMetadata.errors.map((item) => item.code),
-    },
-  },
-  railNeutralProofChain: {
-    schemaVersion: 'reddi.rail-neutral-proof-chain-fixture.v1',
-    bindingReadyCase: railNeutralProofCases.find((item) => item.status === 'binding_ready')?.case,
-    blockedCases: railNeutralProofCases.filter((item) => item.status === 'blocked').map((item) => item.case),
-    cases: railNeutralProofCases,
-  },
-  downstreamPublicProofContracts: {
-    publicProofPageData: 'reddi.economic-demo.public-proof-page-data.v1',
-    paidWorkflowProofUiFixturePack: 'reddi.economic-demo.paid-workflow-proof-ui-fixture-pack.v1',
-    stateLabels: [
-      'fixture_zero_spend',
-      'planned_dry_run',
-      'simulated',
-      'devnet_proof_metadata',
-      'live_gated',
-      'production_live_disabled',
-    ],
+    policyDenial: { allowed: policyDenial.allowed, reasonCodes: policyDenial.reasonCodes },
+    unsupportedNetwork: { allowed: unsupportedNetwork.allowed, reasonCodes: unsupportedNetwork.reasonCodes },
+    tamperedResponse: { ok: tamperedResponse.ok, errorCodes: errorCodes(tamperedResponse) },
+    wrongProvider: { ok: wrongProvider.ok, errorCodes: errorCodes(wrongProvider) },
+    editedAfterSigning: { ok: editedAfterSigning.ok, errorCodes: errorCodes(editedAfterSigning) },
+    differentPayment: { ok: differentPayment.ok, errorCodes: errorCodes(differentPayment) },
+    removedReceiptVersion: { ok: removedVersion.ok, errorCodes: errorCodes(removedVersion) },
+    missingEvidence: { ok: missingEvidence.ok, errorCodes: errorCodes(missingEvidence) },
+    unsafeMetadata: { ok: unsafeMetadata.ok, errorCodes: errorCodes(unsafeMetadata) },
   },
   boundaries: {
     hostedService: false,
@@ -369,12 +347,9 @@ console.log(JSON.stringify({
     splTransfer: false,
     quasarCustody: false,
     settlementFinalityProof: false,
+    modelExecutionProof: false,
     trustUpgrade: false,
     reputationMutation: false,
     livePayment: false,
-  },
-  hashes: {
-    request: hashJson(requestBody),
-    receipt: hashJson(specialistResponse.receipt),
   },
 }, null, 2));

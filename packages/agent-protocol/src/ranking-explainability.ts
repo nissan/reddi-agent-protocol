@@ -104,7 +104,7 @@ export type RankingCandidateHealthInput = {
 
 /**
  * Prior receipt/attestation/settlement EVIDENCE the caller already holds
- * (e.g. from `receipt-evidence-binding` records). References only — this
+ * (e.g. verified receipts and evidence archive records). References only — this
  * module never creates, verifies, or settles anything.
  */
 export type RankingCandidateEvidenceInput = {

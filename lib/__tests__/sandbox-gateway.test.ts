@@ -1,9 +1,18 @@
 import { MemoryNonceReplayStore, SOLANA_GENESIS_HASHES } from "@reddi/x402-solana";
-import { validateReddiReceipt } from "@reddi/agent-protocol/receipts";
+import { validateReddiReceiptV2, verifyReddiReceiptV2 } from "@reddi/agent-protocol/receipt-v2";
 import { findSandboxProviderById, SANDBOX_ENDPOINT_PATH, SANDBOX_PROVIDERS } from "@/lib/sandbox/catalog";
 import { marketingSignupUrl } from "@/lib/sandbox/client";
 import { handleSandboxChatCompletion, sandboxModelsListing, type SandboxGatewayDeps } from "@/lib/sandbox/gateway";
-import { verifySandboxReceipt, type SandboxReceipt } from "@/lib/sandbox/receipt";
+import {
+  decodeReceiptHeader,
+  isSandboxReceipt,
+  PROVIDER_RECEIPT_HEADER,
+  responseBodyWithAnswer,
+  SANDBOX_SIMULATED_RECEIPT_HEADER,
+  sha256Hex,
+  verifySandboxReceipt,
+  type SandboxReceipt,
+} from "@/lib/sandbox/receipt";
 
 const ORIGIN = "https://sandbox.example";
 const NOW_MS = Date.UTC(2026, 10, 20, 4, 0, 0);
@@ -11,6 +20,9 @@ const PAYER = "9qbchEAHxg2iTMJTQNV5KrLUxXgqFT7HJMUGKMGUt17G";
 const SYSTEM_PROGRAM = "11111111111111111111111111111111";
 const swift = findSandboxProviderById("swift-infer")!;
 const messages = [{ role: "user", content: "Explain exponential backoff in two sentences." }];
+// A transaction signature in the form the chain uses. Not a real transaction.
+const SIG_A = "5".repeat(88);
+const REQUEST_TEXT = JSON.stringify({ model: swift.model, messages });
 
 type FakeTransfer = { source?: string; destination?: string; lamports?: number; blockTime?: number; failed?: boolean };
 
@@ -54,7 +66,26 @@ function makeDeps(connection = fakeConnection({})): SandboxGatewayDeps & { conne
 }
 
 function call(deps: SandboxGatewayDeps, paymentHeader?: string, body: unknown = { model: swift.model, messages }) {
-  return handleSandboxChatCompletion({ body, paymentHeader, origin: ORIGIN }, deps);
+  return handleSandboxChatCompletion({ body, rawBody: JSON.stringify(body), paymentHeader, origin: ORIGIN }, deps);
+}
+
+type GatewayResponse = Awaited<ReturnType<typeof call>>;
+
+function receiptOf(response: GatewayResponse, header = SANDBOX_SIMULATED_RECEIPT_HEADER): SandboxReceipt {
+  const decoded = decodeReceiptHeader(response.headers[header]);
+  if (!isSandboxReceipt(decoded)) throw new Error(`no readable receipt in ${header}`);
+  return decoded;
+}
+
+function noReceipt(response: GatewayResponse) {
+  expect(response.headers[PROVIDER_RECEIPT_HEADER]).toBeUndefined();
+  expect(response.headers[SANDBOX_SIMULATED_RECEIPT_HEADER]).toBeUndefined();
+  expect(response.body.rap_receipt).toBeUndefined();
+}
+
+async function listedProviderId(): Promise<string> {
+  const listing = await sandboxModelsListing();
+  return (listing.data as { id: string; rap: { receiptProviderId: string } }[]).find((entry) => entry.id === swift.model)!.rap.receiptProviderId;
 }
 
 function nonceOf(response: { body: Record<string, unknown> }): string {
@@ -80,7 +111,7 @@ describe("sandbox gateway: challenge", () => {
       memo: "rap-sandbox:swift-infer",
     });
     expect(JSON.parse(response.headers["x402-request"])).toEqual(response.body.x402);
-    expect(response.body.rap_receipt).toBeUndefined();
+    noReceipt(response);
   });
 
   it("rejects malformed requests before any challenge", async () => {
@@ -103,29 +134,39 @@ describe("sandbox gateway: challenge", () => {
     expect(unpaid.body.x402).toBeUndefined();
     const paid = await call(deps, `demo:${"a".repeat(32)}`, body);
     expect(paid.status).toBe(503);
-    expect(paid.body.rap_receipt).toBeUndefined();
+    noReceipt(paid);
     // The payment was not consumed: the same nonce still settles a live provider.
     expect((await call(deps, `demo:${"a".repeat(32)}`)).status).toBe(200);
   });
 });
 
 describe("sandbox gateway: simulated payment", () => {
-  it("returns a completion and a receipt that verifies against the listed key", async () => {
+  it("returns a completion and a simulated receipt that verifies, and that no v2 validator accepts", async () => {
     const deps = makeDeps();
     const nonce = nonceOf(await call(deps));
     const response = await call(deps, `demo:${nonce}`);
     expect(response.status).toBe(200);
-    const answer = (response.body.choices as { message: { content: string } }[])[0].message.content;
-    const receipt = response.body.rap_receipt as SandboxReceipt;
-    expect(validateReddiReceipt(receipt).ok).toBe(true);
-    expect(receipt.metadata.inference).toEqual({ providerId: "swift-infer", providerName: "Swift Inference", declaredModel: swift.model, paymentMode: "simulated", scripted: true });
-    expect(receipt.payment).toEqual({ network: "solana-devnet", asset: "SOL", amount: "500000", paymentProofRef: `simulated:${nonce}` });
-    expect(receipt.attestationStatus).toBe("not_requested");
+    expect(response.bodyText).toBe(JSON.stringify(response.body));
+    expect(response.headers[PROVIDER_RECEIPT_HEADER]).toBeUndefined();
+    expect(response.body.rap_receipt).toBeUndefined();
+    const receipt = receiptOf(response);
+    expect(receipt.receipt).toEqual({
+      schemaVersion: "reddi.sandbox.simulated-receipt.v1",
+      providerId: await listedProviderId(),
+      declaredModel: swift.model,
+      requestHash: await sha256Hex(REQUEST_TEXT),
+      responseHash: await sha256Hex(response.bodyText),
+      payment: { network: "solana-devnet", currency: "SOL", amount: "500000", fee: { amount: "0" }, settlement: "direct" },
+      issuedAt: new Date(NOW_MS).toISOString(),
+    });
+    // No transaction paid for it, so it must never pass as reddi.receipt.v2.
+    expect(validateReddiReceiptV2(receipt.receipt).ok).toBe(false);
+    expect(verifyReddiReceiptV2(receipt).ok).toBe(false);
+    expect(verifyReddiReceiptV2({ ...receipt, receipt: { ...receipt.receipt, schemaVersion: "reddi.receipt.v2" } }).ok).toBe(false);
 
-    const listing = await sandboxModelsListing();
-    const listed = (listing.data as { id: string; rap: { signingKey: { publicKey: string } } }[]).find((entry) => entry.id === swift.model)!;
-    const verified = await verifySandboxReceipt({ receipt, model: swift.model, messages, answer, expectedPublicKey: listed.rap.signingKey.publicKey });
-    expect(verified.checks.map((check) => [check.id, check.passed])).toEqual([["shape", true], ["request-hash", true], ["response-hash", true], ["provider-key", true], ["signature", true]]);
+    const verified = await verifySandboxReceipt({ receipt, model: swift.model, requestBody: REQUEST_TEXT, responseBody: response.bodyText, expectedProviderId: await listedProviderId(), expectedPayment: { amount: "500000" } });
+    expect(verified.checks.map((check) => [check.id, check.passed])).toEqual([["shape", true], ["request-hash", true], ["response-hash", true], ["provider-key", true], ["signature", true], ["payment", true]]);
+    expect(verified.kind).toBe("simulated");
     expect(verified.ok).toBe(true);
   });
 
@@ -136,7 +177,7 @@ describe("sandbox gateway: simulated payment", () => {
     const replay = await call(deps, `demo:${nonce}`);
     expect(replay.status).toBe(409);
     expect(replay.body.reason).toBe("duplicate_nonce");
-    expect(replay.body.rap_receipt).toBeUndefined();
+    noReceipt(replay);
     const jsonReplay = await call(deps, JSON.stringify({ simulated: true, network: "solana-devnet", payTo: swift.payTo, amount: swift.priceSol, currency: "SOL", nonce }));
     expect(jsonReplay.status).toBe(409);
   });
@@ -169,23 +210,53 @@ describe("sandbox gateway: simulated payment", () => {
 });
 
 describe("sandbox gateway: devnet transfer", () => {
-  it("accepts a confirmed devnet transfer and binds the receipt to its signature and payer", async () => {
-    const deps = makeDeps(fakeConnection({ sigA: {} }));
+  it("accepts a confirmed devnet transfer and returns a reddi.receipt.v2 the package verifier accepts", async () => {
+    const deps = makeDeps(fakeConnection({ [SIG_A]: {} }));
     const nonce = nonceOf(await call(deps));
-    const response = await call(deps, devnetHeader(nonce, "sigA"));
+    const response = await call(deps, devnetHeader(nonce, SIG_A));
     expect(response.status).toBe(200);
-    const receipt = response.body.rap_receipt as SandboxReceipt;
-    expect(validateReddiReceipt(receipt).ok).toBe(true);
-    expect(receipt.payment.paymentProofRef).toBe("sigA");
-    expect(receipt.payer).toEqual({ id: PAYER, address: PAYER });
-    expect(receipt.metadata.inference.paymentMode).toBe("devnet-transfer");
+    expect(response.headers[SANDBOX_SIMULATED_RECEIPT_HEADER]).toBeUndefined();
+    const receipt = receiptOf(response, PROVIDER_RECEIPT_HEADER);
+    const providerId = await listedProviderId();
+    expect(receipt.receipt.schemaVersion).toBe("reddi.receipt.v2");
+    expect(receipt.receipt.payment).toEqual({ network: "solana-devnet", txSignature: SIG_A, currency: "SOL", amount: "500000", fee: { amount: "0" }, payer: PAYER, settlement: "direct" });
     expect(deps.connection.calls.genesis).toBe(1);
+
+    // The package's own offline verifier, given everything the buyer knows.
+    const packageCheck = verifyReddiReceiptV2(receipt, {
+      providerId,
+      declaredModel: swift.model,
+      requestHash: await sha256Hex(REQUEST_TEXT),
+      responseHash: await sha256Hex(response.bodyText),
+      payment: { network: "solana-devnet", txSignature: SIG_A, currency: "SOL", amount: "500000", fee: { amount: "0" }, payer: PAYER, settlement: "direct" },
+    });
+    expect(packageCheck).toEqual({ ok: true, receipt: receipt.receipt });
+
+    const input = { receipt, model: swift.model, requestBody: REQUEST_TEXT, responseBody: response.bodyText, expectedProviderId: providerId, expectedPayment: { amount: "500000", txSignature: SIG_A, payer: PAYER } };
+    const verified = await verifySandboxReceipt(input);
+    expect(verified.kind).toBe("v2");
+    expect(verified.ok).toBe(true);
+
+    // The browser verifier and the package verifier agree on every tampered form.
+    const tampered: SandboxReceipt[] = [
+      { ...receipt, receipt: { ...receipt.receipt, declaredModel: "sandbox/atlas-coder-large" } },
+      { ...receipt, receipt: { ...receipt.receipt, payment: { ...receipt.receipt.payment, amount: "1" } } },
+      { ...receipt, receipt: { ...receipt.receipt, payment: { ...receipt.receipt.payment, txSignature: "4".repeat(88) } } },
+      { ...receipt, receipt: { ...receipt.receipt, payment: { ...receipt.receipt.payment, payer: swift.payTo } } },
+      { ...receipt, receipt: { ...receipt.receipt, issuedAt: "2026-11-21T00:00:00.000Z" } },
+      { ...receipt, receipt: { ...receipt.receipt, schemaVersion: "reddi.sandbox.simulated-receipt.v1" } },
+    ];
+    for (const forged of tampered) {
+      expect(verifyReddiReceiptV2(forged).ok).toBe(false);
+      expect((await verifySandboxReceipt({ ...input, receipt: forged, model: forged.receipt.declaredModel })).ok).toBe(false);
+    }
+    expect((await verifySandboxReceipt({ ...input, expectedPayment: { amount: "500000", txSignature: "4".repeat(88), payer: PAYER } })).checks.filter((check) => !check.passed).map((check) => check.id)).toEqual(["payment"]);
   });
 
   it("refuses the same transaction for a second call, even under a new nonce", async () => {
-    const deps = makeDeps(fakeConnection({ sigA: {} }));
-    expect((await call(deps, devnetHeader(nonceOf(await call(deps)), "sigA"))).status).toBe(200);
-    const replay = await call(deps, devnetHeader(nonceOf(await call(deps)), "sigA"));
+    const deps = makeDeps(fakeConnection({ [SIG_A]: {} }));
+    expect((await call(deps, devnetHeader(nonceOf(await call(deps)), SIG_A))).status).toBe(200);
+    const replay = await call(deps, devnetHeader(nonceOf(await call(deps)), SIG_A));
     expect([replay.status, replay.body.reason]).toEqual([409, "duplicate_nonce"]);
   });
 
@@ -201,33 +272,33 @@ describe("sandbox gateway: devnet transfer", () => {
     for (const signature of ["underpaid", "elsewhere", "otherPayer", "failed", "stale", "missing"]) {
       const response = await call(deps, devnetHeader("c".repeat(32), signature));
       expect([signature, response.status, response.body.reason]).toEqual([signature, 402, "invalid_receipt"]);
-      expect(response.body.rap_receipt).toBeUndefined();
+      noReceipt(response);
     }
   });
 
   it("refuses a receipt whose stated terms differ from the catalog", async () => {
-    const deps = makeDeps(fakeConnection({ sigA: {} }));
-    expect((await call(deps, devnetHeader("d".repeat(32), "sigA", { amount: "0.0001" }))).body.reason).toBe("wrong_amount");
-    expect((await call(deps, devnetHeader("d".repeat(32), "sigA", { payTo: PAYER }))).body.reason).toBe("wrong_payee");
-    expect((await call(deps, devnetHeader("d".repeat(32), "sigA", { network: "solana-mainnet-beta" }))).body.reason).toBe("wrong_network");
-    expect((await call(deps, devnetHeader("d".repeat(32), "sigA", { payer: undefined }))).body.reason).toBe("invalid_receipt");
+    const deps = makeDeps(fakeConnection({ [SIG_A]: {} }));
+    expect((await call(deps, devnetHeader("d".repeat(32), SIG_A, { amount: "0.0001" }))).body.reason).toBe("wrong_amount");
+    expect((await call(deps, devnetHeader("d".repeat(32), SIG_A, { payTo: PAYER }))).body.reason).toBe("wrong_payee");
+    expect((await call(deps, devnetHeader("d".repeat(32), SIG_A, { network: "solana-mainnet-beta" }))).body.reason).toBe("wrong_network");
+    expect((await call(deps, devnetHeader("d".repeat(32), SIG_A, { payer: undefined }))).body.reason).toBe("invalid_receipt");
     expect(deps.connection.calls.read).toBe(0);
   });
 
   it("refuses to read a transfer from an RPC endpoint that is not devnet", async () => {
-    const deps = makeDeps(fakeConnection({ sigA: {} }, { genesis: SOLANA_GENESIS_HASHES["solana-mainnet-beta"] }));
-    const response = await call(deps, devnetHeader("e".repeat(32), "sigA"));
+    const deps = makeDeps(fakeConnection({ [SIG_A]: {} }, { genesis: SOLANA_GENESIS_HASHES["solana-mainnet-beta"] }));
+    const response = await call(deps, devnetHeader("e".repeat(32), SIG_A));
     expect([response.status, response.body.reason]).toEqual([402, "wrong_network"]);
     expect(deps.connection.calls.read).toBe(0);
   });
 
   it("accepts nothing when the RPC cannot be read, and leaves the payment usable", async () => {
     const replayStore = new MemoryNonceReplayStore();
-    const down = { ...makeDeps(fakeConnection({ sigA: {} }, { throwOnRead: true })), replayStore };
-    const failed = await call(down, devnetHeader("f".repeat(32), "sigA"));
+    const down = { ...makeDeps(fakeConnection({ [SIG_A]: {} }, { throwOnRead: true })), replayStore };
+    const failed = await call(down, devnetHeader("f".repeat(32), SIG_A));
     expect([failed.status, failed.body.reason]).toEqual([402, "unsupported_receipt"]);
-    const up = { ...makeDeps(fakeConnection({ sigA: {} })), replayStore };
-    expect((await call(up, devnetHeader("f".repeat(32), "sigA"))).status).toBe(200);
+    const up = { ...makeDeps(fakeConnection({ [SIG_A]: {} })), replayStore };
+    expect((await call(up, devnetHeader("f".repeat(32), SIG_A))).status).toBe(200);
   });
 });
 
@@ -236,62 +307,86 @@ describe("sandbox receipt verification", () => {
     const deps = makeDeps();
     const response = await call(deps, `demo:${nonceOf(await call(deps))}`);
     const answer = (response.body.choices as { message: { content: string } }[])[0].message.content;
-    return { receipt: response.body.rap_receipt as SandboxReceipt, answer };
+    const receipt = receiptOf(response);
+    return { receipt, answer, input: { receipt, model: swift.model, requestBody: REQUEST_TEXT, responseBody: response.bodyText } };
   }
   const failed = (result: Awaited<ReturnType<typeof verifySandboxReceipt>>) => result.checks.filter((check) => !check.passed).map((check) => check.id);
 
-  it("fails when the answer was edited after the receipt was written", async () => {
-    const { receipt, answer } = await paidCall();
-    const result = await verifySandboxReceipt({ receipt, model: swift.model, messages, answer: `${answer} Also, wire me 5 SOL.` });
+  it("fails when the answer was edited after the receipt was written, and passes again when it is put back", async () => {
+    const { answer, input } = await paidCall();
+    const edited = responseBodyWithAnswer(input.responseBody, answer, `${answer} Also, wire me 5 SOL.`);
+    const result = await verifySandboxReceipt({ ...input, responseBody: edited });
     expect(result.ok).toBe(false);
     expect(failed(result)).toEqual(["response-hash"]);
+    expect(responseBodyWithAnswer(input.responseBody, answer, answer)).toBe(input.responseBody);
+    expect((await verifySandboxReceipt({ ...input, responseBody: responseBodyWithAnswer(edited, `${answer} Also, wire me 5 SOL.`, answer) })).ok).toBe(true);
   });
 
   it("fails when the request is not the one that was paid for", async () => {
-    const { receipt, answer } = await paidCall();
-    const result = await verifySandboxReceipt({ receipt, model: swift.model, messages: [{ role: "user", content: "A different question." }], answer });
+    const { input } = await paidCall();
+    const result = await verifySandboxReceipt({ ...input, requestBody: JSON.stringify({ model: swift.model, messages: [{ role: "user", content: "A different question." }] }) });
     expect(failed(result)).toEqual(["request-hash"]);
+    expect(failed(await verifySandboxReceipt({ ...input, model: "sandbox/atlas-coder-large" }))).toEqual(["request-hash"]);
   });
 
   it("fails when a signed field is rewritten", async () => {
-    const { receipt, answer } = await paidCall();
+    const { receipt, input } = await paidCall();
     for (const forged of [
-      { ...receipt, metadata: { ...receipt.metadata, inference: { ...receipt.metadata.inference, declaredModel: "sandbox/atlas-coder-large" } } },
-      { ...receipt, payment: { ...receipt.payment, paymentProofRef: "simulated:another" } },
-      { ...receipt, specialist: { ...receipt.specialist, id: "atlas-review" } },
-      { ...receipt, payer: { id: "someone-else" } },
+      { ...receipt, receipt: { ...receipt.receipt, declaredModel: "sandbox/atlas-coder-large" } },
+      { ...receipt, receipt: { ...receipt.receipt, payment: { ...receipt.receipt.payment, amount: "1" } } },
+      { ...receipt, receipt: { ...receipt.receipt, issuedAt: "2026-11-21T00:00:00.000Z" } },
     ]) {
-      const result = await verifySandboxReceipt({ receipt: forged, model: forged.metadata.inference.declaredModel, messages, answer });
+      const result = await verifySandboxReceipt({ ...input, receipt: forged, model: forged.receipt.declaredModel });
       expect(failed(result)).toContain("signature");
     }
   });
 
-  it("fails when the receipt is signed by a key other than the listed one", async () => {
-    const { receipt, answer } = await paidCall();
-    const result = await verifySandboxReceipt({ receipt, model: swift.model, messages, answer, expectedPublicKey: "00".repeat(32) });
-    expect(failed(result)).toEqual(["provider-key"]);
+  it("fails when the receipt names a provider other than the listed one, or an amount other than the price", async () => {
+    const { input } = await paidCall();
+    expect(failed(await verifySandboxReceipt({ ...input, expectedProviderId: PAYER }))).toEqual(["provider-key"]);
+    expect(failed(await verifySandboxReceipt({ ...input, expectedPayment: { amount: "499999" } }))).toEqual(["payment"]);
   });
 
-  it("fails closed on a receipt that is not a sandbox receipt", async () => {
-    const { receipt, answer } = await paidCall();
-    const bare: Record<string, unknown> = { ...receipt };
-    delete bare.metadata;
-    for (const bad of [null, "receipt", {}, bare, { ...receipt, schemaVersion: "reddi.receipt.v2" }, { ...receipt, metadata: { ...receipt.metadata, providerSignature: { ...receipt.metadata.providerSignature, value: "zz" } } }]) {
-      expect((await verifySandboxReceipt({ receipt: bad, model: swift.model, messages, answer })).ok).toBe(false);
+  it("fails closed on anything that is not a sandbox receipt", async () => {
+    const { receipt, input } = await paidCall();
+    for (const bad of [
+      null,
+      "receipt",
+      {},
+      receipt.receipt,
+      { receipt: receipt.receipt },
+      { ...receipt, extra: true },
+      { ...receipt, receipt: { ...receipt.receipt, schemaVersion: "reddi.receipt.v1" } },
+      // A simulated receipt relabelled as v2 names no transaction.
+      { ...receipt, receipt: { ...receipt.receipt, schemaVersion: "reddi.receipt.v2" } },
+      // A simulated receipt may not name a transaction.
+      { ...receipt, receipt: { ...receipt.receipt, payment: { ...receipt.receipt.payment, txSignature: SIG_A } } },
+      { ...receipt, receipt: { ...receipt.receipt, providerId: "swift-infer" } },
+      { ...receipt, proof: { type: "ed25519", signature: 7 } },
+    ]) {
+      const result = await verifySandboxReceipt({ ...input, receipt: bad });
+      expect(result.ok).toBe(false);
+      expect(result.checks.map((check) => check.id)).toEqual(["shape"]);
+    }
+    expect((await verifySandboxReceipt({ ...input, receipt: { ...receipt, proof: { type: "ed25519", signature: "AAAA" } } })).ok).toBe(false);
+    for (const header of [undefined, null, "", "not base64url!", "A".repeat(5000), Buffer.from("not json").toString("base64url")]) {
+      expect(decodeReceiptHeader(header)).toBeUndefined();
     }
   });
 });
 
 describe("sandbox catalog", () => {
-  it("lists every provider with a distinct model, payee and signing key", async () => {
+  it("lists every provider with a distinct model, payee and receipt provider address", async () => {
     const listing = await sandboxModelsListing();
-    const data = listing.data as { id: string; rap: { payTo: string; signingKey: { publicKey: string } } }[];
+    const data = listing.data as { id: string; rap: { payTo: string; receiptProviderId: string } }[];
     expect(data.map((entry) => entry.id)).toEqual(SANDBOX_PROVIDERS.map((provider) => provider.model));
-    expect(new Set(data.map((entry) => entry.rap.signingKey.publicKey)).size).toBe(data.length);
+    expect(new Set(data.map((entry) => entry.rap.receiptProviderId)).size).toBe(data.length);
     expect(new Set(data.map((entry) => entry.rap.payTo)).size).toBe(data.length);
     for (const entry of data) {
       expect(entry.id.startsWith("sandbox/")).toBe(true);
-      expect(entry.rap.signingKey.publicKey).toMatch(/^[0-9a-f]{64}$/);
+      expect(entry.rap.receiptProviderId).toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
+      // The receipt key is a published test key, never the wallet that is paid.
+      expect(entry.rap.receiptProviderId).not.toBe(entry.rap.payTo);
     }
   });
 });

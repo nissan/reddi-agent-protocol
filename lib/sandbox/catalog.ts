@@ -4,7 +4,7 @@
  * Everything here is sandbox data. Providers answer from a script, not from a
  * running model, so each declared model id carries the `sandbox/` prefix and no
  * receipt names a model that did not run. Payee addresses are the public devnet
- * wallets already recorded in lib/economic-demo/openrouter-endpoints.ts.
+ * wallets first recorded for the earlier economic demo.
  */
 
 export const SANDBOX_NETWORK = "solana-devnet" as const;
@@ -124,8 +124,8 @@ export const SANDBOX_SCENARIOS: readonly SandboxScenario[] = [
   {
     id: "try-to-cheat",
     title: "Try to cheat",
-    persona: "You are the adversary. Reuse a payment, underpay, or edit the answer after the fact.",
-    hook: "Three ways to cheat, and what each one runs into.",
+    persona: "You are the adversary. Reuse a payment, underpay, pay the wrong wallet, or edit the answer after the fact.",
+    hook: "Four ways to cheat, and what each one runs into.",
     takeaway: "A payment settles one call, the amount and payee are checked against the challenge, and an edited answer no longer matches its receipt.",
     prompt: "Summarise the risk in one sentence: we store session tokens in localStorage.",
     providerIds: ["swift-infer"],

@@ -159,10 +159,12 @@ The provider-signed receipt is `reddi.receipt.v2`, with an offline verifier
 (`packages/agent-protocol/src/receipt-v2.ts`). The owner chose a new receipt version over
 an extension block next to v1 (20 November 2026). v2 is issued and signed by the
 provider and carries the provider wallet, declared model, request and response hashes
-and the payment transaction. It is not a superset of v1: `reddi.receipt.v1` stays frozen
-with its own validator, each validator rejects the other version, and v2 carries no
-amount (the amount is read from the transaction it names). It records a declared model,
-never verified execution.
+and the payment: transaction, currency and mint, the listed price and the protocol fee in
+smallest units, the fee treasury, `direct` or `escrow`, and the payer when the provider
+checked it (#776). v2 is the one receipt for V1 paid calls; `reddi.receipt.v1` and the
+modules built on it were removed, and the validator rejects any other version. The payment fields are the
+provider's statement: the app saves a receipt only when they equal what it verified on
+chain. It records a declared model, never verified execution.
 
 After a delivered, recorded job the app reads the `x-reddi-provider-receipt` response
 header (base64url JSON of the signed v2 receipt) and saves it to `receipts` only if the
@@ -173,7 +175,10 @@ response bytes the app sent and received and the transaction it checked on chain
 The specialist runtime (`packages/openrouter-specialists`) can issue that header for a
 delivered chat completion paid with a real, verified payment. It is off unless the
 operator passes a `signProviderReceipt` function to `handleRuntimeRequest`; the runtime
-reads no key itself and `server.ts` passes none yet. It issues nothing while demo
+reads no key itself. `server.ts` builds that function from the keypair file named by
+`PROVIDER_RECEIPT_KEYPAIR_PATH` (owner-only file, public key equal to the profile's
+wallet), and refuses to start without it when real payments are on and demo payments are
+off (#776). No deployed specialist has been given a key. It issues nothing while demo
 payments are allowed.
 
 After a job is recorded, delivered or not, the server recounts that provider's rows in
@@ -183,7 +188,7 @@ finishing together cannot lose an update, and nothing is written if any count ca
 read. These are counts of recorded jobs, not a quality score: a provider who pays their
 own listing adds to their own count. No page shows the counts yet.
 
-Not built yet: how an operator supplies the provider signing key to `server.ts`, and
+Not built yet: the runtime's mainnet network setting (receipts name `solana-devnet`), and
 writing attestations.
 
 ## Replay store

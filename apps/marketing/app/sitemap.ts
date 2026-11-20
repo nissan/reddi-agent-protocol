@@ -5,5 +5,5 @@ export const dynamic = 'force-static';
 export default function sitemap(): MetadataRoute.Sitemap {
   // Published updates only: a draft is never listed, wherever the build runs.
   const updates = visibleUpdates(false).map((u) => `/updates/${u.slug}`);
-  return ['', '/status', '/sandbox', '/updates', ...updates, '/privacy', '/terms'].map((p) => ({ url: `${siteUrl}${p}` }));
+  return ['', '/status', '/market', '/sandbox', '/updates', ...updates, '/privacy', '/terms'].map((p) => ({ url: `${siteUrl}${p}` }));
 }

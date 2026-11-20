@@ -3,7 +3,7 @@
  * signatures happen in the visitor's own wallet, in the page component.
  */
 import { SANDBOX_CURRENCY, SANDBOX_ENDPOINT_PATH, SANDBOX_NETWORK, type SandboxProvider } from "./catalog";
-import type { SandboxChatMessage } from "./receipt";
+import { decodeReceiptHeader, PROVIDER_RECEIPT_HEADER, SANDBOX_SIMULATED_RECEIPT_HEADER, type SandboxChatMessage } from "./receipt";
 
 export type SandboxChallenge = {
   version: string;
@@ -22,7 +22,17 @@ export type SandboxExchange = {
   response: { status: number; body: unknown };
 };
 
-export type SandboxCallResult = { status: number; body: Record<string, unknown>; exchange: SandboxExchange };
+export type SandboxCallResult = {
+  status: number;
+  body: Record<string, unknown>;
+  /** The request body bytes that were sent, as text. */
+  requestText: string;
+  /** The response body bytes that came back, as text. */
+  responseText: string;
+  /** The decoded receipt header, if the response carried one. Unchecked. */
+  receipt?: unknown;
+  exchange: SandboxExchange;
+};
 
 export async function callSandbox(input: {
   label: string;
@@ -34,18 +44,30 @@ export async function callSandbox(input: {
   const requestBody = { model: input.model, messages: input.messages };
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (input.paymentHeader) headers["x402-payment"] = input.paymentHeader;
-  const response = await (input.fetchImpl ?? fetch)(SANDBOX_ENDPOINT_PATH, { method: "POST", headers, body: JSON.stringify(requestBody), cache: "no-store" });
+  const requestText = JSON.stringify(requestBody);
+  const response = await (input.fetchImpl ?? fetch)(SANDBOX_ENDPOINT_PATH, { method: "POST", headers, body: requestText, cache: "no-store" });
   let body: Record<string, unknown>;
+  let responseText = "";
   try {
-    const parsed: unknown = await response.json();
+    responseText = await response.text();
+    const parsed: unknown = JSON.parse(responseText);
     body = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : { error: { code: "bad_response", message: "The sandbox returned an unexpected reply." } };
   } catch {
     body = { error: { code: "bad_response", message: "The sandbox returned a reply that is not JSON." } };
   }
+  const receiptHeader = response.headers?.get(PROVIDER_RECEIPT_HEADER) ?? response.headers?.get(SANDBOX_SIMULATED_RECEIPT_HEADER);
+  const receipt = decodeReceiptHeader(receiptHeader);
   return {
     status: response.status,
     body,
-    exchange: { label: input.label, request: { method: "POST", path: SANDBOX_ENDPOINT_PATH, headers, body: requestBody }, response: { status: response.status, body } },
+    requestText,
+    responseText,
+    ...(receipt !== undefined ? { receipt } : {}),
+    exchange: {
+      label: input.label,
+      request: { method: "POST", path: SANDBOX_ENDPOINT_PATH, headers, body: requestBody },
+      response: { status: response.status, body: receipt !== undefined ? { ...body, "(receipt header, decoded)": receipt } : body },
+    },
   };
 }
 

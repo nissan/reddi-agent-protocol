@@ -61,7 +61,7 @@ export default function UpdatesPage() {
               href="/spec"
               className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-black"
             >
-              ADL v0.2.0-beta spec
+              ADL v0.3 spec
             </Link>
             <Link
               href="/feedback"

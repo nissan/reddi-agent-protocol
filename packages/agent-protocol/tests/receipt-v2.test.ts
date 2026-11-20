@@ -6,8 +6,6 @@ import {
   canonicalizeReddiReceiptV2,
   hashReddiReceiptV2Body,
   signReddiReceiptV2,
-  reddiReceiptFixtures,
-  validateReddiReceipt,
   validateReddiReceiptV2,
   verifyReddiReceiptV2,
   type ReddiReceiptV2,
@@ -37,6 +35,21 @@ function testProvider(): { address: string; signer: ReddiReceiptV2Signer; privat
 }
 
 const TX = '5'.repeat(88);
+// Throwaway addresses for the test only.
+const MINT = base58(Buffer.alloc(32, 4));
+const TREASURY = base58(Buffer.alloc(32, 3));
+const PAYER = base58(Buffer.alloc(32, 2));
+/** A 1.000000 USDC call with the 0.05% fee, paid directly. */
+const PAYMENT = {
+  network: 'solana-devnet',
+  txSignature: TX,
+  currency: 'USDC',
+  mint: MINT,
+  amount: '1000000',
+  fee: { amount: '500', treasury: TREASURY },
+  payer: PAYER,
+  settlement: 'direct',
+} as const;
 const REQUEST = '{"model":"llama3.1:8b","messages":[{"role":"user","content":"hi"}]}';
 const RESPONSE = '{"choices":[{"message":{"role":"assistant","content":"hello"}}]}';
 
@@ -47,7 +60,7 @@ function receiptFor(address: string, overrides: Partial<ReddiReceiptV2> = {}): R
     declaredModel: 'llama3.1:8b',
     requestHash: hashReddiReceiptV2Body(REQUEST),
     responseHash: hashReddiReceiptV2Body(RESPONSE),
-    payment: { network: 'solana-devnet', txSignature: TX },
+    payment: PAYMENT,
     issuedAt: '2026-11-20T09:00:00Z',
     ...overrides,
   };
@@ -83,8 +96,14 @@ describe('reddi.receipt.v2', () => {
       { declaredModel: 'gpt-large' },
       { requestHash: 'a'.repeat(64) },
       { responseHash: 'b'.repeat(64) },
-      { payment: { network: 'solana-devnet', txSignature: '4'.repeat(88) } },
-      { payment: { network: 'solana-mainnet-beta', txSignature: TX } },
+      { payment: { ...PAYMENT, txSignature: '4'.repeat(88) } },
+      { payment: { ...PAYMENT, network: 'solana-mainnet-beta' } },
+      { payment: { ...PAYMENT, amount: '999999' } },
+      { payment: { ...PAYMENT, currency: 'AUDD' } },
+      { payment: { ...PAYMENT, fee: { amount: '0', treasury: TREASURY } } },
+      { payment: { ...PAYMENT, payer: TREASURY } },
+      { payment: { ...PAYMENT, settlement: 'escrow' } },
+      { jobId: 'job-2' },
       { issuedAt: '2026-11-21T09:00:00Z' },
     ];
     for (const change of tampered) {
@@ -162,9 +181,23 @@ describe('reddi.receipt.v2', () => {
       { ...good, declaredModel: 'line\nbreak' },
       { ...good, requestHash: 'A'.repeat(64) },
       { ...good, responseHash: 'abc' },
-      { ...good, payment: { network: 'solana-testnet', txSignature: TX } },
-      { ...good, payment: { network: 'solana-devnet', txSignature: 'short' } },
-      { ...good, payment: { network: 'solana-devnet', txSignature: TX, memo: 'x' } },
+      { ...good, payment: { ...PAYMENT, network: 'solana-testnet' } },
+      { ...good, payment: { ...PAYMENT, txSignature: 'short' } },
+      { ...good, payment: { ...PAYMENT, memo: 'x' } },
+      { ...good, payment: { network: 'solana-devnet', txSignature: TX } },
+      { ...good, payment: { ...PAYMENT, currency: 'EUR' } },
+      { ...good, payment: { ...PAYMENT, mint: undefined } },
+      { ...good, payment: { ...PAYMENT, currency: 'SOL' } },
+      { ...good, payment: { ...PAYMENT, amount: '0' } },
+      { ...good, payment: { ...PAYMENT, amount: '1.5' } },
+      { ...good, payment: { ...PAYMENT, amount: 1000000 } },
+      { ...good, payment: { ...PAYMENT, amount: '01' } },
+      { ...good, payment: { ...PAYMENT, fee: { amount: '500' } } },
+      { ...good, payment: { ...PAYMENT, fee: { amount: '1000000', treasury: TREASURY } } },
+      { ...good, payment: { ...PAYMENT, fee: { amount: '500', treasury: TREASURY, bps: 5 } } },
+      { ...good, payment: { ...PAYMENT, payer: 'nope' } },
+      { ...good, payment: { ...PAYMENT, settlement: 'card' } },
+      { ...good, jobId: 'has space' },
       { ...good, issuedAt: '20 Nov 2026' },
       { ...good, issuedAt: '2026-13-40T99:00:00Z' },
       { ...good, verifiedExecution: true },
@@ -176,9 +209,39 @@ describe('reddi.receipt.v2', () => {
   it('canonical bytes do not depend on the order the fields were written in', () => {
     const provider = testProvider();
     const good = receiptFor(provider.address);
-    const reordered = { issuedAt: good.issuedAt, payment: { txSignature: TX, network: 'solana-devnet' as const }, responseHash: good.responseHash, requestHash: good.requestHash, declaredModel: good.declaredModel, providerId: good.providerId, schemaVersion: good.schemaVersion };
+    const reordered = { issuedAt: good.issuedAt, payment: { settlement: 'direct' as const, payer: PAYER, fee: { treasury: TREASURY, amount: '500' }, amount: '1000000', mint: MINT, currency: 'USDC' as const, txSignature: TX, network: 'solana-devnet' as const }, responseHash: good.responseHash, requestHash: good.requestHash, declaredModel: good.declaredModel, providerId: good.providerId, schemaVersion: good.schemaVersion };
     assert.equal(canonicalizeReddiReceiptV2(reordered), canonicalizeReddiReceiptV2(good));
     assert.ok(canonicalizeReddiReceiptV2(good).startsWith(`{"schemaVersion":"${REDDI_RECEIPT_V2_VERSION}"`));
+  });
+
+  it('accepts SOL without a mint, a zero fee without a treasury, no payer and a job id (RAP-V2-S1)', async () => {
+    const provider = testProvider();
+    const receipt = receiptFor(provider.address, {
+      payment: { network: 'solana-mainnet-beta', txSignature: TX, currency: 'SOL', amount: '1000', fee: { amount: '0' }, settlement: 'escrow' },
+      jobId: 'job_01:abc-1.2',
+    });
+    const signed = await signReddiReceiptV2(receipt, provider.signer);
+    assert.equal(verifyReddiReceiptV2(JSON.parse(JSON.stringify(signed))).ok, true);
+    for (const currency of ['USDC', 'PYUSD', 'USDG', 'AUDD'] as const) {
+      assert.equal(validateReddiReceiptV2(receiptFor(provider.address, { payment: { ...PAYMENT, currency } })).ok, true, currency);
+    }
+  });
+
+  it('compares each payment field the verifier supplies (RAP-V2-S2)', async () => {
+    const provider = testProvider();
+    const signed = await signReddiReceiptV2(receiptFor(provider.address), provider.signer);
+    const base = { network: 'solana-devnet', txSignature: TX } as const;
+    assert.equal(verifyReddiReceiptV2(signed, { payment: { ...base, currency: 'USDC', mint: MINT, amount: '1000000', payer: PAYER, settlement: 'direct', fee: { amount: '500', treasury: TREASURY } } }).ok, true);
+    const wrong = [
+      { ...base, currency: 'AUDD' as const },
+      { ...base, mint: TREASURY },
+      { ...base, amount: '999999' },
+      { ...base, payer: TREASURY },
+      { ...base, settlement: 'escrow' as const },
+      { ...base, fee: { amount: '499' } },
+      { ...base, fee: { amount: '500', treasury: PAYER } },
+    ];
+    for (const payment of wrong) assert.deepEqual(codes(verifyReddiReceiptV2(signed, { payment })), ['payment_mismatch'], JSON.stringify(payment));
   });
 
   it('refuses to sign an invalid receipt', async () => {
@@ -186,12 +249,11 @@ describe('reddi.receipt.v2', () => {
     await assert.rejects(signReddiReceiptV2(receiptFor(provider.address, { declaredModel: '' }), provider.signer), /invalid_reddi_receipt_v2/);
   });
 
-  it('is a separate version: each validator rejects the other version', () => {
+  it('rejects the removed receipt versions', () => {
     const v2 = receiptFor(testProvider().address);
-    assert.equal(validateReddiReceipt(v2).ok, false);
-    const asV2 = validateReddiReceiptV2(reddiReceiptFixtures.happyPath);
-    assert.equal(asV2.ok, false);
-    if (!asV2.ok) assert.equal(asV2.errors[0]?.code, 'unsupported_version');
+    const asV1 = validateReddiReceiptV2({ ...v2, schemaVersion: 'reddi.receipt.v1' });
+    assert.equal(asV1.ok, false);
+    if (!asV1.ok) assert.equal(asV1.errors[0]?.code, 'unsupported_version');
     const retired = validateReddiReceiptV2({ ...v2, schemaVersion: 'reddi.receipt.provider-extension.v1' });
     assert.equal(retired.ok, false);
     if (!retired.ok) assert.equal(retired.errors[0]?.code, 'unsupported_version');

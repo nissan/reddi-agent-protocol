@@ -4,8 +4,6 @@ on:
   pull_request:
     paths:
       - "packages/agent-protocol/**"
-      - "app/economic-demo/paid-workflow/**"
-      - "lib/economic-demo/**"
       - "lib/wallet/playwright-wallet-*.ts"
       - "scripts/check-browser-wallet-*.mjs"
       - "scripts/test-browser-wallet-safety-checks.mjs"
@@ -14,8 +12,6 @@ on:
       - "docs/WALLET-MOCK-PLAYWRIGHT.md"
       - "next.config.ts"
       - "playwright.config.ts"
-      - "scripts/check-paid-workflow-copy-boundaries.mjs"
-      - "e2e/economic-demo-paid-workflow*.ts"
       - "docs/DISCOVER-DECIDE-PROVE-BOUNDARIES.md"
       - "scripts/lib/workflow-yaml.mjs"
       - "scripts/__tests__/surfpool-lane-boundaries.test.mjs"
@@ -83,17 +79,6 @@ jobs:
       # See docs/SURFPOOL-QUASAR-CRITICAL-SDK-LANE.md § Hosted CI.
       - name: Verify lane trigger and safety boundaries
         run: npm run test:surfpool:lane-boundaries
-
-      - name: Copy-boundary regression gate (#501)
-        run: node scripts/check-paid-workflow-copy-boundaries.mjs
-
-      - name: Copy-boundary gate negative control (#501, must fail)
-        run: |
-          if node scripts/check-paid-workflow-copy-boundaries.mjs --negative-control; then
-            echo "Negative control did not fail — the gate can no longer catch forbidden copy."
-            exit 1
-          fi
-          echo "Negative control failed as expected (gate exits 1 on injected forbidden copy)."
 
       - name: Browser-wallet safety preflight suite
         run: npm run test:browser-wallet:safety

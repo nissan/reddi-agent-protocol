@@ -13,3 +13,4 @@ export * from "./runtime.js";
 export * from "./replay-store.js";
 export * from "./wallet-readiness.js";
 export * from "./wallet-rotation-plan.js";
+export * from "./provider-signer.js";

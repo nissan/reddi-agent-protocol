@@ -176,6 +176,13 @@ The service key is a server secret. Supply it through the host's secret store; n
 
 ## Provider receipt header
 
-`handleRuntimeRequest` accepts an optional `signProviderReceipt` function. When it is given, a delivered `/v1/chat/completions` call that was paid with a real, verified payment returns an `x-reddi-provider-receipt` header: base64url JSON of a signed `reddi.receipt.v2` receipt naming this profile's wallet, the configured model, the SHA-256 of the request and response bodies and the payment transaction. `signReddiReceiptV2` from `@reddi/agent-protocol` produces the signed receipt.
+`handleRuntimeRequest` accepts an optional `signProviderReceipt` function. When it is given, a delivered `/v1/chat/completions` call that was paid with a real, verified payment returns an `x-reddi-provider-receipt` header: base64url JSON of a signed `reddi.receipt.v2` receipt naming this profile's wallet, the configured model, the SHA-256 of the request and response bodies and the payment: transaction, currency, configured mint, listed price and protocol fee in smallest units, and the payer when the payment named one. No header is sent when the mint for the listed currency is not configured. `signReddiReceiptV2` from `@reddi/agent-protocol` produces the signed receipt.
 
-The runtime never reads a signing key, and `src/server.ts` does not pass a signer, so no deployed specialist issues receipts today. Nothing is issued while demo payments are allowed, and a signer failure leaves the answer untouched. The model in the receipt is the one the runtime is configured to call: a declaration, not proof of which model ran.
+The runtime itself never reads a signing key. The server entry point (`src/server.ts`) builds the signer at start through `src/provider-signer.ts`:
+
+- `PROVIDER_RECEIPT_KEYPAIR_PATH` names a Solana keypair file (a JSON array of 64 bytes) for this profile's wallet. The key is read from that file once; it is never taken from an environment variable, logged or returned.
+- The file must be readable by its owner only (`chmod 600`) and its public key must be the profile's wallet. Otherwise the server refuses to start.
+- With `ALLOW_REAL_X402_PAYMENT` on and demo payments off, the server refuses to start without the file, so it never takes a real payment it cannot issue a receipt for.
+- With demo payments allowed and no file set, the server starts and issues no receipts.
+
+The keypair file is a secret. Mount it from the host's secret store; never commit it or bake it into an image. This is source-level: no deployed specialist has been given a key, so none issues receipts today. Receipts name `solana-devnet`; the mainnet network setting is a separate, owner-approved change. Nothing is issued while demo payments are allowed, and a signer failure leaves the answer untouched. The model in the receipt is the one the runtime is configured to call: a declaration, not proof of which model ran.

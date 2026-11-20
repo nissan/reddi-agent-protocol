@@ -32,7 +32,7 @@ import {
   type SandboxChallenge,
   type SandboxExchange,
 } from "@/lib/sandbox/client";
-import { verifySandboxReceipt, type SandboxReceipt, type SandboxVerification } from "@/lib/sandbox/receipt";
+import { isSandboxReceipt, responseBodyWithAnswer, verifySandboxReceipt, type SandboxReceipt, type SandboxVerification } from "@/lib/sandbox/receipt";
 import { applySandboxReputation, initialSandboxReputation, type SandboxReputation } from "@/lib/sandbox/reputation";
 
 const WalletMultiButton = dynamic(
@@ -56,6 +56,9 @@ type Answered = {
   provider: SandboxProvider;
   messages: { role: string; content: string }[];
   answer: string;
+  /** The request and response body bytes, as text: what the receipt hashes cover. */
+  requestText: string;
+  responseText: string;
   receipt: SandboxReceipt;
   spotCheck: SandboxSpotCheck;
   paymentHeader: string;
@@ -69,6 +72,20 @@ function lamportsFromSol(amount: string): number | undefined {
   if (!match) return undefined;
   const lamports = Number(match[1]) * 1_000_000_000 + Number((match[2] ?? "").padEnd(9, "0"));
   return Number.isSafeInteger(lamports) && lamports > 0 ? lamports : undefined;
+}
+
+/** What the visitor knows it paid: the listed price, and the transaction and wallet for a devnet transfer. */
+function expectedPaymentFor(provider: SandboxProvider, paymentHeader: string): { amount?: string; txSignature?: string; payer?: string } {
+  const lamports = lamportsFromSol(provider.priceSol);
+  const expected: { amount?: string; txSignature?: string; payer?: string } = lamports !== undefined ? { amount: String(lamports) } : {};
+  try {
+    const sent = JSON.parse(paymentHeader) as { txSignature?: unknown; payer?: unknown };
+    if (typeof sent.txSignature === "string") expected.txSignature = sent.txSignature;
+    if (typeof sent.payer === "string") expected.payer = sent.payer;
+  } catch {
+    // A demo:<nonce> header names no transaction.
+  }
+  return expected;
 }
 
 function pretty(value: unknown): string {
@@ -132,7 +149,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
   const [reputation, setReputation] = useState(() => initialSandboxReputation(SANDBOX_PROVIDERS));
   const [receipts, setReceipts] = useState<SandboxReceipt[]>([]);
   const [providerKeys, setProviderKeys] = useState<Record<string, string>>({});
-  const [origin, setOrigin] = useState("https://agent-protocol.reddi.tech");
+  const [origin, setOrigin] = useState("https://app.agent-protocol.reddi.tech");
   const [pendingWalletPayment, setPendingWalletPayment] = useState<string | null>(null);
   // True once the page is interactive and the provider key listing has settled.
   const [ready, setReady] = useState(false);
@@ -147,11 +164,11 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
     let cancelled = false;
     fetch(SANDBOX_MODELS_PATH, { cache: "no-store" })
       .then((response) => response.json())
-      .then((listing: { data?: { rap?: { providerId?: string; signingKey?: { publicKey?: string } } }[] }) => {
+      .then((listing: { data?: { rap?: { providerId?: string; receiptProviderId?: string } }[] }) => {
         if (cancelled) return;
         const keys: Record<string, string> = {};
         for (const entry of listing.data ?? []) {
-          if (entry.rap?.providerId && entry.rap.signingKey?.publicKey) keys[entry.rap.providerId] = entry.rap.signingKey.publicKey;
+          if (entry.rap?.providerId && entry.rap.receiptProviderId) keys[entry.rap.providerId] = entry.rap.receiptProviderId;
         }
         setProviderKeys(keys);
       })
@@ -227,14 +244,25 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
     }
     const choices = result.body.choices as { message?: { content?: unknown } }[] | undefined;
     const answer = typeof choices?.[0]?.message?.content === "string" ? choices[0].message.content : "";
-    const receipt = result.body.rap_receipt as SandboxReceipt;
+    if (!isSandboxReceipt(result.receipt)) {
+      setNotice({ tone: "bad", title: "The answer came without a receipt", text: "The sandbox answered but sent no readable receipt, so there is nothing to check. Run the call again." });
+      return "refused";
+    }
+    const receipt = result.receipt;
     const spotCheck = (result.body.rap_sandbox as { spotCheck: SandboxSpotCheck }).spotCheck;
-    const checked = await verifySandboxReceipt({ receipt, model: provider.model, messages, answer, expectedPublicKey: providerKeys[provider.id] });
+    const checked = await verifySandboxReceipt({
+      receipt,
+      model: provider.model,
+      requestBody: result.requestText,
+      responseBody: result.responseText,
+      expectedProviderId: providerKeys[provider.id],
+      expectedPayment: expectedPaymentFor(provider, paymentHeader),
+    });
     const before = reputation[provider.id];
     const after = applySandboxReputation(before, { receiptVerified: checked.ok, spotCheckPassed: spotCheck.passed });
     setReputation((current) => ({ ...current, [provider.id]: after }));
     setReceipts((current) => [...current, receipt]);
-    setAnswered({ provider, messages, answer, receipt, spotCheck, paymentHeader, reputationBefore: before, reputationAfter: after });
+    setAnswered({ provider, messages, answer, requestText: result.requestText, responseText: result.responseText, receipt, spotCheck, paymentHeader, reputationBefore: before, reputationAfter: after });
     setHeldAnswer(answer);
     setVerification(checked);
     setPhase("answered");
@@ -358,7 +386,14 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
 
   async function verifyHeld(text: string) {
     if (!answered) return;
-    setVerification(await verifySandboxReceipt({ receipt: answered.receipt, model: answered.provider.model, messages: answered.messages, answer: text, expectedPublicKey: providerKeys[answered.provider.id] }));
+    setVerification(await verifySandboxReceipt({
+      receipt: answered.receipt,
+      model: answered.provider.model,
+      requestBody: answered.requestText,
+      responseBody: responseBodyWithAnswer(answered.responseText, answered.answer, text),
+      expectedProviderId: providerKeys[answered.provider.id],
+      expectedPayment: expectedPaymentFor(answered.provider, answered.paymentHeader),
+    }));
   }
 
   function tamper() {
@@ -386,9 +421,9 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
 
   const cheating = scenario.id === "try-to-cheat";
   const lastExchange = exchanges[exchanges.length - 1];
-  const totalSpentLamports = receipts.reduce((sum, receipt) => sum + Number(receipt.payment.amount), 0);
+  const totalSpentLamports = receipts.reduce((sum, entry) => sum + Number(entry.receipt.payment.amount), 0);
   const edited = answered !== null && heldAnswer !== answered.answer;
-  const proofRef = answered?.receipt.payment.paymentProofRef ?? "";
+  const proofRef = answered?.receipt.receipt.payment.txSignature ?? "";
 
   return (
     <div className="space-y-10" data-testid="sandbox-console" data-ready={ready ? "true" : "false"}>
@@ -558,19 +593,22 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                 </div>
                 {notice ? <NoticeBox notice={notice} /> : null}
                 <dl className="space-y-2 rounded-xl border border-white/10 bg-black/30 p-4" data-testid="sandbox-receipt">
-                  <Field label="Provider">{answered.receipt.metadata.inference.providerName} ({answered.receipt.specialist.id})</Field>
-                  <Field label="Declared model">{answered.receipt.metadata.inference.declaredModel}</Field>
-                  <Field label="Paid">{answered.provider.priceSol} SOL on {answered.receipt.payment.network}</Field>
+                  <Field label="Receipt format">
+                    {verification.kind === "v2" ? <>reddi.receipt.v2</> : <>Sandbox simulated receipt. Not a reddi.receipt.v2 receipt, because no transaction paid for it.</>}
+                  </Field>
+                  <Field label="Provider">{answered.provider.name} ({shortAddress(answered.receipt.receipt.providerId)}, sandbox test key)</Field>
+                  <Field label="Declared model">{answered.receipt.receipt.declaredModel}</Field>
+                  <Field label={proofRef ? "Paid" : "Price (simulated, nothing was paid)"}>{answered.provider.priceSol} SOL ({answered.receipt.receipt.payment.amount} lamports) on {answered.receipt.receipt.payment.network}, fee {answered.receipt.receipt.payment.fee.amount}</Field>
                   <Field label="Payment proof">
-                    {answered.receipt.metadata.inference.paymentMode === "devnet-transfer" ? (
+                    {proofRef ? (
                       <a className="underline" href={explorerTxUrl(proofRef)} target="_blank" rel="noreferrer">{shortAddress(proofRef)} on Solana Explorer</a>
                     ) : (
                       <>simulated, no transaction</>
                     )}
                   </Field>
-                  <Field label="Request hash">{answered.receipt.requestHash}</Field>
-                  <Field label="Response hash">{answered.receipt.responseHash}</Field>
-                  <Field label="Signed by">{shortAddress(answered.receipt.metadata.providerSignature.publicKey)} (sandbox test key)</Field>
+                  <Field label="Request hash">{answered.receipt.receipt.requestHash}</Field>
+                  <Field label="Response hash">{answered.receipt.receipt.responseHash}</Field>
+                  <Field label="Issued at">{answered.receipt.receipt.issuedAt}</Field>
                 </dl>
                 <div className="rounded-xl border border-white/10 bg-black/30 p-4" data-testid="sandbox-reputation-change">
                   <p className="text-xs uppercase tracking-wide text-gray-400">Reputation update for {answered.provider.name}</p>

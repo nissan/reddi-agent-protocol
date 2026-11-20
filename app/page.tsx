@@ -10,7 +10,6 @@ import { SpecialistCard } from "@/components/SpecialistCard";
 import { onboardingVideos, onboardingWalkthroughHeading } from "@/lib/onboarding/video-guides";
 import {
   directoryFixtureProfileCount,
-  receiptFixtureCaseCount,
   sourceTrustConformanceCaseCount,
 } from "@/lib/assurance/public-metrics";
 import type { SpecialistListing } from "@/lib/registry/bridge";
@@ -19,7 +18,6 @@ const LANDING_PROOF_GUIDES = onboardingVideos.filter((video) => video.id !== "ov
 
 const JUDGE_METRICS = {
   specialists: directoryFixtureProfileCount,
-  receiptCases: receiptFixtureCaseCount,
   conformanceCases: sourceTrustConformanceCaseCount,
 };
 
@@ -28,12 +26,12 @@ const ECOSYSTEM_PROOFS = [
     name: "Quasar",
     status: "Local/blocked boundary",
     desc: "Current Quasar sources are exercised in the local Surfpool lane; the recorded devnet deployment is blocked and not a live target.",
-    href: "/economic-demo",
+    href: "/judge-replication",
   },
   {
     name: "x402",
     status: "Visible payment boundary",
-    desc: "Planner, onboarding, tester guides, and economic demo show 402 challenges, receipts, and fail-closed paid calls.",
+    desc: "Planner, onboarding, tester guides, and the devnet sandbox show 402 challenges, receipts, and fail-closed paid calls.",
     href: "/planner",
   },
   {
@@ -46,13 +44,13 @@ const ECOSYSTEM_PROOFS = [
     name: "Jupiter",
     status: "Boundary proof",
     desc: "SOL→USDC quote/build/sign is evidenced; public devnet execution is not claimed. Surfpool provides the successful no-real-funds visual.",
-    href: "/economic-demo",
+    href: "/judge-replication",
   },
   {
     name: "Surfpool",
     status: "Local rehearsal",
     desc: "Local validator rehearsal exercises payment ordering, budget reconciliation, and Quasar assumptions before any devnet claim.",
-    href: "/economic-demo",
+    href: "/judge-replication",
   },
   {
     name: "Torque",
@@ -64,7 +62,7 @@ const ECOSYSTEM_PROOFS = [
     name: "MagicBlock",
     status: "PER evidence bounded",
     desc: "MagicBlock/PER material remains reference evidence with explicit boundaries; it is not a mainnet, custody, or broad private-payee settlement claim.",
-    href: "/economic-demo",
+    href: "/judge-replication",
   },
   {
     name: "ElizaOS + SendAI",
@@ -165,8 +163,8 @@ export default function Home() {
               inputs without becoming the payment rail or custody provider.
             </p>
             <div className="flex flex-wrap gap-3 pt-2">
-              <Link href="/economic-demo">
-                <Button size="lg">Try the economic demo →</Button>
+              <Link href="/sandbox">
+                <Button size="lg">Try the devnet sandbox →</Button>
               </Link>
               <Link href="/register">
                 <Button size="lg" variant="outline">
@@ -211,7 +209,6 @@ export default function Home() {
         <StatsBar
           stats={[
             { label: "Directory fixtures", value: stats.specialists },
-            { label: "Receipt fixture cases", value: stats.receiptCases },
             { label: "Source-trust conformance cases", value: stats.conformanceCases },
           ]}
         />
@@ -267,10 +264,10 @@ export default function Home() {
               </p>
             </div>
             <Link
-              href="/economic-demo"
+              href="/sandbox"
               className="text-sm text-[#14F195] hover:text-[#14F195]/80"
             >
-              Watch the economic demo →
+              Try the devnet sandbox →
             </Link>
           </div>
           <div className="grid gap-3 md:grid-cols-5">
@@ -305,7 +302,7 @@ export default function Home() {
               </h2>
             </div>
             <Link
-              href="/economic-demo"
+              href="/judge-replication"
               className="text-sm text-indigo-300 hover:text-indigo-200"
             >
               Inspect proof →
@@ -502,10 +499,10 @@ export default function Home() {
                 receipts, and reputation inputs.
               </p>
               <Link
-                href="/economic-demo"
+                href="/sandbox"
                 className="text-xs text-indigo-300 hover:text-indigo-200"
               >
-                Try economic demo →
+                Try the devnet sandbox →
               </Link>
             </div>
             <div className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-2">

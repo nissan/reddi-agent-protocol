@@ -1,46 +1,95 @@
 // Runnable no-spend scenarios for docs/RAP-INTERPRETATION-GUIDE-INTERIM.md (#679).
 //
 // Every scenario calls the built package with maintained fixtures and prints what
-// the current implementation returns. Nothing here signs, spends, opens a wallet,
-// calls an RPC endpoint or a provider, or reads a credential.
+// the current implementation returns. Nothing here spends, opens a wallet, calls
+// an RPC endpoint or a provider, or reads a credential. The one signature made
+// here uses a fixture key derived from a public label in this file.
+import { createHash, createPrivateKey, createPublicKey, sign } from 'node:crypto';
 import {
   AUDD_DETERMINISTIC_FIXTURE_MINT,
   SOLANA_DEVNET_CAIP2,
   SPL_TOKEN_PROGRAM_ID,
-  airwallexWebhookRejectionFixtures,
-  buyerAuthorityPolicyExamples,
   createLocalEvidenceArchive,
   createPaymentIntentDraft,
   createPaymentObservationRecord,
   createRefundRecord,
-  deriveRailNeutralPaymentReceipt,
   deriveReddiPaymentId,
-  evaluateBuyerAuthorityPolicy,
   evidenceArchiveFixtureRecord,
-  railNeutralProofChainFixtures,
-  reddiReceiptFixtureCases,
+  hashReddiReceiptV2Body,
+  signReddiReceiptV2,
   validatePaymentIntentRecord,
   validatePaymentObservationRecord,
   validatePaymentRecordLabels,
-  validateReddiReceipt,
   validateRefundRecord,
+  validateReddiReceiptV2,
+  verifyReddiReceiptV2,
 } from '../dist/index.js';
+
+const BASE58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function base58(bytes) {
+  let value = BigInt(`0x${Buffer.from(bytes).toString('hex') || '0'}`);
+  let out = '';
+  while (value > 0n) {
+    out = BASE58[Number(value % 58n)] + out;
+    value /= 58n;
+  }
+  for (const byte of bytes) {
+    if (byte !== 0) break;
+    out = `1${out}`;
+  }
+  return out;
+}
+
+/** A fixture ed25519 identity derived from a public label. Never use this pattern for a real key. */
+function fixtureIdentity(label) {
+  const seed = createHash('sha256').update(label).digest();
+  const privateKey = createPrivateKey({
+    key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seed]),
+    format: 'der',
+    type: 'pkcs8',
+  });
+  const publicKey = createPublicKey(privateKey).export({ format: 'der', type: 'spki' }).subarray(-32);
+  return { address: base58(publicKey), signer: (message) => sign(null, Buffer.from(message), privateKey) };
+}
+
+const provider = fixtureIdentity('reddi:interpretation-guide:fixture-provider');
+const otherProvider = fixtureIdentity('reddi:interpretation-guide:another-provider');
+const requestBody = '{"prompt":"fixture request"}';
+const responseBody = '{"answer":"fixture response"}';
+// A made-up transaction signature: no payment was made.
+const fixtureTxSignature = base58(createHash('sha512').update('reddi:interpretation-guide:fixture-transaction').digest());
+const signedReceipt = await signReddiReceiptV2({
+  schemaVersion: 'reddi.receipt.v2',
+  providerId: provider.address,
+  declaredModel: 'fixture/model-a',
+  requestHash: hashReddiReceiptV2Body(requestBody),
+  responseHash: hashReddiReceiptV2Body(responseBody),
+  payment: {
+    network: 'solana-devnet',
+    txSignature: fixtureTxSignature,
+    currency: 'AUDD',
+    mint: AUDD_DETERMINISTIC_FIXTURE_MINT,
+    amount: '2500000',
+    fee: { amount: '0' },
+    settlement: 'direct',
+  },
+  issuedAt: '2026-08-01T00:00:00.000Z',
+}, provider.signer);
+const buyerKnows = {
+  providerId: provider.address,
+  declaredModel: 'fixture/model-a',
+  requestHash: hashReddiReceiptV2Body(requestBody),
+  responseHash: hashReddiReceiptV2Body(responseBody),
+  payment: { network: 'solana-devnet', txSignature: fixtureTxSignature, currency: 'AUDD', amount: '2500000' },
+};
+
+function verify(input, expected) {
+  const result = verifyReddiReceiptV2(input, expected);
+  return result.ok ? { ok: true, codes: [] } : { ok: false, codes: [...new Set(result.errors.map((item) => item.code))] };
+}
 
 const fixtureLabels = { environment: 'deterministic-fixture', eligibility: 'non_eligible' };
 const createdAt = '2026-08-01T00:00:00.000Z';
-
-function authority(key) {
-  const example = buyerAuthorityPolicyExamples[key];
-  const result = evaluateBuyerAuthorityPolicy(example.policy, example.request);
-  return { allowed: result.allowed, codes: result.reasonCodes };
-}
-
-function receipt(key) {
-  const result = validateReddiReceipt(reddiReceiptFixtureCases[key].receipt);
-  return result.ok
-    ? { ok: true, policyAllowed: result.receipt.policyDecision.allowed, codes: result.receipt.policyDecision.reasonCodes }
-    : { ok: false, codes: result.errors.map((item) => item.code) };
-}
 
 function labels(value) {
   const result = validatePaymentRecordLabels(value);
@@ -74,73 +123,79 @@ function observation(status) {
 const scenarios = [
   {
     id: 'S1',
-    name: 'Success: authority allows the request',
-    run: () => authority('allow'),
-    expect: { allowed: true, codes: ['buyer_authority_policy_valid'] },
-    reading: 'Permission only. Nothing was signed, sent, observed or settled.',
+    name: 'Success: a signed receipt matches what the buyer knows',
+    run: () => verify(signedReceipt, buyerKnows),
+    expect: { ok: true },
+    reading: 'The provider signed a statement that matches the provider you chose, the bytes you sent and received and the payment you name. It is the declared model, not proof of which model ran, and not proof of settlement.',
   },
   {
     id: 'S2',
-    name: 'Success: a valid receipt for allowed work',
-    run: () => receipt('happyPath'),
-    expect: { ok: true, policyAllowed: true },
-    reading: 'A well-formed record that links policy, a payment-proof reference and evidence. Not proof of settlement or work quality.',
+    name: 'Weak pass: a signature checked with nothing to compare',
+    run: () => verify(signedReceipt),
+    expect: { ok: true },
+    reading: 'Only says some key signed some statement. Always pass what you know yourself.',
   },
   {
     id: 'S3',
-    name: 'Safe refusal: a valid receipt that records a denial',
-    run: () => receipt('policyDenial'),
-    expect: { ok: true, policyAllowed: false },
-    reading: 'Valid shape, refused work. A receipt that validates is not a receipt that allows.',
+    name: 'Refusal: the response is not the one that was signed',
+    run: () => verify(signedReceipt, { ...buyerKnows, responseHash: hashReddiReceiptV2Body(`${responseBody} `) }),
+    expect: { ok: false, codes: ['response_hash_mismatch'] },
+    reading: 'The receipt is for different bytes. Do not treat it as a receipt for this response.',
   },
   {
     id: 'S4',
-    name: 'Safe refusal: authority expired',
-    run: () => authority('expired'),
-    expect: { allowed: false, codes: ['policy_expired'] },
-    reading: 'Refuse. Next safe action: obtain a fresh policy from the buyer or operator.',
+    name: 'Refusal: signed by a different provider than the one chosen',
+    run: () => verify(signedReceipt, { ...buyerKnows, providerId: otherProvider.address }),
+    expect: { ok: false, codes: ['provider_mismatch'] },
+    reading: 'A valid signature from the wrong key. Refuse.',
   },
   {
     id: 'S5',
-    name: 'Safe refusal: operator approval still required',
-    run: () => authority('approvalRequired'),
-    expect: { allowed: false, codes: ['operator_approval_required'] },
-    reading: 'Refuse until an operator approves. A model draft is never spending authority.',
+    name: 'Refusal: the receipt was edited after signing',
+    run: () => verify({ ...signedReceipt, receipt: { ...signedReceipt.receipt, declaredModel: 'fixture/model-b' } }),
+    expect: { ok: false, codes: ['signature_invalid'] },
+    reading: 'Any change to a signed field breaks the signature. Refuse.',
   },
   {
     id: 'S6',
-    name: 'Missing evidence: authority requires evidence that was not presented',
-    run: () => authority('missingEvidenceRequirement'),
-    expect: { allowed: false, codes: ['evidence_requirement_missing'] },
-    reading: 'Refuse. Next safe action: obtain the missing evidence.',
+    name: 'Refusal: the receipt names a different payment',
+    run: () => verify(signedReceipt, { ...buyerKnows, payment: { ...buyerKnows.payment, amount: '1' } }),
+    expect: { ok: false, codes: ['payment_mismatch'] },
+    reading: 'The payment fields are the provider\'s statement. They count only when they equal what you verified yourself.',
   },
   {
     id: 'S7',
-    name: 'Missing evidence: receipt has no payment-proof reference',
-    run: () => receipt('missingProofReference'),
-    expect: { ok: false, codes: ['payment_proof_missing'] },
-    reading: 'Not a receipt. Do not treat the job as paid.',
+    name: 'Refusal: a removed receipt version',
+    run: () => {
+      const result = validateReddiReceiptV2({ ...signedReceipt.receipt, schemaVersion: 'reddi.receipt.v1' });
+      return result.ok ? { ok: true, codes: [] } : { ok: false, codes: result.errors.map((item) => item.code) };
+    },
+    expect: { ok: false, codes: ['unsupported_version'] },
+    reading: 'reddi.receipt.v2 is the only receipt this package accepts.',
   },
   {
     id: 'S8',
+    name: 'Redaction: a receipt carries only the fields the version defines',
+    run: () => {
+      const result = validateReddiReceiptV2({ ...signedReceipt.receipt, prompt: 'raw prompt text' });
+      return result.ok ? { ok: true, codes: [] } : { ok: false, codes: [...new Set(result.errors.map((item) => item.code))] };
+    },
+    expect: { ok: false, codes: ['malformed_receipt'] },
+    reading: 'A receipt holds hashes, never prompts, outputs or credentials. An extra field is rejected, not ignored.',
+  },
+  {
+    id: 'S9',
     name: 'Wrong environment: devnet evidence labelled eligible',
     run: () => labels({ environment: 'devnet-unverified', eligibility: 'eligible' }),
     expect: { ok: false, codes: ['non_live_evidence_marked_eligible'] },
     reading: 'Refuse the label. Fixture, local and devnet evidence is never eligible.',
   },
   {
-    id: 'S9',
+    id: 'S10',
     name: 'Wrong environment: mainnet evidence labelled eligible without partner acceptance',
     run: () => labels({ environment: 'mainnet-gated', eligibility: 'eligible' }),
     expect: { ok: false, codes: ['mainnet_partner_acceptance_missing'] },
     reading: 'Refuse the label. Eligibility needs recorded partner acceptance, not an observation alone.',
-  },
-  {
-    id: 'S10',
-    name: 'Wrong environment: receipt on an unsupported network and asset pair',
-    run: () => receipt('unsupportedNetworkAsset'),
-    expect: { ok: false, codes: ['unsupported_network_asset'] },
-    reading: 'Refuse. New rails arrive through adapter work, never silently.',
   },
   {
     id: 'S11',
@@ -191,33 +246,6 @@ const scenarios = [
   },
   {
     id: 'S14',
-    name: 'Reversal: a card-rail reversal event is not a receipt',
-    run: () => {
-      const result = deriveRailNeutralPaymentReceipt({ rail: 'airwallex-hosted-checkout', fixture: airwallexWebhookRejectionFixtures.reversalSucceeded });
-      return result.ok ? { ok: true, codes: [] } : { ok: false, codes: [...new Set(result.errors.map((item) => item.code))] };
-    },
-    expect: { ok: false, codes: ['revocable_event_rejected'] },
-    reading: 'Refused. Receipt v1 has no revoked or contested state, so an earlier receipt is not updated by a reversal.',
-  },
-  {
-    id: 'S15',
-    name: 'Redaction: credential-shaped metadata is rejected',
-    run: () => receipt('credentialLeakage'),
-    expect: { ok: false, codes: ['credential_leakage_rejected'] },
-    reading: 'Rejected even when the value looks redacted. Remove the field; do not mask it.',
-  },
-  {
-    id: 'S16',
-    name: 'Redaction: the proof-chain fixture stores hashes, not prompts or outputs',
-    run: () => {
-      const fixture = railNeutralProofChainFixtures.payShSandboxSingleChargeBinding;
-      return { status: fixture.status, rawPromptStored: fixture.guardrails.rawPromptStored, rawOutputStored: fixture.guardrails.rawOutputStored };
-    },
-    expect: { status: 'binding_ready', rawPromptStored: false, rawOutputStored: false },
-    reading: 'A redacted record can still be bound and checked by hash. It cannot be used to read the original content.',
-  },
-  {
-    id: 'S17',
     name: 'Unavailable dependency: the verifier could not reach a conclusion',
     run: () => {
       const record = observation('observation_inconclusive');
@@ -227,17 +255,7 @@ const scenarios = [
     reading: 'A durable unknown. Not paid, not failed. Next safe action: observe again later; keep this record.',
   },
   {
-    id: 'S18',
-    name: 'Unavailable dependency: a rail the receipt contract does not cover',
-    run: () => {
-      const fixture = railNeutralProofChainFixtures.mppTempoUnsupportedNetwork;
-      return { status: fixture.status };
-    },
-    expect: { status: 'blocked' },
-    reading: 'Blocked, with a reason. Wait for adapter support; do not route around it.',
-  },
-  {
-    id: 'S19',
+    id: 'S15',
     name: 'Authority: a model may draft a payment intent but cannot approve one',
     run: () => {
       const draft = createPaymentIntentDraft({

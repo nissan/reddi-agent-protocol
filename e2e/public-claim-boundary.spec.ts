@@ -3,7 +3,6 @@ import { expect, test, type Page } from "@playwright/test";
 import { hasPlayableRecording, onboardingVideos } from "../lib/onboarding/video-guides";
 import {
   directoryFixtureProfileCount,
-  receiptFixtureCaseCount,
   sourceTrustConformanceCaseCount,
 } from "../lib/assurance/public-metrics";
 import {
@@ -288,7 +287,6 @@ test.describe("public-claim boundary (rendered copy)", () => {
     };
 
     expect(await readStat("Directory fixtures")).toBe(directoryFixtureProfileCount);
-    expect(await readStat("Receipt fixture cases")).toBe(receiptFixtureCaseCount);
     expect(await readStat("Source-trust conformance cases")).toBe(sourceTrustConformanceCaseCount);
   });
 

@@ -15,7 +15,7 @@ test.describe("Home page", () => {
     await page.goto("/");
     const hero = page.locator("section").first();
     await expect(
-      hero.getByRole("link", { name: /try the economic demo/i }),
+      hero.getByRole("link", { name: /try the devnet sandbox/i }),
     ).toBeVisible();
     await expect(
       hero.getByRole("link", { name: /register a specialist/i }),

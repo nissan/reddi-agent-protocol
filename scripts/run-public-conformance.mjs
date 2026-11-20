@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Public RAP v0.1 conformance suite (#353).
+ * Public RAP conformance suite (#353), rebuilt on reddi.receipt.v2 (#776).
  *
  * Consolidated, deterministic, offline runner that COMPOSES the existing
  * per-module conformance test suites in `packages/agent-protocol` — it does
@@ -33,17 +33,17 @@ const skipBuild = process.argv.includes('--skip-build');
 const AREAS = [
   {
     id: 'receipt-shape',
-    proves: 'reddi.receipt.v1 validation, receipt fixture cases, rail-neutral receipt normalization',
-    files: ['receipts.test.js', 'rail-neutral-payment-receipts.test.js'],
+    proves: 'reddi.receipt.v2 validation, canonical signing bytes, offline ed25519 verification against what the buyer knows, removed versions rejected',
+    files: ['receipt-v2.test.js'],
   },
   {
-    id: 'policy-decision-shape',
-    proves: 'reddi.policy-decision.v1, buyer-authority policy corpus, AUDD payment-plan preflight fail-closed',
-    files: ['buyer-authority-policy.test.js', 'audd-payment-plan.test.js'],
+    id: 'payment-records',
+    proves: 'job, agreement, intent, observation and refund records, environment and eligibility labels, AUDD rail identity, model-drafted intents are never authority',
+    files: ['payment-records.test.js', 'audd-rail-config.test.js'],
   },
   {
     id: 'source-metadata',
-    proves: 'AI catalog ingestion, discovery-source candidates, provider trust, source diagnostics, source/trust conformance matrix',
+    proves: 'AI catalog ingestion, discovery-source candidates and policy preflight, provider trust, source diagnostics, source/trust conformance matrix',
     files: [
       'ai-catalog.test.js',
       'discovery-source.test.js',
@@ -53,42 +53,33 @@ const AREAS = [
     ],
   },
   {
-    id: 'challenge-handling',
-    proves: '402 challenge issue/accept, malformed-challenge and unsupported-rail fail-closed, MPP/Tempo challenge shapes',
-    files: ['buyer-seller.test.js', 'mpp-tempo-receipt-shapes.test.js'],
+    id: 'challenge-shapes',
+    proves: 'MPP/Tempo challenge and receipt shapes fail closed on unbound or unsupported input',
+    files: ['mpp-tempo-receipt-shapes.test.js'],
   },
   {
-    id: 'evidence-binding',
-    proves: 'EvidenceArchive records, receipt-evidence binding, rail-neutral proof-chain fixture states',
-    files: [
-      'evidence-archive.test.js',
-      'receipt-evidence-binding.test.js',
-      'rail-neutral-proof-chain-fixture.test.js',
-    ],
+    id: 'evidence-and-attestation',
+    proves: 'EvidenceArchive records never replace a stored record, attestation records and reputation projection',
+    files: ['evidence-archive.test.js', 'attestation-reputation.test.js'],
   },
   {
     id: 'secret-leakage-rejection',
-    proves: 'credential-shaped receipt metadata and unsafe evidence metadata are rejected (credential_leakage_rejected / unsafe metadata fixtures)',
-    files: ['receipts.test.js', 'evidence-archive.test.js'],
+    proves: 'a receipt with any field its version does not define is rejected, and credential-shaped evidence metadata is rejected (credential_leakage_rejected)',
+    files: ['receipt-v2.test.js', 'evidence-archive.test.js'],
   },
   {
     id: 'quickstart-no-spend-workflow',
-    proves: 'ARD no-spend demo end-to-end: challenge -> policy -> receipt -> evidence -> attestation/reputation, failure states, AUDD proof-metadata + no-custody boundary labels',
-    files: ['ard-no-spend-demo.test.js'],
+    proves: 'ARD no-spend demo end-to-end: discover -> decide -> provider-signed reddi.receipt.v2 -> offline verification -> evidence -> attestation/reputation, with each failure state refusing',
+    files: ['ard-no-spend-demo.test.js', 'interpretation-guide-scenarios.test.js'],
   },
   {
     id: 'interop-conformance-modules',
-    proves: 'framework-template, OKF, OKF instruction safety, ERC-8004 export, AP2 mandate, Quasar reputation-intent gate, attestation/reputation bridge, agent-stack fixture corpora',
+    proves: 'OKF adapter, OKF conformance and instruction safety, Quasar registry compatibility, agent-stack fixture corpora',
     files: [
-      'framework-template-contract.test.js',
-      'framework-template-conformance.test.js',
-      'framework-template-conformance-fixtures.test.js',
+      'okf-adapter.test.js',
       'okf-conformance.test.js',
       'okf-instruction-safety.test.js',
-      'erc8004-export-conformance.test.js',
-      'ap2-mandate-conformance.test.js',
-      'quasar-reputation-intent.test.js',
-      'attestation-reputation-bridge.test.js',
+      'quasar-registry-compatibility.test.js',
       'agent-stack-fixtures.test.js',
     ],
   },
@@ -140,7 +131,7 @@ if (!run('packed-artifact secret/content guard', 'node', [artifactGuard, '--dir'
   failures.push('packed-artifact-guard');
 }
 
-process.stdout.write('\n== Public RAP v0.1 conformance summary\n');
+process.stdout.write('\n== Public RAP conformance summary\n');
 for (const area of AREAS) {
   process.stdout.write(`   ${failures.includes(area.id) ? 'FAIL' : 'PASS'}  ${area.id} — ${area.proves}\n`);
 }

@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   buildX402Challenge,
+  decimalToBaseUnits,
   defaultNonceReplayStore,
+  directPaymentCurrency,
   DemoPaymentVerifier,
   parseX402PaymentHeader,
   SolanaReceiptVerifier,
@@ -473,6 +475,7 @@ export const PROVIDER_RECEIPT_HEADER = "x-reddi-provider-receipt";
 export const REDDI_RECEIPT_V2_VERSION = "reddi.receipt.v2" as const;
 const MAX_PROVIDER_RECEIPT_HEADER_CHARS = 4096;
 const TX_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
+const WALLET_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 /**
  * What this provider states about one paid call. Same shape as
@@ -485,7 +488,19 @@ export interface ProviderReceiptStatement {
   declaredModel: string;
   requestHash: string;
   responseHash: string;
-  payment: { network: typeof PAYMENT_NETWORK; txSignature: string };
+  payment: {
+    network: typeof PAYMENT_NETWORK;
+    txSignature: string;
+    currency: string;
+    /** Absent for SOL. */
+    mint?: string;
+    /** Listed price in the currency's smallest unit. */
+    amount: string;
+    fee: { amount: string; treasury?: string };
+    /** Present when the payment named its payer, which the payment check then matched to the transaction. */
+    payer?: string;
+    settlement: "direct";
+  };
   issuedAt: string;
 }
 
@@ -510,15 +525,39 @@ function sha256Hex(text: string): string {
  * The transaction a real, verified payment was made with. Undefined whenever
  * demo payments are possible, so a receipt never names an unchecked transaction.
  */
-function verifiedPaymentSignature(headers: Headers, config: RuntimeConfig): string | undefined {
+function verifiedPaymentReference(headers: Headers, config: RuntimeConfig): { txSignature: string; payer?: string } | undefined {
   if (!config.requirePayment || !config.allowRealPayment || config.allowDemoPayment) return undefined;
   const value = headers.get("x402-payment") ?? headers.get("x-payment");
   if (!value) return undefined;
   const parsed = parseX402PaymentHeader(value);
   if (!parsed || typeof parsed !== "object") return undefined;
-  const receipt = parsed as { signature?: unknown; txSignature?: unknown };
+  const receipt = parsed as { signature?: unknown; txSignature?: unknown; payer?: unknown };
   const signature = typeof receipt.signature === "string" ? receipt.signature : typeof receipt.txSignature === "string" ? receipt.txSignature : "";
-  return TX_SIGNATURE.test(signature) ? signature : undefined;
+  if (!TX_SIGNATURE.test(signature)) return undefined;
+  return typeof receipt.payer === "string" && WALLET_ADDRESS.test(receipt.payer) ? { txSignature: signature, payer: receipt.payer } : { txSignature: signature };
+}
+
+/**
+ * What this provider charges for a call, from its own configuration: the
+ * listed price, the mint it accepts for that currency and the protocol fee.
+ * Undefined when any part is missing, so a receipt never states a guess.
+ */
+function statedPaymentTerms(profile: SpecialistProfile, config: RuntimeConfig): Pick<ProviderReceiptStatement["payment"], "currency" | "mint" | "amount" | "fee"> | undefined {
+  const challenge = buildProfileChallenge(profile, config);
+  const currency = directPaymentCurrency(challenge.currency);
+  if (!currency) return undefined;
+  const amount = decimalToBaseUnits(challenge.amount, currency.decimals);
+  if (amount === undefined || amount <= BigInt(0)) return undefined;
+  const isToken = currency.tokenProgram !== undefined;
+  const mint = isToken ? config.paymentMints?.[challenge.currency] ?? (challenge.currency === "USDC" ? config.usdcDevnetMint : undefined) : undefined;
+  if (isToken && !mint) return undefined;
+  let fee: ProviderReceiptStatement["payment"]["fee"] = { amount: "0" };
+  if (challenge.fee) {
+    const feeUnits = decimalToBaseUnits(challenge.fee.amount, currency.decimals);
+    if (feeUnits === undefined) return undefined;
+    fee = feeUnits > BigInt(0) ? { amount: feeUnits.toString(), treasury: challenge.fee.payTo } : { amount: "0" };
+  }
+  return { currency: challenge.currency, ...(mint ? { mint } : {}), amount: amount.toString(), fee };
 }
 
 /**
@@ -534,16 +573,18 @@ export async function buildProviderReceiptHeader(input: {
   deps: RuntimeDeps;
 }): Promise<string | undefined> {
   if (!input.deps.signProviderReceipt) return undefined;
-  const txSignature = verifiedPaymentSignature(input.headers, input.config);
-  if (!txSignature) return undefined;
+  const paid = verifiedPaymentReference(input.headers, input.config);
+  if (!paid) return undefined;
   try {
+    const terms = statedPaymentTerms(input.profile, input.config);
+    if (!terms) return undefined;
     const signed = await input.deps.signProviderReceipt({
       schemaVersion: REDDI_RECEIPT_V2_VERSION,
       providerId: input.profile.walletAddress,
       declaredModel: input.profile.model,
       requestHash: sha256Hex(input.requestText),
       responseHash: sha256Hex(input.responseText),
-      payment: { network: PAYMENT_NETWORK, txSignature },
+      payment: { network: PAYMENT_NETWORK, txSignature: paid.txSignature, ...terms, ...(paid.payer ? { payer: paid.payer } : {}), settlement: "direct" },
       issuedAt: (input.deps.now?.() ?? new Date()).toISOString(),
     });
     if (!signed || typeof signed !== "object") return undefined;

@@ -547,6 +547,7 @@ async function executeWithWalletPayment(input: PlannerExecuteInput, ctx: WalletR
           responseBody: text,
           network: receiptNetwork,
           txSignature: receipt.signature,
+          paid: recorded.paid,
         }).catch(() => ({ stored: false as const, reason: "check_failed" }));
         run.trace.push(kept.stored ? "provider_receipt:stored" : `provider_receipt:not_stored:${kept.reason}`);
       }

@@ -53,10 +53,10 @@ export default function McpBridgeDemoPage() {
                   Try planner path
                 </a>
                 <a
-                  href="/economic-demo"
+                  href="/sandbox"
                   className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white hover:border-[#14F195]/40"
                 >
-                  Watch economic demo
+                  Try the devnet sandbox
                 </a>
               </div>
             </div>
