@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { resolveAppUrl } from "../lib/copy.ts";
 import { resolveSandboxUrl } from "../lib/sandbox.ts";
 import { APEX_ORIGIN, resolveIndexable, resolveSiteUrl, robotsRules } from "../lib/site.ts";
 
@@ -26,4 +27,12 @@ test("indexing stays off unless production and the owner's switch are both set",
   assert.equal(resolveIndexable({ VERCEL_ENV: "production", NODE_ENV: "production", SITE_PUBLIC: "1" }), true);
   assert.deepEqual(robotsRules(false, APEX_ORIGIN), { rules: { userAgent: "*", disallow: "/" } });
   assert.deepEqual(robotsRules(true, APEX_ORIGIN).rules.disallow, ["/api/", "/newsletter/"]);
+});
+
+test("developer app link: https origin only, otherwise the default address", () => {
+  const fallback = "https://reddi-agent-protocol.vercel.app";
+  assert.equal(resolveAppUrl(undefined), fallback);
+  assert.equal(resolveAppUrl("http://app.example"), fallback);
+  assert.equal(resolveAppUrl("javascript:alert(1)"), fallback);
+  assert.equal(resolveAppUrl("https://app.agent-protocol.reddi.tech/some/path"), "https://app.agent-protocol.reddi.tech");
 });

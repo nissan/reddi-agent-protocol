@@ -4,7 +4,7 @@ import Scenarios from '../components/Scenarios';
 import Signup from '../components/Signup';
 import StatusLedger from '../components/StatusLedger';
 import XFeed from '../components/XFeed';
-import { FAQ, GITHUB_URL, LAYERS, RFS_URL, STAGE, STEPS } from '../lib/copy';
+import { APP_URL, DEV_LINKS, FAQ, GITHUB_URL, LAYERS, RFS_URL, STAGE, STEPS } from '../lib/copy';
 import { SIGNUP_COPY } from '../lib/newsletter/copy';
 import { pageMetadata } from '../lib/metadata';
 import { sandboxUrl } from '../lib/sandbox';
@@ -73,8 +73,13 @@ export default function Home() {
         </div>
       </section>
 
+      <section id="developers" className="section wrap">
+        <div className="section-heading"><div><p className="eyebrow">05 / FOR DEVELOPERS</p><h2>Already building? Go deeper.</h2></div><p>The developer app has the guides, the demo and the reference material. It runs on devnet and opens in its own site.</p></div>
+        <div className="devlinks">{DEV_LINKS.map((d) => <a key={d.path} href={`${APP_URL}${d.path}`} rel="noopener noreferrer"><h3>{d.title} <span aria-hidden="true">↗</span></h3><p>{d.body}</p></a>)}</div>
+      </section>
+
       <section className="section wrap feed-section">
-        <div><p className="eyebrow">05 / FOLLOW THE BUILD</p><h2>Built in public.</h2><p>We post what shipped, what broke and what is next. Short demos and walkthrough videos will land here first.</p></div>
+        <div><p className="eyebrow">06 / FOLLOW THE BUILD</p><h2>Built in public.</h2><p>We post what shipped, what broke and what is next. Short demos and walkthrough videos will land here first.</p></div>
         <XFeed />
       </section>
 

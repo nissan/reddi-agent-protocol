@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { indexable, siteUrl } from '../lib/site';
-import { DEFAULT_DESCRIPTION, GITHUB_URL, SITE_NAME, STAGE, X_URL } from '../lib/copy';
+import { APP_URL, DEFAULT_DESCRIPTION, GITHUB_URL, SITE_NAME, STAGE, X_URL } from '../lib/copy';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -40,6 +40,7 @@ export default function Layout({ children }: Readonly<{ children: React.ReactNod
             <div className="footer-links">
               <Link href="/status">Status</Link>
               <Link href="/sandbox">Sandbox</Link>
+              <a href={APP_URL} rel="noopener noreferrer">Developer app</a>
               <a href={GITHUB_URL} rel="noopener noreferrer">GitHub</a>
               <a href={X_URL} rel="noopener noreferrer">X</a>
               <Link href="/privacy">Privacy</Link>
