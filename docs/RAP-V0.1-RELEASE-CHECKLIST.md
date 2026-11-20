@@ -1,5 +1,7 @@
 # RAP v0.1 Release Checklist
 
+> **Status, 20 November 2026:** receipt v1 and the modules built on it were removed before V1 ([#776](https://github.com/nissan/reddi-agent-protocol/issues/776)). Rows below that name a removed module are a record of what was done at the time, not of current code.
+
 Issue: [#449](https://github.com/nissan/reddi-agent-protocol/issues/449) (parent epic: #355 — OSS developer release and conformance readiness)
 
 This is the release-readiness checklist for the public RAP v0.1 package set. It defines what must be true — and which deterministic command proves each claim — before `@reddi/agent-protocol` v0.1 is treated as launch-ready. Nothing in this checklist publishes anything: every gate is a local, offline, no-spend dry-run. Actual npm publication requires a separate approved issue and explicit operator approval.
@@ -40,7 +42,7 @@ The packed artifact for each candidate package must contain exactly:
 - `LICENSE` — per-package MIT copy (npm auto-includes `LICENSE*` from the package directory; the repo-root file never lands in the tarball).
 - `CHANGELOG.md` — per-package v0.1.0 release notes (§5), included via the `files` whitelist.
 - `dist/` — compiled JS + `.d.ts` for every exported subpath. `dist/` is committed for these packages; the exports guard exists precisely because a source-only commit would ship broken subpaths.
-- `examples/` (`@reddi/agent-protocol` only) — the no-spend runnable examples (`ard-no-spend-demo.mjs`, `buyer-seller-dry-run.mjs`, `ard-no-spend-ai-catalog.json`).
+- `examples/` (`@reddi/agent-protocol` only) — the no-spend runnable examples (`ard-no-spend-demo.mjs`, `interpretation-guide-scenarios.mjs`, `ard-no-spend-ai-catalog.json`).
 
 Nothing else. Presence is enforced by `scripts/check-package-artifact-contents.mjs` (missing `package.json`, `README.md`, or `dist/` output fails the guard).
 
@@ -96,7 +98,7 @@ npm run conformance
 npm run release:dry-run
 ```
 
-Conformance fixture surfaces shipped in the package (all deterministic, offline): framework-template conformance (`framework-template-conformance`, `framework-template-conformance-fixtures`), rail-neutral proof chain (`rail-neutral-proof-chain-fixture`, #416), ERC-8004 export conformance, AP2 mandate conformance, OKF conformance, and the agent-stack fixture corpora. Supporting docs live under `docs/conformance/`.
+Conformance fixture surfaces shipped in the package (all deterministic, offline): OKF conformance and the agent-stack fixture corpora. The framework-template, rail-neutral proof-chain, ERC-8004 export and AP2 mandate surfaces were removed with receipt v1 (#776). Supporting docs live under `docs/conformance/`.
 
 Clean-checkout equivalent for the whole candidate set: `npm run check:oss-release-smoke` from the repo root (#512).
 

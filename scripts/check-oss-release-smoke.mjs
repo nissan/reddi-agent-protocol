@@ -16,12 +16,12 @@ const packageSet = [
     ],
     importSmoke: [
       "index.js",
-      "receipts.js",
+      "receipt-v2.js",
       "policy.js",
       "provider-trust.js",
       "source-diagnostics.js",
       "discovery-source.js",
-      "rail-neutral-proof-chain-fixture.js",
+      "evidence-archive.js",
     ],
   },
   {

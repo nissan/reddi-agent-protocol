@@ -6,8 +6,6 @@ import {
   canonicalizeReddiReceiptV2,
   hashReddiReceiptV2Body,
   signReddiReceiptV2,
-  reddiReceiptFixtures,
-  validateReddiReceipt,
   validateReddiReceiptV2,
   verifyReddiReceiptV2,
   type ReddiReceiptV2,
@@ -251,12 +249,11 @@ describe('reddi.receipt.v2', () => {
     await assert.rejects(signReddiReceiptV2(receiptFor(provider.address, { declaredModel: '' }), provider.signer), /invalid_reddi_receipt_v2/);
   });
 
-  it('is a separate version: each validator rejects the other version', () => {
+  it('rejects the removed receipt versions', () => {
     const v2 = receiptFor(testProvider().address);
-    assert.equal(validateReddiReceipt(v2).ok, false);
-    const asV2 = validateReddiReceiptV2(reddiReceiptFixtures.happyPath);
-    assert.equal(asV2.ok, false);
-    if (!asV2.ok) assert.equal(asV2.errors[0]?.code, 'unsupported_version');
+    const asV1 = validateReddiReceiptV2({ ...v2, schemaVersion: 'reddi.receipt.v1' });
+    assert.equal(asV1.ok, false);
+    if (!asV1.ok) assert.equal(asV1.errors[0]?.code, 'unsupported_version');
     const retired = validateReddiReceiptV2({ ...v2, schemaVersion: 'reddi.receipt.provider-extension.v1' });
     assert.equal(retired.ok, false);
     if (!retired.ok) assert.equal(retired.errors[0]?.code, 'unsupported_version');

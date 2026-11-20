@@ -18,7 +18,7 @@ through the same three stages, in order, with no stage able to skip or overrule 
 | Stage | Question it answers | What it is allowed to produce | What it can never do |
 | --- | --- | --- | --- |
 | **Discover** | "What specialists/capabilities exist, and where did this metadata come from?" | Catalog/search results, listing metadata, source refs, relevance ranking | Grant trust, approve payment, invoke anything, publish anything, mutate reputation |
-| **Decide** | "Is this buyer allowed to use this source, under which policy, budget, and rail?" | Policy decisions, trust states, payment plans/preflights, operator-approval requirements, rejection reasons | Treat catalog claims as verified truth, widen buyer authority, bypass a failed gate because relevance was high |
+| **Decide** | "Is this buyer allowed to use this source, under which policy, budget, and rail?" | Policy decisions, trust states, discovery policy preflights, operator-approval requirements, rejection reasons | Treat catalog claims as verified truth, widen buyer authority, bypass a failed gate because relevance was high |
 | **Prove** | "What actually happened, and can it be verified later?" | Receipts, EvidenceArchive records, receipt/evidence bindings, attestation drafts, reputation previews | Claim custody, settlement finality, or live publication; mutate reputation without evidence |
 
 The ordering is load-bearing: discovery relevance is **only** a discovery signal. It is never
@@ -125,22 +125,18 @@ landed as `reddi.ranking-explainability.v1`
 (`lib/manager/ard-candidate-diagnostics.ts`), and `reddi.supervisor-run-diagnostics.v1`
 (`lib/manager/supervisor-run-diagnostics.ts`), all read-model only.
 
-**Decide** — buyer-authority policy (`reddi.buyer-authority-policy.v1`: spend caps, allowlists,
-expiry, operator approval — external mandates and rail metadata can only narrow it, never widen
-it); payment-plan/preflight gates (AUDD/x402 dry-run planning); and the rail-neutral receipt
-support states, under which probe-only rails (e.g. webhook-derived card-rail fixtures) are capped
-at `probe_only` and can never become binding receipts or settlement claims.
+**Decide** — the buyer's discovery policy preflight (allowed sources, verified-trust requirement,
+allowed assets and networks, a maximum quote) and payment intent records, where a model can draft
+an intent but never approve one. Buyer spend policy (caps, allowlists, expiry, operator approval)
+is not in the package after the receipt v1 removal
+([#776](https://github.com/nissan/reddi-agent-protocol/issues/776)); it is tracked in
+[#738](https://github.com/nissan/reddi-agent-protocol/issues/738).
 
-**Prove** — `reddi.receipt.v1` receipts, EvidenceArchive records, and the
-[#393](https://github.com/nissan/reddi-agent-protocol/issues/393) receipt/evidence binding, which
-ties source catalog/fixture refs, listing ids, policy decisions, payment-proof metadata,
-request/response hashes, evidence refs, attestation status, and reputation-event drafts into one
-record (hashes and refs preferred over raw prompt/output). On top of that,
-[#394](https://github.com/nissan/reddi-agent-protocol/issues/394) provides off-chain reputation
-preview from receipts and evidence, marks unverifiable or insufficient-evidence listings, and
-requires every reputation claim to state whether it is off-chain preview, Quasar-backed, or hosted
-attestation-backed. No reputation mutation happens on failed policy, missing evidence, failed
-attestation, or unverified payment proof.
+**Prove** — the provider-signed `reddi.receipt.v2` (provider wallet, declared model, request and
+response hashes, the payment it states), verified offline against what the buyer knows;
+EvidenceArchive records that name the signed receipt by hash; and attestation records with a
+reputation projection. A verified receipt shows what the provider declared, not which model ran.
+No reputation mutation happens on failed policy, missing evidence or a failed attestation.
 
 ## 5. Quickstart and conformance expectations
 

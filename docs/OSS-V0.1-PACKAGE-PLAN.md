@@ -1,5 +1,7 @@
 # Reddi Agent Protocol OSS v0.1 Package Plan
 
+> **Status, 20 November 2026:** the `@reddi/agent-protocol` modules this document describes were removed before V1 with `reddi.receipt.v1` ([#776](https://github.com/nissan/reddi-agent-protocol/issues/776)). `reddi.receipt.v2` is the only receipt. This document is kept as a historical record and does not describe current code.
+
 Issue: [#356](https://github.com/nissan/reddi-agent-protocol/issues/356)
 
 This plan defines the first public npm package boundary for Reddi Agent Protocol v0.1. It is a planning artifact only: no package manifest, source exports, release credentials, payment rails, hosted services, or live provider calls are changed by this document.

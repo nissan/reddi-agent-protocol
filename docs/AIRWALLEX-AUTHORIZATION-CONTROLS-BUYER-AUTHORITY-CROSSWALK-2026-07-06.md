@@ -1,5 +1,7 @@
 # Crosswalk: Airwallex Issuing `authorization_controls` ↔ `reddi.buyer-authority-policy.v1`
 
+> **Status, 20 November 2026:** the `@reddi/agent-protocol` modules this document describes were removed before V1 with `reddi.receipt.v1` ([#776](https://github.com/nissan/reddi-agent-protocol/issues/776)). `reddi.receipt.v2` is the only receipt. This document is kept as a historical record and does not describe current code.
+
 Issue: #581 (follow-up 3 of 3 from the #541 Airwallex assessment; rail-neutrality epic #338; seller-wrapper roadmap #375; buyer-authority lineage #548 → #549, landed via PRs #555–#557).
 
 Research source: `research/AIRWALLEX-RAP-INTEGRATION-ASSESSMENT-2026-07-06.md` (in the project workspace repo, not this code repo) and the #541 summary comment.

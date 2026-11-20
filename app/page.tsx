@@ -10,7 +10,6 @@ import { SpecialistCard } from "@/components/SpecialistCard";
 import { onboardingVideos, onboardingWalkthroughHeading } from "@/lib/onboarding/video-guides";
 import {
   directoryFixtureProfileCount,
-  receiptFixtureCaseCount,
   sourceTrustConformanceCaseCount,
 } from "@/lib/assurance/public-metrics";
 import type { SpecialistListing } from "@/lib/registry/bridge";
@@ -19,7 +18,6 @@ const LANDING_PROOF_GUIDES = onboardingVideos.filter((video) => video.id !== "ov
 
 const JUDGE_METRICS = {
   specialists: directoryFixtureProfileCount,
-  receiptCases: receiptFixtureCaseCount,
   conformanceCases: sourceTrustConformanceCaseCount,
 };
 
@@ -211,7 +209,6 @@ export default function Home() {
         <StatsBar
           stats={[
             { label: "Directory fixtures", value: stats.specialists },
-            { label: "Receipt fixture cases", value: stats.receiptCases },
             { label: "Source-trust conformance cases", value: stats.conformanceCases },
           ]}
         />

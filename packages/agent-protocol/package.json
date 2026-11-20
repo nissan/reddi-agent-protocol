@@ -10,10 +10,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./receipts": {
-      "types": "./dist/receipts.d.ts",
-      "import": "./dist/receipts.js"
-    },
     "./receipt-v2": {
       "types": "./dist/receipt-v2.d.ts",
       "import": "./dist/receipt-v2.js"
@@ -21,10 +17,6 @@
     "./policy": {
       "types": "./dist/policy.d.ts",
       "import": "./dist/policy.js"
-    },
-    "./fixtures": {
-      "types": "./dist/fixtures.d.ts",
-      "import": "./dist/fixtures.js"
     },
     "./ai-catalog": {
       "types": "./dist/ai-catalog.d.ts",
@@ -54,10 +46,6 @@
       "types": "./dist/attestation-reputation.d.ts",
       "import": "./dist/attestation-reputation.js"
     },
-    "./buyer-seller": {
-      "types": "./dist/buyer-seller.d.ts",
-      "import": "./dist/buyer-seller.js"
-    },
     "./audd-rail-config": {
       "types": "./dist/audd-rail-config.d.ts",
       "import": "./dist/audd-rail-config.js"
@@ -66,117 +54,17 @@
       "types": "./dist/payment-records.d.ts",
       "import": "./dist/payment-records.js"
     },
-    "./audd-payment-plan": {
-      "types": "./dist/audd-payment-plan.d.ts",
-      "import": "./dist/audd-payment-plan.js"
-    },
-    "./buyer-authority-policy": {
-      "types": "./dist/buyer-authority-policy.d.ts",
-      "import": "./dist/buyer-authority-policy.js"
-    },
     "./agent-stack-fixtures": {
       "types": "./dist/agent-stack-fixtures.d.ts",
       "import": "./dist/agent-stack-fixtures.js"
-    },
-    "./receipt-evidence-binding": {
-      "types": "./dist/receipt-evidence-binding.d.ts",
-      "import": "./dist/receipt-evidence-binding.js"
-    },
-    "./offchain-reputation-preview": {
-      "types": "./dist/offchain-reputation-preview.d.ts",
-      "import": "./dist/offchain-reputation-preview.js"
     },
     "./quasar-registry-compatibility": {
       "types": "./dist/quasar-registry-compatibility.d.ts",
       "import": "./dist/quasar-registry-compatibility.js"
     },
-    "./quasar-reputation-intent": {
-      "types": "./dist/quasar-reputation-intent.d.ts",
-      "import": "./dist/quasar-reputation-intent.js"
-    },
-    "./hosted-attestation-claim": {
-      "types": "./dist/hosted-attestation-claim.d.ts",
-      "import": "./dist/hosted-attestation-claim.js"
-    },
-    "./attestation-reputation-bridge": {
-      "types": "./dist/attestation-reputation-bridge.d.ts",
-      "import": "./dist/attestation-reputation-bridge.js"
-    },
-    "./pay-sh-sandbox-evidence": {
-      "types": "./dist/pay-sh-sandbox-evidence.d.ts",
-      "import": "./dist/pay-sh-sandbox-evidence.js"
-    },
     "./mpp-tempo-receipt-shapes": {
       "types": "./dist/mpp-tempo-receipt-shapes.d.ts",
       "import": "./dist/mpp-tempo-receipt-shapes.js"
-    },
-    "./rail-neutral-payment-receipts": {
-      "types": "./dist/rail-neutral-payment-receipts.d.ts",
-      "import": "./dist/rail-neutral-payment-receipts.js"
-    },
-    "./rail-neutral-proof-chain-fixture": {
-      "types": "./dist/rail-neutral-proof-chain-fixture.d.ts",
-      "import": "./dist/rail-neutral-proof-chain-fixture.js"
-    },
-    "./seller-wrapper-rail-fixtures": {
-      "types": "./dist/seller-wrapper-rail-fixtures.d.ts",
-      "import": "./dist/seller-wrapper-rail-fixtures.js"
-    },
-    "./seller-wrapper-config": {
-      "types": "./dist/seller-wrapper-config.d.ts",
-      "import": "./dist/seller-wrapper-config.js"
-    },
-    "./framework-template-contract": {
-      "types": "./dist/framework-template-contract.d.ts",
-      "import": "./dist/framework-template-contract.js"
-    },
-    "./framework-template-conformance": {
-      "types": "./dist/framework-template-conformance.d.ts",
-      "import": "./dist/framework-template-conformance.js"
-    },
-    "./framework-template-conformance-fixtures": {
-      "types": "./dist/framework-template-conformance-fixtures.d.ts",
-      "import": "./dist/framework-template-conformance-fixtures.js"
-    },
-    "./langgraph-rap-template": {
-      "types": "./dist/langgraph-rap-template.d.ts",
-      "import": "./dist/langgraph-rap-template.js"
-    },
-    "./erc8004-export": {
-      "types": "./dist/erc8004-export.d.ts",
-      "import": "./dist/erc8004-export.js"
-    },
-    "./erc8004-export-conformance": {
-      "types": "./dist/erc8004-export-conformance.d.ts",
-      "import": "./dist/erc8004-export-conformance.js"
-    },
-    "./adk-rap-template": {
-      "types": "./dist/adk-rap-template.d.ts",
-      "import": "./dist/adk-rap-template.js"
-    },
-    "./reputation-credential-export": {
-      "types": "./dist/reputation-credential-export.d.ts",
-      "import": "./dist/reputation-credential-export.js"
-    },
-    "./ap2-mandate-ingestion": {
-      "types": "./dist/ap2-mandate-ingestion.d.ts",
-      "import": "./dist/ap2-mandate-ingestion.js"
-    },
-    "./ap2-mandate-conformance": {
-      "types": "./dist/ap2-mandate-conformance.d.ts",
-      "import": "./dist/ap2-mandate-conformance.js"
-    },
-    "./airwallex-hosted-checkout-rail": {
-      "types": "./dist/airwallex-hosted-checkout-rail.d.ts",
-      "import": "./dist/airwallex-hosted-checkout-rail.js"
-    },
-    "./airwallex-webhook-receipt-normalization": {
-      "types": "./dist/airwallex-webhook-receipt-normalization.d.ts",
-      "import": "./dist/airwallex-webhook-receipt-normalization.js"
-    },
-    "./strands-rap-template": {
-      "types": "./dist/strands-rap-template.d.ts",
-      "import": "./dist/strands-rap-template.js"
     },
     "./okf-adapter": {
       "types": "./dist/okf-adapter.d.ts",
@@ -223,7 +111,6 @@
     "clean": "rm -rf dist dist-tests",
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && tsc -p tsconfig.test.json && node --test dist-tests/*.test.js",
-    "example:buyer-seller:dry-run": "npm run build && node examples/buyer-seller-dry-run.mjs",
     "example:ard:no-spend": "npm run build && node examples/ard-no-spend-demo.mjs",
     "example:interpretation-guide": "npm run build && node examples/interpretation-guide-scenarios.mjs",
     "conformance": "node ../../scripts/run-public-conformance.mjs",
