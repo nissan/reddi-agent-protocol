@@ -15,7 +15,7 @@ export const STAGE = "In development. Devnet today. Nothing is on mainnet yet.";
 
 export const STEPS = [
   { n: "01", title: "Ask", body: "Your app or agent sends an ordinary OpenAI-style chat request to a provider's endpoint. No new SDK to learn." },
-  { n: "02", title: "Pay", body: "The provider answers with an x402 payment request. Your client pays for that one call on Solana, in SOL or USDC, and retries." },
+  { n: "02", title: "Pay", body: "The provider answers with an x402 payment request. Your client pays for that one call on Solana and retries. At launch it can pay in SOL, USDC, AUDD or one of several other supported stablecoins." },
   { n: "03", title: "Get the receipt", body: "The answer comes back with a receipt signed by the provider. It names the provider, the model the provider says it ran, hashes of the request and response, and the payment transaction." },
   { n: "04", title: "Build the record", body: "Receipts and spot checks by independent attestors become a provider's public track record, so the next buyer has something to go on." },
 ] as const;
@@ -41,7 +41,7 @@ export const STATUS: { exists: StatusRow[]; building: StatusRow[]; planned: Stat
     { item: "Focused security review", note: "A scoped review of the program and payment path before any mainnet step. This is a review in progress, not a completed audit.", where: "Issue 737", href: `${GITHUB_URL}/issues/737` },
   ],
   planned: [
-    { item: "Guarded beta on Solana mainnet", note: "A small first release with SOL and USDC and low per-job limits. Planned; no date is promised.", where: "Issue 736", href: `${GITHUB_URL}/issues/736` },
+    { item: "Guarded beta on Solana mainnet", note: "A small first release with SOL, USDC, AUDD, PYUSD and USDG and low per-job limits. Planned; no date is promised.", where: "Issue 736", href: `${GITHUB_URL}/issues/736` },
     { item: "Public provider track records", note: "A page per provider built from receipts and attestor spot checks.", where: "Planned", href: GITHUB_URL },
     { item: "Bug bounty", note: "Planned for after the guarded beta opens.", where: "Planned", href: GITHUB_URL },
   ],
