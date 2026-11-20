@@ -4,10 +4,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { FEE_FACTS, FORECASTS, SCENARIOS, SOURCES, VOLUME_TODAY, feeFor, priceRow, scenarioRow, volumeFor } from '../lib/market.ts';
+import { BUILD_HISTORY, FEE_FACTS, FORECASTS, REVENUE_LINES, RFS, RFS_MAP, SCENARIOS, SOURCES, VOLUME_TODAY, feeFor, priceRow, scenarioRow, stackRow, volumeFor } from '../lib/market.ts';
 
 test('every shown figure has a dated https source or is marked as our estimate', () => {
-  for (const f of [...FEE_FACTS, ...VOLUME_TODAY, ...FORECASTS]) {
+  for (const f of [...FEE_FACTS, ...VOLUME_TODAY, ...FORECASTS, ...BUILD_HISTORY]) {
     assert.ok(f.asOf.trim(), f.label);
     assert.ok(f.estimate || (f.source && /^https:\/\//.test(f.source.url)), f.label);
   }
@@ -45,4 +45,32 @@ test('the page labels SAM, SOM and scenario volumes as estimates and says no fee
   assert.match(page, /nothing here runs on Solana mainnet yet/i);
   assert.equal((page.match(/className="tag">estimate</g) ?? []).length, 2);
   assert.match(page, /our estimates<\/b>/);
+});
+
+test('the page is anchored on the Solana RFS item, quoted and linked', () => {
+  const page = readFileSync(join(import.meta.dirname, '..', 'app', 'market', 'page.tsx'), 'utf8');
+  assert.equal(RFS.url, 'https://solana.com/request-for-startups#ai-inference-marketplace');
+  assert.match(page, /RFS\.thesis/);
+  assert.match(page, /not affiliated with or endorsed by the Solana Foundation/);
+  for (const m of RFS_MAP) assert.ok(RFS.thesis.includes(m.rfs) || RFS.whyNow.includes(m.rfs) || m.rfs === 'reputation', m.rfs);
+});
+
+test('every revenue line ties to an RFS ask, says how funds stay out of our hands, cites a reference and names no date', () => {
+  const asks = new Set(RFS_MAP.map((m) => m.rfs));
+  assert.equal(REVENUE_LINES.filter((l) => l.stage === 'First mainnet release').map((l) => l.key).join(), 'settle');
+  for (const l of REVENUE_LINES) {
+    assert.ok(asks.has(l.rfs), l.key);
+    assert.ok(l.nonCustodial.length > 20, l.key);
+    assert.match(l.benchmark.source.url, /^https:\/\//, l.key);
+    if (l.stage !== 'First mainnet release') assert.doesNotMatch(`${l.name} ${l.fee} ${l.payer}`, /\b(20\d\d|Q[1-4])\b/, l.key);
+  }
+});
+
+test('the revenue stack adds up and its settlement line matches the base-fee model', () => {
+  for (const s of SCENARIOS) {
+    const st = stackRow(s);
+    assert.ok(Math.abs(st.total - st.lines.reduce((t, l) => t + l.revenue, 0)) < 1e-6);
+    assert.ok(Math.abs(st.lines.find((l) => l.key === 'settle')!.revenue - scenarioRow(s).revenue2030) < 1e-6);
+  }
+  assert.equal(Math.round(stackRow(SCENARIOS[1]).total / 1000), 1327);
 });

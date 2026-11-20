@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import {
   AS_OF, AVG_CALL_USD, CALL_PRICES, FEE_FACTS, FORECASTS, OCT_2026_X402_USD, REVENUE_TARGETS, SCENARIOS, SOURCES, TAM_USD, VOLUME_TODAY,
-  FEE_BPS, priceRow, scenarioRow, volumeFor, type Figure,
+  BUILD_HISTORY, FEE_BPS, REVENUE_LINES, RFS, RFS_MAP, priceRow, scenarioRow, stackRow, volumeFor, type Figure,
 } from '../../lib/market';
 import { pageMetadata } from '../../lib/metadata';
 import { siteUrl } from '../../lib/site';
@@ -9,7 +9,7 @@ import { siteUrl } from '../../lib/site';
 export const metadata = pageMetadata(siteUrl, {
   path: '/market',
   title: 'The numbers',
-  description: 'Why per-call AI payments work on Solana, how big agent payments are today, and what a planned 0.05% protocol fee could earn. Every figure is cited or marked as our estimate.',
+  description: 'Solana asked for an open marketplace for AI inference. The market case for the verify layer we started building first: per-call payments, agent payment volumes, market size and planned protocol revenue. Every figure is cited or marked as our estimate.',
 });
 
 const usd = (n: number, digits = 0) => `$${n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
@@ -36,12 +36,27 @@ function Facts({ items }: { items: Figure[] }) {
 export default function Market() {
   const rows = SCENARIOS.map(scenarioRow);
   const base = rows.find((r) => r.key === 'base')!;
+  const stack = SCENARIOS.map(stackRow);
+  const baseStack = stack.find((r) => r.key === 'base')!;
   return (
     <main id="main" className="wrap page market">
       <p className="eyebrow">THE NUMBERS · AS OF {AS_OF.toUpperCase()}</p>
-      <h1>Small payments, a large market, a thin fee.</h1>
-      <p className="lead">Agents are starting to pay for AI one call at a time. This page shows why that works on Solana, how much gets paid today, and what a 0.05% protocol fee could earn if the market grows. Every number links to its source or is marked as our own estimate.</p>
-      <p className="notice small">Nothing here runs on Solana mainnet yet, and no protocol fee is collected today. The 0.05% fee is planned for the first mainnet release, on direct per-call payments only.</p>
+      <h1>Solana asked for an open inference market. <span>We were already building it.</span></h1>
+      <p className="lead">On {RFS.published} the Solana Foundation published its Request for Startups. One of its eleven ideas is an open marketplace for AI inference. This page is the market case for the part we build, the verify layer, and what it could earn. Every number links to its source or is marked as our own estimate.</p>
+      <p className="notice small">Nothing here runs on Solana mainnet yet, and no protocol fee is collected today. The 0.05% fee is planned for the first mainnet release, on direct per-call payments only. Every other revenue line on this page is a roadmap item.</p>
+
+      <h2>The prediction</h2>
+      <blockquote className="rfs-quote">
+        <p>&ldquo;{RFS.thesis}&rdquo;</p>
+        <p className="small">&ldquo;{RFS.whyNow}&rdquo;</p>
+        <cite>{RFS.author} · <a href={RFS.url} rel="noopener noreferrer">{RFS.title}, Solana Request for Startups ↗</a></cite>
+      </blockquote>
+      <p>Each word in that brief maps to something we have been building in public since March 2026.</p>
+      <ul className="rfs-map">
+        {RFS_MAP.map((m) => <li key={m.rfs}><b>&ldquo;{m.rfs}&rdquo;</b><span>{m.ours}</span></li>)}
+      </ul>
+      <Facts items={BUILD_HISTORY} />
+      <p className="small muted">The RFS publication date is from <a href={RFS.publishedSource.url} rel="noopener noreferrer">{RFS.publishedSource.label} ↗</a>. Reddi Agent Protocol is an independent project. It is not affiliated with or endorsed by the Solana Foundation.</p>
 
       <h2>1. Why a one-cent payment works on Solana</h2>
       <p>A card payment costs at least 30 cents, so nobody can sell a one-cent API call by card. On Solana the network fee is a small fraction of a cent, and since October 2026 a payment is final in about 150 milliseconds.</p>
@@ -82,7 +97,7 @@ export default function Market() {
         </table>
       </div>
 
-      <h2>5. What a 0.05% fee could earn</h2>
+      <h2>5. The base fee alone: 0.05%</h2>
       <p>Protocol revenue is simple: payment volume with a RAP receipt, times 0.05%. In our base case that comes to about {usd(base.revenue2027)} in 2027 and about {usd(Math.round(base.revenue2030 / 100) * 100)} in 2030. All volumes below are <b>our estimates</b>.</p>
       <div className="table-scroll">
         <table className="data">
@@ -104,11 +119,40 @@ export default function Market() {
           </tbody>
         </table>
       </div>
-      <p>A reality check: if every x402 payment in October 2026 had carried the fee, it would have come to about {usd((OCT_2026_X402_USD * FEE_BPS) / 10_000)} for the month. The fee is thin on purpose. It only adds up if agent payments grow by orders of magnitude, and that growth is the bet.</p>
+      <p>A reality check: if every x402 payment in October 2026 had carried the fee, it would have come to about {usd((OCT_2026_X402_USD * FEE_BPS) / 10_000)} for the month. The settlement fee is thin on purpose, so paying per call stays cheap. The rest of the protocol&apos;s revenue comes from the roadmap below.</p>
+
+      <h2>6. Revenue roadmap</h2>
+      <p>The RFS asks for more than payment. It asks for verification, reputation and payment channels. Each of those is a service agents will pay for, and each can be priced without us ever holding anyone&apos;s funds. Fees are split inside the buyer&apos;s own payment, or held by an on-chain program under fixed rules. The treasury only receives.</p>
+      <div className="table-scroll">
+        <table className="data roadmap">
+          <caption>Protocol revenue lines (fees are our proposals)</caption>
+          <thead><tr><th scope="col">Revenue line</th><th scope="col">RFS ask</th><th scope="col">Stage</th><th scope="col">Who pays, proposed fee</th><th scope="col">How funds stay out of our hands</th><th scope="col">Market reference</th></tr></thead>
+          <tbody>
+            {REVENUE_LINES.map((l) => (
+              <tr key={l.key}><th scope="row">{l.name}</th><td>&ldquo;{l.rfs}&rdquo;</td><td><span className={`stage stage-${l.stage === 'Exploring' ? 'exploring' : l.stage === 'Planned' ? 'planned' : 'v1'}`}>{l.stage}</span></td><td>{l.payer}<small>{l.fee}</small></td><td>{l.nonCustodial}</td><td>{l.benchmark.text} (<a href={l.benchmark.source.url} rel="noopener noreferrer">{l.benchmark.source.label} ↗</a>)</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <h2>7. What the full stack could earn in 2030</h2>
+      <p>Same market estimates as above, with every revenue line added. In our base case the protocol earns about {big(baseStack.total)} a year, an effective {baseStack.effectiveBps.toFixed(0)} basis points of volume, against {usd(Math.round(base.revenue2030 / 100) * 100)} from the settlement fee alone. All figures are <b>our estimates</b>.</p>
+      <div className="table-scroll">
+        <table className="data">
+          <caption>2030 protocol revenue by line (our estimates)</caption>
+          <thead><tr><th scope="col">Revenue line</th>{stack.map((r) => <th scope="col" key={r.key}>{NAMES[r.key]}</th>)}</tr></thead>
+          <tbody>
+            {REVENUE_LINES.map((l) => <tr key={l.key}><th scope="row">{l.name}</th>{stack.map((r) => <td key={r.key}>{big(r.lines.find((x) => x.key === l.key)!.revenue)}</td>)}</tr>)}
+            <tr className="total"><th scope="row">Total</th>{stack.map((r) => <td key={r.key}>{big(r.total)}<small>{r.effectiveBps.toFixed(0)} bps of volume</small></td>)}</tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="small muted">Base assumptions: a quarter of volume buys a verified receipt, 15% is spot-checked, escrow volume is half of per-call volume, one reputation lookup per two paid calls, 2,000 listed providers and 5% of calls private. Low and high scale each of these down or up.</p>
+      <p>The bigger lever is scope. A receipt works for any paid agent API or tool call, not only inference. Juniper forecasts $1.5T of agentic commerce in 2030. We have not counted any of it here.</p>
 
       <h2>How we built this</h2>
       <ul className="plain">
-        <li>The fee applies only to direct per-call payments. Escrow jobs carry no fee in the first release, so they add nothing here.</li>
+        <li>In the first mainnet release the fee applies only to direct per-call payments. Escrow jobs carry no fee until the escrow line on the roadmap ships.</li>
         <li>Volume is in US dollars at the listed price. 2027 and 2030 are point estimates, and we fit no growth curve between them.</li>
         <li>We assume an average call of {cents}, close to the Q3 2026 agent average.</li>
         <li>Forecasts we could not check against the publisher&apos;s own page are left out.</li>

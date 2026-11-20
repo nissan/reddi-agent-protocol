@@ -40,6 +40,7 @@ export default function Home() {
               <cite>Jacob Creech, VP Technology, Solana Foundation · <a href={RFS_URL} rel="noopener noreferrer">Request for Startups ↗</a></cite>
             </blockquote>
             <p>Choosing and paying already have good open tools. Verifying is the missing piece: when a provider says which model answered, what can you hold them to? We have been building that piece in the open, and its first release is close.</p>
+            <p><Link className="text-link" href="/market">The market case and the numbers ↗</Link></p>
             <p className="small">Reddi Agent Protocol is an independent project. It is not affiliated with or endorsed by the Solana Foundation.</p>
           </div>
           <ol className="layers">
