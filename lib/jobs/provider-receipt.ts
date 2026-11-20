@@ -36,6 +36,8 @@ export interface ProviderReceiptInput {
   network: ReddiReceiptV2Network;
   /** The payment transaction this server verified on chain. */
   txSignature: string;
+  /** What this server verified was paid. The receipt must state the same currency, mint, amount and fee. */
+  paid: { currency: string; mint?: string; amountBaseUnits: string; payer: string; fee: { amount: string; treasury?: string } };
 }
 
 type StoreResponse = { ok: boolean; status: number };
@@ -67,9 +69,16 @@ export async function checkAndStoreProviderReceipt(input: ProviderReceiptInput, 
     providerId: input.providerWallet,
     requestHash: hashReddiReceiptV2Body(input.requestBody),
     responseHash: hashReddiReceiptV2Body(input.responseBody),
-    payment: { network: input.network, txSignature: input.txSignature },
+    payment: { network: input.network, txSignature: input.txSignature, amount: input.paid.amountBaseUnits, fee: input.paid.fee, settlement: "direct" },
   });
   if (!verified.ok) return { stored: false, reason: verified.errors[0]?.code ?? "invalid" };
+  // Currency and mint are compared here: a missing mint must mean SOL on both sides.
+  const stated = verified.receipt.payment;
+  if (stated.currency !== input.paid.currency || stated.mint !== input.paid.mint) return { stored: false, reason: "payment_mismatch" };
+  if (stated.fee.treasury !== input.paid.fee.treasury) return { stored: false, reason: "payment_mismatch" };
+  // The payer is optional in a receipt. When the provider states one, it must be the wallet that paid.
+  if (stated.payer !== undefined && stated.payer !== input.paid.payer) return { stored: false, reason: "payment_mismatch" };
+  if (verified.receipt.jobId !== undefined && verified.receipt.jobId !== input.jobId) return { stored: false, reason: "job_mismatch" };
 
   const origin = supabaseOrigin(deps.url ?? process.env.NEXT_PUBLIC_SUPABASE_URL);
   const serviceKey = (deps.serviceKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY)?.trim();

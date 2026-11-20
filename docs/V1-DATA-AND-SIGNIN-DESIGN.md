@@ -159,10 +159,12 @@ The provider-signed receipt is `reddi.receipt.v2`, with an offline verifier
 (`packages/agent-protocol/src/receipt-v2.ts`). The owner chose a new receipt version over
 an extension block next to v1 (20 November 2026). v2 is issued and signed by the
 provider and carries the provider wallet, declared model, request and response hashes
-and the payment transaction. It is not a superset of v1: `reddi.receipt.v1` stays frozen
-with its own validator, each validator rejects the other version, and v2 carries no
-amount (the amount is read from the transaction it names). It records a declared model,
-never verified execution.
+and the payment: transaction, currency and mint, the listed price and the protocol fee in
+smallest units, the fee treasury, `direct` or `escrow`, and the payer when the provider
+checked it (#776). v2 is the one receipt for V1 paid calls; `reddi.receipt.v1` is
+deprecated and each validator rejects the other version. The payment fields are the
+provider's statement: the app saves a receipt only when they equal what it verified on
+chain. It records a declared model, never verified execution.
 
 After a delivered, recorded job the app reads the `x-reddi-provider-receipt` response
 header (base64url JSON of the signed v2 receipt) and saves it to `receipts` only if the

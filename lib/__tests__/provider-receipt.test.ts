@@ -12,6 +12,13 @@ const TX = "5".repeat(88);
 const REQUEST = '{"model":"llama3.1:8b","messages":[{"role":"user","content":"hi"}]}';
 const RESPONSE = '{"choices":[{"message":{"content":"hello"}}]}';
 const URL_BASE = "https://example.supabase.co";
+// Throwaway addresses for the test only.
+const MINT = new PublicKey(Buffer.alloc(32, 4)).toBase58();
+const TREASURY = new PublicKey(Buffer.alloc(32, 3)).toBase58();
+const PAYER = new PublicKey(Buffer.alloc(32, 2)).toBase58();
+/** A 1.000000 USDC call with the 0.05% fee. */
+const PAYMENT = { network: "solana-devnet", txSignature: TX, currency: "USDC", mint: MINT, amount: "1000000", fee: { amount: "500", treasury: TREASURY }, payer: PAYER, settlement: "direct" } as const;
+const PAID = { currency: "USDC", mint: MINT, amountBaseUnits: "1000000", payer: PAYER, fee: { amount: "500", treasury: TREASURY } };
 
 // Throwaway keys generated per run. Never a real wallet.
 function testProvider() {
@@ -28,7 +35,7 @@ async function headerFor(provider: ReturnType<typeof testProvider>, overrides: P
       declaredModel: "llama3.1:8b",
       requestHash: hashReddiReceiptV2Body(REQUEST),
       responseHash: hashReddiReceiptV2Body(RESPONSE),
-      payment: { network: "solana-devnet", txSignature: TX },
+      payment: PAYMENT,
       issuedAt: "2026-11-20T09:00:00Z",
       ...overrides,
     },
@@ -47,7 +54,7 @@ function store(status = 201) {
 }
 
 function inputFor(provider: ReturnType<typeof testProvider>, headerValue: string | null) {
-  return { headerValue, jobId: JOB_ID, providerWallet: provider.address, requestBody: REQUEST, responseBody: RESPONSE, network: "solana-devnet" as const, txSignature: TX };
+  return { headerValue, jobId: JOB_ID, providerWallet: provider.address, requestBody: REQUEST, responseBody: RESPONSE, network: "solana-devnet" as const, txSignature: TX, paid: PAID };
 }
 
 describe("provider receipt check and store", () => {
@@ -76,12 +83,31 @@ describe("provider receipt check and store", () => {
     ["a different request body", { requestBody: REQUEST + " " }, "request_hash_mismatch"],
     ["a different payment", { txSignature: "4".repeat(88) }, "payment_mismatch"],
     ["a different network", { network: "solana-mainnet-beta" as const }, "payment_mismatch"],
+    ["a different amount", { paid: { ...PAID, amountBaseUnits: "2000000" } }, "payment_mismatch"],
+    ["a different currency", { paid: { ...PAID, currency: "AUDD" } }, "payment_mismatch"],
+    ["a different mint", { paid: { ...PAID, mint: TREASURY } }, "payment_mismatch"],
+    ["SOL when the receipt names a token", { paid: { ...PAID, currency: "SOL", mint: undefined } }, "payment_mismatch"],
+    ["a different fee", { paid: { ...PAID, fee: { amount: "499", treasury: TREASURY } } }, "payment_mismatch"],
+    ["a different fee treasury", { paid: { ...PAID, fee: { amount: "500", treasury: PAYER } } }, "payment_mismatch"],
+    ["a different payer", { paid: { ...PAID, payer: TREASURY } }, "payment_mismatch"],
   ])("refuses a receipt for %s", async (_label, change, reason) => {
     const provider = testProvider();
     const { calls, deps } = store();
     const result = await checkAndStoreProviderReceipt({ ...inputFor(provider, await headerFor(provider)), ...change }, deps);
     expect(result).toEqual({ stored: false, reason });
     expect(calls).toHaveLength(0);
+  });
+
+  it("stores a receipt that states no payer, and refuses one that names another job", async () => {
+    const provider = testProvider();
+    const { payer: _payer, ...withoutPayer } = PAYMENT;
+    const first = store();
+    expect((await checkAndStoreProviderReceipt(inputFor(provider, await headerFor(provider, { payment: withoutPayer })), first.deps)).stored).toBe(true);
+    const second = store();
+    expect(await checkAndStoreProviderReceipt(inputFor(provider, await headerFor(provider, { jobId: "another-job" })), second.deps)).toEqual({ stored: false, reason: "job_mismatch" });
+    expect(second.calls).toHaveLength(0);
+    const third = store();
+    expect((await checkAndStoreProviderReceipt(inputFor(provider, await headerFor(provider, { jobId: JOB_ID })), third.deps)).stored).toBe(true);
   });
 
   it("refuses a receipt signed by a provider other than the one paid", async () => {

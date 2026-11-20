@@ -25,7 +25,11 @@ const realConfig: RuntimeConfig = {
   requirePayment: true,
   allowDemoPayment: false,
   allowRealPayment: true,
+  usdcDevnetMint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
 };
+// Throwaway addresses for the test only.
+const TREASURY = "7YttLkHDoNj9wyDur5pM1ejNaAvT9X4eqaYcHQqtj2G5";
+const PAYER = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
 
 function paymentHeaders(receipt: unknown): Headers {
   return new Headers({ "x402-payment": typeof receipt === "string" ? receipt : JSON.stringify(receipt) });
@@ -57,10 +61,43 @@ test("a receipt states the provider wallet, configured model, body hashes and th
     declaredModel: profile.model,
     requestHash: sha(REQUEST),
     responseHash: sha(RESPONSE),
-    payment: { network: "solana-devnet", txSignature: TX },
+    payment: { network: "solana-devnet", txSignature: TX, currency: "USDC", mint: realConfig.usdcDevnetMint, amount: "30000", fee: { amount: "0" }, settlement: "direct" },
     issuedAt: "2026-11-20T09:00:00.000Z",
   });
   assert.equal(signer.statements.length, 1);
+});
+
+test("a receipt states the protocol fee and its treasury, the configured mint, and the payer the payment named", async () => {
+  const signer = recordingSigner();
+  const header = await buildProviderReceiptHeader({
+    headers: paymentHeaders({ signature: TX, nonce: "n-2", payer: PAYER }),
+    config: { ...realConfig, protocolFeeTreasury: TREASURY, paymentMints: { USDC: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB" } },
+    profile,
+    requestText: REQUEST,
+    responseText: RESPONSE,
+    deps: { signProviderReceipt: signer.sign },
+  });
+  assert.ok(header);
+  // 0.03 USDC is 30000 units; 0.05% of that, rounded down, is 15.
+  assert.deepEqual(signer.statements[0]?.payment, {
+    network: "solana-devnet",
+    txSignature: TX,
+    currency: "USDC",
+    mint: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+    amount: "30000",
+    fee: { amount: "15", treasury: TREASURY },
+    payer: PAYER,
+    settlement: "direct",
+  });
+});
+
+test("no receipt when the mint for the listed currency is not configured, and a malformed payer is left out", async () => {
+  const signer = recordingSigner();
+  const base = { profile, requestText: REQUEST, responseText: RESPONSE, deps: { signProviderReceipt: signer.sign } };
+  assert.equal(await buildProviderReceiptHeader({ ...base, headers: paymentHeaders({ signature: TX }), config: { ...realConfig, usdcDevnetMint: undefined } }), undefined);
+  assert.equal(signer.statements.length, 0);
+  assert.ok(await buildProviderReceiptHeader({ ...base, headers: paymentHeaders({ signature: TX, payer: "not an address" }), config: realConfig }));
+  assert.equal("payer" in signer.statements[0]!.payment, false);
 });
 
 test("no receipt without a signer", async () => {

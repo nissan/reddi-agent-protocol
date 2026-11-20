@@ -7,11 +7,13 @@
  * provider signs those fields with its wallet key, so the receipt can be
  * checked offline against the provider's address.
  *
- * It is a new version, not a superset of `reddi.receipt.v1`. v1 stays frozen
- * and is validated by `receipts.ts`; a v1 validator rejects a v2 receipt and
- * this module rejects a v1 receipt. v2 does not carry v1's buyer-side fields
- * (job, source, policy decision, attestation status) or an amount: the amount
- * paid is read from the transaction it names.
+ * It is the receipt for every paid call in V1 (#776). It also states what was
+ * paid: the currency and mint, the listed price, the protocol fee and where it
+ * went, and whether the call was paid directly or through escrow. A v1
+ * validator rejects a v2 receipt and this module rejects a v1 receipt.
+ *
+ * The payment fields are the provider's statement. A verifier that needs to
+ * rely on them checks the named transaction on chain; this module does not.
  *
  * What a valid signature shows: the holder of the provider key stated these
  * fields. It does not show which model actually ran. "Declared model" is a
@@ -24,13 +26,17 @@
 import { createHash, createPublicKey, verify as edVerify } from 'node:crypto';
 export const REDDI_RECEIPT_V2_VERSION = 'reddi.receipt.v2';
 export const REDDI_RECEIPT_V2_PROOF_TYPE = 'ed25519';
+export const REDDI_RECEIPT_V2_CURRENCIES = ['SOL', 'USDC', 'PYUSD', 'USDG', 'AUDD'];
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const HASH = /^[0-9a-f]{64}$/;
 const TX_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
-const RECEIPT_KEYS = ['schemaVersion', 'providerId', 'declaredModel', 'requestHash', 'responseHash', 'payment', 'issuedAt'];
-const PAYMENT_KEYS = ['network', 'txSignature'];
+const RECEIPT_KEYS = ['schemaVersion', 'providerId', 'declaredModel', 'requestHash', 'responseHash', 'payment', 'jobId', 'issuedAt'];
+const PAYMENT_KEYS = ['network', 'txSignature', 'currency', 'mint', 'amount', 'fee', 'payer', 'settlement'];
+/** Smallest-unit amount: digits only, no leading zero, at most 30 digits. */
+const BASE_UNITS = /^(0|[1-9]\d{0,29})$/;
+const JOB_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/;
 function err(code, path, message) {
     return { code, path, message };
 }
@@ -97,14 +103,41 @@ export function validateReddiReceiptV2(input) {
         errors.push(err('malformed_receipt', '$.responseHash', 'responseHash must be lowercase hex SHA-256'));
     const payment = input.payment;
     if (!isRecord(payment) || !onlyKeys(payment, PAYMENT_KEYS)) {
-        errors.push(err('malformed_receipt', '$.payment', 'payment must be an object with network and txSignature only'));
+        errors.push(err('malformed_receipt', '$.payment', 'payment must be an object with only the fields this version defines'));
     }
     else {
+        const isSol = payment.currency === 'SOL';
+        if (!REDDI_RECEIPT_V2_CURRENCIES.includes(payment.currency))
+            errors.push(err('malformed_receipt', '$.payment.currency', 'currency must be SOL, USDC, PYUSD, USDG or AUDD'));
+        else if (isSol && payment.mint !== undefined)
+            errors.push(err('malformed_receipt', '$.payment.mint', 'SOL has no mint'));
+        else if (!isSol && !publicKeyBytes(payment.mint))
+            errors.push(err('malformed_receipt', '$.payment.mint', 'mint must be a base58 address for a token currency'));
+        if (typeof payment.amount !== 'string' || !BASE_UNITS.test(payment.amount) || payment.amount === '0')
+            errors.push(err('malformed_receipt', '$.payment.amount', 'amount must be a positive whole number of smallest units, as a string'));
+        const fee = payment.fee;
+        if (!isRecord(fee) || !onlyKeys(fee, ['amount', 'treasury']) || typeof fee.amount !== 'string' || !BASE_UNITS.test(fee.amount)) {
+            errors.push(err('malformed_receipt', '$.payment.fee', 'fee must be { amount, treasury? } with amount in smallest units'));
+        }
+        else {
+            if (fee.treasury !== undefined && !publicKeyBytes(fee.treasury))
+                errors.push(err('malformed_receipt', '$.payment.fee.treasury', 'treasury must be a base58 address'));
+            if (fee.amount !== '0' && fee.treasury === undefined)
+                errors.push(err('malformed_receipt', '$.payment.fee.treasury', 'a fee above zero must name the treasury that received it'));
+            if (typeof payment.amount === 'string' && BASE_UNITS.test(payment.amount) && BigInt(fee.amount) >= BigInt(payment.amount))
+                errors.push(err('malformed_receipt', '$.payment.fee.amount', 'fee must be less than the amount'));
+        }
+        if (payment.payer !== undefined && !publicKeyBytes(payment.payer))
+            errors.push(err('malformed_receipt', '$.payment.payer', 'payer must be a base58 address'));
+        if (payment.settlement !== 'direct' && payment.settlement !== 'escrow')
+            errors.push(err('malformed_receipt', '$.payment.settlement', 'settlement must be direct or escrow'));
         if (payment.network !== 'solana-devnet' && payment.network !== 'solana-mainnet-beta')
             errors.push(err('malformed_receipt', '$.payment.network', 'network must be solana-devnet or solana-mainnet-beta'));
         if (typeof payment.txSignature !== 'string' || !TX_SIGNATURE.test(payment.txSignature))
             errors.push(err('malformed_receipt', '$.payment.txSignature', 'txSignature must be a base58 transaction signature'));
     }
+    if (input.jobId !== undefined && (typeof input.jobId !== 'string' || !JOB_ID.test(input.jobId)))
+        errors.push(err('malformed_receipt', '$.jobId', 'jobId must be 1 to 120 characters of letters, digits, dot, underscore, colon or hyphen'));
     if (typeof input.issuedAt !== 'string' || !ISO_UTC.test(input.issuedAt) || Number.isNaN(Date.parse(input.issuedAt))) {
         errors.push(err('malformed_receipt', '$.issuedAt', 'issuedAt must be an ISO 8601 UTC time'));
     }
@@ -116,13 +149,24 @@ export function validateReddiReceiptV2(input) {
  * receipt cannot be replayed as a signature for another kind of message.
  */
 export function canonicalizeReddiReceiptV2(receipt) {
+    const p = receipt.payment;
     return JSON.stringify({
         schemaVersion: receipt.schemaVersion,
         providerId: receipt.providerId,
         declaredModel: receipt.declaredModel,
         requestHash: receipt.requestHash,
         responseHash: receipt.responseHash,
-        payment: { network: receipt.payment.network, txSignature: receipt.payment.txSignature },
+        payment: {
+            network: p.network,
+            txSignature: p.txSignature,
+            currency: p.currency,
+            ...(p.mint !== undefined ? { mint: p.mint } : {}),
+            amount: p.amount,
+            fee: { amount: p.fee.amount, ...(p.fee.treasury !== undefined ? { treasury: p.fee.treasury } : {}) },
+            ...(p.payer !== undefined ? { payer: p.payer } : {}),
+            settlement: p.settlement,
+        },
+        ...(receipt.jobId !== undefined ? { jobId: receipt.jobId } : {}),
         issuedAt: receipt.issuedAt,
     });
 }
@@ -184,8 +228,19 @@ export function verifyReddiReceiptV2(input, expected = {}) {
         errors.push(err('request_hash_mismatch', '$.receipt.requestHash', 'request hash differs from the request that was sent'));
     if (expected.responseHash !== undefined && expected.responseHash !== receipt.responseHash)
         errors.push(err('response_hash_mismatch', '$.receipt.responseHash', 'response hash differs from the response that was received'));
-    if (expected.payment !== undefined && (expected.payment.network !== receipt.payment.network || expected.payment.txSignature !== receipt.payment.txSignature)) {
-        errors.push(err('payment_mismatch', '$.receipt.payment', 'payment reference differs from the payment that was made'));
+    if (expected.payment !== undefined) {
+        const want = expected.payment;
+        const got = receipt.payment;
+        const differs = want.network !== got.network
+            || want.txSignature !== got.txSignature
+            || (want.currency !== undefined && want.currency !== got.currency)
+            || (want.mint !== undefined && want.mint !== got.mint)
+            || (want.amount !== undefined && want.amount !== got.amount)
+            || (want.payer !== undefined && want.payer !== got.payer)
+            || (want.settlement !== undefined && want.settlement !== got.settlement)
+            || (want.fee !== undefined && (want.fee.amount !== got.fee.amount || (want.fee.treasury !== undefined && want.fee.treasury !== got.fee.treasury)));
+        if (differs)
+            errors.push(err('payment_mismatch', '$.receipt.payment', 'payment differs from the payment that was made'));
     }
     return errors.length > 0 ? { ok: false, errors } : { ok: true, receipt };
 }
