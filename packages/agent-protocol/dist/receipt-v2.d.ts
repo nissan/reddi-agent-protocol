@@ -28,7 +28,19 @@ export declare const REDDI_RECEIPT_V2_PROOF_TYPE: "ed25519";
 export type ReddiReceiptV2Network = 'solana-devnet' | 'solana-mainnet-beta';
 export declare const REDDI_RECEIPT_V2_CURRENCIES: readonly ["SOL", "USDC", "PYUSD", "USDG", "AUDD"];
 export type ReddiReceiptV2Currency = (typeof REDDI_RECEIPT_V2_CURRENCIES)[number];
-export type ReddiReceiptV2Settlement = 'direct' | 'escrow';
+export type ReddiReceiptV2Settlement = 'direct' | 'escrow' | 'metered-escrow';
+/**
+ * What a per-token call used and settled. Present exactly when `settlement`
+ * is 'metered-escrow'. Token counts are the provider's report; `maxAmount` is
+ * what the buyer authorised and locked, `amount` is the actual cost paid, and
+ * `refunded` is the rest, returned to the buyer.
+ */
+export type ReddiReceiptV2Metered = {
+    inputTokens: string;
+    outputTokens: string;
+    maxAmount: string;
+    refunded: string;
+};
 export type ReddiReceiptV2Payment = {
     network: ReddiReceiptV2Network;
     /** Signature of the transaction that paid for this call (base58). */
@@ -36,7 +48,7 @@ export type ReddiReceiptV2Payment = {
     currency: ReddiReceiptV2Currency;
     /** Token mint address (base58). Required for every currency except SOL, which has none. */
     mint?: string;
-    /** Listed price the buyer paid in total, in the currency's smallest unit, as a decimal string. */
+    /** What the buyer paid in total, in the currency's smallest unit, as a decimal string. For a metered call, the actual cost. */
     amount: string;
     /**
      * Protocol fee taken out of `amount`, in the smallest unit. "0" when no fee
@@ -50,6 +62,8 @@ export type ReddiReceiptV2Payment = {
     /** Paying wallet (base58). Present only when the provider checked it against the transaction. */
     payer?: string;
     settlement: ReddiReceiptV2Settlement;
+    /** Token counts and the authorised maximum of a per-token call. */
+    metered?: ReddiReceiptV2Metered;
 };
 export type ReddiReceiptV2 = {
     schemaVersion: typeof REDDI_RECEIPT_V2_VERSION;
