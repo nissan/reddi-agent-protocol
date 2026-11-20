@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   buildX402Challenge,
   defaultNonceReplayStore,
@@ -468,9 +468,90 @@ const REPLAY_UNAVAILABLE: RuntimeResponse = {
   body: { error: { code: "payment_check_unavailable", message: "The payment could not be checked right now. Nothing was accepted; present the same receipt again." } },
 };
 
+/** Response header that carries the provider's signed receipt, as base64url JSON. */
+export const PROVIDER_RECEIPT_HEADER = "x-reddi-provider-receipt";
+export const PROVIDER_RECEIPT_EXTENSION_VERSION = "reddi.receipt.provider-extension.v1" as const;
+const MAX_PROVIDER_RECEIPT_HEADER_CHARS = 4096;
+const TX_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
+
+/**
+ * What this provider states about one paid call. Same shape as
+ * `ProviderReceiptExtension` in `@reddi/agent-protocol`. The model is the one
+ * this runtime is configured to call: a declaration, not proof of execution.
+ */
+export interface ProviderReceiptStatement {
+  schemaVersion: typeof PROVIDER_RECEIPT_EXTENSION_VERSION;
+  providerId: string;
+  declaredModel: string;
+  requestHash: string;
+  responseHash: string;
+  payment: { network: typeof PAYMENT_NETWORK; txSignature: string };
+  issuedAt: string;
+}
+
 export interface RuntimeDeps {
   /** Where accepted payments are remembered. Defaults to the in-memory store. */
   replayStore?: NonceReplayStore;
+  /**
+   * Signs a receipt statement with the provider wallet's key and returns the
+   * signed block (`signProviderReceiptExtension` from `@reddi/agent-protocol`
+   * does this). The key stays with the operator; this runtime never reads one.
+   * When absent, no receipt is issued.
+   */
+  signProviderReceipt?: (statement: ProviderReceiptStatement) => Promise<unknown> | unknown;
+  now?: () => Date;
+}
+
+function sha256Hex(text: string): string {
+  return createHash("sha256").update(Buffer.from(text, "utf8")).digest("hex");
+}
+
+/**
+ * The transaction a real, verified payment was made with. Undefined whenever
+ * demo payments are possible, so a receipt never names an unchecked transaction.
+ */
+function verifiedPaymentSignature(headers: Headers, config: RuntimeConfig): string | undefined {
+  if (!config.requirePayment || !config.allowRealPayment || config.allowDemoPayment) return undefined;
+  const value = headers.get("x402-payment") ?? headers.get("x-payment");
+  if (!value) return undefined;
+  const parsed = parseX402PaymentHeader(value);
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const receipt = parsed as { signature?: unknown; txSignature?: unknown };
+  const signature = typeof receipt.signature === "string" ? receipt.signature : typeof receipt.txSignature === "string" ? receipt.txSignature : "";
+  return TX_SIGNATURE.test(signature) ? signature : undefined;
+}
+
+/**
+ * Builds the receipt header for a delivered, paid call. Any failure yields no
+ * header: the buyer still gets the answer they paid for.
+ */
+export async function buildProviderReceiptHeader(input: {
+  headers: Headers;
+  config: RuntimeConfig;
+  profile: SpecialistProfile;
+  requestText: string;
+  responseText: string;
+  deps: RuntimeDeps;
+}): Promise<string | undefined> {
+  if (!input.deps.signProviderReceipt) return undefined;
+  const txSignature = verifiedPaymentSignature(input.headers, input.config);
+  if (!txSignature) return undefined;
+  try {
+    const signed = await input.deps.signProviderReceipt({
+      schemaVersion: PROVIDER_RECEIPT_EXTENSION_VERSION,
+      providerId: input.profile.walletAddress,
+      declaredModel: input.profile.model,
+      requestHash: sha256Hex(input.requestText),
+      responseHash: sha256Hex(input.responseText),
+      payment: { network: PAYMENT_NETWORK, txSignature },
+      issuedAt: (input.deps.now?.() ?? new Date()).toISOString(),
+    });
+    if (!signed || typeof signed !== "object") return undefined;
+    const header = Buffer.from(JSON.stringify(signed), "utf8").toString("base64url");
+    return header.length <= MAX_PROVIDER_RECEIPT_HEADER_CHARS ? header : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function handleRuntimeRequest(request: Request, config = createRuntimeConfig(), client = createOpenRouterClient(config), deps: RuntimeDeps = {}): Promise<Response> {
@@ -499,9 +580,21 @@ export async function handleRuntimeRequest(request: Request, config = createRunt
     }
   }
   if (request.method === "POST" && url.pathname === "/v1/chat/completions") {
-    const body = (await request.json().catch(() => ({}))) as ChatCompletionRequest;
+    const requestText = await request.text().catch(() => "");
+    let body: ChatCompletionRequest = {} as ChatCompletionRequest;
     try {
-      return toResponse(await handleChatCompletions({ headers: request.headers, body, config, client, replayStore }));
+      const parsed: unknown = JSON.parse(requestText);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) body = parsed as ChatCompletionRequest;
+    } catch {
+      // An unreadable body is handled as an empty request, as before.
+    }
+    try {
+      const result = await handleChatCompletions({ headers: request.headers, body, config, client, replayStore });
+      if (result.status !== 200) return toResponse(result);
+      // The receipt names the exact bytes sent, so the body is serialised once and reused.
+      const responseText = JSON.stringify(result.body);
+      const receipt = await buildProviderReceiptHeader({ headers: request.headers, config, profile, requestText, responseText, deps });
+      return new Response(responseText, { status: 200, headers: receipt ? { ...result.headers, [PROVIDER_RECEIPT_HEADER]: receipt } : result.headers });
     } catch (error) {
       if (isReplayStoreFailure(error)) return toResponse(REPLAY_UNAVAILABLE);
       throw error;
