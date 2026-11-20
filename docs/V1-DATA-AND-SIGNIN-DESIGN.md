@@ -173,8 +173,15 @@ operator passes a `signProviderReceipt` function to `handleRuntimeRequest`; the 
 reads no key itself and `server.ts` passes none yet. It issues nothing while demo
 payments are allowed.
 
-Not built yet: how an operator supplies the provider signing key to `server.ts`,
-attestations and `provider_stats` updates.
+After a job is recorded, delivered or not, the server recounts that provider's rows in
+`jobs` and `attestations` and writes the whole `provider_stats` row
+(`lib/jobs/provider-stats.ts`). The row is recounted, never incremented, so two calls
+finishing together cannot lose an update, and nothing is written if any count cannot be
+read. These are counts of recorded jobs, not a quality score: a provider who pays their
+own listing adds to their own count. No page shows the counts yet.
+
+Not built yet: how an operator supplies the provider signing key to `server.ts`, and
+writing attestations.
 
 ## Replay store
 
