@@ -46,7 +46,7 @@ function makeListing(tags: string[]): SpecialistListing {
       attestationDisagreements: 0,
     },
     ranking_score: 0,
-  };
+  } as unknown as SpecialistListing;
 }
 
 describe("source adapter routing policy", () => {

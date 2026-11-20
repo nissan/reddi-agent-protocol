@@ -82,7 +82,7 @@ describe("manager marketplace approval actions", () => {
     }));
 
     expect(result.ok).toBe(false);
-    expect(result.reason).toBe("Publish requires approved state; got draft.");
+    expect((result as { reason?: string }).reason).toBe("Publish requires approved state; got draft.");
     expect(result.record.state).toBe("draft");
     expect(result.record.publicVisible).toBe(false);
     expect(result.record.auditHistory).toEqual([]);
@@ -159,7 +159,7 @@ describe("manager marketplace approval actions", () => {
     const retry = applyMarketplaceApprovalAction(rejected.record, action("approve"));
 
     expect(retry.ok).toBe(false);
-    expect(retry.reason).toContain("terminal");
+    expect((retry as { reason?: string }).reason).toContain("terminal");
     expect(retry.record.state).toBe("rejected");
     expect(retry.record.auditHistory).toHaveLength(1);
   });
@@ -248,7 +248,7 @@ describe("manager marketplace approval actions", () => {
     const result = applyMarketplaceApprovalAction(record, action("approve"));
 
     expect(result.ok).toBe(false);
-    expect(result.reason).toContain("Imported metadata cannot be approved");
+    expect((result as { reason?: string }).reason).toContain("Imported metadata cannot be approved");
     expect(result.record.state).toBe("draft");
     expect(result.record.auditHistory).toEqual([]);
   });
@@ -281,7 +281,7 @@ describe("manager marketplace approval actions", () => {
     const result = applyMarketplaceApprovalAction(warningOnlyRecord, action("approve"));
 
     expect(result.ok).toBe(false);
-    expect(result.reason).toContain("unsafe_metadata_warning");
+    expect((result as { reason?: string }).reason).toContain("unsafe_metadata_warning");
     expect(result.record.state).toBe("draft");
     expect(result.record.auditHistory).toEqual([]);
   });

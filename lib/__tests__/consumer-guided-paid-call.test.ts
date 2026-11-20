@@ -43,7 +43,7 @@ describe("consumer guided paid call summaries", () => {
       x402TxSignature: "tx_123",
       x402ReceiptNonce: "nonce_123",
       trace: [],
-    }, 0.01);
+    } as Parameters<typeof summarizeConsumerReceipt>[0], 0.01);
 
     expect(receipt).toMatchObject({
       status: "paid",
@@ -67,7 +67,7 @@ describe("consumer guided paid call summaries", () => {
       paymentSatisfied: false,
       error: "Specialist endpoint returned a completion without an x402 challenge. Refusing unpaid response.",
       trace: ["x402:missing_challenge_unpaid_response_blocked"],
-    });
+    } as Parameters<typeof summarizeConsumerReceipt>[0]);
 
     expect(receipt.status).toBe("blocked");
     expect(receipt.amountLabel).toBe("No payment accepted");

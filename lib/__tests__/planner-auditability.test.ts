@@ -65,7 +65,7 @@ describe("planner auditability (H4.3)", () => {
       score: 2,
       notes: "low quality despite settlement release decision",
       consumerWallet: "So22222222222222222222222222222222222222222",
-    });
+    } as Parameters<typeof recordPlannerFeedback>[0]);
 
     expect(feedback.ok).toBe(true);
     expect(feedback.record.runId).toBe("run_audit_1");
