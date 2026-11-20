@@ -1,0 +1,121 @@
+name: Surfpool 1.7 SPL escrow lane (on demand)
+
+# Runs the opt-in Surfpool 1.7.0 SPL escrow proof lane (docs/SURFPOOL-1.7-SPL-ESCROW-LANE.md) on a
+# Linux x64 runner, the only platform the lane supports. It is offline and local only: an embedded
+# Surfnet and a loopback test validator, in-memory keys, no devnet or mainnet transaction.
+#
+# It is not a required check. It runs when asked for (workflow_dispatch) and when a pull request
+# changes the lane itself, so a change to the lane arrives with its own run.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/surfpool-1.7-lane/**"
+      - "programs/escrow/tests/local_token_escrow.cjs"
+      - ".github/workflows/surfpool-spl-escrow-1.7-lane.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: surfpool-spl-escrow-1.7-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  spl-escrow-lane:
+    name: Surfpool 1.7 SPL escrow lane
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.20.0"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.98.0"
+
+      - name: Cache Cargo registry and the lane's build directory
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/solana
+            .tmp/surfpool-1.7-spl-escrow-cargo-target
+          key: ${{ runner.os }}-surfpool-1.7-spl-escrow-${{ hashFiles('rust-toolchain.toml', 'config/toolchain/solana-baseline-assets.json') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-surfpool-1.7-spl-escrow-${{ hashFiles('rust-toolchain.toml', 'config/toolchain/solana-baseline-assets.json') }}-
+
+      # The lane accepts Agave only from the baseline-owned directory. This installs the pinned
+      # release there from the checksummed installer named in the repository's asset file, the same
+      # way scripts/solana-baseline-toolchain.sh does.
+      - name: Install the pinned Agave release into the baseline directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r version url sha256 < <(python3 - <<'PY'
+          import json
+          agave = json.load(open("config/toolchain/solana-baseline-assets.json"))["agave"]
+          (version, sha256), = agave["sha256ByVersion"].items()
+          print(version, agave["urlTemplate"].replace("{version}", version), sha256)
+          PY
+          )
+          install_dir="$HOME/.local/share/solana/reddi-agent-protocol-baseline/install"
+          mkdir -p "$install_dir"
+          init="$RUNNER_TEMP/agave-install-init-$version"
+          curl --proto '=https' --tlsv1.2 -fsSL "$url" -o "$init"
+          echo "$sha256  $init" | sha256sum --check --strict
+          chmod +x "$init"
+          "$init" --no-modify-path --config "$install_dir/config.yml" --data-dir "$install_dir" "$version"
+          "$install_dir/active_release/bin/solana-test-validator" --version
+          "$install_dir/active_release/bin/cargo-build-sbf" --version
+
+      - name: Install the lane's pinned packages
+        run: npm run setup:surfpool:spl-escrow-1.7
+
+      - name: Run the lane
+        env:
+          RAP_SURFPOOL_LANE_OUT_DIR: ${{ runner.temp }}/surfpool-1.7-spl-escrow
+        run: npm run test:surfpool:spl-escrow-1.7
+
+      - name: Summarise the result
+        if: always()
+        shell: bash
+        run: |
+          result="$RUNNER_TEMP/surfpool-1.7-spl-escrow/result.json"
+          if [ ! -f "$result" ]; then
+            echo "No result.json was written." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 - "$result" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, sys
+          r = json.load(open(sys.argv[1]))
+          print(f"## Surfpool 1.7 SPL escrow lane: {r.get('status')}")
+          print(f"- {r.get('label')}")
+          print(f"- Source commit: `{(r.get('source') or {}).get('commit')}`")
+          print(f"- Escrow ELF SHA-256: `{(r.get('elf') or {}).get('sha256')}`")
+          s = r.get("surfpoolLane") or {}
+          print(f"- Surfpool checks: {len(s.get('checks', []))}; rejections: {len(s.get('rejections', []))}; transactions: {len(s.get('transactions', []))}")
+          print(f"- Validator checks: {len((r.get('validatorLane') or {}).get('checks', []))}")
+          print(f"- Parity: {(r.get('parity') or {}).get('ok')}")
+          if r.get("failure"):
+              print("\n```\n" + str(r["failure"])[:3000] + "\n```")
+          PY
+
+      # Result and logs only. The validator ledgers and account snapshots stay on the runner.
+      - name: Upload the result and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surfpool-1.7-spl-escrow-result
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/surfpool-1.7-spl-escrow/result.json
+            ${{ runner.temp }}/surfpool-1.7-spl-escrow/validator-proof.log
+            ${{ runner.temp }}/surfpool-1.7-spl-escrow/validator/result.json
