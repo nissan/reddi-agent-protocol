@@ -23,6 +23,7 @@ const navLinks: { href: string; label: string; badge?: string }[] = [
   { href: "/register", label: "Register" },
   { href: "/setup", label: "Setup" },
   { href: "/#verify-demo", label: "Verify" },
+  { href: "/sandbox", label: "Sandbox", badge: "New" },
   { href: "/testers", label: "Testers", badge: "Help" },
   { href: "/faq", label: "FAQ", badge: "Help" },
   { href: "/playbook", label: "Playbook", badge: "New" },

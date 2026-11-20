@@ -52,6 +52,7 @@ jobs:
           e2e/onboarding-profile-editor.spec.ts
           e2e/onboarding-readiness-gate.spec.ts
           e2e/wallet-mock.spec.ts
+          e2e/sandbox.spec.ts
 
       - name: Upload traces on failure
         if: failure()
