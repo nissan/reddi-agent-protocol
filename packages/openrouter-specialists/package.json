@@ -32,6 +32,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@reddi/agent-protocol": "file:../agent-protocol",
     "@reddi/x402-solana": "file:../x402-solana",
     "@solana/web3.js": "^1.98.4"
   },
