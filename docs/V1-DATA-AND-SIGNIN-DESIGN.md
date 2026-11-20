@@ -123,7 +123,11 @@ pass by default, so a new listing is not routed to until the first sweep has rea
 If `CRON_SECRET` is set, the sweep only runs for a request that carries it. Listing
 endpoints must be public https names: IP addresses and internal-looking hosts are refused.
 
-The onboarding pages still write `data/` and do not call `PUT /api/listings` yet.
+When the database is configured, saving the capability profile on `/onboarding` also
+publishes the listing through `PUT /api/listings` with the wallet sign-in session
+(`lib/listings/listing-client.ts`). The price typed in US dollars becomes whole USDC base
+units for the profile's USDC mint. Signed out, nothing is sent and the page says to sign
+in. The page still writes `data/` as well, for the steps that have not moved yet.
 
 ## Replay store
 
