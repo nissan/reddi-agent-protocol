@@ -1,6 +1,7 @@
-/* STALE since #736: the escrow program now accepts allowlisted mints only, so this example's
- * random local mint is refused until the example is updated (#746).
- * Reddi Agent Protocol disposable LOCAL TEST MINT example. No wallet files, external RPC or devnet signing.
+/* Reddi Agent Protocol disposable LOCAL TEST MINT example. No wallet files, external RPC or devnet signing.
+ * The escrow program accepts allowlisted mints only, so a disposable mint whose authority is the
+ * in-memory payer is installed at the allowlisted mainnet USDC address when the validator starts.
+ * Only the address is reused: no real USDC is involved (#746).
  * Start with RAP_LOCAL_EXAMPLE_DIR=/fresh/absolute/task/path node packages/x402-solana/examples/local-puzzle.cjs
  * Requires pinned Agave 4.2.2 RAP_TEST_VALIDATOR and freshly built target/deploy/escrow.so.
  */
@@ -20,6 +21,8 @@ const token = require('@solana/spl-token');
 const PROGRAM = new PublicKey('794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD');
 const TOKEN = token.TOKEN_PROGRAM_ID;
 const decimals = 6;
+// Allowlisted in the default escrow build (constants.rs USDC_MAINNET_MINT).
+const MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function main() {
@@ -56,12 +59,20 @@ async function main() {
   fs.writeFileSync(config, `json_rpc_url: ${rpc}\nwebsocket_url: ws://127.0.0.1:${base + 1}\nkeypair_path: ${path.join(dir, 'unused-wallet.json')}\ncommitment: confirmed\n`);
   const conn = new Connection(rpc, 'confirmed');
   let validator;
+  // The stand-in mint, written as a genesis account file. The payer is its mint authority.
+  const mintData = Buffer.alloc(token.MINT_SIZE);
+  token.MintLayout.encode({ mintAuthorityOption: 1, mintAuthority: payer.publicKey, supply: 0n, decimals,
+    isInitialized: true, freezeAuthorityOption: 0, freezeAuthority: PublicKey.default }, mintData);
+  const mintFile = path.join(dir, 'stand-in-mint.json');
+  fs.writeFileSync(mintFile, JSON.stringify({ pubkey: MINT.toBase58(), account: {
+    lamports: (token.MINT_SIZE + 128) * 6960, data: [mintData.toString('base64'), 'base64'], owner: TOKEN.toBase58(),
+    executable: false, rentEpoch: JSON.rawJSON('18446744073709551615'), space: token.MINT_SIZE } }), { mode: 0o600 });
   async function start(snapshot, warp = 0) {
     const log = fs.openSync(path.join(dir, snapshot ? 'validator-snapshot.log' : 'validator.log'), 'w', 0o600);
     const args = ['--quiet', '--config', config, '--ledger', path.join(dir, snapshot ? 'snapshot-ledger' : 'ledger'), '--bind-address', '127.0.0.1',
       '--rpc-port', String(base), '--faucet-port', String(base + 2), '--gossip-port', String(base + 3),
       '--dynamic-port-range', `${base + 4}-${base + 40}`, '--mint', payer.publicKey.toBase58(),
-      '--bpf-program', PROGRAM.toBase58(), escrowElf, '--reset'];
+      '--bpf-program', PROGRAM.toBase58(), escrowElf, '--account', MINT.toBase58(), mintFile, '--reset'];
     if (snapshot) args.push('--account-dir', snapshot, '--warp-slot', String(warp));
     validator = spawn(validatorBin, args, { stdio: ['ignore', log, log] });
     fs.closeSync(log);
@@ -132,7 +143,9 @@ async function main() {
       const reloaded = await conn.getAccountInfo(snapshotKeys[i], 'confirmed'); assert(reloaded);
       assert.deepEqual(reloaded.data, Buffer.from(lossless.result.value[i].data[0], 'base64'));
     }
-    const mint = await token.createMint(conn, payer, payer.publicKey, null, decimals, undefined, { commitment: 'finalized' }, TOKEN);
+    const mint = MINT;
+    const installed = await token.getMint(conn, mint, 'finalized', TOKEN);
+    assert(installed.mintAuthority.equals(payer.publicKey) && installed.decimals === decimals, 'stand-in mint not installed as written');
     const source = await token.createAccount(conn, payer, mint, payer.publicKey, undefined, { commitment: 'finalized' }, TOKEN);
     const recipient = await token.createAccount(conn, payer, mint, payee.publicKey, undefined, { commitment: 'finalized' }, TOKEN);
     await token.mintTo(conn, payer, mint, source, payer, 1000000n, [], { commitment: 'finalized' }, TOKEN);
@@ -152,7 +165,7 @@ async function main() {
     assert.equal((await token.getAccount(conn, source)).amount, 600000n);
     assert.equal((await token.getAccount(conn, recipient)).amount, 400000n);
     assert.equal(await conn.getAccountInfo(new PublicKey(receipt.escrow), 'finalized'), null);
-    const proof = { label: 'LOCAL TEST MINT ONLY — not AUDD; no devnet proof', config, escrowElfSha256,
+    const proof = { label: 'LOCAL STAND-IN MINT at the allowlisted USDC address; not real USDC; no devnet or mainnet proof', config, escrowElfSha256,
       method: 'public Tokenkeg + linked programdata snapshot reloaded byte-identically; warp-slot 1000; local-only evidence', snapshotHashes,
       result, receipt, releaseSignature, checks: ['HTTP 402', 'finalized exact lock', 'paid retry', 'separate puzzle analysis check', 'replay rejected', 'payer release to recorded recipient', 'escrow closed'] };
     fs.writeFileSync(path.join(dir, 'result.json'), JSON.stringify(proof, null, 2) + '\n');
