@@ -35,7 +35,7 @@ function assertClean(line: string, forbidden: string[]) {
   assert.ok(!line.includes("@"), `no at-sign: ${line}`);
   assert.ok(!/https?:|\?t=|\/newsletter\//.test(line), `no link or token: ${line}`);
   for (const text of forbidden) assert.ok(!line.includes(text), `does not contain ${JSON.stringify(text)}: ${line}`);
-  assert.match(line, /^newsletter-provider-refusal op=(confirmation|issue) class=(rate-limit|4xx|5xx|other)$/);
+  assert.match(line, /^newsletter-provider-refusal op=(confirmation|welcome|issue) class=(rate-limit|4xx|5xx|other)$/);
 }
 
 test("WEB-59: status classes", () => {
