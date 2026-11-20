@@ -85,7 +85,7 @@ test("a receipt states the protocol fee and its treasury, the configured mint, a
     currency: "USDC",
     mint: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
     amount: "30000",
-    fee: { amount: "15", treasury: TREASURY },
+    fee: { amount: "750", treasury: TREASURY },
     payer: PAYER,
     settlement: "direct",
   });
