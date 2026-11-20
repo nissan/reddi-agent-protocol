@@ -29,6 +29,9 @@ export interface OnboardingListingInput {
   walletAddress: string;
   endpointUrl: string;
   perCallUsd: string;
+  /** US dollars per million input tokens, and per million output tokens. Blank means not priced that way. */
+  inputPerMillionUsd?: string;
+  outputPerMillionUsd?: string;
   taskTypes: string[];
   inputModes: string[];
   outputModes: string[];
@@ -43,6 +46,8 @@ export type ListingBody = {
   declaredModels: string[];
   capabilities: Record<string, unknown>;
   pricePerCallBaseUnits: string;
+  priceInputPerMillionBaseUnits: string;
+  priceOutputPerMillionBaseUnits: string;
   priceMint: string;
   status: "listed";
 };
@@ -50,8 +55,16 @@ export type ListingBody = {
 export function listingBodyFromOnboarding(input: OnboardingListingInput): { ok: true; body: ListingBody } | { ok: false; message: string } {
   const priceMint = usdcMintForProfile(input.profile);
   if (!priceMint) return { ok: false, message: "Listings are not published on this network profile." };
-  const price = usdToUsdcBaseUnits(input.perCallUsd);
-  if (!price) return { ok: false, message: "Set a per-call price in US dollars, with at most six decimal places, to publish the listing." };
+  const optional = (text: string | undefined) => (text ?? "").trim() === "" ? "0" : usdToUsdcBaseUnits(text ?? "");
+  const price = optional(input.perCallUsd);
+  const inputPrice = optional(input.inputPerMillionUsd);
+  const outputPrice = optional(input.outputPerMillionUsd);
+  if (!price || !inputPrice || !outputPrice) {
+    return { ok: false, message: "Write each price in US dollars, with at most six decimal places." };
+  }
+  if (price === "0" && inputPrice === "0" && outputPrice === "0") {
+    return { ok: false, message: "Set a price per million tokens, or a price per job, to publish the listing." };
+  }
   if (!input.endpointUrl.trim()) return { ok: false, message: "Set your endpoint address before publishing the listing." };
   const wallet = input.walletAddress;
   return {
@@ -68,6 +81,8 @@ export function listingBodyFromOnboarding(input: OnboardingListingInput): { ok: 
         tags: input.tags,
       },
       pricePerCallBaseUnits: price,
+      priceInputPerMillionBaseUnits: inputPrice,
+      priceOutputPerMillionBaseUnits: outputPrice,
       priceMint,
       status: "listed",
     },

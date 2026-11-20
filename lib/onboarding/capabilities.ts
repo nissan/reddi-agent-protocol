@@ -13,6 +13,8 @@ export type CapabilityInput = {
   pricing: {
     baseUsd: number;
     perCallUsd?: number;
+    inputPerMillionUsd?: number;
+    outputPerMillionUsd?: number;
   };
   privacyModes: Array<"public" | "per" | "vanish">;
   tags?: string[];
@@ -92,7 +94,13 @@ export function computeCapabilityHash(walletAddress: string, caps: ReturnType<ty
     context_requirements: normalizeContextRequirements(caps.context_requirements ?? []),
     inputModes: [...caps.inputModes].sort(),
     outputModes: [...caps.outputModes].sort(),
-    pricing: { baseUsd: caps.pricing.baseUsd, perCallUsd: caps.pricing.perCallUsd ?? 0 },
+    // Per-token prices join the hash only when set, so a profile without them hashes as before.
+    pricing: {
+      baseUsd: caps.pricing.baseUsd,
+      ...(caps.pricing.inputPerMillionUsd === undefined ? {} : { inputPerMillionUsd: caps.pricing.inputPerMillionUsd }),
+      ...(caps.pricing.outputPerMillionUsd === undefined ? {} : { outputPerMillionUsd: caps.pricing.outputPerMillionUsd }),
+      perCallUsd: caps.pricing.perCallUsd ?? 0,
+    },
     privacyModes: [...caps.privacyModes].sort(),
     quality_claims: [...(caps.quality_claims ?? [])].sort(),
     runtime_capabilities: [...(caps.runtime_capabilities ?? [])].sort(),
@@ -222,6 +230,15 @@ export function validateCapabilities(input: CapabilityInput) {
   if (perCallUsd !== undefined && (!Number.isFinite(perCallUsd) || perCallUsd < 0)) {
     throw new Error("pricing.perCallUsd must be a number >= 0 when provided.");
   }
+  const tokenPrice = (key: "inputPerMillionUsd" | "outputPerMillionUsd") => {
+    const raw = input.pricing?.[key];
+    if (raw === undefined) return undefined;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0) throw new Error(`pricing.${key} must be a number >= 0 when provided.`);
+    return value;
+  };
+  const inputPerMillionUsd = tokenPrice("inputPerMillionUsd");
+  const outputPerMillionUsd = tokenPrice("outputPerMillionUsd");
 
   return {
     agent_composition: agentComposition,
@@ -235,6 +252,8 @@ export function validateCapabilities(input: CapabilityInput) {
     pricing: {
       baseUsd,
       perCallUsd,
+      ...(inputPerMillionUsd === undefined ? {} : { inputPerMillionUsd }),
+      ...(outputPerMillionUsd === undefined ? {} : { outputPerMillionUsd }),
     },
     quality_claims: qualityClaims,
     context_requirements: normalizeContextRequirements(contextRequirements),

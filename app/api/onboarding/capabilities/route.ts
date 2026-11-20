@@ -30,6 +30,10 @@ export async function POST(req: Request) {
         baseUsd: Number(body.pricing?.baseUsd),
         perCallUsd:
           body.pricing?.perCallUsd === undefined ? undefined : Number(body.pricing.perCallUsd),
+        inputPerMillionUsd:
+          body.pricing?.inputPerMillionUsd === undefined ? undefined : Number(body.pricing.inputPerMillionUsd),
+        outputPerMillionUsd:
+          body.pricing?.outputPerMillionUsd === undefined ? undefined : Number(body.pricing.outputPerMillionUsd),
       },
       privacyModes: Array.isArray(body.privacyModes)
         ? body.privacyModes.map(String) as Array<"public" | "per" | "vanish">

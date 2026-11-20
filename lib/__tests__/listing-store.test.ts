@@ -21,6 +21,11 @@ function row(overrides: Record<string, unknown> = {}) {
 }
 
 describe("listing input checks (#740)", () => {
+  it("accepts per-token prices on their own (#794)", () => {
+    const checked = validateListingInput({ ...VALID, pricePerCallBaseUnits: undefined, priceInputPerMillionBaseUnits: "150000", priceOutputPerMillionBaseUnits: "600000" });
+    expect(checked).toMatchObject({ ok: true, input: { pricePerCallBaseUnits: "0", priceInputPerMillionBaseUnits: "150000", priceOutputPerMillionBaseUnits: "600000" } });
+  });
+
   it("accepts a well-formed listing and defaults to a draft", () => {
     const rest: Record<string, unknown> = { ...VALID };
     delete rest.status;
@@ -31,7 +36,7 @@ describe("listing input checks (#740)", () => {
   it("drops fields an owner may not set", () => {
     const checked = validateListingInput({ ...VALID, wallet: OTHER, owner_user_id: "x", network: "solana-mainnet", health_status: "pass", healthStatus: "pass", last_seen_at: "now" });
     expect(checked.ok).toBe(true);
-    if (checked.ok) expect(Object.keys(checked.input).sort()).toEqual(["capabilities", "declaredModels", "displayName", "endpointUrl", "priceMint", "pricePerCallBaseUnits", "status"]);
+    if (checked.ok) expect(Object.keys(checked.input).sort()).toEqual(["capabilities", "declaredModels", "displayName", "endpointUrl", "priceInputPerMillionBaseUnits", "priceMint", "priceOutputPerMillionBaseUnits", "pricePerCallBaseUnits", "status"]);
   });
 
   it.each([
@@ -50,6 +55,9 @@ describe("listing input checks (#740)", () => {
     ["a negative price", { pricePerCallBaseUnits: "-1" }],
     ["an exponent price", { pricePerCallBaseUnits: "1e6" }],
     ["a price beyond a 64-bit integer", { pricePerCallBaseUnits: "9".repeat(19) }],
+    ["a numeric per-token price", { priceInputPerMillionBaseUnits: 150000 }],
+    ["a fractional per-token price", { priceOutputPerMillionBaseUnits: "0.6" }],
+    ["no price at all", { pricePerCallBaseUnits: "0", priceInputPerMillionBaseUnits: "0", priceOutputPerMillionBaseUnits: "0" }],
     ["an unknown currency", { priceMint: "USDC" }],
     ["the removed status", { status: "removed" }],
     ["too many models", { declaredModels: Array.from({ length: 21 }, (_, i) => `m${i}`) }],
@@ -127,7 +135,7 @@ describe("listing routes (#740)", () => {
     const sent = JSON.parse(write.init.body!);
     expect(sent).toEqual({
       wallet: WALLET, owner_user_id: USER_ID, display_name: "Fast summaries", endpoint_url: "https://provider.example/v1", declared_models: ["meta/llama-3.3-70b"],
-      capabilities: {}, price_per_call_base_units: "2500", price_mint: MINT, network: "solana-devnet", status: "listed",
+      capabilities: {}, price_per_call_base_units: "2500", price_input_per_million_base_units: "0", price_output_per_million_base_units: "0", price_mint: MINT, network: "solana-devnet", status: "listed",
     });
     expect(write.url).not.toContain(OTHER);
     expect(write.url).not.toContain("owner_user_id,");

@@ -13,7 +13,7 @@ const ANON_KEY = "public-anon-key";
 function listing(overrides: Partial<Listing> = {}): Listing {
   return {
     wallet: WALLET, displayName: "Fast summaries", endpointUrl: "https://provider.example/v1", declaredModels: [], capabilities: { taskTypes: ["summarize"], privacyModes: ["public", "secret"] },
-    pricePerCallBaseUnits: "2500", priceMint: DEVNET_USDC, network: "solana-devnet", status: "listed", healthStatus: "pass", lastSeenAt: new Date().toISOString(), updatedAt: "2026-11-20T00:00:00Z",
+    pricePerCallBaseUnits: "2500", priceInputPerMillionBaseUnits: "0", priceOutputPerMillionBaseUnits: "0", priceMint: DEVNET_USDC, network: "solana-devnet", status: "listed", healthStatus: "pass", lastSeenAt: new Date().toISOString(), updatedAt: "2026-11-20T00:00:00Z",
     ...overrides,
   };
 }
@@ -72,6 +72,14 @@ describe("database listings as the planner index (#740)", () => {
     // A mainnet mint address proves nothing on devnet, where anyone can create a mint.
     expect(listingPerCallUsd(listing({ priceMint: MAINNET_USDC }))).toBeUndefined();
     expect(listingPerCallUsd(listing({ pricePerCallBaseUnits: "9".repeat(18) }))).toBeUndefined();
+  });
+
+  it("lists per-token prices in dollars per million tokens, and leaves out a zero per-job price", async () => {
+    const { listingToIndexEntry } = await import("@/lib/listings/listing-index");
+    const entry = listingToIndexEntry(listing({ pricePerCallBaseUnits: "0", priceInputPerMillionBaseUnits: "150000", priceOutputPerMillionBaseUnits: "600000" }));
+    expect(entry.capabilities.pricing).toEqual({ baseUsd: 0, inputPerMillionUsd: 0.15, outputPerMillionUsd: 0.6 });
+    const sol = listingToIndexEntry(listing({ priceMint: "SOL", priceInputPerMillionBaseUnits: "150000" }));
+    expect(sol.capabilities.pricing).toEqual({ baseUsd: 0 });
   });
 
   it("takes price, endpoint and health from the listing, not from what the owner wrote in capabilities", async () => {

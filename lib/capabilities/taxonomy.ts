@@ -121,7 +121,8 @@ export type CapabilityProfile = {
   outputModes: OutputModeId[];
   privacyModes: PrivacyModeId[];
   tags?: string[];
-  pricing: { baseUsd: number; perCallUsd?: number };
+  /** Inference is priced per million input and output tokens; perCallUsd is a fixed-price job. */
+  pricing: { baseUsd: number; perCallUsd?: number; inputPerMillionUsd?: number; outputPerMillionUsd?: number };
   context_requirements?: ContextRequirement[];
   runtime_capabilities?: RuntimeCapability[];
 };

@@ -101,6 +101,8 @@ type WizardState = {
   }[];
   capabilityBaseUsd: string;
   capabilityPerCallUsd: string;
+  capabilityInputPerMillionUsd: string;
+  capabilityOutputPerMillionUsd: string;
   capabilitySaved: boolean;
   capabilityNote: string;
   registrationCompleted: boolean;
@@ -170,6 +172,8 @@ const INITIAL_STATE: WizardState = {
   capabilityContextRequirements: [],
   capabilityBaseUsd: "0",
   capabilityPerCallUsd: "0",
+  capabilityInputPerMillionUsd: "",
+  capabilityOutputPerMillionUsd: "",
   capabilitySaved: false,
   capabilityNote: "",
   registrationCompleted: false,
@@ -1272,7 +1276,31 @@ export default function OnboardingPage() {
                       capabilityNote: "",
                     }))
                   }
-                  placeholder="per-call USD"
+                  placeholder="per-job USD (fixed price)"
+                />
+                <Input
+                  value={state.capabilityInputPerMillionUsd}
+                  onChange={(e) =>
+                    setState((s) => ({
+                      ...s,
+                      capabilityInputPerMillionUsd: e.target.value,
+                      capabilitySaved: false,
+                      capabilityNote: "",
+                    }))
+                  }
+                  placeholder="USD per million input tokens"
+                />
+                <Input
+                  value={state.capabilityOutputPerMillionUsd}
+                  onChange={(e) =>
+                    setState((s) => ({
+                      ...s,
+                      capabilityOutputPerMillionUsd: e.target.value,
+                      capabilitySaved: false,
+                      capabilityNote: "",
+                    }))
+                  }
+                  placeholder="USD per million output tokens"
                 />
               </div>
               <Input
@@ -1461,6 +1489,14 @@ export default function OnboardingPage() {
                             state.capabilityPerCallUsd.trim().length > 0
                               ? Number(state.capabilityPerCallUsd)
                               : undefined,
+                          inputPerMillionUsd:
+                            state.capabilityInputPerMillionUsd.trim().length > 0
+                              ? Number(state.capabilityInputPerMillionUsd)
+                              : undefined,
+                          outputPerMillionUsd:
+                            state.capabilityOutputPerMillionUsd.trim().length > 0
+                              ? Number(state.capabilityOutputPerMillionUsd)
+                              : undefined,
                         },
                       }),
                     });
@@ -1484,6 +1520,8 @@ export default function OnboardingPage() {
                           walletAddress: state.walletAddress,
                           endpointUrl: state.endpointUrl,
                           perCallUsd: state.capabilityPerCallUsd,
+                          inputPerMillionUsd: state.capabilityInputPerMillionUsd,
+                          outputPerMillionUsd: state.capabilityOutputPerMillionUsd,
                           taskTypes: splitList(state.capabilityTaskTypes),
                           inputModes: splitList(state.capabilityInputModes),
                           outputModes: splitList(state.capabilityOutputModes),
