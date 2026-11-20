@@ -24,7 +24,7 @@ const baseListing = {
     attested: true,
     lastAttestedAt: "2026-04-27T00:00:00.000Z",
   },
-};
+} as unknown as Parameters<typeof summarizeSpecialistCallableReadiness>[0];
 
 describe("specialist callable readiness", () => {
   it("marks a healthy x402-protected specialist callable", () => {

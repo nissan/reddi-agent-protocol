@@ -106,7 +106,7 @@ export default function NavBar() {
             </a>
             {primaryLinks.map(({ href, label, badge }) => (
               <Link
-                key={href}
+                key={`${href}:${label}`}
                 href={href}
                 className={`nav-link text-sm flex items-center gap-1.5 ${
                   pathname === href
@@ -130,7 +130,7 @@ export default function NavBar() {
               <div className="absolute right-0 mt-2 w-56 rounded-lg border border-white/10 bg-card/95 backdrop-blur p-2 shadow-xl z-50">
                 {secondaryLinks.map(({ href, label, badge }) => (
                   <Link
-                    key={href}
+                    key={`${href}:${label}`}
                     href={href}
                     onClick={() => {
                       if (desktopMoreRef.current) desktopMoreRef.current.open = false;
@@ -186,7 +186,7 @@ export default function NavBar() {
 
               {[...primaryLinks, ...secondaryLinks].map(({ href, label, badge }) => (
                 <Link
-                  key={href}
+                  key={`${href}:${label}`}
                   href={href}
                   onClick={() => setMobileOpen(false)}
                   className={`flex items-center justify-between rounded-md px-3 py-2 text-sm ${

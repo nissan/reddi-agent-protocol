@@ -4,15 +4,15 @@ describe("register local-check route", () => {
   beforeEach(() => {
     jest.resetModules();
     jest.restoreAllMocks();
-    process.env.NODE_ENV = originalEnv;
+    (process.env as Record<string, string | undefined>).NODE_ENV = originalEnv;
   });
 
   afterAll(() => {
-    process.env.NODE_ENV = originalEnv;
+    (process.env as Record<string, string | undefined>).NODE_ENV = originalEnv;
   });
 
   it("blocks non-development environments", async () => {
-    process.env.NODE_ENV = "production";
+    (process.env as Record<string, string | undefined>).NODE_ENV = "production";
     const { POST } = await import("@/app/api/register/local-check/route");
     const res = await POST(new Request("http://localhost/api/register/local-check", {
       method: "POST",
@@ -25,8 +25,8 @@ describe("register local-check route", () => {
   });
 
   it("returns ollama health in development", async () => {
-    process.env.NODE_ENV = "development";
-    jest.spyOn(global, "fetch" as never).mockResolvedValue({ ok: true } as Response);
+    (process.env as Record<string, string | undefined>).NODE_ENV = "development";
+    jest.spyOn(global, "fetch").mockResolvedValue({ ok: true } as Response);
 
     const { POST } = await import("@/app/api/register/local-check/route");
     const res = await POST(new Request("http://localhost/api/register/local-check", {
@@ -40,8 +40,8 @@ describe("register local-check route", () => {
   });
 
   it("matches model names with latest suffix normalization", async () => {
-    process.env.NODE_ENV = "development";
-    jest.spyOn(global, "fetch" as never).mockResolvedValue({
+    (process.env as Record<string, string | undefined>).NODE_ENV = "development";
+    jest.spyOn(global, "fetch").mockResolvedValue({
       ok: true,
       json: async () => ({ models: [{ name: "qwen3:8b:latest" }] }),
     } as Response);
@@ -58,7 +58,7 @@ describe("register local-check route", () => {
   });
 
   it("rejects unknown check types", async () => {
-    process.env.NODE_ENV = "development";
+    (process.env as Record<string, string | undefined>).NODE_ENV = "development";
     const { POST } = await import("@/app/api/register/local-check/route");
     const res = await POST(new Request("http://localhost/api/register/local-check", {
       method: "POST",

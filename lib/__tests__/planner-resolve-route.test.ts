@@ -13,10 +13,10 @@ function makeListing(input: {
   tags?: string[];
   reputation?: number;
   attested?: boolean;
-  taskTypes?: string[];
-  inputModes?: string[];
-  privacyModes?: string[];
-  runtimeCaps?: string[];
+  taskTypes?: NonNullable<SpecialistListing["capabilities"]>["taskTypes"];
+  inputModes?: NonNullable<SpecialistListing["capabilities"]>["inputModes"];
+  privacyModes?: NonNullable<SpecialistListing["capabilities"]>["privacyModes"];
+  runtimeCaps?: NonNullable<SpecialistListing["capabilities"]>["runtime_capabilities"];
   perCallUsd?: number;
   feedbackScore?: number;
   feedbackCount?: number;

@@ -58,7 +58,7 @@ describe("planner execution x402 fail-closed behavior", () => {
       responseStatus: 200,
       error: expect.stringContaining("without an x402 challenge"),
     });
-    expect(result.response).toBeUndefined();
+    expect((result as { response?: string }).response).toBeUndefined();
     expect(result.result.trace).toContain("x402:missing_challenge_unpaid_response_blocked");
   });
 });

@@ -1,4 +1,3 @@
-import { NextRequest } from "next/server";
 
 jest.mock("@/lib/torque/client", () => ({
   getLeaderboard: jest.fn(),
@@ -18,8 +17,7 @@ describe("Torque leaderboard API route", () => {
     ]);
 
     const { GET } = await import("@/app/api/torque/leaderboard/route");
-    const req = new NextRequest("http://localhost/api/torque/leaderboard", { method: "GET" });
-    const res = await GET(req as unknown as Request);
+    const res = await GET();
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({
@@ -35,8 +33,7 @@ describe("Torque leaderboard API route", () => {
     (getLeaderboard as jest.Mock).mockResolvedValue([]);
 
     const { GET } = await import("@/app/api/torque/leaderboard/route");
-    const req = new NextRequest("http://localhost/api/torque/leaderboard", { method: "GET" });
-    const res = await GET(req as unknown as Request);
+    const res = await GET();
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({ entries: [] });

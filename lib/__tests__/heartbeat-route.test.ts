@@ -56,7 +56,7 @@ describe("heartbeat route (POST — probe)", () => {
         healthcheckStatus: "unknown",
       },
     ]));
-    jest.spyOn(global, "fetch" as never).mockResolvedValue({ ok: true, status: 200 } as Response);
+    jest.spyOn(global, "fetch").mockResolvedValue({ ok: true, status: 200 } as Response);
 
     const { POST } = await import("@/app/api/heartbeat/route");
     const res = await POST(new Request("http://localhost/api/heartbeat", {
@@ -82,7 +82,7 @@ describe("heartbeat route (POST — probe)", () => {
         healthcheckStatus: "pass",
       },
     ]));
-    jest.spyOn(global, "fetch" as never).mockRejectedValue(new Error("ECONNREFUSED"));
+    jest.spyOn(global, "fetch").mockRejectedValue(new Error("ECONNREFUSED"));
 
     const { POST } = await import("@/app/api/heartbeat/route");
     const res = await POST(new Request("http://localhost/api/heartbeat", {
