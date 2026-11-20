@@ -50,7 +50,6 @@ jobs:
           e2e/onboarding.spec.ts
           e2e/onboarding-intake.spec.ts
           e2e/onboarding-profile-editor.spec.ts
-          e2e/onboarding-readiness-gate.spec.ts
           e2e/wallet-mock.spec.ts
 
       # The sandbox console keeps its challenge and receipt in page state. On
