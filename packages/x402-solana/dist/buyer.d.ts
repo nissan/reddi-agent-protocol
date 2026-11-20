@@ -17,7 +17,9 @@ export interface BuyerDirectPaymentInput {
     /** Most the buyer will pay for this call, as a decimal amount of the listing currency. */
     spendCap: string | number;
     payer: PublicKey;
-    /** Required for USDC: the buyer's own configured mint. */
+    /** Required for a token currency: the buyer's own configured mint for the listing currency. */
+    mint?: PublicKey;
+    /** Older name for `mint`, kept for USDC callers. */
     usdcMint?: PublicKey;
     payerTokenAccount?: PublicKey;
     /** Highest fee rate the buyer accepts. Defaults to PROTOCOL_FEE_BPS. */

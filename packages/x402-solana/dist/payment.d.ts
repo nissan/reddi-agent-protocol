@@ -10,6 +10,29 @@ export declare function isValidSolanaPublicKey(address: string): boolean;
 export declare const isValidPaymentAddress: typeof isValidSolanaPublicKey;
 /** Protocol fee rate: 5 basis points, which is 0.05% of the listed price. */
 export declare const PROTOCOL_FEE_BPS = 5;
+/** A currency a direct per-call payment can be made in. `tokenProgram` is absent for native SOL. */
+export interface DirectPaymentCurrency {
+    decimals: number;
+    tokenProgram?: string;
+}
+/**
+ * Currencies accepted for direct per-call payments. The token program is fixed
+ * per currency: USDC and AUDD are classic SPL Token mints, PYUSD and USDG are
+ * Token-2022 mints. The mint address itself always comes from configuration.
+ */
+export declare const DIRECT_PAYMENT_CURRENCIES: Readonly<Record<string, DirectPaymentCurrency>>;
+/** Looks up a direct payment currency without reading inherited object keys. */
+export declare function directPaymentCurrency(currency: string): DirectPaymentCurrency | undefined;
+/**
+ * Mainnet mint addresses, read on-chain on 20 November 2026. Reference values
+ * for operator configuration; nothing in this package uses them by default.
+ */
+export declare const MAINNET_STABLECOIN_MINTS: Readonly<{
+    USDC: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+    AUDD: "AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw";
+    PYUSD: "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo";
+    USDG: "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH";
+}>;
 /**
  * Converts a decimal amount to whole base units without floating point
  * multiplication. Returns undefined for anything that is not a positive amount
@@ -57,8 +80,15 @@ export declare const DEFAULT_MAX_TRANSACTION_AGE_SECONDS = 900;
 export interface SolanaReceiptVerifierOptions {
     allowRealPayment: boolean;
     connection: ParsedTransactionConnection;
-    /** Required when verifying USDC/SPL-token receipts. */
+    /** Required when verifying USDC/SPL-token receipts. Same as `mints.USDC`. */
     usdcMint?: string;
+    /**
+     * Accepted mint per token currency (USDC, AUDD, PYUSD, USDG), from operator
+     * configuration only. A currency with no entry here is refused, apart from
+     * the legacy `usdcMint` and `auddMint` options. Amounts in a challenge for a
+     * currency configured here are decimal amounts, as for USDC.
+     */
+    mints?: Readonly<Record<string, string | undefined>>;
     /** Required when verifying AUDD x402 v2 SVM exact receipts. */
     auddMint?: string;
     /** Defaults to the legacy SPL Token program for AUDD exact receipts. */

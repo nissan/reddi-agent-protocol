@@ -1,15 +1,18 @@
 import { PublicKey, SystemProgram, TransactionInstruction } from '@solana/web3.js';
-import { createTransferCheckedInstruction, getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from '@solana/spl-token';
-import { decimalToBaseUnits, PROTOCOL_FEE_BPS, protocolFeeBaseUnits } from './payment';
+import { createTransferCheckedInstruction, getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { decimalToBaseUnits, directPaymentCurrency, PROTOCOL_FEE_BPS, protocolFeeBaseUnits } from './payment';
 import type { X402Challenge } from './types';
-
-const DIRECT_PAYMENT_DECIMALS: Record<string, number> = { SOL: 9, USDC: 6 };
 
 export interface DirectPaymentInput {
   challenge: X402Challenge;
   /** Wallet that pays and signs. */
   payer: PublicKey;
-  /** Required for USDC. The buyer's own configured mint, never one named by the seller. */
+  /**
+   * Required for a token currency (USDC, AUDD, PYUSD, USDG): the buyer's own
+   * configured mint for that currency, never one named by the seller.
+   */
+  mint?: PublicKey;
+  /** Older name for `mint`, kept for USDC callers. */
   usdcMint?: PublicKey;
   /** Buyer's token account. Defaults to the buyer's associated token account. */
   payerTokenAccount?: PublicKey;
@@ -33,8 +36,9 @@ export interface DirectPaymentInput {
  */
 export function buildDirectPaymentInstructions(input: DirectPaymentInput): TransactionInstruction[] {
   const { challenge, payer } = input;
-  const decimals = DIRECT_PAYMENT_DECIMALS[challenge.currency];
-  if (decimals === undefined) throw new Error(`unsupported direct payment currency: ${challenge.currency}`);
+  const currency = directPaymentCurrency(challenge.currency);
+  if (currency === undefined) throw new Error(`unsupported direct payment currency: ${challenge.currency}`);
+  const decimals = currency.decimals;
   const price = decimalToBaseUnits(challenge.amount, decimals);
   if (price === undefined) throw new Error('challenge amount is not a valid positive amount');
   const payTo = new PublicKey(challenge.payTo);
@@ -56,19 +60,21 @@ export function buildDirectPaymentInstructions(input: DirectPaymentInput): Trans
     if (treasury.equals(payTo)) throw new Error('fee treasury must differ from the payee');
   }
 
-  if (challenge.currency === 'SOL') {
+  if (currency.tokenProgram === undefined) {
     const instructions = [SystemProgram.transfer({ fromPubkey: payer, toPubkey: payTo, lamports: providerUnits })];
     if (treasury && feeUnits > BigInt(0)) instructions.push(SystemProgram.transfer({ fromPubkey: payer, toPubkey: treasury, lamports: feeUnits }));
     return instructions;
   }
 
-  const mint = input.usdcMint;
-  if (!mint) throw new Error('usdcMint is required for a USDC payment');
+  const mint = input.mint ?? (challenge.currency === 'USDC' ? input.usdcMint : undefined);
+  if (!mint) throw new Error(`a configured mint is required for a ${challenge.currency} payment`);
+  // PYUSD and USDG are Token-2022 mints; their token accounts derive from that program.
+  const tokenProgram = new PublicKey(currency.tokenProgram);
   // Owners may be program-derived addresses, such as a multisig vault.
-  const tokenAccountOf = (owner: PublicKey) => getAssociatedTokenAddressSync(mint, owner, true);
+  const tokenAccountOf = (owner: PublicKey) => getAssociatedTokenAddressSync(mint, owner, true, tokenProgram);
   const source = input.payerTokenAccount ?? tokenAccountOf(payer);
   const transfer = (owner: PublicKey, units: bigint) =>
-    createTransferCheckedInstruction(source, mint, tokenAccountOf(owner), payer, units, decimals, [], TOKEN_PROGRAM_ID);
+    createTransferCheckedInstruction(source, mint, tokenAccountOf(owner), payer, units, decimals, [], tokenProgram);
   const instructions = [transfer(payTo, providerUnits)];
   if (treasury && feeUnits > BigInt(0)) instructions.push(transfer(treasury, feeUnits));
   return instructions;

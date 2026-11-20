@@ -1,6 +1,6 @@
 import { LAMPORTS_PER_SOL, PublicKey, SystemProgram } from '@solana/web3.js';
 import { needsAutoSwap, resolveMint, SwapClient } from './jupiter';
-import { SPL_TOKEN_PROGRAM_ID, verifySplTransferCheckedObservation } from './spl-token-observer';
+import { SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, verifySplTransferCheckedObservation } from './spl-token-observer';
 import { X402Request, PaymentReceipt } from './types';
 import type {
   NonceReplayStore,
@@ -39,8 +39,40 @@ const BPS_DENOMINATOR = 10_000;
 /** Highest fee rate this package will state or verify: 10%. Guards against a mistyped configuration. */
 const MAX_PROTOCOL_FEE_BPS = 1_000;
 
-/** Decimal places of the currencies a protocol fee can be taken in. */
-const FEE_CURRENCY_DECIMALS: Record<string, number> = { SOL: 9, USDC: 6 };
+/** A currency a direct per-call payment can be made in. `tokenProgram` is absent for native SOL. */
+export interface DirectPaymentCurrency {
+  decimals: number;
+  tokenProgram?: string;
+}
+
+/**
+ * Currencies accepted for direct per-call payments. The token program is fixed
+ * per currency: USDC and AUDD are classic SPL Token mints, PYUSD and USDG are
+ * Token-2022 mints. The mint address itself always comes from configuration.
+ */
+export const DIRECT_PAYMENT_CURRENCIES: Readonly<Record<string, DirectPaymentCurrency>> = Object.freeze({
+  SOL: { decimals: 9 },
+  USDC: { decimals: 6, tokenProgram: SPL_TOKEN_PROGRAM_ID },
+  AUDD: { decimals: 6, tokenProgram: SPL_TOKEN_PROGRAM_ID },
+  PYUSD: { decimals: 6, tokenProgram: TOKEN_2022_PROGRAM_ID },
+  USDG: { decimals: 6, tokenProgram: TOKEN_2022_PROGRAM_ID },
+});
+
+/** Looks up a direct payment currency without reading inherited object keys. */
+export function directPaymentCurrency(currency: string): DirectPaymentCurrency | undefined {
+  return Object.prototype.hasOwnProperty.call(DIRECT_PAYMENT_CURRENCIES, currency) ? DIRECT_PAYMENT_CURRENCIES[currency] : undefined;
+}
+
+/**
+ * Mainnet mint addresses, read on-chain on 20 November 2026. Reference values
+ * for operator configuration; nothing in this package uses them by default.
+ */
+export const MAINNET_STABLECOIN_MINTS = Object.freeze({
+  USDC: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+  AUDD: 'AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw',
+  PYUSD: '2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo',
+  USDG: '2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH',
+});
 
 /**
  * Converts a decimal amount to whole base units without floating point
@@ -87,7 +119,7 @@ interface FeeSplit {
 }
 
 function feeSplit(amount: string | number, currency: string, payTo: string, config: ProtocolFeeConfig): FeeSplit {
-  const decimals = FEE_CURRENCY_DECIMALS[currency];
+  const decimals = directPaymentCurrency(currency)?.decimals;
   if (decimals === undefined) throw new Error(`a protocol fee is not supported for currency ${currency}`);
   if (!isValidSolanaPublicKey(config.treasury)) throw new Error('protocol fee treasury must be a valid Solana public key');
   if (config.treasury === payTo) throw new Error('protocol fee treasury must differ from the payee');
@@ -288,8 +320,15 @@ const MAX_CLOCK_SKEW_SECONDS = 60;
 export interface SolanaReceiptVerifierOptions {
   allowRealPayment: boolean;
   connection: ParsedTransactionConnection;
-  /** Required when verifying USDC/SPL-token receipts. */
+  /** Required when verifying USDC/SPL-token receipts. Same as `mints.USDC`. */
   usdcMint?: string;
+  /**
+   * Accepted mint per token currency (USDC, AUDD, PYUSD, USDG), from operator
+   * configuration only. A currency with no entry here is refused, apart from
+   * the legacy `usdcMint` and `auddMint` options. Amounts in a challenge for a
+   * currency configured here are decimal amounts, as for USDC.
+   */
+  mints?: Readonly<Record<string, string | undefined>>;
   /** Required when verifying AUDD x402 v2 SVM exact receipts. */
   auddMint?: string;
   /** Defaults to the legacy SPL Token program for AUDD exact receipts. */
@@ -476,24 +515,34 @@ export class SolanaReceiptVerifier implements ReceiptVerifier {
         ? undefined
         : unsatisfiedChallenge();
     }
-    if (challenge.currency === 'USDC') {
-      const mint = this.options.usdcMint;
+    const token = directPaymentCurrency(challenge.currency);
+    const configuredMints = this.options.mints;
+    const configuredMint = (configuredMints && Object.prototype.hasOwnProperty.call(configuredMints, challenge.currency)
+      ? configuredMints[challenge.currency]
+      : undefined) ?? (challenge.currency === 'USDC' ? this.options.usdcMint : undefined);
+    if (token?.tokenProgram && (configuredMint || challenge.currency !== 'AUDD' || !this.options.auddMint)) {
+      const mint = configuredMint;
       if (!mint) {
-        return { ok: false, reason: 'unsupported_receipt', message: 'USDC receipt verification requires a configured usdcMint' };
+        return { ok: false, reason: 'unsupported_receipt', message: `${challenge.currency} receipt verification requires a configured ${challenge.currency === 'USDC' ? 'usdcMint' : `mint (mints.${challenge.currency}${challenge.currency === 'AUDD' ? ' or the legacy auddMint' : ''})`}` };
       }
       if (receipt.mint !== undefined && receipt.mint !== mint) {
-        return unsatisfiedChallenge('receipt mint does not match the configured USDC mint', mint, receipt.mint);
+        return unsatisfiedChallenge(`receipt mint does not match the configured ${challenge.currency} mint`, mint, receipt.mint);
       }
       if (fee) {
-        return transactionHasTokenSplit(parsed, receipt, challenge, mint, fee)
+        return transactionHasTokenSplit(parsed, receipt, challenge, mint, token.tokenProgram, fee)
           ? undefined
           : unsatisfiedChallenge('transaction does not pay both the provider share and the protocol fee', fee.terms);
       }
-      return transactionHasTokenTransfer(parsed, receipt, challenge, mint)
+      return transactionHasTokenTransfer(parsed, receipt, challenge, mint, token.tokenProgram)
         ? undefined
         : unsatisfiedChallenge();
     }
     if (challenge.currency === 'AUDD') {
+      // Legacy AUDD exact receipts state the amount in base units and carry no
+      // fee split. A deployment that takes a fee must configure `mints.AUDD`.
+      if (split) {
+        return { ok: false, reason: 'unsupported_receipt', message: 'a protocol fee on AUDD requires the AUDD mint in `mints`, not the legacy auddMint option' };
+      }
       const mint = this.options.auddMint;
       if (!mint) {
         return { ok: false, reason: 'unsupported_receipt', message: 'AUDD receipt verification requires a configured auddMint' };
@@ -624,11 +673,12 @@ function tokenTransferBaseUnits(info: Record<string, unknown>, decimals: number)
  * `transferChecked` instructions of the configured mint: the provider's share to
  * a token account the payee owns, and the fee to a token account the treasury owns.
  */
-function transactionHasTokenSplit(parsed: Record<string, unknown>, receipt: X402PaymentReceipt, challenge: X402Challenge, mint: string, split: FeeSplit): boolean {
+function transactionHasTokenSplit(parsed: Record<string, unknown>, receipt: X402PaymentReceipt, challenge: X402Challenge, mint: string, tokenProgram: string, split: FeeSplit): boolean {
   const legs = parsedInstructions(parsed).map((ix) => {
     const parsedInstruction = asRecord(ix.parsed);
     const info = asRecord(parsedInstruction?.info);
     if (!info || parsedInstruction?.type !== 'transferChecked') return undefined;
+    if (!instructionIsFromTokenProgram(ix, tokenProgram)) return undefined;
     if (info.mint !== mint) return undefined;
     if (receipt.payer && info.authority && info.authority !== receipt.payer) return undefined;
     const units = tokenTransferBaseUnits(info, split.decimals);
@@ -650,7 +700,12 @@ function transactionHasTokenSplit(parsed: Record<string, unknown>, receipt: X402
  * Only `transferChecked` is accepted: it names its mint and carries a decimal-aware
  * amount, whereas a plain `transfer` names no mint and reports raw base units.
  */
-function transactionHasTokenTransfer(parsed: Record<string, unknown>, receipt: X402PaymentReceipt, challenge: X402Challenge, mint: string): boolean {
+/** True only when a parsed instruction names the token program the currency is issued under. */
+function instructionIsFromTokenProgram(ix: Record<string, unknown>, tokenProgram: string): boolean {
+  return publicKeyText(ix.programId) === tokenProgram;
+}
+
+function transactionHasTokenTransfer(parsed: Record<string, unknown>, receipt: X402PaymentReceipt, challenge: X402Challenge, mint: string, tokenProgram: string): boolean {
   const expectedAmount = String(challenge.amount);
   const instructions = parsedInstructions(parsed);
 
@@ -658,6 +713,7 @@ function transactionHasTokenTransfer(parsed: Record<string, unknown>, receipt: X
     const parsedInstruction = asRecord(ix.parsed);
     const info = asRecord(parsedInstruction?.info);
     if (!info || parsedInstruction?.type !== 'transferChecked') return false;
+    if (!instructionIsFromTokenProgram(ix, tokenProgram)) return false;
     if (info.mint !== mint) return false;
     if (receipt.payer && info.authority && info.authority !== receipt.payer) return false;
     if (receipt.destinationTokenAccount && info.destination !== receipt.destinationTokenAccount) return false;

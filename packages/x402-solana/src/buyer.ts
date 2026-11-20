@@ -1,9 +1,8 @@
 import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { buildDirectPaymentInstructions } from './direct-payment';
-import { decimalToBaseUnits, isValidSolanaPublicKey, PROTOCOL_FEE_BPS } from './payment';
+import { decimalToBaseUnits, directPaymentCurrency, isValidSolanaPublicKey, PROTOCOL_FEE_BPS } from './payment';
 import type { SolanaPaymentNetwork, X402Challenge, X402FeeTerms, X402PaymentReceipt } from './types';
 
-const BUYER_CURRENCY_DECIMALS: Record<string, number> = { SOL: 9, USDC: 6 };
 const NETWORKS: SolanaPaymentNetwork[] = ['solana-devnet', 'solana-mainnet-beta', 'solana-testnet'];
 
 /** What the buyer chose to buy, taken from the listing they selected, never from the challenge. */
@@ -24,7 +23,9 @@ export interface BuyerDirectPaymentInput {
   /** Most the buyer will pay for this call, as a decimal amount of the listing currency. */
   spendCap: string | number;
   payer: PublicKey;
-  /** Required for USDC: the buyer's own configured mint. */
+  /** Required for a token currency: the buyer's own configured mint for the listing currency. */
+  mint?: PublicKey;
+  /** Older name for `mint`, kept for USDC callers. */
   usdcMint?: PublicKey;
   payerTokenAccount?: PublicKey;
   /** Highest fee rate the buyer accepts. Defaults to PROTOCOL_FEE_BPS. */
@@ -120,8 +121,9 @@ export function planBuyerDirectPayment(input: BuyerDirectPaymentInput): BuyerDir
   if (challenge.currency !== input.listing.currency) {
     return refuse('wrong_currency', `the challenge asks for ${challenge.currency} but the listing is priced in ${input.listing.currency}`);
   }
-  const decimals = BUYER_CURRENCY_DECIMALS[challenge.currency];
-  if (decimals === undefined) return refuse('wrong_currency', `direct payment in ${challenge.currency} is not supported`);
+  const currency = directPaymentCurrency(challenge.currency);
+  const decimals = currency?.decimals;
+  if (currency === undefined || decimals === undefined) return refuse('wrong_currency', `direct payment in ${challenge.currency} is not supported`);
 
   const price = decimalToBaseUnits(challenge.amount, decimals);
   const listed = decimalToBaseUnits(input.listing.amount, decimals);
@@ -132,12 +134,15 @@ export function planBuyerDirectPayment(input: BuyerDirectPaymentInput): BuyerDir
   if (price > listed) return refuse('price_above_listing', 'the challenge asks for more than the listed price');
   if (price > cap) return refuse('above_spend_cap', 'the challenge asks for more than the spend cap');
 
+  const tokenMint = currency.tokenProgram === undefined
+    ? undefined
+    : input.mint ?? (challenge.currency === 'USDC' ? input.usdcMint : undefined);
   let instructions: TransactionInstruction[];
   try {
     instructions = buildDirectPaymentInstructions({
       challenge,
       payer: input.payer,
-      usdcMint: input.usdcMint,
+      mint: tokenMint,
       payerTokenAccount: input.payerTokenAccount,
       maxFeeBps: input.maxFeeBps ?? PROTOCOL_FEE_BPS,
     });
@@ -147,7 +152,7 @@ export function planBuyerDirectPayment(input: BuyerDirectPaymentInput): BuyerDir
   }
 
   const payer = input.payer.toBase58();
-  const mint = challenge.currency === 'USDC' ? input.usdcMint?.toBase58() : undefined;
+  const mint = tokenMint?.toBase58();
   return {
     ok: true,
     challenge,

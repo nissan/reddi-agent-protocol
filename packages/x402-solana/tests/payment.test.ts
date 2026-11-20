@@ -226,7 +226,7 @@ describe('x402 Payment Module', () => {
                   accountKeys: [{ pubkey: { toString: () => 'source-token-account' } }, { pubkey: { toString: () => 'dest-token-account' } }],
                   instructions: [
                     {
-                      program: 'spl-token',
+                      program: 'spl-token', programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
                       parsed: { type: 'transferChecked', info: { mint, authority: otherValidAddress, destination: 'dest-token-account', tokenAmount: { uiAmountString: '0.03' } } },
                     },
                   ],
@@ -257,7 +257,7 @@ describe('x402 Payment Module', () => {
                   accountKeys: ['source-token-account', 'dest-token-account'],
                   instructions: [
                     {
-                      program: 'spl-token',
+                      program: 'spl-token', programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
                       parsed: { type: 'transferChecked', info: { mint, destination: 'dest-token-account', tokenAmount: { uiAmountString: '0.03' } } },
                     },
                   ],
@@ -286,7 +286,7 @@ describe('x402 Payment Module', () => {
                   accountKeys: ['source-token-account', 'actual-dest-token-account'],
                   instructions: [
                     {
-                      program: 'spl-token',
+                      program: 'spl-token', programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
                       parsed: { type: 'transferChecked', info: { mint, destination: 'actual-dest-token-account', tokenAmount: { uiAmountString: '0.03' } } },
                     },
                   ],
@@ -492,7 +492,7 @@ describe('x402 Payment Module', () => {
         transaction: {
           message: {
             accountKeys: ['source-token-account', 'dest-token-account'],
-            instructions: [{ program: 'spl-token', parsed: instruction }],
+            instructions: [{ program: 'spl-token', programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', parsed: instruction }],
           },
         },
       });
@@ -677,7 +677,7 @@ describe('protocol fee on direct per-call payments', () => {
   const usdcReceipt = (amount: string, nonce: string) =>
     ({ network: 'solana-devnet', payTo: provider, amount, currency: 'USDC', nonce, payer: buyer, signature: `sig-${nonce}` });
   const leg = (destination: string, baseUnits: string, mint = usdcMint) => ({
-    program: 'spl-token',
+    program: 'spl-token', programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
     parsed: { type: 'transferChecked', info: { mint, authority: buyer, destination, tokenAmount: { amount: baseUnits, decimals: 6 } } },
   });
   // Token accounts: index 1 is the provider's, index 2 the treasury's, index 3 a stranger's.
@@ -736,7 +736,7 @@ describe('protocol fee on direct per-call payments', () => {
 
   it('refuses to state a fee for an unsupported currency, a bad treasury, or a treasury that is the payee', () => {
     const base = { network: 'solana-devnet' as const, payTo: provider, amount: '1', endpoint, nonce: 'fee-bad' };
-    expect(() => buildX402Challenge({ ...base, currency: 'AUDD' }, { protocolFee: fee })).toThrow('not supported');
+    expect(() => buildX402Challenge({ ...base, currency: 'EURC' }, { protocolFee: fee })).toThrow('not supported');
     expect(() => buildX402Challenge({ ...base, currency: 'USDC' }, { protocolFee: { treasury: 'nope' } })).toThrow('treasury');
     expect(() => buildX402Challenge({ ...base, currency: 'USDC' }, { protocolFee: { treasury: provider } })).toThrow('differ');
     expect(() => buildX402Challenge({ ...base, currency: 'USDC', amount: '0.0000001' }, { protocolFee: fee })).toThrow('decimal places');
@@ -750,7 +750,7 @@ describe('protocol fee on direct per-call payments', () => {
   });
 
   it('reads the amounts from uiAmountString when the raw amount is absent', async () => {
-    const uiLeg = (destination: string, ui: string) => ({ program: 'spl-token', parsed: { type: 'transferChecked', info: { mint: usdcMint, authority: buyer, destination, tokenAmount: { uiAmountString: ui } } } });
+    const uiLeg = (destination: string, ui: string) => ({ program: 'spl-token', programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', parsed: { type: 'transferChecked', info: { mint: usdcMint, authority: buyer, destination, tokenAmount: { uiAmountString: ui } } } });
     const result = await verifier(usdcTx([uiLeg('treasury-ta', '0.0005'), uiLeg('provider-ta', '0.9995')]))
       .verifyReceipt(usdcReceipt('1', 'fee-ui'), usdcChallenge('1', 'fee-ui'), new MemoryNonceReplayStore());
     expect(result.ok).toBe(true);
@@ -815,7 +815,7 @@ describe('protocol fee on direct per-call payments', () => {
   it('charges no fee on a price too small to yield one base unit, and accepts a single transfer', async () => {
     const challenge = usdcChallenge('0.001000', 'fee-s5');
     expect(challenge.fee).toEqual({ bps: 5, payTo: treasury, amount: '0', providerAmount: '0.001' });
-    const result = await verifier(usdcTx([{ program: 'spl-token', parsed: { type: 'transferChecked', info: { mint: usdcMint, authority: buyer, destination: 'provider-ta', tokenAmount: { amount: '1000', decimals: 6, uiAmountString: '0.001000' } } } }]))
+    const result = await verifier(usdcTx([{ program: 'spl-token', programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', parsed: { type: 'transferChecked', info: { mint: usdcMint, authority: buyer, destination: 'provider-ta', tokenAmount: { amount: '1000', decimals: 6, uiAmountString: '0.001000' } } } }]))
       .verifyReceipt(usdcReceipt('0.001000', 'fee-s5'), challenge, new MemoryNonceReplayStore());
     expect(result.ok).toBe(true);
   });
@@ -926,8 +926,8 @@ describe('protocol fee on direct per-call payments', () => {
       const mint = new PublicKey(usdcMint);
       const skewed = { ...challenge, fee: { ...challenge.fee!, providerAmount: '0.9' } };
       expect(() => buildDirectPaymentInstructions({ challenge: skewed, payer: new PublicKey(buyer), usdcMint: mint })).toThrow('add up');
-      expect(() => buildDirectPaymentInstructions({ challenge, payer: new PublicKey(buyer) })).toThrow('usdcMint');
-      expect(() => buildDirectPaymentInstructions({ challenge: { ...challenge, currency: 'AUDD', fee: undefined }, payer: new PublicKey(buyer) })).toThrow('unsupported');
+      expect(() => buildDirectPaymentInstructions({ challenge, payer: new PublicKey(buyer) })).toThrow('configured mint');
+      expect(() => buildDirectPaymentInstructions({ challenge: { ...challenge, currency: 'EURC', fee: undefined }, payer: new PublicKey(buyer) })).toThrow('unsupported');
       const greedy = { ...challenge, fee: { bps: 5_000, payTo: treasury, amount: '0.5', providerAmount: '0.5' } };
       expect(() => buildDirectPaymentInstructions({ challenge: greedy, payer: new PublicKey(buyer), usdcMint: mint, maxFeeBps: 5 })).toThrow('exceeds');
     });

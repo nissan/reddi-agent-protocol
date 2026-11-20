@@ -70,7 +70,7 @@ describe('buyer direct payment plan', () => {
     ['a different payee', { payTo: other }, {}, 'wrong_payee'],
     ['a different network', { network: 'solana-mainnet-beta' }, {}, 'wrong_network'],
     ['a different currency', { currency: 'USDC' }, {}, 'wrong_currency'],
-    ['an unsupported currency', { currency: 'AUDD' }, { listing: { payTo: provider, amount: '0.01', currency: 'AUDD' } }, 'wrong_currency'],
+    ['an unsupported currency', { currency: 'EURC', fee: undefined }, { listing: { payTo: provider, amount: '0.01', currency: 'EURC' } }, 'wrong_currency'],
     ['a price above the listing', { amount: '0.010000001', fee: undefined }, {}, 'price_above_listing'],
     ['a price above the spend cap', {}, { spendCap: '0.009999999' }, 'above_spend_cap'],
     ['a zero spend cap', {}, { spendCap: 0 }, 'above_spend_cap'],

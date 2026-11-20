@@ -1,7 +1,7 @@
 export declare const SPL_TRANSFER_CHECKED_OBSERVATION_SCHEMA_VERSION: "reddi.svm-spl-transfer-checked-observation.v1";
 export declare const SPL_TRANSFER_CHECKED_OBSERVER_VERSION: "reddi.x402-solana.spl-transfer-checked-observer.v1";
 export declare const SPL_TOKEN_PROGRAM_ID: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
-export declare const TOKEN_2022_PROGRAM_ID: "TokenzQdBNbLqP5VEhdkAS6EP8pNJGvvnzQ74d7Gkwb";
+export declare const TOKEN_2022_PROGRAM_ID: "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 export declare const SPL_MEMO_PROGRAM_ID: "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
 export type SplTransferCheckedCommitment = 'confirmed' | 'finalized';
 export type SplTransferCheckedObservationFailureReason = 'malformed_expected_payment' | 'missing_transaction' | 'failed_transaction' | 'missing_confirmation_metadata' | 'wrong_signature' | 'no_transfer_checked' | 'wrong_token_program' | 'wrong_mint' | 'wrong_amount' | 'wrong_payee' | 'wrong_destination' | 'wrong_decimals' | 'wrong_authority' | 'duplicate_matching_transfer' | 'missing_memo' | 'memo_mismatch' | 'replay_detected';

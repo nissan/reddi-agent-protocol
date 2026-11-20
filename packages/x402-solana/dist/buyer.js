@@ -4,7 +4,6 @@ exports.parseX402Challenge = parseX402Challenge;
 exports.planBuyerDirectPayment = planBuyerDirectPayment;
 const direct_payment_1 = require("./direct-payment");
 const payment_1 = require("./payment");
-const BUYER_CURRENCY_DECIMALS = { SOL: 9, USDC: 6 };
 const NETWORKS = ['solana-devnet', 'solana-mainnet-beta', 'solana-testnet'];
 function refuse(reason, message) {
     return { ok: false, reason, message };
@@ -84,8 +83,9 @@ function planBuyerDirectPayment(input) {
     if (challenge.currency !== input.listing.currency) {
         return refuse('wrong_currency', `the challenge asks for ${challenge.currency} but the listing is priced in ${input.listing.currency}`);
     }
-    const decimals = BUYER_CURRENCY_DECIMALS[challenge.currency];
-    if (decimals === undefined)
+    const currency = (0, payment_1.directPaymentCurrency)(challenge.currency);
+    const decimals = currency?.decimals;
+    if (currency === undefined || decimals === undefined)
         return refuse('wrong_currency', `direct payment in ${challenge.currency} is not supported`);
     const price = (0, payment_1.decimalToBaseUnits)(challenge.amount, decimals);
     const listed = (0, payment_1.decimalToBaseUnits)(input.listing.amount, decimals);
@@ -100,12 +100,15 @@ function planBuyerDirectPayment(input) {
         return refuse('price_above_listing', 'the challenge asks for more than the listed price');
     if (price > cap)
         return refuse('above_spend_cap', 'the challenge asks for more than the spend cap');
+    const tokenMint = currency.tokenProgram === undefined
+        ? undefined
+        : input.mint ?? (challenge.currency === 'USDC' ? input.usdcMint : undefined);
     let instructions;
     try {
         instructions = (0, direct_payment_1.buildDirectPaymentInstructions)({
             challenge,
             payer: input.payer,
-            usdcMint: input.usdcMint,
+            mint: tokenMint,
             payerTokenAccount: input.payerTokenAccount,
             maxFeeBps: input.maxFeeBps ?? payment_1.PROTOCOL_FEE_BPS,
         });
@@ -115,7 +118,7 @@ function planBuyerDirectPayment(input) {
         return refuse(/fee/.test(message) ? 'fee_terms_rejected' : 'invalid_challenge', message);
     }
     const payer = input.payer.toBase58();
-    const mint = challenge.currency === 'USDC' ? input.usdcMint?.toBase58() : undefined;
+    const mint = tokenMint?.toBase58();
     return {
         ok: true,
         challenge,

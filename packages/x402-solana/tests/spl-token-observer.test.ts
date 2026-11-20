@@ -152,7 +152,7 @@ describe('SPL TransferChecked observation verifier', () => {
   it('rejects wrong mint, token program, payee owner, amount, decimals, authority, and destination', async () => {
     const cases = [
       { tx: parsedTransaction({ mint: 'WrongMint111111111111111111111111111111111' }), reason: 'wrong_mint' },
-      { tx: parsedTransaction({ transferProgramId: 'TokenzQdBNbLqP5VEhdkAS6EP8pNJGvvnzQ74d7Gkwb' }), reason: 'wrong_token_program' },
+      { tx: parsedTransaction({ transferProgramId: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb' }), reason: 'wrong_token_program' },
       { tx: parsedTransaction({ owner: PAYER }), reason: 'wrong_payee' },
       { tx: parsedTransaction({ amount: '2499999' }), reason: 'wrong_amount' },
       { tx: parsedTransaction({ decimals: 9 }), reason: 'wrong_decimals' },
