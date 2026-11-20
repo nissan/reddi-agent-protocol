@@ -142,6 +142,10 @@ impl Fixture {
         .0;
         let vault =
             Pubkey::find_program_address(&[b"token-vault", escrow.as_ref()], &escrow::id()).0;
+        // The treasury's token account must sit at its associated address.
+        let treasury_token = escrow::treasury_token_address(&mint, &spl_token::ID);
+        let account = svm.get_account(&tokens[3]).unwrap();
+        svm.set_account(treasury_token, account).unwrap();
         Self {
             svm,
             payer,
@@ -151,7 +155,7 @@ impl Fixture {
             source: tokens[0],
             recipient: tokens[1],
             attacker_token: tokens[2],
-            treasury_token: tokens[3],
+            treasury_token,
             escrow,
             vault,
             nonce,
@@ -858,15 +862,20 @@ fn token_settlement_stays_within_the_authorised_maximum() {
         let err = f.reject_as(f.settle_ix(payee.pubkey(), actual), &payee);
         assert!(err.contains("Custom(6028)"), "{err}");
     }
-    // The payee cannot send the refund anywhere but the recorded source.
-    let other = f.new_token_account(f.payer.pubkey());
+    // The payee cannot send the refund to an account the payer does not own.
     let mut ix = f.settle_ix(payee.pubkey(), 1_000);
-    ix.accounts[7].pubkey = other;
+    ix.accounts[7].pubkey = f.attacker_token;
     let err = f.reject_as(ix, &payee);
     assert!(err.contains("Custom(6023)"), "{err}");
-    // Nor can the fee go to anyone but the treasury.
+    // Nor can the fee go to anyone but the treasury's associated account, even
+    // another account the treasury owns.
     let mut ix = f.settle_ix(payee.pubkey(), 1_000);
     ix.accounts[6].pubkey = f.attacker_token;
+    let err = f.reject_as(ix, &payee);
+    assert!(err.contains("Custom(6030)"), "{err}");
+    let stray = f.new_token_account(PROTOCOL_TREASURY);
+    let mut ix = f.settle_ix(payee.pubkey(), 1_000);
+    ix.accounts[6].pubkey = stray;
     let err = f.reject_as(ix, &payee);
     assert!(err.contains("Custom(6030)"), "{err}");
     // A stranger cannot settle.
@@ -893,5 +902,37 @@ fn only_the_payer_settles_a_fixed_price_token_escrow_early() {
     send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
     assert_eq!(f.triple(), (800_000, 0, 195_000));
     assert_eq!(f.balance(f.treasury_token), 5_000);
+    assert!(f.closed(f.escrow));
+}
+
+/// The payer re-owning its source account after locking cannot block the
+/// payee's settlement: the refund goes to another account the payer owns.
+#[test]
+fn payee_settles_even_after_the_payer_gives_away_its_source_account() {
+    let mut f = Fixture::new();
+    let ix = f.metered_lock_ix(400_000);
+    send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
+    let give_away = token_ix::set_authority(
+        &spl_token::ID,
+        &f.source,
+        Some(&f.attacker.pubkey()),
+        token_ix::AuthorityType::AccountOwner,
+        &f.payer.pubkey(),
+        &[],
+    )
+    .unwrap();
+    send(&mut f.svm, &[give_away], &[&f.payer]).unwrap();
+    let payee = f.payee.insecure_clone();
+    // The recorded source is no longer the payer's, so it is refused...
+    let err = f.reject_as(f.settle_ix(payee.pubkey(), 100_000), &payee);
+    assert!(err.contains("Custom(6023)"), "{err}");
+    // ...and any account the payer does own works.
+    let other = f.new_token_account(f.payer.pubkey());
+    let mut ix = f.settle_ix(payee.pubkey(), 100_000);
+    ix.accounts[7].pubkey = other;
+    send(&mut f.svm, &[ix], &[&payee]).unwrap();
+    assert_eq!(f.balance(other), 300_000);
+    assert_eq!(f.balance(f.recipient), 97_500);
+    assert_eq!(f.balance(f.treasury_token), 2_500);
     assert!(f.closed(f.escrow));
 }

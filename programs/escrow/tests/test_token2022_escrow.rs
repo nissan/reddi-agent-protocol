@@ -131,7 +131,11 @@ impl Fixture {
         f.source = f.new_token_account(f.payer.pubkey());
         f.recipient = f.new_token_account(f.payee.pubkey());
         f.issuer_token = f.new_token_account(f.issuer.pubkey());
-        f.treasury_token = f.new_token_account(PROTOCOL_TREASURY);
+        // The treasury's token account must sit at its associated address.
+        let made = f.new_token_account(PROTOCOL_TREASURY);
+        f.treasury_token = escrow::treasury_token_address(&mint, &TOKEN_2022_ID);
+        let account = f.svm.get_account(&made).unwrap();
+        f.svm.set_account(f.treasury_token, account).unwrap();
         f.mint_to(f.source, 1_000_000);
         f.mint_to(f.issuer_token, 1_000_000);
         f

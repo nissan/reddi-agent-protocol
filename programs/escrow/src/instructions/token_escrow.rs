@@ -2,8 +2,8 @@ use anchor_lang::prelude::*;
 
 use crate::{
     constants::{
-        allowed_token_program, protocol_fee, ALLOWED_MINT_DECIMALS, MAX_TOKEN_ESCROW_BASE_UNITS,
-        PROTOCOL_TREASURY, TOKEN_ESCROW_SEED, TOKEN_VAULT_SEED,
+        allowed_token_program, protocol_fee, treasury_token_address, ALLOWED_MINT_DECIMALS,
+        MAX_TOKEN_ESCROW_BASE_UNITS, PROTOCOL_TREASURY, TOKEN_ESCROW_SEED, TOKEN_VAULT_SEED,
     },
     error::EscrowError,
     events::{EscrowLocked, EscrowSettled, SettlementOutcome},
@@ -159,18 +159,20 @@ fn pay_out(accounts: &mut ReleaseTokenEscrow, paid: u64, outcome: SettlementOutc
         escrow.payee,
         EscrowError::InvalidTokenAccount
     );
+    // Any token account of the mint the payer owns. Not only the recorded
+    // source: the payer may close or re-own that after locking, and the payee
+    // must still be able to settle (it can create the payer's associated
+    // account in the same transaction).
     require_keys_eq!(
         accounts.refund.owner,
         escrow.payer,
         EscrowError::InvalidTokenAccount
     );
-    if accounts.authority.key() != escrow.payer {
-        require_keys_eq!(
-            accounts.refund.key(),
-            escrow.source,
-            EscrowError::InvalidTokenAccount
-        );
-    }
+    require_keys_eq!(
+        accounts.treasury_token.key(),
+        treasury_token_address(&escrow.mint, &accounts.token_program.key()),
+        EscrowError::InvalidTreasury
+    );
     // Every destination is a different account, so each balance change below
     // measures one transfer.
     let vault_key = accounts.vault.key();
@@ -471,14 +473,14 @@ pub struct ReleaseTokenEscrow<'info> {
         constraint = destination.mint == mint.key()
             && *destination.to_account_info().owner == token_program.key() @ EscrowError::InvalidTokenAccount)]
     pub destination: InterfaceAccount<'info, TokenAccount>,
-    /// The protocol treasury's token account for the escrow mint.
+    /// The protocol treasury's associated token account for the escrow mint.
     #[account(mut,
         constraint = treasury_token.mint == mint.key()
             && *treasury_token.to_account_info().owner == token_program.key() @ EscrowError::InvalidTokenAccount,
         constraint = treasury_token.owner == PROTOCOL_TREASURY @ EscrowError::InvalidTreasury)]
     pub treasury_token: InterfaceAccount<'info, TokenAccount>,
-    /// Where anything above the paid amount returns: the recorded source, or,
-    /// when the payer itself signs, any token account of the mint it owns.
+    /// Where anything above the paid amount returns: any token account of the
+    /// mint that the payer owns.
     #[account(mut,
         constraint = refund.mint == mint.key()
             && *refund.to_account_info().owner == token_program.key() @ EscrowError::InvalidTokenAccount)]

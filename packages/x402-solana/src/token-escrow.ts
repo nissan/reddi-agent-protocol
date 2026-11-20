@@ -53,9 +53,9 @@ export interface SettleTokenEscrowOptions {
    * the payer may on any escrow.
    */
   actual?: bigint;
-  /** Treasury token account. Defaults to the treasury's associated token account for the mint. */
+  /** Treasury token account. The program accepts only the treasury's associated token account for the mint. */
   treasuryToken?: PublicKey;
-  /** Where the unused part returns. Must be the recorded source unless the payer signs. */
+  /** Where the unused part returns: any token account of the mint the payer owns. Defaults to the recorded source. */
   refundTo?: PublicKey;
 }
 
