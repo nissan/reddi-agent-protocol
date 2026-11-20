@@ -30,6 +30,21 @@ console.log(Object.keys(reddiReceiptFixtureCases)); // happy/denial/failure fixt
 
 Receipt validation fails closed for malformed envelopes, missing payment proof references, unsupported v1 network/asset pairs, and credential-bearing metadata.
 
+## Provider Receipt Extension
+
+```ts
+import { hashProviderReceiptBody, verifyProviderReceiptExtension } from '@reddi/agent-protocol/provider-receipt-extension';
+
+const result = verifyProviderReceiptExtension(signedBlock, {
+  providerId: providerWalletYouPaid,
+  requestHash: hashProviderReceiptBody(requestBodyYouSent),
+  responseHash: hashProviderReceiptBody(responseBodyYouReceived),
+  payment: { network: 'solana-devnet', txSignature: paymentYouMade },
+});
+```
+
+`reddi.receipt.provider-extension.v1` is a separately signed block that sits next to a `reddi.receipt.v1` receipt and does not change it. The provider states its wallet, the model it declares it served, the request and response hashes and the payment transaction, and signs them with its wallet key (ed25519 over a fixed-order canonical form). Verification is offline. Pass what you know yourself as the expectation: without it, a pass only says that some key signed some statement. A valid signature shows what the provider declared. It does not show which model ran. These are source-level helpers; no provider runtime issues these blocks yet.
+
 ## Policy Decisions
 
 ```typescript

@@ -155,8 +155,14 @@ to the provider's answer. The provider's own verification is not taken as proof.
   for SOL and the mints this app knows on the job's own network; any other mint is shown
   in base units (`lib/jobs/job-display.ts`).
 
-Not built yet: the provider-signed receipt in `receipts`, attestations and `provider_stats`
-updates.
+The provider-signed receipt has a format and an offline verifier
+(`packages/agent-protocol/src/provider-receipt-extension.ts`, schema
+`reddi.receipt.provider-extension.v1`). It is a separate signed block, so the
+`reddi.receipt.v1` contract is unchanged; the owner's choice between this and a new
+receipt version is still open. It records a declared model, never verified execution.
+
+Not built yet: a provider runtime that issues that block, the app saving it to `receipts`
+after checking it against the job, attestations and `provider_stats` updates.
 
 ## Replay store
 
