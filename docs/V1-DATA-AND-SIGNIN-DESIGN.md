@@ -54,6 +54,20 @@ Prompts and responses are not stored, only their SHA-256 hashes.
 | `attestations`, `provider_stats` | read for listed providers | same | write |
 | `payment_replay` | nothing | nothing | read and write |
 
+Notes on the table:
+
+- Privileges are explicit. The migration revokes everything from the two client roles and
+  grants back only reads and the owner's listing edits, because Supabase's default grants
+  include `TRUNCATE`, which row level security does not stop.
+- Clients cannot read `providers.owner_user_id` (an internal account id) and must name the
+  columns they read; `select *` on `providers` is refused.
+- `attestations` carries the provider wallet, so public reputation reads never need the
+  private job row. Reputation data is hidden once a provider is no longer listed.
+- An owner can set their own listing to `listed` and name any https endpoint without a
+  server check. That is intended for the guarded beta: health is observed by the server
+  and shown separately, and the owner cannot write it.
+- `updated_at` is set by the database on every update.
+
 The rule behind the table: a client may describe its own listing, and every record that
 states a verified fact (a payment happened, work was delivered, a check passed) is
 written only by the server after it has verified that fact. The service-role key lives

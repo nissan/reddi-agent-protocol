@@ -5,6 +5,11 @@
 -- receipt, a replay record, an attestation, reputation) is made by the Next.js
 -- server with the service role, which bypasses row level security. No client
 -- role can write those tables.
+--
+-- Privileges are explicit. Supabase grants ALL on new public tables to anon and
+-- authenticated by default, which includes TRUNCATE (not stopped by row level
+-- security). This migration revokes everything from the client roles and grants
+-- back only what the rules below need.
 
 create extension if not exists pgcrypto;
 
@@ -96,6 +101,8 @@ $$;
 create table public.attestations (
   id uuid primary key default gen_random_uuid(),
   job_id uuid not null references public.jobs (id) on delete cascade,
+  -- Copied from the job by the server so public reads need not see the job row.
+  provider_wallet text not null references public.providers (wallet) on delete cascade,
   attestor_wallet text not null,
   outcome text not null check (outcome in ('pass', 'fail', 'inconclusive')),
   detail jsonb not null default '{}'::jsonb,
@@ -113,6 +120,25 @@ create table public.provider_stats (
   attestations_fail bigint not null default 0,
   updated_at timestamptz not null default now()
 );
+
+create index attestations_provider_idx on public.attestations (provider_wallet, created_at desc);
+
+-- updated_at is set by the database, not by the caller.
+create function public.set_updated_at()
+returns trigger
+language plpgsql
+security invoker
+set search_path = public
+as $$
+begin
+  new.updated_at := now();
+  return new;
+end;
+$$;
+create trigger providers_set_updated_at before update on public.providers
+  for each row execute function public.set_updated_at();
+create trigger provider_stats_set_updated_at before update on public.provider_stats
+  for each row execute function public.set_updated_at();
 
 -- Row level security ---------------------------------------------------------
 
@@ -147,22 +173,23 @@ create policy providers_update_own on public.providers
     and wallet = (select p.wallet from public.profiles p where p.user_id = auth.uid())
   );
 
--- Owners may change only the descriptive columns. Health, timestamps and
--- ownership are server-owned.
-revoke insert, update on public.providers from authenticated;
-grant insert (wallet, owner_user_id, display_name, endpoint_url, declared_models, capabilities,
-              capability_hash, price_per_call_base_units, price_mint, network, status)
-  on public.providers to authenticated;
-grant update (display_name, endpoint_url, declared_models, capabilities, capability_hash,
-              price_per_call_base_units, price_mint, status)
-  on public.providers to authenticated;
-
 -- jobs and receipts: the buyer and the provider's owner read theirs.
+-- Tells the caller whether they own a provider, and nothing else. Definer rights
+-- because clients hold no privilege on providers.owner_user_id.
+create function public.is_provider_owner(p_wallet text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (select 1 from public.providers pr
+                 where pr.wallet = p_wallet and pr.owner_user_id = auth.uid());
+$$;
+
 create policy jobs_select_party on public.jobs
   for select to authenticated using (
-    buyer_user_id = auth.uid()
-    or exists (select 1 from public.providers pr
-               where pr.wallet = jobs.provider_wallet and pr.owner_user_id = auth.uid())
+    buyer_user_id = auth.uid() or public.is_provider_owner(provider_wallet)
   );
 create policy receipts_select_party on public.receipts
   for select to authenticated using (
@@ -170,11 +197,12 @@ create policy receipts_select_party on public.receipts
   );
 
 -- attestations and stats are public reputation data for listed providers.
+-- The check reads providers only: jobs are private to their parties, so a
+-- policy that went through jobs would hide every attestation from the public.
 create policy attestations_select_public on public.attestations
   for select to anon, authenticated using (
-    exists (select 1 from public.jobs j
-            join public.providers pr on pr.wallet = j.provider_wallet
-            where j.id = attestations.job_id and pr.status = 'listed')
+    exists (select 1 from public.providers pr
+            where pr.wallet = attestations.provider_wallet and pr.status = 'listed')
   );
 create policy provider_stats_select_public on public.provider_stats
   for select to anon, authenticated using (
@@ -182,13 +210,40 @@ create policy provider_stats_select_public on public.provider_stats
             where pr.wallet = provider_stats.provider_wallet and pr.status = 'listed')
   );
 
--- payment_replay: no client policy at all. Server only.
-revoke all on public.payment_replay from anon, authenticated;
+-- Privileges -----------------------------------------------------------------
+
+-- Start from nothing for the client roles on every table, then grant back.
+revoke all on public.profiles, public.providers, public.jobs, public.receipts,
+  public.payment_replay, public.attestations, public.provider_stats
+  from public, anon, authenticated;
+
+-- The server role is granted explicitly so it does not depend on project defaults.
+grant select, insert, update, delete on public.profiles, public.providers, public.jobs,
+  public.receipts, public.payment_replay, public.attestations, public.provider_stats
+  to service_role;
+
+-- Read-only tables for clients; row level security decides which rows.
+grant select on public.profiles, public.jobs, public.receipts to authenticated;
+grant select on public.attestations, public.provider_stats to anon, authenticated;
+
+-- providers: clients read every column except owner_user_id, which is an
+-- internal account id. Clients must name columns (select * is refused).
+grant select (wallet, display_name, endpoint_url, declared_models, capabilities, capability_hash,
+              price_per_call_base_units, price_mint, network, status, health_status,
+              last_seen_at, created_at, updated_at)
+  on public.providers to anon, authenticated;
+-- Owners may set only the descriptive columns. Health, timestamps and ownership
+-- changes are server-owned. No client delete.
+grant insert (wallet, owner_user_id, display_name, endpoint_url, declared_models, capabilities,
+              capability_hash, price_per_call_base_units, price_mint, network, status)
+  on public.providers to authenticated;
+grant update (display_name, endpoint_url, declared_models, capabilities, capability_hash,
+              price_per_call_base_units, price_mint, status)
+  on public.providers to authenticated;
+
+-- payment_replay has no client policy and no client privilege. Server only.
 revoke execute on function public.replay_check_and_store(text) from public, anon, authenticated;
 grant execute on function public.replay_check_and_store(text) to service_role;
-
--- No client writes to verified-fact tables.
-revoke insert, update, delete on public.profiles, public.jobs, public.receipts,
-  public.attestations, public.provider_stats from anon, authenticated;
-revoke insert, update, delete on public.providers from anon;
-revoke delete on public.providers from authenticated;
+revoke execute on function public.set_updated_at() from public, anon, authenticated;
+revoke execute on function public.is_provider_owner(text) from public, anon;
+grant execute on function public.is_provider_owner(text) to authenticated, service_role;
