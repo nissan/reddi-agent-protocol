@@ -173,3 +173,9 @@ answer. `src/replay-store.ts` picks the store at start-up:
   `ALLOW_MEMORY_REPLAY_STORE=1` is set, which is for local development only.
 
 The service key is a server secret. Supply it through the host's secret store; never commit it.
+
+## Provider receipt header
+
+`handleRuntimeRequest` accepts an optional `signProviderReceipt` function. When it is given, a delivered `/v1/chat/completions` call that was paid with a real, verified payment returns an `x-reddi-provider-receipt` header: base64url JSON of a `reddi.receipt.provider-extension.v1` block naming this profile's wallet, the configured model, the SHA-256 of the request and response bodies and the payment transaction. `signProviderReceiptExtension` from `@reddi/agent-protocol` produces the signed block.
+
+The runtime never reads a signing key, and `src/server.ts` does not pass a signer, so no deployed specialist issues receipts today. Nothing is issued while demo payments are allowed, and a signer failure leaves the answer untouched. The model in the block is the one the runtime is configured to call: a declaration, not proof of which model ran.

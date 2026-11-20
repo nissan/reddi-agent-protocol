@@ -167,8 +167,14 @@ signature verifies against the paid listing's wallet and the block names the req
 response bytes the app sent and received and the transaction it checked on chain
 (`lib/jobs/provider-receipt.ts`). A missing or failed receipt never changes the job.
 
-Not built yet: a provider runtime that issues that block, attestations and
-`provider_stats` updates.
+The specialist runtime (`packages/openrouter-specialists`) can issue that header for a
+delivered chat completion paid with a real, verified payment. It is off unless the
+operator passes a `signProviderReceipt` function to `handleRuntimeRequest`; the runtime
+reads no key itself and `server.ts` passes none yet. It issues nothing while demo
+payments are allowed.
+
+Not built yet: how an operator supplies the provider signing key to `server.ts`,
+attestations and `provider_stats` updates.
 
 ## Replay store
 
