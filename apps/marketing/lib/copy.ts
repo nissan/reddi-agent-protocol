@@ -31,7 +31,7 @@ export const STATUS: { exists: StatusRow[]; building: StatusRow[]; planned: Stat
   exists: [
     { item: "Open-source receipt and conformance packages", note: "Receipt envelopes, policy decisions, replay fixtures and conformance checks that run locally and offline.", where: "packages/ in the repository", href: `${GITHUB_URL}/tree/main/packages` },
     { item: "x402 payment checks for Solana", note: "Helpers that check a payment proof against the transaction, the network and the amount, and refuse a replayed one.", where: "packages/x402-solana", href: `${GITHUB_URL}/tree/main/packages/x402-solana` },
-    { item: "A devnet demo app", note: "Walkthroughs of registering a specialist, a paid call and the receipt that follows, on Solana devnet with test funds.", where: "The developer demo", href: "https://reddi-agent-protocol.vercel.app" },
+    { item: "A devnet demo app", note: "Walkthroughs of registering a specialist, a paid call and the receipt that follows, on Solana devnet with test funds.", where: "The developer demo", href: resolveAppUrl(process.env.NEXT_PUBLIC_APP_URL) },
     { item: "On-chain reference program (source)", note: "Anchor source and tests for the registry and escrow instructions. It is reference source: not reviewed by an outside auditor and not deployed to mainnet.", where: "programs/escrow", href: `${GITHUB_URL}/tree/main/programs/escrow` },
   ],
   building: [
@@ -47,6 +47,21 @@ export const STATUS: { exists: StatusRow[]; building: StatusRow[]; planned: Stat
   ],
 };
 
+// The developer app is a separate deployment. NEXT_PUBLIC_APP_URL (https only, build time) names its address; the default is
+// its long-standing vercel.app address, which keeps working wherever the custom domain points.
+export function resolveAppUrl(raw: string | undefined): string {
+  const fallback = "https://reddi-agent-protocol.vercel.app";
+  if (!raw) return fallback;
+  try { const u = new URL(raw.trim()); return u.protocol === "https:" ? u.origin : fallback; } catch { return fallback; }
+}
+export const APP_URL = resolveAppUrl(process.env.NEXT_PUBLIC_APP_URL);
+export const DEV_LINKS = [
+  { title: "Start here", body: "Pick a path: run agents, build a specialist, or check the recorded proofs.", path: "/start" },
+  { title: "Developer FAQ", body: "Registration, endpoints, health checks and x402 in practice.", path: "/faq" },
+  { title: "Playbook", body: "A bounded demo run first, then what to build.", path: "/playbook" },
+  { title: "Spec and whitepaper", body: "The agent description spec and the working whitepaper draft.", path: "/spec" },
+] as const;
+
 export const SCENARIOS = [
   { tag: "BUYER", title: "Did I get the model I paid for?", body: "Send the same prompt to two providers. Compare the receipts: who answered, which model each one declared, what each call cost." },
   { tag: "AGENT", title: "Give an agent a budget, not a blank cheque.", body: "Set a spend limit, let an agent buy inference call by call, and read the receipt trail it leaves behind." },
@@ -57,6 +72,8 @@ export const FAQ = [
   { q: "Can I use it today?", a: "You can read the code, run the packages locally and walk through the devnet demo. The guarded beta is not open, and nothing runs on Solana mainnet yet. Sign up below and we will tell you when that changes." },
   { q: "Is this a marketplace?", a: "No. Solana's request describes an open marketplace where developers choose, verify and pay inference providers. We are building the verify part: receipts and track records that any gateway, registry or marketplace can use." },
   { q: "Does a receipt prove which model ran?", a: "Not by itself, and we will not say it does. A receipt is the provider's signed statement of which model answered, bound to the hashes of your request and the response and to the payment. Independent spot checks test those statements over time. That is evidence you can check and hold a provider to, not a mathematical proof of execution." },
+  { q: "What is x402?", a: "An open payment handshake built on the web's 402 Payment Required status. A provider answers an unpaid request with its price; your client pays and retries with proof of payment. Providers are protected from unpaid calls, and buyers see the price before they pay." },
+  { q: "What is an attestor?", a: "An independent checker. An attestor samples a provider's answers and tests them against what the receipt says, such as the declared model. The results feed the provider's track record. Attestors are part of the design being built; none is running on mainnet." },
   { q: "Who holds my money?", a: "For a single inference call, you pay the provider directly over x402. RAP records the payment reference in the receipt and never holds the funds." },
   { q: "What will it cost?", a: "The code is open source. Providers set their own prices per call. Any protocol fee is a plan, not something that exists today." },
   { q: "What is RAP Assurance?", a: `It is the name of the open receipt and conformance layer inside Reddi Agent Protocol. Its one-line summary: ${CENTRAL_MESSAGE}` },

@@ -84,6 +84,10 @@ blockquote cite{font-style:normal;font-size:14px;color:#b9b6ab}
 .scenarios p{font-size:15px;margin:0;color:#2c2f2a}
 .tag{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.08em;padding:3px 8px;border:1.5px solid var(--ink);margin-bottom:18px}
 
+.devlinks{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+.devlinks a{display:block;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:22px;text-decoration:none}
+.devlinks a:hover{border-color:var(--ink)}
+.devlinks p{font-size:15px;margin:0;color:#2c2f2a}
 .ledger{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
 .ledger-col{border:1px solid var(--night-line);border-radius:6px;padding:22px}
 .page .ledger-col{border-color:var(--line);background:var(--card)}
@@ -143,7 +147,7 @@ blockquote cite{font-style:normal;font-size:14px;color:#b9b6ab}
 .hero,.rfs,.section-heading,.feed-section,.signup-section{grid-template-columns:1fr;gap:32px}
 .hero{padding-block:48px 64px}
 .steps{grid-template-columns:1fr 1fr}.steps li{border-bottom:1px solid var(--line)}.steps li:nth-child(2n){border-right:0}
-.scenarios,.ledger{grid-template-columns:1fr}
+.scenarios,.ledger{grid-template-columns:1fr}.devlinks{grid-template-columns:1fr 1fr}
 .signup-section{padding:28px}
 .section,.band{padding-block:60px}
 }
@@ -155,6 +159,7 @@ nav{gap:16px;font-size:14px;flex-wrap:wrap}
 .nav-cta{padding:8px 12px}
 .steps{grid-template-columns:1fr}.steps li{border-right:0}
 .steps span{margin-bottom:12px}
+.devlinks{grid-template-columns:1fr}
 .receipt-paper{transform:none}
 .receipt dl div{grid-template-columns:104px 1fr}
 .footer-inner{grid-template-columns:1fr}
