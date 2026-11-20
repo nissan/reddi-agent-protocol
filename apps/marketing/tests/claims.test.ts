@@ -16,7 +16,7 @@ function files(dir: string): string[] {
     return statSync(join(ROOT, rel)).isDirectory() ? files(rel) : /\.(tsx?|md)$/.test(name) ? [rel] : [];
   });
 }
-const SCANNED = [...files("app"), ...files("components"), "lib/copy.ts", "lib/updates.ts", "lib/newsletter/copy.ts", "lib/metadata.ts", "README.md"];
+const SCANNED = [...files("app"), ...files("components"), "lib/copy.ts", "lib/updates.ts", "lib/videos.ts", "lib/newsletter/copy.ts", "lib/metadata.ts", "README.md"];
 
 function violations(text: string): string[] {
   const found: string[] = [];

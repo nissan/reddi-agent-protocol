@@ -219,3 +219,7 @@ body:has(.consent-banner){padding-bottom:var(--consent-clearance,0px)}
 .data.roadmap{min-width:900px;font-size:14px}
 .data tr.total th,.data tr.total td{font-weight:800;background:#ece9df}
 @media(max-width:640px){.rfs-map li{grid-template-columns:1fr;gap:4px}.rfs-quote{padding:18px}.rfs-quote p:first-child{font-size:20px}}
+.video{margin-top:18px;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:22px}
+.video-frame{display:block;width:100%;aspect-ratio:16/9;border:0;border-radius:4px;background:#101216}
+.video-actions{display:flex;flex-wrap:wrap;gap:20px;align-items:center;margin:0 0 14px}
+.video .small{color:var(--muted);margin:0}

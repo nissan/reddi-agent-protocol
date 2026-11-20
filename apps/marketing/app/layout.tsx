@@ -5,7 +5,11 @@ import { APP_URL, DEFAULT_DESCRIPTION, GITHUB_URL, SITE_NAME, STAGE, X_URL } fro
 import Analytics from '../components/Analytics';
 import Consent from '../components/Consent';
 import { ANALYTICS_ENABLED } from '../lib/analytics/enabled';
+import { visibleVideos } from '../lib/videos';
 import './globals.css';
+
+// The Watch link appears once a video is published; until then the page exists but is not advertised.
+const hasVideos = visibleVideos(false).length > 0;
 
 export const metadata: Metadata = {
   title: { default: `${SITE_NAME}: receipted AI inference on Solana`, template: `%s · ${SITE_NAME}` },
@@ -32,6 +36,7 @@ export default function Layout({ children }: Readonly<{ children: React.ReactNod
             <Link href="/status">Status</Link>
             <Link href="/market">The numbers</Link>
             <Link href="/updates">Updates</Link>
+            {hasVideos && <Link href="/watch">Watch</Link>}
             <Link className="nav-cta" href="/#updates">Get updates</Link>
           </nav>
         </header>
@@ -47,6 +52,7 @@ export default function Layout({ children }: Readonly<{ children: React.ReactNod
               <Link href="/market">The numbers</Link>
               <Link href="/sandbox">Sandbox</Link>
               <Link href="/updates">Updates</Link>
+              {hasVideos && <Link href="/watch">Watch</Link>}
               <a href={APP_URL} rel="noopener noreferrer">Developer app</a>
               <a href={GITHUB_URL} rel="noopener noreferrer">GitHub</a>
               <a href={X_URL} rel="noopener noreferrer">X</a>
