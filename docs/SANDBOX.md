@@ -39,6 +39,9 @@ claim about mainnet, live models, or settlement.
 `SANDBOX_DEVNET_RPC_URL` optionally points the server at another devnet RPC endpoint. An
 endpoint that is not devnet is refused by the genesis-hash check.
 
+`NEXT_PUBLIC_MARKETING_ORIGIN` (build time, https only) adds a "Get launch updates" button that
+links to the marketing site's signup at `<origin>/#updates`. Unset, the button is not shown.
+
 ## Scenarios
 
 Deep links: `/sandbox?scenario=<id>`.

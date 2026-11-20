@@ -109,3 +109,20 @@ export function shortAddress(address: string): string {
 export function priceLabel(provider: SandboxProvider): string {
   return `${provider.priceSol} devnet SOL`;
 }
+
+/**
+ * Signup link on the marketing site, or undefined when no marketing origin is
+ * configured. Only an https origin is accepted, so a mistyped or hostile value
+ * cannot turn the button into a script or plain-http link.
+ */
+export function marketingSignupUrl(origin: string | undefined): string | undefined {
+  const value = origin?.trim();
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password) return undefined;
+    return `${url.origin}/#updates`;
+  } catch {
+    return undefined;
+  }
+}

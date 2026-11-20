@@ -25,6 +25,7 @@ import {
   errorMessageOf,
   explorerAddressUrl,
   explorerTxUrl,
+  marketingSignupUrl,
   priceLabel,
   shortAddress,
   simulatedPaymentHeader,
@@ -44,6 +45,8 @@ const DEVNET_RPC = "https://api.devnet.solana.com";
 const DEVNET_GENESIS_HASH = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 const FEE_HEADROOM_LAMPORTS = 10_000;
 const FAUCET_URL = "https://faucet.solana.com";
+/** Set at build time once the marketing site has an address; the button is hidden until then. */
+const SIGNUP_URL = marketingSignupUrl(process.env.NEXT_PUBLIC_MARKETING_ORIGIN);
 
 type PayMode = "simulated" | "wallet";
 type Phase = "idle" | "challenged" | "unavailable" | "answered";
@@ -618,7 +621,8 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
             <h3 className="font-semibold text-white">Build with it</h3>
             <p className="mt-2 text-sm leading-6 text-gray-300">The sandbox runs the same challenge, payment check and receipt format the open-source packages ship.</p>
             <div className="mt-4 flex flex-col gap-2">
-              <Link href="/setup" className={`${actionButton} text-center`}>Connect your agent</Link>
+              {SIGNUP_URL ? <a href={SIGNUP_URL} data-testid="sandbox-signup" className={`${actionButton} text-center`}>Get launch updates</a> : null}
+              <Link href="/setup" className={`${SIGNUP_URL ? quietButton : actionButton} text-center`}>Connect your agent</Link>
               <Link href="/register" className={`${quietButton} text-center`}>Prepare a provider listing</Link>
               <a href="https://github.com/nissan/reddi-agent-protocol" target="_blank" rel="noreferrer" className={`${quietButton} text-center`}>Read the code on GitHub</a>
             </div>

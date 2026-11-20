@@ -1,6 +1,7 @@
 import { MemoryNonceReplayStore, SOLANA_GENESIS_HASHES } from "@reddi/x402-solana";
 import { validateReddiReceipt } from "@reddi/agent-protocol/receipts";
 import { findSandboxProviderById, SANDBOX_ENDPOINT_PATH, SANDBOX_PROVIDERS } from "@/lib/sandbox/catalog";
+import { marketingSignupUrl } from "@/lib/sandbox/client";
 import { handleSandboxChatCompletion, sandboxModelsListing, type SandboxGatewayDeps } from "@/lib/sandbox/gateway";
 import { verifySandboxReceipt, type SandboxReceipt } from "@/lib/sandbox/receipt";
 
@@ -291,6 +292,16 @@ describe("sandbox catalog", () => {
     for (const entry of data) {
       expect(entry.id.startsWith("sandbox/")).toBe(true);
       expect(entry.rap.signingKey.publicKey).toMatch(/^[0-9a-f]{64}$/);
+    }
+  });
+});
+
+describe("sandbox signup link", () => {
+  it("is built only from an https marketing origin", () => {
+    expect(marketingSignupUrl("https://agent-protocol.reddi.tech")).toBe("https://agent-protocol.reddi.tech/#updates");
+    expect(marketingSignupUrl(" https://agent-protocol.reddi.tech/some/path?x=1 ")).toBe("https://agent-protocol.reddi.tech/#updates");
+    for (const bad of [undefined, "", "   ", "http://agent-protocol.reddi.tech", "javascript:alert(1)", "agent-protocol.reddi.tech", "https://user:pw@agent-protocol.reddi.tech"]) {
+      expect(marketingSignupUrl(bad)).toBeUndefined();
     }
   });
 });
