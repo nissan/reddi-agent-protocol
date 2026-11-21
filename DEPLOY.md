@@ -21,7 +21,7 @@ that supersedes the freeze.
 
 ## Legacy Anchor reference program
 
-**Deployed ID:** `794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD` (historical
+**Deployed ID:** `DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu` (historical
 comparison only — must not be used as the demo target). This ID is set in
 `packages/demo-agents/src/config.ts` (`defaultEscrowProgramId`) and
 `config/networks/devnet.json`.

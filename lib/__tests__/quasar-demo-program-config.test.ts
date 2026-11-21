@@ -4,7 +4,9 @@ describe("Quasar demo program target config", () => {
   const QUASAR_REGISTRY_PROGRAM_ID = "Xk7jczJZ1HHJZuE1ZUWDqFmowxYhnom7mWzrNSGf9FU";
   const QUASAR_REPUTATION_PROGRAM_ID = "nb9rLVjoHMibsgfRGgKuPqm6M8GVcH9r6bYNfg7Yiy6";
   const QUASAR_ATTESTATION_PROGRAM_ID = "CRGsWWkptdxsH6N6aWAyahLbuMsT58yM624EopEsv1Ex";
-  const LEGACY_ANCHOR_PROGRAM_ID = "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD";
+  const LEGACY_ANCHOR_PROGRAM_ID = "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu";
+  // config/networks/mainnet.json still holds the old devnet id as a placeholder; no mainnet deployment exists.
+  const MAINNET_PLACEHOLDER_PROGRAM_ID = "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD";
 
   beforeEach(() => {
     jest.resetModules();
@@ -408,10 +410,10 @@ describe("Quasar demo program target config", () => {
     );
     const profile = getNetworkProfile();
 
-    expect(profile.programs.escrowProgramId).toBe(LEGACY_ANCHOR_PROGRAM_ID);
-    expect(profile.programs.registryProgramId).toBe(LEGACY_ANCHOR_PROGRAM_ID);
-    expect(profile.programs.reputationProgramId).toBe(LEGACY_ANCHOR_PROGRAM_ID);
-    expect(profile.programs.attestationProgramId).toBe(LEGACY_ANCHOR_PROGRAM_ID);
+    expect(profile.programs.escrowProgramId).toBe(MAINNET_PLACEHOLDER_PROGRAM_ID);
+    expect(profile.programs.registryProgramId).toBe(MAINNET_PLACEHOLDER_PROGRAM_ID);
+    expect(profile.programs.reputationProgramId).toBe(MAINNET_PLACEHOLDER_PROGRAM_ID);
+    expect(profile.programs.attestationProgramId).toBe(MAINNET_PLACEHOLDER_PROGRAM_ID);
     expect(REGISTRY_PROGRAM_ID.toBase58()).toBe(ESCROW_PROGRAM_ID.toBase58());
     expect(REPUTATION_PROGRAM_ID.toBase58()).toBe(ESCROW_PROGRAM_ID.toBase58());
     expect(ATTESTATION_PROGRAM_ID.toBase58()).toBe(ESCROW_PROGRAM_ID.toBase58());
@@ -495,8 +497,8 @@ describe("Quasar demo program target config", () => {
     const { REGISTRY_PROGRAM_ID, PROGRAM_SUBMISSION_READY, PROGRAM_KNOWN_GAPS } = await import("@/lib/program");
     const profile = getNetworkProfile();
 
-    expect(profile.programs.registryProgramId).toBe(LEGACY_ANCHOR_PROGRAM_ID);
-    expect(REGISTRY_PROGRAM_ID.toBase58()).toBe(LEGACY_ANCHOR_PROGRAM_ID);
+    expect(profile.programs.registryProgramId).toBe(MAINNET_PLACEHOLDER_PROGRAM_ID);
+    expect(REGISTRY_PROGRAM_ID.toBase58()).toBe(MAINNET_PLACEHOLDER_PROGRAM_ID);
     expect(PROGRAM_SUBMISSION_READY).toBe(false);
     expect(PROGRAM_KNOWN_GAPS.join(" ")).toMatch(
       /registry program id override is not a valid 32-byte base58 Solana address/,

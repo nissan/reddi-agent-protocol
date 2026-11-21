@@ -52,7 +52,7 @@ const PINS = Object.freeze({
 const NODE_VERSION = "v24.20.0";
 const CARGO_BUILD_SBF = /^solana-cargo-build-sbf 4\.1\.0\b|^cargo-build-sbf 4\.1\.0\b/m;
 const TEST_VALIDATOR = /^solana-test-validator 4\.2\.2\b/;
-const PROGRAM_ID = "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD";
+const PROGRAM_ID = "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu";
 // Allowlisted in the default build (constants.rs USDC_MAINNET_MINT). Only the address is reused.
 const ALLOWLISTED_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 // constants.rs PROTOCOL_TREASURY and PROTOCOL_FEE_BPS. Only the address is used: a local token account is created for it.

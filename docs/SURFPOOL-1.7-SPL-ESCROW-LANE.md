@@ -55,7 +55,7 @@ not installed.
 4. Starts an embedded Surfnet through `startLocalSurfnet` in `scripts/lib/surfpool-sdk-lifecycle.mjs`,
    which forces `offline: true`, `airdropSol: 0`, transaction-mode blocks, loopback dynamic ports and no
    `remoteRpcUrl`. It never runs `surfpool start` and never reads a wallet or `*-keypair.json`.
-5. Deploys the built ELF at the fixed program id `794nTFNy…dcZD` and checks the deployed programdata
+5. Deploys the built ELF at the fixed program id `DcfW3Cxt…5Ucu` and checks the deployed programdata
    bytes equal the ELF.
 6. Funds in-memory keypairs with lamports. The program accepts only allowlisted mints, so the lane
    writes a zero-supply stand-in mint, whose authority is the in-memory payer, at the allowlisted

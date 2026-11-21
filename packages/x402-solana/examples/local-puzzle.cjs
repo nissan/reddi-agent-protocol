@@ -18,7 +18,7 @@ const rap = require('../dist');
 const { startSeller, runBuyer, syntheticRequest, checkAnalysis } = require('./puzzle-service.cjs');
 const { Connection, Keypair, PublicKey, Transaction } = require('@solana/web3.js');
 const token = require('@solana/spl-token');
-const PROGRAM = new PublicKey('794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD');
+const PROGRAM = new PublicKey('DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu');
 const TOKEN = token.TOKEN_PROGRAM_ID;
 const decimals = 6;
 // Allowlisted in the default escrow build (constants.rs USDC_MAINNET_MINT).

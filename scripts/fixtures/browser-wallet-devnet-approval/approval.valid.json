@@ -57,10 +57,10 @@
     "framework": "anchor",
     "source": "resolved-network-profile",
     "ids": {
-      "escrow": "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD",
-      "registry": "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD",
-      "reputation": "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD",
-      "attestation": "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD"
+      "escrow": "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu",
+      "registry": "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu",
+      "reputation": "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu",
+      "attestation": "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu"
     },
     "submissionReady": true
   },

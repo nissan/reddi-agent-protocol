@@ -1,6 +1,6 @@
 describe("program/network configuration regression guards", () => {
   const originalEnv = process.env;
-  const DEVNET_ESCROW_PROGRAM_ID = "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD";
+  const DEVNET_ESCROW_PROGRAM_ID = "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu";
   const OVERRIDE_PROGRAM_ID = "11111111111111111111111111111111";
 
   beforeEach(() => {

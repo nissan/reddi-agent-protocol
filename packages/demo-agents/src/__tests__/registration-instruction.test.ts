@@ -7,7 +7,7 @@ import { buildDemoRegisterAgentInstruction, encodeDemoRegisterAgent } from "../r
 
 describe("demo-agent registration instruction target selection", () => {
   const owner = new PublicKey("11111111111111111111111111111112");
-  const anchorProgramId = new PublicKey("794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD");
+  const anchorProgramId = new PublicKey("DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu");
   const quasarProgramId = new PublicKey("VYCbMszux9seLK2aXFZMECMBFURvfuJLXsXPmJS5igW");
 
   it("keeps legacy demo-agent registration Anchor encoded", () => {
