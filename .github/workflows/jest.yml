@@ -27,3 +27,7 @@ jobs:
 
       - name: Run Jest
         run: npm test -- --ci --maxWorkers=2
+
+      # Offline: builds the rated lane's plan and instructions; opens no connection and reads no key.
+      - name: Devnet escrow e2e, rated lane plan (offline)
+        run: npm run test:e2e:devnet:escrow-rated-plan
