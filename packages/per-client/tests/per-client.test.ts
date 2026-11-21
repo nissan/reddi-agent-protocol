@@ -29,8 +29,11 @@ jest.mock("@solana/web3.js", () => {
   };
 });
 
-import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
+import { readFileSync } from "fs";
+import { join } from "path";
 import {
+  buildReleaseEscrowInstruction,
   delegateEscrow,
   releaseEscrowFallback,
   releaseEscrowViaPer,
@@ -39,7 +42,9 @@ import {
   DELEGATION_PROGRAM_ID,
   PER_DEVNET_RPC,
   PERMISSION_PROGRAM_ID,
+  PROTOCOL_TREASURY,
 } from "../src/config";
+import { DISCRIMINATORS } from "../src/idl";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -85,6 +90,10 @@ describe("delegateEscrow", () => {
     expect(
       (mockConnection.sendRawTransaction as jest.Mock).mock.calls.length
     ).toBe(1);
+
+    // Both instructions go to MagicBlock's programs. The escrow program is not called.
+    const sent = Transaction.from((mockConnection.sendRawTransaction as jest.Mock).mock.calls[0][0]);
+    expect(sent.instructions.map((ix) => ix.programId.toBase58())).toEqual([PERMISSION_PROGRAM_ID, DELEGATION_PROGRAM_ID]);
   });
 });
 
@@ -154,9 +163,62 @@ describe("releaseEscrowFallback", () => {
     ).toBe(1);
   });
 
+  it("builds release_escrow with five accounts in program order, the treasury fourth", () => {
+    const escrowProgramId = new PublicKey("DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu");
+    const escrowPda = new PublicKey("5gVhjU85QVUUTZAWRBmiYSXBBHwqUFsEsXngyjEXsyEV");
+    const payer = new PublicKey("AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9");
+    const payee = new PublicKey("9hSR6S7WPtxmTojgo6GG3k4yDPecgJY292j7xrsUGWBu");
+
+    const ix = buildReleaseEscrowInstruction(escrowProgramId, escrowPda, payee, payer);
+
+    expect(PROTOCOL_TREASURY).toBe("5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe");
+    expect(ix.programId.toBase58()).toBe(escrowProgramId.toBase58());
+    expect(ix.data.equals(DISCRIMINATORS.release_escrow)).toBe(true);
+    expect(ix.keys.map((key) => [key.pubkey.toBase58(), key.isSigner, key.isWritable])).toEqual([
+      [escrowPda.toBase58(), false, true],
+      [payer.toBase58(), true, true],
+      [payee.toBase58(), false, true],
+      ["5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe", false, true],
+      [SystemProgram.programId.toBase58(), false, false],
+    ]);
+
+    // The program's own example of a payer's release_escrow: the same selector and the same first
+    // five accounts (the example is of a rated escrow, so a sixth, the rating account, follows).
+    const vectors = JSON.parse(readFileSync(join(__dirname, "../../../programs/pinocchio-escrow/interface/vectors.json"), "utf8"));
+    const vector = vectors.instructions.find((entry: { name: string }) => entry.name === "release_escrow");
+    expect(ix.data.toString("hex")).toBe(vector.data_hex);
+    expect(ix.keys.map((key) => ({ address: key.pubkey.toBase58(), signer: key.isSigner, writable: key.isWritable }))).toEqual(
+      vector.accounts.slice(0, 5).map((meta: { address: string; signer: boolean; writable: boolean }) => ({ address: meta.address, signer: meta.signer, writable: meta.writable })),
+    );
+  });
+
+  it("the fallback sends that instruction: treasury fourth, System program fifth", async () => {
+    const mockL1Connection = makeMockConnection();
+    const escrowProgramId = new PublicKey("DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu");
+    const escrowPda = Keypair.generate().publicKey;
+    const payee = Keypair.generate().publicKey;
+    const payer = Keypair.generate();
+
+    await releaseEscrowFallback(escrowProgramId, escrowPda, payee, payer, mockL1Connection);
+
+    const sent = Transaction.from((mockL1Connection.sendRawTransaction as jest.Mock).mock.calls[0][0]);
+    expect(sent.instructions).toHaveLength(1);
+    const [ix] = sent.instructions;
+    expect(ix.programId.toBase58()).toBe(escrowProgramId.toBase58());
+    expect(ix.data.equals(DISCRIMINATORS.release_escrow)).toBe(true);
+    expect(ix.keys.map((key) => [key.pubkey.toBase58(), key.isSigner, key.isWritable])).toEqual([
+      [escrowPda.toBase58(), false, true],
+      [payer.publicKey.toBase58(), true, true],
+      [payee.toBase58(), false, true],
+      [PROTOCOL_TREASURY, false, true],
+      [SystemProgram.programId.toBase58(), false, false],
+    ]);
+    expect((mockL1Connection.sendRawTransaction as jest.Mock).mock.calls[0][1]).toEqual({ skipPreflight: false });
+  });
+
   it("BDD TTL expired: fallback succeeds even when delegation state is set", async () => {
     // Simulates the case where escrow was delegated but PER TTL expired.
-    // The client switches to L1 fallback — on-chain release_escrow clears delegated_to_per.
+    // The client switches to the L1 fallback, the ordinary release_escrow.
     const mockConnection = makeMockConnection();
     const escrowProgramId = new PublicKey("11111111111111111111111111111111");
     const escrowPda = Keypair.generate().publicKey;

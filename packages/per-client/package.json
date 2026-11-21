@@ -1,7 +1,7 @@
 {
   "name": "@reddi/per-client",
   "version": "0.1.0",
-  "description": "Repo-local MagicBlock PER delegation evidence client for Reddi Agent Protocol; not production custody or settlement.",
+  "description": "Repo-local evidence client that talks to MagicBlock's Permission and Delegation programs for Reddi Agent Protocol experiments. PER tracking instructions are not in the V1 escrow program build (post-V1). Not production custody or settlement.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
