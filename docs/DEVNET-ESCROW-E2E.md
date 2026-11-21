@@ -24,13 +24,17 @@ sandbox settles there too) cannot disturb the checks.
 
 - `RAP_E2E_PAYER_KEYPAIR`, `RAP_E2E_PAYEE_KEYPAIR`: absolute paths to two different devnet wallets'
   keypair files (signing modes only). The script reads them and never prints or writes key material.
-  The payer pays all network fees and rent; the payee only co-signs.
+  The payer pays rent and the fees of its own actions. The payee signs its own actions alone and pays their
+  fees, because the SOL release and settle instructions treat any payer signature as a payer action and a fee
+  payer always signs. `run` sends the payee 0.01 SOL first when it holds under 0.005 SOL.
 - `RAP_E2E_RUN_ID`: 3-40 letters, digits or dashes. Escrow nonces derive from it, so the finish modes
-  must use the same value as `run`.
+  must use the same value as `run`. A run id can be used once: `run` refuses one whose escrows already exist.
+- `RAP_E2E_LEFTOVER_RUN_ID` (optional, `run` only): an earlier interrupted run. The payer closes its open
+  escrows first by settling each at one base unit, so the rest returns to the payer.
 - `RAP_E2E_OUT_DIR` (optional, absolute): one JSON result file per mode.
 - `RAP_E2E_RPC` (optional): defaults to `https://api.devnet.solana.com`.
 
-The payer needs about 0.09 devnet SOL and 3.7 devnet USDC (mint `4zMMC9…cDU`); `plan` reports any
+The payer needs about 0.1 devnet SOL and 3.7 devnet USDC (mint `4zMMC9…cDU`); `plan` reports any
 shortfall. Devnet RPC airdrops are closed, so fund from faucet.solana.com and faucet.circle.com.
 
 ## Example
