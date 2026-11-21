@@ -14,6 +14,7 @@ on:
       - "packages/eliza-plugin-x402/**"
       - "packages/sendai-x402/**"
       - "packages/per-client/**"
+      - "packages/provider-kit/**"
       - ".github/workflows/package-tests.yml"
   push:
     branches: [main]
@@ -24,6 +25,7 @@ on:
       - "packages/eliza-plugin-x402/**"
       - "packages/sendai-x402/**"
       - "packages/per-client/**"
+      - "packages/provider-kit/**"
       - ".github/workflows/package-tests.yml"
   workflow_dispatch:
 
@@ -41,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [x402-solana, rap-mcp-bridge, openrouter-specialists, eliza-plugin-x402, sendai-x402, per-client]
+        package: [x402-solana, rap-mcp-bridge, openrouter-specialists, eliza-plugin-x402, sendai-x402, per-client, provider-kit]
 
     steps:
       - name: Checkout
