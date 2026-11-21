@@ -1129,10 +1129,11 @@ fn test_settle_amount_must_be_within_the_authorised_maximum() {
     );
 }
 
-/// On a fixed-price escrow the payee cannot settle early; only the payer can
-/// (a partial release), which pays the fee on what was released.
+/// Only the payee settles, and only a metered escrow. On a fixed-price escrow
+/// nobody settles: the payee waits for the claim window and the payer releases
+/// in full. The payer never picks a smaller amount, on either kind.
 #[test]
-fn test_only_the_payer_settles_a_fixed_price_escrow_early() {
+fn test_the_payer_never_settles_and_nobody_settles_a_fixed_price_escrow() {
     let (mut svm, _) = make_svm();
     let payer = Keypair::new();
     let payee = Keypair::new();
@@ -1140,6 +1141,16 @@ fn test_only_the_payer_settles_a_fixed_price_escrow_early() {
     let amount = 200_000_000u64;
     svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
     svm.airdrop(&payee.pubkey(), 1_000_000_000).unwrap();
+    let settle = |actual: u64, payee_signs: bool, nonce: [u8; 16]| {
+        settle_ix(
+            &payer.pubkey(),
+            &payee.pubkey(),
+            nonce,
+            actual,
+            payee_signs,
+            escrow::PROTOCOL_TREASURY,
+        )
+    };
     send_ok(
         &mut svm,
         lock_ix(&payer, &payee.pubkey(), amount, nonce),
@@ -1147,43 +1158,68 @@ fn test_only_the_payer_settles_a_fixed_price_escrow_early() {
     );
     let err = format!(
         "{:?}",
-        send(
-            &mut svm,
-            settle_ix(
-                &payer.pubkey(),
-                &payee.pubkey(),
-                nonce,
-                1_000_000,
-                true,
-                escrow::PROTOCOL_TREASURY
-            ),
-            &[&payee]
-        )
+        send(&mut svm, settle(1_000_000, true, nonce), &[&payee])
     );
     assert!(
         err.contains("Custom(6029)"),
         "expected NotMetered, got: {err}"
     );
+    // The payer cannot settle part of it, nor all of it.
+    for actual in [1, 100_000_000, amount] {
+        let err = format!(
+            "{:?}",
+            send(&mut svm, settle(actual, false, nonce), &[&payer])
+        );
+        assert!(
+            err.contains("Custom(6000)"),
+            "expected UnauthorisedSigner, got: {err}"
+        );
+    }
 
-    let payee_before = lamports(&svm, &payee.pubkey());
-    let treasury_before = lamports(&svm, &escrow::PROTOCOL_TREASURY);
+    // A metered escrow is the payee's to settle, never the payer's.
+    let metered = [44u8; 16];
     send_ok(
         &mut svm,
-        settle_ix(
-            &payer.pubkey(),
-            &payee.pubkey(),
-            nonce,
-            100_000_000,
-            false,
-            escrow::PROTOCOL_TREASURY,
-        ),
+        metered_lock_ix(&payer, &payee.pubkey(), amount, metered),
         &[&payer],
     );
-    assert_eq!(lamports(&svm, &payee.pubkey()), payee_before + 97_500_000);
+    for actual in [1, amount] {
+        let err = format!(
+            "{:?}",
+            send(&mut svm, settle(actual, false, metered), &[&payer])
+        );
+        assert!(
+            err.contains("Custom(6000)"),
+            "expected UnauthorisedSigner, got: {err}"
+        );
+    }
+    let payee_before = lamports(&svm, &payee.pubkey());
+    let treasury_before = lamports(&svm, &escrow::PROTOCOL_TREASURY);
+    send_ok(&mut svm, settle(100_000_000, true, metered), &[&payee]);
+    // The payee signed, so it also paid the transaction fee.
+    let tx_fee = payee_before + 97_500_000 - lamports(&svm, &payee.pubkey());
+    assert!(tx_fee <= 10_000, "payee received too little: {tx_fee}");
     assert_eq!(
         lamports(&svm, &escrow::PROTOCOL_TREASURY),
         treasury_before + 2_500_000
     );
+
+    // The payer's early way out of the fixed-price escrow is a full release.
+    let payee_before = lamports(&svm, &payee.pubkey());
+    let release = Instruction::new_with_bytes(
+        escrow::id(),
+        &instruction::ReleaseEscrow {}.data(),
+        ReleaseEscrow {
+            treasury: escrow::PROTOCOL_TREASURY,
+            escrow: escrow_pda(&payer.pubkey(), &nonce).0,
+            payer: payer.pubkey(),
+            payee: payee.pubkey(),
+            system_program: anchor_lang::solana_program::system_program::id(),
+        }
+        .to_account_metas(None),
+    );
+    send_ok(&mut svm, release, &[&payer]);
+    assert_eq!(lamports(&svm, &payee.pubkey()), payee_before + 195_000_000);
 }
 
 /// The fee can only go to the protocol treasury, and a stranger cannot settle.

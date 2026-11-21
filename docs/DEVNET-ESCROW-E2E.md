@@ -13,7 +13,7 @@ program bytes hash to the recorded `5055df46…e142a`. It refuses otherwise.
 | Mode | Signs | What it does |
 | --- | --- | --- |
 | `plan` | no | Reads balances of the two wallets and the treasury, simulates the SOL and USDC locks unsigned, lists shortfalls. Needs only `RAP_E2E_PAYER` and `RAP_E2E_PAYEE` (public addresses). |
-| `run` | yes | Per currency: lock → payer release; metered lock → payee settle at a lower actual cost; lock → payee decline. Early claim, early payer refund, settle above the maximum, settle of zero, payee settle of an unmetered escrow, a release to the wrong account and replays are simulated with real signatures and must be refused. Then it leaves one "refund" and one "claim" escrow open per currency. |
+| `run` | yes | Per currency: lock → payer release; metered lock → payee settle at a lower actual cost; lock → payee decline. Early claim, early payer refund, settle above the maximum, settle of zero, payee settle of an unmetered escrow, any settle by the payer, a release to the wrong account and replays are simulated with real signatures and must be refused. Then it leaves one "refund" and one "claim" escrow open per currency. |
 | `finish-refund` | yes | After the cancel window (648,000 slots, about 3 days): payer refunds the open "refund" escrows. Before that it only shows the refusal. |
 | `finish-claim` | yes | After the claim window (1,512,000 slots, about 7 days): payee claims the open "claim" escrows, fee included. Before that it only shows the refusal. |
 
@@ -25,12 +25,12 @@ sandbox settles there too) cannot disturb the checks.
 - `RAP_E2E_PAYER_KEYPAIR`, `RAP_E2E_PAYEE_KEYPAIR`: absolute paths to two different devnet wallets'
   keypair files (signing modes only). The script reads them and never prints or writes key material.
   The payer pays rent and the fees of its own actions. The payee signs its own actions alone and pays their
-  fees, because the SOL release and settle instructions treat any payer signature as a payer action and a fee
+  fees, because the SOL release instruction treats any payer signature as a payer action and a fee
   payer always signs. `run` sends the payee 0.01 SOL first when it holds under 0.005 SOL.
 - `RAP_E2E_RUN_ID`: 3-40 letters, digits or dashes. Escrow nonces derive from it, so the finish modes
   must use the same value as `run`. A run id can be used once: `run` refuses one whose escrows already exist.
-- `RAP_E2E_LEFTOVER_RUN_ID` (optional, `run` only): an earlier interrupted run. The payer closes its open
-  escrows first by settling each at one base unit, so the rest returns to the payer.
+- `RAP_E2E_LEFTOVER_RUN_ID` (optional, `run` only): an earlier interrupted run. The payee closes its open
+  escrows first by declining each, so the whole amount returns to the payer.
 - `RAP_E2E_OUT_DIR` (optional, absolute): one JSON result file per mode.
 - `RAP_E2E_RPC` (optional): defaults to `https://api.devnet.solana.com`.
 

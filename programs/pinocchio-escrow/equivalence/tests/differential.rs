@@ -398,26 +398,53 @@ fn sol_escrow_matches_the_anchor_build() {
         &[&payee],
     );
 
-    // Payer settles part of a fixed-price escrow, and all of another.
+    // The payer never settles: not part of a fixed-price escrow, not all of
+    // it, and not a metered one. The payer's early way out is a full release.
     pair.ok(
         "sol lock",
         sol_lock(&a, &b, 100_000_000, n(3), false),
         &[&payer],
     );
+    for (label, actual) in [("part", 39), ("all", 100_000_000)] {
+        pair.refused(
+            &format!("sol settle by the payer, fixed price: {label}"),
+            sol_payout(&a, &b, n(3), &a, Some(actual)),
+            &[&payer],
+            6000,
+        );
+    }
+    // With both signatures the payee's is the one that counts, and a
+    // fixed-price escrow still cannot be settled.
+    let mut both = sol_payout(&a, &b, n(3), &b, Some(39));
+    both.accounts[1].is_signer = true;
+    pair.refused(
+        "sol settle signed by both, fixed price",
+        both,
+        &[&payer, &payee],
+        6029,
+    );
     pair.ok(
-        "sol partial settle by payer",
-        sol_payout(&a, &b, n(3), &a, Some(39)),
+        "sol release by payer after refused settles",
+        sol_payout(&a, &b, n(3), &a, None),
         &[&payer],
     );
     pair.ok(
-        "sol lock",
-        sol_lock(&a, &b, 100_000_000, n(4), false),
+        "sol metered lock",
+        sol_lock(&a, &b, 100_000_000, n(4), true),
         &[&payer],
     );
-    pair.ok(
-        "sol full settle by payer",
-        sol_payout(&a, &b, n(4), &a, Some(100_000_000)),
+    pair.refused(
+        "sol settle by the payer, metered",
+        sol_payout(&a, &b, n(4), &a, Some(39)),
         &[&payer],
+        6000,
+    );
+    let mut both = sol_payout(&a, &b, n(4), &b, Some(39));
+    both.accounts[1].is_signer = true;
+    pair.ok(
+        "sol settle signed by both, too small for a fee",
+        both,
+        &[&payer, &payee],
     );
 
     // Decline, refund after the window, claim after the window.
@@ -1089,12 +1116,14 @@ fn token_rail(pair: &mut Pair, t: &Tokens, name: &str) {
         &[&t.payer],
         6030,
     );
-    pair.refused(
-        &label("settle: refund to a stranger's token account"),
-        swap(t.payout(n(1), &a, Some(5)), 7, t.stranger_token),
-        &[&t.payer],
-        6023,
-    );
+    for (text, actual) in [("part", 5), ("all", 40_000_000)] {
+        pair.refused(
+            &label(&format!("settle by the payer, fixed price: {text}")),
+            t.payout(n(1), &a, Some(actual)),
+            &[&t.payer],
+            6000,
+        );
+    }
     pair.refused(
         &label("release: refund account is the destination"),
         swap(t.payout(n(1), &a, None), 7, t.recipient),
@@ -1190,6 +1219,18 @@ fn token_rail(pair: &mut Pair, t: &Tokens, name: &str) {
             6028,
         );
     }
+    pair.refused(
+        &label("settle by the payer, metered"),
+        t.payout(n(2), &a, Some(5)),
+        &[&t.payer],
+        6000,
+    );
+    pair.refused(
+        &label("settle: refund to a stranger's token account"),
+        swap(t.payout(n(2), &b, Some(5)), 7, t.stranger_token),
+        &[&t.payee],
+        6023,
+    );
     pair.ok(
         &label("settle by payee at actual cost"),
         t.payout(n(2), &b, Some(12_345_678)),
@@ -1205,11 +1246,11 @@ fn token_rail(pair: &mut Pair, t: &Tokens, name: &str) {
         swap(t.payout(n(3), &b, Some(41)), 7, t.spare),
         &[&t.payee],
     );
-    pair.ok(&label("lock"), t.lock(1_000_000, n(4), false), &[&t.payer]);
+    pair.ok(&label("lock"), t.lock(1_000_000, n(4), true), &[&t.payer]);
     pair.ok(
-        &label("full settle by payer"),
-        t.payout(n(4), &a, Some(1_000_000)),
-        &[&t.payer],
+        &label("settle by payee at the full maximum"),
+        t.payout(n(4), &b, Some(1_000_000)),
+        &[&t.payee],
     );
 
     // Nothing goes back on a full payout, so the refund account need not be

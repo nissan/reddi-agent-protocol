@@ -20,6 +20,19 @@ One program. The default build has the 13 instructions of V1:
 | Token escrow (USDC, AUDD, PYUSD, USDG) | `lock_token_escrow`, `lock_metered_token_escrow`, `release_token_escrow`, `settle_token_escrow`, `cancel_token_escrow` |
 | Registry | `register_agent`, `update_agent`, `deregister_agent` |
 
+Who may end an escrow, for SOL and tokens alike:
+
+| Call | Who | When | Pays |
+|---|---|---|---|
+| Release | Payer | Any time | The whole locked amount, less the fee |
+| Release (claim) | Payee | After the claim window (about 7 days) | The whole locked amount, less the fee |
+| Settle | Payee only | Any time, metered escrows only | The amount the payee names, at most the maximum, less the fee; the rest returns to the payer |
+| Cancel (decline) | Payee | Any time | Everything back to the payer, no fee |
+| Cancel (refund) | Payer | After the cancel window (about 3 days) | Everything back to the payer, no fee |
+
+The payer never chooses a smaller payout: a payer who signs a settle is
+refused. A lock is not a payment until one of these calls ends it.
+
 The `extended` feature adds the eight instructions that are not part of V1,
 as the Anchor program's `extended` feature does. The mainnet build does not
 include them.
@@ -86,7 +99,7 @@ dependencies stay out of the program's lockfile):
    simulators with identical state, and requires the same result, the same
    error, the same error log line, the same events, the same inner instructions
    and the same bytes and lamports in every account either transaction touched.
-   Default build: 317 transactions across SOL, classic SPL Token (USDC, AUDD)
+   Default build: 333 transactions across SOL, classic SPL Token (USDC, AUDD)
    and Token-2022 (PYUSD, USDG) escrows, the registry, malformed input, wrong
    and duplicated accounts, uninitialised token accounts, mints off the
    allowlist, transfer fees, and issuer actions on Token-2022 vaults. Extended
@@ -106,16 +119,16 @@ build; the account offsets and error names it checks are the same.
 
 ## Size, rent and compute
 
-Local builds, Agave 4.2.2 toolchain, mainnet variant (no features). The Anchor
-figure was measured before the source moved to `archive/`; build paths are
-embedded in the binary, so it is a few dozen bytes larger from there:
+Local builds, Agave 4.2.2 toolchain, mainnet variant (no features). Build paths
+are embedded in the Anchor binary, so its size moves by a few dozen bytes with
+the checkout path:
 
 | | Anchor | Pinocchio | Change |
 |---|---|---|---|
-| Program size | 337,944 bytes | 58,680 bytes | 83% smaller |
-| Rent at 6,960 lamports per byte | 2.3544 SOL | 0.4108 SOL | 1.9437 SOL less |
-| Rent at 5,080 lamports per byte | 1.7185 SOL | 0.2998 SOL | 1.4187 SOL less |
-| Extended build size (not for mainnet) | 488,640 bytes | 88,824 bytes | 82% smaller |
+| Program size | 337,656 bytes | 58,480 bytes | 83% smaller |
+| Rent at 6,960 lamports per byte | 2.3524 SOL | 0.4094 SOL | 1.9431 SOL less |
+| Rent at 5,080 lamports per byte | 1.7170 SOL | 0.2988 SOL | 1.4182 SOL less |
+| Extended build size (not for mainnet) | 488,352 bytes | 88,624 bytes | 82% smaller |
 
 Rent is for the program account (36 bytes) plus the program data account (45
 bytes of header plus the binary), each with the 128-byte account overhead:
@@ -132,12 +145,12 @@ Compute units for successful calls, from the side-by-side suite:
 | Call | Anchor | Pinocchio |
 |---|---|---|
 | SOL lock | 9,743 | 5,098 |
-| SOL release | 5,901 | 1,324 |
-| USDC or AUDD lock | 25,317 | 14,936 |
-| USDC or AUDD release | 22,560 | 10,720 |
-| USDC or AUDD settle at actual cost | 24,446 | 11,886 |
-| PYUSD lock | 32,494 | 22,165 |
-| PYUSD settle at actual cost | 36,753 | 24,274 |
+| SOL release | 5,890 | 1,322 |
+| USDC or AUDD lock | 25,331 | 14,946 |
+| USDC or AUDD release | 25,551 | 13,682 |
+| USDC or AUDD settle at actual cost | 27,446 | 14,876 |
+| PYUSD lock | 32,510 | 22,187 |
+| PYUSD settle at actual cost | 36,753 | 24,264 |
 | Register agent | 15,527 | 10,774 |
 | Update agent | 4,368 | 407 |
 | Deregister agent | 3,864 | 298 |

@@ -123,8 +123,9 @@ pub fn release_token_escrow_handler(ctx: Context<ReleaseTokenEscrow>) -> Result<
 /// `actual` less the protocol fee, the treasury's token account receives the
 /// fee, and the rest of the vault returns to the payer.
 ///
-/// The payee may settle a metered escrow at any time; the payer may settle any
-/// escrow at any time, which is a partial release.
+/// Only the payee may settle, and only a metered escrow. The payer never
+/// chooses a smaller amount: the payer's ways out are a full release, or a
+/// refund once the refund window has elapsed.
 pub fn settle_token_escrow_handler(ctx: Context<ReleaseTokenEscrow>, actual: u64) -> Result<()> {
     let escrow = &ctx.accounts.escrow;
     let authority = ctx.accounts.authority.key();
@@ -132,16 +133,9 @@ pub fn settle_token_escrow_handler(ctx: Context<ReleaseTokenEscrow>, actual: u64
         actual > 0 && actual <= escrow.amount,
         EscrowError::InvalidSettleAmount
     );
-    if authority != escrow.payer {
-        require_keys_eq!(authority, escrow.payee, EscrowError::UnauthorisedSigner);
-        require!(escrow.metered, EscrowError::NotMetered);
-    }
-    let outcome = if actual == escrow.amount && authority == escrow.payer {
-        SettlementOutcome::Released
-    } else {
-        SettlementOutcome::SettledActual
-    };
-    pay_out(ctx.accounts, actual, outcome)
+    require_keys_eq!(authority, escrow.payee, EscrowError::UnauthorisedSigner);
+    require!(escrow.metered, EscrowError::NotMetered);
+    pay_out(ctx.accounts, actual, SettlementOutcome::SettledActual)
 }
 
 /// Split the vault: `paid` less the fee to the payee's recorded recipient, the
