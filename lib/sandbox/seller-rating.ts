@@ -10,9 +10,10 @@
  * operator configures another).
  *
  * The salt is not kept in a separate store that could be lost: it is
- * HMAC-SHA256(provider secret key, rating address), so the server can always
- * recompute it for as long as it holds the key it needs to sign the reveal
- * anyway. It never leaves the server and is different for every job.
+ * HMAC-SHA256(provider secret key, rating address ‖ opened slot), so the
+ * server can always recompute it for as long as it holds the key it needs to
+ * sign the reveal anyway. It never leaves the server and is different for every
+ * job, including a later job that reuses the same escrow and rating addresses.
  *
  * Off unless the sandbox is run with rated escrows accepted
  * (`SANDBOX_ACCEPT_RATED_ESCROWS=true`, see `runtime.ts`).
@@ -26,10 +27,10 @@ import {
   RATING_ACCOUNT_LEN,
   RATING_COMMIT_SLOTS,
   RATING_REVEAL_SLOTS,
-  ratingCommitment,
   ratingPda,
   type RatingAccount,
 } from "@reddi/x402-solana/rating";
+import { jobRatingCommitment } from "@/lib/rating/commitment";
 
 export const SELLER_RATING_DEFAULT_SCORE = 10;
 export const SELLER_RATING_SCORE_ENV = "SANDBOX_SELLER_RATING_SCORE";
@@ -47,9 +48,11 @@ export function acceptRatedEscrowsConfigured(raw: string | undefined): boolean {
   return (raw ?? "").trim().toLowerCase() === "true";
 }
 
-/** The provider's salt for one rating, recomputed from its key. */
-export function sellerRatingSalt(secretKey: Uint8Array, rating: PublicKey): Uint8Array {
-  return Uint8Array.from(createHmac("sha256", Buffer.from(secretKey)).update("reddi-seller-rating-salt:v1").update(rating.toBuffer()).digest());
+/** The provider's salt for one job (rating address and opened slot), recomputed from its key. */
+export function sellerRatingSalt(secretKey: Uint8Array, rating: PublicKey, openedSlot: bigint): Uint8Array {
+  const slot = Buffer.alloc(8);
+  slot.writeBigUInt64LE(openedSlot);
+  return Uint8Array.from(createHmac("sha256", Buffer.from(secretKey)).update("reddi-seller-rating-salt:v2").update(rating.toBuffer()).update(slot).digest());
 }
 
 /** The part of a `Connection` the seller's rating steps use. */
@@ -82,7 +85,7 @@ export function sellerRatingPlan(
   const seller = input.keypair.publicKey;
   if (!rating.specialist.equals(seller)) return { step: "none", reason: "not_ours" };
   const address = ratingPda(rating.escrow, input.programId);
-  const salt = sellerRatingSalt(input.keypair.secretKey, address);
+  const salt = sellerRatingSalt(input.keypair.secretKey, address, rating.openedSlot);
   switch (rating.state) {
     case "awaiting_settlement":
       return { step: "none", reason: "not_paid" };
@@ -91,13 +94,13 @@ export function sellerRatingPlan(
       if (input.currentSlot > rating.settledSlot + RATING_COMMIT_SLOTS) return { step: "none", reason: "deadline_passed" };
       return {
         step: "commit",
-        instruction: buildCommitRatingInstruction({ programId: input.programId, escrow: rating.escrow, signer: seller, commitment: ratingCommitment(address, seller, input.score, salt) }),
+        instruction: buildCommitRatingInstruction({ programId: input.programId, escrow: rating.escrow, signer: seller, commitment: jobRatingCommitment(address, rating.openedSlot, seller, input.score, salt) }),
       };
     case "both_committed": {
       if (rating.specialistScore !== undefined) return { step: "none", reason: "already_done" };
       if (input.currentSlot > rating.committedSlot + RATING_REVEAL_SLOTS) return { step: "none", reason: "deadline_passed" };
       const committed = rating.specialistCommitment;
-      const score = committed ? Array.from({ length: 10 }, (_, index) => index + 1).find((candidate) => equalBytes(ratingCommitment(address, seller, candidate, salt), committed)) : undefined;
+      const score = committed ? Array.from({ length: 10 }, (_, index) => index + 1).find((candidate) => equalBytes(jobRatingCommitment(address, rating.openedSlot, seller, candidate, salt), committed)) : undefined;
       // A commitment made with another key or salt: this server cannot open it.
       if (score === undefined) return { step: "none", reason: "commitment_unknown" };
       return {

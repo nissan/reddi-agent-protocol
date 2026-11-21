@@ -8,7 +8,8 @@ import "server-only";
  * escrow the buyer opted in at lock, from the escrow's own payer and payee, and its commitment
  * hash covers the rating address and the signer. An operator key that is neither party, and a run
  * with no opted-in escrow, can do none of that, so both entry points return
- * `RATING_FLOW_UNAVAILABLE_REASON` until the app rating flow lands (#842). No key is read, no
+ * `RATING_FLOW_UNAVAILABLE_REASON`. The app rating flow (#842) does this from the parties' own
+ * wallets instead (`lib/rating`). No key is read, no
  * instruction is built and no RPC is opened. The builders for that flow are in
  * `@reddi/x402-solana/rating`.
  *
@@ -72,7 +73,7 @@ function refusal(trace: string[]): { ok: false; error: string; trace: string[] }
   return { ok: false, error: RATING_FLOW_UNAVAILABLE_REASON, trace };
 }
 
-/** Not available until the app rating flow lands (#842). Always refuses; see the note at the top of this file. */
+/** Always refuses; see the note at the top of this file. The buyer commits from its own wallet (`lib/rating/job-rating.ts`). */
 export async function commitReputationRating(
   _runId: string,
   _score: number,
@@ -81,7 +82,7 @@ export async function commitReputationRating(
   return refusal([]);
 }
 
-/** Not available until the app rating flow lands (#842). Always refuses; see the note at the top of this file. */
+/** Always refuses; see the note at the top of this file. The buyer reveals from its own wallet (`lib/rating/job-rating.ts`). */
 export async function revealReputationRating(_runId: string): Promise<ReputationRevealResult> {
   return refusal([]);
 }

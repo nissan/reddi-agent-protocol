@@ -65,10 +65,23 @@ export async function readJobRating(connection: RatingConnection, escrow: Public
     // Absent once the judge has closed it: the rating still says the job was attested.
     if (attested && attested.owner.equals(programId)) {
       const attestation = decodeAttestationAccount(attested.data);
-      if (attestation.escrow.equals(escrow)) snapshot.attestation = attestation;
+      // An attestation left over from an earlier job at this escrow address was made before this
+      // rating was opened: only one made in or after the opening slot is this job's.
+      if (attestationBelongsToJob(attestation, rating)) snapshot.attestation = attestation;
     }
   }
   return snapshot;
+}
+
+/**
+ * Whether an attestation account is the one of the job this rating names. The attestation
+ * address is ["attestation", escrow], which a later job under the same escrow address reuses, and
+ * the attestation does not store the job's opened slot; `attest_quality` needs the rating to be
+ * paid, so this job's attestation was created at or after the rating's opened slot, and one from an
+ * earlier job (whose rating had to be closed before this one could open) was created before it.
+ */
+export function attestationBelongsToJob(attestation: AttestationAccount, rating: RatingAccount): boolean {
+  return attestation.escrow.equals(rating.escrow) && attestation.consumer.equals(rating.consumer) && rating.judge !== undefined && attestation.judge.equals(rating.judge) && attestation.createdSlot >= rating.openedSlot;
 }
 
 /** The view for `wallet`, with the stored secret taken into account. */
@@ -77,7 +90,7 @@ export function snapshotView(snapshot: JobRatingSnapshot, wallet: string | undef
   let hasSecret = false;
   if (rating && wallet && storage) {
     const mine = rating.consumer.toBase58() === wallet ? rating.consumerCommitment : rating.specialist.toBase58() === wallet ? rating.specialistCommitment : undefined;
-    hasSecret = matchingRatingSecret(findRatedJob(storage, wallet, snapshot.escrow), mine) !== undefined;
+    hasSecret = matchingRatingSecret(findRatedJob(storage, wallet, snapshot.escrow), { openedSlot: rating.openedSlot, commitment: mine }) !== undefined;
   }
   return ratingView(rating, { currentSlot: snapshot.currentSlot, viewer: wallet, hasSecret });
 }
@@ -142,6 +155,25 @@ export interface RatingStepDeps<C extends RatingConnection> {
   wallet: RatingWallet<C>;
   programId: PublicKey;
   escrow: PublicKey;
+  /**
+   * The rating's `opened_slot` of the job shown to the signer. When set, a step is refused if the
+   * rating now at this escrow is another job's (the shown one ended and a new job took the address).
+   */
+  expectedOpenedSlot?: bigint;
+}
+
+const JOB_CHANGED = "The job at this escrow address has changed since it was shown. Refresh, check the job, then try again. Nothing was signed.";
+
+/** Reads the rating, and refuses when it is no longer the job the signer was shown. */
+async function readShownJob<C extends RatingConnection>(deps: RatingStepDeps<C>, unreadable: string): Promise<{ ok: true; snapshot: JobRatingSnapshot } | { ok: false; result: RatingStepResult }> {
+  let snapshot: JobRatingSnapshot;
+  try {
+    snapshot = await readJobRating(deps.connection, deps.escrow, deps.programId);
+  } catch {
+    return { ok: false, result: refuse(unreadable) };
+  }
+  if (deps.expectedOpenedSlot !== undefined && snapshot.rating && snapshot.rating.openedSlot !== deps.expectedOpenedSlot) return { ok: false, result: refuse(JOB_CHANGED) };
+  return { ok: true, snapshot };
 }
 
 /**
@@ -154,12 +186,9 @@ export async function commitJobRating<C extends RatingConnection>(
 ): Promise<RatingStepResult> {
   if (!Number.isInteger(deps.score) || deps.score < 1 || deps.score > 10) return refuse("Choose a score from 1 to 10.");
   if (!deps.storage) return refuse("This browser has no storage for the salt, so the rating could not be revealed later. Nothing was signed.");
-  let snapshot: JobRatingSnapshot;
-  try {
-    snapshot = await readJobRating(deps.connection, deps.escrow, deps.programId);
-  } catch {
-    return refuse("The rating could not be read from the network. Nothing was signed.");
-  }
+  const read = await readShownJob(deps, "The rating could not be read from the network. Nothing was signed.");
+  if (!read.ok) return read.result;
+  const snapshot = read.snapshot;
   const wallet = deps.wallet.publicKey.toBase58();
   const view = snapshotView(snapshot, wallet, deps.storage);
   if (!view.can.commit) {
@@ -180,7 +209,8 @@ export async function commitJobRating<C extends RatingConnection>(
     const salt = newRatingSalt(deps.random);
     const rating = snapshot.rating!;
     const counterparty = (view.role === "buyer" ? rating.specialist : rating.consumer).toBase58();
-    commitment = storeRatingSecret(deps.storage, { wallet, escrow: snapshot.escrow, programId: deps.programId.toBase58(), score: deps.score, salt, now: (deps.now ?? (() => new Date()))(), counterparty }).commitment;
+    // The job is the escrow and the rating's opened slot, read just now: the salt is stored under both and hashed with both.
+    commitment = storeRatingSecret(deps.storage, { wallet, escrow: snapshot.escrow, programId: deps.programId.toBase58(), openedSlot: rating.openedSlot, score: deps.score, salt, now: (deps.now ?? (() => new Date()))(), counterparty }).commitment;
   } catch (error) {
     return refuse(`${error instanceof RatingStorageError ? error.message : "The salt could not be stored."} Without the salt you could not reveal, so nothing was signed.`);
   }
@@ -189,12 +219,9 @@ export async function commitJobRating<C extends RatingConnection>(
 
 /** Reveals the score and salt stored in this browser for the wallet's commitment. */
 export async function revealJobRating<C extends RatingConnection>(deps: RatingStepDeps<C> & { storage: KeyValueStorage | undefined }): Promise<RatingStepResult> {
-  let snapshot: JobRatingSnapshot;
-  try {
-    snapshot = await readJobRating(deps.connection, deps.escrow, deps.programId);
-  } catch {
-    return refuse("The rating could not be read from the network. Nothing was signed.");
-  }
+  const read = await readShownJob(deps, "The rating could not be read from the network. Nothing was signed.");
+  if (!read.ok) return read.result;
+  const snapshot = read.snapshot;
   const wallet = deps.wallet.publicKey.toBase58();
   const view = snapshotView(snapshot, wallet, deps.storage);
   const rating = snapshot.rating;
@@ -210,19 +237,16 @@ export async function revealJobRating<C extends RatingConnection>(deps: RatingSt
     );
   }
   const mine = view.role === "buyer" ? rating.consumerCommitment : rating.specialistCommitment;
-  const secret = matchingRatingSecret(findRatedJob(deps.storage, wallet, snapshot.escrow), mine)!;
+  const secret = matchingRatingSecret(findRatedJob(deps.storage, wallet, snapshot.escrow), { openedSlot: rating.openedSlot, commitment: mine })!;
   return sendAndConfirm(deps.connection, deps.wallet, [
     buildRevealRatingInstruction({ programId: deps.programId, escrow: deps.escrow, signer: deps.wallet.publicKey, consumer: rating.consumer, specialist: rating.specialist, score: secret.score, salt: secret.salt }),
   ]);
 }
 
 async function finalStep<C extends RatingConnection>(deps: RatingStepDeps<C>, step: "expire" | "close"): Promise<RatingStepResult> {
-  let snapshot: JobRatingSnapshot;
-  try {
-    snapshot = await readJobRating(deps.connection, deps.escrow, deps.programId);
-  } catch {
-    return refuse("The rating could not be read from the network. Nothing was signed.");
-  }
+  const read = await readShownJob(deps, "The rating could not be read from the network. Nothing was signed.");
+  if (!read.ok) return read.result;
+  const snapshot = read.snapshot;
   const view = snapshotView(snapshot, deps.wallet.publicKey.toBase58(), undefined);
   const rating = snapshot.rating;
   if (!rating || !view.can[step]) {
@@ -247,16 +271,15 @@ export function closeJobRating<C extends RatingConnection>(deps: RatingStepDeps<
 
 /** The buyer's verdict on the judge's attestation of this job. */
 export async function resolveJobAttestation<C extends RatingConnection>(deps: RatingStepDeps<C> & { action: "confirm" | "dispute" }): Promise<RatingStepResult> {
-  let snapshot: JobRatingSnapshot;
-  try {
-    snapshot = await readJobRating(deps.connection, deps.escrow, deps.programId);
-  } catch {
-    return refuse("The attestation could not be read from the network. Nothing was signed.");
-  }
+  const read = await readShownJob(deps, "The attestation could not be read from the network. Nothing was signed.");
+  if (!read.ok) return read.result;
+  const snapshot = read.snapshot;
   const attestation = snapshot.attestation;
   if (!attestation) return refuse("This job has no attestation to resolve. Nothing was signed.");
   if (!attestation.consumer.equals(deps.wallet.publicKey)) return refuse("Only the buyer of this job can confirm or dispute its attestation. Nothing was signed.");
   if (attestation.resolution !== "pending") return refuse(`This attestation was already ${attestation.resolution}. Nothing was signed.`);
+  // readJobRating kept the attestation only if it names this rating's escrow, consumer and judge and
+  // was made after the rating opened; the shown job's slot was checked in readShownJob.
   const input = { programId: deps.programId, escrow: deps.escrow, judge: attestation.judge, consumer: deps.wallet.publicKey };
   return sendAndConfirm(deps.connection, deps.wallet, [deps.action === "confirm" ? buildConfirmAttestationInstruction(input) : buildDisputeAttestationInstruction(input)]);
 }

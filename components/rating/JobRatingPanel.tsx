@@ -20,7 +20,7 @@ import {
   type RatingStepDeps,
   type RatingStepResult,
 } from "@/lib/rating/job-rating";
-import { browserRatingStorage, findRatedJob, importRatingBackup, ratingBackupFile } from "@/lib/rating/rating-secrets";
+import { browserRatingStorage, findRatedJob, importRatingBackup, ratingBackupFile, secretForJob } from "@/lib/rating/rating-secrets";
 
 type Loaded = { state: "loading" } | { state: "error"; message: string } | { state: "ready"; snapshot: JobRatingSnapshot };
 
@@ -123,7 +123,9 @@ export function JobRatingPanel({
     setBusy(step);
     setNotice(undefined);
     try {
-      const result = await action({ connection: chain, wallet: { publicKey, sendTransaction: sendTransaction as unknown as RatingStepDeps<RatingConnection>["wallet"]["sendTransaction"] }, programId, escrow: escrowKey });
+      // The job shown: a step is refused if the rating at this escrow is by then another job's.
+      const expectedOpenedSlot = snapshot?.rating?.openedSlot;
+      const result = await action({ connection: chain, wallet: { publicKey, sendTransaction: sendTransaction as unknown as RatingStepDeps<RatingConnection>["wallet"]["sendTransaction"] }, programId, escrow: escrowKey, expectedOpenedSlot });
       setStorageVersion((version) => version + 1);
       setNotice(result.ok ? { tone: "ok", text: DONE_TEXT[step] } : { tone: "error", text: result.message });
       if (result.ok || result.signed) await refresh();
@@ -147,7 +149,8 @@ export function JobRatingPanel({
     if (!file || !wallet || !storage) return;
     const result = importRatingBackup(storage, wallet, await file.text());
     setStorageVersion((version) => version + 1);
-    setNotice(result.ok ? { tone: "ok", text: result.record.escrow === escrow ? "Backup imported. You can reveal now." : "Backup imported, but it is for a different job." } : { tone: "error", text: result.message });
+    const thisJob = result.ok && result.record.escrow === escrow && snapshot?.rating !== undefined && secretForJob(result.record, snapshot.rating.openedSlot) !== undefined;
+    setNotice(result.ok ? { tone: "ok", text: thisJob ? "Backup imported. You can reveal now." : "Backup imported, but it is for a different job." } : { tone: "error", text: result.message });
   }
 
   if (loaded.state === "loading") return <div className="h-24 animate-pulse rounded-xl bg-white/5" aria-busy="true" data-testid="job-rating-loading" />;
@@ -177,7 +180,7 @@ export function JobRatingPanel({
         readAtMs={snapshot.readAtMs}
         score={score}
         onScoreChange={setScore}
-        backupAvailable={Boolean(record?.secret)}
+        backupAvailable={snapshot.rating !== undefined && secretForJob(record, snapshot.rating.openedSlot) !== undefined}
         busy={busy}
         notice={notice}
         onRefresh={() => void refresh()}

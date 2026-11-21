@@ -11,19 +11,26 @@ export const dynamic = "force-dynamic";
 /**
  * Scheduled: the sandbox providers commit and reveal their ratings of buyers
  * for rated escrows they settled (#842). Does nothing unless the sandbox was
- * configured to accept rated escrows. Devnet only, with the devnet keys the
- * server already holds for the sandbox settle.
+ * configured to accept rated escrows (SANDBOX_ACCEPT_RATED_ESCROWS=true) and
+ * CRON_SECRET is set and sent. Devnet only, with the devnet keys the server
+ * already holds for the sandbox settle (SANDBOX_PAYEE_KEYS) and no other.
  */
 export async function GET(req: Request) {
-  // When the operator sets CRON_SECRET the scheduler sends it, and nobody else can trigger a sweep.
-  const secret = process.env.CRON_SECRET?.trim();
-  if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
-    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-  }
+  // Off first: without rated escrows accepted nothing is read, no key is parsed and no RPC is opened.
   if (!acceptRatedEscrowsConfigured(process.env[ACCEPT_RATED_ESCROWS_ENV])) {
     return NextResponse.json({ ok: true, enabled: false, steps: 0 });
   }
+  // This sweep signs, so unlike the heartbeat it fails closed: it runs only for the scheduler that
+  // sends the operator's CRON_SECRET, and not at all when no secret is configured.
+  const secret = process.env.CRON_SECRET?.trim();
+  if (!secret) return NextResponse.json({ ok: false, enabled: true, error: "CRON_SECRET is not configured" }, { status: 503 });
+  if (req.headers.get("authorization") !== `Bearer ${secret}`) {
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+  // Only the sandbox providers' own settle keys: a rating names its specialist, and only ratings
+  // naming one of these keys are found and signed for.
   const keypairs = [...parseSandboxPayeeKeys(process.env[SANDBOX_PAYEE_KEYS_ENV]).values()];
+  if (keypairs.length === 0) return NextResponse.json({ ok: true, enabled: true, steps: 0 });
   const connection = new Connection(process.env.SANDBOX_DEVNET_RPC_URL?.trim() || "https://api.devnet.solana.com", "confirmed");
   const steps = await sweepSellerRatings({
     connection: connection as unknown as SellerRatingConnection,

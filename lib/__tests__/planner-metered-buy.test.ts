@@ -3,6 +3,7 @@ jest.mock("server-only", () => ({}));
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { tokenEscrowAddresses, treasuryTokenAccount, ESCROW_PROTOCOL_TREASURY } from "@reddi/x402-solana/token-escrow";
+import { RATING_DISCRIMINATORS, ratingPda } from "@reddi/x402-solana/rating";
 import { planMeteredBuy } from "@/lib/payments/metered-buy";
 import { receiptHeaderForProvider } from "@/lib/payments/wallet-direct-payment";
 import { verifyAndRecordMeteredCall } from "@/lib/jobs/metered-call";
@@ -95,6 +96,50 @@ describe("planner metered buy (#794)", () => {
   });
 });
 
+describe("planner metered buy with rating (#842)", () => {
+  const rated = (rating: { judge?: PublicKey } = {}, overrides: Record<string, unknown> = {}) =>
+    planMeteredBuy({ offer: offer(overrides), listing: { walletAddress: PROVIDER, prices: PRICES }, network: "solana-devnet", programId: PROGRAM, payer: PAYER, prompt: "x".repeat(400), nonce: NONCE, rating });
+
+  it("signs the lock alone when rating is off", () => {
+    const p = plan();
+    expect(p.ok && p.instructions).toHaveLength(1);
+    expect(p.ok && p.rating).toBeUndefined();
+  });
+
+  it("adds open_rating right after the lock, in the same transaction, signed by the payer", () => {
+    const p = rated();
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    const { escrow } = tokenEscrowAddresses({ programId: PROGRAM, payer: PAYER, nonce: NONCE });
+    expect(p.instructions).toHaveLength(2);
+    expect(p.instructions[0]).toBe(p.instruction);
+    const open = p.instructions[1];
+    expect([...open.data.subarray(0, 8)]).toEqual(RATING_DISCRIMINATORS["global:open_rating"]);
+    // No judge: 32 zero bytes.
+    expect(open.data.subarray(8).every((byte) => byte === 0)).toBe(true);
+    expect(open.keys.map((key) => key.pubkey.toBase58())).toEqual([ratingPda(escrow, PROGRAM).toBase58(), escrow.toBase58(), PAYER.toBase58(), "11111111111111111111111111111111"]);
+    expect(open.keys[2]).toMatchObject({ isSigner: true, isWritable: true });
+    expect(p.rating).toBe(ratingPda(escrow, PROGRAM).toBase58());
+    // The receipt the provider sees is unchanged: it reads the rated bit from the escrow itself.
+    expect(p.receiptFor(LOCK_SIG)).not.toHaveProperty("rated");
+  });
+
+  it("names the judge the buyer chose, and refuses the buyer or the provider as judge", () => {
+    const judge = Keypair.generate().publicKey;
+    const p = rated({ judge });
+    expect(p.ok && new PublicKey(p.instructions[1].data.subarray(8, 40)).equals(judge)).toBe(true);
+    expect(rated({ judge: new PublicKey(PROVIDER) })).toMatchObject({ ok: false, reason: "invalid_judge" });
+    expect(rated({ judge: PAYER })).toMatchObject({ ok: false, reason: "invalid_judge" });
+  });
+
+  it("passes on what the provider's offer says about rated jobs", () => {
+    expect(rated({}, { acceptsRatedEscrows: false })).toMatchObject({ ok: true, providerAcceptsRatedJobs: false });
+    expect(rated({}, { acceptsRatedEscrows: true })).toMatchObject({ ok: true, providerAcceptsRatedJobs: true });
+    const silent = rated();
+    expect(silent.ok && "providerAcceptsRatedJobs" in silent).toBe(false);
+  });
+});
+
 describe("metered job record (#794)", () => {
   const { escrow, vault } = tokenEscrowAddresses({ programId: PROGRAM, payer: PAYER, nonce: NONCE });
   const mint = new PublicKey(USDC);
@@ -178,6 +223,15 @@ describe("metered job record (#794)", () => {
     const d = deps(settleTx(opts));
     expect(await call(d.deps)).toEqual({ recorded: false, reason });
     expect(d.stored).toHaveLength(0);
+  });
+
+  it("records a rated job: the settle carries the escrow's rating account after the usual nine (#842)", async () => {
+    const usual = [escrow.toBase58(), vault.toBase58(), PROVIDER, PAYER.toBase58(), USDC, recipient, treasury, source, TOKEN_PROGRAM_ID.toBase58()];
+    const d = deps(settleTx({ accounts: [...usual, ratingPda(escrow, PROGRAM).toBase58()] }));
+    expect(await call(d.deps)).toMatchObject({ recorded: true, paid: { amountBaseUnits: "1000" } });
+    // A tenth account that is not this escrow's rating account is not this job's settle.
+    const other = deps(settleTx({ accounts: [...usual, Keypair.generate().publicKey.toBase58()] }));
+    expect(await call(other.deps)).toEqual({ recorded: false, reason: "settle_not_for_this_escrow" });
   });
 
   it("refuses a receipt whose escrow is not the one its payer and nonce name", async () => {

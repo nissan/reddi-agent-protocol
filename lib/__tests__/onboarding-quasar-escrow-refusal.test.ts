@@ -265,10 +265,10 @@ describe("onboarding Quasar reputation/attestation refuses without a lock-create
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.error).not.toBe(QUASAR_ESCROW_UNAVAILABLE_REASON);
     // The V1 program ties a rating to an escrow opted in at lock; the operator-key commit cannot
-    // work against it, so it fails closed until the app rating flow lands (#842).
+    // work against it, so it fails closed; the app rating flow (#842) replaced it.
     const { RATING_FLOW_UNAVAILABLE_REASON } = await import("@/lib/onboarding/rating-flow-availability");
     expect(result.ok === false && result.error).toBe(RATING_FLOW_UNAVAILABLE_REASON);
-    expect(RATING_FLOW_UNAVAILABLE_REASON).toMatch(/not available until the app rating flow lands \(#842\)/);
+    expect(RATING_FLOW_UNAVAILABLE_REASON).toMatch(/not made by this server \(app rating flow, #842\)/);
     expect(result.trace).toEqual(["reputation:unavailable_until_app_rating_flow"]);
     expect(rpcConstructions).toEqual([]);
 
