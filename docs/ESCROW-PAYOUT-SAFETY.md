@@ -123,9 +123,10 @@ and exits non-zero on any change.
      provider kit lists the currency in `pausedCurrencies` (or sets
      `RAP_PROVIDER_PAUSED_CURRENCIES`) and restarts, after which it refuses
      paid calls in it with `currency_paused` and reports
-     `acceptingPayments: false`. The app's listing does not read that field
-     yet (#852), so the provider also takes the currency off its listing by
-     hand;
+     `acceptingPayments: false`. The app's health sweep reads that field on
+     `/healthz` and marks the listing as failing, so the planner stops
+     offering it. The sweep runs once a day, so to hide the listing at once
+     the operator also reruns `rap-provider register` or pauses the listing;
   2. reads the change (hook program, fee, delegate, freeze or pause authority)
      and decides whether open escrows in that mint can still settle;
   3. updates `config/escrow/token2022-mint-posture.json` only after that
