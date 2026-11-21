@@ -4,7 +4,7 @@
 //! default build answers the thirteen escrow and registry instructions only
 //! (`archive/anchor-escrow/tests/instruction_surface.rs` holds it to that),
 //! while this program's default build, the mainnet build, also answers the
-//! five rating and three attestation instructions. The two PER tracking
+//! six rating and four attestation instructions. The two PER tracking
 //! instructions are not part of V1: the default build must treat them as
 //! unknown, and only a `per` build answers them.
 //!
@@ -38,8 +38,9 @@ const ESCROW_AND_REGISTRY_INSTRUCTIONS: [&str; 13] = [
     "deregister_agent",
 ];
 
-const RATING_AND_ATTESTATION_INSTRUCTIONS: [&str; 8] = [
+const RATING_AND_ATTESTATION_INSTRUCTIONS: [&str; 10] = [
     "open_rating",
+    "accept_rating",
     "commit_rating",
     "reveal_rating",
     "expire_rating",
@@ -47,6 +48,7 @@ const RATING_AND_ATTESTATION_INSTRUCTIONS: [&str; 8] = [
     "attest_quality",
     "confirm_attestation",
     "dispute_attestation",
+    "close_attestation",
 ];
 
 const PER_INSTRUCTIONS: [&str; 2] = ["delegate_escrow", "release_escrow_per"];

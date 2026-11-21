@@ -133,6 +133,8 @@ fn open_rating_creates_the_job_record_and_flags_the_escrow() {
                 state: AWAITING_SETTLEMENT,
                 consumer_score: 0,
                 specialist_score: 0,
+                accepted: false,
+                attested: false,
                 bump: Pubkey::find_program_address(&[b"rating", escrow.as_ref()], &escrow::id()).1,
             }
         );
@@ -349,6 +351,8 @@ fn a_rating_left_open_blocks_a_new_one_for_the_same_escrow_address_until_closed(
     let (a, b) = (t.payer.pubkey(), t.payee.pubkey());
     let escrow = t.lock_rated(1, false);
     let rating = rating_address(&escrow);
+    t.world
+        .ok("accept_rating", accept_rating(&rating, &b), &[&t.payee]);
     t.world.ok(
         "release",
         with_rating(t.payout(1, &t.payer, None), &escrow),
@@ -394,12 +398,17 @@ fn a_rating_left_open_blocks_a_new_one_for_the_same_escrow_address_until_closed(
 // ── Paid exits of a rated SOL escrow ────────────────────────────────────────
 
 #[test]
-fn payer_release_of_a_rated_escrow_records_the_job_and_pays_as_usual() {
+fn payer_release_of_an_accepted_rated_escrow_records_the_job_and_pays_as_usual() {
     let mut t = Sol::new();
     let (a, b) = (t.payer.pubkey(), t.payee.pubkey());
     let escrow = t.lock_rated(1, false);
     let rating = rating_address(&escrow);
     t.world.warp(t.world.slot() + 7);
+    // The payee agreed to the job being rated, so the payer's release opens
+    // the rating.
+    t.world
+        .ok("accept_rating", accept_rating(&rating, &b), &[&t.payee]);
+    assert!(t.world.rating(&rating).accepted);
 
     t.world.refused(
         "without the rating account",
@@ -605,6 +614,11 @@ fn a_paid_exit_refuses_every_wrong_rating_account() {
         );
     }
     t.world.set(rating_address(&escrow), genuine);
+    t.world.ok(
+        "accept",
+        accept_rating(&rating_address(&escrow), &b),
+        &[&key(2)],
+    );
 
     // Extra accounts after the rating account are ignored.
     t.world.ok(
@@ -753,6 +767,14 @@ fn rated_token_rail(program: Pubkey, mint: Pubkey, name: &str) {
             (escrow, a, b)
         );
         assert_eq!(rating.state, AWAITING_SETTLEMENT);
+        if i == 1 {
+            // The payer's release opens the rating only when the payee agreed.
+            world.ok(
+                "accept_rating",
+                accept_rating(&rating_address(&escrow), &b),
+                &[&t.payee],
+            );
+        }
     }
     let locked_at = world.slot();
     let rating_of = |i: u8| rating_address(&t.escrow(nonce(i)));
@@ -905,6 +927,39 @@ fn rated_token_rail(program: Pubkey, mint: Pubkey, name: &str) {
         "release, not rated",
         rated(t.payout(nonce(6), &a, None), 1),
         &[&t.payer],
+    );
+    payer_transactions += 1;
+
+    // A payer release the payee never agreed to: paid as usual, not rated.
+    world.warp(locked_at + CANCEL_WINDOW + 5);
+    world.ok("lock", t.lock(AMOUNT, nonce(7), false), &[&t.payer]);
+    world.ok(
+        "open_rating",
+        open_rating(&t.escrow(nonce(7)), &a, None),
+        &[&t.payer],
+    );
+    world.refused(
+        "unaccepted release without the rating account",
+        t.payout(nonce(7), &a, None),
+        &[&t.payer],
+        RATING_ACCOUNT_REQUIRED,
+    );
+    let recipient = t.balance(&world, &t.recipient);
+    let sent = world.ok(
+        &format!("release_token_escrow, rated, not accepted ({name})"),
+        rated(t.payout(nonce(7), &a, None), 7),
+        &[&t.payer],
+    );
+    payer_transactions += 4;
+    assert_eq!(sent.events.len(), 1);
+    assert_eq!(t.balance(&world, &t.recipient) - recipient, AMOUNT - FEE);
+    assert!(!world.exists(&rating_of(7)));
+    assert!(!world.exists(&t.escrow(nonce(7))));
+    world.refused(
+        "commit on a job the payee never agreed to rate",
+        commit_rating(&rating_of(7), &a, [9; 32]),
+        &[&t.payer],
+        NOT_INITIALIZED,
     );
     payer_transactions += 1;
 

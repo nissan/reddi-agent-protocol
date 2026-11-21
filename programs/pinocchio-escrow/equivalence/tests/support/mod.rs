@@ -80,6 +80,9 @@ pub const ALREADY_REVEALED: u32 = 6042;
 pub const EMPTY_COMMITMENT: u32 = 6043;
 pub const RATING_NOT_FINAL: u32 = 6044;
 pub const RATED_ESCROW_NOT_DELEGABLE: u32 = 6045;
+pub const RATING_ALREADY_ACCEPTED: u32 = 6046;
+pub const ATTESTATION_NOT_CLOSABLE: u32 = 6047;
+pub const ALREADY_ATTESTED: u32 = 6048;
 
 pub const AWAITING_SETTLEMENT: u8 = 0;
 pub const OPEN: u8 = 1;
@@ -370,7 +373,7 @@ pub fn attestation_address(escrow: &Pubkey) -> Pubkey {
 
 // ── Account layouts (README "Account layouts") ──────────────────────────────
 
-pub const RATING_LEN: usize = 268;
+pub const RATING_LEN: usize = 270;
 pub const ATTESTATION_LEN: usize = 119;
 
 fn pubkey_at(data: &[u8], at: usize) -> Pubkey {
@@ -397,6 +400,10 @@ pub struct Rating {
     pub state: u8,
     pub consumer_score: u8,
     pub specialist_score: u8,
+    /// The specialist agreed to the job being rated (`accept_rating`).
+    pub accepted: bool,
+    /// The judge has attested the job (`attest_quality`).
+    pub attested: bool,
     pub bump: u8,
 }
 
@@ -419,7 +426,17 @@ impl Rating {
             state: data[264],
             consumer_score: data[265],
             specialist_score: data[266],
-            bump: data[267],
+            accepted: match data[267] {
+                0 => false,
+                1 => true,
+                other => panic!("accepted byte {other}"),
+            },
+            attested: match data[268] {
+                0 => false,
+                1 => true,
+                other => panic!("attested byte {other}"),
+            },
+            bump: data[269],
         }
     }
 }
@@ -485,6 +502,25 @@ pub fn open_rating(escrow: &Pubkey, payer: &Pubkey, judge: Option<&Pubkey>) -> I
             meta(*escrow, false, true),
             meta(*payer, true, true),
             meta(system_program::id(), false, false),
+        ],
+    )
+}
+
+pub fn accept_rating(rating: &Pubkey, specialist: &Pubkey) -> Instruction {
+    ix(
+        "accept_rating",
+        &[],
+        vec![meta(*rating, false, true), meta(*specialist, true, false)],
+    )
+}
+
+pub fn close_attestation(escrow: &Pubkey, judge: &Pubkey) -> Instruction {
+    ix(
+        "close_attestation",
+        &[],
+        vec![
+            meta(attestation_address(escrow), false, true),
+            meta(*judge, true, true),
         ],
     )
 }
@@ -576,7 +612,7 @@ pub fn attest_quality(escrow: &Pubkey, judge: &Pubkey, scores: [u8; 5]) -> Instr
         &scores,
         vec![
             meta(attestation_address(escrow), false, true),
-            meta(rating_address(escrow), false, false),
+            meta(rating_address(escrow), false, true),
             meta(agent(judge), false, false),
             meta(*judge, true, true),
             meta(system_program::id(), false, false),

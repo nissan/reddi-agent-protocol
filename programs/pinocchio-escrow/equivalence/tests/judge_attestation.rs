@@ -1,6 +1,6 @@
 //! Judge attestations tied to a paid job: `attest_quality`,
-//! `confirm_attestation` and `dispute_attestation`, against the built
-//! Pinocchio binary. Covers the scenarios of issue #838 and every refusal.
+//! `confirm_attestation`, `dispute_attestation` and `close_attestation`,
+//! against the built Pinocchio binary. Covers the scenarios of issue #838 and every refusal.
 //! Lamport conservation is asserted on every transaction by the harness.
 mod support;
 
@@ -80,6 +80,11 @@ impl Court {
     fn paid(&mut self, judge: Option<&Pubkey>) -> Pubkey {
         let (escrow, n) = self.locked(judge);
         self.world.ok(
+            "accept_rating",
+            accept_rating(&rating_address(&escrow), &self.specialist.pubkey()),
+            &[&self.specialist],
+        );
+        self.world.ok(
             "release",
             with_rating(
                 sol_payout(&self.c(), &self.specialist.pubkey(), n, &self.c(), None),
@@ -130,15 +135,18 @@ fn s1_the_named_judge_attests_a_paid_job() {
         .minimum_balance_for_rent_exemption(ATTESTATION_LEN);
     assert_eq!(t.world.lamports(&address), rent);
     assert_eq!(before - t.world.lamports(&j), rent + 5_000);
-    // Attesting changes nothing on the rating or the judge's record.
-    assert_eq!(t.world.rating(&rating_address(&escrow)).state, OPEN);
+    // Attesting marks the rating as attested and changes nothing else on
+    // it, nor on the judge's record.
+    let job = t.world.rating(&rating_address(&escrow));
+    assert_eq!((job.state, job.attested, job.accepted), (OPEN, true, true));
     assert_eq!(t.standing(&j), (0, 0));
 
     // One attestation per job.
-    t.world.refused_by_system(
+    t.world.refused(
         "attest twice",
         attest_quality(&escrow, &j, [5; 5]),
         &[&t.judge],
+        ALREADY_ATTESTED,
     );
     assert_eq!(t.world.attestation(&address).scores, SCORES);
     t.world.report("Attestation");
@@ -291,6 +299,12 @@ fn attest_refuses_every_wrong_account_and_score() {
         "judge read-only",
         read_only(good.clone(), 3),
         &[&t.stranger, &t.judge],
+        CONSTRAINT_MUT,
+    );
+    t.world.refused(
+        "rating read-only",
+        read_only(good.clone(), 1),
+        &[&t.judge],
         CONSTRAINT_MUT,
     );
     t.world.refused(
@@ -540,4 +554,268 @@ fn resolve_refuses_every_wrong_account() {
     assert_eq!(t.standing(&t.rival.pubkey()), (0, 0));
     t.world.ok("confirm", good, &[&t.consumer]);
     assert_eq!(t.standing(&j), (1_000, 1_000));
+}
+
+#[test]
+fn a_job_the_specialist_never_agreed_to_rate_cannot_be_attested() {
+    let mut t = Court::new();
+    let j = t.j();
+    let (escrow, n) = t.locked(Some(&j));
+    t.world.ok(
+        "release, not accepted",
+        with_rating(
+            sol_payout(&t.c(), &t.specialist.pubkey(), n, &t.c(), None),
+            &escrow,
+        ),
+        &[&t.consumer],
+    );
+    assert!(!t.world.exists(&rating_address(&escrow)));
+    t.world.refused(
+        "attest a job that is paid but not rated",
+        attest_quality(&escrow, &j, SCORES),
+        &[&t.judge],
+        NOT_INITIALIZED,
+    );
+    assert!(!t.world.exists(&attestation_address(&escrow)));
+}
+
+#[test]
+fn a_resolved_attestation_can_be_closed_by_its_judge() {
+    for confirm in [true, false] {
+        let mut t = Court::new();
+        let j = t.j();
+        let escrow = t.paid(Some(&j));
+        let address = attestation_address(&escrow);
+        t.world
+            .ok("attest", attest_quality(&escrow, &j, SCORES), &[&t.judge]);
+        let good = close_attestation(&escrow, &j);
+
+        // Unresolved and inside the window: not yet.
+        t.world.refused(
+            "close an unresolved attestation",
+            good.clone(),
+            &[&t.judge],
+            ATTESTATION_NOT_CLOSABLE,
+        );
+        t.world.ok(
+            "resolve",
+            resolve_attestation(&escrow, &j, &t.c(), confirm),
+            &[&t.consumer],
+        );
+        let standing = t.standing(&j);
+
+        for who in [&t.consumer, &t.rival, &t.stranger] {
+            t.world.refused(
+                "someone else closes",
+                close_attestation(&escrow, &who.pubkey()),
+                &[who],
+                UNAUTHORISED_SIGNER,
+            );
+        }
+        t.world.refused(
+            "judge did not sign",
+            not_signed(good.clone(), 1),
+            &[&t.stranger],
+            NOT_SIGNER,
+        );
+        t.world.refused(
+            "attestation read-only",
+            read_only(good.clone(), 0),
+            &[&t.judge],
+            CONSTRAINT_MUT,
+        );
+        t.world.refused(
+            "judge read-only",
+            read_only(good.clone(), 1),
+            &[&t.stranger, &t.judge],
+            CONSTRAINT_MUT,
+        );
+        t.world.refused(
+            "the rating as attestation",
+            swap(good.clone(), 0, rating_address(&escrow)),
+            &[&t.judge],
+            DISCRIMINATOR_MISMATCH,
+        );
+        t.world.refused(
+            "too few accounts",
+            {
+                let mut ix = good.clone();
+                ix.accounts.truncate(1);
+                ix
+            },
+            &[&t.stranger],
+            NOT_ENOUGH_KEYS,
+        );
+
+        let rent = t.world.lamports(&address);
+        let before = t.world.lamports(&j);
+        t.world.ok("close_attestation", good.clone(), &[&t.judge]);
+        assert_eq!(t.world.lamports(&j) - before, rent - 5_000);
+        assert!(!t.world.exists(&address));
+        assert!(t.world.data(&address).is_empty());
+        // Closing changes nothing on the judge's record, and it is gone.
+        assert_eq!(t.standing(&j), standing);
+        t.world
+            .refused("close twice", good, &[&t.judge], NOT_INITIALIZED);
+        // Closing does not make room for a second attestation of this job,
+        // which the buyer could confirm again.
+        assert!(t.world.rating(&rating_address(&escrow)).attested);
+        t.world.refused(
+            "attest the same job again after closing",
+            attest_quality(&escrow, &j, [10; 5]),
+            &[&t.judge],
+            ALREADY_ATTESTED,
+        );
+        for verdict in [true, false] {
+            t.world.refused(
+                "resolve a closed attestation",
+                resolve_attestation(&escrow, &j, &t.c(), verdict),
+                &[&t.consumer],
+                NOT_INITIALIZED,
+            );
+        }
+        t.world.report("Close attestation");
+    }
+}
+
+#[test]
+fn an_unresolved_attestation_can_be_closed_only_after_its_window() {
+    let mut t = Court::new();
+    let j = t.j();
+    let escrow = t.paid(Some(&j));
+    t.world.warp(t.world.slot() + 500);
+    t.world
+        .ok("attest", attest_quality(&escrow, &j, SCORES), &[&t.judge]);
+    let created = t
+        .world
+        .attestation(&attestation_address(&escrow))
+        .created_slot;
+    assert_eq!(created, t.world.slot());
+
+    t.world.warp(created + RATING_COMMIT_SLOTS);
+    t.world.refused(
+        "close in the last slot of the window",
+        close_attestation(&escrow, &j),
+        &[&t.judge],
+        ATTESTATION_NOT_CLOSABLE,
+    );
+    t.world.warp(created + RATING_COMMIT_SLOTS + 1);
+    t.world.ok(
+        "close one slot after the window",
+        close_attestation(&escrow, &j),
+        &[&t.judge],
+    );
+    assert!(!t.world.exists(&attestation_address(&escrow)));
+    assert_eq!(t.standing(&j), (0, 0));
+    // The consumer has nothing left to dispute.
+    t.world.refused(
+        "dispute after the judge closed it",
+        resolve_attestation(&escrow, &j, &t.c(), false),
+        &[&t.consumer],
+        NOT_INITIALIZED,
+    );
+}
+
+#[test]
+fn an_attestation_of_a_judge_that_deregistered_is_still_resolved() {
+    for confirm in [true, false] {
+        let mut t = Court::new();
+        let j = t.j();
+        let escrow = t.paid(Some(&j));
+        t.world
+            .ok("attest", attest_quality(&escrow, &j, SCORES), &[&t.judge]);
+        t.world.deregister(&key(4));
+        assert!(!t.world.exists(&agent(&j)));
+
+        // The judge's agent address is still checked.
+        t.world.refused(
+            "another judge's record for the deregistered judge",
+            swap(
+                resolve_attestation(&escrow, &j, &t.c(), confirm),
+                1,
+                agent(&t.rival.pubkey()),
+            ),
+            &[&t.consumer],
+            CONSTRAINT_SEEDS,
+        );
+        t.world.refused(
+            "a wallet for the deregistered judge",
+            swap(
+                resolve_attestation(&escrow, &j, &t.c(), confirm),
+                1,
+                t.stranger.pubkey(),
+            ),
+            &[&t.consumer],
+            CONSTRAINT_SEEDS,
+        );
+        t.world.refused(
+            "someone else resolves",
+            resolve_attestation(&escrow, &j, &t.stranger.pubkey(), confirm),
+            &[&t.stranger],
+            UNAUTHORISED_SIGNER,
+        );
+        t.world.ok(
+            "resolve, judge deregistered",
+            resolve_attestation(&escrow, &j, &t.c(), confirm),
+            &[&t.consumer],
+        );
+        assert_eq!(
+            t.world
+                .attestation(&attestation_address(&escrow))
+                .resolution,
+            if confirm { 1 } else { 2 }
+        );
+        // Nothing was created at the judge's agent address, and no other
+        // record moved.
+        assert!(!t.world.exists(&agent(&j)));
+        assert_eq!(t.standing(&t.rival.pubkey()), (0, 0));
+        t.world.refused(
+            "resolve again",
+            resolve_attestation(&escrow, &j, &t.c(), !confirm),
+            &[&t.consumer],
+            ATTESTATION_ALREADY_RESOLVED,
+        );
+        // The judge can still take its rent back.
+        t.world
+            .ok("close", close_attestation(&escrow, &j), &[&t.judge]);
+    }
+}
+
+#[test]
+fn a_closed_attestation_frees_the_address_for_a_later_job() {
+    let mut t = Court::new();
+    let j = t.j();
+    let escrow = t.paid(Some(&j));
+    let rating = rating_address(&escrow);
+    t.world
+        .ok("attest", attest_quality(&escrow, &j, SCORES), &[&t.judge]);
+    t.world.ok(
+        "dispute",
+        resolve_attestation(&escrow, &j, &t.c(), false),
+        &[&t.consumer],
+    );
+    t.world
+        .ok("close", close_attestation(&escrow, &j), &[&t.judge]);
+    // Finish and close the first job's rating, then reuse payer and nonce.
+    let settled = t.world.rating(&rating).settled_slot;
+    t.world.warp(settled + RATING_COMMIT_SLOTS + 1);
+    t.world.ok(
+        "expire",
+        expire_rating(&rating, &j, &t.specialist.pubkey(), &t.c()),
+        &[&t.judge],
+    );
+    t.world.ok(
+        "close rating",
+        close_rating(&rating, &t.c()),
+        &[&t.consumer],
+    );
+    t.next_nonce = 1;
+    assert_eq!(t.paid(Some(&j)), escrow);
+    t.world.ok(
+        "attest again",
+        attest_quality(&escrow, &j, [3; 5]),
+        &[&t.judge],
+    );
+    let fresh = t.world.attestation(&attestation_address(&escrow));
+    assert_eq!((fresh.scores, fresh.resolution), ([3; 5], 0));
 }

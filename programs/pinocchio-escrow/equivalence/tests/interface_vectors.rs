@@ -207,6 +207,19 @@ fn build() -> Value {
     world.ok("open", open_rating(&escrow, &c, Some(&j)), &[&consumer]);
     send(
         &mut world,
+        "accept_rating",
+        "no data; lets a release by the payer open the rating",
+        accept_rating(&rating, &s),
+        &["rating", "specialist"],
+        &specialist,
+    );
+    accounts.push(account(
+        &world,
+        "rating_awaiting_settlement_accepted",
+        &rating,
+    ));
+    send(
+        &mut world,
         "release_escrow",
         "rated SOL escrow: the rating account follows the five usual accounts; no data",
         with_rating(sol_payout(&c, &s, n, &c, None), &escrow),
@@ -228,6 +241,14 @@ fn build() -> Value {
         resolve_attestation(&escrow, &j, &c, false),
         &["attestation", "judge_agent", "consumer"],
         &consumer,
+    );
+    send(
+        &mut world,
+        "close_attestation",
+        "no data; resolved, or unresolved for longer than the resolution window",
+        close_attestation(&escrow, &j),
+        &["attestation", "judge"],
+        &judge,
     );
     world.warp(1_040 + RATING_COMMIT_SLOTS + 1);
     send(
@@ -389,6 +410,8 @@ fn the_fixture_names_every_instruction_the_idl_does_not_describe() {
         .collect();
     for name in [
         "open_rating",
+        "accept_rating",
+        "close_attestation",
         "commit_rating",
         "reveal_rating",
         "expire_rating",
@@ -409,5 +432,5 @@ fn the_fixture_names_every_instruction_the_idl_does_not_describe() {
             "{name}"
         );
     }
-    assert_eq!(names.len(), 14);
+    assert_eq!(names.len(), 16);
 }
