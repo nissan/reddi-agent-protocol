@@ -662,6 +662,47 @@ fn sol_escrow_matches_the_anchor_build() {
         &[&payee],
     );
 
+    // A lock the payee could not be paid from is refused. The floor is the
+    // rent-exempt minimum of the payee's account.
+    let unfunded = key(40).pubkey();
+    let floor = pair.anchor.minimum_balance_for_rent_exemption(0);
+    let mut enough = floor;
+    while enough - escrow::protocol_fee(enough, true) < floor {
+        enough += 1;
+    }
+    pair.refused(
+        "sol lock: the payout would leave the payee below the rent minimum",
+        sol_lock(&a, &unfunded, enough - 1, n(40), false),
+        &[&payer],
+        6032,
+    );
+    pair.refused(
+        "sol metered lock: the payee holds nothing",
+        sol_lock(&a, &unfunded, 400_000_000, n(40), true),
+        &[&payer],
+        6032,
+    );
+    pair.ok(
+        "sol lock: the payout just reaches the rent minimum",
+        sol_lock(&a, &unfunded, enough, n(40), false),
+        &[&payer],
+    );
+    pair.ok(
+        "sol release to a payee that held nothing",
+        sol_payout(&a, &unfunded, n(40), &a, None),
+        &[&payer],
+    );
+    pair.ok(
+        "sol lock: one lamport to a payee that now holds the minimum",
+        sol_lock(&a, &unfunded, 1, n(41), false),
+        &[&payer],
+    );
+    pair.ok(
+        "sol metered lock to a payee that now holds the minimum",
+        sol_lock(&a, &unfunded, 1, n(42), true),
+        &[&payer],
+    );
+
     pair.report("SOL escrow");
 }
 
@@ -703,6 +744,7 @@ fn malformed_calls_are_refused_the_same_way() {
         &[&payer],
         101,
     );
+    pair.fund(&key(2), 1_000_000_000);
     let lock = sol_lock(&a, &key(2).pubkey(), 1_000, [1; 16], false);
     pair.refused(
         "lock with truncated arguments",
@@ -1087,6 +1129,13 @@ impl Tokens {
                 ..Account::default()
             },
         );
+    }
+
+    /// Freeze or thaw a token account, as the mint's freeze authority would.
+    fn set_frozen(&self, pair: &mut Pair, address: Pubkey, frozen: bool) {
+        let mut account = pair.anchor.get_account(&address).unwrap();
+        account.data[108] = if frozen { 2 } else { 1 };
+        pair.set(address, account);
     }
 
     fn escrow(&self, nonce: [u8; 16]) -> Pubkey {
@@ -1618,6 +1667,65 @@ fn token_rail(pair: &mut Pair, t: &Tokens, name: &str) {
         &[&t.payer],
         3008,
     );
+
+    // A frozen recipient or source refuses the lock.
+    for (what, address) in [("recipient", t.recipient), ("source", t.source)] {
+        t.set_frozen(pair, address, true);
+        pair.refused(
+            &label(&format!("lock: frozen {what}")),
+            t.lock(1_000, n(60), what == "source"),
+            &[&t.payer],
+            6023,
+        );
+        t.set_frozen(pair, address, false);
+    }
+
+    // The payee's own claim or settle may go to any token account of the mint
+    // that the payee owns; the payer's release only to the recorded recipient.
+    let other = Pubkey::new_unique();
+    t.put_account(pair, other, &b, 0);
+    pair.ok(
+        &label("lock for a redirected claim"),
+        t.lock(1_000_000, n(60), false),
+        &[&t.payer],
+    );
+    pair.ok(
+        &label("metered lock for a redirected settle"),
+        t.lock(1_000_000, n(61), true),
+        &[&t.payer],
+    );
+    let locked_at = pair.slot();
+    t.set_frozen(pair, t.recipient, true);
+    pair.refused(
+        &label("release: the payer names another account of the payee"),
+        swap(t.payout(n(60), &a, None), 5, other),
+        &[&t.payer],
+        6023,
+    );
+    pair.refused(
+        &label("settle: the payee names a stranger's account"),
+        swap(t.payout(n(61), &b, Some(400_000)), 5, t.stranger_token),
+        &[&t.payee],
+        6023,
+    );
+    pair.refused(
+        &label("settle: the payee names the treasury's account"),
+        swap(t.payout(n(61), &b, Some(400_000)), 5, t.treasury_token),
+        &[&t.payee],
+        2040,
+    );
+    pair.ok(
+        &label("settle to another account of the payee, recorded one frozen"),
+        swap(t.payout(n(61), &b, Some(400_000)), 5, other),
+        &[&t.payee],
+    );
+    pair.warp(locked_at + CLAIM_WINDOW_SLOTS);
+    pair.ok(
+        &label("claim to another account of the payee, recorded one frozen"),
+        swap(t.payout(n(60), &b, None), 5, other),
+        &[&t.payee],
+    );
+    t.set_frozen(pair, t.recipient, false);
 }
 
 #[test]
@@ -1693,7 +1801,7 @@ fn issuer_actions_on_token_2022_are_handled_the_same_way() {
     let t = Tokens::install(&mut pair, TOKEN_2022_ID, PYUSD_MAINNET_MINT, 6);
     let (a, b) = (t.payer.pubkey(), t.payee.pubkey());
     let n = |i: u8| [i; 16];
-    for i in 1..=4 {
+    for i in [1, 2, 3, 4, 6, 7, 8] {
         pair.ok(
             "pyusd lock",
             t.lock(10_000_000, n(i), i % 2 == 0),
@@ -1753,6 +1861,47 @@ fn issuer_actions_on_token_2022_are_handled_the_same_way() {
         t.cancel(n(3), &b, t.source),
         &[&t.payee],
     );
+
+    // Tokens sent to a vault under the fee leave withheld fees on it, which
+    // block closing it. With the mint passed writable they are harvested to
+    // the mint and the vault closes; without, the vault is left open.
+    for i in [6, 7, 8] {
+        pair.ok(
+            "pyusd donation to a vault under a transfer fee",
+            t.transfer(t.source, t.vault(n(i)), &a, 100_000),
+            &[&t.payer],
+        );
+    }
+    let writable_mint = |mut ix: Instruction, index: usize| {
+        assert_eq!(ix.accounts[index].pubkey, t.mint);
+        ix.accounts[index].is_writable = true;
+        ix
+    };
+    pair.ok(
+        "pyusd settle with withheld fees on the vault, mint writable",
+        writable_mint(t.payout(n(6), &b, Some(2_500_000)), 4),
+        &[&t.payee],
+    );
+    pair.ok(
+        "pyusd decline with withheld fees on the vault, mint writable",
+        writable_mint(t.cancel(n(7), &b, t.source), 4),
+        &[&t.payee],
+    );
+    pair.ok(
+        "pyusd settle with withheld fees on the vault, mint read-only",
+        t.payout(n(8), &b, Some(2_500_000)),
+        &[&t.payee],
+    );
+    for (i, closed) in [(6, true), (7, true), (8, false)] {
+        for svm in [&pair.anchor, &pair.pinocchio] {
+            let vault = svm.get_account(&t.vault(n(i)));
+            assert_eq!(
+                vault.is_none_or(|a| a.lamports == 0),
+                closed,
+                "vault {i} closed"
+            );
+        }
+    }
     pair.report("Token-2022 issuer actions");
 }
 

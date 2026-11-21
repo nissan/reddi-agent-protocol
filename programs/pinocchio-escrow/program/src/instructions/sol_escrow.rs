@@ -8,7 +8,7 @@ use {
     crate::{
         checks::{
             close, create_pda, credit, debit, derive, now, payout_outcome, program, refund_outcome,
-            signer, transfer, writable, Args,
+            rent_exempt_minimum, signer, transfer, writable, Args,
         },
         consts::{
             escrow_windows_valid, protocol_fee, ESCROW_SEED, MAX_SOL_ESCROW_LAMPORTS,
@@ -17,7 +17,7 @@ use {
         error::{
             fail, require, AccountNotEnoughKeys, AmountAboveCap, ConstraintHasOne, ConstraintSeeds,
             InvalidPayee, InvalidSettleAmount, InvalidTreasury, InvalidWindows, NotLocked,
-            NotMetered, UnauthorisedSigner, ZeroAmount,
+            NotMetered, PayeeNotRentExempt, UnauthorisedSigner, ZeroAmount,
         },
         events::{Locked, Outcome, Settled},
         state::{Record, SolEscrow, STATUS_LOCKED},
@@ -81,6 +81,20 @@ pub fn lock(
     // A payer paying themselves, or the escrow account itself, is never a real job.
     require(payee.address() != payer.address(), &InvalidPayee)?;
     require(payee.address() != escrow.address(), &InvalidPayee)?;
+    // The runtime refuses a payout that leaves the payee's account holding
+    // something but less than its rent-exempt minimum, which would block
+    // release, claim and settle alike. A fixed-price escrow pays the amount
+    // less the fee, so that is counted. A metered escrow pays whatever the
+    // payee reports, so its payee must already hold the minimum.
+    let certain = if metered {
+        0
+    } else {
+        amount - protocol_fee(amount, true)
+    };
+    require(
+        payee.lamports().saturating_add(certain) >= rent_exempt_minimum(payee.data_len())?,
+        &PayeeNotRentExempt,
+    )?;
 
     let (slot, unix_timestamp) = now()?;
     SolEscrow::new(

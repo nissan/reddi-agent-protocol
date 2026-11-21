@@ -332,6 +332,13 @@ impl Fixture {
         );
         err
     }
+    /// Freeze or thaw a token account by writing its state byte, as the mint's
+    /// freeze authority would. The local mint has no freeze authority.
+    fn set_frozen(&mut self, key: Pubkey, frozen: bool) {
+        let mut account = self.svm.get_account(&key).unwrap();
+        account.data[108] = if frozen { 2 } else { 1 };
+        self.svm.set_account(key, account).unwrap();
+    }
     fn mint_to_source(&mut self, amount: u64) {
         let ix = token_ix::mint_to(
             &spl_token::ID,
@@ -433,7 +440,7 @@ fn token_refund_window_boundary_is_exact_and_strangers_cannot_refund() {
 }
 
 #[test]
-fn payee_claim_boundary_is_exact_and_pays_only_the_recorded_recipient() {
+fn payee_claim_boundary_is_exact_and_pays_only_the_payee() {
     let mut f = Fixture::new();
     f.lock();
     let payee = f.payee.insecure_clone();
@@ -443,12 +450,12 @@ fn payee_claim_boundary_is_exact_and_pays_only_the_recorded_recipient() {
     assert!(err.contains("Custom(6027)"), "{err}");
 
     f.svm.warp_to_slot(created + CLAIM_WINDOW_SLOTS);
-    // A stranger cannot pay the escrow out, and the payee cannot redirect it.
+    // A stranger cannot pay the escrow out, and even the payee cannot send it
+    // to a token account somebody else owns.
     let err = f.reject(f.payout_ix(f.attacker.pubkey()), true);
     assert!(err.contains("Custom(6000)"), "{err}");
-    let other = f.new_token_account(payee.pubkey());
     let mut redirected = f.payout_ix(payee.pubkey());
-    redirected.accounts[5].pubkey = other;
+    redirected.accounts[5].pubkey = f.attacker_token;
     let err = f.reject_as(redirected, &payee);
     assert!(err.contains("Custom(6023)"), "{err}");
 
@@ -1096,4 +1103,105 @@ fn payee_settles_even_after_the_payer_gives_away_its_source_account() {
     assert_eq!(f.balance(f.recipient), 97_500);
     assert_eq!(f.balance(f.treasury_token), 2_500);
     assert!(f.closed(f.escrow));
+}
+
+// ── Frozen and replaced payout accounts ──────────────────────────────────────
+
+/// A lock is refused while the payer still holds the tokens when the account
+/// that would be paid, or the account paying, is frozen.
+#[test]
+fn token_lock_rejects_a_frozen_recipient_or_source() {
+    let mut f = Fixture::new();
+    f.set_frozen(f.recipient, true);
+    let err = f.reject(f.lock_ix(400_000), false);
+    assert!(err.contains("Custom(6023)"), "{err}");
+    assert!(f.closed(f.escrow) && f.closed(f.vault));
+    f.set_frozen(f.recipient, false);
+
+    f.set_frozen(f.source, true);
+    let err = f.reject(f.metered_lock_ix(400_000), false);
+    assert!(err.contains("Custom(6023)"), "{err}");
+    assert!(f.closed(f.escrow) && f.closed(f.vault));
+    f.set_frozen(f.source, false);
+
+    f.svm.expire_blockhash();
+    f.lock();
+    assert_eq!(f.triple(), (600_000, 400_000, 0));
+}
+
+/// The payee's own claim may go to any token account of the mint that the
+/// payee owns, so a recipient frozen after the lock does not stop it. The
+/// payer's release still pays only the recorded recipient.
+#[test]
+fn payee_claims_to_another_account_it_owns_when_the_recorded_one_is_frozen() {
+    let mut f = Fixture::new();
+    f.lock();
+    let payee = f.payee.insecure_clone();
+    let other = f.new_token_account(payee.pubkey());
+    f.set_frozen(f.recipient, true);
+    let created = f.state().created_slot;
+    f.svm.warp_to_slot(created + CLAIM_WINDOW_SLOTS);
+
+    // The recorded recipient cannot be paid by anyone.
+    let payer = f.payer.insecure_clone();
+    let ix = f.release_ix();
+    assert!(send(&mut f.svm, &[ix], &[&payer]).is_err());
+    let ix = f.payout_ix(payee.pubkey());
+    assert!(send(&mut f.svm, &[ix], &[&payee]).is_err());
+    // The payer cannot choose another account for the payee.
+    let mut ix = f.release_ix();
+    ix.accounts[5].pubkey = other;
+    let err = f.reject(ix, false);
+    assert!(err.contains("Custom(6023)"), "{err}");
+    // The payee cannot name the treasury's, the payer's or the vault's account.
+    for wrong in [f.treasury_token, f.source, f.vault] {
+        let mut ix = f.payout_ix(payee.pubkey());
+        ix.accounts[5].pubkey = wrong;
+        assert!(send(&mut f.svm, &[ix], &[&payee]).is_err());
+    }
+    assert_eq!(f.state().status, EscrowStatus::Locked);
+
+    let rent_held = f.lamports(f.escrow) + f.lamports(f.vault);
+    let payer_before = f.lamports(f.payer.pubkey());
+    let mut ix = f.payout_ix(payee.pubkey());
+    ix.accounts[5].pubkey = other;
+    send(&mut f.svm, &[ix], &[&payee]).unwrap();
+    assert_eq!(f.triple(), (600_000, 0, 0));
+    assert_eq!(f.balance(other), 390_000);
+    assert_eq!(f.balance(f.treasury_token), 10_000);
+    assert!(f.closed(f.escrow) && f.closed(f.vault));
+    assert_eq!(f.lamports(f.payer.pubkey()), payer_before + rent_held);
+}
+
+/// The same holds when the payee settles a metered escrow: it is paid at
+/// another account it owns, the fee and the refund go where they always do.
+#[test]
+fn payee_settles_to_another_account_it_owns() {
+    let mut f = Fixture::new();
+    let ix = f.metered_lock_ix(400_000);
+    send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
+    let payee = f.payee.insecure_clone();
+    let other = f.new_token_account(payee.pubkey());
+    // The recorded recipient was closed after the lock.
+    let close = token_ix::close_account(
+        &spl_token::ID,
+        &f.recipient,
+        &payee.pubkey(),
+        &payee.pubkey(),
+        &[],
+    )
+    .unwrap();
+    send(&mut f.svm, &[close], &[&payee]).unwrap();
+
+    let mut ix = f.settle_ix(payee.pubkey(), 123_457);
+    ix.accounts[5].pubkey = f.attacker_token;
+    assert!(send(&mut f.svm, &[ix], &[&payee]).is_err());
+
+    let mut ix = f.settle_ix(payee.pubkey(), 123_457);
+    ix.accounts[5].pubkey = other;
+    send(&mut f.svm, &[ix], &[&payee]).unwrap();
+    assert_eq!(f.balance(other), 123_457 - 3_086);
+    assert_eq!(f.balance(f.treasury_token), 3_086);
+    assert_eq!(f.balance(f.source), 1_000_000 - 123_457);
+    assert!(f.closed(f.escrow) && f.closed(f.vault));
 }

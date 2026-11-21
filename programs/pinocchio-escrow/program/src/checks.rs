@@ -95,7 +95,7 @@ pub fn create_pda(
     owner: &Address,
     signer: &Signer,
 ) -> ProgramResult {
-    let rent = Rent::get()?.try_minimum_balance(space)?;
+    let rent = rent_exempt_minimum(space)?;
     let signers = core::slice::from_ref(signer);
     let held = account.lamports();
     if held == 0 {
@@ -117,6 +117,12 @@ pub fn create_pda(
     }
     .invoke_signed(signers)?;
     Assign { account, owner }.invoke_signed(signers)
+}
+
+/// The balance an account holding `space` bytes needs to be rent-exempt.
+#[inline(never)]
+pub fn rent_exempt_minimum(space: usize) -> Result<u64, ProgramError> {
+    Rent::get()?.try_minimum_balance(space)
 }
 
 /// System transfer out of a wallet that signed the transaction.

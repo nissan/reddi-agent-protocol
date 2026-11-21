@@ -106,6 +106,17 @@ test('strict raw u64, classic program and nonce boundaries; settlement selects r
   const claim = buildSettleTokenEscrowInstruction(f.t, false, f.t.payee);
   expect(claim.keys[2].pubkey.equals(f.t.payee)).toBe(true);
   expect(claim.keys[5].pubkey.equals(f.t.recipient)).toBe(true);
+  // The payee may be paid at another of its own token accounts; the payer cannot choose one for it.
+  const other = pk();
+  expect(buildSettleTokenEscrowInstruction(f.t, false, f.t.payee, { payTo: other }).keys[5].pubkey.equals(other)).toBe(true);
+  expect(buildSettleTokenEscrowInstruction(f.t, false, f.t.payee, { actual: 5n, payTo: other }).keys[5].pubkey.equals(other)).toBe(true);
+  expect(() => buildSettleTokenEscrowInstruction(f.t, false, f.t.payer, { payTo: other })).toThrow('only the payee chooses');
+  expect(() => buildSettleTokenEscrowInstruction(f.t, true, f.t.payee, { payTo: other })).toThrow('goes to the payer');
+  // The mint is read-only unless withheld fees are to be harvested, on a payout or a refund.
+  expect(release.keys[4]).toMatchObject({ isWritable: false, isSigner: false });
+  expect(buildSettleTokenEscrowInstruction(f.t, false, f.t.payer, { harvestWithheldFees: true }).keys[4]).toMatchObject({ pubkey: f.t.mint, isWritable: true });
+  expect(buildSettleTokenEscrowInstruction(f.t, true, f.t.payee, { harvestWithheldFees: true }).keys[4]).toMatchObject({ pubkey: f.t.mint, isWritable: true });
+  expect(buildSettleTokenEscrowInstruction(f.t, true, f.t.payee).keys[4].isWritable).toBe(false);
   const refund = buildSettleTokenEscrowInstruction(f.t, true);
   expect(refund.keys).toHaveLength(7);
   expect(refund.keys[2]).toMatchObject({ isSigner: true, isWritable: false });

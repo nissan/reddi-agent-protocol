@@ -66,17 +66,31 @@ export declare function buildLockTokenEscrowInstruction(t: TokenEscrowTerms): Tr
 export interface SettleTokenEscrowOptions {
     /**
      * Settle at this actual cost (at most the locked amount) instead of the
-     * whole locked amount. The payee may do this at any time on a metered escrow;
-     * the payer may on any escrow.
+     * whole locked amount. Only the payee may, and only on a metered escrow.
      */
     actual?: bigint;
+    /**
+     * Pay the payee at this token account instead of the recipient recorded at
+     * lock. Only when the payee itself is the authority (claim or settle), and it
+     * must be a token account of the escrow mint that the payee owns. For a
+     * recorded recipient that was since closed or frozen.
+     */
+    payTo?: PublicKey;
+    /**
+     * Pass the mint writable, so that transfer fees withheld on a Token-2022
+     * vault are moved to the mint and the vault can close, returning its rent to
+     * the payer. Leave it off otherwise: a writable mint makes every such
+     * transaction contend for the same account. Applies to refunds too.
+     */
+    harvestWithheldFees?: boolean;
     /** Treasury token account. The program accepts only the treasury's associated token account for the mint. */
     treasuryToken?: PublicKey;
     /** Where the unused part returns: any token account of the mint the payer owns. Defaults to the recorded source. */
     refundTo?: PublicKey;
 }
 /**
- * Destination is always taken from the original lock terms. `authority` signs and defaults to the payer.
+ * `authority` signs and defaults to the payer. The destination is the recipient in the lock terms, unless the
+ * payee is the authority and names another of its own token accounts (`options.payTo`).
  * Release: the program accepts the payer at any time, or the payee once the claim window has elapsed.
  * Settle (`options.actual`): only the payee, and only on a metered escrow; pass the payee as `authority`.
  * The payer never chooses a smaller amount: it releases in full, or refunds once the cancel window has elapsed.

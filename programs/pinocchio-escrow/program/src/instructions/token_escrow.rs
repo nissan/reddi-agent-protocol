@@ -110,13 +110,17 @@ pub fn lock(
     require(
         &source_before.mint == mint.address()
             && &source_before.owner == payer.address()
-            && source.owned_by(token_program_id),
+            && source.owned_by(token_program_id)
+            && !source_before.frozen,
         &InvalidTokenAccount,
     )?;
+    // A frozen recipient could not be paid, so the lock is refused while the
+    // payer still holds the tokens.
     require(
         &recipient_account.mint == mint.address()
             && &recipient_account.owner == payee.address()
-            && recipient.owned_by(token_program_id),
+            && recipient.owned_by(token_program_id)
+            && !recipient_account.frozen,
         &InvalidTokenAccount,
     )?;
     require(recipient.address() != vault.address(), &InvalidTokenAccount)?;
@@ -332,7 +336,9 @@ impl<'a> Open<'a> {
     /// Classic SPL Token: every destination must receive exactly what is sent.
     /// Token-2022: the issuer can switch on a transfer fee, so a destination
     /// may receive less than was sent, and fees withheld on the vault leave it
-    /// open instead of failing the settlement.
+    /// open instead of failing the settlement, unless the caller passed the
+    /// mint writable: then the withheld fees are first harvested to the mint,
+    /// which lets the vault close and its rent return to the payer.
     fn drain<const N: usize>(
         self,
         sends: [(&AccountView, u64, u64); N],
@@ -370,8 +376,12 @@ impl<'a> Open<'a> {
                 &InvalidTokenAmount,
             )?;
         }
-        let vault_after = TokenAccount::read(self.vault)?;
+        let mut vault_after = TokenAccount::read(self.vault)?;
         require(vault_after.amount == 0, &InvalidTokenAmount)?;
+        if vault_after.withheld_fees != 0 && self.mint.is_writable() {
+            token::harvest_withheld_fees(self.token_program, self.mint, self.vault)?;
+            vault_after = TokenAccount::read(self.vault)?;
+        }
         if vault_after.withheld_fees == 0 {
             token::close_account(
                 self.token_program,
@@ -389,10 +399,15 @@ impl<'a> Open<'a> {
 /// `release_token_escrow` (`actual` is `None`) and `settle_token_escrow`.
 ///
 /// Accounts: `[w] escrow`, `[w] vault`, `[s] authority`, `[w] payer`,
-/// `[] mint`, `[w] destination` (the recipient recorded at lock),
-/// `[w] treasury_token` (the treasury's associated token account for the
-/// mint), `[w] refund` (any token account of the mint the payer owns),
-/// `[] token_program`.
+/// `[] mint`, `[w] destination`, `[w] treasury_token` (the treasury's
+/// associated token account for the mint), `[w] refund` (any token account of
+/// the mint the payer owns), `[] token_program`.
+///
+/// The destination is a token account of the mint that the payee owns. When
+/// the payer releases it must be the recipient recorded at lock. When the
+/// payee itself claims or settles it may be any such account, so a recorded
+/// recipient that was since closed or frozen cannot keep the payee from its
+/// money. The mint may be passed writable; see `Open::drain`.
 ///
 /// The rules for who may release, claim or settle are the SOL escrow's. The
 /// vault is split: the paid amount less the fee to the recipient, the fee to
@@ -450,8 +465,9 @@ pub fn pay_out(
         }
     };
 
+    // The payer cannot redirect the payee's money; the payee can.
     require(
-        destination.address() == &record.recipient,
+        authority.address() == &record.payee || destination.address() == &record.recipient,
         &InvalidTokenAccount,
     )?;
     require(
@@ -519,7 +535,8 @@ pub fn pay_out(
 /// `cancel_token_escrow`: refund the payer the whole vault and close it.
 ///
 /// Accounts: `[w] escrow`, `[w] vault`, `[s] authority`, `[w] payer`,
-/// `[] mint`, `[w] destination`, `[] token_program`.
+/// `[] mint`, `[w] destination`, `[] token_program`. The mint may be passed
+/// writable; see `Open::drain`.
 ///
 /// The payee may decline at any time; the payer may refund itself after the
 /// cancel window. A payee's decline goes to the source token account recorded

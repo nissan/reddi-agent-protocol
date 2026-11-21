@@ -109,10 +109,23 @@ export function buildLockTokenEscrowInstruction(t: TokenEscrowTerms): Transactio
 export interface SettleTokenEscrowOptions {
   /**
    * Settle at this actual cost (at most the locked amount) instead of the
-   * whole locked amount. The payee may do this at any time on a metered escrow;
-   * the payer may on any escrow.
+   * whole locked amount. Only the payee may, and only on a metered escrow.
    */
   actual?: bigint;
+  /**
+   * Pay the payee at this token account instead of the recipient recorded at
+   * lock. Only when the payee itself is the authority (claim or settle), and it
+   * must be a token account of the escrow mint that the payee owns. For a
+   * recorded recipient that was since closed or frozen.
+   */
+  payTo?: PublicKey;
+  /**
+   * Pass the mint writable, so that transfer fees withheld on a Token-2022
+   * vault are moved to the mint and the vault can close, returning its rent to
+   * the payer. Leave it off otherwise: a writable mint makes every such
+   * transaction contend for the same account. Applies to refunds too.
+   */
+  harvestWithheldFees?: boolean;
   /** Treasury token account. The program accepts only the treasury's associated token account for the mint. */
   treasuryToken?: PublicKey;
   /** Where the unused part returns: any token account of the mint the payer owns. Defaults to the recorded source. */
@@ -120,7 +133,8 @@ export interface SettleTokenEscrowOptions {
 }
 
 /**
- * Destination is always taken from the original lock terms. `authority` signs and defaults to the payer.
+ * `authority` signs and defaults to the payer. The destination is the recipient in the lock terms, unless the
+ * payee is the authority and names another of its own token accounts (`options.payTo`).
  * Release: the program accepts the payer at any time, or the payee once the claim window has elapsed.
  * Settle (`options.actual`): only the payee, and only on a metered escrow; pass the payee as `authority`.
  * The payer never chooses a smaller amount: it releases in full, or refunds once the cancel window has elapsed.
@@ -130,13 +144,16 @@ export interface SettleTokenEscrowOptions {
 export function buildSettleTokenEscrowInstruction(t: TokenEscrowTerms, refund = false, authority: PublicKey = t.payer, options: SettleTokenEscrowOptions = {}): TransactionInstruction {
   buildLockTokenEscrowInstruction(t);
   const { escrow, vault } = tokenEscrowAddresses(t);
+  const harvest = options.harvestWithheldFees === true;
   if (refund) {
     if (options.actual !== undefined) throw new Error('a refund has no settled amount');
+    if (options.payTo) throw new Error('a refund goes to the payer');
     return new TransactionInstruction({ programId: t.programId,
       data: disc('global', 'cancel_token_escrow'),
-      keys: [meta(escrow, true), meta(vault, true), meta(authority, false, true), meta(t.payer, true), meta(t.mint),
+      keys: [meta(escrow, true), meta(vault, true), meta(authority, false, true), meta(t.payer, true), meta(t.mint, harvest),
         meta(t.source, true), meta(t.tokenProgram)] });
   }
+  if (options.payTo && !authority.equals(t.payee)) throw new Error('only the payee chooses another payout account: pass the payee as the authority');
   let data = disc('global', 'release_token_escrow');
   if (options.actual !== undefined) {
     if (!authority.equals(t.payee)) throw new Error('only the payee settles: pass the payee as the authority');
@@ -145,8 +162,8 @@ export function buildSettleTokenEscrowInstruction(t: TokenEscrowTerms, refund = 
     data = Buffer.concat([disc('global', 'settle_token_escrow'), actual]);
   }
   return new TransactionInstruction({ programId: t.programId, data,
-    keys: [meta(escrow, true), meta(vault, true), meta(authority, false, true), meta(t.payer, true), meta(t.mint),
-      meta(t.recipient, true), meta(options.treasuryToken ?? treasuryTokenAccount(t), true), meta(options.refundTo ?? t.source, true),
+    keys: [meta(escrow, true), meta(vault, true), meta(authority, false, true), meta(t.payer, true), meta(t.mint, harvest),
+      meta(options.payTo ?? t.recipient, true), meta(options.treasuryToken ?? treasuryTokenAccount(t), true), meta(options.refundTo ?? t.source, true),
       meta(t.tokenProgram)] });
 }
 /** Size of a token escrow account locked before windows were stored on it (fixed 3-day refund, 7-day claim). */
