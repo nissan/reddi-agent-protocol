@@ -1,10 +1,13 @@
 name: V1 program tests (Pinocchio)
 
-# Builds the V1 on-chain program (programs/pinocchio-escrow) and checks it
-# against the archived Anchor program (archive/anchor-escrow), which is kept as
-# the behavioural reference: the Anchor program's own tests run unchanged
-# against the Pinocchio binary, and a side-by-side suite replays the same
-# transactions on both builds.
+# Builds the V1 on-chain program (programs/pinocchio-escrow), one build with no
+# feature flags, and tests it three ways. For the 13 escrow and registry
+# instructions it is checked against the archived Anchor program
+# (archive/anchor-escrow), which is kept as their behavioural reference: the
+# Anchor program's own tests run unchanged against the Pinocchio binary, and a
+# side-by-side suite replays the same transactions on both builds. The rating
+# and attestation instructions, which the Anchor program does not have in this
+# form, are tested by the program's own tests against the Pinocchio binary.
 #
 # Nothing here deploys, creates keys or signs anything. The container
 # (verifiable) build is in escrow-verifiable-build.yml.
@@ -74,15 +77,18 @@ jobs:
         run: |
           cargo fmt --check
           cargo clippy --all-targets -- -D warnings
-          cargo clippy --all-targets --features extended -- -D warnings
+          cargo clippy --all-targets --features per -- -D warnings
+          cd equivalence
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
 
       - name: Unit tests
         working-directory: programs/pinocchio-escrow
         run: |
           cargo test -p pinocchio-escrow
-          cargo test -p pinocchio-escrow --features extended
+          cargo test -p pinocchio-escrow --features per
 
-      - name: Anchor tests and side-by-side suite against the Pinocchio binary
+      - name: Anchor tests, side-by-side suite and the program's own tests against the Pinocchio binary
         working-directory: programs/pinocchio-escrow/equivalence
         run: cargo test -- --nocapture
 
@@ -100,30 +106,31 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           ls -l "$anchor" "$pinocchio"
 
-      # Rating, attestation and PER are not part of the V1 build. They are
-      # built and tested behind the `extended` feature on both programs. These
-      # steps overwrite both binaries, so they run last.
-      - name: Build both programs with the extended feature
+      # PER tracking is not part of the V1 build. It is built and tested behind
+      # the `per` feature, against the Anchor reference built with its
+      # `extended` feature. These steps overwrite both binaries, so they run
+      # last.
+      - name: Build the per variant, and the Anchor reference with the extended feature
         run: |
           cargo build-sbf --manifest-path archive/anchor-escrow/Cargo.toml --features extended
           cd programs/pinocchio-escrow
-          cargo build-sbf --manifest-path program/Cargo.toml --sbf-out-dir target/deploy --features extended
+          cargo build-sbf --manifest-path program/Cargo.toml --sbf-out-dir target/deploy --features per
           rm -f target/deploy/*-keypair.json ../../target/deploy/*-keypair.json
 
-      - name: Anchor tests and side-by-side suite, extended build
+      - name: All tests again, and the PER tests, per build
         working-directory: programs/pinocchio-escrow/equivalence
-        run: cargo test --features extended -- --nocapture
+        run: cargo test --features per -- --nocapture
 
-      - name: Record extended sizes
+      - name: Record per sizes
         run: |
           anchor=target/deploy/escrow.so
           pinocchio=programs/pinocchio-escrow/target/deploy/pinocchio_escrow.so
           {
-            echo "### Program size, extended build"
+            echo "### Program size, per build (not for mainnet)"
             echo ""
             echo "| Build | Bytes |"
             echo "|---|---|"
             echo "| Anchor (extended) | $(stat -c %s "$anchor") |"
-            echo "| Pinocchio (extended) | $(stat -c %s "$pinocchio") |"
+            echo "| Pinocchio (per) | $(stat -c %s "$pinocchio") |"
           } >> "$GITHUB_STEP_SUMMARY"
           ls -l "$anchor" "$pinocchio"
