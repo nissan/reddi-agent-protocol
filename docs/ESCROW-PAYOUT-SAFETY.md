@@ -69,9 +69,11 @@ explains ratings; this section is only about what changes for a payout.
 - **No exit in the opening slot.** A rated escrow cannot end in the slot its
   rating was opened in (`RatingJustOpened`, 6050): lock and `open_rating` go in
   one transaction, and any release, settle or decline in a later one. The
-  rating account's `opened_slot` names the job; an `accept_rating` naming
-  another slot is refused (6051), so a seller's acceptance of one job cannot
-  be used for a later job at the same escrow address.
+  rating account's `opened_slot` names the job. Every exit of a rated escrow
+  carries it after its data, and an exit, `accept_rating`, `commit_rating`,
+  attestation or decision on an attestation naming another slot is refused
+  (6051), so what was signed for one job, a seller's settle or claim
+  included, cannot be used for a later job at the same escrow address.
 - **Rent.** The buyer pays about 0.00277 SOL of rent for the rating account on
   top of the lock. It returns in the cases above, or when the buyer closes a
   finished rating.

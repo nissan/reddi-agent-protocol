@@ -40,6 +40,7 @@ test("the plan lists the rated lane in order, with a judge", () => {
     "send job1.lock-and-open-rating",
     "refuse job1.settle-without-rating-account",
     "refuse job1.commit-before-paid",
+    "refuse job1.settle-stale-slot",
     "send job1.settle",
     "send job1.commit-consumer",
     "refuse job1.reveal-before-both-committed",
@@ -81,6 +82,7 @@ test("each refused case names the exact program error", () => {
   const expected = {
     "job1.settle-without-rating-account": 6033,
     "job1.commit-before-paid": 6039,
+    "job1.settle-stale-slot": 6051,
     "job1.reveal-before-both-committed": 6011,
     "job1.attest-by-payee": 6000,
     "job1.attest-stale-slot": 6051,
@@ -171,11 +173,12 @@ test("every instruction matches the interface vectors: selector, account count, 
       if (!vector) continue;
       const what = `${s.id} ${ix.name}`;
       // The vectors show the exits of a rated escrow. The two exits sent without the rating account on purpose
-      // (the 6033 refusal and the decline of the unrated escrow) are one account shorter.
+      // (the 6033 refusal and the decline of the unrated escrow) are one account shorter, and carry no opened slot
+      // (8 bytes fewer).
       const unrated = s.id === "job1.settle-without-rating-account" || s.id === "unrated.decline";
       const accounts = unrated ? vector.accounts.slice(0, -1) : vector.accounts;
       assert.equal(ix.dataHex.slice(0, 16), vector.selector_hex, `${what}: selector`);
-      assert.equal(ix.dataHex.length, vector.data_hex.length, `${what}: data length`);
+      assert.equal(ix.dataHex.length, vector.data_hex.length - (unrated ? 16 : 0), `${what}: data length`);
       assert.equal(ix.accounts.length, accounts.length, `${what}: account count`);
       ix.accounts.forEach((account, i) => {
         assert.equal(account.writable, accounts[i].writable, `${what}: account ${i} (${accounts[i].name}) writable`);
@@ -236,7 +239,8 @@ test("commitments are sha256(rating, opened slot, signer, score, salt) and the r
     const rating = new PublicKey(commit.accounts[0].address);
     const slot = Buffer.from(u64le(openedSlots.job1), "hex");
     const expected = createHash("sha256").update(Buffer.concat([rating.toBuffer(), slot, signer.toBuffer(), Buffer.from([score]), salt])).digest("hex");
-    assert.equal(commit.dataHex, selector("commit_rating") + expected);
+    // The commitment, then the job it is for: the same opened slot.
+    assert.equal(commit.dataHex, selector("commit_rating") + expected + u64le(openedSlots.job1));
     assert.deepEqual(step(commitId, known).openedSlotOf, ["job1"]);
     assert.equal(rating.toBase58(), plan.escrows.job1.rating);
     // Agent addresses: the specialist's, then the consumer's.
@@ -263,7 +267,7 @@ test("the attestation is of job 1, by the judge, at the address derived from the
   assert.ok(order.indexOf("job1.close-attestation") < order.indexOf("job1.close-rating"));
 });
 
-test("acceptance, commitments and attestations name the job by the opened slot read from the chain", () => {
+test("rated exits, acceptance, commitments and attestations name the job by the opened slot read from the chain", () => {
   // Until the slots are read, the plan says so and builds with slot 0.
   assert.deepEqual(plan.openedSlots, { job1: null, job2: null, decline: null, unaccepted: null });
   assert.match(plan.openedSlotNote, /opened_slot/);
@@ -272,11 +276,27 @@ test("acceptance, commitments and attestations name the job by the opened slot r
   // Every step that names a job, and which job.
   const named = Object.fromEntries(known.steps.filter((s) => s.openedSlotOf).map((s) => [s.id, s.openedSlotOf]));
   assert.deepEqual(named, {
-    "job1.commit-before-paid": ["job1"], "job1.commit-consumer": ["job1"], "job1.commit-specialist": ["job1"],
+    "job1.commit-before-paid": ["job1"], "job1.settle-stale-slot": ["job1"], "job1.settle": ["job1"],
+    "job1.commit-consumer": ["job1"], "job1.commit-specialist": ["job1"],
     "job1.attest-by-payee": ["job1"], "job1.attest-stale-slot": ["job1"], "job1.attest": ["job1"], "job1.attest-again": ["job1"],
+    "job1.confirm-attestation": ["job1"], "job1.dispute-after-confirm": ["job1"],
     "job2.accept-rating-stale-slot": ["job2"], "job2.accept-rating": ["job2"], "job2.accept-rating-again": ["job2"],
-    "job2.attest-by-unnamed-judge": ["job2"], "job2.commit-consumer": ["job2"], "unaccepted.commit-after-unrated-close": ["unaccepted"],
+    "job2.release": ["job2"], "job2.attest-by-unnamed-judge": ["job2"], "job2.commit-consumer": ["job2"],
+    "decline.cancel": ["decline"], "unaccepted.release": ["unaccepted"], "unaccepted.commit-after-unrated-close": ["unaccepted"],
   });
+  // Every rated exit names its job after its own data: the selector (and `actual` for a settle), then the slot.
+  const settleData = selector("settle_escrow") + u64le(lane.RATED_AMOUNTS.solMeteredActual);
+  assert.equal(step("job1.settle", known).instructions[0].dataHex, settleData + u64le(openedSlots.job1));
+  // A held settle signed for another job at this address names another slot: refused (6051) before any money moves.
+  assert.equal(step("job1.settle-stale-slot", known).instructions[0].dataHex, settleData + u64le(openedSlots.job1 - 1n));
+  assert.equal(step("job1.settle-without-rating-account", known).instructions[0].dataHex, settleData);
+  assert.equal(step("job2.release", known).instructions[0].dataHex, selector("release_token_escrow") + u64le(openedSlots.job2));
+  assert.equal(step("decline.cancel", known).instructions[0].dataHex, selector("cancel_escrow") + u64le(openedSlots.decline));
+  assert.equal(step("unaccepted.release", known).instructions[0].dataHex, selector("release_escrow") + u64le(openedSlots.unaccepted));
+  assert.equal(step("unrated.decline", known).instructions[0].dataHex, selector("cancel_escrow"));
+  // The buyer's decisions on the attestation name the opened slot the attestation stores.
+  assert.equal(step("job1.confirm-attestation", known).instructions[0].dataHex, selector("confirm_attestation") + u64le(openedSlots.job1));
+  assert.equal(step("job1.dispute-after-confirm", known).instructions[0].dataHex, selector("dispute_attestation") + u64le(openedSlots.job1));
   // accept_rating: the selector, then the job's opened slot; the stale one names the slot before it.
   const accept = step("job2.accept-rating", known).instructions[0];
   assert.equal(accept.dataHex, selector("accept_rating") + u64le(openedSlots.job2));

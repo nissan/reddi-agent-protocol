@@ -74,13 +74,13 @@ Until then only the plan and its unit test have run.
 | `finish-rated` | yes | After job 2's commit deadline: `expire_rating`, then the buyer's `close_rating`. Before the deadline it simulates the expiry, shows it is refused (`NotExpired`, 6014), prints the slots left and an estimated date, and sends nothing. |
 
 What `run-rated` does. After each lock it reads the rating account and records its `opened_slot` (it
-must be the slot of the lock transaction). Every `accept_rating`, commitment and `attest_quality` it sends
-names the job by that slot, and no exit of a rated escrow is sent until the chain is past it: no exit ever
+must be the slot of the lock transaction). Every rated exit, `accept_rating`, `commit_rating` and
+commitment, `attest_quality` and `confirm_attestation` it sends names the job by that slot, and no exit of a rated escrow is sent until the chain is past it: no exit ever
 shares a transaction with `open_rating`. `plan-rated` shows those instructions with slot 0, and lists under
 `openedSlotOf` the job each one names.
 
 1. **Job 1, SOL, metered.** Lock of a 0.02 SOL maximum and `open_rating` (naming the judge, when there is
-   one) in one transaction. The payee settles 0.008 SOL with the rating account. Both sides commit, both
+   one) in one transaction. The payee settles 0.008 SOL with the rating account and the job's opened slot. Both sides commit, both
    reveal (the buyer scores 9, the seller 8). The script checks the rating account at each stage, the 2.5%
    fee to the treasury, and both agent records. Then the attestation (part 3), and last the buyer's
    `close_rating`, with the rating account's whole balance back to the buyer. The close comes after the
@@ -110,6 +110,7 @@ shares a transaction with `open_rating`. `plan-rated` shows those instructions w
    | `delegate_escrow` and `release_escrow_per` (PER is not in V1) | 101 `InstructionFallbackNotFound` |
    | Reveal before both committed | 6011 `BothMustCommitFirst` |
    | `accept_rating` a second time | 6046 `RatingAlreadyAccepted` |
+   | The payee's settle of job 1 naming another opened slot (as a settle held back from an earlier job at the address would) | 6051 `RatingJobMismatch` |
    | `accept_rating` naming another opened slot (as one signed for an earlier job at the address would) | 6051 `RatingJobMismatch` |
    | `attest_quality` of job 1 naming another opened slot (with a judge) | 6051 `RatingJobMismatch` |
    | Lock, `open_rating` and the payer's release in one transaction (a separate escrow that never lands) | 6050 `RatingJustOpened` |

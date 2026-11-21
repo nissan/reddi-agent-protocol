@@ -77,7 +77,7 @@ A payout fails if the treasury cannot receive it:
    escrow in to rating at lock. Providers refuse such an escrow before serving
    unless the operator sets `acceptRatedEscrows`. One that accepts them must
    pass the rating account on every exit of that escrow (settle, claim,
-   decline), and has agreed to commit and reveal a rating of the buyer within
+   decline), name the job by the rating's opened slot read with the lock, and has agreed to commit and reveal a rating of the buyer within
    about 7 days each (`docs/RATINGS-AND-ATTESTATIONS.md`).
 
 ## 6. Verify (by 3 December)
@@ -86,7 +86,7 @@ A payout fails if the treasury cannot receive it:
    provider, treasury and refund amounts on chain against the receipt.
 2. If rated escrows are opened to buyers at launch: one small rated call,
    settled by a provider that accepts them, with the rating account as the
-   extra account, in a later transaction than the lock and `open_rating`
+   extra account and the rating's opened slot after the settle's data, in a later transaction than the lock and `open_rating`
    (an exit in the opening slot is refused, 6050). Check that the same amounts moved as for an unrated call,
    and that the rating account exists afterwards. The full rated lane
    (commit, reveal, expiry, attestation) is exercised on devnet by

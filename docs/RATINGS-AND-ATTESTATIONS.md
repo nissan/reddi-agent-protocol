@@ -57,9 +57,15 @@ nonce for the same seller gets the same escrow and rating addresses for a new
 job (once the earlier rating account is closed). The program tells such jobs
 apart by `opened_slot` on the rating account, the slot of `open_rating`:
 
-- `accept_rating`, both commitments and `attest_quality` name the job by its
-  `opened_slot`. What a seller, a party or a judge signed for one job is
-  refused for a later job at the same address (`RatingJobMismatch`, 6051).
+- Every exit of a rated escrow (release, claim, settle, refund, decline),
+  `accept_rating`, `commit_rating` and the commitment hashed into it,
+  `attest_quality`, and the buyer's `confirm_attestation` or
+  `dispute_attestation` name the job by its `opened_slot`. What a seller, a
+  buyer, a party or a judge signed for one job is refused for a later job at
+  the same address (`RatingJobMismatch`, 6051), before any money moves or
+  anything is stored. That includes a seller's settle or claim held back and
+  sent after its job ended: it cannot pay or open the job that took the
+  address.
 - A rated escrow cannot end in the slot its rating was opened in
   (`RatingJustOpened`, 6050). Lock and `open_rating` in one transaction is
   fine; lock, `open_rating` and a release, settle or decline in one
@@ -111,11 +117,17 @@ signed for an earlier job at the same address is refused by the program
 A seller that does not want a rated job declines it (cancel as the payee),
 which returns everything to the buyer and closes the rating account.
 
-**Every exit of a rated escrow takes the rating account**, writable, right
-after the instruction's usual accounts: release, claim, settle, refund and
-decline, in SOL and in tokens. Without it the program refuses the exit
-(`RatingAccountRequired`, error 6033). `withRatingAccount` in
-`@reddi/x402-solana/rating` adds it. A rated escrow has bit `0x02` set in its
+**Every exit of a rated escrow takes the rating account and names the job**:
+the rating account, writable, right after the instruction's usual accounts,
+and the rating's `opened_slot` (8 bytes, little-endian) after the
+instruction's own data: release, claim, settle, refund and decline, in SOL and
+in tokens. Without the account the program refuses the exit
+(`RatingAccountRequired`, error 6033); without the slot, or with another
+job's, `RatingJobMismatch` (6051). `withRatingAccount` in
+`@reddi/x402-solana/rating` adds both, and requires the slot for a rated exit.
+Read the slot when the job is agreed or verified and keep it with the job: a
+slot read again just before the exit would name whichever job holds the
+address by then. An exit of an escrow that is not rated is unchanged. A rated escrow has bit `0x02` set in its
 flag byte; a rated metered escrow stores 3 there, so test the bits.
 
 What agreeing commits the seller to: it must commit and reveal its own score
@@ -130,7 +142,8 @@ doing any work (`rated_escrow_declined`) unless the operator set
 `acceptRatedEscrows: true`. Nothing is served and nothing is settled; the buyer
 locks a new escrow without rating and refunds the first one when its refund
 window opens. A provider that accepts rated jobs passes the rating account on
-its settle and decline, and has taken on the duty to commit and reveal.
+its settle and decline, with the `opened_slot` it read along with the lock,
+and has taken on the duty to commit and reveal.
 
 ## Advice for buyers on fixed-price jobs
 
@@ -149,7 +162,9 @@ about 7 days; real slot times drift, so the dates are approximate.
 1. **Commit.** Within 1,512,000 slots of the paid exit, each side sends
    `commit_rating` with
    `sha256(rating address ‖ opened_slot (u64, little-endian) ‖ its own address ‖ score byte ‖ 32-byte salt)`,
-   where `opened_slot` is read from the rating account. The score is 1 to 10.
+   followed by the same `opened_slot`, read from the rating account. A
+   commitment sent for another job is refused before it is stored (6051), so
+   it cannot take this job's place. The score is 1 to 10.
    Keep the score and the salt: the reveal needs both. Use a fresh random
    salt for every rating. Because the rating address, its opening slot and
    the signer are in the hash, a commitment copied from the other side, from
@@ -188,9 +203,12 @@ address are refused (6051).
   and its record must be active.
 - A job is attested at most once, and the attestation must be made before the
   buyer closes the rating account.
-- The judge pays the rent of the attestation account: 1,719,120 lamports,
-  about 0.00172 SOL, returned when it is closed.
-- Only the buyer of that job resolves the attestation, once. Confirming
+- The judge pays the rent of the attestation account (127 bytes): 1,774,800
+  lamports, about 0.00177 SOL, returned when it is closed. The attestation
+  stores the job's `opened_slot`.
+- Only the buyer of that job resolves the attestation, once, naming the job
+  by the `opened_slot` the attestation stores; a decision prepared for an
+  earlier job's attestation at the same address is refused (6051). Confirming
   (`confirm_attestation`) raises the judge's attestation accuracy by 10.00 and
   folds a top score into its reputation. Disputing (`dispute_attestation`)
   takes 5.00 points from the judge. The judge has no appeal.

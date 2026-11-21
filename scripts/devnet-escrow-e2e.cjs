@@ -30,11 +30,12 @@
  *                 declines, and one the payer releases without the seller's agreement. Refused cases are
  *                 simulated and must fail with the exact program error number.
  *                 Each job is named by its rating's `opened_slot` (the slot of `open_rating`), read from the rating
- *                 account after the lock: `accept_rating` (built with `buildSellerAcceptRating`, which checks the
- *                 job against what the seller expects), the commitments and `attest_quality` carry it. No exit is
+ *                 account after the lock: every exit of a rated escrow, `accept_rating` (built with
+ *                 `buildSellerAcceptRating`, which checks the job against what the seller expects), `commit_rating`
+ *                 and the commitments, `attest_quality` and the buyer's `confirm_attestation` carry it. No exit is
  *                 ever in the transaction of `open_rating`: each is sent once the chain is past the opened slot.
- *                 An acceptance or attestation naming another slot is refused (6051), and lock, `open_rating` and
- *                 release in one transaction is refused (6050); both are simulated only.
+ *                 A held seller settle, an acceptance or an attestation naming another slot is refused (6051), and
+ *                 lock, `open_rating` and release in one transaction is refused (6050); all are simulated only.
  *   finish-rated  After job 2's commit deadline (1,512,000 slots after its release, about 7 days): `expire_rating`,
  *                 then the buyer's `close_rating`. Before the deadline it shows the refusal and the slots left.
  * RAP_E2E_JUDGE_KEYPAIR (optional, a third wallet) is the judge. Without it no judge is named and the attestation
@@ -647,11 +648,14 @@ function ratedLane({ payer, payee, judge, runId, openedSlots = {} }) {
   // The opened slot of a job, as far as the lane knows it. Each use is recorded on the step it builds.
   let namesJob = new Set();
   const slot = name => { namesJob.add(name); return openedSlots[name] ?? 0n; };
-  // A slot that is not the job's: what an acceptance or attestation signed for an earlier job at the address names.
+  // A slot that is not the job's: what an exit, acceptance or attestation signed for an earlier job at the address names.
   const staleSlot = name => { const s = slot(name); return s > 0n ? s - 1n : 1n; };
   // `job` is the job whose opened slot the commitment hashes; null for an escrow that was never opted in (slot 0).
-  const commit = (escrow, role, score, label, job = label) => rating.buildCommitRatingInstruction({ ...of(escrow), signer: who[role],
-    commitment: rating.ratingCommitment(ratingOf(escrow), job ? slot(job) : 0n, who[role], score, saltFor(runId, label, role)) });
+  const commit = (escrow, role, score, label, job = label) => {
+    const openedSlot = job ? slot(job) : 0n;
+    return rating.buildCommitRatingInstruction({ ...of(escrow), signer: who[role], openedSlot,
+      commitment: rating.ratingCommitment(ratingOf(escrow), openedSlot, who[role], score, saltFor(runId, label, role)) });
+  };
   const reveal = (escrow, role, score, label) => rating.buildRevealRatingInstruction({ ...of(escrow), ...parties, signer: who[role],
     score, salt: saltFor(runId, label, role) });
   const attest = (escrow, signer, job, openedSlot = slot(job)) => rating.buildAttestQualityInstruction({ ...of(escrow), judge: signer,
@@ -673,8 +677,10 @@ function ratedLane({ payer, payee, judge, runId, openedSlots = {} }) {
   refuse('job1.settle-without-rating-account', 'payee', [rating.buildSettleSolEscrowInstruction({ ...sol(escrows.job1), actual: a.solMeteredActual, rated: false })],
     ERR.RatingAccountRequired, 'every exit of a rated escrow takes the rating account');
   refuse('job1.commit-before-paid', 'payer', [commit(escrows.job1, 'payer', RATED_SCORES.job1Consumer, 'job1')], ERR.JobNotPaid, 'rating not open yet');
-  send('job1.settle', 'payee', [rating.buildSettleSolEscrowInstruction({ ...sol(escrows.job1), actual: a.solMeteredActual, rated: true })],
-    'signed by the payee alone: that is the seller\'s agreement');
+  refuse('job1.settle-stale-slot', 'payee', [rating.buildSettleSolEscrowInstruction({ ...sol(escrows.job1), actual: a.solMeteredActual, rated: true,
+    openedSlot: staleSlot('job1') })], ERR.RatingJobMismatch, 'a held settle naming another opened slot: signed for another job at this address');
+  send('job1.settle', 'payee', [rating.buildSettleSolEscrowInstruction({ ...sol(escrows.job1), actual: a.solMeteredActual, rated: true, openedSlot: slot('job1') })],
+    'signed by the payee alone: that is the seller\'s agreement; names the job by its opened slot');
   send('job1.commit-consumer', 'payer', [commit(escrows.job1, 'payer', RATED_SCORES.job1Consumer, 'job1')]);
   refuse('job1.reveal-before-both-committed', 'payer', [reveal(escrows.job1, 'payer', RATED_SCORES.job1Consumer, 'job1')], ERR.BothMustCommitFirst);
   send('job1.commit-specialist', 'payee', [commit(escrows.job1, 'payee', RATED_SCORES.job1Specialist, 'job1')]);
@@ -688,9 +694,10 @@ function ratedLane({ payer, payee, judge, runId, openedSlots = {} }) {
   needsJudge('job1.attest', () => send('job1.attest', 'judge', [attest(escrows.job1, judge, 'job1')], 'attest_quality, naming the job by its opened slot, before the rating account is closed'));
   needsJudge('job1.attest-again', () => refuse('job1.attest-again', 'judge', [attest(escrows.job1, judge, 'job1')], ERR.AlreadyAttested));
   needsJudge('job1.confirm-attestation', () => send('job1.confirm-attestation', 'payer',
-    [rating.buildConfirmAttestationInstruction({ ...of(escrows.job1), judge, consumer: payer })]));
+    [rating.buildConfirmAttestationInstruction({ ...of(escrows.job1), judge, consumer: payer, openedSlot: slot('job1') })],
+    'names the job by the opened slot the attestation stores'));
   needsJudge('job1.dispute-after-confirm', () => refuse('job1.dispute-after-confirm', 'payer',
-    [rating.buildDisputeAttestationInstruction({ ...of(escrows.job1), judge, consumer: payer })], ERR.AttestationAlreadyResolved));
+    [rating.buildDisputeAttestationInstruction({ ...of(escrows.job1), judge, consumer: payer, openedSlot: slot('job1') })], ERR.AttestationAlreadyResolved));
   needsJudge('job1.close-attestation', () => send('job1.close-attestation', 'judge', [rating.buildCloseAttestationInstruction({ ...of(escrows.job1), judge })]));
   send('job1.close-rating', 'payer', [rating.buildCloseRatingInstruction({ ...of(escrows.job1), consumer: payer })], 'rent of the rating account back to the buyer');
 
@@ -701,7 +708,7 @@ function ratedLane({ payer, payee, judge, runId, openedSlots = {} }) {
   send('job2.accept-rating', 'payee', [accept(escrows.job2, slot('job2'))],
     'run-rated builds it with buildSellerAcceptRating, which checks the opened slot, judge, amount and mint the seller expects');
   refuse('job2.accept-rating-again', 'payee', [accept(escrows.job2, slot('job2'))], ERR.RatingAlreadyAccepted);
-  send('job2.release', 'payer', [rating.buildTokenEscrowExitInstruction(usdcTerms, { rated: true, options: { treasuryToken: TREASURY_USDC } })],
+  send('job2.release', 'payer', [rating.buildTokenEscrowExitInstruction(usdcTerms, { rated: true, openedSlot: slot('job2'), options: { treasuryToken: TREASURY_USDC } })],
     'the payer\'s release opens the rating because the seller accepted');
   needsJudge('job2.attest-by-unnamed-judge', () => refuse('job2.attest-by-unnamed-judge', 'judge', [attest(escrows.job2, judge, 'job2')], ERR.UnauthorisedSigner,
     'job 2 names no judge'));
@@ -710,19 +717,20 @@ function ratedLane({ payer, payee, judge, runId, openedSlots = {} }) {
 
   // A rated escrow the payee declines.
   send('decline.lock-and-open-rating', 'payer', declineLock.instructions);
-  send('decline.cancel', 'payee', [rating.buildCancelSolEscrowInstruction({ ...of(escrows.decline), payer, authority: payee, rated: true })],
+  send('decline.cancel', 'payee', [rating.buildCancelSolEscrowInstruction({ ...of(escrows.decline), payer, authority: payee, rated: true, openedSlot: slot('decline') })],
     'rating account closed, its rent back to the payer');
 
   // A rated escrow the payer releases without the seller's agreement: paid as usual, never rated.
   send('unaccepted.lock-and-open-rating', 'payer', unacceptedLock.instructions);
-  send('unaccepted.release', 'payer', [rating.buildReleaseSolEscrowInstruction({ ...sol(escrows.unaccepted), signer: 'payer', rated: true })]);
+  send('unaccepted.release', 'payer', [rating.buildReleaseSolEscrowInstruction({ ...sol(escrows.unaccepted), signer: 'payer', rated: true, openedSlot: slot('unaccepted') })]);
   refuse('unaccepted.commit-after-unrated-close', 'payer', [commit(escrows.unaccepted, 'payer', 5, 'unaccepted')], ERR.AccountNotInitialized,
     'no rating account is left');
 
-  // A rated escrow cannot end in the slot its rating was opened in. Simulated only: nothing of it lands.
+  // A rated escrow cannot end in the slot its rating was opened in. Simulated only: nothing of it lands. The
+  // program checks the slot before the job the release names, so the release names slot 0.
   const sameSlotLock = rating.buildRatedSolEscrowLock(solTerms('rated-sol-same-slot', a.solDecline));
   refuse('same-slot.lock-open-and-release', 'payer', [...sameSlotLock.instructions,
-    rating.buildReleaseSolEscrowInstruction({ ...sol(key(sameSlotLock.escrow)), signer: 'payer', rated: true })], ERR.RatingJustOpened,
+    rating.buildReleaseSolEscrowInstruction({ ...sol(key(sameSlotLock.escrow)), signer: 'payer', rated: true, openedSlot: 0n })], ERR.RatingJustOpened,
     'lock, open_rating and release in one transaction');
 
   // An escrow that was never opted in.
@@ -764,8 +772,9 @@ function ratedPlan(input) {
     escrows: Object.fromEntries(Object.entries(lane.escrows).map(([name, escrow]) => [name, { escrow: text(escrow), rating: text(lane.ratings[name]) }])),
     attestation: text(lane.attestation),
     openedSlots: Object.fromEntries(['job1', 'job2', 'decline', 'unaccepted'].map(name => [name, lane.openedSlots[name]?.toString() ?? null])),
-    openedSlotNote: 'accept_rating, the commitments and attest_quality name the job by its rating\'s opened_slot, which run-rated reads '
-      + 'from the rating account after each lock. A step listing openedSlotOf is shown with slot 0 until then (a stale-slot refusal with 1).',
+    openedSlotNote: 'every rated exit, accept_rating, commit_rating and the commitments, attest_quality and the decision on an attestation '
+      + 'name the job by its rating\'s opened_slot, which run-rated reads from the rating account after each lock. A step listing '
+      + 'openedSlotOf is shown with slot 0 until then (a stale-slot refusal with 1).',
     steps: lane.steps.map(step => step.kind === 'skip' ? { id: step.id, mode: step.mode, kind: 'skip', note: step.note } : {
       id: step.id, mode: step.mode, kind: step.kind, signer: step.signer, ...(step.kind === 'refuse' ? { mustFailWith: step.code } : {}),
       ...(step.codeIfSignerUnregistered ? { mustFailWithIfSignerUnregistered: step.codeIfSignerUnregistered } : {}),
@@ -901,9 +910,13 @@ async function runRated(conn, runId) {
       const info = await conn.getAccountInfo(escrow, 'confirmed');
       if (!info) continue;
       const rated = rating.isRatedEscrow(info.data);
+      // A rated decline names the job: the opened slot of the rating now at this escrow, one of this lane's own.
+      const leftoverRating = rated ? await readRating(conn, escrow) : null;
+      assert(!rated || leftoverRating, `leftover ${leftoverRunId}/${name}: rated escrow without its rating account`);
+      const openedSlot = leftoverRating ? leftoverRating.openedSlot : undefined;
       const ix = name === 'job2'
-        ? rating.buildTokenEscrowExitInstruction(old.usdcTerms, { rated, refund: true, authority: payee })
-        : rating.buildCancelSolEscrowInstruction({ programId: PROGRAM, escrow, payer, authority: payee, rated });
+        ? rating.buildTokenEscrowExitInstruction(old.usdcTerms, { rated, openedSlot, refund: true, authority: payee })
+        : rating.buildCancelSolEscrowInstruction({ programId: PROGRAM, escrow, payer, authority: payee, rated, openedSlot });
       const sig = await send(`close leftover ${leftoverRunId}/${name}`, [local(ix)], [payeeKp]);
       await assertClosed(conn, escrow, ...(rated ? [old.ratings[name]] : []));
       step(`close leftover ${leftoverRunId}/${name}`, sig, { escrow: escrow.toBase58(), declinedByPayee: true, rated });
@@ -999,6 +1012,7 @@ async function runRated(conn, runId) {
     await pastOpenedSlot('job1');
     await no('job1.settle-without-rating-account');
     await no('job1.commit-before-paid');
+    await no('job1.settle-stale-slot');
 
     sig = await go('job1.settle');
     const settleFee = fee(a.solMeteredActual, true);
