@@ -3,7 +3,8 @@ name: Token-2022 mint watch
 # Once a day, compares the live PYUSD and USDG mainnet mints with the posture recorded in
 # config/escrow/token2022-mint-posture.json (scripts/check-token2022-mint-posture.mjs). Read only: public RPC, no
 # secrets, nothing signed. A failed run means an issuer changed a mint the escrow accepts (or the RPC could not be
-# read); GitHub emails the workflow's owner. See docs/ESCROW-PAYOUT-SAFETY.md for what to do.
+# read). A failed scheduled or manual run opens (or comments on) an issue labelled mint-watch, assigned to the
+# repository owner. See docs/ESCROW-PAYOUT-SAFETY.md for what to do.
 
 on:
   schedule:
@@ -17,6 +18,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   watch:
@@ -36,3 +38,18 @@ jobs:
           npm run build
       - name: Compare the live mints with the recorded posture
         run: node scripts/check-token2022-mint-posture.mjs
+      - name: Alert the repository owner
+        if: failure() && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          gh label create mint-watch --color B60205 --description "Token-2022 mint posture changed or could not be read" 2>/dev/null || true
+          body="The Token-2022 mint watch failed: ${RUN_URL}. Stop new locks in the affected mint and follow docs/ESCROW-PAYOUT-SAFETY.md (Issuer powers over PYUSD and USDG)."
+          open=$(gh issue list --label mint-watch --state open --json number --jq '.[0].number')
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "$body"
+          else
+            gh issue create --title "Token-2022 mint watch failed" --label mint-watch --assignee "$OWNER" --body "$body"
+          fi
