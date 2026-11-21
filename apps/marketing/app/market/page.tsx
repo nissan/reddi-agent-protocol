@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import {
   AS_OF, AVG_CALL_USD, CALL_PRICES, FEE_FACTS, FORECASTS, OCT_2026_X402_USD, REVENUE_TARGETS, SCENARIOS, SOURCES, TAM_USD, VOLUME_TODAY,
-  BUILD_HISTORY, FEE_BPS, REVENUE_LINES, RFS, RFS_MAP, priceRow, scenarioRow, stackRow, volumeFor, type Figure,
+  BUILD_HISTORY, FEE_BPS, REVENUE_LINES, SOL_FEE_CAP, RFS, RFS_MAP, priceRow, scenarioRow, stackRow, volumeFor, type Figure,
 } from '../../lib/market';
 import { pageMetadata } from '../../lib/metadata';
 import { siteUrl } from '../../lib/site';
@@ -43,7 +43,7 @@ export default function Market() {
       <p className="eyebrow">THE NUMBERS · AS OF {AS_OF.toUpperCase()}</p>
       <h1>Solana asked for an open inference market. <span>We were already building it.</span></h1>
       <p className="lead">On {RFS.published} the Solana Foundation published its Request for Startups. One of its eleven ideas is an open marketplace for AI inference. This page is the market case for the part we build, the verify layer, and what it could earn. Every number links to its source or is marked as our own estimate.</p>
-      <p className="notice small">Nothing here runs on Solana mainnet yet, and no protocol fee is collected today. The 0.05% fee is planned for the first mainnet release, on direct per-call payments only. Every other revenue line on this page is a roadmap item.</p>
+      <p className="notice small">Nothing here runs on Solana mainnet yet, and no protocol fee is collected today. The 2.5% fee is planned for the first mainnet release. Every other revenue line on this page is a roadmap item.</p>
 
       <h2>The prediction</h2>
       <blockquote className="rfs-quote">
@@ -64,7 +64,7 @@ export default function Market() {
       <div className="table-scroll">
         <table className="data">
           <caption>Cost of taking one payment, as a share of the price</caption>
-          <thead><tr><th scope="col">Price of one call</th><th scope="col">Solana network fee</th><th scope="col">Card fee</th><th scope="col">Planned RAP fee (USDC)</th></tr></thead>
+          <thead><tr><th scope="col">Price of one call</th><th scope="col">Solana network fee</th><th scope="col">Card fee</th><th scope="col">Planned RAP fee at 2.5% (USDC)</th></tr></thead>
           <tbody>
             {CALL_PRICES.map(priceRow).map((r) => (
               <tr key={r.price}><td>{usd(r.price, r.price < 0.01 ? 3 : 2)}</td><td>{pct(r.networkPct)}</td><td>{pct(r.cardPct)}</td><td>{r.rapFee === 0 ? '$0 (rounds down)' : usd(r.rapFee, 6)}</td></tr>
@@ -72,7 +72,7 @@ export default function Market() {
           </tbody>
         </table>
       </div>
-      <p className="small muted">Our reading: paying per call is comfortable from about one cent upward. Below that the network fee takes too big a share, and calls would need batching or payment channels. The planned fee is {FEE_BPS} basis points of the listed price, rounded down, so a USDC call under $0.002 pays none (<a href={SOURCES.feeIssue.url} rel="noopener noreferrer">fee design ↗</a>).</p>
+      <p className="small muted">Our reading: paying per call is comfortable from about one cent upward. Below that the network fee takes too big a share, and calls would need batching or payment channels. The planned fee is {FEE_BPS / 100}% of what a call actually cost, rounded down, so a USDC call under $0.00004 pays none. On SOL payments it never goes above {SOL_FEE_CAP} SOL (<a href={SOURCES.feeIssue.url} rel="noopener noreferrer">fee design ↗</a>).</p>
 
       <h2>2. Agent payments today: many, but small</h2>
       <p>Agents have made close to 200 million payments over x402, the open HTTP payment standard. Much of that count is testing and bots. Real money is still small: about {usd(OCT_2026_X402_USD)} in October 2026, across every chain.</p>
@@ -97,8 +97,9 @@ export default function Market() {
         </table>
       </div>
 
-      <h2>5. The base fee alone: 0.05%</h2>
-      <p>Protocol revenue is simple: payment volume with a RAP receipt, times 0.05%. In our base case that comes to about {usd(base.revenue2027)} in 2027 and about {usd(Math.round(base.revenue2030 / 100) * 100)} in 2030. All volumes below are <b>our estimates</b>.</p>
+      <h2>5. The base fee alone: 2.5%</h2>
+      <p>Providers price their models the way AI APIs already do: per million input and output tokens. Before a call the buyer sees an estimated cost and approves a maximum, which is locked on-chain. After the response, the real token count sets the true cost. The provider is paid that, less the 2.5% fee, and the rest of the maximum goes back to the buyer.</p>
+      <p>Protocol revenue is simple: payment volume with a RAP receipt, times 2.5%. In our base case that comes to about {usd(base.revenue2027)} in 2027 and about {usd(Math.round(base.revenue2030 / 100) * 100)} in 2030. All volumes below are <b>our estimates</b>.</p>
       <div className="table-scroll">
         <table className="data">
           <caption>Planned protocol fee revenue by scenario (our estimates)</caption>
@@ -119,7 +120,7 @@ export default function Market() {
           </tbody>
         </table>
       </div>
-      <p>A reality check: if every x402 payment in October 2026 had carried the fee, it would have come to about {usd((OCT_2026_X402_USD * FEE_BPS) / 10_000)} for the month. The settlement fee is thin on purpose, so paying per call stays cheap. The rest of the protocol&apos;s revenue comes from the roadmap below.</p>
+      <p>A reality check: if every x402 payment in October 2026 had carried the fee, it would have come to about {usd((OCT_2026_X402_USD * FEE_BPS) / 10_000)} for the month. For comparison, OpenRouter charges 5.5% on card top-ups and 5% in crypto (<a href={SOURCES.openRouterFee.url} rel="noopener noreferrer">{SOURCES.openRouterFee.label} ↗</a>). The roadmap below adds to the settlement fee.</p>
 
       <h2>6. Revenue roadmap</h2>
       <p>The RFS asks for more than payment. It asks for verification, reputation and payment channels. Each of those is a service agents will pay for, and each can be priced without us ever holding anyone&apos;s funds. Fees are split inside the buyer&apos;s own payment, or held by an on-chain program under fixed rules. The treasury only receives.</p>
@@ -147,13 +148,13 @@ export default function Market() {
           </tbody>
         </table>
       </div>
-      <p className="small muted">Base assumptions: a quarter of volume buys a verified receipt, 15% is spot-checked, escrow volume is half of per-call volume, one reputation lookup per two paid calls, 2,000 listed providers and 5% of calls private. Low and high scale each of these down or up.</p>
+      <p className="small muted">Base assumptions: a quarter of volume buys a verified receipt, 15% is spot-checked, disputes come from escrow volume half the size of per-call volume, one reputation lookup per two paid calls, 2,000 listed providers and 5% of calls private. Low and high scale each of these down or up.</p>
       <p>The bigger lever is scope. A receipt works for any paid agent API or tool call, not only inference. Juniper forecasts $1.5T of agentic commerce in 2030. We have not counted any of it here.</p>
 
       <h2>How we built this</h2>
       <ul className="plain">
-        <li>In the first mainnet release the fee applies only to direct per-call payments. Escrow jobs carry no fee until the escrow line on the roadmap ships.</li>
-        <li>Volume is in US dollars at the listed price. 2027 and 2030 are point estimates, and we fit no growth curve between them.</li>
+        <li>In the first mainnet release the fee applies to every paid call and every escrow job, on the actual cost. It comes out of the provider&apos;s share, so the buyer never pays more than the cost.</li>
+        <li>Volume is in US dollars at the actual cost of each call. 2027 and 2030 are point estimates, and we fit no growth curve between them.</li>
         <li>We assume an average call of {cents}, close to the Q3 2026 agent average.</li>
         <li>Forecasts we could not check against the publisher&apos;s own page are left out.</li>
       </ul>
