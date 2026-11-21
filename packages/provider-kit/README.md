@@ -31,7 +31,7 @@ The buyer is charged only after the model has answered, and the answer is sent o
 
 ## Quickstart on devnet
 
-You need Node 20 or newer, the Solana CLI, and a wallet with a little devnet SOL (https://faucet.solana.com).
+You need Node 20 or newer and the Solana CLI (https://solana.com/docs/intro/installation). Devnet SOL and USDC come from web faucets: the command-line airdrop is closed on devnet.
 
 ```bash
 # From a checkout of this repository, until the packages are on npm:
@@ -39,9 +39,11 @@ npm --prefix packages/x402-solana ci && npm --prefix packages/x402-solana run bu
 npm --prefix packages/provider-kit ci && npm --prefix packages/provider-kit run build
 alias rap-provider="node $PWD/packages/provider-kit/dist/src/cli.js"
 
-# 1. A wallet for the provider, and its USDC token account.
+# 1. A wallet for the provider. Fund its address with 0.5 devnet SOL at
+#    https://faucet.solana.com, then create its USDC token account.
 solana-keygen new --outfile ~/.config/solana/provider.json
-solana airdrop 1 "$(solana address -k ~/.config/solana/provider.json)" --url devnet
+solana address -k ~/.config/solana/provider.json
+solana balance -k ~/.config/solana/provider.json --url devnet   # after the faucet
 spl-token create-account 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU \
   --owner "$(solana address -k ~/.config/solana/provider.json)" --url devnet
 
@@ -56,9 +58,11 @@ rap-provider doctor
 rap-provider start
 ```
 
-In another terminal, make a paid call as a buyer. Use a second, devnet-only wallet holding devnet USDC (https://faucet.circle.com):
+In another terminal, make a paid call as a buyer. Use a second, devnet-only wallet: give it 0.5 devnet SOL at https://faucet.solana.com for fees, and devnet USDC at https://faucet.circle.com (choose Solana Devnet), which also creates its USDC token account.
 
 ```bash
+solana-keygen new --outfile ~/.config/solana/buyer.json
+solana address -k ~/.config/solana/buyer.json   # fund this address at both faucets
 BUYER_KEYPAIR_PATH=~/.config/solana/buyer.json \
   node packages/provider-kit/examples/paid-call.mjs http://localhost:8787 "Write a haiku about escrow"
 ```
@@ -96,7 +100,7 @@ What `register` does, in order, and what it costs:
 
 `publicUrl` must be a public https address before you list. Set `listing.capabilities` to say what the provider is for, for example `{ "taskTypes": ["writing"] }`, and `listing.appUrl` (or `RAP_APP_URL`) for another deployment of the app.
 
-Not yet run against the live app: the sign-in step depends on the app's sign-in service accepting a message signed outside a browser for the app's address, which is checked in the devnet run.
+The wallet sign-in was checked against the devnet app on 21 November 2026: a message signed by the kit is accepted and the app confirms the session for that wallet. A full `register` with a listing has not been run yet.
 
 ## Configuration
 
