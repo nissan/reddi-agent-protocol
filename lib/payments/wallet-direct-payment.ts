@@ -179,6 +179,24 @@ export function planWalletDirectPayment(request: WalletPaymentRequest): WalletPa
 }
 
 const BASE58_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
+const BASE58_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const ESCROW_NONCE_HEX = /^[0-9a-f]{32}$/;
+
+/**
+ * A metered escrow the buyer's wallet locked. The provider reads the lock from
+ * the chain and settles the actual cost, so the header names the escrow, the
+ * payer and the nonce; the lock transaction is kept for the run record.
+ */
+function meteredReceiptHeader(r: Record<string, unknown>): { ok: true; header: string; signature: string; nonce: string } | WalletPaymentRefusal {
+  const lockSignature = typeof r.lockSignature === "string" ? r.lockSignature : "";
+  if (!BASE58_SIGNATURE.test(lockSignature)) return { ok: false, reason: "invalid_receipt", message: "The metered payment does not name its lock transaction." };
+  if (typeof r.escrow !== "string" || !BASE58_ADDRESS.test(r.escrow)) return { ok: false, reason: "invalid_receipt", message: "The metered payment is missing the escrow address." };
+  if (typeof r.payer !== "string" || !BASE58_ADDRESS.test(r.payer)) return { ok: false, reason: "invalid_receipt", message: "The metered payment is missing the payer." };
+  if (typeof r.nonce !== "string" || !ESCROW_NONCE_HEX.test(r.nonce)) return { ok: false, reason: "invalid_receipt", message: "The metered payment is missing its escrow nonce." };
+  if (typeof r.payTo !== "string" || !BASE58_ADDRESS.test(r.payTo)) return { ok: false, reason: "invalid_receipt", message: "The metered payment is missing the provider." };
+  const header = JSON.stringify({ settlement: "metered-escrow", escrow: r.escrow, payer: r.payer, nonce: r.nonce });
+  return { ok: true, header, signature: lockSignature, nonce: r.nonce };
+}
 
 /**
  * Shape check on a receipt the browser hands back before the app forwards it.
@@ -190,6 +208,7 @@ export function receiptHeaderForProvider(receipt: unknown): { ok: true; header: 
     return { ok: false, reason: "invalid_receipt", message: "The payment receipt is missing." };
   }
   const r = receipt as Record<string, unknown>;
+  if (r.settlement === "metered-escrow") return meteredReceiptHeader(r);
   const signature = typeof r.signature === "string" ? r.signature : typeof r.txSignature === "string" ? r.txSignature : "";
   if (!BASE58_SIGNATURE.test(signature)) {
     return { ok: false, reason: "invalid_receipt", message: "The payment receipt does not carry a transaction signature." };

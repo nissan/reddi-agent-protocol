@@ -1,0 +1,193 @@
+jest.mock("server-only", () => ({}));
+
+import { Keypair, PublicKey } from "@solana/web3.js";
+import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { tokenEscrowAddresses, treasuryTokenAccount, ESCROW_PROTOCOL_TREASURY } from "@reddi/x402-solana/token-escrow";
+import { planMeteredBuy } from "@/lib/payments/metered-buy";
+import { receiptHeaderForProvider } from "@/lib/payments/wallet-direct-payment";
+import { verifyAndRecordMeteredCall } from "@/lib/jobs/metered-call";
+import type { Listing } from "@/lib/listings/listing-store";
+
+const PROGRAM = Keypair.generate().publicKey;
+const PAYER = Keypair.generate().publicKey;
+const PROVIDER = Keypair.generate().publicKey.toBase58();
+const USDC = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
+const NONCE = new Uint8Array(16).fill(9);
+const NONCE_HEX = Buffer.from(NONCE).toString("hex");
+const LOCK_SIG = "3".repeat(88);
+const SETTLE_SIG = "5".repeat(88);
+const HASH = "a".repeat(64);
+const PRICES = { inputPerMillionUsd: 3, outputPerMillionUsd: 15 };
+
+function offer(overrides: Record<string, unknown> = {}) {
+  return {
+    settlement: "metered-escrow",
+    currency: "USDC",
+    inputPerMillion: "3",
+    outputPerMillion: "15",
+    maxOutputTokens: 1000,
+    estimate: { inputTokens: 100, outputTokens: 1000 },
+    minimumLockBaseUnits: "15300",
+    escrowProgramId: PROGRAM.toBase58(),
+    mint: USDC,
+    payTo: PROVIDER,
+    ...overrides,
+  };
+}
+
+function plan(overrides: Record<string, unknown> = {}, maxSpendUsd?: number) {
+  return planMeteredBuy({
+    offer: offer(overrides),
+    listing: { walletAddress: PROVIDER, prices: PRICES },
+    network: "solana-devnet",
+    programId: PROGRAM,
+    payer: PAYER,
+    prompt: "x".repeat(400),
+    maxSpendUsd,
+    nonce: NONCE,
+  });
+}
+
+describe("planner metered buy (#794)", () => {
+  it("quotes the estimate and locks twice it by default", () => {
+    const p = plan();
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(p.quote).toMatchObject({ currency: "USDC", estimatedCost: "0.0153", maxCharge: "0.0306" });
+    expect(p.instruction.programId.equals(PROGRAM)).toBe(true);
+    expect(p.instruction.data.readBigUInt64LE(8)).toBe(BigInt(30600));
+    expect(p.escrow).toBe(tokenEscrowAddresses({ programId: PROGRAM, payer: PAYER, nonce: NONCE }).escrow.toBase58());
+    const receipt = p.receiptFor(LOCK_SIG);
+    expect(receipt).toEqual({
+      settlement: "metered-escrow", network: "solana-devnet", currency: "USDC", payTo: PROVIDER,
+      payer: PAYER.toBase58(), nonce: NONCE_HEX, escrow: p.escrow, lockSignature: LOCK_SIG,
+    });
+    // The receipt is forwarded as the header the provider reads.
+    const header = receiptHeaderForProvider(receipt);
+    expect(header.ok).toBe(true);
+    if (header.ok) {
+      expect(JSON.parse(header.header)).toEqual({ settlement: "metered-escrow", escrow: p.escrow, payer: PAYER.toBase58(), nonce: NONCE_HEX });
+      expect(header.signature).toBe(LOCK_SIG);
+    }
+  });
+
+  it("uses the buyer's budget as the maximum", () => {
+    const p = plan({}, 0.02);
+    expect(p.ok && p.quote.maxCharge).toBe("0.02");
+  });
+
+  it("refuses a budget below the provider's minimum lock, and lifts the default maximum to it", () => {
+    const low = plan({ minimumLockBaseUnits: "25000" }, 0.02);
+    expect(low).toMatchObject({ ok: false, reason: "budget_below_minimum" });
+    const lifted = plan({ minimumLockBaseUnits: "40000" });
+    expect(lifted.ok && lifted.quote.maxCharge).toBe("0.04");
+  });
+
+  it.each([
+    [{ payTo: Keypair.generate().publicKey.toBase58() }, "wrong_provider"],
+    [{ escrowProgramId: Keypair.generate().publicKey.toBase58() }, "wrong_program"],
+    [{ mint: Keypair.generate().publicKey.toBase58() }, "wrong_mint"],
+    [{ outputPerMillion: "16" }, "price_above_listing"],
+    [{ currency: "AUDD" }, "wrong_mint"],
+    [{ settlement: "direct" }, "no_offer"],
+  ])("refuses an offer that does not match the listing: %j", (overrides, reason) => {
+    expect(plan(overrides)).toMatchObject({ ok: false, reason });
+  });
+});
+
+describe("metered job record (#794)", () => {
+  const { escrow, vault } = tokenEscrowAddresses({ programId: PROGRAM, payer: PAYER, nonce: NONCE });
+  const mint = new PublicKey(USDC);
+  const recipient = getAssociatedTokenAddressSync(mint, new PublicKey(PROVIDER), true, TOKEN_PROGRAM_ID).toBase58();
+  const treasury = treasuryTokenAccount({ mint, tokenProgram: TOKEN_PROGRAM_ID }).toBase58();
+  const source = getAssociatedTokenAddressSync(mint, PAYER, true, TOKEN_PROGRAM_ID).toBase58();
+
+  const listing: Listing = {
+    wallet: PROVIDER, displayName: "Atlas", endpointUrl: "https://provider.example/v1", declaredModels: [], capabilities: {},
+    pricePerCallBaseUnits: "0", priceInputPerMillionBaseUnits: "3000000", priceOutputPerMillionBaseUnits: "15000000", priceMint: USDC,
+    network: "solana-devnet", status: "listed", healthStatus: "pass", lastSeenAt: null, updatedAt: null,
+  };
+  const receipt = { settlement: "metered-escrow", network: "solana-devnet", currency: "USDC", payTo: PROVIDER, payer: PAYER.toBase58(), nonce: NONCE_HEX, escrow: escrow.toBase58(), lockSignature: LOCK_SIG };
+
+  function settleTx(opts: { provider?: number; fee?: number; max?: number; err?: unknown; accounts?: string[] } = {}) {
+    const keys = [PAYER.toBase58(), PROVIDER, escrow.toBase58(), vault.toBase58(), recipient, treasury, source, USDC, PROGRAM.toBase58(), TOKEN_PROGRAM_ID.toBase58()];
+    const index = (k: string) => keys.indexOf(k);
+    const bal = (k: string, amount: number) => ({ accountIndex: index(k), mint: USDC, uiTokenAmount: { amount: String(amount) } });
+    const provider = opts.provider ?? 975;
+    const fee = opts.fee ?? 25;
+    const max = opts.max ?? 30600;
+    return {
+      meta: {
+        err: opts.err ?? null,
+        preTokenBalances: [bal(vault.toBase58(), max), bal(recipient, 100), bal(treasury, 0)],
+        postTokenBalances: [bal(recipient, 100 + provider), bal(treasury, fee)],
+      },
+      transaction: {
+        message: {
+          accountKeys: keys.map((pubkey) => ({ pubkey })),
+          instructions: [{
+            programId: PROGRAM.toBase58(),
+            accounts: opts.accounts ?? [escrow.toBase58(), vault.toBase58(), PROVIDER, PAYER.toBase58(), USDC, recipient, treasury, source, TOKEN_PROGRAM_ID.toBase58()],
+            data: "x",
+          }],
+        },
+      },
+    };
+  }
+
+  function deps(tx: unknown) {
+    const stored: Array<Record<string, unknown>> = [];
+    return {
+      stored,
+      deps: {
+        programId: PROGRAM,
+        connection: { getParsedTransaction: jest.fn(async () => tx) },
+        url: "https://project.supabase.example",
+        serviceKey: "service",
+        fetchImpl: jest.fn(async (_url: string, init: { body?: string }) => {
+          stored.push(JSON.parse(init.body ?? "{}"));
+          return { ok: true, status: 201, json: async () => [{ id: "0b0e7c1e-7a57-4d0e-b3f0-1c2d3e4f5a6b" }] };
+        }),
+      },
+    };
+  }
+
+  const call = (d: ReturnType<typeof deps>["deps"], overrides: Record<string, unknown> = {}) =>
+    verifyAndRecordMeteredCall(
+      { receipt, settleSignature: SETTLE_SIG, listing, profile: "devnet", requestHash: HASH, responseHash: HASH, declaredModel: "atlas", delivered: true, ...overrides },
+      d,
+    );
+
+  it("records what the settle paid, with the 2.5% fee to the treasury", async () => {
+    const d = deps(settleTx());
+    const result = await call(d.deps);
+    expect(result).toMatchObject({
+      recorded: true,
+      paid: { currency: "USDC", mint: USDC, amountBaseUnits: "1000", payer: PAYER.toBase58(), fee: { amount: "25", treasury: ESCROW_PROTOCOL_TREASURY.toBase58() }, maxAmountBaseUnits: "30600", refundedBaseUnits: "29600" },
+    });
+    expect(d.stored[0]).toMatchObject({ amount_base_units: "1000", tx_signature: SETTLE_SIG, mint: USDC, provider_wallet: PROVIDER, buyer_wallet: PAYER.toBase58() });
+  });
+
+  it.each([
+    ["a failed settle", { err: { InstructionError: [0, "Custom"] } }, "settle_failed_on_chain"],
+    ["a fee that is not 2.5%", { fee: 10 }, "fee_mismatch"],
+    ["a settle of another escrow", { accounts: [Keypair.generate().publicKey.toBase58(), vault.toBase58(), PROVIDER, PAYER.toBase58(), USDC, recipient, treasury, source, TOKEN_PROGRAM_ID.toBase58()] }, "settle_not_for_this_escrow"],
+    ["a charge above the lock", { max: 500 }, "settle_above_maximum"],
+    ["a settle that paid the provider nothing", { provider: 0, fee: 0 }, "settle_paid_nothing"],
+  ])("refuses %s", async (_label, opts, reason) => {
+    const d = deps(settleTx(opts));
+    expect(await call(d.deps)).toEqual({ recorded: false, reason });
+    expect(d.stored).toHaveLength(0);
+  });
+
+  it("refuses a receipt whose escrow is not the one its payer and nonce name", async () => {
+    const d = deps(settleTx());
+    expect(await call(d.deps, { receipt: { ...receipt, escrow: Keypair.generate().publicKey.toBase58() } })).toEqual({ recorded: false, reason: "escrow_mismatch" });
+  });
+
+  it("refuses a missing settle signature and a receipt for another provider", async () => {
+    const d = deps(settleTx());
+    expect(await call(d.deps, { settleSignature: undefined })).toEqual({ recorded: false, reason: "settle_signature_missing" });
+    expect(await call(d.deps, { receipt: { ...receipt, payTo: Keypair.generate().publicKey.toBase58() } })).toEqual({ recorded: false, reason: "wrong_provider" });
+  });
+});

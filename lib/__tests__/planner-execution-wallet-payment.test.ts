@@ -108,4 +108,40 @@ describe("planner execution, wallet payment mode (#738)", () => {
     const result = await run({ paymentReceipt: receipt });
     expect(result.result).toMatchObject({ status: "failed", paymentAttempted: true, x402TxSignature: SIGNATURE, error: expect.stringContaining("do not pay twice") });
   });
+  describe("per-token calls (#794)", () => {
+    const ESCROW = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
+    const metered = {
+      settlement: "metered-escrow", network: "solana-devnet", currency: "USDC", payTo: PROVIDER,
+      payer: ESCROW, nonce: "09".repeat(16), escrow: ESCROW, lockSignature: SIGNATURE,
+    };
+
+    it("hands the provider's metered offer back with the challenge", async () => {
+      const offer = { settlement: "metered-escrow", currency: "USDC", minimumLockBaseUnits: "15300", payTo: PROVIDER };
+      global.fetch = jest.fn().mockResolvedValue(response(402, JSON.stringify({ error: "payment_required", metered: offer }), { "x402-request": CHALLENGE })) as unknown as typeof fetch;
+      const result = await run({ preferredWallet: PROVIDER });
+      expect(result).toMatchObject({ paymentRequired: { challenge: CHALLENGE, metered: offer } });
+    });
+
+    it("adds no metered offer when the 402 body has none", async () => {
+      global.fetch = jest.fn().mockResolvedValue(response(402, "not json", { "x402-request": CHALLENGE })) as unknown as typeof fetch;
+      const result = await run({ preferredWallet: PROVIDER });
+      expect((result as { paymentRequired?: { metered?: unknown } }).paymentRequired?.metered).toBeUndefined();
+    });
+
+    it("forwards the lock as a metered header and keeps the provider's settle signature", async () => {
+      const settle = "6".repeat(88);
+      const fetchMock = jest.fn().mockResolvedValue(response(200, JSON.stringify({ choices: [], reddi: { metered: { settleSignature: settle } } })));
+      global.fetch = fetchMock as unknown as typeof fetch;
+      const result = await run({ paymentReceipt: metered, preferredWallet: PROVIDER });
+      expect(result.ok).toBe(true);
+      expect(JSON.parse(fetchMock.mock.calls[0][1].headers["x402-payment"])).toEqual({ settlement: "metered-escrow", escrow: ESCROW, payer: ESCROW, nonce: "09".repeat(16) });
+      expect(result.result).toMatchObject({ status: "completed", x402TxSignature: SIGNATURE, settleTxSignature: settle });
+    });
+
+    it("tells the buyer the maximum stays locked when the provider fails after the lock", async () => {
+      global.fetch = jest.fn().mockResolvedValue(response(502, JSON.stringify({ error: "settle_failed" }))) as unknown as typeof fetch;
+      const result = await run({ paymentReceipt: metered, preferredWallet: PROVIDER });
+      expect(result.result).toMatchObject({ status: "failed", error: expect.stringContaining("Nothing is charged until the provider settles") });
+    });
+  });
 });

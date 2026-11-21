@@ -24,9 +24,12 @@ import { getNetworkProfile } from "@/lib/config/network";
 import { currentAccessToken } from "@/components/auth/WalletSignIn";
 import {
   lamportsToSolAmount,
+  paymentNetworkForProfile,
   planWalletDirectPayment,
   walletDirectPaymentEnabled,
 } from "@/lib/payments/wallet-direct-payment";
+import { planMeteredBuy } from "@/lib/payments/metered-buy";
+import { ESCROW_PROGRAM_ID } from "@/lib/program";
 import type { SpecialistListing } from "@/lib/registry/bridge";
 
 // Read once at build time. Wallet-signed payment stays off unless the operator turns it on.
@@ -309,6 +312,14 @@ function PlannerInner() {
       setPaymentNote("The provider that answered is not the one you selected. Nothing was signed.");
       return;
     }
+    const prices = {
+      inputPerMillionUsd: listing.capabilities?.inputPerMillionUsd,
+      outputPerMillionUsd: listing.capabilities?.outputPerMillionUsd,
+    };
+    if (data.paymentRequired.metered && (prices.inputPerMillionUsd || prices.outputPerMillionUsd)) {
+      await lockMeteredMaximum(data.paymentRequired.metered, listing.walletAddress, prices);
+      return;
+    }
     const solAmount = lamportsToSolAmount(listing.onchain.rateLamports);
     const plan = planWalletDirectPayment({
       challenge: data.paymentRequired.challenge,
@@ -358,6 +369,74 @@ function PlannerInner() {
       );
     } catch {
       setPaymentNote("Your payment was sent but is not confirmed yet. Present it again in a few seconds; do not pay twice.");
+      return;
+    }
+    await presentReceipt(receipt);
+  }
+
+  /**
+   * Per-token call: the wallet locks the approved maximum in a metered escrow.
+   * The provider settles the actual cost after answering; the rest comes back.
+   */
+  async function lockMeteredMaximum(
+    offer: unknown,
+    walletAddress: string,
+    prices: { inputPerMillionUsd?: number; outputPerMillionUsd?: number },
+  ) {
+    if (!publicKey || !sendTransaction) return;
+    const network = paymentNetworkForProfile(getNetworkProfile().name);
+    if (!network) {
+      setPaymentNote("Wallet payment is not available on this network. Nothing was signed.");
+      return;
+    }
+    const plan = planMeteredBuy({
+      offer,
+      listing: { walletAddress, prices },
+      network,
+      programId: ESCROW_PROGRAM_ID,
+      payer: publicKey,
+      prompt,
+      maxSpendUsd: maxSpend,
+      mints: BUYER_MINTS,
+      nonce: crypto.getRandomValues(new Uint8Array(16)),
+    });
+    if (!plan.ok) {
+      setPaymentNote(`Payment request refused: ${plan.message} Nothing was signed.`);
+      return;
+    }
+    const { quote } = plan;
+    setPaymentNote(
+      `Estimated cost ${quote.estimatedCost} ${quote.currency}. Your wallet will ask you to lock up to ${quote.maxCharge} ${quote.currency} in escrow. ${quote.notice}`,
+    );
+    let signature: string;
+    const latest = await connection.getLatestBlockhash("confirmed");
+    try {
+      const transaction = new Transaction({
+        feePayer: publicKey,
+        blockhash: latest.blockhash,
+        lastValidBlockHeight: latest.lastValidBlockHeight,
+      }).add(plan.instruction);
+      signature = await sendTransaction(transaction, connection);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      setPaymentNote(
+        /reject|denied|cancel/i.test(message)
+          ? "You declined the lock. Nothing was charged."
+          : "The lock was not sent. Check your wallet's network and balance, then try again.",
+      );
+      return;
+    }
+    const receipt = plan.receiptFor(signature);
+    // From here the maximum may be locked, so the receipt is remembered before anything else can fail.
+    setPendingReceipt(receipt);
+    setPaymentNote("Lock sent. Waiting for confirmation before presenting it to the provider.");
+    try {
+      await connection.confirmTransaction(
+        { signature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
+        "confirmed",
+      );
+    } catch {
+      setPaymentNote("Your lock was sent but is not confirmed yet. Present it again in a few seconds; do not lock twice.");
       return;
     }
     await presentReceipt(receipt);

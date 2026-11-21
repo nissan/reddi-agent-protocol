@@ -156,4 +156,18 @@ describe("provider receipt check and store", () => {
     expect(await checkAndStoreProviderReceipt(inputFor(provider, header), throwing)).toEqual({ stored: false, reason: "store_unavailable" });
     expect(await checkAndStoreProviderReceipt(inputFor(provider, header), { url: "", serviceKey: "" })).toEqual({ stored: false, reason: "store_unavailable" });
   });
+  it("stores a metered receipt only when it states the maximum this server saw locked (#794)", async () => {
+    const provider = testProvider();
+    const metered = { ...PAYMENT, settlement: "metered-escrow" as const, metered: { inputTokens: "100", outputTokens: "200", maxAmount: "2000000", refunded: "1000000" } };
+    const header = await headerFor(provider, { payment: metered });
+    const ok = store();
+    expect(await checkAndStoreProviderReceipt({ ...inputFor(provider, header), settlement: { kind: "metered-escrow", maxAmountBaseUnits: "2000000" } }, ok.deps)).toMatchObject({ stored: true });
+    const wrongMax = store();
+    expect(await checkAndStoreProviderReceipt({ ...inputFor(provider, header), settlement: { kind: "metered-escrow", maxAmountBaseUnits: "3000000" } }, wrongMax.deps)).toEqual({ stored: false, reason: "payment_mismatch" });
+    // A metered receipt is not accepted for a direct payment.
+    const direct = store();
+    expect((await checkAndStoreProviderReceipt(inputFor(provider, header), direct.deps)).stored).toBe(false);
+    expect(wrongMax.calls).toHaveLength(0);
+    expect(direct.calls).toHaveLength(0);
+  });
 });
