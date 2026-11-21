@@ -55,6 +55,7 @@ export const UPDATES: readonly Update[] = [
       { label: "Read the devnet deployment record", href: "https://github.com/nissan/reddi-agent-protocol/blob/main/DEPLOY.md" },
     ],
     status: "published",
+    newsletterSend: true,
   },
 ];
 
