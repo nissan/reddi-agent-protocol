@@ -96,6 +96,7 @@ faults! {
     RatingAlreadyAccepted = 6046, "The specialist has already accepted this rating";
     AttestationNotClosable = 6047, "An unresolved attestation can be closed only after its resolution window";
     AlreadyAttested = 6048, "This job has already been attested";
+    JudgeNotActive = 6049, "The judge's agent record is not active";
 }
 
 // PER tracking (`per` builds only), with the archived Anchor program's numbers.

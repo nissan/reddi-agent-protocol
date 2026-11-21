@@ -404,7 +404,8 @@ impl<'a> Open<'a> {
 /// associated token account for the mint), `[w] refund` (any token account of
 /// the mint the payer owns), `[] token_program`, and for a rated escrow
 /// `[w] rating`, which then records what was paid and opens when the payee
-/// is the authority or accepted the rating earlier, and is closed otherwise.
+/// is the authority or accepted the rating earlier, and something was paid;
+/// it is closed otherwise. The SOL escrow has the same rule.
 ///
 /// The destination is a token account of the mint that the payee owns. When
 /// the payer releases it must be the recipient recorded at lock. When the

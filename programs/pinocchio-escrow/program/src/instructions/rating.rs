@@ -5,8 +5,8 @@
 //! job's record: it names the escrow, the two parties and an optional judge.
 //! Every exit of a rated escrow takes that account. A paid exit (release,
 //! claim, settle) that the specialist agreed to writes the paid amount, mint
-//! and slot onto it and opens the rating. The specialist agrees by signing
-//! that exit or with `accept_rating` beforehand. A release without that
+//! and slot onto it and opens the rating. The specialist agrees by being the
+//! authority of that exit or with `accept_rating` beforehand. A release without that
 //! agreement, a refund and a decline close the rating account.
 //!
 //! Once the job is paid, each party commits to
@@ -146,8 +146,8 @@ pub fn open(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> 
 ///
 /// A rating opens only with the specialist's agreement, so that nobody can
 /// move an agent's record with a job the agent took no part in. Agreeing is
-/// this call, while the escrow is still locked, or signing the paid exit
-/// (settle or claim). A release by the payer of a job the specialist never
+/// this call, while the escrow is still locked, or being the authority of
+/// the paid exit (settle or claim). A release by the payer of a job the specialist never
 /// agreed to pays as usual and closes the rating unrated.
 pub fn accept(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResult {
     let [rating, specialist, ..] = accounts else {
@@ -171,20 +171,24 @@ pub fn accept(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResu
 
 /// What a paid exit does with the rating account of its escrow.
 ///
-/// With the specialist's agreement (it signed this exit, or accepted
-/// earlier) the job is recorded and the rating opens. Without it the job is
-/// paid but not rated: the rating account is closed and its lamports go to
-/// `payer`, the escrow's payer, who funded it.
+/// With the specialist's agreement the job is recorded and the rating opens.
+/// The specialist agrees by being the authority of this exit (`by_specialist`:
+/// it claims or settles) or by accepting earlier. Its signature on a
+/// transaction whose exit the payer authorises is not agreement. Without
+/// agreement the job is paid but not rated: the rating account is closed and
+/// its lamports go to `payer`, the escrow's payer, who funded it. The same
+/// happens when nothing was paid (`paid` 0, possible only for a Token-2022
+/// escrow whose vault the issuer emptied): there is no paid job to rate.
 pub fn settle_exit(
     account: &mut AccountView,
     mut record: Rating,
-    specialist_signed: bool,
+    by_specialist: bool,
     paid: u64,
     mint: Option<&Address>,
     slot: u64,
     payer: &mut AccountView,
 ) -> ProgramResult {
-    if specialist_signed || record.accepted() {
+    if (by_specialist || record.accepted()) && paid > 0 {
         record.settle(paid, mint, slot);
         record.store(account)
     } else {
