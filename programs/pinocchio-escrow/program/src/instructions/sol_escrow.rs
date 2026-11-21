@@ -133,7 +133,8 @@ pub fn lock(
 /// escrow's exit also names its job, the slot its rating was opened in:
 /// `opened_slot: u64` after the instruction's data (`actual` for a settle,
 /// nothing for a release), refused with `RatingJobMismatch` when absent or
-/// different.
+/// different. An exit of an escrow that is not rated must not carry those
+/// bytes: it is refused with the same error.
 ///
 /// Release pays the whole locked amount: the payer may at any time, the payee
 /// once the claim window has elapsed. Whichever of the two signed is the
@@ -218,6 +219,7 @@ pub fn pay_out(
             job,
         )?)
     } else {
+        rating::for_unrated_exit(job)?;
         None
     };
 
@@ -285,6 +287,8 @@ pub fn cancel(
     if record.rated() {
         let (account, _) = rating::for_exit(program_id, escrow.address(), trailing, slot, job)?;
         close(account, payer)?;
+    } else {
+        rating::for_unrated_exit(job)?;
     }
     close(escrow, payer)?;
 

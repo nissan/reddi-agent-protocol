@@ -24,6 +24,7 @@ use {
 
 const AMOUNT: u64 = 1_000_000;
 const FEE: u64 = 25_000;
+const RATING_JOB_MISMATCH: u32 = 6051;
 
 struct Sol {
     world: World,
@@ -650,14 +651,30 @@ fn an_unrated_escrow_ignores_a_rating_account_passed_to_it() {
     t.lock(2, false);
     t.lock(3, false);
     let before = t.world.svm.get_account(&rating_address(&rated));
+    let job = t.world.opened_slot(&rating_address(&rated));
+    // An exit that names a job is refused on an escrow that is not rated:
+    // it was signed for a rated job.
+    t.world.refused(
+        "release naming a job, not rated",
+        with_rating_of(t.payout(2, &t.payer, None), &rated, job),
+        &[&t.payer],
+        RATING_JOB_MISMATCH,
+    );
+    t.world.refused(
+        "decline naming a job, not rated",
+        with_rating_of(t.cancel(3, &t.payee), &rated, job),
+        &[&t.payee],
+        RATING_JOB_MISMATCH,
+    );
+    // The account alone is ignored.
     t.world.ok(
         "release",
-        with_rating(t.payout(2, &t.payer, None), &rated),
+        with_account(t.payout(2, &t.payer, None), rating_address(&rated), true),
         &[&t.payer],
     );
     t.world.ok(
         "decline",
-        with_rating(t.cancel(3, &t.payee), &rated),
+        with_account(t.cancel(3, &t.payee), rating_address(&rated), true),
         &[&t.payee],
     );
     assert_eq!(t.world.svm.get_account(&rating_address(&rated)), before);
@@ -932,10 +949,18 @@ fn rated_token_rail(program: Pubkey, mint: Pubkey, name: &str) {
     );
     payer_transactions += 1;
 
-    // The escrow that was not opted in ends as before, rating account or not.
+    // The escrow that was not opted in ends as before, rating account or
+    // not, as long as the exit names no job.
+    world.refused(
+        "release, not rated, naming a job",
+        rated(t.payout(nonce(6), &a, None), 1),
+        &[&t.payer],
+        RATING_JOB_MISMATCH,
+    );
+    payer_transactions += 1;
     world.ok(
         "release, not rated",
-        rated(t.payout(nonce(6), &a, None), 1),
+        with_account(t.payout(nonce(6), &a, None), rating_of(1), true),
         &[&t.payer],
     );
     payer_transactions += 1;

@@ -318,9 +318,10 @@ fn a_decision_on_one_jobs_attestation_is_refused_for_the_next() {
 }
 
 /// A seller's exit (`seller_exit`, without the rating account or the job)
-/// prepared for job A and held back must not end job B at the same address:
-/// not pay it and not open its rating. One prepared for B must. `wait` is
-/// how long after the lock the seller may make that exit.
+/// prepared for rated job A and held back must not end job B at the same
+/// address, whether B is rated (`next_rated`) or not: not move B's money,
+/// and not open a rating. A fresh exit for B must work. `wait` is how long
+/// after the lock the seller may make that exit.
 #[allow(clippy::too_many_arguments)]
 fn a_held_seller_exit_cannot_end_the_next_job(
     world: &mut World,
@@ -332,23 +333,28 @@ fn a_held_seller_exit_cannot_end_the_next_job(
     release_by_payer: Instruction,
     seller_exit: Instruction,
     wait: u64,
+    next_rated: bool,
 ) {
     let rating = rating_address(&escrow);
-    let job = |world: &mut World| {
+    let job = |world: &mut World, rated: bool| {
         world.ok("lock", lock.clone(), &[payer]);
-        world.ok(
-            "open",
-            open_rating(&escrow, &payer.pubkey(), None),
-            &[payer],
-        );
-        let opened = world.opened_slot(&rating);
+        let opened = if rated {
+            world.ok(
+                "open",
+                open_rating(&escrow, &payer.pubkey(), None),
+                &[payer],
+            );
+            world.opened_slot(&rating)
+        } else {
+            0
+        };
         world.warp(world.slot() + wait);
         opened
     };
 
     // Job A. The seller signs its exit, which is not processed. The payer
     // ends A first (paid, unrated: the seller never agreed).
-    let job_a = job(world);
+    let job_a = job(world, true);
     let held = with_rating_of(seller_exit.clone(), &escrow, job_a);
     world.ok(
         "payer ends job A",
@@ -357,8 +363,34 @@ fn a_held_seller_exit_cannot_end_the_next_job(
     );
     assert!(!world.exists(&escrow) && !world.exists(&rating));
 
-    // Job B, same accounts, an amount the held exit fits.
-    let job_b = job(world);
+    if !next_rated {
+        // Job B is not rated. The held exit names a job, so it is refused:
+        // B's escrow decides nothing about the signer's restriction.
+        job(world, false);
+        world.refused(
+            &format!("{label} signed for rated job A, on unrated job B"),
+            held,
+            &[seller],
+            RATING_JOB_MISMATCH,
+        );
+        // Naming a job without passing a rating account is refused too.
+        let mut named = seller_exit.clone();
+        named.data.extend_from_slice(&job_a.to_le_bytes());
+        world.refused(
+            &format!("{label} on an unrated escrow, naming a job"),
+            named,
+            &[seller],
+            RATING_JOB_MISMATCH,
+        );
+        assert!(world.exists(&escrow) && !world.exists(&rating), "{label}");
+        // The ordinary exit for B works and rates nothing.
+        world.ok(&format!("{label}, unrated job B"), seller_exit, &[seller]);
+        assert!(!world.exists(&escrow) && !world.exists(&rating), "{label}");
+        return;
+    }
+
+    // Job B, rated, same accounts, an amount the held exit fits.
+    let job_b = job(world, true);
     assert_ne!(job_a, job_b, "{label}");
     world.refused(
         &format!("{label} signed for job A, on job B"),
@@ -387,41 +419,63 @@ fn a_held_seller_exit_cannot_end_the_next_job(
         "{label}"
     );
 
-    // Prepared for B, it ends B and opens its rating.
+    // Prepared for B, it ends B: a paid exit opens B's rating, a decline
+    // closes it.
     world.ok(
         &format!("{label} signed for job B"),
         with_rating_of(seller_exit, &escrow, job_b),
         &[seller],
     );
     assert!(!world.exists(&escrow), "{label}");
-    let rated = world.rating(&rating);
-    assert_eq!(rated.state, OPEN, "{label}");
-    assert_eq!(rated.opened_slot, job_b, "{label}");
-    assert!(rated.paid > 0, "{label}");
+    if world.exists(&rating) {
+        let rated = world.rating(&rating);
+        assert_eq!(rated.state, OPEN, "{label}");
+        assert_eq!(rated.opened_slot, job_b, "{label}");
+        assert!(rated.paid > 0, "{label}");
+    } else {
+        assert!(label.ends_with("decline"), "{label}: the rating was closed");
+    }
 }
 
 #[test]
-fn a_settle_or_claim_signed_for_one_job_is_refused_for_the_next() {
+fn a_seller_exit_signed_for_one_job_is_refused_for_the_next_rated_or_not() {
     let mut world = World::new();
     let (consumer, specialist) = (world.wallet(1), world.wallet(2));
     let (c, s) = (consumer.pubkey(), specialist.pubkey());
     world.register(&specialist, AgentType::Primary);
 
-    for (i, label, metered, actual, wait) in [
-        (1, "SOL settle", true, Some(600_000), 1),
-        (2, "SOL claim", false, None, CLAIM_WINDOW + 1),
-    ] {
-        let n = nonce(i);
+    for next_rated in [true, false] {
+        for (i, label, metered, actual, wait) in [
+            (1, "SOL settle", true, Some(600_000), 1),
+            (2, "SOL claim", false, None, CLAIM_WINDOW + 1),
+        ] {
+            let n = nonce(i + if next_rated { 0 } else { 10 });
+            a_held_seller_exit_cannot_end_the_next_job(
+                &mut world,
+                label,
+                sol_escrow(&c, n),
+                sol_lock(&c, &s, 1_000_000, n, metered),
+                &consumer,
+                &specialist,
+                sol_payout(&c, &s, n, &c, None),
+                sol_payout(&c, &s, n, &s, actual),
+                wait,
+                next_rated,
+            );
+        }
+        // A decline signed for rated A is refused on B the same way.
+        let n = nonce(3 + if next_rated { 0 } else { 10 });
         a_held_seller_exit_cannot_end_the_next_job(
             &mut world,
-            label,
+            "SOL decline",
             sol_escrow(&c, n),
-            sol_lock(&c, &s, 1_000_000, n, metered),
+            sol_lock(&c, &s, 1_000_000, n, false),
             &consumer,
             &specialist,
             sol_payout(&c, &s, n, &c, None),
-            sol_payout(&c, &s, n, &s, actual),
-            wait,
+            sol_cancel(&c, n, &s),
+            1,
+            next_rated,
         );
     }
 
@@ -433,21 +487,37 @@ fn a_settle_or_claim_signed_for_one_job_is_refused_for_the_next() {
         specialist,
     );
     let (a, b) = (t.payer.pubkey(), t.payee.pubkey());
-    for (i, label, metered, actual, wait) in [
-        (3, "token settle", true, Some(600_000), 1),
-        (4, "token claim", false, None, CLAIM_WINDOW + 1),
-    ] {
-        let n = nonce(i);
+    for next_rated in [true, false] {
+        for (i, label, metered, actual, wait) in [
+            (4, "token settle", true, Some(600_000), 1),
+            (5, "token claim", false, None, CLAIM_WINDOW + 1),
+        ] {
+            let n = nonce(i + if next_rated { 0 } else { 10 });
+            a_held_seller_exit_cannot_end_the_next_job(
+                &mut world,
+                label,
+                t.escrow(n),
+                t.lock(1_000_000, n, metered),
+                &t.payer,
+                &t.payee,
+                t.payout(n, &a, None),
+                t.payout(n, &b, actual),
+                wait,
+                next_rated,
+            );
+        }
+        let n = nonce(6 + if next_rated { 0 } else { 10 });
         a_held_seller_exit_cannot_end_the_next_job(
             &mut world,
-            label,
+            "token decline",
             t.escrow(n),
-            t.lock(1_000_000, n, metered),
+            t.lock(1_000_000, n, false),
             &t.payer,
             &t.payee,
             t.payout(n, &a, None),
-            t.payout(n, &b, actual),
-            wait,
+            t.cancel(n, &b),
+            1,
+            next_rated,
         );
     }
 }
