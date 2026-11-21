@@ -1,0 +1,46 @@
+{
+  "name": "@reddi/provider-kit",
+  "version": "0.1.0",
+  "description": "Run your own paid, per-token priced provider on Reddi Agent Protocol: one config file, one command, any OpenAI-compatible model.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "bin": {
+    "rap-provider": "dist/src/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "!dist/tests",
+    "examples",
+    "Dockerfile",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/tests/*.test.js",
+    "check:artifacts": "node ../../scripts/check-package-artifact-contents.mjs --dir packages/provider-kit",
+    "release:dry-run": "npm run clean && npm test && npm run check:artifacts && npm pack --dry-run"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@reddi/agent-protocol": "file:../agent-protocol",
+    "@reddi/x402-solana": "file:../x402-solana",
+    "@solana/web3.js": "^1.98.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "^5"
+  }
+}

@@ -39,11 +39,14 @@ describe('token payout preparation', () => {
   it.each([
     ['USDC', TOKEN_PROGRAM_ID],
     ['PYUSD', TOKEN_2022_PROGRAM_ID],
-  ])('creates the %s treasury and payer token accounts idempotently, paid by the funder', (symbol, tokenProgram) => {
+  ])('creates the %s treasury and payer token accounts only when asked, idempotently, paid by the funder', (symbol, tokenProgram) => {
     const { mint } = ESCROW_MAINNET_MINTS.find((m) => m.symbol === symbol)!;
-    const prep = prepareTokenPayout({ mint, tokenProgram, payer }, payee);
-    expect(prep.treasuryToken.equals(getAssociatedTokenAddressSync(mint, ESCROW_PROTOCOL_TREASURY, true, tokenProgram))).toBe(true);
-    expect(prep.refundTo.equals(getAssociatedTokenAddressSync(mint, payer, true, tokenProgram))).toBe(true);
+    const plain = prepareTokenPayout({ mint, tokenProgram, payer }, payee);
+    expect(plain.instructions).toEqual([]);
+    expect(plain.treasuryToken.equals(getAssociatedTokenAddressSync(mint, ESCROW_PROTOCOL_TREASURY, true, tokenProgram))).toBe(true);
+    expect(plain.refundTo.equals(getAssociatedTokenAddressSync(mint, payer, true, tokenProgram))).toBe(true);
+
+    const prep = prepareTokenPayout({ mint, tokenProgram, payer }, payee, undefined, { createTreasuryAccount: true, createRefundAccount: true });
     expect(prep.instructions).toHaveLength(2);
     const [treasuryCreate, refundCreate] = prep.instructions;
     for (const ix of prep.instructions) {
@@ -57,6 +60,11 @@ describe('token payout preparation', () => {
     expect(treasuryCreate.keys[2].pubkey.equals(ESCROW_PROTOCOL_TREASURY)).toBe(true);
     expect(refundCreate.keys[1].pubkey.equals(prep.refundTo)).toBe(true);
     expect(refundCreate.keys[2].pubkey.equals(payer)).toBe(true);
+
+    // A named refund account is used as given, and only the associated account can be created.
+    const named = Keypair.generate().publicKey;
+    expect(prepareTokenPayout({ mint, tokenProgram, payer }, payee, undefined, { refundTo: named }).refundTo.equals(named)).toBe(true);
+    expect(() => prepareTokenPayout({ mint, tokenProgram, payer }, payee, undefined, { refundTo: named, createRefundAccount: true })).toThrow(/associated/);
   });
 
   it('refuses a third token program', () => {
@@ -65,10 +73,11 @@ describe('token payout preparation', () => {
 });
 
 describe('treasury readiness', () => {
-  const tokenAccount = (mint: PublicKey, owner: PublicKey): Uint8Array => {
+  const tokenAccount = (mint: PublicKey, owner: PublicKey, state = 1): Uint8Array => {
     const data = new Uint8Array(165);
     data.set(mint.toBytes(), 0);
     data.set(owner.toBytes(), 32);
+    data[108] = state; // 0 uninitialised, 1 initialised, 2 frozen
     return data;
   };
   const ready = (): Map<string, ReadAccount> => {
@@ -118,6 +127,25 @@ describe('treasury readiness', () => {
     const result = await checkTreasuryReadiness(lookup(wrongProgram));
     expect(result.ok).toBe(false);
     expect(result.items[4].detail).toMatch(/expected/);
+  });
+
+  it('fails on a frozen, uninitialised or truncated canonical token account', async () => {
+    const usdc = ESCROW_MAINNET_MINTS[0];
+    const ata = getAssociatedTokenAddressSync(usdc.mint, ESCROW_PROTOCOL_TREASURY, true, usdc.tokenProgram).toBase58();
+
+    const frozen = ready();
+    frozen.set(ata, { lamports: 2_039_280, owner: usdc.tokenProgram, data: tokenAccount(usdc.mint, ESCROW_PROTOCOL_TREASURY, 2) });
+    const result = await checkTreasuryReadiness(lookup(frozen));
+    expect(result.ok).toBe(false);
+    expect(result.items[1]).toMatchObject({ ok: false, detail: 'frozen by the issuer' });
+
+    const uninitialised = ready();
+    uninitialised.set(ata, { lamports: 2_039_280, owner: usdc.tokenProgram, data: tokenAccount(usdc.mint, ESCROW_PROTOCOL_TREASURY, 0) });
+    expect((await checkTreasuryReadiness(lookup(uninitialised))).items[1]).toMatchObject({ ok: false, detail: 'not initialised' });
+
+    const truncated = ready();
+    truncated.set(ata, { lamports: 1, owner: usdc.tokenProgram, data: tokenAccount(usdc.mint, ESCROW_PROTOCOL_TREASURY).subarray(0, 72) });
+    expect((await checkTreasuryReadiness(lookup(truncated))).items[1]).toMatchObject({ ok: false, detail: 'not a token account' });
   });
 });
 

@@ -51,6 +51,26 @@
       "import": "./dist/types.js",
       "require": "./dist/types.js"
     },
+    "./provider": {
+      "types": "./dist/provider.d.ts",
+      "import": "./dist/provider.js",
+      "require": "./dist/provider.js"
+    },
+    "./metered": {
+      "types": "./dist/metered.d.ts",
+      "import": "./dist/metered.js",
+      "require": "./dist/metered.js"
+    },
+    "./token-escrow": {
+      "types": "./dist/token-escrow.d.ts",
+      "import": "./dist/token-escrow.js",
+      "require": "./dist/token-escrow.js"
+    },
+    "./escrow-readiness": {
+      "types": "./dist/escrow-readiness.d.ts",
+      "import": "./dist/escrow-readiness.js",
+      "require": "./dist/escrow-readiness.js"
+    },
     "./rating": {
       "types": "./dist/rating.d.ts",
       "import": "./dist/rating.js",

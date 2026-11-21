@@ -22,9 +22,11 @@ address, never the multisig account address).
 
 ## 2. Fund the deployer
 
-The deployer needs the program account's rent, about 0.41 SOL at 6,960
-lamports per byte for a 58–59 KB build, plus room for the temporary buffer
-during the deploy and fees. 1.5 SOL is enough. The owner funds it.
+The deployer needs the program account's rent at 6,960 lamports per byte, plus
+room for the temporary buffer during the deploy and fees. With rating and
+attestation in the V1 build, the program is expected at about 85–95 KB (rent
+about 0.6–0.66 SOL); take the size of record from the freeze. 2 SOL is enough.
+The owner funds it.
 
 ## 3. Deploy (owner signs)
 
@@ -43,8 +45,10 @@ A payout fails if the treasury cannot receive it:
    rent-exempt minimum fails.
 2. Create the vault's associated token accounts for USDC and AUDD (classic SPL
    Token) and PYUSD and USDG (Token-2022). Anyone can pay for these; the vault
-   owns them. The provider settle path also creates them on demand, but release
-   and claim do not.
+   owns them. Nothing creates them later: release, claim and the provider's
+   settle all expect them. Until the account for a currency exists and can
+   receive, a provider running the provider kit refuses calls in that currency
+   with `provider_not_ready`.
 3. Run the read-only check until it passes:
 
    ```bash
@@ -54,7 +58,10 @@ A payout fails if the treasury cannot receive it:
 
    It prints only the RPC host, never the URL, so a keyed URL stays out of logs.
 4. Run `node scripts/check-token2022-mint-posture.mjs` and confirm PYUSD and
-   USDG still match the recorded posture (no transfer hook, zero fee).
+   USDG still match the recorded posture (no transfer hook, zero fee). Run it
+   again on launch day, before the first PYUSD or USDG lock, and record both
+   results. If it fails, follow "If the posture changes" in
+   `docs/ESCROW-PAYOUT-SAFETY.md` and keep that mint closed.
 
 ## 5. Switch the app to mainnet
 
@@ -63,6 +70,9 @@ A payout fails if the treasury cannot receive it:
 2. Set the Vercel variables in `docs/MAINNET-RPC.md`, and the firewall rate
    limit on `/api/rpc`.
 3. Set `X402_PROTOCOL_FEE_TREASURY` for providers to the vault.
+4. Tell each provider operator to keep its SOL payee wallet rent-exempt, open
+   and not a program account from lock to payout, or SOL payouts to it fail
+   (`docs/ESCROW-PAYOUT-SAFETY.md`).
 
 ## 6. Verify (by 3 December)
 

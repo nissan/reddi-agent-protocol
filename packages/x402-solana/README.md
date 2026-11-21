@@ -29,6 +29,28 @@ npm --prefix packages/x402-solana test -- --runInBand
 npm --prefix packages/x402-solana run build
 ```
 
+## Provider side: metered calls
+
+`@reddi/x402-solana/provider` is the seller side of a per-token call. A buyer locks the most it will pay in a metered token escrow; the provider checks the lock on chain, serves the call, and settles the actual cost.
+
+```typescript
+import { providerMeteredTerms, meteredOffer, readMeteredPaymentHeader, checkProviderCluster, verifyMeteredLock, usageFrom, meteredSettlement } from '@reddi/x402-solana/provider';
+
+const terms = providerMeteredTerms({ currency: 'USDC', inputPerMillion: '0.15', outputPerMillion: '0.60', programId, mint, payee: wallet });
+
+// No payment yet: tell the buyer the price, the estimate and the maximum to lock (twice the estimate by default).
+const offer = meteredOffer(terms, messages, body.max_tokens, 'solana-devnet');
+
+// Payment presented: confirm the cluster once, then check the lock.
+await checkProviderCluster(() => connection.getGenesisHash(), 'solana-devnet');
+const lock = await verifyMeteredLock({ header, terms, minimum, readAccount, readSlot, replayStore });
+
+// After the model answers: build the settle for the tokens used. You sign and send it.
+const { settlement, instructions } = meteredSettlement(terms, lock, usageFrom(upstreamAnswer, inputEstimate));
+```
+
+`verifyMeteredLock` also checks that the payout can land (the provider's, the treasury's and the buyer's token accounts), and `confirmMeteredSettlement` reads what a confirmed settle moved, for the receipt. It reads no key and sends no transaction. `packages/provider-kit` wraps it in a runnable server. Token currencies only (USDC, AUDD, PYUSD, USDG).
+
 ## Usage
 
 ### Express Middleware

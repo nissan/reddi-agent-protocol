@@ -17,11 +17,13 @@ account the program controls until one of these happens:
 | Refund: everything goes back to the buyer | The buyer | Once the escrow's refund window has passed |
 | Claim: the seller is paid the whole amount, less the fee | The seller | Once the escrow's claim window has passed |
 
-The refund and claim windows are set per escrow when it is locked, and the
-seller's claim opens before the buyer's refund (owner decision, 21 November
-2026; the program change is in progress, so check the program's README for the
-exact rules of the build you use). A short claim window suits per-call work,
-where the answer is useful within seconds.
+The refund and claim windows are set per escrow when it is locked, in slots:
+the seller's claim opens at or before the buyer's refund (`0 < claim <= refund
+<= 6,480,000`). When both open in the same slot, either party can act, and the
+first transaction to land wins. Once the claim window opens, an idle buyer
+leaves the seller free to claim, but the seller is paid only when it sends the
+claim. A short claim window suits per-call work, where the answer is useful
+within seconds.
 
 Even so, sellers should:
 
@@ -68,10 +70,18 @@ does not allow, even when the escrow program accepts it:
   accepted mint before the first payout in that mint. `node
   scripts/check-escrow-treasury.mjs --network mainnet` checks both without
   sending anything; see the mainnet launch runbook.
-- **Token accounts.** A token settle first creates, if missing, the treasury's
-  token account and the buyer's associated token account, which receives the
-  unused part (`prepareTokenPayout` in `@reddi/x402-solana`; the provider
-  runtime in `packages/openrouter-specialists` does this on every settle).
+- **Token accounts.** A token settle creates no accounts. Before a provider
+  accepts a lock it reads the three accounts the settle pays into: its own
+  token account, the treasury's, and the account the buyer funded the lock
+  from, which receives the unused part (`checkMeteredPayout` in
+  `@reddi/x402-solana`, run by `verifyMeteredLock`). Each must exist, be
+  initialised, not frozen, belong to the right owner and not require a memo;
+  otherwise the call is refused before any work and the lock stays usable. The
+  treasury's token account for each currency must therefore exist before any
+  provider takes that currency. If a buyer closes its account after its lock
+  was accepted, the provider kit tries the buyer's associated token account,
+  and pays to create one only when the operator opted in
+  (`refundAccountSubsidy.maxPerDay`); otherwise that settle is held.
 
 ## Issuer powers over PYUSD and USDG
 
@@ -98,7 +108,29 @@ but have no delegate, fee or hook.
 
 `node scripts/check-token2022-mint-posture.mjs` compares the live PYUSD and USDG
 mints with the posture recorded in `config/escrow/token2022-mint-posture.json`
-and exits non-zero on any change. The `Token-2022 mint watch` workflow runs it
-daily. A change means re-assessing the risk to open escrows in that mint, and
-pausing new locks in it if a hook or fee was switched on, before the recorded
-posture is updated.
+and exits non-zero on any change.
+
+- **Daily watch.** The `Token-2022 mint watch` workflow runs it every day. When
+  a scheduled or manual run fails, the workflow opens an issue labelled
+  `mint-watch` (or comments on the open one) and assigns it to the repository
+  owner, who is the named recipient of the alert.
+- **Before opening a rail.** Run the check by hand (or start the workflow) on
+  launch day, and before accepting the first lock in PYUSD or USDG. Record the
+  result next to the treasury readiness check in the launch record.
+- **If the posture changes.** A failed check never updates the recorded posture
+  by itself. The operator:
+  1. stops new escrow locks in the affected mint: each provider running the
+     provider kit lists the currency in `pausedCurrencies` (or sets
+     `RAP_PROVIDER_PAUSED_CURRENCIES`) and restarts, after which it refuses
+     paid calls in it with `currency_paused` and reports
+     `acceptingPayments: false`. The app's health sweep reads that field on
+     `/healthz` and marks the listing as failing, so the planner stops
+     offering it. The sweep runs once a day, so to hide the listing at once
+     the operator also reruns `rap-provider register` or pauses the listing;
+  2. reads the change (hook program, fee, delegate, freeze or pause authority)
+     and decides whether open escrows in that mint can still settle;
+  3. updates `config/escrow/token2022-mint-posture.json` only after that
+     decision, in a reviewed pull request, before reopening the mint.
+
+A freeze of one account (a vault, a buyer's or a seller's) does not change the
+mint and is not caught by this watch; it shows up as a failed payout.

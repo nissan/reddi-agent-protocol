@@ -127,8 +127,9 @@ daily mint watch (`scripts/check-token2022-mint-posture.mjs`) is the control.
 
 The windows changed two account layouts. A SOL escrow is 165 bytes, with the
 two windows after `created_slot`; a token escrow is 219 bytes, with them at the
-end. An escrow written by an earlier build is shorter and this build refuses
-it, so open escrows on a program that is upgraded in place should be ended
+end. An escrow written by an earlier build is shorter (149 and 203 bytes) and
+both builds refuse it by its size, before reading a field, with
+`AccountDidNotDeserialize` (3003), so open escrows on a program that is upgraded in place should be ended
 (the payee can decline at any time) before the upgrade. The decoders in
 `lib/sandbox/escrow.ts` and `packages/x402-solana` read both sizes.
 
@@ -580,8 +581,9 @@ dependencies stay out of the program's lockfile):
    simulators with identical state, and requires the same result, the same
    error, the same error log line, the same events, the same inner instructions
    and the same bytes and lamports in every account either transaction touched.
-   435 transactions across SOL, classic SPL Token (USDC, AUDD) and Token-2022
-   (PYUSD, USDG) escrows, the registry, malformed input, wrong and duplicated
+   459 transactions across SOL, classic SPL Token (USDC, AUDD) and Token-2022
+   (PYUSD, USDG) escrows, the registry, malformed input, earlier-format escrow
+   records, wrong and duplicated
    accounts, uninitialised token accounts, mints off the allowlist, transfer
    fees, and issuer actions on Token-2022 vaults. This is what holds an escrow
    that is not rated to the behaviour it had before ratings were added: the
@@ -630,10 +632,10 @@ escrow and registry instructions only:
 
 | | Anchor (13 instructions) | Pinocchio (23 instructions) | Change |
 |---|---|---|---|
-| Program size | 345,536 bytes | 93,792 bytes | 73% smaller |
-| Rent at 6,960 lamports per byte | 2.4073 SOL | 0.6551 SOL | 1.7522 SOL less |
-| Rent at 5,080 lamports per byte | 1.7570 SOL | 0.4782 SOL | 1.2788 SOL less |
-| `per` build size (not for mainnet) | 496,120 bytes (`extended`) | 101,128 bytes | 80% smaller |
+| Program size | 345,152 bytes | 93,792 bytes | 73% smaller |
+| Rent at 6,960 lamports per byte | 2.4046 SOL | 0.6551 SOL | 1.7495 SOL less |
+| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.4782 SOL | 1.2769 SOL less |
+| `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 101,128 bytes | 80% smaller |
 
 Before ratings and attestations were added the Pinocchio build was 62,248
 bytes (0.4356 SOL at 6,960); they cost 31,544 bytes and 0.2195 SOL of rent.
