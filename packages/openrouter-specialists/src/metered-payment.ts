@@ -17,6 +17,7 @@ import {
   baseUnitsToDecimal,
   buildSettleTokenEscrowInstruction,
   decodeTokenEscrowAccount,
+  SELLER_MIN_CANCEL_WINDOW_SLOTS,
   directPaymentCurrency,
   parseX402PaymentHeader,
   settleMeteredCall,
@@ -168,6 +169,10 @@ export async function verifyMeteredLock(input: {
   }
   if (escrow.status !== 0) return { ok: false, reason: "duplicate_nonce", message: "This escrow has already been settled or cancelled." };
   if (!escrow.metered) return { ok: false, reason: "invalid_receipt", message: "This escrow was not locked as a metered escrow." };
+  // The payer may refund once its window has elapsed, so the settlement has to land before then.
+  if (escrow.cancelWindowSlots !== undefined && escrow.cancelWindowSlots < SELLER_MIN_CANCEL_WINDOW_SLOTS) {
+    return { ok: false, reason: "invalid_receipt", message: "This escrow's refund window is too short. Lock it with a refund window of at least 10 minutes." };
+  }
   if (!escrow.payer.equals(header.payer)) return { ok: false, reason: "invalid_receipt", message: "The escrow was locked by a different wallet." };
   if (!escrow.payee.equals(terms.payee)) return { ok: false, reason: "wrong_payee", message: "The escrow pays a different provider." };
   if (!escrow.mint.equals(terms.mint)) return { ok: false, reason: "wrong_currency", message: `The escrow holds a different mint than this provider's ${terms.price.currency}.` };
@@ -196,6 +201,9 @@ export async function verifyMeteredLock(input: {
       amount: escrow.amount,
       nonce: Uint8Array.from(escrow.nonce),
       metered: true,
+      ...(escrow.claimWindowSlots !== undefined && escrow.cancelWindowSlots !== undefined
+        ? { claimWindowSlots: escrow.claimWindowSlots, cancelWindowSlots: escrow.cancelWindowSlots }
+        : {}),
     },
   };
 }

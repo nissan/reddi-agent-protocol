@@ -31,10 +31,10 @@ const config: RuntimeConfig = {
 
 const disc = (name: string) => createHash("sha256").update(`account:${name}`).digest().subarray(0, 8);
 
-function tokenEscrowBytes(fields: { amount: bigint; payee?: PublicKey; mint?: PublicKey; recipient?: PublicKey; status?: number; metered?: boolean; payer?: PublicKey }): Uint8Array {
+function tokenEscrowBytes(fields: { amount: bigint; payee?: PublicKey; mint?: PublicKey; recipient?: PublicKey; status?: number; metered?: boolean; payer?: PublicKey; /** `null`: an account the earlier program wrote, with no windows. */ windows?: { claim: bigint; cancel: bigint } | null }): Uint8Array {
   const mint = fields.mint ?? USDC;
   const owner = fields.payee ?? payee;
-  const data = Buffer.alloc(203);
+  const data = Buffer.alloc(fields.windows === null ? 203 : 219);
   disc("TokenEscrowAccount").copy(data, 0);
   (fields.payer ?? payer).toBuffer().copy(data, 8);
   owner.toBuffer().copy(data, 40);
@@ -46,6 +46,10 @@ function tokenEscrowBytes(fields: { amount: bigint; payee?: PublicKey; mint?: Pu
   data[192] = fields.status ?? 0;
   data[201] = 254;
   data[202] = fields.metered === false ? 0 : 1;
+  if (fields.windows !== null) {
+    data.writeBigUInt64LE(fields.windows?.claim ?? BigInt(1_500), 203);
+    data.writeBigUInt64LE(fields.windows?.cancel ?? BigInt(4_500), 211);
+  }
   return data;
 }
 
@@ -140,6 +144,7 @@ test("refuses a lock that does not match the provider's terms, before calling th
     ["other mint", { data: tokenEscrowBytes({ amount: BigInt(6000), mint: stranger }) }, 402],
     ["other recipient", { data: tokenEscrowBytes({ amount: BigInt(6000), recipient: stranger }) }, 402],
     ["not metered", { data: tokenEscrowBytes({ amount: BigInt(6000), metered: false }) }, 402],
+    ["refund window too short", { data: tokenEscrowBytes({ amount: BigInt(6000), windows: { claim: BigInt(1), cancel: BigInt(1_499) } }) }, 402],
     ["already settled", { data: tokenEscrowBytes({ amount: BigInt(6000), status: 1 }) }, 409],
     ["other payer named", { data: tokenEscrowBytes({ amount: BigInt(6000) }) }, 402, { payer: stranger.toBase58() }],
     ["bad nonce", { data: tokenEscrowBytes({ amount: BigInt(6000) }) }, 402, { nonce: "xyz" }],

@@ -1,6 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ESCROW_PROTOCOL_TREASURY = exports.TOKEN_ESCROW_DISCRIMINATORS = void 0;
+exports.ESCROW_PROTOCOL_TREASURY = exports.SELLER_MIN_CANCEL_WINDOW_SLOTS = exports.MAX_ESCROW_WINDOW_SLOTS = exports.DEFAULT_CANCEL_WINDOW_SLOTS = exports.DEFAULT_CLAIM_WINDOW_SLOTS = exports.ESCROW_SLOT_MS = exports.TOKEN_ESCROW_DISCRIMINATORS = void 0;
+exports.escrowWindowSlots = escrowWindowSlots;
+exports.escrowWindows = escrowWindows;
 exports.treasuryTokenAccount = treasuryTokenAccount;
 exports.tokenEscrowAddresses = tokenEscrowAddresses;
 exports.buildLockTokenEscrowInstruction = buildLockTokenEscrowInstruction;
@@ -27,6 +29,35 @@ const disc = (kind, name) => {
         throw new Error(`unknown discriminator ${kind}:${name}`);
     return Buffer.from(bytes);
 };
+/** Nominal slot time the program's windows are counted in. Real slot times drift, so a window is approximate in seconds. */
+exports.ESCROW_SLOT_MS = 400;
+/** Windows used when a lock names none. Mirror `programs/pinocchio-escrow/program/src/consts.rs`. */
+exports.DEFAULT_CLAIM_WINDOW_SLOTS = 1500n;
+exports.DEFAULT_CANCEL_WINDOW_SLOTS = 4500n;
+/** The longest refund window the program accepts: about 30 days. */
+exports.MAX_ESCROW_WINDOW_SLOTS = 6480000n;
+/**
+ * The shortest refund window a seller should serve a metered call against:
+ * about 10 minutes. The payer may refund once its window has elapsed, so a
+ * seller must settle before then; with a very short window the refund could
+ * land first.
+ */
+exports.SELLER_MIN_CANCEL_WINDOW_SLOTS = 1500n;
+/** A duration in seconds as a whole number of slots, rounded up, at the nominal slot time. */
+function escrowWindowSlots(seconds) {
+    if (!Number.isFinite(seconds) || seconds <= 0)
+        throw new Error('window must be a positive number of seconds');
+    return BigInt(Math.ceil((seconds * 1000) / exports.ESCROW_SLOT_MS));
+}
+/** The program's rule: claim window of at least one slot, no later than the refund window, refund window at most the maximum. */
+function escrowWindows(t) {
+    const claimWindowSlots = t.claimWindowSlots ?? exports.DEFAULT_CLAIM_WINDOW_SLOTS;
+    const cancelWindowSlots = t.cancelWindowSlots ?? exports.DEFAULT_CANCEL_WINDOW_SLOTS;
+    if (claimWindowSlots < 1n || claimWindowSlots > cancelWindowSlots || cancelWindowSlots > exports.MAX_ESCROW_WINDOW_SLOTS) {
+        throw new Error('claim window must be at least one slot, no later than the refund window, and the refund window at most 30 days');
+    }
+    return { claimWindowSlots, cancelWindowSlots };
+}
 /** Protocol fee treasury fixed in the escrow program: the Squads vault. */
 exports.ESCROW_PROTOCOL_TREASURY = new web3_js_1.PublicKey('5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe');
 /** The treasury's associated token account for the escrow mint, which receives token fees. */
@@ -52,8 +83,12 @@ function buildLockTokenEscrowInstruction(t) {
     const { escrow, vault } = tokenEscrowAddresses(t);
     const amount = Buffer.alloc(8);
     amount.writeBigUInt64LE(t.amount);
+    const { claimWindowSlots, cancelWindowSlots } = escrowWindows(t);
+    const windows = Buffer.alloc(16);
+    windows.writeBigUInt64LE(claimWindowSlots);
+    windows.writeBigUInt64LE(cancelWindowSlots, 8);
     return new web3_js_1.TransactionInstruction({ programId: t.programId,
-        data: Buffer.concat([disc('global', t.metered ? 'lock_metered_token_escrow' : 'lock_token_escrow'), amount, Buffer.from(t.nonce)]),
+        data: Buffer.concat([disc('global', t.metered ? 'lock_metered_token_escrow' : 'lock_token_escrow'), amount, Buffer.from(t.nonce), windows]),
         keys: [meta(escrow, true), meta(vault, true), meta(t.payer, true, true), meta(t.payee), meta(t.mint),
             meta(t.source, true), meta(t.recipient), meta(t.tokenProgram), meta(web3_js_1.SystemProgram.programId)] });
 }
@@ -91,10 +126,20 @@ function buildSettleTokenEscrowInstruction(t, refund = false, authority = t.paye
             meta(t.recipient, true), meta(options.treasuryToken ?? treasuryTokenAccount(t), true), meta(options.refundTo ?? t.source, true),
             meta(t.tokenProgram)] });
 }
+/** Size of a token escrow account locked before windows were stored on it (fixed 3-day refund, 7-day claim). */
+const LEGACY_TOKEN_ESCROW_LEN = 203;
+const TOKEN_ESCROW_LEN = 219;
+/**
+ * Reads a token escrow account. `claimWindowSlots` and `cancelWindowSlots` are
+ * undefined on an account the earlier program wrote, which stored no windows.
+ */
 function decodeTokenEscrowAccount(data) {
-    if (data.length !== 203 || !data.subarray(0, 8).equals(disc('account', 'TokenEscrowAccount')))
+    if ((data.length !== TOKEN_ESCROW_LEN && data.length !== LEGACY_TOKEN_ESCROW_LEN) || !data.subarray(0, 8).equals(disc('account', 'TokenEscrowAccount')))
         throw new Error('invalid token escrow layout');
+    const windows = data.length === TOKEN_ESCROW_LEN;
     return {
+        claimWindowSlots: windows ? data.readBigUInt64LE(203) : undefined,
+        cancelWindowSlots: windows ? data.readBigUInt64LE(211) : undefined,
         payer: new web3_js_1.PublicKey(data.subarray(8, 40)), payee: new web3_js_1.PublicKey(data.subarray(40, 72)),
         mint: new web3_js_1.PublicKey(data.subarray(72, 104)), source: new web3_js_1.PublicKey(data.subarray(104, 136)),
         recipient: new web3_js_1.PublicKey(data.subarray(136, 168)), amount: data.readBigUInt64LE(168),

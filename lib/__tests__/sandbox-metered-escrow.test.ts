@@ -10,6 +10,8 @@ import {
   decodeSandboxEscrow,
   escrowNonceBytes,
   SANDBOX_ESCROW_DISCRIMINATORS,
+  SANDBOX_CANCEL_WINDOW_SLOTS,
+  SANDBOX_CLAIM_WINDOW_SLOTS,
   SANDBOX_ESCROW_PROGRAM_ID,
   sandboxEscrowAddress,
 } from "@/lib/sandbox/escrow";
@@ -28,19 +30,37 @@ const SETTLE_SIG = "3".repeat(88);
 const LOCK_SIG = "2".repeat(88);
 
 /** Borsh bytes of an EscrowAccount as Anchor writes it. */
-function escrowBytes(fields: { payer: PublicKey; payee: PublicKey; amount: bigint; nonce: Uint8Array; status?: number; metered?: boolean; session?: PublicKey }): Uint8Array {
+function escrowBytes(fields: {
+  payer: PublicKey;
+  payee: PublicKey;
+  amount: bigint;
+  nonce: Uint8Array;
+  status?: number;
+  metered?: boolean;
+  session?: PublicKey;
+  /** `null` writes the account as the earlier program did, with no windows (149 bytes). */
+  windows?: { claim: bigint; cancel: bigint } | null;
+}): Uint8Array {
   const parts: number[] = [...SANDBOX_ESCROW_DISCRIMINATORS.escrowAccount, ...fields.payer.toBytes(), ...fields.payee.toBytes()];
   const amount = Buffer.alloc(8);
   amount.writeBigUInt64LE(fields.amount);
   parts.push(...amount, ...fields.nonce, fields.status ?? 0);
   const time = Buffer.alloc(16);
   time.writeBigInt64LE(BigInt(Math.floor(NOW_MS / 1000)));
-  parts.push(...time, 0);
+  parts.push(...time);
+  if (fields.windows !== null) {
+    const windows = Buffer.alloc(16);
+    windows.writeBigUInt64LE(fields.windows?.claim ?? SANDBOX_CLAIM_WINDOW_SLOTS);
+    windows.writeBigUInt64LE(fields.windows?.cancel ?? SANDBOX_CANCEL_WINDOW_SLOTS, 8);
+    parts.push(...windows);
+  }
+  parts.push(0);
   if (fields.session) parts.push(1, ...fields.session.toBytes());
   else parts.push(0);
   parts.push(255, fields.metered === false ? 0 : 1);
   // Anchor allocates the full LEN; a None session leaves 32 trailing zero bytes.
-  while (parts.length < 149) parts.push(0);
+  const len = fields.windows === null ? 149 : 165;
+  while (parts.length < len) parts.push(0);
   return Uint8Array.from(parts);
 }
 
@@ -105,7 +125,14 @@ describe("sandbox metered escrow: instructions and layout", () => {
     expect(escrow.equals(PublicKey.findProgramAddressSync([Buffer.from("escrow"), payer.toBytes(), escrowNonceBytes(nonce)], SANDBOX_ESCROW_PROGRAM_ID)[0])).toBe(true);
     expect(instruction.data.subarray(0, 8)).toEqual(IX.lock_metered_escrow);
     expect(instruction.data.readBigUInt64LE(8)).toBe(BigInt(5380));
-    expect(Array.from(instruction.data.subarray(16))).toEqual(Array.from(escrowNonceBytes(nonce)));
+    expect(Array.from(instruction.data.subarray(16, 32))).toEqual(Array.from(escrowNonceBytes(nonce)));
+    // Both windows follow, in slots: the provider may claim from the first, the visitor may refund from the second.
+    expect(instruction.data.length).toBe(48);
+    expect(instruction.data.readBigUInt64LE(32)).toBe(SANDBOX_CLAIM_WINDOW_SLOTS);
+    expect(instruction.data.readBigUInt64LE(40)).toBe(SANDBOX_CANCEL_WINDOW_SLOTS);
+    expect(SANDBOX_CLAIM_WINDOW_SLOTS <= SANDBOX_CANCEL_WINDOW_SLOTS).toBe(true);
+    const custom = buildSandboxMeteredLock({ payer, payee, maxLamports: BigInt(1), challengeNonce: nonce, claimWindowSlots: BigInt(25), cancelWindowSlots: BigInt(2_000) });
+    expect([custom.instruction.data.readBigUInt64LE(32), custom.instruction.data.readBigUInt64LE(40)]).toEqual([BigInt(25), BigInt(2_000)]);
     expect(instruction.keys.map((key) => [key.pubkey.toBase58(), key.isSigner, key.isWritable])).toEqual([
       [escrow.toBase58(), false, true],
       [payer.toBase58(), true, true],
@@ -129,7 +156,19 @@ describe("sandbox metered escrow: instructions and layout", () => {
   it("decodes an escrow account with and without a PER session key, and refuses other bytes", () => {
     const nonce = escrowNonceBytes("ffeeddccbbaa99887766554433221100");
     const base = { payer, payee: new PublicKey(swift.payTo), amount: BigInt(9), nonce };
-    expect(decodeSandboxEscrow(escrowBytes(base))).toMatchObject({ amount: BigInt(9), status: "locked", metered: true });
+    expect(decodeSandboxEscrow(escrowBytes(base))).toMatchObject({
+      amount: BigInt(9),
+      status: "locked",
+      metered: true,
+      claimWindowSlots: SANDBOX_CLAIM_WINDOW_SLOTS,
+      cancelWindowSlots: SANDBOX_CANCEL_WINDOW_SLOTS,
+    });
+    expect(decodeSandboxEscrow(escrowBytes({ ...base, windows: { claim: BigInt(25), cancel: BigInt(250) } }))).toMatchObject({ claimWindowSlots: BigInt(25), cancelWindowSlots: BigInt(250), metered: true });
+    // An account the earlier program wrote has no windows and still decodes.
+    const legacy = decodeSandboxEscrow(escrowBytes({ ...base, windows: null }));
+    expect(legacy).toMatchObject({ amount: BigInt(9), status: "locked", metered: true });
+    expect(legacy?.cancelWindowSlots).toBeUndefined();
+    expect(decodeSandboxEscrow(escrowBytes({ ...base, windows: null, session: Keypair.generate().publicKey, metered: false }))).toMatchObject({ metered: false });
     expect(decodeSandboxEscrow(escrowBytes({ ...base, session: Keypair.generate().publicKey, metered: false }))).toMatchObject({ metered: false });
     expect(decodeSandboxEscrow(escrowBytes({ ...base, status: 1 }))?.status).toBe("released");
     const wrongDisc = escrowBytes(base);
@@ -188,6 +227,7 @@ describe("sandbox metered escrow: gateway", () => {
       { name: "wrong amount", setup: (accounts, nonce) => lockFor(accounts, nonce, { amount: MAX_LAMPORTS - BigInt(1) }), reason: "wrong_amount" },
       { name: "wrong payee", setup: (accounts, nonce) => lockFor(accounts, nonce, { payee: other }), reason: "wrong_payee" },
       { name: "not metered", setup: (accounts, nonce) => lockFor(accounts, nonce, { metered: false }), reason: "invalid_receipt" },
+      { name: "refund window too short", setup: (accounts, nonce) => lockFor(accounts, nonce, { windows: { claim: BigInt(1), cancel: BigInt(1_499) } }), reason: "invalid_receipt" },
       { name: "already released", setup: (accounts, nonce) => lockFor(accounts, nonce, { status: 1 }), reason: "duplicate_nonce" },
       { name: "escrow for another nonce", setup: (accounts) => lockFor(accounts, "0".repeat(32)), reason: "invalid_receipt" },
       { name: "payer who did not lock", setup: (accounts, nonce) => lockFor(accounts, nonce), header: (nonce, escrow) => meteredHeader(nonce, escrow, { payer: other.toBase58() }), reason: "invalid_receipt" },

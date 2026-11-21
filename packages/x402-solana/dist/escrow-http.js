@@ -18,8 +18,14 @@ function escrowTerms(c) {
         throw new Error('invalid escrow nonce/amount');
     if (!Number.isInteger(c.decimals) || c.decimals < 0 || c.decimals > 255)
         throw new Error('invalid mint decimals');
+    for (const window of [c.claimWindowSlots, c.cancelWindowSlots]) {
+        if (window !== undefined && (!Number.isSafeInteger(window) || window < 1))
+            throw new Error('invalid escrow window');
+    }
     const t = { tokenProgram: new web3_js_1.PublicKey(c.tokenProgram), programId: new web3_js_1.PublicKey(c.programId), payer: new web3_js_1.PublicKey(c.payer), payee: new web3_js_1.PublicKey(c.payee),
-        mint: new web3_js_1.PublicKey(c.mint), source: new web3_js_1.PublicKey(c.source), recipient: new web3_js_1.PublicKey(c.recipient), amount: BigInt(c.amount), nonce: Buffer.from(c.nonce, 'hex') };
+        mint: new web3_js_1.PublicKey(c.mint), source: new web3_js_1.PublicKey(c.source), recipient: new web3_js_1.PublicKey(c.recipient), amount: BigInt(c.amount), nonce: Buffer.from(c.nonce, 'hex'),
+        ...(c.claimWindowSlots !== undefined ? { claimWindowSlots: BigInt(c.claimWindowSlots) } : {}),
+        ...(c.cancelWindowSlots !== undefined ? { cancelWindowSlots: BigInt(c.cancelWindowSlots) } : {}) };
     (0, token_escrow_1.buildLockTokenEscrowInstruction)(t); // Validate u64 and native-mint boundary before signing.
     return t;
 }
@@ -59,6 +65,10 @@ async function verifyEscrowLock(connection, c, proof) {
     }
     if (decoded.amount !== t.amount || !decoded.nonce.equals(Buffer.from(t.nonce)) || decoded.status !== 0 || decoded.bump !== bump || decoded.createdSlot !== BigInt(tx.slot))
         throw new Error('escrow terms mismatch');
+    // An account the earlier program wrote stores no windows (they were fixed); otherwise they must be the challenge's.
+    const expected = (0, token_escrow_1.escrowWindows)(t);
+    if (decoded.claimWindowSlots !== undefined && (decoded.claimWindowSlots !== expected.claimWindowSlots || decoded.cancelWindowSlots !== expected.cancelWindowSlots))
+        throw new Error('escrow windows mismatch');
     const mintInfo = await connection.getAccountInfo(t.mint, { commitment: 'finalized', minContextSlot: tx.slot });
     if (!mintInfo || (0, spl_token_1.unpackMint)(t.mint, mintInfo, t.tokenProgram).decimals !== c.decimals)
         throw new Error('mint decimals mismatch');

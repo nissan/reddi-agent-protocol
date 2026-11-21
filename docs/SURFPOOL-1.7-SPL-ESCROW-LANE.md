@@ -13,7 +13,7 @@ RAP_SURFPOOL_LANE_OUT_DIR=/abs/fresh/dir npm run test:surfpool:spl-escrow-1.7
 
 The lane is written for the trimmed nine-instruction program (#736, #746): allowlisted 6-decimal mints
 only, a 100-unit cap per escrow, an `authority` signer on release and refund, payee decline at any time,
-payer refund from 648,000 slots and payee claim from 1,512,000 slots. It also covers the 2.5% protocol
+payer refund from the 648,000 slots one lock names and payee claim from the 1,512,000 slots another names (windows are set per escrow at lock). It also covers the 2.5% protocol
 fee that every payout sends to the treasury's token account, and metered escrows that the payee settles
 at their actual cost (#792).
 

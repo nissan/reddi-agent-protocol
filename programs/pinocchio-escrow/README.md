@@ -25,13 +25,45 @@ Who may end an escrow, for SOL and tokens alike:
 | Call | Who | When | Pays |
 |---|---|---|---|
 | Release | Payer | Any time | The whole locked amount, less the fee |
-| Release (claim) | Payee | After the claim window (about 7 days) | The whole locked amount, less the fee |
+| Release (claim) | Payee | After the escrow's claim window | The whole locked amount, less the fee |
 | Settle | Payee only | Any time, metered escrows only | The amount the payee names, at most the maximum, less the fee; the rest returns to the payer |
 | Cancel (decline) | Payee | Any time | Everything back to the payer, no fee |
-| Cancel (refund) | Payer | After the cancel window (about 3 days) | Everything back to the payer, no fee |
+| Cancel (refund) | Payer | After the escrow's cancel window | Everything back to the payer, no fee |
 
 The payer never chooses a smaller payout: a payer who signs a settle is
 refused. A lock is not a payment until one of these calls ends it.
+
+Each lock names its two windows, in slots from the lock (a nominal 400 ms
+each), after the amount and the nonce: `claim_window_slots` and
+`cancel_window_slots`. They are stored on the escrow and nothing else decides
+the timing, so a job that takes seconds can use windows of seconds. A lock is
+refused with `InvalidWindows` (6031) unless
+
+- the claim window is at least one slot,
+- the claim window is no later than the cancel window, so a payee who did the
+  work can always claim before, or at the latest when, the payer can refund,
+- the cancel window is at most `MAX_ESCROW_WINDOW_SLOTS` (6,480,000 slots,
+  about 30 days), so a payer is never kept waiting without limit.
+
+The program has no default. Clients that name none use
+`DEFAULT_CLAIM_WINDOW_SLOTS` (1,500, about 10 minutes) and
+`DEFAULT_CANCEL_WINDOW_SLOTS` (4,500, about 30 minutes).
+
+Two things follow, and both sides should know them. The claim opens first, so
+on a fixed-price escrow a payer who does nothing pays the payee once the claim
+window opens, delivered or not: the lock is the payer's commitment up to the
+locked amount. And a seller serving against a lock must read its windows
+before doing the work: once the cancel window has elapsed the payer can
+refund, so the seller's settle or claim has to land before then.
+`SELLER_MIN_CANCEL_WINDOW_SLOTS` in `packages/x402-solana` is the floor the
+in-repo sellers apply.
+
+The windows changed two account layouts. A SOL escrow is 165 bytes, with the
+two windows after `created_slot`; a token escrow is 219 bytes, with them at the
+end. An escrow written by an earlier build is shorter and this build refuses
+it, so open escrows on a program that is upgraded in place should be ended
+(the payee can decline at any time) before the upgrade. The decoders in
+`lib/sandbox/escrow.ts` and `packages/x402-solana` read both sizes.
 
 The `extended` feature adds the eight instructions that are not part of V1,
 as the Anchor program's `extended` feature does. The mainnet build does not
@@ -99,7 +131,7 @@ dependencies stay out of the program's lockfile):
    simulators with identical state, and requires the same result, the same
    error, the same error log line, the same events, the same inner instructions
    and the same bytes and lamports in every account either transaction touched.
-   Default build: 333 transactions across SOL, classic SPL Token (USDC, AUDD)
+   Default build: 384 transactions across SOL, classic SPL Token (USDC, AUDD)
    and Token-2022 (PYUSD, USDG) escrows, the registry, malformed input, wrong
    and duplicated accounts, uninitialised token accounts, mints off the
    allowlist, transfer fees, and issuer actions on Token-2022 vaults. Extended
@@ -125,10 +157,10 @@ the checkout path:
 
 | | Anchor | Pinocchio | Change |
 |---|---|---|---|
-| Program size | 337,656 bytes | 58,480 bytes | 83% smaller |
-| Rent at 6,960 lamports per byte | 2.3524 SOL | 0.4094 SOL | 1.9431 SOL less |
-| Rent at 5,080 lamports per byte | 1.7170 SOL | 0.2988 SOL | 1.4182 SOL less |
-| Extended build size (not for mainnet) | 488,352 bytes | 88,624 bytes | 82% smaller |
+| Program size | 340,144 bytes | 59,608 bytes | 82% smaller |
+| Rent at 6,960 lamports per byte | 2.3697 SOL | 0.4172 SOL | 1.9525 SOL less |
+| Rent at 5,080 lamports per byte | 1.7296 SOL | 0.3045 SOL | 1.4251 SOL less |
+| Extended build size (not for mainnet) | 490,872 bytes | 89,880 bytes | 82% smaller |
 
 Rent is for the program account (36 bytes) plus the program data account (45
 bytes of header plus the binary), each with the 128-byte account overhead:
@@ -144,13 +176,13 @@ Compute units for successful calls, from the side-by-side suite:
 
 | Call | Anchor | Pinocchio |
 |---|---|---|
-| SOL lock | 9,743 | 5,098 |
-| SOL release | 5,890 | 1,322 |
-| USDC or AUDD lock | 25,331 | 14,946 |
-| USDC or AUDD release | 25,551 | 13,682 |
+| SOL lock | 9,871 | 5,113 |
+| SOL release | 5,942 | 1,343 |
+| USDC or AUDD lock | 25,460 | 14,970 |
+| USDC or AUDD release | 25,580 | 13,699 |
 | USDC or AUDD settle at actual cost | 27,446 | 14,876 |
-| PYUSD lock | 32,510 | 22,187 |
-| PYUSD settle at actual cost | 36,753 | 24,264 |
+| PYUSD lock | 32,639 | 22,211 |
+| PYUSD settle at actual cost | 36,763 | 24,277 |
 | Register agent | 15,527 | 10,774 |
 | Update agent | 4,368 | 407 |
 | Deregister agent | 3,864 | 298 |

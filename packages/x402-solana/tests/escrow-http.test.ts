@@ -2,7 +2,8 @@ import { Keypair, PublicKey, Transaction, Connection, SystemProgram, type Accoun
 import { AccountLayout, MintLayout, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { createHash } from 'node:crypto';
 import { createEscrowChallenge, escrowTerms, escrowRequestHash, verifyEscrowLock, EscrowSeller, buyWithEscrow } from '../src/escrow-http';
-import { buildLockTokenEscrowInstruction, buildSettleTokenEscrowInstruction, tokenEscrowAddresses, decodeTokenEscrowAccount, treasuryTokenAccount } from '../src/token-escrow';
+import { buildLockTokenEscrowInstruction, buildSettleTokenEscrowInstruction, tokenEscrowAddresses, decodeTokenEscrowAccount, treasuryTokenAccount,
+  DEFAULT_CANCEL_WINDOW_SLOTS, DEFAULT_CLAIM_WINDOW_SLOTS, MAX_ESCROW_WINDOW_SLOTS, escrowWindowSlots, escrowWindows } from '../src/token-escrow';
 const pk = () => Keypair.generate().publicKey;
 function fixture() {
   const payer = Keypair.generate();
@@ -10,10 +11,11 @@ function fixture() {
     requestHash: escrowRequestHash('{}'), programId: pk().toBase58(), payer: payer.publicKey.toBase58(), payee: pk().toBase58(),
     mint: pk().toBase58(), source: pk().toBase58(), recipient: pk().toBase58(), amount: '400000', tokenProgram: TOKEN_PROGRAM_ID.toBase58(), decimals: 6, expiresAt: Date.now() + 60000 });
   const t = escrowTerms(c), addresses = tokenEscrowAddresses(t);
-  const state = Buffer.alloc(203);
+  const state = Buffer.alloc(219);
   createHash('sha256').update('account:TokenEscrowAccount').digest().copy(state, 0, 0, 8);
   [t.payer, t.payee, t.mint, t.source, t.recipient].forEach((p, n) => p.toBuffer().copy(state, 8 + n * 32));
   state.writeBigUInt64LE(t.amount, 168); Buffer.from(t.nonce).copy(state, 176); state.writeBigUInt64LE(100n, 193); state[201] = addresses.bump;
+  state.writeBigUInt64LE(DEFAULT_CLAIM_WINDOW_SLOTS, 203); state.writeBigUInt64LE(DEFAULT_CANCEL_WINDOW_SLOTS, 211);
   const vault = Buffer.alloc(AccountLayout.span);
   AccountLayout.encode({ mint: t.mint, owner: addresses.escrow, amount: t.amount, delegateOption: 0, delegate: PublicKey.default,
     state: 1, isNativeOption: 0, isNative: 0n, delegatedAmount: 0n, closeAuthorityOption: 0, closeAuthority: PublicKey.default }, vault);
@@ -33,7 +35,8 @@ test('finalized exact lock yields a locked receipt, never a correctness or settl
   expect(f.rpc.getTransaction).toHaveBeenCalledWith(f.proof.lockSignature, { commitment: 'finalized', maxSupportedTransactionVersion: 0 });
 });
 test.each([[8, 'wrong escrow payer'], [40, 'wrong escrow payee'], [72, 'wrong escrow mint'], [104, 'wrong escrow source'], [136, 'wrong escrow recipient'],
-  [168, 'escrow terms mismatch'], [176, 'escrow terms mismatch'], [192, 'escrow terms mismatch'], [201, 'escrow terms mismatch']] as const)(
+  [168, 'escrow terms mismatch'], [176, 'escrow terms mismatch'], [192, 'escrow terms mismatch'], [201, 'escrow terms mismatch'],
+  [203, 'escrow windows mismatch'], [211, 'escrow windows mismatch']] as const)(
   'reject changed escrow field at %i with %s', async (offset, message) => {
     const f = fixture(); f.state[offset] ^= 1;
     await expect(verifyEscrowLock(f.rpc as unknown as Connection, f.c, f.proof)).rejects.toThrow(message);
@@ -115,6 +118,40 @@ test('strict raw u64, classic program and nonce boundaries; settlement selects r
   expect(declined.keys[3].pubkey.equals(f.t.payer)).toBe(true);
   expect(decodeTokenEscrowAccount(f.state).createdSlot).toBe(100n);
   expect(decodeTokenEscrowAccount(f.state).metered).toBe(false);
+});
+test('a lock names both windows in slots, with defaults, and refuses windows outside the program rule', () => {
+  const f = fixture();
+  const lock = buildLockTokenEscrowInstruction(f.t);
+  expect(lock.data).toHaveLength(48);
+  expect([lock.data.readBigUInt64LE(32), lock.data.readBigUInt64LE(40)]).toEqual([DEFAULT_CLAIM_WINDOW_SLOTS, DEFAULT_CANCEL_WINDOW_SLOTS]);
+  expect([DEFAULT_CLAIM_WINDOW_SLOTS, DEFAULT_CANCEL_WINDOW_SLOTS, MAX_ESCROW_WINDOW_SLOTS]).toEqual([1_500n, 4_500n, 6_480_000n]);
+  const quick = buildLockTokenEscrowInstruction({ ...f.t, claimWindowSlots: escrowWindowSlots(10), cancelWindowSlots: escrowWindowSlots(60) });
+  expect([quick.data.readBigUInt64LE(32), quick.data.readBigUInt64LE(40)]).toEqual([25n, 150n]);
+  expect(escrowWindowSlots(0.5)).toBe(2n);
+  expect(() => escrowWindowSlots(0)).toThrow('positive');
+  // One named window is checked against the other's default.
+  expect(escrowWindows({ claimWindowSlots: 4_500n })).toEqual({ claimWindowSlots: 4_500n, cancelWindowSlots: 4_500n });
+  for (const windows of [{ claimWindowSlots: 0n }, { claimWindowSlots: 4_501n }, { claimWindowSlots: 11n, cancelWindowSlots: 10n },
+    { cancelWindowSlots: MAX_ESCROW_WINDOW_SLOTS + 1n }, { cancelWindowSlots: 1_499n }]) {
+    expect(() => buildLockTokenEscrowInstruction({ ...f.t, ...windows })).toThrow('refund window');
+  }
+  expect(decodeTokenEscrowAccount(f.state)).toMatchObject({ claimWindowSlots: DEFAULT_CLAIM_WINDOW_SLOTS, cancelWindowSlots: DEFAULT_CANCEL_WINDOW_SLOTS });
+  // An account the earlier program wrote has no windows and still decodes.
+  const legacy = decodeTokenEscrowAccount(f.state.subarray(0, 203));
+  expect(legacy.createdSlot).toBe(100n);
+  expect(legacy.cancelWindowSlots).toBeUndefined();
+  expect(() => decodeTokenEscrowAccount(f.state.subarray(0, 210))).toThrow('invalid token escrow layout');
+});
+test('a challenge can name its windows, and the lock must carry them', async () => {
+  const f = fixture();
+  const c = { ...f.c, claimWindowSlots: 25, cancelWindowSlots: 250 };
+  const t = escrowTerms(c);
+  expect([t.claimWindowSlots, t.cancelWindowSlots]).toEqual([25n, 250n]);
+  expect(() => escrowTerms({ ...f.c, claimWindowSlots: 0 })).toThrow('invalid escrow window');
+  expect(() => escrowTerms({ ...f.c, claimWindowSlots: 1.5 })).toThrow('invalid escrow window');
+  expect(() => escrowTerms({ ...f.c, claimWindowSlots: 300, cancelWindowSlots: 250 })).toThrow('refund window');
+  // The fixture's lock used the default windows, so it does not prove a lock with these.
+  await expect(verifyEscrowLock(f.rpc as unknown as Connection, c, f.proof)).rejects.toThrow('signature does not prove this lock');
 });
 test('buyer requires approval before lock; rejects challenge substitution without spending', async () => {
   const f = fixture(), lock = jest.fn(), approve = jest.fn(async () => { throw new Error('cap exceeded'); });

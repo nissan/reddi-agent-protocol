@@ -20,7 +20,38 @@ export interface TokenEscrowTerms {
      * the payee may settle the actual cost, up to it, at any time.
      */
     metered?: boolean;
+    /**
+     * Slots after the lock from which the payee may claim the whole amount.
+     * Defaults to `DEFAULT_CLAIM_WINDOW_SLOTS` (about 10 minutes).
+     */
+    claimWindowSlots?: bigint;
+    /**
+     * Slots after the lock from which the payer may refund itself. Never before
+     * the claim window. Defaults to `DEFAULT_CANCEL_WINDOW_SLOTS` (about 30 minutes).
+     */
+    cancelWindowSlots?: bigint;
 }
+/** Nominal slot time the program's windows are counted in. Real slot times drift, so a window is approximate in seconds. */
+export declare const ESCROW_SLOT_MS = 400;
+/** Windows used when a lock names none. Mirror `programs/pinocchio-escrow/program/src/consts.rs`. */
+export declare const DEFAULT_CLAIM_WINDOW_SLOTS = 1500n;
+export declare const DEFAULT_CANCEL_WINDOW_SLOTS = 4500n;
+/** The longest refund window the program accepts: about 30 days. */
+export declare const MAX_ESCROW_WINDOW_SLOTS = 6480000n;
+/**
+ * The shortest refund window a seller should serve a metered call against:
+ * about 10 minutes. The payer may refund once its window has elapsed, so a
+ * seller must settle before then; with a very short window the refund could
+ * land first.
+ */
+export declare const SELLER_MIN_CANCEL_WINDOW_SLOTS = 1500n;
+/** A duration in seconds as a whole number of slots, rounded up, at the nominal slot time. */
+export declare function escrowWindowSlots(seconds: number): bigint;
+/** The program's rule: claim window of at least one slot, no later than the refund window, refund window at most the maximum. */
+export declare function escrowWindows(t: Pick<TokenEscrowTerms, 'claimWindowSlots' | 'cancelWindowSlots'>): {
+    claimWindowSlots: bigint;
+    cancelWindowSlots: bigint;
+};
 /** Protocol fee treasury fixed in the escrow program: the Squads vault. */
 export declare const ESCROW_PROTOCOL_TREASURY: PublicKey;
 /** The treasury's associated token account for the escrow mint, which receives token fees. */
@@ -52,7 +83,13 @@ export interface SettleTokenEscrowOptions {
  * Refund: the program accepts the payee at any time (decline), or the payer once the cancel window has elapsed.
  */
 export declare function buildSettleTokenEscrowInstruction(t: TokenEscrowTerms, refund?: boolean, authority?: PublicKey, options?: SettleTokenEscrowOptions): TransactionInstruction;
+/**
+ * Reads a token escrow account. `claimWindowSlots` and `cancelWindowSlots` are
+ * undefined on an account the earlier program wrote, which stored no windows.
+ */
 export declare function decodeTokenEscrowAccount(data: Buffer): {
+    claimWindowSlots: bigint | undefined;
+    cancelWindowSlots: bigint | undefined;
     payer: PublicKey;
     payee: PublicKey;
     mint: PublicKey;

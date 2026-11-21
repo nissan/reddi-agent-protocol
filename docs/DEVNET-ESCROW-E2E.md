@@ -14,8 +14,8 @@ program bytes hash to the recorded `5055df46…e142a`. It refuses otherwise.
 | --- | --- | --- |
 | `plan` | no | Reads balances of the two wallets and the treasury, simulates the SOL and USDC locks unsigned, lists shortfalls. Needs only `RAP_E2E_PAYER` and `RAP_E2E_PAYEE` (public addresses). |
 | `run` | yes | Per currency: lock → payer release; metered lock → payee settle at a lower actual cost; lock → payee decline. Early claim, early payer refund, settle above the maximum, settle of zero, payee settle of an unmetered escrow, any settle by the payer, a release to the wrong account and replays are simulated with real signatures and must be refused. Then it leaves one "refund" and one "claim" escrow open per currency. |
-| `finish-refund` | yes | After the cancel window (648,000 slots, about 3 days): payer refunds the open "refund" escrows. Before that it only shows the refusal. |
-| `finish-claim` | yes | After the claim window (1,512,000 slots, about 7 days): payee claims the open "claim" escrows, fee included. Before that it only shows the refusal. |
+| `finish-refund` | yes | After the cancel window the locks named (1,500 slots, about 10 minutes): payer refunds the open "refund" escrows. Before that it only shows the refusal. |
+| `finish-claim` | yes | After the claim window the locks named (750 slots, about 5 minutes): payee claims the open "claim" escrows, fee included. Before that it only shows the refusal. |
 
 Every fee is checked from the transaction's own balance changes, so other traffic to the treasury (the
 sandbox settles there too) cannot disturb the checks.
@@ -46,7 +46,7 @@ npm run e2e:devnet:escrow -- plan
 export RAP_E2E_PAYER_KEYPAIR=/abs/payer.json RAP_E2E_PAYEE_KEYPAIR=/abs/payee.json
 export RAP_E2E_RUN_ID=v1-2026-11-21 RAP_E2E_OUT_DIR=/abs/out
 npm run e2e:devnet:escrow -- run
-# about 3 days later, then about 7 days later
-npm run e2e:devnet:escrow -- finish-refund
+# about 5 minutes later, then about 10 minutes after the run
 npm run e2e:devnet:escrow -- finish-claim
+npm run e2e:devnet:escrow -- finish-refund
 ```
