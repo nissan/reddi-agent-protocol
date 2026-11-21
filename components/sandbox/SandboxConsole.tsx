@@ -38,6 +38,7 @@ import {
 } from "@/lib/sandbox/client";
 import { isSandboxReceipt, responseBodyWithAnswer, type SandboxReceiptPayment, verifySandboxReceipt, type SandboxReceipt, type SandboxVerification } from "@/lib/sandbox/receipt";
 import { formatUnits, requestInputTokens, SANDBOX_DEMO_RATES_NOTE, SANDBOX_FEE_BPS, triPriceFromLamports, TYPICAL_REVIEW } from "@/lib/sandbox/pricing";
+import SandboxSessionRunner from "@/components/sandbox/SandboxSessionRunner";
 import { applySandboxReputation, initialSandboxReputation, type SandboxReputation } from "@/lib/sandbox/reputation";
 
 const WalletMultiButton = dynamic(
@@ -527,15 +528,15 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
 
   const cheating = scenario.id === "try-to-cheat";
   const lastExchange = exchanges[exchanges.length - 1];
-  const totalSpentLamports = receipts.reduce((sum, entry) => sum + Number(entry.receipt.payment.amount), 0);
+  const totalSpentLamports = receipts.reduce((sum, entry) => sum + Number(entry.receipt.payment?.amount ?? 0), 0);
   const edited = answered !== null && heldAnswer !== answered.answer;
-  const proofRef = answered?.receipt.receipt.payment.txSignature ?? "";
+  const proofRef = answered?.receipt.receipt.payment?.txSignature ?? "";
 
   return (
     <div className="space-y-10" data-testid="sandbox-console" data-ready={ready ? "true" : "false"}>
       <section aria-labelledby="sandbox-scenarios">
         <h2 id="sandbox-scenarios" className="font-display text-2xl font-bold text-white">Pick a scenario</h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {SANDBOX_SCENARIOS.map((entry) => (
             <button
               key={entry.id}
@@ -554,6 +555,12 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
       </section>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+        {scenario.id === "run-a-session" ? (
+          <div className="min-w-0 space-y-5">
+            <SandboxSessionRunner provider={provider} providerReceiptId={providerKeys[provider.id]} onExchange={(list) => setExchanges((current) => [...current, ...list])} />
+            <p className="rounded-xl border border-[#9945FF]/30 bg-[#9945FF]/10 p-4 text-sm leading-6 text-gray-200" data-testid="sandbox-takeaway">{scenario.takeaway}</p>
+          </div>
+        ) : (
         <div className="min-w-0 space-y-5">
           <StepCard index={1} title="Send the request" active={phase === "idle" || phase === "unavailable"} done={phase === "challenged" || phase === "answered"}>
             <div className={`grid gap-3 ${scenario.providerIds.length > 1 ? "sm:grid-cols-3" : ""}`}>
@@ -720,7 +727,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                   </Field>
                   <Field label="Provider">{answered.provider.name} ({shortAddress(answered.receipt.receipt.providerId)}, sandbox test key)</Field>
                   <Field label="Declared model">{answered.receipt.receipt.declaredModel}</Field>
-                  <ReceiptPaymentFields payment={answered.receipt.receipt.payment} simulated={!proofRef} />
+                  {answered.receipt.receipt.payment ? <ReceiptPaymentFields payment={answered.receipt.receipt.payment} simulated={!proofRef} /> : null}
                   <Field label="Payment proof">
                     {proofRef ? (
                       <a className="underline" href={explorerTxUrl(proofRef)} target="_blank" rel="noreferrer">{shortAddress(proofRef)} on Solana Explorer</a>
@@ -751,6 +758,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
             )}
           </StepCard>
         </div>
+        )}
 
         <aside className="min-w-0 space-y-5">
           <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">

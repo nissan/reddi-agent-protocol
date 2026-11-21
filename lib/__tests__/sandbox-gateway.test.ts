@@ -255,9 +255,9 @@ describe("sandbox gateway: devnet transfer", () => {
     // The browser verifier and the package verifier agree on every tampered form.
     const tampered: SandboxReceipt[] = [
       { ...receipt, receipt: { ...receipt.receipt, declaredModel: "sandbox/atlas-coder-large" } },
-      { ...receipt, receipt: { ...receipt.receipt, payment: { ...receipt.receipt.payment, amount: "1" } } },
-      { ...receipt, receipt: { ...receipt.receipt, payment: { ...receipt.receipt.payment, txSignature: "4".repeat(88) } } },
-      { ...receipt, receipt: { ...receipt.receipt, payment: { ...receipt.receipt.payment, payer: swift.payTo } } },
+      { ...receipt, receipt: { ...receipt.receipt, payment: { ...receipt.receipt.payment!, amount: "1" } } },
+      { ...receipt, receipt: { ...receipt.receipt, payment: { ...receipt.receipt.payment!, txSignature: "4".repeat(88) } } },
+      { ...receipt, receipt: { ...receipt.receipt, payment: { ...receipt.receipt.payment!, payer: swift.payTo } } },
       { ...receipt, receipt: { ...receipt.receipt, issuedAt: "2026-11-21T00:00:00.000Z" } },
       { ...receipt, receipt: { ...receipt.receipt, schemaVersion: "reddi.sandbox.simulated-receipt.v1" } },
     ];
@@ -348,7 +348,7 @@ describe("sandbox receipt verification", () => {
     const { receipt, input } = await paidCall();
     for (const forged of [
       { ...receipt, receipt: { ...receipt.receipt, declaredModel: "sandbox/atlas-coder-large" } },
-      { ...receipt, receipt: { ...receipt.receipt, payment: { ...receipt.receipt.payment, amount: "100", ...(receipt.receipt.payment.metered ? { metered: { ...receipt.receipt.payment.metered, refunded: (MAX_LAMPORTS - BigInt(100)).toString() } } : {}) } } },
+      { ...receipt, receipt: { ...receipt.receipt, payment: { ...receipt.receipt.payment!, amount: "100", ...(receipt.receipt.payment!.metered ? { metered: { ...receipt.receipt.payment!.metered, refunded: (MAX_LAMPORTS - BigInt(100)).toString() } } : {}) } } },
       { ...receipt, receipt: { ...receipt.receipt, issuedAt: "2026-11-21T00:00:00.000Z" } },
     ]) {
       const result = await verifySandboxReceipt({ ...input, receipt: forged, model: forged.receipt.declaredModel });
@@ -375,7 +375,7 @@ describe("sandbox receipt verification", () => {
       // A simulated receipt relabelled as v2 names no transaction.
       { ...receipt, receipt: { ...receipt.receipt, schemaVersion: "reddi.receipt.v2" } },
       // A simulated receipt may not name a transaction.
-      { ...receipt, receipt: { ...receipt.receipt, payment: { ...receipt.receipt.payment, txSignature: SIG_A } } },
+      { ...receipt, receipt: { ...receipt.receipt, payment: { ...receipt.receipt.payment!, txSignature: SIG_A } } },
       { ...receipt, receipt: { ...receipt.receipt, providerId: "swift-infer" } },
       { ...receipt, proof: { type: "ed25519", signature: 7 } },
     ]) {

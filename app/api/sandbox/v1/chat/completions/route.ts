@@ -1,4 +1,4 @@
-import { handleSandboxChatCompletion } from "@/lib/sandbox/gateway";
+import { handleSandboxChatCompletion, SESSION_CLOSE_HEADER, SESSION_PREVIOUS_RECEIPT_HEADER, SESSION_SEQUENCE_HEADER } from "@/lib/sandbox/gateway";
 import { sandboxGatewayDeps } from "@/lib/sandbox/runtime";
 
 export const runtime = "nodejs";
@@ -26,6 +26,11 @@ export async function POST(request: Request) {
         rawBody: text,
         paymentHeader: request.headers.get("x402-payment") ?? request.headers.get("x-payment"),
         origin: new URL(request.url).origin,
+        session: {
+          sequence: request.headers.get(SESSION_SEQUENCE_HEADER),
+          close: request.headers.get(SESSION_CLOSE_HEADER),
+          previousReceipt: request.headers.get(SESSION_PREVIOUS_RECEIPT_HEADER),
+        },
       },
       sandboxGatewayDeps(),
     );

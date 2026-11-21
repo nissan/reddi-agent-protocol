@@ -33,20 +33,26 @@ import {
   type SandboxSpotCheck,
 } from "./catalog";
 import { PublicKey } from "@solana/web3.js";
+import { decimalToBaseUnits } from "@reddi/x402-solana/payment";
 import { bytesEqual, decodeSandboxEscrow, escrowNonceBytes, SANDBOX_ESCROW_PROGRAM_ID, refundSlotsLeft, SANDBOX_MIN_CANCEL_WINDOW_SLOTS, sandboxEscrowAddress, sandboxRatingAddress, sandboxRatingOpenedSlot } from "./escrow";
 import { sandboxProviderAddress, signAsSandboxProvider } from "./keys";
 import type { SandboxSettler } from "./settle-signer";
-import { countTokens, formatUnits, maxChargeLamports, requestInputTokens, SANDBOX_FEE_TREASURY, settleSandboxCall } from "./pricing";
+import { countTokens, formatUnits, maxChargeLamports, requestInputTokens, SANDBOX_FEE_BPS, SANDBOX_FEE_TREASURY, sessionCallLamports, settleSandboxCall } from "./pricing";
 import {
   canonicalizeSandboxReceipt,
+  decodeReceiptHeader,
   encodeReceiptHeader,
+  hashSandboxReceipt,
+  isSandboxReceipt,
   PROVIDER_RECEIPT_HEADER,
   REDDI_RECEIPT_V2_VERSION,
   SANDBOX_PROOF_TYPE,
   SANDBOX_SIMULATED_RECEIPT_HEADER,
   SANDBOX_SIMULATED_RECEIPT_VERSION,
+  sandboxReceiptSignatureValid,
   sha256Hex,
   type SandboxChatMessage,
+  type SandboxReceiptSession,
   type SandboxReceipt,
   type SandboxReceiptBody,
 } from "./receipt";
@@ -56,6 +62,24 @@ export const SANDBOX_MAX_PROMPT_CHARS = 8000;
 export const SANDBOX_MAX_TRANSACTION_AGE_SECONDS = 900;
 const NONCE_PATTERN = /^[0-9a-f]{32}$/;
 const SIMULATED_PAYER_ID = "sandbox-visitor";
+
+/** Session settlement (#863): the request headers, as the provider kit names them. */
+export const SESSION_SEQUENCE_HEADER = "x402-session-sequence";
+export const SESSION_CLOSE_HEADER = "x402-session";
+/**
+ * Sandbox only: the previous call's receipt, as its response header gave it.
+ * The sandbox runs on stateless functions and keeps no session ledger, so each
+ * call carries the provider's own signed running total forward. A V1 provider
+ * keeps the ledger in its store instead.
+ */
+export const SESSION_PREVIOUS_RECEIPT_HEADER = "x-reddi-session-previous-receipt";
+/** Response headers of the call that closes a session: the closing receipt and the session's state. */
+export const SESSION_RECEIPT_HEADER = "x-reddi-session-receipt";
+export const SESSION_STATE_HEADER = "x-reddi-session-state";
+/** Calls a sandbox session may hold. */
+export const SANDBOX_MAX_SESSION_CALLS = 50;
+
+export type SessionRefusalCode = "session_max_reached" | "session_window_closing" | "session_sequence_invalid" | "session_closed" | "session_invalid";
 
 export type SandboxGatewayDeps = {
   /** Devnet RPC used only to read a visitor's own transfer. */
@@ -73,6 +97,14 @@ export type SandboxGatewayDeps = {
    * rating for the provider, so leave it off until something does (#842).
    */
   acceptRatedEscrows?: boolean;
+  /**
+   * Serve sessions on a devnet metered escrow. Default false. A V1 session call
+   * also carries the payer's delegation to a session key and that key's
+   * signature over each call (provider kit, #865); until the sandbox checks
+   * those, anyone who saw a visitor's lock header could spend it, so only
+   * simulated sessions run.
+   */
+  acceptMeteredSessions?: boolean;
   now?: () => number;
   newNonce?: () => string;
 };
@@ -93,6 +125,8 @@ export type SandboxGatewayRequest = {
   paymentHeader?: string | null;
   /** Origin the endpoint is served from, used in the challenge. */
   origin: string;
+  /** Session headers, when the call is part of a session. */
+  session?: { sequence?: string | null; close?: string | null; previousReceipt?: string | null };
 };
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
@@ -160,10 +194,14 @@ type PaymentOutcome =
   | { ok: true; mode: "simulated"; nonce: string; payerId: string; proofRef: string }
   | { ok: true; mode: "devnet-transfer"; nonce: string; payerId: string; payerAddress: string; proofRef: string }
   | { ok: true; mode: "metered-escrow"; nonce: string; payerId: string; payerAddress: string; escrow: string; maxLamports: bigint; rated: boolean; openedSlot?: bigint; proofRef: string }
-  | { ok: false; result: Extract<ReceiptVerificationResult, { ok: false }> };
+  | { ok: false; result: Extract<ReceiptVerificationResult, { ok: false }>; sessionCode?: SessionRefusalCode };
 
 function rejected(reason: Extract<ReceiptVerificationResult, { ok: false }>["reason"], message: string, expected?: unknown, actual?: unknown): PaymentOutcome {
   return { ok: false, result: { ok: false, reason, message, expected, actual } };
+}
+
+function sessionRejected(sessionCode: SessionRefusalCode, message: string): PaymentOutcome {
+  return { ok: false, result: { ok: false, reason: "invalid_receipt", message }, sessionCode };
 }
 
 /**
@@ -225,7 +263,7 @@ async function verifySandboxPayment(header: string, provider: SandboxProvider, o
  * at the address the payer and challenge nonce give, still locked, metered,
  * payable to this provider, for exactly the challenge's maximum.
  */
-async function verifyMeteredLock(record: Record<string, unknown>, provider: SandboxProvider, nonce: string, inputTokens: number, deps: SandboxGatewayDeps): Promise<PaymentOutcome> {
+async function verifyMeteredLock(record: Record<string, unknown>, provider: SandboxProvider, nonce: string, inputTokens: number, deps: SandboxGatewayDeps, session = false): Promise<PaymentOutcome> {
   if (!deps.settler?.canSettle(provider.id) || !deps.readAccount || !deps.readSlot) {
     return rejected("unsupported_receipt", `${provider.name} cannot settle a metered escrow on devnet right now. Nothing was taken; cancel the lock for a full refund, or pay with a simulated payment.`);
   }
@@ -254,6 +292,7 @@ async function verifyMeteredLock(record: Record<string, unknown>, provider: Sand
   // escrow has agreed to be rated, so one is declined here, before anything is served or
   // remembered, unless this gateway is set to accept them. When it is, the settle has to pass the
   // rating account, so `rated` travels with the payment.
+  if (escrow.rated && session) return sessionRejected("session_invalid", "Sessions are not offered on escrows opted in to rating. Nothing was served or taken.");
   if (escrow.rated && deps.acceptRatedEscrows !== true)
     return rejected("unsupported_receipt", "This escrow was opted in to rating, and this provider does not take rated jobs. Nothing was served or taken. Lock a new escrow without rating, and cancel this one for a full refund once its refund window has elapsed.");
   // The payer may refund once its window has elapsed, so the settlement has to
@@ -265,12 +304,15 @@ async function verifyMeteredLock(record: Record<string, unknown>, provider: Sand
   } catch {
     return rejected("unsupported_receipt", "The devnet RPC could not be read. Nothing was accepted; present the same receipt again shortly.");
   }
+  if (refundSlotsLeft(escrow, currentSlot) < SANDBOX_MIN_CANCEL_WINDOW_SLOTS && session)
+    return sessionRejected("session_window_closing", "This session's refund window has less than 10 minutes left, so it takes no more calls. Close it to settle what was served, or let the window open and cancel for a full refund.");
   if (refundSlotsLeft(escrow, currentSlot) < SANDBOX_MIN_CANCEL_WINDOW_SLOTS)
     return rejected("invalid_receipt", "This escrow's refund window has less than 10 minutes left. Lock a new one with a longer refund window, then make the call straight away.");
   if (!escrow.payer.equals(payer)) return rejected("invalid_receipt", "The escrow was locked by a different wallet.");
   if (escrow.payee.toBase58() !== provider.payTo) return rejected("wrong_payee", "escrow payee does not match challenge", provider.payTo, escrow.payee.toBase58());
   if (!bytesEqual(escrow.nonce, escrowNonceBytes(nonce))) return rejected("invalid_nonce", "The escrow nonce does not match the challenge.");
-  const maxLamports = maxChargeLamports(provider, inputTokens);
+  // A session's lock covers many calls; the session path checks its running total against it.
+  const maxLamports = session ? escrow.amount : maxChargeLamports(provider, inputTokens);
   if (escrow.amount !== maxLamports) return rejected("wrong_amount", "escrow amount does not match challenge", maxLamports.toString(), escrow.amount.toString());
   // A rated job is named by its rating's opened slot. It is read now, with the lock being
   // served, and travels with the payment to the settle, which names it.
@@ -283,7 +325,7 @@ async function verifyMeteredLock(record: Record<string, unknown>, provider: Sand
     }
     if (openedSlot === undefined) return rejected("invalid_receipt", "This escrow is opted in to rating, but its rating account could not be read as this job's. Nothing was accepted.");
   }
-  if (!(await deps.replayStore.checkAndStore(`escrow:${escrowAddress.toBase58()}`))) return rejected("duplicate_nonce", "receipt nonce has already been used", undefined, nonce);
+  if (!session && !(await deps.replayStore.checkAndStore(`escrow:${escrowAddress.toBase58()}`))) return rejected("duplicate_nonce", "receipt nonce has already been used", undefined, nonce);
   return { ok: true, mode: "metered-escrow", nonce, payerId: payer.toBase58(), payerAddress: payer.toBase58(), escrow: escrowAddress.toBase58(), maxLamports, rated: escrow.rated, ...(openedSlot !== undefined ? { openedSlot } : {}), proofRef: escrowAddress.toBase58() };
 }
 
@@ -367,11 +409,16 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
                 meteredPayment: `Or lock the amount with lock_metered_escrow on ${SANDBOX_ESCROW_PROGRAM_ID.toBase58()} (payee payTo, nonce the challenge nonce as 16 bytes) and resend with a JSON x402-payment naming settlement "metered-escrow", payer, escrow and nonce. The provider settles the actual tokens and the rest comes back to you.`,
               }
             : {}),
+          sessionPayment: `Or pay many calls from one lock: lock a session maximum (at least the amount above, up to ${SANDBOX_MAX_SESSION_CALLS} calls), send the same x402-payment with ${SESSION_SEQUENCE_HEADER}: 1, 2, 3 …, pass each previous call's receipt back in ${SESSION_PREVIOUS_RECEIPT_HEADER}, and send ${SESSION_CLOSE_HEADER}: close on the last call. The provider settles the running total once.`,
           pricing: `The amount is the most this call can cost: ${inputTokens} input tokens plus ${provider.pricing.maxOutputTokens} output tokens at ${provider.pricing.inputPerMillionUsd} and ${provider.pricing.outputPerMillionUsd} USD per million, paid in devnet SOL at a demo rate.`,
         },
       },
       { "x402-request": JSON.stringify(challenge) },
     );
+  }
+
+  if (request.session?.sequence != null && request.session.sequence.trim() !== "") {
+    return handleSessionCall({ request, deps, provider, messages, model, inputTokens, header });
   }
 
   const payment = await verifySandboxPayment(header, provider, request.origin, inputTokens, deps);
@@ -412,6 +459,193 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
   // The receipt travels in a header, as in V1, because it commits to the hash of the whole response body.
   const receipt = await writeReceipt({ provider, requestBody: request.rawBody, responseBody: response.bodyText, payment, inputTokens, answer, issuedAt: new Date(nowMs).toISOString(), settleSignature });
   response.headers[payment.mode !== "simulated" ? PROVIDER_RECEIPT_HEADER : SANDBOX_SIMULATED_RECEIPT_HEADER] = encodeReceiptHeader(receipt);
+  return response;
+}
+
+function sessionRefusal(code: SessionRefusalCode, message: string): SandboxGatewayResponse {
+  return failure(code === "session_max_reached" || code === "session_sequence_invalid" || code === "session_closed" ? 409 : 402, code, message, { charged: false });
+}
+
+type SessionLock = { mode: "simulated" | "metered-escrow"; escrow: string; payer?: string; maxLamports: bigint; nonce: string };
+
+/** The lock a session call presents: a simulated session maximum or a metered escrow on devnet. */
+async function verifySessionLock(header: string, provider: SandboxProvider, origin: string, inputTokens: number, deps: SandboxGatewayDeps): Promise<{ ok: true; lock: SessionLock } | { ok: false; response: SandboxGatewayResponse }> {
+  const parsed = parseX402PaymentHeader(header);
+  const refuse = (code: SessionRefusalCode, message: string) => ({ ok: false as const, response: sessionRefusal(code, message) });
+  if (!parsed || typeof parsed !== "object") return refuse("session_invalid", "A session is paid by a metered lock: send a JSON x402-payment with settlement \"metered-escrow\".");
+  const record = parsed as Record<string, unknown>;
+  const nonce = typeof record.nonce === "string" ? record.nonce : "";
+  if (!NONCE_PATTERN.test(nonce)) return refuse("session_invalid", "Use the nonce from the 402 challenge.");
+  if (record.settlement !== "metered-escrow") return refuse("session_invalid", "A session is paid by a metered lock: send settlement \"metered-escrow\".");
+  if (record.simulated === true) {
+    const challenge = sandboxChallenge(provider, origin, nonce, inputTokens);
+    if (record.network !== challenge.network || record.payTo !== challenge.payTo || record.currency !== challenge.currency) {
+      return refuse("session_invalid", "The simulated session lock does not name this provider's network, payee and currency.");
+    }
+    const lamports = typeof record.amount === "string" ? decimalToBaseUnits(record.amount, 9) : undefined;
+    if (lamports === undefined || lamports <= BigInt(0)) return refuse("session_invalid", "The simulated session lock needs an amount in SOL.");
+    return { ok: true, lock: { mode: "simulated", escrow: `simulated:${nonce}`, maxLamports: lamports, nonce } };
+  }
+  if (deps.acceptMeteredSessions !== true) return refuse("session_invalid", "The sandbox runs sessions with a simulated lock for now. Devnet escrow sessions follow once each call is signed with a session key the wallet delegates.");
+  if (typeof record.payer !== "string" || record.payer.length === 0) return refuse("session_invalid", "A session lock must name the paying wallet in payer.");
+  const outcome = await verifyMeteredLock(record, provider, nonce, inputTokens, deps, true);
+  if (!outcome.ok) {
+    if (outcome.sessionCode) return refuse(outcome.sessionCode, outcome.result.message);
+    // A settled or cancelled escrow has no session left to serve.
+    if (outcome.result.reason === "duplicate_nonce") return refuse("session_closed", "This session's escrow has already been settled or cancelled.");
+    return { ok: false, response: failure(402, "payment_rejected", outcome.result.message, { reason: outcome.result.reason, charged: false }) };
+  }
+  if (outcome.mode !== "metered-escrow") return refuse("session_invalid", "A session is paid by a metered lock.");
+  return { ok: true, lock: { mode: "metered-escrow", escrow: outcome.escrow, payer: outcome.payerAddress, maxLamports: outcome.maxLamports, nonce } };
+}
+
+/**
+ * One call of a session (#863): one lock pays for many calls and the provider
+ * settles the running total once, on the call that asks to close. Before a
+ * call is served: the sequence follows the previous receipt with no gap, that
+ * receipt is this provider's and still open, the lock is the same one, and the
+ * running total plus this call's worst case fits under the lock.
+ */
+async function handleSessionCall(input: {
+  request: SandboxGatewayRequest;
+  deps: SandboxGatewayDeps;
+  provider: SandboxProvider;
+  messages: SandboxChatMessage[];
+  model: string;
+  inputTokens: number;
+  header: string;
+}): Promise<SandboxGatewayResponse> {
+  const { request, deps, provider, messages, model, inputTokens } = input;
+  const session = request.session!;
+  const sequenceText = (session.sequence ?? "").trim();
+  if (!/^[1-9]\d{0,5}$/.test(sequenceText) || Number(sequenceText) > SANDBOX_MAX_SESSION_CALLS) {
+    return sessionRefusal("session_sequence_invalid", `${SESSION_SEQUENCE_HEADER} must be a whole number from 1 to ${SANDBOX_MAX_SESSION_CALLS}.`);
+  }
+  const sequence = Number(sequenceText);
+  const close = (session.close ?? "").trim().toLowerCase() === "close";
+  const providerId = await sandboxProviderAddress(provider.id);
+
+  let previous: SandboxReceiptSession | undefined;
+  let previousHash: string | undefined;
+  if (sequence > 1) {
+    const decoded = decodeReceiptHeader(session.previousReceipt);
+    if (!isSandboxReceipt(decoded) || !decoded.receipt.session || decoded.receipt.providerId !== providerId || !(await sandboxReceiptSignatureValid(decoded))) {
+      return sessionRefusal("session_sequence_invalid", `Call ${sequence} needs call ${sequence - 1}'s receipt from this provider in ${SESSION_PREVIOUS_RECEIPT_HEADER}.`);
+    }
+    previous = decoded.receipt.session;
+    if (previous.closed) return sessionRefusal("session_closed", "This session has already closed and settled.");
+    if (Number(previous.sequence) !== sequence - 1) return sessionRefusal("session_sequence_invalid", `The previous receipt is for call ${previous.sequence}, so this call must be ${Number(previous.sequence) + 1}.`);
+    previousHash = await hashSandboxReceipt(decoded.receipt);
+  }
+
+  const verified = await verifySessionLock(input.header, provider, request.origin, inputTokens, deps);
+  if (!verified.ok) return verified.response;
+  const lock = verified.lock;
+  if (previous && (previous.escrow !== lock.escrow || previous.maxAmount !== lock.maxLamports.toString() || previous.payer !== lock.payer)) {
+    return sessionRefusal("session_invalid", "The previous receipt belongs to a different lock.");
+  }
+  const committed = previous ? BigInt(previous.cumulativeCost) : BigInt(0);
+  if (committed + maxChargeLamports(provider, inputTokens) > lock.maxLamports) {
+    return sessionRefusal("session_max_reached", `This call could take the session past its lock: ${committed} lamports owed so far, up to ${maxChargeLamports(provider, inputTokens)} more for this call, ${lock.maxLamports} locked. Nothing was charged. Close the session to settle what was served.`);
+  }
+  if (!(await deps.replayStore.checkAndStore(`session:${lock.escrow}:${sequence}`))) {
+    return sessionRefusal("session_sequence_invalid", `Call ${sequence} of this session has already been served.`);
+  }
+
+  const prompt = [...messages].reverse().find((message) => message.role === "user")?.content ?? messages[messages.length - 1].content;
+  const answer = scriptedSandboxAnswer(provider, prompt);
+  const usage = { inputTokens, outputTokens: countTokens(answer) };
+  const cost = sessionCallLamports(provider, usage);
+  const cumulative = committed + cost;
+  const totals = {
+    inputTokens: (previous ? Number(previous.cumulativeInputTokens) : 0) + usage.inputTokens,
+    outputTokens: (previous ? Number(previous.cumulativeOutputTokens) : 0) + usage.outputTokens,
+  };
+
+  let settleSignature: string | undefined;
+  if (close && lock.mode === "metered-escrow") {
+    const result = deps.settler
+      ? await deps.settler.settle({ providerId: provider.id, escrow: new PublicKey(lock.escrow), payer: new PublicKey(lock.payer!), payee: new PublicKey(provider.payTo), actualLamports: cumulative, rated: false })
+      : { ok: false as const, message: "No settler is configured." };
+    if (!result.ok) {
+      return failure(502, "settle_failed", `${result.message} The session's maximum stays locked in escrow ${lock.escrow}; nothing was charged, and you can cancel it for a full refund once its refund window has elapsed.`, { charged: false, escrow: lock.escrow });
+    }
+    settleSignature = result.signature;
+  }
+
+  const nowMs = (deps.now ?? Date.now)();
+  const issuedAt = new Date(nowMs).toISOString();
+  const response = respond(200, {
+    id: `chatcmpl-sandbox-${lock.nonce}-${sequence}`,
+    object: "chat.completion",
+    created: Math.floor(nowMs / 1000),
+    model,
+    choices: [{ index: 0, message: { role: "assistant", content: answer }, finish_reason: "stop" }],
+    rap_sandbox: {
+      scripted: true,
+      paymentMode: lock.mode,
+      spotCheck: simulatedSpotCheck(provider),
+      session: { sequence, callCost: cost.toString(), cumulativeCost: cumulative.toString(), maxAmount: lock.maxLamports.toString(), closeRequested: close },
+    },
+  });
+
+  const schemaVersion = lock.mode === "metered-escrow" ? REDDI_RECEIPT_V2_VERSION : SANDBOX_SIMULATED_RECEIPT_VERSION;
+  const base = {
+    schemaVersion,
+    providerId,
+    declaredModel: provider.model,
+    requestHash: await sha256Hex(request.rawBody),
+    responseHash: await sha256Hex(response.bodyText),
+  } as const;
+  const block = (fields: { sequence: number; inputTokens: number; outputTokens: number; previousReceiptHash?: string; closed: boolean }): SandboxReceiptSession => ({
+    escrow: lock.escrow,
+    ...(lock.payer !== undefined ? { payer: lock.payer } : {}),
+    network: SANDBOX_NETWORK,
+    currency: SANDBOX_CURRENCY,
+    maxAmount: lock.maxLamports.toString(),
+    sequence: String(fields.sequence),
+    inputTokens: String(fields.inputTokens),
+    outputTokens: String(fields.outputTokens),
+    cumulativeInputTokens: String(totals.inputTokens),
+    cumulativeOutputTokens: String(totals.outputTokens),
+    cumulativeCost: cumulative.toString(),
+    ...(fields.previousReceiptHash !== undefined ? { previousReceiptHash: fields.previousReceiptHash } : {}),
+    closed: fields.closed,
+  });
+  const sign = async (body: SandboxReceiptBody): Promise<SandboxReceipt> => ({
+    receipt: body,
+    proof: { type: SANDBOX_PROOF_TYPE, signature: (await signAsSandboxProvider(provider.id, canonicalizeSandboxReceipt(body))).signature },
+  });
+
+  const callReceipt = await sign({ ...base, session: block({ sequence, ...usage, previousReceiptHash: previousHash, closed: false }), issuedAt });
+  response.headers[lock.mode === "metered-escrow" ? PROVIDER_RECEIPT_HEADER : SANDBOX_SIMULATED_RECEIPT_HEADER] = encodeReceiptHeader(callReceipt);
+  response.headers[SESSION_STATE_HEADER] = close ? "settled" : "open";
+
+  if (close) {
+    // The closing receipt is its own link in the chain: no tokens of its own, the running totals, and the settle.
+    const fee = (cumulative * SANDBOX_FEE_BPS) / BigInt(10_000);
+    const closing = await sign({
+      ...base,
+      payment: {
+        network: SANDBOX_NETWORK,
+        ...(settleSignature !== undefined ? { txSignature: settleSignature } : {}),
+        currency: SANDBOX_CURRENCY,
+        amount: cumulative.toString(),
+        fee: fee > BigInt(0) ? { amount: fee.toString(), treasury: SANDBOX_FEE_TREASURY } : { amount: "0" },
+        ...(lock.payer !== undefined ? { payer: lock.payer } : {}),
+        settlement: "metered-escrow",
+        metered: {
+          inputTokens: String(totals.inputTokens),
+          outputTokens: String(totals.outputTokens),
+          maxAmount: lock.maxLamports.toString(),
+          refunded: (lock.maxLamports - cumulative).toString(),
+        },
+      },
+      session: block({ sequence: sequence + 1, inputTokens: 0, outputTokens: 0, previousReceiptHash: await hashSandboxReceipt(callReceipt.receipt), closed: true }),
+      issuedAt,
+    });
+    response.headers[SESSION_RECEIPT_HEADER] = encodeReceiptHeader(closing);
+  }
   return response;
 }
 
