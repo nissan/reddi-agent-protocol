@@ -44,6 +44,8 @@ test.describe("Home page", () => {
     await page.goto("/");
     const toggle = page.getByTestId("theme-toggle");
     const html = page.locator("html");
+    // Clicks before hydration do nothing, so wait until the button is live.
+    await expect(toggle).toHaveAttribute("data-ready", "true", { timeout: 30_000 });
     await expect(toggle).toHaveAttribute("data-theme-choice", "auto");
     await expect(html).not.toHaveAttribute("data-theme", /.+/);
 
@@ -59,6 +61,7 @@ test.describe("Home page", () => {
 
     await page.reload();
     await expect(html).toHaveAttribute("data-theme", "dark");
+    await expect(toggle).toHaveAttribute("data-ready", "true", { timeout: 30_000 });
     await expect(toggle).toHaveAttribute("data-theme-choice", "dark");
 
     await toggle.click();
