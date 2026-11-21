@@ -397,7 +397,7 @@ export const EXTERNAL_CLAIM_SCOPE_SELECTOR = `[${CLAIM_SCOPE_ATTRIBUTE}="${EXTER
  * docs/PUBLIC-CLAIM-BOUNDARY.md for the routes deliberately left out and why.
  */
 export const PUBLIC_CLAIM_DOM_ROUTES: PublicClaimDomRoute[] = [
-  { path: "/", readyCopy: /payments prove transfer\. RAP Assurance proves paid work\./i },
+  { path: "/", readyCopy: /pay for an answer\.\s+keep the receipt\./i },
   { path: "/spec", readyCopy: /ADL/i },
   { path: "/whitepaper", readyCopy: /Reddi Agent Protocol Whitepaper/i },
   { path: "/start", readyCopy: /proof walkthrough|walkthrough recording is currently withheld/i },
