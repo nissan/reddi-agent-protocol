@@ -71,6 +71,10 @@ jobs:
       - name: Record hash
         id: hash
         run: |
+          # The container leaves target/ owned by root, so the record and a copy of the
+          # binary go to a runner-owned directory.
+          out="${RUNNER_TEMP}/escrow-build"
+          mkdir -p "$out"
           so=target/deploy/escrow.so
           test -f "$so"
           hash=$(solana-verify get-executable-hash "$so")
@@ -88,14 +92,15 @@ jobs:
             echo "| Executable hash | \`${hash}\` |"
           } >> "$GITHUB_STEP_SUMMARY"
           printf '{"variant":"%s","commit":"%s","image":"%s","size":%s,"hash":"%s"}\n' \
-            "${{ matrix.variant }}" "$GITHUB_SHA" "$BASE_IMAGE" "$size" "$hash" > target/deploy/escrow-${{ matrix.variant }}-build.json
+            "${{ matrix.variant }}" "$GITHUB_SHA" "$BASE_IMAGE" "$size" "$hash" > "$out/escrow-${{ matrix.variant }}-build.json"
+          cp "$so" "$out/escrow.so"
 
       - name: Upload binary and hash
         uses: actions/upload-artifact@v4
         with:
           name: escrow-${{ matrix.variant }}-${{ github.sha }}
           path: |
-            target/deploy/escrow.so
-            target/deploy/escrow-${{ matrix.variant }}-build.json
+            ${{ runner.temp }}/escrow-build/escrow.so
+            ${{ runner.temp }}/escrow-build/escrow-${{ matrix.variant }}-build.json
           if-no-files-found: error
           retention-days: 90
