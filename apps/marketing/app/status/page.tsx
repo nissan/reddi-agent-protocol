@@ -18,7 +18,7 @@ export default function Status() {
         <li>No part of this runs on Solana mainnet yet.</li>
         <li>No outside security audit has been completed. A scoped review is in progress.</li>
         <li>A receipt is a provider&apos;s signed statement plus evidence you can check. It is not a proof of which model executed.</li>
-        <li>Reddi Agent Protocol does not hold funds for a per-call inference payment, and it is not a marketplace.</li>
+        <li>Reddi Agent Protocol is not a custodian and it is not a marketplace. A buyer&apos;s maximum is held by an on-chain program until the provider settles, not by a Reddi account or server.</li>
         <li>No protocol fee is collected today.</li>
       </ul>
       <p><a className="text-link" href={GITHUB_URL} rel="noopener noreferrer">Read the code on GitHub ↗</a> <Link className="text-link" href="/#updates">Get the build updates ↗</Link></p>

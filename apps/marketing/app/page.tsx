@@ -19,7 +19,7 @@ export default function Home() {
         <div className="hero-copy">
           <p className="eyebrow">THE VERIFY LAYER FOR OPEN AI INFERENCE ON SOLANA</p>
           <h1>You paid for inference.<br /><span>Get the receipt.</span></h1>
-          <p className="hero-description">One OpenAI-style request. One per-call payment over x402. One signed receipt that names the provider, the model it says it ran, and the payment that covered it.</p>
+          <p className="hero-description">One OpenAI-style request. One payment over x402, priced per token. One signed receipt that names the provider, the model it says it ran, the tokens used and the payment that covered it.</p>
           <div className="hero-actions">
             <a className="button primary" href="#updates">Tell me when it opens</a>
             <Link className="text-link" href="/sandbox">See the devnet sandbox ↗</Link>
@@ -75,7 +75,7 @@ export default function Home() {
       </section>
 
       <section id="developers" className="section wrap">
-        <div className="section-heading"><div><p className="eyebrow">05 / FOR DEVELOPERS</p><h2>Already building? Go deeper.</h2></div><p>The developer app has the guides, the demo and the reference material. It runs on devnet and opens in its own site.</p></div>
+        <div className="section-heading"><div><p className="eyebrow">05 / FOR DEVELOPERS</p><h2>Already building? Go deeper.</h2></div><p>The developer app has the guides, the sandbox and the reference material. It runs on devnet and opens in its own site.</p></div>
         <div className="devlinks">{DEV_LINKS.map((d) => <a key={d.path} href={`${APP_URL}${d.path}`} rel="noopener noreferrer"><h3>{d.title} <span aria-hidden="true">↗</span></h3><p>{d.body}</p></a>)}</div>
       </section>
 
