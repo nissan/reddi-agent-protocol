@@ -35,12 +35,17 @@ cd packages/demo-agents && npm run register
 # 7. Run the demo
 npm run demo
 
-# Optional: choose settlement privacy route for Step 4
-# auto (default): try MagicBlock PER, then fallback (if enabled)
+# Step 4 settlement route. PER settlement is skipped: PER tracking instructions
+# (delegate_escrow, release_escrow_per) are not in the V1 program build (post-V1, issue #839).
+# auto (default): prints that PER was skipped, then releases on L1
 DEMO_SETTLEMENT_MODE=auto npm run demo
 
-# force PER only (no fallback)
-DEMO_SETTLEMENT_MODE=magicblock_per DEMO_ALLOW_FALLBACK=false npm run demo
+# magicblock_per: refused with the same message; nothing is sent
+DEMO_SETTLEMENT_MODE=magicblock_per npm run demo
+
+# Steps 6-8 (commit/reveal ratings, judge attestation) are skipped on the default target:
+# the V1 program ties them to an escrow opted in at lock (open_rating), which this script
+# does not do yet (issue #842).
 
 # private routing contract knobs (MagicBlock ONE-style semantics)
 DEMO_SETTLEMENT_MODE=auto DEMO_PRIVATE_MIN_DELAY_MS=1000 DEMO_PRIVATE_MAX_DELAY_MS=5000 DEMO_PRIVATE_SPLIT=3 npm run demo
@@ -58,7 +63,7 @@ DEMO_PRIVATE_MINT=<mint-pubkey> npm run mint:init-helper
 DEMO_SETTLEMENT_MODE=public npm run demo
 
 # note: vanish_core is tracked as swap privacy route in plugin flow,
-# this escrow-release demo still executes PER/public settlement rails
+# this escrow-release demo releases on the public rail
 DEMO_SETTLEMENT_MODE=vanish_core npm run demo
 ```
 
@@ -74,5 +79,5 @@ Private keys in `.env.devnet` (gitignored — back this up separately).
 
 ## Timing
 
-Demo targets < 10s end-to-end for Steps 1–7 (excluding async PER confirmation).
+Demo targets < 10s end-to-end for the steps it runs.
 Devnet latency (~400–600ms per confirmation) is the bottleneck, not instruction encoding.

@@ -29,7 +29,7 @@ describe("onboarding operator status routes", () => {
     });
   });
 
-  it("reports readiness on /api/onboarding/attestation-operator with valid key", async () => {
+  it("reports not ready on /api/onboarding/attestation-operator even with a valid key, until the app rating flow lands", async () => {
     const kp = Keypair.generate();
     process.env.ONBOARDING_ATTEST_OPERATOR_SECRET_KEY = JSON.stringify(Array.from(kp.secretKey));
 
@@ -40,9 +40,11 @@ describe("onboarding operator status routes", () => {
     await expect(res.json()).resolves.toMatchObject({
       ok: true,
       result: {
-        ready: true,
+        ready: false,
         state: "ready",
         operatorPubkey: kp.publicKey.toBase58(),
+        note: expect.stringContaining("not available until the app rating flow lands (#842)"),
+        nextAction: expect.stringContaining("#842"),
       },
     });
   });

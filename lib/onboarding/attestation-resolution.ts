@@ -1,23 +1,24 @@
 import { Connection, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
+import { buildConfirmAttestationInstruction, buildDisputeAttestationInstruction } from "@reddi/x402-solana/rating";
 
 import { QUASAR_ESCROW_UNAVAILABLE_REASON } from "@/lib/onboarding/quasar-escrow-binding";
-import {
-  agentPda,
-  attestationPda,
-  buildConfirmAttestationData,
-  buildDisputeAttestationData,
-  ESCROW_PROGRAM_ID,
-  PROGRAM_TARGET,
-} from "@/lib/program";
+import { ESCROW_PROGRAM_ID, PROGRAM_TARGET } from "@/lib/program";
 
 /**
  * Consumer follow-through on an operator attestation: confirm or dispute.
  *
- * The two actions differ only in their instruction data, so they share one path here rather than in
- * two copies of a click handler where the Quasar refusal cannot be exercised. The refusal is the
+ * The two actions differ only in their instruction selector, so they share one path here rather than
+ * in two copies of a click handler where the Quasar refusal cannot be exercised. The refusal is the
  * first thing `submitAttestationResolution` does, so it holds before any connection is opened, any
- * base58 string is parsed into a `PublicKey`, any instruction is built, and any signer is used —
- * which is why only the legacy Anchor layout is ever built below.
+ * base58 string is parsed into a `PublicKey`, any instruction is built, and any signer is used.
+ *
+ * What is built below is the V1 program's `confirm_attestation` / `dispute_attestation`
+ * (`@reddi/x402-solana/rating`): the attestation of the job paid through an escrow, the judge's
+ * agent record, and the consumer as signer, and as data the job's opened slot as the attestation
+ * stores it (`openedSlot`, required: the program refuses a decision without it or naming another
+ * job, `RatingJobMismatch` 6051). Nothing in the app records
+ * such an attestation yet: the operator attest step fails closed until the app rating flow lands
+ * (#842), so the onboarding page never reaches this with a recorded attestation.
  */
 export type AttestationResolutionAction = "confirm" | "dispute";
 
@@ -27,10 +28,15 @@ export type AttestationResolutionRequest = {
   consumer: PublicKey;
   /** Operator (judge) wallet named by the attestation, as base58. */
   operator: string;
-  /** 16-byte job id, hex encoded. */
-  jobIdHex: string;
-  /** Attestation PDA recorded by the attest step, as base58; derived when absent. */
+  /** The escrow the attested job was paid through, as base58. The attestation address is derived from it. */
+  escrow?: string;
+  /** Attestation address recorded by the attest step, as base58. Used instead of `escrow` when present. */
   attestationPda?: string;
+  /**
+   * The slot the job's rating was opened in, as the attestation the consumer was shown stores it
+   * (`decodeAttestationAccount(...).openedSlot`). Required: without it nothing is built.
+   */
+  openedSlot?: bigint;
 };
 
 export type AttestationResolutionDependencies = {
@@ -50,36 +56,25 @@ export function describeAttestationResolutionRefusal(): string | undefined {
   return PROGRAM_TARGET === "quasar" ? QUASAR_ESCROW_UNAVAILABLE_REASON : undefined;
 }
 
-export function hexToJobId(hex: string): Uint8Array {
-  if (!/^[0-9a-fA-F]{32}$/.test(hex)) {
-    throw new Error("Invalid attestation job id.");
+function buildResolutionInstruction(request: AttestationResolutionRequest, operator: PublicKey): TransactionInstruction {
+  const openedSlot = request.openedSlot;
+  if (typeof openedSlot !== "bigint") {
+    throw new Error("Attestation resolution needs the job's opened slot, read from the attestation. Nothing was signed.");
   }
-  const out = new Uint8Array(16);
-  for (let i = 0; i < 16; i += 1) {
-    out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  const build = request.action === "confirm" ? buildConfirmAttestationInstruction : buildDisputeAttestationInstruction;
+  if (request.attestationPda) {
+    // A recorded attestation address: the builder's accounts and data, with that address as account 0.
+    const built = build({ programId: ESCROW_PROGRAM_ID, escrow: PublicKey.default, judge: operator, consumer: request.consumer, openedSlot });
+    return new TransactionInstruction({
+      programId: ESCROW_PROGRAM_ID,
+      keys: [{ pubkey: new PublicKey(request.attestationPda), isSigner: false, isWritable: true }, ...built.keys.slice(1)],
+      data: built.data,
+    });
   }
-  return out;
-}
-
-function buildResolutionInstruction(
-  request: AttestationResolutionRequest,
-  jobId: Uint8Array,
-  operator: PublicKey,
-): TransactionInstruction {
-  return new TransactionInstruction({
-    programId: ESCROW_PROGRAM_ID,
-    keys: [
-      {
-        pubkey: request.attestationPda ? new PublicKey(request.attestationPda) : attestationPda(jobId),
-        isSigner: false,
-        isWritable: true,
-      },
-      { pubkey: agentPda(operator), isSigner: false, isWritable: true },
-      { pubkey: request.consumer, isSigner: true, isWritable: false },
-    ],
-    data:
-      request.action === "confirm" ? buildConfirmAttestationData(jobId) : buildDisputeAttestationData(jobId),
-  });
+  if (!request.escrow) {
+    throw new Error("Attestation resolution needs the escrow the job was paid through.");
+  }
+  return build({ programId: ESCROW_PROGRAM_ID, escrow: new PublicKey(request.escrow), judge: operator, consumer: request.consumer, openedSlot });
 }
 
 export async function submitAttestationResolution(
@@ -91,9 +86,8 @@ export async function submitAttestationResolution(
 
   try {
     const connection = deps.getConnection();
-    const jobId = hexToJobId(request.jobIdHex);
     const operator = new PublicKey(request.operator);
-    const instruction = buildResolutionInstruction(request, jobId, operator);
+    const instruction = buildResolutionInstruction(request, operator);
 
     const { blockhash } = await connection.getLatestBlockhash();
     const transaction = new Transaction();

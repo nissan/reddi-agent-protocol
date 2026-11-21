@@ -7,6 +7,7 @@
  */
 import { createHash } from "crypto";
 import { PublicKey } from "@solana/web3.js";
+import { attestationPda as attestationPdaFor, ratingPda as ratingPdaFor } from "@reddi/x402-solana/rating";
 import { getNetworkProfile } from "@/lib/config/network";
 
 const network = getNetworkProfile();
@@ -55,6 +56,8 @@ export const ESCROW_SEED = Buffer.from("escrow");
 export const TOKEN_ESCROW_SEED = Buffer.from("token-escrow");
 export const TOKEN_VAULT_SEED = Buffer.from("token-vault");
 export const AGENT_SEED = Buffer.from("agent");
+// Both are followed by the escrow address the job was paid through, never by a job id:
+// ["rating", escrow] and ["attestation", escrow] (programs/pinocchio-escrow/README.md).
 export const RATING_SEED = Buffer.from("rating");
 export const ATTESTATION_SEED = Buffer.from("attestation");
 
@@ -82,13 +85,21 @@ export const IX = {
   lock_metered_escrow: disc("global", "lock_metered_escrow"),
   release_escrow: disc("global", "release_escrow"),
   settle_escrow: disc("global", "settle_escrow"),
-  release_escrow_per: disc("global", "release_escrow_per"),
-  delegate_escrow: disc("global", "delegate_escrow"),
+  cancel_escrow: disc("global", "cancel_escrow"),
+  // Ratings and judge attestations of a job paid through escrow. Not in the Anchor IDL: the
+  // interface is programs/pinocchio-escrow/README.md plus interface/vectors.json, and the
+  // builders, decoders and address helpers are in @reddi/x402-solana/rating. The PER selectors
+  // (delegate_escrow, release_escrow_per) are not mirrored: the V1 build answers neither (#839).
+  open_rating: disc("global", "open_rating"),
+  accept_rating: disc("global", "accept_rating"),
   commit_rating: disc("global", "commit_rating"),
   reveal_rating: disc("global", "reveal_rating"),
+  expire_rating: disc("global", "expire_rating"),
+  close_rating: disc("global", "close_rating"),
   attest_quality: disc("global", "attest_quality"),
   confirm_attestation: disc("global", "confirm_attestation"),
   dispute_attestation: disc("global", "dispute_attestation"),
+  close_attestation: disc("global", "close_attestation"),
 } as const;
 
 export const ACCOUNT_DISC = {
@@ -253,75 +264,14 @@ export function agentPda(ownerPubkey: PublicKey): PublicKey {
   )[0];
 }
 
-/** Derive the AttestationAccount PDA for a given 16-byte job id. */
-export function attestationPda(jobId: Uint8Array): PublicKey {
-  if (jobId.length !== 16) {
-    throw new Error("jobId must be 16 bytes");
-  }
-  return PublicKey.findProgramAddressSync(
-    [ATTESTATION_SEED, Buffer.from(jobId)],
-    ESCROW_PROGRAM_ID
-  )[0];
+/** The rating account of the job paid through `escrow`: ["rating", escrow]. */
+export function ratingPda(escrow: PublicKey): PublicKey {
+  return ratingPdaFor(escrow, ESCROW_PROGRAM_ID);
 }
 
-/**
- * Build `attest_quality` instruction data:
- * discriminator(8) + job_id(16) + scores[5] + consumer_pubkey(32)
- */
-export function buildAttestQualityData(
-  jobId: Uint8Array,
-  scores: [number, number, number, number, number],
-  consumerPubkey: PublicKey
-): Buffer {
-  if (jobId.length !== 16) {
-    throw new Error("jobId must be 16 bytes");
-  }
-
-  const buf = Buffer.alloc(8 + 16 + 5 + 32);
-  let o = 0;
-  IX.attest_quality.copy(buf, o); o += 8;
-  Buffer.from(jobId).copy(buf, o); o += 16;
-  for (const s of scores) {
-    if (!Number.isInteger(s) || s < 0 || s > 255) {
-      throw new Error("scores must be integers between 0 and 255");
-    }
-    buf.writeUInt8(s, o);
-    o += 1;
-  }
-  Buffer.from(consumerPubkey.toBytes()).copy(buf, o);
-  return buf;
-}
-
-/**
- * Build `confirm_attestation` instruction data:
- * discriminator(8) + job_id(16)
- */
-export function buildConfirmAttestationData(jobId: Uint8Array): Buffer {
-  if (jobId.length !== 16) {
-    throw new Error("jobId must be 16 bytes");
-  }
-
-  const buf = Buffer.alloc(8 + 16);
-  let o = 0;
-  IX.confirm_attestation.copy(buf, o); o += 8;
-  Buffer.from(jobId).copy(buf, o);
-  return buf;
-}
-
-/**
- * Build `dispute_attestation` instruction data:
- * discriminator(8) + job_id(16)
- */
-export function buildDisputeAttestationData(jobId: Uint8Array): Buffer {
-  if (jobId.length !== 16) {
-    throw new Error("jobId must be 16 bytes");
-  }
-
-  const buf = Buffer.alloc(8 + 16);
-  let o = 0;
-  IX.dispute_attestation.copy(buf, o); o += 8;
-  Buffer.from(jobId).copy(buf, o);
-  return buf;
+/** The attestation account of the job paid through `escrow`: ["attestation", escrow]. */
+export function attestationPda(escrow: PublicKey): PublicKey {
+  return attestationPdaFor(escrow, ESCROW_PROGRAM_ID);
 }
 
 /** Hardcoded incinerator address (matches on-chain AGENT_FEE_BURN_ADDRESS) */

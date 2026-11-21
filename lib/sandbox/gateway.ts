@@ -33,7 +33,7 @@ import {
   type SandboxSpotCheck,
 } from "./catalog";
 import { PublicKey } from "@solana/web3.js";
-import { bytesEqual, decodeSandboxEscrow, escrowNonceBytes, SANDBOX_ESCROW_PROGRAM_ID, refundSlotsLeft, SANDBOX_MIN_CANCEL_WINDOW_SLOTS, sandboxEscrowAddress } from "./escrow";
+import { bytesEqual, decodeSandboxEscrow, escrowNonceBytes, SANDBOX_ESCROW_PROGRAM_ID, refundSlotsLeft, SANDBOX_MIN_CANCEL_WINDOW_SLOTS, sandboxEscrowAddress, sandboxRatingAddress, sandboxRatingOpenedSlot } from "./escrow";
 import { sandboxProviderAddress, signAsSandboxProvider } from "./keys";
 import type { SandboxSettler } from "./settle-signer";
 import { countTokens, formatUnits, maxChargeLamports, requestInputTokens, SANDBOX_FEE_TREASURY, settleSandboxCall } from "./pricing";
@@ -67,6 +67,12 @@ export type SandboxGatewayDeps = {
   readSlot?: () => Promise<number | bigint>;
   /** Settles a metered escrow with the provider's devnet key. Without it, metered payments are refused. */
   settler?: SandboxSettler;
+  /**
+   * Serve metered escrows the visitor opted in to rating. Default false: declined before serving.
+   * When true the settle passes the escrow's rating account. Nothing here commits or reveals a
+   * rating for the provider, so leave it off until something does (#842).
+   */
+  acceptRatedEscrows?: boolean;
   now?: () => number;
   newNonce?: () => string;
 };
@@ -153,7 +159,7 @@ export function sandboxChallenge(provider: SandboxProvider, origin: string, nonc
 type PaymentOutcome =
   | { ok: true; mode: "simulated"; nonce: string; payerId: string; proofRef: string }
   | { ok: true; mode: "devnet-transfer"; nonce: string; payerId: string; payerAddress: string; proofRef: string }
-  | { ok: true; mode: "metered-escrow"; nonce: string; payerId: string; payerAddress: string; escrow: string; maxLamports: bigint; proofRef: string }
+  | { ok: true; mode: "metered-escrow"; nonce: string; payerId: string; payerAddress: string; escrow: string; maxLamports: bigint; rated: boolean; openedSlot?: bigint; proofRef: string }
   | { ok: false; result: Extract<ReceiptVerificationResult, { ok: false }> };
 
 function rejected(reason: Extract<ReceiptVerificationResult, { ok: false }>["reason"], message: string, expected?: unknown, actual?: unknown): PaymentOutcome {
@@ -244,6 +250,12 @@ async function verifyMeteredLock(record: Record<string, unknown>, provider: Sand
   if (!escrow) return rejected("invalid_receipt", "That account is not an escrow.");
   if (escrow.status !== "locked") return rejected("duplicate_nonce", "This escrow has already been settled or cancelled.", undefined, nonce);
   if (!escrow.metered) return rejected("invalid_receipt", "This escrow was not locked as a metered escrow.");
+  // `metered` is one bit of the flag byte and `rated` another. A provider that settles a rated
+  // escrow has agreed to be rated, so one is declined here, before anything is served or
+  // remembered, unless this gateway is set to accept them. When it is, the settle has to pass the
+  // rating account, so `rated` travels with the payment.
+  if (escrow.rated && deps.acceptRatedEscrows !== true)
+    return rejected("unsupported_receipt", "This escrow was opted in to rating, and this provider does not take rated jobs. Nothing was served or taken. Lock a new escrow without rating, and cancel this one for a full refund once its refund window has elapsed.");
   // The payer may refund once its window has elapsed, so the settlement has to
   // land before then. The time left now is what counts, not the window named
   // at lock, and when the slot cannot be read nothing is accepted.
@@ -260,8 +272,19 @@ async function verifyMeteredLock(record: Record<string, unknown>, provider: Sand
   if (!bytesEqual(escrow.nonce, escrowNonceBytes(nonce))) return rejected("invalid_nonce", "The escrow nonce does not match the challenge.");
   const maxLamports = maxChargeLamports(provider, inputTokens);
   if (escrow.amount !== maxLamports) return rejected("wrong_amount", "escrow amount does not match challenge", maxLamports.toString(), escrow.amount.toString());
+  // A rated job is named by its rating's opened slot. It is read now, with the lock being
+  // served, and travels with the payment to the settle, which names it.
+  let openedSlot: bigint | undefined;
+  if (escrow.rated) {
+    try {
+      openedSlot = sandboxRatingOpenedSlot(escrowAddress, await deps.readAccount(sandboxRatingAddress(escrowAddress)));
+    } catch {
+      return rejected("unsupported_receipt", "The devnet RPC could not be read. Nothing was accepted; present the same receipt again shortly.");
+    }
+    if (openedSlot === undefined) return rejected("invalid_receipt", "This escrow is opted in to rating, but its rating account could not be read as this job's. Nothing was accepted.");
+  }
   if (!(await deps.replayStore.checkAndStore(`escrow:${escrowAddress.toBase58()}`))) return rejected("duplicate_nonce", "receipt nonce has already been used", undefined, nonce);
-  return { ok: true, mode: "metered-escrow", nonce, payerId: payer.toBase58(), payerAddress: payer.toBase58(), escrow: escrowAddress.toBase58(), maxLamports, proofRef: escrowAddress.toBase58() };
+  return { ok: true, mode: "metered-escrow", nonce, payerId: payer.toBase58(), payerAddress: payer.toBase58(), escrow: escrowAddress.toBase58(), maxLamports, rated: escrow.rated, ...(openedSlot !== undefined ? { openedSlot } : {}), proofRef: escrowAddress.toBase58() };
 }
 
 async function writeReceipt(input: {
@@ -369,7 +392,7 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
     // and its receipt name a settle transaction that already happened.
     const settled = settleSandboxCall(provider, { inputTokens, outputTokens: countTokens(answer) }, payment.maxLamports);
     const result = deps.settler
-      ? await deps.settler.settle({ providerId: provider.id, escrow: new PublicKey(payment.escrow), payer: new PublicKey(payment.payerAddress), payee: new PublicKey(provider.payTo), actualLamports: settled.amount })
+      ? await deps.settler.settle({ providerId: provider.id, escrow: new PublicKey(payment.escrow), payer: new PublicKey(payment.payerAddress), payee: new PublicKey(provider.payTo), actualLamports: settled.amount, rated: payment.rated, openedSlot: payment.openedSlot })
       : { ok: false as const, message: "No settler is configured." };
     if (!result.ok) {
       return failure(502, "settle_failed", `${result.message} Your maximum stays locked in escrow ${payment.escrow}; nothing was charged, and you can cancel it for a full refund once its refund window has elapsed, about 30 minutes after the lock.`, { charged: false, escrow: payment.escrow });

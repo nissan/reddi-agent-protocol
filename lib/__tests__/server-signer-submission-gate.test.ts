@@ -117,7 +117,9 @@ describe("server-side operator signers honour the profile submission gate", () =
 
     expect(SUBMISSION_BLOCKED).toBe(false);
     expect(result.ok).toBe(false);
-    expect(result.ok === false && result.error).toMatch(/No unrevealed commit found/);
-    expect(result.trace).not.toContain("reputation:submission_blocked");
+    // Past the profile gate, the reveal still fails closed: the operator-key rating flow cannot
+    // work against escrow-bound ratings and waits for the app rating flow (#842).
+    expect(result.ok === false && result.error).toMatch(/not available until the app rating flow lands \(#842\)/);
+    expect(result.trace).toEqual(["reputation:unavailable_until_app_rating_flow"]);
   });
 });
