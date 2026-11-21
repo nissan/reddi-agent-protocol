@@ -80,7 +80,7 @@ test.describe("app rating flow (#842)", () => {
   test("job panel, commit phase: hidden score, deadline, and the judge's pending attestation", async ({ page }) => {
     const accounts = new Map<string, Uint8Array>([
       [ratingPda(ESCROW).toBase58(), ratingAccount({ state: "open", attested: true, specialistCommitment: new Uint8Array(32).fill(4) })],
-      [attestationPda(ESCROW).toBase58(), encodeAttestationAccount({ escrow: ESCROW, judge: JUDGE, consumer: WALLET, scores: [8, 7, 9, 6, 10], createdSlot: SETTLED + 5n })],
+      [attestationPda(ESCROW).toBase58(), encodeAttestationAccount({ escrow: ESCROW, judge: JUDGE, consumer: WALLET, scores: [8, 7, 9, 6, 10], createdSlot: SETTLED + 5n, openedSlot: OPENED })],
     ]);
     await stubRpc(page, accounts);
     await openRuns(page);
@@ -98,7 +98,7 @@ test.describe("app rating flow (#842)", () => {
   test("job panel, an attestation left from an earlier job at the address is not offered", async ({ page }) => {
     const accounts = new Map<string, Uint8Array>([
       [ratingPda(ESCROW).toBase58(), ratingAccount({ state: "open", attested: true })],
-      [attestationPda(ESCROW).toBase58(), encodeAttestationAccount({ escrow: ESCROW, judge: JUDGE, consumer: WALLET, scores: [8, 7, 9, 6, 10], createdSlot: OPENED - 1n })],
+      [attestationPda(ESCROW).toBase58(), encodeAttestationAccount({ escrow: ESCROW, judge: JUDGE, consumer: WALLET, scores: [8, 7, 9, 6, 10], createdSlot: OPENED - 1n, openedSlot: OPENED - 10n })],
     ]);
     await stubRpc(page, accounts);
     await openRuns(page);

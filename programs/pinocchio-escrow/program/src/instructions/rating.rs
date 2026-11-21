@@ -216,12 +216,16 @@ pub fn settle_exit(
 /// It must be writable, be the rating derived from this escrow, and still be
 /// waiting for the escrow to end. The exit must come after the slot the
 /// rating was opened in (`slot` is the current one), so that a later job at
-/// the same address always has a different opening slot.
+/// the same address always has a different opening slot, and it must name
+/// that slot (`job`, from the exit's data). So an exit signed for one job,
+/// a seller's settle or claim in particular, which opens the rating, cannot
+/// end a later job at the same address.
 pub fn for_exit<'a>(
     program_id: &Address,
     escrow: &Address,
     trailing: &'a mut [AccountView],
     slot: u64,
+    job: Option<u64>,
 ) -> Result<(&'a mut AccountView, Rating), ProgramError> {
     let Some(account) = trailing.first_mut() else {
         return Err(fail(&RatingAccountRequired));
@@ -234,6 +238,7 @@ pub fn for_exit<'a>(
         &RatingNotAwaitingSettlement,
     )?;
     require(slot > record.opened_slot(), &RatingJustOpened)?;
+    require(job == Some(record.opened_slot()), &RatingJobMismatch)?;
     Ok((account, record))
 }
 
@@ -242,13 +247,18 @@ pub fn for_exit<'a>(
 /// Accounts: `[w] rating`, `[s] signer`.
 /// Data: `commitment: [u8; 32]`, which is
 /// sha256(rating address ‖ opened slot, 8 bytes little-endian ‖ signer
-/// address ‖ score byte ‖ 32-byte salt).
+/// address ‖ score byte ‖ 32-byte salt), then `opened_slot: u64`, the slot
+/// the rating was opened in. A commitment sent for an earlier job at the
+/// same address is refused before anything is stored, so it cannot take the
+/// one place the signer has for this job's commitment.
 ///
 /// The signer is the rating's consumer or its specialist; which one is taken
 /// from the signer. Each commits once, within `RATING_COMMIT_SLOTS` of the
 /// paid settlement.
 pub fn commit(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let commitment: [u8; 32] = Args(data).array()?;
+    let mut args = Args(data);
+    let commitment: [u8; 32] = args.array()?;
+    let opened_slot = args.u64()?;
     let [rating, caller, ..] = accounts else {
         return Err(fail(&AccountNotEnoughKeys));
     };
@@ -261,6 +271,7 @@ pub fn commit(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -
         is_consumer || caller.address() == &record.specialist,
         &UnauthorisedSigner,
     )?;
+    require(opened_slot == record.opened_slot(), &RatingJobMismatch)?;
     require(record.state != RATING_AWAITING_SETTLEMENT, &JobNotPaid)?;
     require(!record.is_final(), &AlreadyFinalised)?;
     let slot = now()?.0;

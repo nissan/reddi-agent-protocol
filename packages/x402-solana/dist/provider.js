@@ -296,6 +296,29 @@ async function verifyMeteredLock(input) {
     if (escrow.amount < input.minimum) {
         return { ok: false, reason: 'wrong_amount', message: `The locked maximum is below this request's estimate of ${input.minimum.toString()} base units.` };
     }
+    // A rated job is named by its rating's opened slot: read it now, with the
+    // lock this provider is about to serve, and keep it for the settle.
+    let openedSlot;
+    if (escrow.rated) {
+        let ratingAccount;
+        try {
+            ratingAccount = await input.readAccount((0, rating_1.ratingPda)(header.escrow, terms.programId));
+        }
+        catch {
+            return { ok: false, reason: 'payment_check_unavailable', message: 'The chain could not be read. Nothing was accepted; present the same receipt again.' };
+        }
+        let rating;
+        try {
+            rating = ratingAccount && ratingAccount.owner.equals(terms.programId) ? (0, rating_1.decodeRatingAccount)(Buffer.from(ratingAccount.data)) : undefined;
+        }
+        catch {
+            rating = undefined;
+        }
+        if (!rating || !rating.escrow.equals(header.escrow) || rating.state !== 'awaiting_settlement') {
+            return { ok: false, reason: 'invalid_receipt', message: "This escrow is opted in to rating, but its rating account could not be read as this job's. Nothing was accepted." };
+        }
+        openedSlot = rating.openedSlot;
+    }
     const payout = await checkMeteredPayout({ terms, escrow, readAccount: input.readAccount, ...(input.treasury ? { treasury: input.treasury } : {}) });
     if (!payout.ok)
         return payout;
@@ -307,6 +330,7 @@ async function verifyMeteredLock(input) {
         payer: escrow.payer,
         payout: payout.payout,
         rated: escrow.rated,
+        ...(openedSlot !== undefined ? { openedSlot } : {}),
         maxBaseUnits: escrow.amount,
         terms: {
             programId: terms.programId,
@@ -342,8 +366,9 @@ function usageFrom(upstream, inputEstimate) {
  * into the accounts checked with the lock (`lock.payout`), or into `payout`
  * when the caller has checked them again. Nothing is created unless that
  * check chose to create the buyer's token account. The settle of a rated
- * lock carries the escrow's rating account after the usual accounts; for a
- * lock that is not rated the instruction is unchanged.
+ * lock carries the escrow's rating account after the usual accounts and the
+ * job's opened slot (`lock.openedSlot`) after its data; for a lock that is
+ * not rated the instruction is unchanged.
  */
 function meteredSettlement(terms, lock, usage, payout = lock.payout) {
     const decimals = (0, payment_1.directPaymentCurrency)(terms.price.currency).decimals;
@@ -357,7 +382,7 @@ function meteredSettlement(terms, lock, usage, payout = lock.payout) {
         refundTo: payout.refundTo,
         ...(payout.payTo ? { payTo: payout.payTo } : {}),
         ...(payout.harvestWithheldFees ? { harvestWithheldFees: true } : {}),
-    }), lock.rated === true);
+    }), lock.rated === true, lock.openedSlot);
     return { settlement, instruction, instructions: [...prep.instructions, instruction] };
 }
 /**
@@ -408,7 +433,7 @@ function confirmMeteredSettlement(record, expected) {
  * job that was not paid is not rated.
  */
 function meteredDecline(terms, lock) {
-    return (0, rating_1.withRatingAccount)((0, token_escrow_1.buildSettleTokenEscrowInstruction)(lock.terms, true, terms.payee, lock.payout.harvestWithheldFees ? { harvestWithheldFees: true } : {}), lock.rated === true);
+    return (0, rating_1.withRatingAccount)((0, token_escrow_1.buildSettleTokenEscrowInstruction)(lock.terms, true, terms.payee, lock.payout.harvestWithheldFees ? { harvestWithheldFees: true } : {}), lock.rated === true, lock.openedSlot);
 }
 /** The rating account a rated lock's settle and decline carry, or undefined for a lock that is not rated. */
 function meteredRatingAccount(lock) {

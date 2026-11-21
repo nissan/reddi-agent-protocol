@@ -129,7 +129,11 @@ pub fn lock(
 /// `release_escrow` (`actual` is `None`) and `settle_escrow`.
 ///
 /// Accounts: `[w] escrow`, `[w] payer`, `[w] payee`, `[w] treasury`,
-/// `[] system_program`, and for a rated escrow `[w] rating`.
+/// `[] system_program`, and for a rated escrow `[w] rating`. A rated
+/// escrow's exit also names its job, the slot its rating was opened in:
+/// `opened_slot: u64` after the instruction's data (`actual` for a settle,
+/// nothing for a release), refused with `RatingJobMismatch` when absent or
+/// different.
 ///
 /// Release pays the whole locked amount: the payer may at any time, the payee
 /// once the claim window has elapsed. Whichever of the two signed is the
@@ -151,6 +155,7 @@ pub fn pay_out(
     program_id: &Address,
     accounts: &mut [AccountView],
     actual: Option<u64>,
+    job: Option<u64>,
 ) -> ProgramResult {
     let [escrow, payer, payee, treasury, system_program, trailing @ ..] = accounts else {
         return Err(fail(&AccountNotEnoughKeys));
@@ -210,6 +215,7 @@ pub fn pay_out(
             escrow.address(),
             trailing,
             slot,
+            job,
         )?)
     } else {
         None
@@ -244,12 +250,17 @@ pub fn pay_out(
 /// `cancel_escrow`: refund a locked SOL escrow to its payer and close it.
 ///
 /// Accounts: `[w] escrow`, `[s] authority`, `[w] payer`, `[] system_program`,
-/// and for a rated escrow `[w] rating`.
+/// and for a rated escrow `[w] rating`; a rated escrow's cancel names its
+/// job with data `opened_slot: u64`.
 /// The authority is the payee (declining, at any time) or the payer (after the
 /// cancel window). The payer receives the refund and does not need to sign.
 /// A rated escrow's rating account is closed and its rent returns to the
 /// payer too: a job that was not paid is not rated.
-pub fn cancel(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResult {
+pub fn cancel(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    job: Option<u64>,
+) -> ProgramResult {
     let [escrow, authority, payer, system_program, trailing @ ..] = accounts else {
         return Err(fail(&AccountNotEnoughKeys));
     };
@@ -272,7 +283,7 @@ pub fn cancel(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResu
         record.cancel_window_slots(),
     )?;
     if record.rated() {
-        let (account, _) = rating::for_exit(program_id, escrow.address(), trailing, slot)?;
+        let (account, _) = rating::for_exit(program_id, escrow.address(), trailing, slot, job)?;
         close(account, payer)?;
     }
     close(escrow, payer)?;

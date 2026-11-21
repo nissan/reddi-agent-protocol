@@ -94,7 +94,7 @@ export function sellerRatingPlan(
       if (input.currentSlot > rating.settledSlot + RATING_COMMIT_SLOTS) return { step: "none", reason: "deadline_passed" };
       return {
         step: "commit",
-        instruction: buildCommitRatingInstruction({ programId: input.programId, escrow: rating.escrow, signer: seller, commitment: jobRatingCommitment(address, rating.openedSlot, seller, input.score, salt) }),
+        instruction: buildCommitRatingInstruction({ programId: input.programId, escrow: rating.escrow, signer: seller, commitment: jobRatingCommitment(address, rating.openedSlot, seller, input.score, salt), openedSlot: rating.openedSlot }),
       };
     case "both_committed": {
       if (rating.specialistScore !== undefined) return { step: "none", reason: "already_done" };

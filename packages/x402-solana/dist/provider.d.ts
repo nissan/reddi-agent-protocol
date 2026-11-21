@@ -198,6 +198,13 @@ export type VerifiedLock = {
      * commit and reveal its own rating within the windows or lose reputation.
      */
     rated: boolean;
+    /**
+     * For a rated lock, the rating account's `opened_slot` as read with the
+     * lock: the job this provider verified. The settle and the decline name
+     * it, so they are refused (6051) if another job has taken the address by
+     * then. Undefined for a lock that is not rated.
+     */
+    openedSlot?: bigint;
 } | {
     ok: false;
     reason: string;
@@ -242,8 +249,9 @@ export declare function usageFrom(upstream: Record<string, unknown>, inputEstima
  * into the accounts checked with the lock (`lock.payout`), or into `payout`
  * when the caller has checked them again. Nothing is created unless that
  * check chose to create the buyer's token account. The settle of a rated
- * lock carries the escrow's rating account after the usual accounts; for a
- * lock that is not rated the instruction is unchanged.
+ * lock carries the escrow's rating account after the usual accounts and the
+ * job's opened slot (`lock.openedSlot`) after its data; for a lock that is
+ * not rated the instruction is unchanged.
  */
 export declare function meteredSettlement(terms: MeteredTerms, lock: Extract<VerifiedLock, {
     ok: true;

@@ -104,12 +104,28 @@ function call(deps: SandboxGatewayDeps, paymentHeader?: string) {
   return handleSandboxChatCompletion({ body, rawBody: JSON.stringify(body), paymentHeader, origin: ORIGIN }, deps);
 }
 
+/** The slot a rated lock's rating was opened in: the lock's own. */
+const OPENED_SLOT = CURRENT_SLOT - BigInt(10);
+
+/** A rating account awaiting settlement for `escrow`, as the program writes it (270 bytes). */
+function ratingBytes(escrow: PublicKey, fields: { openedSlot?: bigint; state?: number } = {}): Uint8Array {
+  const data = Buffer.alloc(270);
+  Buffer.from(vectors.accounts.find((entry) => entry.name === "rating_awaiting_settlement")!.data_hex, "hex").copy(data, 0, 0, 8);
+  escrow.toBuffer().copy(data, 8);
+  payer.toBuffer().copy(data, 40);
+  new PublicKey(swift.payTo).toBuffer().copy(data, 72);
+  data.writeBigUInt64LE(fields.openedSlot ?? OPENED_SLOT, 240);
+  data[264] = fields.state ?? 0;
+  return data;
+}
+
 function lockFor(accounts: Accounts, nonce: string, overrides: Partial<Parameters<typeof escrowBytes>[0]> & { owner?: PublicKey } = {}): string {
   const escrow = sandboxEscrowAddress(payer, nonce);
   accounts.set(escrow.toBase58(), {
     owner: overrides.owner ?? SANDBOX_ESCROW_PROGRAM_ID,
     data: escrowBytes({ payer, payee: new PublicKey(swift.payTo), amount: MAX_LAMPORTS, nonce: escrowNonceBytes(nonce), ...overrides }),
   });
+  if (overrides.rated) accounts.set(ratingPda(escrow, SANDBOX_ESCROW_PROGRAM_ID).toBase58(), { owner: SANDBOX_ESCROW_PROGRAM_ID, data: ratingBytes(escrow) });
   return escrow.toBase58();
 }
 
@@ -165,9 +181,11 @@ describe("sandbox metered escrow: instructions and layout", () => {
     const unrated = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: false });
     expect(unrated.data).toEqual(settle.data);
     expect(unrated.keys).toEqual(settle.keys);
-    // Rated: the escrow's rating account follows the five usual accounts, writable.
-    const rated = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: true });
-    expect(rated.data).toEqual(settle.data);
+    // Rated: the escrow's rating account follows the five usual accounts, writable, and the job's opened slot follows the data.
+    expect(() => buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: true })).toThrow("openedSlot");
+    const rated = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: true, openedSlot: BigInt(4242) });
+    expect(rated.data.subarray(0, 16)).toEqual(settle.data);
+    expect(rated.data.readBigUInt64LE(16)).toBe(BigInt(4242));
     expect(rated.keys.slice(0, 5)).toEqual(settle.keys);
     expect(rated.keys.slice(5).map((key) => [key.pubkey.toBase58(), key.isSigner, key.isWritable])).toEqual([[ratingPda(escrow, SANDBOX_ESCROW_PROGRAM_ID).toBase58(), false, true]]);
   });
@@ -176,7 +194,7 @@ describe("sandbox metered escrow: instructions and layout", () => {
     const vector = vectors.instructions.find((entry) => entry.name === "settle_escrow")!;
     const at = (name: string) => new PublicKey(vector.accounts.find((meta) => meta.name === name)!.address);
     expect(at("treasury").toBase58()).toBe(SANDBOX_FEE_TREASURY);
-    const settle = buildSandboxSettle({ escrow: at("escrow"), payer: at("payer"), payee: at("payee"), actualLamports: BigInt(600_000), rated: true, programId: new PublicKey(vectors.program_id) });
+    const settle = buildSandboxSettle({ escrow: at("escrow"), payer: at("payer"), payee: at("payee"), actualLamports: BigInt(600_000), rated: true, openedSlot: BigInt(1000), programId: new PublicKey(vectors.program_id) });
     expect(settle.data.toString("hex")).toBe(vector.data_hex);
     expect(settle.keys.map((key) => ({ address: key.pubkey.toBase58(), signer: key.isSigner, writable: key.isWritable }))).toEqual(
       vector.accounts.map(({ address, signer, writable }) => ({ address, signer, writable })),
@@ -289,6 +307,7 @@ describe("sandbox metered escrow: gateway", () => {
     expect(accepted.status).toBe(200);
     expect(calls).toHaveLength(1);
     expect(calls[0].rated).toBe(true);
+    expect(calls[0].openedSlot).toBe(OPENED_SLOT);
   });
 
   it("when set to accept rated escrows, tells the settler to pass the rating account; an unrated one is settled as before", async () => {
@@ -302,7 +321,26 @@ describe("sandbox metered escrow: gateway", () => {
       expect(response.status).toBe(200);
       expect(calls).toHaveLength(1);
       expect(calls[0].rated).toBe(rated);
+      expect(calls[0].openedSlot).toBe(rated ? OPENED_SLOT : undefined);
       expect(calls[0].escrow.toBase58()).toBe(escrow);
+    }
+  });
+
+  it("refuses a rated escrow whose rating account is missing, another escrow's or past settlement, before serving", async () => {
+    for (const rating of ["missing", "other", "paid"] as const) {
+      const accounts: Accounts = new Map();
+      const { settler, calls } = fakeSettler();
+      const deps = { ...makeDeps(accounts, settler), acceptRatedEscrows: true };
+      const nonce = nonceOf(await call(deps));
+      const escrow = lockFor(accounts, nonce, { rated: true });
+      const address = ratingPda(new PublicKey(escrow), SANDBOX_ESCROW_PROGRAM_ID).toBase58();
+      if (rating === "missing") accounts.delete(address);
+      if (rating === "other") accounts.set(address, { owner: SANDBOX_ESCROW_PROGRAM_ID, data: ratingBytes(Keypair.generate().publicKey) });
+      if (rating === "paid") accounts.set(address, { owner: SANDBOX_ESCROW_PROGRAM_ID, data: ratingBytes(new PublicKey(escrow), { state: 1 }) });
+      const response = await call(deps, meteredHeader(nonce, escrow));
+      expect(response.body.reason).toBe("invalid_receipt");
+      expect(JSON.stringify(response.body)).toContain("rating account");
+      expect(calls).toHaveLength(0);
     }
   });
 

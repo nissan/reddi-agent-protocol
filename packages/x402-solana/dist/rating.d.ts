@@ -25,9 +25,15 @@
  * Jobs can share an address: once an escrow has ended, the same payer can lock
  * another job for the same payee under the same nonce, and the escrow and
  * rating addresses are the same. The rating's `opened_slot` (the slot of
- * `open_rating`) tells the jobs apart, so `accept_rating`, the commitments and
- * `attest_quality` all name it: every builder for them takes it as a required
- * `openedSlot`, read from the rating account (`decodeRatingAccount`). The
+ * `open_rating`) tells the jobs apart, so every exit of a rated escrow,
+ * `accept_rating`, `commit_rating` and the commitment itself,
+ * `attest_quality` and the consumer's `confirm_attestation` or
+ * `dispute_attestation` all name it: every builder for them takes it as a
+ * required `openedSlot`, read from the rating account (`decodeRatingAccount`)
+ * or, for a decision on an attestation, from the attestation
+ * (`decodeAttestationAccount`). Read it when the job is agreed or verified and
+ * keep it with the job: re-reading it just before an exit would name
+ * whichever job holds the address by then. The
  * program refuses another slot (`RatingJobMismatch`, 6051), and refuses any
  * exit of a rated escrow in the slot its rating was opened in
  * (`RatingJustOpened`, 6050): lock and `open_rating` go in one transaction,
@@ -52,7 +58,7 @@ export declare const RATING_REVEAL_SLOTS = 1512000n;
 /** Slots after which a judge may close an attestation the consumer never resolved. */
 export declare const ATTESTATION_RESOLUTION_SLOTS = 1512000n;
 export declare const RATING_ACCOUNT_LEN = 270;
-export declare const ATTESTATION_ACCOUNT_LEN = 119;
+export declare const ATTESTATION_ACCOUNT_LEN = 127;
 /** Bits of an escrow's flag byte, the byte that has always held `metered`. */
 export declare const ESCROW_FLAG_METERED = 1;
 export declare const ESCROW_FLAG_RATED = 2;
@@ -122,10 +128,16 @@ export declare function buildAcceptRatingInstruction(input: OfEscrow & {
     specialist: PublicKey;
     openedSlot: bigint;
 }): TransactionInstruction;
-/** `commit_rating`: the consumer or the specialist commits to `ratingCommitment(...)`, made with the rating's `openedSlot`. */
+/**
+ * `commit_rating`: the consumer or the specialist commits to
+ * `ratingCommitment(...)`. `openedSlot` names the job: the rating account's
+ * `openedSlot`, the same one the commitment was made with. The program refuses
+ * another (`RatingJobMismatch`, 6051) before storing anything.
+ */
 export declare function buildCommitRatingInstruction(input: OfEscrow & {
     signer: PublicKey;
     commitment: Uint8Array;
+    openedSlot: bigint;
 }): TransactionInstruction;
 interface RatingParties {
     /** The rating's consumer: the escrow's payer. */
@@ -160,16 +172,20 @@ export declare function buildAttestQualityInstruction(input: OfEscrow & {
     scores: AttestationScores;
     openedSlot: bigint;
 }): TransactionInstruction;
+interface AttestationDecision {
+    judge: PublicKey;
+    consumer: PublicKey;
+    /**
+     * Names the job: the attestation's `openedSlot`, as the consumer read it
+     * with the scores it is deciding on. The program refuses another
+     * (`RatingJobMismatch`, 6051).
+     */
+    openedSlot: bigint;
+}
 /** `confirm_attestation`: the consumer the attestation names confirms it, once. */
-export declare function buildConfirmAttestationInstruction(input: OfEscrow & {
-    judge: PublicKey;
-    consumer: PublicKey;
-}): TransactionInstruction;
+export declare function buildConfirmAttestationInstruction(input: OfEscrow & AttestationDecision): TransactionInstruction;
 /** `dispute_attestation`: the consumer the attestation names disputes it, once. */
-export declare function buildDisputeAttestationInstruction(input: OfEscrow & {
-    judge: PublicKey;
-    consumer: PublicKey;
-}): TransactionInstruction;
+export declare function buildDisputeAttestationInstruction(input: OfEscrow & AttestationDecision): TransactionInstruction;
 /** `close_attestation`: the judge gets the rent back once the attestation is resolved, or after the resolution window. */
 export declare function buildCloseAttestationInstruction(input: OfEscrow & {
     judge: PublicKey;
@@ -208,7 +224,11 @@ export declare const RATING_PROGRAM_ERRORS: {
     readonly 6049: "JudgeNotActive";
     /** An exit of a rated escrow in the slot its rating was opened in. */
     readonly 6050: "RatingJustOpened";
-    /** `accept_rating` or `attest_quality` named an `opened_slot` other than the rating's: another job now holds the address. */
+    /**
+     * A rated exit, `accept_rating`, `commit_rating`, `attest_quality` or a
+     * decision on an attestation named an `opened_slot` other than the job's (or
+     * a rated exit named none): another job now holds the address.
+     */
     readonly 6051: "RatingJobMismatch";
 };
 export type RatingProgramErrorName = (typeof RATING_PROGRAM_ERRORS)[keyof typeof RATING_PROGRAM_ERRORS];
@@ -271,29 +291,39 @@ export interface AttestationAccount {
     /** Slot the attestation was made in; the judge may close an unresolved one after `ATTESTATION_RESOLUTION_SLOTS` from it. */
     createdSlot: bigint;
     bump: number;
+    /** The slot the job's rating was opened in. `confirm_attestation` and `dispute_attestation` name it. */
+    openedSlot: bigint;
 }
 /** Reads an attestation account. Throws when the bytes are not one. */
 export declare function decodeAttestationAccount(accountData: Uint8Array): AttestationAccount;
 /**
- * Adds the rating account to an exit of a rated escrow: release, claim,
- * settle, refund or decline, SOL or token. The escrow is the instruction's
- * first account, and the rating account goes right after the usual accounts,
- * writable. Without it the program refuses the exit of a rated escrow
- * (`RatingAccountRequired`, 6033).
+ * Makes an exit of a rated escrow (release, claim, settle, refund or
+ * decline, SOL or token) into the rated form: the rating account right after
+ * the usual accounts, writable, and the job's `openedSlot` (the rating
+ * account's `opened_slot`, u64 LE) after the instruction's data. The escrow is
+ * the instruction's first account. Without the account the program refuses
+ * the exit (`RatingAccountRequired`, 6033); without the slot, or with another
+ * job's, `RatingJobMismatch` (6051).
  *
  * With `rated` false the instruction is returned as it is, so a transaction
- * for an escrow that is not rated does not change by a byte. Throws for an
- * instruction that is not one of the six exits or lacks its usual accounts.
+ * for an escrow that is not rated does not change by a byte. With `rated`
+ * true, `openedSlot` is required. Throws for an instruction that is not one
+ * of the six exits, lacks its usual accounts or already carries more data.
  */
-export declare function withRatingAccount(exit: TransactionInstruction, rated: boolean): TransactionInstruction;
+export declare function withRatingAccount(exit: TransactionInstruction, rated: false): TransactionInstruction;
+export declare function withRatingAccount(exit: TransactionInstruction, rated: true, openedSlot: bigint): TransactionInstruction;
+export declare function withRatingAccount(exit: TransactionInstruction, rated: boolean, openedSlot?: bigint): TransactionInstruction;
 /**
  * `buildSettleTokenEscrowInstruction` for an escrow that may be rated: the
- * same release, claim, settle, refund or decline, with the rating account
- * added when `rated` is true. Read `rated` from the escrow account
- * (`decodeTokenEscrowAccount(...).rated`).
+ * same release, claim, settle, refund or decline, with the rating account and
+ * the job's `openedSlot` added when `rated` is true. Read `rated` from the
+ * escrow account (`decodeTokenEscrowAccount(...).rated`) and `openedSlot`
+ * from its rating account when the job was agreed; `openedSlot` is required
+ * when `rated` is true.
  */
 export declare function buildTokenEscrowExitInstruction(terms: TokenEscrowTerms, exit: {
     rated: boolean;
+    openedSlot?: bigint;
     refund?: boolean;
     authority?: PublicKey;
     options?: SettleTokenEscrowOptions;
@@ -318,8 +348,10 @@ interface SolEscrowExit {
     escrow: PublicKey;
     payer: PublicKey;
     payee: PublicKey;
-    /** Whether the escrow's rated bit is set; read it from the escrow account. Adds the rating account. */
+    /** Whether the escrow's rated bit is set; read it from the escrow account. Adds the rating account and `openedSlot`. */
     rated?: boolean;
+    /** The rating account's `opened_slot`, naming the job. Required when `rated` is true. */
+    openedSlot?: bigint;
     /** Defaults to the protocol treasury fixed in the program. */
     treasury?: PublicKey;
 }

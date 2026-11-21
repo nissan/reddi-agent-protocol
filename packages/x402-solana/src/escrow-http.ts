@@ -3,7 +3,7 @@ import type { Connection } from '@solana/web3.js';
 import { PublicKey } from '@solana/web3.js';
 import { unpackAccount, unpackMint } from '@solana/spl-token';
 import type { TransactionInstruction } from '@solana/web3.js';
-import { buildTokenEscrowExitInstruction } from './rating';
+import { buildTokenEscrowExitInstruction, decodeRatingAccount, ratingPda } from './rating';
 import { buildLockTokenEscrowInstruction, decodeTokenEscrowAccount, escrowWindows, tokenEscrowAddresses, TokenEscrowTerms } from './token-escrow';
 
 /** RAP-specific escrow extension; not the interoperable x402 SVM exact scheme. */
@@ -51,6 +51,14 @@ export interface EscrowReceipt extends EscrowProof {
    * `buildEscrowSellerExit`.
    */
   rated?: true;
+  /**
+   * Present with `rated`: the rating account's `opened_slot` (a decimal u64)
+   * as read when the lock was verified. It names this job, and the seller's
+   * claim or decline must carry it (`buildEscrowSellerExit`), so an exit
+   * prepared for this job is refused (6051) once another job has taken the
+   * address.
+   */
+  openedSlot?: string;
 }
 export interface EscrowVerifyOptions {
   /**
@@ -120,20 +128,36 @@ export async function verifyEscrowLock(connection: Connection, c: EscrowChalleng
   if (!info) throw new Error('vault missing');
   const token = unpackAccount(vault, info, t.tokenProgram);
   if (!token.owner.equals(escrow) || !token.mint.equals(t.mint) || token.amount < t.amount || !token.isInitialized || token.isFrozen) throw new Error('vault mismatch');
-  return { ...proof, scheme: c.scheme, status: 'locked', escrow: escrow.toBase58(), amount: c.amount, mint: c.mint, requestHash: c.requestHash, slot: tx.slot, ...(decoded.rated ? { rated: true as const } : {}) };
+  let rating: { rated: true; openedSlot: string } | undefined;
+  if (decoded.rated) {
+    const ratingInfo = await connection.getAccountInfo(ratingPda(escrow, t.programId), { commitment: 'finalized', minContextSlot: tx.slot });
+    if (!ratingInfo || !ratingInfo.owner.equals(t.programId)) throw new Error('rating account missing or wrong owner');
+    const decodedRating = decodeRatingAccount(ratingInfo.data);
+    if (!decodedRating.escrow.equals(escrow) || decodedRating.state !== 'awaiting_settlement') throw new Error('rating account mismatch');
+    rating = { rated: true, openedSlot: decodedRating.openedSlot.toString() };
+  }
+  return { ...proof, scheme: c.scheme, status: 'locked', escrow: escrow.toBase58(), amount: c.amount, mint: c.mint, requestHash: c.requestHash, slot: tx.slot, ...(rating ?? {}) };
 }
 
 /**
  * The seller's exit of an escrow it accepted, signed by the payee: `claim`
  * (release to itself, once the claim window has elapsed) or `decline`
  * (everything back to the payer, at any time). For a receipt that says
- * `rated` the escrow's rating account follows the usual accounts, without
- * which the program refuses the exit; otherwise the instruction is exactly
- * `buildSettleTokenEscrowInstruction`'s.
+ * `rated` the escrow's rating account follows the usual accounts and the
+ * receipt's `openedSlot` follows the data, without which the program refuses
+ * the exit; otherwise the instruction is exactly
+ * `buildSettleTokenEscrowInstruction`'s. Throws for a rated receipt without a
+ * valid `openedSlot`.
  */
-export function buildEscrowSellerExit(c: EscrowChallenge, receipt: Pick<EscrowReceipt, 'rated'>, kind: 'claim' | 'decline'): TransactionInstruction {
+export function buildEscrowSellerExit(c: EscrowChallenge, receipt: Pick<EscrowReceipt, 'rated' | 'openedSlot'>, kind: 'claim' | 'decline'): TransactionInstruction {
   const t = escrowTerms(c);
-  return buildTokenEscrowExitInstruction(t, { rated: receipt.rated === true, refund: kind === 'decline', authority: t.payee });
+  const rated = receipt.rated === true;
+  let openedSlot: bigint | undefined;
+  if (rated) {
+    if (typeof receipt.openedSlot !== 'string' || !/^(0|[1-9][0-9]{0,19})$/.test(receipt.openedSlot)) throw new Error('a rated receipt must carry the opened slot of its rating');
+    openedSlot = BigInt(receipt.openedSlot);
+  }
+  return buildTokenEscrowExitInstruction(t, { rated, openedSlot, refund: kind === 'decline', authority: t.payee });
 }
 
 /** Single-process replay protection. Use durable atomic storage for multiple sellers/workers. */

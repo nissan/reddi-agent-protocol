@@ -98,6 +98,7 @@ pub fn attest(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -
         scores,
         now()?.0,
         bump[0],
+        opened_slot,
     )
     .store(attestation)?;
     job.set_attested();
@@ -107,7 +108,9 @@ pub fn attest(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -
 /// `confirm_attestation` (`confirmed` true) and `dispute_attestation`.
 ///
 /// Accounts: `[w] attestation`, `[w] judge_agent`, `[s] consumer`.
-/// No data.
+/// Data: `opened_slot: u64`, the job's opening slot, which the attestation
+/// stores; a decision made for one job's attestation is refused for a later
+/// attestation at the same address.
 ///
 /// Only the consumer named in the attestation may resolve it, once.
 /// Confirming raises the judge's attestation accuracy and folds a top score
@@ -117,8 +120,10 @@ pub fn attest(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -
 pub fn resolve(
     program_id: &Address,
     accounts: &mut [AccountView],
+    data: &[u8],
     confirmed: bool,
 ) -> ProgramResult {
+    let opened_slot = Args(data).u64()?;
     let [attestation, judge_agent, consumer, ..] = accounts else {
         return Err(fail(&AccountNotEnoughKeys));
     };
@@ -128,6 +133,7 @@ pub fn resolve(
     let mut judge = Party::load(judge_agent, &record.judge, program_id)?;
 
     require(consumer.address() == &record.consumer, &UnauthorisedSigner)?;
+    require(opened_slot == record.opened_slot(), &RatingJobMismatch)?;
     require(
         record.resolution == ATTESTATION_PENDING,
         &AttestationAlreadyResolved,

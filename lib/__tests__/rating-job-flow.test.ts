@@ -60,7 +60,7 @@ function withRating(fixture: Partial<RatingFixture> & Pick<RatingFixture, "state
 function withAttestation(accounts: Accounts, fixture: Partial<Parameters<typeof encodeAttestationAccount>[0]> = {}): Accounts {
   accounts.set(attestationPda(escrow, PROGRAM).toBase58(), {
     owner: PROGRAM,
-    data: encodeAttestationAccount({ escrow, judge, consumer: buyer.publicKey, scores: SCORES, createdSlot: SETTLED + 5n, ...fixture }),
+    data: encodeAttestationAccount({ escrow, judge, consumer: buyer.publicKey, scores: SCORES, createdSlot: SETTLED + 5n, openedSlot: OPENED, ...fixture }),
   });
   return accounts;
 }
@@ -79,10 +79,13 @@ describe("buyer rating steps bind to the job by its opened slot (#842)", () => {
     const instruction = sent[0].instructions[0];
     expect([...instruction.data.subarray(0, 8)]).toEqual(RATING_DISCRIMINATORS["global:commit_rating"]);
     expect(bytes(instruction.data.subarray(8, 40))).toBe(bytes(jobRatingCommitment(ratingPda(escrow, PROGRAM), OPENED, buyer.publicKey, 9, salt)));
+    // Then the job it is for: the opened slot it was hashed with.
+    expect(instruction.data).toHaveLength(48);
+    expect(instruction.data.readBigUInt64LE(40)).toBe(OPENED);
   });
 
   it("refuses every step when the rating at the escrow is now another job's than the one shown", async () => {
-    const { connection, wallet, sent } = chain(withAttestation(withRating({ state: "open", openedSlot: OPENED + 50n }), { createdSlot: OPENED + 60n }));
+    const { connection, wallet, sent } = chain(withAttestation(withRating({ state: "open", openedSlot: OPENED + 50n }), { createdSlot: OPENED + 60n, openedSlot: OPENED + 50n }));
     const storage = new MemoryStorage();
     const deps = { connection, wallet, programId: PROGRAM, escrow, expectedOpenedSlot: OPENED };
     for (const result of [await commitJobRating({ ...deps, storage, score: 9 }), await revealJobRating({ ...deps, storage }), await resolveJobAttestation({ ...deps, action: "confirm" })]) {
@@ -107,17 +110,18 @@ describe("buyer rating steps bind to the job by its opened slot (#842)", () => {
     expect([...same.sent[0].instructions[0].data.subarray(8, 9)]).toEqual([6]);
   });
 
-  it("shows only an attestation made for this job: same escrow, consumer and judge, at or after the opening slot", async () => {
+  it("shows only an attestation made for this job: same escrow, consumer, judge and opened slot", async () => {
     const accounts = withAttestation(withRating({ state: "open", attested: true }));
     expect((await readJobRating(chain(accounts).connection, escrow, PROGRAM)).attestation?.scores).toEqual([...SCORES]);
     const rating = decodeRatingAccount(accounts.get(ratingPda(escrow, PROGRAM).toBase58())!.data);
-    const attestation = { escrow, judge, consumer: buyer.publicKey, scores: [...SCORES] as [number, number, number, number, number], resolution: "pending" as const, createdSlot: OPENED, bump: 255 };
+    const attestation = { escrow, judge, consumer: buyer.publicKey, scores: [...SCORES] as [number, number, number, number, number], resolution: "pending" as const, createdSlot: OPENED, bump: 255, openedSlot: OPENED };
     expect(attestationBelongsToJob(attestation, rating)).toBe(true);
-    expect(attestationBelongsToJob({ ...attestation, createdSlot: OPENED - 1n }, rating)).toBe(false);
+    expect(attestationBelongsToJob({ ...attestation, openedSlot: OPENED - 1n }, rating)).toBe(false);
+    expect(attestationBelongsToJob({ ...attestation, openedSlot: OPENED + 1n }, rating)).toBe(false);
     expect(attestationBelongsToJob({ ...attestation, judge: Keypair.generate().publicKey }, rating)).toBe(false);
     expect(attestationBelongsToJob({ ...attestation, consumer: seller.publicKey }, rating)).toBe(false);
     // A leftover from an earlier job is not shown, so it cannot be confirmed from this job's panel.
-    const leftover = withAttestation(withRating({ state: "open", attested: true }), { createdSlot: OPENED - 100n });
+    const leftover = withAttestation(withRating({ state: "open", attested: true }), { createdSlot: OPENED - 100n, openedSlot: OPENED - 200n });
     const { connection, wallet, sent } = chain(leftover);
     expect((await readJobRating(connection, escrow, PROGRAM)).attestation).toBeUndefined();
     expect(await resolveJobAttestation({ connection, wallet, programId: PROGRAM, escrow, action: "confirm" })).toMatchObject({ ok: false, message: expect.stringMatching(/no attestation/) });
@@ -126,7 +130,7 @@ describe("buyer rating steps bind to the job by its opened slot (#842)", () => {
 });
 
 describe("attestation resolution checks the job shown to the signer (#842)", () => {
-  const shown = { escrow, judge, consumer: buyer.publicKey };
+  const shown = { escrow, judge, consumer: buyer.publicKey, openedSlot: OPENED };
 
   function deps(accounts: Accounts) {
     const { connection } = chain(accounts);
@@ -141,13 +145,22 @@ describe("attestation resolution checks the job shown to the signer (#842)", () 
     expect(outcome).toEqual({ ok: true, signature: "sig" });
     const transaction = (d.sendTransaction.mock.calls[0] as unknown as [Transaction])[0];
     expect(transaction.instructions[0].keys[0].pubkey.equals(attestationPda(escrow, PROGRAM))).toBe(true);
+    // The decision names the job: the opened slot the attestation stores.
+    expect(transaction.instructions[0].data).toHaveLength(16);
+    expect(transaction.instructions[0].data.readBigUInt64LE(8)).toBe(OPENED);
+  });
+
+  it("the buyer's panel names the attestation's opened slot in its decision", async () => {
+    const { connection, wallet, sent } = chain(withAttestation(withRating({ state: "open", attested: true })));
+    expect(await resolveJobAttestation({ connection, wallet, programId: PROGRAM, escrow, action: "confirm", expectedOpenedSlot: OPENED })).toEqual({ ok: true, signature: "sig" });
+    expect(sent[0].instructions[0].data.readBigUInt64LE(8)).toBe(OPENED);
   });
 
   it("refuses when the job shown is not the attested one: other escrow, judge or consumer", async () => {
     const otherEscrow = Keypair.generate().publicKey;
     const accounts = withAttestation(withRating({ state: "open", attested: true }));
     // The shown escrow's attestation address holds an attestation that names another escrow.
-    accounts.set(attestationPda(otherEscrow, PROGRAM).toBase58(), { owner: PROGRAM, data: encodeAttestationAccount({ escrow, judge, consumer: buyer.publicKey, scores: SCORES }) });
+    accounts.set(attestationPda(otherEscrow, PROGRAM).toBase58(), { owner: PROGRAM, data: encodeAttestationAccount({ escrow, judge, consumer: buyer.publicKey, scores: SCORES, openedSlot: OPENED }) });
     const cases: [Partial<typeof shown>, RegExp][] = [
       [{ escrow: otherEscrow }, /another escrow/],
       [{ judge: Keypair.generate().publicKey }, /another judge/],
@@ -157,7 +170,7 @@ describe("attestation resolution checks the job shown to the signer (#842)", () 
       await expect(readAttestationForShownJob(chain(accounts).connection as never, { ...shown, ...override }, PROGRAM)).rejects.toThrow(message);
     }
     const d = deps(accounts);
-    const outcome = await submitAttestationResolution({ action: "confirm", consumer: buyer.publicKey, operator: Keypair.generate().publicKey.toBase58(), escrow: escrow.toBase58() }, d);
+    const outcome = await submitAttestationResolution({ action: "confirm", consumer: buyer.publicKey, operator: Keypair.generate().publicKey.toBase58(), escrow: escrow.toBase58(), openedSlot: OPENED }, d);
     expect(outcome).toMatchObject({ ok: false, error: expect.stringMatching(/another judge/) });
     expect(d.sendTransaction).not.toHaveBeenCalled();
   });
@@ -167,22 +180,25 @@ describe("attestation resolution checks the job shown to the signer (#842)", () 
     const elsewhere = Keypair.generate().publicKey;
     accounts.set(elsewhere.toBase58(), accounts.get(attestationPda(escrow, PROGRAM).toBase58())!);
     const d = deps(accounts);
-    const outcome = await submitAttestationResolution({ action: "confirm", consumer: buyer.publicKey, operator: judge.toBase58(), escrow: escrow.toBase58(), attestationPda: elsewhere.toBase58() }, d);
+    const outcome = await submitAttestationResolution({ action: "confirm", consumer: buyer.publicKey, operator: judge.toBase58(), escrow: escrow.toBase58(), attestationPda: elsewhere.toBase58(), openedSlot: OPENED }, d);
     expect(outcome).toMatchObject({ ok: false, error: expect.stringMatching(/not the attestation of the job shown/) });
     expect(d.connection.getAccountInfo).not.toHaveBeenCalled();
     expect(d.sendTransaction).not.toHaveBeenCalled();
     // The derived address itself is accepted.
-    const ok = await submitAttestationResolution({ action: "confirm", consumer: buyer.publicKey, operator: judge.toBase58(), escrow: escrow.toBase58(), attestationPda: attestationPda(escrow, PROGRAM).toBase58() }, deps(accounts));
+    const ok = await submitAttestationResolution({ action: "confirm", consumer: buyer.publicKey, operator: judge.toBase58(), escrow: escrow.toBase58(), attestationPda: attestationPda(escrow, PROGRAM).toBase58(), openedSlot: OPENED }, deps(accounts));
     expect(ok).toEqual({ ok: true, signature: "sig" });
   });
 
   it("refuses a resolved attestation, one from an earlier job at the address, and a shown job that has been replaced", async () => {
     const resolved = withAttestation(withRating({ state: "open", attested: true }), { resolution: "confirmed" });
     await expect(readAttestationForShownJob(chain(resolved).connection as never, shown, PROGRAM)).rejects.toThrow(/already confirmed/);
-    const earlier = withAttestation(withRating({ state: "open", attested: true }), { createdSlot: OPENED - 1n });
-    await expect(readAttestationForShownJob(chain(earlier).connection as never, { ...shown, openedSlot: OPENED }, PROGRAM)).rejects.toThrow(/earlier job/);
-    const replaced = withAttestation(withRating({ state: "open", attested: true, openedSlot: OPENED + 9n }), { createdSlot: OPENED + 20n });
-    await expect(readAttestationForShownJob(chain(replaced).connection as never, { ...shown, openedSlot: OPENED }, PROGRAM)).rejects.toThrow(/no longer the job/);
+    const earlier = withAttestation(withRating({ state: "open", attested: true }), { createdSlot: OPENED - 1n, openedSlot: OPENED - 10n });
+    await expect(readAttestationForShownJob(chain(earlier).connection as never, shown, PROGRAM)).rejects.toThrow(/earlier job/);
+    const replaced = withAttestation(withRating({ state: "open", attested: true, openedSlot: OPENED + 9n }), { createdSlot: OPENED + 20n, openedSlot: OPENED + 9n });
+    await expect(readAttestationForShownJob(chain(replaced).connection as never, shown, PROGRAM)).rejects.toThrow(/no longer the job/);
+    // The attestation of the shown job stays decidable after its rating account has been closed: the slot is on the attestation.
+    const ratingClosed = withAttestation(new Map());
+    await expect(readAttestationForShownJob(chain(ratingClosed).connection as never, shown, PROGRAM)).resolves.toMatchObject({ openedSlot: OPENED });
     await expect(readAttestationForShownJob(chain(new Map()).connection as never, shown, PROGRAM)).rejects.toThrow(/no attestation/);
   });
 });

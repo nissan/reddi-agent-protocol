@@ -172,6 +172,7 @@ describe("onboarding Quasar reputation/attestation refuses without a lock-create
           // Deliberately unparseable: reaching PublicKey parsing would surface as a different error.
           operator: "not a base58 operator",
           escrow: "not an escrow address",
+          openedSlot: BigInt(1),
         },
         { getConnection, sendTransaction },
       );
@@ -207,6 +208,7 @@ describe("onboarding Quasar reputation/attestation refuses without a lock-create
         consumer: new PublicKey(SPECIALIST),
         operator: SPECIALIST,
         escrow: SPECIALIST,
+        openedSlot: BigInt(1),
       },
       { getConnection, sendTransaction },
     );

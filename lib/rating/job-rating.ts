@@ -65,8 +65,8 @@ export async function readJobRating(connection: RatingConnection, escrow: Public
     // Absent once the judge has closed it: the rating still says the job was attested.
     if (attested && attested.owner.equals(programId)) {
       const attestation = decodeAttestationAccount(attested.data);
-      // An attestation left over from an earlier job at this escrow address was made before this
-      // rating was opened: only one made in or after the opening slot is this job's.
+      // An attestation left over from an earlier job at this escrow address stores that job's
+      // opened slot: only one that stores this rating's is this job's.
       if (attestationBelongsToJob(attestation, rating)) snapshot.attestation = attestation;
     }
   }
@@ -75,13 +75,12 @@ export async function readJobRating(connection: RatingConnection, escrow: Public
 
 /**
  * Whether an attestation account is the one of the job this rating names. The attestation
- * address is ["attestation", escrow], which a later job under the same escrow address reuses, and
- * the attestation does not store the job's opened slot; `attest_quality` needs the rating to be
- * paid, so this job's attestation was created at or after the rating's opened slot, and one from an
- * earlier job (whose rating had to be closed before this one could open) was created before it.
+ * address is ["attestation", escrow], which a later job under the same escrow address reuses; the
+ * attestation stores the opened slot of the job it was made for, so it is this job's only when that
+ * slot is this rating's.
  */
 export function attestationBelongsToJob(attestation: AttestationAccount, rating: RatingAccount): boolean {
-  return attestation.escrow.equals(rating.escrow) && attestation.consumer.equals(rating.consumer) && rating.judge !== undefined && attestation.judge.equals(rating.judge) && attestation.createdSlot >= rating.openedSlot;
+  return attestation.escrow.equals(rating.escrow) && attestation.consumer.equals(rating.consumer) && rating.judge !== undefined && attestation.judge.equals(rating.judge) && attestation.openedSlot === rating.openedSlot;
 }
 
 /** The view for `wallet`, with the stored secret taken into account. */
@@ -216,7 +215,8 @@ export async function commitJobRating<C extends RatingConnection>(
   } catch (error) {
     return refuse(`${error instanceof RatingStorageError ? error.message : "The salt could not be stored."} Without the salt you could not reveal, so nothing was signed.`);
   }
-  return sendAndConfirm(deps.connection, deps.wallet, [buildCommitRatingInstruction({ programId: deps.programId, escrow: deps.escrow, signer: deps.wallet.publicKey, commitment })]);
+  // The commitment names the same job it was hashed with: the program refuses it for any other (6051).
+  return sendAndConfirm(deps.connection, deps.wallet, [buildCommitRatingInstruction({ programId: deps.programId, escrow: deps.escrow, signer: deps.wallet.publicKey, commitment, openedSlot: snapshot.rating!.openedSlot })]);
 }
 
 /** Reveals the score and salt stored in this browser for the wallet's commitment. */
@@ -280,8 +280,10 @@ export async function resolveJobAttestation<C extends RatingConnection>(deps: Ra
   if (!attestation) return refuse("This job has no attestation to resolve. Nothing was signed.");
   if (!attestation.consumer.equals(deps.wallet.publicKey)) return refuse("Only the buyer of this job can confirm or dispute its attestation. Nothing was signed.");
   if (attestation.resolution !== "pending") return refuse(`This attestation was already ${attestation.resolution}. Nothing was signed.`);
-  // readJobRating kept the attestation only if it names this rating's escrow, consumer and judge and
-  // was made after the rating opened; the shown job's slot was checked in readShownJob.
-  const input = { programId: deps.programId, escrow: deps.escrow, judge: attestation.judge, consumer: deps.wallet.publicKey };
+  // readJobRating kept the attestation only if it names this rating's escrow, consumer, judge and
+  // opened slot; the shown job's slot was checked in readShownJob. The decision names that slot, so
+  // the program refuses it if another job's attestation has taken the address by the time it lands.
+  if (deps.expectedOpenedSlot !== undefined && attestation.openedSlot !== deps.expectedOpenedSlot) return refuse(JOB_CHANGED);
+  const input = { programId: deps.programId, escrow: deps.escrow, judge: attestation.judge, consumer: deps.wallet.publicKey, openedSlot: attestation.openedSlot };
   return sendAndConfirm(deps.connection, deps.wallet, [deps.action === "confirm" ? buildConfirmAttestationInstruction(input) : buildDisputeAttestationInstruction(input)]);
 }

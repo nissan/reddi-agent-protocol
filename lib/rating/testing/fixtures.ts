@@ -49,7 +49,7 @@ export function encodeRatingAccount(fixture: RatingFixture): Uint8Array {
   return Uint8Array.from(data);
 }
 
-export function encodeAttestationAccount(fixture: { escrow: PublicKey; judge: PublicKey; consumer: PublicKey; scores: readonly [number, number, number, number, number]; resolution?: AttestationResolution; createdSlot?: bigint }): Uint8Array {
+export function encodeAttestationAccount(fixture: { escrow: PublicKey; judge: PublicKey; consumer: PublicKey; scores: readonly [number, number, number, number, number]; resolution?: AttestationResolution; createdSlot?: bigint; openedSlot?: bigint }): Uint8Array {
   const data = Buffer.alloc(ATTESTATION_ACCOUNT_LEN);
   Buffer.from(RATING_DISCRIMINATORS["account:AttestationAccount"]).copy(data, 0);
   fixture.escrow.toBuffer().copy(data, 8);
@@ -59,5 +59,6 @@ export function encodeAttestationAccount(fixture: { escrow: PublicKey; judge: Pu
   data[109] = ATTESTATION_RESOLUTIONS.indexOf(fixture.resolution ?? "pending");
   data.writeBigUInt64LE(fixture.createdSlot ?? 0n, 110);
   data[118] = 255;
+  data.writeBigUInt64LE(fixture.openedSlot ?? 0n, 119);
   return Uint8Array.from(data);
 }

@@ -857,14 +857,17 @@ pub struct Attestation {
     pub resolution: u8,
     created_slot: [u8; 8],
     pub bump: u8,
+    /// The slot the job's rating was opened in, which names the job;
+    /// `confirm_attestation` and `dispute_attestation` must name it too.
+    opened_slot: [u8; 8],
 }
 
 // SAFETY: byte fields only, discriminator first.
 unsafe impl Record for Attestation {
     const DISCRIMINATOR: [u8; 8] = discriminator("account:AttestationAccount");
-    const LEN: usize = 8 + 32 * 3 + 5 + 1 + 8 + 1;
+    const LEN: usize = 8 + 32 * 3 + 5 + 1 + 8 + 1 + 8;
 }
-assert_layout!(Attestation, 119);
+assert_layout!(Attestation, 127);
 
 impl Attestation {
     pub fn new(
@@ -874,6 +877,7 @@ impl Attestation {
         scores: [u8; 5],
         created_slot: u64,
         bump: u8,
+        opened_slot: u64,
     ) -> Self {
         Self {
             discriminator: Self::DISCRIMINATOR,
@@ -884,11 +888,17 @@ impl Attestation {
             resolution: ATTESTATION_PENDING,
             created_slot: created_slot.to_le_bytes(),
             bump,
+            opened_slot: opened_slot.to_le_bytes(),
         }
     }
 
     pub fn created_slot(&self) -> u64 {
         u64::from_le_bytes(self.created_slot)
+    }
+
+    /// The opening slot of the job this attestation is for.
+    pub fn opened_slot(&self) -> u64 {
+        u64::from_le_bytes(self.opened_slot)
     }
 
     /// The record at `account`, which must be an attestation of this program
