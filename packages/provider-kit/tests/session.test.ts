@@ -10,7 +10,7 @@ import { MemoryNonceReplayStore, MeteredSessionLedger, SESSION_DELEGATION_HEADER
 import { createProviderHandler, PROVIDER_RECEIPT_HEADER, SESSION_RECEIPT_HEADER, SESSION_STATE_HEADER } from "../src/handler.js";
 import { FileSessionStore } from "../src/sessions.js";
 import type { Upstream } from "../src/upstream.js";
-import { buyerKeypair, config, escrowAddress, fakeChain, paymentHeader, provider, type FakeChain } from "./helpers.js";
+import { buyerKeypair, singleCallHeaders, config, escrowAddress, fakeChain, paymentHeader, provider, type FakeChain } from "./helpers.js";
 
 const privateKey = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(provider.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
 const signMessage = (message: Uint8Array) => edSign(null, message, privateKey);
@@ -63,7 +63,7 @@ function setup(options: { chain?: FakeChain; store?: SessionStore; replayStore?:
   const call = async (sequence?: number, extra: Record<string, string> = {}, as: As = {}) =>
     handler(new Request("http://localhost:8787/v1/chat/completions", {
       method: "POST",
-      headers: { "content-type": "application/json", "x402-payment": paymentHeader(), ...(sequence === undefined ? {} : { "x402-session-sequence": String(sequence), ...(as.unsigned ? {} : await signed("call", sequence, BODY, clock.ms, as)) }), ...extra },
+      headers: { "content-type": "application/json", "x402-payment": paymentHeader(), ...(sequence === undefined ? (as.unsigned ? {} : await singleCallHeaders(BODY, clock.ms)) : { "x402-session-sequence": String(sequence), ...(as.unsigned ? {} : await signed("call", sequence, BODY, clock.ms, as)) }), ...extra },
       body: BODY,
     }));
   const close = async (as: As = {}) => handler(new Request("http://localhost:8787/v1/session/close", { method: "POST", headers: { "x402-payment": paymentHeader(), ...(as.unsigned ? {} : await signed("close", 0, "", clock.ms, as)) } }));

@@ -23,6 +23,7 @@ import {
   readMeteredPaymentHeader,
   usageFrom,
   verifyMeteredLock,
+  verifyPaidCallRequest,
   type AccountReader,
   type SlotReader,
   type MeteredSettleSigner,
@@ -720,6 +721,9 @@ async function handleMeteredChatCompletion(input: {
   if (!terms || !deps.settleMeteredEscrow) return refuse(402, "metered_not_offered", "This provider does not take metered payment. Nothing was taken; cancel the lock for a refund.");
   const header = readMeteredPaymentHeader(input.headers);
   if (!header || "error" in header) return refuse(402, "invalid_receipt", header && "error" in header ? header.error : "Unreadable metered payment.");
+  // The lock's escrow, payer and nonce are public: only the payer's signature over this request shows who is calling (#866).
+  const auth = verifyPaidCallRequest({ headers: input.headers, escrow: header.escrow, payer: header.payer, provider: terms.payee, body: input.requestText, nowMs: Date.now() });
+  if (!auth.ok) return refuse(401, auth.reason, auth.message, { charged: false });
   const messages = body.messages ?? [];
   const outputTokens = outputLimit(terms, body.max_tokens);
   const inputEstimate = estimateInputTokens(messages);

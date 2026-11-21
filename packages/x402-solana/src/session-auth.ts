@@ -1,5 +1,6 @@
 /**
- * Proof that a session call comes from the buyer that locked the escrow.
+ * Proof that a paid call comes from the buyer that locked the escrow: every
+ * call of a session, and a single metered call (action `single`, #866).
  *
  * The lock's escrow, payer and nonce are public once it confirms, so they
  * cannot show who is calling. The buyer makes a fresh ed25519 key for the
@@ -29,7 +30,8 @@ export const SESSION_SIGNATURE_HEADER = 'x402-session-signature';
 /** The longest a delegation may run. A session settles before its refund window anyway. */
 export const MAX_SESSION_DELEGATION_SECONDS = 7 * 24 * 60 * 60;
 
-export type SessionAction = 'call' | 'close' | 'read';
+/** `call`, `close`, `read`: session requests. `single`: a single metered call, sequence 0. */
+export type SessionAction = 'call' | 'close' | 'read' | 'single';
 
 export interface SessionDelegation {
   escrow: string;
@@ -62,7 +64,7 @@ export function sessionBodyHash(body: Uint8Array | string = ''): string {
   return createHash('sha256').update(typeof body === 'string' ? Buffer.from(body, 'utf8') : Buffer.from(body)).digest('hex');
 }
 
-/** The bytes the session key signs for one request. `sequence` is the call number for `call`, and 0 for `close` and `read`. */
+/** The bytes the session key signs for one request. `sequence` is the call number for `call`, and 0 for `close`, `read` and `single`. */
 export function sessionRequestMessage(input: { action: SessionAction; escrow: string; sequence: number; bodyHash: string }): string {
   return ['reddi-session/1', input.action, input.escrow, String(input.sequence), input.bodyHash].join('\n');
 }
@@ -129,7 +131,7 @@ export function verifySessionRequest(input: {
   const delegationValue = input.headers.get(SESSION_DELEGATION_HEADER);
   const signatureValue = input.headers.get(SESSION_SIGNATURE_HEADER);
   if (!delegationValue || !signatureValue) {
-    return { ok: false, reason: 'session_auth_required', message: `Session requests must carry ${SESSION_DELEGATION_HEADER} (the payer wallet's delegation to a session key) and ${SESSION_SIGNATURE_HEADER} (that key's signature over this request).` };
+    return { ok: false, reason: 'session_auth_required', message: `Paid requests must carry ${SESSION_DELEGATION_HEADER} (the payer wallet's delegation to a session key) and ${SESSION_SIGNATURE_HEADER} (that key's signature over this request).` };
   }
   const invalid = (message: string): SessionAuthFailure => ({ ok: false, reason: 'session_auth_invalid', message });
   const raw = decodeBase64(delegationValue);
@@ -165,4 +167,33 @@ export function verifySessionRequest(input: {
     return invalid('The request is not signed by the session key, or was changed after signing.');
   }
   return { ok: true, sessionKey: delegation.sessionKey, expiresAt };
+}
+
+/**
+ * Buyer side, single metered call: both headers for one call on the lock
+ * `escrow`. With no `sessionKey`, the payer signs the request too (fine for a
+ * server-held keypair; a browser wallet would then sign twice, so pass a
+ * fresh key there and keep it for the call).
+ */
+export async function paidCallAuthHeaders(input: {
+  escrow: string;
+  provider: string;
+  body: Uint8Array | string;
+  payer: string;
+  signWithPayer: Signer;
+  sessionKey?: { publicKey: string; sign: Signer };
+  expiresAt?: number;
+  nowMs?: number;
+}): Promise<Record<string, string>> {
+  const key = input.sessionKey ?? { publicKey: input.payer, sign: input.signWithPayer };
+  const expiresAt = input.expiresAt ?? Math.floor((input.nowMs ?? Date.now()) / 1000) + 600;
+  return {
+    [SESSION_DELEGATION_HEADER]: await sessionDelegationHeaderValue({ escrow: input.escrow, provider: input.provider, sessionKey: key.publicKey, expiresAt }, input.signWithPayer),
+    [SESSION_SIGNATURE_HEADER]: await sessionSignatureHeaderValue({ action: 'single', escrow: input.escrow, sequence: 0, body: input.body }, key.sign),
+  };
+}
+
+/** Provider side, single metered call: `verifySessionRequest` with action `single` and sequence 0. */
+export function verifyPaidCallRequest(input: Omit<Parameters<typeof verifySessionRequest>[0], 'action' | 'sequence'>): ReturnType<typeof verifySessionRequest> {
+  return verifySessionRequest({ ...input, action: 'single', sequence: 0 });
 }

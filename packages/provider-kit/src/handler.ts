@@ -293,7 +293,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     };
   }
 
-  /** Checks that a session request is signed by a key the escrow's payer delegated to (security review S-1). */
+  /** Checks that a paid request (a session request or a single call) is signed by a key the escrow's payer delegated to (security review S-1, #866). */
   function sessionAuth(request: { headers: Headers }, action: SessionAction, escrow: PublicKey, payer: PublicKey, sequence: number, body: string): { ok: true; sessionKey: string } | { ok: false; response: Response } {
     const auth = verifySessionRequest({ headers: request.headers, action, escrow, payer, provider: terms.payee, sequence, body, nowMs: nowMs() });
     if (auth.ok) return { ok: true, sessionKey: auth.sessionKey };
@@ -631,6 +631,9 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       if (!deps.sessions) return refuse(400, "sessions_not_offered", "This provider settles each call on its own. Send the call without x402-session-sequence.", { charged: false });
       return sessionCall({ header, sequence: sessionHeaders.sequence, close: sessionHeaders.close, requestText, headers: request.headers, upstreamMessages, temperature, worstCase: { inputTokens: inputEstimate, outputTokens }, minimum });
     }
+    // The lock's escrow, payer and nonce are public: only the payer's signature shows who is calling (#866).
+    const auth = sessionAuth(request, "single", header.escrow, header.payer, 0, requestText);
+    if (!auth.ok) return auth.response;
     let lock: Awaited<ReturnType<typeof verifyMeteredLock>>;
     try {
       lock = await verifyMeteredLock({ header, terms, minimum, readAccount: (address) => deps.chain.readAccount(address), readSlot: () => deps.chain.readSlot(), replayStore: deps.replayStore });

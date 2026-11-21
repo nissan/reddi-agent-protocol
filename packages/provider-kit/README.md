@@ -166,6 +166,7 @@ The worst case of a call counts four characters of input as one token. A model t
 ## What the kit does to protect you and your buyers
 
 - **It refuses to start half-working**: no key, a key for another wallet, a key file others can read, a payment memory file another process holds, or mock answers on mainnet.
+- **Only the payer's own call is served.** The lock is public on chain, so a paid call must also carry the payer's signature over that exact request (`x402-session-delegation` and `x402-session-signature`, action `single`; `paidCallAuthHeaders` in `@redditech/x402-solana` builds them). A call without it, or signed by anyone else, is refused with `401` before the lock is read, and the lock stays usable by its payer. Hardware wallets that sign Solana off-chain messages with a header prefix are not accepted yet: sign with a software wallet or a key the wallet delegated to.
 - **One lock pays for one call**, including after a restart. Accepted escrows are written to disk before the model is called.
 - **It checks the cluster** before trusting any account, so a lock on another network is never taken as payment.
 - **It checks that the payout can land before doing any work.** With the lock it reads your token account, the treasury's and the account the buyer funded the lock from: each must exist, be initialised, not frozen, belong to the right owner and not require a memo. If one fails, the call is refused, the lock is not used up, and the buyer can present it again once the account is fixed.
@@ -177,7 +178,7 @@ The worst case of a call counts four characters of input as one token. A model t
 
 ## Limits today
 
-- Do not run a funded provider on mainnet yet. A single paid call and a three-call session were run end to end on devnet on 21 November 2026 (mock answers, devnet USDC); the payout refusals and recovery paths above are covered by tests against a simulated chain only. Single calls do not yet check the payer's signature (#866), and the treasury's token accounts must be confirmed ready for each currency first (`rap-provider doctor` checks yours).
+- Do not run a funded provider on mainnet yet. A single paid call and a three-call session were run end to end on devnet on 21 November 2026 (mock answers, devnet USDC); the payout refusals and recovery paths above are covered by tests against a simulated chain only. The treasury's token accounts must be confirmed ready for each currency first (`rap-provider doctor` checks yours).
 - A held single-call settle is not retried later by itself (a session's settle is retried by the idle sweep until the refund window). The log line `settle_failed` names the escrow; the lock stays open until its refund window, and you can settle it by hand within that time.
 - No streaming responses. Requests with `stream: true` are refused.
 - Message content must be text.
