@@ -15,7 +15,7 @@ jest.mock("fs", () => ({
 import { generateKeyPairSync, sign as edSign, type KeyObject } from "crypto";
 import { PublicKey } from "@solana/web3.js";
 import { canonicalizeReddiReceiptV2, signReddiReceiptV2, hashReddiReceiptV2Body, type ReddiReceiptV2, type ReddiReceiptV2Session } from "@redditech/agent-protocol/receipt-v2";
-import { verifySessionRequest } from "@redditech/x402-solana";
+import { verifyPaidCallRequest, verifySessionRequest } from "@redditech/x402-solana";
 import { tokenCostBaseUnits } from "@redditech/x402-solana/metered";
 
 function keypair() {
@@ -47,9 +47,9 @@ jest.mock("@/lib/onboarding/x402-settlement", () => ({ processX402Challenge: jes
 jest.mock("@/lib/torque/client", () => ({ emitTorqueEvent: jest.fn() }));
 
 import { planMeteredBuy, MAX_SESSION_CALLS } from "@/lib/payments/metered-buy";
-import { applySessionOutcome, attachLockReceipt, openPlannerSession, prepareSessionCall, type PlannerSessionHandle } from "@/lib/payments/planner-session-client";
+import { applySessionOutcome, attachLockReceipt, delegateLock, openPlannerSession, prepareSessionCall, signSingleCall, type PlannerSessionHandle } from "@/lib/payments/planner-session-client";
 import { plannerChatBody, plannerChatPayload } from "@/lib/onboarding/planner-payload";
-import { checkSessionAnswer, parsePlannerSessionRequest, SESSION_RECEIPT_HEADER, SESSION_STATE_HEADER } from "@/lib/onboarding/planner-session";
+import { checkSessionAnswer, parsePaidCallAuth, parsePlannerSessionRequest, SESSION_RECEIPT_HEADER, SESSION_STATE_HEADER } from "@/lib/onboarding/planner-session";
 
 const lockReceipt = { settlement: "metered-escrow", network: "solana-devnet", currency: "USDC", payTo: mockProvider.address, payer: payer.address, nonce: "09".repeat(16), escrow: ESCROW, lockSignature: LOCK_SIG };
 
@@ -379,5 +379,60 @@ describe("reading the session field of a planner request", () => {
     // Named as call 2, the call receipt (call 1) and the closing receipt (call 2) both fail to match.
     expect(outcome.call).toBeUndefined();
     expect(outcome.closing).toBeUndefined();
+  });
+});
+
+describe("signing a single metered call (#866)", () => {
+  const originalFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  async function lockAuth() {
+    return delegateLock({ escrow: ESCROW, providerWallet: mockProvider.address, signWithPayer: payer.sign, sessionKey: { publicKey: sessionKey.address, sign: sessionKey.sign }, nowMs: NOW_MS });
+  }
+
+  it("signs the exact body the server sends, and the provider's verifier accepts it only for that body", async () => {
+    const auth = await signSingleCall(await lockAuth(), "summarise this");
+    const headers = new Headers({ "x402-session-delegation": auth.delegation, "x402-session-signature": auth.signature });
+    const check = (body: string, payerKey = payer.address) =>
+      verifyPaidCallRequest({ headers: { get: (n: string) => headers.get(n) }, escrow: new PublicKey(ESCROW), payer: new PublicKey(payerKey), provider: new PublicKey(mockProvider.address), body, nowMs: NOW_MS });
+    expect(check(plannerChatBody("summarise this"))).toMatchObject({ ok: true, sessionKey: sessionKey.address });
+    expect(check(plannerChatBody("something else"))).toMatchObject({ ok: false, reason: "session_auth_invalid" });
+    expect(check(plannerChatBody("summarise this"), mockProvider.address)).toMatchObject({ ok: false, reason: "session_auth_invalid" });
+    // A single-call signature is not a session call signature.
+    expect(verifySessionRequest({ headers: { get: (n: string) => headers.get(n) }, action: "call", escrow: new PublicKey(ESCROW), payer: new PublicKey(payer.address), provider: new PublicKey(mockProvider.address), sequence: 1, body: plannerChatBody("summarise this"), nowMs: NOW_MS })).toMatchObject({ ok: false });
+  });
+
+  it("is refused when the wallet declines the message", async () => {
+    await expect(delegateLock({ escrow: ESCROW, providerWallet: mockProvider.address, signWithPayer: async () => { throw new Error("User rejected"); }, nowMs: NOW_MS })).rejects.toThrow(/User rejected/);
+  });
+
+  it("forwards the signature on a metered call that is not a session, and explains a provider that refuses it", async () => {
+    const { executePlannerSpecialistCall } = await import("@/lib/onboarding/planner-execution");
+    const paidCallAuth = await signSingleCall(await lockAuth(), "summarise this");
+    const sent: Array<Record<string, string>> = [];
+    global.fetch = jest.fn(async (_url: string, init: { headers: Record<string, string> }) => {
+      sent.push(init.headers);
+      return response(200, JSON.stringify({ choices: [{ message: { content: "ok" } }] }));
+    }) as unknown as typeof fetch;
+    await executePlannerSpecialistCall({ prompt: "summarise this", paymentMode: "wallet", preferredWallet: mockProvider.address, paymentReceipt: lockReceipt, paidCallAuth });
+    const paidHeaders = sent.find((h) => h["x402-payment"]);
+    expect(paidHeaders).toMatchObject({ "x402-session-delegation": paidCallAuth.delegation, "x402-session-signature": paidCallAuth.signature });
+    expect(paidHeaders?.["x402-session-sequence"]).toBeUndefined();
+
+    global.fetch = jest.fn().mockResolvedValue(response(401, JSON.stringify({ error: { code: "session_auth_required" } }))) as unknown as typeof fetch;
+    const refused = await executePlannerSpecialistCall({ prompt: "summarise this", paymentMode: "wallet", preferredWallet: mockProvider.address, paymentReceipt: lockReceipt });
+    expect(refused.ok).toBe(false);
+    expect(refused.result.error).toMatch(/needs your wallet's signature.*Nothing was charged/);
+  });
+
+  it("reads the paidCallAuth field and refuses a malformed one", () => {
+    const good = { delegation: "ZGVsZWdhdGlvbg==", signature: "c2lnbmF0dXJl" };
+    expect(parsePaidCallAuth(good)).toEqual(good);
+    expect(parsePaidCallAuth(undefined)).toBeUndefined();
+    expect(parsePaidCallAuth([good])).toHaveProperty("error");
+    expect(parsePaidCallAuth({ ...good, signature: "not base64!" })).toHaveProperty("error");
+    expect(parsePaidCallAuth({ delegation: good.delegation })).toHaveProperty("error");
   });
 });

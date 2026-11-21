@@ -11,7 +11,8 @@ import { PublicKey } from "@solana/web3.js";
 export const SESSION_DELEGATION_HEADER = "x402-session-delegation";
 export const SESSION_SIGNATURE_HEADER = "x402-session-signature";
 
-export type SessionAction = "call" | "close" | "read";
+/** `call`, `close`, `read`: session requests. `single`: a single metered call, sequence 0 (#866). */
+export type SessionAction = "call" | "close" | "read" | "single";
 
 export interface SessionDelegation {
   escrow: string;
@@ -59,7 +60,7 @@ async function sha256Hex(body: string): Promise<string> {
   return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** The bytes the session key signs for one request: call number for `call`, 0 for `close` and `read`. */
+/** The bytes the session key signs for one request: call number for `call`, 0 for `close`, `read` and `single`. */
 export async function sessionRequestMessage(input: { action: SessionAction; escrow: string; sequence: number; body?: string }): Promise<string> {
   return ["reddi-session/1", input.action, input.escrow, String(input.sequence), await sha256Hex(input.body ?? "")].join("\n");
 }
@@ -94,5 +95,17 @@ export async function sessionAuthHeaders(input: { delegation: string; sessionKey
   return {
     [SESSION_DELEGATION_HEADER]: input.delegation,
     [SESSION_SIGNATURE_HEADER]: await sessionSignatureHeaderValue({ action: "call", escrow: input.escrow, sequence: input.sequence, body: input.body }, input.sessionKey.sign),
+  };
+}
+
+/**
+ * Both auth headers for a single metered call (#866): the delegation, and the
+ * key's signature with action `single`, sequence 0, over the exact body sent.
+ * Same headers as the package's `paidCallAuthHeaders` with a session key.
+ */
+export async function paidCallAuthHeaders(input: { delegation: string; sessionKey: { sign: MessageSigner }; escrow: string; body: string }): Promise<Record<string, string>> {
+  return {
+    [SESSION_DELEGATION_HEADER]: input.delegation,
+    [SESSION_SIGNATURE_HEADER]: await sessionSignatureHeaderValue({ action: "single", escrow: input.escrow, sequence: 0, body: input.body }, input.sessionKey.sign),
   };
 }

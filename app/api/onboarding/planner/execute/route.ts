@@ -1,6 +1,6 @@
 import { authenticateWalletRequest, bearerToken } from "@/lib/auth/wallet-session";
 import { executePlannerSpecialistCall, listPlannerRuns } from "@/lib/onboarding/planner-execution";
-import { parsePlannerSessionRequest } from "@/lib/onboarding/planner-session";
+import { parsePaidCallAuth, parsePlannerSessionRequest } from "@/lib/onboarding/planner-session";
 
 export const runtime = "nodejs";
 
@@ -33,8 +33,13 @@ export async function POST(req: Request) {
     if (session && "error" in session) {
       return Response.json({ ok: false, error: session.error }, { status: 400 });
     }
+    const paidCallAuth = body.paymentMode === "wallet" ? parsePaidCallAuth(body.paidCallAuth) : undefined;
+    if (paidCallAuth && "error" in paidCallAuth) {
+      return Response.json({ ok: false, error: paidCallAuth.error }, { status: 400 });
+    }
     const result = await executePlannerSpecialistCall({
       session,
+      paidCallAuth,
       buyerSession,
       prompt: String(body.prompt || ""),
       consumerWallet: typeof body.consumerWallet === "string" ? body.consumerWallet : undefined,

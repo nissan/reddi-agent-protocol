@@ -19,12 +19,48 @@ import {
   SESSION_REFUSAL_CODES,
   type BuyerSession,
 } from "@/lib/payments/metered-session";
-import { createSessionKey, sessionDelegationHeaderValue, sessionSignatureHeaderValue, type MessageSigner } from "@/lib/payments/session-auth";
+import { createSessionKey, paidCallAuthHeaders, SESSION_DELEGATION_HEADER, SESSION_SIGNATURE_HEADER, sessionDelegationHeaderValue, sessionSignatureHeaderValue, type MessageSigner } from "@/lib/payments/session-auth";
 import { plannerChatBody } from "@/lib/onboarding/planner-payload";
 import type { PerTokenPrice } from "@redditech/x402-solana/metered";
 
 /** How long the wallet's delegation to the session key lasts. Providers accept at most 7 days. */
 export const SESSION_DELEGATION_SECONDS = 24 * 60 * 60;
+
+/** The payer wallet's one delegation for a lock, and the key it names. Held in memory only. */
+export interface LockAuth {
+  escrow: string;
+  delegation: string;
+  sessionKey: { publicKey: string; sign: MessageSigner };
+}
+
+/**
+ * Makes a fresh key and asks the payer wallet to delegate this lock's calls to
+ * it: one message per lock, whether it pays one call or a session (#866).
+ * Call it before the lock is sent, so a buyer who declines locks nothing.
+ * Throws when the wallet refuses to sign.
+ */
+export async function delegateLock(input: {
+  escrow: string;
+  providerWallet: string;
+  signWithPayer: MessageSigner;
+  nowMs?: number;
+  /** For tests: a key made elsewhere. */
+  sessionKey?: { publicKey: string; sign: MessageSigner };
+}): Promise<LockAuth> {
+  const sessionKey = input.sessionKey ?? (await createSessionKey());
+  const expiresAt = Math.floor((input.nowMs ?? Date.now()) / 1000) + SESSION_DELEGATION_SECONDS;
+  const delegation = await sessionDelegationHeaderValue(
+    { escrow: input.escrow, provider: input.providerWallet, sessionKey: sessionKey.publicKey, expiresAt },
+    input.signWithPayer,
+  );
+  return { escrow: input.escrow, delegation, sessionKey };
+}
+
+/** The auth a single metered call sends: the delegation, and the key's `single` signature over the exact body. */
+export async function signSingleCall(auth: LockAuth, prompt: string): Promise<{ delegation: string; signature: string }> {
+  const headers = await paidCallAuthHeaders({ delegation: auth.delegation, sessionKey: auth.sessionKey, escrow: auth.escrow, body: plannerChatBody(prompt) });
+  return { delegation: headers[SESSION_DELEGATION_HEADER], signature: headers[SESSION_SIGNATURE_HEADER] };
+}
 
 export interface PlannerSessionHandle {
   ledger: BuyerSession;
@@ -59,13 +95,10 @@ export async function openPlannerSession(input: {
   nowMs?: number;
   /** For tests: a session key made elsewhere. */
   sessionKey?: { publicKey: string; sign: MessageSigner };
+  /** The lock's delegation, when the wallet already signed it (`delegateLock`). */
+  auth?: LockAuth;
 }): Promise<PlannerSessionHandle> {
-  const sessionKey = input.sessionKey ?? (await createSessionKey());
-  const expiresAt = Math.floor((input.nowMs ?? Date.now()) / 1000) + SESSION_DELEGATION_SECONDS;
-  const delegation = await sessionDelegationHeaderValue(
-    { escrow: input.escrow, provider: input.providerWallet, sessionKey: sessionKey.publicKey, expiresAt },
-    input.signWithPayer,
-  );
+  const { delegation, sessionKey } = input.auth ?? (await delegateLock(input));
   const ledger = openBuyerSession({
     providerKey: input.providerWallet,
     escrow: input.escrow,

@@ -49,6 +49,29 @@ export function parsePlannerSessionRequest(value: unknown): PlannerSessionReques
   return { sequence: v.sequence, close: v.close === true, delegation: v.delegation as string, signature: v.signature as string };
 }
 
+/** A single metered call's payer auth (#866): the delegation and the key's `single` signature. */
+export interface PlannerPaidCallAuth {
+  delegation: string;
+  signature: string;
+}
+
+/** Reads the `paidCallAuth` field of a planner request. Undefined when absent; an error when malformed. */
+export function parsePaidCallAuth(value: unknown): PlannerPaidCallAuth | { error: string } | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object" || Array.isArray(value)) return { error: "paidCallAuth must be an object" };
+  const v = value as Record<string, unknown>;
+  for (const key of ["delegation", "signature"] as const) {
+    const text = v[key];
+    if (typeof text !== "string" || text.length === 0 || text.length > MAX_HEADER_CHARS || !BASE64.test(text)) return { error: `paidCallAuth.${key} must be base64` };
+  }
+  return { delegation: v.delegation as string, signature: v.signature as string };
+}
+
+/** The headers a single metered call carries to show the payer sent it. */
+export function paidCallAuthRequestHeaders(auth: PlannerPaidCallAuth): Record<string, string> {
+  return { [SESSION_DELEGATION_HEADER]: auth.delegation, [SESSION_SIGNATURE_HEADER]: auth.signature };
+}
+
 /** The headers that make a paid call a session call. */
 export function sessionRequestHeaders(session: PlannerSessionRequest): Record<string, string> {
   return {

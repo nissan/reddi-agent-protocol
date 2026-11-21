@@ -219,7 +219,7 @@ function sessionRejected(sessionCode: SessionRefusalCode, message: string): Paym
  * The challenge is rebuilt from the catalog and the presented nonce, so a caller
  * cannot choose its own price or payee.
  */
-async function verifySandboxPayment(header: string, provider: SandboxProvider, origin: string, inputTokens: number, deps: SandboxGatewayDeps): Promise<PaymentOutcome> {
+async function verifySandboxPayment(header: string, provider: SandboxProvider, origin: string, inputTokens: number, deps: SandboxGatewayDeps, request?: SandboxGatewayRequest): Promise<PaymentOutcome> {
   const parsed = parseX402PaymentHeader(header);
 
   if (typeof parsed === "string") {
@@ -248,7 +248,13 @@ async function verifySandboxPayment(header: string, provider: SandboxProvider, o
   }
 
   if (typeof record.payer !== "string" || record.payer.length === 0) return rejected("invalid_receipt", "A devnet payment receipt must name the paying wallet in payer.");
-  if (record.settlement === "metered-escrow") return verifyMeteredLock(record, provider, nonce, inputTokens, deps);
+  if (record.settlement === "metered-escrow") {
+    // The lock's escrow, payer and nonce are public: only the payer's signature shows who is calling (#866).
+    // Checked before anything is read from chain.
+    const auth = verifySingleCallAuth(record, provider, request, deps);
+    if (auth) return auth;
+    return verifyMeteredLock(record, provider, nonce, inputTokens, deps);
+  }
   const verifier = new SolanaReceiptVerifier({
     allowRealPayment: true,
     connection: deps.connection,
@@ -266,6 +272,34 @@ async function verifySandboxPayment(header: string, provider: SandboxProvider, o
   const signature = result.receipt.signature ?? result.receipt.txSignature;
   if (!signature) return rejected("invalid_receipt", "receipt signature is required");
   return { ok: true, mode: "devnet-transfer", nonce, payerId: record.payer, payerAddress: record.payer, proofRef: signature };
+}
+
+/**
+ * A single metered call must carry the payer's delegation to a key and that
+ * key's signature, action `single`, sequence 0, over the exact body (#866),
+ * as the provider kit requires. Undefined when it does.
+ */
+function verifySingleCallAuth(record: Record<string, unknown>, provider: SandboxProvider, request: SandboxGatewayRequest | undefined, deps: SandboxGatewayDeps): PaymentOutcome | undefined {
+  let payer: PublicKey;
+  let escrow: PublicKey;
+  try {
+    payer = new PublicKey(record.payer as string);
+    escrow = new PublicKey(String(record.escrow));
+  } catch {
+    return rejected("invalid_receipt", "A metered payment must name the payer and the escrow address.");
+  }
+  const s = request?.session ?? {};
+  const authorised = verifySessionRequest({
+    headers: { get: (name: string) => (name === SESSION_DELEGATION_HEADER ? s.delegation ?? null : name === SESSION_SIGNATURE_HEADER ? s.signature ?? null : null) },
+    action: "single",
+    escrow,
+    payer,
+    provider: new PublicKey(provider.payTo),
+    sequence: 0,
+    body: request?.rawBody ?? "",
+    nowMs: (deps.now ?? Date.now)(),
+  });
+  return authorised.ok ? undefined : sessionRejected(authorised.reason, authorised.message);
 }
 
 /**
@@ -431,8 +465,9 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
     return handleSessionCall({ request, deps, provider, messages, model, inputTokens, header });
   }
 
-  const payment = await verifySandboxPayment(header, provider, request.origin, inputTokens, deps);
+  const payment = await verifySandboxPayment(header, provider, request.origin, inputTokens, deps, request);
   if (!payment.ok) {
+    if (payment.sessionCode?.startsWith("session_auth_")) return sessionRefusal(payment.sessionCode, payment.result.message);
     const duplicate = payment.result.reason === "duplicate_nonce";
     return failure(duplicate ? 409 : 402, duplicate ? "payment_already_used" : "payment_rejected", payment.result.message, {
       reason: payment.result.reason,

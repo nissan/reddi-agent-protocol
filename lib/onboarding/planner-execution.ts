@@ -17,7 +17,7 @@ import { checkAndStoreProviderReceipt, PROVIDER_RECEIPT_HEADER } from "@/lib/job
 import { refreshProviderStats } from "@/lib/jobs/provider-stats";
 import { emitTorqueEvent } from "@/lib/torque/client";
 import { plannerChatPayload } from "@/lib/onboarding/planner-payload";
-import { checkSessionAnswer, sessionRequestHeaders, type PlannerSessionOutcome, type PlannerSessionRequest } from "@/lib/onboarding/planner-session";
+import { checkSessionAnswer, paidCallAuthRequestHeaders, sessionRequestHeaders, type PlannerPaidCallAuth, type PlannerSessionOutcome, type PlannerSessionRequest } from "@/lib/onboarding/planner-session";
 import { TORQUE_EVENTS } from "@/lib/torque/events";
 
 export type PlannerExecuteInput = {
@@ -44,6 +44,12 @@ export type PlannerExecuteInput = {
    * the exact request body (`plannerChatBody`).
    */
   session?: PlannerSessionRequest;
+  /**
+   * Wallet mode with a metered receipt, outside a session: the payer's
+   * delegation and the key's `single` signature over the exact request body
+   * (#866). Providers refuse an unsigned single metered call.
+   */
+  paidCallAuth?: PlannerPaidCallAuth;
 };
 
 /** Handed to the browser so the buyer's wallet can pay. Never contains a signature. */
@@ -577,7 +583,11 @@ async function executeWithWalletPayment(input: PlannerExecuteInput, ctx: WalletR
   try {
     const paid = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json", "x402-payment": receipt.header, ...(session ? sessionRequestHeaders(session) : {}) },
+      headers: {
+        "content-type": "application/json",
+        "x402-payment": receipt.header,
+        ...(session ? sessionRequestHeaders(session) : metered && input.paidCallAuth ? paidCallAuthRequestHeaders(input.paidCallAuth) : {}),
+      },
       body: requestBody,
       signal: AbortSignal.timeout(30000),
     });
@@ -631,7 +641,9 @@ async function executeWithWalletPayment(input: PlannerExecuteInput, ctx: WalletR
     if (metered && !paid.ok) {
       run.error = /rated_escrow_declined|opted in to rating/i.test(text)
         ? "This provider does not take jobs opted in to rating, and served nothing. Nothing was charged; your maximum stays in escrow and can be cancelled for a refund, with the rating rent, once the cancel window opens. To use this provider, pay again without rating."
-        : `Specialist call failed after the lock (${paid.status}). Nothing is charged until the provider settles; your maximum stays in escrow and can be cancelled for a refund once the cancel window opens.`;
+        : paid.status === 401 && /session_auth_/.test(text)
+          ? "The provider needs your wallet's signature to know this call is yours, and served nothing. Nothing was charged; present the lock again from the same tab, or cancel it for a refund once the cancel window opens."
+          : `Specialist call failed after the lock (${paid.status}). Nothing is charged until the provider settles; your maximum stays in escrow and can be cancelled for a refund once the cancel window opens.`;
     }
     // With a database configured, the server checks the payment on chain itself and only then keeps a job record.
     if (ctx.listingSource === "database") {
