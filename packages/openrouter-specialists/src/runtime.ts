@@ -542,8 +542,8 @@ export interface RuntimeDeps {
    */
   signProviderReceipt?: (statement: ProviderReceiptStatement) => Promise<unknown> | unknown;
   /**
-   * Signs a metered escrow's settle instruction with the provider wallet's
-   * key, sends it and returns the confirmed signature. The key stays with the
+   * Signs a metered escrow's settle transaction (see `MeteredSettleSigner`)
+   * with the provider wallet's key, sends it and returns the confirmed signature. The key stays with the
    * operator. When absent, metered payment is not offered.
    */
   settleMeteredEscrow?: MeteredSettleSigner;
@@ -744,7 +744,7 @@ async function handleMeteredChatCompletion(input: {
   let settleSignature: string;
   try {
     settled = meteredSettlement(terms, lock, usage);
-    settleSignature = await deps.settleMeteredEscrow(settled.instruction);
+    settleSignature = await deps.settleMeteredEscrow(settled.instructions);
   } catch {
     return refuse(502, "settle_failed", `The settle could not be sent. Nothing was charged; your maximum stays locked in escrow ${header.escrow.toBase58()} and can be cancelled for a full refund once the cancel window opens.`, { charged: false, escrow: header.escrow.toBase58() });
   }
