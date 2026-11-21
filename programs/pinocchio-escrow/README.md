@@ -314,7 +314,9 @@ Things to know:
   Registering costs 0.01 SOL and starts a new record at zero, which was
   already true of the registry, so this does not help an agent with a good
   record, but it does keep failed jobs off a record. Rankers should treat a
-  recently created record as having no history.
+  recently created record as having no history. The owner accepted this
+  limit for V1 (21 November 2026): a record's reputation describes that
+  registration only, not the wallet's whole history.
 - On a fixed-price job the seller can call `accept_rating` at any time while
   the escrow is locked, so it can wait to see how the job went. A buyer who
   wants a rating should release only after the seller accepted (`accepted` is
