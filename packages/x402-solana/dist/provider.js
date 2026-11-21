@@ -15,6 +15,7 @@ exports.usageFrom = usageFrom;
 exports.meteredSettlement = meteredSettlement;
 exports.confirmMeteredSettlement = confirmMeteredSettlement;
 exports.meteredDecline = meteredDecline;
+exports.meteredRatingAccount = meteredRatingAccount;
 /**
  * The seller side of a per-token (metered) call.
  *
@@ -32,6 +33,7 @@ const spl_token_1 = require("@solana/spl-token");
 const escrow_readiness_1 = require("./escrow-readiness");
 const metered_1 = require("./metered");
 const payment_1 = require("./payment");
+const rating_1 = require("./rating");
 const token_escrow_1 = require("./token-escrow");
 /** Output tokens assumed when the request sets no limit and the operator sets none. */
 exports.DEFAULT_MAX_OUTPUT_TOKENS = 1000;
@@ -226,6 +228,11 @@ async function checkMeteredPayout(input) {
  * account the lock recorded for the unused part, so a call is refused before
  * any work is done rather than left unpaid after it.
  * The escrow is then remembered, so one lock pays for one call.
+ *
+ * An escrow the buyer opted in to rating is refused (`rated_escrow_declined`)
+ * before anything is served or remembered, unless `acceptRatedEscrows` is
+ * true. `readAccount` must read at `confirmed` commitment or better for that
+ * answer to be final (see `AccountReader`).
  */
 async function verifyMeteredLock(input) {
     const { header, terms } = input;
@@ -254,6 +261,9 @@ async function verifyMeteredLock(input) {
         return { ok: false, reason: 'duplicate_nonce', message: 'This escrow has already been settled or cancelled.' };
     if (!escrow.metered)
         return { ok: false, reason: 'invalid_receipt', message: 'This escrow was not locked as a metered escrow.' };
+    if (escrow.rated && input.acceptRatedEscrows !== true) {
+        return { ok: false, reason: 'rated_escrow_declined', message: 'This escrow was opted in to rating, and this provider does not take rated jobs. Nothing was accepted or served. Lock a new escrow without rating, and refund this one once its refund window opens.' };
+    }
     // The payer may refund once its window has elapsed, so the settlement has to
     // land before then. The time left now is what counts, not the window named
     // at lock: a buyer could lock, wait out most of the window, then make the
@@ -296,6 +306,7 @@ async function verifyMeteredLock(input) {
         ok: true,
         payer: escrow.payer,
         payout: payout.payout,
+        rated: escrow.rated,
         maxBaseUnits: escrow.amount,
         terms: {
             programId: terms.programId,
@@ -330,7 +341,9 @@ function usageFrom(upstream, inputEstimate) {
  * The settle for the tokens used, never above the locked maximum. It pays
  * into the accounts checked with the lock (`lock.payout`), or into `payout`
  * when the caller has checked them again. Nothing is created unless that
- * check chose to create the buyer's token account.
+ * check chose to create the buyer's token account. The settle of a rated
+ * lock carries the escrow's rating account after the usual accounts; for a
+ * lock that is not rated the instruction is unchanged.
  */
 function meteredSettlement(terms, lock, usage, payout = lock.payout) {
     const decimals = (0, payment_1.directPaymentCurrency)(terms.price.currency).decimals;
@@ -338,18 +351,21 @@ function meteredSettlement(terms, lock, usage, payout = lock.payout) {
     if (settlement.chargedBaseUnits <= BigInt(0))
         throw new Error('nothing to settle');
     const prep = (0, escrow_readiness_1.prepareTokenPayout)(lock.terms, terms.payee, undefined, { refundTo: payout.refundTo, createRefundAccount: payout.createRefundAccount === true });
-    const instruction = (0, token_escrow_1.buildSettleTokenEscrowInstruction)(lock.terms, false, terms.payee, {
+    const instruction = (0, rating_1.withRatingAccount)((0, token_escrow_1.buildSettleTokenEscrowInstruction)(lock.terms, false, terms.payee, {
         actual: settlement.chargedBaseUnits,
         treasuryToken: payout.treasuryToken,
         refundTo: payout.refundTo,
         ...(payout.payTo ? { payTo: payout.payTo } : {}),
         ...(payout.harvestWithheldFees ? { harvestWithheldFees: true } : {}),
-    });
+    }), lock.rated === true);
     return { settlement, instruction, instructions: [...prep.instructions, instruction] };
 }
 /**
  * The amounts a settle actually moved, from the confirmed transaction: it
- * must have succeeded, called the escrow program and named this escrow. The
+ * must have succeeded, called the escrow program and named this escrow (and,
+ * when `expected.rating` is given, that rating account: pass
+ * `meteredRatingAccount(lock)` for a rated lock). Accounts the transaction
+ * names beyond those are not held against it. The
  * provider's credit and the treasury's fee are read from the balance changes,
  * not from what the provider intended. Refused when the buyer got back less
  * than the maximum less the amount billed, or more was billed than was
@@ -363,6 +379,8 @@ function confirmMeteredSettlement(record, expected) {
     if (record.failed)
         return { ok: false, reason: 'failed' };
     if (!record.programIds.includes(expected.programId.toBase58()) || !record.accounts.includes(expected.escrow.toBase58()))
+        return { ok: false, reason: 'wrong_transaction' };
+    if (expected.rating && !record.accounts.includes(expected.rating.toBase58()))
         return { ok: false, reason: 'wrong_transaction' };
     const mint = expected.mint.toBase58();
     const change = (account) => {
@@ -385,8 +403,14 @@ function confirmMeteredSettlement(record, expected) {
  * model failed before any work was done: the payee may refund the whole
  * amount to the payer at any time. The program sends a decline to the source
  * account the lock recorded, which the lock check found usable. Returns the
- * instruction for the operator to sign with the provider wallet.
+ * instruction for the operator to sign with the provider wallet. The decline
+ * of a rated lock carries the rating account, which the program closes: a
+ * job that was not paid is not rated.
  */
 function meteredDecline(terms, lock) {
-    return (0, token_escrow_1.buildSettleTokenEscrowInstruction)(lock.terms, true, terms.payee, lock.payout.harvestWithheldFees ? { harvestWithheldFees: true } : {});
+    return (0, rating_1.withRatingAccount)((0, token_escrow_1.buildSettleTokenEscrowInstruction)(lock.terms, true, terms.payee, lock.payout.harvestWithheldFees ? { harvestWithheldFees: true } : {}), lock.rated === true);
+}
+/** The rating account a rated lock's settle and decline carry, or undefined for a lock that is not rated. */
+function meteredRatingAccount(lock) {
+    return lock.rated === true ? (0, rating_1.ratingPda)((0, token_escrow_1.tokenEscrowAddresses)(lock.terms).escrow, lock.terms.programId) : undefined;
 }

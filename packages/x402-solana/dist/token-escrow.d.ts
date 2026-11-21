@@ -116,4 +116,6 @@ export declare function decodeTokenEscrowAccount(data: Buffer): {
     createdSlot: bigint;
     bump: number;
     metered: boolean;
+    /** The buyer opted this job in to rating: every exit must pass the rating account (`withRatingAccount`). */
+    rated: boolean;
 };

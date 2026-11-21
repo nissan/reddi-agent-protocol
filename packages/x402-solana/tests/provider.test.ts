@@ -10,9 +10,11 @@ import {
   meteredDecline,
   meteredOffer,
   meteredPaymentHeaderValue,
+  meteredRatingAccount,
   meteredSettlement,
   prepareTokenPayout,
   providerMeteredTerms,
+  ratingPda,
   readMeteredPaymentHeader,
   SOLANA_GENESIS_HASHES,
   tokenEscrowAddresses,
@@ -40,7 +42,7 @@ const MINIMUM = BigInt(7800);
 const disc = createHash('sha256').update('account:TokenEscrowAccount').digest().subarray(0, 8);
 const ata = (owner: PublicKey, mint = USDC) => treasuryTokenAccount({ mint, tokenProgram: TOKEN_PROGRAM }, owner);
 
-interface Fields { amount?: bigint; payee?: PublicKey; mint?: PublicKey; recipient?: PublicKey; status?: number; metered?: boolean; payer?: PublicKey; windows?: { claim: bigint; cancel: bigint } | null; createdSlot?: bigint }
+interface Fields { amount?: bigint; payee?: PublicKey; mint?: PublicKey; recipient?: PublicKey; status?: number; metered?: boolean; rated?: boolean; payer?: PublicKey; windows?: { claim: bigint; cancel: bigint } | null; createdSlot?: bigint }
 function escrowBytes(f: Fields = {}): Uint8Array {
   const mint = f.mint ?? USDC;
   const owner = f.payee ?? payee;
@@ -56,7 +58,7 @@ function escrowBytes(f: Fields = {}): Uint8Array {
   data[192] = f.status ?? 0;
   data.writeBigUInt64LE(f.createdSlot ?? CURRENT_SLOT - BigInt(10), 193);
   data[201] = 254;
-  data[202] = f.metered === false ? 0 : 1;
+  data[202] = (f.metered === false ? 0 : 1) | (f.rated ? 2 : 0);
   if (f.windows !== null) {
     data.writeBigUInt64LE(f.windows?.claim ?? BigInt(1_500), 203);
     data.writeBigUInt64LE(f.windows?.cancel ?? BigInt(4_500), 211);
@@ -87,7 +89,7 @@ function payoutAccounts(): Accounts {
   ]);
 }
 
-function verify(fields: Fields | 'missing' | 'rpc-down' = {}, extra: { owner?: PublicKey; slot?: () => Promise<bigint>; replayStore?: MemoryNonceReplayStore; header?: MeteredPaymentHeader; accounts?: Accounts; terms?: typeof terms } = {}) {
+function verify(fields: Fields | 'missing' | 'rpc-down' = {}, extra: { owner?: PublicKey; slot?: () => Promise<bigint>; replayStore?: MemoryNonceReplayStore; header?: MeteredPaymentHeader; accounts?: Accounts; terms?: typeof terms; acceptRatedEscrows?: boolean } = {}) {
   const accounts = extra.accounts ?? payoutAccounts();
   const escrowKey = (extra.header ?? header).escrow;
   return verifyMeteredLock({
@@ -102,6 +104,7 @@ function verify(fields: Fields | 'missing' | 'rpc-down' = {}, extra: { owner?: P
     },
     readSlot: extra.slot ?? (async () => CURRENT_SLOT),
     replayStore: extra.replayStore ?? new MemoryNonceReplayStore(),
+    ...(extra.acceptRatedEscrows !== undefined ? { acceptRatedEscrows: extra.acceptRatedEscrows } : {}),
   });
 }
 
@@ -345,6 +348,74 @@ describe('confirmed settlement', () => {
     expect(confirmMeteredSettlement(record(5_222, 133, 10_245, { failed: true }), expected)).toEqual({ ok: false, reason: 'failed' });
     expect(confirmMeteredSettlement(record(5_222, 133, 10_245, { programIds: [TOKEN_PROGRAM.toBase58()] }), expected)).toEqual({ ok: false, reason: 'wrong_transaction' });
     expect(confirmMeteredSettlement(record(5_222, 133, 10_245, { accounts: [ata(payee).toBase58()] }), expected)).toEqual({ ok: false, reason: 'wrong_transaction' });
+  });
+});
+
+describe('rated escrows', () => {
+  const shape = (ix: { data: Buffer; keys: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] }) => ({ data: ix.data.toString('hex'), keys: ix.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable]) });
+  const rating = ratingPda(header.escrow, PROGRAM);
+  const usage = { inputTokens: 120, outputTokens: 333 };
+
+  it('declines a rated escrow before serving unless the provider accepts rated jobs, and does not remember it', async () => {
+    const replayStore = new MemoryNonceReplayStore();
+    for (const acceptRatedEscrows of [undefined, false]) {
+      expect(await verify({ rated: true }, { replayStore, ...(acceptRatedEscrows === undefined ? {} : { acceptRatedEscrows }) })).toMatchObject({ ok: false, reason: 'rated_escrow_declined' });
+    }
+    // Not remembered: the same escrow is still accepted by a provider that takes rated jobs.
+    expect(await verify({ rated: true }, { replayStore, acceptRatedEscrows: true })).toMatchObject({ ok: true, rated: true });
+  });
+
+  it('reads the flag byte by its bits: a rated metered escrow stores 3 and is metered; a rated fixed-price one stores 2 and is not', async () => {
+    expect(escrowBytes({ rated: true })[202]).toBe(3);
+    expect(await verify({ rated: true }, { acceptRatedEscrows: true })).toMatchObject({ ok: true, rated: true, terms: { metered: true } });
+    expect(escrowBytes({ rated: true, metered: false })[202]).toBe(2);
+    expect(await verify({ rated: true, metered: false }, { acceptRatedEscrows: true })).toMatchObject({ ok: false, reason: 'invalid_receipt', message: 'This escrow was not locked as a metered escrow.' });
+  });
+
+  it('passes the rating account, writable, as the tenth account of the settle and the eighth of the decline', async () => {
+    const lock = (await verify({ rated: true }, { acceptRatedEscrows: true })) as Extract<VerifiedLock, { ok: true }>;
+    const plain = (await verify()) as Extract<VerifiedLock, { ok: true }>;
+    const settle = meteredSettlement(terms, lock, usage);
+    const plainSettle = meteredSettlement(terms, plain, usage);
+    expect(settle.settlement).toEqual(plainSettle.settlement);
+    expect(shape(settle.instruction)).toEqual({ data: shape(plainSettle.instruction).data, keys: [...shape(plainSettle.instruction).keys, [rating.toBase58(), false, true]] });
+    expect(settle.instruction.keys).toHaveLength(10);
+    expect(settle.instructions[settle.instructions.length - 1]).toBe(settle.instruction);
+    const decline = meteredDecline(terms, lock);
+    const plainDecline = meteredDecline(terms, plain);
+    expect(shape(decline)).toEqual({ data: shape(plainDecline).data, keys: [...shape(plainDecline).keys, [rating.toBase58(), false, true]] });
+    expect(decline.keys).toHaveLength(8);
+    expect(meteredRatingAccount(lock)?.equals(rating)).toBe(true);
+  });
+
+  it('leaves an escrow that is not rated exactly as before, whether or not rated jobs are accepted', async () => {
+    const before = (await verify()) as Extract<VerifiedLock, { ok: true }>;
+    const accepting = (await verify({}, { acceptRatedEscrows: true })) as Extract<VerifiedLock, { ok: true }>;
+    expect(before.rated).toBe(false);
+    expect(accepting).toEqual(before);
+    expect(meteredRatingAccount(before)).toBeUndefined();
+    const direct = buildSettleTokenEscrowInstruction(before.terms, false, payee, { actual: BigInt(5355), treasuryToken: ata(ESCROW_PROTOCOL_TREASURY), refundTo: ata(payer) });
+    expect(shape(meteredSettlement(terms, accepting, usage).instruction)).toEqual(shape(direct));
+    expect(shape(meteredDecline(terms, accepting))).toEqual(shape(buildSettleTokenEscrowInstruction(before.terms, true, payee)));
+    // A lock verified before `rated` existed (no such field) settles as an unrated one.
+    const { rated: _rated, ...older } = before;
+    expect(shape(meteredSettlement(terms, older as typeof before, usage).instruction)).toEqual(shape(direct));
+  });
+
+  it('confirms a settle that names the rating account, and refuses one that should and does not', () => {
+    const expected = { programId: PROGRAM, escrow: header.escrow, mint: USDC, destination: ata(payee), treasuryToken: ata(ESCROW_PROTOCOL_TREASURY), refundTo: ata(payer), maxBaseUnits: BigInt(15_600) };
+    const row = (account: PublicKey, before: number, after: number) => ({ account: account.toBase58(), mint: USDC.toBase58(), before: BigInt(before), after: BigInt(after) });
+    const record = (accounts: PublicKey[]): SettlementRecord => ({
+      failed: false,
+      programIds: [PROGRAM.toBase58()],
+      accounts: accounts.map((k) => k.toBase58()),
+      tokenBalances: [row(ata(payee), 0, 5_222), row(ata(ESCROW_PROTOCOL_TREASURY), 0, 133), row(ata(payer), 0, 10_245)],
+    });
+    const amounts = { ok: true, paidBaseUnits: BigInt(5_355), feeBaseUnits: BigInt(133), providerBaseUnits: BigInt(5_222), refundedBaseUnits: BigInt(10_245), surplusBaseUnits: BigInt(0) };
+    // The extra account changes nothing for a caller that does not ask about it.
+    expect(confirmMeteredSettlement(record([header.escrow, rating]), expected)).toEqual(amounts);
+    expect(confirmMeteredSettlement(record([header.escrow, rating]), { ...expected, rating })).toEqual(amounts);
+    expect(confirmMeteredSettlement(record([header.escrow]), { ...expected, rating })).toEqual({ ok: false, reason: 'wrong_transaction' });
   });
 });
 

@@ -18,7 +18,12 @@ import type { NonceReplayStore, SolanaPaymentNetwork } from './types';
 export declare const DEFAULT_MAX_OUTPUT_TOKENS = 1000;
 /** The buyer's default maximum, as a multiple of the estimate. The buyer may raise it, never below the estimate. */
 export declare const DEFAULT_MAX_CHARGE_MULTIPLE = 2;
-/** What a reader of chain accounts returns. A `Connection` adapts to it. */
+/**
+ * What a reader of chain accounts returns. A `Connection` adapts to it. Read
+ * at `confirmed` commitment or better: a buyer can opt an escrow in to rating
+ * only in the slot of the lock, so a read that sees that whole slot tells for
+ * good whether the job is rated, and a `processed` read may not.
+ */
 export type AccountReader = (address: PublicKey) => Promise<{
     owner: PublicKey;
     data: Uint8Array;
@@ -185,6 +190,14 @@ export type VerifiedLock = {
     maxBaseUnits: bigint;
     payer: PublicKey;
     payout: PayoutAccounts;
+    /**
+     * The buyer opted this job in to rating (bit 0x02 of the escrow's flag
+     * byte). Only ever true when the lock was verified with
+     * `acceptRatedEscrows`. The settle and the decline then carry the rating
+     * account, and by settling the provider agrees to be rated: it has to
+     * commit and reveal its own rating within the windows or lose reputation.
+     */
+    rated: boolean;
 } | {
     ok: false;
     reason: string;
@@ -198,6 +211,11 @@ export type VerifiedLock = {
  * account the lock recorded for the unused part, so a call is refused before
  * any work is done rather than left unpaid after it.
  * The escrow is then remembered, so one lock pays for one call.
+ *
+ * An escrow the buyer opted in to rating is refused (`rated_escrow_declined`)
+ * before anything is served or remembered, unless `acceptRatedEscrows` is
+ * true. `readAccount` must read at `confirmed` commitment or better for that
+ * answer to be final (see `AccountReader`).
  */
 export declare function verifyMeteredLock(input: {
     header: MeteredPaymentHeader;
@@ -208,6 +226,14 @@ export declare function verifyMeteredLock(input: {
     replayStore: NonceReplayStore;
     /** The protocol treasury. Only a local test deployment has another. */
     treasury?: PublicKey;
+    /**
+     * Serve jobs the buyer opted in to rating. Default false: a rated escrow is
+     * refused before serving. Settling a rated job is the provider's agreement
+     * to be rated, after which it must commit and reveal a rating of its own
+     * within the program's windows or lose reputation, so turn this on only
+     * for a provider that does that.
+     */
+    acceptRatedEscrows?: boolean;
 }): Promise<VerifiedLock>;
 /** Token counts from an OpenAI-style usage report, or the estimate from the text when it reports none. */
 export declare function usageFrom(upstream: Record<string, unknown>, inputEstimate: number): TokenCounts;
@@ -215,7 +241,9 @@ export declare function usageFrom(upstream: Record<string, unknown>, inputEstima
  * The settle for the tokens used, never above the locked maximum. It pays
  * into the accounts checked with the lock (`lock.payout`), or into `payout`
  * when the caller has checked them again. Nothing is created unless that
- * check chose to create the buyer's token account.
+ * check chose to create the buyer's token account. The settle of a rated
+ * lock carries the escrow's rating account after the usual accounts; for a
+ * lock that is not rated the instruction is unchanged.
  */
 export declare function meteredSettlement(terms: MeteredTerms, lock: Extract<VerifiedLock, {
     ok: true;
@@ -256,7 +284,10 @@ export type ConfirmedSettlement = {
 };
 /**
  * The amounts a settle actually moved, from the confirmed transaction: it
- * must have succeeded, called the escrow program and named this escrow. The
+ * must have succeeded, called the escrow program and named this escrow (and,
+ * when `expected.rating` is given, that rating account: pass
+ * `meteredRatingAccount(lock)` for a rated lock). Accounts the transaction
+ * names beyond those are not held against it. The
  * provider's credit and the treasury's fee are read from the balance changes,
  * not from what the provider intended. Refused when the buyer got back less
  * than the maximum less the amount billed, or more was billed than was
@@ -272,14 +303,21 @@ export declare function confirmMeteredSettlement(record: SettlementRecord | null
     treasuryToken: PublicKey;
     refundTo: PublicKey;
     maxBaseUnits: bigint;
+    rating?: PublicKey;
 }): ConfirmedSettlement;
 /**
  * Declines a verified lock the provider will not serve, for example when the
  * model failed before any work was done: the payee may refund the whole
  * amount to the payer at any time. The program sends a decline to the source
  * account the lock recorded, which the lock check found usable. Returns the
- * instruction for the operator to sign with the provider wallet.
+ * instruction for the operator to sign with the provider wallet. The decline
+ * of a rated lock carries the rating account, which the program closes: a
+ * job that was not paid is not rated.
  */
 export declare function meteredDecline(terms: MeteredTerms, lock: Extract<VerifiedLock, {
     ok: true;
 }>): TransactionInstruction;
+/** The rating account a rated lock's settle and decline carry, or undefined for a lock that is not rated. */
+export declare function meteredRatingAccount(lock: Extract<VerifiedLock, {
+    ok: true;
+}>): PublicKey | undefined;

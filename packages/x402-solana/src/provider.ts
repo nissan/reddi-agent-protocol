@@ -15,6 +15,7 @@ import { TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync, getTransferFeeCon
 import { checkTokenAccount, prepareTokenPayout } from './escrow-readiness';
 import { quoteMeteredCall, settleMeteredCall, tokenCostBaseUnits, type MeteredSettlement, type PerTokenPrice, type TokenCounts } from './metered';
 import { baseUnitsToDecimal, directPaymentCurrency, parseX402PaymentHeader, SOLANA_GENESIS_HASHES } from './payment';
+import { ratingPda, withRatingAccount } from './rating';
 import { buildSettleTokenEscrowInstruction, decodeTokenEscrowAccount, ESCROW_PROTOCOL_TREASURY, SELLER_MIN_CANCEL_WINDOW_SLOTS, tokenEscrowAddresses, treasuryTokenAccount, type TokenEscrowTerms } from './token-escrow';
 import type { NonceReplayStore, SolanaPaymentNetwork } from './types';
 
@@ -23,7 +24,12 @@ export const DEFAULT_MAX_OUTPUT_TOKENS = 1_000;
 /** The buyer's default maximum, as a multiple of the estimate. The buyer may raise it, never below the estimate. */
 export const DEFAULT_MAX_CHARGE_MULTIPLE = 2;
 
-/** What a reader of chain accounts returns. A `Connection` adapts to it. */
+/**
+ * What a reader of chain accounts returns. A `Connection` adapts to it. Read
+ * at `confirmed` commitment or better: a buyer can opt an escrow in to rating
+ * only in the slot of the lock, so a read that sees that whole slot tells for
+ * good whether the job is rated, and a `processed` read may not.
+ */
 export type AccountReader = (address: PublicKey) => Promise<{ owner: PublicKey; data: Uint8Array } | null>;
 /** The chain's current slot. */
 export type SlotReader = () => Promise<number | bigint>;
@@ -306,7 +312,23 @@ export async function checkMeteredPayout(input: {
   }
 }
 
-export type VerifiedLock = { ok: true; terms: TokenEscrowTerms; maxBaseUnits: bigint; payer: PublicKey; payout: PayoutAccounts } | { ok: false; reason: string; message: string };
+export type VerifiedLock =
+  | {
+      ok: true;
+      terms: TokenEscrowTerms;
+      maxBaseUnits: bigint;
+      payer: PublicKey;
+      payout: PayoutAccounts;
+      /**
+       * The buyer opted this job in to rating (bit 0x02 of the escrow's flag
+       * byte). Only ever true when the lock was verified with
+       * `acceptRatedEscrows`. The settle and the decline then carry the rating
+       * account, and by settling the provider agrees to be rated: it has to
+       * commit and reveal its own rating within the windows or lose reputation.
+       */
+      rated: boolean;
+    }
+  | { ok: false; reason: string; message: string };
 
 /**
  * Checks the lock on chain against this provider's terms: the escrow program,
@@ -316,6 +338,11 @@ export type VerifiedLock = { ok: true; terms: TokenEscrowTerms; maxBaseUnits: bi
  * account the lock recorded for the unused part, so a call is refused before
  * any work is done rather than left unpaid after it.
  * The escrow is then remembered, so one lock pays for one call.
+ *
+ * An escrow the buyer opted in to rating is refused (`rated_escrow_declined`)
+ * before anything is served or remembered, unless `acceptRatedEscrows` is
+ * true. `readAccount` must read at `confirmed` commitment or better for that
+ * answer to be final (see `AccountReader`).
  */
 export async function verifyMeteredLock(input: {
   header: MeteredPaymentHeader;
@@ -326,6 +353,14 @@ export async function verifyMeteredLock(input: {
   replayStore: NonceReplayStore;
   /** The protocol treasury. Only a local test deployment has another. */
   treasury?: PublicKey;
+  /**
+   * Serve jobs the buyer opted in to rating. Default false: a rated escrow is
+   * refused before serving. Settling a rated job is the provider's agreement
+   * to be rated, after which it must commit and reveal a rating of its own
+   * within the program's windows or lose reputation, so turn this on only
+   * for a provider that does that.
+   */
+  acceptRatedEscrows?: boolean;
 }): Promise<VerifiedLock> {
   const { header, terms } = input;
   const expected = tokenEscrowAddresses({ programId: terms.programId, payer: header.payer, nonce: header.nonce }).escrow;
@@ -346,6 +381,9 @@ export async function verifyMeteredLock(input: {
   }
   if (escrow.status !== 0) return { ok: false, reason: 'duplicate_nonce', message: 'This escrow has already been settled or cancelled.' };
   if (!escrow.metered) return { ok: false, reason: 'invalid_receipt', message: 'This escrow was not locked as a metered escrow.' };
+  if (escrow.rated && input.acceptRatedEscrows !== true) {
+    return { ok: false, reason: 'rated_escrow_declined', message: 'This escrow was opted in to rating, and this provider does not take rated jobs. Nothing was accepted or served. Lock a new escrow without rating, and refund this one once its refund window opens.' };
+  }
   // The payer may refund once its window has elapsed, so the settlement has to
   // land before then. The time left now is what counts, not the window named
   // at lock: a buyer could lock, wait out most of the window, then make the
@@ -383,6 +421,7 @@ export async function verifyMeteredLock(input: {
     ok: true,
     payer: escrow.payer,
     payout: payout.payout,
+    rated: escrow.rated,
     maxBaseUnits: escrow.amount,
     terms: {
       programId: terms.programId,
@@ -418,7 +457,9 @@ export function usageFrom(upstream: Record<string, unknown>, inputEstimate: numb
  * The settle for the tokens used, never above the locked maximum. It pays
  * into the accounts checked with the lock (`lock.payout`), or into `payout`
  * when the caller has checked them again. Nothing is created unless that
- * check chose to create the buyer's token account.
+ * check chose to create the buyer's token account. The settle of a rated
+ * lock carries the escrow's rating account after the usual accounts; for a
+ * lock that is not rated the instruction is unchanged.
  */
 export function meteredSettlement(
   terms: MeteredTerms,
@@ -430,13 +471,16 @@ export function meteredSettlement(
   const settlement = settleMeteredCall(terms.price, usage, baseUnitsToDecimal(lock.maxBaseUnits, decimals));
   if (settlement.chargedBaseUnits <= BigInt(0)) throw new Error('nothing to settle');
   const prep = prepareTokenPayout(lock.terms, terms.payee, undefined, { refundTo: payout.refundTo, createRefundAccount: payout.createRefundAccount === true });
-  const instruction = buildSettleTokenEscrowInstruction(lock.terms, false, terms.payee, {
-    actual: settlement.chargedBaseUnits,
-    treasuryToken: payout.treasuryToken,
-    refundTo: payout.refundTo,
-    ...(payout.payTo ? { payTo: payout.payTo } : {}),
-    ...(payout.harvestWithheldFees ? { harvestWithheldFees: true } : {}),
-  });
+  const instruction = withRatingAccount(
+    buildSettleTokenEscrowInstruction(lock.terms, false, terms.payee, {
+      actual: settlement.chargedBaseUnits,
+      treasuryToken: payout.treasuryToken,
+      refundTo: payout.refundTo,
+      ...(payout.payTo ? { payTo: payout.payTo } : {}),
+      ...(payout.harvestWithheldFees ? { harvestWithheldFees: true } : {}),
+    }),
+    lock.rated === true,
+  );
   return { settlement, instruction, instructions: [...prep.instructions, instruction] };
 }
 
@@ -474,7 +518,10 @@ export type ConfirmedSettlement =
 
 /**
  * The amounts a settle actually moved, from the confirmed transaction: it
- * must have succeeded, called the escrow program and named this escrow. The
+ * must have succeeded, called the escrow program and named this escrow (and,
+ * when `expected.rating` is given, that rating account: pass
+ * `meteredRatingAccount(lock)` for a rated lock). Accounts the transaction
+ * names beyond those are not held against it. The
  * provider's credit and the treasury's fee are read from the balance changes,
  * not from what the provider intended. Refused when the buyer got back less
  * than the maximum less the amount billed, or more was billed than was
@@ -484,11 +531,12 @@ export type ConfirmedSettlement =
  */
 export function confirmMeteredSettlement(
   record: SettlementRecord | null,
-  expected: { programId: PublicKey; escrow: PublicKey; mint: PublicKey; destination: PublicKey; treasuryToken: PublicKey; refundTo: PublicKey; maxBaseUnits: bigint },
+  expected: { programId: PublicKey; escrow: PublicKey; mint: PublicKey; destination: PublicKey; treasuryToken: PublicKey; refundTo: PublicKey; maxBaseUnits: bigint; rating?: PublicKey },
 ): ConfirmedSettlement {
   if (!record) return { ok: false, reason: 'not_found' };
   if (record.failed) return { ok: false, reason: 'failed' };
   if (!record.programIds.includes(expected.programId.toBase58()) || !record.accounts.includes(expected.escrow.toBase58())) return { ok: false, reason: 'wrong_transaction' };
+  if (expected.rating && !record.accounts.includes(expected.rating.toBase58())) return { ok: false, reason: 'wrong_transaction' };
   const mint = expected.mint.toBase58();
   const change = (account: PublicKey): bigint => {
     const row = record.tokenBalances.find((b) => b.account === account.toBase58() && b.mint === mint);
@@ -509,8 +557,15 @@ export function confirmMeteredSettlement(
  * model failed before any work was done: the payee may refund the whole
  * amount to the payer at any time. The program sends a decline to the source
  * account the lock recorded, which the lock check found usable. Returns the
- * instruction for the operator to sign with the provider wallet.
+ * instruction for the operator to sign with the provider wallet. The decline
+ * of a rated lock carries the rating account, which the program closes: a
+ * job that was not paid is not rated.
  */
 export function meteredDecline(terms: MeteredTerms, lock: Extract<VerifiedLock, { ok: true }>): TransactionInstruction {
-  return buildSettleTokenEscrowInstruction(lock.terms, true, terms.payee, lock.payout.harvestWithheldFees ? { harvestWithheldFees: true } : {});
+  return withRatingAccount(buildSettleTokenEscrowInstruction(lock.terms, true, terms.payee, lock.payout.harvestWithheldFees ? { harvestWithheldFees: true } : {}), lock.rated === true);
+}
+
+/** The rating account a rated lock's settle and decline carry, or undefined for a lock that is not rated. */
+export function meteredRatingAccount(lock: Extract<VerifiedLock, { ok: true }>): PublicKey | undefined {
+  return lock.rated === true ? ratingPda(tokenEscrowAddresses(lock.terms).escrow, lock.terms.programId) : undefined;
 }

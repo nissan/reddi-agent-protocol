@@ -51,6 +51,28 @@ const { settlement, instructions } = meteredSettlement(terms, lock, usageFrom(up
 
 `verifyMeteredLock` also checks that the payout can land (the provider's, the treasury's and the buyer's token accounts), and `confirmMeteredSettlement` reads what a confirmed settle moved, for the receipt. It reads no key and sends no transaction. `packages/provider-kit` wraps it in a runnable server. Token currencies only (USDC, AUDD, PYUSD, USDG).
 
+## Ratings and attestations
+
+`@reddi/x402-solana/rating` builds the rating and judge attestation instructions of the V1 program source (`programs/pinocchio-escrow`), derives their addresses and decodes their accounts. The program README and `interface/vectors.json` are the interface; this module is tested against that file byte for byte. No deployed program answers these instructions yet.
+
+```ts
+import { buildRatedTokenEscrowLock, readEscrowRatingStatus, withRatingAccount, ratingCommitment } from '@reddi/x402-solana/rating';
+
+// Buyer: lock and opt in to rating in one transaction (opting in later is refused).
+const { instructions, escrow, rating } = buildRatedTokenEscrowLock(terms, { judge });
+
+// Seller: before serving, read at `confirmed` whether the job is rated.
+const status = await readEscrowRatingStatus(connection, escrow, programId);
+
+// Every exit of a rated escrow carries the rating account; other exits are returned untouched.
+const settle = withRatingAccount(buildSettleTokenEscrowInstruction(terms, false, payee, { actual }), status.ok && status.rated);
+
+// Each party commits, then reveals the same score and salt. Keep both until the reveal.
+const commitment = ratingCommitment(rating, signer, score, salt);
+```
+
+A seller that settles or claims a rated escrow has agreed to be rated and must then commit and reveal within the program's windows. `verifyMeteredLock` in the provider module declines rated escrows unless `acceptRatedEscrows` is set.
+
 ## Usage
 
 ### Express Middleware
