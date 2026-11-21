@@ -17,11 +17,13 @@ account the program controls until one of these happens:
 | Refund: everything goes back to the buyer | The buyer | Once the escrow's refund window has passed |
 | Claim: the seller is paid the whole amount, less the fee | The seller | Once the escrow's claim window has passed |
 
-The refund and claim windows are set per escrow when it is locked, and the
-seller's claim opens before the buyer's refund (owner decision, 21 November
-2026; the program change is in progress, so check the program's README for the
-exact rules of the build you use). A short claim window suits per-call work,
-where the answer is useful within seconds.
+The refund and claim windows are set per escrow when it is locked, in slots:
+the seller's claim opens at or before the buyer's refund (`0 < claim <= refund
+<= 6,480,000`). When both open in the same slot, either party can act, and the
+first transaction to land wins. Once the claim window opens, an idle buyer
+leaves the seller free to claim, but the seller is paid only when it sends the
+claim. A short claim window suits per-call work, where the answer is useful
+within seconds.
 
 Even so, sellers should:
 
@@ -98,7 +100,23 @@ but have no delegate, fee or hook.
 
 `node scripts/check-token2022-mint-posture.mjs` compares the live PYUSD and USDG
 mints with the posture recorded in `config/escrow/token2022-mint-posture.json`
-and exits non-zero on any change. The `Token-2022 mint watch` workflow runs it
-daily. A change means re-assessing the risk to open escrows in that mint, and
-pausing new locks in it if a hook or fee was switched on, before the recorded
-posture is updated.
+and exits non-zero on any change.
+
+- **Daily watch.** The `Token-2022 mint watch` workflow runs it every day. When
+  a scheduled or manual run fails, the workflow opens an issue labelled
+  `mint-watch` (or comments on the open one) and assigns it to the repository
+  owner, who is the named recipient of the alert.
+- **Before opening a rail.** Run the check by hand (or start the workflow) on
+  launch day, and before accepting the first lock in PYUSD or USDG. Record the
+  result next to the treasury readiness check in the launch record.
+- **If the posture changes.** A failed check never updates the recorded posture
+  by itself. The operator:
+  1. stops new escrow locks in the affected mint: each provider takes that
+     currency off its listings (the provider kit adds a switch for this);
+  2. reads the change (hook program, fee, delegate, freeze or pause authority)
+     and decides whether open escrows in that mint can still settle;
+  3. updates `config/escrow/token2022-mint-posture.json` only after that
+     decision, in a reviewed pull request, before reopening the mint.
+
+A freeze of one account (a vault, a buyer's or a seller's) does not change the
+mint and is not caught by this watch; it shows up as a failed payout.
