@@ -51,6 +51,11 @@
       "import": "./dist/types.js",
       "require": "./dist/types.js"
     },
+    "./rating": {
+      "types": "./dist/rating.d.ts",
+      "import": "./dist/rating.js",
+      "require": "./dist/rating.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
