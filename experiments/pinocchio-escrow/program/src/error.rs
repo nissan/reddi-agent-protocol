@@ -1,0 +1,85 @@
+//! Error codes. The numbers are the wire contract: custom codes start at 6000
+//! in the order the Anchor program declares them, and account/constraint
+//! failures use the codes Anchor's framework returns, so a client that maps
+//! codes with the published IDL reads this program the same way.
+//!
+//! Each failure also logs one line in the shape Anchor clients parse
+//! (`AnchorError occurred. Error Code: … Error Number: … Error Message: …`).
+//! The lines are static strings, so reporting an error allocates nothing.
+use pinocchio::error::ProgramError;
+
+pub struct Fault {
+    pub code: u32,
+    line: &'static str,
+}
+
+macro_rules! faults {
+    ($($name:ident = $code:literal, $msg:literal;)*) => {
+        $(
+            #[allow(non_upper_case_globals)]
+            pub static $name: Fault = Fault {
+                code: $code,
+                line: concat!(
+                    "AnchorError occurred. Error Code: ", stringify!($name),
+                    ". Error Number: ", stringify!($code),
+                    ". Error Message: ", $msg, "."
+                ),
+            };
+        )*
+    };
+}
+
+faults! {
+    // Framework-level codes (same numbers as anchor-lang 1.1.2).
+    InstructionFallbackNotFound = 101, "Fallback functions are not supported";
+    InstructionDidNotDeserialize = 102, "The program could not deserialize the given instruction";
+    ConstraintMut = 2000, "A mut constraint was violated";
+    ConstraintHasOne = 2001, "A has one constraint was violated";
+    ConstraintSeeds = 2006, "A seeds constraint was violated";
+    ConstraintAddress = 2012, "An address constraint was violated";
+    ConstraintDuplicateMutableAccount = 2040, "A duplicate mutable account constraint was violated";
+    AccountDiscriminatorNotFound = 3001, "No discriminator was found on the account";
+    AccountDiscriminatorMismatch = 3002, "Account discriminator did not match what was expected";
+    AccountDidNotDeserialize = 3003, "Failed to deserialize the account";
+    AccountNotEnoughKeys = 3005, "Not enough account keys given to the instruction";
+    AccountOwnedByWrongProgram = 3007, "The given account is owned by a different program than expected";
+    InvalidProgramId = 3008, "Program ID was not as expected";
+    AccountNotSigner = 3010, "The given account did not sign";
+    AccountNotInitialized = 3012, "The program expected this account to be already initialized";
+
+    // Program codes. Only the ones the V1 instructions can return are listed;
+    // the gaps belong to instructions outside V1 and keep their numbers.
+    UnauthorisedSigner = 6000, "Unauthorised signer — only the payer can cancel";
+    NotLocked = 6002, "Escrow is not in Locked state";
+    ZeroAmount = 6004, "Amount must be greater than zero";
+    Overflow = 6005, "Arithmetic overflow";
+    CancelWindowNotElapsed = 6006, "Cancel window not elapsed: the payer cannot refund yet";
+    InvalidPayee = 6007, "Invalid payee";
+    ModelTooLong = 6008, "Model string exceeds maximum length";
+    InvalidTokenAccount = 6023, "Invalid token mint, account, or authority";
+    InvalidTokenAmount = 6024, "Token balance change did not match the escrow transfer";
+    AmountAboveCap = 6025, "Amount exceeds the per-escrow cap";
+    MintNotAllowed = 6026, "Token mint is not on the escrow allowlist";
+    ClaimWindowNotElapsed = 6027, "Claim window not elapsed: the payee cannot claim yet";
+    InvalidSettleAmount = 6028, "Settled amount must be above zero and at most the locked amount";
+    NotMetered = 6029, "Only a metered escrow can be settled by the payee before the claim window";
+    InvalidTreasury = 6030, "Fee must go to the protocol treasury";
+}
+
+/// Log the error line and turn the fault into the error the runtime reports.
+#[cold]
+#[inline(never)]
+pub fn fail(fault: &'static Fault) -> ProgramError {
+    crate::log::message(fault.line);
+    ProgramError::Custom(fault.code)
+}
+
+/// `Err(fault)` unless `condition` holds.
+#[inline(always)]
+pub fn require(condition: bool, fault: &'static Fault) -> Result<(), ProgramError> {
+    if condition {
+        Ok(())
+    } else {
+        Err(fail(fault))
+    }
+}

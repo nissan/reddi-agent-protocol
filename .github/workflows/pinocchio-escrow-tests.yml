@@ -1,0 +1,150 @@
+name: Pinocchio escrow experiment
+
+# Builds the Pinocchio rebuild of the V1 escrow and registry program
+# (experiments/pinocchio-escrow) and checks it against the Anchor program:
+# the Anchor program's own tests run unchanged against the Pinocchio binary,
+# and a side-by-side suite replays the same transactions on both builds.
+#
+# This is an experiment. It is not in the release path, so the triggers are
+# limited to the experiment's own files: a change to programs/escrow never
+# starts this workflow and can never be blocked by it. Nothing here deploys,
+# creates keys or signs anything.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "experiments/pinocchio-escrow/**"
+      - ".github/workflows/pinocchio-escrow-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "experiments/pinocchio-escrow/**"
+      - ".github/workflows/pinocchio-escrow-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOLANA_VERIFY_VERSION: "0.5.2"
+  BASE_IMAGE: "solanafoundation/solana-verifiable-build:4.2.2"
+
+jobs:
+  equivalence:
+    name: Equivalence with the Anchor build (LiteSVM / Mollusk)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain (matches rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.98.0"
+          components: rustfmt, clippy
+
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v4.2.2/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Copied Anchor tests are current
+        run: experiments/pinocchio-escrow/scripts/sync-equivalence-tests.sh --check
+
+      # The side-by-side suite embeds the Anchor binary as its reference.
+      - name: Build the Anchor program (reference, default build)
+        run: cargo build-sbf --manifest-path programs/escrow/Cargo.toml
+
+      - name: Build the Pinocchio program (mainnet variant)
+        working-directory: experiments/pinocchio-escrow
+        run: cargo build-sbf --manifest-path program/Cargo.toml --sbf-out-dir target/deploy
+
+      # cargo build-sbf writes a throwaway keypair next to each binary. Nothing
+      # uses it, so it is removed before any later step can pick it up.
+      - name: Remove generated keypair files
+        run: rm -f target/deploy/*-keypair.json experiments/pinocchio-escrow/target/deploy/*-keypair.json
+
+      - name: Format and lint
+        working-directory: experiments/pinocchio-escrow
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+
+      - name: Unit tests
+        working-directory: experiments/pinocchio-escrow
+        run: cargo test -p pinocchio-escrow
+
+      - name: Anchor tests and side-by-side suite against the Pinocchio binary
+        working-directory: experiments/pinocchio-escrow/equivalence
+        run: cargo test -- --nocapture
+
+      - name: Record sizes
+        run: |
+          anchor=target/deploy/escrow.so
+          pinocchio=experiments/pinocchio-escrow/target/deploy/pinocchio_escrow.so
+          {
+            echo "### Program size"
+            echo ""
+            echo "| Build | Bytes | sha256 |"
+            echo "|---|---|---|"
+            echo "| Anchor (default) | $(stat -c %s "$anchor") | \`$(sha256sum "$anchor" | cut -d' ' -f1)\` |"
+            echo "| Pinocchio (mainnet variant) | $(stat -c %s "$pinocchio") | \`$(sha256sum "$pinocchio" | cut -d' ' -f1)\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          ls -l "$anchor" "$pinocchio"
+
+  verifiable-build:
+    name: Container build (${{ matrix.variant }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: mainnet
+            features: ""
+          - variant: devnet
+            features: "--features devnet"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Cache solana-verify
+        id: cache-verify
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/solana-verify
+          key: solana-verify-${{ env.SOLANA_VERIFY_VERSION }}-${{ runner.os }}
+
+      - name: Install solana-verify
+        if: steps.cache-verify.outputs.cache-hit != 'true'
+        run: cargo install solana-verify --version "${SOLANA_VERIFY_VERSION}" --locked
+
+      - name: Pull build image
+        run: docker pull "${BASE_IMAGE}"
+
+      - name: Build in container
+        working-directory: experiments/pinocchio-escrow
+        run: |
+          # shellcheck disable=SC2086
+          solana-verify build --library-name pinocchio_escrow --base-image "${BASE_IMAGE}" -- ${{ matrix.features }}
+
+      - name: Record hash
+        working-directory: experiments/pinocchio-escrow
+        run: |
+          so=target/deploy/pinocchio_escrow.so
+          test -f "$so"
+          hash=$(solana-verify get-executable-hash "$so")
+          size=$(stat -c %s "$so")
+          {
+            echo "### Pinocchio escrow ${{ matrix.variant }} container build"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Commit | \`${GITHUB_SHA}\` |"
+            echo "| Image | \`${BASE_IMAGE}\` |"
+            echo "| Features | \`${{ matrix.features || 'default' }}\` |"
+            echo "| Size | ${size} bytes |"
+            echo "| Executable hash | \`${hash}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

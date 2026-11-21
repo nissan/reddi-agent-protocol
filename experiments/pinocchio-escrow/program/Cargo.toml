@@ -1,0 +1,29 @@
+[package]
+name = "pinocchio-escrow"
+version = "0.1.0"
+description = "Reddi Agent Protocol escrow and registry, built with Pinocchio"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = []
+# Also accept devnet USDC as an escrow mint. Never enabled for a mainnet build.
+devnet = []
+
+[dependencies]
+pinocchio = { version = "0.12.0", default-features = false, features = ["cpi", "copy"] }
+pinocchio-system = "0.7.1"
+pinocchio-token = "0.8.0"
+solana-address = { version = "2.9.0", features = ["decode"] }
+sha2-const-stable = "0.1.0"
+
+# Address derivation uses a syscall on chain; off chain (unit tests, cargo check)
+# it needs the curve implementation.
+[target.'cfg(not(target_os = "solana"))'.dependencies]
+solana-address = { version = "2.9.0", features = ["curve25519"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
