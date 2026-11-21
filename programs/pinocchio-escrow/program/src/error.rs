@@ -97,6 +97,8 @@ faults! {
     AttestationNotClosable = 6047, "An unresolved attestation can be closed only after its resolution window";
     AlreadyAttested = 6048, "This job has already been attested";
     JudgeNotActive = 6049, "The judge's agent record is not active";
+    RatingJustOpened = 6050, "A rated escrow cannot end in the slot its rating was opened";
+    RatingJobMismatch = 6051, "The opened slot given does not match this rating: it is a different job";
 }
 
 // PER tracking (`per` builds only), with the archived Anchor program's numbers.

@@ -689,12 +689,15 @@ pub struct Rating {
     pub judge: Address,
     /// The escrow mint; all zero for native SOL. Written at settlement.
     pub mint: Address,
-    /// sha256(rating address, signer, score, salt) from each party; all zero
+    /// sha256(rating address, opened slot, signer, score, salt) from each party; all zero
     /// until committed.
     pub consumer_commitment: [u8; 32],
     pub specialist_commitment: [u8; 32],
     /// What the escrow paid out, before the protocol fee.
     paid: [u8; 8],
+    /// Slot of `open_rating`. With the address it names this job: a rated
+    /// escrow cannot end in this slot, so a later rating at the same address
+    /// has a later one.
     opened_slot: [u8; 8],
     /// Slot of the paid settlement; the commit deadline counts from it.
     settled_slot: [u8; 8],
@@ -798,6 +801,10 @@ impl Rating {
         }
         self.settled_slot = slot.to_le_bytes();
         self.state = RATING_OPEN;
+    }
+
+    pub fn opened_slot(&self) -> u64 {
+        u64::from_le_bytes(self.opened_slot)
     }
 
     pub fn settled_slot(&self) -> u64 {

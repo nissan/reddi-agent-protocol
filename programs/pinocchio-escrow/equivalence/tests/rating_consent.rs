@@ -78,7 +78,8 @@ fn a_payer_alone_cannot_move_the_record_of_an_agent_that_signed_nothing() {
     let escrow = sol_escrow(&a, n);
     let rating = rating_address(&escrow);
     let payer_before = t.world.lamports(&a);
-    t.world
+    let refused = t
+        .world
         .send(
             &[
                 sol_lock(&a, &v, 1, n, false),
@@ -87,15 +88,33 @@ fn a_payer_alone_cannot_move_the_record_of_an_agent_that_signed_nothing() {
             ],
             &[&t.attacker],
         )
+        .err()
+        .expect("refused");
+    // A rated escrow cannot end in the slot its rating was opened in.
+    assert!(refused.contains("Custom(6050)"), "{refused}");
+    // In two transactions the release goes through.
+    t.world
+        .send(
+            &[
+                sol_lock(&a, &v, 1, n, false),
+                open_rating(&escrow, &a, Some(&j)),
+            ],
+            &[&t.attacker],
+        )
         .unwrap();
+    t.world.ok(
+        "release",
+        with_rating(sol_payout(&a, &v, n, &a, None), &escrow),
+        &[&t.attacker],
+    );
     // The job was paid, and it is not rated: the rating account is gone and
     // its rent is back with the payer.
     assert_eq!(t.world.lamports(&v), victim_wallet + 1);
     assert!(!t.world.exists(&rating));
     assert!(!t.world.exists(&escrow));
-    assert_eq!(payer_before - t.world.lamports(&a), 1 + 5_000);
+    assert_eq!(payer_before - t.world.lamports(&a), 1 + 3 * 5_000);
 
-    let commitment = commitment(&rating, &a, 1, SALT);
+    let commitment = commitment(&t.world, &rating, &a, 1, SALT);
     t.world.refused(
         "commit",
         commit_rating(&rating, &a, commitment),
@@ -119,7 +138,7 @@ fn a_payer_alone_cannot_move_the_record_of_an_agent_that_signed_nothing() {
     }
     t.world.refused(
         "attest",
-        attest_quality(&escrow, &j, [1; 5]),
+        attest_quality(&t.world, &escrow, &j, [1; 5]),
         &[&t.judge],
         NOT_INITIALIZED,
     );
@@ -150,14 +169,14 @@ fn nobody_but_the_specialist_can_accept_and_a_locked_job_moves_no_record() {
     for who in [&t.attacker, &t.helper, &t.judge] {
         t.world.refused(
             "someone else accepts",
-            accept_rating(&rating, &who.pubkey()),
+            accept_rating(&t.world, &rating, &who.pubkey()),
             &[who],
             UNAUTHORISED_SIGNER,
         );
     }
     t.world.refused(
         "the specialist named, not signing",
-        not_signed(accept_rating(&rating, &v), 1),
+        not_signed(accept_rating(&t.world, &rating, &v), 1),
         &[&t.attacker],
         NOT_SIGNER,
     );
@@ -184,7 +203,7 @@ fn nobody_but_the_specialist_can_accept_and_a_locked_job_moves_no_record() {
     );
     t.world.refused(
         "attest",
-        attest_quality(&escrow, &j, [1; 5]),
+        attest_quality(&t.world, &escrow, &j, [1; 5]),
         &[&t.judge],
         JOB_NOT_PAID,
     );
@@ -213,12 +232,12 @@ fn accept_rating_refuses_wrong_accounts_a_second_call_and_a_paid_job() {
     world.ok("lock", sol_lock(&c, &s, 1_000_000, n, true), &[&consumer]);
     world.refused(
         "no rating account yet",
-        accept_rating(&rating, &s),
+        accept_rating(&world, &rating, &s),
         &[&specialist],
         NOT_INITIALIZED,
     );
     world.ok("open", open_rating(&escrow, &c, None), &[&consumer]);
-    let good = accept_rating(&rating, &s);
+    let good = accept_rating(&world, &rating, &s);
 
     world.refused(
         "too few accounts",
@@ -265,7 +284,7 @@ fn accept_rating_refuses_wrong_accounts_a_second_call_and_a_paid_job() {
     );
     world.refused(
         "the consumer accepts",
-        accept_rating(&rating, &c),
+        accept_rating(&world, &rating, &c),
         &[&consumer],
         UNAUTHORISED_SIGNER,
     );
@@ -320,7 +339,7 @@ fn a_payer_release_opens_the_rating_only_with_the_specialists_agreement() {
         world.ok("lock", sol_lock(&c, &s, 1_000_000, n, false), &[&consumer]);
         world.ok("open", open_rating(&escrow, &c, None), &[&consumer]);
         if accepted {
-            world.ok("accept", accept_rating(&rating, &s), &[&specialist]);
+            world.ok("accept", accept_rating(&world, &rating, &s), &[&specialist]);
         }
         let (payee_before, treasury_before, payer_before) = (
             world.lamports(&s),
@@ -384,9 +403,11 @@ fn token_consent(program: Pubkey, mint: Pubkey) {
     let rated = |ix: Instruction, i: u8| with_rating(ix, &t.escrow(nonce(i)));
     let rating_of = |i: u8| rating_address(&t.escrow(nonce(i)));
 
-    // 1: lock, opt in and release in one transaction, never accepted.
+    // 1: lock and opt in, then release, never accepted. All three in one
+    // transaction are refused: a rated escrow cannot end in the slot its
+    // rating was opened in.
     let start = world.lamports(&a);
-    world
+    let refused = world
         .send(
             &[
                 t.lock(1_000_000, nonce(1), false),
@@ -395,14 +416,30 @@ fn token_consent(program: Pubkey, mint: Pubkey) {
             ],
             &[&t.payer],
         )
+        .err()
+        .expect("refused");
+    assert!(refused.contains("Custom(6050)"), "{refused}");
+    world
+        .send(
+            &[
+                t.lock(1_000_000, nonce(1), false),
+                open_rating(&t.escrow(nonce(1)), &a, None),
+            ],
+            &[&t.payer],
+        )
         .unwrap();
+    world.ok(
+        "release",
+        rated(t.payout(nonce(1), &a, None), 1),
+        &[&t.payer],
+    );
     assert_eq!(t.balance(&world, &t.recipient), 975_000);
     assert_eq!(t.balance(&world, &t.treasury_token), 25_000);
     assert!(!world.exists(&rating_of(1)));
     assert!(!world.exists(&t.escrow(nonce(1))));
     assert!(!world.exists(&t.vault(nonce(1))));
     // Every rent is back with the payer.
-    assert_eq!(start - world.lamports(&a), 5_000);
+    assert_eq!(start - world.lamports(&a), 3 * 5_000);
     world.refused(
         "commit on the unaccepted job",
         commit_rating(&rating_of(1), &a, [3; 32]),
@@ -419,11 +456,15 @@ fn token_consent(program: Pubkey, mint: Pubkey) {
     );
     world.refused(
         "the payer accepts for the payee",
-        accept_rating(&rating_of(2), &a),
+        accept_rating(&world, &rating_of(2), &a),
         &[&t.payer],
         UNAUTHORISED_SIGNER,
     );
-    world.ok("accept", accept_rating(&rating_of(2), &b), &[&t.payee]);
+    world.ok(
+        "accept",
+        accept_rating(&world, &rating_of(2), &b),
+        &[&t.payee],
+    );
     world.ok(
         "release",
         rated(t.payout(nonce(2), &a, None), 2),
@@ -514,7 +555,7 @@ fn the_specialists_signature_elsewhere_in_a_payer_release_is_not_agreement() {
     let (_, second) = job(&mut world, 3);
     world
         .send(
-            &[accept_rating(&second, &s), release(2)],
+            &[accept_rating(&world, &second, &s), release(2)],
             &[&consumer, &specialist],
         )
         .unwrap();
@@ -572,7 +613,7 @@ fn a_rated_exit_that_pays_nothing_does_not_open_the_rating() {
         world.ok("open", open_rating(&escrow, &a, None), &[&t.payer]);
         world.ok(
             "accept",
-            accept_rating(&rating_address(&escrow), &b),
+            accept_rating(&world, &rating_address(&escrow), &b),
             &[&t.payee],
         );
         // 1 and 2: the vault was emptied. 3: one base unit is left.
@@ -669,7 +710,10 @@ fn several_rated_jobs_in_one_transaction_each_keep_their_own_rating() {
     // transaction; the buyer then releases the second.
     world
         .send(
-            &[exit(1, &s, Some(600_000)), accept_rating(&rating(2), &s)],
+            &[
+                exit(1, &s, Some(600_000)),
+                accept_rating(&world, &rating(2), &s),
+            ],
             &[&specialist],
         )
         .unwrap();

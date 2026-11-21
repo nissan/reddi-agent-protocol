@@ -14,7 +14,7 @@ use {
         error::{
             fail, require, AccountNotEnoughKeys, AlreadyAttested, AttestationAlreadyResolved,
             AttestationNotClosable, AttestationScoreOutOfRange, ConstraintSeeds, JobNotPaid,
-            JudgeNotActive, NotAttestationAgent, UnauthorisedSigner,
+            JudgeNotActive, NotAttestationAgent, RatingJobMismatch, UnauthorisedSigner,
         },
         instructions::rating::Party,
         state::{
@@ -33,14 +33,19 @@ use {
 ///
 /// Accounts: `[w] attestation`, `[w] rating`, `[] judge_agent`,
 /// `[w, s] judge`, `[] system_program`.
-/// Data: `scores: [u8; 5]` (1 to 10 each).
+/// Data: `scores: [u8; 5]` (1 to 10 each), `opened_slot: u64` (the slot the
+/// job's rating was opened in, as read from the rating account; it names the
+/// job, so scores signed for one job are refused for a later one at the same
+/// address).
 ///
 /// The job and its consumer are taken from the rating account. The signer
 /// must be the judge that account names and be registered as an attestation
 /// agent (type 1 or 2) whose record is active. The rating account remembers that the job was
 /// attested, so closing the attestation does not allow another.
 pub fn attest(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let scores: [u8; 5] = Args(data).array()?;
+    let mut args = Args(data);
+    let scores: [u8; 5] = args.array()?;
+    let opened_slot = args.u64()?;
     let [attestation, rating, judge_agent, judge, system_program, ..] = accounts else {
         return Err(fail(&AccountNotEnoughKeys));
     };
@@ -56,6 +61,7 @@ pub fn attest(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -
         job.has_judge() && judge.address() == &job.judge,
         &UnauthorisedSigner,
     )?;
+    require(opened_slot == job.opened_slot(), &RatingJobMismatch)?;
     require(job.state != RATING_AWAITING_SETTLEMENT, &JobNotPaid)?;
     require(!job.attested(), &AlreadyAttested)?;
     at_seeds(

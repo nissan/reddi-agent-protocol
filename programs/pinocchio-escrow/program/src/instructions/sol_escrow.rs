@@ -205,7 +205,12 @@ pub fn pay_out(
     };
     require(record.status == STATUS_LOCKED, &NotLocked)?;
     let rated = if record.rated() {
-        Some(rating::for_exit(program_id, escrow.address(), trailing)?)
+        Some(rating::for_exit(
+            program_id,
+            escrow.address(),
+            trailing,
+            slot,
+        )?)
     } else {
         None
     };
@@ -267,7 +272,7 @@ pub fn cancel(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResu
         record.cancel_window_slots(),
     )?;
     if record.rated() {
-        let (account, _) = rating::for_exit(program_id, escrow.address(), trailing)?;
+        let (account, _) = rating::for_exit(program_id, escrow.address(), trailing, slot)?;
         close(account, payer)?;
     }
     close(escrow, payer)?;
