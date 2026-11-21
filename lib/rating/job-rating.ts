@@ -111,6 +111,8 @@ const PROGRAM_ERROR_TEXT: Partial<Record<string, string>> = {
   AlreadyRevealed: "This wallet has already revealed its score.",
   RatingNotFinal: "The rating is not final yet, so the rent cannot be reclaimed.",
   AttestationAlreadyResolved: "This attestation has already been confirmed or disputed.",
+  RatingJustOpened: "A rated job cannot end in the slot its rating was opened in. Wait a moment and try again.",
+  RatingJobMismatch: "The job at this escrow address has changed since it was read. Refresh, check the job, then try again.",
 };
 
 /** A sentence for a failed send. Wallet refusals and known program errors are named; anything else gets a general message. */
