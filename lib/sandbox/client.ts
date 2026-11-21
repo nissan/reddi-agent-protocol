@@ -100,6 +100,21 @@ export function devnetPaymentHeader(challenge: SandboxChallenge, txSignature: st
   });
 }
 
+/** The receipt for a metered escrow the visitor's wallet locked. The provider settles it after the answer. */
+export function meteredPaymentHeader(challenge: SandboxChallenge, escrow: string, lockSignature: string, payer: string): string {
+  return JSON.stringify({
+    settlement: "metered-escrow",
+    network: SANDBOX_NETWORK,
+    payTo: challenge.payTo,
+    amount: String(challenge.amount),
+    currency: SANDBOX_CURRENCY,
+    nonce: challenge.nonce,
+    escrow,
+    lockSignature,
+    payer,
+  });
+}
+
 function shellQuote(text: string): string {
   return `'${text.replace(/'/g, `'\\''`)}'`;
 }

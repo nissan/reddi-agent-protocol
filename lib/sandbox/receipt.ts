@@ -275,8 +275,7 @@ export function isSandboxReceipt(value: unknown): value is SandboxReceipt {
   if ((fee.amount === "0") !== (fee.treasury === undefined)) return false;
   if (BigInt(fee.amount) >= BigInt(payment.amount)) return false;
   if (payment.settlement === "metered-escrow") {
-    // Only a simulated call is metered in the sandbox; a devnet transfer pays the maximum directly.
-    if (!simulated) return false;
+    // A simulated call or a devnet metered escrow; a direct devnet transfer pays the maximum and is never metered.
     const metered = payment.metered;
     if (!isRecord(metered) || !onlyKeys(metered, METERED_KEYS) || !METERED_KEYS.every((key) => typeof metered[key] === "string" && BASE_UNITS.test(metered[key] as string))) return false;
     const max = BigInt(metered.maxAmount as string);

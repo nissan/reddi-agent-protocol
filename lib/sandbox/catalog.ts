@@ -3,8 +3,9 @@
  *
  * Everything here is sandbox data. Providers answer from a script, not from a
  * running model, so each declared model id carries the `sandbox/` prefix and no
- * receipt names a model that did not run. Payee addresses are the public devnet
- * wallets first recorded for the earlier economic demo.
+ * receipt names a model that did not run. Payee addresses are devnet-only
+ * wallets whose keys the sandbox server holds (`SANDBOX_DEVNET_PAYEE_KEYS`), so
+ * a provider can settle a metered escrow after it answers. They hold devnet SOL only.
  */
 
 export const SANDBOX_NETWORK = "solana-devnet" as const;
@@ -27,7 +28,7 @@ export type SandboxProvider = {
    * SOL at a fixed demo rate.
    */
   pricing: { inputPerMillionUsd: string; outputPerMillionUsd: string; maxOutputTokens: number };
-  /** Public devnet wallet that receives wallet-mode payments. */
+  /** Devnet wallet that receives wallet-mode payments and signs the metered settle. */
   payTo: string;
   behaviour: SandboxProviderBehaviour;
   /** Starting sandbox reputation, shown before the visitor's own calls. */
@@ -41,7 +42,7 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
     name: "Atlas Review",
     tagline: "Careful, slower, priced for depth.",
     pricing: { inputPerMillionUsd: "3", outputPerMillionUsd: "15", maxOutputTokens: 2000 },
-    payTo: "8qSuegJzQ9QGWnXZve5fKahq4rDm6K3o9wEnKLkXp3To",
+    payTo: "i63cUYvKsdECVoyYV7LYHTa3tCvjGnJR6yxrKPAyYdq",
     behaviour: "honest",
     reputation: { score: 4.8, receipts: 212 },
   },
@@ -51,7 +52,7 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
     name: "Swift Inference",
     tagline: "Fast and cheap, shorter answers.",
     pricing: { inputPerMillionUsd: "0.2", outputPerMillionUsd: "0.8", maxOutputTokens: 1000 },
-    payTo: "2EmtCTzhoSSorg2rRSnTbngGJqkqNufgtFUZRGU4iFWq",
+    payTo: "33McXcKFvwmNJTBpz54mtrWVec8vC96ZdtUm5MdzSvuk",
     behaviour: "honest",
     reputation: { score: 4.1, receipts: 57 },
   },
@@ -61,7 +62,7 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
     name: "Bargain Models",
     tagline: "Lowest price on the list.",
     pricing: { inputPerMillionUsd: "0.05", outputPerMillionUsd: "0.2", maxOutputTokens: 1000 },
-    payTo: "4WzsVzdmCDjqZ5Ab63hCntNHoz6L2ziQ9Jmat3satHzD",
+    payTo: "DgXFCQKjajCyWu7npaDS74kYsQa3LtYTjdVita9vBMok",
     behaviour: "fails-spot-check",
     reputation: { score: 3.2, receipts: 18 },
   },
@@ -71,7 +72,7 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
     name: "Night Owl Compute",
     tagline: "Listed, but not answering right now.",
     pricing: { inputPerMillionUsd: "0.6", outputPerMillionUsd: "2.4", maxOutputTokens: 2000 },
-    payTo: "CischZ2HZBazNPJJLdc5yYr9u8ith1vn5V2pQZUPQqEF",
+    payTo: "5mXHtZM5dzHo8ZrkcFDwqPySw49bHJjDmb2id44exRjq",
     behaviour: "offline",
     reputation: { score: 4.4, receipts: 96 },
   },

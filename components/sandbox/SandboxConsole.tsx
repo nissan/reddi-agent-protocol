@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Connection, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
+import { buildSandboxMeteredLock } from "@/lib/sandbox/escrow";
 
 import {
   findSandboxProviderById,
@@ -26,6 +27,7 @@ import {
   explorerAddressUrl,
   explorerTxUrl,
   marketingSignupUrl,
+  meteredPaymentHeader,
   providerPriceView,
   shortAddress,
   simulatedPaymentHeader,
@@ -46,6 +48,8 @@ const WalletMultiButton = dynamic(
 const DEVNET_RPC = "https://api.devnet.solana.com";
 const DEVNET_GENESIS_HASH = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 const FEE_HEADROOM_LAMPORTS = 10_000;
+/** Rent for the escrow account, returned to the visitor when the provider settles. */
+const ESCROW_RENT_HEADROOM_LAMPORTS = 2_500_000;
 const FAUCET_URL = "https://faucet.solana.com";
 /** Set at build time once the marketing site has an address; the button is hidden until then. */
 const SIGNUP_URL = marketingSignupUrl(process.env.NEXT_PUBLIC_MARKETING_ORIGIN);
@@ -89,6 +93,7 @@ function expectedPaymentFor(provider: SandboxProvider, messages: readonly { cont
   const expected: { amount?: string; txSignature?: string; payer?: string } = { amount: maxChargeFor(provider, messages).toString() };
   try {
     const sent = JSON.parse(paymentHeader) as { txSignature?: unknown; payer?: unknown };
+    // A metered escrow's receipt names the provider's settle transaction, which the visitor did not sign, so only a direct transfer's is compared.
     if (typeof sent.txSignature === "string") expected.txSignature = sent.txSignature;
     if (typeof sent.payer === "string") expected.payer = sent.payer;
   } catch {
@@ -189,7 +194,7 @@ function ReceiptPaymentFields({ payment, simulated }: { payment: SandboxReceiptP
     <>
       <Field label={simulated ? "Paid (simulated, nothing was paid)" : "Paid"}>{sol(amount)} on {payment.network}</Field>
       <Field label="Protocol fee">
-        none on this transfer. A direct devnet transfer pays the maximum straight to the provider; the metered escrow that takes the {feePercent} fee and refunds the rest is not on devnet yet.
+        none on this transfer. A direct devnet transfer pays the maximum straight to the provider; only the metered escrow takes the {feePercent} fee and refunds the rest.
       </Field>
     </>
   );
@@ -215,6 +220,8 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
   const [reputation, setReputation] = useState(() => initialSandboxReputation(SANDBOX_PROVIDERS));
   const [receipts, setReceipts] = useState<SandboxReceipt[]>([]);
   const [providerKeys, setProviderKeys] = useState<Record<string, string>>({});
+  // Providers whose server-held devnet key can settle a metered escrow. Others take a direct transfer.
+  const [meteredProviders, setMeteredProviders] = useState<Record<string, boolean>>({});
   const [origin, setOrigin] = useState("https://app.agent-protocol.reddi.tech");
   const [pendingWalletPayment, setPendingWalletPayment] = useState<string | null>(null);
   // True once the page is interactive and the provider key listing has settled.
@@ -231,13 +238,16 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
     let cancelled = false;
     fetch(SANDBOX_MODELS_PATH, { cache: "no-store" })
       .then((response) => response.json())
-      .then((listing: { data?: { rap?: { providerId?: string; receiptProviderId?: string } }[] }) => {
+      .then((listing: { data?: { rap?: { providerId?: string; receiptProviderId?: string; meteredEscrow?: { available?: boolean } } }[] }) => {
         if (cancelled) return;
         const keys: Record<string, string> = {};
+        const metered: Record<string, boolean> = {};
         for (const entry of listing.data ?? []) {
           if (entry.rap?.providerId && entry.rap.receiptProviderId) keys[entry.rap.providerId] = entry.rap.receiptProviderId;
+          if (entry.rap?.providerId && entry.rap.meteredEscrow?.available === true) metered[entry.rap.providerId] = true;
         }
         setProviderKeys(keys);
+        setMeteredProviders(metered);
       })
       .catch(() => undefined)
       .finally(() => {
@@ -388,20 +398,28 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
         setNotice({ tone: "bad", title: "Not connected to devnet", text: "The sandbox only builds devnet transfers, so nothing was signed." });
         return;
       }
+      const metered = meteredProviders[provider.id] === true;
       const balance = await devnet.getBalance(publicKey);
-      if (balance < lamports + FEE_HEADROOM_LAMPORTS) {
+      if (balance < lamports + FEE_HEADROOM_LAMPORTS + (metered ? ESCROW_RENT_HEADROOM_LAMPORTS : 0)) {
         setNotice({ tone: "info", title: "This wallet needs devnet SOL", text: `It holds ${(balance / 1_000_000_000).toFixed(4)} devnet SOL. Get free test SOL from ${FAUCET_URL}, or switch to the simulated payment.` });
         return;
       }
       const latest = await devnet.getLatestBlockhash("confirmed");
+      // Metered: lock the maximum in the devnet escrow; the provider settles the actual cost and the rest comes back.
+      // Otherwise: transfer the maximum straight to the provider.
+      const lock = metered
+        ? buildSandboxMeteredLock({ payer: publicKey, payee: new PublicKey(challenge.payTo), maxLamports: BigInt(lamports), challengeNonce: challenge.nonce })
+        : undefined;
       const transaction = new Transaction({ feePayer: publicKey, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight }).add(
-        SystemProgram.transfer({ fromPubkey: publicKey, toPubkey: new PublicKey(challenge.payTo), lamports }),
+        lock ? lock.instruction : SystemProgram.transfer({ fromPubkey: publicKey, toPubkey: new PublicKey(challenge.payTo), lamports }),
       );
       // Signed in the visitor's wallet and submitted here to devnet only. The
-      // devnet blockhash means the signed transfer cannot land on another cluster.
+      // devnet blockhash means the signed transaction cannot land on another cluster.
       const signed = await signTransaction(transaction);
       const signature = await devnet.sendRawTransaction(signed.serialize());
-      const paymentHeader = devnetPaymentHeader(challenge, signature, publicKey.toBase58());
+      const paymentHeader = lock
+        ? meteredPaymentHeader(challenge, lock.escrow.toBase58(), signature, publicKey.toBase58())
+        : devnetPaymentHeader(challenge, signature, publicKey.toBase58());
       // From here the transfer may be on devnet, so it is remembered before anything else can fail.
       setPendingWalletPayment(paymentHeader);
       setNotice({ tone: "info", title: "Transfer sent to devnet", text: "Waiting for confirmation, then presenting it to the provider." });
@@ -615,13 +633,18 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                     ) : (
                       <div className="space-y-3">
                         <p className="text-sm leading-6 text-gray-300">
-                          Your wallet signs one transfer of {String(challenge.amount)} devnet SOL to the provider&apos;s devnet wallet. Set the wallet to Solana devnet first. Test SOL is free from the{" "}
-                          <a className="underline" href={FAUCET_URL} target="_blank" rel="noreferrer">Solana faucet</a> and has no monetary value; what you send here is not returned.
+                          {meteredProviders[provider.id] ? (
+                            <>Your wallet locks up to {String(challenge.amount)} devnet SOL in the escrow program. After it answers, the provider settles the actual tokens used, {Number(SANDBOX_FEE_BPS) / 100}% of that goes to the protocol treasury, and the rest of the maximum comes straight back to you. </>
+                          ) : (
+                            <>Your wallet signs one transfer of {String(challenge.amount)} devnet SOL to the provider&apos;s devnet wallet; what you send here is not returned. </>
+                          )}
+                          Set the wallet to Solana devnet first. Test SOL is free from the{" "}
+                          <a className="underline" href={FAUCET_URL} target="_blank" rel="noreferrer">Solana faucet</a> and has no monetary value.
                         </p>
                         <div className="flex flex-wrap items-center gap-3">
                           <WalletMultiButton />
                           <button type="button" data-testid="sandbox-pay-wallet" className={actionButton} disabled={busy !== null || !connected || pendingWalletPayment !== null} onClick={payWithWallet}>
-                            {busy === "pay" ? "Waiting for devnet…" : `Pay ${String(challenge.amount)} devnet SOL`}
+                            {busy === "pay" ? "Waiting for devnet…" : meteredProviders[provider.id] ? `Lock up to ${String(challenge.amount)} devnet SOL` : `Pay ${String(challenge.amount)} devnet SOL`}
                           </button>
                           {pendingWalletPayment ? (
                             <button type="button" className={quietButton} disabled={busy !== null} onClick={presentPendingAgain}>Present my transfer again</button>
