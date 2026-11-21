@@ -17,7 +17,11 @@
  *                 Before a window has passed, a finish mode simulates the action, shows it is refused, and stops.
  *
  * Signing modes read two keypair files by path: RAP_E2E_PAYER_KEYPAIR and RAP_E2E_PAYEE_KEYPAIR. The script never
- * prints, copies or writes key material. The payer pays every network fee and rent; the payee only co-signs.
+ * prints, copies or writes key material. The payer pays rent and the fees of its own actions. The payee signs its
+ * actions alone and pays their fees (the SOL release and settle instructions treat a payer signature as a payer
+ * action, and a fee payer always signs), so `run` first sends the payee 0.01 SOL when it holds under 0.005 SOL.
+ * A run id can be used once. RAP_E2E_LEFTOVER_RUN_ID (optional, `run` only) names an earlier interrupted run whose
+ * open escrows the payer closes first, paying the payee one base unit so the rest returns to the payer.
  * RAP_E2E_RUN_ID (letters, digits, dashes) names the run: escrow nonces are derived from it, so the finish modes find
  * the escrows that `run` left open. RAP_E2E_OUT_DIR (absolute) receives one JSON result file per mode.
  * Optional: RAP_E2E_RPC (default https://api.devnet.solana.com). The script refuses any cluster whose genesis hash
@@ -58,11 +62,26 @@ const AMOUNTS = {
   usdc: { release: 1_000_000n, meteredMax: 2_000_000n, meteredActual: 800_000n, decline: 500_000n, refund: 100_000n, claim: 100_000n },
 };
 
+// Every escrow label `run` creates, in order. Used to refuse a run id that was already used.
+const RUN_LABELS = ['sol-release', 'sol-metered', 'sol-decline', 'sol-refund', 'sol-claim',
+  'usdc-release', 'usdc-metered', 'usdc-decline', 'usdc-refund', 'usdc-claim'];
+// The payee signs alone for its own actions, so it needs a little SOL for fees.
+const PAYEE_FEE_FLOOR = 5_000_000n;
+const PAYEE_FEE_TOPUP = 10_000_000n;
+
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const disc = name => createHash('sha256').update(`global:${name}`).digest().subarray(0, 8);
 const u64 = value => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(value)); return b; };
 const meta = (pubkey, isWritable = false, isSigner = false) => ({ pubkey, isWritable, isSigner });
 const fee = (paid, sol) => { const f = (paid * FEE_BPS) / 10_000n; return sol && f > SOL_FEE_CAP ? SOL_FEE_CAP : f; };
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function base58(bytes) {
+  let n = BigInt(`0x${Buffer.from(bytes).toString('hex') || '0'}`);
+  let out = '';
+  while (n > 0n) { out = B58[Number(n % 58n)] + out; n /= 58n; }
+  for (const b of bytes) { if (b !== 0) break; out = `1${out}`; }
+  return out;
+}
 const explorer = sig => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
 
 function env(name, { required = true } = {}) {
@@ -149,16 +168,29 @@ async function tokenAmount(conn, address) {
   try { return (await token.getAccount(conn, address, 'confirmed', TOKEN)).amount; } catch { return null; }
 }
 
-function makeSender(conn, feePayer) {
+// The fee payer is the first signer. It matters: a fee payer always signs, and the SOL release and settle
+// instructions take whichever party signed as the authority (payer first). So a payee action must be signed, and
+// paid for, by the payee alone, or the program sees a payer action.
+function makeSender(conn) {
   async function build(ixs, signers) {
     const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash('confirmed');
-    const tx = new Transaction({ feePayer: feePayer.publicKey, blockhash, lastValidBlockHeight }).add(...ixs);
+    const tx = new Transaction({ feePayer: signers[0].publicKey, blockhash, lastValidBlockHeight }).add(...ixs);
     tx.sign(...signers);
     return tx;
   }
   async function send(label, ixs, signers) {
     const tx = await build(ixs, signers);
-    const signature = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' });
+    const local = base58(tx.signature);
+    let signature;
+    try {
+      signature = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' });
+    } catch (err) {
+      // A retried request can fail preflight because its own first copy already landed. Check before failing.
+      await sleep(2_000);
+      const landed = (await conn.getSignatureStatuses([local], { searchTransactionHistory: true })).value[0];
+      if (!landed || landed.err) throw err;
+      signature = local;
+    }
     const deadline = Date.now() + 90_000;
     while (Date.now() < deadline) {
       const status = (await conn.getSignatureStatuses([signature])).value[0];
@@ -190,7 +222,9 @@ async function solDelta(conn, signature, account) {
   const keys = tx.transaction.message.getAccountKeys().staticAccountKeys;
   const i = keys.findIndex(k => k.equals(account));
   assert(i >= 0, `${account.toBase58()} not in ${signature}`);
-  return BigInt(tx.meta.postBalances[i]) - BigInt(tx.meta.preBalances[i]);
+  // The fee payer (key 0) also paid the network fee; leave that out so the check sees only the escrow's effect.
+  const networkFee = i === 0 ? BigInt(tx.meta.fee) : 0n;
+  return BigInt(tx.meta.postBalances[i]) - BigInt(tx.meta.preBalances[i]) + networkFee;
 }
 async function tokenDelta(conn, signature, account) {
   const tx = await conn.getTransaction(signature, { commitment: 'finalized', maxSupportedTransactionVersion: 0 });
@@ -217,7 +251,7 @@ async function plan(conn) {
     payer: { address: payer.toBase58(), lamports: await conn.getBalance(payer), usdcAccount: payerSource.toBase58(), usdc: (await tokenAmount(conn, payerSource))?.toString() ?? null },
     payee: { address: payee.toBase58(), lamports: await conn.getBalance(payee), usdcAccount: payeeRecipient.toBase58(), usdc: (await tokenAmount(conn, payeeRecipient))?.toString() ?? null },
   };
-  const solNeeded = AMOUNTS.sol.release + AMOUNTS.sol.meteredMax + AMOUNTS.sol.decline + AMOUNTS.sol.refund + AMOUNTS.sol.claim + 50_000_000n;
+  const solNeeded = AMOUNTS.sol.release + AMOUNTS.sol.meteredMax + AMOUNTS.sol.decline + AMOUNTS.sol.refund + AMOUNTS.sol.claim + PAYEE_FEE_TOPUP + 50_000_000n;
   const usdcNeeded = AMOUNTS.usdc.release + AMOUNTS.usdc.meteredMax + AMOUNTS.usdc.decline + AMOUNTS.usdc.refund + AMOUNTS.usdc.claim;
   const shortfalls = [];
   if (BigInt(wallets.payer.lamports) < solNeeded) shortfalls.push(`payer needs at least ${Number(solNeeded) / 1e9} devnet SOL (locks plus rent and fees)`);
@@ -236,6 +270,7 @@ async function plan(conn) {
     const sim = await conn.simulateTransaction(tx.compileMessage(), undefined);
     sims[name] = sim.value.err ? { ok: false, err: sim.value.err, logs: sim.value.logs } : { ok: true, unitsConsumed: sim.value.unitsConsumed };
   }
+  if (BigInt(wallets.payee.lamports) < PAYEE_FEE_FLOOR) shortfalls.push(`payee holds under ${Number(PAYEE_FEE_FLOOR) / 1e9} SOL for its own fees; \`run\` sends it ${Number(PAYEE_FEE_TOPUP) / 1e9} SOL from the payer`);
   if (wallets.payee.usdc === null) shortfalls.push('payee has no devnet USDC account yet; `run` creates it (payer pays rent)');
   return { mode: 'plan', cluster, wallets, needs: { lamports: solNeeded.toString(), usdc: usdcNeeded.toString() }, shortfalls, simulations: sims, amounts: AMOUNTS };
 }
@@ -246,11 +281,43 @@ async function run(conn, runId) {
   const payer = payerKp.publicKey, payee = payeeKp.publicKey;
   assert(!payer.equals(payee), 'payer and payee must differ');
   const cluster = await checkCluster(conn);
-  const { send, refused } = makeSender(conn, payerKp);
-  const both = [payerKp, payeeKp];
+  const { send, refused } = makeSender(conn);
+  const asPayee = [payeeKp]; // the payee signs and pays its own fee, so the program sees a payee action
   const n = label => nonceFor(runId, label);
   const out = { mode: 'run', runId, cluster, payer: payer.toBase58(), payee: payee.toBase58(), steps: [], refusals: [], openEscrows: {} };
   const step = (name, signature, checks) => { out.steps.push({ name, signature, explorer: explorer(signature), ...checks }); };
+
+  // A run id can be used once: its escrow addresses derive from it.
+  for (const label of RUN_LABELS) {
+    const address = label.startsWith('sol-') ? solEscrow(payer, n(label)) : tokenEscrow(payer, n(label));
+    assert(!(await conn.getAccountInfo(address, 'confirmed')), `RAP_E2E_RUN_ID ${runId} was already used (${label} escrow ${address.toBase58()} exists). Pick a new run id.`);
+  }
+  // The payee pays the fees of its own actions.
+  if (BigInt(await conn.getBalance(payee, 'confirmed')) < PAYEE_FEE_FLOOR) {
+    const sig = await send('fund payee for its own fees', [SystemProgram.transfer({ fromPubkey: payer, toPubkey: payee, lamports: PAYEE_FEE_TOPUP })], [payerKp]);
+    step('fund payee for fees', sig, { lamports: PAYEE_FEE_TOPUP.toString() });
+  }
+  // Optional: close escrows left open by an earlier, interrupted run. The payer settles each at the smallest amount
+  // (one base unit to the payee, no fee at that size), so the rest comes back to the payer.
+  const leftoverRunId = env('RAP_E2E_LEFTOVER_RUN_ID', { required: false });
+  if (leftoverRunId) {
+    assert(/^[A-Za-z0-9-]{3,40}$/.test(leftoverRunId) && leftoverRunId !== runId, 'RAP_E2E_LEFTOVER_RUN_ID must be an earlier run id');
+    const source = token.getAssociatedTokenAddressSync(USDC, payer, true, TOKEN);
+    const recipient = token.getAssociatedTokenAddressSync(USDC, payee, true, TOKEN);
+    for (const label of RUN_LABELS) {
+      const nonce = nonceFor(leftoverRunId, label);
+      const sol = label.startsWith('sol-');
+      const address = sol ? solEscrow(payer, nonce) : tokenEscrow(payer, nonce);
+      if (!(await conn.getAccountInfo(address, 'confirmed'))) continue;
+      assert(sol || (await tokenAmount(conn, recipient)) !== null, `leftover ${label}: payee has no USDC account yet`);
+      const ix = sol
+        ? solPayout({ payer, payee, nonce, signer: 'payer', actual: 1n })
+        : usdcPayout({ payer, nonce, authority: payer, destination: recipient, refund: source, actual: 1n });
+      const sig = await send(`close leftover ${leftoverRunId}/${label}`, [ix], [payerKp]);
+      if (sol) await assertClosed(conn, address); else await assertClosed(conn, address, tokenVault(address));
+      step(`close leftover ${leftoverRunId}/${label}`, sig, { escrow: address.toBase58(), paidToPayee: '1' });
+    }
+  }
 
   console.log('SOL');
   {
@@ -258,9 +325,9 @@ async function run(conn, runId) {
     // Lock, then payer release.
     let sig = await send('sol lock (release case)', [solLock({ payer, payee, nonce: n('sol-release'), amount: a.release })], [payerKp]);
     step('sol lock release-case', sig, { amount: a.release.toString() });
-    out.refusals.push(await refused('sol payee claim before the claim window', [solPayout({ payer, payee, nonce: n('sol-release'), signer: 'payee' })], both, 'ClaimWindowNotElapsed'));
+    out.refusals.push(await refused('sol payee claim before the claim window', [solPayout({ payer, payee, nonce: n('sol-release'), signer: 'payee' })], asPayee, 'ClaimWindowNotElapsed'));
     out.refusals.push(await refused('sol payer refund before the cancel window', [solCancel({ payer, nonce: n('sol-release'), authority: payer })], [payerKp], 'CancelWindowNotElapsed'));
-    out.refusals.push(await refused('sol payee settle of an unmetered escrow', [solPayout({ payer, payee, nonce: n('sol-release'), signer: 'payee', actual: a.release / 2n })], both, 'NotMetered'));
+    out.refusals.push(await refused('sol payee settle of an unmetered escrow', [solPayout({ payer, payee, nonce: n('sol-release'), signer: 'payee', actual: a.release / 2n })], asPayee, 'NotMetered'));
     sig = await send('sol payer release', [solPayout({ payer, payee, nonce: n('sol-release'), signer: 'payer' })], [payerKp]);
     const relFee = fee(a.release, true);
     assert.equal(await solDelta(conn, sig, TREASURY), relFee, 'sol release: treasury fee');
@@ -272,9 +339,9 @@ async function run(conn, runId) {
     // Metered lock, then payee settle at the actual cost.
     sig = await send('sol metered lock', [solLock({ payer, payee, nonce: n('sol-metered'), amount: a.meteredMax, metered: true })], [payerKp]);
     step('sol metered lock', sig, { max: a.meteredMax.toString() });
-    out.refusals.push(await refused('sol settle above the authorised maximum', [solPayout({ payer, payee, nonce: n('sol-metered'), signer: 'payee', actual: a.meteredMax + 1n })], both, 'InvalidSettleAmount'));
-    out.refusals.push(await refused('sol settle of zero', [solPayout({ payer, payee, nonce: n('sol-metered'), signer: 'payee', actual: 0n })], both, 'InvalidSettleAmount'));
-    sig = await send('sol payee settle at actual cost', [solPayout({ payer, payee, nonce: n('sol-metered'), signer: 'payee', actual: a.meteredActual })], both);
+    out.refusals.push(await refused('sol settle above the authorised maximum', [solPayout({ payer, payee, nonce: n('sol-metered'), signer: 'payee', actual: a.meteredMax + 1n })], asPayee, 'InvalidSettleAmount'));
+    out.refusals.push(await refused('sol settle of zero', [solPayout({ payer, payee, nonce: n('sol-metered'), signer: 'payee', actual: 0n })], asPayee, 'InvalidSettleAmount'));
+    sig = await send('sol payee settle at actual cost', [solPayout({ payer, payee, nonce: n('sol-metered'), signer: 'payee', actual: a.meteredActual })], asPayee);
     const setFee = fee(a.meteredActual, true);
     assert.equal(await solDelta(conn, sig, TREASURY), setFee, 'sol settle: treasury fee');
     assert.equal(await solDelta(conn, sig, payee), a.meteredActual - setFee, 'sol settle: payee share');
@@ -285,7 +352,7 @@ async function run(conn, runId) {
     // Lock, then payee decline: full refund, no fee.
     sig = await send('sol lock (decline case)', [solLock({ payer, payee, nonce: n('sol-decline'), amount: a.decline })], [payerKp]);
     step('sol lock decline-case', sig, { amount: a.decline.toString() });
-    sig = await send('sol payee decline', [solCancel({ payer, nonce: n('sol-decline'), authority: payee })], both);
+    sig = await send('sol payee decline', [solCancel({ payer, nonce: n('sol-decline'), authority: payee })], asPayee);
     assert.equal(await solDelta(conn, sig, TREASURY), 0n, 'sol decline: no fee');
     await assertClosed(conn, solEscrow(payer, n('sol-decline')));
     step('sol payee decline', sig, { treasuryFee: '0' });
@@ -314,7 +381,7 @@ async function run(conn, runId) {
 
     let sig = await send('usdc lock (release case)', [lock('usdc-release', a.release)], [payerKp]);
     step('usdc lock release-case', sig, { amount: a.release.toString() });
-    out.refusals.push(await refused('usdc payee claim before the claim window', [payout('usdc-release', payee)], both, 'ClaimWindowNotElapsed'));
+    out.refusals.push(await refused('usdc payee claim before the claim window', [payout('usdc-release', payee)], asPayee, 'ClaimWindowNotElapsed'));
     out.refusals.push(await refused('usdc payer refund before the cancel window', [cancel('usdc-release', payer)], [payerKp], 'CancelWindowNotElapsed'));
     out.refusals.push(await refused('usdc payer release to its own account', [payout('usdc-release', payer, undefined, source)], [payerKp]));
     sig = await send('usdc payer release', [payout('usdc-release', payer)], [payerKp]);
@@ -327,8 +394,8 @@ async function run(conn, runId) {
 
     sig = await send('usdc metered lock', [lock('usdc-metered', a.meteredMax, true)], [payerKp]);
     step('usdc metered lock', sig, { max: a.meteredMax.toString() });
-    out.refusals.push(await refused('usdc settle above the authorised maximum', [payout('usdc-metered', payee, a.meteredMax + 1n)], both, 'InvalidSettleAmount'));
-    sig = await send('usdc payee settle at actual cost', [payout('usdc-metered', payee, a.meteredActual)], both);
+    out.refusals.push(await refused('usdc settle above the authorised maximum', [payout('usdc-metered', payee, a.meteredMax + 1n)], asPayee, 'InvalidSettleAmount'));
+    sig = await send('usdc payee settle at actual cost', [payout('usdc-metered', payee, a.meteredActual)], asPayee);
     const setFee = fee(a.meteredActual, false);
     assert.equal(await tokenDelta(conn, sig, TREASURY_USDC), setFee, 'usdc settle: treasury fee');
     assert.equal(await tokenDelta(conn, sig, recipient), a.meteredActual - setFee, 'usdc settle: payee share');
@@ -339,7 +406,7 @@ async function run(conn, runId) {
 
     sig = await send('usdc lock (decline case)', [lock('usdc-decline', a.decline)], [payerKp]);
     step('usdc lock decline-case', sig, { amount: a.decline.toString() });
-    sig = await send('usdc payee decline', [cancel('usdc-decline', payee)], both);
+    sig = await send('usdc payee decline', [cancel('usdc-decline', payee)], asPayee);
     assert.equal(await tokenDelta(conn, sig, source), a.decline, 'usdc decline: full refund');
     await assertClosed(conn, ...closedPair('usdc-decline'));
     step('usdc payee decline', sig, { refunded: a.decline.toString(), treasuryFee: '0' });
@@ -376,8 +443,8 @@ async function finish(conn, runId, kind) {
   const payeeKp = loadKeypair('RAP_E2E_PAYEE_KEYPAIR');
   const payer = payerKp.publicKey, payee = payeeKp.publicKey;
   const cluster = await checkCluster(conn);
-  const { send, refused } = makeSender(conn, payerKp);
-  const both = [payerKp, payeeKp];
+  const { send, refused } = makeSender(conn);
+  const asPayee = [payeeKp]; // the payee signs and pays its own fee, so the program sees a payee action
   const before = await openEscrowStatus(conn, payer, runId);
   const out = { mode: `finish-${kind}`, runId, cluster, before, steps: [], refusals: [] };
   const source = token.getAssociatedTokenAddressSync(USDC, payer, true, TOKEN);
@@ -387,10 +454,10 @@ async function finish(conn, runId, kind) {
   const ready = before.escrows[solLabel].slotsRemaining === 0 && before.escrows[usdcLabel].slotsRemaining === 0;
   const solIx = kind === 'refund'
     ? { ix: solCancel({ payer, nonce: nonceFor(runId, solLabel), authority: payer }), signers: [payerKp], error: 'CancelWindowNotElapsed' }
-    : { ix: solPayout({ payer, payee, nonce: nonceFor(runId, solLabel), signer: 'payee' }), signers: both, error: 'ClaimWindowNotElapsed' };
+    : { ix: solPayout({ payer, payee, nonce: nonceFor(runId, solLabel), signer: 'payee' }), signers: asPayee, error: 'ClaimWindowNotElapsed' };
   const usdcIx = kind === 'refund'
     ? { ix: usdcCancel({ payer, nonce: nonceFor(runId, usdcLabel), authority: payer, destination: source }), signers: [payerKp], error: 'CancelWindowNotElapsed' }
-    : { ix: usdcPayout({ payer, nonce: nonceFor(runId, usdcLabel), authority: payee, destination: recipient, refund: source }), signers: both, error: 'ClaimWindowNotElapsed' };
+    : { ix: usdcPayout({ payer, nonce: nonceFor(runId, usdcLabel), authority: payee, destination: recipient, refund: source }), signers: asPayee, error: 'ClaimWindowNotElapsed' };
   if (!ready) {
     out.refusals.push(await refused(`sol ${kind} before its window`, [solIx.ix], solIx.signers, solIx.error));
     out.refusals.push(await refused(`usdc ${kind} before its window`, [usdcIx.ix], usdcIx.signers, usdcIx.error));
@@ -399,7 +466,7 @@ async function finish(conn, runId, kind) {
   }
   if (kind === 'claim') {
     // The cancel window is long past here too, but a stranger still cannot claim, and the payee cannot redirect.
-    out.refusals.push(await refused('usdc payee claim to the payer account', [usdcPayout({ payer, nonce: nonceFor(runId, usdcLabel), authority: payee, destination: source, refund: source })], both));
+    out.refusals.push(await refused('usdc payee claim to the payer account', [usdcPayout({ payer, nonce: nonceFor(runId, usdcLabel), authority: payee, destination: source, refund: source })], asPayee));
   }
   let sig = await send(`sol ${kind} after window`, [solIx.ix], solIx.signers);
   const solAmount = AMOUNTS.sol[kind];
