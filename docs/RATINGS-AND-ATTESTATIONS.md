@@ -45,8 +45,8 @@ before it serves knows for certain whether the job is rated.
 `open_rating` may name one judge, a third wallet that is neither the buyer nor
 the seller. Only that wallet can attest the job later.
 
-**What it costs.** The buyer pays the rent of the rating account: 2,770,080
-lamports, about 0.00277 SOL. It is a deposit, not a fee. It comes back when the
+**What it costs.** The buyer pays the rent of the rating account: 2,021,840
+lamports, about 0.00202 SOL. It is a deposit, not a fee. It comes back when the
 buyer closes the rating, when the escrow is refunded or declined, or when the
 buyer releases an escrow the seller never agreed to have rated.
 
@@ -203,8 +203,8 @@ address are refused (6051).
   and its record must be active.
 - A job is attested at most once, and the attestation must be made before the
   buyer closes the rating account.
-- The judge pays the rent of the attestation account (127 bytes): 1,774,800
-  lamports, about 0.00177 SOL, returned when it is closed. The attestation
+- The judge pays the rent of the attestation account (127 bytes): 1,295,400
+  lamports, about 0.0013 SOL, returned when it is closed. The attestation
   stores the job's `opened_slot`.
 - Only the buyer of that job resolves the attestation, once, naming the job
   by the `opened_slot` the attestation stores; a decision prepared for an

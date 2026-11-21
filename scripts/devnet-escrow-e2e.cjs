@@ -112,7 +112,7 @@ const JUDGE_FLOOR = 20_000_000n;
 const JUDGE_TOPUP = 25_000_000n;
 const AGENT_REGISTRATION_FEE = 10_000_000n;
 const AGENT_FEE_BURN_ADDRESS = new PublicKey('1nc1nerator11111111111111111111111111111111');
-const RATING_RENT_README = 2_770_080n; // 270 bytes at 6,960 lamports per byte; reported, not asserted
+const RATING_RENT_README = 2_021_840n; // 270 bytes + 128 overhead at 5,080 lamports per byte (devnet and mainnet, 22 Nov 2026); reported, not asserted
 const SLOT_MS = 400; // nominal
 const SCORE_MAX = 10_000;
 const RATING_EXPIRE_PENALTY = 500;
@@ -490,6 +490,7 @@ async function run(conn, runId) {
     step('usdc lock claim-case (left open)', sig, { amount: a.claim.toString() });
   }
   out.openEscrows = await openEscrowStatus(conn, payer, runId);
+  out.result = 'passed';
   return out;
 }
 
