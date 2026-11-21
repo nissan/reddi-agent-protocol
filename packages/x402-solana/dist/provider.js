@@ -9,9 +9,11 @@ exports.meteredOffer = meteredOffer;
 exports.readMeteredPaymentHeader = readMeteredPaymentHeader;
 exports.meteredPaymentHeaderValue = meteredPaymentHeaderValue;
 exports.checkProviderCluster = checkProviderCluster;
+exports.checkMeteredPayout = checkMeteredPayout;
 exports.verifyMeteredLock = verifyMeteredLock;
 exports.usageFrom = usageFrom;
 exports.meteredSettlement = meteredSettlement;
+exports.confirmMeteredSettlement = confirmMeteredSettlement;
 exports.meteredDecline = meteredDecline;
 /**
  * The seller side of a per-token (metered) call.
@@ -26,6 +28,7 @@ exports.meteredDecline = meteredDecline;
  * instructions; the operator signs and sends them.
  */
 const web3_js_1 = require("@solana/web3.js");
+const spl_token_1 = require("@solana/spl-token");
 const escrow_readiness_1 = require("./escrow-readiness");
 const metered_1 = require("./metered");
 const payment_1 = require("./payment");
@@ -58,6 +61,7 @@ function providerMeteredTerms(input) {
         tokenProgram: new web3_js_1.PublicKey(currency.tokenProgram),
         payee: new web3_js_1.PublicKey(input.payee),
         maxOutputTokens,
+        ...(input.payoutAccount ? { payoutAccount: new web3_js_1.PublicKey(input.payoutAccount) } : {}),
     };
 }
 /** About four characters a token, over every message. */
@@ -149,9 +153,78 @@ async function checkProviderCluster(readGenesisHash, network, expectedGenesisHas
     return actual === expected ? { ok: true } : { ok: false, reason: 'wrong_cluster', message: `The RPC endpoint is not ${network}.` };
 }
 /**
+ * Reads every account a settle of this escrow would pay into and says whether
+ * the payout can land: the provider's token account (or its recovery
+ * account), the treasury's, and the buyer's account for the unused part. Each
+ * must exist under the mint's token program, be initialised, not frozen, hold
+ * the mint, have the right owner and not require a memo.
+ *
+ * Nothing is created by default. `allowPayerAssociatedAccount` lets the
+ * unused part go to the payer's associated token account when the recorded
+ * source no longer works; `createRefundAccount` lets the provider pay to
+ * create that account when it does not exist at all.
+ */
+async function checkMeteredPayout(input) {
+    const { terms, escrow } = input;
+    const token = { mint: terms.mint, tokenProgram: terms.tokenProgram };
+    const treasury = input.treasury ?? token_escrow_1.ESCROW_PROTOCOL_TREASURY;
+    const treasuryToken = (0, token_escrow_1.treasuryTokenAccount)(token, treasury);
+    const notReady = (message) => ({ ok: false, reason: 'provider_not_ready', message });
+    try {
+        let payTo;
+        if (!(0, escrow_readiness_1.checkTokenAccount)(escrow.recipient, await input.readAccount(escrow.recipient), { ...token, owner: terms.payee }).ok) {
+            const recovery = terms.payoutAccount;
+            if (!recovery || recovery.equals(escrow.recipient) || !(0, escrow_readiness_1.checkTokenAccount)(recovery, await input.readAccount(recovery), { ...token, owner: terms.payee }).ok) {
+                return notReady(`This provider's ${terms.price.currency} account cannot receive payment right now. Nothing was accepted; your lock is untouched.`);
+            }
+            payTo = recovery;
+        }
+        if (!(0, escrow_readiness_1.checkTokenAccount)(treasuryToken, await input.readAccount(treasuryToken), { ...token, owner: treasury }).ok) {
+            return notReady(`The protocol treasury cannot receive ${terms.price.currency} right now, so this provider is not taking payment in it. Nothing was accepted; your lock is untouched.`);
+        }
+        let harvestWithheldFees = false;
+        if (terms.tokenProgram.equals(spl_token_1.TOKEN_2022_PROGRAM_ID)) {
+            const mint = await input.readAccount(terms.mint);
+            if (!mint || !mint.owner.equals(spl_token_1.TOKEN_2022_PROGRAM_ID))
+                return notReady(`The ${terms.price.currency} mint could not be read. Nothing was accepted; your lock is untouched.`);
+            try {
+                harvestWithheldFees = (0, spl_token_1.getTransferFeeConfig)((0, spl_token_1.unpackMint)(terms.mint, { data: Buffer.from(mint.data), owner: mint.owner, lamports: 0, executable: false }, spl_token_1.TOKEN_2022_PROGRAM_ID)) !== null;
+            }
+            catch {
+                return notReady(`The ${terms.price.currency} mint could not be read. Nothing was accepted; your lock is untouched.`);
+            }
+        }
+        const base = { ...(payTo ? { payTo } : {}), treasuryToken, harvestWithheldFees };
+        const refundTarget = { ...token, owner: escrow.payer };
+        const source = await input.readAccount(escrow.source);
+        if ((0, escrow_readiness_1.checkTokenAccount)(escrow.source, source, refundTarget).ok)
+            return { ok: true, payout: { ...base, refundTo: escrow.source } };
+        if (input.allowPayerAssociatedAccount || input.createRefundAccount) {
+            const associated = (0, spl_token_1.getAssociatedTokenAddressSync)(terms.mint, escrow.payer, true, terms.tokenProgram);
+            const held = associated.equals(escrow.source) ? source : await input.readAccount(associated);
+            if ((0, escrow_readiness_1.checkTokenAccount)(associated, held, refundTarget).ok)
+                return { ok: true, payout: { ...base, refundTo: associated } };
+            // Only an account that does not exist can be created. A frozen or memo-requiring one stays as it is.
+            if (input.createRefundAccount && held === null)
+                return { ok: true, payout: { ...base, refundTo: associated, createRefundAccount: true } };
+        }
+        return {
+            ok: false,
+            reason: 'refund_account_unusable',
+            message: `The ${terms.price.currency} account that funded this lock is closed, frozen or requires a memo, so the unused part could not be returned to you. Nothing was accepted. Restore that account and present the same lock again, or refund the lock once its refund window opens.`,
+        };
+    }
+    catch {
+        return { ok: false, reason: 'payment_check_unavailable', message: 'The chain could not be read. Nothing was accepted; present the same receipt again.' };
+    }
+}
+/**
  * Checks the lock on chain against this provider's terms: the escrow program,
  * the address the payer and nonce give, still locked, metered, payable to this
- * provider's token account in the accepted mint, and at least `minimum`.
+ * provider's token account in the accepted mint, and at least `minimum`. Then
+ * checks that the payout can land (`checkMeteredPayout`), using the source
+ * account the lock recorded for the unused part, so a call is refused before
+ * any work is done rather than left unpaid after it.
  * The escrow is then remembered, so one lock pays for one call.
  */
 async function verifyMeteredLock(input) {
@@ -213,12 +286,16 @@ async function verifyMeteredLock(input) {
     if (escrow.amount < input.minimum) {
         return { ok: false, reason: 'wrong_amount', message: `The locked maximum is below this request's estimate of ${input.minimum.toString()} base units.` };
     }
+    const payout = await checkMeteredPayout({ terms, escrow, readAccount: input.readAccount, ...(input.treasury ? { treasury: input.treasury } : {}) });
+    if (!payout.ok)
+        return payout;
     if (!(await input.replayStore.checkAndStore(`metered-escrow:${header.escrow.toBase58()}`))) {
         return { ok: false, reason: 'duplicate_nonce', message: 'This escrow has already paid for a call.' };
     }
     return {
         ok: true,
         payer: escrow.payer,
+        payout: payout.payout,
         maxBaseUnits: escrow.amount,
         terms: {
             programId: terms.programId,
@@ -250,31 +327,66 @@ function usageFrom(upstream, inputEstimate) {
     return { inputTokens: input ?? inputEstimate, outputTokens: output ?? Math.ceil(text.length / 4) };
 }
 /**
- * The settle for the tokens used, never above the locked maximum. The unused
- * part goes to the buyer's associated token account, and the transaction first
- * creates it and the treasury's token account if either is missing, so a
- * closed source account or a treasury account not yet created cannot stop the
- * payout. The provider pays rent for anything it creates.
+ * The settle for the tokens used, never above the locked maximum. It pays
+ * into the accounts checked with the lock (`lock.payout`), or into `payout`
+ * when the caller has checked them again. Nothing is created unless that
+ * check chose to create the buyer's token account.
  */
-function meteredSettlement(terms, lock, usage) {
+function meteredSettlement(terms, lock, usage, payout = lock.payout) {
     const decimals = (0, payment_1.directPaymentCurrency)(terms.price.currency).decimals;
     const settlement = (0, metered_1.settleMeteredCall)(terms.price, usage, (0, payment_1.baseUnitsToDecimal)(lock.maxBaseUnits, decimals));
     if (settlement.chargedBaseUnits <= BigInt(0))
         throw new Error('nothing to settle');
-    const prep = (0, escrow_readiness_1.prepareTokenPayout)(lock.terms, terms.payee);
+    const prep = (0, escrow_readiness_1.prepareTokenPayout)(lock.terms, terms.payee, undefined, { refundTo: payout.refundTo, createRefundAccount: payout.createRefundAccount === true });
     const instruction = (0, token_escrow_1.buildSettleTokenEscrowInstruction)(lock.terms, false, terms.payee, {
         actual: settlement.chargedBaseUnits,
-        treasuryToken: prep.treasuryToken,
-        refundTo: prep.refundTo,
+        treasuryToken: payout.treasuryToken,
+        refundTo: payout.refundTo,
+        ...(payout.payTo ? { payTo: payout.payTo } : {}),
+        ...(payout.harvestWithheldFees ? { harvestWithheldFees: true } : {}),
     });
     return { settlement, instruction, instructions: [...prep.instructions, instruction] };
 }
 /**
+ * The amounts a settle actually moved, from the confirmed transaction: it
+ * must have succeeded, called the escrow program and named this escrow. The
+ * provider's credit and the treasury's fee are read from the balance changes,
+ * not from what the provider intended. Refused when the buyer got back less
+ * than the maximum less the amount billed, or more was billed than was
+ * locked: a receipt cannot state that honestly. A mint that charges a
+ * non-zero transfer fee would land here on every settle, since each transfer
+ * arrives short; the accepted Token-2022 mints are watched to stay at zero.
+ */
+function confirmMeteredSettlement(record, expected) {
+    if (!record)
+        return { ok: false, reason: 'not_found' };
+    if (record.failed)
+        return { ok: false, reason: 'failed' };
+    if (!record.programIds.includes(expected.programId.toBase58()) || !record.accounts.includes(expected.escrow.toBase58()))
+        return { ok: false, reason: 'wrong_transaction' };
+    const mint = expected.mint.toBase58();
+    const change = (account) => {
+        const row = record.tokenBalances.find((b) => b.account === account.toBase58() && b.mint === mint);
+        return row ? row.after - row.before : BigInt(0);
+    };
+    const providerBaseUnits = change(expected.destination);
+    const feeBaseUnits = change(expected.treasuryToken);
+    const returned = change(expected.refundTo);
+    const paidBaseUnits = providerBaseUnits + feeBaseUnits;
+    if (providerBaseUnits <= BigInt(0) || feeBaseUnits < BigInt(0) || returned < BigInt(0) || paidBaseUnits > expected.maxBaseUnits)
+        return { ok: false, reason: 'amounts_do_not_add_up' };
+    const refundedBaseUnits = expected.maxBaseUnits - paidBaseUnits;
+    if (returned < refundedBaseUnits)
+        return { ok: false, reason: 'amounts_do_not_add_up' };
+    return { ok: true, paidBaseUnits, feeBaseUnits, providerBaseUnits, refundedBaseUnits, surplusBaseUnits: returned - refundedBaseUnits };
+}
+/**
  * Declines a verified lock the provider will not serve, for example when the
  * model failed before any work was done: the payee may refund the whole
- * amount to the payer at any time. Returns the instruction for the operator
- * to sign with the provider wallet.
+ * amount to the payer at any time. The program sends a decline to the source
+ * account the lock recorded, which the lock check found usable. Returns the
+ * instruction for the operator to sign with the provider wallet.
  */
 function meteredDecline(terms, lock) {
-    return (0, token_escrow_1.buildSettleTokenEscrowInstruction)(lock.terms, true, terms.payee);
+    return (0, token_escrow_1.buildSettleTokenEscrowInstruction)(lock.terms, true, terms.payee, lock.payout.harvestWithheldFees ? { harvestWithheldFees: true } : {});
 }

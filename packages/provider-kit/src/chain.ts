@@ -4,6 +4,7 @@
  * from Solana goes through this, so tests replace it whole.
  */
 import { Connection, PublicKey, Transaction, type Keypair, type TransactionInstruction } from "@solana/web3.js";
+import type { SettlementRecord } from "@reddi/x402-solana";
 
 export interface ProviderChain {
   readGenesisHash(): Promise<string>;
@@ -11,7 +12,13 @@ export interface ProviderChain {
   readSlot(): Promise<bigint>;
   /** Signs with the provider wallet, sends, and resolves with the signature once confirmed. Rejects when it did not land. */
   sendInstructions(instructions: TransactionInstruction[]): Promise<string>;
+  /** What a confirmed transaction did: the programs it called, the accounts it named and each token balance before and after. Null when it cannot be found. */
+  readSettlement(signature: string): Promise<SettlementRecord | null>;
+  /** The newest successful transaction that named this account, or null. Used to find a settle whose send reported failure but landed. */
+  latestSuccess(address: PublicKey): Promise<string | null>;
 }
+
+const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 export function createProviderChain(rpcUrl: string, keypair?: Keypair): ProviderChain {
   const connection = new Connection(rpcUrl, "confirmed");
@@ -23,6 +30,38 @@ export function createProviderChain(rpcUrl: string, keypair?: Keypair): Provider
     },
     async readSlot() {
       return BigInt(await connection.getSlot("confirmed"));
+    },
+    async readSettlement(signature) {
+      // A transaction that has just confirmed can take a moment to be served.
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        if (attempt > 0) await pause(500 * attempt);
+        const found = await connection.getTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+        if (!found || !found.meta) continue;
+        const { meta } = found;
+        const message = found.transaction.message;
+        const keys = message.getAccountKeys(meta.loadedAddresses ? { accountKeysFromLookups: meta.loadedAddresses } : undefined);
+        const key = (index: number) => keys.get(index)?.toBase58() ?? "";
+        const accounts = Array.from({ length: keys.length }, (_, index) => key(index));
+        const balances = new Map<string, { account: string; mint: string; before: bigint; after: bigint }>();
+        const row = (index: number, mint: string) => {
+          const id = `${index}:${mint}`;
+          if (!balances.has(id)) balances.set(id, { account: key(index), mint, before: 0n, after: 0n });
+          return balances.get(id)!;
+        };
+        for (const b of meta.preTokenBalances ?? []) row(b.accountIndex, b.mint).before = BigInt(b.uiTokenAmount.amount);
+        for (const b of meta.postTokenBalances ?? []) row(b.accountIndex, b.mint).after = BigInt(b.uiTokenAmount.amount);
+        return {
+          failed: meta.err !== null,
+          programIds: message.compiledInstructions.map((instruction) => key(instruction.programIdIndex)),
+          accounts,
+          tokenBalances: [...balances.values()],
+        };
+      }
+      return null;
+    },
+    async latestSuccess(address) {
+      const recent = await connection.getSignaturesForAddress(address, { limit: 10 }, "confirmed");
+      return recent.find((entry) => entry.err === null)?.signature ?? null;
     },
     async sendInstructions(instructions) {
       if (!keypair) throw new Error("no provider key is loaded");

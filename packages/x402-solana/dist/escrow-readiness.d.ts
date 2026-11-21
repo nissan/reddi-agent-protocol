@@ -22,20 +22,56 @@ export declare function solPayoutWouldFail(currentLamports: bigint, incomingLamp
  */
 export declare function minimumSolPayout(currentLamports: bigint, rentExemptLamports?: bigint): bigint;
 export interface SettlePreparation {
-    /** Idempotent creates to put before the settle in the same transaction. */
+    /** Creates to put before the settle in the same transaction. Empty unless a create was asked for. */
     instructions: TransactionInstruction[];
-    /** The payer's associated token account, to pass as `refundTo`. */
+    /** Where the unused part returns: the account named in the options, or the payer's associated token account. */
     refundTo: PublicKey;
     treasuryToken: PublicKey;
 }
+export interface TokenPayoutOptions {
+    /** Return the unused part to this token account of the payer instead of its associated token account. */
+    refundTo?: PublicKey;
+    /**
+     * Create the treasury's associated token account if it is missing, at the
+     * funder's cost. Off by default: readiness is checked before a currency
+     * opens, and a settle should not carry the create every time.
+     */
+    createTreasuryAccount?: boolean;
+    /**
+     * Create the payer's associated token account if it is missing, at the
+     * funder's cost (its rent, about 0.002 SOL, is not returned to the funder).
+     * Off by default: this is a subsidy, and the caller decides when to pay it.
+     */
+    createRefundAccount?: boolean;
+}
 /**
- * Instructions that make sure a token payout's destinations exist: the
- * treasury's associated token account for the mint, and the payer's, which
- * receives the unused part. Both creates are idempotent, so they cost nothing
- * when the accounts are already there. `funder` pays rent for any account it
- * creates and must sign the transaction; for a settle that is the payee.
+ * The accounts a token payout names next to the escrow's own: the treasury's
+ * associated token account for the mint, and the account the unused part
+ * returns to. Nothing is created unless the options ask for it; a create is
+ * idempotent, `funder` pays its rent and must sign the transaction.
  */
-export declare function prepareTokenPayout(t: Pick<TokenEscrowTerms, 'mint' | 'tokenProgram' | 'payer'>, funder: PublicKey, treasury?: PublicKey): SettlePreparation;
+export declare function prepareTokenPayout(t: Pick<TokenEscrowTerms, 'mint' | 'tokenProgram' | 'payer'>, funder: PublicKey, treasury?: PublicKey, options?: TokenPayoutOptions): SettlePreparation;
+export type TokenAccountProblem = 'missing' | 'wrong_program' | 'not_token_account' | 'uninitialised' | 'frozen' | 'wrong_mint' | 'wrong_owner' | 'memo_required';
+export type TokenAccountCheck = {
+    ok: true;
+    amount: bigint;
+} | {
+    ok: false;
+    problem: TokenAccountProblem;
+    detail: string;
+};
+/**
+ * Whether a token account can receive a transfer of `mint` right now: it
+ * exists under the mint's token program, is initialised and not frozen, holds
+ * the mint, belongs to `owner` when one is named, and does not require a memo
+ * on incoming transfers (the escrow program sends none). Reads the whole
+ * account, not only its first fields.
+ */
+export declare function checkTokenAccount(address: PublicKey, account: Pick<ReadAccount, 'owner' | 'data'> | null, expected: {
+    mint: PublicKey;
+    tokenProgram: PublicKey;
+    owner?: PublicKey;
+}): TokenAccountCheck;
 export interface EscrowMint {
     symbol: string;
     mint: PublicKey;
@@ -59,8 +95,9 @@ export interface ReadinessItem {
 }
 /**
  * Read-only check that the treasury can receive every payout: enough SOL for a
- * small fee to land, and a token account owned by the treasury for each mint,
- * under the mint's token program. Nothing is sent.
+ * small fee to land, and for each mint a token account under the mint's token
+ * program that the treasury owns, initialised, not frozen and not requiring a
+ * memo. Nothing is sent.
  */
 export declare function checkTreasuryReadiness(lookup: AccountLookup, mints?: readonly EscrowMint[], treasury?: PublicKey): Promise<{
     ok: boolean;

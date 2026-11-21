@@ -59,6 +59,28 @@ export interface ProviderConfigFile {
   programId?: string;
   /** The mint for `price.currency`. Needed on devnet for anything but USDC; fixed on mainnet. */
   mint?: string;
+  /**
+   * Currencies this provider has stopped taking new locks in, for example
+   * ["PYUSD"] after its issuer changes how transfers work. While the price
+   * currency is listed, paid calls are refused before any lock is read and the
+   * provider's metadata says it is not accepting payments. Locks already
+   * accepted still settle. `RAP_PROVIDER_PAUSED_CURRENCIES` (comma-separated)
+   * adds to this list without editing the file.
+   */
+  pausedCurrencies?: string[];
+  /**
+   * Recovery only: another token account of the mint that the provider wallet
+   * owns. Payouts go here when the wallet's usual token account is closed or
+   * frozen.
+   */
+  payoutAccount?: string;
+  /**
+   * Off unless set. Lets the provider pay the rent (about 0.002 SOL, not
+   * returned) to create a buyer's token account when the buyer closed its own
+   * after the lock was accepted, so the settle can still land. `maxPerDay`
+   * bounds how many it pays for in a UTC day.
+   */
+  refundAccountSubsidy?: { maxPerDay: number };
   /** For a local validator only: the genesis hash to expect instead of the public devnet one. */
   genesisHash?: string;
   keypairPath?: string;
@@ -75,6 +97,11 @@ export interface ProviderConfig {
   model: string;
   upstream: { baseUrl?: string; model: string; apiKey?: string; apiKeyEnv: string; mock: boolean; timeoutMs: number };
   terms: MeteredTerms;
+  /** True while the price currency is in the paused list: no new locks are taken. */
+  paused: boolean;
+  pausedCurrencies: string[];
+  /** Buyer token accounts the provider will pay to create in a UTC day. 0: never. */
+  refundAccountsPerDay: number;
   systemPrompt?: string;
   rpcUrl: string;
   genesisHash?: string;
@@ -176,6 +203,25 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
     }
   }
 
+  const pausedRaw = [...(Array.isArray(file.pausedCurrencies) ? file.pausedCurrencies : file.pausedCurrencies === undefined ? [] : [file.pausedCurrencies]), ...text(env.RAP_PROVIDER_PAUSED_CURRENCIES).split(",")];
+  const pausedCurrencies: string[] = [];
+  for (const entry of pausedRaw) {
+    const symbol = text(entry).toUpperCase();
+    if (!symbol && typeof entry === "string") continue;
+    if (!directPaymentCurrency(symbol)?.tokenProgram) errors.push("pausedCurrencies: list currency symbols such as PYUSD or USDG");
+    else if (!pausedCurrencies.includes(symbol)) pausedCurrencies.push(symbol);
+  }
+
+  const payoutAccount = text(file.payoutAccount);
+  if (payoutAccount && !isAddress(payoutAccount)) errors.push("payoutAccount: must be the address of a token account the provider wallet owns");
+
+  let refundAccountsPerDay = 0;
+  if (file.refundAccountSubsidy !== undefined) {
+    const maxPerDay = isRecord(file.refundAccountSubsidy) ? Number(file.refundAccountSubsidy.maxPerDay) : NaN;
+    if (!Number.isSafeInteger(maxPerDay) || maxPerDay < 0 || maxPerDay > 1_000) errors.push("refundAccountSubsidy.maxPerDay: must be a whole number from 0 to 1000");
+    else refundAccountsPerDay = maxPerDay;
+  }
+
   const genesisHash = text(file.genesisHash) || undefined;
   if (genesisHash && network === "solana-mainnet-beta") errors.push("genesisHash: cannot be set on mainnet");
 
@@ -205,6 +251,7 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
         programId,
         mint,
         payee: wallet,
+        ...(payoutAccount ? { payoutAccount } : {}),
       });
     } catch (error) {
       errors.push(`price: ${error instanceof Error ? error.message : "could not be read"}`);
@@ -225,6 +272,9 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
       model,
       upstream: { ...(baseUrl ? { baseUrl } : {}), model: text(upstreamRaw.model) || model, ...(apiKey ? { apiKey } : {}), apiKeyEnv, mock, timeoutMs },
       terms,
+      paused: pausedCurrencies.includes(currency),
+      pausedCurrencies,
+      refundAccountsPerDay,
       ...(systemPrompt ? { systemPrompt } : {}),
       rpcUrl,
       ...(genesisHash ? { genesisHash } : {}),

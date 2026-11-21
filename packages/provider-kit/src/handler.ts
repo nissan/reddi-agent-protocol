@@ -11,15 +11,22 @@
  * the lock is checked on chain; the model answers; the provider settles the
  * actual cost; the answer returns with a signed receipt.
  *
- * Order matters for money. The buyer is charged only after the model has
+ * Order matters for money. A lock is accepted only when every account its
+ * payout needs can receive. The buyer is charged only after the model has
  * answered, and the answer is sent only after the settle has confirmed. If the
- * model fails the lock is declined, which refunds the buyer in full.
+ * model fails the lock is declined, which refunds the buyer in full. The
+ * receipt states what the confirmed settle moved, read back from the chain;
+ * when that cannot be read, no receipt is issued. A buyer is told nothing was
+ * charged only when its escrow is read back as still locked.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { signReddiReceiptV2, type ReddiReceiptV2 } from "@reddi/agent-protocol/receipt-v2";
 import {
+  baseUnitsToDecimal,
+  checkMeteredPayout,
   checkProviderCluster,
-  decimalToBaseUnits,
+  confirmMeteredSettlement,
+  decodeTokenEscrowAccount,
   directPaymentCurrency,
   ESCROW_PROTOCOL_TREASURY,
   estimateInputTokens,
@@ -85,6 +92,7 @@ export function providerMetadata(config: ProviderConfig): Record<string, unknown
     network: config.network,
     endpoint: `${config.publicUrl}/v1/chat/completions`,
     model: config.model,
+    acceptingPayments: !config.paused,
     pricing: {
       settlement: "metered-escrow",
       currency: terms.price.currency,
@@ -102,8 +110,18 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
   const log = deps.log ?? (() => undefined);
   // The cluster is checked before the first lock is trusted, and again after any failure.
   let clusterConfirmed = false;
+  // Buyer token accounts this provider paid to create today (UTC), against the operator's daily bound.
+  const subsidy = { day: "", used: 0 };
+  const today = () => (deps.now?.() ?? new Date()).toISOString().slice(0, 10);
+  const subsidyLeft = () => {
+    if (subsidy.day !== today()) Object.assign(subsidy, { day: today(), used: 0 });
+    return config.refundAccountsPerDay - subsidy.used > 0;
+  };
 
   async function paidChat(request: Request): Promise<Response> {
+    if (config.paused) {
+      return refuse(503, "currency_paused", `This provider is not taking new payments in ${terms.price.currency} for now. Nothing was accepted; a lock you already made can be refunded once its refund window opens.`, { charged: false });
+    }
     const lengthHeader = Number(request.headers.get("content-length") ?? "0");
     if (lengthHeader > MAX_BODY_BYTES) return refuse(413, "request_too_large", "The request body is too large.");
     const requestText = await request.text().catch(() => "");
@@ -153,7 +171,9 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     }
     if (!lock.ok) {
       if (lock.reason === "payment_check_unavailable") clusterConfirmed = false;
-      return refuse(lock.reason === "payment_check_unavailable" ? 503 : lock.reason === "duplicate_nonce" ? 409 : 402, lock.reason, lock.message, { metered: offer, charged: false });
+      const status = lock.reason === "payment_check_unavailable" || lock.reason === "provider_not_ready" ? 503 : lock.reason === "duplicate_nonce" ? 409 : 402;
+      if (lock.reason === "provider_not_ready") log({ event: "payout_not_ready", escrow: header.escrow.toBase58() });
+      return refuse(status, lock.reason, lock.message, { metered: offer, charged: false });
     }
     const escrow = header.escrow.toBase58();
     const requestId = randomUUID();
@@ -177,63 +197,141 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     }
 
     const usage = usageFrom(upstream, inputEstimate);
-    let settled: ReturnType<typeof meteredSettlement>;
-    let settleSignature: string;
+    let payout = lock.payout;
+    let settled: ReturnType<typeof meteredSettlement> | undefined;
+    let settleSignature: string | undefined;
+    // "locked": the buyer's maximum is still in escrow. "closed": a settle landed. "unknown": the chain could not say.
+    const escrowState = async (): Promise<"locked" | "closed" | "unknown"> => {
+      try {
+        const account = await deps.chain.readAccount(header.escrow);
+        if (!account) return "closed";
+        if (!account.owner.equals(terms.programId)) return "unknown";
+        return decodeTokenEscrowAccount(Buffer.from(account.data)).status === 0 ? "locked" : "closed";
+      } catch {
+        return "unknown";
+      }
+    };
     try {
-      settled = meteredSettlement(terms, lock, usage);
+      settled = meteredSettlement(terms, lock, usage, payout);
       settleSignature = await deps.chain.sendInstructions(settled.instructions);
     } catch {
-      log({ event: "settle_failed", requestId, escrow });
-      return refuse(502, "settle_failed", `The payment could not be settled, so the answer is withheld. Nothing was charged; your maximum stays locked in escrow ${escrow} and you can refund it once its refund window opens.`, { charged: false, escrow });
+      settleSignature = undefined;
+      // A send can report failure and still land. Only an escrow read back as
+      // still locked means nothing was charged; only then is the settle sent again.
+      let state = await escrowState();
+      if (state === "locked") {
+        // An account may have gone since the lock was checked. Look once more:
+        // the buyer's associated token account will do for the unused part, and
+        // the provider pays to create one only inside the operator's daily bound.
+        // One place in today's bound is held across the reads and the send, so calls in flight together cannot pass it.
+        const reserved = subsidyLeft();
+        if (reserved) subsidy.used += 1;
+        let created = false;
+        try {
+          const again = await checkMeteredPayout({ terms, escrow: lock.terms, readAccount: (address) => deps.chain.readAccount(address), allowPayerAssociatedAccount: true, createRefundAccount: reserved });
+          if (again.ok) {
+            payout = again.payout;
+            settled = meteredSettlement(terms, lock, usage, payout);
+            settleSignature = await deps.chain.sendInstructions(settled.instructions);
+            created = payout.createRefundAccount === true;
+            if (created) log({ event: "refund_account_created", requestId, escrow, account: payout.refundTo.toBase58() });
+          }
+        } catch {
+          settleSignature = undefined;
+        }
+        if (reserved && !created) subsidy.used = Math.max(0, subsidy.used - 1);
+        if (!settleSignature) state = await escrowState();
+      }
+      if (!settleSignature) {
+        if (state === "locked" || !settled) {
+          log({ event: "settle_failed", requestId, escrow });
+          return refuse(502, "settle_failed", `The payment could not be settled, so the answer is withheld. Nothing was charged; your maximum stays locked in escrow ${escrow} and you can refund it once its refund window opens.`, { charged: false, escrow });
+        }
+        // The escrow is closed, so a settle landed (only this provider could close it inside the buyer's
+        // refund window), or the chain cannot say. Either way the buyer may have paid, so it gets its answer.
+        if (state === "closed") settleSignature = (await deps.chain.latestSuccess(header.escrow).catch(() => null)) ?? undefined;
+        log({ event: "settle_unconfirmed", requestId, escrow, state, found: settleSignature !== undefined });
+      }
     }
 
+    // What the settle actually moved, from the confirmed transaction on the cluster checked above.
+    let confirmed: ReturnType<typeof confirmMeteredSettlement> = { ok: false, reason: "not_found" };
+    if (settleSignature) {
+      try {
+        confirmed = confirmMeteredSettlement(await deps.chain.readSettlement(settleSignature), {
+          programId: terms.programId,
+          escrow: header.escrow,
+          mint: terms.mint,
+          destination: payout.payTo ?? lock.terms.recipient,
+          treasuryToken: payout.treasuryToken,
+          refundTo: payout.refundTo,
+          maxBaseUnits: lock.maxBaseUnits,
+        });
+      } catch {
+        confirmed = { ok: false, reason: "not_found" };
+      }
+    }
+
+    if (!settled) return refuse(502, "settle_failed", `The payment could not be settled, so the answer is withheld. Nothing was charged; your maximum stays locked in escrow ${escrow} and you can refund it once its refund window opens.`, { charged: false, escrow });
     const s = settled.settlement;
+    const decimals = directPaymentCurrency(s.currency)!.decimals;
+    const amounts = confirmed.ok
+      ? {
+          charged: baseUnitsToDecimal(confirmed.paidBaseUnits, decimals),
+          fee: baseUnitsToDecimal(confirmed.feeBaseUnits, decimals),
+          provider: baseUnitsToDecimal(confirmed.providerBaseUnits, decimals),
+          refund: baseUnitsToDecimal(confirmed.refundedBaseUnits, decimals),
+        }
+      : { charged: s.charged, fee: s.fee, provider: s.provider, refund: s.refund };
     const reddi = {
       requestId,
       provider: config.wallet,
       model: config.model,
-      metered: { inputTokens: s.inputTokens, outputTokens: s.outputTokens, currency: s.currency, charged: s.charged, fee: s.fee, provider: s.provider, refund: s.refund, capped: s.capped, settleSignature },
+      // Token counts are the model's report. The amounts are the confirmed settle's when `confirmed` is true, and otherwise what the settle asked for.
+      metered: { inputTokens: s.inputTokens, outputTokens: s.outputTokens, currency: s.currency, ...amounts, capped: s.capped, ...(settleSignature ? { settleSignature } : {}), confirmed: confirmed.ok },
     };
     const responseText = JSON.stringify({ ...upstream, reddi });
 
     let receiptHeader: string | undefined;
-    try {
-      const decimals = directPaymentCurrency(s.currency)!.decimals;
-      const fee = decimalToBaseUnits(s.fee, decimals) ?? BigInt(0);
-      const refunded = decimalToBaseUnits(s.refund, decimals) ?? BigInt(0);
-      const statement = {
-        schemaVersion: "reddi.receipt.v2",
-        providerId: config.wallet,
-        declaredModel: config.model,
-        requestHash: sha256Hex(requestText),
-        responseHash: sha256Hex(responseText),
-        payment: {
-          network: config.network,
-          txSignature: settleSignature,
-          currency: s.currency,
-          mint: terms.mint.toBase58(),
-          amount: s.chargedBaseUnits.toString(),
-          fee: fee > BigInt(0) ? { amount: fee.toString(), treasury: ESCROW_PROTOCOL_TREASURY.toBase58() } : { amount: "0" },
-          payer: lock.payer.toBase58(),
-          settlement: "metered-escrow",
-          metered: { inputTokens: String(s.inputTokens), outputTokens: String(s.outputTokens), maxAmount: lock.maxBaseUnits.toString(), refunded: refunded.toString() },
-        },
-        issuedAt: (deps.now?.() ?? new Date()).toISOString(),
-      } as ReddiReceiptV2;
-      const signed = await signReddiReceiptV2(statement, deps.signMessage);
-      const encoded = Buffer.from(JSON.stringify(signed), "utf8").toString("base64url");
-      if (encoded.length <= MAX_RECEIPT_HEADER_CHARS) receiptHeader = encoded;
-    } catch {
-      // The buyer still gets the answer the settle paid for.
-      log({ event: "receipt_failed", requestId, escrow });
+    if (confirmed.ok && settleSignature) {
+      try {
+        const statement = {
+          schemaVersion: "reddi.receipt.v2",
+          providerId: config.wallet,
+          declaredModel: config.model,
+          requestHash: sha256Hex(requestText),
+          responseHash: sha256Hex(responseText),
+          payment: {
+            network: config.network,
+            txSignature: settleSignature,
+            currency: s.currency,
+            mint: terms.mint.toBase58(),
+            amount: confirmed.paidBaseUnits.toString(),
+            fee: confirmed.feeBaseUnits > 0n ? { amount: confirmed.feeBaseUnits.toString(), treasury: ESCROW_PROTOCOL_TREASURY.toBase58() } : { amount: "0" },
+            payer: lock.payer.toBase58(),
+            settlement: "metered-escrow",
+            metered: { inputTokens: String(s.inputTokens), outputTokens: String(s.outputTokens), maxAmount: lock.maxBaseUnits.toString(), refunded: confirmed.refundedBaseUnits.toString() },
+          },
+          issuedAt: (deps.now?.() ?? new Date()).toISOString(),
+        } as ReddiReceiptV2;
+        const signed = await signReddiReceiptV2(statement, deps.signMessage);
+        const encoded = Buffer.from(JSON.stringify(signed), "utf8").toString("base64url");
+        if (encoded.length <= MAX_RECEIPT_HEADER_CHARS) receiptHeader = encoded;
+      } catch {
+        // The buyer still gets the answer the settle paid for.
+        log({ event: "receipt_failed", requestId, escrow });
+      }
+    } else {
+      // The settle confirmed, but what it moved could not be read back. No financial statement is signed on a guess.
+      log({ event: "receipt_withheld", requestId, escrow, ...(settleSignature ? { settleSignature } : {}), reason: confirmed.ok ? "not_found" : confirmed.reason });
     }
-    log({ event: "paid_call", requestId, escrow, settleSignature, charged: s.charged, fee: s.fee, currency: s.currency, inputTokens: s.inputTokens, outputTokens: s.outputTokens, receipt: receiptHeader !== undefined });
+    log({ event: "paid_call", requestId, escrow, ...(settleSignature ? { settleSignature } : {}), charged: amounts.charged, fee: amounts.fee, confirmed: confirmed.ok, currency: s.currency, inputTokens: s.inputTokens, outputTokens: s.outputTokens, receipt: receiptHeader !== undefined });
     return new Response(responseText, { status: 200, headers: receiptHeader ? { ...JSON_HEADERS, [PROVIDER_RECEIPT_HEADER]: receiptHeader } : JSON_HEADERS });
   }
 
   return async function handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === "/healthz") return json(200, { ok: true, name: config.name, network: config.network });
+    if (request.method === "GET" && url.pathname === "/healthz") return json(200, { ok: true, name: config.name, network: config.network, acceptingPayments: !config.paused });
     if (request.method === "GET" && url.pathname === "/v1/models") return json(200, { object: "list", data: [{ id: config.model, object: "model", owned_by: config.wallet }] });
     if (request.method === "GET" && url.pathname === "/.well-known/reddi-agent.json") return json(200, providerMetadata(config));
     if (request.method === "POST" && url.pathname === "/v1/chat/completions") {

@@ -9,7 +9,8 @@ import { buildSettleTokenEscrowInstruction, ESCROW_PROTOCOL_TREASURY, MemoryNonc
 import { createProviderHandler, PROVIDER_RECEIPT_HEADER } from "../src/handler.js";
 import { FileReplayStore } from "../src/replay.js";
 import { createMockUpstream, type Upstream } from "../src/upstream.js";
-import { buyer, config, escrowAddress, fakeChain, paymentHeader, provider, SETTLE_SIGNATURE, USDC, type FakeChain } from "./helpers.js";
+import type { ProviderConfigFile } from "../src/config.js";
+import { ata, buyer, config, escrowAddress, fakeChain, paymentHeader, provider, SETTLE_SIGNATURE, tokenAccount, USDC, type FakeChain } from "./helpers.js";
 
 const privateKey = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(provider.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
 const signMessage = (message: Uint8Array) => edSign(null, message, privateKey);
@@ -28,10 +29,10 @@ const upstreamWithUsage = (prompt: number, completion: number): Upstream & { cal
   return u;
 };
 
-function setup(options: { chain?: FakeChain; upstream?: Upstream; replayStore?: NonceReplayStore; systemPrompt?: string } = {}) {
+function setup(options: { chain?: FakeChain; upstream?: Upstream; replayStore?: NonceReplayStore; systemPrompt?: string; file?: Partial<ProviderConfigFile>; env?: Record<string, string> } = {}) {
   const chain = options.chain ?? fakeChain();
   const events: Record<string, unknown>[] = [];
-  const handler = createProviderHandler(config(options.systemPrompt ? { systemPrompt: options.systemPrompt } : {}), {
+  const handler = createProviderHandler(config({ ...(options.systemPrompt ? { systemPrompt: options.systemPrompt } : {}), ...options.file }, options.env), {
     chain,
     upstream: options.upstream ?? upstreamWithUsage(120, 333),
     replayStore: options.replayStore ?? new MemoryNonceReplayStore(),
@@ -82,7 +83,12 @@ test("a paid call answers, settles the actual cost and returns a receipt that ve
   const responseText = await response.text();
   const body = JSON.parse(responseText) as { choices: unknown[]; reddi: { metered: Record<string, unknown> } };
   // 120 * 3 + 333 * 15 = 5,355 base units; the fee is 2.5% rounded down: 133.
-  assert.deepEqual(body.reddi.metered, { inputTokens: 120, outputTokens: 333, currency: "USDC", charged: "0.005355", fee: "0.000133", provider: "0.005222", refund: "0.014645", capped: false, settleSignature: SETTLE_SIGNATURE });
+  assert.deepEqual(body.reddi.metered, { inputTokens: 120, outputTokens: 333, currency: "USDC", charged: "0.005355", fee: "0.000133", provider: "0.005222", refund: "0.014645", capped: false, settleSignature: SETTLE_SIGNATURE, confirmed: true });
+
+  // One instruction: the settle. Nothing is created, the fee goes to the treasury account that was checked, the unused part to the account the lock was funded from.
+  assert.equal(chain.sent[0].length, 1);
+  assert.ok(chain.sent[0][0].keys[6].pubkey.equals(ata(ESCROW_PROTOCOL_TREASURY)));
+  assert.ok(chain.sent[0][0].keys[7].pubkey.equals(ata(buyer)));
 
   assert.equal(chain.sent.length, 1);
   const settle = chain.sent[0][chain.sent[0].length - 1];
@@ -249,4 +255,184 @@ test("a system prompt is priced into the quote and the minimum lock, and replace
   assert.deepEqual(seen[0].map((m) => m.role), ["system", "user"]);
   assert.equal(seen[0][0].content.length, 4000);
   assert.equal(chain.sent.length, 1);
+});
+
+test("a lock whose payout could not land is refused before the model is called, and stays usable", async () => {
+  for (const [change, status, code] of [
+    [(c: FakeChain) => c.accounts.delete(ata(buyer).toBase58()), 402, "refund_account_unusable"],
+    [(c: FakeChain) => c.accounts.set(ata(buyer).toBase58(), tokenAccount(buyer, 2)), 402, "refund_account_unusable"],
+    [(c: FakeChain) => c.accounts.set(ata(ESCROW_PROTOCOL_TREASURY).toBase58(), tokenAccount(ESCROW_PROTOCOL_TREASURY, 2)), 503, "provider_not_ready"],
+    [(c: FakeChain) => c.accounts.delete(ata(ESCROW_PROTOCOL_TREASURY).toBase58()), 503, "provider_not_ready"],
+    [(c: FakeChain) => c.accounts.set(ata(provider.publicKey).toBase58(), tokenAccount(provider.publicKey, 2)), 503, "provider_not_ready"],
+  ] as const) {
+    const chain = fakeChain();
+    const before = new Map(chain.accounts);
+    change(chain);
+    const upstream = upstreamWithUsage(120, 333);
+    const { call } = setup({ chain, upstream });
+    const response = await call(BODY, { "x402-payment": paymentHeader() });
+    assert.equal(response.status, status, code);
+    const body = (await response.json()) as { error: { code: string }; charged: boolean };
+    assert.equal(body.error.code, code);
+    assert.equal(body.charged, false);
+    assert.equal(upstream.calls, 0, "no work is done on a payout that cannot land");
+    assert.equal(chain.sent.length, 0);
+    // The lock was not used up: once the account is back, the same lock pays for the call.
+    chain.accounts = before;
+    chain.readAccount = async (address) => before.get(address.toBase58()) ?? null;
+    assert.equal((await call(BODY, { "x402-payment": paymentHeader() })).status, 200);
+  }
+});
+
+test("a settle that fails once is tried again after the payout accounts are read again", async () => {
+  const chain = fakeChain();
+  chain.failSends = 1;
+  const { call } = setup({ chain });
+  const response = await call(BODY, { "x402-payment": paymentHeader() });
+  assert.equal(response.status, 200);
+  assert.equal(chain.sent.length, 1);
+  assert.equal(chain.sent[0].length, 1);
+});
+
+test("a buyer who closes its account after the lock is accepted is not subsidised unless the operator opted in, within the daily bound", async () => {
+  const closing = (chain: FakeChain): Upstream => ({
+    async createChatCompletion() {
+      chain.accounts.delete(ata(buyer).toBase58());
+      return { id: "c1", choices: [{ message: { role: "assistant", content: "hello" } }], usage: { prompt_tokens: 120, completion_tokens: 333 } };
+    },
+  });
+
+  // Default: nothing is created, the settle is held and the answer withheld.
+  const plain = fakeChain();
+  plain.failSends = 1; // the first settle fails on chain because the refund account is gone
+  const held = await setup({ chain: plain, upstream: closing(plain) }).call(BODY, { "x402-payment": paymentHeader() });
+  assert.equal(held.status, 502);
+  assert.equal(((await held.json()) as { error: { code: string } }).error.code, "settle_failed");
+  assert.equal(plain.sent.length, 0);
+
+  // Opted in for one a day: the settle carries the create, paid by the provider, owned by the buyer.
+  const chain = fakeChain();
+  chain.failSends = 1;
+  const { call, events } = setup({ chain, upstream: closing(chain), file: { refundAccountSubsidy: { maxPerDay: 1 } } });
+  const paid = await call(BODY, { "x402-payment": paymentHeader() });
+  assert.equal(paid.status, 200);
+  assert.equal(chain.sent.length, 1);
+  assert.equal(chain.sent[0].length, 2);
+  const [create, settle] = chain.sent[0];
+  assert.ok(create.keys[0].pubkey.equals(provider.publicKey) && create.keys[1].pubkey.equals(ata(buyer)) && create.keys[2].pubkey.equals(buyer));
+  assert.ok(settle.keys[7].pubkey.equals(ata(buyer)));
+  assert.ok(events.some((e) => e.event === "refund_account_created"));
+  assert.ok(paid.headers.get(PROVIDER_RECEIPT_HEADER));
+});
+
+test("the receipt states what the confirmed settle moved, and tokens donated to the vault do not change the bill", async () => {
+  const chain = fakeChain();
+  chain.donated = 700n;
+  const { call } = setup({ chain });
+  const response = await call(BODY, { "x402-payment": paymentHeader() });
+  const body = (await response.json()) as { reddi: { metered: Record<string, unknown> } };
+  assert.deepEqual({ charged: body.reddi.metered.charged, refund: body.reddi.metered.refund, confirmed: body.reddi.metered.confirmed }, { charged: "0.005355", refund: "0.014645", confirmed: true });
+  const signed = JSON.parse(Buffer.from(response.headers.get(PROVIDER_RECEIPT_HEADER)!, "base64url").toString("utf8"));
+  assert.equal(signed.receipt.payment.amount, "5355");
+  assert.deepEqual(signed.receipt.payment.metered, { inputTokens: "120", outputTokens: "333", maxAmount: "20000", refunded: "14645" });
+
+  // The provider was credited less than it asked for and the buyer made whole: the bill is the credit plus the fee, not the request.
+  const reduced = fakeChain();
+  reduced.settlement = {
+    failed: false,
+    programIds: ["DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu"],
+    accounts: [escrowAddress().toBase58()],
+    tokenBalances: [
+      { account: ata(provider.publicKey).toBase58(), mint: USDC.toBase58(), before: 0n, after: 5_000n },
+      { account: ata(ESCROW_PROTOCOL_TREASURY).toBase58(), mint: USDC.toBase58(), before: 0n, after: 133n },
+      { account: ata(buyer).toBase58(), mint: USDC.toBase58(), before: 0n, after: 14_867n },
+    ],
+  };
+  const second = await setup({ chain: reduced }).call(BODY, { "x402-payment": paymentHeader() });
+  const receipt = JSON.parse(Buffer.from(second.headers.get(PROVIDER_RECEIPT_HEADER)!, "base64url").toString("utf8")).receipt;
+  assert.equal(receipt.payment.amount, "5133");
+  assert.equal(receipt.payment.metered.refunded, "14867");
+  // Usage is the model's count, whatever was billed.
+  assert.deepEqual([receipt.payment.metered.inputTokens, receipt.payment.metered.outputTokens], ["120", "333"]);
+});
+
+test("no receipt is signed when the settle cannot be read back or does not add up; the paid answer still returns", async () => {
+  for (const settlement of [
+    "unreadable" as const,
+    null,
+    { failed: true, programIds: [], accounts: [], tokenBalances: [] },
+    { failed: false, programIds: ["DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu"], accounts: [escrowAddress().toBase58()], tokenBalances: [{ account: ata(provider.publicKey).toBase58(), mint: USDC.toBase58(), before: 0n, after: 5_222n }] },
+    { failed: false, programIds: ["11111111111111111111111111111111"], accounts: [escrowAddress().toBase58()], tokenBalances: [] },
+  ]) {
+    const chain = fakeChain();
+    chain.settlement = settlement;
+    const { call, events } = setup({ chain });
+    const response = await call(BODY, { "x402-payment": paymentHeader() });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get(PROVIDER_RECEIPT_HEADER), null);
+    const body = (await response.json()) as { choices: unknown[]; reddi: { metered: { confirmed: boolean; settleSignature: string } } };
+    assert.equal(body.reddi.metered.confirmed, false);
+    assert.equal(body.reddi.metered.settleSignature, SETTLE_SIGNATURE);
+    assert.ok(events.some((e) => e.event === "receipt_withheld"));
+  }
+});
+
+test("a paused currency takes no new locks and says so in the provider's metadata", async () => {
+  for (const options of [{ file: { pausedCurrencies: ["USDC"] } }, { env: { RAP_PROVIDER_PAUSED_CURRENCIES: "pyusd, usdc" } }]) {
+    const upstream = upstreamWithUsage(1, 1);
+    const { call, handler, chain } = setup({ ...options, upstream });
+    for (const headers of [{}, { "x402-payment": paymentHeader() }] as Record<string, string>[]) {
+      const response = await call(BODY, headers);
+      assert.equal(response.status, 503);
+      const body = (await response.json()) as { error: { code: string }; charged: boolean; metered?: unknown };
+      assert.equal(body.error.code, "currency_paused");
+      assert.equal(body.metered, undefined, "no offer is made while paused");
+    }
+    assert.equal(upstream.calls, 0);
+    assert.equal(chain.sent.length, 0);
+    const metadata = (await (await handler(new Request("http://localhost:8787/.well-known/reddi-agent.json"))).json()) as { acceptingPayments: boolean };
+    assert.equal(metadata.acceptingPayments, false);
+  }
+  // Another currency being paused does not stop this one.
+  const open = setup({ file: { pausedCurrencies: ["PYUSD"] } });
+  assert.equal((await open.call(BODY, { "x402-payment": paymentHeader() })).status, 200);
+});
+
+test("a settle that lands but reports failure is not sent again: the buyer gets the answer and a receipt, never a false 'nothing was charged'", async () => {
+  const chain = fakeChain();
+  chain.landButReportFailure = true;
+  const { call, events } = setup({ chain });
+  const response = await call(BODY, { "x402-payment": paymentHeader() });
+  assert.equal(response.status, 200);
+  assert.equal(chain.attempts, 1, "the settle is not sent a second time");
+  const body = (await response.json()) as { choices: { message: { content: string } }[]; reddi: { metered: Record<string, unknown> } };
+  assert.equal(body.choices[0].message.content, "hello");
+  assert.deepEqual([body.reddi.metered.charged, body.reddi.metered.confirmed, body.reddi.metered.settleSignature], ["0.005355", true, SETTLE_SIGNATURE]);
+  assert.ok(response.headers.get(PROVIDER_RECEIPT_HEADER));
+  assert.ok(events.some((e) => e.event === "settle_unconfirmed" && e.state === "closed"));
+
+  // The same, but the settle's signature cannot be found: the answer still returns, with no receipt and no claim about amounts being confirmed.
+  const lost = fakeChain();
+  lost.landButReportFailure = true;
+  lost.hideSignatures = true;
+  const second = await setup({ chain: lost }).call(BODY, { "x402-payment": paymentHeader() });
+  assert.equal(second.status, 200);
+  assert.equal(second.headers.get(PROVIDER_RECEIPT_HEADER), null);
+  const lostBody = (await second.json()) as { reddi: { metered: Record<string, unknown> } };
+  assert.deepEqual([lostBody.reddi.metered.confirmed, "settleSignature" in lostBody.reddi.metered], [false, false]);
+});
+
+test("when the escrow cannot be read after a failed send, the buyer is not told nothing was charged", async () => {
+  const chain = fakeChain();
+  chain.failSend = true;
+  chain.failEscrowReadsAfterSend = true;
+  const { call, events } = setup({ chain });
+  const response = await call(BODY, { "x402-payment": paymentHeader() });
+  const text = await response.text();
+  assert.ok(!text.includes("Nothing was charged"));
+  assert.equal(response.status, 200);
+  assert.equal(JSON.parse(text).reddi.metered.confirmed, false);
+  assert.equal(response.headers.get(PROVIDER_RECEIPT_HEADER), null);
+  assert.equal(chain.attempts, 1);
+  assert.ok(events.some((e) => e.event === "settle_unconfirmed" && e.state === "unknown"));
 });

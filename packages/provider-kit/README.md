@@ -27,7 +27,7 @@ The buyer is charged only after the model has answered, and the answer is sent o
 | The charge | Tokens used times your price, rounded up to the smallest unit. |
 | Protocol fee | Planned at 2.5% of the charge, rounded down, taken out of your share. The buyer pays nothing on top. |
 | A lock is not payment | You are paid when your settle confirms. Until then the buyer's refund window is running, which is why the provider wants 10 minutes left before it starts work. See `docs/ESCROW-PAYOUT-SAFETY.md`. |
-| What you pay | Transaction fees for each settle, and one-time rent (about 0.002 SOL each) if the treasury's or a buyer's token account has to be created. |
+| What you pay | The transaction fee for each settle. Nothing is created for anyone by default: a lock is refused up front if the buyer's token account, the treasury's or yours could not receive. You may opt in to paying a buyer's token account rent (about 0.002 SOL, not returned) with `refundAccountSubsidy`. |
 
 ## Quickstart on devnet
 
@@ -99,18 +99,37 @@ To sell more than a raw model, add instructions with `"systemPrompt"` or, for lo
 | `replayFile` | Where accepted escrows are remembered. Default `.rap-provider/accepted-escrows.log`. Keep it on a disk that survives restarts. |
 | `rpcUrl`, `port` | Also settable as `SOLANA_RPC_URL` and `PORT`. An RPC endpoint is required on mainnet. |
 | `mint` | Devnet only, for currencies other than USDC. On mainnet the mints are fixed. |
+| `pausedCurrencies` | Currencies you have stopped taking new locks in, for example `["PYUSD"]`. Also `RAP_PROVIDER_PAUSED_CURRENCIES=PYUSD,USDG`. See "Pausing a currency". |
+| `payoutAccount` | Recovery only: another token account of the currency that your wallet owns. Payouts go there when your usual token account is closed or frozen. |
+| `refundAccountSubsidy.maxPerDay` | Off unless set. How many buyer token accounts you will pay to create in a UTC day, when a buyer closed its own after you accepted its lock. |
+
+## Pausing a currency
+
+An issuer can change how its token moves: PYUSD and USDG are Token-2022 mints whose issuer can add a transfer hook, change a fee, or freeze accounts. When that happens, stop taking new locks in that currency until you have read the change:
+
+```bash
+RAP_PROVIDER_PAUSED_CURRENCIES=PYUSD rap-provider start
+# or, in provider.json:  "pausedCurrencies": ["PYUSD"]
+```
+
+While your price currency is paused, paid calls are refused with `currency_paused` before any lock is read, no price is offered, and `/.well-known/reddi-agent.json` and `/healthz` report `"acceptingPayments": false`, which is what a listing should show. `rap-provider doctor` shows the pause. Remove the currency from the list and restart to resume. `docs/ESCROW-PAYOUT-SAFETY.md` says when to pause.
 
 ## What the kit does to protect you and your buyers
 
 - **It refuses to start half-working**: no key, a key for another wallet, a key file others can read, a payment memory file another process holds, or mock answers on mainnet.
 - **One lock pays for one call**, including after a restart. Accepted escrows are written to disk before the model is called.
 - **It checks the cluster** before trusting any account, so a lock on another network is never taken as payment.
+- **It checks that the payout can land before doing any work.** With the lock it reads your token account, the treasury's and the account the buyer funded the lock from: each must exist, be initialised, not frozen, belong to the right owner and not require a memo. If one fails, the call is refused, the lock is not used up, and the buyer can present it again once the account is fixed.
+- **It creates nothing at your cost by default.** If a buyer closes its account after you accepted the lock, the settle is tried once more with the buyer's associated token account; if that is gone too, the settle is held and the answer withheld, unless you opted in to `refundAccountSubsidy`.
+- **A buyer is told "nothing was charged" only when that was read from the chain.** If sending the settle reports a failure, the kit reads the escrow: still locked means nothing was charged and it tries once more; closed means the settle landed after all, so the kit finds it and answers as normal instead of sending it again. If the chain cannot say, the buyer gets the answer without a receipt rather than risk paying for nothing.
+- **Receipts state what the chain shows.** After the settle confirms, the kit reads the transaction back and signs a receipt for what actually moved: your credit plus the treasury's fee as the amount, and the model's token counts separately. If the transaction cannot be read back, or the amounts do not add up, the buyer still gets the answer it paid for, the response says `"confirmed": false`, and no receipt is signed.
 - **Your key signs two things only**: settle (or decline) transactions for escrows payable to you, and receipts. It is read once from the key file and is never logged or sent anywhere.
 - **Run one process per payment memory file.** For several instances behind a load balancer, use a shared database store (`DatabaseReplayStore` in `@reddi/x402-solana`) through the library API.
 
 ## Limits today
 
-- Do not run a funded provider on mainnet with this version. Payout hardening (issue #847) comes first: today a settle may pay rent to create a buyer's refund account, and a receipt states calculated amounts, not amounts read back from the confirmed transaction.
+- Do not run a funded provider on mainnet yet. The payout checks and confirmed receipts above are covered by tests against a simulated chain; they have not been run against a live cluster, and the treasury's token accounts must be confirmed ready for each currency first (`rap-provider doctor` checks yours).
+- A settle that is held is not retried later by itself. The log line `settle_failed` names the escrow; the lock stays open until its refund window, and you can settle it by hand within that time.
 - No streaming responses. Requests with `stream: true` are refused.
 - Message content must be text.
 - Token currencies only. SOL-priced metered calls are not offered.

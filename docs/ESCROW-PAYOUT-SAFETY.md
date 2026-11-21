@@ -70,10 +70,18 @@ does not allow, even when the escrow program accepts it:
   accepted mint before the first payout in that mint. `node
   scripts/check-escrow-treasury.mjs --network mainnet` checks both without
   sending anything; see the mainnet launch runbook.
-- **Token accounts.** A token settle first creates, if missing, the treasury's
-  token account and the buyer's associated token account, which receives the
-  unused part (`prepareTokenPayout` in `@reddi/x402-solana`; the provider
-  runtime in `packages/openrouter-specialists` does this on every settle).
+- **Token accounts.** A token settle creates no accounts. Before a provider
+  accepts a lock it reads the three accounts the settle pays into: its own
+  token account, the treasury's, and the account the buyer funded the lock
+  from, which receives the unused part (`checkMeteredPayout` in
+  `@reddi/x402-solana`, run by `verifyMeteredLock`). Each must exist, be
+  initialised, not frozen, belong to the right owner and not require a memo;
+  otherwise the call is refused before any work and the lock stays usable. The
+  treasury's token account for each currency must therefore exist before any
+  provider takes that currency. If a buyer closes its account after its lock
+  was accepted, the provider kit tries the buyer's associated token account,
+  and pays to create one only when the operator opted in
+  (`refundAccountSubsidy.maxPerDay`); otherwise that settle is held.
 
 ## Issuer powers over PYUSD and USDG
 
@@ -111,8 +119,13 @@ and exits non-zero on any change.
   result next to the treasury readiness check in the launch record.
 - **If the posture changes.** A failed check never updates the recorded posture
   by itself. The operator:
-  1. stops new escrow locks in the affected mint: each provider takes that
-     currency off its listings (the provider kit adds a switch for this);
+  1. stops new escrow locks in the affected mint: each provider running the
+     provider kit lists the currency in `pausedCurrencies` (or sets
+     `RAP_PROVIDER_PAUSED_CURRENCIES`) and restarts, after which it refuses
+     paid calls in it with `currency_paused` and reports
+     `acceptingPayments: false`. The app's listing does not read that field
+     yet (#852), so the provider also takes the currency off its listing by
+     hand;
   2. reads the change (hook program, fee, delegate, freeze or pause authority)
      and decides whether open escrows in that mint can still settle;
   3. updates `config/escrow/token2022-mint-posture.json` only after that

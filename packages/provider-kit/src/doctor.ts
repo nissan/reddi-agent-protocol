@@ -5,7 +5,7 @@
 import { accessSync, constants, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { PublicKey } from "@solana/web3.js";
-import { checkProviderCluster, checkTreasuryReadiness, ESCROW_PROTOCOL_TREASURY, token2022MintPosture, treasuryTokenAccount } from "@reddi/x402-solana";
+import { checkProviderCluster, checkTokenAccount, checkTreasuryReadiness, ESCROW_PROTOCOL_TREASURY, token2022MintPosture, treasuryTokenAccount } from "@reddi/x402-solana";
 import type { ProviderChain } from "./chain.js";
 import type { ProviderConfig } from "./config.js";
 import type { ProviderKeyResult } from "./keys.js";
@@ -19,7 +19,7 @@ export interface DoctorCheck {
   fix?: string;
 }
 
-/** Enough for transaction fees and for creating the token accounts a first settle may need. */
+/** Enough for transaction fees, with room for the rent of a token account. */
 export const WALLET_MIN_LAMPORTS = 10_000_000n;
 const TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 
@@ -58,6 +58,10 @@ export async function runDoctor(input: DoctorInput): Promise<{ ok: boolean; chec
 
   add({ name: "Configuration", status: "pass", detail: `${config.name}: ${config.model}, ${terms.price.inputPerMillion} in / ${terms.price.outputPerMillion} out ${terms.price.currency} per million tokens, at most ${terms.maxOutputTokens} output tokens a call` });
 
+  if (config.paused) {
+    add({ name: "Payments", status: "warn", detail: `paused for ${terms.price.currency}: no new locks are taken`, fix: `Remove ${terms.price.currency} from pausedCurrencies (and RAP_PROVIDER_PAUSED_CURRENCIES) and restart to take payments again.` });
+  }
+
   // Nothing else read from this endpoint means anything until it is the right cluster.
   const cluster = await checkProviderCluster(() => chain.readGenesisHash(), config.network, config.genesisHash);
   if (!cluster.ok) {
@@ -86,22 +90,35 @@ export async function runDoctor(input: DoctorInput): Promise<{ ok: boolean; chec
     const tokenAccount = treasuryTokenAccount({ mint: terms.mint, tokenProgram: terms.tokenProgram }, terms.payee);
     const held = await chain.readAccount(tokenAccount);
     const createCommand = `spl-token create-account ${terms.mint.toBase58()} --owner ${config.wallet}${terms.tokenProgram.toBase58() === TOKEN_2022_PROGRAM ? ` --program-id ${TOKEN_2022_PROGRAM}` : ""} --url ${config.network === "solana-devnet" ? "devnet" : "mainnet-beta"}`;
-    if (!held) {
-      add({ name: `${terms.price.currency} token account`, status: "fail", detail: `${tokenAccount.toBase58()} does not exist, so no payout can land`, fix: `Create it: ${createCommand}` });
-    } else if (!held.owner.equals(terms.tokenProgram) || held.data.length < 72 || !new PublicKey(held.data.subarray(0, 32)).equals(terms.mint) || !new PublicKey(held.data.subarray(32, 64)).equals(terms.payee)) {
-      add({ name: `${terms.price.currency} token account`, status: "fail", detail: `${tokenAccount.toBase58()} is not this wallet's token account for the mint`, fix: `Create it: ${createCommand}` });
-    } else {
+    const heldCheck = checkTokenAccount(tokenAccount, held, { mint: terms.mint, tokenProgram: terms.tokenProgram, owner: terms.payee });
+    let recoveryReady = false;
+    if (terms.payoutAccount) {
+      const recovery = checkTokenAccount(terms.payoutAccount, await chain.readAccount(terms.payoutAccount), { mint: terms.mint, tokenProgram: terms.tokenProgram, owner: terms.payee });
+      recoveryReady = recovery.ok;
+      add(recovery.ok
+        ? { name: "Recovery payout account", status: "pass", detail: `${terms.payoutAccount.toBase58()} can receive payouts if the usual account cannot` }
+        : { name: "Recovery payout account", status: "fail", detail: `${terms.payoutAccount.toBase58()}: ${recovery.detail}`, fix: `Set payoutAccount to a ${terms.price.currency} token account this wallet owns, or remove the setting.` });
+    }
+    if (heldCheck.ok) {
       add({ name: `${terms.price.currency} token account`, status: "pass", detail: `${tokenAccount.toBase58()} receives payouts` });
+    } else if (heldCheck.problem === "missing") {
+      add({ name: `${terms.price.currency} token account`, status: "fail", detail: `${tokenAccount.toBase58()} does not exist, so no payout can land`, fix: `Create it: ${createCommand}` });
+    } else if (heldCheck.problem === "frozen" || heldCheck.problem === "memo_required") {
+      add({
+        name: `${terms.price.currency} token account`,
+        status: recoveryReady ? "warn" : "fail",
+        detail: `${tokenAccount.toBase58()} is ${heldCheck.detail}, so payouts to it fail`,
+        fix: recoveryReady ? "Payouts go to your recovery payout account until this is resolved." : heldCheck.problem === "frozen" ? `Ask the issuer to unfreeze it, or set payoutAccount to another ${terms.price.currency} token account this wallet owns.` : "Turn off required memos on it (spl-token disable-required-transfer-memos).",
+      });
+    } else {
+      add({ name: `${terms.price.currency} token account`, status: "fail", detail: `${tokenAccount.toBase58()} is not this wallet's token account for the mint (${heldCheck.detail})`, fix: `Create it: ${createCommand}` });
     }
 
     const treasury = await checkTreasuryReadiness((address) => chain.readAccount(address), [{ symbol: terms.price.currency, mint: terms.mint, tokenProgram: terms.tokenProgram }], ESCROW_PROTOCOL_TREASURY);
-    // A missing treasury token account is created by the first settle, at the provider's cost.
-    const missingAccount = treasury.items.slice(1).some((item) => !item.ok);
-    add(!treasury.items[0].ok
-      ? { name: "Protocol treasury", status: "fail", detail: treasury.items[0].detail, fix: "The protocol treasury is not ready on this network. Report it to the Reddi Agent Protocol team; do not take payments until it is." }
-      : missingAccount
-        ? { name: "Protocol treasury", status: "warn", detail: `its ${terms.price.currency} token account does not exist yet`, fix: "Your first settle creates it and pays its rent (about 0.002 SOL)." }
-        : { name: "Protocol treasury", status: "pass", detail: `ready to receive the 2.5% fee in ${terms.price.currency}` });
+    const notReady = treasury.items.find((item) => !item.ok);
+    add(notReady
+      ? { name: "Protocol treasury", status: "fail", detail: `${notReady.name}: ${notReady.detail}`, fix: `The protocol treasury cannot receive ${terms.price.currency} fees on this network yet, and a settle does not create its account. This provider refuses calls in ${terms.price.currency} until it is ready. ${config.network === "solana-devnet" && notReady.detail.startsWith("missing") ? `On devnet anyone can create it once: spl-token create-account ${terms.mint.toBase58()} --owner ${ESCROW_PROTOCOL_TREASURY.toBase58()} --fee-payer <your keypair> --url devnet` : "Report it to the Reddi Agent Protocol team."}` }
+      : { name: "Protocol treasury", status: "pass", detail: `ready to receive the 2.5% fee in ${terms.price.currency}` });
 
     if (terms.tokenProgram.toBase58() === TOKEN_2022_PROGRAM) {
       const mint = await chain.readAccount(terms.mint);

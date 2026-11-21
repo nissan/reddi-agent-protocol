@@ -59,3 +59,23 @@ test("the starting config parses once a wallet is filled in", () => {
   assert.ok(parseProviderConfig(exampleConfig(provider.publicKey.toBase58()), {}).ok);
   assert.ok(!parseProviderConfig(exampleConfig("YOUR_WALLET_ADDRESS"), {}).ok);
 });
+
+test("the pause list, the recovery account and the refund-account subsidy are checked", () => {
+  const parsed = parseProviderConfig(configFile({ pausedCurrencies: ["pyusd"], payoutAccount: USDC.toBase58(), refundAccountSubsidy: { maxPerDay: 3 } }), { RAP_PROVIDER_PAUSED_CURRENCIES: "USDG,PYUSD" });
+  assert.ok(parsed.ok);
+  assert.deepEqual(parsed.config.pausedCurrencies, ["PYUSD", "USDG"]);
+  assert.equal(parsed.config.paused, false);
+  assert.equal(parsed.config.refundAccountsPerDay, 3);
+  assert.equal(parsed.config.terms.payoutAccount?.toBase58(), USDC.toBase58());
+
+  const defaults = parseProviderConfig(configFile(), {});
+  assert.ok(defaults.ok);
+  assert.deepEqual([defaults.config.paused, defaults.config.pausedCurrencies, defaults.config.refundAccountsPerDay, defaults.config.terms.payoutAccount], [false, [], 0, undefined]);
+
+  assert.match(errorsOf(configFile({ pausedCurrencies: ["SOL"] })).join(), /pausedCurrencies/);
+  assert.match(errorsOf(configFile({ pausedCurrencies: [7 as unknown as string] })).join(), /pausedCurrencies/);
+  assert.match(errorsOf(configFile(), { RAP_PROVIDER_PAUSED_CURRENCIES: "DOGE" }).join(), /pausedCurrencies/);
+  assert.match(errorsOf(configFile({ payoutAccount: "nope" })).join(), /payoutAccount/);
+  assert.match(errorsOf(configFile({ refundAccountSubsidy: { maxPerDay: -1 } })).join(), /refundAccountSubsidy/);
+  assert.match(errorsOf(configFile({ refundAccountSubsidy: true as unknown as { maxPerDay: number } })).join(), /refundAccountSubsidy/);
+});

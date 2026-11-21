@@ -2,7 +2,10 @@ import { createHash } from 'node:crypto';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import {
   buildSettleTokenEscrowInstruction,
+  checkMeteredPayout,
   checkProviderCluster,
+  confirmMeteredSettlement,
+  ESCROW_PROTOCOL_TREASURY,
   MemoryNonceReplayStore,
   meteredDecline,
   meteredOffer,
@@ -17,6 +20,7 @@ import {
   usageFrom,
   verifyMeteredLock,
   type MeteredPaymentHeader,
+  type SettlementRecord,
   type VerifiedLock,
 } from '../src';
 
@@ -66,13 +70,33 @@ const header: MeteredPaymentHeader = {
   nonce: Uint8Array.from(Buffer.from(NONCE, 'hex')),
 };
 
-function verify(fields: Fields | 'missing' | 'rpc-down' = {}, extra: { owner?: PublicKey; slot?: () => Promise<bigint>; replayStore?: MemoryNonceReplayStore; header?: MeteredPaymentHeader } = {}) {
+function tokenAccount(mint: PublicKey, owner: PublicKey, state = 1): Uint8Array {
+  const data = Buffer.alloc(165);
+  mint.toBuffer().copy(data, 0);
+  owner.toBuffer().copy(data, 32);
+  data[108] = state; // 0 uninitialised, 1 initialised, 2 frozen
+  return data;
+}
+type Accounts = Map<string, { owner: PublicKey; data: Uint8Array } | null>;
+/** The provider's, the treasury's and the buyer's USDC accounts, all able to receive. */
+function payoutAccounts(): Accounts {
+  return new Map<string, { owner: PublicKey; data: Uint8Array } | null>([
+    [ata(payee).toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, payee) }],
+    [ata(ESCROW_PROTOCOL_TREASURY).toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, ESCROW_PROTOCOL_TREASURY) }],
+    [ata(payer).toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, payer) }],
+  ]);
+}
+
+function verify(fields: Fields | 'missing' | 'rpc-down' = {}, extra: { owner?: PublicKey; slot?: () => Promise<bigint>; replayStore?: MemoryNonceReplayStore; header?: MeteredPaymentHeader; accounts?: Accounts; terms?: typeof terms } = {}) {
+  const accounts = extra.accounts ?? payoutAccounts();
+  const escrowKey = (extra.header ?? header).escrow;
   return verifyMeteredLock({
     header: extra.header ?? header,
-    terms,
+    terms: extra.terms ?? terms,
     minimum: MINIMUM,
-    readAccount: async () => {
+    readAccount: async (address) => {
       if (fields === 'rpc-down') throw new Error('rpc');
+      if (!address.equals(escrowKey)) return accounts.get(address.toBase58()) ?? null;
       if (fields === 'missing') return null;
       return { owner: extra.owner ?? PROGRAM, data: escrowBytes(fields) };
     },
@@ -175,6 +199,155 @@ describe('verifyMeteredLock', () => {
   });
 });
 
+describe('payout accounts', () => {
+  const TOKEN_2022 = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+  const ata22 = (owner: PublicKey, mint: PublicKey) => treasuryTokenAccount({ mint, tokenProgram: TOKEN_2022 }, owner);
+  /** A Token-2022 account or mint: the base layout padded to 165 bytes, the account type, then one extension. */
+  const withExtension = (base: Uint8Array, accountType: number, extension: number, body: Uint8Array): Uint8Array => {
+    const data = Buffer.alloc(165 + 1 + 4 + body.length);
+    Buffer.from(base).copy(data, 0);
+    data[165] = accountType;
+    data.writeUInt16LE(extension, 166);
+    data.writeUInt16LE(body.length, 168);
+    Buffer.from(body).copy(data, 170);
+    return data;
+  };
+
+  it.each<[string, (accounts: Accounts) => void, string]>([
+    ['a closed buyer account', (a) => a.delete(ata(payer).toBase58()), 'refund_account_unusable'],
+    ['a frozen buyer account', (a) => a.set(ata(payer).toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, payer, 2) }), 'refund_account_unusable'],
+    ['an uninitialised buyer account', (a) => a.set(ata(payer).toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, payer, 0) }), 'refund_account_unusable'],
+    ['a buyer account someone else now owns', (a) => a.set(ata(payer).toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, Keypair.generate().publicKey) }), 'refund_account_unusable'],
+    ['a missing treasury account', (a) => a.delete(ata(ESCROW_PROTOCOL_TREASURY).toBase58()), 'provider_not_ready'],
+    ['a frozen treasury account', (a) => a.set(ata(ESCROW_PROTOCOL_TREASURY).toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, ESCROW_PROTOCOL_TREASURY, 2) }), 'provider_not_ready'],
+    ["a frozen provider account with no recovery account", (a) => a.set(ata(payee).toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, payee, 2) }), 'provider_not_ready'],
+  ])('refuses the lock before any work on %s, and does not use it up', async (...row) => {
+    const [, change, reason] = row;
+    const accounts = payoutAccounts();
+    change(accounts);
+    const replayStore = new MemoryNonceReplayStore();
+    expect(await verify({}, { accounts, replayStore })).toMatchObject({ ok: false, reason });
+    // Once the account is back, the same lock is accepted.
+    expect((await verify({}, { replayStore })).ok).toBe(true);
+  });
+
+  it('pays the provider at its recovery account when its usual account is frozen', async () => {
+    const recovery = Keypair.generate().publicKey;
+    const accounts = payoutAccounts();
+    accounts.set(ata(payee).toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, payee, 2) });
+    accounts.set(recovery.toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, payee) });
+    const recoveryTerms = { ...terms, payoutAccount: recovery };
+    const lock = (await verify({}, { accounts, terms: recoveryTerms })) as Extract<VerifiedLock, { ok: true }>;
+    expect(lock.ok).toBe(true);
+    expect(lock.payout.payTo?.equals(recovery)).toBe(true);
+    const { instruction } = meteredSettlement(recoveryTerms, lock, { inputTokens: 120, outputTokens: 333 });
+    expect(instruction.keys[5].pubkey.equals(recovery)).toBe(true);
+
+    // A recovery account the provider does not own is not used.
+    accounts.set(recovery.toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, Keypair.generate().publicKey) });
+    expect(await verify({}, { accounts, terms: recoveryTerms })).toMatchObject({ ok: false, reason: 'provider_not_ready' });
+  });
+
+  it("falls back to the buyer's associated account, and creates one, only when asked", async () => {
+    const other = Keypair.generate().publicKey; // the lock was funded from a non-associated account
+    const escrow = { payer, source: other, recipient: ata(payee) };
+    const accounts = payoutAccounts();
+    const readAccount = async (address: PublicKey) => accounts.get(address.toBase58()) ?? null;
+    // The recorded source is gone; the associated account exists.
+    expect(await checkMeteredPayout({ terms, escrow, readAccount })).toMatchObject({ ok: false, reason: 'refund_account_unusable' });
+    const fallback = await checkMeteredPayout({ terms, escrow, readAccount, allowPayerAssociatedAccount: true });
+    expect(fallback.ok && fallback.payout.refundTo.equals(ata(payer)) && fallback.payout.createRefundAccount === undefined).toBe(true);
+
+    // Neither exists: nothing is created unless the operator opted in.
+    accounts.delete(ata(payer).toBase58());
+    expect(await checkMeteredPayout({ terms, escrow, readAccount, allowPayerAssociatedAccount: true })).toMatchObject({ ok: false, reason: 'refund_account_unusable' });
+    const created = await checkMeteredPayout({ terms, escrow, readAccount, createRefundAccount: true });
+    expect(created).toMatchObject({ ok: true, payout: { createRefundAccount: true } });
+    const lock = { ...((await verify()) as Extract<VerifiedLock, { ok: true }>) };
+    const { instructions } = meteredSettlement(terms, lock, { inputTokens: 120, outputTokens: 333 }, created.ok ? created.payout : undefined);
+    expect(instructions).toHaveLength(2);
+    expect(instructions[0].keys[0].pubkey.equals(payee)).toBe(true); // the provider funds it
+    expect(instructions[0].keys[2].pubkey.equals(payer)).toBe(true); // the buyer owns it
+
+    // A frozen associated account cannot be created over, opt-in or not.
+    accounts.set(ata(payer).toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, payer, 2) });
+    expect(await checkMeteredPayout({ terms, escrow, readAccount, createRefundAccount: true })).toMatchObject({ ok: false, reason: 'refund_account_unusable' });
+  });
+
+  it('reports an unreadable chain as unavailable, not as a bad account', async () => {
+    const escrow = { payer, source: ata(payer), recipient: ata(payee) };
+    expect(await checkMeteredPayout({ terms, escrow, readAccount: async () => { throw new Error('rpc'); } })).toMatchObject({ ok: false, reason: 'payment_check_unavailable' });
+  });
+
+  it('on Token-2022, refuses a buyer account that requires memos and passes the mint writable when it withholds fees', async () => {
+    const mint = Keypair.generate().publicKey;
+    const t22 = { ...terms, mint, tokenProgram: TOKEN_2022 };
+    const escrow = { payer, source: ata22(payer, mint), recipient: ata22(payee, mint) };
+    const plain = (owner: PublicKey) => ({ owner: TOKEN_2022, data: tokenAccount(mint, owner) });
+    const mintBase = Buffer.alloc(82);
+    mintBase[45] = 1; // initialised
+    const accounts: Accounts = new Map([
+      [ata22(payee, mint).toBase58(), plain(payee)],
+      [ata22(ESCROW_PROTOCOL_TREASURY, mint).toBase58(), plain(ESCROW_PROTOCOL_TREASURY)],
+      [ata22(payer, mint).toBase58(), plain(payer)],
+      [mint.toBase58(), { owner: TOKEN_2022, data: withExtension(mintBase, 1, 1, new Uint8Array(108)) }], // TransferFeeConfig
+    ]);
+    const readAccount = async (address: PublicKey) => accounts.get(address.toBase58()) ?? null;
+    const withFees = await checkMeteredPayout({ terms: t22, escrow, readAccount });
+    expect(withFees).toMatchObject({ ok: true, payout: { harvestWithheldFees: true } });
+
+    // No transfer fee extension: the mint stays read-only.
+    accounts.set(mint.toBase58(), { owner: TOKEN_2022, data: withExtension(mintBase, 1, 3, new Uint8Array(32)) }); // MintCloseAuthority
+    expect(await checkMeteredPayout({ terms: t22, escrow, readAccount })).toMatchObject({ ok: true, payout: { harvestWithheldFees: false } });
+
+    accounts.set(ata22(payer, mint).toBase58(), { owner: TOKEN_2022, data: withExtension(tokenAccount(mint, payer), 2, 8, Uint8Array.of(1)) }); // MemoTransfer on
+    expect(await checkMeteredPayout({ terms: t22, escrow, readAccount })).toMatchObject({ ok: false, reason: 'refund_account_unusable' });
+
+    accounts.delete(mint.toBase58());
+    accounts.set(ata22(payer, mint).toBase58(), plain(payer));
+    expect(await checkMeteredPayout({ terms: t22, escrow, readAccount })).toMatchObject({ ok: false, reason: 'provider_not_ready' });
+  });
+});
+
+describe('confirmed settlement', () => {
+  const escrowKey = header.escrow;
+  const expected = { programId: PROGRAM, escrow: escrowKey, mint: USDC, destination: ata(payee), treasuryToken: ata(ESCROW_PROTOCOL_TREASURY), refundTo: ata(payer), maxBaseUnits: BigInt(15_600) };
+  const row = (account: PublicKey, before: number, after: number) => ({ account: account.toBase58(), mint: USDC.toBase58(), before: BigInt(before), after: BigInt(after) });
+  const record = (provider: number, fee: number, refund: number, extra: Partial<SettlementRecord> = {}): SettlementRecord => ({
+    failed: false,
+    programIds: [PROGRAM.toBase58()],
+    accounts: [escrowKey.toBase58(), ata(payee).toBase58()],
+    tokenBalances: [row(ata(payee), 1_000, 1_000 + provider), row(ata(ESCROW_PROTOCOL_TREASURY), 50, 50 + fee), row(ata(payer), 0, refund)],
+    ...extra,
+  });
+
+  it('reads the provider credit, the fee and the refund from the balance changes', () => {
+    expect(confirmMeteredSettlement(record(5_222, 133, 10_245), expected)).toEqual({
+      ok: true, paidBaseUnits: BigInt(5_355), feeBaseUnits: BigInt(133), providerBaseUnits: BigInt(5_222), refundedBaseUnits: BigInt(10_245), surplusBaseUnits: BigInt(0),
+    });
+  });
+
+  it('keeps tokens someone donated to the vault apart from the refund', () => {
+    expect(confirmMeteredSettlement(record(5_222, 133, 10_245 + 700), expected)).toMatchObject({ ok: true, paidBaseUnits: BigInt(5_355), refundedBaseUnits: BigInt(10_245), surplusBaseUnits: BigInt(700) });
+  });
+
+  it('bills what the provider was actually credited, and refuses when the amounts no longer add up', () => {
+    // A reduced credit with the buyer made whole is billed at the reduced amount.
+    expect(confirmMeteredSettlement(record(5_000, 133, 10_467), expected)).toMatchObject({ ok: true, paidBaseUnits: BigInt(5_133), providerBaseUnits: BigInt(5_000) });
+    // Tokens withheld on the way: the buyer got back less than the maximum less what was billed.
+    expect(confirmMeteredSettlement(record(5_000, 133, 10_245), expected)).toEqual({ ok: false, reason: 'amounts_do_not_add_up' });
+    expect(confirmMeteredSettlement(record(15_600, 400, 0), expected)).toEqual({ ok: false, reason: 'amounts_do_not_add_up' });
+    expect(confirmMeteredSettlement(record(0, 0, 15_600), expected)).toEqual({ ok: false, reason: 'amounts_do_not_add_up' });
+  });
+
+  it('refuses a transaction that is missing, failed, for another program or for another escrow', () => {
+    expect(confirmMeteredSettlement(null, expected)).toEqual({ ok: false, reason: 'not_found' });
+    expect(confirmMeteredSettlement(record(5_222, 133, 10_245, { failed: true }), expected)).toEqual({ ok: false, reason: 'failed' });
+    expect(confirmMeteredSettlement(record(5_222, 133, 10_245, { programIds: [TOKEN_PROGRAM.toBase58()] }), expected)).toEqual({ ok: false, reason: 'wrong_transaction' });
+    expect(confirmMeteredSettlement(record(5_222, 133, 10_245, { accounts: [ata(payee).toBase58()] }), expected)).toEqual({ ok: false, reason: 'wrong_transaction' });
+  });
+});
+
 describe('settlement', () => {
   const locked = async () => (await verify()) as Extract<VerifiedLock, { ok: true }>;
 
@@ -184,12 +357,12 @@ describe('settlement', () => {
     // 120*3 + 333*15 = 5355 base units; fee floor(5355 * 0.025) = 133
     expect(settlement.chargedBaseUnits).toBe(BigInt(5355));
     expect(settlement).toMatchObject({ charged: '0.005355', fee: '0.000133', provider: '0.005222', refund: '0.010245', capped: false });
-    const prep = prepareTokenPayout(lock.terms, payee);
-    const direct = buildSettleTokenEscrowInstruction(lock.terms, false, payee, { actual: BigInt(5355), treasuryToken: prep.treasuryToken, refundTo: prep.refundTo });
+    // Paid into the accounts the lock check read: the recorded source takes the unused part, and nothing is created.
+    const direct = buildSettleTokenEscrowInstruction(lock.terms, false, payee, { actual: BigInt(5355), treasuryToken: ata(ESCROW_PROTOCOL_TREASURY), refundTo: ata(payer) });
     expect(instruction.data.equals(direct.data)).toBe(true);
     expect(instruction.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable])).toEqual(direct.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable]));
-    expect(instructions[instructions.length - 1]).toBe(instruction);
-    expect(instructions.length).toBe(prep.instructions.length + 1);
+    expect(instructions).toEqual([instruction]);
+    expect(prepareTokenPayout(lock.terms, payee).instructions).toEqual([]);
   });
 
   it('holds the charge to the locked maximum', async () => {
