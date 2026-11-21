@@ -38,6 +38,16 @@ import { getProfile, specialistProfiles, validateProfileRegistry } from "./profi
 import { FetchOpenRouterClient, MockOpenRouterClient } from "./openrouter.js";
 import type { AttestationRequest, ChatCompletionRequest, OpenRouterClient, RuntimeConfig, RuntimeResponse, SpecialistProfile } from "./types.js";
 
+/**
+ * The metered offer in a 402, with this runtime's stance on rated jobs. It does
+ * not pass `acceptRatedEscrows` to the lock check, so an escrow the buyer opted
+ * in to rating is declined before anything is served; saying so in the offer
+ * lets a buyer's client warn before the buyer signs a lock.
+ */
+function specialistMeteredOffer(...args: Parameters<typeof meteredOffer>) {
+  return { ...meteredOffer(...args), acceptsRatedEscrows: false };
+}
+
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const PAYMENT_NETWORK = "solana-devnet" as const;
 
@@ -673,7 +683,7 @@ export async function handleRuntimeRequest(request: Request, config = createRunt
       const result = await handleChatCompletions({ headers: request.headers, body, config, client, replayStore });
       if (result.status === 402) {
         const terms = deps.settleMeteredEscrow && config.allowRealPayment ? meteredTerms(profile, config) : undefined;
-        if (terms) result.body.metered = meteredOffer(terms, body.messages ?? [], body.max_tokens);
+        if (terms) result.body.metered = specialistMeteredOffer(terms, body.messages ?? [], body.max_tokens);
       }
       if (result.status !== 200) return toResponse(result);
       // The receipt names the exact bytes sent, so the body is serialised once and reused.
@@ -724,7 +734,7 @@ async function handleMeteredChatCompletion(input: {
   const readSlot: SlotReader = deps.readSlot ?? (() => connection.getSlot("confirmed"));
   const lock = await verifyMeteredLock({ header, terms, minimum, readAccount, readSlot, replayStore: input.replayStore });
   if (!lock.ok) {
-    return refuse(lock.reason === "payment_check_unavailable" ? 503 : lock.reason === "duplicate_nonce" ? 409 : 402, lock.reason, lock.message, { metered: meteredOffer(terms, messages, body.max_tokens) });
+    return refuse(lock.reason === "payment_check_unavailable" ? 503 : lock.reason === "duplicate_nonce" ? 409 : 402, lock.reason, lock.message, { metered: specialistMeteredOffer(terms, messages, body.max_tokens) });
   }
 
   const requestId = randomUUID();

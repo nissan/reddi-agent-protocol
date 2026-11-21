@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { ReputationSummary } from "@/components/rating/ReputationSummary"
 import Link from "next/link"
 import { useParams } from "next/navigation"
 
@@ -153,15 +154,9 @@ export default function SpecialistDetailPage() {
                   <p className="text-xs uppercase tracking-wider text-gray-500">Last seen</p>
                   <p className="mt-1 text-white">{listing.health.lastCheckedAt ? new Date(listing.health.lastCheckedAt).toLocaleString() : "Unknown"}</p>
                 </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wider text-gray-500">Jobs completed</p>
-                  <p className="mt-1 text-white">{Number(listing.onchain.jobsCompleted)}</p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wider text-gray-500">Jobs failed</p>
-                  <p className="mt-1 text-white">{Number(listing.onchain.jobsFailed)}</p>
-                </div>
               </div>
+
+              <ReputationSummary agent={listing.onchain} />
 
               <div>
                 <p className="text-xs uppercase tracking-wider text-gray-500">Capabilities</p>
@@ -222,15 +217,7 @@ export default function SpecialistDetailPage() {
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs text-gray-500">Reputation</p>
-                  <p className="mt-1 text-lg text-white">{listing.onchain.reputationScore}</p>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs text-gray-500">Attestation accuracy</p>
-                  <p className="mt-1 text-lg text-white">{listing.onchain.attestationAccuracy}%</p>
-                </div>
+              <div className="grid gap-4">
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4">
                   <p className="text-xs text-gray-500">Payment/evidence boundary</p>
                   <p className="mt-1 text-lg text-white">{privacyModes.join(", ") || "public"}</p>

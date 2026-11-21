@@ -5,7 +5,13 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Connection, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
-import { buildSandboxMeteredLock } from "@/lib/sandbox/escrow";
+import { buildOpenRatingInstruction } from "@reddi/x402-solana/rating";
+import { JobRatingPanel } from "@/components/rating/JobRatingPanel";
+import { RateJobOption } from "@/components/rating/RateJobOption";
+import { parseJudgeAddress } from "@/lib/rating/rated-pay";
+import { browserRatingStorage, rememberRatedJob } from "@/lib/rating/rating-secrets";
+import { RATING_RENT_LAMPORTS, RATING_RENT_SOL } from "@/lib/rating/rating-state";
+import { buildSandboxMeteredLock, SANDBOX_ESCROW_PROGRAM_ID } from "@/lib/sandbox/escrow";
 import { minimumSolPayout, solPayoutWouldFail } from "@reddi/x402-solana/escrow-readiness";
 
 import {
@@ -236,6 +242,12 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
   const [meteredProviders, setMeteredProviders] = useState<Record<string, boolean>>({});
   const [origin, setOrigin] = useState("https://app.agent-protocol.reddi.tech");
   const [pendingWalletPayment, setPendingWalletPayment] = useState<string | null>(null);
+  // Providers the listing says serve escrows opted in to rating. The option is offered only for those.
+  const [ratedProviders, setRatedProviders] = useState<Record<string, boolean>>({});
+  // "Rate this job": off unless the visitor turns it on.
+  const [rateJob, setRateJob] = useState(false);
+  const [judgeText, setJudgeText] = useState("");
+  const [ratedEscrow, setRatedEscrow] = useState<string | null>(null);
   // True once the page is interactive and the provider key listing has settled.
   const [ready, setReady] = useState(false);
 
@@ -250,14 +262,17 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
     let cancelled = false;
     fetch(SANDBOX_MODELS_PATH, { cache: "no-store" })
       .then((response) => response.json())
-      .then((listing: { data?: { rap?: { providerId?: string; receiptProviderId?: string; meteredEscrow?: { available?: boolean } } }[] }) => {
+      .then((listing: { data?: { rap?: { providerId?: string; receiptProviderId?: string; meteredEscrow?: { available?: boolean; acceptsRatedEscrows?: boolean } } }[] }) => {
         if (cancelled) return;
         const keys: Record<string, string> = {};
         const metered: Record<string, boolean> = {};
+        const rated: Record<string, boolean> = {};
         for (const entry of listing.data ?? []) {
           if (entry.rap?.providerId && entry.rap.receiptProviderId) keys[entry.rap.providerId] = entry.rap.receiptProviderId;
           if (entry.rap?.providerId && entry.rap.meteredEscrow?.available === true) metered[entry.rap.providerId] = true;
+          if (entry.rap?.providerId && entry.rap.meteredEscrow?.acceptsRatedEscrows === true) rated[entry.rap.providerId] = true;
         }
+        setRatedProviders(rated);
         setProviderKeys(keys);
         setMeteredProviders(metered);
       })
@@ -279,6 +294,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
     setNotice(null);
     setExchanges([]);
     setPendingWalletPayment(null);
+    setRatedEscrow(null);
   }, []);
 
   function chooseScenario(id: SandboxScenarioId) {
@@ -430,9 +446,22 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
       const lock = metered
         ? buildSandboxMeteredLock({ payer: publicKey, payee: new PublicKey(challenge.payTo), maxLamports: BigInt(lamports), challengeNonce: challenge.nonce })
         : undefined;
+      // Rated only when the visitor asked for it and this provider's listing says it serves rated escrows.
+      const wantsRating = lock !== undefined && rateJob && ratedProviders[provider.id] === true;
+      const judge = wantsRating ? parseJudgeAddress(judgeText, { payer: publicKey.toBase58(), payee: challenge.payTo }) : undefined;
+      if (judge && !judge.ok) {
+        setNotice({ tone: "info", title: "Check the judge address", text: `${judge.message} Nothing was signed.` });
+        return;
+      }
+      if (wantsRating && balance < lamports + FEE_HEADROOM_LAMPORTS + ESCROW_RENT_HEADROOM_LAMPORTS + Number(RATING_RENT_LAMPORTS)) {
+        setNotice({ tone: "info", title: "This wallet needs more devnet SOL", text: `Rating adds about ${RATING_RENT_SOL} SOL of refundable rent. Get free test SOL from ${FAUCET_URL}, or pay without rating.` });
+        return;
+      }
       const transaction = new Transaction({ feePayer: publicKey, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight }).add(
         lock ? lock.instruction : SystemProgram.transfer({ fromPubkey: publicKey, toPubkey: new PublicKey(challenge.payTo), lamports }),
       );
+      // open_rating must land in the slot of the lock, so it rides in the same transaction.
+      if (lock && judge?.ok) transaction.add(buildOpenRatingInstruction({ programId: SANDBOX_ESCROW_PROGRAM_ID, escrow: lock.escrow, payer: publicKey, judge: judge.judge }));
       // Signed in the visitor's wallet and submitted here to devnet only. The
       // devnet blockhash means the signed transaction cannot land on another cluster.
       const signed = await signTransaction(transaction);
@@ -442,6 +471,17 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
         : devnetPaymentHeader(challenge, signature, publicKey.toBase58());
       // From here the transfer may be on devnet, so it is remembered before anything else can fail.
       setPendingWalletPayment(paymentHeader);
+      if (lock && judge?.ok) {
+        setRatedEscrow(lock.escrow.toBase58());
+        const storage = browserRatingStorage();
+        try {
+          if (storage) rememberRatedJob(storage, { wallet: publicKey.toBase58(), escrow: lock.escrow.toBase58(), programId: SANDBOX_ESCROW_PROGRAM_ID.toBase58(), counterparty: challenge.payTo, label: `${provider.name} (sandbox, devnet)`, ...(judge.judge ? { judge: judge.judge.toBase58() } : {}), openedAt: new Date().toISOString() });
+        } catch {
+          // The rating panel below still works for this visit.
+        }
+      } else {
+        setRatedEscrow(null);
+      }
       setNotice({ tone: "info", title: "Transfer sent to devnet", text: "Waiting for confirmation, then presenting it to the provider." });
       try {
         await devnet.confirmTransaction({ signature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight }, "confirmed");
@@ -661,6 +701,9 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                           Set the wallet to Solana devnet first. Test SOL is free from the{" "}
                           <a className="underline" href={FAUCET_URL} target="_blank" rel="noreferrer">Solana faucet</a> and has no monetary value.
                         </p>
+                        {meteredProviders[provider.id] && ratedProviders[provider.id] ? (
+                          <RateJobOption checked={rateJob} onCheckedChange={setRateJob} judge={judgeText} onJudgeChange={setJudgeText} stance="accepts" disabled={busy !== null || pendingWalletPayment !== null} />
+                        ) : null}
                         <div className="flex flex-wrap items-center gap-3">
                           <WalletMultiButton />
                           <button type="button" data-testid="sandbox-pay-wallet" className={actionButton} disabled={busy !== null || !connected || pendingWalletPayment !== null} onClick={payWithWallet}>
@@ -743,6 +786,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                   <p className="mt-1 text-sm leading-6 text-gray-300">{answered.spotCheck.note}</p>
                   <p className="mt-1 text-xs text-gray-400">Sandbox scores live in this browser tab and reset when you reload.</p>
                 </div>
+                {ratedEscrow ? <JobRatingPanel escrow={ratedEscrow} programId={SANDBOX_ESCROW_PROGRAM_ID} connection={devnet} showWhenNone /> : null}
                 <p className="rounded-xl border border-[#9945FF]/30 bg-[#9945FF]/10 p-4 text-sm leading-6 text-gray-200" data-testid="sandbox-takeaway">{scenario.takeaway}</p>
                 <button type="button" data-testid="sandbox-run-again" className={quietButton} onClick={resetRun}>Run it again</button>
               </>

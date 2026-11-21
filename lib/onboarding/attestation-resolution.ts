@@ -1,5 +1,11 @@
-import { Connection, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
-import { buildConfirmAttestationInstruction, buildDisputeAttestationInstruction } from "@reddi/x402-solana/rating";
+import { Connection, PublicKey, Transaction } from "@solana/web3.js";
+import {
+  attestationPda,
+  buildConfirmAttestationInstruction,
+  buildDisputeAttestationInstruction,
+  decodeAttestationAccount,
+  type AttestationAccount,
+} from "@reddi/x402-solana/rating";
 
 import { QUASAR_ESCROW_UNAVAILABLE_REASON } from "@/lib/onboarding/quasar-escrow-binding";
 import { ESCROW_PROGRAM_ID, PROGRAM_TARGET } from "@/lib/program";
@@ -14,29 +20,36 @@ import { ESCROW_PROGRAM_ID, PROGRAM_TARGET } from "@/lib/program";
  *
  * What is built below is the V1 program's `confirm_attestation` / `dispute_attestation`
  * (`@reddi/x402-solana/rating`): the attestation of the job paid through an escrow, the judge's
- * agent record, and the consumer as signer, and as data the job's opened slot as the attestation
- * stores it (`openedSlot`, required: the program refuses a decision without it or naming another
- * job, `RatingJobMismatch` 6051). Nothing in the app records
- * such an attestation yet: the operator attest step fails closed until the app rating flow lands
- * (#842), so the onboarding page never reaches this with a recorded attestation.
+ * agent record, and the consumer as signer, and as data the job's opened slot. The program refuses a
+ * decision whose slot is not the one the attestation stores (`RatingJobMismatch`, 6051), so a
+ * decision prepared for an earlier job's attestation cannot land on a later one; it does not check
+ * the judge or scores the signer was shown, so before anything is built the attestation is read and
+ * checked against that job (`readAttestationForShownJob`), and a recorded
+ * attestation address is accepted only when it is the one derived from the shown escrow. The job rating panel
+ * (`components/rating`, #842) resolves a judge's attestation through `lib/rating/job-rating.ts`
+ * and uses the refusal check here; the onboarding wizard no longer has an attest step.
  */
 export type AttestationResolutionAction = "confirm" | "dispute";
 
 export type AttestationResolutionRequest = {
   action: AttestationResolutionAction;
-  /** Consumer wallet doing the follow-through; it signs the transaction. */
+  /** Consumer wallet doing the follow-through; it signs the transaction. It must be the consumer the attestation names. */
   consumer: PublicKey;
-  /** Operator (judge) wallet named by the attestation, as base58. */
+  /** The judge shown to the signer for this job, as base58. It must be the judge the attestation names. */
   operator: string;
-  /** The escrow the attested job was paid through, as base58. The attestation address is derived from it. */
-  escrow?: string;
-  /** Attestation address recorded by the attest step, as base58. Used instead of `escrow` when present. */
+  /** The escrow the job shown to the signer was paid through, as base58. The attestation address is derived from it. */
+  escrow: string;
+  /**
+   * An attestation address the caller recorded, as base58. Optional, and only accepted when it is
+   * the address derived from `escrow`: any other address is refused, never used.
+   */
   attestationPda?: string;
   /**
-   * The slot the job's rating was opened in, as the attestation the consumer was shown stores it
-   * (`decodeAttestationAccount(...).openedSlot`). Required: without it nothing is built.
+   * The opened slot of the job shown to the signer: the attestation's `openedSlot` (the same as the
+   * rating's), as read when the job was shown. Required. The attestation now at the address must
+   * store this slot, and the decision names it, so the program refuses it for any other job.
    */
-  openedSlot?: bigint;
+  openedSlot: bigint;
 };
 
 export type AttestationResolutionDependencies = {
@@ -56,25 +69,50 @@ export function describeAttestationResolutionRefusal(): string | undefined {
   return PROGRAM_TARGET === "quasar" ? QUASAR_ESCROW_UNAVAILABLE_REASON : undefined;
 }
 
-function buildResolutionInstruction(request: AttestationResolutionRequest, operator: PublicKey): TransactionInstruction {
-  const openedSlot = request.openedSlot;
-  if (typeof openedSlot !== "bigint") {
-    throw new Error("Attestation resolution needs the job's opened slot, read from the attestation. Nothing was signed.");
+/** Thrown, and returned as the outcome's error, when the attestation on chain is not the one of the job shown to the signer. */
+export class AttestationJobMismatchError extends Error {}
+
+/** The part of a `Connection` the job check reads with. */
+type AccountReader = Pick<Connection, "getAccountInfo">;
+
+/**
+ * Reads the attestation at ["attestation", escrow] and returns it only when it is the attestation of
+ * the job shown to the signer: same escrow, same judge, same consumer, the same opened slot, still
+ * pending, held by the escrow program. Throws `AttestationJobMismatchError` otherwise. The program
+ * checks the consumer, the judge's agent address and the opened slot the decision names, not the
+ * judge or scores the signer was shown, so this check is what keeps a click on one job from
+ * resolving another's attestation.
+ */
+export async function readAttestationForShownJob(
+  connection: AccountReader,
+  shown: { escrow: PublicKey; judge: PublicKey; consumer: PublicKey; openedSlot: bigint; attestationAddress?: PublicKey },
+  programId: PublicKey = ESCROW_PROGRAM_ID,
+): Promise<AttestationAccount> {
+  const derived = attestationPda(shown.escrow, programId);
+  if (shown.attestationAddress && !shown.attestationAddress.equals(derived)) {
+    throw new AttestationJobMismatchError("The attestation address given is not the attestation of the job shown. Nothing was signed.");
   }
-  const build = request.action === "confirm" ? buildConfirmAttestationInstruction : buildDisputeAttestationInstruction;
-  if (request.attestationPda) {
-    // A recorded attestation address: the builder's accounts and data, with that address as account 0.
-    const built = build({ programId: ESCROW_PROGRAM_ID, escrow: PublicKey.default, judge: operator, consumer: request.consumer, openedSlot });
-    return new TransactionInstruction({
-      programId: ESCROW_PROGRAM_ID,
-      keys: [{ pubkey: new PublicKey(request.attestationPda), isSigner: false, isWritable: true }, ...built.keys.slice(1)],
-      data: built.data,
-    });
+  const info = await connection.getAccountInfo(derived, "confirmed");
+  if (!info || !info.owner.equals(programId)) throw new AttestationJobMismatchError("There is no attestation for the job shown. Nothing was signed.");
+  let attestation: AttestationAccount;
+  try {
+    attestation = decodeAttestationAccount(new Uint8Array(info.data));
+  } catch {
+    throw new AttestationJobMismatchError("The account at the attestation address is not an attestation. Nothing was signed.");
   }
-  if (!request.escrow) {
-    throw new Error("Attestation resolution needs the escrow the job was paid through.");
+  if (!attestation.escrow.equals(shown.escrow)) throw new AttestationJobMismatchError("The attestation names another escrow than the job shown. Nothing was signed.");
+  if (!attestation.judge.equals(shown.judge)) throw new AttestationJobMismatchError("The attestation was made by another judge than the one shown. Nothing was signed.");
+  if (!attestation.consumer.equals(shown.consumer)) throw new AttestationJobMismatchError("The attestation names another buyer than the connected wallet. Nothing was signed.");
+  if (attestation.resolution !== "pending") throw new AttestationJobMismatchError(`This attestation was already ${attestation.resolution}. Nothing was signed.`);
+  if (typeof shown.openedSlot !== "bigint") throw new AttestationJobMismatchError("The job shown has no opened slot to name. Nothing was signed.");
+  if (attestation.openedSlot !== shown.openedSlot) {
+    throw new AttestationJobMismatchError(
+      attestation.openedSlot < shown.openedSlot
+        ? "This attestation belongs to an earlier job at the same escrow address. Nothing was signed."
+        : "The job shown is no longer the job at this escrow address. Refresh before confirming or disputing. Nothing was signed.",
+    );
   }
-  return build({ programId: ESCROW_PROGRAM_ID, escrow: new PublicKey(request.escrow), judge: operator, consumer: request.consumer, openedSlot });
+  return attestation;
 }
 
 export async function submitAttestationResolution(
@@ -86,8 +124,16 @@ export async function submitAttestationResolution(
 
   try {
     const connection = deps.getConnection();
-    const operator = new PublicKey(request.operator);
-    const instruction = buildResolutionInstruction(request, operator);
+    if (!request.escrow) throw new AttestationJobMismatchError("Attestation resolution needs the escrow the job was paid through.");
+    const escrow = new PublicKey(request.escrow);
+    const judge = new PublicKey(request.operator);
+    const attestationAddress = request.attestationPda ? new PublicKey(request.attestationPda) : undefined;
+    const attestation = await readAttestationForShownJob(connection, { escrow, judge, consumer: request.consumer, openedSlot: request.openedSlot, attestationAddress });
+
+    // Built only from the shown job: the attestation address is always derived from its escrow, and
+    // the decision names the job's opened slot, which the attestation was just checked to store.
+    const input = { programId: ESCROW_PROGRAM_ID, escrow, judge, consumer: request.consumer, openedSlot: attestation.openedSlot };
+    const instruction = request.action === "confirm" ? buildConfirmAttestationInstruction(input) : buildDisputeAttestationInstruction(input);
 
     const { blockhash } = await connection.getLatestBlockhash();
     const transaction = new Transaction();

@@ -6,6 +6,7 @@ import {
   summarizeAttestorRole,
   type AttestorCandidate,
 } from "@/lib/attestor/role-readiness";
+import { RATINGS_DOC_PATH } from "@/lib/rating/reputation-display";
 
 type AuditAttestation = {
   timestamp: string;
@@ -16,17 +17,9 @@ type AuditAttestation = {
   endpoint_url: string;
 };
 
-type RevealCommit = {
-  runId?: string;
-  revealedAt?: string;
-  revealTxSignature?: string;
-  specialistWallet?: string;
-};
-
 export default function AttestationDashboardPage() {
   const { connected } = useWallet();
   const [attestations, setAttestations] = useState<AuditAttestation[]>([]);
-  const [commits, setCommits] = useState<RevealCommit[]>([]);
   const [candidate, setCandidate] = useState<AttestorCandidate | null>(null);
   const [candidateCount, setCandidateCount] = useState(0);
   const [resolving, setResolving] = useState(false);
@@ -36,27 +29,13 @@ export default function AttestationDashboardPage() {
     if (!connected) return;
     (async () => {
       try {
-        const [auditRes, revealRes] = await Promise.all([
-          fetch("/api/onboarding/audit", { cache: "no-store" }),
-          fetch("/api/onboarding/planner/reveal", { cache: "no-store" }),
-        ]);
-        const [audit, reveal] = await Promise.all([
-          auditRes.json(),
-          revealRes.json(),
-        ]);
+        const auditRes = await fetch("/api/onboarding/audit", { cache: "no-store" });
+        const audit = await auditRes.json();
         setAttestations(
           Array.isArray(audit?.attestations) ? audit.attestations : [],
         );
-        setCommits(
-          Array.isArray(reveal?.result?.entries)
-            ? reveal.result.entries
-            : Array.isArray(reveal?.result)
-              ? reveal.result
-              : [],
-        );
       } catch {
         setAttestations([]);
-        setCommits([]);
       }
     })();
   }, [connected]);
@@ -71,7 +50,8 @@ export default function AttestationDashboardPage() {
         {
           attestationRecords: attestations.length,
           onchainAttestations: onchainCount,
-          revealCommits: commits.length,
+          // The operator-key commit and reveal flow is gone; ratings are made by the parties' own wallets.
+          revealCommits: 0,
           availableAttestors: candidateCount,
         },
         candidate,
@@ -79,7 +59,6 @@ export default function AttestationDashboardPage() {
     [
       attestations.length,
       onchainCount,
-      commits.length,
       candidateCount,
       candidate,
     ],
@@ -162,11 +141,19 @@ export default function AttestationDashboardPage() {
         ))}
       </section>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Stat label="Attestation records" value={attestations.length} />
         <Stat label="On-chain attestations" value={onchainCount} />
-        <Stat label="Reveal commits" value={commits.length} />
       </div>
+
+      <section className="rounded-xl border border-white/10 bg-card/20 p-5 space-y-2 text-sm text-muted-foreground" data-testid="attestation-how">
+        <h2 className="text-lg font-semibold text-white">How a job gets attested</h2>
+        <p>
+          A buyer may name one judge when paying for a job with rating turned on. Once that job is paid, only the named judge can record five scores for it, signed by the judge&apos;s own wallet, and the buyer then confirms or disputes them from the job&apos;s rating panel in{" "}
+          <a href="/runs" className="text-[#14F195] hover:underline">run history</a>. This app does not attest on anyone&apos;s behalf.{" "}
+          <a href={RATINGS_DOC_PATH} target="_blank" rel="noopener noreferrer" className="text-[#14F195] hover:underline">Ratings and attestations</a>
+        </p>
+      </section>
 
       <section
         className={`rounded-xl border p-5 space-y-4 ${

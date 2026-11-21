@@ -447,8 +447,11 @@ describe("sandbox metered escrow: gateway", () => {
     const rows = listing.data as { rap: { providerId: string; meteredEscrow: { available: boolean; programId: string } } }[];
     for (const row of rows) {
       const provider = SANDBOX_PROVIDERS.find((entry) => entry.id === row.rap.providerId)!;
-      expect(row.rap.meteredEscrow).toEqual({ available: provider.behaviour !== "offline", programId: SANDBOX_ESCROW_PROGRAM_ID.toBase58() });
+      // Rated escrows are declined unless the operator turned them on (#842).
+      expect(row.rap.meteredEscrow).toEqual({ available: provider.behaviour !== "offline", programId: SANDBOX_ESCROW_PROGRAM_ID.toBase58(), acceptsRatedEscrows: false });
     }
+    const rated = (await sandboxModelsListing(fakeSettler(true).settler, true)).data as { rap: { meteredEscrow: { acceptsRatedEscrows: boolean } } }[];
+    expect(rated.every((row) => row.rap.meteredEscrow.acceptsRatedEscrows === true)).toBe(true);
     const none = (await sandboxModelsListing()).data as { rap: { meteredEscrow: { available: boolean } } }[];
     expect(none.every((row) => row.rap.meteredEscrow.available === false)).toBe(true);
   });

@@ -6,10 +6,7 @@ import dynamic from "next/dynamic";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { Connection, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { Button } from "@/components/ui/button";
-import {
-  describeAttestationResolutionRefusal,
-  submitAttestationResolution,
-} from "@/lib/onboarding/attestation-resolution";
+import { RATINGS_DOC_PATH } from "@/lib/rating/reputation-display";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import StepIndicator from "@/components/StepIndicator";
@@ -202,7 +199,6 @@ const STEPS = [
   "Try Planner",
 ];
 
-const OPERATOR_STATUS_STALE_MS = 10 * 60 * 1000;
 
 function mockWalletAddress() {
   const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -270,14 +266,8 @@ export default function OnboardingPage() {
     error?: string;
   } | null>(null);
   const [healthcheckLoading, setHealthcheckLoading] = useState(false);
-  const [attestationLoading, setAttestationLoading] = useState(false);
-  const [attestationOperatorCheckLoading, setAttestationOperatorCheckLoading] = useState(false);
   const [state, setState] = useState<WizardState>(INITIAL_STATE);
 
-  // Quasar reputation/attestation bind to the escrow a successful lock created. Onboarding never
-  // locks one, so the resolution actions stay disabled with the canonical reason rather than
-  // building an instruction against an escrow that does not exist.
-  const quasarResolutionBlockedReason = describeAttestationResolutionRefusal();
   const [capabilityLoading, setCapabilityLoading] = useState(false);
   const prevStepRef = useRef(step);
 
@@ -335,18 +325,6 @@ export default function OnboardingPage() {
     return state.endpointUrl || `https://your-subdomain.ngrok-free.app (maps to :${state.ollamaPort})`;
   }, [state.ollamaPort, state.consentExposeEndpoint, state.endpointUrl]);
 
-  const operatorStatusState = useMemo<"missing" | "invalid" | "ready" | "stale">(() => {
-    if (state.attestationOperatorState === "ready" && state.attestationOperatorCheckedAt) {
-      const checked = Date.parse(state.attestationOperatorCheckedAt);
-      if (Number.isFinite(checked) && Date.now() - checked > OPERATOR_STATUS_STALE_MS) {
-        return "stale";
-      }
-    }
-    return state.attestationOperatorState;
-  }, [state.attestationOperatorState, state.attestationOperatorCheckedAt]);
-
-  const operatorReadyForAttestation = operatorStatusState === "ready";
-
   const canContinue = useMemo(() => {
     if (step === 1) return state.consentExposeEndpoint && state.consentProtocolOps;
     if (step === 2) {
@@ -361,7 +339,8 @@ export default function OnboardingPage() {
     }
     if (step === 5) return state.registrationCompleted && state.capabilitySaved;
     if (step === 6) return state.healthcheckStatus === "pass";
-    if (step === 7) return state.attested;
+    // Attestation is no longer a wizard action: a judge attests a paid, rated job from its own wallet.
+    if (step === 7) return state.healthcheckStatus === "pass";
     if (step === 8) return state.plannerStatus === "completed" || state.plannerFeedbackSent;
     return false;
   }, [step, state]);
@@ -1660,305 +1639,32 @@ export default function OnboardingPage() {
         )}
 
         {step === 7 && (
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold">7. Attestation</h2>
-            <p className="text-sm text-muted-foreground">Operator attests onboarding quality once healthcheck passes.</p>
-            <Button
-              variant="outline"
-              disabled={attestationOperatorCheckLoading}
-              onClick={async () => {
-                setAttestationOperatorCheckLoading(true);
-                try {
-                  const res = await fetch("/api/onboarding/attestation-operator");
-                  const data = await res.json();
-                  if (!res.ok || !data.ok) {
-                    setState((s) => ({
-                      ...s,
-                      attestationOperatorReady: false,
-                      attestationOperatorState: "invalid",
-                      attestationOperatorCheckedAt: new Date().toISOString(),
-                      attestationOperatorStatusNote: data.error || "Operator status check failed",
-                    }));
-                    return;
-                  }
-
-                  setState((s) => ({
-                    ...s,
-                    attestationOperatorReady: Boolean(data.result.ready),
-                    attestationOperatorState: data.result.state || (data.result.ready ? "ready" : "invalid"),
-                    attestationOperatorCheckedAt: data.result.checkedAt || new Date().toISOString(),
-                    attestationOperatorStatusNote: data.result.operatorPubkey
-                      ? `${data.result.note} (${data.result.operatorPubkey})`
-                      : data.result.note || data.result.nextAction || "",
-                  }));
-                } catch {
-                  setState((s) => ({
-                    ...s,
-                    attestationOperatorReady: false,
-                    attestationOperatorState: "invalid",
-                    attestationOperatorCheckedAt: new Date().toISOString(),
-                    attestationOperatorStatusNote: "Operator status check failed",
-                  }));
-                } finally {
-                  setAttestationOperatorCheckLoading(false);
-                }
-              }}
+          <div className="space-y-4" data-testid="onboarding-attestation-step">
+            <h2 className="text-lg font-semibold">7. Ratings and attestation</h2>
+            <p className="text-sm text-muted-foreground">
+              Nothing to do here. Your on-chain record changes only through jobs that are paid through escrow, and each step is signed by the wallet of the party taking it. This app does not rate or attest on anyone&apos;s behalf.
+            </p>
+            <ul className="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
+              <li>
+                <span className="text-white">Ratings.</span> A buyer can opt a job in to rating when paying. If you serve and settle that job, you have agreed to be rated: you and the buyer each submit a score from 1 to 10, then reveal it, with about 7 days for each step. Missing a step costs reputation points.
+              </li>
+              <li>
+                <span className="text-white">Declining.</span> The provider runtimes in this repository decline rated jobs unless you configure them to accept them, so you are not rated without choosing to be.
+              </li>
+              <li>
+                <span className="text-white">Attestation.</span> A buyer may name one judge for a rated job. Only that judge, a registered attestation agent, can record scores for it, and the buyer confirms or disputes them.
+              </li>
+            </ul>
+            <Link
+              href={RATINGS_DOC_PATH}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center rounded-md border border-white/15 px-3 py-2 text-xs text-muted-foreground hover:text-white"
             >
-              {attestationOperatorCheckLoading ? "Checking operator key..." : "Check attestor key status"}
-            </Button>
-
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-muted-foreground">Operator key status:</span>
-              <span
-                className={`rounded-full border px-2 py-0.5 font-medium ${
-                  operatorStatusState === "ready"
-                    ? "border-[#14F195]/50 text-[#14F195]"
-                    : operatorStatusState === "stale"
-                    ? "border-yellow-500/50 text-yellow-300"
-                    : "border-red-500/40 text-red-300"
-                }`}
-              >
-                {operatorStatusState.toUpperCase()}
-              </span>
-              {state.attestationOperatorCheckedAt && (
-                <span className="text-muted-foreground">
-                  checked: {new Date(state.attestationOperatorCheckedAt).toLocaleTimeString()}
-                </span>
-              )}
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                onClick={async () => {
-                  const template = 'ONBOARDING_ATTEST_OPERATOR_SECRET_KEY="[12,34,...,64 bytes total]"';
-                  try {
-                    await navigator.clipboard.writeText(template);
-                    showToast("Copied operator key env template", "success");
-                  } catch {
-                    showToast("Could not copy template. Paste manually from the setup guide.", "error");
-                  }
-                }}
-              >
-                Copy env template
-              </Button>
-              <Link
-                href="https://github.com/nissan/reddi-agent-protocol/blob/main/docs/ONBOARDING-OPERATOR-KEY-ROTATION-RUNBOOK.md"
-                className="inline-flex items-center rounded-md border border-white/15 px-3 py-2 text-xs text-muted-foreground hover:text-white"
-              >
-                Open rotation runbook
-              </Link>
-            </div>
-
-            <Button
-              variant="outline"
-              disabled={
-                attestationLoading ||
-                state.healthcheckStatus !== "pass" ||
-                !state.walletAddress ||
-                !operatorReadyForAttestation
-              }
-              onClick={async () => {
-                setAttestationLoading(true);
-                try {
-                  const res = await fetch("/api/onboarding/attestation", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      walletAddress: state.walletAddress,
-                      endpointUrl: state.endpointUrl,
-                      healthcheckStatus: state.healthcheckStatus,
-                      operator: "wizard-operator",
-                    }),
-                  });
-
-                  const data = await res.json();
-                  if (!res.ok || !data.ok) {
-                    setState((s) => ({
-                      ...s,
-                      attested: false,
-                      attestationNote: data.error || "Attestation failed",
-                    }));
-                    return;
-                  }
-
-                  setState((s) => ({
-                    ...s,
-                    attested: true,
-                    attestationJobIdHex: data.result?.onchain?.jobIdHex || "",
-                    attestationPda: data.result?.onchain?.attestationPda || "",
-                    attestationOperator: data.result?.onchain?.operator || "",
-                    attestationConsumer: data.result?.onchain?.consumer || "",
-                    attestationResolution: "pending",
-                    attestationResolutionSig: "",
-                    attestationNote: data.result?.onchain?.signature
-                      ? `Attestation recorded on-chain: ${data.result.onchain.signature}`
-                      : data.result?.note || "Attestation recorded",
-                  }));
-                } catch {
-                  setState((s) => ({
-                    ...s,
-                    attested: false,
-                    attestationNote: "Attestation failed",
-                  }));
-                } finally {
-                  setAttestationLoading(false);
-                }
-              }}
-            >
-              {attestationLoading ? "Recording attestation..." : "Record operator attestation"}
-            </Button>
-            {quasarResolutionBlockedReason ? (
-              <p className="text-xs text-muted-foreground" data-testid="quasar-resolution-blocked">
-                {quasarResolutionBlockedReason}
-              </p>
-            ) : null}
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                disabled={
-                  !state.attested ||
-                  !state.attestationJobIdHex ||
-                  SUBMISSION_BLOCKED ||
-                  !connected ||
-                  !publicKey ||
-                  publicKey.toBase58() !== state.attestationConsumer ||
-                  state.attestationResolution !== "pending" ||
-                  quasarResolutionBlockedReason !== undefined
-                }
-                onClick={async () => {
-                  if (SUBMISSION_BLOCKED) return;
-                  if (!publicKey || !sendTransaction || !state.attestationJobIdHex || !state.attestationOperator) {
-                    return;
-                  }
-
-                  const outcome = await submitAttestationResolution(
-                    {
-                      action: "confirm",
-                      consumer: publicKey,
-                      operator: state.attestationOperator,
-                      attestationPda: state.attestationPda || undefined,
-                    },
-                    {
-                      getConnection: () => walletConnection ?? new Connection(DEVNET_RPC, "confirmed"),
-                      sendTransaction,
-                    },
-                  );
-
-                  if (!outcome.ok) {
-                    setState((s) => ({ ...s, attestationNote: outcome.error }));
-                    return;
-                  }
-
-                  setState((s) => ({
-                    ...s,
-                    attestationResolution: "confirmed",
-                    attestationResolutionSig: outcome.signature,
-                    attestationNote: `Attestation confirmed by consumer: ${outcome.signature}`,
-                  }));
-                }}
-              >
-                {SUBMISSION_BLOCKED
-                  ? "Confirm attestation — blocked"
-                  : "Confirm attestation (consumer)"}
-              </Button>
-              <Button
-                variant="outline"
-                disabled={
-                  !state.attested ||
-                  !state.attestationJobIdHex ||
-                  SUBMISSION_BLOCKED ||
-                  !connected ||
-                  !publicKey ||
-                  publicKey.toBase58() !== state.attestationConsumer ||
-                  state.attestationResolution !== "pending" ||
-                  quasarResolutionBlockedReason !== undefined
-                }
-                onClick={async () => {
-                  if (SUBMISSION_BLOCKED) return;
-                  if (!publicKey || !sendTransaction || !state.attestationJobIdHex || !state.attestationOperator) {
-                    return;
-                  }
-
-                  const outcome = await submitAttestationResolution(
-                    {
-                      action: "dispute",
-                      consumer: publicKey,
-                      operator: state.attestationOperator,
-                      attestationPda: state.attestationPda || undefined,
-                    },
-                    {
-                      getConnection: () => walletConnection ?? new Connection(DEVNET_RPC, "confirmed"),
-                      sendTransaction,
-                    },
-                  );
-
-                  if (!outcome.ok) {
-                    setState((s) => ({ ...s, attestationNote: outcome.error }));
-                    return;
-                  }
-
-                  setState((s) => ({
-                    ...s,
-                    attestationResolution: "disputed",
-                    attestationResolutionSig: outcome.signature,
-                    attestationNote: `Attestation disputed by consumer: ${outcome.signature}`,
-                  }));
-                }}
-              >
-                {SUBMISSION_BLOCKED
-                  ? "Dispute attestation — blocked"
-                  : "Dispute attestation (consumer)"}
-              </Button>
-            </div>
-            {SUBMISSION_BLOCKED && (
-              <p className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-xs text-amber-100">
-                {SUBMISSION_BLOCKED_REASON}
-              </p>
-            )}
-            {state.attested && state.attestationConsumer && (
-              <p className="text-xs text-muted-foreground">
-                Consumer follow-through wallet: <span className="font-mono">{state.attestationConsumer}</span>
-              </p>
-            )}
-            {state.attestationResolution !== "pending" && state.attestationResolutionSig && (
-              <a
-                href={toExplorerTxUrl(state.attestationResolutionSig)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block text-xs font-mono break-all text-[#14F195] hover:underline"
-              >
-                resolution tx: {state.attestationResolutionSig}
-              </a>
-            )}
+              Ratings and attestations →
+            </Link>
             {state.healthcheckStatus !== "pass" && (
-              <p className="text-xs text-yellow-400">Healthcheck must pass before attestation can be recorded.</p>
-            )}
-            {operatorStatusState !== "ready" && (
-              <>
-                <p className="text-xs text-yellow-400">
-                  {operatorStatusState === "stale"
-                    ? "Operator signer status is stale. Re-check before recording attestation."
-                    : "Operator signer key must be configured before recording attestation."}
-                </p>
-                <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-200">
-                  <p className="mb-1">Quick fix: set <span className="font-mono">ONBOARDING_ATTEST_OPERATOR_SECRET_KEY</span> as a 64-byte JSON array, restart the app, then click &quot;Check attestor key status&quot; again.</p>
-                  <p className="font-mono break-all">Example format: [12,34,56,...,64 bytes total]</p>
-                  <Link href="https://github.com/nissan/reddi-agent-protocol/blob/main/docs/ONBOARDING-ATTESTATION-OPERATOR-SETUP.md" className="mt-2 inline-block underline">
-                    Operator setup and recovery guide →
-                  </Link>
-                </div>
-              </>
-            )}
-            {state.attestationOperatorStatusNote && (
-              <div className="rounded-lg border border-white/10 bg-black/30 p-3 text-xs text-muted-foreground">
-                {state.attestationOperatorStatusNote}
-              </div>
-            )}
-            {state.attestationNote && (
-              <div className="rounded-lg border border-white/10 bg-black/30 p-3 text-xs text-muted-foreground">
-                {state.attestationNote}
-              </div>
+              <p className="text-xs text-yellow-400">Healthcheck must pass before you continue.</p>
             )}
           </div>
         )}
@@ -2130,7 +1836,7 @@ export default function OnboardingPage() {
             {/* Feedback */}
             {(state.plannerStatus === "completed" || state.plannerStatus === "failed") && state.plannerRunId && !state.plannerFeedbackSent && (
               <div className="space-y-3 border border-white/10 rounded-lg p-4 bg-black/20">
-                <p className="text-xs font-medium text-white">Rate this specialist call (1–10)</p>
+                <p className="text-xs font-medium text-white">Private feedback on this call (1–10, off-chain)</p>
                 <div className="flex items-center gap-3">
                   <Input
                     type="number"
@@ -2158,7 +1864,6 @@ export default function OnboardingPage() {
                         body: JSON.stringify({
                           runId: state.plannerRunId,
                           score,
-                          agreesWithAttestation: state.attested,
                           notes: state.plannerFeedbackNote || undefined,
                         }),
                       });
@@ -2167,7 +1872,7 @@ export default function OnboardingPage() {
                         ...s,
                         plannerFeedbackSent: true,
                         plannerFeedbackNote2: data.ok
-                          ? `✓ Feedback saved${data.result?.reputationCommit?.ok ? " + reputation committed on-chain" : " (off-chain only — operator key not configured)"}.`
+                          ? "✓ Feedback saved off-chain. It does not change on-chain reputation; on-chain ratings are made from the buyer's own wallet on a job paid with rating on."
                           : `Feedback save failed: ${data.error || "unknown"}`,
                       }));
                     } catch (e) {
@@ -2202,7 +1907,6 @@ export default function OnboardingPage() {
             </Button>
           ) : (
             <Button
-              disabled={!state.attested}
               style={{ background: "linear-gradient(135deg, #9945FF, #14F195)", color: "#000" }}
               onClick={async () => {
                 if (state.onboardingCompletedEventSent) {

@@ -13,7 +13,8 @@
  */
 import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { SANDBOX_PROVIDERS } from "./catalog";
-import { buildSandboxSettle } from "./escrow";
+import { buildSandboxSettle, SANDBOX_ESCROW_PROGRAM_ID } from "./escrow";
+import { advanceSellerRating, type SellerRatingConnection } from "./seller-rating";
 
 export type SandboxSettleInput = {
   providerId: string;
@@ -60,7 +61,16 @@ export function parseSandboxPayeeKeys(raw: string | undefined): Map<string, Keyp
   return keys;
 }
 
-export function createSandboxSettler(connection: Connection, keys: Map<string, Keypair>): SandboxSettler {
+export interface SandboxSettlerOptions {
+  /**
+   * After settling a rated escrow, commit the provider's rating of the buyer with this score
+   * (`seller-rating.ts`). Set only when the sandbox accepts rated escrows. The commit is best
+   * effort here: the scheduled sweep commits what this missed, and reveals later.
+   */
+  rateBuyerScore?: number;
+}
+
+export function createSandboxSettler(connection: Connection, keys: Map<string, Keypair>, options: SandboxSettlerOptions = {}): SandboxSettler {
   return {
     canSettle: (providerId) => keys.has(providerId),
     async settle(input) {
@@ -75,6 +85,10 @@ export function createSandboxSettler(connection: Connection, keys: Map<string, K
         const signature = await connection.sendRawTransaction(transaction.serialize(), { preflightCommitment: "confirmed" });
         const confirmation = await connection.confirmTransaction({ signature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight }, "confirmed");
         if (confirmation.value.err) return { ok: false, message: "The settle transaction failed on devnet." };
+        if (input.rated === true && options.rateBuyerScore !== undefined) {
+          // The settle opened the rating. A failure here never fails the settle that already landed.
+          await advanceSellerRating({ connection: connection as unknown as SellerRatingConnection, programId: SANDBOX_ESCROW_PROGRAM_ID, escrow: input.escrow, keypair, score: options.rateBuyerScore });
+        }
         return { ok: true, signature };
       } catch {
         return { ok: false, message: "The settle transaction could not be sent to devnet." };

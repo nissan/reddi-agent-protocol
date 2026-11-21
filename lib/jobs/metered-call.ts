@@ -15,6 +15,7 @@ import "server-only";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { PROTOCOL_FEE_BPS, directPaymentCurrency, protocolFeeBaseUnits, protocolFeeCapBaseUnits, type ParsedTransactionConnection } from "@reddi/x402-solana/payment";
+import { ratingPda } from "@reddi/x402-solana/rating";
 import { ESCROW_PROTOCOL_TREASURY, tokenEscrowAddresses, treasuryTokenAccount } from "@reddi/x402-solana/token-escrow";
 import type { NetworkProfileName } from "@/lib/config/network-profile-name";
 import { buyerMintFor, paymentNetworkForProfile } from "@/lib/payments/wallet-direct-payment";
@@ -139,7 +140,8 @@ export async function verifyAndRecordMeteredCall(input: MeteredCallInput, deps: 
     if (key(instruction.programId) !== programId || !Array.isArray(instruction.accounts)) return false;
     const accounts = instruction.accounts.map(key);
     return (
-      accounts.length === SETTLE_ACCOUNT_COUNT &&
+      // A job the buyer opted in to rating: its settle carries the escrow's rating account after the usual nine.
+      (accounts.length === SETTLE_ACCOUNT_COUNT || (accounts.length === SETTLE_ACCOUNT_COUNT + 1 && accounts[SETTLE_ACCOUNT_COUNT] === ratingPda(escrow, deps.programId).toBase58())) &&
       accounts[0] === escrow.toBase58() &&
       accounts[1] === vault.toBase58() &&
       accounts[3] === payer.toBase58() &&
