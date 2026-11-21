@@ -63,8 +63,9 @@
     }
   ],
   "commitment": {
-    "preimage": "rating address (32) || signer address (32) || score (1) || salt (32)",
-    "preimage_hex": "1ce672b7a811f8634b5f883b3916c21c0b56651db48ca7dceb6f84523a22b1f68a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c09c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
+    "opened_slot": 1000,
+    "preimage": "rating address (32) || opened_slot (u64 LE, 8) || signer address (32) || score (1) || salt (32)",
+    "preimage_hex": "1ce672b7a811f8634b5f883b3916c21c0b56651db48ca7dceb6f84523a22b1f6e8030000000000008a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c09c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
     "rating": "2wpE3xn9gvLWk1Rc3WhRyYB8EnEVVQL3vkS35if3zPHw",
     "salt_hex": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
     "score": 9,

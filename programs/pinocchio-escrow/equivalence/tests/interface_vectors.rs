@@ -131,6 +131,7 @@ fn build() -> Value {
     );
     accounts.push(account(&world, "rating_open", &rating));
 
+    let first_opened_slot = world.opened_slot(&rating);
     let consumer_commitment = commitment(&world, &rating, &c, 9, SALT_CONSUMER);
     let specialist_commitment = commitment(&world, &rating, &s, 4, SALT_SPECIALIST);
     world.warp(1_020);
@@ -375,12 +376,22 @@ fn build() -> Value {
             "token_escrow_offset": TOKEN_ESCROW_FLAGS_AT,
         },
         "commitment": {
-            "preimage": "rating address (32) || signer address (32) || score (1) || salt (32)",
+            "preimage": "rating address (32) || opened_slot (u64 LE, 8) || signer address (32) || score (1) || salt (32)",
             "rating": first_rating.to_string(),
+            "opened_slot": first_opened_slot,
             "signer": c.to_string(),
             "score": 9,
             "salt_hex": hex(&SALT_CONSUMER),
-            "preimage_hex": hex(&[first_rating.as_ref(), c.as_ref(), &[9], &SALT_CONSUMER].concat()),
+            "preimage_hex": hex(
+                &[
+                    first_rating.as_ref(),
+                    &first_opened_slot.to_le_bytes(),
+                    c.as_ref(),
+                    &[9],
+                    &SALT_CONSUMER,
+                ]
+                .concat()
+            ),
             "sha256_hex": hex(&consumer_commitment),
         },
         "instructions": instructions,
