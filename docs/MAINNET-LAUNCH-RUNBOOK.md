@@ -24,7 +24,7 @@ address, never the multisig account address).
 
 The deployer needs the program account's rent, plus room for the temporary
 buffer during the deploy and fees. The V1 build with rating and attestation is
-96,240 bytes at `b71a91e` (mainnet executable hash `af4d7214…f03a`, CI run
+about 96,240 bytes at `b71a91e` (local build; mainnet executable hash `af4d7214…f03a`, CI run
 44900313151): about 0.67 SOL of rent at 6,960 lamports per byte. Take the size
 of record from the freeze, and the rate from `getMinimumBalanceForRentExemption`
 on mainnet before funding: devnet charged 5,080 lamports per byte on
