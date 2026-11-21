@@ -74,7 +74,7 @@ explains ratings; this section is only about what changes for a payout.
   attestation or decision on an attestation naming another slot is refused
   (6051), so what was signed for one job, a seller's settle or claim
   included, cannot be used for a later job at the same escrow address.
-- **Rent.** The buyer pays about 0.00277 SOL of rent for the rating account on
+- **Rent.** The buyer pays about 0.00202 SOL of rent for the rating account on
   top of the lock. It returns in the cases above, or when the buyer closes a
   finished rating.
 - **A seller's claim must be signed by the seller alone.** If the buyer's

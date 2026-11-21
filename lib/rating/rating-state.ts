@@ -11,9 +11,9 @@
 import { RATING_COMMIT_SLOTS, RATING_REVEAL_SLOTS, payerReleaseOpensRating, type RatingAccount } from "@reddi/x402-solana/rating";
 
 /** Rent of a rating account (270 bytes), paid by the buyer at opt-in and returned when the rating is closed. */
-export const RATING_RENT_LAMPORTS = 2_770_080n;
-/** The rent as SOL, for display: 0.00277008. */
-export const RATING_RENT_SOL = "0.00277";
+export const RATING_RENT_LAMPORTS = 2_021_840n;
+/** The rent as SOL, for display: 0.00202184. */
+export const RATING_RENT_SOL = "0.00202";
 /** What a slot is assumed to last when a deadline is shown as a date. Slots are not exact, so dates are estimates. */
 export const ASSUMED_SLOT_MS = 400;
 /** Reputation points are stored as 0..10000 and shown as 0.00..100.00. A missed step costs 5.00. */
