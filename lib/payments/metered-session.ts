@@ -126,10 +126,6 @@ export function planSessionCall(session: BuyerSession, inputTokens: number, opti
   return { ok: true, sequence: session.nextSequence, headers };
 }
 
-function isCount(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-}
-
 function wholeString(value: unknown): bigint | undefined {
   return typeof value === "string" && /^(0|[1-9]\d*)$/.test(value) ? BigInt(value) : undefined;
 }
