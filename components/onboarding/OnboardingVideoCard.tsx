@@ -19,7 +19,7 @@ function samePage(a: string, b: string) {
 
 function CtaLink({ href, label, primary = false }: { href: string; label: string; primary?: boolean }) {
   const className = primary
-    ? "rounded-lg bg-[#14F195] px-4 py-2 text-sm font-semibold text-black transition hover:opacity-90"
+    ? "rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-black transition hover:opacity-90"
     : "rounded-lg border border-white/15 px-4 py-2 text-sm font-semibold text-gray-200 transition hover:border-white/30 hover:text-white";
 
   if (isExternal(href)) {
@@ -43,7 +43,7 @@ export function OnboardingVideoCard({ video, layout = "stacked", hostRoute }: Pr
 
   return (
     <article
-      className={`overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] shadow-2xl shadow-black/20 ${
+      className={`overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] shadow-black/20 ${
         horizontal ? "grid gap-0 lg:grid-cols-[1.2fr_1fr]" : ""
       }`}
     >
@@ -67,10 +67,10 @@ export function OnboardingVideoCard({ video, layout = "stacked", hostRoute }: Pr
             />
           </video>
         ) : (
-          <div className="flex aspect-video h-full w-full flex-col items-center justify-center gap-2 bg-[#1a1a2e] px-6 text-center">
+          <div className="flex aspect-video h-full w-full flex-col items-center justify-center gap-2 bg-card px-6 text-center">
             <span
               data-testid="withheld-recording-notice"
-              className="max-w-sm text-xs leading-relaxed text-white/25"
+              className="max-w-sm text-xs leading-relaxed text-gray-400"
             >
               Recording not shown: this capture predates the public-claim remediation and still
               shows retired marketplace/payment wording.{" "}
@@ -81,7 +81,7 @@ export function OnboardingVideoCard({ video, layout = "stacked", hostRoute }: Pr
               ) : (
                 <>
                   Open{" "}
-                  <Link href={video.route} className="underline hover:text-white/50">
+                  <Link href={video.route} className="underline hover:text-white">
                     {video.route}
                   </Link>{" "}
                   on this build for the current copy.
@@ -90,7 +90,7 @@ export function OnboardingVideoCard({ video, layout = "stacked", hostRoute }: Pr
             </span>
           </div>
         )}
-        <div className="absolute left-3 top-3 rounded-full border border-[#14F195]/30 bg-black/70 px-3 py-1 text-xs font-semibold text-[#14F195] backdrop-blur">
+        <div className="absolute left-3 top-3 rounded-full border border-brand-green/30 bg-black/70 px-3 py-1 text-xs font-semibold text-brand-green backdrop-blur">
           {hasPlayableRecording(video) ? `${video.duration} · ${video.boundary}` : video.boundary}
         </div>
       </div>
@@ -110,7 +110,7 @@ export function OnboardingVideoCard({ video, layout = "stacked", hostRoute }: Pr
                 href={link.href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-gray-300 hover:border-[#14F195]/40 hover:text-[#14F195]"
+                className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-gray-300 hover:border-brand-green/40 hover:text-brand-green"
               >
                 {link.label} ↗
               </a>

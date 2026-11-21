@@ -1,28 +1,13 @@
 import type { Metadata } from "next";
-import localFont from "next/font/local";
 import "./globals.css";
 import WalletProvider from "@/components/WalletProvider";
 import NavBar from "@/components/NavBar";
 import Footer from "@/components/Footer";
 import DevnetModeBanner from "@/components/DevnetModeBanner";
 
-// Both fonts are served from files in app/fonts (latin subset, variable weight,
-// SIL Open Font License) so a build never depends on downloading them.
-const dmSans = localFont({
-  src: "./fonts/dm-sans-latin-wght-normal.woff2",
-  variable: "--font-dm-sans",
-  weight: "100 1000",
-  style: "normal",
-  display: "swap",
-});
-
-const fraunces = localFont({
-  src: "./fonts/fraunces-latin-wght-normal.woff2",
-  variable: "--font-fraunces",
-  weight: "100 900",
-  style: "normal",
-  display: "swap",
-});
+// Applies a saved Light or Dark choice before first paint. With no saved
+// choice the page follows the system setting (prefers-color-scheme).
+const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("rap-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}})()`;
 
 export const metadata: Metadata = {
   title: {
@@ -62,9 +47,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body
-        className={`${dmSans.variable} ${fraunces.variable} antialiased min-h-screen bg-background font-sans`}
+        className="antialiased min-h-screen bg-background font-sans text-foreground"
       >
         <WalletProvider>
           <NavBar />

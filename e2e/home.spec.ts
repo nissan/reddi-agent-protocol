@@ -25,10 +25,10 @@ test.describe("Home page", () => {
     ).toBeVisible();
   });
 
-  test("navbar has directory link", async ({ page }) => {
+  test("navbar has providers directory link", async ({ page }) => {
     await page.goto("/");
     await expect(
-      page.getByRole("navigation").getByRole("link", { name: /directory/i }),
+      page.getByRole("navigation").getByRole("link", { name: /^providers$/i }),
     ).toBeVisible();
   });
 
@@ -37,5 +37,42 @@ test.describe("Home page", () => {
     await expect(
       page.getByText(/Payments prove transfer; RAP Assurance proves paid work\./i).first(),
     ).toBeVisible();
+  });
+
+  test("theme toggle cycles Auto, Light and Dark and remembers the choice", async ({ page }) => {
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.goto("/");
+    const toggle = page.getByTestId("theme-toggle");
+    const html = page.locator("html");
+    // Clicks before hydration do nothing, so wait until the button is live.
+    await expect(toggle).toHaveAttribute("data-ready", "true", { timeout: 30_000 });
+    await expect(toggle).toHaveAttribute("data-theme-choice", "auto");
+    await expect(html).not.toHaveAttribute("data-theme", /.+/);
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("data-theme-choice", "light");
+    await expect(html).toHaveAttribute("data-theme", "light");
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("data-theme-choice", "dark");
+    await expect(html).toHaveAttribute("data-theme", "dark");
+    const darkBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    expect(darkBg).toBe("rgb(16, 18, 22)");
+
+    await page.reload();
+    await expect(html).toHaveAttribute("data-theme", "dark");
+    await expect(toggle).toHaveAttribute("data-ready", "true", { timeout: 30_000 });
+    await expect(toggle).toHaveAttribute("data-theme-choice", "dark");
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("data-theme-choice", "auto");
+    await expect(html).not.toHaveAttribute("data-theme", /.+/);
+  });
+
+  test("auto theme follows the system dark setting", async ({ page }) => {
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.goto("/");
+    const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    expect(bg).toBe("rgb(16, 18, 22)");
   });
 });

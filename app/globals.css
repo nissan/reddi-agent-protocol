@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "./legacy-palette.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -15,10 +16,10 @@
   --color-accent-violet: var(--accent-violet);
   --color-accent-pink: var(--accent-pink);
   --color-accent-orange: var(--accent-orange);
-  --font-sans: var(--font-dm-sans);
-  --font-display: var(--font-fraunces);
-  --font-mono: Courier New, monospace;
-  --font-heading: var(--font-fraunces);
+  --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-display: var(--font-sans);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -54,53 +55,105 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
-  --shadow-card: 0 12px 40px rgba(0, 0, 0, 0.4);
-  --shadow-glow: 0 0 8px #818cf8;
+  --shadow-card: none;
+  --shadow-glow: none;
+  --color-ink: var(--ink);
+  --color-paper: var(--paper);
+  --color-paper-raised: var(--paper-raised);
+  --color-well: var(--well);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-brand-green: var(--brand-green);
+  --color-brand-violet: var(--brand-violet);
+  --color-mint: var(--mint);
   --color-sol-purple: #9945FF;
   --color-sol-green: #14F195;
 }
 
+/* Paper-and-ink theme shared with the marketing site (apps/marketing/app/globals.css).
+   Light is the default; the dark values follow the OS setting or data-theme="dark". */
 :root {
-  --page: #0f1117;
-  --surface: #1a1d27;
-  --border: #2a2d35;
-  --accent-purple: #818cf8;
-  --accent-green: #22c55e;
-  --accent-violet: #a78bfa;
-  --accent-pink: #f472b6;
-  --accent-orange: #fb923c;
+  --paper: #f4f0e6;
+  --paper-raised: #fffdf7;
+  --well: #ece6d7;
+  --ink: #14161a;
+  --ink-muted: #55584f;
+  --line: #d8d3c4;
+  --line-strong: #8a877c;
+  --brand-green: #075e39;
+  --brand-violet: #6a35d9;
+  --mint: #14f195;
+  --night: #101216;
+
+  --page: var(--paper);
+  --surface: var(--paper-raised);
+  --accent-purple: var(--brand-violet);
+  --accent-green: var(--brand-green);
+  --accent-violet: var(--brand-violet);
+  --accent-pink: #b3246b;
+  --accent-orange: #9a4d1f;
   --background: var(--page);
-  --foreground: #e5e7eb;
-  --card: var(--surface);
-  --card-foreground: #e5e7eb;
-  --popover: var(--surface);
-  --popover-foreground: #e5e7eb;
-  --primary: #818cf8;
-  --primary-foreground: #ffffff;
-  --secondary: #202431;
-  --secondary-foreground: #e5e7eb;
-  --muted: #202431;
-  --muted-foreground: #9ca3af;
-  --accent: #202431;
-  --accent-foreground: #e5e7eb;
-  --destructive: #ef4444;
-  --border: rgba(42, 45, 53, 1);
-  --input: rgba(42, 45, 53, 0.75);
-  --ring: #818cf8;
-  --chart-1: #818cf8;
-  --chart-2: #22c55e;
-  --chart-3: #a78bfa;
-  --chart-4: #f472b6;
-  --chart-5: #fb923c;
-  --radius: 0.625rem;
-  --sidebar: var(--surface);
-  --sidebar-foreground: #e5e7eb;
-  --sidebar-primary: #818cf8;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #202431;
-  --sidebar-accent-foreground: #e5e7eb;
-  --sidebar-border: rgba(42, 45, 53, 1);
-  --sidebar-ring: #818cf8;
+  --foreground: var(--ink);
+  --card: var(--paper-raised);
+  --card-foreground: var(--ink);
+  --popover: var(--paper-raised);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--paper);
+  --secondary: var(--well);
+  --secondary-foreground: var(--ink);
+  --muted: var(--well);
+  --muted-foreground: var(--ink-muted);
+  --accent: var(--well);
+  --accent-foreground: var(--ink);
+  --destructive: #b42318;
+  --border: var(--line);
+  --input: var(--line-strong);
+  --ring: var(--brand-violet);
+  --chart-1: var(--brand-violet);
+  --chart-2: var(--brand-green);
+  --chart-3: #2e4a5a;
+  --chart-4: #b3246b;
+  --chart-5: #9a4d1f;
+  --radius: 0.375rem;
+  --sidebar: var(--paper-raised);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--ink);
+  --sidebar-primary-foreground: var(--paper);
+  --sidebar-accent: var(--well);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--brand-violet);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #101216;
+    --paper-raised: #181b21;
+    --well: #0b0d10;
+    --ink: #ece9df;
+    --ink-muted: #b9b6ab;
+    --line: #2b2f36;
+    --line-strong: #5d6370;
+    --brand-green: #14f195;
+    --brand-violet: #b49cff;
+    --destructive: #f97066;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #101216;
+  --paper-raised: #181b21;
+  --well: #0b0d10;
+  --ink: #ece9df;
+  --ink-muted: #b9b6ab;
+  --line: #2b2f36;
+  --line-strong: #5d6370;
+  --brand-green: #14f195;
+  --brand-violet: #b49cff;
+  --destructive: #f97066;
+  color-scheme: dark;
 }
 
 @layer base {
@@ -115,12 +168,23 @@
     margin: 0;
   }
   h1, h2, h3, h4 {
-    font-family: var(--font-fraunces), serif;
-    letter-spacing: -0.02em;
-    font-weight: 700;
+    font-family: var(--font-sans);
+    letter-spacing: -0.035em;
+    font-weight: 800;
+    text-wrap: balance;
   }
   code, pre, kbd, .font-mono {
-    font-family: Courier New, monospace;
+    font-family: var(--font-mono);
+  }
+  a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible,
+  textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
+    outline: 3px solid var(--brand-violet);
+    outline-offset: 3px;
+  }
+  /* Links inside running text are underlined, not told apart by colour alone. */
+  p a, li a, dd a, td a {
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
 }
 
@@ -142,44 +206,47 @@
   }
 
   .font-display {
-    font-family: var(--font-fraunces), serif;
+    font-family: var(--font-sans);
+    font-weight: 800;
+    letter-spacing: -0.035em;
   }
 
   .step-dot {
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    background: #2a2d35;
+    background: var(--line);
     transition: background 0.3s;
   }
-  .step-dot.completed { background: #22c55e; }
+  .step-dot.completed { background: var(--brand-green); }
   .step-dot.current {
-    background: #818cf8;
-    box-shadow: 0 0 8px #818cf8;
+    background: var(--brand-violet);
   }
 
   .code-area {
-    font-family: 'Courier New', monospace;
-    @apply bg-surface text-slate-200;
-    border: 1px solid #2a2d35;
+    font-family: var(--font-mono);
+    @apply bg-surface text-foreground;
+    border: 1px solid var(--line-strong);
     resize: vertical;
   }
   .code-area:focus {
-    outline: none;
-    border-color: #818cf8;
+    border-color: var(--brand-violet);
   }
 
   .nav-link {
     transition: color 0.2s;
   }
-  .nav-link:hover { color: #818cf8; }
+  .nav-link:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 5px; }
   .nav-link.active-nav {
-    color: #818cf8;
-    border-bottom: 2px solid #818cf8;
+    color: var(--ink);
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 5px;
   }
 
   .section-label {
-    @apply text-xs text-indigo-400 font-semibold uppercase tracking-wider;
+    font-family: var(--font-mono);
+    @apply text-xs text-brand-green font-bold uppercase tracking-wider;
   }
 
   .toast {
@@ -209,13 +276,11 @@
 }
 
 .sol-gradient {
-  background: linear-gradient(135deg, #9945FF 0%, #14F195 100%);
+  background: var(--ink);
+  color: var(--paper);
 }
 .sol-gradient-text {
-  background: linear-gradient(135deg, #9945FF 0%, #14F195 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--brand-violet);
 }
 .sol-border {
   border: 1px solid transparent;
@@ -223,7 +288,7 @@
   position: relative;
 }
 .sol-glow {
-  box-shadow: 0 0 20px rgba(153, 69, 255, 0.3), 0 0 40px rgba(20, 241, 149, 0.1);
+  box-shadow: none;
 }
 
 .wallet-adapter-modal-wrapper {

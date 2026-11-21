@@ -80,7 +80,7 @@ export default function TourPage() {
   const progress = ((current + 1) / total) * 100
 
   return (
-    <div className="flex flex-col h-screen bg-[#0a0a14] text-white overflow-hidden">
+    <div className="flex flex-col h-screen bg-well text-white overflow-hidden">
       {/* Top bar */}
       <div className="flex items-center justify-between px-6 py-3 border-b border-white/10 shrink-0">
         <div className="flex items-center gap-4">
@@ -99,7 +99,7 @@ export default function TourPage() {
                 }}
                 className={`text-xs px-3 py-1 rounded-full transition-colors capitalize ${
                   audienceFilter === f
-                    ? 'bg-[#9945FF] text-white'
+                    ? 'bg-ink text-paper'
                     : 'bg-white/10 text-white/50 hover:text-white'
                 }`}
               >
@@ -127,7 +127,7 @@ export default function TourPage() {
             href="https://app.agent-protocol.reddi.tech"
             target="_blank"
             className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg font-medium text-black"
-            style={{ background: 'linear-gradient(135deg, #9945FF 0%, #14F195 100%)' }}
+            style={{ background: 'var(--color-ink)' }}
           >
             Try it live →
           </Link>
@@ -137,14 +137,14 @@ export default function TourPage() {
       {/* Main content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Screenshot area */}
-        <div className="relative flex-1 flex items-center justify-center bg-[#0d0d1a] p-6">
+        <div className="relative flex-1 flex items-center justify-center bg-well p-6">
           <button onClick={goPrev} className="absolute left-4 z-10 p-2 rounded-full bg-black/60 hover:bg-black/80 border border-white/10 transition-all">
             <ChevronLeft size={22} />
           </button>
 
-          <div className="relative w-full max-w-4xl rounded-xl overflow-hidden border border-white/10 shadow-2xl" style={{ aspectRatio: '1280/800' }}>
+          <div className="relative w-full max-w-4xl rounded-xl overflow-hidden border border-white/10" style={{ aspectRatio: '1280/800' }}>
             {step.imageStale || imgErrors.has(step.id) ? (
-              <div className="w-full h-full bg-[#1a1a2e] flex flex-col items-center justify-center gap-2 px-8 text-center">
+              <div className="w-full h-full bg-card flex flex-col items-center justify-center gap-2 px-8 text-center">
                 <span className="text-white/30 text-xl">{step.title}</span>
                 {step.imageStale && (
                   <span className="max-w-md text-xs leading-relaxed text-white/25">
@@ -176,7 +176,7 @@ export default function TourPage() {
         </div>
 
         {/* Right sidebar */}
-        <div className="w-60 shrink-0 border-l border-white/10 flex flex-col bg-[#0a0a14]">
+        <div className="w-60 shrink-0 border-l border-white/10 flex flex-col bg-well">
           <div className="p-5 border-b border-white/10">
             <div className="text-xs text-white/30 font-mono mb-1" data-testid="tour-step-counter">Step {current + 1} of {total}</div>
             <div className="text-base font-semibold text-white mb-2">{step.title}</div>
@@ -184,7 +184,7 @@ export default function TourPage() {
             {step.imageStale ? (
               <Link
                 href={step.url}
-                className="mt-3 flex items-center gap-1 text-xs text-[#9945FF] hover:text-[#14F195] transition-colors"
+                className="mt-3 flex items-center gap-1 text-xs text-brand-violet hover:text-brand-green transition-colors"
               >
                 Open this page on this build
               </Link>
@@ -192,7 +192,7 @@ export default function TourPage() {
               <Link
                 href={`https://app.agent-protocol.reddi.tech${step.url}`}
                 target="_blank"
-                className="mt-3 flex items-center gap-1 text-xs text-[#9945FF] hover:text-[#14F195] transition-colors"
+                className="mt-3 flex items-center gap-1 text-xs text-brand-violet hover:text-brand-green transition-colors"
               >
                 Open this page <ExternalLink size={11} />
               </Link>
@@ -206,10 +206,10 @@ export default function TourPage() {
                 data-testid="tour-step-link"
                 onClick={() => setCurrent(i)}
                 className={`w-full text-left px-4 py-2.5 flex items-start gap-2.5 transition-colors ${
-                  i === current ? 'bg-white/5 border-l-2 border-[#9945FF]' : 'border-l-2 border-transparent hover:bg-white/5'
+                  i === current ? 'bg-white/5 border-l-2 border-brand-violet' : 'border-l-2 border-transparent hover:bg-white/5'
                 }`}
               >
-                <span className={`text-xs font-mono shrink-0 mt-0.5 ${i === current ? 'text-[#9945FF]' : 'text-white/25'}`}>
+                <span className={`text-xs font-mono shrink-0 mt-0.5 ${i === current ? 'text-brand-violet' : 'text-white/25'}`}>
                   {String(i + 1).padStart(2, '0')}
                 </span>
                 <span className={`text-xs leading-tight ${i === current ? 'text-white' : 'text-white/40'}`}>
@@ -223,7 +223,7 @@ export default function TourPage() {
             <Link
               href="/setup"
               className="block w-full text-center py-2.5 rounded-lg text-black font-bold text-sm hover:opacity-90 transition-opacity"
-              style={{ background: 'linear-gradient(135deg, #9945FF 0%, #14F195 100%)' }}
+              style={{ background: 'var(--color-ink)' }}
             >
               Start proof setup →
             </Link>
@@ -235,7 +235,7 @@ export default function TourPage() {
       <div className="h-1 bg-white/5 shrink-0">
         <div
           className="h-full transition-all duration-300"
-          style={{ width: `${progress}%`, background: 'linear-gradient(90deg, #9945FF 0%, #14F195 100%)' }}
+          style={{ width: `${progress}%`, background: 'var(--color-ink)' }}
         />
       </div>
 
@@ -254,7 +254,7 @@ export default function TourPage() {
             </button>
             <p
               data-testid="tour-video-boundary-notice"
-              className="mb-3 rounded-lg border border-white/10 bg-[#1a1a2e] px-4 py-3 text-xs leading-relaxed text-white/40"
+              className="mb-3 rounded-lg border border-white/10 bg-card px-4 py-3 text-xs leading-relaxed text-white/40"
             >
               Recording predates this page&apos;s public-claim remediation: it still narrates
               retired escrow/marketplace copy and the retired treasury-fee split. Nothing in it is
@@ -268,7 +268,7 @@ export default function TourPage() {
               ref={videoRef}
               controls
               preload="none"
-              className="w-full rounded-xl border border-white/10 shadow-2xl"
+              className="w-full rounded-xl border border-white/10"
               style={{ aspectRatio: '1280/800' }}
             >
               <source

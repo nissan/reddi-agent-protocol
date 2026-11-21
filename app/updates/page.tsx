@@ -65,7 +65,7 @@ export default function UpdatesPage() {
             </Link>
             <Link
               href="/feedback"
-              className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-white/90 hover:border-[#14F195]/50"
+              className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-white/90 hover:border-brand-green/50"
             >
               Give feedback
             </Link>
@@ -81,7 +81,7 @@ export default function UpdatesPage() {
               <div className="flex flex-wrap items-baseline gap-3">
                 <time
                   dateTime={update.date}
-                  className="font-mono text-xs text-[#14F195]"
+                  className="font-mono text-xs text-brand-green"
                 >
                   {update.date}
                 </time>

@@ -46,7 +46,7 @@ export default function PlaybookPage() {
 
   return (
     <div className="min-h-screen bg-page">
-      <section className="border-b border-white/5 bg-[linear-gradient(180deg,rgba(15,17,23,0.35),rgba(15,17,23,0.95))]">
+      <section className="border-b border-white/5">
         <div className="mx-auto max-w-6xl px-4 py-14 sm:px-6 lg:px-8 space-y-6">
           <div>
             <p className="section-label mb-3">Adoption Playbook</p>

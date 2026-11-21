@@ -46,7 +46,7 @@ export default function SpecPage() {
         <header className="space-y-4">
           <p className="section-label">Open specification</p>
           <h1 className="font-display text-4xl sm:text-5xl font-bold">
-            Reddi<span className="text-[#14F195]">Agent</span> ADL
+            Reddi<span className="text-brand-green">Agent</span> ADL
           </h1>
           <p className="max-w-3xl text-lg text-gray-300">
             The open Agent Definition Language — define an AI agent once: model
@@ -59,7 +59,7 @@ export default function SpecPage() {
                 key={badge.label}
                 className={`rounded-full border px-3 py-1 text-xs ${
                   badge.hot
-                    ? "border-[#14F195]/60 text-[#14F195]"
+                    ? "border-brand-green/60 text-brand-green"
                     : "border-white/15 bg-white/5 text-gray-300"
                 }`}
               >
@@ -72,7 +72,7 @@ export default function SpecPage() {
         <section className="space-y-3">
           <h2 className="font-display text-2xl font-semibold">The thesis</h2>
           <div className="overflow-x-auto rounded-lg border border-white/10 bg-surface px-5 py-4">
-            <code className="whitespace-nowrap text-sm text-[#14F195]">
+            <code className="whitespace-nowrap text-sm text-brand-green">
               Agent = model definition + harness definition +
               settlement/reputation extension
             </code>
@@ -108,7 +108,7 @@ export default function SpecPage() {
               <tbody>
                 {receiptLayers.map(([layer, role]) => (
                   <tr key={layer}>
-                    <td className="whitespace-nowrap border border-white/10 px-4 py-2 font-mono text-xs text-[#14F195]">
+                    <td className="whitespace-nowrap border border-white/10 px-4 py-2 font-mono text-xs text-brand-green">
                       {layer}
                     </td>
                     <td className="border border-white/10 px-4 py-2 text-gray-300">
@@ -142,13 +142,13 @@ export default function SpecPage() {
           </div>
         </section>
 
-        <section className="rounded-xl border border-[#14F195]/25 bg-[#14F195]/10 p-6 space-y-4 glow-border">
+        <section className="rounded-xl border border-brand-green/25 bg-brand-green/10 p-6 space-y-4 glow-border">
           <h2 className="font-display text-2xl font-semibold">Download</h2>
           <div className="flex flex-wrap gap-3">
             <a
               href="/downloads/adl-v0.3.zip"
               download
-              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#14F195] px-4 py-2 text-sm font-bold text-black hover:opacity-90"
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-ink px-4 py-2 text-sm font-bold text-black hover:opacity-90"
             >
               <Download aria-hidden="true" size={16} />
               Spec bundle (.zip, 82 KB)
@@ -156,7 +156,7 @@ export default function SpecPage() {
             <a
               href="/downloads/ADL-v0.3.md"
               download
-              className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#14F195]/40 px-4 py-2 text-sm font-semibold text-[#14F195] hover:border-[#14F195]/70"
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-brand-green/40 px-4 py-2 text-sm font-semibold text-brand-green hover:border-brand-green/70"
             >
               <FileText aria-hidden="true" size={16} />
               Spec (Markdown)
@@ -164,7 +164,7 @@ export default function SpecPage() {
             <a
               href="/downloads/ADL-v0.3.schema.json"
               download
-              className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#14F195]/40 px-4 py-2 text-sm font-semibold text-[#14F195] hover:border-[#14F195]/70"
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-brand-green/40 px-4 py-2 text-sm font-semibold text-brand-green hover:border-brand-green/70"
             >
               <FileJson aria-hidden="true" size={16} />
               JSON Schema
@@ -205,14 +205,14 @@ export default function SpecPage() {
           <div className="flex flex-wrap gap-3 pt-1">
             <Link
               href="/feedback"
-              className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-white/90 hover:border-[#14F195]/50"
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-white/90 hover:border-brand-green/50"
             >
               <MessageSquare aria-hidden="true" size={16} />
               How to give feedback
             </Link>
             <Link
               href="/updates"
-              className="inline-flex min-h-10 items-center rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-white/90 hover:border-[#14F195]/50"
+              className="inline-flex min-h-10 items-center rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-white/90 hover:border-brand-green/50"
             >
               Project updates →
             </Link>

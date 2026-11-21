@@ -86,7 +86,7 @@ export default function JudgeReplicationPage() {
   return (
     <main className="min-h-screen bg-page text-white">
       <section className="mx-auto max-w-6xl px-4 pb-10 pt-16 sm:px-6 lg:px-8">
-        <div className="rounded-3xl border border-[#14F195]/25 bg-gradient-to-br from-[#14F195]/15 via-white/[0.04] to-[#9945FF]/10 p-8 shadow-2xl shadow-black/30 md:p-10">
+        <div className="rounded-3xl border border-brand-green/25 bg-paper-raised p-8 md:p-10">
           <p className="section-label">Judge replication guide</p>
           <div className="mt-3 grid gap-8 lg:grid-cols-[1fr_auto] lg:items-end">
             <div>
@@ -101,7 +101,7 @@ export default function JudgeReplicationPage() {
             </div>
             <Link
               href="/start"
-              className="rounded-lg bg-[#14F195] px-5 py-3 text-center text-sm font-semibold text-black transition hover:opacity-90"
+              className="rounded-lg bg-ink px-5 py-3 text-center text-sm font-semibold text-black transition hover:opacity-90"
             >
               Watch onboarding videos
             </Link>
@@ -118,7 +118,7 @@ export default function JudgeReplicationPage() {
               Clone the repo, install dependencies, then run the verifier. It checks product routes, recorded
               devnet transactions, and the registered agent PDA from the CLI video.
             </p>
-            <code className="mt-5 block overflow-x-auto rounded-xl border border-white/10 bg-black/40 p-4 text-sm text-[#14F195]">
+            <code className="mt-5 block overflow-x-auto rounded-xl border border-white/10 bg-black/40 p-4 text-sm text-brand-green">
               {"git clone https://github.com/nissan/reddi-agent-protocol\ncd reddi-agent-protocol\nnpm install\nnode scripts/judge-replication-check.mjs"}
             </code>
           </div>
@@ -130,7 +130,7 @@ export default function JudgeReplicationPage() {
                 <Link
                   key={route}
                   href={route}
-                  className="min-w-0 break-all rounded-xl border border-white/10 bg-white/5 px-4 py-3 font-mono text-sm text-gray-200 transition hover:border-[#14F195]/40 hover:text-[#14F195]"
+                  className="min-w-0 break-all rounded-xl border border-white/10 bg-white/5 px-4 py-3 font-mono text-sm text-gray-200 transition hover:border-brand-green/40 hover:text-brand-green"
                 >
                   https://app.agent-protocol.reddi.tech{route}
                 </Link>
@@ -153,7 +153,7 @@ export default function JudgeReplicationPage() {
                   <ul className="mt-3 space-y-2 text-sm leading-6 text-gray-300">
                     {group.checks.map((check) => (
                       <li key={check} className="flex gap-2">
-                        <span className="text-[#14F195]">•</span>
+                        <span className="text-brand-green">•</span>
                         <span className="min-w-0 break-words">{check}</span>
                       </li>
                     ))}
@@ -166,7 +166,7 @@ export default function JudgeReplicationPage() {
                       href={link.href}
                       target={link.href.startsWith("http") ? "_blank" : undefined}
                       rel={link.href.startsWith("http") ? "noopener noreferrer" : undefined}
-                      className="min-w-0 break-words rounded-lg border border-[#14F195]/25 bg-[#14F195]/10 px-3 py-2 text-xs font-semibold text-[#14F195] transition hover:bg-[#14F195]/15"
+                      className="min-w-0 break-words rounded-lg border border-brand-green/25 bg-brand-green/10 px-3 py-2 text-xs font-semibold text-brand-green transition hover:bg-brand-green/15"
                     >
                       {link.label}
                     </a>
@@ -179,7 +179,7 @@ export default function JudgeReplicationPage() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 pb-16 pt-8 sm:px-6 lg:px-8">
-        <div className="rounded-2xl border border-[#14F195]/25 bg-[#14F195]/10 p-6">
+        <div className="rounded-2xl border border-brand-green/25 bg-brand-green/10 p-6">
           <p className="section-label">Pass standard</p>
           <h2 className="mt-2 font-display text-3xl font-bold">A claim passes when judges can independently observe it</h2>
           <ul className="mt-5 grid gap-3 md:grid-cols-2">

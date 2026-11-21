@@ -129,10 +129,10 @@ function StepCard({ index, title, active, done, children }: { index: number; tit
     <section
       data-testid={`sandbox-step-${index}`}
       data-state={done ? "done" : active ? "active" : "waiting"}
-      className={`rounded-2xl border p-5 transition md:p-6 ${active ? "border-[#14F195]/50 bg-white/[0.05]" : done ? "border-white/15 bg-white/[0.03]" : "border-white/10 bg-white/[0.02] opacity-60"}`}
+      className={`rounded-2xl border p-5 transition md:p-6 ${active ? "border-brand-green/50 bg-white/[0.05]" : done ? "border-white/15 bg-white/[0.03]" : "border-white/10 bg-white/[0.02]"}`}
     >
       <div className="flex items-center gap-3">
-        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${done ? "bg-[#14F195] text-black" : active ? "border border-[#14F195] text-[#14F195]" : "border border-white/20 text-gray-400"}`}>
+        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${done ? "bg-ink text-black" : active ? "border border-brand-green text-brand-green" : "border border-white/20 text-gray-400"}`}>
           {done ? "✓" : index}
         </span>
         <h3 className="text-lg font-semibold text-white">{title}</h3>
@@ -143,7 +143,7 @@ function StepCard({ index, title, active, done, children }: { index: number; tit
 }
 
 function NoticeBox({ notice }: { notice: Notice }) {
-  const tone = notice.tone === "bad" ? "border-red-400/40 bg-red-500/10 text-red-100" : notice.tone === "good" ? "border-[#14F195]/40 bg-[#14F195]/10 text-emerald-100" : "border-sky-400/40 bg-sky-500/10 text-sky-100";
+  const tone = notice.tone === "bad" ? "border-red-400/40 bg-red-500/10 text-red-100" : notice.tone === "good" ? "border-brand-green/40 bg-brand-green/10 text-emerald-100" : "border-sky-400/40 bg-sky-500/10 text-sky-100";
   return (
     <div role="status" data-testid="sandbox-notice" data-tone={notice.tone} className={`rounded-xl border px-4 py-3 text-sm ${tone}`}>
       <p className="font-semibold">{notice.title}</p>
@@ -222,7 +222,7 @@ function ReceiptPaymentFields({ payment, simulated }: { payment: SandboxReceiptP
   );
 }
 
-const actionButton = "rounded-lg bg-[#14F195] px-4 py-2.5 text-sm font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40";
+const actionButton = "rounded-lg bg-ink px-4 py-2.5 text-sm font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40";
 const quietButton = "rounded-lg border border-white/20 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40";
 
 export default function SandboxConsole({ initialScenario }: { initialScenario?: string }) {
@@ -629,7 +629,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
               data-testid={`sandbox-scenario-${entry.id}`}
               aria-pressed={entry.id === scenario.id}
               onClick={() => chooseScenario(entry.id)}
-              className={`rounded-2xl border p-4 text-left transition ${entry.id === scenario.id ? "border-[#14F195] bg-[#14F195]/10" : "border-white/10 bg-white/[0.03] hover:border-white/30"}`}
+              className={`rounded-2xl border p-4 text-left transition ${entry.id === scenario.id ? "border-brand-green bg-brand-green/10" : "border-white/10 bg-white/[0.03] hover:border-white/30"}`}
             >
               <p className="font-semibold text-white">{entry.title}</p>
               <p className="mt-2 text-sm leading-6 text-gray-300">{entry.hook}</p>
@@ -659,7 +659,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                     data-testid={`sandbox-provider-${entry.id}`}
                     aria-pressed={entry.id === provider.id}
                     onClick={() => chooseProvider(entry.id)}
-                    className={`rounded-xl border p-3 text-left text-sm transition ${entry.id === provider.id ? "border-[#9945FF] bg-[#9945FF]/15" : "border-white/10 bg-black/20 hover:border-white/30"}`}
+                    className={`rounded-xl border p-3 text-left text-sm transition ${entry.id === provider.id ? "border-brand-violet bg-brand-violet/15" : "border-white/10 bg-black/20 hover:border-white/30"}`}
                   >
                     <p className="font-semibold text-white">{entry.name}</p>
                     <p className="mt-1 text-gray-300">{entry.tagline}</p>
@@ -681,7 +681,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                 onChange={(event) => { setPrompt(event.target.value); resetRun(); }}
                 rows={5}
                 maxLength={4000}
-                className="w-full rounded-xl border border-white/15 bg-black/40 p-3 font-mono text-sm text-gray-100 outline-none focus:border-[#14F195]"
+                className="w-full rounded-xl border border-white/15 bg-black/40 p-3 font-mono text-sm text-gray-100 outline-none focus:border-brand-green"
               />
             </label>
             <div className="flex flex-wrap items-center gap-3">
@@ -717,10 +717,10 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                 {phase === "challenged" ? (
                   <>
                     <div className="flex flex-wrap gap-2" role="group" aria-label="How to pay">
-                      <button type="button" data-testid="sandbox-mode-simulated" aria-pressed={payMode === "simulated"} onClick={() => setPayMode("simulated")} className={`rounded-full border px-3 py-1.5 text-xs font-medium ${payMode === "simulated" ? "border-[#14F195] bg-[#14F195]/15 text-white" : "border-white/20 text-gray-300"}`}>
+                      <button type="button" data-testid="sandbox-mode-simulated" aria-pressed={payMode === "simulated"} onClick={() => setPayMode("simulated")} className={`rounded-full border px-3 py-1.5 text-xs font-medium ${payMode === "simulated" ? "border-brand-green bg-brand-green/15 text-white" : "border-white/20 text-gray-300"}`}>
                         Simulated payment, no wallet
                       </button>
-                      <button type="button" data-testid="sandbox-mode-wallet" aria-pressed={payMode === "wallet"} onClick={() => setPayMode("wallet")} className={`rounded-full border px-3 py-1.5 text-xs font-medium ${payMode === "wallet" ? "border-[#14F195] bg-[#14F195]/15 text-white" : "border-white/20 text-gray-300"}`}>
+                      <button type="button" data-testid="sandbox-mode-wallet" aria-pressed={payMode === "wallet"} onClick={() => setPayMode("wallet")} className={`rounded-full border px-3 py-1.5 text-xs font-medium ${payMode === "wallet" ? "border-brand-green bg-brand-green/15 text-white" : "border-white/20 text-gray-300"}`}>
                         Devnet SOL from my wallet
                       </button>
                     </div>
@@ -787,7 +787,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                     value={heldAnswer}
                     onChange={(event) => { setHeldAnswer(event.target.value); void verifyHeld(event.target.value); }}
                     rows={6}
-                    className="w-full rounded-xl border border-white/15 bg-black/40 p-3 text-sm leading-6 text-gray-100 outline-none focus:border-[#14F195]"
+                    className="w-full rounded-xl border border-white/15 bg-black/40 p-3 text-sm leading-6 text-gray-100 outline-none focus:border-brand-green"
                   />
                 </label>
                 <div className="flex flex-wrap gap-2">
@@ -797,12 +797,12 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                     <button type="button" data-testid="sandbox-reuse" className={quietButton} disabled={busy !== null} onClick={reusePayment}>{busy === "reuse" ? "Trying…" : "Reuse the same payment"}</button>
                   ) : null}
                 </div>
-                <div data-testid="sandbox-verification" data-ok={verification.ok ? "true" : "false"} className={`rounded-xl border p-4 ${verification.ok ? "border-[#14F195]/40 bg-[#14F195]/10" : "border-red-400/40 bg-red-500/10"}`}>
+                <div data-testid="sandbox-verification" data-ok={verification.ok ? "true" : "false"} className={`rounded-xl border p-4 ${verification.ok ? "border-brand-green/40 bg-brand-green/10" : "border-red-400/40 bg-red-500/10"}`}>
                   <p className="font-semibold text-white">{verification.ok ? "Receipt verified in your browser" : "Receipt does not match what you are holding"}</p>
                   <ul className="mt-3 space-y-2">
                     {verification.checks.map((check) => (
                       <li key={check.id} className="flex gap-2 text-sm" data-testid={`sandbox-check-${check.id}`} data-passed={check.passed ? "true" : "false"}>
-                        <span aria-hidden className={check.passed ? "text-[#14F195]" : "text-red-300"}>{check.passed ? "✓" : "✗"}</span>
+                        <span aria-hidden className={check.passed ? "text-brand-green" : "text-red-300"}>{check.passed ? "✓" : "✗"}</span>
                         <span><span className="font-medium text-white">{check.label}.</span> <span className="text-gray-300">{check.detail}</span></span>
                       </li>
                     ))}
@@ -831,7 +831,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                   <p className="text-xs uppercase tracking-wide text-gray-400">Reputation update for {answered.provider.name}</p>
                   <p className="mt-2 text-lg font-semibold text-white">
                     ★ {answered.reputationBefore.score.toFixed(2)} → ★ {answered.reputationAfter.score.toFixed(2)}
-                    <span className={`ml-2 text-sm font-medium ${answered.reputationAfter.score >= answered.reputationBefore.score ? "text-[#14F195]" : "text-red-300"}`}>
+                    <span className={`ml-2 text-sm font-medium ${answered.reputationAfter.score >= answered.reputationBefore.score ? "text-brand-green" : "text-red-300"}`}>
                       {answered.reputationAfter.score >= answered.reputationBefore.score ? "held or rose" : "fell"}
                     </span>
                   </p>
@@ -839,7 +839,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                   <p className="mt-1 text-xs text-gray-400">Sandbox scores live in this browser tab and reset when you reload.</p>
                 </div>
                 {ratedEscrow ? <JobRatingPanel escrow={ratedEscrow} programId={SANDBOX_ESCROW_PROGRAM_ID} connection={devnet} showWhenNone /> : null}
-                <p className="rounded-xl border border-[#9945FF]/30 bg-[#9945FF]/10 p-4 text-sm leading-6 text-gray-200" data-testid="sandbox-takeaway">{scenario.takeaway}</p>
+                <p className="rounded-xl border border-brand-violet/30 bg-brand-violet/10 p-4 text-sm leading-6 text-gray-200" data-testid="sandbox-takeaway">{scenario.takeaway}</p>
                 <button type="button" data-testid="sandbox-run-again" className={quietButton} onClick={resetRun}>Run it again</button>
               </>
             ) : (
@@ -854,7 +854,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
             <h3 className="font-semibold text-white">On the wire</h3>
             {lastExchange ? (
               <div className="mt-3 space-y-3" data-testid="sandbox-wire">
-                <p className="text-sm text-gray-300">{lastExchange.label} <span className={`ml-1 rounded px-1.5 py-0.5 font-mono text-xs ${lastExchange.response.status === 200 ? "bg-[#14F195]/20 text-[#14F195]" : "bg-amber-500/20 text-amber-200"}`}>{lastExchange.response.status}</span></p>
+                <p className="text-sm text-gray-300">{lastExchange.label} <span className={`ml-1 rounded px-1.5 py-0.5 font-mono text-xs ${lastExchange.response.status === 200 ? "bg-brand-green/20 text-brand-green" : "bg-amber-500/20 text-amber-200"}`}>{lastExchange.response.status}</span></p>
                 <details open>
                   <summary className="cursor-pointer text-xs uppercase tracking-wide text-gray-400">Try it from a terminal</summary>
                   <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-black/60 p-3 text-xs leading-5 text-gray-200">{curlFor(origin, lastExchange)}</pre>
@@ -879,7 +879,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
             <button type="button" className={`${quietButton} mt-4 w-full`} disabled={receipts.length === 0} onClick={downloadReceipts}>Download receipts as JSON</button>
           </section>
 
-          <section className="rounded-2xl border border-[#14F195]/25 bg-gradient-to-br from-[#14F195]/10 to-[#9945FF]/10 p-5">
+          <section className="rounded-2xl border border-brand-green/25 bg-gradient-to-br from-brand-green/10 to-brand-violet/10 p-5">
             <h3 className="font-semibold text-white">Build with it</h3>
             <p className="mt-2 text-sm leading-6 text-gray-300">The sandbox runs the same challenge, payment check and receipt format the open-source packages ship.</p>
             <div className="mt-4 flex flex-col gap-2">

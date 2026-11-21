@@ -21,9 +21,9 @@ export interface AgentData {
 }
 
 const agentTypeBadge = {
-  primary: { label: "Specialist", class: "bg-[#9945FF]/20 text-[#9945FF] border-[#9945FF]/30" },
+  primary: { label: "Specialist", class: "bg-brand-violet/20 text-brand-violet border-brand-violet/30" },
   attestation: { label: "Judge", class: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
-  both: { label: "Both", class: "bg-[#14F195]/20 text-[#14F195] border-[#14F195]/30" },
+  both: { label: "Both", class: "bg-brand-green/20 text-brand-green border-brand-green/30" },
 };
 
 const privacyBadge = {
@@ -94,7 +94,7 @@ export default function AgentCard({ agent, compact = false }: Props) {
           agent.attestation_accuracy !== undefined && (
             <div className="text-xs text-muted-foreground flex items-center justify-between">
               <span>Attestation accuracy</span>
-              <span className="font-mono text-[#14F195]">
+              <span className="font-mono text-brand-green">
                 {(agent.attestation_accuracy * 100).toFixed(1)}%
               </span>
             </div>
@@ -118,7 +118,7 @@ export default function AgentCard({ agent, compact = false }: Props) {
             href="/setup"
             variant="outline"
             size="sm"
-            className="w-full border-white/10 text-muted-foreground hover:border-[#9945FF]/50 transition-all"
+            className="w-full border-white/10 text-muted-foreground hover:border-brand-violet/50 transition-all"
             disabled
           >
             Hire (coming soon)

@@ -112,7 +112,7 @@ export default function OnboardingIntakePage() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 space-y-8" data-testid="intake-page">
       <header className="space-y-3">
-        <p className="text-xs uppercase tracking-[0.24em] text-[#14F195]">AI onboarding assistant</p>
+        <p className="text-xs uppercase tracking-[0.24em] text-brand-green">AI onboarding assistant</p>
         <h1 className="text-3xl font-bold">Guided intake — analyze an existing agent source</h1>
         <p className="max-w-3xl text-sm text-muted-foreground">
           Start a RAP-compatible onboarding draft from an endpoint URL, AI Catalog entry, MCP card,
@@ -130,9 +130,9 @@ export default function OnboardingIntakePage() {
         </div>
         <p className="text-xs text-muted-foreground">
           Prefer the classic path? Use{" "}
-          <Link href="/register" className="text-[#14F195] hover:text-emerald-200">manual registration</Link>{" "}
+          <Link href="/register" className="text-brand-green hover:text-emerald-200">manual registration</Link>{" "}
           or the{" "}
-          <Link href="/onboarding" className="text-[#14F195] hover:text-emerald-200">specialist onboarding wizard</Link>.
+          <Link href="/onboarding" className="text-brand-green hover:text-emerald-200">specialist onboarding wizard</Link>.
         </p>
       </header>
 
@@ -154,13 +154,13 @@ export default function OnboardingIntakePage() {
                 onClick={() => setOptionId(candidate.id)}
                 className={`rounded-xl border p-4 text-left transition-colors ${
                   candidate.id === optionId
-                    ? "border-[#14F195]/60 bg-[#14F195]/10"
+                    ? "border-brand-green/60 bg-brand-green/10"
                     : "border-white/10 bg-black/20 hover:border-white/25"
                 }`}
               >
                 <p className="font-medium">{candidate.label}</p>
                 <p className="mt-1 text-xs text-muted-foreground">{candidate.description}</p>
-                <p className="mt-2 font-mono text-[11px] text-[#9945FF]">→ {candidate.sourceKind}</p>
+                <p className="mt-2 font-mono text-[11px] text-brand-violet">→ {candidate.sourceKind}</p>
               </button>
             ))}
           </div>
@@ -263,7 +263,7 @@ export default function OnboardingIntakePage() {
                   onChange={(event) => setManualSeed({ ...manualSeed, capabilityLines: event.target.value })}
                   placeholder={"summarize-document — Summarize a provided document\ntranslate-text — Translate between languages"}
                   rows={4}
-                  className="w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none focus:border-[#14F195]/50"
+                  className="w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none focus:border-brand-green/50"
                 />
                 <p className="text-xs text-muted-foreground">
                   Leave empty to see the no-results state — capability fit cannot be assessed without at
@@ -310,8 +310,8 @@ export default function OnboardingIntakePage() {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-xl border border-[#14F195]/25 bg-[#14F195]/5 p-4 space-y-2">
-              <p className="text-sm font-semibold text-[#14F195]">What happens</p>
+            <div className="rounded-xl border border-brand-green/25 bg-brand-green/5 p-4 space-y-2">
+              <p className="text-sm font-semibold text-brand-green">What happens</p>
               <ul className="list-disc space-y-1.5 pl-4 text-xs text-muted-foreground">
                 <li>Your input is validated locally against the onboarding intake contract (fail-closed).</li>
                 <li>
@@ -348,7 +348,7 @@ export default function OnboardingIntakePage() {
               data-testid="intake-consent-checkbox"
               checked={consentAccepted}
               onChange={(event) => setConsentAccepted(event.target.checked)}
-              className="mt-0.5 h-4 w-4 accent-[#14F195]"
+              className="mt-0.5 h-4 w-4 accent-brand-green"
             />
             <span className="text-muted-foreground">
               I understand this is a static, fixture-backed dry-run analysis inside the boundary above, and
@@ -380,7 +380,7 @@ export default function OnboardingIntakePage() {
               data-testid="intake-loading"
               role="status"
             >
-              <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-[#14F195]/30 border-t-[#14F195]" />
+              <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-brand-green/30 border-t-brand-green" />
               <p className="text-sm font-medium">Static analysis in progress…</p>
               <p className="text-xs text-muted-foreground">
                 Fixture-backed dry run — no network request is being made.
@@ -503,7 +503,7 @@ export default function OnboardingIntakePage() {
 
           {!loading && outcome?.status === "analysed" && (
             <div className="space-y-5" data-testid="intake-results">
-              <div className="rounded-2xl border border-[#14F195]/30 bg-[#14F195]/5 p-5 space-y-2">
+              <div className="rounded-2xl border border-brand-green/30 bg-brand-green/5 p-5 space-y-2">
                 <h2 className="text-lg font-semibold">Draft created from static analysis</h2>
                 <p className="text-sm text-muted-foreground">
                   Source kind <code className="rounded bg-black/30 px-1 font-mono text-xs">{outcome.handoff.intake.sourceKind}</code>{" "}
@@ -625,7 +625,7 @@ export default function OnboardingIntakePage() {
                 <Link
                   href="/onboarding/profile-editor"
                   data-testid="intake-profile-editor-entry"
-                  className="inline-flex min-h-9 items-center rounded-lg border border-[#14F195]/30 bg-[#14F195]/5 px-3 text-sm text-[#14F195] hover:border-[#14F195]/60"
+                  className="inline-flex min-h-9 items-center rounded-lg border border-brand-green/30 bg-brand-green/5 px-3 text-sm text-brand-green hover:border-brand-green/60"
                 >
                   Review &amp; edit a generated profile draft
                 </Link>

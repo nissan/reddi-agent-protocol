@@ -58,7 +58,7 @@ export default function WhitepaperPage() {
             <Link href="https://github.com/nissan/reddi-agent-protocol/blob/main/docs/whitepaper/GLOSSARY.md" className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-white/90">
               Glossary
             </Link>
-            <Link href="/adl" className="rounded-lg border border-[#14F195]/40 bg-[#14F195]/10 px-4 py-2 text-sm font-medium text-[#14F195]">
+            <Link href="/adl" className="rounded-lg border border-brand-green/40 bg-brand-green/10 px-4 py-2 text-sm font-medium text-brand-green">
               ADL whitepaper and demo
             </Link>
           </div>
@@ -84,7 +84,7 @@ export default function WhitepaperPage() {
             {screenshots.map((shot) => (
               <figure key={shot.src} className="rounded-xl border border-white/10 bg-card/40 overflow-hidden">
                 {shot.imageStale ? (
-                  <div className="flex h-44 w-full items-center justify-center bg-[#1a1a2e] px-5 text-center">
+                  <div className="flex h-44 w-full items-center justify-center bg-card px-5 text-center">
                     <span className="max-w-xs text-xs leading-relaxed text-white/25">
                       Screenshot withheld: the committed capture predates this repository&apos;s
                       public-claim remediation and still shows retired wording. Open{" "}
