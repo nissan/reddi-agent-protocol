@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import {
-  AS_OF, AVG_CALL_USD, CALL_PRICES, FEE_FACTS, FORECASTS, OCT_2026_X402_USD, REVENUE_TARGETS, SCENARIOS, SOURCES, TAM_USD, VOLUME_TODAY,
+  AS_OF, AVG_JOB_USD, CALL_PRICES, JOB_COSTS, MID_TIER, jobCost, FEE_FACTS, FORECASTS, OCT_2026_X402_USD, REVENUE_TARGETS, SCENARIOS, SOURCES, TAM_USD, VOLUME_TODAY,
   BUILD_HISTORY, FEE_BPS, REVENUE_LINES, SOL_FEE_CAP, RFS, RFS_MAP, priceRow, scenarioRow, stackRow, volumeFor, type Figure,
 } from '../../lib/market';
 import { pageMetadata } from '../../lib/metadata';
@@ -15,7 +15,8 @@ export const metadata = pageMetadata(siteUrl, {
 const usd = (n: number, digits = 0) => `$${n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 const big = (n: number) => (n >= 1e9 ? `$${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : usd(n));
 const pct = (n: number) => (n >= 100 ? `${Math.round(n).toLocaleString('en-US')}%` : `${n.toFixed(2)}%`);
-const cents = `${Math.round(AVG_CALL_USD * 100)}¢`;
+const cents = `${Math.round(AVG_JOB_USD * 100)}¢`;
+const jobUsd = (n: number) => `$${n < 0.01 ? n.toFixed(4) : n.toFixed(3)}`;
 const perDay = (n: number) => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} billion` : `${(n / 1e6).toFixed(1)} million`);
 const NAMES = { low: 'Low', base: 'Base', high: 'High' } as const;
 
@@ -72,7 +73,20 @@ export default function Market() {
           </tbody>
         </table>
       </div>
-      <p className="small muted">Our reading: paying per call is comfortable from about one cent upward. Below that the network fee takes too big a share, and calls would need batching or payment channels. The planned fee is {FEE_BPS / 100}% of what a call actually cost, rounded down, so a USDC call under $0.00004 pays none. On SOL payments it never goes above {SOL_FEE_CAP} SOL (<a href={SOURCES.feeIssue.url} rel="noopener noreferrer">fee design ↗</a>).</p>
+      <h3>What real agent jobs cost</h3>
+      <p>Most agent jobs are small. At a mid-tier model&apos;s list price ({MID_TIER.model}, ${MID_TIER.inputPerMillion} in and ${MID_TIER.outputPerMillion} out per million tokens, <a href={MID_TIER.source.url} rel="noopener noreferrer">{MID_TIER.source.label} ↗</a>), a typical job costs from a fraction of a cent to a few dimes. The same job costs about 40 times more on a top model than on a budget one, which is why the RFS asks for a market where developers can choose.</p>
+      <div className="table-scroll">
+        <table className="data">
+          <caption>Typical (median) tokens and cost per job at {MID_TIER.model} list prices, {MID_TIER.asOf}</caption>
+          <thead><tr><th scope="col">Job</th><th scope="col">Tokens in</th><th scope="col">Tokens out</th><th scope="col">Cost</th><th scope="col">What the tokens rest on</th></tr></thead>
+          <tbody>
+            {JOB_COSTS.map((j) => (
+              <tr key={j.task}><th scope="row">{j.task}</th><td>{j.inputTokens.toLocaleString('en-US')}</td><td>{j.outputTokens.toLocaleString('en-US')}</td><td>{jobUsd(jobCost(j))}{j.note && <small>{j.note}</small>}</td><td>{j.basis}{j.measured && j.source ? <> (<a href={j.source.url} rel="noopener noreferrer">{j.source.label} ↗</a>)</> : <> <span className="tag">estimate</span></>}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="small muted">Our reading: paying per call is comfortable from about one cent upward. Below that the network fee takes too big a share, so a buyer locks a maximum once for a job or a session and the provider settles the real token cost in one payment. The planned fee is {FEE_BPS / 100}% of what a call actually cost, rounded down, so a USDC call under $0.00004 pays none. On SOL payments it never goes above {SOL_FEE_CAP} SOL (<a href={SOURCES.feeIssue.url} rel="noopener noreferrer">fee design ↗</a>).</p>
 
       <h2>2. Agent payments today: many, but small</h2>
       <p>Agents have made close to 200 million payments over x402, the open HTTP payment standard. Much of that count is testing and bots. Real money is still small: about {usd(OCT_2026_X402_USD)} in October 2026, across every chain.</p>
@@ -103,10 +117,10 @@ export default function Market() {
       <div className="table-scroll">
         <table className="data">
           <caption>Planned protocol fee revenue by scenario (our estimates)</caption>
-          <thead><tr><th scope="col">Scenario</th><th scope="col">2027 volume</th><th scope="col">2027 fee revenue</th><th scope="col">2030 volume</th><th scope="col">2030 fee revenue</th><th scope="col">2030 calls at {cents}</th></tr></thead>
+          <thead><tr><th scope="col">Scenario</th><th scope="col">2027 volume</th><th scope="col">2027 fee revenue</th><th scope="col">2030 volume</th><th scope="col">2030 fee revenue</th><th scope="col">2030 paid jobs at {cents}</th></tr></thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.key}><th scope="row">{NAMES[r.key]}</th><td>{big(r.volume2027)}</td><td>{usd(r.revenue2027)}</td><td>{big(r.som)}</td><td>{usd(Math.round(r.revenue2030 / 100) * 100)}</td><td>{(r.calls2030 / 1e9).toFixed(2)} billion</td></tr>
+              <tr key={r.key}><th scope="row">{NAMES[r.key]}</th><td>{big(r.volume2027)}</td><td>{usd(r.revenue2027)}</td><td>{big(r.som)}</td><td>{usd(Math.round(r.revenue2030 / 100) * 100)}</td><td>{(r.jobs2030 / 1e9).toFixed(2)} billion</td></tr>
             ))}
           </tbody>
         </table>
@@ -114,9 +128,9 @@ export default function Market() {
       <div className="table-scroll">
         <table className="data narrow">
           <caption>Volume needed for each level of yearly revenue</caption>
-          <thead><tr><th scope="col">Yearly protocol revenue</th><th scope="col">Yearly volume needed</th><th scope="col">Calls a day at {cents}</th></tr></thead>
+          <thead><tr><th scope="col">Yearly protocol revenue</th><th scope="col">Yearly volume needed</th><th scope="col">Paid jobs a day at {cents}</th></tr></thead>
           <tbody>
-            {REVENUE_TARGETS.map((t) => <tr key={t}><td>{big(t)}</td><td>{big(volumeFor(t))}</td><td>{perDay(volumeFor(t) / AVG_CALL_USD / 365)}</td></tr>)}
+            {REVENUE_TARGETS.map((t) => <tr key={t}><td>{big(t)}</td><td>{big(volumeFor(t))}</td><td>{perDay(volumeFor(t) / AVG_JOB_USD / 365)}</td></tr>)}
           </tbody>
         </table>
       </div>
@@ -135,6 +149,7 @@ export default function Market() {
           </tbody>
         </table>
       </div>
+      <p className="small muted">Two trust services ship in the first mainnet release without a protocol fee. Rating a job is opt-in: the buyer leaves a refundable deposit of about 0.003 SOL and each side pays a few network fees. A judge the buyer names can attest a paid job; judges set their own per-token price, which for a typical job comes to roughly a tenth of a cent to two cents. For a new provider that is cheaper than winning work by cutting prices.</p>
 
       <h2>7. What the full stack could earn in 2030</h2>
       <p>Same market estimates as above, with every revenue line added. In our base case the protocol earns about {big(baseStack.total)} a year, an effective {baseStack.effectiveBps.toFixed(0)} basis points of volume, against {usd(Math.round(base.revenue2030 / 100) * 100)} from the settlement fee alone. All figures are <b>our estimates</b>.</p>

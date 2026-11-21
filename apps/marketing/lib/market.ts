@@ -20,6 +20,8 @@ const S = {
   juniper: { label: 'Juniper Research (Apr 2026)', url: 'https://www.juniperresearch.com/press/agentic-commerce-set-to-generate-15-trillion-globally-by-2030-as-payments-infrastructure-leaders-revealed/' },
   feeIssue: { label: 'Fee design, pull request #792', url: 'https://github.com/nissan/reddi-agent-protocol/pull/792' },
   openRouterFee: { label: 'OpenRouter, platform fee (updated 11 Jun 2026)', url: 'https://openrouter.ai/announcements/simplifying-our-platform-fee' },
+  anthropicPricing: { label: 'Anthropic pricing (21 Nov 2026)', url: 'https://platform.claude.com/docs/en/about-claude/pricing' },
+  sweBench: { label: 'SWE-bench Verified run data', url: 'https://raw.githubusercontent.com/SWE-bench/swe-bench.github.io/master/data/leaderboards.json' },
 } satisfies Record<string, Source>;
 
 /**
@@ -75,16 +77,45 @@ export const SCENARIOS: Scenario[] = [
   { key: 'base', samShare: 0.02, somShare: 0.05, volume2027: 10e6 },
   { key: 'high', samShare: 0.05, somShare: 0.15, volume2027: 50e6 },
 ];
-export const AVG_CALL_USD = 0.05;
+/** Average paid job (one locked maximum, settled once), our estimate. Single sub-cent calls are grouped into jobs or sessions. */
+export const AVG_JOB_USD = 0.05;
 export function scenarioRow(s: Scenario) {
   const sam = TAM_USD * s.samShare;
   const som = sam * s.somShare;
-  return { ...s, sam, som, revenue2030: (som * FEE_BPS) / 10_000, revenue2027: (s.volume2027 * FEE_BPS) / 10_000, calls2030: som / AVG_CALL_USD };
+  return { ...s, sam, som, revenue2030: (som * FEE_BPS) / 10_000, revenue2027: (s.volume2027 * FEE_BPS) / 10_000, jobs2030: som / AVG_JOB_USD };
 }
 export const REVENUE_TARGETS = [10_000, 100_000, 1_000_000, 10_000_000];
 export const volumeFor = (revenue: number) => (revenue * 10_000) / FEE_BPS;
 
 export const OCT_2026_X402_USD = 274_000;
+
+// ---- What real agent jobs cost: tokens per job times a mid-tier list price ----
+/** Mid-tier list price per million tokens (Claude Sonnet 5.5), from the provider's pricing page. */
+export const MID_TIER = { inputPerMillion: 2, outputPerMillion: 10, cacheReadShare: 0.05, cacheWriteShare: 1.25, model: 'Claude Sonnet 5.5', asOf: '21 Nov 2026', source: S.anthropicPricing };
+export type JobCost = {
+  task: string; inputTokens: number; outputTokens: number;
+  /** Shares of input read from and written to the prompt cache, billed at MID_TIER's cache rates. */
+  cachedShare?: number;
+  cacheWrittenShare?: number;
+  basis: string; measured: boolean; source?: Source; note?: string;
+};
+/** Median tokens per job. `measured` rows come from published run data; the rest are our estimates from the task research of 21 Nov 2026. */
+export const JOB_COSTS: JobCost[] = [
+  { task: 'Summarise a news article', inputTokens: 1_040, outputTokens: 75, basis: 'News summarisation datasets: about 780-word articles, 56-word summaries', measured: false },
+  { task: 'Answer a question over your documents', inputTokens: 3_000, outputTokens: 250, basis: 'About 3 to 5 retrieved passages plus the question', measured: false },
+  { task: 'Write unit tests for one file', inputTokens: 4_500, outputTokens: 2_000, basis: 'One source file plus instructions in, one test file out', measured: false },
+  { task: 'Review a pull request (single pass)', inputTokens: 12_000, outputTokens: 1_500, basis: 'The change plus surrounding code and instructions in, a written review out', measured: false },
+  { task: 'Fix a real bug as a coding agent', inputTokens: 194_000, outputTokens: 3_700, cachedShare: 0.936, cacheWrittenShare: 0.04, basis: 'Median of 100 sampled SWE-bench Verified runs: 23 model calls, 94% of input from cache', measured: true, source: S.sweBench },
+  { task: 'Write a deep research report', inputTokens: 100_000, outputTokens: 10_000, basis: 'Multi-agent research uses about 15 times the tokens of a chat', measured: false, note: 'plus search fees' },
+];
+/** A job's cost at MID_TIER prices, in US dollars, with cache reads and writes at their list multiples of the input price. */
+export function jobCost(j: JobCost): number {
+  const read = j.inputTokens * (j.cachedShare ?? 0);
+  const written = j.inputTokens * (j.cacheWrittenShare ?? 0);
+  const fresh = j.inputTokens - read - written;
+  const inputUnits = fresh + read * MID_TIER.cacheReadShare + written * MID_TIER.cacheWriteShare;
+  return (inputUnits * MID_TIER.inputPerMillion + j.outputTokens * MID_TIER.outputPerMillion) / 1e6;
+}
 export const SOURCES = S;
 
 // ---- The Solana RFS this case builds on, and proof we were building before it ----
@@ -121,11 +152,13 @@ export type RevenueLine = {
   /** 2030 protocol revenue in USD per scenario (our estimates). */
   revenue: (s: ReturnType<typeof scenarioRow>, a: Attach) => number;
 };
-export type Attach = { verified: number; checked: number; escrowMultiple: number; lookupsPerCall: number; providers: number; privateShare: number };
+/** checked = share of volume whose buyer pays a judge; JUDGE_FEE_SHARE = judge fee as a share of the attested job. */
+export type Attach = { verified: number; checked: number; escrowMultiple: number; lookupsPerJob: number; providers: number; privateShare: number };
+export const JUDGE_FEE_SHARE = 0.1;
 export const ATTACH: Record<Scenario['key'], Attach> = {
-  low: { verified: 0.1, checked: 0.05, escrowMultiple: 0.25, lookupsPerCall: 0.2, providers: 200, privateShare: 0.02 },
-  base: { verified: 0.25, checked: 0.15, escrowMultiple: 0.5, lookupsPerCall: 0.5, providers: 2_000, privateShare: 0.05 },
-  high: { verified: 0.4, checked: 0.3, escrowMultiple: 1, lookupsPerCall: 1, providers: 10_000, privateShare: 0.1 },
+  low: { verified: 0.1, checked: 0.05, escrowMultiple: 0.25, lookupsPerJob: 0.2, providers: 200, privateShare: 0.02 },
+  base: { verified: 0.25, checked: 0.15, escrowMultiple: 0.5, lookupsPerJob: 0.5, providers: 2_000, privateShare: 0.05 },
+  high: { verified: 0.4, checked: 0.3, escrowMultiple: 1, lookupsPerJob: 1, providers: 10_000, privateShare: 0.1 },
 };
 const BENCH = {
   near: { label: 'NEAR AI Cloud', url: 'https://near.ai/cloud' },
@@ -144,10 +177,10 @@ export const REVENUE_LINES: RevenueLine[] = [
     revenue: (s, a) => s.som * a.verified * 0.002 },
   { key: 'checks', name: 'Independent spot checks', payer: 'Buyer who opts into attestors re-running sampled calls', fee: '10% of the attestor’s fee', stage: 'Planned', rfs: 'verify',
     nonCustodial: 'Buyer pays the attestor directly; the protocol share is split in the same transaction.', benchmark: { text: 'Jupiter keeps 20% of integrator fees', source: BENCH.jupiter },
-    revenue: (s, a) => s.som * a.checked * 0.03 * 0.1 },
+    revenue: (s, a) => s.som * a.checked * JUDGE_FEE_SHARE * 0.1 },
   { key: 'lookups', name: 'Reputation and receipt lookups', payer: 'Agents checking a provider before they pay', fee: '$0.0002 per lookup, paid over x402', stage: 'Planned', rfs: 'reputation',
     nonCustodial: 'The record stays public on-chain. Anyone can run their own index; we sell the fast path.', benchmark: { text: 'The Graph sells queries at $2 per 100,000', source: BENCH.graph },
-    revenue: (s, a) => s.calls2030 * a.lookupsPerCall * 0.0002 },
+    revenue: (s, a) => s.jobs2030 * a.lookupsPerJob * 0.0002 },
   { key: 'disputes', name: 'Disputes and judgments', payer: 'The losing side of an escrow dispute', fee: 'Half of the losing bond', stage: 'Exploring', rfs: 'reputation',
     nonCustodial: 'Bonds held by the program; staked jurors decide, not us.', benchmark: { text: 'UMA sends the unpaid half of a losing bond to its protocol', source: BENCH.uma },
     revenue: (s, a) => s.som * a.escrowMultiple * 0.005 * 0.05 * 0.5 },

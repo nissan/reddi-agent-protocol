@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { BUILD_HISTORY, FEE_FACTS, FORECASTS, REVENUE_LINES, RFS, RFS_MAP, SCENARIOS, SOURCES, VOLUME_TODAY, feeFor, priceRow, scenarioRow, stackRow, volumeFor } from '../lib/market.ts';
+import { BUILD_HISTORY, FEE_FACTS, FORECASTS, JOB_COSTS, MID_TIER, jobCost, REVENUE_LINES, RFS, RFS_MAP, SCENARIOS, SOURCES, VOLUME_TODAY, feeFor, priceRow, scenarioRow, stackRow, volumeFor } from '../lib/market.ts';
 
 test('every shown figure has a dated https source or is marked as our estimate', () => {
   for (const f of [...FEE_FACTS, ...VOLUME_TODAY, ...FORECASTS, ...BUILD_HISTORY]) {
@@ -42,7 +42,8 @@ test('the page labels SAM, SOM and scenario volumes as estimates and says no fee
   const page = readFileSync(join(import.meta.dirname, '..', 'app', 'market', 'page.tsx'), 'utf8');
   assert.match(page, /no protocol fee is collected today/i);
   assert.match(page, /nothing here runs on Solana mainnet yet/i);
-  assert.equal((page.match(/className="tag">estimate</g) ?? []).length, 2);
+  // SAM, SOM, and the job-cost rows that are not measured.
+  assert.equal((page.match(/className="tag">estimate</g) ?? []).length, 3);
   assert.match(page, /our estimates<\/b>/);
 });
 
@@ -71,5 +72,17 @@ test('the revenue stack adds up and its settlement line matches the base-fee mod
     assert.ok(Math.abs(st.total - st.lines.reduce((t, l) => t + l.revenue, 0)) < 1e-6);
     assert.ok(Math.abs(st.lines.find((l) => l.key === 'settle')!.revenue - scenarioRow(s).revenue2030) < 1e-6);
   }
-  assert.equal(Math.round(stackRow(SCENARIOS[1]).total / 1000), 7255);
+  assert.equal(Math.round(stackRow(SCENARIOS[1]).total / 1000), 7523); // judge fee at 10% of an attested job (task research, 21 Nov 2026)
+});
+
+test('job costs are tokens times the cited mid-tier price, and only sourced rows claim to be measured', () => {
+  assert.match(MID_TIER.source.url, /^https:\/\//);
+  for (const j of JOB_COSTS) {
+    if (j.measured) assert.ok(j.source && /^https:\/\//.test(j.source.url), j.task);
+    if (!j.cachedShare) assert.ok(Math.abs(jobCost(j) - (j.inputTokens * 2 + j.outputTokens * 10) / 1e6) < 1e-12, j.task);
+  }
+  const review = JOB_COSTS.find((j) => j.task.startsWith('Review a pull request'))!;
+  assert.equal(jobCost(review).toFixed(3), '0.039');
+  const agent = JOB_COSTS.find((j) => j.measured)!;
+  assert.equal(jobCost(agent).toFixed(3), '0.084'); // 93.6% cache reads at 0.05x, 4% cache writes at 1.25x
 });
