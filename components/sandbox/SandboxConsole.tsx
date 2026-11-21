@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Connection, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { buildSandboxMeteredLock } from "@/lib/sandbox/escrow";
+import { minimumSolPayout, solPayoutWouldFail } from "@reddi/x402-solana/escrow-readiness";
 
 import {
   findSandboxProviderById,
@@ -409,6 +410,14 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
       const balance = await devnet.getBalance(publicKey);
       if (balance < lamports + FEE_HEADROOM_LAMPORTS + (metered ? ESCROW_RENT_HEADROOM_LAMPORTS : 0)) {
         setNotice({ tone: "info", title: "This wallet needs devnet SOL", text: `It holds ${(balance / 1_000_000_000).toFixed(4)} devnet SOL. Get free test SOL from ${FAUCET_URL}, or switch to the simulated payment.` });
+        return;
+      }
+      // A SOL payout that leaves the provider's wallet above zero but below the
+      // rent-exempt minimum is refused by the runtime. A metered payout can be
+      // any amount up to the maximum, so the wallet must already be rent-exempt.
+      const payeeBalance = BigInt(await devnet.getBalance(new PublicKey(challenge.payTo)));
+      if (metered ? minimumSolPayout(payeeBalance) > BigInt(0) : solPayoutWouldFail(payeeBalance, BigInt(lamports))) {
+        setNotice({ tone: "info", title: "This provider cannot receive SOL yet", text: "Its wallet holds too little devnet SOL to accept a payment this small, so the payment would fail. Nothing was signed; use the simulated payment instead." });
         return;
       }
       const latest = await devnet.getLatestBlockhash("confirmed");

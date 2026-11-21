@@ -1,0 +1,59 @@
+{
+  "note": "Recorded Token-2022 posture of the allowlisted PYUSD and USDG mainnet mints. scripts/check-token2022-mint-posture.mjs compares the live mints with this and fails on any change; a change means re-assessing escrow risk (see docs/ESCROW-PAYOUT-SAFETY.md) before updating this file.",
+  "mints": {
+    "PYUSD": {
+      "address": "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
+      "recordedFrom": "programs/pinocchio-escrow/equivalence/tests/fixtures/pyusd_mainnet_mint_2026-11-20.bin",
+      "posture": {
+        "extensionTypes": [
+          1,
+          3,
+          4,
+          12,
+          14,
+          16,
+          18,
+          19
+        ],
+        "transferHookProgram": null,
+        "transferFee": {
+          "olderBps": 0,
+          "newerBps": 0,
+          "newerEpoch": "605",
+          "newerMaximumFee": "0"
+        },
+        "permanentDelegate": "2apBGMsS6ti9RyF5TwQTDswXBWskiJP2LD4cUEDqYJjk",
+        "freezeAuthority": "2apBGMsS6ti9RyF5TwQTDswXBWskiJP2LD4cUEDqYJjk",
+        "mintCloseAuthority": "2apBGMsS6ti9RyF5TwQTDswXBWskiJP2LD4cUEDqYJjk",
+        "pausable": null
+      }
+    },
+    "USDG": {
+      "address": "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
+      "recordedFrom": "programs/pinocchio-escrow/equivalence/tests/fixtures/usdg_mainnet_mint_2026-11-21.bin",
+      "posture": {
+        "extensionTypes": [
+          1,
+          3,
+          4,
+          12,
+          14,
+          16,
+          18,
+          19
+        ],
+        "transferHookProgram": null,
+        "transferFee": {
+          "olderBps": 0,
+          "newerBps": 0,
+          "newerEpoch": "722",
+          "newerMaximumFee": "0"
+        },
+        "permanentDelegate": "2apBGMsS6ti9RyF5TwQTDswXBWskiJP2LD4cUEDqYJjk",
+        "freezeAuthority": "2apBGMsS6ti9RyF5TwQTDswXBWskiJP2LD4cUEDqYJjk",
+        "mintCloseAuthority": "2apBGMsS6ti9RyF5TwQTDswXBWskiJP2LD4cUEDqYJjk",
+        "pausable": null
+      }
+    }
+  }
+}

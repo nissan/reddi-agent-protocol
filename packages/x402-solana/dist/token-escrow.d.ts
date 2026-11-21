@@ -1,4 +1,10 @@
 import { PublicKey, TransactionInstruction } from '@solana/web3.js';
+/**
+ * Anchor discriminators: the first 8 bytes of sha256("<kind>:<name>"). Fixed
+ * here rather than hashed at runtime so this module also loads in a browser
+ * bundle, where `node:crypto` is not available. A test recomputes each one.
+ */
+export declare const TOKEN_ESCROW_DISCRIMINATORS: Readonly<Record<string, readonly number[]>>;
 export interface TokenEscrowTerms {
     programId: PublicKey;
     tokenProgram: PublicKey;

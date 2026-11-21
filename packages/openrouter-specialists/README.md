@@ -194,7 +194,7 @@ A provider can take per-token payment through the metered token escrow (#794). I
 - `X402_INPUT_PER_MILLION` and `X402_OUTPUT_PER_MILLION`: the price per million input and output tokens in the profile's currency, plus optional `X402_MAX_OUTPUT_TOKENS` (default 1,000);
 - `X402_ESCROW_PROGRAM_ID`: the escrow program the buyer locks in;
 - the mint for the profile's currency (`X402_USDC_MINT` or `X402_USDC_DEVNET_MINT`, and so on);
-- `ALLOW_REAL_X402_PAYMENT`, and a `settleMeteredEscrow` function in `RuntimeDeps` that signs the settle instruction with the provider wallet's key, sends it and returns the confirmed signature. The runtime never reads the key.
+- `ALLOW_REAL_X402_PAYMENT`, and a `settleMeteredEscrow` function in `RuntimeDeps` that signs the settle transaction (idempotent creates of the treasury's and the buyer's token accounts, then the settle, in that order, provider wallet as fee payer) with the provider wallet's key, sends it and returns the confirmed signature. The runtime never reads the key.
 
 A 402 then carries a `metered` block: the price, the output limit, the estimate for this request and the least a lock may hold. The buyer locks at least that with `lock_metered_token_escrow`, payable to the provider's associated token account, and presents `{ "settlement": "metered-escrow", "escrow", "payer", "nonce" }` (nonce: the 16-byte escrow nonce as 32 hex characters). The runtime reads the lock back from the chain and refuses it unless it is on the configured program, at the address the payer and nonce give, still locked, metered, in the configured mint, payable to this provider and at least the estimate. One lock pays for one call.
 

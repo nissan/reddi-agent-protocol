@@ -10,6 +10,7 @@ import { handleRuntimeRequest, PROVIDER_RECEIPT_HEADER, type ProviderReceiptStat
 const PROGRAM = new PublicKey("DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu");
 const USDC = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
 const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const ASSOCIATED_TOKEN_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 const SETTLE_SIG = "4".repeat(88);
 const profile = getProfile("planning-agent")!;
 const payee = new PublicKey(profile.walletAddress);
@@ -51,16 +52,19 @@ function tokenEscrowBytes(fields: { amount: bigint; payee?: PublicKey; mint?: Pu
 
 const escrow = tokenEscrowAddresses({ programId: PROGRAM, payer, nonce: Buffer.from(NONCE, "hex") }).escrow;
 
-function deps(account: { owner?: PublicKey; data: Uint8Array } | null, settle?: (ix: TransactionInstruction) => Promise<string>) {
+function deps(account: { owner?: PublicKey; data: Uint8Array } | null, settle?: (ixs: TransactionInstruction[]) => Promise<string>) {
+  // The settle instruction of each transaction, and each whole transaction's instructions.
   const settled: TransactionInstruction[] = [];
+  const transactions: TransactionInstruction[][] = [];
   const statements: ProviderReceiptStatement[] = [];
   const value: RuntimeDeps = {
     replayStore: new MemoryNonceReplayStore(),
     readAccount: async (address) => (address.equals(escrow) && account ? { owner: account.owner ?? PROGRAM, data: account.data } : null),
     settleMeteredEscrow:
       settle ??
-      (async (ix) => {
-        settled.push(ix);
+      (async (ixs) => {
+        transactions.push(ixs);
+        settled.push(ixs[ixs.length - 1]);
         return SETTLE_SIG;
       }),
     signProviderReceipt: (statement) => {
@@ -69,7 +73,7 @@ function deps(account: { owner?: PublicKey; data: Uint8Array } | null, settle?: 
     },
     now: () => new Date("2026-11-21T02:00:00Z"),
   };
-  return { value, settled, statements };
+  return { value, settled, transactions, statements };
 }
 
 const BODY = JSON.stringify({ messages: [{ role: "user", content: "Plan a three step rollout." }], max_tokens: 200 });
@@ -108,6 +112,19 @@ test("settles the reported tokens, answers, and signs a metered-escrow receipt n
   assert.equal(d.settled[0].data.readBigUInt64LE(8), BigInt(18));
   assert.ok(d.settled[0].keys[2].pubkey.equals(payee));
   assert.equal(d.settled[0].keys[2].isSigner, true);
+  // Before the settle, idempotent creates of the treasury's and the buyer's token accounts, paid by the provider.
+  const [treasuryCreate, refundCreate, settle] = d.transactions[0];
+  assert.equal(d.transactions[0].length, 3);
+  assert.equal(settle, d.settled[0]);
+  for (const create of [treasuryCreate, refundCreate]) {
+    assert.ok(create.programId.equals(ASSOCIATED_TOKEN_PROGRAM));
+    assert.deepEqual(Array.from(create.data), [1]);
+    assert.ok(create.keys[0].pubkey.equals(payee));
+  }
+  // The treasury account it creates is the one the settle pays the fee to; the unused part goes to the buyer's associated token account.
+  assert.ok(treasuryCreate.keys[1].pubkey.equals(settle.keys[6].pubkey));
+  assert.ok(refundCreate.keys[1].pubkey.equals(settle.keys[7].pubkey));
+  assert.ok(refundCreate.keys[2].pubkey.equals(payer));
   const body = (await response.clone().json()) as { reddi: { metered: Record<string, unknown> } };
   assert.equal(body.reddi.metered.settleSignature, SETTLE_SIG);
   assert.equal(body.reddi.metered.refund, "0.005982");

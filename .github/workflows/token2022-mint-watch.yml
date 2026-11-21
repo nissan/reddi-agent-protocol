@@ -1,0 +1,38 @@
+name: Token-2022 mint watch
+
+# Once a day, compares the live PYUSD and USDG mainnet mints with the posture recorded in
+# config/escrow/token2022-mint-posture.json (scripts/check-token2022-mint-posture.mjs). Read only: public RPC, no
+# secrets, nothing signed. A failed run means an issuer changed a mint the escrow accepts (or the RPC could not be
+# read); GitHub emails the workflow's owner. See docs/ESCROW-PAYOUT-SAFETY.md for what to do.
+
+on:
+  schedule:
+    - cron: "41 21 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "config/escrow/token2022-mint-posture.json"
+      - "scripts/check-token2022-mint-posture.mjs"
+      - ".github/workflows/token2022-mint-watch.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install and build x402-solana
+        working-directory: packages/x402-solana
+        run: |
+          npm ci
+          npm run build
+      - name: Compare the live mints with the recorded posture
+        run: node scripts/check-token2022-mint-posture.mjs
