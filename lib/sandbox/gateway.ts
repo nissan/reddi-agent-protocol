@@ -13,6 +13,9 @@
 import {
   buildX402Challenge,
   parseX402PaymentHeader,
+  directPaymentProofCheck,
+  PAYMENT_DELEGATION_HEADER,
+  PAYMENT_PROOF_HEADER,
   SolanaReceiptVerifier,
   SOLANA_GENESIS_HASHES,
   verifyDemoPaymentReceipt,
@@ -137,6 +140,8 @@ export type SandboxGatewayRequest = {
   origin: string;
   /** Session headers, when the call is part of a session. */
   session?: { sequence?: string | null; close?: string | null; previousReceipt?: string | null; delegation?: string | null; signature?: string | null };
+  /** The payer's proof for a direct payment (#882): x402-payment-proof and, optionally, x402-payment-delegation. */
+  paymentProof?: { proof?: string | null; delegation?: string | null };
 };
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
@@ -257,9 +262,6 @@ async function verifySandboxPayment(header: string, provider: SandboxProvider, o
   }
   const verifier = new SolanaReceiptVerifier({
     allowRealPayment: true,
-    // TODO(sandbox): require the payer's proof (directPaymentProofCheck over the raw
-    // body) once the sandbox console signs direct payments.
-    payerProof: "not-required",
     connection: deps.connection,
     expectedGenesisHash: SOLANA_GENESIS_HASHES[SANDBOX_NETWORK],
     maxTransactionAgeSeconds: SANDBOX_MAX_TRANSACTION_AGE_SECONDS,
@@ -267,7 +269,15 @@ async function verifySandboxPayment(header: string, provider: SandboxProvider, o
   });
   let result: ReceiptVerificationResult;
   try {
-    result = await verifier.verifyReceipt(parsed, challenge, deps.replayStore);
+    // A confirmed transfer is public: the request must be signed by the wallet that paid,
+    // or by a key it delegated to this provider, over the exact body (#882).
+    const proof = request?.paymentProof ?? {};
+    const payerProof = directPaymentProofCheck({
+      headers: { get: (name: string) => (name === PAYMENT_PROOF_HEADER ? proof.proof ?? null : name === PAYMENT_DELEGATION_HEADER ? proof.delegation ?? null : null) },
+      body: request?.rawBody ?? "",
+      nowMs: (deps.now ?? Date.now)(),
+    });
+    result = await verifier.verifyReceipt(parsed, challenge, deps.replayStore, payerProof);
   } catch {
     return rejected("unsupported_receipt", "The devnet RPC could not be read. Nothing was accepted; present the same receipt again shortly.");
   }

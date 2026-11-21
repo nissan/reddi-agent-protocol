@@ -44,7 +44,7 @@ import {
 } from "@/lib/sandbox/client";
 import { isSandboxReceipt, responseBodyWithAnswer, type SandboxReceiptPayment, verifySandboxReceipt, type SandboxReceipt, type SandboxVerification } from "@/lib/sandbox/receipt";
 import { formatUnits, requestInputTokens, SANDBOX_DEMO_RATES_NOTE, SANDBOX_FEE_BPS, triPriceFromLamports, TYPICAL_REVIEW } from "@/lib/sandbox/pricing";
-import { createSessionKey, paidCallAuthHeaders, sessionDelegationHeaderValue, type MessageSigner } from "@/lib/payments/session-auth";
+import { createSessionKey, directPaymentDelegationHeaderValue, directPaymentProofHeaders, paidCallAuthHeaders, sessionDelegationHeaderValue, type MessageSigner } from "@/lib/payments/session-auth";
 import SandboxSessionRunner from "@/components/sandbox/SandboxSessionRunner";
 import { applySandboxReputation, initialSandboxReputation, type SandboxReputation } from "@/lib/sandbox/reputation";
 
@@ -56,6 +56,8 @@ const WalletMultiButton = dynamic(
 /** The sandbox talks to devnet whatever network profile the rest of the app uses. */
 const DEVNET_RPC = "https://api.devnet.solana.com";
 const DEVNET_GENESIS_HASH = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
+/** How long a delegation to this tab's key runs: an hour, well inside the 24-hour limit asked for in #883. */
+const DELEGATION_SECONDS = 3600;
 const FEE_HEADROOM_LAMPORTS = 10_000;
 /** Rent for the escrow account, returned to the visitor when the provider settles. */
 const ESCROW_RENT_HEADROOM_LAMPORTS = 2_500_000;
@@ -254,12 +256,12 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
   const [ready, setReady] = useState(false);
 
   const { publicKey, signTransaction, signMessage, connected } = useWallet();
-  // A metered lock's payer auth (#866), by payment header: the wallet's one delegation and the key it names. In memory only.
-  const paidCallAuth = useRef(new Map<string, { escrow: string; delegation: string; sessionKey: { sign: MessageSigner } }>());
-  const signedFor = (paymentHeader: string | undefined) => {
-    const auth = paymentHeader ? paidCallAuth.current.get(paymentHeader) : undefined;
-    return auth ? (body: string) => paidCallAuthHeaders({ ...auth, body }) : undefined;
-  };
+  // How each wallet payment signs a request body, by payment header: a metered lock's delegated key (#866),
+  // or a direct transfer's proof (#882). Keys and delegations live in this tab's memory only.
+  const payerSigners = useRef(new Map<string, (body: string) => Promise<Record<string, string>>>());
+  // The wallet's direct-payment delegation to a tab key, by provider payee, reused until it nears expiry.
+  const directDelegations = useRef(new Map<string, { delegation: string; sessionKey: { sign: MessageSigner }; expiresAt: number }>());
+  const signedFor = (paymentHeader: string | undefined) => (paymentHeader ? payerSigners.current.get(paymentHeader) : undefined);
   const devnet = useMemo(() => new Connection(DEVNET_RPC, "confirmed"), []);
   const provider = findSandboxProviderById(providerId) ?? SANDBOX_PROVIDERS[0];
   const messages = useMemo(() => [{ role: "user", content: prompt }], [prompt]);
@@ -434,8 +436,12 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
         setNotice({ tone: "bad", title: "Not connected to devnet", text: "The sandbox only builds devnet transfers, so nothing was signed." });
         return;
       }
-      // A metered call is signed by the payer (#866); a wallet that cannot sign messages pays by direct transfer.
-      const metered = meteredProviders[provider.id] === true && Boolean(signMessage);
+      // Every devnet payment is presented with the payer's signature (#866, #882), so the wallet must sign messages.
+      if (!signMessage) {
+        setNotice({ tone: "info", title: "This wallet cannot sign messages", text: "The provider needs your wallet's signature to know the payment is yours. Nothing was signed; use a wallet that can sign messages, or the simulated payment." });
+        return;
+      }
+      const metered = meteredProviders[provider.id] === true;
       const balance = await devnet.getBalance(publicKey);
       if (balance < lamports + FEE_HEADROOM_LAMPORTS + (metered ? ESCROW_RENT_HEADROOM_LAMPORTS : 0)) {
         setNotice({ tone: "info", title: "This wallet needs devnet SOL", text: `It holds ${(balance / 1_000_000_000).toFixed(4)} devnet SOL. Get free test SOL from ${FAUCET_URL}, or switch to the simulated payment.` });
@@ -466,19 +472,28 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
         setNotice({ tone: "info", title: "This wallet needs more devnet SOL", text: `Rating adds about ${RATING_RENT_SOL} SOL of refundable rent. Get free test SOL from ${FAUCET_URL}, or pay without rating.` });
         return;
       }
-      // Before the lock: the wallet signs one message delegating this lock's calls to a key held in this tab.
-      // Declining it locks nothing.
+      // Before paying: the wallet signs one message delegating to a key held in this tab, which then signs
+      // each request. Per lock when metered; per provider for an hour when direct. Declining pays nothing.
+      const nowSeconds = Math.floor(Date.now() / 1000);
       let auth: { escrow: string; delegation: string; sessionKey: { sign: MessageSigner } } | undefined;
-      if (lock && signMessage) {
-        const sessionKey = await createSessionKey();
-        const escrow = lock.escrow.toBase58();
-        try {
-          const delegation = await sessionDelegationHeaderValue({ escrow, provider: challenge.payTo, sessionKey: sessionKey.publicKey, expiresAt: Math.floor(Date.now() / 1000) + 3600 }, (message) => signMessage(message));
+      let direct = lock ? undefined : directDelegations.current.get(challenge.payTo);
+      if (direct && direct.expiresAt - nowSeconds < 300) direct = undefined;
+      try {
+        if (lock) {
+          const sessionKey = await createSessionKey();
+          const escrow = lock.escrow.toBase58();
+          const delegation = await sessionDelegationHeaderValue({ escrow, provider: challenge.payTo, sessionKey: sessionKey.publicKey, expiresAt: nowSeconds + DELEGATION_SECONDS }, (message) => signMessage(message));
           auth = { escrow, delegation, sessionKey };
-        } catch {
-          setNotice({ tone: "info", title: "You declined the message", text: "The provider needs your wallet's signature to know the call is yours. Nothing was locked; pay again when you are ready, or use the simulated payment." });
-          return;
+        } else if (!direct) {
+          const sessionKey = await createSessionKey();
+          const expiresAt = nowSeconds + DELEGATION_SECONDS;
+          const delegation = await directPaymentDelegationHeaderValue({ provider: challenge.payTo, sessionKey: sessionKey.publicKey, expiresAt }, (message) => signMessage(message));
+          direct = { delegation, sessionKey, expiresAt };
+          directDelegations.current.set(challenge.payTo, direct);
         }
+      } catch {
+        setNotice({ tone: "info", title: "You declined the message", text: "The provider needs your wallet's signature to know the payment is yours. Nothing was paid; pay again when you are ready, or use the simulated payment." });
+        return;
       }
       const transaction = new Transaction({ feePayer: publicKey, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight }).add(
         lock ? lock.instruction : SystemProgram.transfer({ fromPubkey: publicKey, toPubkey: new PublicKey(challenge.payTo), lamports }),
@@ -492,7 +507,14 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
       const paymentHeader = lock
         ? meteredPaymentHeader(challenge, lock.escrow.toBase58(), signature, publicKey.toBase58())
         : devnetPaymentHeader(challenge, signature, publicKey.toBase58());
-      if (auth) paidCallAuth.current.set(paymentHeader, auth);
+      if (auth) {
+        const lockAuth = auth;
+        payerSigners.current.set(paymentHeader, (body) => paidCallAuthHeaders({ ...lockAuth, body }));
+      } else if (direct) {
+        const { delegation, sessionKey } = direct;
+        const payTo = challenge.payTo;
+        payerSigners.current.set(paymentHeader, (body) => directPaymentProofHeaders({ network: "solana-devnet", txSignature: signature, payTo, body, sign: sessionKey.sign, delegation }));
+      }
       // From here the transfer may be on devnet, so it is remembered before anything else can fail.
       setPendingWalletPayment(paymentHeader);
       if (lock && judge?.ok) {
@@ -737,7 +759,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                         <div className="flex flex-wrap items-center gap-3">
                           <WalletMultiButton />
                           <button type="button" data-testid="sandbox-pay-wallet" className={actionButton} disabled={busy !== null || !connected || pendingWalletPayment !== null} onClick={payWithWallet}>
-                            {busy === "pay" ? "Waiting for devnet…" : meteredProviders[provider.id] && signMessage ? `Lock up to ${String(challenge.amount)} devnet SOL` : `Pay ${String(challenge.amount)} devnet SOL`}
+                            {busy === "pay" ? "Waiting for devnet…" : meteredProviders[provider.id] ? `Lock up to ${String(challenge.amount)} devnet SOL` : `Pay ${String(challenge.amount)} devnet SOL`}
                           </button>
                           {pendingWalletPayment ? (
                             <button type="button" className={quietButton} disabled={busy !== null} onClick={presentPendingAgain}>Present my transfer again</button>
