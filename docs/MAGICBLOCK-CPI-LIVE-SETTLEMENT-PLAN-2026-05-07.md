@@ -12,14 +12,14 @@ Target the legacy Anchor escrow program first. Do **not** attempt Quasar-native 
 
 Why:
 
-- Existing failed proof path is in `programs/escrow` / `packages/demo-agents`.
+- Existing failed proof path is in `archive/anchor-escrow` / `packages/demo-agents`.
 - MagicBlock's docs and SDK expect permission/delegation hooks for account state.
 - The escrow account is a PDA, so the program must sign MagicBlock CPI instructions via `invoke_signed`.
 - Quasar CPI/signing semantics need separate investigation and are too risky for this sprint.
 
 ## Implemented non-mutating scaffolding
 
-`programs/escrow/src/magicblock_cpi.rs` now pins the SDK-derived constants and instruction data serializers for the legacy Anchor escrow path. This does **not** invoke MagicBlock programs and does **not** change live settlement semantics yet; it gives the next implementation slice byte-accurate Rust layouts.
+`archive/anchor-escrow/src/magicblock_cpi.rs` now pins the SDK-derived constants and instruction data serializers for the legacy Anchor escrow path. This does **not** invoke MagicBlock programs and does **not** change live settlement semantics yet; it gives the next implementation slice byte-accurate Rust layouts.
 
 Validation:
 

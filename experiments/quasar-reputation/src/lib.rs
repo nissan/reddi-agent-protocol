@@ -1,7 +1,7 @@
 #![no_std]
 //! Quasar SOL-native blind commit-reveal reputation
 //!
-//! Parity port of `programs/escrow/` reputation handlers for
+//! Parity port of `archive/anchor-escrow/` reputation handlers for
 //! benchmark comparison against the Anchor implementation.
 //!
 //! Instruction map:

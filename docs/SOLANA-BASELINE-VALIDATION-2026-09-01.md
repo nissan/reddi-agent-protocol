@@ -32,7 +32,7 @@ Passed initially against the script as of commit 02aaeb3, then rerun after the r
 - `npm run check:toolchain:baseline`
 - `mise exec node@24.20.0 -- npm ci --no-audit --no-fund`
 - `mise exec node@24.20.0 -- npm test -- --ci --maxWorkers=2` — 125 suites / 597 tests passed.
-- `cargo build-sbf --manifest-path programs/escrow/Cargo.toml` completed, but generated `target/deploy/escrow-keypair.json`; the generated keypair was removed without reading contents, and this build command should not be treated as a safe no-keypair baseline check when `target/deploy` is clean.
+- `cargo build-sbf --manifest-path archive/anchor-escrow/Cargo.toml` completed, but generated `target/deploy/escrow-keypair.json`; the generated keypair was removed without reading contents, and this build command should not be treated as a safe no-keypair baseline check when `target/deploy` is clean.
 - `cargo test -p escrow` — 33 tests passed, 1 devnet-only ignored, rerun after removing the generated `target/deploy/escrow-keypair.json`.
 - `npm run check:toolchain:surfpool-smoke` — started Surfpool offline on dynamic localhost ports, verified `solana cluster-version`, and killed only the process started by the smoke.
 - `scripts/rollback-solana-baseline.sh --plan` — printed the user-scoped rollback procedure without changing the host.

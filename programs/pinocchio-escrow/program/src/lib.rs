@@ -10,7 +10,7 @@
 //! - registry: `register_agent`, `update_agent`, `deregister_agent`
 //!
 //! It is designed to be interchangeable with the Anchor program in
-//! `programs/escrow` from the outside: the same instruction selectors,
+//! `archive/anchor-escrow` from the outside: the same instruction selectors,
 //! account order, account layouts, program-derived addresses, events and
 //! error numbers. Inside it is a different program: no framework, no heap, no
 //! serialisation layer. Instructions validate their accounts by hand, read

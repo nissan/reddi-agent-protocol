@@ -1,12 +1,14 @@
-# Pinocchio escrow (experiment)
+# V1 program (Pinocchio)
 
-A rebuild of the V1 on-chain program (escrow and registry) with
-[Pinocchio](https://github.com/anza-xyz/pinocchio) instead of Anchor.
+The Reddi Agent Protocol on-chain program: escrow and registry, built with
+[Pinocchio](https://github.com/anza-xyz/pinocchio).
 
-**Status: experiment.** Nothing here is deployed, audited or part of the V1
-release path. The stable Anchor program in `programs/escrow/` stays the
-authoritative source and the program being released. This directory does not
-change it. Nothing here deploys, creates keys or signs anything.
+**Status.** This is the V1 program source (owner decision, 21 November 2026).
+It replaces the Anchor program, which is archived in `archive/anchor-escrow/`
+and kept as the behavioural reference this program is tested against. It has
+not been deployed and has not had an independent security review. The program
+on devnet today is still the Anchor build (`DEPLOY.md`). Nothing in this
+directory deploys, creates keys or signs anything.
 
 ## What it is
 
@@ -19,7 +21,8 @@ One program with the 13 instructions of the Anchor default (V1) build:
 | Registry | `register_agent`, `update_agent`, `deregister_agent` |
 
 The `extended` feature of the Anchor program (rating, attestation, PER) is not
-part of V1 and is not rebuilt.
+part of the default V1 build. Rebuilding it here behind the same feature is
+planned and not done yet.
 
 It is not a line-by-line port. The goal is the same outcome for every
 transaction, built the way a Pinocchio program is built:
@@ -70,7 +73,7 @@ dependencies stay out of the program's lockfile):
    `scripts/sync-equivalence-tests.sh` copies `test_escrow.rs`,
    `test_token_escrow.rs`, `test_token2022_escrow.rs`, `test_registry.rs`,
    `instruction_surface.rs` and `mollusk_runtime.rs` from
-   `programs/escrow/tests/`, changing only the path of the binary they load.
+   `archive/anchor-escrow/tests/`, changing only the path of the binary they load.
    `--check` fails if a copy is stale. All 69 tests pass against the Pinocchio
    binary.
 2. **A side-by-side suite** (`equivalence/tests/differential.rs`). It runs the
@@ -93,7 +96,9 @@ build; the account offsets and error names it checks are the same.
 
 ## Size, rent and compute
 
-Local builds, Agave 4.2.2 toolchain, mainnet variant (no features):
+Local builds, Agave 4.2.2 toolchain, mainnet variant (no features). The Anchor
+figure was measured before the source moved to `archive/`; build paths are
+embedded in the binary, so it is a few dozen bytes larger from there:
 
 | | Anchor | Pinocchio | Change |
 |---|---|---|---|
@@ -157,9 +162,9 @@ From the repository root:
 
 ```bash
 # Anchor reference binary, used by the side-by-side suite
-cargo build-sbf --manifest-path programs/escrow/Cargo.toml
+cargo build-sbf --manifest-path archive/anchor-escrow/Cargo.toml
 
-cd experiments/pinocchio-escrow
+cd programs/pinocchio-escrow
 cargo build-sbf --manifest-path program/Cargo.toml --sbf-out-dir target/deploy
 cargo test -p pinocchio-escrow                 # unit tests
 scripts/sync-equivalence-tests.sh --check      # copied tests are current
@@ -172,15 +177,24 @@ not used; delete it and never commit it (`target/` is ignored).
 `--features devnet` also accepts devnet USDC, as the Anchor `devnet` feature
 does. Never use it for a mainnet build.
 
-CI (`.github/workflows/pinocchio-escrow-tests.yml`) runs all of the above and a
-container build with `solana-verify`, the same tool and image the Anchor
-verifiable build uses. It starts only for changes under this directory, so it
-cannot block a change to `programs/escrow/`. When the Anchor tests change, run
-`scripts/sync-equivalence-tests.sh` here to bring the copies up to date.
+CI runs all of the above (`.github/workflows/pinocchio-escrow-tests.yml`) on
+changes to this directory or to the Anchor reference. The container
+(verifiable) build is `.github/workflows/escrow-verifiable-build.yml`: it
+builds this program with `solana-verify` and records the size and hash of the
+mainnet and devnet variants. When an Anchor test changes, run
+`scripts/sync-equivalence-tests.sh` to bring the copies up to date.
 
-## What using it would take
+## Changing behaviour
 
-This is a decision for the owner, not something this directory does:
+The Anchor tests are the specification. To change what the program does,
+change the Anchor test (and the Anchor reference, so the side-by-side suite
+still has something to compare with), regenerate the copies, then change this
+program until both layers pass. The IDL built from the Anchor crate stays the
+client interface while the wire contract is the same.
+
+## Before it is deployed
+
+These are owner decisions and release steps, not something this directory does:
 
 1. An independent security review of this program. The Anchor program's
    reviews do not carry over; the checks Anchor generates are written by hand
@@ -188,8 +202,9 @@ This is a decision for the owner, not something this directory does:
 2. A devnet deploy, approved by the owner, and a run of
    `scripts/devnet-escrow-e2e.cjs` against it.
 3. A container (verifiable) build for mainnet, as for the Anchor program.
-4. A deploy under a program id that has not been used on that network. The
-   saving exists only if this build is what gets deployed first. Upgrading an
+4. On mainnet, a first deploy under a program id that has never been deployed
+   there. The rent saving exists only if this build is what gets deployed
+   first. Upgrading an
    already deployed Anchor program in place keeps its larger program data
    account and its rent, and a closed program's id cannot be deployed to
    again, so switching after an Anchor mainnet deploy means a new program id

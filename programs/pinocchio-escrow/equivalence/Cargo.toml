@@ -14,7 +14,7 @@ extended = []
 # The Anchor crate is used off chain only: its generated instruction and
 # account builders encode every call the tests send, so the Pinocchio program
 # receives exactly the bytes an existing client produces.
-escrow = { path = "../../../programs/escrow", features = ["no-entrypoint"] }
+escrow = { path = "../../../archive/anchor-escrow", features = ["no-entrypoint"] }
 anchor-lang = { version = "1.1.2", features = ["init-if-needed"] }
 anchor-spl = { version = "=1.1.2", default-features = false, features = ["token"] }
 litesvm = "0.16.0"

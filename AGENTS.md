@@ -12,10 +12,11 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## Repository shape
 
-This is a mixed monorepo: a Next.js web app at the root, Solana programs under `programs/escrow/`, and independent TypeScript packages under `packages/`. The root `package.json` is named `web`; it is not a workspace root. Each `packages/*` package has its own install/build/test lifecycle.
+This is a mixed monorepo: a Next.js web app at the root, the V1 Solana program under `programs/pinocchio-escrow/` (the archived Anchor program is under `archive/anchor-escrow/`), and independent TypeScript packages under `packages/`. The root `package.json` is named `web`; it is not a workspace root. Each `packages/*` package has its own install/build/test lifecycle.
 
 - `app/`, `components/`, `lib/`, `providers/`, `public/` — Next.js 16 (App Router) + React 19 + Tailwind v4 + shadcn/ui + Solana wallet adapter.
-- `programs/escrow/` — stable Anchor `1.1.2` source, the authoritative in-repo on-chain reference and regression baseline. That authority is about maintained source semantics, not a claim that an Anchor deployment is current, audited, production-ready, or accepted as a product contract. Recorded historical deployment IDs have separate provenance; the Quasar devnet set in `config/quasar/deployments.json` is blocked (`submissionReady: false`).
+- `programs/pinocchio-escrow/` — the V1 on-chain program (escrow and registry), built with Pinocchio; the authoritative in-repo on-chain source (owner decision, 21 November 2026). Its own Cargo workspace (`program/`), with `equivalence/` as a second workspace holding the compatibility tests. Authoritative source is not a claim that a deployment is current, audited, production-ready, or accepted as a product contract.
+- `archive/anchor-escrow/` — the archived Anchor `1.1.2` program (crate `escrow`, the only member of the root Cargo workspace). Kept for teaching, as the behavioural reference the Pinocchio program is tested against, and as the source of the IDL. Do not add features to it; a change of behaviour goes into the Pinocchio program, and into the Anchor tests only so both builds are held to it. Recorded historical deployment IDs have separate provenance; the Quasar devnet set in `config/quasar/deployments.json` is blocked (`submissionReady: false`).
 - `packages/per-client` — MagicBlock PER delegation client; PER architecture remains TypeScript/client-side unless a separate SDK compatibility qualification says otherwise.
 - `packages/agent-protocol`, `packages/x402-solana`, `packages/demo-agents`, `packages/rap-mcp-bridge`, `packages/eliza-plugin-x402`, `packages/sendai-x402`, `packages/openrouter-specialists`, `packages/testing-specialists` — package surfaces with separate package managers/scripts.
 - `scripts/` — smoke/evidence/readiness scripts; inspect scripts before running anything with devnet/live/surfpool/evidence in the name.
@@ -35,10 +36,19 @@ npm run test:toolchain:modes
 npm run test:toolchain:runtime-status
 ```
 
-Legacy Anchor reference checks from the repo root:
+V1 program checks (see `programs/pinocchio-escrow/README.md`); the Anchor reference binary must be built first because the side-by-side suite embeds it:
 
 ```bash
-cargo build-sbf --manifest-path programs/escrow/Cargo.toml --sbf-out-dir target/deploy
+cargo build-sbf --manifest-path archive/anchor-escrow/Cargo.toml --sbf-out-dir target/deploy
+cd programs/pinocchio-escrow
+cargo build-sbf --manifest-path program/Cargo.toml --sbf-out-dir target/deploy
+scripts/sync-equivalence-tests.sh --check
+(cd equivalence && cargo test)
+```
+
+Archived Anchor reference checks from the repo root:
+
+```bash
 cargo test -p escrow
 anchor idl build -p escrow --skip-lint -o .tmp/escrow-idl.json -t .tmp/escrow-idl.ts
 ```
@@ -78,9 +88,9 @@ When debugging wrong program id or wrong RPC, check these env vars before changi
 
 ## On-chain program boundaries
 
-The stable Anchor `1.1.2` implementation in `programs/escrow/` is the authoritative in-repo source/reference regression baseline and contains escrow, registry, reputation commit/reveal, attestation, and MagicBlock PER state-tracking instructions. “Authoritative” here does not identify a currently authorized deployment or establish audit, production, mainnet, or product-contract acceptance. PDA seeds and Anchor discriminators are mirrored in `lib/program.ts`; if you change a seed or instruction name, update both Rust constants and TypeScript mirrors.
+The Pinocchio program in `programs/pinocchio-escrow/` is the authoritative in-repo on-chain source for V1 (owner decision, 21 November 2026: fresh deploys use it, and work on programs goes there). It keeps the Anchor program's wire contract exactly: instruction selectors, account order, account layouts and discriminators, PDA seeds, events and error numbers. So the Anchor IDL built from `archive/anchor-escrow/` remains the client interface, and `tests/instruction_surface.rs` (run against both binaries) is what holds the instruction set to the IDL. The compatibility evidence is the Anchor tests run unchanged against the Pinocchio binary plus the side-by-side suite; `scripts/sync-equivalence-tests.sh --check` fails when a copied test is stale. “Authoritative” here does not identify a currently authorized deployment or establish audit, production, mainnet, or product-contract acceptance: as of this decision the devnet deployment is still the Anchor build, and the Pinocchio program has had no independent security review. The archived Anchor program also contains reputation commit/reveal, attestation, and MagicBlock PER state-tracking instructions behind its `extended` feature. PDA seeds and Anchor discriminators are mirrored in `lib/program.ts`; if you change a seed or instruction name, update the Pinocchio constants (`program/src/consts.rs`), the Anchor reference and the TypeScript mirrors together.
 
-Quasar is frozen historical experimental evidence and retired from product/production, submission, deployment, audit, and mainnet critical paths; `docs/QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md` owns the decision and benchmark qualification. Program ids remain in `config/quasar/deployments.json`, and the recorded devnet deployment is blocked because it predates the job-binding rework and no longer matches the in-repo client. Preserve the isolated sources/artifacts and loopback-only local Surfpool lane for provenance; retention or a local pass is not adoption/readiness. Stable Anchor `1.1.2` remains authoritative, while Anchor v2 is a default-off alpha pilot. See `DEPLOY.md` before any historical deployment procedure, and never deploy or change upgrade authority without explicit approval.
+Quasar is frozen historical experimental evidence and retired from product/production, submission, deployment, audit, and mainnet critical paths; `docs/QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md` owns the decision and benchmark qualification. Program ids remain in `config/quasar/deployments.json`, and the recorded devnet deployment is blocked because it predates the job-binding rework and no longer matches the in-repo client. Preserve the isolated sources/artifacts and loopback-only local Surfpool lane for provenance; retention or a local pass is not adoption/readiness. The Pinocchio program is authoritative, the Anchor `1.1.2` program is its archived reference, and Anchor v2 is a default-off alpha pilot. See `DEPLOY.md` before any historical deployment procedure, and never deploy or change upgrade authority without explicit approval.
 
 The `77rkRQxe…UZXmX` program id still quoted in some older `declare_id!` macros, `Anchor.toml` entries, and runbooks (including `packages/demo-agents/DEPLOY.md`) is pre-cutover doc rot; it is deployed nowhere. Ignore it.
 
@@ -93,7 +103,7 @@ earlier 0.05% / 5 bps plan (#744). Per-token calls settle through a metered escr
 (`lock_metered_escrow` / `lock_metered_token_escrow`), and after the response the payee settles the actual cost
 (`settle_escrow` / `settle_token_escrow`); the program sends the fee to `PROTOCOL_TREASURY` (the Squads vault), the rest
 to the payee, and returns the unused maximum to the payer. Release and claim pay the fee too. Fee math mirrors:
-`protocol_fee` in `programs/escrow/src/constants.rs`, `protocolFeeBaseUnits` and `settleMeteredCall` in
+`protocol_fee` in `programs/pinocchio-escrow/program/src/consts.rs` (and the archived Anchor `constants.rs`), `protocolFeeBaseUnits` and `settleMeteredCall` in
 `packages/x402-solana`. Nothing is deployed with this yet, so in public copy the fee stays "planned" until a mainnet
 release collects it (`collected-fee` claim pattern).
 

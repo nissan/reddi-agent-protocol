@@ -1,7 +1,7 @@
 #![no_std]
 //! Quasar SOL-native escrow POC
 //!
-//! Parity port of `programs/escrow/` hot path (lock/release/cancel) for
+//! Parity port of `archive/anchor-escrow/` hot path (lock/release/cancel) for
 //! benchmark comparison against the Anchor implementation.
 //!
 //! Instruction map:

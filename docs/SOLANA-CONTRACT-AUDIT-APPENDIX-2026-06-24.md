@@ -188,10 +188,10 @@ claim settlement finality.
 
 ## Legacy Anchor Reference
 
-- Source path: `programs/escrow`
+- Source path: `archive/anchor-escrow`
 - Source files:
-  - `programs/escrow/src/lib.rs`
-  - `programs/escrow/src/state.rs`
+  - `archive/anchor-escrow/src/lib.rs`
+  - `archive/anchor-escrow/src/state.rs`
 - Program id in source: `794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD`
 - Status: reference implementation and parity oracle.
 - Instructions:

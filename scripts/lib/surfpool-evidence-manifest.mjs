@@ -70,7 +70,7 @@ const LANE_FINGERPRINT_PATHS = Object.freeze({
     "Anchor.toml",
     "Cargo.toml",
     "Cargo.lock",
-    "programs/escrow/Cargo.toml",
+    "archive/anchor-escrow/Cargo.toml",
     "experiments/quasar-escrow/src",
     "experiments/quasar-escrow/Cargo.toml",
     "experiments/quasar-escrow/Cargo.lock",
@@ -135,11 +135,11 @@ const LANE_FINGERPRINT_PATHS = Object.freeze({
     ".github/workflows/surfpool-quasar-critical-sdk.yml",
   ]),
   "legacy-anchor": Object.freeze([
-    "programs/escrow/src",
-    "programs/escrow/Cargo.toml",
+    "archive/anchor-escrow/src",
+    "archive/anchor-escrow/Cargo.toml",
     ".mise.toml",
     "Anchor.toml",
-    // programs/escrow declares no [workspace], so the root manifest's [profile.release]
+    // archive/anchor-escrow declares no [workspace], so the root manifest's [profile.release]
     // (lto, codegen-units, overflow-checks) governs its cargo build-sbf output.
     "Cargo.toml",
     "Cargo.lock",

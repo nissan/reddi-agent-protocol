@@ -11,7 +11,7 @@ on:
   pull_request:
     paths:
       - "scripts/surfpool-1.7-lane/**"
-      - "programs/escrow/tests/local_token_escrow.cjs"
+      - "archive/anchor-escrow/tests/local_token_escrow.cjs"
       - ".github/workflows/surfpool-spl-escrow-1.7-lane.yml"
 
 permissions:

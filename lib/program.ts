@@ -49,7 +49,7 @@ export const SUBMISSION_BLOCKED_LABEL =
 /** Solana RPC endpoint from active network profile */
 export const DEVNET_RPC = network.solana.rpcHttp;
 
-// ── PDA seeds (must match programs/escrow/src/constants.rs) ──────────────────
+// ── PDA seeds (must match programs/pinocchio-escrow/program/src/consts.rs) ──────────────────
 
 export const ESCROW_SEED = Buffer.from("escrow");
 export const TOKEN_ESCROW_SEED = Buffer.from("token-escrow");
@@ -119,7 +119,7 @@ export const AGENT_TYPE_ENUM = {
 export type AgentTypeEnum = keyof typeof AGENT_TYPE_ENUM;
 
 // ── On-chain AgentAccount decoder ─────────────────────────────────────────────
-// Layout (post-discriminator, from programs/escrow/src/state.rs):
+// Layout (post-discriminator, from programs/pinocchio-escrow/program/src/state.rs):
 //   32  owner (Pubkey)
 //   1   agent_type (u8 enum: 0=Primary, 1=Attestation, 2=Both)
 //   4   model string length (u32 le)

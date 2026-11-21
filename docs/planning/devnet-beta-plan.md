@@ -77,7 +77,7 @@ An issue, plan entry or passing fixture is not completion evidence or approval.
   review pipeline / Solana implementation and validation owner. SPL escrow exists
   only on that branch; main has no SPL support yet.
 - **Scope:** validate the branch's proposed SPL escrow beta path against maintained
-  stable Anchor 1.1.2 reference semantics in `programs/escrow/` and client mirrors in
+  stable Anchor 1.1.2 reference semantics in `archive/anchor-escrow/` and client mirrors in
   `lib/program.ts`; those paths on main do not implement SPL escrow.
 - **Dependencies:** no M0 completion prerequisite for offline validation; AP before
   any devnet signing. RS: validate this path before coupling a payment example to it.

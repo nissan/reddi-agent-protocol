@@ -2,7 +2,7 @@
 
 > **Dated applicability correction — 2026-10-05:** The adapter/proof-only, no-custody, no-live-default RAP v0.1 boundary below remains applicable. Its Quasar-specific custody options and follow-ups are historical, not a current roadmap or authorization; Quasar is frozen. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
 
-> **Dated source-state note — 2026-11-10:** The "do not change Quasar, Anchor, or SPL custody programs" decision and the "No SPL custody program changes" acceptance item below record the 2026-06-19 state. The stable Anchor `1.1.2` source in `programs/escrow/` on this branch adds a classic SPL Token lock/release/refund rail beside the SOL escrow. That is branch source only, covered by LiteSVM tests and a loopback local-validator exercise against a clearly labelled local test mint; it is not deployed anywhere, is not an AUDD or USDC identity, is not x402 integration, is not devnet or mainnet readiness, and changes nothing about Quasar. The historical text in this record is preserved unchanged; current program custody facts live in [`PAYMENT-FLOW-ARCHITECTURE.md`](./PAYMENT-FLOW-ARCHITECTURE.md) and [`SECURITY.md`](../SECURITY.md).
+> **Dated source-state note — 2026-11-10:** The "do not change Quasar, Anchor, or SPL custody programs" decision and the "No SPL custody program changes" acceptance item below record the 2026-06-19 state. The stable Anchor `1.1.2` source in `archive/anchor-escrow/` on this branch adds a classic SPL Token lock/release/refund rail beside the SOL escrow. That is branch source only, covered by LiteSVM tests and a loopback local-validator exercise against a clearly labelled local test mint; it is not deployed anywhere, is not an AUDD or USDC identity, is not x402 integration, is not devnet or mainnet readiness, and changes nothing about Quasar. The historical text in this record is preserved unchanged; current program custody facts live in [`PAYMENT-FLOW-ARCHITECTURE.md`](./PAYMENT-FLOW-ARCHITECTURE.md) and [`SECURITY.md`](../SECURITY.md).
 
 Date: 2026-06-19
 
@@ -32,16 +32,16 @@ Current package surfaces:
   - Verifies real Solana receipts only when `allowRealPayment` is set.
   - Supports SOL transfer proof and USDC/SPL-token transfer proof by checking parsed transaction data, mint, token account, destination owner, amount, payee, network, and nonce.
   - `sendPayment` remains a mock/test stub and does not submit transactions.
-- `programs/escrow/src/state.rs`
+- `archive/anchor-escrow/src/state.rs`
   - `EscrowAccount.amount` is `u64` lamports.
   - The account stores `payer`, `payee`, `amount`, `nonce`, status, timestamps, PER delegation flag/session key, and bump.
   - There is no token mint, token program, escrow token account, or settlement token account field.
-- `programs/escrow/src/instructions/lock_escrow.rs`
+- `archive/anchor-escrow/src/instructions/lock_escrow.rs`
   - Uses `system_program::transfer` from payer to escrow PDA.
   - This is native SOL/lamports custody only.
-- `programs/escrow/src/instructions/release_escrow.rs`
+- `archive/anchor-escrow/src/instructions/release_escrow.rs`
   - Moves lamports from escrow PDA to payee and closes escrow to payer.
-- `programs/escrow/src/instructions/cancel_escrow.rs`
+- `archive/anchor-escrow/src/instructions/cancel_escrow.rs`
   - Moves lamports from escrow PDA back to payer after the cancel window.
 
 ## Assessment

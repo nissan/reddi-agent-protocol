@@ -45,7 +45,7 @@ const expectedInstruction = {
     { name: "active", type: "bool" },
   ],
 };
-if (stableIdl.address !== "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD") {
+if (stableIdl.address !== "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu") {
   throw new Error("stable generated IDL does not use the canonical RAP program id");
 }
 if (JSON.stringify(comparableInstruction(stableIx)) !== JSON.stringify(expectedInstruction)) {

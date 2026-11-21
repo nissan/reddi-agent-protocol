@@ -2,7 +2,7 @@
 name = "quasar-reputation"
 version = "0.1.0"
 edition = "2021"
-description = "Quasar SOL-native blind commit-reveal reputation — parity port of programs/escrow reputation handlers (commit_rating/reveal_rating/expire_rating)"
+description = "Quasar SOL-native blind commit-reveal reputation — parity port of archive/anchor-escrow reputation handlers (commit_rating/reveal_rating/expire_rating)"
 
 [lib]
 crate-type = ["cdylib", "lib"]

@@ -2,7 +2,7 @@
 
 ## Decision
 
-Quasar is frozen as a historical, explicitly experimental implementation. It is not a RAP product dependency, production candidate, deployment target, submission target, or current optimization roadmap. Stable Anchor `1.1.2` under `programs/escrow/` remains the authoritative on-chain reference implementation. The isolated Anchor v2 `update_agent` pilot remains default-off alpha research and does not replace the stable lane.
+Quasar is frozen as a historical, explicitly experimental implementation. It is not a RAP product dependency, production candidate, deployment target, submission target, or current optimization roadmap. Stable Anchor `1.1.2` under `archive/anchor-escrow/` remains the authoritative on-chain reference implementation. The isolated Anchor v2 `update_agent` pilot remains default-off alpha research and does not replace the stable lane.
 
 No deployment, upgrade, transaction, signing, simulation, wallet/key creation, funding, RPC execution, mainnet activation, audit-readiness claim, or production-readiness claim is authorized by this decision.
 
@@ -92,7 +92,7 @@ This inventory is a source-level account of retained automation, not execution e
 
 The automatic Quasar execution surfaces are therefore the readiness guard, program tests, and Surfpool critical SDK workflow; the package guard is an automatic structural witness. The manual acceptance workflow is listed to avoid confusing callable hosted regression with automatic coverage. The four refused devnet/PER operator files are not invoked as historical implementations by any of these jobs.
 
-One more workflow names Quasar files without running Quasar. [Anchor Program Tests](../.github/workflows/anchor-program-tests.yml) lists `quasar-program-tests.yml`, `surfpool-acceptance-manual.yml` and `surfpool-quasar-critical-sdk.yml` only as path triggers, so the stable Anchor regression re-runs when those workflow files change; its jobs build and test `programs/escrow` and execute no Quasar source. It is recorded here so that every workflow mentioning Quasar is accounted for; `scripts/__tests__/quasar-workflow-inventory.test.mjs` fails when a workflow mentions Quasar and this section does not name it.
+One more workflow names Quasar files without running Quasar. [Anchor Program Tests](../.github/workflows/anchor-program-tests.yml) lists `quasar-program-tests.yml`, `surfpool-acceptance-manual.yml` and `surfpool-quasar-critical-sdk.yml` only as path triggers, so the stable Anchor regression re-runs when those workflow files change; its jobs build and test `archive/anchor-escrow` and execute no Quasar source. It is recorded here so that every workflow mentioning Quasar is accounted for; `scripts/__tests__/quasar-workflow-inventory.test.mjs` fails when a workflow mentions Quasar and this section does not name it.
 
 ## Qualified historical documents (index added 2026-11-11)
 

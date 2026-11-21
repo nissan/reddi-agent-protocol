@@ -31,7 +31,7 @@ These look like implementation, BDD, network-profile, planner, registry, demo, o
 
 | Area | Paths | Proposed action |
 |---|---|---|
-| Network/config drift | `.env.example`, `Anchor.toml`, `lib/program.ts`, `programs/escrow/src/lib.rs`, `docs/NETWORK-PROFILES.md` | Review as one network-profile/program-id commit. Verify no secret values. |
+| Network/config drift | `.env.example`, `Anchor.toml`, `lib/program.ts`, `archive/anchor-escrow/src/lib.rs`, `docs/NETWORK-PROFILES.md` | Review as one network-profile/program-id commit. Verify no secret values. |
 | Onboarding/API/product routes | `app/api/onboarding/audit/route.ts`, `app/api/onboarding/preflight/`, `app/onboarding/page.tsx`, `e2e/onboarding.spec.ts` | Review against current onboarding BDD; commit if still aligned. |
 | Planner/consumer lifecycle | `app/api/planner/tools/route.ts`, `app/api/planner/tools/register-consumer/`, `app/api/planner/tools/release/`, `app/api/planner/tools/resolve-attestor/`, `lib/onboarding/attestor-resolver.ts`, `lib/onboarding/planner-settlement.ts` | Likely TRACK; maps to Bucket H. Verify tests pass as a slice. |
 | Registry/discovery | `app/api/registry/route.ts`, `data/onboarding/specialist-index.json`, `lib/__tests__/registry-route.test.ts`, `lib/__tests__/registry-bridge-sort.test.ts` | Likely TRACK if data is demo seed not private runtime data. Confirm seed fixtures are intentional. |
@@ -97,7 +97,7 @@ Candidate paths:
 - `.env.example`
 - `Anchor.toml`
 - `lib/program.ts`
-- `programs/escrow/src/lib.rs`
+- `archive/anchor-escrow/src/lib.rs`
 - `docs/NETWORK-PROFILES.md`
 - `scripts/run-mainnet-readiness-check.sh`
 - relevant `packages/demo-agents/*`

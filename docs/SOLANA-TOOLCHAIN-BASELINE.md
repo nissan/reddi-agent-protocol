@@ -14,8 +14,8 @@ This repository owns a reproducible, user-scoped baseline for local Solana work.
 | SBF platform-tools | `v1.54` | `DEFAULT_PLATFORM_TOOLS_VERSION` in `cargo-build-sbf` `4.1.0`, recorded in `config/toolchain/solana-baseline-assets.json`, resolved by `print-pins`, and probed by `verify` from `cargo-build-sbf --version`. `cargo build-sbf` downloads the toolchain itself on demand from `anza-xyz/platform-tools`; this repository neither mirrors nor checksums that download, so `v1.54` is a recorded pin, not a verified asset. Its default output arch is `v0` (SBPFv0) |
 | AVM manager | `1.0.0` | `config/toolchain/solana-baseline-assets.json`; official `solana-foundation/anchor` tag `v1.0.0` (`f17b37fd1f1fdb4b1c0de68ccb467996d3ba07f3` → `25be6d502ec6957d34d436bc2a6170040fc64153`) |
 | Anchor CLI | `1.1.2` | `Anchor.toml`; official stable `solana-foundation/anchor` tag `v1.1.2` (`0984d7a19ae6cfea19d78fab228b2af016b63021` → `24035e2b0035c87e321acc1c05f97793829a87f1`) and Linux release asset SHA-256 `fdea9979629e9416e5f5e5622ff6c11b8c691d1e559581ece368e903c0c980c1` |
-| `anchor-lang` crate | same version as the Anchor CLI pin | `programs/escrow/Cargo.toml` requirement and the `Cargo.lock` resolution, both cross-checked against `Anchor.toml` by `npm run check:toolchain:baseline` so the program cannot compile against a different Anchor minor than the CLI that generates its IDL |
-| LiteSVM / Mollusk deterministic runtime | `litesvm 0.16.0`; `mollusk-svm 0.15.1` | `programs/escrow/Cargo.toml`, root `Cargo.lock`, and `config/toolchain/solana-baseline-assets.json`; `cargo info` on 2026-09-03 confirmed both planned crate releases exist on crates.io from their upstream repositories, and the lockfile resolves the root in-process runtime to `solana-program-runtime 4.2.2` / `solana-sbpf 0.21.1`. `mollusk-svm-programs-token 0.15.1` also exists but is not a root dependency because the legacy escrow Mollusk check does not exercise SPL Token. |
+| `anchor-lang` crate | same version as the Anchor CLI pin | `archive/anchor-escrow/Cargo.toml` requirement and the `Cargo.lock` resolution, both cross-checked against `Anchor.toml` by `npm run check:toolchain:baseline` so the program cannot compile against a different Anchor minor than the CLI that generates its IDL |
+| LiteSVM / Mollusk deterministic runtime | `litesvm 0.16.0`; `mollusk-svm 0.15.1` | `archive/anchor-escrow/Cargo.toml`, root `Cargo.lock`, and `config/toolchain/solana-baseline-assets.json`; `cargo info` on 2026-09-03 confirmed both planned crate releases exist on crates.io from their upstream repositories, and the lockfile resolves the root in-process runtime to `solana-program-runtime 4.2.2` / `solana-sbpf 0.21.1`. `mollusk-svm-programs-token 0.15.1` also exists but is not a root dependency because the legacy escrow Mollusk check does not exercise SPL Token. |
 | npm | `11.19.0` | bundled with Node `24.20.0`, recorded in `config/toolchain/solana-baseline-assets.json` for exact probes |
 | rustup-init | `1.29.0` | `config/toolchain/solana-baseline-assets.json` official static Rust archive URL and SHA-256 |
 | Surfpool | `v1.5.0` | `config/toolchain/solana-baseline-assets.json` GitHub release URL and SHA-256; the `@solana/surfpool` SDK the critical lanes run in-process is pinned to the same `1.5.0` in `package.json`/`package-lock.json` and cross-checked by `npm run check:toolchain:baseline` |
@@ -28,17 +28,17 @@ The Agave pin above covers the CLI and the SBF build path. The deterministic
 escrow runtime lane now also executes against Agave 4 in-process crates, but the
 recorded claim remains deliberately narrow:
 
-- `programs/escrow` tests run in-process on `litesvm 0.16.0`; the **root**
+- `archive/anchor-escrow` tests run in-process on `litesvm 0.16.0`; the **root**
   `Cargo.lock` resolves that lane to `solana-program-runtime 4.2.2` and
   `solana-sbpf 0.21.1`, matching the Agave `v4.2.2` CLI major. The focused
-  Mollusk check in `programs/escrow/tests/mollusk_runtime.rs` uses
+  Mollusk check in `archive/anchor-escrow/tests/mollusk_runtime.rs` uses
   `mollusk-svm 0.15.1` from the same root lockfile to execute the escrow SBF
   artifact and assert it returns the exact `ZeroAmount` custom error (6004)
   while metering non-zero compute units. Mollusk returns the caller-supplied
   input accounts verbatim when an instruction fails, so it cannot witness
   rollback; atomicity for the rejected lock is asserted against LiteSVM's
   independently observable post-transaction state in
-  `programs/escrow/tests/test_escrow.rs`.
+  `archive/anchor-escrow/tests/test_escrow.rs`.
 - The bump also changes the environment those tests execute in, so the
   deterministic profile is now recorded and pinned rather than inherited. This
   is a **per-half** profile: LiteSVM and Mollusk do not share one, and neither
@@ -50,7 +50,7 @@ recorded claim remains deliberately narrow:
     `deprecate_rent_exemption_threshold` gate — active under that set, so rent
     is stored in its SIMD-0194 form rather than the legacy pair LiteSVM
     substitutes when the gate is off.
-    `programs/escrow/tests/litesvm_runtime_profile.rs` asserts each of those
+    `archive/anchor-escrow/tests/litesvm_runtime_profile.rs` asserts each of those
     properties through LiteSVM's public API, so a later LiteSVM bump that shifts
     any of them fails that test instead of silently changing what the LiteSVM
     evidence covers.
@@ -214,7 +214,7 @@ If rollback is actually needed, run `scripts/rollback-solana-baseline.sh --execu
 1. Remove repository-local Node selection by ignoring/removing `.mise.toml`, or run commands outside this repository. To remove the installed runtime entirely: `mise uninstall node@24.20.0`.
 2. Remove the Rust toolchain: `rustup toolchain uninstall 1.98.0`. If this setup installed rustup only for RAP and nothing else uses it, remove `~/.rustup` and `~/.cargo` after backing up anything you need. To roll the repository back to an earlier Rust baseline, check out the whole toolchain lane (`rust-toolchain.toml`, `config/toolchain/solana-baseline-assets.json`, and `scripts/check-solana-baseline-pins.mjs`) at the pre-upgrade commit: the pins and the assets file must move together. `assets.rust.rustfmtVersionByChannel`/`clippyVersionByChannel` are keyed by channel and only carry the current one, so reverting `rust-toolchain.toml` alone makes `scripts/solana-baseline-toolchain.sh` abort in *every* mode — including `print-pins`, which resolves before mode dispatch, so `verify`, `capture`, `install`, and `npm run check:toolchain:baseline` all fail with a missing-entry error rather than a rollback hint.
 3. Remove Solana CLI: delete `~/.local/share/solana/reddi-agent-protocol-baseline/install` (or the explicit `RAP_BASELINE_SOLANA_INSTALL_DIR` you chose) or reinstall a prior captured version with the matching `agave-install-init`. That also removes the `cargo-build-sbf`/`cargo-test-sbf` that shipped in the same tarball, since they live in `active_release/bin` inside that tree; nothing needs removing from `~/.cargo/bin`. Any platform-tools that `cargo build-sbf` downloaded on demand stays in its own cache and is not baseline-owned. To roll the repository back to an earlier Agave baseline, check out the whole toolchain lane (all four workflow `release.anza.xyz` install URLs, `config/toolchain/solana-baseline-assets.json`, and `scripts/check-solana-baseline-pins.mjs`) at the pre-upgrade commit, for the same reason: `assets.agave.sha256ByVersion` and `assets.sbf.*` are keyed by Agave version and only carry the current one, so reverting the workflow URLs alone aborts the script in every mode.
-4. Remove Anchor/AVM: delete the selected CLI binary with `rm -f "${AVM_HOME:-$HOME/.avm}/bin/anchor-1.1.2"` and clear `${AVM_HOME:-$HOME/.avm}/.version` if it still names `1.1.2`, then remove the AVM Cargo binary if this setup installed it. `avm uninstall 1.1.2` cannot do this on its own: AVM refuses to remove the version it currently has selected, which after `install` is always the pinned one. To roll back specifically to the previous merged Anchor baseline, check out the pre-upgrade commit for the whole toolchain lane (`Anchor.toml`, `programs/escrow/Cargo.toml`, `Cargo.lock`, `config/toolchain/solana-baseline-assets.json`, and `scripts/solana-baseline-toolchain.sh`) before reinstalling `1.0.0` through the same verified AVM path. The installer and its assets file must move together: the current script reads keys (`anchorAvm.managerVersion`, `anchorCli.*`) that the pre-upgrade assets file does not define, and the pre-upgrade script cannot select an Anchor CLI release binary.
+4. Remove Anchor/AVM: delete the selected CLI binary with `rm -f "${AVM_HOME:-$HOME/.avm}/bin/anchor-1.1.2"` and clear `${AVM_HOME:-$HOME/.avm}/.version` if it still names `1.1.2`, then remove the AVM Cargo binary if this setup installed it. `avm uninstall 1.1.2` cannot do this on its own: AVM refuses to remove the version it currently has selected, which after `install` is always the pinned one. To roll back specifically to the previous merged Anchor baseline, check out the pre-upgrade commit for the whole toolchain lane (`Anchor.toml`, `archive/anchor-escrow/Cargo.toml`, `Cargo.lock`, `config/toolchain/solana-baseline-assets.json`, and `scripts/solana-baseline-toolchain.sh`) before reinstalling `1.0.0` through the same verified AVM path. The installer and its assets file must move together: the current script reads keys (`anchorAvm.managerVersion`, `anchorCli.*`) that the pre-upgrade assets file does not define, and the pre-upgrade script cannot select an Anchor CLI release binary.
 5. Remove Surfpool: delete `~/.local/share/surfpool/releases/v1.5.0`.
 6. Restore shell startup files from the timestamped backup recorded in the capture artifact if any installer or manual PATH edit changed them.
 

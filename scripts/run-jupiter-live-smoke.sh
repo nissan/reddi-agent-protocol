@@ -146,7 +146,7 @@ done
 
 run_step "Build + deploy escrow" bash -lc "
   set -euo pipefail
-  ~/.cargo/bin/cargo build-sbf --manifest-path programs/escrow/Cargo.toml --sbf-out-dir target/deploy | tee '${OUT_DIR}/01-build.log'
+  ~/.cargo/bin/cargo build-sbf --manifest-path archive/anchor-escrow/Cargo.toml --sbf-out-dir target/deploy | tee '${OUT_DIR}/01-build.log'
   solana airdrop 10 --url '${RPC_URL}' d4ST3N4Vkio1Xsg2NaF6Zox7Xq8MdqWihvyip9AHioR | tee '${OUT_DIR}/02-upgrade-airdrop.log'
   solana program deploy target/deploy/escrow.so \
     --program-id target/deploy/escrow-keypair.json \

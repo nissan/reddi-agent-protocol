@@ -2,7 +2,7 @@
 name = "quasar-registry"
 version = "0.1.0"
 edition = "2021"
-description = "Quasar SOL-native agent registry — parity port of programs/escrow registry handlers (register/update/deregister)"
+description = "Quasar SOL-native agent registry — parity port of archive/anchor-escrow registry handlers (register/update/deregister)"
 
 [lib]
 crate-type = ["cdylib", "lib"]

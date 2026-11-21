@@ -2,8 +2,8 @@
 anchor_version = "1.1.2"
 
 [programs.localnet]
-stable_update_agent = "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD"
-alpha_update_agent = "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD"
+stable_update_agent = "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu"
+alpha_update_agent = "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu"
 
 [provider]
 cluster = "Localnet"

@@ -7,7 +7,7 @@ From the repository root, with the pinned Solana baseline available:
 ```bash
 npm ci --prefix packages/x402-solana
 npm run build --prefix packages/x402-solana
-cargo build-sbf --manifest-path programs/escrow/Cargo.toml --sbf-out-dir target/deploy
+cargo build-sbf --manifest-path archive/anchor-escrow/Cargo.toml --sbf-out-dir target/deploy
 RAP_TEST_VALIDATOR=/absolute/path/to/solana-test-validator \
 RAP_LOCAL_EXAMPLE_DIR=/absolute/fresh/disposable/directory \
 node packages/x402-solana/examples/local-puzzle.cjs

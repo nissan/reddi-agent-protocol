@@ -27,7 +27,7 @@ const requiredReferences = [
   "experiments/quasar-reputation",
   "experiments/quasar-escrow-per",
   "experiments/quasar-escrow",
-  "programs/escrow",
+  "archive/anchor-escrow",
   "lib/quasar/instruction-builders.ts",
   "lib/quasar/instructions.ts",
   "lib/register/registration-instruction.ts",

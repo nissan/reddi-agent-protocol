@@ -24,7 +24,7 @@ solana-address = "=2.8.0"
 
 [dev-dependencies]
 stable-update-agent = { path = "../stable", features = ["cpi"] }
-escrow = { path = "../../../../programs/escrow", features = ["cpi"] }
+escrow = { path = "../../../../archive/anchor-escrow", features = ["cpi"] }
 anchor-lang-v1 = { package = "anchor-lang", version = "=1.1.2" }
 sha2 = "0.10"
 

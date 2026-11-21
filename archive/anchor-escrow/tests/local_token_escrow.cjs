@@ -6,7 +6,7 @@
  * by the payee at its actual cost, with the unused part returned to the payer.
  * Requirements: root @solana/web3.js and @solana/spl-token dependencies (or NODE_PATH),
  * pinned solana-test-validator, a freshly built default-feature target/deploy/escrow.so.
- * Run: RAP_LOCAL_TEST_DIR=/absolute/disposable/path node programs/escrow/tests/local_token_escrow.cjs
+ * Run: RAP_LOCAL_TEST_DIR=/absolute/disposable/path node archive/anchor-escrow/tests/local_token_escrow.cjs
  * Optional: RAP_TEST_VALIDATOR=/absolute/path/to/solana-test-validator (the solana CLI is
  * resolved beside it, or from PATH when only a bare command name is given).
  * All keys are generated in memory. Nothing reads the operator wallet. The test

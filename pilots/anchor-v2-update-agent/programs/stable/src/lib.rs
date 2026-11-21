@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-declare_id!("794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD");
+declare_id!("DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu");
 
 const AGENT_SEED: &[u8] = b"agent";
 
