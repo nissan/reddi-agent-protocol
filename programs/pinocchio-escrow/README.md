@@ -243,3 +243,8 @@ These are owner decisions and release steps, not something this directory does:
    account and its rent, and a closed program's id cannot be deployed to
    again, so switching after an Anchor mainnet deploy means a new program id
    and moving clients to it.
+
+The program id is the same on devnet and mainnet by design:
+`DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu`. It is deployed on devnet and
+has never been deployed on mainnet, so `declare_id!` needs no change for the
+mainnet build and the mainnet deploy under it is still a first deploy.
