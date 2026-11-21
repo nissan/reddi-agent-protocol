@@ -5,6 +5,10 @@ import NavBar from "@/components/NavBar";
 import Footer from "@/components/Footer";
 import DevnetModeBanner from "@/components/DevnetModeBanner";
 
+// Applies a saved Light or Dark choice before first paint. With no saved
+// choice the page follows the system setting (prefers-color-scheme).
+const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("rap-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}})()`;
+
 export const metadata: Metadata = {
   title: {
     default: "Reddi Agent Protocol",
@@ -43,7 +47,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body
         className="antialiased min-h-screen bg-background font-sans text-foreground"
       >

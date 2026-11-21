@@ -3,7 +3,15 @@
 The developer app (repo root) uses the marketing site's paper-and-ink look
 (`apps/marketing/app/globals.css`), so the two addresses read as one product.
 Owner decision, 21 November 2026: light paper is the default; dark follows the
-operating system setting.
+operating system setting, and people can pin Light or Dark themselves.
+
+## Choosing a theme
+
+`components/ThemeToggle.tsx` in the header cycles Auto, Light and Dark. Auto
+(no `data-theme` on `<html>`) follows `prefers-color-scheme`, so the app goes
+dark when the system does. Light or Dark sets `data-theme` and is saved in
+`localStorage` under `rap-theme`; the inline script in `app/layout.tsx` applies
+it before first paint, so there is no flash.
 
 ## Where it lives
 

@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletSignIn } from "@/components/auth/WalletSignIn";
+import ThemeToggle from "@/components/ThemeToggle";
 
 const WalletMultiButton = dynamic(
   async () =>
@@ -156,6 +157,7 @@ export default function NavBar() {
               {mobileOpen ? "Close" : "Menu"}
             </button>
 
+            <ThemeToggle />
             <div className="hidden sm:flex items-center gap-2">
               <WalletSignIn />
               {walletControl}
