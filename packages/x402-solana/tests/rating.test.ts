@@ -24,6 +24,8 @@ import {
   buildReleaseSolEscrowInstruction,
   buildRevealRatingInstruction,
   buildSellerAcceptRating,
+  SellerAcceptRatingError,
+  sellerAcceptRatingFromAccounts,
   buildSettleSolEscrowInstruction,
   buildTokenEscrowExitInstruction,
   decodeAttestationAccount,
@@ -36,6 +38,8 @@ import {
   payerReleaseOpensRating,
   RATING_ACCOUNT_LEN,
   RATING_DISCRIMINATORS,
+  RATING_PROGRAM_ERRORS,
+  ratingProgramErrorName,
   RATING_STATES,
   ratingCommitment,
   ratingPda,
@@ -48,6 +52,8 @@ import {
   withRatingAccount,
 } from '../src/rating';
 import { buildLockTokenEscrowInstruction, buildSettleTokenEscrowInstruction, decodeTokenEscrowAccount, type TokenEscrowTerms } from '../src/token-escrow';
+
+const TOKEN_ESCROW_LOCK_SELECTOR = createHash('sha256').update('global:lock_metered_token_escrow').digest().subarray(0, 8).toString('hex');
 
 interface VectorMeta { name: string; address: string; signer: boolean; writable: boolean }
 interface VectorInstruction { name: string; data_hex: string; selector_hex: string; accounts: VectorMeta[] }
@@ -110,15 +116,18 @@ const tokenTerms = (nonceByte: number, vector: VectorInstruction): TokenEscrowTe
   metered: true,
 });
 
+/** The `opened_slot` of one of the fixture's rating accounts, as a party reads it before signing. */
+const openedSlotOf = (name: string) => decodeRatingAccount(hex(account(name).data_hex)).openedSlot;
+
 /** Every instruction in the fixture, built by this package from addresses and values only. */
 const built: Record<string, () => TransactionInstruction> = {
   open_rating: () => buildOpenRatingInstruction({ programId, escrow: named(instruction('open_rating'), 'escrow'), payer, judge: key(bs58FromHex(instruction('open_rating').data_hex.slice(16))) }),
-  accept_rating: () => buildAcceptRatingInstruction({ programId, escrow: named(instruction('release_escrow'), 'escrow'), specialist: payee }),
+  accept_rating: () => buildAcceptRatingInstruction({ programId, escrow: named(instruction('release_escrow'), 'escrow'), specialist: payee, openedSlot: openedSlotOf('rating_awaiting_settlement_accepted') }),
   commit_rating: () => buildCommitRatingInstruction({ programId, escrow: named(instruction('open_rating'), 'escrow'), signer: payer, commitment: hex(vectors.commitment.sha256_hex) }),
   reveal_rating: () => buildRevealRatingInstruction({ programId, escrow: named(instruction('open_rating'), 'escrow'), signer: payer, consumer: payer, specialist: payee, score: vectors.commitment.score, salt }),
   expire_rating: () => buildExpireRatingInstruction({ programId, escrow: named(instruction('release_escrow'), 'escrow'), caller: judge, consumer: payer, specialist: payee }),
   close_rating: () => buildCloseRatingInstruction({ programId, escrow: named(instruction('open_rating'), 'escrow'), consumer: payer }),
-  attest_quality: () => buildAttestQualityInstruction({ programId, escrow: named(instruction('open_rating'), 'escrow'), judge, scores: [9, 8, 10, 1, 7] }),
+  attest_quality: () => buildAttestQualityInstruction({ programId, escrow: named(instruction('open_rating'), 'escrow'), judge, scores: [9, 8, 10, 1, 7], openedSlot: openedSlotOf('rating_open') }),
   confirm_attestation: () => buildConfirmAttestationInstruction({ programId, escrow: named(instruction('open_rating'), 'escrow'), judge, consumer: payer }),
   dispute_attestation: () => buildDisputeAttestationInstruction({ programId, escrow: named(instruction('release_escrow'), 'escrow'), judge, consumer: payer }),
   close_attestation: () => buildCloseAttestationInstruction({ programId, escrow: named(instruction('release_escrow'), 'escrow'), judge }),
@@ -173,24 +182,35 @@ describe('rating and attestation interface vectors', () => {
 describe('commitment hash', () => {
   const { commitment } = vectors;
 
-  it('is sha256(rating ‖ signer ‖ score ‖ salt), as the fixture gives it', () => {
-    const preimage = Buffer.concat([key(commitment.rating).toBuffer(), key(commitment.signer).toBuffer(), Buffer.from([commitment.score]), salt]);
-    expect(preimage.toString('hex')).toBe(commitment.preimage_hex);
-    expect(Buffer.from(ratingCommitment(key(commitment.rating), key(commitment.signer), commitment.score, salt)).toString('hex')).toBe(commitment.sha256_hex);
+  // The rating at the fixture's commitment address, as the parties read it: its opened slot is hashed in.
+  const slot = decodeRatingAccount(hex(vectors.accounts.find((entry) => entry.address === commitment.rating && entry.name === 'rating_open')!.data_hex)).openedSlot;
+
+  it('is sha256(rating ‖ opened_slot u64 LE ‖ signer ‖ score ‖ salt), as the fixture gives it', () => {
+    expect(slot).toBe(1000n);
+    const slotBytes = Buffer.alloc(8);
+    slotBytes.writeBigUInt64LE(slot);
+    const preimage = Buffer.concat([key(commitment.rating).toBuffer(), slotBytes, key(commitment.signer).toBuffer(), Buffer.from([commitment.score]), salt]);
+    expect(createHash('sha256').update(preimage).digest('hex')).toBe(commitment.sha256_hex);
+    expect(Buffer.from(ratingCommitment(key(commitment.rating), slot, key(commitment.signer), commitment.score, salt)).toString('hex')).toBe(commitment.sha256_hex);
+    // And it is what the fixture's commit_rating carries.
+    expect(instruction('commit_rating').data_hex.slice(16)).toBe(commitment.sha256_hex);
   });
 
-  it('changes with the rating, the signer, the score and the salt', () => {
-    const base = Buffer.from(ratingCommitment(key(commitment.rating), payer, 9, salt)).toString('hex');
+  it('changes with the rating, the opened slot, the signer, the score and the salt', () => {
+    const base = Buffer.from(ratingCommitment(key(commitment.rating), slot, payer, 9, salt)).toString('hex');
     const other = (value: Uint8Array) => Buffer.from(value).toString('hex');
-    expect(other(ratingCommitment(key(commitment.rating), payee, 9, salt))).not.toBe(base);
-    expect(other(ratingCommitment(payee, payer, 9, salt))).not.toBe(base);
-    expect(other(ratingCommitment(key(commitment.rating), payer, 8, salt))).not.toBe(base);
-    expect(other(ratingCommitment(key(commitment.rating), payer, 9, new Uint8Array(32)))).not.toBe(base);
+    expect(other(ratingCommitment(key(commitment.rating), slot, payee, 9, salt))).not.toBe(base);
+    expect(other(ratingCommitment(payee, slot, payer, 9, salt))).not.toBe(base);
+    // The same address, a later job: the commitment of the earlier one does not carry over.
+    expect(other(ratingCommitment(key(commitment.rating), slot + 1n, payer, 9, salt))).not.toBe(base);
+    expect(other(ratingCommitment(key(commitment.rating), slot, payer, 8, salt))).not.toBe(base);
+    expect(other(ratingCommitment(key(commitment.rating), slot, payer, 9, new Uint8Array(32)))).not.toBe(base);
   });
 
-  it('refuses a score outside 1 to 10 and a salt that is not 32 bytes', () => {
-    for (const score of [0, 11, 1.5, -1, Number.NaN]) expect(() => ratingCommitment(payer, payer, score, salt)).toThrow('1 to 10');
-    expect(() => ratingCommitment(payer, payer, 5, new Uint8Array(31))).toThrow('32 bytes');
+  it('refuses a score outside 1 to 10, a salt that is not 32 bytes and an opened slot that is not a u64 bigint', () => {
+    for (const score of [0, 11, 1.5, -1, Number.NaN]) expect(() => ratingCommitment(payer, slot, payer, score, salt)).toThrow('1 to 10');
+    expect(() => ratingCommitment(payer, slot, payer, 5, new Uint8Array(31))).toThrow('32 bytes');
+    for (const bad of [undefined, 1000, -1n, 1n << 64n]) expect(() => ratingCommitment(payer, bad as unknown as bigint, payer, 5, salt)).toThrow('openedSlot');
   });
 
   it('uses a sha256 that agrees with Node for every padding length', () => {
@@ -237,9 +257,10 @@ describe('rating account decoder', () => {
     const rating = decoded('rating_both_committed');
     expect(rating).toMatchObject({ state: 'both_committed', settledSlot: 1010n, committedSlot: 1030n, consumerScore: undefined, specialistScore: undefined });
     expect(Buffer.from(rating.consumerCommitment!).toString('hex')).toBe(vectors.commitment.sha256_hex);
-    expect(Buffer.from(rating.consumerCommitment!)).toEqual(Buffer.from(ratingCommitment(key(account('rating_both_committed').address), payer, 9, salt)));
+    expect(Buffer.from(rating.consumerCommitment!)).toEqual(Buffer.from(ratingCommitment(key(account('rating_both_committed').address), rating.openedSlot, payer, 9, salt)));
     expect(rating.specialistCommitment).toHaveLength(32);
-    expect(Buffer.from(rating.specialistCommitment!).toString('hex')).toBe('f0809e9d60ccb14196384b88ac44748e2ce62424438b3116c5a87dc8cc584905');
+    // The specialist scored 4 with a salt of 0x51 bytes (equivalence/tests/interface_vectors.rs).
+    expect(Buffer.from(rating.specialistCommitment!)).toEqual(Buffer.from(ratingCommitment(key(account('rating_both_committed').address), rating.openedSlot, payee, 4, new Uint8Array(32).fill(0x51))));
   });
 
   it('reads a revealed rating: both scores, attested', () => {
@@ -247,7 +268,7 @@ describe('rating account decoder', () => {
   });
 
   it('reads an expired rating', () => {
-    expect(decoded('rating_expired')).toMatchObject({ escrow: escrowB, state: 'expired', paid: 1_000_000n, settledSlot: 1040n, accepted: true, attested: true, consumerScore: undefined, specialistScore: undefined });
+    expect(decoded('rating_expired')).toMatchObject({ escrow: escrowB, state: 'expired', paid: 1_000_000n, settledSlot: 1041n, accepted: true, attested: true, consumerScore: undefined, specialistScore: undefined });
   });
 
   it('reads the judge as undefined when none was named and the mint once a token job is paid', () => {
@@ -481,9 +502,20 @@ describe('instruction input checks', () => {
     expect(() => buildCommitRatingInstruction({ programId, escrow, signer: payer, commitment: new Uint8Array(31) })).toThrow('32 bytes');
     expect(() => buildRevealRatingInstruction({ programId, escrow, signer: payer, consumer: payer, specialist: payee, score: 0, salt })).toThrow('1 to 10');
     expect(() => buildRevealRatingInstruction({ programId, escrow, signer: payer, consumer: payer, specialist: payee, score: 5, salt: salt.subarray(1) })).toThrow('32 bytes');
-    expect(() => buildAttestQualityInstruction({ programId, escrow, judge, scores: [1, 2, 3, 4, 11] })).toThrow('1 to 10');
-    expect(() => buildAttestQualityInstruction({ programId, escrow, judge, scores: [1, 2, 3, 4] as unknown as [number, number, number, number, number] })).toThrow('five scores');
+    expect(() => buildAttestQualityInstruction({ programId, escrow, judge, scores: [1, 2, 3, 4, 11], openedSlot: 1000n })).toThrow('1 to 10');
+    expect(() => buildAttestQualityInstruction({ programId, escrow, judge, scores: [1, 2, 3, 4] as unknown as [number, number, number, number, number], openedSlot: 1000n })).toThrow('five scores');
     expect(() => buildSettleSolEscrowInstruction({ programId, escrow, payer, payee, actual: 0n })).toThrow('positive u64');
+  });
+
+  it('requires the opened slot, as a u64 bigint, in accept_rating and attest_quality', () => {
+    for (const bad of [undefined, 1000, -1n, 1n << 64n]) {
+      const openedSlot = bad as unknown as bigint;
+      expect(() => buildAcceptRatingInstruction({ programId, escrow, specialist: payee, openedSlot })).toThrow('openedSlot');
+      expect(() => buildAttestQualityInstruction({ programId, escrow, judge, scores: [1, 2, 3, 4, 5], openedSlot })).toThrow('openedSlot');
+    }
+    // The slot is the last eight bytes of each.
+    expect(buildAcceptRatingInstruction({ programId, escrow, specialist: payee, openedSlot: 0xfffffffffffffffen }).data.subarray(8).toString('hex')).toBe('feffffffffffffff');
+    expect(buildAttestQualityInstruction({ programId, escrow, judge, scores: [1, 2, 3, 4, 5], openedSlot: 7n }).data).toHaveLength(21);
   });
 });
 
@@ -497,9 +529,10 @@ describe('buyer helper: lock and opt in to rating in one transaction', () => {
     expect(plan.escrow.toBase58()).toBe(account('token_escrow_rated').address);
     expect(plan.rating.toBase58()).toBe(instruction('release_token_escrow').accounts[9].address);
     expect(plan.instructions[1].keys[1].pubkey).toEqual(plan.instructions[0].keys[0].pubkey);
-    // One transaction, signed by the payer alone.
+    // One transaction, signed by the payer alone, with no exit of the escrow in it (6050).
     const tx = new Transaction({ feePayer: payer, recentBlockhash: '11111111111111111111111111111111' }).add(...plan.instructions);
     expect(tx.compileMessage().header.numRequiredSignatures).toBe(1);
+    expect(plan.instructions.map((ix) => ix.data.subarray(0, 8).toString('hex'))).toEqual([TOKEN_ESCROW_LOCK_SELECTOR, instruction('open_rating').selector_hex]);
   });
 
   it('builds a SOL metered lock followed by open_rating, at the fixture addresses', () => {
@@ -586,8 +619,104 @@ describe('seller helper', () => {
     await expect(readEscrowRatingStatus({ getAccountInfo: async () => { throw new Error('rpc down'); } }, escrow, programId)).rejects.toThrow('rpc down');
   });
 
-  it('builds accept_rating for the seller', () => {
-    expect(shape(buildSellerAcceptRating({ programId, escrow: named(instruction('release_escrow'), 'escrow'), seller: payee }))).toEqual(expected(instruction('accept_rating')));
+});
+
+describe('seller: accepting a rating', () => {
+  // A rated escrow awaiting settlement, and its rating, as one job: the fixture's token escrow
+  // and its accepted-rating example, with the rating pointed at that escrow and not yet accepted.
+  const tokenEscrow = key(account('token_escrow_rated').address);
+  const escrowData = () => hex(account('token_escrow_rated').data_hex);
+  const ratingData = (edit: (data: Buffer) => void = () => {}) => {
+    const data = hex(account('rating_awaiting_settlement_accepted').data_hex);
+    tokenEscrow.toBuffer().copy(data, 8);
+    data[267] = 0;
+    edit(data);
+    return data;
+  };
+  const mint = decodeTokenEscrowAccount(escrowData()).mint;
+  const accounts = (escrow: Uint8Array | null, rating: Uint8Array | null, owner = programId) => {
+    const calls: unknown[][] = [];
+    const ratingAddress = ratingPda(tokenEscrow, programId);
+    return {
+      calls,
+      getAccountInfo: async (address: PublicKey, commitment?: unknown) => {
+        calls.push([address.toBase58(), commitment]);
+        const data = address.equals(tokenEscrow) ? escrow : address.equals(ratingAddress) ? rating : null;
+        return data ? { owner, data } : null;
+      },
+    };
+  };
+  const refusal = async (promise: Promise<unknown>) => {
+    try {
+      await promise;
+    } catch (error) {
+      expect(error).toBeInstanceOf(SellerAcceptRatingError);
+      return (error as SellerAcceptRatingError).reason;
+    }
+    throw new Error('expected a refusal');
+  };
+
+  it('reads the escrow and the rating at confirmed, and returns accept_rating for the job it read with what the seller agrees to', async () => {
+    const connection = accounts(escrowData(), ratingData());
+    const result = await buildSellerAcceptRating(connection, { programId, escrow: tokenEscrow, seller: payee });
+    expect(result).toEqual({
+      instruction: expect.any(TransactionInstruction),
+      rating: ratingPda(tokenEscrow, programId), openedSlot: 1040n, consumer: payer, judge, kind: 'token', amount: 1_000_000n, mint,
+    });
+    expect(shape(result.instruction)).toEqual(shape(buildAcceptRatingInstruction({ programId, escrow: tokenEscrow, specialist: payee, openedSlot: 1040n })));
+    expect(connection.calls).toEqual([[tokenEscrow.toBase58(), 'confirmed'], [ratingPda(tokenEscrow, programId).toBase58(), 'confirmed']]);
+    // With every expectation met, the same answer.
+    await expect(buildSellerAcceptRating(connection, { programId, escrow: tokenEscrow, seller: payee, expected: { openedSlot: 1040n, judge, amount: 1_000_000n, mint }, commitment: 'finalized' })).resolves.toMatchObject({ openedSlot: 1040n });
+    expect(connection.calls[connection.calls.length - 1]).toEqual([ratingPda(tokenEscrow, programId).toBase58(), 'finalized']);
+  });
+
+  it('builds the fixture\'s accept_rating byte for byte from a SOL escrow and its rating', () => {
+    const solEscrow = named(instruction('release_escrow'), 'escrow');
+    const solData = hex(account('sol_escrow_rated_metered').data_hex);
+    const result = sellerAcceptRatingFromAccounts({ programId, escrow: solEscrow, seller: payee, escrowData: solData, ratingData: hex(account('rating_awaiting_settlement_accepted').data_hex).fill(0, 267, 268) });
+    expect(shape(result.instruction)).toEqual(expected(instruction('accept_rating')));
+    expect(result).toMatchObject({ kind: 'sol', amount: 1_000_000n, openedSlot: 1040n, judge });
+    expect(result.mint).toBeUndefined();
+  });
+
+  it.each([
+    ['opened_slot_mismatch', { openedSlot: 1000n }],
+    ['judge_mismatch', { judge: payer }],
+    ['judge_mismatch', { judge: null }],
+    ['amount_mismatch', { amount: 999_999n }],
+    ['mint_mismatch', { mint: null }],
+    ['mint_mismatch', { mint: payer }],
+  ] as const)('refuses on %s when the caller expected otherwise', async (reason, expectation) => {
+    await expect(refusal(buildSellerAcceptRating(accounts(escrowData(), ratingData()), { programId, escrow: tokenEscrow, seller: payee, expected: expectation }))).resolves.toBe(reason);
+  });
+
+  it('expects no judge when told so and none is named', async () => {
+    const connection = accounts(escrowData(), ratingData((data) => data.fill(0, 104, 136)));
+    const result = await buildSellerAcceptRating(connection, { programId, escrow: tokenEscrow, seller: payee, expected: { judge: null } });
+    expect(result.judge).toBeUndefined();
+  });
+
+  it('refuses a job it cannot or need not accept', async () => {
+    const build = (escrow: Uint8Array | null, rating: Uint8Array | null, seller = payee, owner = programId) =>
+      refusal(buildSellerAcceptRating(accounts(escrow, rating, owner), { programId, escrow: tokenEscrow, seller }));
+    const withByte = (offset: number, value: number) => { const data = escrowData(); data[offset] = value; return data; };
+    expect(await build(null, ratingData())).toBe('escrow_not_found');
+    expect(await build(escrowData(), ratingData(), payee, SystemProgram.programId)).toBe('escrow_wrong_owner');
+    expect(await build(hex(account('rating_open').data_hex), ratingData())).toBe('not_an_escrow');
+    expect(await build(withByte(192, 1), ratingData())).toBe('escrow_not_locked');
+    expect(await build(withByte(TOKEN_ESCROW_FLAG_OFFSET, 1), ratingData())).toBe('escrow_not_rated');
+    expect(await build(escrowData(), ratingData(), judge)).toBe('not_the_payee');
+    expect(await build(escrowData(), null)).toBe('rating_not_found');
+    expect(await build(escrowData(), hex(account('rating_awaiting_settlement_accepted').data_hex))).toBe('rating_mismatch');
+    expect(await build(escrowData(), ratingData((data) => { data[264] = 1; }))).toBe('rating_not_awaiting_settlement');
+    expect(await build(escrowData(), ratingData((data) => { data[267] = 1; }))).toBe('already_accepted');
+    await expect(buildSellerAcceptRating({ getAccountInfo: async () => { throw new Error('rpc down'); } }, { programId, escrow: tokenEscrow, seller: payee })).rejects.toThrow('rpc down');
+  });
+
+  it('rating_wrong_owner: a rating account another program holds', async () => {
+    const ratingAddress = ratingPda(tokenEscrow, programId);
+    const connection = { getAccountInfo: async (address: PublicKey) => (address.equals(ratingAddress) ? { owner: SystemProgram.programId, data: ratingData() } : { owner: programId, data: escrowData() }) };
+    await expect(refusal(buildSellerAcceptRating(connection, { programId, escrow: tokenEscrow, seller: payee }))).resolves.toBe('rating_wrong_owner');
   });
 });
 
@@ -601,15 +730,15 @@ describe('package surface', () => {
 
 describe('program error names', () => {
   it('matches the program\'s error.rs for every rating and attestation code', () => {
-    const fs = require('node:fs') as typeof import('node:fs');
-    const path = require('node:path') as typeof import('node:path');
-    const { RATING_PROGRAM_ERRORS, ratingProgramErrorName } = require('../src/rating') as typeof import('../src/rating');
-    const source = fs.readFileSync(path.join(__dirname, '../../../programs/pinocchio-escrow/program/src/error.rs'), 'utf8');
+    const source = readFileSync(join(__dirname, '../../../programs/pinocchio-escrow/program/src/error.rs'), 'utf8');
     const declared = new Map<number, string>();
     for (const m of source.matchAll(/^\s*(\w+) = (\d+), "/gm)) declared.set(Number(m[2]), m[1]);
     for (const [code, name] of Object.entries(RATING_PROGRAM_ERRORS)) expect(declared.get(Number(code))).toBe(name);
-    for (let code = 6033; code <= 6049; code++) expect(ratingProgramErrorName(code)).toBe(declared.get(code));
+    for (let code = 6033; code <= 6051; code++) expect(ratingProgramErrorName(code)).toBe(declared.get(code));
     expect(ratingProgramErrorName(6049)).toBe('JudgeNotActive');
+    expect(ratingProgramErrorName(6050)).toBe('RatingJustOpened');
+    expect(ratingProgramErrorName(6051)).toBe('RatingJobMismatch');
+    expect(ratingProgramErrorName(6052)).toBeUndefined();
     expect(ratingProgramErrorName(6002)).toBeUndefined();
   });
 });

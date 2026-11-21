@@ -8,14 +8,16 @@ export function onboardingAttestationPda(escrow: PublicKey, programId: PublicKey
 
 /**
  * `attest_quality` as the V1 program takes it: five scores, for the job paid through `escrow`,
- * signed by the judge that job's rating account names. The consumer and the job come from the
- * rating account, so neither is in the instruction data any more.
+ * signed by the judge that job's rating account names. The consumer comes from the rating
+ * account; `openedSlot` is that account's `openedSlot` as the judge read it, which names the job
+ * (a later job at the same escrow address has another, and the program refuses a mismatch, 6051).
  */
 export function buildOnboardingAttestQualityInstruction(input: {
   programId: PublicKey;
   escrow: PublicKey;
   scores: [number, number, number, number, number];
   judge: PublicKey;
+  openedSlot: bigint;
 }): TransactionInstruction {
   return buildAttestQualityInstruction(input);
 }
