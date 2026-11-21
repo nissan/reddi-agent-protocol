@@ -33,7 +33,7 @@ exports.verifyPaidCallRequest = verifyPaidCallRequest;
  * sign with a wallet adapter, a Keypair or anything else.
  */
 const crypto_1 = require("crypto");
-const web3_js_1 = require("@solana/web3.js");
+const ed25519_1 = require("./ed25519");
 exports.SESSION_DELEGATION_HEADER = 'x402-session-delegation';
 exports.SESSION_SIGNATURE_HEADER = 'x402-session-signature';
 /** The longest a delegation may run. A session settles before its refund window anyway. */
@@ -67,33 +67,6 @@ async function sessionSignatureHeaderValue(input, signWithSessionKey) {
     const message = sessionRequestMessage({ action: input.action, escrow: input.escrow, sequence: input.sequence, bodyHash: sessionBodyHash(input.body) });
     return Buffer.from(await signWithSessionKey(new TextEncoder().encode(message))).toString('base64');
 }
-const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
-function ed25519Verify(publicKey, message, signature) {
-    if (signature.length !== 64)
-        return false;
-    try {
-        const key = (0, crypto_1.createPublicKey)({ key: Buffer.concat([ED25519_SPKI_PREFIX, publicKey.toBuffer()]), format: 'der', type: 'spki' });
-        return (0, crypto_1.verify)(null, Buffer.from(message), key, Buffer.from(signature));
-    }
-    catch {
-        return false;
-    }
-}
-const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
-function decodeBase64(value) {
-    const trimmed = value.trim();
-    return trimmed.length > 0 && trimmed.length <= 4096 && BASE64.test(trimmed) ? Buffer.from(trimmed, 'base64') : undefined;
-}
-function publicKeyOf(value) {
-    if (typeof value !== 'string' || value.length > 64)
-        return undefined;
-    try {
-        return new web3_js_1.PublicKey(value);
-    }
-    catch {
-        return undefined;
-    }
-}
 /**
  * Provider side: checks that a session request is signed by a key the payer
  * handed this session to. Returns the session key on success. `payer` and
@@ -108,7 +81,7 @@ function verifySessionRequest(input) {
         return { ok: false, reason: 'session_auth_required', message: `Paid requests must carry ${exports.SESSION_DELEGATION_HEADER} (the payer wallet's delegation to a session key) and ${exports.SESSION_SIGNATURE_HEADER} (that key's signature over this request).` };
     }
     const invalid = (message) => ({ ok: false, reason: 'session_auth_invalid', message });
-    const raw = decodeBase64(delegationValue);
+    const raw = (0, ed25519_1.decodeBase64)(delegationValue);
     if (!raw)
         return invalid('The session delegation is not base64.');
     let parsed;
@@ -121,11 +94,11 @@ function verifySessionRequest(input) {
     catch {
         return invalid('The session delegation is not JSON.');
     }
-    const escrow = publicKeyOf(parsed.escrow);
-    const provider = publicKeyOf(parsed.provider);
-    const sessionKey = publicKeyOf(parsed.sessionKey);
+    const escrow = (0, ed25519_1.publicKeyOf)(parsed.escrow);
+    const provider = (0, ed25519_1.publicKeyOf)(parsed.provider);
+    const sessionKey = (0, ed25519_1.publicKeyOf)(parsed.sessionKey);
     const expiresAt = parsed.expiresAt;
-    const delegationSignature = typeof parsed.signature === 'string' ? decodeBase64(parsed.signature) : undefined;
+    const delegationSignature = typeof parsed.signature === 'string' ? (0, ed25519_1.decodeBase64)(parsed.signature) : undefined;
     if (!escrow || !provider || !sessionKey || typeof expiresAt !== 'number' || !Number.isSafeInteger(expiresAt) || !delegationSignature) {
         return invalid('The session delegation needs escrow, provider, sessionKey, a whole-second expiresAt and a signature.');
     }
@@ -139,12 +112,12 @@ function verifySessionRequest(input) {
     if (expiresAt > nowSeconds + exports.MAX_SESSION_DELEGATION_SECONDS)
         return invalid(`A session delegation may run for at most ${exports.MAX_SESSION_DELEGATION_SECONDS} seconds.`);
     const delegation = { escrow: escrow.toBase58(), provider: provider.toBase58(), sessionKey: sessionKey.toBase58(), expiresAt };
-    if (!ed25519Verify(input.payer, new TextEncoder().encode(sessionDelegationMessage(delegation)), delegationSignature)) {
+    if (!(0, ed25519_1.ed25519Verify)(input.payer, new TextEncoder().encode(sessionDelegationMessage(delegation)), delegationSignature)) {
         return invalid("The session delegation is not signed by the escrow's payer.");
     }
-    const requestSignature = decodeBase64(signatureValue);
+    const requestSignature = (0, ed25519_1.decodeBase64)(signatureValue);
     const message = sessionRequestMessage({ action: input.action, escrow: delegation.escrow, sequence: input.sequence, bodyHash: sessionBodyHash(input.body) });
-    if (!requestSignature || !ed25519Verify(sessionKey, new TextEncoder().encode(message), requestSignature)) {
+    if (!requestSignature || !(0, ed25519_1.ed25519Verify)(sessionKey, new TextEncoder().encode(message), requestSignature)) {
         return invalid('The request is not signed by the session key, or was changed after signing.');
     }
     return { ok: true, sessionKey: delegation.sessionKey, expiresAt };

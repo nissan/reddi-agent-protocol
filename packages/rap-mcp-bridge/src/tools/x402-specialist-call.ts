@@ -2,6 +2,7 @@ import { Connection } from "@solana/web3.js";
 import {
   challengeFromX402RequestHeader,
   createSolanaDevnetUsdcPaymentClient,
+  devnetUsdcPaymentProofHeaders,
   executeDevnetUsdcPayment,
   prepareDevnetUsdcPayment,
   type DevnetUsdcPaymentClient,
@@ -96,7 +97,9 @@ export async function executeX402SpecialistCall(args: ExecuteX402SpecialistCallA
   }
   const paymentClient = deps?.client ?? createSolanaDevnetUsdcPaymentClient(new Connection(config.devnetRpcUrl, "confirmed"));
   const receipt = await executeDevnetUsdcPayment({ challenge, config: paymentConfig(config, args.maxUsdcMicroUnits), client: paymentClient, approvalPhrase: args.approvalPhrase });
-  const paid = await fetcher(args.endpoint, { method: "POST", headers: { "content-type": "application/json", "x402-payment": JSON.stringify(receipt) }, body });
+  // The provider serves a direct payment only to a request signed by the wallet that paid.
+  const proof = await devnetUsdcPaymentProofHeaders({ receipt, body, walletKeypairPath: paymentConfig(config).walletKeypairPath });
+  const paid = await fetcher(args.endpoint, { method: "POST", headers: { "content-type": "application/json", "x402-payment": JSON.stringify(receipt), ...proof }, body });
   if (paid.status !== 200) throw new Error(`specialist_paid_retry_failed:${paid.status}`);
   const responseText = await paid.text();
   const bridgeReceipt: X402SpecialistReceipt = {

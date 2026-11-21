@@ -122,6 +122,7 @@ test("execute_x402_specialist_call performs fake 402 to paid retry flow and stor
     assert.equal(receipt.paymentReceipt.payer, kp.publicKey.toBase58());
     assert.equal(calls.length, 2);
     assert.ok((calls[1].headers as Record<string, string>)["x402-payment"]);
+    assert.ok((calls[1].headers as Record<string, string>)["x402-payment-proof"], "the paid retry carries the payer proof");
 
     const again = await executeX402SpecialistCall({
       endpoint,

@@ -311,7 +311,7 @@ describe('SPL TransferChecked observation verifier', () => {
       nonce: 'audd-x402-bridge-001',
       memo: MEMO,
     });
-    const verifier = new SolanaReceiptVerifier({
+    const verifier = new SolanaReceiptVerifier({ payerProof: 'not-required',
       allowRealPayment: true,
       auddMint: MINT,
       auddTokenProgram: SPL_TOKEN_PROGRAM_ID,
@@ -337,7 +337,7 @@ describe('SPL TransferChecked observation verifier', () => {
 
     expect(result.ok).toBe(true);
 
-    const noExplicitMintVerifier = new SolanaReceiptVerifier({
+    const noExplicitMintVerifier = new SolanaReceiptVerifier({ payerProof: 'not-required',
       allowRealPayment: true,
       connection: { async getParsedTransaction() { return parsedTransaction(); } },
     });
@@ -378,7 +378,7 @@ describe('SPL TransferChecked observation verifier', () => {
       nonce: 'audd-x402-replay-001',
       memo: MEMO,
     });
-    const verifier = new SolanaReceiptVerifier({
+    const verifier = new SolanaReceiptVerifier({ payerProof: 'not-required',
       allowRealPayment: true,
       auddMint: MINT,
       auddTokenProgram: SPL_TOKEN_PROGRAM_ID,

@@ -104,6 +104,9 @@ export async function verifyAndRecordPaidCall(input: PaidCallInput, deps: PaidCa
 
   const verifier = new SolanaReceiptVerifier({
     allowRealPayment: true,
+    // This records a job after the call and serves nothing, so it needs no proof
+    // that the caller paid: the provider checked that before answering.
+    payerProof: "not-required",
     connection,
     mints: currency === "SOL" ? undefined : { [currency]: expectedMint },
     // With no treasury configured a mainnet verifier refuses every receipt, which is the safe default.

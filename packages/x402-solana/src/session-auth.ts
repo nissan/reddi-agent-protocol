@@ -21,9 +21,10 @@
  * Verification uses Node's crypto; signing takes a callback, so the buyer can
  * sign with a wallet adapter, a Keypair or anything else.
  */
-import { createHash, createPublicKey, verify as edVerify } from 'crypto';
+import { createHash } from 'crypto';
 import { PublicKey } from '@solana/web3.js';
 import type { HeaderReader } from './provider';
+import { decodeBase64, ed25519Verify, publicKeyOf } from './ed25519';
 
 export const SESSION_DELEGATION_HEADER = 'x402-session-delegation';
 export const SESSION_SIGNATURE_HEADER = 'x402-session-signature';
@@ -69,7 +70,7 @@ export function sessionRequestMessage(input: { action: SessionAction; escrow: st
   return ['reddi-session/1', input.action, input.escrow, String(input.sequence), input.bodyHash].join('\n');
 }
 
-type Signer = (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;
+export type Signer = (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;
 
 /** Buyer side: the delegation header value, signed by the payer wallet. */
 export async function sessionDelegationHeaderValue(d: SessionDelegation, signWithPayer: Signer): Promise<string> {
@@ -81,34 +82,6 @@ export async function sessionDelegationHeaderValue(d: SessionDelegation, signWit
 export async function sessionSignatureHeaderValue(input: { action: SessionAction; escrow: string; sequence: number; body?: Uint8Array | string }, signWithSessionKey: Signer): Promise<string> {
   const message = sessionRequestMessage({ action: input.action, escrow: input.escrow, sequence: input.sequence, bodyHash: sessionBodyHash(input.body) });
   return Buffer.from(await signWithSessionKey(new TextEncoder().encode(message))).toString('base64');
-}
-
-const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
-
-function ed25519Verify(publicKey: PublicKey, message: Uint8Array, signature: Uint8Array): boolean {
-  if (signature.length !== 64) return false;
-  try {
-    const key = createPublicKey({ key: Buffer.concat([ED25519_SPKI_PREFIX, publicKey.toBuffer()]), format: 'der', type: 'spki' });
-    return edVerify(null, Buffer.from(message), key, Buffer.from(signature));
-  } catch {
-    return false;
-  }
-}
-
-const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
-
-function decodeBase64(value: string): Buffer | undefined {
-  const trimmed = value.trim();
-  return trimmed.length > 0 && trimmed.length <= 4096 && BASE64.test(trimmed) ? Buffer.from(trimmed, 'base64') : undefined;
-}
-
-function publicKeyOf(value: unknown): PublicKey | undefined {
-  if (typeof value !== 'string' || value.length > 64) return undefined;
-  try {
-    return new PublicKey(value);
-  } catch {
-    return undefined;
-  }
 }
 
 /**

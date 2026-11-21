@@ -4,6 +4,7 @@ import { SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, verifySplTransferCheckedOb
 import { X402Request, PaymentReceipt } from './types';
 import type {
   NonceReplayStore,
+  PayerProofCheck,
   ProtocolFeeConfig,
   ReceiptVerificationResult,
   ReceiptVerifier,
@@ -367,6 +368,16 @@ export interface SolanaReceiptVerifierOptions {
    * from here only, never from the challenge or the receipt.
    */
   protocolFee?: ProtocolFeeConfig | 'disabled';
+  /**
+   * Whether the request presenting a receipt must prove it comes from the
+   * wallet that paid. Defaults to `'required'`: a confirmed transfer is public,
+   * so anyone who sees it could otherwise present it first and be served,
+   * leaving the buyer refused as a duplicate. A provider passes a check built by
+   * `directPaymentProofCheck` to `verifyReceipt`. `'not-required'` is only for a
+   * verifier that serves nothing, such as a job ledger checking a receipt after
+   * the call.
+   */
+  payerProof?: 'required' | 'not-required';
 }
 
 export class SolanaReceiptVerifier implements ReceiptVerifier {
@@ -424,7 +435,7 @@ export class SolanaReceiptVerifier implements ReceiptVerifier {
     return undefined;
   }
 
-  async verifyReceipt(receiptInput: unknown, challenge: X402Challenge, replayStore?: NonceReplayStore): Promise<ReceiptVerificationResult> {
+  async verifyReceipt(receiptInput: unknown, challenge: X402Challenge, replayStore?: NonceReplayStore, payerProof?: PayerProofCheck): Promise<ReceiptVerificationResult> {
     if (!this.options.allowRealPayment) {
       return { ok: false, reason: 'unsupported_receipt', message: 'real Solana receipt verification is disabled' };
     }
@@ -434,6 +445,11 @@ export class SolanaReceiptVerifier implements ReceiptVerifier {
     if (base) return base;
     const signature = receipt.signature ?? receipt.txSignature;
     if (!signature) return { ok: false, reason: 'invalid_receipt', message: 'receipt signature is required' };
+    const proofRequired = this.options.payerProof !== 'not-required';
+    if (proofRequired) {
+      if (!payerProof) return { ok: false, reason: 'payer_proof_required', message: 'this verifier requires a payer proof check for each receipt (see directPaymentProofCheck)' };
+      if (!receipt.payer || !isValidSolanaPublicKey(receipt.payer)) return { ok: false, reason: 'payer_proof_required', message: 'the receipt must name the paying wallet in payer' };
+    }
 
     const feeDecision = this.feeSplitFor(challenge);
     if ('failure' in feeDecision) return feeDecision.failure;
@@ -452,8 +468,19 @@ export class SolanaReceiptVerifier implements ReceiptVerifier {
     const tooOld = this.ageFailure(parsed, challenge.network);
     if (tooOld) return tooOld;
 
-    const unpaid = await this.challengePaymentFailure(parsed, receipt, challenge, signature, replayStore, split);
+    const unpaid = await this.challengePaymentFailure(parsed, receipt, challenge, signature, replayStore, split, proofRequired);
     if (unpaid) return unpaid;
+
+    if (proofRequired && payerProof && receipt.payer) {
+      // The payer named in the receipt signed the transaction and moved the funds
+      // (checked strictly above). The request must now be signed by that wallet, or
+      // by a key it delegated to, before the payment is recorded as used.
+      if (!transactionSignedBy(parsed, receipt.payer)) {
+        return { ok: false, reason: 'invalid_receipt', message: 'the receipt payer did not sign the payment transaction', actual: receipt.payer };
+      }
+      const proof = await payerProof({ network: challenge.network, txSignature: signature, payer: receipt.payer, payTo: challenge.payTo });
+      if (!proof.ok) return { ok: false, reason: proof.reason, message: proof.message };
+    }
 
     // A verified on-chain payment satisfies exactly one challenge. The nonce alone
     // cannot enforce that, because the caller that presents the receipt may also
@@ -515,6 +542,7 @@ export class SolanaReceiptVerifier implements ReceiptVerifier {
     signature: string,
     replayStore?: NonceReplayStore,
     split?: FeeSplit,
+    strictPayer = false,
   ): Promise<ReceiptVerificationResult | undefined> {
     // A fee that rounds down to zero leaves a single transfer of the full price.
     const fee = split && split.feeUnits > BigInt(0) ? split : undefined;
@@ -542,11 +570,11 @@ export class SolanaReceiptVerifier implements ReceiptVerifier {
         return unsatisfiedChallenge(`receipt mint does not match the configured ${challenge.currency} mint`, mint, receipt.mint);
       }
       if (fee) {
-        return transactionHasTokenSplit(parsed, receipt, challenge, mint, token.tokenProgram, fee)
+        return transactionHasTokenSplit(parsed, receipt, challenge, mint, token.tokenProgram, fee, strictPayer)
           ? undefined
           : unsatisfiedChallenge('transaction does not pay both the provider share and the protocol fee', fee.terms);
       }
-      return transactionHasTokenTransfer(parsed, receipt, challenge, mint, token.tokenProgram)
+      return transactionHasTokenTransfer(parsed, receipt, challenge, mint, token.tokenProgram, strictPayer)
         ? undefined
         : unsatisfiedChallenge();
     }
@@ -555,6 +583,9 @@ export class SolanaReceiptVerifier implements ReceiptVerifier {
       // fee split. A deployment that takes a fee must configure `mints.AUDD`.
       if (split) {
         return { ok: false, reason: 'unsupported_receipt', message: 'a protocol fee on AUDD requires the AUDD mint in `mints`, not the legacy auddMint option' };
+      }
+      if (strictPayer) {
+        return { ok: false, reason: 'unsupported_receipt', message: 'a payer proof on AUDD requires the AUDD mint in `mints`, not the legacy auddMint option' };
       }
       const mint = this.options.auddMint;
       if (!mint) {
@@ -686,14 +717,14 @@ function tokenTransferBaseUnits(info: Record<string, unknown>, decimals: number)
  * `transferChecked` instructions of the configured mint: the provider's share to
  * a token account the payee owns, and the fee to a token account the treasury owns.
  */
-function transactionHasTokenSplit(parsed: Record<string, unknown>, receipt: X402PaymentReceipt, challenge: X402Challenge, mint: string, tokenProgram: string, split: FeeSplit): boolean {
+function transactionHasTokenSplit(parsed: Record<string, unknown>, receipt: X402PaymentReceipt, challenge: X402Challenge, mint: string, tokenProgram: string, split: FeeSplit, strictPayer = false): boolean {
   const legs = parsedInstructions(parsed).map((ix) => {
     const parsedInstruction = asRecord(ix.parsed);
     const info = asRecord(parsedInstruction?.info);
     if (!info || parsedInstruction?.type !== 'transferChecked') return undefined;
     if (!instructionIsFromTokenProgram(ix, tokenProgram)) return undefined;
     if (info.mint !== mint) return undefined;
-    if (receipt.payer && info.authority && info.authority !== receipt.payer) return undefined;
+    if (!authorityMatches(info, receipt.payer, strictPayer)) return undefined;
     const units = tokenTransferBaseUnits(info, split.decimals);
     if (units === undefined || typeof info.destination !== 'string') return undefined;
     return { destination: info.destination, units };
@@ -718,7 +749,27 @@ function instructionIsFromTokenProgram(ix: Record<string, unknown>, tokenProgram
   return publicKeyText(ix.programId) === tokenProgram;
 }
 
-function transactionHasTokenTransfer(parsed: Record<string, unknown>, receipt: X402PaymentReceipt, challenge: X402Challenge, mint: string, tokenProgram: string): boolean {
+/**
+ * The token transfer's signing authority against the receipt's payer. Strict
+ * (a payer proof is required): the authority must be stated and be the payer,
+ * so a multisig or unparsed authority does not count.
+ */
+function authorityMatches(info: Record<string, unknown>, payer: string | undefined, strict: boolean): boolean {
+  if (strict) return typeof payer === 'string' && info.authority === payer;
+  return !(payer && info.authority && info.authority !== payer);
+}
+
+/** True when `key` is among the transaction's signers. */
+function transactionSignedBy(parsed: Record<string, unknown>, key: string): boolean {
+  const accountKeys = asArray(asRecord(asRecord(parsed.transaction)?.message)?.accountKeys);
+  if (!accountKeys) return false;
+  return accountKeys.some((entry) => {
+    const record = asRecord(entry);
+    return record !== undefined && record.signer === true && publicKeyText(record.pubkey) === key;
+  });
+}
+
+function transactionHasTokenTransfer(parsed: Record<string, unknown>, receipt: X402PaymentReceipt, challenge: X402Challenge, mint: string, tokenProgram: string, strictPayer = false): boolean {
   const expectedAmount = String(challenge.amount);
   const instructions = parsedInstructions(parsed);
 
@@ -728,7 +779,7 @@ function transactionHasTokenTransfer(parsed: Record<string, unknown>, receipt: X
     if (!info || parsedInstruction?.type !== 'transferChecked') return false;
     if (!instructionIsFromTokenProgram(ix, tokenProgram)) return false;
     if (info.mint !== mint) return false;
-    if (receipt.payer && info.authority && info.authority !== receipt.payer) return false;
+    if (!authorityMatches(info, receipt.payer, strictPayer)) return false;
     if (receipt.destinationTokenAccount && info.destination !== receipt.destinationTokenAccount) return false;
 
     const tokenAmountRecord = asRecord(info.tokenAmount);

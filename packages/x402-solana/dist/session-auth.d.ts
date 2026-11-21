@@ -29,7 +29,7 @@ export declare function sessionRequestMessage(input: {
     sequence: number;
     bodyHash: string;
 }): string;
-type Signer = (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;
+export type Signer = (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;
 /** Buyer side: the delegation header value, signed by the payer wallet. */
 export declare function sessionDelegationHeaderValue(d: SessionDelegation, signWithPayer: Signer): Promise<string>;
 /** Buyer side: the signature header value for one request, signed by the session key. */
@@ -81,4 +81,3 @@ export declare function paidCallAuthHeaders(input: {
 }): Promise<Record<string, string>>;
 /** Provider side, single metered call: `verifySessionRequest` with action `single` and sequence 0. */
 export declare function verifyPaidCallRequest(input: Omit<Parameters<typeof verifySessionRequest>[0], 'action' | 'sequence'>): ReturnType<typeof verifySessionRequest>;
-export {};
