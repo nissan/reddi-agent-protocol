@@ -487,6 +487,10 @@ impl AgentTerms {
         self.bump
     }
 
+    pub fn active(&self) -> bool {
+        self.active == 1
+    }
+
     fn reputation(&self) -> u16 {
         u16::from_le_bytes(self.reputation_score)
     }
@@ -701,7 +705,7 @@ pub struct Rating {
     pub consumer_score: u8,
     pub specialist_score: u8,
     /// 1 once the specialist agreed to the job being rated (`accept_rating`).
-    /// A paid exit the specialist signs counts as agreeing too and does not
+    /// A paid exit the specialist authorises counts as agreeing too and does not
     /// need it.
     accepted: u8,
     /// 1 once the judge has attested this job (`attest_quality`), so that a

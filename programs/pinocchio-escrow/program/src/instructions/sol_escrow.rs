@@ -141,9 +141,12 @@ pub fn lock(
 /// receives the fee, and the rest returns to the payer with the rent.
 ///
 /// A rated escrow's rating account records the paid amount and the slot, and
-/// the rating opens, when the payee signed this call or accepted the rating
-/// earlier. Otherwise the money moves the same way and the rating account is
-/// closed, its rent returning to the payer.
+/// the rating opens, when the payee is the authority of this call (it claims
+/// or settles) or accepted the rating earlier. Otherwise the money moves the
+/// same way and the rating account is closed, its rent returning to the
+/// payer. On a release the payer authorises, the payee's signature elsewhere
+/// in the transaction (as fee payer, or for another instruction) is not
+/// agreement. The token escrow has the same rule.
 pub fn pay_out(
     program_id: &Address,
     accounts: &mut [AccountView],
@@ -166,7 +169,7 @@ pub fn pay_out(
     require(treasury.address() == &PROTOCOL_TREASURY, &InvalidTreasury)?;
 
     let slot = now()?.0;
-    let (paid, outcome) = match actual {
+    let (paid, outcome, payee_is_authority) = match actual {
         None => {
             let authority = if payer.is_signer() {
                 &record.payer
@@ -185,6 +188,7 @@ pub fn pay_out(
                     slot,
                     record.claim_window_slots(),
                 )?,
+                !payer.is_signer(),
             )
         }
         Some(actual) => {
@@ -196,7 +200,7 @@ pub fn pay_out(
                 &InvalidSettleAmount,
             )?;
             require(record.metered(), &NotMetered)?;
-            (actual, Outcome::SettledActual)
+            (actual, Outcome::SettledActual, true)
         }
     };
     require(record.status == STATUS_LOCKED, &NotLocked)?;
@@ -213,7 +217,7 @@ pub fn pay_out(
     credit(treasury, fee)?;
     close(escrow, payer)?;
     if let Some((account, job)) = rated {
-        rating::settle_exit(account, job, payee.is_signer(), paid, None, slot, payer)?;
+        rating::settle_exit(account, job, payee_is_authority, paid, None, slot, payer)?;
     }
 
     Settled {

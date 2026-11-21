@@ -14,7 +14,7 @@ use {
         error::{
             fail, require, AccountNotEnoughKeys, AlreadyAttested, AttestationAlreadyResolved,
             AttestationNotClosable, AttestationScoreOutOfRange, ConstraintSeeds, JobNotPaid,
-            NotAttestationAgent, UnauthorisedSigner,
+            JudgeNotActive, NotAttestationAgent, UnauthorisedSigner,
         },
         instructions::rating::Party,
         state::{
@@ -37,7 +37,7 @@ use {
 ///
 /// The job and its consumer are taken from the rating account. The signer
 /// must be the judge that account names and be registered as an attestation
-/// agent (type 1 or 2). The rating account remembers that the job was
+/// agent (type 1 or 2) whose record is active. The rating account remembers that the job was
 /// attested, so closing the attestation does not allow another.
 pub fn attest(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let scores: [u8; 5] = Args(data).array()?;
@@ -64,6 +64,7 @@ pub fn attest(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -
         program_id,
     )?;
     require(head.agent_type() != 0, &NotAttestationAgent)?;
+    require(terms.active(), &JudgeNotActive)?;
     require(
         scores.iter().all(|score| (1..=10).contains(score)),
         &AttestationScoreOutOfRange,

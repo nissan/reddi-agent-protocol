@@ -205,10 +205,14 @@ reputation, job counts or accuracy of an agent that signed nothing.
    so a seller that reads the escrow before it serves knows whether the job is
    rated, and can decline it. A seller should read the escrow at `confirmed`
    commitment or better, so that it sees the whole slot of the lock.
-2. **Agree.** The seller agrees to the rating in one of two ways: it signs
-   the paid exit itself (settle or claim), or it calls `accept_rating` while
-   the escrow is still locked, which lets the payer's release open the rating
-   later. Only the specialist named on the rating account can accept, once.
+2. **Agree.** The seller agrees to the rating in one of two ways: it is the
+   authority of the paid exit (it settles, or claims after the claim window),
+   or it calls `accept_rating` while the escrow is still locked, which lets
+   the payer's release open the rating later. Only the specialist named on
+   the rating account can accept, once. On a release the payer authorises,
+   nothing but `accept_rating` counts: the seller's signature elsewhere in
+   that transaction, as fee payer or for another instruction, is not
+   agreement. The rule is the same for SOL and token escrows.
 3. **Exit.** Every exit of a rated escrow takes the rating account, writable,
    as the account right after the instruction's usual accounts. Without it
    the exit is refused (`RatingAccountRequired`, 6033), so a seller that
@@ -216,9 +220,10 @@ reputation, job counts or accuracy of an agent that signed nothing.
 
    | Exit | Rating account |
    |---|---|
-   | Settle or claim, signed by the payee | Records the amount paid, the mint and the slot; the rating opens |
-   | Release by the payer, after `accept_rating` (or with the payee co-signing a SOL release) | The same |
+   | Settle or claim, with the payee as authority | Records the amount paid, the mint and the slot; the rating opens |
+   | Release by the payer, after `accept_rating` | The same |
    | Release by the payer, seller never agreed | The money moves exactly as usual; the rating account is closed, its rent returns to the payer, and the job is never rated or attested |
+   | Any paid exit that pays nothing (a Token-2022 vault the issuer emptied) | Closed, rent returns to the payer: there is no paid job to rate |
    | Refund or decline | Closed, rent returns to the payer: a job that was not paid is not rated |
 4. **Commit.** Each party commits to
    `sha256(rating address ‖ signer address ‖ score byte ‖ 32-byte salt)`
@@ -254,7 +259,8 @@ finalised.
 
 **Attestations.** The consumer may name one judge in `open_rating`. Once the
 job is paid, that judge, and nobody else, records five scores with
-`attest_quality`; it must be registered as an attestation agent (type 1 or 2).
+`attest_quality`; it must be registered as an attestation agent (type 1 or 2)
+and its agent record must be active.
 The attestation lives at `["attestation", escrow address]` and takes the job
 and the consumer from the rating account, so it must be made before the rating
 account is closed. Only that consumer confirms it (the judge's accuracy rises
@@ -281,14 +287,32 @@ Things to know:
   (`close_rating`), and cannot be attested until the earlier job's
   attestation is closed (`close_attestation`, which only that judge can
   call). Clients use a fresh nonce per job.
-- Reputation is not Sybil-proof. Two wallets of one owner can pay and rate
-  each other for the cost of fees. The paid amount and the mint are on the
-  rating account so that rankers can weight by them.
+- Reputation and judge accuracy are not Sybil-proof. Wallets of one owner can
+  pay, rate and attest each other for the cost of transaction fees, and a job
+  of under 40 lamports pays no protocol fee at all (2.5% rounds down to 0).
+  The paid amount and the mint are on the rating account so that rankers can
+  weight by them, but only until `close_rating`: the agent record keeps no
+  sum, so a ranker has to read ratings before they are closed. An attestation
+  carries no amount.
+- A party can deregister and register again to shed a pending score or
+  penalty. Records are updated only if they exist when the rating is
+  finalised or the attestation resolved, so a party that sees a bad score or
+  a penalty coming can deregister first and register again afterwards.
+  Registering costs 0.01 SOL and starts a new record at zero, which was
+  already true of the registry, so this does not help an agent with a good
+  record, but it does keep failed jobs off a record. Rankers should treat a
+  recently created record as having no history.
+- On a fixed-price job the seller can call `accept_rating` at any time while
+  the escrow is locked, so it can wait to see how the job went. A buyer who
+  wants a rating should release only after the seller accepted (`accepted` is
+  1 on the rating account), or not release and leave the seller to claim,
+  which opens the rating. Metered jobs are not affected: only the seller
+  settles them.
 - The payer can release an escrow at any time, so a job can be paid without
   the payee ever acting. That is why a release by the payer opens the rating
   only when the seller agreed: a lock, opt-in and release to an agent that
   signed nothing pays that agent and leaves no rating behind. A seller that
-  accepts, or settles or claims, a rated job has taken on the rating: it then
+  accepts, or itself settles or claims, a rated job has taken on the rating: it then
   has to commit and reveal within the windows or lose 5.00 points. The program
   does not weight reputation by the amount paid.
 - An escrow delegated to a PER session (`per` builds only) cannot be opted in,
@@ -369,16 +393,20 @@ errors above when it is not a rating account at all. Everything else about the
 exit, including who may call it, the money and the `EscrowSettled` event, is
 as for an escrow that is not rated.
 
-A paid exit opens the rating when the payee signed it (in `release_escrow`
-and `settle_escrow`, the `payee` account is a signer; in the token
-instructions, the `authority` is the payee) or `accepted` is 1. It then sets
+A paid exit opens the rating when the payee is its authority or `accepted`
+is 1, and something is paid. The payee is the authority of every settle, and
+of a release that the payer did not authorise: in `release_escrow`, the
+`payee` account is a signer and the `payer` account is not; in
+`release_token_escrow`, the `authority` is the payee. When the payer is the
+authority, a payee signature on the same transaction does not count. It then sets
 on the rating account: `paid` (the amount paid out of the
 escrow before the protocol fee; for a token escrow, what left the vault for
 the payee and the treasury, which under Token-2022 can be less than the amount
 named when the issuer has shrunk the vault), `mint` (the escrow mint; zero for
-SOL), `settled_slot`, and state 1. Otherwise (a release by the payer that the
-payee neither signed nor accepted beforehand) the exit pays the same amounts
-and emits the same event, and closes the rating account. A refund or decline
+SOL), `settled_slot`, and state 1. Otherwise (a release the payer authorises
+that the payee did not accept beforehand, or an exit that pays nothing) the
+exit moves the same amounts and emits the same event, and closes the rating
+account. A refund or decline
 closes it too. A closed rating account's lamports go to the escrow's payer.
 
 ### `commit_rating`
@@ -454,18 +482,19 @@ Data: `scores: [u8; 5]` (accuracy, completeness, relevance, format, latency;
 |---|---|---|---|
 | 0 | `attestation` | w | `["attestation", rating.escrow]`, created here |
 | 1 | `rating` | w | The job's rating account; `attested` is set to 1 |
-| 2 | `judge_agent` | | `["agent", judge]`, a registered agent of type 1 or 2 |
+| 2 | `judge_agent` | | `["agent", judge]`, a registered, active agent of type 1 or 2 |
 | 3 | `judge` | w, s | The judge the rating names; pays the attestation's rent |
 | 4 | `system_program` | | |
 
 Refused with: `UnauthorisedSigner` (6000) when the signer is not the judge the
 rating names, or it names none; `JobNotPaid` (6039) in rating state 0;
 `AlreadyAttested` (6048) when this job has been attested before, whether or
-not that attestation was closed since; `NotAttestationAgent` (6016);
-`AttestationScoreOutOfRange` (6019); a System program error when an account
-already exists at the attestation address (an earlier job under the same
-escrow address whose attestation was not closed). Rating states 1 to 4 are
-all accepted.
+not that attestation was closed since; `NotAttestationAgent` (6016) when the
+judge's record is of type 0; `JudgeNotActive` (6049) when that record has been
+switched off with `update_agent`; `AttestationScoreOutOfRange` (6019); a
+System program error when an account already exists at the attestation
+address (an earlier job under the same escrow address whose attestation was
+not closed). Rating states 1 to 4 are all accepted.
 
 ### `confirm_attestation`, `dispute_attestation`
 
@@ -562,6 +591,7 @@ New error numbers, all after 6032:
 | 6046 | `RatingAlreadyAccepted` |
 | 6047 | `AttestationNotClosable` |
 | 6048 | `AlreadyAttested` |
+| 6049 | `JudgeNotActive` |
 
 6010 to 6016, 6018 and 6019 keep the numbers and names the Anchor program
 declares for its rating and attestation errors.
@@ -588,7 +618,7 @@ dependencies stay out of the program's lockfile):
    fees, and issuer actions on Token-2022 vaults. This is what holds an escrow
    that is not rated to the behaviour it had before ratings were added: the
    suite is unchanged.
-3. **This program's own tests** of what the Anchor program does not have, 60
+3. **This program's own tests** of what the Anchor program does not have, 65
    tests against the Pinocchio binary: `rated_escrow.rs` (opt-in and every
    exit of a rated SOL, USDC and PYUSD escrow), `rating_consent.rs` (a payer
    acting alone cannot move the record of an agent that signed nothing;
@@ -609,7 +639,9 @@ same-slot check skipped in `open_rating`, a rating of another escrow accepted
 at an exit, the signer left out of the commitment hash, and the penalty for a
 withheld reveal left out; a release by the payer treated as the seller's
 agreement, `accept_rating` open to any signer, the attested mark not checked,
-and an unresolved attestation closable at once. Each made tests fail, and they passed again when the
+and an unresolved attestation closable at once; the seller's signature
+anywhere in a payer's SOL release treated as agreement, a rating opened with
+nothing paid, and the judge's active flag not checked. Each made tests fail, and they passed again when the
 fault was removed.
 
 The `per` build (not V1) is tested as a separate last step, as the `extended`
@@ -632,13 +664,13 @@ escrow and registry instructions only:
 
 | | Anchor (13 instructions) | Pinocchio (23 instructions) | Change |
 |---|---|---|---|
-| Program size | 345,152 bytes | 93,792 bytes | 73% smaller |
-| Rent at 6,960 lamports per byte | 2.4046 SOL | 0.6551 SOL | 1.7495 SOL less |
-| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.4782 SOL | 1.2769 SOL less |
-| `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 101,128 bytes | 80% smaller |
+| Program size | 345,152 bytes | 94,112 bytes | 73% smaller |
+| Rent at 6,960 lamports per byte | 2.4046 SOL | 0.6574 SOL | 1.7472 SOL less |
+| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.4798 SOL | 1.2753 SOL less |
+| `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 101,440 bytes | 80% smaller |
 
 Before ratings and attestations were added the Pinocchio build was 62,248
-bytes (0.4356 SOL at 6,960); they cost 31,544 bytes and 0.2195 SOL of rent.
+bytes (0.4356 SOL at 6,960); they cost 31,864 bytes and 0.2218 SOL of rent.
 
 Rent is for the program account (36 bytes) plus the program data account (45
 bytes of header plus the binary), each with the 128-byte account overhead:
@@ -678,18 +710,18 @@ move with the keys:
 |---|---|
 | `open_rating` | 3,833 to 6,833 |
 | `accept_rating` | 1,993 |
-| `release_escrow` of a rated escrow (payer, accepted; not accepted 3,436; payee claim 3,479) | 3,455 |
-| `settle_escrow` of a rated escrow | 3,416 |
+| `release_escrow` of a rated escrow (payer, accepted; not accepted 3,441; payee claim 3,486) | 3,462 |
+| `settle_escrow` of a rated escrow | 3,421 |
 | `cancel_escrow` of a rated escrow (decline; refund 3,246) | 3,228 |
-| `release_token_escrow` of a rated escrow (payer, accepted), USDC / PYUSD | 16,036 / 21,918 |
-| `settle_token_escrow` of a rated escrow, USDC / PYUSD | 17,230 / 26,618 |
+| `release_token_escrow` of a rated escrow (payer, accepted), USDC / PYUSD | 16,039 / 21,921 |
+| `settle_token_escrow` of a rated escrow, USDC / PYUSD | 17,233 / 26,621 |
 | `cancel_token_escrow` of a rated escrow (decline), USDC / PYUSD | 10,272 / 15,552 |
 | `commit_rating` (first / second) | 2,207 / 2,217 |
 | `reveal_rating` (first / second, both parties registered) | 6,660 / 6,686 |
 | `reveal_rating` (one party not registered) | 12,300 to 12,334 |
 | `expire_rating` | 6,349 to 6,376 |
 | `close_rating` | 1,981 |
-| `attest_quality` | 10,135 |
+| `attest_quality` | 10,139 |
 | `confirm_attestation` / `dispute_attestation` | 4,023 / 4,026 |
 | `close_attestation` | 1,959 |
 
