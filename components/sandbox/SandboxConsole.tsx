@@ -597,7 +597,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         {scenario.id === "run-a-session" ? (
           <div className="min-w-0 space-y-5">
-            <SandboxSessionRunner provider={provider} providerReceiptId={providerKeys[provider.id]} onExchange={(list) => setExchanges((current) => [...current, ...list])} />
+            <SandboxSessionRunner provider={provider} providerReceiptId={providerKeys[provider.id]} onExchange={(list) => setExchanges((current) => [...current, ...list])} onSettled={(list) => setReceipts((current) => [...current, ...list])} />
             <p className="rounded-xl border border-[#9945FF]/30 bg-[#9945FF]/10 p-4 text-sm leading-6 text-gray-200" data-testid="sandbox-takeaway">{scenario.takeaway}</p>
           </div>
         ) : (
