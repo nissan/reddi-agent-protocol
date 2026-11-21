@@ -29,7 +29,7 @@ const { createHash } = require('node:crypto');
 const { once } = require('node:events');
 const { Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } = require('@solana/web3.js');
 const token = require('@solana/spl-token');
-const PROGRAM = new PublicKey('794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD');
+const PROGRAM = new PublicKey('DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu');
 const TOKEN = token.TOKEN_PROGRAM_ID;
 // Allowlisted in the default build (constants.rs USDC_MAINNET_MINT). Only the address is reused.
 const MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');

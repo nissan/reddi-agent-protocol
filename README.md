@@ -217,7 +217,7 @@ The four historical **Quasar** program ids recorded for devnet live in [`config/
 
 Quasar sources, artifacts, and the explicit loopback-only Surfpool lane remain solely for historical reproducibility. Their retention and any local pass do not imply adoption or readiness. No redeploy is claimed, planned, or authorized.
 
-The recorded Anchor devnet deployment (`794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD`) is also historical/reference only. Deployment guidance is in [`DEPLOY.md`](DEPLOY.md).
+The earlier Anchor devnet deployment (`794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD`) is historical/reference only and can no longer be upgraded. The V1 program ID is `DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu`. Deployment guidance is in [`DEPLOY.md`](DEPLOY.md).
 
 ## Stack
 

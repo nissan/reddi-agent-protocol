@@ -12,7 +12,7 @@ import {
 import { loadSignerKeypairsFromEnv, profileEnvSlug } from '../dist/src/wallet-provenance.js';
 import { specialistProfiles } from '../dist/src/profiles/index.js';
 
-const DEFAULT_PROGRAM_ID = '794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD';
+const DEFAULT_PROGRAM_ID = 'DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu';
 const AGENT_SEED = Buffer.from('agent');
 const INCINERATOR = new PublicKey('1nc1nerator11111111111111111111111111111111');
 const AgentType = { Primary: 0, Attestation: 1, Both: 2 };

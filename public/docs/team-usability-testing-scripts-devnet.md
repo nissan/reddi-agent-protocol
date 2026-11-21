@@ -15,8 +15,8 @@ These scripts are written for non-adversarial internal testing. They are not a s
 
 - Network: Solana devnet
 - RPC: `https://api.devnet.solana.com`
-- Program: `794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD`
-- Explorer: `https://explorer.solana.com/address/794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD?cluster=devnet`
+- Program: `DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu`
+- Explorer: `https://explorer.solana.com/address/DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu?cluster=devnet`
 
 ## Roles and testers
 
@@ -225,7 +225,7 @@ On-chain validation:
 1. Copy transaction signature.
 2. Open signature in Explorer with `cluster=devnet`.
 3. Confirm transaction status is success.
-4. Confirm program ID is `794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD`.
+4. Confirm program ID is `DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu`.
 
 Post-registration validation:
 
