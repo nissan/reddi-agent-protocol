@@ -14,18 +14,21 @@ account the program controls until one of these happens:
 | Release: the seller is paid, less the 2.5% protocol fee | The buyer | Any time |
 | Settle at the actual cost (metered escrow only): the seller is paid the actual cost less the fee, and the rest goes back to the buyer | The seller | Any time |
 | Decline: everything goes back to the buyer | The seller | Any time |
-| Refund: everything goes back to the buyer | The buyer | From about day 3 (648,000 slots after the lock) |
-| Claim: the seller is paid the whole amount, less the fee | The seller | From about day 7 (1,512,000 slots after the lock) |
+| Refund: everything goes back to the buyer | The buyer | Once the escrow's refund window has passed |
+| Claim: the seller is paid the whole amount, less the fee | The seller | Once the escrow's claim window has passed |
 
-Because the buyer's refund opens before the seller's claim, a seller holding a
-**fixed-price** lock is only protected against a buyer who goes quiet, not
-against one who refunds after receiving the work. The owner accepted this
-order for V1 on 21 November 2026. Sellers should therefore:
+The refund and claim windows are set per escrow when it is locked, and the
+seller's claim opens before the buyer's refund (owner decision, 21 November
+2026; the program change is in progress, so check the program's README for the
+exact rules of the build you use). A short claim window suits per-call work,
+where the answer is useful within seconds.
+
+Even so, sellers should:
 
 - Use a **metered** escrow for per-call work. The seller settles the actual cost
-  right after answering and does not depend on the buyer or the windows.
-- Treat a fixed-price lock as a deposit, not as payment, and deliver work that
-  cannot be taken back only after a release.
+  right after answering and does not wait for any window.
+- Treat a fixed-price lock as a deposit, not as payment, until it is released,
+  settled or claimed.
 
 ## Metered billing
 
