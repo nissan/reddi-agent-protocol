@@ -22,11 +22,13 @@ address, never the multisig account address).
 
 ## 2. Fund the deployer
 
-The deployer needs the program account's rent at 6,960 lamports per byte, plus
-room for the temporary buffer during the deploy and fees. With rating and
-attestation in the V1 build, the program is expected at about 85–95 KB (rent
-about 0.6–0.66 SOL); take the size of record from the freeze. 2 SOL is enough.
-The owner funds it.
+The deployer needs the program account's rent, plus room for the temporary
+buffer during the deploy and fees. The V1 build with rating and attestation is
+96,240 bytes at `b71a91e` (mainnet executable hash `af4d7214…f03a`, CI run
+44900313151): about 0.67 SOL of rent at 6,960 lamports per byte. Take the size
+of record from the freeze, and the rate from `getMinimumBalanceForRentExemption`
+on mainnet before funding: devnet charged 5,080 lamports per byte on
+22 November 2026. 2 SOL is enough. The owner funds it.
 
 ## 3. Deploy (owner signs)
 
