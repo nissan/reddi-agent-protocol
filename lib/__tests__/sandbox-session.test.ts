@@ -31,6 +31,8 @@ import {
 } from "@/lib/sandbox/receipt";
 import type { SandboxSettleInput, SandboxSettler } from "@/lib/sandbox/settle-signer";
 import { scriptedSandboxAnswer } from "@/lib/sandbox/catalog";
+import { canonicalizeReddiReceiptV2, hashReddiReceiptV2, validateReddiReceiptV2, type ReddiReceiptV2 } from "@reddi/agent-protocol/receipt-v2";
+import { canonicalizeSandboxReceipt } from "@/lib/sandbox/receipt";
 import { networkFeeShare, runSandboxSession, sessionMaxLamports, SESSION_PROMPTS } from "@/lib/sandbox/session-run";
 
 const ORIGIN = "https://sandbox.example";
@@ -221,6 +223,13 @@ describe("sandbox sessions (#863)", () => {
     expect(calls[0].escrow.toBase58()).toBe(escrow);
     expect(receipts.every((r) => r.receipt.schemaVersion === "reddi.receipt.v2" && r.receipt.session!.payer === payer.toBase58())).toBe(true);
     const closing = closingReceipt(last);
+    // Byte for byte the package's receipt v2 session form: same signed bytes, same hash, valid.
+    for (const r of [...receipts, closing]) {
+      const v2 = r.receipt as unknown as ReddiReceiptV2;
+      expect(canonicalizeSandboxReceipt(r.receipt)).toBe(canonicalizeReddiReceiptV2(v2));
+      expect(hashReddiReceiptV2(v2)).toBe(await hashSandboxReceipt(r.receipt));
+      expect(validateReddiReceiptV2(v2)).toMatchObject({ ok: true });
+    }
     expect(closing.receipt.payment).toMatchObject({ txSignature: SETTLE_SIG, payer: payer.toBase58(), amount: (PER_CALL * BigInt(3)).toString() });
   });
 
