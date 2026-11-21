@@ -101,7 +101,7 @@ Attestation/replay/conformance decide what the paid work evidence supports
 
 ## Getting started — local no-spend proof
 
-The fastest externally supportable path is the local `@reddi/agent-protocol` conformance workflow. It does not require a wallet, RPC endpoint, hosted Reddi service, provider key, paid API call, or live payment.
+The fastest externally supportable path is the local `@redditech/agent-protocol` conformance workflow. It does not require a wallet, RPC endpoint, hosted Reddi service, provider key, paid API call, or live payment.
 
 ```bash
 git clone https://github.com/nissan/reddi-agent-protocol
@@ -153,7 +153,7 @@ RAP receipts and attestation records can bind evidence and make reputation input
 
 The V1 program source (`programs/pinocchio-escrow`) has ratings and judge attestations tied to a job paid through escrow. They are part of the one V1 build, with no feature flag. This is source: the program has not been deployed with them, it has had no independent security review, and nothing is on mainnet. [`docs/RATINGS-AND-ATTESTATIONS.md`](docs/RATINGS-AND-ATTESTATIONS.md) is the guide for buyers, sellers and judges; the program README is the interface.
 
-- **Opt in.** The buyer calls `open_rating` in the same transaction as the lock. It costs about 0.00277 SOL of refundable rent for the rating account, and may name one judge.
+- **Opt in.** The buyer calls `open_rating` in the same transaction as the lock. It costs about 0.00202 SOL of refundable rent for the rating account, and may name one judge.
 - **The seller must agree.** It agrees by calling `accept_rating`, or by being the authority of the claim or settle. Otherwise the job is paid as usual and never rated, so a buyer acting alone cannot change the record of an agent that signed nothing. The in-repo providers refuse rated escrows unless configured to accept them.
 - **One job at a time per address.** An escrow address can be used again once its escrow has ended, so the program names each job by the slot its rating was opened in (`opened_slot`). Every exit of a rated escrow, `accept_rating`, `commit_rating` and the commitments, `attest_quality` and the buyer's decision on an attestation carry that slot, and what was signed for one job is refused for a later job at the same address. A rated escrow cannot end in the slot its rating was opened in.
 - **Commit and reveal.** After the job is paid, each side commits to `sha256(rating address ‖ opened slot ‖ own address ‖ score ‖ salt)` within about 7 days, and both then reveal within about 7 days. Neither side sees the other's score before committing. `expire_rating` gives an unfinished rating its final result: a side that stayed silent, or committed and then withheld its reveal, loses 5.00 reputation points.
@@ -229,7 +229,7 @@ The earlier Anchor devnet deployment (`794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8d
 
 ## Stack
 
-- **Assurance packages:** `@reddi/agent-protocol`, `@reddi/x402-solana`, `@reddi/rap-mcp-bridge`
+- **Assurance packages:** `@redditech/agent-protocol`, `@redditech/x402-solana`, `@redditech/rap-mcp-bridge`
 - **Conformance:** deterministic Jest, Node, and package dry-run checks
 - **Reference Solana code:** legacy Anchor program plus experimental Quasar sources/lane
 - **MCP bridge:** repo-local bridge for discovery, synthetic quotes, dry-run verification, and disclosure ledgers

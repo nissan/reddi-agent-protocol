@@ -8,7 +8,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const packageSet = [
   {
-    name: "@reddi/agent-protocol",
+    name: "@redditech/agent-protocol",
     dir: "packages/agent-protocol",
     commands: [
       ["npm", ["test"]],
@@ -25,7 +25,7 @@ const packageSet = [
     ],
   },
   {
-    name: "@reddi/x402-solana",
+    name: "@redditech/x402-solana",
     dir: "packages/x402-solana",
     commands: [
       ["npm", ["test", "--", "--runInBand"]],
@@ -45,8 +45,8 @@ const packageSet = [
 ];
 
 const excludedPackages = new Set([
-  "@reddi/sendai-x402",
-  "@reddi/eliza-plugin-x402",
+  "@redditech/sendai-x402",
+  "@redditech/eliza-plugin-x402",
 ]);
 
 const forbiddenPackPathPatterns = [
@@ -87,7 +87,7 @@ const overclaimPatterns = [
     reason: "npm publication claim",
   },
   {
-    pattern: /generally installable|npm install @reddi\/x402-solana/i,
+    pattern: /generally installable|npm install @redditech\/x402-solana/i,
     reason: "general installability claim",
   },
   {

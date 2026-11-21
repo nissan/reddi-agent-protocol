@@ -17,7 +17,7 @@ packages/rap-mcp-bridge
 NPM-ready name later:
 
 ```text
-@reddi/rap-mcp-bridge
+@redditech/rap-mcp-bridge
 ```
 
 Reasoning: keep the implementation inside the RAP repo while APIs are still moving, but make the package boundary publishable from day one.

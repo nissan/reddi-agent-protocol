@@ -22,10 +22,12 @@ address, never the multisig account address).
 
 ## 2. Fund the deployer
 
-The deployer needs the program account's rent at 6,960 lamports per byte, plus
-room for the temporary buffer during the deploy and fees. With rating and
-attestation in the V1 build, the program is expected at about 85–95 KB (rent
-about 0.6–0.66 SOL); take the size of record from the freeze. 2 SOL is enough.
+The deployer needs the program account's rent, plus room for the temporary
+buffer during the deploy and fees. On 22 November 2026 mainnet and devnet both
+charged 5,080 lamports per byte (check with `solana rent <bytes> --url
+mainnet-beta` before funding). With rating and attestation in the V1 build, the
+mainnet variant is about 96 KB (rent about 0.49 SOL); take the size of record
+from the freeze. 2 SOL is enough.
 The owner funds it.
 
 ## 3. Deploy (owner signs)

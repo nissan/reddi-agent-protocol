@@ -1,5 +1,5 @@
 {
-  "name": "@reddi/openrouter-specialists",
+  "name": "@redditech/openrouter-specialists",
   "version": "0.1.0",
   "description": "Shared OpenRouter-backed specialist runtime fixtures for RAP Assurance demos; not production marketplace infrastructure.",
   "type": "module",
@@ -32,8 +32,8 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@reddi/agent-protocol": "file:../agent-protocol",
-    "@reddi/x402-solana": "file:../x402-solana",
+    "@redditech/agent-protocol": "file:../agent-protocol",
+    "@redditech/x402-solana": "file:../x402-solana",
     "@solana/web3.js": "^1.98.4"
   },
   "devDependencies": {

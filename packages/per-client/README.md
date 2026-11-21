@@ -1,4 +1,4 @@
-# @reddi/per-client
+# @redditech/per-client
 
 Evidence client for MagicBlock PER (Private Ephemeral Rollup) experiments with the Reddi Agent Protocol.
 
@@ -14,7 +14,7 @@ This package is repo-local evidence tooling for bounded RAP Assurance experiment
 
 The escrow program's PER tracking instructions (`delegate_escrow`, `release_escrow_per`) are not in the V1 program build. They sit behind the program's `per` feature, which is off by default, unfinished, and never used for a mainnet build. Integrating with MagicBlock's service is post-V1 work, tracked in issue #839. Until then, treat `delegateEscrow` and `releaseEscrowViaPer` as experiment code for a `per`-feature build on a local or devnet lane.
 
-`release_escrow` takes five accounts, in this order: escrow (writable), payer (signer, writable), payee (writable), protocol treasury `5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe` (writable), System program. `buildReleaseEscrowInstruction` builds it and `releaseEscrowFallback` sends it. An escrow that was opted in to rating also needs its rating account after those five and the rating's opened slot after the selector; this package adds neither (see the rating module of `@reddi/x402-solana`).
+`release_escrow` takes five accounts, in this order: escrow (writable), payer (signer, writable), payee (writable), protocol treasury `5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe` (writable), System program. `buildReleaseEscrowInstruction` builds it and `releaseEscrowFallback` sends it. An escrow that was opted in to rating also needs its rating account after those five and the rating's opened slot after the selector; this package adds neither (see the rating module of `@redditech/x402-solana`).
 
 ## Why TypeScript?
 
@@ -25,7 +25,7 @@ PER delegation stays at the TypeScript/client layer. Do not move MagicBlock SDK 
 With the V1 program build:
 
 ```ts
-import { releaseEscrowFallback } from "@reddi/per-client";
+import { releaseEscrowFallback } from "@redditech/per-client";
 
 const sig = await releaseEscrowFallback(programId, escrowPda, payee, payerKeypair, connection);
 ```
@@ -33,7 +33,7 @@ const sig = await releaseEscrowFallback(programId, escrowPda, payee, payerKeypai
 Against a program built with the `per` feature, in an approved experiment only (selected-cluster PER path; not a production privacy claim):
 
 ```ts
-import { delegateEscrow, releaseEscrowViaPer, PER_DEVNET_RPC } from "@reddi/per-client";
+import { delegateEscrow, releaseEscrowViaPer, PER_DEVNET_RPC } from "@redditech/per-client";
 
 // 1. Ask MagicBlock's Permission and Delegation programs for a session
 const session = await delegateEscrow(escrowPda, payerKeypair, connection);

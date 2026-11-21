@@ -6,7 +6,7 @@
 // Root-cause fix for a defect where a change could commit source but not the
 // compiled dist/, leaving package.json "exports" pointing at files that do not
 // exist. A publish would then ship broken subpaths (e.g. `import ... from
-// "@reddi/agent-protocol/receipts"` resolving to a missing ./dist/receipts.js),
+// "@redditech/agent-protocol/receipts"` resolving to a missing ./dist/receipts.js),
 // and the ordinary test suite would stay green because it imports from dist via
 // paths TypeScript happens to have emitted for the modules under test.
 //

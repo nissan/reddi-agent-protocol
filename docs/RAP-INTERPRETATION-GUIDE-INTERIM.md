@@ -2,7 +2,7 @@
 
 Issue: [#679](https://github.com/nissan/reddi-agent-protocol/issues/679)
 
-**Status: interim.** This guide describes what the code in this repository does today, at `@reddi/agent-protocol` 0.1.0 plus the unreleased receipt v2 changes. It is not the final guide. The final guide waits for the contract and version freeze tracked by ECO-041, ECO-044 and ECO-045, and for the two reviews listed under [Reviews still owed](#reviews-still-owed). Anything proposed, missing or undecided is marked **Not implemented** or **Proposed** where it appears.
+**Status: interim.** This guide describes what the code in this repository does today, at `@redditech/agent-protocol` 0.1.0 plus the unreleased receipt v2 changes. It is not the final guide. The final guide waits for the contract and version freeze tracked by ECO-041, ECO-044 and ECO-045, and for the two reviews listed under [Reviews still owed](#reviews-still-owed). Anything proposed, missing or undecided is marked **Not implemented** or **Proposed** where it appears.
 
 Payments prove transfer; RAP Assurance proves paid work. This guide is about reading the records in between without mistaking one for the other.
 
@@ -12,7 +12,7 @@ Payments prove transfer; RAP Assurance proves paid work. This guide is about rea
 |---|---|
 | Audience | Protocol integrators, operators, reviewers and auditors. |
 | Task goal | Given a RAP record, decide whether it authorises an action, records only an observation, requires a refusal or recovery step, or leaves the answer unknown. |
-| Supported version | `@reddi/agent-protocol` 0.1.0 and the schema versions named in [Canonical sources](#canonical-sources). |
+| Supported version | `@redditech/agent-protocol` 0.1.0 and the schema versions named in [Canonical sources](#canonical-sources). |
 | Supported environments | Local and offline only: Node with a clean checkout. Every example runs from fixtures. |
 | Prerequisites | `npm ci` in `packages/agent-protocol`. No wallet, key, RPC endpoint, provider account, hosted service or secret. |
 | Owner | Not yet named. The issue records that an accountable RAP semantics owner and a docs owner are still to be accepted; this guide does not infer them. |
@@ -102,7 +102,7 @@ AUDD in this package is rail configuration and record metadata only. It is not c
 ## Duplicates, replays and out-of-order records
 
 - **Record ids are deterministic.** `deriveReddiPaymentId` hashes the canonical payload, so the same content always has the same id. Two records with one id are one record seen twice.
-- **This package keeps no replay ledger.** Nothing in `@reddi/agent-protocol` remembers what it has seen. The consumer must compare ids.
+- **This package keeps no replay ledger.** Nothing in `@redditech/agent-protocol` remembers what it has seen. The consumer must compare ids.
 - **The local evidence archive never replaces a stored record.** Putting the identical record again succeeds and changes nothing. Putting different content under an existing id is refused with `evidence_id_conflict`, and the first record stays (#724).
 - **Nonce replay is checked in a different package.** `packages/x402-solana/src/nonce.ts` rejects a nonce it has already stored. Its default store is in memory and is lost on restart; the file says a persistent store is the caller's job.
 - **Out-of-order detection. Not implemented.** No function orders records or flags a refund that arrives before its payment. A refund record must name its original observation by id, and that is the only link.

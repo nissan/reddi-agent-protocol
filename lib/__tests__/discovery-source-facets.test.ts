@@ -1,7 +1,7 @@
 import {
   SOURCE_TRUST_BOUNDARIES_DOC_REF,
   SOURCE_TRUST_STATES,
-} from "@reddi/agent-protocol/source-trust-conformance-matrix";
+} from "@redditech/agent-protocol/source-trust-conformance-matrix";
 
 import {
   DISCOVERY_SOURCE_BOUNDARY,

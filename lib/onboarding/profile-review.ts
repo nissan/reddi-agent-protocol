@@ -34,7 +34,7 @@ import {
   type OnboardingProvenancedField,
   type OnboardingReadinessLane,
   type OnboardingSourceKind,
-} from "@reddi/agent-protocol/onboarding-analyser-handoff";
+} from "@redditech/agent-protocol/onboarding-analyser-handoff";
 import {
   ONBOARDING_STATE_TRANSITION_EVENT_SCHEMA_VERSION,
   applyOnboardingStateTransition,
@@ -46,7 +46,7 @@ import {
   type OnboardingGateReasonCode,
   type OnboardingStateTransitionError,
   type OnboardingStateTransitionRecord,
-} from "@reddi/agent-protocol/onboarding-state-machine";
+} from "@redditech/agent-protocol/onboarding-state-machine";
 
 export const PROFILE_REVIEW_VIEW_SCHEMA_VERSION = "reddi.onboarding-profile-review-view.v1" as const;
 export const PROFILE_REVIEW_ISSUE = 385 as const;

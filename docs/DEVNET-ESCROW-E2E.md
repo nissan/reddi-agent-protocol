@@ -6,7 +6,7 @@ transactions. It complements the local-validator lane (`archive/anchor-escrow/te
 which covers the same paths with slot warps but never touches a public cluster.
 
 Before it signs anything the script checks that the RPC is devnet (genesis hash) and that the deployed
-program bytes hash to the recorded `5055df46…e142a`. It refuses otherwise.
+program bytes hash to the recorded `2576a9cc…32ac` (SHA-256 of the 96,272-byte file deployed on 21 November 2026; see `DEPLOY.md`). It refuses otherwise.
 
 The script also has a rated lane, for ratings and judge attestations: see
 [Rated lane](#rated-lane-ratings-and-judge-attestations) below.
@@ -155,7 +155,7 @@ The same variables as above, plus:
   early; it waits for `finish-rated` under its own run id.
 - `finish-rated` needs the payer and payee keypairs and the run id of the `run-rated` it finishes.
 
-The payer needs about 0.13 devnet SOL (0.032 SOL of locks, four rating accounts at about 0.00277 SOL each,
+The payer needs about 0.10 devnet SOL (0.032 SOL of locks, four rating accounts at about 0.00202 SOL each,
 of which three come back during the run, the top-ups for the payee and the judge, and room for fees) and
 1 devnet USDC. With `RAP_E2E_REGISTER_PARTIES=1` the payer and the payee each need about 0.012 SOL more.
 `plan-rated` reports any shortfall. Payee transactions are signed by the payee alone: a seller's settle or

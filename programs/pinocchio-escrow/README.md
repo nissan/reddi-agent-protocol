@@ -299,10 +299,10 @@ release, so it cannot be attested either.
 
 Things to know:
 
-- A rating account costs 2,770,080 lamports of rent (270 bytes, at 6,960
+- A rating account costs 2,021,840 lamports of rent (270 bytes, at 5,080
   lamports per byte with the 128-byte account overhead), paid by the buyer and
   returned at `close_rating`, on a refund, or on a release the seller never
-  agreed to have rated. An attestation costs the judge 1,774,800 lamports
+  agreed to have rated. An attestation costs the judge 1,295,400 lamports
   (127 bytes), returned at `close_attestation`.
 - The addresses are derived from the escrow address, which is derived from the
   payer and the nonce. A payer that reuses a nonce gets the same addresses:
@@ -731,10 +731,10 @@ bytes (0.4356 SOL at 6,960); they cost 33,992 bytes and 0.2366 SOL of rent.
 
 Rent is for the program account (36 bytes) plus the program data account (45
 bytes of header plus the binary), each with the 128-byte account overhead:
-`(size + 337) × rate`. 6,960 lamports per byte is the long-standing rate.
-Devnet's RPC reported 5,080 when this was measured; mainnet's RPC could not be
-reached from the build environment, so check the current mainnet rate
-(`solana rent <bytes>`) before relying on a figure. Rent is a deposit that
+`(size + 337) × rate`. 6,960 lamports per byte was the long-standing rate. On
+22 November 2026 the public devnet and mainnet RPCs both reported 5,080
+(`getMinimumBalanceForRentExemption`), so the 5,080 row is the current cost;
+check the rate again (`solana rent <bytes>`) before relying on a figure. Rent is a deposit that
 comes back if the program is closed. A deploy also needs the same amount
 again, briefly, for the upload buffer. A program data account can be given
 room to grow, which costs rent for the extra room.

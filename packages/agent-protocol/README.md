@@ -1,10 +1,10 @@
-# @reddi/agent-protocol
+# @redditech/agent-protocol
 
 Open RAP Assurance primitives for paid agent work.
 
 > Payments prove transfer; RAP Assurance proves paid work.
 
-This package is the local-first Reddi Agent Protocol surface above payment rails such as `@reddi/x402-solana`. It defines the provider-signed receipt (`reddi.receipt.v2`), payment records, evidence and attestation records, discovery and trust metadata, deterministic fixtures, and validation helpers that run without hosted Reddi infrastructure, wallet keys, devnet/mainnet spend, or paid provider calls. It is not a payment facilitator, marketplace operator, custody provider, or production runtime.
+This package is the local-first Reddi Agent Protocol surface above payment rails such as `@redditech/x402-solana`. It defines the provider-signed receipt (`reddi.receipt.v2`), payment records, evidence and attestation records, discovery and trust metadata, deterministic fixtures, and validation helpers that run without hosted Reddi infrastructure, wallet keys, devnet/mainnet spend, or paid provider calls. It is not a payment facilitator, marketplace operator, custody provider, or production runtime.
 
 **Publication status:** repo-local v0.1 candidate. It is not published on npm yet; real publication is tracked by issue #603 and requires explicit operator approval.
 
@@ -21,7 +21,7 @@ npm run release:dry-run
 ## Receipt v2
 
 ```ts
-import { hashReddiReceiptV2Body, verifyReddiReceiptV2 } from '@reddi/agent-protocol/receipt-v2';
+import { hashReddiReceiptV2Body, verifyReddiReceiptV2 } from '@redditech/agent-protocol/receipt-v2';
 
 const result = verifyReddiReceiptV2(signedReceipt, {
   providerId: providerWalletYouPaid,
@@ -43,7 +43,7 @@ Verification is offline. Pass what you know yourself as the expectation: without
 ## Policy Decisions
 
 ```typescript
-import { policyDecisionFromBudgetPolicyDecision } from '@reddi/agent-protocol';
+import { policyDecisionFromBudgetPolicyDecision } from '@redditech/agent-protocol';
 
 const policyDecision = policyDecisionFromBudgetPolicyDecision({
   allowed: false,
@@ -58,16 +58,16 @@ Use payment-rail packages to settle and verify payment-specific proofs. A RAP re
 
 ## AUDD non-custodial foundation
 
-`@reddi/agent-protocol/audd-rail-config` publishes the non-secret AUDD rail identity contract: deterministic fixture, generated local test mint, explicitly unverified/blocked devnet, and gated mainnet. The verified public mainnet identity is recorded as AUDD mint `AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw`, SPL Token program `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA`, six decimals, with dated source provenance. Mainnet remains disabled by default.
+`@redditech/agent-protocol/audd-rail-config` publishes the non-secret AUDD rail identity contract: deterministic fixture, generated local test mint, explicitly unverified/blocked devnet, and gated mainnet. The verified public mainnet identity is recorded as AUDD mint `AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw`, SPL Token program `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA`, six decimals, with dated source provenance. Mainnet remains disabled by default.
 
-`@reddi/agent-protocol/payment-records` adds rail-neutral canonical IDs for job, agreement, payment intent, payment observation, and refund records using stable canonical JSON SHA-256 hashing. Fixture, local-test-mint, and devnet-unverified labels are rejected if marked grant-volume eligible. Local-test-mint is configuration/test-only and has no public CAIP-2 export path.
+`@redditech/agent-protocol/payment-records` adds rail-neutral canonical IDs for job, agreement, payment intent, payment observation, and refund records using stable canonical JSON SHA-256 hashing. Fixture, local-test-mint, and devnet-unverified labels are rejected if marked grant-volume eligible. Local-test-mint is configuration/test-only and has no public CAIP-2 export path.
 
 The AUDD payment-plan and x402 bridge helpers were removed with receipt v1 (#776). AUDD here is rail identity and record metadata only.
 
 ## AI Catalog Ingestion
 
 ```typescript
-import { createAiCatalogSnapshot, aiCatalogFixtures } from '@reddi/agent-protocol/ai-catalog';
+import { createAiCatalogSnapshot, aiCatalogFixtures } from '@redditech/agent-protocol/ai-catalog';
 
 const snapshot = createAiCatalogSnapshot(aiCatalogFixtures.happyPath, {
   rawSnapshotRef: 'sha256:catalog-response',
@@ -88,7 +88,7 @@ import {
   agentStackFixtureCorpora,
   createAgentStackFixtureCorpus,
   createStaticAgentStackIngestionResult,
-} from '@reddi/agent-protocol/agent-stack-fixtures';
+} from '@redditech/agent-protocol/agent-stack-fixtures';
 
 const corpus = createAgentStackFixtureCorpus(agentStackFixtureCorpora.anthropicFinancialServices);
 const result = createStaticAgentStackIngestionResult(corpus);
@@ -128,7 +128,7 @@ import {
   attachRepoExplorerEvidenceToSnapshot,
   projectRepoExplorerEvidence,
   repoExplorerEvidenceManifestFixtures,
-} from '@reddi/agent-protocol/repo-explorer-evidence-manifest';
+} from '@redditech/agent-protocol/repo-explorer-evidence-manifest';
 
 const report = validateRepoExplorerEvidenceManifest(repoExplorerEvidenceManifestFixtures.happyPath);
 console.log(report.verdict); // valid
@@ -156,7 +156,7 @@ Accepted manifests attach to the onboarding `static-agent-stack-snapshot` intake
 ## Provider Trust Records
 
 ```typescript
-import { createAiCatalogProviderTrustRecord, providerTrustFixtures } from '@reddi/agent-protocol/provider-trust';
+import { createAiCatalogProviderTrustRecord, providerTrustFixtures } from '@redditech/agent-protocol/provider-trust';
 
 const trust = createAiCatalogProviderTrustRecord(
   providerTrustFixtures.verifiedCatalog,
@@ -177,8 +177,8 @@ External ARD trust metadata is treated as a claim until RAP-side verification ma
 import {
   createAiCatalogDiscoveryCandidates,
   evaluateDiscoveryCandidatePolicyPreflight,
-} from '@reddi/agent-protocol/discovery-source';
-import { providerTrustFixtures } from '@reddi/agent-protocol/provider-trust';
+} from '@redditech/agent-protocol/discovery-source';
+import { providerTrustFixtures } from '@redditech/agent-protocol/provider-trust';
 
 const candidates = createAiCatalogDiscoveryCandidates(providerTrustFixtures.verifiedCatalog, {
   relevanceScores: {
@@ -214,7 +214,7 @@ Hosted RAP catalog/search surfaces follow the same source-neutral boundary. See 
 import {
   createEvidenceArchiveRecord,
   createLocalEvidenceArchive,
-} from '@reddi/agent-protocol/evidence-archive';
+} from '@redditech/agent-protocol/evidence-archive';
 
 const record = createEvidenceArchiveRecord({
   id: 'evidence:demo:001',
@@ -236,7 +236,7 @@ EvidenceArchive v1 stores request, response, receipt, source, attestation, and e
 ## Source-Aware Diagnostics
 
 ```typescript
-import { createSourceAwareCandidateDiagnostics } from '@reddi/agent-protocol/source-diagnostics';
+import { createSourceAwareCandidateDiagnostics } from '@redditech/agent-protocol/source-diagnostics';
 
 const diagnostics = createSourceAwareCandidateDiagnostics(candidate, {
   policyDecision: decision,
@@ -255,7 +255,7 @@ Source-aware diagnostics expose separate lanes, one per returned field: `capabil
 import {
   buildSourceTrustConformanceMatrix,
   classifySourceTrustCandidate,
-} from '@reddi/agent-protocol/source-trust-conformance-matrix';
+} from '@redditech/agent-protocol/source-trust-conformance-matrix';
 
 const matrix = buildSourceTrustConformanceMatrix();
 console.log(matrix.coverage.complete); // true — all states, all required cases, both source kinds
@@ -276,7 +276,7 @@ The source/trust conformance matrix proves that `auth.md` documents and ARD/AI C
 import {
   applyAttestationToReputation,
   createInitialReputationState,
-} from '@reddi/agent-protocol/attestation-reputation';
+} from '@redditech/agent-protocol/attestation-reputation';
 
 const state = createInitialReputationState({ id: 'specialist:coder', type: 'specialist' });
 const update = applyAttestationToReputation(attestationRecord, state);
@@ -296,7 +296,7 @@ Reputation updates are deterministic and local-first. Invalid or incomplete rubr
 ```typescript
 import {
   deriveQuasarRegistryCompatibility,
-} from '@reddi/agent-protocol/quasar-registry-compatibility';
+} from '@redditech/agent-protocol/quasar-registry-compatibility';
 
 const report = deriveQuasarRegistryCompatibility({
   listingId: 'listing:research-agent',
@@ -329,7 +329,7 @@ import {
   validateBrowserWalletTier1LocalHarnessContract,
   validateBrowserWalletIdentityCopyClaims,
   DORMANT_TIER1_LOCAL_BROWSER_HARNESS_CONTRACT,
-} from '@reddi/agent-protocol/browser-wallet-approval';
+} from '@redditech/agent-protocol/browser-wallet-approval';
 
 const result = validateBrowserWalletApprovalRecord(approvalJson, {
   now: new Date(),

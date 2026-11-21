@@ -4,7 +4,7 @@
 
 Issue: [#449](https://github.com/nissan/reddi-agent-protocol/issues/449) (parent epic: #355 — OSS developer release and conformance readiness)
 
-This is the release-readiness checklist for the public RAP v0.1 package set. It defines what must be true — and which deterministic command proves each claim — before `@reddi/agent-protocol` v0.1 is treated as launch-ready. Nothing in this checklist publishes anything: every gate is a local, offline, no-spend dry-run. Actual npm publication requires a separate approved issue and explicit operator approval.
+This is the release-readiness checklist for the public RAP v0.1 package set. It defines what must be true — and which deterministic command proves each claim — before `@redditech/agent-protocol` v0.1 is treated as launch-ready. Nothing in this checklist publishes anything: every gate is a local, offline, no-spend dry-run. Actual npm publication requires a separate approved issue and explicit operator approval.
 
 ## 1. Package Candidate Set
 
@@ -12,9 +12,9 @@ Per [OSS v0.1 Release Smoke](./OSS-V0.1-RELEASE-SMOKE.md) (#512) and the [x402 A
 
 | Package | v0.1 role |
 | --- | --- |
-| `@reddi/agent-protocol` | Primary public package — protocol primitives, fixtures, local conformance helpers |
-| `@reddi/x402-solana` | Repo-local OSS candidate with explicit x402/Solana boundaries |
-| `@reddi/sendai-x402`, `@reddi/eliza-plugin-x402` | **Deferred** experimental packages — must not appear in v0.1 release claims |
+| `@redditech/agent-protocol` | Primary public package — protocol primitives, fixtures, local conformance helpers |
+| `@redditech/x402-solana` | Repo-local OSS candidate with explicit x402/Solana boundaries |
+| `@redditech/sendai-x402`, `@redditech/eliza-plugin-x402` | **Deferred** experimental packages — must not appear in v0.1 release claims |
 
 ## 2. Release Gates (deterministic commands)
 
@@ -37,12 +37,12 @@ CI coverage: the `rap-package-guard` workflow (`.github/workflows/rap-package-gu
 
 The packed artifact for each candidate package must contain exactly:
 
-- `package.json` — with `name`, `version`, `main`, `types`, `exports`, `files` whitelist (`dist` + `README.md` + `CHANGELOG.md`, plus `examples` for `@reddi/agent-protocol`), declared `license`, and no `private: true`.
+- `package.json` — with `name`, `version`, `main`, `types`, `exports`, `files` whitelist (`dist` + `README.md` + `CHANGELOG.md`, plus `examples` for `@redditech/agent-protocol`), declared `license`, and no `private: true`.
 - `README.md` — coverage requirements in §4.
 - `LICENSE` — per-package MIT copy (npm auto-includes `LICENSE*` from the package directory; the repo-root file never lands in the tarball).
 - `CHANGELOG.md` — per-package v0.1.0 release notes (§5), included via the `files` whitelist.
 - `dist/` — compiled JS + `.d.ts` for every exported subpath. `dist/` is committed for these packages; the exports guard exists precisely because a source-only commit would ship broken subpaths.
-- `examples/` (`@reddi/agent-protocol` only) — the no-spend runnable examples (`ard-no-spend-demo.mjs`, `interpretation-guide-scenarios.mjs`, `ard-no-spend-ai-catalog.json`).
+- `examples/` (`@redditech/agent-protocol` only) — the no-spend runnable examples (`ard-no-spend-demo.mjs`, `interpretation-guide-scenarios.mjs`, `ard-no-spend-ai-catalog.json`).
 
 Nothing else. Presence is enforced by `scripts/check-package-artifact-contents.mjs` (missing `package.json`, `README.md`, or `dist/` output fails the guard).
 
@@ -57,7 +57,7 @@ Nothing else. Presence is enforced by `scripts/check-package-artifact-contents.m
 | Check | Status 2026-07-06 | Notes |
 | --- | --- | --- |
 | Repo `LICENSE` (MIT) | ✅ present | Root `LICENSE`, MIT, Redditech Pty Ltd |
-| `license` field in each candidate `package.json` | ✅ present | `@reddi/x402-solana` gained its MIT declaration with #449; guard now enforces the field |
+| `license` field in each candidate `package.json` | ✅ present | `@redditech/x402-solana` gained its MIT declaration with #449; guard now enforces the field |
 | Per-package `LICENSE` file in tarball | ✅ done 2026-07-06 | Root MIT `LICENSE` copied into `packages/agent-protocol/` and `packages/x402-solana/`. Verified via `npm pack --dry-run --json`: `LICENSE` present in both tarballs (agent-protocol 93 files, x402-solana 20 files); `npm run check:package:artifacts` PASS. |
 | `SECURITY.md` | ✅ present | Repo root |
 | `CONTRIBUTING.md` | ✅ present | Repo root |
@@ -72,7 +72,7 @@ Nothing else. Presence is enforced by `scripts/check-package-artifact-contents.m
 - **Private research / corpora:** `research/`, `ingests/`.
 - **Unrelated app/repo files:** `app/`, `components/`, `config/`, `e2e/`, `tests/`, `programs/`, `third_party/`.
 
-It also enforces manifest hygiene (§3). The guard is wired into: `release:dry-run` and `prepublishOnly` for `@reddi/agent-protocol`, `release:dry-run` for `@reddi/x402-solana`, and the `rap-package-guard` CI workflow. The heavier #512 smoke keeps its own pack inspection; this guard is the cheap standalone gate.
+It also enforces manifest hygiene (§3). The guard is wired into: `release:dry-run` and `prepublishOnly` for `@redditech/agent-protocol`, `release:dry-run` for `@redditech/x402-solana`, and the `rap-package-guard` CI workflow. The heavier #512 smoke keeps its own pack inspection; this guard is the cheap standalone gate.
 
 ## 7. No-Spend Local Verification Path
 
@@ -131,9 +131,9 @@ Live status as of 2026-07-06:
 | --- | --- | --- | --- |
 | #353 | Public developer quickstart, examples, and conformance suite (feature) | ✅ CLOSED 2026-07-06 | Quickstart + examples via #357; conformance-suite packaging via `npm run check:conformance:public` (`scripts/run-public-conformance.mjs`, also in the `rap-package-guard` CI lane) + [docs/RAP-V0.1-DEVELOPER-QUICKSTART-AND-CONFORMANCE.md](./RAP-V0.1-DEVELOPER-QUICKSTART-AND-CONFORMANCE.md) |
 | #357 | Final public local no-spend quickstart and conformance polish | ✅ CLOSED 2026-06-22 | `packages/agent-protocol/README.md` § "ARD No-Spend Quickstart"; `npm run example:ard:no-spend` |
-| #416 | Proof-chain fixture Discover → Attestation | ✅ CLOSED 2026-06-24 | `@reddi/agent-protocol/rail-neutral-proof-chain-fixture` export + fixtures |
+| #416 | Proof-chain fixture Discover → Attestation | ✅ CLOSED 2026-06-24 | `@redditech/agent-protocol/rail-neutral-proof-chain-fixture` export + fixtures |
 | #417 | Public demo proof page data contract | ✅ CLOSED 2026-06-22 | `reddi.economic-demo.public-proof-page-data.v1` (referenced from the no-spend demo output) |
-| #450 | Source/trust conformance matrix for auth.md and ARD metadata | ✅ CLOSED 2026-07-06 | Landed via PR #593: `reddi.source-trust-conformance-matrix.v1` (`@reddi/agent-protocol/source-trust-conformance-matrix`) — 7 trust states × 7 case classes on both source kinds, #343/#344 projections. |
+| #450 | Source/trust conformance matrix for auth.md and ARD metadata | ✅ CLOSED 2026-07-06 | Landed via PR #593: `reddi.source-trust-conformance-matrix.v1` (`@redditech/agent-protocol/source-trust-conformance-matrix`) — 7 trust states × 7 case classes on both source kinds, #343/#344 projections. |
 | #451 | No-spend RAP conformance runner for public quickstart | ✅ CLOSED 2026-06-24 | Satisfied by #357/#492 (deterministic local path + fail-closed cases); release confidence superseded by the #512 smoke gate |
 | #452 | Discover/Decide/Prove boundaries doc (OSS / hosted / Quasar lanes) | ✅ CLOSED 2026-07-06 | [docs/DISCOVER-DECIDE-PROVE-BOUNDARIES.md](./DISCOVER-DECIDE-PROVE-BOUNDARIES.md) (PR #591) |
 

@@ -1,5 +1,5 @@
 {
-  "name": "@reddi/per-client",
+  "name": "@redditech/per-client",
   "version": "0.1.0",
   "description": "Repo-local evidence client that talks to MagicBlock's Permission and Delegation programs for Reddi Agent Protocol experiments. PER tracking instructions are not in the V1 escrow program build (post-V1). Not production custody or settlement.",
   "main": "dist/index.js",
@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@magicblock-labs/ephemeral-rollups-sdk": ">=0.8.0",
-    "@reddi/x402-solana": "file:../x402-solana",
+    "@redditech/x402-solana": "file:../x402-solana",
     "@solana/web3.js": "^1.95.8"
   },
   "devDependencies": {

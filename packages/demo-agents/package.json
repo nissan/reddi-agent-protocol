@@ -1,5 +1,5 @@
 {
-  "name": "@reddi/demo-agents",
+  "name": "@redditech/demo-agents",
   "version": "0.1.0",
   "description": "Historical devnet demo A→B→C agent cycle for RAP Assurance evidence; not production/mainnet.",
   "private": true,

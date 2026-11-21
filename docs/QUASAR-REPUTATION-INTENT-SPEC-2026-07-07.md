@@ -1,6 +1,6 @@
 # Quasar-Backed Reputation Instruction Fixture Gate — `reddi.quasar-reputation-intent.v2` (#443)
 
-> **Status, 20 November 2026:** the `@reddi/agent-protocol` modules this document describes were removed before V1 with `reddi.receipt.v1` ([#776](https://github.com/nissan/reddi-agent-protocol/issues/776)). `reddi.receipt.v2` is the only receipt. This document is kept as a historical record and does not describe current code.
+> **Status, 20 November 2026:** the `@redditech/agent-protocol` modules this document describes were removed before V1 with `reddi.receipt.v1` ([#776](https://github.com/nissan/reddi-agent-protocol/issues/776)). `reddi.receipt.v2` is the only receipt. This document is kept as a historical record and does not describe current code.
 
 > **Quasar freeze pointer — added 2026-11-11; freeze effective 2026-10-02.** This document predates the freeze and is preserved unchanged below as a dated record of experimental Quasar work. Quasar is frozen and retired from product, production, deployment, submission, audit and mainnet critical paths; the recorded devnet deployment is blocked; stable Anchor `1.1.2` remains authoritative. Nothing here is current deployment or readiness guidance. See [`QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md`](./QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
 
@@ -19,7 +19,7 @@ reinterpreted. Against the post-job-binding current sources:
 No producer emits `v1`, nothing re-reads stored `v1` records, and no consumer reinterprets one: a
 reader keyed on the `v1` identifier simply keeps rejecting these records.
 
-Module: `packages/agent-protocol/src/quasar-reputation-intent.ts` · Tests: `packages/agent-protocol/tests/quasar-reputation-intent.test.ts` · Subpath export: `@reddi/agent-protocol/quasar-reputation-intent`.
+Module: `packages/agent-protocol/src/quasar-reputation-intent.ts` · Tests: `packages/agent-protocol/tests/quasar-reputation-intent.test.ts` · Subpath export: `@redditech/agent-protocol/quasar-reputation-intent`.
 
 A **deterministic, fixture-level** mapping from eligible reputation/attestation records to Quasar
 **commit / reveal / confirm / dispute** INTENT records. Every output is a plain data record with

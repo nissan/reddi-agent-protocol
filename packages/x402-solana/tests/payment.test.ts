@@ -186,7 +186,7 @@ describe('x402 Payment Module', () => {
         endpoint: 'https://planning.example.test/v1/chat/completions',
         nonce: 'nonce-sol',
       });
-      const verifier = new SolanaReceiptVerifier({
+      const verifier = new SolanaReceiptVerifier({ payerProof: 'not-required',
         allowRealPayment: true,
         connection: {
           async getParsedTransaction() {
@@ -212,7 +212,7 @@ describe('x402 Payment Module', () => {
 
     it('accepts a real USDC receipt when the parsed token transfer pays a token account owned by the challenged payee', async () => {
       const mint = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
-      const verifier = new SolanaReceiptVerifier({
+      const verifier = new SolanaReceiptVerifier({ payerProof: 'not-required',
         allowRealPayment: true,
         usdcMint: mint,
         connection: {
@@ -243,7 +243,7 @@ describe('x402 Payment Module', () => {
 
     it('rejects a real USDC receipt when the transfer destination is not owned by the challenged payee', async () => {
       const mint = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
-      const verifier = new SolanaReceiptVerifier({
+      const verifier = new SolanaReceiptVerifier({ payerProof: 'not-required',
         allowRealPayment: true,
         usdcMint: mint,
         connection: {
@@ -275,7 +275,7 @@ describe('x402 Payment Module', () => {
 
     it('rejects caller-supplied destinationTokenAccount unless it matches the on-chain instruction destination', async () => {
       const mint = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
-      const verifier = new SolanaReceiptVerifier({
+      const verifier = new SolanaReceiptVerifier({ payerProof: 'not-required',
         allowRealPayment: true,
         usdcMint: mint,
         connection: {
@@ -326,7 +326,7 @@ describe('x402 Payment Module', () => {
       const solReceipt = (network: string, amount: string | number, nonce: string, signature = `sig-${nonce}`) =>
         ({ network, payTo: validAddress, amount, currency: 'SOL', nonce, payer: otherValidAddress, signature });
       const mainnetVerifier = (tx: unknown, extra: Record<string, unknown> = {}, genesis: string | null = mainnetHash) =>
-        new SolanaReceiptVerifier({
+        new SolanaReceiptVerifier({ payerProof: 'not-required',
           allowRealPayment: true,
           now: () => NOW,
           // These cases are about age and network; the fee rule has its own block.
@@ -379,10 +379,10 @@ describe('x402 Payment Module', () => {
 
       it('applies the age limit on devnet only when one is configured', async () => {
         const old = solTx(1_000_000, nowSeconds - 5000);
-        const off = await new SolanaReceiptVerifier({ allowRealPayment: true, now: () => NOW, connection: { async getParsedTransaction() { return old; } } })
+        const off = await new SolanaReceiptVerifier({ payerProof: 'not-required', allowRealPayment: true, now: () => NOW, connection: { async getParsedTransaction() { return old; } } })
           .verifyReceipt(solReceipt('solana-devnet', 0.001, 'dev-age-off'), solChallenge('solana-devnet', 0.001, 'dev-age-off'), new MemoryNonceReplayStore());
         expect(off.ok).toBe(true);
-        const on = await new SolanaReceiptVerifier({ allowRealPayment: true, now: () => NOW, maxTransactionAgeSeconds: 600, connection: { async getParsedTransaction() { return old; } } })
+        const on = await new SolanaReceiptVerifier({ payerProof: 'not-required', allowRealPayment: true, now: () => NOW, maxTransactionAgeSeconds: 600, connection: { async getParsedTransaction() { return old; } } })
           .verifyReceipt(solReceipt('solana-devnet', 0.001, 'dev-age-on'), solChallenge('solana-devnet', 0.001, 'dev-age-on'), new MemoryNonceReplayStore());
         expect(on.ok).toBe(false);
       });
@@ -413,10 +413,10 @@ describe('x402 Payment Module', () => {
       it('checks the devnet genesis hash only when one is configured', async () => {
         const tx = solTx(1_000_000);
         const connection = { async getParsedTransaction() { return tx; }, async getGenesisHash() { return 'LocalValidatorGenesis'; } };
-        const unchecked = await new SolanaReceiptVerifier({ allowRealPayment: true, connection })
+        const unchecked = await new SolanaReceiptVerifier({ payerProof: 'not-required', allowRealPayment: true, connection })
           .verifyReceipt(solReceipt('solana-devnet', 0.001, 'dev-net-off'), solChallenge('solana-devnet', 0.001, 'dev-net-off'), new MemoryNonceReplayStore());
         expect(unchecked.ok).toBe(true);
-        const checked = await new SolanaReceiptVerifier({ allowRealPayment: true, connection, expectedGenesisHash: devnetHash })
+        const checked = await new SolanaReceiptVerifier({ payerProof: 'not-required', allowRealPayment: true, connection, expectedGenesisHash: devnetHash })
           .verifyReceipt(solReceipt('solana-devnet', 0.001, 'dev-net-on'), solChallenge('solana-devnet', 0.001, 'dev-net-on'), new MemoryNonceReplayStore());
         expect(checked.ok).toBe(false);
         if (!checked.ok) expect(checked.reason).toBe('wrong_network');
@@ -425,7 +425,7 @@ describe('x402 Payment Module', () => {
       it('asks for the genesis hash again after a mismatch and remembers a match', async () => {
         let calls = 0;
         const answers = [devnetHash, mainnetHash];
-        const verifier = new SolanaReceiptVerifier({
+        const verifier = new SolanaReceiptVerifier({ payerProof: 'not-required',
           allowRealPayment: true,
           now: () => NOW,
           protocolFee: 'disabled',
@@ -457,7 +457,7 @@ describe('x402 Payment Module', () => {
       });
 
       it('accepts an exact SOL payment that floating point used to reject, and refuses one lamport short', async () => {
-        const devVerifier = (lamports: unknown) => new SolanaReceiptVerifier({ allowRealPayment: true, connection: { async getParsedTransaction() { return solTx(lamports); } } });
+        const devVerifier = (lamports: unknown) => new SolanaReceiptVerifier({ payerProof: 'not-required', allowRealPayment: true, connection: { async getParsedTransaction() { return solTx(lamports); } } });
         const exact = await devVerifier(510000)
           .verifyReceipt(solReceipt('solana-devnet', 0.00051, 'sol-exact'), solChallenge('solana-devnet', 0.00051, 'sol-exact'), new MemoryNonceReplayStore());
         expect(exact.ok).toBe(true);
@@ -507,7 +507,7 @@ describe('x402 Payment Module', () => {
       });
       const solReceipt = (nonce: string, signature = 'sig-shared') => ({ network: 'solana-devnet', payTo: validAddress, amount: 0.001, currency: 'SOL', nonce, payer: otherValidAddress, signature });
       const usdcReceipt = (extra: Record<string, unknown> = {}) => ({ network: 'solana-devnet', payTo: validAddress, amount: '0.03', currency: 'USDC', nonce: challenge.nonce, payer: otherValidAddress, signature: 'sig-usdc', ...extra });
-      const verifierFor = (transaction: unknown, mint?: string) => new SolanaReceiptVerifier({
+      const verifierFor = (transaction: unknown, mint?: string) => new SolanaReceiptVerifier({ payerProof: 'not-required',
         allowRealPayment: true,
         usdcMint: mint,
         connection: { async getParsedTransaction() { return transaction; } },
@@ -593,7 +593,7 @@ describe('x402 Payment Module', () => {
         endpoint: 'https://planning.example.test/v1/chat/completions',
         nonce: 'nonce-audd',
       });
-      const verifier = new SolanaReceiptVerifier({
+      const verifier = new SolanaReceiptVerifier({ payerProof: 'not-required',
         allowRealPayment: true,
         connection: {
           async getParsedTransaction() {
@@ -622,7 +622,7 @@ describe('x402 Payment Module', () => {
         endpoint: 'https://planning.example.test/v1/chat/completions',
         nonce: 'nonce-audd-2',
       });
-      const verifier = new SolanaReceiptVerifier({
+      const verifier = new SolanaReceiptVerifier({ payerProof: 'not-required',
         allowRealPayment: true,
         auddMint: mint,
         connection: {
@@ -694,7 +694,7 @@ describe('protocol fee on direct per-call payments', () => {
     transaction: { message: { accountKeys: ['buyer-ta', 'provider-ta', 'treasury-ta', 'stranger-ta'], instructions } },
   });
   // null means "not configured"; a default parameter would swallow undefined.
-  const verifier = (tx: unknown, protocolFee: unknown = fee) => new SolanaReceiptVerifier({
+  const verifier = (tx: unknown, protocolFee: unknown = fee) => new SolanaReceiptVerifier({ payerProof: 'not-required',
     allowRealPayment: true,
     usdcMint,
     protocolFee: (protocolFee === null ? undefined : protocolFee) as never,
@@ -844,7 +844,7 @@ describe('protocol fee on direct per-call payments', () => {
     });
     const solTx = (instructions: unknown[], blockTime?: number) => ({ blockTime, meta: { err: null }, transaction: { message: { instructions } } });
     const solVerifier = (tx: unknown, extra: Record<string, unknown> = { protocolFee: fee }) =>
-      new SolanaReceiptVerifier({ allowRealPayment: true, connection: { async getParsedTransaction() { return tx; } }, ...extra });
+      new SolanaReceiptVerifier({ payerProof: 'not-required', allowRealPayment: true, connection: { async getParsedTransaction() { return tx; } }, ...extra });
 
     it('states and accepts a SOL split: 0.01 SOL pays 9,995,000 lamports to the provider and 5,000 to the treasury', async () => {
       expect(solChallenge('solana-devnet', 'sol-terms').fee).toEqual({ bps: 250, payTo: treasury, amount: '0.00025', providerAmount: '0.00975', cap: '0.1' });
@@ -871,7 +871,7 @@ describe('protocol fee on direct per-call payments', () => {
     // RAP-FEE-S6
     it('refuses every mainnet receipt until a treasury is configured or the fee is explicitly disabled', async () => {
       const NOW = 1_800_000_000_000;
-      const mainnet = (extra: Record<string, unknown>) => new SolanaReceiptVerifier({
+      const mainnet = (extra: Record<string, unknown>) => new SolanaReceiptVerifier({ payerProof: 'not-required',
         allowRealPayment: true,
         now: () => NOW,
         connection: {
@@ -986,7 +986,7 @@ describe('DatabaseReplayStore', () => {
   });
 
   it('does not accept a real payment when the replay store is down', async () => {
-    const verifier = new SolanaReceiptVerifier({
+    const verifier = new SolanaReceiptVerifier({ payerProof: 'not-required',
       allowRealPayment: true,
       connection: {
         async getParsedTransaction() {

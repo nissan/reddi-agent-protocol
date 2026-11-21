@@ -6,7 +6,7 @@
  * F1.6: getJupiterClient() returns singleton and honors env configuration
  */
 
-import type { JupiterSwapV2Client } from '@reddi/x402-solana';
+import type { JupiterSwapV2Client } from '@redditech/x402-solana';
 
 describe('getJupiterClient', () => {
   const originalEnv = process.env;

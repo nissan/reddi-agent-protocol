@@ -1,6 +1,6 @@
 # Framework Template PR Ownership And Evidence Plan
 
-> **Status, 20 November 2026:** the `@reddi/agent-protocol` modules this document describes were removed before V1 with `reddi.receipt.v1` ([#776](https://github.com/nissan/reddi-agent-protocol/issues/776)). `reddi.receipt.v2` is the only receipt. This document is kept as a historical record and does not describe current code.
+> **Status, 20 November 2026:** the `@redditech/agent-protocol` modules this document describes were removed before V1 with `reddi.receipt.v1` ([#776](https://github.com/nissan/reddi-agent-protocol/issues/776)). `reddi.receipt.v2` is the only receipt. This document is kept as a historical record and does not describe current code.
 
 Issue: #554
 
@@ -66,7 +66,7 @@ git diff --check
 Every framework-template PR must also prove that the #553 checker passes:
 
 ```typescript
-import { runFrameworkTemplateNoLiveConformanceCheck } from '@reddi/agent-protocol/framework-template-conformance';
+import { runFrameworkTemplateNoLiveConformanceCheck } from '@redditech/agent-protocol/framework-template-conformance';
 
 const check = runFrameworkTemplateNoLiveConformanceCheck();
 if (!check.valid) throw new Error(check.reasonCodes.join(','));

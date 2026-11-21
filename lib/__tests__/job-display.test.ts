@@ -1,4 +1,4 @@
-import { MAINNET_STABLECOIN_MINTS } from "@reddi/x402-solana/payment";
+import { MAINNET_STABLECOIN_MINTS } from "@redditech/x402-solana/payment";
 
 import { formatJobAmount, jobExplorerTxUrl, jobNetworkLabel, jobStatusLabel, shortAddress } from "@/lib/jobs/job-display";
 import { DEVNET_USDC_MINT } from "@/lib/payments/wallet-direct-payment";

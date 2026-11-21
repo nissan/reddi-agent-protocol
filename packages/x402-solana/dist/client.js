@@ -9,10 +9,12 @@ exports.prepareDevnetUsdcPayment = prepareDevnetUsdcPayment;
 exports.executeDevnetUsdcPayment = executeDevnetUsdcPayment;
 exports.createSolanaDevnetUsdcPaymentClient = createSolanaDevnetUsdcPaymentClient;
 exports.challengeFromX402RequestHeader = challengeFromX402RequestHeader;
+exports.devnetUsdcPaymentProofHeaders = devnetUsdcPaymentProofHeaders;
 const node_fs_1 = require("node:fs");
 const web3_js_1 = require("@solana/web3.js");
 const spl_token_1 = require("@solana/spl-token");
 const payment_1 = require("./payment");
+const direct_auth_1 = require("./direct-auth");
 const DEVNET_NETWORK = 'solana-devnet';
 const DEFAULT_MIN_FEE_LAMPORTS = 5000;
 const APPROVAL_PHRASE = 'EXECUTE_DEVNET_X402_SPECIALIST_CALL';
@@ -207,4 +209,17 @@ function challengeFromX402RequestHeader(header) {
         nonce: parsed.nonce,
         memo: typeof parsed.memo === 'string' ? parsed.memo : undefined,
     });
+}
+/**
+ * The proof headers for presenting a devnet USDC receipt with `body`, signed by
+ * the same wallet file that paid. Send them with `x402-payment` on the paid retry.
+ */
+async function devnetUsdcPaymentProofHeaders(input) {
+    const payer = loadDevnetKeypair(input.walletKeypairPath);
+    const txSignature = input.receipt.signature ?? input.receipt.txSignature;
+    if (!txSignature)
+        throw new Error('devnet_receipt_signature_missing');
+    if (input.receipt.payer !== payer.publicKey.toBase58())
+        throw new Error('devnet_receipt_payer_is_not_this_wallet');
+    return (0, direct_auth_1.directPaymentProofHeaders)({ network: input.receipt.network, txSignature, payTo: input.receipt.payTo, body: input.body, sign: (0, direct_auth_1.keypairSigner)(payer) });
 }

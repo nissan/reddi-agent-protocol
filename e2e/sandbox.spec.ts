@@ -169,6 +169,25 @@ test.describe("/sandbox", () => {
     await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("2");
   });
 
+  test("run a session: ten calls on one lock, each receipt checked, one settle", async ({ page }) => {
+    await page.goto("/sandbox?scenario=run-a-session");
+    await expect(page.getByTestId("sandbox-console")).toHaveAttribute("data-ready", "true", { timeout: 60_000 });
+    await page.getByTestId("sandbox-session-run").click();
+    await expect(page.getByTestId("sandbox-session-settled")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("[data-testid^=sandbox-session-call-]")).toHaveCount(10);
+    await expect(page.getByTestId("sandbox-session-call-10")).toContainText("matches your count");
+    await expect(page.getByTestId("sandbox-session-network")).toContainText("2 (one lock, one settle) instead of 20");
+    await expect(page.getByTestId("sandbox-session-fee-share")).toContainText("about 11.2%");
+    await expect(page.getByTestId("sandbox-session-error")).toHaveCount(0);
+    // The sidebar counts the session: ten call receipts plus the closing one, and the settled total as spent.
+    const settled = await page.getByTestId("sandbox-session-settled").textContent();
+    const total = Number(/Settled once: ([\d,]+) lamports/.exec(settled ?? "")?.[1]?.replace(/,/g, ""));
+    expect(total).toBeGreaterThan(0);
+    await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("11");
+    await expect(page.getByTestId("sandbox-spent")).toHaveText(new RegExp(`^${total.toLocaleString("en-AU")}lamports`));
+    await expectCopyInsideClaimBoundary(page);
+  });
+
   test("provider goes dark: no challenge, no payment, no receipt", async ({ page }) => {
     await open(page, "provider-offline");
     await page.getByTestId("sandbox-send").click();

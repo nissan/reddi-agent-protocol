@@ -8,7 +8,7 @@
  */
 import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { NonceReplayStore } from "@reddi/x402-solana";
+import type { NonceReplayStore } from "@redditech/x402-solana";
 
 const KEY = /^[\x21-\x7e]{1,200}$/;
 
