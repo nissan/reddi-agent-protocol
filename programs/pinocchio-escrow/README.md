@@ -12,7 +12,7 @@ directory deploys, creates keys or signs anything.
 
 ## What it is
 
-One program with the 13 instructions of the Anchor default (V1) build:
+One program. The default build has the 13 instructions of V1:
 
 | Area | Instructions |
 |---|---|
@@ -20,9 +20,15 @@ One program with the 13 instructions of the Anchor default (V1) build:
 | Token escrow (USDC, AUDD, PYUSD, USDG) | `lock_token_escrow`, `lock_metered_token_escrow`, `release_token_escrow`, `settle_token_escrow`, `cancel_token_escrow` |
 | Registry | `register_agent`, `update_agent`, `deregister_agent` |
 
-The `extended` feature of the Anchor program (rating, attestation, PER) is not
-part of the default V1 build. Rebuilding it here behind the same feature is
-planned and not done yet.
+The `extended` feature adds the eight instructions that are not part of V1,
+as the Anchor program's `extended` feature does. The mainnet build does not
+include them.
+
+| Area | Instructions (`--features extended`) |
+|---|---|
+| Ratings | `commit_rating`, `reveal_rating`, `expire_rating` |
+| Attestations | `attest_quality`, `confirm_attestation`, `dispute_attestation` |
+| PER tracking | `delegate_escrow`, `release_escrow_per` |
 
 It is not a line-by-line port. The goal is the same outcome for every
 transaction, built the way a Pinocchio program is built:
@@ -52,8 +58,8 @@ clients, IDL, tests and scripts work against it unchanged:
 
 - the same 8-byte instruction selectors and argument encoding;
 - the same accounts in the same order;
-- the same derived addresses (`escrow`, `token-escrow`, `token-vault`, `agent`
-  seeds);
+- the same derived addresses (`escrow`, `token-escrow`, `token-vault`, `agent`,
+  and in the extended build `rating` and `attestation` seeds);
 - the same account layouts, including the 8-byte account discriminators, so
   `program.account.*.fetch` and `lib/program.ts` read them;
 - the same events, byte for byte, on the `Program data:` log channel;
@@ -70,24 +76,28 @@ Two layers, both in `equivalence/` (its own workspace, so the test harness's
 dependencies stay out of the program's lockfile):
 
 1. **The Anchor program's own tests, unchanged.**
-   `scripts/sync-equivalence-tests.sh` copies `test_escrow.rs`,
-   `test_token_escrow.rs`, `test_token2022_escrow.rs`, `test_registry.rs`,
-   `instruction_surface.rs` and `mollusk_runtime.rs` from
-   `archive/anchor-escrow/tests/`, changing only the path of the binary they load.
-   `--check` fails if a copy is stale. All 69 tests pass against the Pinocchio
-   binary.
+   `scripts/sync-equivalence-tests.sh` copies the tests in
+   `archive/anchor-escrow/tests/`, changing only the path of the binary they
+   load. `--check` fails if a copy is stale. All 69 default-build tests pass
+   against the Pinocchio binary, and so do the 15 extended-build tests
+   (`reputation.rs`, `attestation.rs`, `per.rs`).
 2. **A side-by-side suite** (`equivalence/tests/differential.rs`). It runs the
    same transaction against the Anchor binary and the Pinocchio binary in two
    simulators with identical state, and requires the same result, the same
    error, the same error log line, the same events, the same inner instructions
    and the same bytes and lamports in every account either transaction touched.
-   285 transactions across SOL, classic SPL Token (USDC, AUDD) and Token-2022
-   (PYUSD, USDG) escrows, the registry, malformed input, wrong and duplicated
-   accounts, uninitialised token accounts, mints off the allowlist, transfer
-   fees, and issuer actions on Token-2022 vaults.
+   Default build: 285 transactions across SOL, classic SPL Token (USDC, AUDD)
+   and Token-2022 (PYUSD, USDG) escrows, the registry, malformed input, wrong
+   and duplicated accounts, uninitialised token accounts, mints off the
+   allowlist, transfer fees, and issuer actions on Token-2022 vaults. Extended
+   build: 181 more across ratings, attestations and PER tracking, including
+   the lines the PER instructions log and ordinary release, settle and refund
+   of a delegated escrow.
 
-The suite was checked against a deliberate fault (fee set to 251 bps): it
-failed, and passed again when the fault was removed.
+The suite was checked against deliberate faults (fee set to 251 bps; in the
+extended build a wrong penalty, a rating folded into the wrong party, and a
+changed log line): each made it fail, and it passed again when the fault was
+removed.
 
 Not run: `scripts/devnet-escrow-e2e.cjs`. It needs a deployed program, and
 nothing was deployed. It would need only its `PROGRAM`, `PROGRAM_DATA`,
@@ -102,9 +112,10 @@ embedded in the binary, so it is a few dozen bytes larger from there:
 
 | | Anchor | Pinocchio | Change |
 |---|---|---|---|
-| Program size | 337,664 bytes | 57,968 bytes | 83% smaller |
-| Rent at 6,960 lamports per byte | 2.3525 SOL | 0.4058 SOL | 1.9467 SOL less |
-| Rent at 5,080 lamports per byte | 1.7170 SOL | 0.2962 SOL | 1.4209 SOL less |
+| Program size | 337,664 bytes | 58,544 bytes | 83% smaller |
+| Rent at 6,960 lamports per byte | 2.3525 SOL | 0.4098 SOL | 1.9427 SOL less |
+| Rent at 5,080 lamports per byte | 1.7170 SOL | 0.2991 SOL | 1.4179 SOL less |
+| Extended build size (not for mainnet) | 488,416 bytes | 88,688 bytes | 82% smaller |
 
 Rent is for the program account (36 bytes) plus the program data account (45
 bytes of header plus the binary), each with the 128-byte account overhead:
@@ -121,7 +132,7 @@ Compute units for successful calls, from the side-by-side suite:
 | Call | Anchor | Pinocchio |
 |---|---|---|
 | SOL lock | 9,743 | 5,098 |
-| SOL release | 5,901 | 1,280 |
+| SOL release | 5,901 | 1,324 |
 | USDC or AUDD lock | 25,317 | 14,936 |
 | USDC or AUDD release | 22,560 | 10,720 |
 | USDC or AUDD settle at actual cost | 24,446 | 11,886 |
@@ -130,8 +141,16 @@ Compute units for successful calls, from the side-by-side suite:
 | Register agent | 15,527 | 10,774 |
 | Update agent | 4,368 | 407 |
 | Deregister agent | 3,864 | 298 |
+| Commit rating (first) | 8,538 | 3,846 |
+| Reveal rating (second, finalises) | 18,330 | 6,813 |
+| Attest quality | 9,504 | 5,413 |
+| Confirm attestation | 7,448 | 4,184 |
+| Delegate escrow | 7,771 | 8,025 |
+| Release via PER | 6,815 | 5,336 |
 
-Most of what remains in the token rows is the token program's own work.
+Most of what remains in the token rows is the token program's own work. The
+last six rows are the extended build. Delegating costs slightly more here:
+almost all of it is printing two addresses in the log line.
 
 ## Known differences
 
@@ -147,13 +166,24 @@ Most of what remains in the token rows is the token program's own work.
 - Anchor's check that the program runs at its declared id
   (`DeclaredProgramIdMismatch`) has no counterpart. Derived addresses use the
   id the runtime passes in.
-- An escrow record whose optional session key is set is refused. V1 never sets
-  it; only the `extended` PER instructions do.
 - The Anchor token types also reject malformed optional fields inside a token
   account. The token programs never write such an account, so this is not
   reproduced.
 - Compute use is lower, so a transaction sized to fail on Anchor's compute use
   would behave differently.
+- A rating record whose stored size or rent was wrong would get Anchor's space
+  or rent-exemption error; here it gets none. The program only ever creates
+  that record at the right size with full rent.
+
+Behaviour kept on purpose because the Anchor program has it, and worth a
+decision before the extended build is ever deployed:
+
+- `release_escrow_per` pays the payee the whole locked amount. It takes no
+  protocol fee and emits no settlement event, unlike `release_escrow`.
+- `expire_rating` can be called by anyone, not only the two parties.
+- A rating created while the cluster clock reads Unix time zero records its
+  parties again on the next commitment. A real cluster never reports time
+  zero.
 
 ## Build and test
 
@@ -170,6 +200,10 @@ cargo test -p pinocchio-escrow                 # unit tests
 scripts/sync-equivalence-tests.sh --check      # copied tests are current
 (cd equivalence && cargo test -- --nocapture)  # Anchor tests + side by side, prints compute
 ```
+
+The extended build is tested the same way with `--features extended` on every
+command, including the Anchor reference build. Each build overwrites the
+binary of the other variant, so rebuild both programs when switching.
 
 `cargo build-sbf` writes a throwaway keypair file next to each binary. It is
 not used; delete it and never commit it (`target/` is ignored).
