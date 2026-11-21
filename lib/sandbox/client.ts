@@ -32,6 +32,8 @@ export type SandboxCallResult = {
   responseText: string;
   /** The decoded receipt header, if the response carried one. Unchecked. */
   receipt?: unknown;
+  /** The decoded closing receipt of a session, on the call that closed it. Unchecked. */
+  sessionReceipt?: unknown;
   exchange: SandboxExchange;
 };
 
@@ -40,10 +42,12 @@ export async function callSandbox(input: {
   model: string;
   messages: readonly SandboxChatMessage[];
   paymentHeader?: string;
+  /** More request headers, such as a session's sequence. */
+  extraHeaders?: Record<string, string>;
   fetchImpl?: typeof fetch;
 }): Promise<SandboxCallResult> {
   const requestBody = { model: input.model, messages: input.messages };
-  const headers: Record<string, string> = { "content-type": "application/json" };
+  const headers: Record<string, string> = { "content-type": "application/json", ...input.extraHeaders };
   if (input.paymentHeader) headers["x402-payment"] = input.paymentHeader;
   const requestText = JSON.stringify(requestBody);
   const response = await (input.fetchImpl ?? fetch)(SANDBOX_ENDPOINT_PATH, { method: "POST", headers, body: requestText, cache: "no-store" });
@@ -58,7 +62,9 @@ export async function callSandbox(input: {
   }
   const receiptHeader = response.headers?.get(PROVIDER_RECEIPT_HEADER) ?? response.headers?.get(SANDBOX_SIMULATED_RECEIPT_HEADER);
   const receipt = decodeReceiptHeader(receiptHeader);
+  const sessionReceipt = decodeReceiptHeader(response.headers?.get("x-reddi-session-receipt"));
   return {
+    ...(sessionReceipt !== undefined ? { sessionReceipt } : {}),
     status: response.status,
     body,
     requestText,
