@@ -14,7 +14,9 @@
  *
  * The buyer keeps its own count. If the provider's running total runs ahead of
  * what the buyer was told, the session stops and the buyer keeps the evidence
- * to dispute. Nothing here signs or sends.
+ * to dispute. Nothing here signs or sends: each call also needs the payer's
+ * delegation and the session key's signature (`sessionAuthHeaders` in
+ * session-auth.ts, provider kit #865).
  */
 
 import { tokenCostBaseUnits, type PerTokenPrice, type TokenCounts } from "@reddi/x402-solana/metered";

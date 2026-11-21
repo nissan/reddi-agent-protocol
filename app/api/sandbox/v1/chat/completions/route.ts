@@ -30,6 +30,8 @@ export async function POST(request: Request) {
           sequence: request.headers.get(SESSION_SEQUENCE_HEADER),
           close: request.headers.get(SESSION_CLOSE_HEADER),
           previousReceipt: request.headers.get(SESSION_PREVIOUS_RECEIPT_HEADER),
+          delegation: request.headers.get("x402-session-delegation"),
+          signature: request.headers.get("x402-session-signature"),
         },
       },
       sandboxGatewayDeps(),

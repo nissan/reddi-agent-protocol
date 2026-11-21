@@ -31,6 +31,9 @@ import {
 } from "@/lib/sandbox/receipt";
 import type { SandboxSettleInput, SandboxSettler } from "@/lib/sandbox/settle-signer";
 import { scriptedSandboxAnswer } from "@/lib/sandbox/catalog";
+import { createPrivateKey, sign as edSign } from "crypto";
+import { verifySessionRequest, sessionDelegationHeaderValue as packageDelegation, sessionSignatureHeaderValue as packageSignature } from "@reddi/x402-solana";
+import { createSessionKey, sessionDelegationHeaderValue, sessionSignatureHeaderValue, type MessageSigner } from "@/lib/payments/session-auth";
 import { canonicalizeReddiReceiptV2, hashReddiReceiptV2, validateReddiReceiptV2, type ReddiReceiptV2 } from "@reddi/agent-protocol/receipt-v2";
 import { canonicalizeSandboxReceipt } from "@/lib/sandbox/receipt";
 import { networkFeeShare, runSandboxSession, sessionMaxLamports, SESSION_PROMPTS } from "@/lib/sandbox/session-run";
@@ -40,7 +43,8 @@ const NOW_MS = Date.UTC(2026, 10, 21, 2, 0, 0);
 const swift = findSandboxProviderById("swift-infer")!;
 const messages = [{ role: "user", content: "Explain exponential backoff in two sentences." }];
 const MAX_LAMPORTS = maxChargeLamports(swift, requestInputTokens(messages));
-const payer = Keypair.generate().publicKey;
+const payerKeypair = Keypair.generate();
+const payer = payerKeypair.publicKey;
 const SETTLE_SIG = "3".repeat(88);
 const LOCK_SIG = "2".repeat(88);
 /** The slot the fake chain is at. Locks are made 10 slots earlier unless a test says otherwise. */
@@ -145,15 +149,38 @@ function meteredHeader(nonce: string, escrow: string, overrides: Record<string, 
 const NONCE = "0123456789abcdef0123456789abcdef";
 const SESSION_MAX = MAX_LAMPORTS * BigInt(10);
 
-function sessionCall(deps: SandboxGatewayDeps, paymentHeader: string, sequence: number | string, previous?: SandboxReceipt, close = false) {
+/** The payer wallet's signMessage, as a wallet adapter would give it. */
+const signAsPayer: MessageSigner = (message) => {
+  const key = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(payerKeypair.secretKey.slice(0, 32))]), format: "der", type: "pkcs8" });
+  return new Uint8Array(edSign(null, Buffer.from(message), key));
+};
+
+type SessionAuth = { escrow: string; sessionKey: Awaited<ReturnType<typeof createSessionKey>>; delegation: string; signFor?: (sequence: number, body: string) => Promise<string> };
+
+async function sessionAuth(escrow: string, overrides: Partial<{ provider: string; expiresAt: number; signer: MessageSigner }> = {}): Promise<SessionAuth> {
+  const sessionKey = await createSessionKey();
+  const delegation = await sessionDelegationHeaderValue(
+    { escrow, provider: overrides.provider ?? swift.payTo, sessionKey: sessionKey.publicKey, expiresAt: overrides.expiresAt ?? Math.floor(NOW_MS / 1000) + 3600 },
+    overrides.signer ?? signAsPayer,
+  );
+  return { escrow, sessionKey, delegation };
+}
+
+async function sessionCall(deps: SandboxGatewayDeps, paymentHeader: string, sequence: number | string, previous?: SandboxReceipt, close = false, auth?: SessionAuth) {
   const body = { model: swift.model, messages };
+  const rawBody = JSON.stringify(body);
+  const signature = auth
+    ? auth.signFor
+      ? await auth.signFor(Number(sequence), rawBody)
+      : await sessionSignatureHeaderValue({ action: "call", escrow: auth.escrow, sequence: Number(sequence), body: rawBody }, auth.sessionKey.sign)
+    : null;
   return handleSandboxChatCompletion(
     {
       body,
-      rawBody: JSON.stringify(body),
+      rawBody,
       paymentHeader,
       origin: ORIGIN,
-      session: { sequence: String(sequence), close: close ? "close" : null, previousReceipt: previous ? encodeReceiptHeader(previous) : null },
+      session: { sequence: String(sequence), close: close ? "close" : null, previousReceipt: previous ? encodeReceiptHeader(previous) : null, delegation: auth?.delegation ?? null, signature },
     },
     deps,
   );
@@ -177,11 +204,11 @@ function closingReceipt(response: SandboxGatewayResponse): SandboxReceipt {
 const errorCode = (response: SandboxGatewayResponse) => (response.body.error as { code: string }).code;
 const PER_CALL = sessionCallLamports(swift, { inputTokens: requestInputTokens(messages), outputTokens: countTokens(scriptedSandboxAnswer(swift, messages[0].content)) });
 
-async function runSession(deps: SandboxGatewayDeps, header: string, calls: number) {
+async function runSession(deps: SandboxGatewayDeps, header: string, calls: number, auth?: SessionAuth) {
   const receipts: SandboxReceipt[] = [];
   let last: SandboxGatewayResponse | undefined;
   for (let n = 1; n <= calls; n += 1) {
-    last = await sessionCall(deps, header, n, receipts[receipts.length - 1], n === calls);
+    last = await sessionCall(deps, header, n, receipts[receipts.length - 1], n === calls, auth);
     expect(last.status).toBe(200);
     receipts.push(callReceipt(last));
   }
@@ -217,7 +244,7 @@ describe("sandbox sessions (#863)", () => {
     const { settler, calls } = fakeSettler();
     const deps = makeDeps(accounts, settler);
     const header = meteredHeader(NONCE, escrow);
-    const { receipts, last } = await runSession(deps, header, 3);
+    const { receipts, last } = await runSession(deps, header, 3, await sessionAuth(escrow));
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ actualLamports: PER_CALL * BigInt(3), rated: false });
     expect(calls[0].escrow.toBase58()).toBe(escrow);
@@ -280,21 +307,21 @@ describe("sandbox sessions (#863)", () => {
     const accounts: Accounts = new Map();
     const escrow = lockFor(accounts, NONCE, { amount: SESSION_MAX, status: 1 });
     const deps = makeDeps(accounts, fakeSettler().settler);
-    expect(errorCode(await sessionCall(deps, meteredHeader(NONCE, escrow), 1))).toBe("session_closed");
+    expect(errorCode(await sessionCall(deps, meteredHeader(NONCE, escrow), 1, undefined, false, await sessionAuth(escrow)))).toBe("session_closed");
   });
 
   it("refuses sessions on a rated escrow", async () => {
     const accounts: Accounts = new Map();
     const escrow = lockFor(accounts, NONCE, { amount: SESSION_MAX, rated: true });
     const deps = { ...makeDeps(accounts, fakeSettler().settler), acceptRatedEscrows: true };
-    expect(errorCode(await sessionCall(deps, meteredHeader(NONCE, escrow), 1))).toBe("session_invalid");
+    expect(errorCode(await sessionCall(deps, meteredHeader(NONCE, escrow), 1, undefined, false, await sessionAuth(escrow)))).toBe("session_invalid");
   });
 
   it("refuses new calls when the refund window is about to open", async () => {
     const accounts: Accounts = new Map();
     const escrow = lockFor(accounts, NONCE, { amount: SESSION_MAX, createdSlot: CURRENT_SLOT - SANDBOX_CANCEL_WINDOW_SLOTS + BigInt(100) });
     const deps = makeDeps(accounts, fakeSettler().settler);
-    expect(errorCode(await sessionCall(deps, meteredHeader(NONCE, escrow), 1))).toBe("session_window_closing");
+    expect(errorCode(await sessionCall(deps, meteredHeader(NONCE, escrow), 1, undefined, false, await sessionAuth(escrow)))).toBe("session_window_closing");
   });
 
   it("refuses devnet escrow sessions unless the gateway is set to serve them", async () => {
@@ -304,11 +331,52 @@ describe("sandbox sessions (#863)", () => {
     expect(errorCode(await sessionCall(deps, meteredHeader(NONCE, escrow), 1))).toBe("session_invalid");
   });
 
+  it("refuses devnet session calls without the payer's delegation and the session key's signature", async () => {
+    const accounts: Accounts = new Map();
+    const escrow = lockFor(accounts, NONCE, { amount: SESSION_MAX });
+    const { settler, calls } = fakeSettler();
+    const deps = makeDeps(accounts, settler);
+    const header = meteredHeader(NONCE, escrow);
+    const missing = await sessionCall(deps, header, 1);
+    expect([missing.status, errorCode(missing)]).toEqual([401, "session_auth_required"]);
+    // A delegation signed by someone other than the payer.
+    const stranger = Keypair.generate();
+    const strangerSigner: MessageSigner = (message) => edSign(null, Buffer.from(message), createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(stranger.secretKey.slice(0, 32))]), format: "der", type: "pkcs8" }));
+    expect(errorCode(await sessionCall(deps, header, 1, undefined, false, await sessionAuth(escrow, { signer: strangerSigner })))).toBe("session_auth_invalid");
+    // A delegation for another provider, an expired one, and a call signed for another body.
+    expect(errorCode(await sessionCall(deps, header, 1, undefined, false, await sessionAuth(escrow, { provider: Keypair.generate().publicKey.toBase58() })))).toBe("session_auth_invalid");
+    expect(errorCode(await sessionCall(deps, header, 1, undefined, false, await sessionAuth(escrow, { expiresAt: Math.floor(NOW_MS / 1000) - 1 })))).toBe("session_auth_expired");
+    const auth = await sessionAuth(escrow);
+    auth.signFor = (sequence) => sessionSignatureHeaderValue({ action: "call", escrow, sequence, body: "{}" }, auth.sessionKey.sign);
+    expect(errorCode(await sessionCall(deps, header, 1, undefined, false, auth))).toBe("session_auth_invalid");
+    // A signature for call 1 does not cover call 2.
+    const good = await sessionAuth(escrow);
+    const first = await sessionCall(deps, header, 1, undefined, false, good);
+    expect(first.status).toBe(200);
+    good.signFor = (_sequence, body) => sessionSignatureHeaderValue({ action: "call", escrow, sequence: 1, body }, good.sessionKey.sign);
+    expect(errorCode(await sessionCall(deps, header, 2, callReceipt(first), false, good))).toBe("session_auth_invalid");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("buyer helpers sign exactly what the provider kit verifies", async () => {
+    const escrow = sandboxEscrowAddress(payer, NONCE);
+    const key = await createSessionKey();
+    const d = { escrow: escrow.toBase58(), provider: swift.payTo, sessionKey: key.publicKey, expiresAt: Math.floor(NOW_MS / 1000) + 600 };
+    const ours = await sessionDelegationHeaderValue(d, signAsPayer);
+    expect(Buffer.from(ours, "base64").toString("utf8")).toBe(Buffer.from(await packageDelegation(d, signAsPayer), "base64").toString("utf8"));
+    const body = JSON.stringify({ model: swift.model, messages });
+    const sig = await sessionSignatureHeaderValue({ action: "call", escrow: d.escrow, sequence: 7, body }, key.sign);
+    // Ed25519 signatures are deterministic, so both builders give the same bytes for the same key.
+    expect(sig).toBe(await packageSignature({ action: "call", escrow: d.escrow, sequence: 7, body }, key.sign));
+    const headers = new Map([["x402-session-delegation", ours], ["x402-session-signature", sig]]);
+    expect(verifySessionRequest({ headers: { get: (n: string) => headers.get(n) ?? null }, action: "call", escrow, payer, provider: new PublicKey(swift.payTo), sequence: 7, body, nowMs: NOW_MS })).toMatchObject({ ok: true, sessionKey: key.publicKey });
+  });
+
   it("does not settle when the settle fails, and says the lock stays refundable", async () => {
     const accounts: Accounts = new Map();
     const escrow = lockFor(accounts, NONCE, { amount: SESSION_MAX });
     const deps = makeDeps(accounts, fakeSettler(true, { ok: false, message: "Devnet refused the settle." }).settler);
-    const response = await sessionCall(deps, meteredHeader(NONCE, escrow), 1, undefined, true);
+    const response = await sessionCall(deps, meteredHeader(NONCE, escrow), 1, undefined, true, await sessionAuth(escrow));
     expect(response.status).toBe(502);
     expect(response.body).toMatchObject({ charged: false, escrow });
   });
