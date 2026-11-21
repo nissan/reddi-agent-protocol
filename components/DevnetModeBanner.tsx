@@ -1,6 +1,7 @@
 "use client";
 
 import { useWallet } from "@solana/wallet-adapter-react";
+import { LimitNotice } from "@/components/ui/limit-notice";
 
 export default function DevnetModeBanner() {
   const { connected } = useWallet();
@@ -8,10 +9,10 @@ export default function DevnetModeBanner() {
   if (!connected) return null;
 
   return (
-    <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
-      <div className="mx-auto max-w-7xl">
-        <span className="font-semibold">Devnet mode:</span> all wallet operations, registrations, escrow actions, and attestations are currently restricted to Solana devnet until audited production programs are approved.
-      </div>
+    <div className="mx-auto max-w-7xl px-4 pt-3 sm:px-6 lg:px-8">
+      <LimitNotice title="You're on Solana devnet." className="text-xs sm:text-sm">
+        Wallet actions here use test funds. Mainnet is coming soon.
+      </LimitNotice>
     </div>
   );
 }
