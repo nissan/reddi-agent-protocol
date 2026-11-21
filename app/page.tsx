@@ -39,18 +39,18 @@ const WAYS_IN = [
   },
 ];
 
-const TRUE_TODAY = [
+const NEXT_UP = [
   {
-    title: "Devnet only",
-    desc: "Test funds with no value. Mainnet is planned for the guarded beta.",
+    title: "Try it on devnet today",
+    desc: "Make a paid call with test funds and check its receipt, right now.",
   },
   {
-    title: "Declared, not proven",
-    desc: "A receipt records the model a provider names. It does not prove which model ran.",
+    title: "Mainnet, coming soon",
+    desc: "The same providers, prices and receipts, with real payments, in the next release.",
   },
   {
-    title: "Fee planned",
-    desc: "2.5% of the actual cost, from the provider's share. Nothing is collected yet.",
+    title: "Simple pricing",
+    desc: "A planned 2.5% of the actual cost, from the provider's share. Buyers pay only for the tokens used.",
   },
 ];
 
@@ -63,7 +63,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-paper text-ink">
       <p className="border-b border-line bg-[#101216] px-4 py-2 text-center font-mono text-xs text-[#e9e6dc]">
-        Solana devnet. Test funds only. Nothing is on mainnet yet.
+        Running on Solana devnet with test funds. Mainnet is coming soon.
       </p>
 
       <section className="mx-auto max-w-6xl px-4 pb-16 pt-14 sm:px-6 lg:px-8 lg:pt-20">
@@ -151,12 +151,12 @@ export default function Home() {
         </div>
       </section>
 
-      <section aria-labelledby="true-today" className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 lg:px-8">
-        <h2 id="true-today" className="mb-4 text-xl">
-          What is true today
+      <section aria-labelledby="whats-next" className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 lg:px-8">
+        <h2 id="whats-next" className="mb-4 text-xl">
+          Now and next
         </h2>
         <div className="grid gap-4 md:grid-cols-3">
-          {TRUE_TODAY.map((item) => (
+          {NEXT_UP.map((item) => (
             <div key={item.title} className="rounded border border-line-strong bg-paper-raised p-4">
               <strong className="block text-[15px]">{item.title}</strong>
               <span className="text-sm text-ink-muted">{item.desc}</span>
@@ -170,10 +170,6 @@ export default function Home() {
               <span>{stat.label}</span>
             </div>
           ))}
-          <p className="max-w-md self-end">
-            Counts from the test corpus in the public repository. They are fixtures and
-            test cases, not live providers.
-          </p>
         </div>
       </section>
     </div>
