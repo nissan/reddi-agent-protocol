@@ -26,6 +26,34 @@ use solana_signer::Signer;
 use solana_transaction::versioned::VersionedTransaction;
 
 const MINT_FIXTURE: &[u8] = include_bytes!("fixtures/pyusd_mainnet_mint_2026-11-20.bin");
+/// The USDG mainnet mint account (finalized at slot 472008707, sha256
+/// b4d19eb0...6655fe). Tests on the USDG mint address start from this layout.
+const USDG_MINT_FIXTURE: &[u8] = include_bytes!("fixtures/usdg_mainnet_mint_2026-11-21.bin");
+
+/// The real mint layout for `mint`: USDG's for the USDG address, PYUSD's
+/// otherwise.
+fn mint_fixture(mint: &Pubkey) -> &'static [u8] {
+    if *mint == USDG_MAINNET_MINT {
+        USDG_MINT_FIXTURE
+    } else {
+        MINT_FIXTURE
+    }
+}
+
+/// The extension types in a Token-2022 account, in order.
+fn extension_types(data: &[u8]) -> Vec<u16> {
+    let mut at = 166;
+    let mut found = Vec::new();
+    while at + 4 <= data.len() {
+        let kind = u16::from_le_bytes([data[at], data[at + 1]]);
+        if kind == 0 {
+            break;
+        }
+        found.push(kind);
+        at += 4 + usize::from(u16::from_le_bytes([data[at + 2], data[at + 3]]));
+    }
+    found
+}
 const EXT_TRANSFER_FEE_CONFIG: u16 = 1;
 const EXT_PERMANENT_DELEGATE: u16 = 12;
 const EXT_TRANSFER_HOOK: u16 = 14;
@@ -90,7 +118,7 @@ impl Fixture {
         for key in [&payer, &payee, &issuer] {
             svm.airdrop(&key.pubkey(), 10_000_000_000).unwrap();
         }
-        let mut data = MINT_FIXTURE.to_vec();
+        let mut data = mint_fixture(&mint).to_vec();
         // Base mint: authority at 4..36, supply at 36..44, freeze authority at 50..82.
         data[4..36].copy_from_slice(issuer.pubkey().as_ref());
         data[36..44].copy_from_slice(&0u64.to_le_bytes());
@@ -342,6 +370,35 @@ fn fixture_is_the_real_mint_layout_with_a_zero_fee_and_no_hook() {
     let hook = extension(MINT_FIXTURE, EXT_TRANSFER_HOOK);
     assert!(
         MINT_FIXTURE[hook.start + 32..hook.end]
+            .iter()
+            .all(|b| *b == 0),
+        "hook program unset"
+    );
+}
+
+/// The vault size is fixed for the extensions PYUSD carries. USDG is a
+/// different mint by the same issuer; this holds it to the same extension set,
+/// zero fee and unset hook, so the same vault size fits it.
+#[test]
+fn usdg_fixture_is_a_different_mint_with_the_same_extensions() {
+    assert_ne!(USDG_MINT_FIXTURE, MINT_FIXTURE);
+    assert_eq!(USDG_MINT_FIXTURE[44], 6, "decimals");
+    assert_eq!(USDG_MINT_FIXTURE[165], 1, "account type: mint");
+    assert_eq!(
+        extension_types(USDG_MINT_FIXTURE),
+        extension_types(MINT_FIXTURE)
+    );
+    assert!(extension_types(USDG_MINT_FIXTURE).contains(&EXT_TRANSFER_HOOK));
+    let fee = extension(USDG_MINT_FIXTURE, EXT_TRANSFER_FEE_CONFIG);
+    assert_eq!(fee.len(), 108);
+    assert_eq!(&USDG_MINT_FIXTURE[fee.start + 88..fee.start + 90], &[0, 0]);
+    assert_eq!(
+        &USDG_MINT_FIXTURE[fee.start + 106..fee.start + 108],
+        &[0, 0]
+    );
+    let hook = extension(USDG_MINT_FIXTURE, EXT_TRANSFER_HOOK);
+    assert!(
+        USDG_MINT_FIXTURE[hook.start + 32..hook.end]
             .iter()
             .all(|b| *b == 0),
         "hook program unset"

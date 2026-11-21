@@ -39,6 +39,7 @@ use {
 const ANCHOR: &[u8] = include_bytes!("../../../../target/deploy/escrow.so");
 const PINOCCHIO: &[u8] = include_bytes!("../../target/deploy/pinocchio_escrow.so");
 const PYUSD_MINT_FIXTURE: &[u8] = include_bytes!("fixtures/pyusd_mainnet_mint_2026-11-20.bin");
+const USDG_MINT_FIXTURE: &[u8] = include_bytes!("fixtures/usdg_mainnet_mint_2026-11-21.bin");
 const TOKEN_2022_ACCOUNT_LEN: usize = 183;
 
 fn key(seed: u8) -> Keypair {
@@ -860,7 +861,12 @@ impl Tokens {
             pair.fund(who, 10_000_000_000);
         }
         let mint_data = if program == TOKEN_2022_ID {
-            let mut data = PYUSD_MINT_FIXTURE.to_vec();
+            let fixture = if mint == USDG_MAINNET_MINT {
+                USDG_MINT_FIXTURE
+            } else {
+                PYUSD_MINT_FIXTURE
+            };
+            let mut data = fixture.to_vec();
             data[36..44].copy_from_slice(&3_000_000_000u64.to_le_bytes());
             data[44] = decimals;
             data
