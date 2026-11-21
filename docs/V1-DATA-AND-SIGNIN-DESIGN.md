@@ -19,7 +19,7 @@ creates survives and no record has an owner. V1 needs accounts and durable recor
 | `onboarding/consumer-index.json` | `consumer-registry.ts` | `profiles` |
 | `onboarding/planner-runs.json` | `planner-execution.ts`, `planner-settlement.ts` | `jobs`, `receipts` |
 | `onboarding/attestations.json` | `attestation.ts` | `attestations` |
-| `onboarding/planner-feedback.json`, `rating-commits.json` | `planner-feedback.ts`, `reputation-signal.ts` | `provider_stats` inputs; commit-reveal ratings are out of V1 |
+| `onboarding/planner-feedback.json`, `rating-commits.json` | `planner-feedback.ts`, `reputation-signal.ts` | `provider_stats` inputs. The app database does not store commit-reveal ratings in V1; the V1 program has them on chain (`docs/RATINGS-AND-ATTESTATIONS.md`) |
 | `orchestrator/policy.json`, `spend.json` | `lib/orchestrator/policy.ts` | Later: buyer spend policy (tracked with #738) |
 | `onboarding/local-wallet.json`, `wallet-backup-checkpoint.json` | `wallet-sponsorship.ts`, `wallet-recovery.ts` | **Never stored.** Local development only; key material does not go in the database |
 | In-memory nonce set | `packages/x402-solana/src/nonce.ts` | `payment_replay` (#723) |

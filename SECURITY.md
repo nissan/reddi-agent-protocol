@@ -48,6 +48,7 @@ These addresses are recorded history, not an active demo target: `config/quasar/
 
 ## PER (TEE) reference boundary
 
+- MagicBlock PER is not part of V1. The V1 program build (`programs/pinocchio-escrow`, default features) does not answer the two PER instructions (`delegate_escrow`, `release_escrow_per`); they sit behind a `per` build feature that is off by default and never used for a mainnet build. PER is unfinished work planned as a follow-up after the launch (issue #839): in source, the PER release takes no protocol fee and emits no settlement event yet.
 - Private Ephemeral Rollup (PER) material is reference evidence and client-side tooling, not a production privacy or settlement guarantee.
 - Current public claims must stay bounded to the explicitly labelled local/devnet artifacts and source-level behavior.
 - Mainnet, live-funds, arbitrary private-payee settlement, and confidentiality guarantees require separate compatibility qualification, audit, deployment approval, and operational gates.
@@ -71,26 +72,47 @@ These addresses are recorded history, not an active demo target: `config/quasar/
 - Nonces are expected to be high-entropy and single-use.
 - Replay-store protection is scoped to the configured store. Escrow PDA uniqueness lasts only while the record exists: `(payer, nonce)` can be reused after closure on both SOL and token rails. Clients must not use that pair as a globally unique job ID.
 
-## Blind Commit-Reveal Rating Security Properties
+## Ratings (commit and reveal) in the V1 program
 
-- Ratings are committed as hash commitments first, then revealed later with salt.
-- This mitigates front-running and score-copying during the commit phase.
-- Delayed reveal reduces strategic retaliation and vote-manipulation pressure.
-- Expiry/penalty paths are intended to discourage selective non-reveal behavior, but CRITICAL-4 remains open; current docs must not present this as a closed mainnet-ready defense.
+This section describes the V1 program source (`programs/pinocchio-escrow`). Ratings and judge attestations are part of its one build. It has not been deployed with them and has had no independent security review, so everything below is a property of source under test, not of a deployment. The guide is [`docs/RATINGS-AND-ATTESTATIONS.md`](docs/RATINGS-AND-ATTESTATIONS.md); the interface is the program README.
 
-## Attestation Judge Dispute Resolution Attack Surface
+What the program enforces:
+
+- **Bound to a paid job.** A rating exists only for an escrow the buyer opted in at lock (`open_rating`, same slot as the lock) and that was then paid. A refund or decline closes the rating account.
+- **The seller must agree.** A rating opens only if the seller called `accept_rating`, or was itself the authority of the claim or settle. A release by the buyer without that pays as usual and closes the rating account. A seller signature elsewhere in the buyer's transaction does not count, and a seller's claim transaction that also carries the buyer's signature is treated as the buyer's release. So a payer acting alone cannot change the reputation, job counts or accuracy of an agent that signed nothing.
+- **Commitments cannot be copied.** Each side commits to `sha256(rating address ‖ its own address ‖ score ‖ salt)`. The rating address and the signer are in the hash, so a commitment taken from the other party or from another job cannot be opened by replaying that reveal. Neither side sees the other's score before both have committed.
+- **Withholding costs the one who withholds.** Each phase has a deadline of 1,512,000 slots (about 7 days). After it, anyone may call `expire_rating`. A side that never committed while the other did loses 5.00 points and gains a failed job. A side that committed and then withheld its reveal has the other side's score folded into its record, loses 5.00 points, and its own score is never counted.
+- **Every exit of a rated escrow takes the rating account.** Without it the exit is refused (`RatingAccountRequired`, 6033), so a rated escrow cannot be paid or refunded around its rating.
+
+Known limits, stated plainly:
+
+- A score comes from ratings of paid jobs. It is not proof of quality or that the work was done.
+- Reputation and judge accuracy are not Sybil-proof. Wallets of one owner can pay, rate and attest each other for the cost of transaction fees, and a job of under 40 lamports pays no protocol fee at all. The program does not weight reputation by the amount paid.
+- An agent can deregister and register again (0.01 SOL) to drop a pending score or penalty, because records are updated only if they exist when the rating is finalised. A recently created record should be read as having no history.
+- On a fixed-price job the seller can wait to see how the job went before it calls `accept_rating`.
+- `expire_rating` can be called by anyone.
+- The earlier "CRITICAL-4" finding (griefing by selective non-reveal) was raised against the earlier reputation programs. The penalty rule above is the V1 program's answer to it. It is covered by the program's tests and has not been independently reviewed; do not present it as an audited or mainnet-proven defence.
+
+## Judge attestations in the V1 program
 
 Key risks considered:
 
-- Collusion between specialist and judge to inflate quality scores.
-- Spam disputes to force reviewer exhaustion.
-- Selective confirmation timing to bias outcomes.
+- Collusion between a seller, or a buyer, and a judge to inflate quality scores.
+- A judge attesting jobs it was not asked to judge.
+- A buyer disputing an honest attestation.
 
-Current mitigations:
+What the program enforces, in source:
 
-- On-chain attestation records and dispute states are auditable.
-- Reputation penalties and attestation-accuracy adjustments are modeled as source/test semantics, not deployed economic guarantees.
-- Dispute paths are explicit state transitions in the reference model, reducing ambiguous off-chain arbitration only where the corresponding implementation is live and reviewed.
+- Only the one judge the buyer named in `open_rating` can attest, only after the job is paid, and at most once per job. The judge can be neither the buyer nor the seller, must be registered as an attestation agent, and its record must be active.
+- A job the seller never agreed to have rated has no rating account after its release, so it cannot be attested.
+- Only the buyer of that job confirms or disputes the attestation, once. Confirming raises the judge's accuracy by 10.00 and folds a top score into its reputation; disputing takes 5.00 points.
+
+What it does not do:
+
+- The buyer picks the judge, so a buyer and a judge under one owner can raise the judge's accuracy for the cost of transaction fees.
+- A buyer can dispute any attestation of its own job, and the judge has no appeal.
+- An attestation carries no amount, and nothing checks the five scores against the work.
+- These are source and test semantics, not deployed economic guarantees.
 
 ## Known Limitations (Current Phase)
 

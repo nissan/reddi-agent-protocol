@@ -73,13 +73,26 @@ A payout fails if the treasury cannot receive it:
 4. Tell each provider operator to keep its SOL payee wallet rent-exempt, open
    and not a program account from lock to payout, or SOL payouts to it fail
    (`docs/ESCROW-PAYOUT-SAFETY.md`).
+5. Tell each provider operator how rated escrows behave. A buyer can opt an
+   escrow in to rating at lock. Providers refuse such an escrow before serving
+   unless the operator sets `acceptRatedEscrows`. One that accepts them must
+   pass the rating account on every exit of that escrow (settle, claim,
+   decline), and has agreed to commit and reveal a rating of the buyer within
+   about 7 days each (`docs/RATINGS-AND-ATTESTATIONS.md`).
 
 ## 6. Verify (by 3 December)
 
 1. One small metered call per currency, settled by the provider: check the
    provider, treasury and refund amounts on chain against the receipt.
-2. Record the signatures on #736 and #738.
-3. Public copy changes from "planned" to "collected" for the fee only after
+2. If rated escrows are opened to buyers at launch: one small rated call,
+   settled by a provider that accepts them, with the rating account as the
+   extra account. Check that the same amounts moved as for an unrated call,
+   and that the rating account exists afterwards. The full rated lane
+   (commit, reveal, expiry, attestation) is exercised on devnet by
+   `scripts/devnet-escrow-e2e.cjs` (`docs/DEVNET-ESCROW-E2E.md`); its expiry
+   step needs 7 days, so it is not a launch-day check.
+3. Record the signatures on #736 and #738.
+4. Public copy changes from "planned" to "collected" for the fee only after
    this step (`docs/PUBLIC-CLAIM-BOUNDARY.md`).
 
 See `docs/ESCROW-PAYOUT-SAFETY.md` for what a lock means to buyers and sellers,

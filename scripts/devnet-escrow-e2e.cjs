@@ -807,7 +807,7 @@ async function planRated(conn) {
     + (judge ? JUDGE_TOPUP : 0n) + 50_000_000n;
   out.needs = { lamports: solNeeded.toString(), usdc: a.usdcFixed.toString() };
   const shortfalls = out.shortfalls = [];
-  if (!out.program.answersRatingInstructions) shortfalls.push('the deployed program does not answer the rating instructions: run-rated will refuse until devnet is upgraded');
+  if (!out.program.answersRatingInstructions) shortfalls.push('the deployed program did not answer accept_rating in a simulation paid by the payer: run-rated refuses until devnet runs the build with ratings (an unfunded payer wallet also gives this result)');
   if (BigInt(out.wallets.payer.lamports) < solNeeded) shortfalls.push(`payer needs at least ${Number(solNeeded) / 1e9} devnet SOL`);
   if (BigInt(out.wallets.payer.usdc ?? 0) < a.usdcFixed) shortfalls.push(`payer needs at least ${Number(a.usdcFixed) / 1e6} devnet USDC in ${source.toBase58()}`);
   if (BigInt(out.wallets.payee.lamports) < PAYEE_FEE_FLOOR) shortfalls.push(`payee holds under ${Number(PAYEE_FEE_FLOOR) / 1e9} SOL; \`run-rated\` sends it ${Number(PAYEE_FEE_TOPUP) / 1e9} SOL from the payer`);
