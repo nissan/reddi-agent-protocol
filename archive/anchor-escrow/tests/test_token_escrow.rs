@@ -572,6 +572,75 @@ fn token_lock_rejects_payer_as_payee() {
     assert!(f.closed(f.escrow));
 }
 
+/// Tokens paid to an account owned by the escrow or its vault could never move
+/// again, so neither can be named as the payee (the SOL lock has the same rule).
+#[test]
+fn token_lock_rejects_the_escrow_or_the_vault_as_payee() {
+    for target in ["escrow", "vault"] {
+        let mut f = Fixture::new();
+        let payee = if target == "escrow" {
+            f.escrow
+        } else {
+            f.vault
+        };
+        let mut ix = f.lock_ix(400_000);
+        ix.accounts[3].pubkey = payee;
+        ix.accounts[6].pubkey = f.new_token_account(payee);
+        let err = f.reject(ix, false);
+        assert!(err.contains("Custom(6007)"), "{target}: {err}");
+        assert!(f.closed(f.escrow));
+    }
+}
+
+/// A full payout sends nothing back, so the refund account's owner is not
+/// checked: a payer that closed or restricted its own token accounts cannot
+/// hold up the payee. The account that stands in receives nothing.
+#[test]
+fn full_payout_does_not_need_a_refund_account_the_payer_owns() {
+    let mut f = Fixture::new();
+    f.lock();
+    let mut ix = f.release_ix();
+    ix.accounts[7].pubkey = f.attacker_token;
+    let payer = f.payer.insecure_clone();
+    send(&mut f.svm, &[ix], &[&payer]).unwrap();
+    assert_eq!(f.balance(f.attacker_token), 0);
+    assert_eq!(f.balance(f.recipient), 390_000);
+    assert_eq!(f.balance(f.treasury_token), 10_000);
+    assert!(f.closed(f.escrow) && f.closed(f.vault));
+}
+
+/// When part of the vault goes back, it goes only to the payer: a partial
+/// settlement, or a full release of a vault someone donated to, still refuses
+/// a refund account the payer does not own.
+#[test]
+fn any_refund_still_needs_a_refund_account_the_payer_owns() {
+    let mut f = Fixture::new();
+    f.lock();
+    let mut ix = f.settle_ix(f.payer.pubkey(), 100_000);
+    ix.accounts[7].pubkey = f.attacker_token;
+    let err = f.reject(ix, false);
+    assert!(err.contains("Custom(6023)"), "{err}");
+
+    // One donated token makes a full release refund something.
+    f.mint_to_source(1);
+    let donate = token_ix::transfer(
+        &spl_token::ID,
+        &f.source,
+        &f.vault,
+        &f.payer.pubkey(),
+        &[],
+        1,
+    )
+    .unwrap();
+    let payer = f.payer.insecure_clone();
+    send(&mut f.svm, &[donate], &[&payer]).unwrap();
+    let mut ix = f.release_ix();
+    ix.accounts[7].pubkey = f.attacker_token;
+    let err = f.reject(ix, false);
+    assert!(err.contains("Custom(6023)"), "{err}");
+    assert_eq!(f.state().status, EscrowStatus::Locked);
+}
+
 #[test]
 fn token_settlement_rejects_unauthorized_or_substituted_accounts() {
     let mut f = Fixture::new();
@@ -595,7 +664,6 @@ fn token_settlement_rejects_unauthorized_or_substituted_accounts() {
         (5, f.vault),
         (6, f.attacker_token),
         (6, f.recipient),
-        (7, f.attacker_token),
         (7, f.recipient),
         (8, system_program::id()),
     ] {

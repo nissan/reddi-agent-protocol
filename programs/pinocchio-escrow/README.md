@@ -86,7 +86,7 @@ dependencies stay out of the program's lockfile):
    simulators with identical state, and requires the same result, the same
    error, the same error log line, the same events, the same inner instructions
    and the same bytes and lamports in every account either transaction touched.
-   Default build: 285 transactions across SOL, classic SPL Token (USDC, AUDD)
+   Default build: 317 transactions across SOL, classic SPL Token (USDC, AUDD)
    and Token-2022 (PYUSD, USDG) escrows, the registry, malformed input, wrong
    and duplicated accounts, uninitialised token accounts, mints off the
    allowlist, transfer fees, and issuer actions on Token-2022 vaults. Extended
@@ -112,10 +112,10 @@ embedded in the binary, so it is a few dozen bytes larger from there:
 
 | | Anchor | Pinocchio | Change |
 |---|---|---|---|
-| Program size | 337,664 bytes | 58,544 bytes | 83% smaller |
-| Rent at 6,960 lamports per byte | 2.3525 SOL | 0.4098 SOL | 1.9427 SOL less |
-| Rent at 5,080 lamports per byte | 1.7170 SOL | 0.2991 SOL | 1.4179 SOL less |
-| Extended build size (not for mainnet) | 488,416 bytes | 88,688 bytes | 82% smaller |
+| Program size | 337,944 bytes | 58,680 bytes | 83% smaller |
+| Rent at 6,960 lamports per byte | 2.3544 SOL | 0.4108 SOL | 1.9437 SOL less |
+| Rent at 5,080 lamports per byte | 1.7185 SOL | 0.2998 SOL | 1.4187 SOL less |
+| Extended build size (not for mainnet) | 488,640 bytes | 88,824 bytes | 82% smaller |
 
 Rent is for the program account (36 bytes) plus the program data account (45
 bytes of header plus the binary), each with the 128-byte account overhead:
