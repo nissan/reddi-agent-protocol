@@ -134,6 +134,10 @@ The classic SPL Token rail accepts mints whose freeze authority can freeze the v
 
 Adevar Labs audit credits are intended for a future pre-mainnet security review covering escrow invariants, replay resistance, access control constraints, attestation/dispute logic, and integration boundaries across x402 and PER paths. No completed external audit is claimed here.
 
+## Pre-release security reviews
+
+Independent pre-release reviews use the kit in [`docs/security/audit-kit/`](docs/security/audit-kit/README.md): a checklist per surface, auditor profiles, prompts that work in any agent tool, a report template and the Go/No-go rubric. Reports stay private; only counts are posted publicly.
+
 ## Responsible Disclosure
 
 If you identify a security issue:
