@@ -54,7 +54,7 @@ export const UPDATES: readonly Update[] = [
       { label: "Try it in the sandbox", href: "https://app.agent-protocol.reddi.tech/sandbox" },
       { label: "Read the devnet deployment record", href: "https://github.com/nissan/reddi-agent-protocol/blob/main/DEPLOY.md" },
     ],
-    status: "draft",
+    status: "published",
   },
 ];
 
