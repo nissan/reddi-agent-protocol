@@ -78,6 +78,26 @@ then `UPSTREAM_API_KEY=... rap-provider start`. For a local model, point `baseUr
 
 To sell more than a raw model, add instructions with `"systemPrompt"` or, for long or private ones, `"systemPromptFile": "prompt.txt"` (a path next to the config). The prompt stays on your server. Its tokens are part of every call, so they are counted in the quote the buyer sees.
 
+## List your provider
+
+Buyers and the app find a provider through two records: the on-chain registry, and the app's listing with your price. One command writes both.
+
+```bash
+rap-provider register --dry-run   # prints the registry accounts and the listing; signs and sends nothing
+rap-provider register             # registers, signs in with your wallet, lists
+rap-provider status               # reads both back
+```
+
+What `register` does, in order, and what it costs:
+
+1. Checks the key file is your configured wallet's, the RPC endpoint is your network, and the app serves the same network. If any is wrong it stops before sending anything.
+2. If your wallet has no registry record, sends `register_agent`. The program burns a 0.01 SOL registration fee and your wallet pays the record's rent. Run again, it does not register twice.
+3. Signs one sign-in message with your wallet (it moves no funds), sent to the sign-in service the app names, and then creates or updates your listing: name, public address, model, currency and per-token price. A paused currency is listed as paused.
+
+`publicUrl` must be a public https address before you list. Set `listing.capabilities` to say what the provider is for, for example `{ "taskTypes": ["writing"] }`, and `listing.appUrl` (or `RAP_APP_URL`) for another deployment of the app.
+
+Not yet run against the live app: the sign-in step depends on the app's sign-in service accepting a message signed outside a browser for the app's address, which is checked in the devnet run.
+
 ## Configuration
 
 | Field | Meaning |
@@ -98,6 +118,7 @@ To sell more than a raw model, add instructions with `"systemPrompt"` or, for lo
 | `keypairPath` | The wallet's keypair file. Must not be readable by other users (`chmod 600`). |
 | `replayFile` | Where accepted escrows are remembered. Default `.rap-provider/accepted-escrows.log`. Keep it on a disk that survives restarts. |
 | `rpcUrl`, `port` | Also settable as `SOLANA_RPC_URL` and `PORT`. An RPC endpoint is required on mainnet. |
+| `listing.appUrl`, `listing.capabilities` | For `register`: the app to list in, and what the listing says the provider can do. |
 | `mint` | Devnet only, for currencies other than USDC. On mainnet the mints are fixed. |
 | `pausedCurrencies` | Currencies you have stopped taking new locks in, for example `["PYUSD"]`. Also `RAP_PROVIDER_PAUSED_CURRENCIES=PYUSD,USDG`. See "Pausing a currency". |
 | `payoutAccount` | Recovery only: another token account of the currency that your wallet owns. Payouts go there when your usual token account is closed or frozen. |
