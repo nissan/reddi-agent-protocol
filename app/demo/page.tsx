@@ -39,7 +39,7 @@ interface RenderedSection {
 function renderLine(line: string) {
   // Colour ✅ lines green
   if (line.startsWith("✅")) {
-    return <span className="text-[#14F195]">{line}</span>;
+    return <span className="text-brand-green">{line}</span>;
   }
   // Colour ⚠️ lines yellow
   if (line.startsWith("⚠️")) {
@@ -190,8 +190,8 @@ export default function DemoPage() {
 
         {/* Mode banner */}
         {mode === "live" ? (
-          <span className="flex items-center gap-1.5 text-xs font-medium text-[#14F195] bg-[#14F195]/10 border border-[#14F195]/20 px-3 py-1.5 rounded-full">
-            <span className="inline-block w-2 h-2 rounded-full bg-[#14F195] animate-pulse" />
+          <span className="flex items-center gap-1.5 text-xs font-medium text-brand-green bg-brand-green/10 border border-brand-green/20 px-3 py-1.5 rounded-full">
+            <span className="inline-block w-2 h-2 rounded-full bg-ink animate-pulse" />
             Live — real Ollama call · devnet RPC read only · escrow steps simulated
           </span>
         ) : (
@@ -226,7 +226,7 @@ export default function DemoPage() {
                   value={ollamaUrl}
                   onChange={(e) => setOllamaUrl(e.target.value)}
                   placeholder="https://your-machine.ts.net"
-                  className="w-full rounded-xl border border-white/10 bg-card/30 p-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-[#9945FF]/60"
+                  className="w-full rounded-xl border border-white/10 bg-card/30 p-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand-violet/60"
                 />
                 <p className="text-xs text-muted-foreground">
                   Your Tailscale Funnel URL exposing Ollama on port 11434
@@ -240,7 +240,7 @@ export default function DemoPage() {
               onChange={(e) => setBrief(e.target.value)}
               placeholder="e.g. A landing page for a paid-work assurance demo targeting developers"
               rows={4}
-              className="w-full rounded-xl border border-white/10 bg-card/30 p-3 text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-1 focus:ring-[#9945FF]/60"
+              className="w-full rounded-xl border border-white/10 bg-card/30 p-3 text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-1 focus:ring-brand-violet/60"
             />
             <button
               onClick={handleGenerate}
@@ -250,14 +250,14 @@ export default function DemoPage() {
                 background:
                   !brief.trim() || running || (mode === "live" && !ollamaUrl.trim())
                     ? undefined
-                    : "linear-gradient(135deg, #9945FF, #14F195)",
+                    : "var(--color-ink)",
                 color:
                   !brief.trim() || running || (mode === "live" && !ollamaUrl.trim())
                     ? undefined
-                    : "#000",
+                    : "var(--color-paper)",
                 backgroundColor:
                   !brief.trim() || running || (mode === "live" && !ollamaUrl.trim())
-                    ? "rgba(255,255,255,0.05)"
+                    ? "rgba(20,22,26,0.05)"
                     : undefined,
               }}
             >
@@ -297,7 +297,7 @@ export default function DemoPage() {
               <button
                 onClick={handleBakeTrace}
                 disabled={bakeStatus === "baking" || bakeStatus === "baked"}
-                className="w-full py-2.5 px-4 rounded-xl text-sm font-medium border border-[#14F195]/40 text-[#14F195] hover:bg-[#14F195]/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-2.5 px-4 rounded-xl text-sm font-medium border border-brand-green/40 text-brand-green hover:bg-brand-green/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {bakeStatus === "idle" && "⬇ Bake trace into demo replay"}
                 {bakeStatus === "baking" && "Baking..."}
@@ -313,8 +313,8 @@ export default function DemoPage() {
           <div className="flex items-center gap-3">
             <h2 className="text-base font-semibold">Debug Trace</h2>
             {running && (
-              <span className="flex items-center gap-1.5 text-xs text-[#14F195]">
-                <span className="inline-block w-2 h-2 rounded-full bg-[#14F195] animate-pulse" />
+              <span className="flex items-center gap-1.5 text-xs text-brand-green">
+                <span className="inline-block w-2 h-2 rounded-full bg-ink animate-pulse" />
                 {mode === "live" ? "Live" : "Replaying"}
               </span>
             )}
@@ -325,7 +325,7 @@ export default function DemoPage() {
 
           <div
             ref={logRef}
-            className="h-[520px] overflow-y-auto rounded-xl border border-white/10 bg-[#0a0a0a] p-4 font-mono text-xs space-y-4"
+            className="h-[520px] overflow-y-auto rounded-xl border border-white/10 bg-well p-4 font-mono text-xs space-y-4"
           >
             {sections.length === 0 && !running && (
               <p className="text-muted-foreground text-center mt-20">
@@ -351,7 +351,7 @@ export default function DemoPage() {
 
             {running && (
               <div className="flex items-center gap-2 text-muted-foreground">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#9945FF] animate-ping" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-brand-violet animate-ping" />
                 <span>Processing...</span>
               </div>
             )}

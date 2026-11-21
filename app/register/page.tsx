@@ -523,12 +523,12 @@ function RegisterInner() {
                 href={toExplorerTxUrl(txSig)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-mono text-xs break-all text-[#14F195] hover:underline"
+                className="font-mono text-xs break-all text-brand-green hover:underline"
               >
                 {txSig}
               </a>
             ) : (
-              <p className="font-mono text-xs break-all text-[#14F195]">
+              <p className="font-mono text-xs break-all text-brand-green">
                 {txSig}
               </p>
             )}
@@ -544,8 +544,8 @@ function RegisterInner() {
           <LinkButton
             href="/setup"
             style={{
-              background: "linear-gradient(135deg, #9945FF, #14F195)",
-              color: "#000",
+              background: "var(--color-ink)",
+              color: "var(--color-paper)",
               fontWeight: 600,
             }}
           >
@@ -596,14 +596,14 @@ function RegisterInner() {
         }
       />
       <Card
-        className="flex flex-col gap-2 p-4 text-sm border-[#9945FF]/20 bg-[#9945FF]/5 sm:flex-row sm:items-center sm:justify-between"
+        className="flex flex-col gap-2 p-4 text-sm border-brand-violet/20 bg-brand-violet/5 sm:flex-row sm:items-center sm:justify-between"
         data-testid="register-intake-entry"
       >
         <span className="text-muted-foreground">
           Already have an MCP server, OpenAPI service, A2A card, AI Catalog entry, or bare endpoint?
           Let the onboarding assistant draft the profile from it — static analysis, no live calls.
         </span>
-        <LinkButton href="/onboarding/intake" variant="outline" className="shrink-0 border-[#9945FF]/40">
+        <LinkButton href="/onboarding/intake" variant="outline" className="shrink-0 border-brand-violet/40">
           Open guided intake →
         </LinkButton>
       </Card>
@@ -715,7 +715,7 @@ function RegisterInner() {
         <Button
           type="button"
           onClick={() => setSetupModalOpen(true)}
-          className="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold rounded-xl transition flex items-center justify-center gap-2 mb-6"
+          className="w-full py-3 px-4 bg-ink hover:bg-brand-violet text-paper font-semibold rounded-xl transition flex items-center justify-center gap-2 mb-6"
         >
           <span>🚀</span> Set up my first specialist (guided)
         </Button>
@@ -761,12 +761,12 @@ function RegisterInner() {
           </p>
           {connected && publicKey ? (
             <div className="space-y-3">
-              <div className="p-3 rounded-lg bg-[#14F195]/10 border border-[#14F195]/20">
+              <div className="p-3 rounded-lg bg-brand-green/10 border border-brand-green/20">
                 <p className="text-xs text-muted-foreground">
                   Connected wallet
                 </p>
                 <p
-                  className="font-mono text-sm text-[#14F195] truncate cursor-default"
+                  className="font-mono text-sm text-brand-green truncate cursor-default"
                   title={publicKey.toBase58()}
                 >
                   {publicKey.toBase58().slice(0, 4)}...
@@ -776,8 +776,8 @@ function RegisterInner() {
               <Button
                 onClick={() => setStep(2)}
                 style={{
-                  background: "linear-gradient(135deg, #9945FF, #14F195)",
-                  color: "#000",
+                  background: "var(--color-ink)",
+                  color: "var(--color-paper)",
                   fontWeight: 600,
                 }}
               >
@@ -788,8 +788,8 @@ function RegisterInner() {
             <div className="flex flex-col items-start gap-3">
               <WalletMultiButton
                 style={{
-                  background:
-                    "linear-gradient(135deg, #9945FF 0%, #14F195 100%)",
+                  background: "var(--color-ink)",
+                  color: "var(--color-paper)",
                   height: "40px",
                   fontSize: "14px",
                   borderRadius: "8px",
@@ -1160,7 +1160,7 @@ function RegisterInner() {
                   setForm({ ...form, acceptUnrated: !form.acceptUnrated })
                 }
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  form.acceptUnrated ? "bg-[#14F195]" : "bg-white/20"
+                  form.acceptUnrated ? "bg-ink" : "bg-white/20"
                 }`}
               >
                 <span
@@ -1278,7 +1278,7 @@ function RegisterInner() {
               </div>
               <div className="flex justify-between gap-4 border-t border-blue-200 pt-1 font-semibold dark:border-blue-900/40">
                 <span>Total</span>
-                <span className="font-mono text-[#14F195]">
+                <span className="font-mono text-brand-green">
                   ~{(REGISTRATION_FEE_SOL + RENT_SOL).toFixed(5)} SOL
                 </span>
               </div>

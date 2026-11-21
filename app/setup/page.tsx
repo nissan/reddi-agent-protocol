@@ -148,7 +148,7 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={copy}
-      className="text-[#9945FF] hover:text-[#14F195] transition-colors p-1 rounded"
+      className="text-brand-violet hover:text-brand-green transition-colors p-1 rounded"
       title="Copy"
     >
       {copied ? <Check size={14} /> : <Copy size={14} />}
@@ -158,8 +158,8 @@ function CopyButton({ text }: { text: string }) {
 
 function TestIcon({ status }: { status: TestStatus }) {
   if (status === "pending") return <span className="w-5 h-5 rounded-full border border-gray-600 inline-block" />;
-  if (status === "running") return <Loader2 size={18} className="animate-spin text-[#9945FF]" />;
-  if (status === "pass") return <CheckCircle2 size={18} className="text-[#14F195]" />;
+  if (status === "running") return <Loader2 size={18} className="animate-spin text-brand-violet" />;
+  if (status === "pass") return <CheckCircle2 size={18} className="text-brand-green" />;
   if (status === "warn") return <AlertTriangle size={18} className="text-yellow-400" />;
   return <XCircle size={18} className="text-red-400" />;
 }
@@ -586,13 +586,13 @@ export default function SetupPage() {
   // ─────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white">
+    <div className="min-h-screen bg-well text-white">
       <div className="max-w-3xl mx-auto px-4 py-12">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-2">
             Configure Your{" "}
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#9945FF] to-[#14F195]">
+            <span className="text-transparent bg-clip-text bg-ink text-paper">
               Agent
             </span>
           </h1>
@@ -606,12 +606,12 @@ export default function SetupPage() {
         </section>
 
         <Tabs defaultValue="connect" className="w-full">
-          <TabsList className="bg-[#111] border border-[#222] rounded-xl mb-6 w-full grid grid-cols-5">
+          <TabsList className="bg-well border border-line rounded-xl mb-6 w-full grid grid-cols-5">
             {["connect", "tools", "skills", "test", "register"].map((tab) => (
               <TabsTrigger
                 key={tab}
                 value={tab}
-                className="capitalize data-[state=active]:bg-[#9945FF]/20 data-[state=active]:text-[#9945FF] text-gray-400 text-xs sm:text-sm"
+                className="capitalize data-[state=active]:bg-brand-violet/20 data-[state=active]:text-brand-violet text-gray-400 text-xs sm:text-sm"
               >
                 {tab}
               </TabsTrigger>
@@ -627,14 +627,14 @@ export default function SetupPage() {
                   value={endpoint}
                   onChange={(e) => setEndpoint(e.target.value)}
                   placeholder="https://your-subdomain.ngrok-free.app"
-                  className="bg-[#111] border-[#333] text-white font-mono"
+                  className="bg-well border-line text-white font-mono"
                 />
               </div>
 
               <Button
                 onClick={testConnection}
                 disabled={connectStatus === "testing"}
-                className="bg-[#9945FF] hover:bg-[#7a35d4] text-white"
+                className="bg-ink hover:bg-brand-violet text-paper"
               >
                 {connectStatus === "testing" ? (
                   <><Loader2 size={14} className="mr-2 animate-spin" /> Testing…</>
@@ -646,7 +646,7 @@ export default function SetupPage() {
               {connectMsg && (
                 <p
                   className={`text-sm font-mono ${
-                    connectStatus === "ok" ? "text-[#14F195]" : "text-red-400"
+                    connectStatus === "ok" ? "text-brand-green" : "text-red-400"
                   }`}
                 >
                   {connectMsg}
@@ -655,25 +655,25 @@ export default function SetupPage() {
 
               {/* CORS setup box */}
               {!corsOk && (
-                <div className="border border-[#333] rounded-lg overflow-hidden">
+                <div className="border border-line rounded-lg overflow-hidden">
                   <button
                     onClick={() => setCorsOpen((v) => !v)}
-                    className="w-full flex items-center justify-between px-4 py-3 bg-[#111] text-sm text-gray-300 hover:text-white transition-colors"
+                    className="w-full flex items-center justify-between px-4 py-3 bg-well text-sm text-gray-300 hover:text-white transition-colors"
                   >
                     <span>⚠ CORS setup required</span>
                     {corsOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                   </button>
                   {corsOpen && (
-                    <div className="p-4 space-y-4 bg-[#0d0d0d] text-sm text-gray-300">
+                    <div className="p-4 space-y-4 bg-well text-sm text-gray-300">
                       <p>
                         Ollama blocks browser requests by default. Run this once:
                       </p>
-                      <div className="bg-[#1a1a1a] rounded-md p-3 font-mono text-[#14F195] flex items-start justify-between gap-2">
+                      <div className="bg-card rounded-md p-3 font-mono text-brand-green flex items-start justify-between gap-2">
                         <code>OLLAMA_ORIGINS=&quot;*&quot; ollama serve</code>
                         <CopyButton text={`OLLAMA_ORIGINS="*" ollama serve`} />
                       </div>
                       <p>Or set permanently in your environment:</p>
-                      <div className="bg-[#1a1a1a] rounded-md p-3 font-mono text-[#14F195] flex items-start justify-between gap-2">
+                      <div className="bg-card rounded-md p-3 font-mono text-brand-green flex items-start justify-between gap-2">
                         <code>export OLLAMA_ORIGINS=&quot;*&quot;</code>
                         <CopyButton text={`export OLLAMA_ORIGINS="*"`} />
                       </div>
@@ -683,11 +683,11 @@ export default function SetupPage() {
               )}
 
               {availableModels.length > 0 && (
-                <div className="border border-[#222] rounded-lg p-4 bg-[#111]">
+                <div className="border border-line rounded-lg p-4 bg-well">
                   <p className="text-xs text-gray-400 mb-2">Installed models:</p>
                   <div className="flex flex-wrap gap-2">
                     {availableModels.map((m) => (
-                      <Badge key={m} className="bg-[#9945FF]/20 text-[#9945FF] border-[#9945FF]/40 text-xs">
+                      <Badge key={m} className="bg-brand-violet/20 text-brand-violet border-brand-violet/40 text-xs">
                         {m}
                       </Badge>
                     ))}
@@ -705,7 +705,7 @@ export default function SetupPage() {
                 <Button
                   onClick={addTool}
                   size="sm"
-                  className="bg-[#9945FF]/20 text-[#9945FF] border border-[#9945FF]/40 hover:bg-[#9945FF]/30"
+                  className="bg-brand-violet/20 text-brand-violet border border-brand-violet/40 hover:bg-brand-violet/30"
                   variant="outline"
                 >
                   <Plus size={14} className="mr-1" /> Add tool
@@ -713,16 +713,16 @@ export default function SetupPage() {
               </div>
 
               {tools.map((tool) => (
-                <div key={tool.id} className="border border-[#2a2a2a] rounded-lg overflow-hidden">
+                <div key={tool.id} className="border border-line rounded-lg overflow-hidden">
                   {/* Tool header */}
-                  <div className="flex items-center gap-2 px-4 py-3 bg-[#111]">
+                  <div className="flex items-center gap-2 px-4 py-3 bg-well">
                     <button
                       onClick={() => updateTool(tool.id, { collapsed: !tool.collapsed })}
                       className="text-gray-400 hover:text-white"
                     >
                       {tool.collapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
                     </button>
-                    <span className="font-mono text-sm text-[#14F195] flex-1 truncate">
+                    <span className="font-mono text-sm text-brand-green flex-1 truncate">
                       {tool.name || "new_tool"}
                     </span>
                     <button
@@ -735,14 +735,14 @@ export default function SetupPage() {
 
                   {/* Tool body */}
                   {!tool.collapsed && (
-                    <div className="p-4 space-y-3 bg-[#0d0d0d]">
+                    <div className="p-4 space-y-3 bg-well">
                       <div>
                         <Label className="text-xs text-gray-400 mb-1 block">Function name (no spaces)</Label>
                         <Input
                           value={tool.name}
                           onChange={(e) => updateTool(tool.id, { name: e.target.value.replace(/\s/g, "_") })}
                           placeholder="my_function"
-                          className="bg-[#111] border-[#333] text-white font-mono text-sm"
+                          className="bg-well border-line text-white font-mono text-sm"
                         />
                       </div>
                       <div>
@@ -752,7 +752,7 @@ export default function SetupPage() {
                           onChange={(e) => updateTool(tool.id, { description: e.target.value })}
                           placeholder="What does this tool do?"
                           rows={2}
-                          className="bg-[#111] border-[#333] text-white text-sm resize-none"
+                          className="bg-well border-line text-white text-sm resize-none"
                         />
                       </div>
 
@@ -762,7 +762,7 @@ export default function SetupPage() {
                           <Label className="text-xs text-gray-400">Parameters</Label>
                           <button
                             onClick={() => addParam(tool.id)}
-                            className="text-xs text-[#9945FF] hover:text-[#14F195] flex items-center gap-1"
+                            className="text-xs text-brand-violet hover:text-brand-green flex items-center gap-1"
                           >
                             <Plus size={12} /> Add parameter
                           </button>
@@ -776,7 +776,7 @@ export default function SetupPage() {
                           {tool.parameters.map((param) => (
                             <div
                               key={param.id}
-                              className="border border-[#1e1e1e] rounded p-3 space-y-2 bg-[#111]"
+                              className="border border-card rounded p-3 space-y-2 bg-well"
                             >
                               <div className="grid grid-cols-2 gap-2">
                                 <div>
@@ -787,7 +787,7 @@ export default function SetupPage() {
                                       updateParam(tool.id, param.id, { name: e.target.value.replace(/\s/g, "_") })
                                     }
                                     placeholder="param_name"
-                                    className="bg-[#1a1a1a] border-[#333] text-white font-mono text-xs h-8"
+                                    className="bg-card border-line text-white font-mono text-xs h-8"
                                   />
                                 </div>
                                 <div>
@@ -799,7 +799,7 @@ export default function SetupPage() {
                                         type: e.target.value as Parameter["type"],
                                       })
                                     }
-                                    className="w-full bg-[#1a1a1a] border border-[#333] text-white text-xs rounded-md h-8 px-2"
+                                    className="w-full bg-card border border-line text-white text-xs rounded-md h-8 px-2"
                                   >
                                     {["string", "number", "boolean", "array"].map((t) => (
                                       <option key={t} value={t}>
@@ -817,7 +817,7 @@ export default function SetupPage() {
                                     updateParam(tool.id, param.id, { description: e.target.value })
                                   }
                                   placeholder="What is this parameter?"
-                                  className="bg-[#1a1a1a] border-[#333] text-white text-xs h-8"
+                                  className="bg-card border-line text-white text-xs h-8"
                                 />
                               </div>
                               <div>
@@ -830,7 +830,7 @@ export default function SetupPage() {
                                     updateParam(tool.id, param.id, { enumValues: e.target.value })
                                   }
                                   placeholder="option1, option2"
-                                  className="bg-[#1a1a1a] border-[#333] text-white text-xs h-8"
+                                  className="bg-card border-line text-white text-xs h-8"
                                 />
                               </div>
                               <div className="flex items-center justify-between">
@@ -841,7 +841,7 @@ export default function SetupPage() {
                                     onChange={(e) =>
                                       updateParam(tool.id, param.id, { required: e.target.checked })
                                     }
-                                    className="accent-[#9945FF]"
+                                    className="accent-brand-violet"
                                   />
                                   Required
                                 </label>
@@ -862,20 +862,20 @@ export default function SetupPage() {
               ))}
 
               {/* JSON Preview */}
-              <div className="border border-[#2a2a2a] rounded-lg overflow-hidden">
+              <div className="border border-line rounded-lg overflow-hidden">
                 <button
                   onClick={() => setShowToolJson((v) => !v)}
-                  className="w-full flex items-center justify-between px-4 py-3 bg-[#111] text-sm text-gray-300 hover:text-white transition-colors"
+                  className="w-full flex items-center justify-between px-4 py-3 bg-well text-sm text-gray-300 hover:text-white transition-colors"
                 >
                   <span>Preview JSON (Ollama format)</span>
                   {showToolJson ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                 </button>
                 {showToolJson && (
-                  <div className="bg-[#0d0d0d] p-4">
+                  <div className="bg-well p-4">
                     <div className="flex justify-end mb-2">
                       <CopyButton text={JSON.stringify(buildOllamaTools(), null, 2)} />
                     </div>
-                    <pre className="text-xs text-[#14F195] font-mono overflow-x-auto whitespace-pre-wrap break-words">
+                    <pre className="text-xs text-brand-green font-mono overflow-x-auto whitespace-pre-wrap break-words">
                       {JSON.stringify(buildOllamaTools(), null, 2)}
                     </pre>
                   </div>
@@ -892,13 +892,13 @@ export default function SetupPage() {
                 <Button
                   onClick={() => setSkillModal(true)}
                   size="sm"
-                  className="bg-[#9945FF]/20 text-[#9945FF] border border-[#9945FF]/40 hover:bg-[#9945FF]/30"
+                  className="bg-brand-violet/20 text-brand-violet border border-brand-violet/40 hover:bg-brand-violet/30"
                   variant="outline"
                 >
                   <Plus size={14} className="mr-1" /> New skill
                 </Button>
                 <label className="cursor-pointer">
-                  <span className="inline-flex items-center gap-1 text-sm border border-[#333] text-gray-400 hover:text-white hover:border-[#555] px-3 py-1.5 rounded-md transition-colors">
+                  <span className="inline-flex items-center gap-1 text-sm border border-line text-gray-400 hover:text-white hover:border-line-strong px-3 py-1.5 rounded-md transition-colors">
                     Upload .md / .txt
                   </span>
                   <input
@@ -917,13 +917,13 @@ export default function SetupPage() {
                   value={urlInput}
                   onChange={(e) => setUrlInput(e.target.value)}
                   placeholder="https://raw.githubusercontent.com/... (skill URL)"
-                  className="bg-[#111] border-[#333] text-white text-sm"
+                  className="bg-well border-line text-white text-sm"
                 />
                 <Button
                   onClick={fetchSkillFromUrl}
                   disabled={urlFetching || !urlInput.trim()}
                   size="sm"
-                  className="bg-[#111] border border-[#333] text-gray-300 hover:text-white"
+                  className="bg-well border border-line text-gray-300 hover:text-white"
                   variant="outline"
                 >
                   {urlFetching ? <Loader2 size={14} className="animate-spin" /> : "Fetch"}
@@ -936,8 +936,8 @@ export default function SetupPage() {
               )}
 
               {skills.map((skill, idx) => (
-                <div key={skill.id} className="border border-[#2a2a2a] rounded-lg overflow-hidden">
-                  <div className="flex items-center gap-2 px-4 py-3 bg-[#111]">
+                <div key={skill.id} className="border border-line rounded-lg overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 py-3 bg-well">
                     <button
                       onClick={() => updateSkill(skill.id, { collapsed: !skill.collapsed })}
                       className="text-gray-400 hover:text-white"
@@ -981,24 +981,24 @@ export default function SetupPage() {
                   </div>
 
                   {skill.collapsed ? (
-                    <div className="px-4 py-2 bg-[#0d0d0d]">
+                    <div className="px-4 py-2 bg-well">
                       <p className="text-xs text-gray-500 line-clamp-2 font-mono">
                         {skill.content.split("\n").slice(0, 2).join(" · ")}
                       </p>
                     </div>
                   ) : (
-                    <div className="p-4 bg-[#0d0d0d] space-y-2">
+                    <div className="p-4 bg-well space-y-2">
                       <Input
                         value={skill.name}
                         onChange={(e) => updateSkill(skill.id, { name: e.target.value })}
-                        className="bg-[#111] border-[#333] text-white font-semibold text-sm"
+                        className="bg-well border-line text-white font-semibold text-sm"
                         placeholder="Skill name"
                       />
                       <Textarea
                         value={skill.content}
                         onChange={(e) => updateSkill(skill.id, { content: e.target.value })}
                         rows={10}
-                        className="bg-[#111] border-[#333] text-white text-sm font-mono resize-y"
+                        className="bg-well border-line text-white text-sm font-mono resize-y"
                       />
                     </div>
                   )}
@@ -1007,16 +1007,16 @@ export default function SetupPage() {
 
               {/* Combined system prompt preview */}
               {skills.length > 0 && (
-                <div className="border border-[#2a2a2a] rounded-lg overflow-hidden">
+                <div className="border border-line rounded-lg overflow-hidden">
                   <button
                     onClick={() => setShowSystemPrompt((v) => !v)}
-                    className="w-full flex items-center justify-between px-4 py-3 bg-[#111] text-sm text-gray-300 hover:text-white transition-colors"
+                    className="w-full flex items-center justify-between px-4 py-3 bg-well text-sm text-gray-300 hover:text-white transition-colors"
                   >
                     <span>Preview combined system prompt</span>
                     {showSystemPrompt ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                   </button>
                   {showSystemPrompt && (
-                    <div className="bg-[#0d0d0d] p-4">
+                    <div className="bg-well p-4">
                       <div className="flex justify-end mb-2">
                         <CopyButton text={combinedSystemPrompt} />
                       </div>
@@ -1032,7 +1032,7 @@ export default function SetupPage() {
             {/* Skill modal */}
             {skillModal && (
               <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-                <div className="bg-[#111] border border-[#333] rounded-xl w-full max-w-lg p-6 space-y-4">
+                <div className="bg-well border border-line rounded-xl w-full max-w-lg p-6 space-y-4">
                   <h3 className="text-lg font-semibold">New Skill</h3>
                   <div>
                     <Label className="text-xs text-gray-400 mb-1 block">Skill name</Label>
@@ -1040,7 +1040,7 @@ export default function SetupPage() {
                       value={skillModalName}
                       onChange={(e) => setSkillModalName(e.target.value)}
                       placeholder="e.g. Research Specialist"
-                      className="bg-[#1a1a1a] border-[#333] text-white"
+                      className="bg-card border-line text-white"
                       autoFocus
                     />
                   </div>
@@ -1050,7 +1050,7 @@ export default function SetupPage() {
                       value={skillModalContent}
                       onChange={(e) => setSkillModalContent(e.target.value)}
                       rows={10}
-                      className="bg-[#1a1a1a] border-[#333] text-white font-mono text-sm resize-y"
+                      className="bg-card border-line text-white font-mono text-sm resize-y"
                       placeholder="# My Skill&#10;You are an expert in..."
                     />
                   </div>
@@ -1058,14 +1058,14 @@ export default function SetupPage() {
                     <Button
                       variant="outline"
                       onClick={() => { setSkillModal(false); setSkillModalName(""); setSkillModalContent(""); }}
-                      className="border-[#333] text-gray-400 hover:text-white"
+                      className="border-line text-gray-400 hover:text-white"
                     >
                       Cancel
                     </Button>
                     <Button
                       onClick={addSkillTyped}
                       disabled={!skillModalName.trim() || !skillModalContent.trim()}
-                      className="bg-[#9945FF] hover:bg-[#7a35d4] text-white"
+                      className="bg-ink hover:bg-brand-violet text-paper"
                     >
                       Add skill
                     </Button>
@@ -1084,7 +1084,7 @@ export default function SetupPage() {
                   value={testModel}
                   onChange={(e) => setTestModel(e.target.value)}
                   placeholder="qwen3:8b"
-                  className="bg-[#111] border-[#333] text-white font-mono"
+                  className="bg-well border-line text-white font-mono"
                 />
                 {availableModels.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
@@ -1094,8 +1094,8 @@ export default function SetupPage() {
                         onClick={() => setTestModel(m)}
                         className={`text-xs px-2 py-0.5 rounded border transition-colors ${
                           testModel === m
-                            ? "bg-[#9945FF]/30 border-[#9945FF] text-[#9945FF]"
-                            : "border-[#333] text-gray-500 hover:text-gray-300 hover:border-[#555]"
+                            ? "bg-brand-violet/30 border-brand-violet text-brand-violet"
+                            : "border-line text-gray-500 hover:text-gray-300 hover:border-line-strong"
                         }`}
                       >
                         {m}
@@ -1108,7 +1108,7 @@ export default function SetupPage() {
               <Button
                 onClick={runAllTests}
                 disabled={testRunning}
-                className="bg-[#14F195] text-black hover:bg-[#10c97a] font-semibold w-full"
+                className="bg-ink text-black hover:bg-brand-green font-semibold w-full"
               >
                 {testRunning ? (
                   <><Loader2 size={16} className="mr-2 animate-spin" /> Running tests…</>
@@ -1132,14 +1132,14 @@ export default function SetupPage() {
                       key={key}
                       className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${
                         result.status === "pass"
-                          ? "border-[#14F195]/30 bg-[#14F195]/5"
+                          ? "border-brand-green/30 bg-brand-green/5"
                           : result.status === "fail"
                           ? "border-red-500/30 bg-red-500/5"
                           : result.status === "warn"
                           ? "border-yellow-500/30 bg-yellow-500/5"
                           : result.status === "running"
-                          ? "border-[#9945FF]/30 bg-[#9945FF]/5"
-                          : "border-[#222] bg-[#0d0d0d]"
+                          ? "border-brand-violet/30 bg-brand-violet/5"
+                          : "border-line bg-well"
                       }`}
                     >
                       <div className="mt-0.5">
@@ -1152,7 +1152,7 @@ export default function SetupPage() {
                           <p
                             className={`text-xs mt-1 font-mono ${
                               result.status === "pass"
-                                ? "text-[#14F195]"
+                                ? "text-brand-green"
                                 : result.status === "warn"
                                 ? "text-yellow-400"
                                 : "text-red-400"
@@ -1179,7 +1179,7 @@ export default function SetupPage() {
           <TabsContent value="register">
             <div className="space-y-6">
               {/* Summary card */}
-              <div className="border border-[#2a2a2a] rounded-lg p-4 bg-[#111] space-y-3">
+              <div className="border border-line rounded-lg p-4 bg-well space-y-3">
                 <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
                   Configuration Summary
                 </h3>
@@ -1192,7 +1192,7 @@ export default function SetupPage() {
                   </div>
                   <div>
                     <span className="text-gray-500 text-xs">Model</span>
-                    <p className="text-[#14F195] font-mono text-sm">{testModel}</p>
+                    <p className="text-brand-green font-mono text-sm">{testModel}</p>
                   </div>
                   <div>
                     <span className="text-gray-500 text-xs">Tools</span>
@@ -1223,7 +1223,7 @@ export default function SetupPage() {
                     <p
                       className={`text-sm font-semibold ${
                         testPassCount === 5
-                          ? "text-[#14F195]"
+                          ? "text-brand-green"
                           : testPassCount >= 3
                           ? "text-yellow-400"
                           : "text-gray-400"
@@ -1252,7 +1252,7 @@ export default function SetupPage() {
                     onChange={(e) => setSpecialisation(e.target.value)}
                     placeholder="Describe what your agent specialises in and what makes it useful to hire."
                     rows={3}
-                    className="bg-[#111] border-[#333] text-white text-sm resize-none"
+                    className="bg-well border-line text-white text-sm resize-none"
                   />
                 </div>
 
@@ -1265,7 +1265,7 @@ export default function SetupPage() {
                     value={tags}
                     onChange={(e) => setTags(e.target.value)}
                     placeholder="research, summarisation, web-search"
-                    className="bg-[#111] border-[#333] text-white"
+                    className="bg-well border-line text-white"
                   />
                 </div>
 
@@ -1275,7 +1275,7 @@ export default function SetupPage() {
                     <Input
                       value={testModel}
                       onChange={(e) => setTestModel(e.target.value)}
-                      className="bg-[#111] border-[#333] text-white font-mono"
+                      className="bg-well border-line text-white font-mono"
                     />
                   </div>
                   <div>
@@ -1286,7 +1286,7 @@ export default function SetupPage() {
                       value={rate}
                       onChange={(e) => setRate(e.target.value)}
                       placeholder="0.001"
-                      className="bg-[#111] border-[#333] text-white font-mono"
+                      className="bg-well border-line text-white font-mono"
                     />
                   </div>
                 </div>
@@ -1294,7 +1294,7 @@ export default function SetupPage() {
 
               {/* CTA */}
               <Link href="/register" onClick={saveToLocalStorageAndNavigate}>
-                <Button className="w-full bg-gradient-to-r from-[#9945FF] to-[#14F195] text-black font-bold hover:opacity-90 transition-opacity text-base py-3 h-auto">
+                <Button className="w-full bg-ink text-paper text-black font-bold hover:opacity-90 transition-opacity text-base py-3 h-auto">
                   Go to registration <ExternalLink size={16} className="ml-2" />
                 </Button>
               </Link>

@@ -40,7 +40,7 @@ import {
 const PROVENANCE_CHIP: Record<string, string> = {
   discovered: "border-sky-500/30 bg-sky-500/10 text-sky-300",
   inferred: "border-amber-500/30 bg-amber-500/10 text-amber-200",
-  user_provided: "border-[#9945FF]/40 bg-[#9945FF]/10 text-[#c69cff]",
+  user_provided: "border-brand-violet/40 bg-brand-violet/10 text-brand-violet",
   verified: "border-green-500/30 bg-green-500/10 text-green-300",
   blocked: "border-red-500/30 bg-red-950/40 text-red-300",
 };
@@ -197,7 +197,7 @@ export default function ProfileReviewEditorPage() {
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 space-y-8" data-testid="profile-editor-page">
       <header className="space-y-3">
-        <p className="text-xs uppercase tracking-[0.24em] text-[#14F195]">AI onboarding assistant</p>
+        <p className="text-xs uppercase tracking-[0.24em] text-brand-green">AI onboarding assistant</p>
         <h1 className="text-3xl font-bold">Generated RAP profile — review &amp; edit</h1>
         <p className="max-w-3xl text-sm text-muted-foreground">
           Review an AI-generated RAP profile draft before it can become a listing. Every field carries
@@ -216,7 +216,7 @@ export default function ProfileReviewEditorPage() {
         </div>
         <p className="text-xs text-muted-foreground">
           Drafts come from the{" "}
-          <Link href="/onboarding/intake" className="text-[#14F195] hover:text-emerald-200">
+          <Link href="/onboarding/intake" className="text-brand-green hover:text-emerald-200">
             guided intake flow
           </Link>
           ; intake drafts stay local to that page, so this editor reviews the matching fixture-backed
@@ -241,13 +241,13 @@ export default function ProfileReviewEditorPage() {
               aria-pressed={scenario.id === scenarioId}
               className={`rounded-xl border p-4 text-left transition-colors ${
                 scenario.id === scenarioId
-                  ? "border-[#14F195]/60 bg-[#14F195]/10"
+                  ? "border-brand-green/60 bg-brand-green/10"
                   : "border-white/10 bg-black/20 hover:border-white/25"
               }`}
             >
               <p className="font-medium">{scenario.label}</p>
               <p className="mt-1 text-xs text-muted-foreground">{scenario.description}</p>
-              <p className="mt-2 font-mono text-[11px] text-[#9945FF]">→ {scenario.sourceKind}</p>
+              <p className="mt-2 font-mono text-[11px] text-brand-violet">→ {scenario.sourceKind}</p>
             </button>
           ))}
         </div>
@@ -590,7 +590,7 @@ export default function ProfileReviewEditorPage() {
                     onChange={(event) => setDeferralReason(event.target.value)}
                     rows={2}
                     placeholder="e.g. Payment metadata arrives from the provider next week; deferring payment setup."
-                    className="w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none focus:border-[#14F195]/50"
+                    className="w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none focus:border-brand-green/50"
                     aria-describedby="profile-editor-deferral-hint"
                   />
                   <p id="profile-editor-deferral-hint" className="text-xs text-muted-foreground">
@@ -633,7 +633,7 @@ export default function ProfileReviewEditorPage() {
             )}
 
             {decided && decision.ok && (
-              <div className="rounded-xl border border-[#14F195]/30 bg-[#14F195]/5 p-4 space-y-3" data-testid="profile-editor-decision">
+              <div className="rounded-xl border border-brand-green/30 bg-brand-green/5 p-4 space-y-3" data-testid="profile-editor-decision">
                 <p className="text-sm font-semibold">
                   {decision.deferred ? "Blocking issues deferred — decision recorded" : "Review saved — decision recorded"}
                 </p>

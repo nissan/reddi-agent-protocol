@@ -15,8 +15,8 @@ export default function StepIndicator({
 }: Props) {
   const statusColors = {
     "not-started": "border-white/20 text-muted-foreground bg-transparent",
-    "in-progress": "border-[#9945FF] text-[#9945FF] bg-[#9945FF]/10",
-    "complete": "border-[#14F195] text-[#14F195] bg-[#14F195]/10",
+    "in-progress": "border-brand-violet text-brand-violet bg-brand-violet/10",
+    "complete": "border-brand-green text-brand-green bg-brand-green/10",
   };
 
   const statusIcon = {
@@ -34,7 +34,7 @@ export default function StepIndicator({
         {statusIcon[status]}
       </div>
       <div className="pt-1">
-        <div className={`font-semibold ${status === "complete" ? "text-[#14F195]" : "text-foreground"}`}>
+        <div className={`font-semibold ${status === "complete" ? "text-brand-green" : "text-foreground"}`}>
           {title}
         </div>
         {description && (

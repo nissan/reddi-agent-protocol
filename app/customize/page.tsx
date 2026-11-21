@@ -13,7 +13,7 @@ const SYSTEM_PROMPT_TEMPLATES = [
   {
     name: "Code Reviewer",
     tag: "code",
-    color: "#14F195",
+    color: "var(--color-brand-green)",
     description: "Security-aware, opinionated, actionable feedback.",
     prompt: `You are a senior software engineer doing code review. Focus on: correctness first, then performance, then readability. Flag any security issues immediately. Format your review as: Issues (critical/major/minor), Suggestions, Overall assessment (1-5).`,
   },
@@ -186,7 +186,7 @@ export default function CustomizePage() {
               {MODEL_SELECTION.map((row, i) => (
                 <tr key={i} className="border-b border-white/5 hover:bg-card/20 transition-colors">
                   <td className="px-4 py-3 text-muted-foreground">{row.task}</td>
-                  <td className="px-4 py-3 font-mono text-[#14F195] text-xs">{row.model}</td>
+                  <td className="px-4 py-3 font-mono text-brand-green text-xs">{row.model}</td>
                   <td className="px-4 py-3 text-muted-foreground">{row.why}</td>
                 </tr>
               ))}
@@ -216,7 +216,7 @@ export default function CustomizePage() {
                   variant="outline"
                   className={`text-xs ${
                     tool.complexity === "Easy"
-                      ? "border-[#14F195]/30 text-[#14F195] bg-[#14F195]/10"
+                      ? "border-brand-green/30 text-brand-green bg-brand-green/10"
                       : "border-yellow-500/30 text-yellow-400 bg-yellow-500/10"
                   }`}
                 >
@@ -273,7 +273,7 @@ export default function CustomizePage() {
             <li key={i} className="flex items-start gap-3 text-sm">
               <span
                 className="flex-shrink-0 w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center"
-                style={{ background: "linear-gradient(135deg, #9945FF, #14F195)", color: "#000" }}
+                style={{ background: "var(--color-ink)", color: "var(--color-paper)" }}
               >
                 {i + 1}
               </span>
@@ -330,7 +330,7 @@ export default function CustomizePage() {
         <LinkButton
           href="/register"
           style={{
-            background: "linear-gradient(135deg, #9945FF, #14F195)",
+            background: "var(--color-ink)",
             color: "#000",
             fontWeight: 600,
           }}

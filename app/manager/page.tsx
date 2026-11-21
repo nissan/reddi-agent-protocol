@@ -74,7 +74,7 @@ export default function ManagerPage() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 space-y-8">
       <header className="space-y-3">
-        <p className="text-xs uppercase tracking-[0.24em] text-[#14F195]">Agent Manager Operations</p>
+        <p className="text-xs uppercase tracking-[0.24em] text-brand-green">Agent Manager Operations</p>
         <h1 className="text-3xl font-bold">RAP Assurance readiness board</h1>
         <p className="max-w-3xl text-sm text-muted-foreground">
           One human-facing launchpad for the four roles: Specialist, Attestor, Consumer, and Agent Manager. Use it to clear setup blockers before demos or any separately approved live service.
@@ -82,13 +82,13 @@ export default function ManagerPage() {
         <div className="flex flex-wrap gap-2">
           <Link
             href="/manager/discovery"
-            className="inline-flex min-h-10 items-center rounded-lg border border-[#14F195]/40 bg-[#14F195]/10 px-3 py-2 text-sm font-medium text-[#14F195] hover:border-[#14F195]/70 hover:text-emerald-100"
+            className="inline-flex min-h-10 items-center rounded-lg border border-brand-green/40 bg-brand-green/10 px-3 py-2 text-sm font-medium text-brand-green hover:border-brand-green/70 hover:text-emerald-100"
           >
             Open static discovery review
           </Link>
           <Link
             href="/manager/listings"
-            className="inline-flex min-h-10 items-center rounded-lg border border-[#9945FF]/40 bg-[#9945FF]/10 px-3 py-2 text-sm font-medium text-violet-200 hover:border-[#9945FF]/70 hover:text-white"
+            className="inline-flex min-h-10 items-center rounded-lg border border-brand-violet/40 bg-brand-violet/10 px-3 py-2 text-sm font-medium text-violet-200 hover:border-brand-violet/70 hover:text-white"
           >
             Open listing approval queue
           </Link>
@@ -134,7 +134,7 @@ export default function ManagerPage() {
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {(readiness?.roles ?? fallbackRoles).map((role) => (
-          <Link key={role.id} href={role.href} className="rounded-2xl border border-white/10 bg-card/20 p-5 transition-colors hover:border-[#9945FF]/50">
+          <Link key={role.id} href={role.href} className="rounded-2xl border border-white/10 bg-card/20 p-5 transition-colors hover:border-brand-violet/50">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold">{role.label}</h2>
@@ -151,7 +151,7 @@ export default function ManagerPage() {
                 </span>
               ))}
             </div>
-            <p className="mt-5 text-sm text-[#14F195]">Open {role.label} path →</p>
+            <p className="mt-5 text-sm text-brand-green">Open {role.label} path →</p>
           </Link>
         ))}
       </section>
@@ -177,11 +177,11 @@ export default function ManagerPage() {
                   <p className="mt-1 text-xs text-muted-foreground">{artifact.summary}</p>
                   {artifact.path && (
                     artifact.path.startsWith("/") ? (
-                      <Link href={artifact.path} className="mt-2 block font-mono text-xs text-[#14F195] hover:text-emerald-200">
+                      <Link href={artifact.path} className="mt-2 block font-mono text-xs text-brand-green hover:text-emerald-200">
                         {artifact.path} →
                       </Link>
                     ) : (
-                      <p className="mt-2 font-mono text-xs text-[#14F195]">{artifact.path}</p>
+                      <p className="mt-2 font-mono text-xs text-brand-green">{artifact.path}</p>
                     )
                   )}
                 </div>

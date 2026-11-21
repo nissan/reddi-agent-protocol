@@ -48,7 +48,8 @@ export default function DashboardHubPage() {
         <p className="text-muted-foreground">Connect your wallet to access specialist, attestation, and consumer dashboard views.</p>
         <WalletMultiButton
           style={{
-            background: "linear-gradient(135deg, #9945FF 0%, #14F195 100%)",
+            background: "var(--color-ink)",
+            color: "var(--color-paper)",
             height: "44px",
             fontSize: "15px",
             borderRadius: "8px",
@@ -106,10 +107,10 @@ function StatCard({ label, value }: { label: string; value: number }) {
 
 function RoleCard({ title, desc, href }: { title: string; desc: string; href: string }) {
   return (
-    <Link href={href} className="rounded-xl border border-white/10 bg-card/20 p-5 hover:border-[#9945FF]/40 transition-colors">
+    <Link href={href} className="rounded-xl border border-white/10 bg-card/20 p-5 hover:border-brand-violet/40 transition-colors">
       <p className="text-lg font-semibold">{title}</p>
       <p className="text-sm text-muted-foreground mt-2">{desc}</p>
-      <p className="text-sm mt-4 text-[#14F195]">Open dashboard →</p>
+      <p className="text-sm mt-4 text-brand-green">Open dashboard →</p>
     </Link>
   );
 }

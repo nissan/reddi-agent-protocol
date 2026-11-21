@@ -34,13 +34,13 @@ export default function ReputationStars({
   return (
     <span className={`inline-flex items-center gap-1 ${sizeClass}`}>
       {Array.from({ length: full }).map((_, i) => (
-        <span key={`f${i}`} style={{ color: "#14F195" }}>★</span>
+        <span key={`f${i}`} style={{ color: "var(--color-brand-green)" }}>★</span>
       ))}
       {partial >= 0.25 && partial < 0.75 && (
-        <span style={{ color: "#14F195" }} className="opacity-60">★</span>
+        <span style={{ color: "var(--color-brand-green)" }} className="opacity-60">★</span>
       )}
       {partial >= 0.75 && (
-        <span style={{ color: "#14F195" }}>★</span>
+        <span style={{ color: "var(--color-brand-green)" }}>★</span>
       )}
       {Array.from({ length: empty }).map((_, i) => (
         <span key={`e${i}`} className="text-muted-foreground/40">★</span>

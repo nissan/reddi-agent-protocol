@@ -257,7 +257,7 @@ function AgentsPageContent() {
                 aria-pressed={taskFilter === task.id}
                 className={`rounded-full px-3 py-1.5 text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400 ${
                   taskFilter === task.id
-                    ? "bg-indigo-500 text-white"
+                    ? "bg-ink text-paper"
                     : "bg-surface text-gray-400 glow-border hover:text-white"
                 }`}
               >
@@ -387,7 +387,7 @@ function EmptyState({
           type="button"
           onClick={onClearFilters}
           data-testid="clear-filters"
-          className="mt-5 rounded-full bg-indigo-500 px-4 py-2 text-xs font-medium text-white transition hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
+          className="mt-5 rounded-full bg-ink px-4 py-2 text-xs font-medium text-paper transition hover:bg-brand-violet focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
         >
           Clear all filters
         </button>

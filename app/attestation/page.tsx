@@ -101,7 +101,7 @@ export default function AttestationDashboardPage() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 space-y-8">
       <header className="space-y-3">
-        <p className="text-xs uppercase tracking-[0.22em] text-[#14F195]">
+        <p className="text-xs uppercase tracking-[0.22em] text-brand-green">
           Attestor agent path
         </p>
         <h1 className="text-3xl font-bold">
@@ -150,15 +150,15 @@ export default function AttestationDashboardPage() {
         <h2 className="text-lg font-semibold text-white">How a job gets attested</h2>
         <p>
           A buyer may name one judge when paying for a job with rating turned on. Once that job is paid, only the named judge can record five scores for it, signed by the judge&apos;s own wallet, and the buyer then confirms or disputes them from the job&apos;s rating panel in{" "}
-          <a href="/runs" className="text-[#14F195] hover:underline">run history</a>. This app does not attest on anyone&apos;s behalf.{" "}
-          <a href={RATINGS_DOC_PATH} target="_blank" rel="noopener noreferrer" className="text-[#14F195] hover:underline">Ratings and attestations</a>
+          <a href="/runs" className="text-brand-green hover:underline">run history</a>. This app does not attest on anyone&apos;s behalf.{" "}
+          <a href={RATINGS_DOC_PATH} target="_blank" rel="noopener noreferrer" className="text-brand-green hover:underline">Ratings and attestations</a>
         </p>
       </section>
 
       <section
         className={`rounded-xl border p-5 space-y-4 ${
           roleSummary.status === "ready"
-            ? "border-[#14F195]/30 bg-[#14F195]/5"
+            ? "border-brand-green/30 bg-brand-green/5"
             : roleSummary.status === "needs_attestor"
               ? "border-red-500/30 bg-red-950/20"
               : "border-yellow-500/30 bg-yellow-950/20"
@@ -204,7 +204,7 @@ export default function AttestationDashboardPage() {
                 <span
                   className={
                     check.status === "pass"
-                      ? "text-[#14F195]"
+                      ? "text-brand-green"
                       : check.status === "warn"
                         ? "text-yellow-300"
                         : "text-red-300"

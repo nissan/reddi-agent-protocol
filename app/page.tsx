@@ -148,8 +148,6 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-page">
       <section className="relative overflow-hidden border-b border-white/5">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(129,140,248,0.24),transparent_40%),radial-gradient(circle_at_80%_20%,rgba(20,241,149,0.18),transparent_28%)]" />
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(15,17,23,0.35),rgba(15,17,23,0.95))]" />
         <div className="relative mx-auto max-w-6xl px-4 py-24 sm:px-6 lg:px-8">
           <div className="max-w-3xl space-y-6">
             <span className="section-label">Reddi Agent Protocol</span>
@@ -232,7 +230,7 @@ export default function Home() {
               <Link
                 key={role.title}
                 href={role.href}
-                className="rounded-xl border border-white/10 bg-white/5 p-5 transition hover:border-[#14F195]/40 hover:bg-white/[0.07]"
+                className="rounded-xl border border-white/10 bg-white/5 p-5 transition hover:border-brand-green/40 hover:bg-white/[0.07]"
               >
                 <h3 className="font-display text-lg font-semibold text-white">
                   {role.title}
@@ -240,7 +238,7 @@ export default function Home() {
                 <p className="mt-3 text-sm leading-6 text-gray-400">
                   {role.desc}
                 </p>
-                <p className="mt-4 text-sm font-semibold text-[#14F195]">
+                <p className="mt-4 text-sm font-semibold text-brand-green">
                   {role.cta}
                 </p>
               </Link>
@@ -250,7 +248,7 @@ export default function Home() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 pt-10 sm:px-6 lg:px-8">
-        <div className="rounded-xl border border-[#14F195]/20 bg-[#14F195]/10 p-6 glow-border">
+        <div className="rounded-xl border border-brand-green/20 bg-brand-green/10 p-6 glow-border">
           <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="section-label">One paid-work receipt, end to end</p>
@@ -265,7 +263,7 @@ export default function Home() {
             </div>
             <Link
               href="/sandbox"
-              className="text-sm text-[#14F195] hover:text-[#14F195]/80"
+              className="text-sm text-brand-green hover:text-brand-green/80"
             >
               Try the devnet sandbox →
             </Link>
@@ -282,7 +280,7 @@ export default function Home() {
                 key={step}
                 className="rounded-lg border border-white/10 bg-black/20 p-4"
               >
-                <p className="font-mono text-xs text-[#14F195]">
+                <p className="font-mono text-xs text-brand-green">
                   {String(index + 1).padStart(2, "0")}
                 </p>
                 <p className="mt-2 text-sm font-semibold text-white">{step}</p>
@@ -340,7 +338,7 @@ export default function Home() {
               {onboardingWalkthroughHeading(LANDING_PROOF_GUIDES)}
             </h2>
           </div>
-          <Link href="/start" className="text-sm text-[#14F195] hover:text-[#14F195]/80">
+          <Link href="/start" className="text-sm text-brand-green hover:text-brand-green/80">
             Open onboarding hub →
           </Link>
         </div>
@@ -348,7 +346,7 @@ export default function Home() {
       </section>
 
       <section id="verify-demo" className="mx-auto max-w-6xl px-4 pt-10 sm:px-6 lg:px-8">
-        <div className="rounded-xl border border-[#14F195]/25 bg-[#14F195]/10 p-6 glow-border">
+        <div className="rounded-xl border border-brand-green/25 bg-brand-green/10 p-6 glow-border">
           <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
             <div className="max-w-3xl space-y-2">
               <p className="section-label">Verify the demo yourself</p>
@@ -360,7 +358,7 @@ export default function Home() {
                 routes, recorded devnet transaction signatures, and a script
                 that verifies the Loop 51 registered agent PDA via Solana RPC.
               </p>
-              <code className="block rounded-lg border border-white/10 bg-black/30 px-4 py-3 text-xs text-[#14F195]">
+              <code className="block rounded-lg border border-white/10 bg-black/30 px-4 py-3 text-xs text-brand-green">
                 node scripts/judge-replication-check.mjs
               </code>
             </div>
@@ -369,7 +367,7 @@ export default function Home() {
                 href="https://github.com/nissan/reddi-agent-protocol/blob/main/docs/JUDGE-REPLICATION-GUIDE.md"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded-lg border border-[#14F195]/30 bg-black/20 px-4 py-2 text-center text-sm font-semibold text-[#14F195] hover:border-[#14F195]/60"
+                className="rounded-lg border border-brand-green/30 bg-black/20 px-4 py-2 text-center text-sm font-semibold text-brand-green hover:border-brand-green/60"
               >
                 Open replication guide →
               </a>

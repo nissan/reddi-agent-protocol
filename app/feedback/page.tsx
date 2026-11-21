@@ -59,7 +59,7 @@ export default function FeedbackPage() {
               href="https://github.com/nissan/reddiagent-lab/issues/new?template=open-spec-review.md"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#14F195] px-4 py-2 text-sm font-bold text-black hover:opacity-90"
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-ink px-4 py-2 text-sm font-bold text-black hover:opacity-90"
             >
               <MessageSquare aria-hidden="true" size={16} />
               Open a spec-review issue
@@ -68,7 +68,7 @@ export default function FeedbackPage() {
               href="https://github.com/nissan/reddiagent-lab/issues"
               target="_blank"
               rel="noopener noreferrer"
-              className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-white/90 hover:border-[#14F195]/50"
+              className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-white/90 hover:border-brand-green/50"
             >
               Browse open issues
             </a>
@@ -102,7 +102,7 @@ export default function FeedbackPage() {
                 key={status.word}
                 className="rounded-xl border border-white/10 bg-card/40 p-4"
               >
-                <p className="font-mono text-sm text-[#14F195]">
+                <p className="font-mono text-sm text-brand-green">
                   {status.word}
                 </p>
                 <p className="mt-2 text-sm leading-6 text-gray-400">
@@ -138,13 +138,13 @@ export default function FeedbackPage() {
           <div className="flex flex-wrap gap-3">
             <Link
               href="/spec"
-              className="rounded-lg border border-[#14F195]/40 bg-[#14F195]/10 px-4 py-2 text-sm font-medium text-[#14F195] hover:bg-[#14F195]/15"
+              className="rounded-lg border border-brand-green/40 bg-brand-green/10 px-4 py-2 text-sm font-medium text-brand-green hover:bg-brand-green/15"
             >
               ADL v0.3 spec →
             </Link>
             <Link
               href="/updates"
-              className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-white/90 hover:border-[#14F195]/50"
+              className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-white/90 hover:border-brand-green/50"
             >
               Project updates →
             </Link>
