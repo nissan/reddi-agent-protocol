@@ -12,7 +12,7 @@ export async function GET() {
   const state = keyStatus.state;
   const nextAction =
     state === "ready"
-      ? "Nothing to do. The key is valid, but on-chain attestations are not available until the app rating flow lands (#842)."
+      ? "Nothing to do. The key is valid, but this server no longer attests on chain: a judge attests a paid, rated job from its own wallet (app rating flow, #842)."
       : "Set ONBOARDING_ATTEST_OPERATOR_SECRET_KEY as a 64-byte JSON array, restart the app, then run this check again.";
 
   return Response.json({

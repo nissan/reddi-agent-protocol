@@ -588,7 +588,9 @@ async function executeWithWalletPayment(input: PlannerExecuteInput, ctx: WalletR
     const settleSignature = metered && paid.ok ? settleSignatureFromBody(text) : undefined;
     if (settleSignature) run.settleTxSignature = settleSignature;
     if (metered && !paid.ok) {
-      run.error = `Specialist call failed after the lock (${paid.status}). Nothing is charged until the provider settles; your maximum stays in escrow and can be cancelled for a refund once the cancel window opens.`;
+      run.error = /rated_escrow_declined|opted in to rating/i.test(text)
+        ? "This provider does not take jobs opted in to rating, and served nothing. Nothing was charged; your maximum stays in escrow and can be cancelled for a refund, with the rating rent, once the cancel window opens. To use this provider, pay again without rating."
+        : `Specialist call failed after the lock (${paid.status}). Nothing is charged until the provider settles; your maximum stays in escrow and can be cancelled for a refund once the cancel window opens.`;
     }
     // With a database configured, the server checks the payment on chain itself and only then keeps a job record.
     if (ctx.listingSource === "database") {

@@ -4,7 +4,6 @@ import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { applyPlannerFeedback } from "@/lib/onboarding/specialist-index";
 import { listPlannerRuns } from "@/lib/onboarding/planner-execution";
-import { commitReputationRating } from "@/lib/onboarding/reputation-signal";
 
 export type PlannerFeedbackInput = {
   runId: string;
@@ -82,37 +81,14 @@ export async function recordPlannerFeedback(input: PlannerFeedbackInput) {
     at: record.createdAt,
   });
 
-  // Wire on-chain reputation commit for scores >= 3 on completed runs
-  let reputationCommit: PlannerFeedbackRecord["reputationCommit"] | undefined;
-  if (run.status === "completed" && input.score >= 3) {
-    const commitResult = await commitReputationRating(
-      input.runId,
-      input.score,
-      run.selectedWallet
-    );
-    reputationCommit = commitResult.ok
-      ? {
-          ok: true,
-          txSignature: commitResult.txSignature,
-          commitHash: commitResult.commitHash,
-          ratingPda: commitResult.ratingPda,
-        }
-      : { ok: false, error: commitResult.error };
-
-    // Update record with commit result and re-persist
-    record.reputationCommit = reputationCommit;
-    const records = readAll();
-    const idx = records.findIndex((r) => r.id === record.id);
-    if (idx >= 0) records[idx] = record;
-    else records.push(record);
-    writeAll(records);
-  }
-
+  // Off-chain only. On-chain ratings are made by the buyer's own wallet, for a job paid through an
+  // escrow the buyer opted in to rating (components/rating, #842); nothing here signs or sends.
   return {
     ok: true,
     record,
     indexUpdate,
-    reputationCommit,
+    /** Always undefined now: kept so callers that report it (the MCP signal tool) say "not committed". */
+    reputationCommit: undefined as PlannerFeedbackRecord["reputationCommit"],
     storagePath: FEEDBACK_PATH,
   };
 }

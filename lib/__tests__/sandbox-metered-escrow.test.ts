@@ -210,7 +210,7 @@ describe("sandbox metered escrow: instructions and layout", () => {
       [{ rated: true }, 3, true, true],
     ];
     for (const [fields, byte, metered, rated] of cases) {
-      for (const layout of [{}, { windows: null }, { session: new PublicKey(SANDBOX_FEE_TREASURY) }] as const) {
+      for (const layout of [{}, { session: new PublicKey(SANDBOX_FEE_TREASURY) }] as const) {
         const bytes = escrowBytes({ ...base, ...fields, ...layout });
         expect(decodeSandboxEscrow(bytes)).toMatchObject({ metered, rated });
         // The package's own reader agrees on every layout.
@@ -234,11 +234,9 @@ describe("sandbox metered escrow: instructions and layout", () => {
       cancelWindowSlots: SANDBOX_CANCEL_WINDOW_SLOTS,
     });
     expect(decodeSandboxEscrow(escrowBytes({ ...base, windows: { claim: BigInt(25), cancel: BigInt(250) } }))).toMatchObject({ claimWindowSlots: BigInt(25), cancelWindowSlots: BigInt(250), metered: true });
-    // An account the earlier program wrote has no windows and still decodes.
-    const legacy = decodeSandboxEscrow(escrowBytes({ ...base, windows: null }));
-    expect(legacy).toMatchObject({ amount: BigInt(9), status: "locked", metered: true });
-    expect(legacy?.cancelWindowSlots).toBeUndefined();
-    expect(decodeSandboxEscrow(escrowBytes({ ...base, windows: null, session: Keypair.generate().publicKey, metered: false }))).toMatchObject({ metered: false });
+    // An account the earlier program wrote has no windows and is 16 bytes shorter; the program refuses it, and so does the decoder.
+    expect(decodeSandboxEscrow(escrowBytes({ ...base, windows: null }))).toBeUndefined();
+    expect(decodeSandboxEscrow(escrowBytes({ ...base, windows: null, session: Keypair.generate().publicKey, metered: false }))).toBeUndefined();
     expect(decodeSandboxEscrow(escrowBytes({ ...base, session: Keypair.generate().publicKey, metered: false }))).toMatchObject({ metered: false });
     expect(decodeSandboxEscrow(escrowBytes({ ...base, status: 1 }))?.status).toBe("released");
     const wrongDisc = escrowBytes(base);
@@ -377,7 +375,7 @@ describe("sandbox metered escrow: gateway", () => {
       // A long window named at lock, most of it already used up before the call.
       { name: "refund window nearly over", setup: (accounts, nonce) => lockFor(accounts, nonce, { createdSlot: CURRENT_SLOT - BigInt(3_001) }), reason: "invalid_receipt" },
       { name: "refund window already open", setup: (accounts, nonce) => lockFor(accounts, nonce, { createdSlot: CURRENT_SLOT - BigInt(10_000) }), reason: "invalid_receipt" },
-      { name: "earlier-format lock, refund window nearly over", setup: (accounts, nonce) => lockFor(accounts, nonce, { windows: null, createdSlot: CURRENT_SLOT - BigInt(646_501) }), reason: "invalid_receipt" },
+      { name: "earlier-format lock", setup: (accounts, nonce) => lockFor(accounts, nonce, { windows: null }), reason: "invalid_receipt" },
       { name: "already released", setup: (accounts, nonce) => lockFor(accounts, nonce, { status: 1 }), reason: "duplicate_nonce" },
       { name: "escrow for another nonce", setup: (accounts) => lockFor(accounts, "0".repeat(32)), reason: "invalid_receipt" },
       { name: "payer who did not lock", setup: (accounts, nonce) => lockFor(accounts, nonce), header: (nonce, escrow) => meteredHeader(nonce, escrow, { payer: other.toBase58() }), reason: "invalid_receipt" },
@@ -395,8 +393,8 @@ describe("sandbox metered escrow: gateway", () => {
     }
   });
 
-  it("accepts a lock with exactly the minimum left or in the earlier format, and nothing when the slot cannot be read", async () => {
-    for (const overrides of [{ createdSlot: CURRENT_SLOT - BigInt(3_000) }, { windows: null }] as const) {
+  it("accepts a lock with exactly the minimum left, and nothing when the slot cannot be read", async () => {
+    for (const overrides of [{ createdSlot: CURRENT_SLOT - BigInt(3_000) }] as const) {
       const accounts: Accounts = new Map();
       const { settler, calls } = fakeSettler();
       const deps = makeDeps(accounts, settler);
@@ -447,8 +445,11 @@ describe("sandbox metered escrow: gateway", () => {
     const rows = listing.data as { rap: { providerId: string; meteredEscrow: { available: boolean; programId: string } } }[];
     for (const row of rows) {
       const provider = SANDBOX_PROVIDERS.find((entry) => entry.id === row.rap.providerId)!;
-      expect(row.rap.meteredEscrow).toEqual({ available: provider.behaviour !== "offline", programId: SANDBOX_ESCROW_PROGRAM_ID.toBase58() });
+      // Rated escrows are declined unless the operator turned them on (#842).
+      expect(row.rap.meteredEscrow).toEqual({ available: provider.behaviour !== "offline", programId: SANDBOX_ESCROW_PROGRAM_ID.toBase58(), acceptsRatedEscrows: false });
     }
+    const rated = (await sandboxModelsListing(fakeSettler(true).settler, true)).data as { rap: { meteredEscrow: { acceptsRatedEscrows: boolean } } }[];
+    expect(rated.every((row) => row.rap.meteredEscrow.acceptsRatedEscrows === true)).toBe(true);
     const none = (await sandboxModelsListing()).data as { rap: { meteredEscrow: { available: boolean } } }[];
     expect(none.every((row) => row.rap.meteredEscrow.available === false)).toBe(true);
   });

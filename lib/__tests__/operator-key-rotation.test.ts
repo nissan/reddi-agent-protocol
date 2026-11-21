@@ -49,7 +49,7 @@ describe("operator key rotation verification (E2.2)", () => {
     expect(status.checkedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
   });
 
-  it("attestation operator status helper reports not available, even with a valid key, until the app rating flow lands", async () => {
+  it("attestation operator status helper reports not available, even with a valid key: ratings are not made by this server", async () => {
     const kp = Keypair.generate();
     const secret = JSON.stringify(Array.from(kp.secretKey));
 
@@ -58,6 +58,6 @@ describe("operator key rotation verification (E2.2)", () => {
 
     expect(status.ready).toBe(false);
     expect(status.operatorPubkey).toBe(kp.publicKey.toBase58());
-    expect(status.note).toMatch(/not available until the app rating flow lands \(#842\)/);
+    expect(status.note).toMatch(/not made by this server \(app rating flow, #842\)/);
   });
 });
