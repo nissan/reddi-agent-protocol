@@ -6,7 +6,7 @@ describe("register existing-agent helpers", () => {
   it("classifies Anchor/System Program duplicate registration logs", () => {
     const message = `Simulation failed: {"InstructionError":[0,{"Custom":0}]}
 Logs:
-Program 794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD invoke [1]
+Program DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu invoke [1]
 Program log: Instruction: RegisterAgent
 Program 11111111111111111111111111111111 invoke [2]
 Allocate: account Address { address: GSNdtc9Lg8U2UWUQBDFeyZCbtpz6TpdHhBQ7sMrdDiNG, base: None } already in use

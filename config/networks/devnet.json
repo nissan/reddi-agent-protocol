@@ -7,7 +7,7 @@
     "explorerClusterParam": "devnet"
   },
   "programs": {
-    "escrowProgramId": "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD"
+    "escrowProgramId": "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu"
   },
   "payments": {
     "jupiterApiBase": "https://api.jup.ag/swap/v2",

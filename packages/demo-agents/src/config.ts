@@ -43,13 +43,13 @@ const DEMO_NETWORK_PROFILES: Record<DemoNetworkProfileName, DemoNetworkProfile> 
   "local-surfpool": {
     rpcHttp: "http://127.0.0.1:18999",
     explorerClusterParam: "custom",
-    defaultEscrowProgramId: "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD",
+    defaultEscrowProgramId: "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu",
     defaultPerRpc: "http://127.0.0.1:18999",
   },
   devnet: {
     rpcHttp: "https://api.devnet.solana.com",
     explorerClusterParam: "devnet",
-    defaultEscrowProgramId: "794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD",
+    defaultEscrowProgramId: "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu",
     defaultPerRpc: "https://devnet-tee.magicblock.app",
   },
 };

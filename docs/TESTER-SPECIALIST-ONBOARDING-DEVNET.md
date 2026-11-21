@@ -8,8 +8,8 @@ This guide is for an external tester who wants to run a specialist endpoint loca
 
 - Network: Solana devnet
 - RPC: `https://api.devnet.solana.com`
-- Escrow / registry program: `794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD`
-- Explorer: `https://explorer.solana.com/address/794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD?cluster=devnet`
+- Escrow / registry program: `DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu`
+- Explorer: `https://explorer.solana.com/address/DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu?cluster=devnet`
 
 The app resolves these from the `devnet` network profile by default. Do **not** override `NEXT_PUBLIC_ESCROW_PROGRAM_ID` unless the Reddi team gives you a newer deployed program ID.
 
@@ -199,7 +199,7 @@ If it returns `200` before payment, your endpoint is insecure and the app will b
 The registration transaction writes an AgentAccount PDA owned by the devnet program:
 
 ```text
-794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD
+DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu
 ```
 
 ## Verify registration
@@ -243,7 +243,7 @@ Check:
 Confirm the app is configured for devnet and program ID:
 
 ```text
-794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD
+DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu
 ```
 
 Do not use old Quasar/local program IDs for devnet registration.

@@ -13,7 +13,7 @@ import { AGENT_SEED } from "../packages/demo-agents/src/config";
 
 const RPC = process.env.DEMO_DEVNET_RPC ?? process.env.NEXT_PUBLIC_RPC_ENDPOINT ?? "https://api.devnet.solana.com";
 const PROGRAMS = [
-  ["legacy-anchor", new PublicKey("794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD")],
+  ["legacy-anchor", new PublicKey("DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu")],
   ["quasar-registry", new PublicKey("Xk7jczJZ1HHJZuE1ZUWDqFmowxYhnom7mWzrNSGf9FU")],
 ] as const;
 const AGENTS = [
