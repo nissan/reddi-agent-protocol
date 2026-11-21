@@ -10,7 +10,7 @@ import {
 } from "@/lib/manager/marketplace-public-export";
 import { fixturePublishReadyProof as publishReadyProof } from "@/lib/manager/marketplace-public-export-fixtures";
 import { getStaticAgentStackReviewWorkspace } from "@/lib/manager/static-agent-stack-review";
-import { validateAiCatalog } from "@reddi/agent-protocol/ai-catalog";
+import { validateAiCatalog } from "@redditech/agent-protocol/ai-catalog";
 
 const timestamp = "2026-06-20T00:00:00Z";
 const operatorId = "operator:test";

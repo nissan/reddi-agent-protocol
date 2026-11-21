@@ -7,9 +7,9 @@
 
 import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
-import { buildLockTokenEscrowInstruction, tokenEscrowAddresses } from "@reddi/x402-solana/token-escrow";
-import { buildOpenRatingInstruction } from "@reddi/x402-solana/rating";
-import { directPaymentCurrency } from "@reddi/x402-solana/payment";
+import { buildLockTokenEscrowInstruction, tokenEscrowAddresses } from "@redditech/x402-solana/token-escrow";
+import { buildOpenRatingInstruction } from "@redditech/x402-solana/rating";
+import { directPaymentCurrency } from "@redditech/x402-solana/payment";
 import type { MeteredBuyQuote } from "@/lib/payments/metered-quote";
 
 export interface MeteredLockInput {

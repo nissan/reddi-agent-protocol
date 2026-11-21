@@ -20,10 +20,10 @@
     ],
     "paths": {
       "@/*": ["./*"],
-      "@reddi/agent-protocol": ["./packages/agent-protocol/src/index.ts"],
-      "@reddi/agent-protocol/*": ["./packages/agent-protocol/src/*"],
-      "@reddi/x402-solana": ["./packages/x402-solana/src/index.ts"],
-      "@reddi/x402-solana/*": ["./packages/x402-solana/src/*"]
+      "@redditech/agent-protocol": ["./packages/agent-protocol/src/index.ts"],
+      "@redditech/agent-protocol/*": ["./packages/agent-protocol/src/*"],
+      "@redditech/x402-solana": ["./packages/x402-solana/src/index.ts"],
+      "@redditech/x402-solana/*": ["./packages/x402-solana/src/*"]
     }
   },
   "include": [

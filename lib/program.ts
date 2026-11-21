@@ -7,7 +7,7 @@
  */
 import { createHash } from "crypto";
 import { PublicKey } from "@solana/web3.js";
-import { attestationPda as attestationPdaFor, ratingPda as ratingPdaFor } from "@reddi/x402-solana/rating";
+import { attestationPda as attestationPdaFor, ratingPda as ratingPdaFor } from "@redditech/x402-solana/rating";
 import { getNetworkProfile } from "@/lib/config/network";
 
 const network = getNetworkProfile();
@@ -88,7 +88,7 @@ export const IX = {
   cancel_escrow: disc("global", "cancel_escrow"),
   // Ratings and judge attestations of a job paid through escrow. Not in the Anchor IDL: the
   // interface is programs/pinocchio-escrow/README.md plus interface/vectors.json, and the
-  // builders, decoders and address helpers are in @reddi/x402-solana/rating. The PER selectors
+  // builders, decoders and address helpers are in @redditech/x402-solana/rating. The PER selectors
   // (delegate_escrow, release_escrow_per) are not mirrored: the V1 build answers neither (#839).
   open_rating: disc("global", "open_rating"),
   accept_rating: disc("global", "accept_rating"),

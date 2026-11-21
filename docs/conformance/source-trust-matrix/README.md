@@ -2,7 +2,7 @@
 
 Issues: [#450](https://github.com/nissan/reddi-agent-protocol/issues/450) (this matrix), under epics [#336](https://github.com/nissan/reddi-agent-protocol/issues/336) / [#363](https://github.com/nissan/reddi-agent-protocol/issues/363). Consumers: [#343](https://github.com/nissan/reddi-agent-protocol/issues/343) provider trust registry, [#344](https://github.com/nissan/reddi-agent-protocol/issues/344) source-aware diagnostics.
 
-Module: `packages/agent-protocol/src/source-trust-conformance-matrix.ts` (`reddi.source-trust-conformance-matrix.v1`, exported as `@reddi/agent-protocol/source-trust-conformance-matrix`).
+Module: `packages/agent-protocol/src/source-trust-conformance-matrix.ts` (`reddi.source-trust-conformance-matrix.v1`, exported as `@redditech/agent-protocol/source-trust-conformance-matrix`).
 
 This matrix proves, with deterministic in-memory fixtures only, that **`auth.md` documents and ARD/AI Catalog provider metadata enter RAP as untrusted source metadata and stay untrusted until explicit RAP-side trust/evidence gates classify them**. No live fetch, no network, no wallet/RPC, no registry write, no trust or reputation mutation happens anywhere in this lane.
 
@@ -58,7 +58,7 @@ boundary to resolve/ranking output and supervisor diagnostics:
 
 - Every ranked discovery candidate carries a typed `reddi.ranking-explainability.v1` block
   (`packages/agent-protocol/src/ranking-explainability.ts`, exported as
-  `@reddi/agent-protocol/ranking-explainability`) with source identity, capability match
+  `@redditech/agent-protocol/ranking-explainability`) with source identity, capability match
   (`relevance_only_not_trust`), trust state, payment policy fit, health/freshness, and per-gate
   rejection reasons. All eight gates — trust, policy, quote, evidence, payment, budget,
   **settlement, attestation** — are structurally present for every source kind; a not-evaluated

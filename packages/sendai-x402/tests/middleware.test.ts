@@ -7,14 +7,14 @@ import type { X402Config } from "../src/middleware";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
-// Mock @reddi/x402-solana so we don't need a real Solana connection
-jest.mock("@reddi/x402-solana", () => ({
-  parseX402Header: jest.requireActual("@reddi/x402-solana").parseX402Header,
+// Mock @redditech/x402-solana so we don't need a real Solana connection
+jest.mock("@redditech/x402-solana", () => ({
+  parseX402Header: jest.requireActual("@redditech/x402-solana").parseX402Header,
   sendPayment: jest.fn(),
 }));
 
-const { sendPayment } = require("@reddi/x402-solana") as {
-  sendPayment: jest.MockedFunction<typeof import("@reddi/x402-solana").sendPayment>;
+const { sendPayment } = require("@redditech/x402-solana") as {
+  sendPayment: jest.MockedFunction<typeof import("@redditech/x402-solana").sendPayment>;
 };
 
 // Mock fetch globally

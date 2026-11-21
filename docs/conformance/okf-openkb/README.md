@@ -33,7 +33,7 @@ Models an OpenKB-style producer output that includes wikilinks plus generated ag
 
 ## Conformance Diagnostics (#504)
 
-`packages/agent-protocol/src/okf-conformance.ts` (`reddi.okf-conformance.v1`, exported as `@reddi/agent-protocol/okf-conformance`) provides deterministic, pure static-analysis conformance diagnostics over OKF/OpenKB-style knowledge bundles. It builds directly on the #511 adapter spike (`okf-adapter.ts`) and this corpus — same document roles, trust classifications, and reason-code vocabulary.
+`packages/agent-protocol/src/okf-conformance.ts` (`reddi.okf-conformance.v1`, exported as `@redditech/agent-protocol/okf-conformance`) provides deterministic, pure static-analysis conformance diagnostics over OKF/OpenKB-style knowledge bundles. It builds directly on the #511 adapter spike (`okf-adapter.ts`) and this corpus — same document roles, trust classifications, and reason-code vocabulary.
 
 Run `runOkfConformanceDiagnostics(input, options)` over an in-memory bundle (raw markdown `source` per document, or the adapter's pre-split input shape). `conformanceInputFromOkfOpenKbFixture(fixture)` bridges a #503 corpus fixture into the input shape read-only, preserving `contentSha256` behavior.
 
@@ -59,7 +59,7 @@ Verify with `cd packages/agent-protocol && npm test -- --test-name-pattern "OKF/
 
 ## Generated Instruction & Skill Safety Review (#505)
 
-`packages/agent-protocol/src/okf-instruction-safety.ts` (`reddi.okf-instruction-safety.v1`, exported as `@reddi/agent-protocol/okf-instruction-safety`) layers a deterministic safety review lane on top of the #504 conformance diagnostics for OpenKB/OKF-derived generated instructions, skills, prompts, scripts, tools, and agent definitions. It reuses the #504 vocabulary (`artifactClass`, info/warning/blocked severities, the review-only boundary, hard-false guardrails) rather than inventing a parallel taxonomy.
+`packages/agent-protocol/src/okf-instruction-safety.ts` (`reddi.okf-instruction-safety.v1`, exported as `@redditech/agent-protocol/okf-instruction-safety`) layers a deterministic safety review lane on top of the #504 conformance diagnostics for OpenKB/OKF-derived generated instructions, skills, prompts, scripts, tools, and agent definitions. It reuses the #504 vocabulary (`artifactClass`, info/warning/blocked severities, the review-only boundary, hard-false guardrails) rather than inventing a parallel taxonomy.
 
 Run `runOkfInstructionSafetyReview(input, options)` over the same in-memory bundle input shape as `runOkfConformanceDiagnostics`; the report embeds the full conformance report. `scanOkfSafetyChecklist(documentId, text, artifactClass)` runs the checklist standalone over any static text.
 

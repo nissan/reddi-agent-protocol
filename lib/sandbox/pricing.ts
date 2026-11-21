@@ -104,6 +104,11 @@ export function requestInputTokens(messages: readonly { content: string }[]): nu
   return messages.reduce((total, message) => total + countTokens(message.content), 0);
 }
 
+/** One session call's cost (#863): its own tokens at the provider's price, rounded up once, in lamports. */
+export function sessionCallLamports(provider: SandboxProvider, usage: TokenUsage): bigint {
+  return microUsdToLamports(usageCostMicroUsd(provider, usage));
+}
+
 /** The most this call can cost: the request plus the provider's full output limit, in lamports. */
 export function maxChargeLamports(provider: SandboxProvider, inputTokens: number): bigint {
   return microUsdToLamports(usageCostMicroUsd(provider, { inputTokens, outputTokens: provider.pricing.maxOutputTokens }));

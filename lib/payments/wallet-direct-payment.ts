@@ -7,9 +7,9 @@
  */
 
 import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { planBuyerDirectPayment, type BuyerListing } from "@reddi/x402-solana/buyer";
-import { directPaymentCurrency, MAINNET_STABLECOIN_MINTS } from "@reddi/x402-solana/payment";
-import type { SolanaPaymentNetwork, X402FeeTerms, X402PaymentReceipt } from "@reddi/x402-solana/types";
+import { planBuyerDirectPayment, type BuyerListing } from "@redditech/x402-solana/buyer";
+import { directPaymentCurrency, MAINNET_STABLECOIN_MINTS } from "@redditech/x402-solana/payment";
+import type { SolanaPaymentNetwork, X402FeeTerms, X402PaymentReceipt } from "@redditech/x402-solana/types";
 import type { NetworkProfileName } from "@/lib/config/network-profile-name";
 
 /** Currencies whose unit is one US dollar, so a listing priced in USD states their amount. */

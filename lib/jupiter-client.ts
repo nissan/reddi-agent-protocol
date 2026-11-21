@@ -1,4 +1,4 @@
-import { JupiterSwapV2Client } from "@reddi/x402-solana";
+import { JupiterSwapV2Client } from "@redditech/x402-solana";
 
 let client: JupiterSwapV2Client | null = null;
 

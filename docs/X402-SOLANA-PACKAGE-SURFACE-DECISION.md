@@ -1,15 +1,15 @@
-# `@reddi/x402-solana` Package Surface Decision
+# `@redditech/x402-solana` Package Surface Decision
 
 Issue: [#518](https://github.com/nissan/reddi-agent-protocol/issues/518)
 
 Status: v0.1 OSS candidate, not yet a public/published package claim.
 
-The `@reddi/x402-solana` package exists at `packages/x402-solana` and remains the Solana/x402 rail primitive underneath RAP. It is not published on npm at the time of this decision, and it must not be described as generally installable or production-ready until #512 proves a clean-checkout release smoke and a later package-publication gate approves publication.
+The `@redditech/x402-solana` package exists at `packages/x402-solana` and remains the Solana/x402 rail primitive underneath RAP. It is not published on npm at the time of this decision, and it must not be described as generally installable or production-ready until #512 proves a clean-checkout release smoke and a later package-publication gate approves publication.
 
 ## Current Inventory
 
 - Package path: `packages/x402-solana`
-- Package name: `@reddi/x402-solana`
+- Package name: `@redditech/x402-solana`
 - Version: `0.1.0`
 - Main export: `dist/index.js`
 - Type export: `dist/index.d.ts`
@@ -57,13 +57,13 @@ They require explicit approval records, endpoint allowlists, spend caps, wallet 
 
 ## Relationship To RAP Surfaces
 
-`@reddi/x402-solana` is not the whole RAP product surface. It owns Solana/x402 rail primitives. Product-level policy, receipts, evidence, attestations, reputation previews, and rail-neutral proof chains are increasingly represented in `@reddi/agent-protocol`.
+`@redditech/x402-solana` is not the whole RAP product surface. It owns Solana/x402 rail primitives. Product-level policy, receipts, evidence, attestations, reputation previews, and rail-neutral proof chains are increasingly represented in `@redditech/agent-protocol`.
 
 Current relationship:
 
-- `@reddi/x402-solana`: x402/Solana parsing, local budget preflight, demo receipts, gated devnet USDC client helpers.
-- `@reddi/agent-protocol`: RAP receipts, policy/evidence/trust metadata, rail-neutral receipt candidates, proof-chain fixtures.
-- `@reddi/rap-mcp-bridge`: consumes `@reddi/x402-solana` for x402 specialist-call preparation/execution/verification flows behind devnet approval gates.
+- `@redditech/x402-solana`: x402/Solana parsing, local budget preflight, demo receipts, gated devnet USDC client helpers.
+- `@redditech/agent-protocol`: RAP receipts, policy/evidence/trust metadata, rail-neutral receipt candidates, proof-chain fixtures.
+- `@redditech/rap-mcp-bridge`: consumes `@redditech/x402-solana` for x402 specialist-call preparation/execution/verification flows behind devnet approval gates.
 
 ## Claim Boundaries
 
@@ -88,7 +88,7 @@ Forbidden claims until separately proven:
 
 ## Release Smoke Requirements For #512
 
-If #512 includes `@reddi/x402-solana`, it should verify:
+If #512 includes `@redditech/x402-solana`, it should verify:
 
 - `npm --prefix packages/x402-solana test -- --runInBand`
 - `npm --prefix packages/x402-solana run build`
@@ -100,4 +100,4 @@ It should not require wallet material, RPC, Pay.sh, hosted Reddi, live providers
 
 ## Decision
 
-Keep `@reddi/x402-solana` alive as a v0.1 OSS candidate, but do not publish or market it as a public package until #512 and a later package-publication gate prove the release artifact and claim boundaries.
+Keep `@redditech/x402-solana` alive as a v0.1 OSS candidate, but do not publish or market it as a public package until #512 and a later package-publication gate prove the release artifact and claim boundaries.

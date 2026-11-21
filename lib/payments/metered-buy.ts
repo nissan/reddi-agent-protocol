@@ -7,8 +7,9 @@
  */
 
 import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { baseUnitsToDecimal, decimalToBaseUnits } from "@reddi/x402-solana/payment";
-import type { SolanaPaymentNetwork } from "@reddi/x402-solana/types";
+import { baseUnitsToDecimal, decimalToBaseUnits } from "@redditech/x402-solana/payment";
+import type { SolanaPaymentNetwork } from "@redditech/x402-solana/types";
+import type { PerTokenPrice } from "@redditech/x402-solana/metered";
 import { buildMeteredLock } from "@/lib/payments/metered-lock";
 import { perTokenPriceFor, quoteMeteredBuy, type ListedTokenPrices, type MeteredBuyQuote } from "@/lib/payments/metered-quote";
 import { buyerMintFor } from "@/lib/payments/wallet-direct-payment";
@@ -32,7 +33,17 @@ export interface MeteredBuyInput {
   nonce: Uint8Array;
   /** Opt the job in to rating: the lock transaction also carries `open_rating`. */
   rating?: { judge?: PublicKey };
+  /**
+   * Lock enough for this many calls and keep the lock open as a session
+   * (#863): the provider settles once, after the last call. Each call is still
+   * held to the per-call maximum. Not with `rating`: providers refuse sessions
+   * on rated escrows.
+   */
+  sessionCalls?: number;
 }
+
+/** The most calls one session lock is sized for. */
+export const MAX_SESSION_CALLS = 50;
 
 export type MeteredBuyPlan =
   | {
@@ -48,6 +59,16 @@ export type MeteredBuyPlan =
       providerAcceptsRatedJobs?: boolean;
       /** The receipt to present once the lock is confirmed. */
       receiptFor: (lockSignature: string) => Record<string, unknown>;
+      /** When the lock is sized for a session: what the buyer's ledger needs to check each call. */
+      session?: {
+        calls: number;
+        /** The rate the provider offered, which it bills each call at. */
+        price: PerTokenPrice;
+        maxOutputTokens: number;
+        lockBaseUnits: bigint;
+        /** The per-call maximum the lock was sized from. */
+        perCallMaxBaseUnits: bigint;
+      };
     }
   | { ok: false; reason: string; message: string };
 
@@ -65,6 +86,11 @@ function withinListed(offered: unknown, listed: string): boolean {
 }
 
 export function planMeteredBuy(input: MeteredBuyInput): MeteredBuyPlan {
+  const calls = input.sessionCalls;
+  if (calls !== undefined && (!Number.isSafeInteger(calls) || calls < 1 || calls > MAX_SESSION_CALLS)) {
+    return refuse("invalid_session", `A session covers 1 to ${MAX_SESSION_CALLS} calls.`);
+  }
+  if (calls !== undefined && input.rating) return refuse("rated_session", "A rated job is paid one call at a time. Turn off rating to keep the lock open for more calls.");
   if (!input.offer || typeof input.offer !== "object" || Array.isArray(input.offer)) return refuse("no_offer", "The provider made no per-token offer.");
   const offer = input.offer as Record<string, unknown>;
   if (offer.settlement !== "metered-escrow") return refuse("no_offer", "The provider made no per-token offer.");
@@ -82,6 +108,10 @@ export function planMeteredBuy(input: MeteredBuyInput): MeteredBuyPlan {
   }
 
   const maxOutputTokens = typeof offer.maxOutputTokens === "number" ? offer.maxOutputTokens : undefined;
+  // The buyer's ledger holds every session call to the provider's stated output limit.
+  if (calls !== undefined && (maxOutputTokens === undefined || !Number.isSafeInteger(maxOutputTokens) || maxOutputTokens <= 0)) {
+    return refuse("no_output_limit", "The provider does not state its output limit per call, so its calls cannot be checked in a session.");
+  }
   const quote = quoteMeteredBuy({
     prices: input.listing.prices,
     currency,
@@ -105,6 +135,8 @@ export function planMeteredBuy(input: MeteredBuyInput): MeteredBuyPlan {
     }
     max = minimum;
   }
+  const perCallMax = max;
+  if (calls !== undefined) max *= BigInt(calls);
   const locked = { ...quote, maxChargeBaseUnits: max, maxCharge: baseUnitsToDecimal(max, DECIMALS) };
 
   const lock = buildMeteredLock({
@@ -127,6 +159,17 @@ export function planMeteredBuy(input: MeteredBuyInput): MeteredBuyPlan {
     escrow,
     ...(lock.rating ? { rating: lock.rating.toBase58() } : {}),
     ...(typeof offer.acceptsRatedEscrows === "boolean" ? { providerAcceptsRatedJobs: offer.acceptsRatedEscrows } : {}),
+    ...(calls !== undefined
+      ? {
+          session: {
+            calls,
+            price: { currency, inputPerMillion: str(offer.inputPerMillion), outputPerMillion: str(offer.outputPerMillion) },
+            maxOutputTokens: maxOutputTokens as number,
+            lockBaseUnits: max,
+            perCallMaxBaseUnits: perCallMax,
+          },
+        }
+      : {}),
     receiptFor: (lockSignature: string) => ({
       settlement: "metered-escrow",
       network: input.network,

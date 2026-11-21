@@ -1,4 +1,4 @@
-import { validateAiCatalog } from "@reddi/agent-protocol/ai-catalog";
+import { validateAiCatalog } from "@redditech/agent-protocol/ai-catalog";
 
 jest.mock("@/lib/registry/bridge", () => {
   throw new Error("live registry bridge must not be imported by well-known AI Catalog route");

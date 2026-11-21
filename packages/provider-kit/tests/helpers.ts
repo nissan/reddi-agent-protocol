@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { SOLANA_GENESIS_HASHES, tokenEscrowAddresses, treasuryTokenAccount, ESCROW_PROTOCOL_TREASURY, type SettlementRecord } from "@reddi/x402-solana";
+import { SOLANA_GENESIS_HASHES, tokenEscrowAddresses, treasuryTokenAccount, ESCROW_PROTOCOL_TREASURY, type SettlementRecord } from "@redditech/x402-solana";
 import type { ProviderChain } from "../src/chain.js";
 import { parseProviderConfig, type ProviderConfig, type ProviderConfigFile } from "../src/config.js";
 
@@ -8,7 +8,8 @@ export const PROGRAM = new PublicKey("DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5U
 export const USDC = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
 export const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 export const provider = Keypair.generate();
-export const buyer = Keypair.generate().publicKey;
+export const buyerKeypair = Keypair.generate();
+export const buyer = buyerKeypair.publicKey;
 export const NONCE = "00112233445566778899aabbccddeeff";
 export const CURRENT_SLOT = 1_000_000n;
 export const SETTLE_SIGNATURE = "5".repeat(88);
@@ -162,3 +163,12 @@ export function fakeChain(escrow: EscrowFields | null = {}): FakeChain {
 }
 
 export const paymentHeader = () => JSON.stringify({ settlement: "metered-escrow", escrow: escrowAddress().toBase58(), payer: buyer.toBase58(), nonce: NONCE });
+
+const BUYER_PKCS8 = Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(buyerKeypair.secretKey.subarray(0, 32))]);
+/** The headers a buyer adds to a single paid call: the payer's own signature over this request (#866). */
+export async function singleCallHeaders(body: string, nowMs: number, signer: Keypair = buyerKeypair): Promise<Record<string, string>> {
+  const { createPrivateKey, sign } = await import("node:crypto");
+  const { paidCallAuthHeaders } = await import("@redditech/x402-solana");
+  const key = createPrivateKey({ key: signer === buyerKeypair ? BUYER_PKCS8 : Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(signer.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
+  return paidCallAuthHeaders({ escrow: escrowAddress().toBase58(), provider: provider.publicKey.toBase58(), body, payer: signer.publicKey.toBase58(), signWithPayer: (m) => new Uint8Array(sign(null, Buffer.from(m), key)), nowMs });
+}

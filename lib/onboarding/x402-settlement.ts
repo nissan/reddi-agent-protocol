@@ -21,7 +21,7 @@ import {
   type PaymentReceipt,
   type SwapClient,
   type X402Request,
-} from "@reddi/x402-solana";
+} from "@redditech/x402-solana";
 import { emitTorqueEvent } from "@/lib/torque/client";
 import { TORQUE_EVENTS } from "@/lib/torque/events";
 

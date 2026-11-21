@@ -1,7 +1,7 @@
 # MPP / Tempo Receipt Shape Contract
 
 _Issue:_ #455  
-_Package export:_ `@reddi/agent-protocol/mpp-tempo-receipt-shapes`
+_Package export:_ `@redditech/agent-protocol/mpp-tempo-receipt-shapes`
 
 ## Purpose
 

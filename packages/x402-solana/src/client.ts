@@ -8,6 +8,7 @@ import {
   TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
 import { buildX402Challenge, isValidSolanaPublicKey } from './payment';
+import { directPaymentProofHeaders, keypairSigner } from './direct-auth';
 import type { SolanaPaymentNetwork, X402Challenge, X402PaymentReceipt } from './types';
 
 const DEVNET_NETWORK: SolanaPaymentNetwork = 'solana-devnet';
@@ -284,4 +285,16 @@ export function challengeFromX402RequestHeader(header: string): X402Challenge {
     nonce: parsed.nonce,
     memo: typeof parsed.memo === 'string' ? parsed.memo : undefined,
   });
+}
+
+/**
+ * The proof headers for presenting a devnet USDC receipt with `body`, signed by
+ * the same wallet file that paid. Send them with `x402-payment` on the paid retry.
+ */
+export async function devnetUsdcPaymentProofHeaders(input: { receipt: X402PaymentReceipt; body: Uint8Array | string; walletKeypairPath: string }): Promise<Record<string, string>> {
+  const payer = loadDevnetKeypair(input.walletKeypairPath);
+  const txSignature = input.receipt.signature ?? input.receipt.txSignature;
+  if (!txSignature) throw new Error('devnet_receipt_signature_missing');
+  if (input.receipt.payer !== payer.publicKey.toBase58()) throw new Error('devnet_receipt_payer_is_not_this_wallet');
+  return directPaymentProofHeaders({ network: input.receipt.network, txSignature, payTo: input.receipt.payTo, body: input.body, sign: keypairSigner(payer) });
 }

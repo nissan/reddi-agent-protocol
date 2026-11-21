@@ -40,7 +40,7 @@ const tx = (mint: string, instructions: unknown[]) => ({
   meta: { err: null, postTokenBalances: [{ accountIndex: 1, mint, owner: provider }, { accountIndex: 2, mint, owner: treasury }] },
   transaction: { message: { accountKeys: ['buyer-ta', 'provider-ta', 'treasury-ta'], instructions } },
 });
-const verifier = (parsed: unknown, options: Record<string, unknown> = { mints }) => new SolanaReceiptVerifier({
+const verifier = (parsed: unknown, options: Record<string, unknown> = { mints }) => new SolanaReceiptVerifier({ payerProof: 'not-required',
   allowRealPayment: true,
   protocolFee: fee,
   connection: { async getParsedTransaction() { return parsed; } },

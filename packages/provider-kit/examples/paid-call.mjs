@@ -11,14 +11,14 @@
  * Devnet only. It refuses a provider on any other network. The buyer wallet
  * needs a little devnet SOL and devnet USDC (https://faucet.circle.com).
  */
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createPrivateKey, randomBytes, sign as edSign } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
-import { verifyReddiReceiptV2 } from "@reddi/agent-protocol/receipt-v2";
-import x402 from "@reddi/x402-solana";
+import { verifyReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
+import x402 from "@redditech/x402-solana";
 
-const { buildLockTokenEscrowInstruction, directPaymentCurrency, meteredPaymentHeaderValue, SOLANA_GENESIS_HASHES, treasuryTokenAccount } = x402;
+const { buildLockTokenEscrowInstruction, directPaymentCurrency, meteredPaymentHeaderValue, paidCallAuthHeaders, SOLANA_GENESIS_HASHES, tokenEscrowAddresses, treasuryTokenAccount } = x402;
 
 const [providerUrl, prompt = "Say hello in one sentence."] = process.argv.slice(2);
 if (!providerUrl) {
@@ -73,7 +73,16 @@ const lockSignature = await connection.sendRawTransaction(transaction.serialize(
 await connection.confirmTransaction({ signature: lockSignature, ...latest }, "confirmed");
 console.log(`Locked: ${lockSignature}`);
 
-const paid = await post({ "x402-payment": meteredPaymentHeaderValue({ payer: buyer.publicKey, nonce, programId }) });
+// The lock is public on chain, so the buyer also signs this exact request: only the payer's call is served.
+const buyerKey = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(buyer.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
+const authHeaders = await paidCallAuthHeaders({
+  escrow: tokenEscrowAddresses({ programId, payer: buyer.publicKey, nonce }).escrow.toBase58(),
+  provider: payee.toBase58(),
+  body,
+  payer: buyer.publicKey.toBase58(),
+  signWithPayer: (message) => new Uint8Array(edSign(null, Buffer.from(message), buyerKey)),
+});
+const paid = await post({ "x402-payment": meteredPaymentHeaderValue({ payer: buyer.publicKey, nonce, programId }), ...authHeaders });
 const responseText = await paid.text();
 if (paid.status !== 200) throw new Error(`the paid call failed (${paid.status}): ${responseText}`);
 const answer = JSON.parse(responseText);

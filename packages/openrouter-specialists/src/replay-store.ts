@@ -1,4 +1,4 @@
-import { DatabaseReplayStore, defaultNonceReplayStore, type NonceReplayStore } from "@reddi/x402-solana";
+import { DatabaseReplayStore, defaultNonceReplayStore, type NonceReplayStore } from "@redditech/x402-solana";
 
 /**
  * Chooses where the runtime remembers payments it has already accepted.

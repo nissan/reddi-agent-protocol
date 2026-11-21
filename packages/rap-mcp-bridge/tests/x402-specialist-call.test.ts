@@ -9,7 +9,7 @@ import { currentPolicy } from "../src/policy.js";
 import { BridgeStore } from "../src/store.js";
 import { exportDisclosureLedger } from "../src/tools/export-disclosure-ledger.js";
 import { executeX402SpecialistCall, prepareX402SpecialistCall, verifyX402SpecialistReceipt, type FetchLike } from "../src/tools/x402-specialist-call.js";
-import type { DevnetUsdcPaymentClient } from "@reddi/x402-solana";
+import type { DevnetUsdcPaymentClient } from "@redditech/x402-solana";
 
 const payTo = "3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr";
 const usdcMint = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
@@ -122,6 +122,7 @@ test("execute_x402_specialist_call performs fake 402 to paid retry flow and stor
     assert.equal(receipt.paymentReceipt.payer, kp.publicKey.toBase58());
     assert.equal(calls.length, 2);
     assert.ok((calls[1].headers as Record<string, string>)["x402-payment"]);
+    assert.ok((calls[1].headers as Record<string, string>)["x402-payment-proof"], "the paid retry carries the payer proof");
 
     const again = await executeX402SpecialistCall({
       endpoint,

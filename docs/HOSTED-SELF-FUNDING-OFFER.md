@@ -24,7 +24,7 @@ Hosted offerings can charge for reliability, operations, retention, support, and
 These surfaces remain free, open, and self-hostable:
 
 - Protocol specs for receipt envelopes, policy decisions, challenges, evidence references, attestations, and reputation signals.
-- TypeScript SDK/package surfaces such as `@reddi/agent-protocol`, `@reddi/x402-solana`, and the MCP bridge.
+- TypeScript SDK/package surfaces such as `@redditech/agent-protocol`, `@redditech/x402-solana`, and the MCP bridge.
 - Buyer client and seller middleware primitives.
 - Local buyer budget policy evaluator and dry-run policy decisions.
 - Receipt schema and validation helpers.

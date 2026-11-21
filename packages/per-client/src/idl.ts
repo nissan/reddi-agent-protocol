@@ -6,7 +6,7 @@
  * it: `release_escrow_per` and `delegate_escrow` are not in the V1 program
  * build (post-V1, issue #839), and the rating and attestation instructions of
  * the V1 program take the data and accounts described in
- * programs/pinocchio-escrow/README.md, built by `@reddi/x402-solana` (rating
+ * programs/pinocchio-escrow/README.md, built by `@redditech/x402-solana` (rating
  * module), not by this package.
  */
 import crypto from "crypto";

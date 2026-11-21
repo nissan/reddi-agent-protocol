@@ -1,4 +1,4 @@
-import { tokenCostBaseUnits } from "@reddi/x402-solana/metered";
+import { tokenCostBaseUnits } from "@redditech/x402-solana/metered";
 import {
   BuyerSessionBook,
   openBuyerSession,

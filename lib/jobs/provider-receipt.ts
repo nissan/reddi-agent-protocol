@@ -12,7 +12,7 @@ import "server-only";
  * model ran.
  */
 
-import { hashReddiReceiptV2Body, verifyReddiReceiptV2, type ReddiReceiptV2Network, type SignedReddiReceiptV2 } from "@reddi/agent-protocol/receipt-v2";
+import { hashReddiReceiptV2Body, verifyReddiReceiptV2, type ReddiReceiptV2Network, type SignedReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
 
 import { supabaseOrigin } from "@/lib/supabase/config";
 
@@ -75,12 +75,14 @@ export async function checkAndStoreProviderReceipt(input: ProviderReceiptInput, 
   });
   if (!verified.ok) return { stored: false, reason: verified.errors[0]?.code ?? "invalid" };
   // Currency and mint are compared here: a missing mint must mean SOL on both sides.
+  // A session's open receipts carry no payment; this route stores paid receipts only.
   const stated = verified.receipt.payment;
+  if (!stated) return { stored: false, reason: "payment_mismatch" };
   if (stated.currency !== input.paid.currency || stated.mint !== input.paid.mint) return { stored: false, reason: "payment_mismatch" };
   if (stated.fee.treasury !== input.paid.fee.treasury) return { stored: false, reason: "payment_mismatch" };
   // The payer is optional in a receipt. When the provider states one, it must be the wallet that paid.
   if (stated.payer !== undefined && stated.payer !== input.paid.payer) return { stored: false, reason: "payment_mismatch" };
-  if (input.settlement?.kind === "metered-escrow" && verified.receipt.payment.metered?.maxAmount !== input.settlement.maxAmountBaseUnits) {
+  if (input.settlement?.kind === "metered-escrow" && stated.metered?.maxAmount !== input.settlement.maxAmountBaseUnits) {
     return { stored: false, reason: "payment_mismatch" };
   }
   if (verified.receipt.jobId !== undefined && verified.receipt.jobId !== input.jobId) return { stored: false, reason: "job_mismatch" };

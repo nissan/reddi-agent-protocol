@@ -1,8 +1,12 @@
-# Changelog — @reddi/agent-protocol
+# Changelog — @redditech/agent-protocol
 
 All notable changes to this package are documented here. Dates are AEST.
 
 ## Unreleased
+
+### Added
+
+- Receipt v2 `session` block for metered sessions (#863): sequence, this call's tokens, running token totals and cost, the previous receipt's hash, and `closed`. Receipts of a session carry no `payment` block until the closing one, whose metered payment must equal the running cost. `hashReddiReceiptV2` (SHA-256 of the canonical form) and `verifyReddiReceiptV2Session`, which checks a whole chain: one provider and escrow, sequence 1 to n, hash links, running sums, a cost that never goes down, and only the last receipt closed. New error codes `session_mismatch` and `session_chain_broken`.
 
 ### Removed
 
@@ -16,8 +20,8 @@ All notable changes to this package are documented here. Dates are AEST.
 
 ### Added
 
-- Receipt v2 (`@reddi/agent-protocol/receipt-v2`, `reddi.receipt.v2`, #739): a receipt the provider issues and signs, carrying its wallet, the model it declares it served, the request and response hashes and the payment transaction, signed with ed25519 over a fixed-order canonical form. `verifyReddiReceiptV2` checks the signature and any expected fields offline. A valid signature shows what the provider declared; it is not proof of which model ran. v2 is a separate version and rejects any other version string. This replaces the unreleased `reddi.receipt.provider-extension.v1` block (owner decision, 20 November 2026). Source-level helpers only: no deployed provider issues v2 receipts yet.
-- Browser-wallet safety preflight contracts and offline validation helpers (`@reddi/agent-protocol/browser-wallet-approval`): single-use Devnet approval schema (`reddi.browser-wallet.single-use-approval.v1`) with future-date refusal, trusted resolved-program binding, the canonical Devnet USDC mint pinned for the gated USDC lane, official Solana mainnet mints rejected on every asset path, and independently trusted partner-confirmed AUDD Devnet mint/rail binding; dormant Tier 1 local browser harness contract; and a complete claim-local rail-identity/copy guard rejecting official AUDD, grant-eligible, observed settlement, and controlled-live claims across safety rows.
+- Receipt v2 (`@redditech/agent-protocol/receipt-v2`, `reddi.receipt.v2`, #739): a receipt the provider issues and signs, carrying its wallet, the model it declares it served, the request and response hashes and the payment transaction, signed with ed25519 over a fixed-order canonical form. `verifyReddiReceiptV2` checks the signature and any expected fields offline. A valid signature shows what the provider declared; it is not proof of which model ran. v2 is a separate version and rejects any other version string. This replaces the unreleased `reddi.receipt.provider-extension.v1` block (owner decision, 20 November 2026). Source-level helpers only: no deployed provider issues v2 receipts yet.
+- Browser-wallet safety preflight contracts and offline validation helpers (`@redditech/agent-protocol/browser-wallet-approval`): single-use Devnet approval schema (`reddi.browser-wallet.single-use-approval.v1`) with future-date refusal, trusted resolved-program binding, the canonical Devnet USDC mint pinned for the gated USDC lane, official Solana mainnet mints rejected on every asset path, and independently trusted partner-confirmed AUDD Devnet mint/rail binding; dormant Tier 1 local browser harness contract; and a complete claim-local rail-identity/copy guard rejecting official AUDD, grant-eligible, observed settlement, and controlled-live claims across safety rows.
 - Public AUDD rail config and identity validator for deterministic fixtures, generated local test mints, explicitly blocked/unverified devnet, and gated mainnet. Official Solana mainnet AUDD mint/token-program/decimals provenance is recorded, while mainnet stays disabled by default.
 - Rail-neutral canonical payment job/agreement/intent/observation/refund records and deterministic canonical SHA-256 ID helpers, with environment and grant-eligibility labels that reject fixture/devnet evidence as eligible volume.
 - AUDD x402 v2 SVM `exact` bridge helpers layered onto the existing `reddi.audd-payment-plan.v1` plan for deliberate legacy compatibility. Models can create draft intents only; non-fixture spend still requires policy and operator approval.

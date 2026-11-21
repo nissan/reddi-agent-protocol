@@ -23,7 +23,7 @@ import {
 } from "@/lib/onboarding/intake-flow";
 import {
   validateOnboardingIntakeDescriptor,
-} from "@reddi/agent-protocol/onboarding-analyser-handoff";
+} from "@redditech/agent-protocol/onboarding-analyser-handoff";
 
 const GOOD_URL = "https://fixtures.example.com/mcp/server-card.json";
 

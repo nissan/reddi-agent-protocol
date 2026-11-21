@@ -3,7 +3,7 @@
  * nothing here reads the chain or the database.
  */
 
-import { MAINNET_STABLECOIN_MINTS } from "@reddi/x402-solana/payment";
+import { MAINNET_STABLECOIN_MINTS } from "@redditech/x402-solana/payment";
 
 import { DEVNET_USDC_MINT } from "@/lib/payments/wallet-direct-payment";
 

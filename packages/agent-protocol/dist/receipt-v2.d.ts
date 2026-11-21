@@ -65,6 +65,41 @@ export type ReddiReceiptV2Payment = {
     /** Token counts and the authorised maximum of a per-token call. */
     metered?: ReddiReceiptV2Metered;
 };
+/**
+ * One call of a session: many calls paid from one metered escrow lock and
+ * settled once. Each call's receipt carries the running totals and the hash of
+ * the previous receipt, so the buyer holds a signed chain for every unit
+ * charged. Before the session settles a receipt has a `session` block and no
+ * `payment`: it is the provider's signed statement of what the lock owes, not
+ * proof of a transfer. The closing receipt has both, and its payment amount is
+ * the session's cumulative cost.
+ */
+export type ReddiReceiptV2Session = {
+    /** The metered escrow paying for the session (base58). */
+    escrow: string;
+    /** The wallet that locked it (base58). */
+    payer: string;
+    network: ReddiReceiptV2Network;
+    currency: ReddiReceiptV2Currency;
+    /** Token mint address (base58). Required for every currency except SOL. */
+    mint?: string;
+    /** What the buyer locked, in smallest units. Cumulative cost never exceeds it. */
+    maxAmount: string;
+    /** 1 for the first call, then each call one more, with no gaps. */
+    sequence: string;
+    /** This call's token counts, as the provider reports them. A close request without a call states 0 and 0. */
+    inputTokens: string;
+    outputTokens: string;
+    /** Totals over every call up to and including this one. */
+    cumulativeInputTokens: string;
+    cumulativeOutputTokens: string;
+    /** What the totals cost at the provider's price, in smallest units, capped at `maxAmount`: what the settle will charge. */
+    cumulativeCost: string;
+    /** `hashReddiReceiptV2` of the previous call's receipt. Absent only on sequence 1. */
+    previousReceiptHash?: string;
+    /** True only on the receipt of the settle, which also carries `payment`. */
+    closed: boolean;
+};
 export type ReddiReceiptV2 = {
     schemaVersion: typeof REDDI_RECEIPT_V2_VERSION;
     /** The provider's Solana wallet address (base58). The signature must verify against it. */
@@ -75,7 +110,10 @@ export type ReddiReceiptV2 = {
     requestHash: string;
     /** SHA-256 of the response body bytes, lowercase hex. */
     responseHash: string;
-    payment: ReddiReceiptV2Payment;
+    /** The transfer that paid. Absent only on a session receipt before the session settles. */
+    payment?: ReddiReceiptV2Payment;
+    /** Present on every call of a session. */
+    session?: ReddiReceiptV2Session;
     /** The job this call was recorded as, when the provider knows it. */
     jobId?: string;
     /** ISO 8601 UTC time the provider issued this receipt. */
@@ -89,7 +127,7 @@ export type SignedReddiReceiptV2 = {
         signature: string;
     };
 };
-export type ReddiReceiptV2ErrorCode = 'malformed_receipt' | 'unsupported_version' | 'malformed_proof' | 'signature_invalid' | 'provider_mismatch' | 'declared_model_mismatch' | 'request_hash_mismatch' | 'response_hash_mismatch' | 'payment_mismatch';
+export type ReddiReceiptV2ErrorCode = 'malformed_receipt' | 'unsupported_version' | 'malformed_proof' | 'signature_invalid' | 'provider_mismatch' | 'declared_model_mismatch' | 'request_hash_mismatch' | 'response_hash_mismatch' | 'payment_mismatch' | 'session_mismatch' | 'session_chain_broken';
 export type ReddiReceiptV2Error = {
     code: ReddiReceiptV2ErrorCode;
     path: string;
@@ -118,6 +156,8 @@ export type ReddiReceiptV2Expectation = {
             treasury?: string;
         };
     };
+    /** Each field given must equal the signed session block. A receipt without one fails. */
+    session?: Partial<ReddiReceiptV2Session>;
 };
 /** Signs the canonical bytes with the provider's key and returns the 64-byte signature. The key never enters this module. */
 export type ReddiReceiptV2Signer = (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;
@@ -130,6 +170,8 @@ export declare function validateReddiReceiptV2(input: unknown): ReddiReceiptV2Ve
  * receipt cannot be replayed as a signature for another kind of message.
  */
 export declare function canonicalizeReddiReceiptV2(receipt: ReddiReceiptV2): string;
+/** SHA-256 of a receipt's canonical bytes, lowercase hex: what the next call of a session names as `previousReceiptHash`. */
+export declare function hashReddiReceiptV2(receipt: ReddiReceiptV2): string;
 /** Validates the receipt, asks the signer for a signature, and refuses to return one that does not verify. */
 export declare function signReddiReceiptV2(receipt: ReddiReceiptV2, signer: ReddiReceiptV2Signer): Promise<SignedReddiReceiptV2>;
 /**
@@ -140,3 +182,21 @@ export declare function signReddiReceiptV2(receipt: ReddiReceiptV2, signer: Redd
  * with. Without `expected`, a pass only says some key signed some statement.
  */
 export declare function verifyReddiReceiptV2(input: unknown, expected?: ReddiReceiptV2Expectation): ReddiReceiptV2Verification;
+/**
+ * Checks a session's receipts as one chain, oldest first: each verifies on its
+ * own (pass `expected` for what every receipt must state, for example the
+ * provider and the escrow), they share provider, escrow, payer, network,
+ * currency, mint and maximum, sequences run 1, 2, 3 with no gap, each names the
+ * previous receipt's hash, the totals are the running sums of each call's
+ * counts, the cost never goes down, and only the last may be closed. It does
+ * not recompute cost from a price: compare `cumulativeCost` with your own
+ * count of tokens at the price you were quoted.
+ */
+export declare function verifyReddiReceiptV2Session(chain: readonly unknown[], expected?: ReddiReceiptV2Expectation): {
+    ok: true;
+    receipts: ReddiReceiptV2[];
+    closed: boolean;
+} | {
+    ok: false;
+    errors: ReddiReceiptV2Error[];
+};

@@ -8,7 +8,7 @@ This slice turns the RAP MCP bridge from safe dry-run/demo scaffolding into a ga
 
 ## Code/package changes
 
-### `@reddi/x402-solana`
+### `@redditech/x402-solana`
 
 - Adds consumer-side devnet USDC payer helper in `src/client.ts`.
 - Exports:
@@ -26,7 +26,7 @@ This slice turns the RAP MCP bridge from safe dry-run/demo scaffolding into a ga
   - explicit wallet keypair path
   - approval phrase for execution
 
-### `@reddi/rap-mcp-bridge`
+### `@redditech/rap-mcp-bridge`
 
 - Adds gated x402 specialist MCP tools:
   - `reddi.prepare_x402_specialist_call`

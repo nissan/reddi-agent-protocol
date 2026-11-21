@@ -5,7 +5,7 @@ import {
   buildDisputeAttestationInstruction,
   decodeAttestationAccount,
   type AttestationAccount,
-} from "@reddi/x402-solana/rating";
+} from "@redditech/x402-solana/rating";
 
 import { QUASAR_ESCROW_UNAVAILABLE_REASON } from "@/lib/onboarding/quasar-escrow-binding";
 import { ESCROW_PROGRAM_ID, PROGRAM_TARGET } from "@/lib/program";
@@ -19,7 +19,7 @@ import { ESCROW_PROGRAM_ID, PROGRAM_TARGET } from "@/lib/program";
  * base58 string is parsed into a `PublicKey`, any instruction is built, and any signer is used.
  *
  * What is built below is the V1 program's `confirm_attestation` / `dispute_attestation`
- * (`@reddi/x402-solana/rating`): the attestation of the job paid through an escrow, the judge's
+ * (`@redditech/x402-solana/rating`): the attestation of the job paid through an escrow, the judge's
  * agent record, and the consumer as signer, and as data the job's opened slot. The program refuses a
  * decision whose slot is not the one the attestation stores (`RatingJobMismatch`, 6051), so a
  * decision prepared for an earlier job's attestation cannot land on a later one; it does not check

@@ -42,7 +42,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 // OSS v0.1 publishable candidate set per docs/OSS-V0.1-RELEASE-SMOKE.md.
-// @reddi/sendai-x402 and @reddi/eliza-plugin-x402 are deferred experimental
+// @redditech/sendai-x402 and @redditech/eliza-plugin-x402 are deferred experimental
 // packages and must not be added here without a promotion issue.
 const DEFAULT_PACKAGE_DIRS = ["packages/agent-protocol", "packages/x402-solana"];
 

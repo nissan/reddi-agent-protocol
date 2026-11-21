@@ -17,7 +17,7 @@
  * recomputed, under the opened slot it was made for.
  */
 import { PublicKey } from "@solana/web3.js";
-import { ratingPda } from "@reddi/x402-solana/rating";
+import { ratingPda } from "@redditech/x402-solana/rating";
 import { jobRatingCommitment } from "@/lib/rating/commitment";
 
 // v2: secrets carry the opened slot of the job they were made for (#842, job binding).

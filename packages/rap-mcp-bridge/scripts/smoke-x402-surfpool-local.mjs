@@ -9,7 +9,7 @@ import {
   MINT_SIZE,
   TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
-import { SolanaReceiptVerifier, buildX402Challenge } from '@reddi/x402-solana';
+import { SolanaReceiptVerifier, buildX402Challenge } from '@redditech/x402-solana';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';

@@ -5,8 +5,8 @@
  * the buyer.
  */
 
-import { baseUnitsToDecimal, decimalToBaseUnits, PROTOCOL_FEE_BPS, protocolFeeBaseUnits, protocolFeeCapBaseUnits } from "@reddi/x402-solana/payment";
-import { tokenCostBaseUnits, type PerTokenPrice, type TokenCounts } from "@reddi/x402-solana/metered";
+import { baseUnitsToDecimal, decimalToBaseUnits, PROTOCOL_FEE_BPS, protocolFeeBaseUnits, protocolFeeCapBaseUnits } from "@redditech/x402-solana/payment";
+import { tokenCostBaseUnits, type PerTokenPrice, type TokenCounts } from "@redditech/x402-solana/metered";
 
 /** The default maximum, as a multiple of the estimate (Nissan, 20 November 2026). */
 export const DEFAULT_MAX_MULTIPLE = 2;

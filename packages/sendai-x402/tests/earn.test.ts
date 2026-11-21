@@ -7,7 +7,7 @@ import type { EarnConfig } from "../src/earn";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
-jest.mock("@reddi/x402-solana", () => ({
+jest.mock("@redditech/x402-solana", () => ({
   sendPayment: jest.fn(),
 }));
 
@@ -53,7 +53,7 @@ describe("x402EarnHandler", () => {
     const serviceResponse = new Response("task done", { status: 200 });
     const serviceFn = jest.fn().mockResolvedValueOnce(serviceResponse);
 
-    const { sendPayment } = require("@reddi/x402-solana");
+    const { sendPayment } = require("@redditech/x402-solana");
 
     const req = makeRequest("escrow_abc123_nonce456");
     const res = await x402EarnHandler(req, serviceFn, MOCK_CONFIG);
@@ -70,7 +70,7 @@ describe("x402EarnHandler", () => {
     const serviceResponse = new Response("internal error", { status: 500 });
     const serviceFn = jest.fn().mockResolvedValueOnce(serviceResponse);
 
-    const { sendPayment } = require("@reddi/x402-solana");
+    const { sendPayment } = require("@redditech/x402-solana");
     sendPayment.mockClear();
 
     const req = makeRequest("escrow_abc123_nonce456");
