@@ -69,6 +69,8 @@ BUYER_KEYPAIR_PATH=~/.config/solana/buyer.json \
 
 It prints the price, the quote, the lock transaction, the answer, what was charged and refunded, the settle transaction, and whether the receipt verified.
 
+To try a session (one lock, several calls, one settle), run `node packages/provider-kit/examples/session-call.mjs http://localhost:8787 3` with the same `BUYER_KEYPAIR_PATH`. It checks the whole receipt chain at the end.
+
 ### Switch to a real model
 
 In `provider.json`:
@@ -175,7 +177,7 @@ The worst case of a call counts four characters of input as one token. A model t
 
 ## Limits today
 
-- Do not run a funded provider on mainnet yet. The payout checks and confirmed receipts above are covered by tests against a simulated chain; they have not been run against a live cluster, and the treasury's token accounts must be confirmed ready for each currency first (`rap-provider doctor` checks yours).
+- Do not run a funded provider on mainnet yet. A single paid call and a three-call session were run end to end on devnet on 21 November 2026 (mock answers, devnet USDC); the payout refusals and recovery paths above are covered by tests against a simulated chain only. Single calls do not yet check the payer's signature (#866), and the treasury's token accounts must be confirmed ready for each currency first (`rap-provider doctor` checks yours).
 - A held single-call settle is not retried later by itself (a session's settle is retried by the idle sweep until the refund window). The log line `settle_failed` names the escrow; the lock stays open until its refund window, and you can settle it by hand within that time.
 - No streaming responses. Requests with `stream: true` are refused.
 - Message content must be text.
