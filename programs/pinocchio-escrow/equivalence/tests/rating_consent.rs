@@ -7,8 +7,10 @@
 //! agent one lamport and then rate it, or let the rating expire against it.
 //!
 //! Agreement is `accept_rating` while the escrow is locked, or the
-//! specialist's own signature on the paid exit (settle or claim). A payer
-//! release without either pays as usual and closes the rating account.
+//! specialist being the authority of the paid exit (settle or claim). A
+//! release the payer authorises without `accept_rating` pays as usual and
+//! closes the rating account, whoever else signed the transaction. The rule
+//! is the same for SOL and token escrows.
 mod support;
 
 use {
@@ -300,10 +302,12 @@ fn accept_rating_refuses_wrong_accounts_a_second_call_and_a_paid_job() {
 #[test]
 fn a_payer_release_opens_the_rating_only_with_the_specialists_agreement() {
     // (accepted beforehand, payee co-signs the release) -> rated?
+    // The payer is the authority of all four, so only `accepted` counts: the
+    // payee's signature next to the payer's is not agreement.
     for (accepted, cosigned, rated) in [
         (false, false, false),
         (true, false, true),
-        (false, true, true),
+        (false, true, false),
         (true, true, true),
     ] {
         let mut world = World::new();
@@ -442,4 +446,254 @@ fn usdc_payer_release_needs_the_specialists_agreement_to_open_the_rating() {
 #[test]
 fn pyusd_payer_release_needs_the_specialists_agreement_to_open_the_rating() {
     token_consent(TOKEN_2022_ID, PYUSD_MAINNET_MINT);
+}
+
+/// Signer status is per transaction. A seller that only pays the fee of the
+/// buyer's release, or signs it for another instruction, has not agreed to
+/// this job being rated.
+#[test]
+fn the_specialists_signature_elsewhere_in_a_payer_release_is_not_agreement() {
+    let mut world = World::new();
+    let (consumer, specialist) = (world.wallet(1), world.wallet(2));
+    let (c, s) = (consumer.pubkey(), specialist.pubkey());
+    world.register(&specialist, AgentType::Primary);
+    world.set_reputation(&s, 6_000);
+    let record_before = world.svm.get_account(&agent(&s));
+    let job = |world: &mut World, i: u8| {
+        let escrow = sol_escrow(&c, nonce(i));
+        world.ok(
+            "lock",
+            sol_lock(&c, &s, 1_000_000, nonce(i), false),
+            &[&consumer],
+        );
+        world.ok("open", open_rating(&escrow, &c, None), &[&consumer]);
+        (escrow, rating_address(&escrow))
+    };
+    let release = |i: u8| {
+        with_rating(
+            sol_payout(&c, &s, nonce(i), &c, None),
+            &sol_escrow(&c, nonce(i)),
+        )
+    };
+
+    // 1: the seller is only the fee payer of the buyer's release.
+    let (escrow, rating) = job(&mut world, 1);
+    let rent = world.lamports(&rating);
+    let (payer_before, payee_before) = (world.lamports(&c), world.lamports(&s));
+    world.ok(
+        "release_escrow, rated, seller pays the fee",
+        release(1),
+        &[&specialist, &consumer],
+    );
+    assert!(!world.exists(&escrow));
+    assert!(!world.exists(&rating));
+    assert!(world.data(&rating).is_empty());
+    // Paid as usual, less the two signature fees it paid itself.
+    assert_eq!(world.lamports(&s) + 10_000 - payee_before, 975_000);
+    // The rating's rent went back to the buyer with the escrow's.
+    assert!(world.lamports(&c) - payer_before > rent);
+    for who in [&consumer, &specialist] {
+        world.refused(
+            "commit on the job",
+            commit_rating(&rating, &who.pubkey(), [3; 32]),
+            &[who],
+            NOT_INITIALIZED,
+        );
+    }
+    world.warp(world.slot() + RATING_COMMIT_SLOTS + 1);
+    world.refused(
+        "expire the job",
+        expire_rating(&rating, &c, &s, &c),
+        &[&consumer],
+        NOT_INITIALIZED,
+    );
+    assert_eq!(world.svm.get_account(&agent(&s)), record_before);
+
+    // 2: the seller signs the same transaction to accept another job.
+    let (_, first) = job(&mut world, 2);
+    let (_, second) = job(&mut world, 3);
+    world
+        .send(
+            &[accept_rating(&second, &s), release(2)],
+            &[&consumer, &specialist],
+        )
+        .unwrap();
+    assert!(!world.exists(&first));
+    let other = world.rating(&second);
+    assert_eq!((other.state, other.accepted), (AWAITING_SETTLEMENT, true));
+    assert_eq!(world.svm.get_account(&agent(&s)), record_before);
+
+    // The accepted one then opens on the buyer's release, as before.
+    world.ok("release", release(3), &[&consumer]);
+    assert_eq!(world.rating(&second).state, OPEN);
+}
+
+/// The token escrow has the same rule: with the payer as authority, the
+/// payee signing the transaction changes nothing.
+#[test]
+fn a_token_release_by_the_payer_ignores_the_payees_signature_too() {
+    for (program, mint) in [
+        (anchor_spl::token::spl_token::ID, USDC_MAINNET_MINT),
+        (TOKEN_2022_ID, PYUSD_MAINNET_MINT),
+    ] {
+        let mut world = World::new();
+        let (payer, payee) = (world.wallet(1), world.wallet(2));
+        let t = Tokens::install(&mut world, program, mint, payer, payee);
+        let a = t.payer.pubkey();
+        let escrow = t.escrow(nonce(1));
+        let rating = rating_address(&escrow);
+        world.ok("lock", t.lock(1_000_000, nonce(1), false), &[&t.payer]);
+        world.ok("open", open_rating(&escrow, &a, None), &[&t.payer]);
+        world.ok(
+            "release_token_escrow, rated, seller pays the fee",
+            with_rating(t.payout(nonce(1), &a, None), &escrow),
+            &[&t.payee, &t.payer],
+        );
+        assert_eq!(t.balance(&world, &t.recipient), 975_000);
+        assert!(!world.exists(&rating));
+        assert!(!world.exists(&escrow));
+    }
+}
+
+/// A Token-2022 issuer can take tokens out of a vault. A rated escrow whose
+/// vault is empty at the exit paid nothing, so there is no paid job to rate:
+/// the rating account is closed, even when the seller agreed.
+#[test]
+fn a_rated_exit_that_pays_nothing_does_not_open_the_rating() {
+    let mut world = World::new();
+    let (payer, payee) = (world.wallet(1), world.wallet(2));
+    let t = Tokens::install(&mut world, TOKEN_2022_ID, PYUSD_MAINNET_MINT, payer, payee);
+    let (a, b) = (t.payer.pubkey(), t.payee.pubkey());
+    world.register(&t.payee, AgentType::Primary);
+    let record_before = world.svm.get_account(&agent(&b));
+    for i in [1, 2, 3] {
+        let escrow = t.escrow(nonce(i));
+        world.ok("lock", t.lock(1_000_000, nonce(i), i == 2), &[&t.payer]);
+        world.ok("open", open_rating(&escrow, &a, None), &[&t.payer]);
+        world.ok(
+            "accept",
+            accept_rating(&rating_address(&escrow), &b),
+            &[&t.payee],
+        );
+        // 1 and 2: the vault was emptied. 3: one base unit is left.
+        let mut vault = world.svm.get_account(&t.vault(nonce(i))).unwrap();
+        let left: u64 = if i == 3 { 1 } else { 0 };
+        vault.data[64..72].copy_from_slice(&left.to_le_bytes());
+        world.set(t.vault(nonce(i)), vault);
+    }
+    let rated = |ix: Instruction, i: u8| with_rating(ix, &t.escrow(nonce(i)));
+    let before = world.lamports(&a);
+    let rent = world.lamports(&rating_address(&t.escrow(nonce(1))));
+
+    world.ok(
+        "release_token_escrow, rated, empty vault",
+        rated(t.payout(nonce(1), &a, None), 1),
+        &[&t.payer],
+    );
+    assert!(world.lamports(&a) - before > rent);
+    world.ok(
+        "settle_token_escrow, rated, empty vault",
+        rated(t.payout(nonce(2), &b, Some(400_000)), 2),
+        &[&t.payee],
+    );
+    for i in [1, 2] {
+        let rating = rating_address(&t.escrow(nonce(i)));
+        assert!(!world.exists(&t.escrow(nonce(i))));
+        assert!(!world.exists(&rating));
+        world.refused(
+            "commit on a job that paid nothing",
+            commit_rating(&rating, &a, [3; 32]),
+            &[&t.payer],
+            NOT_INITIALIZED,
+        );
+    }
+    assert_eq!(t.balance(&world, &t.recipient), 0);
+
+    // Anything paid at all is a paid job.
+    world.ok(
+        "release from a vault holding one unit",
+        rated(t.payout(nonce(3), &a, None), 3),
+        &[&t.payer],
+    );
+    let record = world.rating(&rating_address(&t.escrow(nonce(3))));
+    assert_eq!((record.state, record.paid), (OPEN, 1));
+    assert_eq!(world.svm.get_account(&agent(&b)), record_before);
+}
+
+/// Several rated jobs in one transaction on distinct escrows, covering both
+/// values of the flag byte a rated escrow can have: 3 (metered and rated)
+/// through settle, and 2 through release and claim.
+#[test]
+fn several_rated_jobs_in_one_transaction_each_keep_their_own_rating() {
+    let mut world = World::new();
+    let (consumer, specialist) = (world.wallet(1), world.wallet(2));
+    let (c, s) = (consumer.pubkey(), specialist.pubkey());
+    let escrow = |i: u8| sol_escrow(&c, nonce(i));
+    let rating = |i: u8| rating_address(&escrow(i));
+    let exit = |i: u8, signer: &Pubkey, actual: Option<u64>| {
+        with_rating(sol_payout(&c, &s, nonce(i), signer, actual), &escrow(i))
+    };
+
+    // 1 is metered; 2 and 3 are fixed price.
+    world
+        .send(
+            &[
+                sol_lock(&c, &s, 1_000_000, nonce(1), true),
+                open_rating(&escrow(1), &c, None),
+                sol_lock(&c, &s, 2_000_000, nonce(2), false),
+                open_rating(&escrow(2), &c, None),
+                sol_lock(&c, &s, 3_000_000, nonce(3), false),
+                open_rating(&escrow(3), &c, None),
+            ],
+            &[&consumer],
+        )
+        .unwrap();
+    let flags = |world: &World, i: u8| world.data(&escrow(i))[SOL_ESCROW_FLAGS_AT];
+    assert_eq!(flags(&world, 1), FLAG_METERED | FLAG_RATED);
+    assert_eq!(flags(&world, 2), FLAG_RATED);
+    assert_eq!(flags(&world, 3), FLAG_RATED);
+
+    // A rating given to the wrong one of the three is refused.
+    world.refused(
+        "settle 1 with the rating of 2",
+        with_account(
+            sol_payout(&c, &s, nonce(1), &s, Some(600_000)),
+            rating(2),
+            true,
+        ),
+        &[&specialist],
+        INVALID_RATING_ACCOUNT,
+    );
+
+    // The seller settles the metered job and accepts the second, in one
+    // transaction; the buyer then releases the second.
+    world
+        .send(
+            &[exit(1, &s, Some(600_000)), accept_rating(&rating(2), &s)],
+            &[&specialist],
+        )
+        .unwrap();
+    world.ok("release", exit(2, &c, None), &[&consumer]);
+    // The seller claims the third after its claim window.
+    world.refused(
+        "claim inside the window",
+        exit(3, &s, None),
+        &[&specialist],
+        6027,
+    );
+    world.warp(world.slot() + CLAIM_WINDOW + 1);
+    world.ok("claim", exit(3, &s, None), &[&specialist]);
+
+    for (i, paid, accepted) in [
+        (1, 600_000, false),
+        (2, 2_000_000, true),
+        (3, 3_000_000, false),
+    ] {
+        assert!(!world.exists(&escrow(i)));
+        let record = world.rating(&rating(i));
+        assert_eq!(
+            (record.escrow, record.state, record.paid, record.accepted),
+            (escrow(i), OPEN, paid, accepted)
+        );
+    }
 }

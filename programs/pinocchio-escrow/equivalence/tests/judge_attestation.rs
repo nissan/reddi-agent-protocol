@@ -819,3 +819,46 @@ fn a_closed_attestation_frees_the_address_for_a_later_job() {
     let fresh = t.world.attestation(&attestation_address(&escrow));
     assert_eq!((fresh.scores, fresh.resolution), ([3; 5], 0));
 }
+
+/// A judge that has switched its agent record off does not attest until it
+/// switches it on again.
+#[test]
+fn a_judge_whose_record_is_not_active_cannot_attest() {
+    let mut t = Court::new();
+    let j = t.j();
+    let escrow = t.paid(Some(&j));
+    let rate = t.world.agent(&j).rate_lamports;
+    let floor = t.world.agent(&j).min_reputation;
+    t.world.ok(
+        "switch the judge off",
+        update_agent(&j, rate, floor, false),
+        &[&t.judge],
+    );
+    t.world.refused(
+        "attest while not active",
+        attest_quality(&escrow, &j, SCORES),
+        &[&t.judge],
+        JUDGE_NOT_ACTIVE,
+    );
+    assert!(!t.world.rating(&rating_address(&escrow)).attested);
+    t.world.ok(
+        "switch the judge on",
+        update_agent(&j, rate, floor, true),
+        &[&t.judge],
+    );
+    t.world
+        .ok("attest", attest_quality(&escrow, &j, SCORES), &[&t.judge]);
+    // An attestation made while active is still resolved after the judge
+    // switches off.
+    t.world.ok(
+        "switch the judge off again",
+        update_agent(&j, rate, floor, false),
+        &[&t.judge],
+    );
+    t.world.ok(
+        "confirm",
+        resolve_attestation(&escrow, &j, &t.c(), true),
+        &[&t.consumer],
+    );
+    assert_eq!(t.standing(&j), (1_000, 1_000));
+}

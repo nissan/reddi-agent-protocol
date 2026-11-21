@@ -83,6 +83,7 @@ pub const RATED_ESCROW_NOT_DELEGABLE: u32 = 6045;
 pub const RATING_ALREADY_ACCEPTED: u32 = 6046;
 pub const ATTESTATION_NOT_CLOSABLE: u32 = 6047;
 pub const ALREADY_ATTESTED: u32 = 6048;
+pub const JUDGE_NOT_ACTIVE: u32 = 6049;
 
 pub const AWAITING_SETTLEMENT: u8 = 0;
 pub const OPEN: u8 = 1;
@@ -489,6 +490,30 @@ fn ix(name: &str, args: &[u8], accounts: Vec<AccountMeta>) -> Instruction {
     let mut data = selector(name).to_vec();
     data.extend_from_slice(args);
     Instruction::new_with_bytes(escrow::id(), &data, accounts)
+}
+
+/// `update_agent`, which the Anchor IDL covers; here for tests that switch
+/// an agent record off.
+pub fn update_agent(
+    owner: &Pubkey,
+    rate_lamports: u64,
+    min_reputation: u8,
+    active: bool,
+) -> Instruction {
+    Instruction::new_with_bytes(
+        escrow::id(),
+        &instruction::UpdateAgent {
+            rate_lamports,
+            min_reputation,
+            active,
+        }
+        .data(),
+        accounts::UpdateAgent {
+            agent: agent(owner),
+            owner: *owner,
+        }
+        .to_account_metas(None),
+    )
 }
 
 /// `open_rating`. `judge` is `None` for no judge.
