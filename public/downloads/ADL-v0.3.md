@@ -118,7 +118,7 @@ required evidence output for levels `0..requestedLevel` is absent.
 | 0 | schema-valid | `apiVersion`, `kind`, `metadata.name`, `metadata.description`, `model`, `harness` | `conformance`, `extensions` | none | JSON Schema validation diagnostics |
 | 1 | local-python runnable | Level 0 plus `harness.instructions`, `harness.runtime.target`, `harness.evalGates`, and Level 1 observability events | `harness.memory`, `harness.tools`, `harness.dataSources` | payment/reputation extension; production deployment descriptor | local Level 1 trace; `completion.requiredGateStatus`; `trace.started`; `trace.completed`; `task.completed`; `task.failed` |
 | 2 | provider-adapter compatible | Level 1 plus `model.capability`, `model.providers.preferred`, `model.requirements`, `harness.policies`, `harness.evalGates`, and Level 2 observability events | `harness.tools`, `harness.dataSources`, `harness.memory` | payment/reputation extension; production deployment descriptor | provider compatibility report; unsupported-execution boundary; `model.called`; `policy.checked`; `eval.checked` |
-| 3 | payment/reputation extension compatible | Level 2 plus `extensions.x402.enabled=true`, `extensions.x402.mode`, spend/refund intents with authority, scope, receipt, audit, revocation, and policy refs, charge intents with `price`, `payTo`, `settlement`, receipt, and policy refs, `extensions.receipts.required=true`, `extensions.receipts.refs` with `format: reddi.receipt.v2`, `extensions.reputation.emitSignals`, and Level 3 observability events | `extensions.identity`; `x-*` or URI extension namespaces as strict metadata | production deployment descriptor; in `live` mode, any rail other than `solana`; a mainnet mint that is not the allowlisted one; a protocol fee other than 250 bps (2.5%, capped at 0.1 SOL on SOL payments) | receipt evidence; reputation signal evidence; payment policy evidence; `payment.intent.created`; `receipt.emitted`; `reputation.signal.emitted` |
+| 3 | payment/reputation extension compatible | Level 2 plus `extensions.x402.enabled=true`, `extensions.x402.mode`, spend/refund intents with authority, scope, receipt, audit, revocation, and policy refs, charge intents with `price`, `payTo`, `settlement`, receipt, and policy refs, `extensions.receipts.required=true`, `extensions.receipts.refs` with `format: reddi.receipt.v2`, `extensions.reputation.emitSignals`, and Level 3 observability events | `extensions.identity`; `x-*` or URI extension namespaces as strict metadata | production deployment descriptor; in `live` mode, any rail other than `solana`; a mainnet mint that is not the allowlisted one; a protocol fee other than 250 bps with a 0.1 SOL cap; a per-token price without `metered-escrow` settlement, or the reverse | receipt evidence; reputation signal evidence; payment policy evidence; `payment.intent.created`; `receipt.emitted`; `reputation.signal.emitted` |
 | 4 | production deployment compatible | Level 3 plus `harness.runtime.target` of `hosted-container`, `serverless`, `platform-native`, or `openclaw`, `harness.deployment.environment`, `harness.deployment.rollback`, `harness.observability.events`, `harness.recovery.disable`, and Level 4 observability events | `harness.deployment.healthCheck`, `harness.observability.destinations` | mainnet remains separately approval-gated | deployment readiness report; observability trace config; rollback/disable evidence; `deployment.health.checked`; `adapter.loss.reported` |
 
 Conformance output must include:
@@ -307,12 +307,21 @@ A spend-capable or refund-capable intent must declare:
 A `direction: charge` intent is the seller side and is checked like the buyer
 side. It must declare:
 
-- `price`: `{ amount, per: call }`, the listed price as a decimal string;
+- `price`, the listed price as decimal strings, in one of two forms:
+  - per call: `{ amount, per: call }`;
+  - per token: `{ per: token, inputPerMillion, outputPerMillion, maxPerCall }`,
+    the rates for a million input and output tokens and the most one call can
+    cost, which is what the buyer authorises;
 - `payTo`: the provider wallet that is paid;
-- `settlement`: `direct` (paid per call) or `escrow` (held for a larger job);
+- `settlement`: `direct` (paid per call), `escrow` (held for a larger job) or
+  `metered-escrow` (the buyer locks the maximum, the provider settles the
+  actual cost after the response and the rest goes back to the buyer). A
+  per-token price must use `metered-escrow`, and `metered-escrow` must have a
+  per-token price;
 - `requireReceipt: true`, `receiptRef`, and `policyRefs`, with a payment
   policy for `x402:intent:<id>` whose `limits.asset` is the asset symbol and
-  whose `limits.maxAmount` equals the price.
+  whose `limits.maxAmount` equals the price per call, or `maxPerCall` for a
+  per-token price.
 
 An `authority` block is optional on a charge; one that is declared must agree
 with the intent.
@@ -323,15 +332,23 @@ with the intent.
 
 ```yaml
 protocolFee:
-  bps: 5
+  bps: 250
   rounding: down
   paidBy: provider
+  cap:
+    symbol: SOL
+    amount: '0.1'
+  base: actual-cost
 ```
 
-The fee is 5 basis points of the listed price, rounded down to the asset's
-smallest unit, and comes out of the price: the buyer pays the price and the
-provider receives the price minus the fee. A different `bps` fails Level 3. A
-`live` document with a charge intent must declare it.
+The fee is 2.5% (250 basis points) of the amount actually paid, rounded down
+to the asset's smallest unit, and comes out of that amount: the buyer pays it
+and the provider receives it minus the fee. For a per-call price the amount
+paid is the price; for a per-token price it is the settled cost, never the
+locked maximum. On a SOL payment the fee is at most 0.1 SOL; stablecoin
+payments have no cap. A different `bps` or `cap` fails Level 3. `base` is
+optional and only states the rule. A `live` document with a charge intent
+must declare the block.
 
 ### Receipts
 
