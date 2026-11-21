@@ -4,7 +4,7 @@
  * named by the app the operator chose: the app, and the auth service the app
  * says it uses. The wallet key signs one sign-in message and nothing else.
  */
-import { decimalToBaseUnits, directPaymentCurrency } from "@reddi/x402-solana";
+import { decimalToBaseUnits, directPaymentCurrency } from "@redditech/x402-solana";
 import type { ProviderConfig } from "./config.js";
 
 /** The same statement the app's own wallet sign-in shows. */

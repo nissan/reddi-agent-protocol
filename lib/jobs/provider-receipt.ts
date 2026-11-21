@@ -12,7 +12,7 @@ import "server-only";
  * model ran.
  */
 
-import { hashReddiReceiptV2Body, verifyReddiReceiptV2, type ReddiReceiptV2Network, type SignedReddiReceiptV2 } from "@reddi/agent-protocol/receipt-v2";
+import { hashReddiReceiptV2Body, verifyReddiReceiptV2, type ReddiReceiptV2Network, type SignedReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
 
 import { supabaseOrigin } from "@/lib/supabase/config";
 

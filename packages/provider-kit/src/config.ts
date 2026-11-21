@@ -7,7 +7,7 @@
  * the field, and the provider does not start.
  */
 import { PublicKey } from "@solana/web3.js";
-import { directPaymentCurrency, ESCROW_DEVNET_MINTS, ESCROW_MAINNET_MINTS, providerMeteredTerms, type MeteredTerms } from "@reddi/x402-solana";
+import { directPaymentCurrency, ESCROW_DEVNET_MINTS, ESCROW_MAINNET_MINTS, providerMeteredTerms, type MeteredTerms } from "@redditech/x402-solana";
 
 export type ProviderNetwork = "solana-devnet" | "solana-mainnet-beta";
 

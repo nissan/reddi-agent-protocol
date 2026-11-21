@@ -4,7 +4,7 @@
  * owner and network from the sign-in session; nothing here can choose them.
  */
 
-import { MAINNET_STABLECOIN_MINTS } from "@reddi/x402-solana/payment";
+import { MAINNET_STABLECOIN_MINTS } from "@redditech/x402-solana/payment";
 import type { NetworkProfileName } from "@/lib/config/network-profile-name";
 import { DEVNET_USDC_MINT } from "@/lib/payments/wallet-direct-payment";
 

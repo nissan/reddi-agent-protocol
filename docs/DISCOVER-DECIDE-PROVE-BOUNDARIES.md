@@ -121,7 +121,7 @@ source-aware ranking explainability and supervisor diagnostics
 ([#344](https://github.com/nissan/reddi-agent-protocol/issues/344)), which separate relevance from
 publisher identity, trust evidence, policy decision, budget/payment fit, and reputation state —
 landed as `reddi.ranking-explainability.v1`
-(`@reddi/agent-protocol/ranking-explainability`), `reddi.ard-candidate-diagnostics.v1`
+(`@redditech/agent-protocol/ranking-explainability`), `reddi.ard-candidate-diagnostics.v1`
 (`lib/manager/ard-candidate-diagnostics.ts`), and `reddi.supervisor-run-diagnostics.v1`
 (`lib/manager/supervisor-run-diagnostics.ts`), all read-model only.
 

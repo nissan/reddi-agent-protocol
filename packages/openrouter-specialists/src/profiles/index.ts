@@ -1,4 +1,4 @@
-import { isValidSolanaPublicKey } from "@reddi/x402-solana";
+import { isValidSolanaPublicKey } from "@redditech/x402-solana";
 import type { SpecialistProfile } from "../types.js";
 
 const wallets = {

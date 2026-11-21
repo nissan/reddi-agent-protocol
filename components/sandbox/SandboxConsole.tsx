@@ -5,14 +5,14 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Connection, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
-import { buildOpenRatingInstruction } from "@reddi/x402-solana/rating";
+import { buildOpenRatingInstruction } from "@redditech/x402-solana/rating";
 import { JobRatingPanel } from "@/components/rating/JobRatingPanel";
 import { RateJobOption } from "@/components/rating/RateJobOption";
 import { parseJudgeAddress } from "@/lib/rating/rated-pay";
 import { browserRatingStorage, rememberRatedJob } from "@/lib/rating/rating-secrets";
 import { RATING_RENT_LAMPORTS, RATING_RENT_SOL } from "@/lib/rating/rating-state";
 import { buildSandboxMeteredLock, SANDBOX_ESCROW_PROGRAM_ID } from "@/lib/sandbox/escrow";
-import { minimumSolPayout, solPayoutWouldFail } from "@reddi/x402-solana/escrow-readiness";
+import { minimumSolPayout, solPayoutWouldFail } from "@redditech/x402-solana/escrow-readiness";
 
 import {
   findSandboxProviderById,

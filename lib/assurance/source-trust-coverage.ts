@@ -1,7 +1,7 @@
 import {
   classifySourceTrustCandidate,
   sourceTrustConformanceFixtureCases,
-} from "@reddi/agent-protocol/source-trust-conformance-matrix";
+} from "@redditech/agent-protocol/source-trust-conformance-matrix";
 
 /**
  * Required cases the shipped classifier still demonstrates end to end: a

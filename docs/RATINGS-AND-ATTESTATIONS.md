@@ -77,7 +77,7 @@ Use a fresh nonce for every job anyway: it keeps the records of different
 jobs apart for anyone reading them.
 
 `buildRatedTokenEscrowLock` and `buildRatedSolEscrowLock` in
-`@reddi/x402-solana/rating` build the two instructions together.
+`@redditech/x402-solana/rating` build the two instructions together.
 
 ## Agreeing (seller)
 
@@ -108,7 +108,7 @@ this escrow, the buyer and the seller, and is still waiting for payment; the
 judge is the one agreed (or none); the amount and the mint are those of the
 job; and `opened_slot` is the slot of the lock the seller saw. Then pass that
 `opened_slot` to `accept_rating`. `buildSellerAcceptRating` in
-`@reddi/x402-solana/rating` reads both accounts, makes these checks against
+`@redditech/x402-solana/rating` reads both accounts, makes these checks against
 the `expected` values it is given (opened slot, judge, amount, mint), refuses
 with a reason when one differs, and returns the instruction. An acceptance
 signed for an earlier job at the same address is refused by the program
@@ -124,7 +124,7 @@ instruction's own data: release, claim, settle, refund and decline, in SOL and
 in tokens. Without the account the program refuses the exit
 (`RatingAccountRequired`, error 6033); without the slot, or with another
 job's, `RatingJobMismatch` (6051). `withRatingAccount` in
-`@reddi/x402-solana/rating` adds both, and requires the slot for a rated exit.
+`@redditech/x402-solana/rating` adds both, and requires the slot for a rated exit.
 Read the slot when the job is agreed or verified and keep it with the job: a
 slot read again just before the exit would name whichever job holds the
 address by then. An exit of an escrow that is not rated is unchanged. A rated escrow has bit `0x02` set in its
@@ -136,7 +136,7 @@ of the buyer within the deadlines below, or lose 5.00 reputation points.
 ### What in-repo providers do by default
 
 The in-repo seller code (`verifyMeteredLock` and the escrow HTTP flow in
-`@reddi/x402-solana`, used by the provider kit) reads the escrow at `confirmed`
+`@redditech/x402-solana`, used by the provider kit) reads the escrow at `confirmed`
 commitment before serving. If the escrow is rated it refuses the call before
 doing any work (`rated_escrow_declined`) unless the operator set
 `acceptRatedEscrows: true`. Nothing is served and nothing is settled; the buyer

@@ -1,7 +1,7 @@
 /**
  * Per-token (metered) payment for a specialist call (#794).
  *
- * The seller flow itself lives in `@reddi/x402-solana` (`./provider`): the
+ * The seller flow itself lives in `@redditech/x402-solana` (`./provider`): the
  * offer, the on-chain lock check, usage counting and the settle. This module
  * only maps a specialist profile and the runtime configuration onto it.
  *
@@ -10,7 +10,7 @@
  * is offered only when the operator configures a per-token price, the escrow
  * program and that signer.
  */
-import { directPaymentCurrency, providerMeteredTerms, type MeteredTerms } from "@reddi/x402-solana";
+import { directPaymentCurrency, providerMeteredTerms, type MeteredTerms } from "@redditech/x402-solana";
 import type { RuntimeConfig, SpecialistProfile } from "./types.js";
 
 export {
@@ -28,7 +28,7 @@ export {
   type MeteredTerms,
   type SlotReader,
   type VerifiedLock,
-} from "@reddi/x402-solana";
+} from "@redditech/x402-solana";
 
 export interface MeteredPriceConfig {
   /** Price per million input and output tokens, in the profile's currency. */

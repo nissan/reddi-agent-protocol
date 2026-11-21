@@ -1,4 +1,4 @@
-# @reddi/openrouter-specialists
+# @redditech/openrouter-specialists
 
 Shared runtime fixtures for Reddi Agent Protocol specialist demos backed by OpenRouter.
 
@@ -176,7 +176,7 @@ The service key is a server secret. Supply it through the host's secret store; n
 
 ## Provider receipt header
 
-`handleRuntimeRequest` accepts an optional `signProviderReceipt` function. When it is given, a delivered `/v1/chat/completions` call that was paid with a real, verified payment returns an `x-reddi-provider-receipt` header: base64url JSON of a signed `reddi.receipt.v2` receipt naming this profile's wallet, the configured model, the SHA-256 of the request and response bodies and the payment: transaction, currency, configured mint, listed price and protocol fee in smallest units, and the payer when the payment named one. No header is sent when the mint for the listed currency is not configured. `signReddiReceiptV2` from `@reddi/agent-protocol` produces the signed receipt.
+`handleRuntimeRequest` accepts an optional `signProviderReceipt` function. When it is given, a delivered `/v1/chat/completions` call that was paid with a real, verified payment returns an `x-reddi-provider-receipt` header: base64url JSON of a signed `reddi.receipt.v2` receipt naming this profile's wallet, the configured model, the SHA-256 of the request and response bodies and the payment: transaction, currency, configured mint, listed price and protocol fee in smallest units, and the payer when the payment named one. No header is sent when the mint for the listed currency is not configured. `signReddiReceiptV2` from `@redditech/agent-protocol` produces the signed receipt.
 
 The runtime itself never reads a signing key. The server entry point (`src/server.ts`) builds the signer at start through `src/provider-signer.ts`:
 

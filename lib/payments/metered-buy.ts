@@ -7,9 +7,9 @@
  */
 
 import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { baseUnitsToDecimal, decimalToBaseUnits } from "@reddi/x402-solana/payment";
-import type { SolanaPaymentNetwork } from "@reddi/x402-solana/types";
-import type { PerTokenPrice } from "@reddi/x402-solana/metered";
+import { baseUnitsToDecimal, decimalToBaseUnits } from "@redditech/x402-solana/payment";
+import type { SolanaPaymentNetwork } from "@redditech/x402-solana/types";
+import type { PerTokenPrice } from "@redditech/x402-solana/metered";
 import { buildMeteredLock } from "@/lib/payments/metered-lock";
 import { perTokenPriceFor, quoteMeteredBuy, type ListedTokenPrices, type MeteredBuyQuote } from "@/lib/payments/metered-quote";
 import { buyerMintFor } from "@/lib/payments/wallet-direct-payment";

@@ -4,7 +4,7 @@ Adds a gated devnet x402 specialist invocation path for Claude Code MCP demos.
 
 This includes:
 
-- consumer-side devnet USDC x402 payer helper in `@reddi/x402-solana`
+- consumer-side devnet USDC x402 payer helper in `@redditech/x402-solana`
 - gated Reddi Agent Protocol MCP tools for prepare/execute/verify specialist calls
 - x402 receipt storage and disclosure-ledger export support
 - Surfpool/local x402 end-to-end smoke

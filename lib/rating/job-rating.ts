@@ -22,7 +22,7 @@ import {
   ratingProgramErrorName,
   type AttestationAccount,
   type RatingAccount,
-} from "@reddi/x402-solana/rating";
+} from "@redditech/x402-solana/rating";
 import { ratingView, type RatingView } from "@/lib/rating/rating-state";
 import { findRatedJob, matchingRatingSecret, newRatingSalt, RatingStorageError, storeRatingSecret, type KeyValueStorage } from "@/lib/rating/rating-secrets";
 

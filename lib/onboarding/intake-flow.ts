@@ -26,7 +26,7 @@ import {
   type OnboardingDeclaredPaymentMetadata,
   type OnboardingIntakeValidationError,
   type OnboardingSourceKind,
-} from "@reddi/agent-protocol/onboarding-analyser-handoff";
+} from "@redditech/agent-protocol/onboarding-analyser-handoff";
 import {
   createOnboardingAssistantReadModel,
   listOnboardingStateTransitions,
@@ -34,7 +34,7 @@ import {
   type OnboardingAssistantState,
   type OnboardingBlockingGate,
   type OnboardingGateReasonCode,
-} from "@reddi/agent-protocol/onboarding-state-machine";
+} from "@redditech/agent-protocol/onboarding-state-machine";
 
 export const INTAKE_FLOW_VIEW_SCHEMA_VERSION = "reddi.onboarding-intake-flow-view.v1" as const;
 export const INTAKE_FLOW_ISSUE = 384 as const;

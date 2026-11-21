@@ -1,6 +1,6 @@
 "use client";
 
-import { baseUnitsToDecimal } from "@reddi/x402-solana/payment";
+import { baseUnitsToDecimal } from "@redditech/x402-solana/payment";
 import type { PlannerSessionHandle } from "@/lib/payments/planner-session-client";
 
 /** Per-token prices are in six-decimal US dollar stablecoins. */

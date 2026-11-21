@@ -6,7 +6,7 @@
  */
 import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { SessionState, SessionStore } from "@reddi/x402-solana";
+import type { SessionState, SessionStore } from "@redditech/x402-solana";
 
 const isState = (value: unknown): value is SessionState => {
   const s = value as Partial<SessionState> | null;

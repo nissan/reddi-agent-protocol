@@ -4,7 +4,7 @@ import {
   type StaticAgentStackOperatorReviewItem,
   type StaticAgentStackOperatorReviewStateCode,
   type StaticAgentStackOperatorReviewStatus,
-} from "@reddi/agent-protocol/agent-stack-fixtures";
+} from "@redditech/agent-protocol/agent-stack-fixtures";
 
 export type OperatorDiscoveryFilter =
   | "all"

@@ -9,7 +9,7 @@ import { currentPolicy } from "../src/policy.js";
 import { BridgeStore } from "../src/store.js";
 import { exportDisclosureLedger } from "../src/tools/export-disclosure-ledger.js";
 import { executeX402SpecialistCall, prepareX402SpecialistCall, verifyX402SpecialistReceipt, type FetchLike } from "../src/tools/x402-specialist-call.js";
-import type { DevnetUsdcPaymentClient } from "@reddi/x402-solana";
+import type { DevnetUsdcPaymentClient } from "@redditech/x402-solana";
 
 const payTo = "3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr";
 const usdcMint = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";

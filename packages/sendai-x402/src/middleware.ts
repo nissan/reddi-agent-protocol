@@ -12,7 +12,7 @@
  *   const res = await x402Fetch(url, init, { keypair, connection });
  */
 import { Connection, Keypair } from "@solana/web3.js";
-import { parseX402Header, sendPayment } from "@reddi/x402-solana";
+import { parseX402Header, sendPayment } from "@redditech/x402-solana";
 
 export interface X402Config {
   keypair: Keypair;
@@ -28,7 +28,7 @@ export interface LockEscrowResult {
 
 /**
  * Lock escrow in exchange for a service.
- * Wraps @reddi/x402-solana's sendPayment stub.
+ * Wraps @redditech/x402-solana's sendPayment stub.
  * Full Anchor CPI wired in Phase 4.
  */
 async function lockEscrow(

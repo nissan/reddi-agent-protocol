@@ -1,6 +1,6 @@
 "use strict";
 /**
- * @reddi/x402-solana - HTTP 402 primitives for Solana-oriented RAP workflows.
+ * @redditech/x402-solana - HTTP 402 primitives for Solana-oriented RAP workflows.
  *
  * Repo-local v0.1 OSS candidate. Clean-checkout smoke must stay local and
  * must not imply npm publication, live payment, custody, mainnet, or

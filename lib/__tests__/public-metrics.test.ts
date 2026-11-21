@@ -1,4 +1,4 @@
-import { SOURCE_TRUST_REQUIRED_CASES } from "@reddi/agent-protocol/source-trust-conformance-matrix";
+import { SOURCE_TRUST_REQUIRED_CASES } from "@redditech/agent-protocol/source-trust-conformance-matrix";
 
 import { specialistProfiles } from "../../packages/openrouter-specialists/src/profiles/index";
 import { demonstratedSourceTrustCaseCount } from "@/lib/assurance/source-trust-coverage";

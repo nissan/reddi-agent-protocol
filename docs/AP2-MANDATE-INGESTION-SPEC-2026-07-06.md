@@ -1,6 +1,6 @@
 # AP2 Mandate Ingestion Spec — `reddi.ap2-mandate-ingestion.v1` (#563)
 
-> **Status, 20 November 2026:** the `@reddi/agent-protocol` modules this document describes were removed before V1 with `reddi.receipt.v1` ([#776](https://github.com/nissan/reddi-agent-protocol/issues/776)). `reddi.receipt.v2` is the only receipt. This document is kept as a historical record and does not describe current code.
+> **Status, 20 November 2026:** the `@redditech/agent-protocol` modules this document describes were removed before V1 with `reddi.receipt.v1` ([#776](https://github.com/nissan/reddi-agent-protocol/issues/776)). `reddi.receipt.v2` is the only receipt. This document is kept as a historical record and does not describe current code.
 
 **Status: v1 adapter contract (promoted from the PR #571 DRAFT by issue #563).**
 Module: `packages/agent-protocol/src/ap2-mandate-ingestion.ts` · Conformance: `packages/agent-protocol/src/ap2-mandate-conformance.ts` (`reddi.ap2-mandate-conformance.v1`) · Tests: `packages/agent-protocol/tests/ap2-mandate-*.test.ts`.

@@ -3,7 +3,7 @@ import "server-only";
 import { createHash, randomUUID } from "crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import type { SwapClient } from "@reddi/x402-solana";
+import type { SwapClient } from "@redditech/x402-solana";
 import { routePlannerPolicy, type PlannerPolicyInput } from "@/lib/onboarding/planner-router";
 import { loadListingIndex } from "@/lib/listings/listing-index";
 import { processX402Challenge } from "@/lib/onboarding/x402-settlement";

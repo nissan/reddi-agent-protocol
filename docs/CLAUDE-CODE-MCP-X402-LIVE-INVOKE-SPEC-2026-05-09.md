@@ -157,7 +157,7 @@ Tools:
    - requires `EXECUTE_DEVNET_X402_SPECIALIST_CALL`
    - idempotent by `idempotencyKey`
    - performs unpaid request to capture HTTP 402 challenge
-   - executes devnet USDC transfer with `@reddi/x402-solana`
+   - executes devnet USDC transfer with `@redditech/x402-solana`
    - retries endpoint with `x402-payment` receipt header
    - requires HTTP 200 before marking complete
    - stores receipt + response hash + bounded output preview
@@ -284,14 +284,14 @@ Before Peekaboo:
 
 ## Retrospective
 
-The retry clarified the exact missing layer. The repo already has specialist-side x402 challenge/verification and MCP registration support, but `@reddi/x402-solana` is not yet a consumer payer. So the next implementation loop should start in `packages/x402-solana` with a devnet USDC payer helper, then wire MCP tools around it. Starting directly in Claude would produce a nice-looking but false demo; starting with the payer helper gives us a recording that can survive judge scrutiny.
+The retry clarified the exact missing layer. The repo already has specialist-side x402 challenge/verification and MCP registration support, but `@redditech/x402-solana` is not yet a consumer payer. So the next implementation loop should start in `packages/x402-solana` with a devnet USDC payer helper, then wire MCP tools around it. Starting directly in Claude would produce a nice-looking but false demo; starting with the payer helper gives us a recording that can survive judge scrutiny.
 
 ## Implementation update — 2026-05-09 Loop 24
 
 Local no-spend implementation now exists for the Claude Code MCP x402 specialist path:
 
-- `@reddi/x402-solana` has a devnet USDC payer helper and Solana SPL-token adapter boundary.
-- `@reddi/rap-mcp-bridge` now gates and exposes:
+- `@redditech/x402-solana` has a devnet USDC payer helper and Solana SPL-token adapter boundary.
+- `@redditech/rap-mcp-bridge` now gates and exposes:
   - `reddi.prepare_x402_specialist_call`
   - `reddi.execute_x402_specialist_call`
   - `reddi.verify_x402_specialist_receipt`

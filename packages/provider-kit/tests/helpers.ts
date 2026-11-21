@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { SOLANA_GENESIS_HASHES, tokenEscrowAddresses, treasuryTokenAccount, ESCROW_PROTOCOL_TREASURY, type SettlementRecord } from "@reddi/x402-solana";
+import { SOLANA_GENESIS_HASHES, tokenEscrowAddresses, treasuryTokenAccount, ESCROW_PROTOCOL_TREASURY, type SettlementRecord } from "@redditech/x402-solana";
 import type { ProviderChain } from "../src/chain.js";
 import { parseProviderConfig, type ProviderConfig, type ProviderConfigFile } from "../src/config.js";
 

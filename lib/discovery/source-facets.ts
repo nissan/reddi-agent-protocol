@@ -3,7 +3,7 @@
 // runtime values are mirrored below (compile-time checked against the types
 // here, and asserted equal to the canonical module in
 // `lib/__tests__/discovery-source-facets.test.ts`).
-import type { SourceTrustState } from "@reddi/agent-protocol/source-trust-conformance-matrix";
+import type { SourceTrustState } from "@redditech/agent-protocol/source-trust-conformance-matrix";
 
 import type {
   DiscoveryActionabilityLaneState,
@@ -16,7 +16,7 @@ import { describeDiscoveryLaneState } from "@/lib/manager/discovery-actionabilit
  * Client-safe, pure vocabulary + classification helpers over the existing
  * modules — the #577 discovery actionability matrix
  * (`lib/manager/discovery-actionability-matrix.ts`) and the #593 source-trust
- * vocabulary (`@reddi/agent-protocol/source-trust-conformance-matrix`).
+ * vocabulary (`@redditech/agent-protocol/source-trust-conformance-matrix`).
  * No new trust logic lives here: trust states are the #593 words, tones are
  * the #577 tone buckets, and every mapping fails closed to `listed_untrusted`
  * (the mandatory ingress state).
@@ -127,7 +127,7 @@ export type DiscoveryTrustTone = ReturnType<typeof describeDiscoveryLaneState>["
  * Runtime mirror of the #593 `SOURCE_TRUST_STATES` list. The `satisfies`
  * clause plus the exhaustive `Record<SourceTrustState, …>` maps below make
  * drift from the canonical vocabulary a compile error; the jest suite also
- * asserts equality against `@reddi/agent-protocol/source-trust-conformance-matrix`.
+ * asserts equality against `@redditech/agent-protocol/source-trust-conformance-matrix`.
  */
 export const SOURCE_TRUST_STATE_VALUES = [
   "trusted",

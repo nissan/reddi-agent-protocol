@@ -8,7 +8,7 @@
  * deadline includes its last slot, anyone may expire from the slot after, and
  * only the consumer closes a final rating.
  */
-import { RATING_COMMIT_SLOTS, RATING_REVEAL_SLOTS, payerReleaseOpensRating, type RatingAccount } from "@reddi/x402-solana/rating";
+import { RATING_COMMIT_SLOTS, RATING_REVEAL_SLOTS, payerReleaseOpensRating, type RatingAccount } from "@redditech/x402-solana/rating";
 
 /** Rent of a rating account (270 bytes), paid by the buyer at opt-in and returned when the rating is closed. */
 export const RATING_RENT_LAMPORTS = 2_770_080n;

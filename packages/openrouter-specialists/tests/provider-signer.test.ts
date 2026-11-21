@@ -4,7 +4,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { REDDI_RECEIPT_V2_VERSION, hashReddiReceiptV2Body, verifyReddiReceiptV2, type SignedReddiReceiptV2 } from "@reddi/agent-protocol/receipt-v2";
+import { REDDI_RECEIPT_V2_VERSION, hashReddiReceiptV2Body, verifyReddiReceiptV2, type SignedReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
 import { chooseProviderSigner, type ProviderReceiptStatement } from "../src/index.js";
 
 const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";

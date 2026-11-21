@@ -1,4 +1,4 @@
-import { isValidSolanaPublicKey } from "@reddi/x402-solana";
+import { isValidSolanaPublicKey } from "@redditech/x402-solana";
 import type { SpecialistPrice, SpecialistProfile } from "./types.js";
 import { getProfile, specialistProfiles } from "./profiles/index.js";
 

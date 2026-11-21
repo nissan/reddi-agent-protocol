@@ -26,7 +26,7 @@ import {
   recordProfileContinueDecision,
   runProfileReview,
 } from "@/lib/onboarding/profile-review";
-import { validateOnboardingIntakeDescriptor } from "@reddi/agent-protocol/onboarding-analyser-handoff";
+import { validateOnboardingIntakeDescriptor } from "@redditech/agent-protocol/onboarding-analyser-handoff";
 
 function review(scenarioId: Parameters<typeof runProfileReview>[0], edits = {}) {
   const outcome = runProfileReview(scenarioId, edits);

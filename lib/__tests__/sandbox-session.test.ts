@@ -1,6 +1,6 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { MemoryNonceReplayStore } from "@reddi/x402-solana";
-import { ratingPda } from "@reddi/x402-solana/rating";
+import { MemoryNonceReplayStore } from "@redditech/x402-solana";
+import { ratingPda } from "@redditech/x402-solana/rating";
 import vectors from "@/programs/pinocchio-escrow/interface/vectors.json";
 import { findSandboxProviderById } from "@/lib/sandbox/catalog";
 import {
@@ -32,9 +32,9 @@ import {
 import type { SandboxSettleInput, SandboxSettler } from "@/lib/sandbox/settle-signer";
 import { scriptedSandboxAnswer } from "@/lib/sandbox/catalog";
 import { createPrivateKey, sign as edSign } from "crypto";
-import { verifySessionRequest, sessionDelegationHeaderValue as packageDelegation, sessionSignatureHeaderValue as packageSignature } from "@reddi/x402-solana";
+import { verifySessionRequest, sessionDelegationHeaderValue as packageDelegation, sessionSignatureHeaderValue as packageSignature } from "@redditech/x402-solana";
 import { createSessionKey, sessionDelegationHeaderValue, sessionSignatureHeaderValue, type MessageSigner } from "@/lib/payments/session-auth";
-import { canonicalizeReddiReceiptV2, hashReddiReceiptV2, validateReddiReceiptV2, type ReddiReceiptV2 } from "@reddi/agent-protocol/receipt-v2";
+import { canonicalizeReddiReceiptV2, hashReddiReceiptV2, validateReddiReceiptV2, type ReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
 import { canonicalizeSandboxReceipt } from "@/lib/sandbox/receipt";
 import { networkFeeShare, runSandboxSession, sessionMaxLamports, SESSION_PROMPTS } from "@/lib/sandbox/session-run";
 

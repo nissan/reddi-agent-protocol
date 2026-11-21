@@ -13,7 +13,7 @@
 
 import { createPrivateKey, sign as edSign } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
-import { signReddiReceiptV2, type ReddiReceiptV2 } from "@reddi/agent-protocol/receipt-v2";
+import { signReddiReceiptV2, type ReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
 import type { ProviderReceiptStatement } from "./runtime.js";
 
 export type ProviderSignerChoice =

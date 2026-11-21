@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { isValidSolanaPublicKey } from "@reddi/x402-solana";
+import { isValidSolanaPublicKey } from "@redditech/x402-solana";
 import { specialistProfiles } from "../src/profiles/index.js";
 
 test("public wallet manifest matches all profiles and contains no secrets", () => {

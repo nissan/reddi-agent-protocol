@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { ESCROW_PROTOCOL_TREASURY, MemoryNonceReplayStore, tokenEscrowAddresses, treasuryTokenAccount } from "@reddi/x402-solana";
+import { ESCROW_PROTOCOL_TREASURY, MemoryNonceReplayStore, tokenEscrowAddresses, treasuryTokenAccount } from "@redditech/x402-solana";
 import { MockOpenRouterClient } from "../src/openrouter.js";
 import { getProfile } from "../src/profiles/index.js";
 import { handleRuntimeRequest, PROVIDER_RECEIPT_HEADER, type ProviderReceiptStatement, type RuntimeConfig, type RuntimeDeps } from "../src/index.js";

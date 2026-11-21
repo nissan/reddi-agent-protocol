@@ -4,7 +4,7 @@
  * "Account layouts"). Not used by the app at run time.
  */
 import { PublicKey } from "@solana/web3.js";
-import { ATTESTATION_ACCOUNT_LEN, RATING_ACCOUNT_LEN, RATING_DISCRIMINATORS, RATING_STATES, type AttestationResolution, type RatingState, ATTESTATION_RESOLUTIONS } from "@reddi/x402-solana/rating";
+import { ATTESTATION_ACCOUNT_LEN, RATING_ACCOUNT_LEN, RATING_DISCRIMINATORS, RATING_STATES, type AttestationResolution, type RatingState, ATTESTATION_RESOLUTIONS } from "@redditech/x402-solana/rating";
 
 export interface RatingFixture {
   escrow: PublicKey;

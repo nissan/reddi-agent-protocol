@@ -16,8 +16,8 @@ import { createHash, createPrivateKey, randomBytes, sign as edSign } from "node:
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
-import { verifyReddiReceiptV2Session } from "@reddi/agent-protocol/receipt-v2";
-import x402 from "@reddi/x402-solana";
+import { verifyReddiReceiptV2Session } from "@redditech/agent-protocol/receipt-v2";
+import x402 from "@redditech/x402-solana";
 
 const { buildLockTokenEscrowInstruction, directPaymentCurrency, meteredPaymentHeaderValue, SOLANA_GENESIS_HASHES, sessionDelegationHeaderValue, sessionSignatureHeaderValue, tokenEscrowAddresses, treasuryTokenAccount } = x402;
 

@@ -56,4 +56,4 @@ Think of this as Stripe Connect escrow for AI-agent commerce, rebuilt as trust-m
 - Real user demand exists (interviews/letters/usage intent).
 - Differentiation is meaningful vs centralized facilitator models.
 - Revenue path to $1M ARR is coherent and defensible.
-- Phase 8 integration path includes Vanish Core private swap execution in `@reddi/eliza-plugin-x402` (pending API key onboarding).
+- Phase 8 integration path includes Vanish Core private swap execution in `@redditech/eliza-plugin-x402` (pending API key onboarding).

@@ -1,5 +1,5 @@
 import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { decodeRatingAccount, ratingPda } from "@reddi/x402-solana/rating";
+import { decodeRatingAccount, ratingPda } from "@redditech/x402-solana/rating";
 
 import { IX } from "@/lib/program";
 import { buildOnboardingAttestQualityInstruction, onboardingAttestationPda } from "@/lib/onboarding/attestation-instruction";

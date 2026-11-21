@@ -5,7 +5,7 @@ import {
   executeDevnetUsdcPayment,
   prepareDevnetUsdcPayment,
   type DevnetUsdcPaymentClient,
-} from "@reddi/x402-solana";
+} from "@redditech/x402-solana";
 import type { BridgeConfig } from "../config.js";
 import { sha256Json } from "../hash.js";
 import type { BridgeStore, X402SpecialistReceipt } from "../store.js";
