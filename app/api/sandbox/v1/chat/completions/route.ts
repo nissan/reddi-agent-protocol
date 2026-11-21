@@ -33,6 +33,10 @@ export async function POST(request: Request) {
           delegation: request.headers.get("x402-session-delegation"),
           signature: request.headers.get("x402-session-signature"),
         },
+        paymentProof: {
+          proof: request.headers.get("x402-payment-proof"),
+          delegation: request.headers.get("x402-payment-delegation"),
+        },
       },
       sandboxGatewayDeps(),
     );

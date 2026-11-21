@@ -1,4 +1,6 @@
-import { MemoryNonceReplayStore, SOLANA_GENESIS_HASHES } from "@redditech/x402-solana";
+import { Keypair } from "@solana/web3.js";
+import { directPaymentProofHeaders, keypairSigner, MemoryNonceReplayStore, SOLANA_GENESIS_HASHES } from "@redditech/x402-solana";
+import { createSessionKey, directPaymentDelegationHeaderValue, directPaymentProofHeaders as browserProofHeaders } from "@/lib/payments/session-auth";
 import { validateReddiReceiptV2, verifyReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
 import { findSandboxProviderById, SANDBOX_ENDPOINT_PATH, SANDBOX_PROVIDERS } from "@/lib/sandbox/catalog";
 import { marketingSignupUrl } from "@/lib/sandbox/client";
@@ -17,7 +19,8 @@ import {
 
 const ORIGIN = "https://sandbox.example";
 const NOW_MS = Date.UTC(2026, 10, 20, 4, 0, 0);
-const PAYER = "9qbchEAHxg2iTMJTQNV5KrLUxXgqFT7HJMUGKMGUt17G";
+const PAYER_KEY = Keypair.generate();
+const PAYER = PAYER_KEY.publicKey.toBase58();
 const SYSTEM_PROGRAM = "11111111111111111111111111111111";
 const swift = findSandboxProviderById("swift-infer")!;
 const messages = [{ role: "user", content: "Explain exponential backoff in two sentences." }];
@@ -48,6 +51,8 @@ function fakeConnection(transfers: Record<string, FakeTransfer>, options: { gene
         meta: { err: transfer.failed ? { InstructionError: [0, "Custom"] } : null },
         transaction: {
           message: {
+            // As a parsed transaction lists them: the transfer's source signed it.
+            accountKeys: [{ pubkey: transfer.source ?? PAYER, signer: true, writable: true }, { pubkey: transfer.destination ?? swift.payTo, signer: false, writable: true }],
             instructions: [{
               programId: SYSTEM_PROGRAM,
               parsed: { type: "transfer", info: { source: transfer.source ?? PAYER, destination: transfer.destination ?? swift.payTo, lamports: transfer.lamports ?? Number(MAX_LAMPORTS) } },
@@ -69,8 +74,20 @@ function makeDeps(connection = fakeConnection({})): SandboxGatewayDeps & { conne
   };
 }
 
-function call(deps: SandboxGatewayDeps, paymentHeader?: string, body: unknown = { model: swift.model, messages }) {
-  return handleSandboxChatCompletion({ body, rawBody: JSON.stringify(body), paymentHeader, origin: ORIGIN }, deps);
+/**
+ * Calls the gateway. A devnet direct receipt is presented with the payer's proof over the exact body (#882),
+ * signed by PAYER unless `proof` says otherwise.
+ */
+async function call(deps: SandboxGatewayDeps, paymentHeader?: string, body: unknown = { model: swift.model, messages }, proof: "payer" | "none" | Record<string, string> = "payer") {
+  const rawBody = JSON.stringify(body);
+  let headers: Record<string, string> = typeof proof === "object" ? proof : {};
+  if (proof === "payer" && paymentHeader?.startsWith("{")) {
+    const parsed = JSON.parse(paymentHeader) as { txSignature?: string; settlement?: string };
+    if (parsed.txSignature && parsed.settlement === undefined) {
+      headers = await directPaymentProofHeaders({ network: "solana-devnet", txSignature: parsed.txSignature, payTo: swift.payTo, body: rawBody, sign: keypairSigner(PAYER_KEY) });
+    }
+  }
+  return handleSandboxChatCompletion({ body, rawBody, paymentHeader, origin: ORIGIN, paymentProof: { proof: headers["x402-payment-proof"], delegation: headers["x402-payment-delegation"] } }, deps);
 }
 
 type GatewayResponse = Awaited<ReturnType<typeof call>>;
@@ -314,6 +331,39 @@ describe("sandbox gateway: devnet transfer", () => {
     expect([failed.status, failed.body.reason]).toEqual([402, "unsupported_receipt"]);
     const up = { ...makeDeps(fakeConnection({ [SIG_A]: {} })), replayStore };
     expect((await call(up, devnetHeader("f".repeat(32), SIG_A))).status).toBe(200);
+  });
+});
+
+describe("sandbox gateway: the payer's proof on a direct transfer (#882)", () => {
+  it("refuses a transfer presented without the payer's proof, or signed by someone else, and leaves it usable", async () => {
+    const deps = makeDeps(fakeConnection({ [SIG_A]: {} }));
+    const unsigned = await call(deps, devnetHeader("a".repeat(32), SIG_A), undefined, "none");
+    expect([unsigned.status, unsigned.body.reason]).toEqual([402, "payer_proof_required"]);
+    noReceipt(unsigned);
+    const stranger = await directPaymentProofHeaders({ network: "solana-devnet", txSignature: SIG_A, payTo: swift.payTo, body: REQUEST_TEXT, sign: keypairSigner(Keypair.generate()) });
+    const forged = await call(deps, devnetHeader("a".repeat(32), SIG_A), undefined, stranger);
+    expect([forged.status, forged.body.reason]).toEqual([402, "payer_proof_invalid"]);
+    // A proof for another body does not carry over.
+    const otherBody = await directPaymentProofHeaders({ network: "solana-devnet", txSignature: SIG_A, payTo: swift.payTo, body: "{}", sign: keypairSigner(PAYER_KEY) });
+    expect((await call(deps, devnetHeader("a".repeat(32), SIG_A), undefined, otherBody)).body.reason).toBe("payer_proof_invalid");
+    // None of them used up the payment.
+    expect((await call(deps, devnetHeader("a".repeat(32), SIG_A))).status).toBe(200);
+  });
+
+  it("accepts the console's proof: a tab key the wallet delegated to this provider for an hour", async () => {
+    const deps = makeDeps(fakeConnection({ [SIG_A]: {} }));
+    const tabKey = await createSessionKey();
+    const delegation = await directPaymentDelegationHeaderValue({ provider: swift.payTo, sessionKey: tabKey.publicKey, expiresAt: Math.floor(NOW_MS / 1000) + 3600 }, keypairSigner(PAYER_KEY));
+    const headers = await browserProofHeaders({ network: "solana-devnet", txSignature: SIG_A, payTo: swift.payTo, body: REQUEST_TEXT, sign: tabKey.sign, delegation });
+    expect((await call(deps, devnetHeader("b".repeat(32), SIG_A), undefined, headers)).status).toBe(200);
+
+    // A delegation to another provider, or one that has expired, does not count.
+    const replay = new MemoryNonceReplayStore();
+    const fresh = { ...makeDeps(fakeConnection({ [SIG_A]: {} })), replayStore: replay };
+    const elsewhere = await directPaymentDelegationHeaderValue({ provider: PAYER, sessionKey: tabKey.publicKey, expiresAt: Math.floor(NOW_MS / 1000) + 3600 }, keypairSigner(PAYER_KEY));
+    expect((await call(fresh, devnetHeader("c".repeat(32), SIG_A), undefined, { ...headers, "x402-payment-delegation": elsewhere })).body.reason).toBe("payer_proof_invalid");
+    const expired = await directPaymentDelegationHeaderValue({ provider: swift.payTo, sessionKey: tabKey.publicKey, expiresAt: Math.floor(NOW_MS / 1000) - 1 }, keypairSigner(PAYER_KEY));
+    expect((await call(fresh, devnetHeader("c".repeat(32), SIG_A), undefined, { ...headers, "x402-payment-delegation": expired })).body.reason).toBe("payer_proof_expired");
   });
 });
 

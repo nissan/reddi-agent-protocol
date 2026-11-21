@@ -109,3 +109,43 @@ export async function paidCallAuthHeaders(input: { delegation: string; sessionKe
     [SESSION_SIGNATURE_HEADER]: await sessionSignatureHeaderValue({ action: "single", escrow: input.escrow, sequence: 0, body: input.body }, input.sessionKey.sign),
   };
 }
+
+export const PAYMENT_PROOF_HEADER = "x402-payment-proof";
+export const PAYMENT_DELEGATION_HEADER = "x402-payment-delegation";
+
+export interface DirectPaymentDelegation {
+  /** The provider's payee wallet. */
+  provider: string;
+  sessionKey: string;
+  /** Whole seconds since the epoch. */
+  expiresAt: number;
+}
+
+/** The text the payer wallet signs to let a key prove its direct payments. Same text as the package's `directPaymentDelegationMessage`. */
+export function directPaymentDelegationMessage(d: DirectPaymentDelegation): string {
+  return [
+    "Reddi Agent Protocol direct payments",
+    "I let this key prove my direct payments to this provider.",
+    `provider: ${d.provider}`,
+    `session key: ${d.sessionKey}`,
+    `expires: ${new Date(d.expiresAt * 1000).toISOString()}`,
+  ].join("\n");
+}
+
+/** The direct-payment delegation header value, signed once by the payer wallet. */
+export async function directPaymentDelegationHeaderValue(d: DirectPaymentDelegation, signWithPayer: MessageSigner): Promise<string> {
+  const signature = await signWithPayer(new TextEncoder().encode(directPaymentDelegationMessage(d)));
+  return base64(new TextEncoder().encode(JSON.stringify({ ...d, signature: base64(signature) })));
+}
+
+/**
+ * The headers for one request that presents a direct payment (#882): a
+ * signature over the network, the transaction, the payee and the body's
+ * SHA-256, by the payer or by the key named in `delegation`. Same headers as
+ * the package's `directPaymentProofHeaders`.
+ */
+export async function directPaymentProofHeaders(input: { network: string; txSignature: string; payTo: string; body: string; sign: MessageSigner; delegation?: string }): Promise<Record<string, string>> {
+  const message = ["reddi-direct/1", input.network, input.txSignature, input.payTo, await sha256Hex(input.body)].join("\n");
+  const proof = base64(await input.sign(new TextEncoder().encode(message)));
+  return { [PAYMENT_PROOF_HEADER]: proof, ...(input.delegation ? { [PAYMENT_DELEGATION_HEADER]: input.delegation } : {}) };
+}
