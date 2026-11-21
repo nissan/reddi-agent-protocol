@@ -8,7 +8,7 @@ import { currentAccessToken, WalletSignIn } from "@/components/auth/WalletSignIn
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { PageHeader } from "@/components/ui/page-header";
+import { JobsExample } from "@/components/jobs/JobsExample";
 import { formatJobAmount, jobExplorerTxUrl, jobNetworkLabel, jobStatusLabel, shortAddress } from "@/lib/jobs/job-display";
 import type { JobSummary } from "@/lib/jobs/job-store";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
@@ -66,35 +66,45 @@ export default function MyJobsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-page">
-      <div className="mx-auto max-w-4xl space-y-8 px-4 py-10 sm:px-6 lg:px-8">
-        <PageHeader
-          label="Account"
-          title="My jobs"
-          subtitle="Paid calls recorded for your wallet, as the buyer or as the provider. A job appears here only after the payment was checked on chain."
-          actions={
-            <Link href="/planner">
-              <Button size="sm">New run</Button>
-            </Link>
-          }
-        />
+    <div className="min-h-screen bg-paper">
+      <div className="mx-auto max-w-6xl space-y-8 px-4 py-14 sm:px-6 lg:px-8">
+        <div className="flex flex-wrap items-end justify-between gap-6">
+          <div className="max-w-2xl">
+            <p className="section-label mb-3">My jobs</p>
+            <h1 className="text-4xl leading-[1.05] sm:text-5xl">Every call you paid for, with its receipt.</h1>
+            <p className="mt-3 text-lg leading-relaxed text-ink-muted">
+              Paid calls recorded for your wallet, as the buyer or as the provider. A job appears here
+              only after the payment was checked on chain.
+            </p>
+          </div>
+          <Link
+            href="/planner"
+            className="rounded border-2 border-ink px-4 py-2.5 text-sm font-bold text-ink no-underline hover:bg-ink hover:text-paper"
+          >
+            New run
+          </Link>
+        </div>
 
         {view.state === "not_configured" ? (
-          <Card className="p-6 text-sm text-gray-300" data-testid="jobs-not-configured">
-            Saved jobs are not switched on for this deployment yet. Runs made here still appear in{" "}
-            <Link href="/runs" className="text-indigo-300 hover:text-indigo-200">
-              run history
-            </Link>
-            .
-          </Card>
+          <div className="rounded-md border border-line-strong bg-paper-raised p-5 text-[15px] text-ink" data-testid="jobs-not-configured">
+            <p>
+              Saved jobs are not switched on for this deployment yet. Runs made here still appear in{" "}
+              <Link href="/runs" className="font-semibold text-ink underline underline-offset-4">
+                run history
+              </Link>
+              .
+            </p>
+          </div>
         ) : null}
 
         {view.state === "signed_out" ? (
-          <Card className="space-y-4 p-6 text-sm text-gray-300" data-testid="jobs-signed-out">
+          <div className="space-y-4 rounded-md border border-line-strong bg-paper-raised p-5 text-[15px] text-ink" data-testid="jobs-signed-out">
             <p>Connect your wallet and sign in to see your jobs. Signing in asks your wallet to sign a message. It does not move funds.</p>
             <WalletSignIn />
-          </Card>
+          </div>
         ) : null}
+
+        {view.state === "not_configured" || view.state === "signed_out" ? <JobsExample /> : null}
 
         {view.state === "loading" ? (
           <div className="space-y-4" aria-busy="true">
