@@ -3,7 +3,7 @@
  * signatures happen in the visitor's own wallet, in the page component.
  */
 import { SANDBOX_CURRENCY, SANDBOX_ENDPOINT_PATH, SANDBOX_NETWORK, type SandboxProvider } from "./catalog";
-import { maxChargeLamports, triPriceFromLamports, triPriceFromMicroUsd, usageCostMicroUsd, type TriPrice } from "./pricing";
+import { maxChargeLamports, triPriceFromLamports, triPriceFromMicroUsd, TYPICAL_REVIEW, usageCostMicroUsd, type TriPrice } from "./pricing";
 import { decodeReceiptHeader, PROVIDER_RECEIPT_HEADER, SANDBOX_SIMULATED_RECEIPT_HEADER, type SandboxChatMessage } from "./receipt";
 
 export type SandboxChallenge = {
@@ -156,6 +156,8 @@ export type ProviderPriceView = {
   /** The most this request can cost: its input plus the provider's full output limit. */
   maxPerCall: TriPrice;
   maxLamports: bigint;
+  /** What a typical real code review would cost at this provider's prices (TYPICAL_REVIEW tokens). */
+  typicalReview: TriPrice;
 };
 
 /** What a provider card shows for the current request. */
@@ -166,6 +168,7 @@ export function providerPriceView(provider: SandboxProvider, inputTokens: number
     outputPerMillion: triPriceFromMicroUsd(usageCostMicroUsd(provider, { inputTokens: 0, outputTokens: 1_000_000 })),
     maxPerCall: triPriceFromLamports(maxLamports),
     maxLamports,
+    typicalReview: triPriceFromMicroUsd(usageCostMicroUsd(provider, TYPICAL_REVIEW)),
   };
 }
 
