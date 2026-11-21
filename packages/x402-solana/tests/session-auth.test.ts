@@ -1,6 +1,8 @@
 import { sign as edSign, createPrivateKey } from 'node:crypto';
 import { Keypair } from '@solana/web3.js';
 import {
+  DEFAULT_DELEGATION_SECONDS,
+  delegationExpiresAt,
   MAX_SESSION_DELEGATION_SECONDS,
   paidCallAuthHeaders,
   verifyPaidCallRequest,
@@ -107,5 +109,14 @@ describe('single metered call signatures (#866)', () => {
     expect(singleCheck(asHeaders(mine), BODY + ' ').ok).toBe(false);
     const sessionCall = await headers({ action: 'call', sequence: 0 });
     expect(singleCheck(sessionCall).ok).toBe(false);
+  });
+});
+
+describe('delegation expiry default', () => {
+  it('defaults to a day and refuses anything past the maximum', () => {
+    expect(DEFAULT_DELEGATION_SECONDS).toBe(86_400);
+    expect(delegationExpiresAt(1_000_000_500)).toBe(1_000_000 + 86_400);
+    expect(delegationExpiresAt(0, 3600)).toBe(3600);
+    for (const bad of [0, -1, 1.5, MAX_SESSION_DELEGATION_SECONDS + 1]) expect(() => delegationExpiresAt(0, bad)).toThrow();
   });
 });

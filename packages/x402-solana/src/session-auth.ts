@@ -30,6 +30,21 @@ export const SESSION_DELEGATION_HEADER = 'x402-session-delegation';
 export const SESSION_SIGNATURE_HEADER = 'x402-session-signature';
 /** The longest a delegation may run. A session settles before its refund window anyway. */
 export const MAX_SESSION_DELEGATION_SECONDS = 7 * 24 * 60 * 60;
+/**
+ * How long a buyer client should let a delegation run unless it has a reason
+ * to choose otherwise: a day, well short of the maximum, because anyone holding
+ * the session key can sign for the payer until then. Keep the key in memory
+ * only (never in localStorage or on disk), and sign a new delegation when it runs out.
+ */
+export const DEFAULT_DELEGATION_SECONDS = 24 * 60 * 60;
+
+/** Buyer side: the `expiresAt` for a new delegation, `seconds` (default a day) from `nowMs`. */
+export function delegationExpiresAt(nowMs: number = Date.now(), seconds: number = DEFAULT_DELEGATION_SECONDS): number {
+  if (!Number.isSafeInteger(seconds) || seconds <= 0 || seconds > MAX_SESSION_DELEGATION_SECONDS) {
+    throw new Error(`a delegation runs for 1 to ${MAX_SESSION_DELEGATION_SECONDS} seconds`);
+  }
+  return Math.floor(nowMs / 1000) + seconds;
+}
 
 /** `call`, `close`, `read`: session requests. `single`: a single metered call, sequence 0. */
 export type SessionAction = 'call' | 'close' | 'read' | 'single';
@@ -72,7 +87,7 @@ export function sessionRequestMessage(input: { action: SessionAction; escrow: st
 
 export type Signer = (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;
 
-/** Buyer side: the delegation header value, signed by the payer wallet. */
+/** Buyer side: the delegation header value, signed by the payer wallet. Use `delegationExpiresAt()` for `expiresAt`. */
 export async function sessionDelegationHeaderValue(d: SessionDelegation, signWithPayer: Signer): Promise<string> {
   const signature = await signWithPayer(new TextEncoder().encode(sessionDelegationMessage(d)));
   return Buffer.from(JSON.stringify({ ...d, signature: Buffer.from(signature).toString('base64') }), 'utf8').toString('base64');
