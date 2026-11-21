@@ -38,6 +38,24 @@ export const UPDATES: readonly Update[] = [
     status: "published",
     newsletterSend: true,
   },
+  {
+    slug: "per-token-pricing",
+    date: "2026-11-21",
+    title: "Prices are now per token",
+    summary: "Providers now price by the token, the way most AI services do. You approve a maximum before each call, pay for the tokens used and get the rest back. It runs in the devnet sandbox with test funds.",
+    body: [
+      "Most AI services bill by the token, so a flat price per call never fitted inference well. Providers now list a price per million input tokens and per million output tokens.",
+      "Before a call you see an estimate and approve a maximum. Your wallet locks that maximum in an on-chain escrow program. After the answer, the provider settles the cost of the tokens actually used and the program sends the rest back to you. The receipt shows the token counts, the cost and the settle transaction.",
+      "One limit to know about: the provider reports the token count, and nothing on-chain checks it yet. So treat the maximum as the most a call can cost you. Receipts and spot checks are how a provider that over-reports gets found out.",
+      "A protocol fee of 2.5% of what a call actually cost is planned for the first mainnet release. It would come out of the provider's share. No protocol fee is collected today.",
+      "The escrow program was deployed to Solana devnet on 21 November 2026 and the sandbox uses it when you pay with a devnet wallet. It has not been reviewed by an outside auditor, and nothing is on mainnet yet.",
+    ],
+    links: [
+      { label: "Try it in the sandbox", href: "https://app.agent-protocol.reddi.tech/sandbox" },
+      { label: "Read the devnet deployment record", href: "https://github.com/nissan/reddi-agent-protocol/blob/main/DEPLOY.md" },
+    ],
+    status: "draft",
+  },
 ];
 
 const byNewest = (a: Update, b: Update) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.slug.localeCompare(b.slug));

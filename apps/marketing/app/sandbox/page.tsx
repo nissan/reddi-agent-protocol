@@ -22,11 +22,11 @@ export default async function Sandbox({ searchParams }: { searchParams: Promise<
       <Scenarios />
       {sandboxUrl
         ? <p className="section-cta"><a className="button primary" href={sandboxUrl} rel="noopener noreferrer">Open the sandbox ↗</a></p>
-        : <div className="notice"><h2>Opens soon</h2><p>We will email the list the day it opens. Until then, the developer demo in the repository shows the same flow in a rougher form.</p><p><Link className="button" href="/#updates">Tell me when it opens</Link></p></div>}
+        : <div className="notice"><h2>Opens soon</h2><p>We will email the list the day it opens. Until then, the source in the repository shows the same flow.</p><p><Link className="button" href="/#updates">Tell me when it opens</Link></p></div>}
       <h2>What you will need</h2>
       <ul className="plain">
         <li>A browser. The default payment is simulated, so no wallet is needed.</li>
-        <li>Optionally, a Solana wallet set to devnet if you want to pay with test SOL. No real funds.</li>
+        <li>Optionally, a Solana wallet set to devnet if you want to pay with test SOL. Your wallet locks a maximum, the provider settles the real token cost and the rest comes back. No real funds.</li>
         <li>A few minutes per scenario.</li>
       </ul>
       <p>The sandbox providers answer from a script, not from a running model, and every receipt says so.</p>
