@@ -598,3 +598,18 @@ describe('package surface', () => {
     expect(index.withRatingAccount).toBe(withRatingAccount);
   });
 });
+
+describe('program error names', () => {
+  it('matches the program\'s error.rs for every rating and attestation code', () => {
+    const fs = require('node:fs') as typeof import('node:fs');
+    const path = require('node:path') as typeof import('node:path');
+    const { RATING_PROGRAM_ERRORS, ratingProgramErrorName } = require('../src/rating') as typeof import('../src/rating');
+    const source = fs.readFileSync(path.join(__dirname, '../../../programs/pinocchio-escrow/program/src/error.rs'), 'utf8');
+    const declared = new Map<number, string>();
+    for (const m of source.matchAll(/^\s*(\w+) = (\d+), "/gm)) declared.set(Number(m[2]), m[1]);
+    for (const [code, name] of Object.entries(RATING_PROGRAM_ERRORS)) expect(declared.get(Number(code))).toBe(name);
+    for (let code = 6033; code <= 6049; code++) expect(ratingProgramErrorName(code)).toBe(declared.get(code));
+    expect(ratingProgramErrorName(6049)).toBe('JudgeNotActive');
+    expect(ratingProgramErrorName(6002)).toBeUndefined();
+  });
+});

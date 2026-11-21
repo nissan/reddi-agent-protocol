@@ -13,9 +13,20 @@
  * slot of the lock (normally the same transaction), which sets bit 0x02 of the
  * escrow's flag byte. From then on every exit of that escrow (release, claim,
  * settle, refund, decline) takes the rating account, writable, right after
- * the instruction's usual accounts. A seller that settles or claims a rated
- * escrow, or calls `accept_rating`, has agreed to be rated and then has to
- * commit and reveal within the windows.
+ * the instruction's usual accounts.
+ *
+ * Consent: the seller agrees to be rated by `accept_rating`, or by being the
+ * authority of a claim or settle. Nothing else counts: a release by the payer
+ * opens the rating only when the rating account says `accepted`, whoever else
+ * signs the transaction. A seller that has agreed then has to commit and
+ * reveal within the windows. A rated exit that pays the seller nothing
+ * closes the rating unrated.
+ *
+ * Seller claim transactions must not carry the payer's signature. If the
+ * payer signs a transaction in which the payee claims, even only as its fee
+ * payer, the program treats the payer as the authority: that is a release by
+ * the payer, not the seller's claim, and without `accept_rating` the job
+ * closes unrated. The seller pays its own fees.
  */
 import { PublicKey, TransactionInstruction, type Commitment } from '@solana/web3.js';
 import { type SettleTokenEscrowOptions, type TokenEscrowTerms } from './token-escrow';
@@ -89,7 +100,8 @@ export declare function buildOpenRatingInstruction(input: OfEscrow & {
 /**
  * `accept_rating`: the seller (the escrow's payee) agrees to the rating while
  * the escrow is still locked, so that a release by the payer opens it. A
- * seller that settles or claims itself agrees by signing that and need not call this.
+ * seller that is itself the authority of the claim or settle agrees by that
+ * and need not call this. Co-signing the payer's release is not agreement.
  */
 export declare function buildAcceptRatingInstruction(input: OfEscrow & {
     specialist: PublicKey;
@@ -144,6 +156,42 @@ export declare function buildDisputeAttestationInstruction(input: OfEscrow & {
 export declare function buildCloseAttestationInstruction(input: OfEscrow & {
     judge: PublicKey;
 }): TransactionInstruction;
+/**
+ * The program's custom error codes for ratings and attestations, by number.
+ * 6010 to 6019 keep the numbers of the earlier program; 6033 to 6049 are new
+ * with the escrow-bound rating. Held to the program's `error.rs` by a test.
+ */
+export declare const RATING_PROGRAM_ERRORS: {
+    readonly 6010: "AlreadyCommitted";
+    readonly 6011: "BothMustCommitFirst";
+    readonly 6012: "CommitmentMismatch";
+    readonly 6013: "InvalidScore";
+    readonly 6014: "NotExpired";
+    readonly 6015: "AlreadyFinalised";
+    readonly 6016: "NotAttestationAgent";
+    readonly 6018: "AttestationAlreadyResolved";
+    readonly 6019: "AttestationScoreOutOfRange";
+    readonly 6033: "RatingAccountRequired";
+    readonly 6034: "InvalidRatingAccount";
+    readonly 6035: "RatingNotAwaitingSettlement";
+    readonly 6036: "RatingOptInClosed";
+    readonly 6037: "AlreadyRated";
+    readonly 6038: "InvalidJudge";
+    readonly 6039: "JobNotPaid";
+    readonly 6040: "CommitDeadlinePassed";
+    readonly 6041: "RevealDeadlinePassed";
+    readonly 6042: "AlreadyRevealed";
+    readonly 6043: "EmptyCommitment";
+    readonly 6044: "RatingNotFinal";
+    readonly 6045: "RatedEscrowNotDelegable";
+    readonly 6046: "RatingAlreadyAccepted";
+    readonly 6047: "AttestationNotClosable";
+    readonly 6048: "AlreadyAttested";
+    readonly 6049: "JudgeNotActive";
+};
+export type RatingProgramErrorName = (typeof RATING_PROGRAM_ERRORS)[keyof typeof RATING_PROGRAM_ERRORS];
+/** The name of a rating or attestation error code, or undefined for any other code. */
+export declare function ratingProgramErrorName(code: number): RatingProgramErrorName | undefined;
 export declare const RATING_STATES: readonly ["awaiting_settlement", "open", "both_committed", "revealed", "expired"];
 /**
  * `awaiting_settlement`: opted in, escrow not yet paid. `open`: paid, waiting
@@ -347,9 +395,10 @@ export type EscrowRatingStatus = {
  * lock, so a read that sees that whole slot is final on this point, and a
  * `processed` read may not be. Do not pass a weaker commitment.
  *
- * A seller that serves a rated job and settles or claims it has agreed to be
- * rated: it must then commit and reveal within the windows or lose
- * reputation. A seller that does not want that declines the job
+ * A seller that serves a rated job and is the authority of its settle or
+ * claim has agreed to be rated: it must then commit and reveal within the
+ * windows or lose reputation. Its claim transaction must not carry the
+ * payer's signature (see the note at the top of this file). A seller that does not want that declines the job
  * (`cancel` as the payee, which also needs the rating account).
  *
  * RPC errors are thrown, not turned into "not rated".

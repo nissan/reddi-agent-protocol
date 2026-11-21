@@ -71,9 +71,9 @@ const settle = withRatingAccount(buildSettleTokenEscrowInstruction(terms, false,
 const commitment = ratingCommitment(rating, signer, score, salt);
 ```
 
-A seller that settles or claims a rated escrow has agreed to be rated and must then commit and reveal within the program's windows. Both seller paths here decline a rated escrow before serving unless `acceptRatedEscrows` is set: `verifyMeteredLock` (metered) and `verifyEscrowLock` / `EscrowSeller` (fixed price). When set, their exits carry the rating account (`meteredSettlement`, `meteredDecline`, `buildEscrowSellerExit`).
+Consent: the seller agrees to be rated by `accept_rating`, or by being the authority of a claim or settle, and must then commit and reveal within the program's windows. Seller claim transactions must not carry the payer's signature: if the payer signs one, even only as fee payer, the program treats the payer as the authority, so it is a release by the payer and not the seller's agreement. Both seller paths here decline a rated escrow before serving unless `acceptRatedEscrows` is set: `verifyMeteredLock` (metered) and `verifyEscrowLock` / `EscrowSeller` (fixed price). When set, their exits carry the rating account (`meteredSettlement`, `meteredDecline`, `buildEscrowSellerExit`).
 
-Buyers of a fixed-price rated job: a release by the payer opens the rating only after the seller has called `accept_rating`. Before that, a release pays the seller as usual and closes the job unrated. Read the rating account (`readRatingAccount`) and release when `payerReleaseOpensRating(rating)` is true, or leave the seller to claim.
+Buyers of a fixed-price rated job: a release by the payer opens the rating only after the seller has called `accept_rating`. Before that, a release pays the seller as usual and closes the job unrated; the payee co-signing the release changes nothing. A rated exit that pays the seller nothing also closes the rating unrated. `RATING_PROGRAM_ERRORS` / `ratingProgramErrorName(code)` name the program's rating and attestation errors (6010 to 6019, 6033 to 6049). Read the rating account (`readRatingAccount`) and release when `payerReleaseOpensRating(rating)` is true, or leave the seller to claim.
 
 ## Usage
 

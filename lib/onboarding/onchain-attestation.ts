@@ -54,9 +54,10 @@ export function getOnchainAttestationOperatorStatus(
   try {
     const keypair = parseOperatorKeypair(secret);
     return {
-      ready: true,
+      // The key parses, but there is nothing it can submit: see `submitOnchainOnboardingAttestation`.
+      ready: false,
       operatorPubkey: keypair.publicKey.toBase58(),
-      note: "Operator signer is configured.",
+      note: `Operator signer is configured, but not used. ${RATING_FLOW_UNAVAILABLE_REASON}`,
     };
   } catch (error) {
     return {
