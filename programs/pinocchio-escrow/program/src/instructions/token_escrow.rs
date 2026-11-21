@@ -526,6 +526,7 @@ pub fn pay_out(
             job,
         )?)
     } else {
+        rating::for_unrated_exit(job)?;
         None
     };
     let received = open.drain([
@@ -637,6 +638,7 @@ pub fn cancel(
     let rated = if record.rated() {
         Some(rating::for_exit(program_id, &escrow_key, trailing, slot, job)?.0)
     } else {
+        rating::for_unrated_exit(job)?;
         None
     };
     let [received] = open.drain([(destination, destination_account.amount, available)])?;
