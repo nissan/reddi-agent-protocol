@@ -127,7 +127,8 @@ fn open_rating_creates_the_job_record_and_flags_the_escrow() {
                 consumer_commitment: [0; 32],
                 specialist_commitment: [0; 32],
                 paid: 0,
-                opened_slot: t.world.slot(),
+                // The world moved on one slot after the opening.
+                opened_slot: t.world.slot() - 1,
                 settled_slot: 0,
                 committed_slot: 0,
                 state: AWAITING_SETTLEMENT,
@@ -351,8 +352,11 @@ fn a_rating_left_open_blocks_a_new_one_for_the_same_escrow_address_until_closed(
     let (a, b) = (t.payer.pubkey(), t.payee.pubkey());
     let escrow = t.lock_rated(1, false);
     let rating = rating_address(&escrow);
-    t.world
-        .ok("accept_rating", accept_rating(&rating, &b), &[&t.payee]);
+    t.world.ok(
+        "accept_rating",
+        accept_rating(&t.world, &rating, &b),
+        &[&t.payee],
+    );
     t.world.ok(
         "release",
         with_rating(t.payout(1, &t.payer, None), &escrow),
@@ -392,7 +396,7 @@ fn a_rating_left_open_blocks_a_new_one_for_the_same_escrow_address_until_closed(
         (fresh.state, fresh.paid, fresh.settled_slot),
         (AWAITING_SETTLEMENT, 0, 0)
     );
-    assert_eq!(fresh.opened_slot, t.world.slot());
+    assert_eq!(fresh.opened_slot, t.world.slot() - 1);
 }
 
 // ── Paid exits of a rated SOL escrow ────────────────────────────────────────
@@ -406,8 +410,11 @@ fn payer_release_of_an_accepted_rated_escrow_records_the_job_and_pays_as_usual()
     t.world.warp(t.world.slot() + 7);
     // The payee agreed to the job being rated, so the payer's release opens
     // the rating.
-    t.world
-        .ok("accept_rating", accept_rating(&rating, &b), &[&t.payee]);
+    t.world.ok(
+        "accept_rating",
+        accept_rating(&t.world, &rating, &b),
+        &[&t.payee],
+    );
     assert!(t.world.rating(&rating).accepted);
 
     t.world.refused(
@@ -477,6 +484,9 @@ fn a_rated_event_is_the_event_of_the_same_escrow_unrated() {
                 &[&t.payer],
             );
             settle = with_rating(settle, &escrow);
+        } else {
+            // The rated world moved on one slot after the opening.
+            t.world.next_slot();
         }
         events.push(t.world.ok("settle", settle, &[&t.payee]).events);
         payee_balances.push(t.world.lamports(&t.payee.pubkey()));
@@ -616,7 +626,7 @@ fn a_paid_exit_refuses_every_wrong_rating_account() {
     t.world.set(rating_address(&escrow), genuine);
     t.world.ok(
         "accept",
-        accept_rating(&rating_address(&escrow), &b),
+        accept_rating(&t.world, &rating_address(&escrow), &b),
         &[&key(2)],
     );
 
@@ -771,7 +781,7 @@ fn rated_token_rail(program: Pubkey, mint: Pubkey, name: &str) {
             // The payer's release opens the rating only when the payee agreed.
             world.ok(
                 "accept_rating",
-                accept_rating(&rating_address(&escrow), &b),
+                accept_rating(&world, &rating_address(&escrow), &b),
                 &[&t.payee],
             );
         }

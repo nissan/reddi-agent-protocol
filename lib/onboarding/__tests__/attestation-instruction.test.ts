@@ -1,5 +1,5 @@
 import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { ratingPda } from "@reddi/x402-solana/rating";
+import { decodeRatingAccount, ratingPda } from "@reddi/x402-solana/rating";
 
 import { IX } from "@/lib/program";
 import { buildOnboardingAttestQualityInstruction, onboardingAttestationPda } from "@/lib/onboarding/attestation-instruction";
@@ -13,10 +13,11 @@ describe("onboarding attest_quality instruction", () => {
   const scores: [number, number, number, number, number] = [8, 8, 9, 9, 10];
 
   it("builds attest_quality for the job's escrow: attestation, rating, judge agent, judge, system program", () => {
-    const ix = buildOnboardingAttestQualityInstruction({ programId, judge, escrow, scores });
+    const ix = buildOnboardingAttestQualityInstruction({ programId, judge, escrow, scores, openedSlot: BigInt(1040) });
 
     expect(ix.programId.toBase58()).toBe(programId.toBase58());
-    expect(ix.data.equals(Buffer.concat([IX.attest_quality, Buffer.from(scores)]))).toBe(true);
+    // Five scores, then the rating's opened slot as a u64 little-endian.
+    expect(ix.data.equals(Buffer.concat([IX.attest_quality, Buffer.from(scores), Buffer.from([0x10, 0x04, 0, 0, 0, 0, 0, 0])]))).toBe(true);
     expect(ix.keys.map((key) => key.pubkey.toBase58())).toEqual([
       onboardingAttestationPda(escrow, programId).toBase58(),
       ratingPda(escrow, programId).toBase58(),
@@ -42,6 +43,8 @@ describe("onboarding attest_quality instruction", () => {
       escrow: new PublicKey(open.accounts.find((meta) => meta.name === "escrow")!.address),
       judge: account("judge"),
       scores: [9, 8, 10, 1, 7],
+      // The opened slot of the rating account at that escrow, as the judge reads it.
+      openedSlot: decodeRatingAccount(Buffer.from(vectors.accounts.find((entry) => entry.name === "rating_open")!.data_hex, "hex")).openedSlot,
     });
 
     expect(ix.data.toString("hex")).toBe(vector.data_hex);
@@ -51,6 +54,10 @@ describe("onboarding attest_quality instruction", () => {
   });
 
   it("refuses a score outside 1 to 10", () => {
-    expect(() => buildOnboardingAttestQualityInstruction({ programId, judge, escrow, scores: [8, 8, 9, 9, 11] })).toThrow("1 to 10");
+    expect(() => buildOnboardingAttestQualityInstruction({ programId, judge, escrow, scores: [8, 8, 9, 9, 11], openedSlot: BigInt(1) })).toThrow("1 to 10");
+  });
+
+  it("refuses a missing opened slot", () => {
+    expect(() => buildOnboardingAttestQualityInstruction({ programId, judge, escrow, scores, openedSlot: undefined as unknown as bigint })).toThrow("openedSlot");
   });
 });

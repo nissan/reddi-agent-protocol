@@ -45,7 +45,7 @@ fn a_rated_escrow_cannot_be_delegated() {
     // It still ends as a rated escrow does.
     world.ok(
         "accept",
-        accept_rating(&rating_address(&escrow), &b),
+        accept_rating(&world, &rating_address(&escrow), &b),
         &[&payee],
     );
     world.ok(

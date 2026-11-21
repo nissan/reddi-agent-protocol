@@ -99,7 +99,7 @@ impl Job {
         commit_rating(
             rating,
             &who.pubkey(),
-            commitment(rating, &who.pubkey(), score, salt),
+            commitment(&self.world, rating, &who.pubkey(), score, salt),
         )
     }
 
@@ -230,7 +230,7 @@ fn s3_both_commit_and_reveal_and_each_score_counts_once() {
     assert_eq!(record.state, OPEN);
     assert_eq!(
         record.consumer_commitment,
-        commitment(&rating, &t.c(), 9, SALT_C)
+        commitment(&t.world, &rating, &t.c(), 9, SALT_C)
     );
     assert_eq!(record.specialist_commitment, [0; 32]);
     assert_eq!(record.committed_slot, 0);
@@ -543,7 +543,7 @@ fn a_commitment_made_for_another_job_does_not_open_here() {
     let second = t.paid();
     // The consumer reuses, on the second job, the commitment it made for the
     // first: same signer, same score, same salt, other rating.
-    let reused = commitment(&first, &t.c(), 6, SALT_C);
+    let reused = commitment(&t.world, &first, &t.c(), 6, SALT_C);
     t.world.ok(
         "commit",
         commit_rating(&second, &t.c(), reused),

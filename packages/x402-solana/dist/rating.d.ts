@@ -22,6 +22,17 @@
  * reveal within the windows. A rated exit that pays the seller nothing
  * closes the rating unrated.
  *
+ * Jobs can share an address: once an escrow has ended, the same payer can lock
+ * another job for the same payee under the same nonce, and the escrow and
+ * rating addresses are the same. The rating's `opened_slot` (the slot of
+ * `open_rating`) tells the jobs apart, so `accept_rating`, the commitments and
+ * `attest_quality` all name it: every builder for them takes it as a required
+ * `openedSlot`, read from the rating account (`decodeRatingAccount`). The
+ * program refuses another slot (`RatingJobMismatch`, 6051), and refuses any
+ * exit of a rated escrow in the slot its rating was opened in
+ * (`RatingJustOpened`, 6050): lock and `open_rating` go in one transaction,
+ * and every exit in a later one.
+ *
  * Seller claim transactions must not carry the payer's signature. If the
  * payer signs a transaction in which the payee claims, even only as its fee
  * payer, the program treats the payer as the authority: that is a release by
@@ -77,11 +88,13 @@ export declare function solEscrowPda(payer: PublicKey, nonce: Uint8Array, progra
 export declare function sha256(message: Uint8Array): Uint8Array;
 /**
  * The commitment a party makes with `commit_rating`:
- * sha256(rating address ‖ signer address ‖ score byte ‖ 32-byte salt).
- * Keep the score and the salt: `reveal_rating` needs both, and a party that
- * commits and cannot reveal loses reputation. Use a fresh random salt per rating.
+ * sha256(rating address ‖ opened_slot, u64 LE ‖ signer address ‖ score byte ‖ 32-byte salt).
+ * `openedSlot` is the rating account's `openedSlot`, so a commitment made for
+ * one job cannot be opened for a later job at the same address. Keep the
+ * score and the salt: `reveal_rating` needs both, and a party that commits
+ * and cannot reveal loses reputation. Use a fresh random salt per rating.
  */
-export declare function ratingCommitment(rating: PublicKey, signer: PublicKey, score: number, salt: Uint8Array): Uint8Array;
+export declare function ratingCommitment(rating: PublicKey, openedSlot: bigint, signer: PublicKey, score: number, salt: Uint8Array): Uint8Array;
 interface OfEscrow {
     programId: PublicKey;
     /** The escrow the job was paid through. The rating and attestation addresses are derived from it. */
@@ -102,11 +115,14 @@ export declare function buildOpenRatingInstruction(input: OfEscrow & {
  * the escrow is still locked, so that a release by the payer opens it. A
  * seller that is itself the authority of the claim or settle agrees by that
  * and need not call this. Co-signing the payer's release is not agreement.
+ * `openedSlot` names the job: the rating account's `openedSlot` as the seller
+ * read it. Prefer `buildSellerAcceptRating`, which reads it and checks the job.
  */
 export declare function buildAcceptRatingInstruction(input: OfEscrow & {
     specialist: PublicKey;
+    openedSlot: bigint;
 }): TransactionInstruction;
-/** `commit_rating`: the consumer or the specialist commits to `ratingCommitment(...)`. */
+/** `commit_rating`: the consumer or the specialist commits to `ratingCommitment(...)`, made with the rating's `openedSlot`. */
 export declare function buildCommitRatingInstruction(input: OfEscrow & {
     signer: PublicKey;
     commitment: Uint8Array;
@@ -137,10 +153,12 @@ export type AttestationScores = readonly [accuracy: number, completeness: number
  * `attest_quality`: the judge the rating names records five scores for a paid
  * job. The judge must be registered as an attestation agent and pays the
  * attestation's rent. Must be made before the rating account is closed.
+ * `openedSlot` names the job: the rating account's `openedSlot` as the judge read it.
  */
 export declare function buildAttestQualityInstruction(input: OfEscrow & {
     judge: PublicKey;
     scores: AttestationScores;
+    openedSlot: bigint;
 }): TransactionInstruction;
 /** `confirm_attestation`: the consumer the attestation names confirms it, once. */
 export declare function buildConfirmAttestationInstruction(input: OfEscrow & {
@@ -158,7 +176,7 @@ export declare function buildCloseAttestationInstruction(input: OfEscrow & {
 }): TransactionInstruction;
 /**
  * The program's custom error codes for ratings and attestations, by number.
- * 6010 to 6019 keep the numbers of the earlier program; 6033 to 6049 are new
+ * 6010 to 6019 keep the numbers of the earlier program; 6033 to 6051 are new
  * with the escrow-bound rating. Held to the program's `error.rs` by a test.
  */
 export declare const RATING_PROGRAM_ERRORS: {
@@ -188,6 +206,10 @@ export declare const RATING_PROGRAM_ERRORS: {
     readonly 6047: "AttestationNotClosable";
     readonly 6048: "AlreadyAttested";
     readonly 6049: "JudgeNotActive";
+    /** An exit of a rated escrow in the slot its rating was opened in. */
+    readonly 6050: "RatingJustOpened";
+    /** `accept_rating` or `attest_quality` named an `opened_slot` other than the rating's: another job now holds the address. */
+    readonly 6051: "RatingJobMismatch";
 };
 export type RatingProgramErrorName = (typeof RATING_PROGRAM_ERRORS)[keyof typeof RATING_PROGRAM_ERRORS];
 /** The name of a rating or attestation error code, or undefined for any other code. */
@@ -327,7 +349,11 @@ export declare function buildCancelSolEscrowInstruction(input: Omit<SolEscrowExi
     authority: PublicKey;
 }): TransactionInstruction;
 export interface RatedLock {
-    /** The lock, then `open_rating`. Both go into one transaction, in this order, signed by the payer. */
+    /**
+     * The lock, then `open_rating`. Both go into one transaction, in this order,
+     * signed by the payer. Put no exit of the escrow in that transaction: the
+     * program refuses an exit in the slot the rating was opened in (6050).
+     */
     instructions: [TransactionInstruction, TransactionInstruction];
     escrow: PublicKey;
     rating: PublicKey;
@@ -404,14 +430,77 @@ export type EscrowRatingStatus = {
  * RPC errors are thrown, not turned into "not rated".
  */
 export declare function readEscrowRatingStatus(connection: EscrowAccountReader, escrow: PublicKey, programId: PublicKey, commitment?: 'confirmed' | 'finalized'): Promise<EscrowRatingStatus>;
+/** Why `buildSellerAcceptRating` refused to build `accept_rating`. */
+export type SellerAcceptRatingRefusal = 'escrow_not_found' | 'escrow_wrong_owner' | 'not_an_escrow' | 'escrow_not_locked' | 'escrow_not_rated' | 'not_the_payee' | 'rating_not_found' | 'rating_wrong_owner' | 'rating_mismatch' | 'rating_not_awaiting_settlement' | 'already_accepted' | 'opened_slot_mismatch' | 'judge_mismatch' | 'amount_mismatch' | 'mint_mismatch';
+export declare class SellerAcceptRatingError extends Error {
+    readonly reason: SellerAcceptRatingRefusal;
+    constructor(reason: SellerAcceptRatingRefusal, message: string);
+}
+/** What the seller agrees to when it signs `accept_rating`. */
+export interface SellerAcceptRating {
+    /** `accept_rating`, naming the job by `openedSlot`. The seller signs it. */
+    instruction: TransactionInstruction;
+    rating: PublicKey;
+    /** The rating account's `opened_slot`: the job this acceptance is for. */
+    openedSlot: bigint;
+    /** The escrow's payer, who will rate the seller. */
+    consumer: PublicKey;
+    /** The judge who may attest the job, or undefined for none. */
+    judge?: PublicKey;
+    kind: 'sol' | 'token';
+    /** The amount locked in the escrow, in lamports or token base units. */
+    amount: bigint;
+    /** The token escrow's mint; undefined for SOL. */
+    mint?: PublicKey;
+}
 /**
- * Seller: `accept_rating` for a rated escrow that is still locked, for a
- * seller that expects the payer to release (fixed-price jobs). Not needed
- * when the seller settles or claims itself. `seller` is the escrow's payee and signs.
+ * What the seller expects of the job. Each field given is checked against the
+ * chain; a mismatch refuses. `judge: null` and `mint: null` expect none (no
+ * judge; a SOL escrow).
  */
-export declare function buildSellerAcceptRating(input: {
+export interface SellerAcceptRatingExpectations {
+    openedSlot?: bigint;
+    judge?: PublicKey | null;
+    amount?: bigint;
+    mint?: PublicKey | null;
+}
+/**
+ * Seller: checks the escrow and rating account data it has read (the
+ * accounts at `escrow` and at its rating address, both held by the program)
+ * and builds
+ * `accept_rating` for that job. Throws `SellerAcceptRatingError` when the
+ * escrow is not a locked, rated escrow payable to `seller`, when the rating
+ * is not this escrow's, is past settlement or already accepted, or when any
+ * of `expected` (opened slot, judge, amount, mint) differs from what was read.
+ * `buildSellerAcceptRating` reads the two accounts and calls this.
+ */
+export declare function sellerAcceptRatingFromAccounts(input: {
     programId: PublicKey;
     escrow: PublicKey;
     seller: PublicKey;
-}): TransactionInstruction;
+    escrowData: Uint8Array;
+    ratingData: Uint8Array;
+    expected?: SellerAcceptRatingExpectations;
+}): SellerAcceptRating;
+/**
+ * Seller: `accept_rating` for a rated escrow that is still locked, for a
+ * seller that expects the payer to release (fixed-price jobs). Not needed
+ * when the seller settles or claims itself. `seller` is the escrow's payee
+ * and signs.
+ *
+ * Reads the escrow and its rating account (at `confirmed` unless told
+ * otherwise) and returns the instruction with what the seller agrees to:
+ * the job's `openedSlot`, consumer, judge, amount and mint. The instruction
+ * names that `openedSlot`, so it is refused for any later job that takes the
+ * same address (6051). Pass `expected` to refuse a job that is not the one
+ * the seller agreed to serve; see `sellerAcceptRatingFromAccounts` for every
+ * refusal. RPC errors are thrown.
+ */
+export declare function buildSellerAcceptRating(connection: EscrowAccountReader, input: {
+    programId: PublicKey;
+    escrow: PublicKey;
+    seller: PublicKey;
+    expected?: SellerAcceptRatingExpectations;
+    commitment?: 'confirmed' | 'finalized';
+}): Promise<SellerAcceptRating>;
 export {};

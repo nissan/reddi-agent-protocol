@@ -9,8 +9,15 @@
 //! authority of that exit or with `accept_rating` beforehand. A release without that
 //! agreement, a refund and a decline close the rating account.
 //!
+//! An escrow address can be used again once its escrow has ended, and the
+//! rating address with it. What tells one job from the next at the same
+//! address is the slot its rating was opened in: a rated escrow cannot end in
+//! that slot, so no two ratings at one address share it. `accept_rating`,
+//! the commitments and `attest_quality` all name that slot, so nothing signed
+//! for one job can be used on a later one.
+//!
 //! Once the job is paid, each party commits to
-//! sha256(rating address, signer, score, salt) without seeing the other's
+//! sha256(rating address, opened slot, signer, score, salt) without seeing the other's
 //! score, then each reveals. When both have revealed, each score is folded
 //! into the other party's registry record. Both phases have a deadline, and
 //! `expire_rating` gives every unfinished rating a final result after it.
@@ -29,8 +36,8 @@ use {
             ConstraintDuplicateMutableAccount, ConstraintSeeds, EmptyCommitment, InvalidJudge,
             InvalidPayee, InvalidRatingAccount, InvalidScore, JobNotPaid, NotExpired, NotLocked,
             RatedEscrowNotDelegable, RatingAccountRequired, RatingAlreadyAccepted,
-            RatingNotAwaitingSettlement, RatingNotFinal, RatingOptInClosed, RevealDeadlinePassed,
-            UnauthorisedSigner,
+            RatingJobMismatch, RatingJustOpened, RatingNotAwaitingSettlement, RatingNotFinal,
+            RatingOptInClosed, RevealDeadlinePassed, UnauthorisedSigner,
         },
         state::{
             AgentHead, AgentTerms, AnyEscrow, Rating, Record, RATING_AWAITING_SETTLEMENT,
@@ -88,9 +95,9 @@ pub fn open(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> 
     };
     require(payer.address() == &consumer, &UnauthorisedSigner)?;
     require(status == STATUS_LOCKED, &NotLocked)?;
+    require(!rated, &AlreadyRated)?;
     let slot = now()?.0;
     require(slot == created_slot, &RatingOptInClosed)?;
-    require(!rated, &AlreadyRated)?;
     // The PER release (`per` builds, not part of V1) does not settle a rating
     // account, so a delegated escrow is never rated.
     require(!delegated, &RatedEscrowNotDelegable)?;
@@ -142,14 +149,20 @@ pub fn open(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> 
 /// `accept_rating`: the specialist agrees to the job being rated.
 ///
 /// Accounts: `[w] rating`, `[s] specialist`.
-/// No data.
+/// Data: `opened_slot: u64`, the slot the rating was opened in, as read from
+/// the rating account.
+///
+/// The slot names the job the specialist is agreeing to. If that job ended
+/// and the payer locked another at the same address, this call is refused
+/// for the new one: the specialist has not seen its amount or its judge.
 ///
 /// A rating opens only with the specialist's agreement, so that nobody can
 /// move an agent's record with a job the agent took no part in. Agreeing is
 /// this call, while the escrow is still locked, or being the authority of
 /// the paid exit (settle or claim). A release by the payer of a job the specialist never
 /// agreed to pays as usual and closes the rating unrated.
-pub fn accept(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResult {
+pub fn accept(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+    let opened_slot = Args(data).u64()?;
     let [rating, specialist, ..] = accounts else {
         return Err(fail(&AccountNotEnoughKeys));
     };
@@ -160,6 +173,7 @@ pub fn accept(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResu
         specialist.address() == &record.specialist,
         &UnauthorisedSigner,
     )?;
+    require(opened_slot == record.opened_slot(), &RatingJobMismatch)?;
     require(
         record.state == RATING_AWAITING_SETTLEMENT,
         &RatingNotAwaitingSettlement,
@@ -200,11 +214,14 @@ pub fn settle_exit(
 /// the first of `trailing`, the accounts after the instruction's own.
 ///
 /// It must be writable, be the rating derived from this escrow, and still be
-/// waiting for the escrow to end.
+/// waiting for the escrow to end. The exit must come after the slot the
+/// rating was opened in (`slot` is the current one), so that a later job at
+/// the same address always has a different opening slot.
 pub fn for_exit<'a>(
     program_id: &Address,
     escrow: &Address,
     trailing: &'a mut [AccountView],
+    slot: u64,
 ) -> Result<(&'a mut AccountView, Rating), ProgramError> {
     let Some(account) = trailing.first_mut() else {
         return Err(fail(&RatingAccountRequired));
@@ -216,6 +233,7 @@ pub fn for_exit<'a>(
         record.state == RATING_AWAITING_SETTLEMENT,
         &RatingNotAwaitingSettlement,
     )?;
+    require(slot > record.opened_slot(), &RatingJustOpened)?;
     Ok((account, record))
 }
 
@@ -223,7 +241,8 @@ pub fn for_exit<'a>(
 ///
 /// Accounts: `[w] rating`, `[s] signer`.
 /// Data: `commitment: [u8; 32]`, which is
-/// sha256(rating address ‖ signer address ‖ score byte ‖ 32-byte salt).
+/// sha256(rating address ‖ opened slot, 8 bytes little-endian ‖ signer
+/// address ‖ score byte ‖ 32-byte salt).
 ///
 /// The signer is the rating's consumer or its specialist; which one is taken
 /// from the signer. Each commits once, within `RATING_COMMIT_SLOTS` of the
@@ -390,17 +409,20 @@ pub fn reveal(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -
         &RevealDeadlinePassed,
     )?;
     require((1..=10).contains(&score), &InvalidScore)?;
+    let opened_slot = record.opened_slot().to_le_bytes();
     let (commitment, revealed) = if is_consumer {
         (&record.consumer_commitment, &mut record.consumer_score)
     } else {
         (&record.specialist_commitment, &mut record.specialist_score)
     };
     require(*revealed == 0, &AlreadyRevealed)?;
-    // The address of the rating and of the signer are part of what was
-    // committed to, so a commitment copied from the other party, or from
-    // another job, cannot be opened by replaying that reveal.
+    // The rating's address and opening slot and the signer are part of what
+    // was committed to, so a commitment copied from the other party, from
+    // another job, or from an earlier job at this address, cannot be opened
+    // by replaying that reveal.
     let hash = sha256(&[
         rating_address.as_ref(),
+        &opened_slot,
         caller.address().as_ref(),
         &[score],
         &salt,
