@@ -1,23 +1,38 @@
-//! Blind commit-reveal ratings (`extended` builds only).
+//! Ratings of jobs that were paid through escrow.
 //!
-//! After a job, each party commits to sha256(score, salt) without seeing the
-//! other's score. Once both have committed, each reveals. When both have
-//! revealed, each party's score is folded into the other's reputation. If
-//! one side never commits, the rating can be expired after a week and the
-//! silent side loses reputation.
+//! The payer of a locked escrow opts the job into rating with `open_rating`,
+//! in the slot of the lock. That creates the rating account, which is the
+//! job's record: it names the escrow, the two parties and an optional judge.
+//! Every exit of a rated escrow takes that account. A paid exit (release,
+//! claim, settle, PER release) writes the paid amount, mint and slot onto it
+//! and opens the rating; a refund or decline closes it.
+//!
+//! Once the job is paid, each party commits to
+//! sha256(rating address, signer, score, salt) without seeing the other's
+//! score, then each reveals. When both have revealed, each score is folded
+//! into the other party's registry record. Both phases have a deadline, and
+//! `expire_rating` gives every unfinished rating a final result after it.
 use {
     crate::{
-        checks::{at_seeds, create_pda, derive, now, program, sha256, signer, writable, Args},
+        checks::{
+            at_seeds, close, create_pda, derive, now, program, sha256, signer, writable, Args,
+        },
         consts::{
-            AGENT_SEED, RATING_EXPIRE_PENALTY, RATING_EXPIRE_SLOTS, RATING_SEED, SYSTEM_PROGRAM_ID,
+            AGENT_SEED, RATING_COMMIT_SLOTS, RATING_EXPIRE_PENALTY, RATING_REVEAL_SLOTS,
+            RATING_SEED, SYSTEM_PROGRAM_ID,
         },
         error::{
-            fail, require, AccountNotEnoughKeys, AlreadyCommitted, AlreadyFinalised,
-            BothMustCommitFirst, CommitmentMismatch, ConstraintDuplicateMutableAccount,
-            ConstraintSeeds, InstructionDidNotDeserialize, InvalidScore, NotExpired,
-            UnauthorisedSigner,
+            fail, require, AccountNotEnoughKeys, AlreadyCommitted, AlreadyFinalised, AlreadyRated,
+            AlreadyRevealed, BothMustCommitFirst, CommitDeadlinePassed, CommitmentMismatch,
+            ConstraintDuplicateMutableAccount, ConstraintSeeds, EmptyCommitment, InvalidJudge,
+            InvalidPayee, InvalidRatingAccount, InvalidScore, JobNotPaid, NotExpired, NotLocked,
+            RatedEscrowNotDelegable, RatingAccountRequired, RatingNotAwaitingSettlement,
+            RatingNotFinal, RatingOptInClosed, RevealDeadlinePassed, UnauthorisedSigner,
         },
-        state::{AgentHead, AgentTerms, Rating},
+        state::{
+            AgentHead, AgentTerms, AnyEscrow, Rating, Record, RATING_AWAITING_SETTLEMENT,
+            RATING_BOTH_COMMITTED, RATING_EXPIRED, RATING_OPEN, RATING_REVEALED, STATUS_LOCKED,
+        },
     },
     pinocchio::{
         cpi::{Seed, Signer},
@@ -28,81 +43,211 @@ use {
 
 const UNSET: [u8; 32] = [0; 32];
 
-/// `commit_rating`: record the caller's commitment for a job.
+/// `open_rating`: opt a locked escrow into rating.
 ///
-/// Accounts: `[w] rating`, `[w, s] signer`, `[] system_program`.
-/// Data: `job_id: [u8; 16]`, `commitment: [u8; 32]`, `role: u8` (0 consumer,
-/// 1 specialist), `consumer: address`, `specialist: address`.
+/// Accounts: `[w] rating`, `[w] escrow` (SOL or token), `[w, s] payer`,
+/// `[] system_program`.
+/// Data: `judge: address` (all zero for no judge).
 ///
-/// The first commitment for a job creates the rating and records who the two
-/// parties are; the caller must be the party its role names. The second
-/// commitment fills in the other side.
-pub fn commit(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let mut args = Args(data);
-    let job_id: [u8; 16] = args.array()?;
-    let commitment: [u8; 32] = args.array()?;
-    let role = args.u8()?;
-    let consumer: [u8; 32] = args.array()?;
-    let specialist: [u8; 32] = args.array()?;
-    if role > 1 {
-        return Err(fail(&InstructionDidNotDeserialize));
-    }
-    let [rating, caller, system_program, ..] = accounts else {
+/// Only the escrow's payer, and only in the slot the escrow was locked, so a
+/// payee that read the escrow after that slot can rely on what it saw. The
+/// payer funds the rating account's rent and gets it back when the rating is
+/// closed (`close_rating`) or the escrow is refunded.
+pub fn open(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+    let judge: [u8; 32] = Args(data).array()?;
+    let [rating, escrow, payer, system_program, ..] = accounts else {
         return Err(fail(&AccountNotEnoughKeys));
     };
-    signer(caller)?;
+    let record = AnyEscrow::load(escrow, program_id)?;
+    signer(payer)?;
     program(system_program, &SYSTEM_PROGRAM_ID)?;
-
-    let (address, bump) = derive(&[RATING_SEED, &job_id], program_id);
-    require(rating.address() == &address, &ConstraintSeeds)?;
-    let mut record = if rating.owned_by(&SYSTEM_PROGRAM_ID) {
-        let bump = [bump];
-        let seeds = [
-            Seed::from(RATING_SEED),
-            Seed::from(&job_id),
-            Seed::from(&bump),
-        ];
-        create_pda(
-            caller,
-            rating,
-            Rating::LEN,
-            program_id,
-            &Signer::from(&seeds),
-        )?;
-        Rating::EMPTY
-    } else {
-        Rating::load(rating, program_id)?
-    };
     writable(rating)?;
-    writable(caller)?;
+    writable(escrow)?;
+    writable(payer)?;
 
-    require(
-        record.state != Rating::REVEALED && record.state != Rating::EXPIRED,
-        &AlreadyFinalised,
-    )?;
-    // A rating whose creation time is unset has not recorded its parties yet.
-    if record.created_at == 0 {
-        let (slot, unix_time) = now()?;
-        record.job_id = job_id;
-        record.consumer = Address::new_from_array(consumer);
-        record.specialist = Address::new_from_array(specialist);
-        record.created_at = unix_time;
-        record.created_slot = slot;
-        record.state = Rating::PENDING;
-        record.bump = bump;
-    }
-    let (party, slot) = if role == 0 {
-        (&record.consumer, &mut record.consumer_commitment)
-    } else {
-        (&record.specialist, &mut record.specialist_commitment)
+    let (consumer, specialist, status, created_slot, rated, delegated) = match &record {
+        AnyEscrow::Sol(record) => (
+            record.payer,
+            record.payee,
+            record.status,
+            record.created_slot(),
+            record.rated(),
+            record.delegated(),
+        ),
+        AnyEscrow::Token(record) => (
+            record.payer,
+            record.payee,
+            record.status,
+            record.created_slot(),
+            record.rated(),
+            false,
+        ),
     };
-    require(caller.address() == party, &UnauthorisedSigner)?;
-    require(*slot == UNSET, &AlreadyCommitted)?;
-    *slot = commitment;
-    if record.consumer_commitment != UNSET && record.specialist_commitment != UNSET {
-        record.state = Rating::BOTH_COMMITTED;
+    require(payer.address() == &consumer, &UnauthorisedSigner)?;
+    require(status == STATUS_LOCKED, &NotLocked)?;
+    let slot = now()?.0;
+    require(slot == created_slot, &RatingOptInClosed)?;
+    require(!rated, &AlreadyRated)?;
+    // The PER release (`per` builds, not part of V1) does not settle a rating
+    // account, so a delegated escrow is never rated.
+    require(!delegated, &RatedEscrowNotDelegable)?;
+
+    let (address, bump) = derive(&[RATING_SEED, escrow.address().as_ref()], program_id);
+    require(rating.address() == &address, &ConstraintSeeds)?;
+    // The two parties rate each other, so they must be two wallets, and the
+    // rating account itself is never one of them.
+    require(
+        specialist != consumer && &specialist != rating.address(),
+        &InvalidPayee,
+    )?;
+    // A judge that is a party would be assessing its own job.
+    require(
+        judge != consumer.to_bytes() && judge != specialist.to_bytes(),
+        &InvalidJudge,
+    )?;
+
+    let bump = [bump];
+    let seeds = [
+        Seed::from(RATING_SEED),
+        Seed::from(escrow.address().as_ref()),
+        Seed::from(&bump),
+    ];
+    // Fails if a rating already exists at this address: an earlier job under
+    // the same escrow address whose rating was never closed.
+    create_pda(
+        payer,
+        rating,
+        Rating::LEN,
+        program_id,
+        &Signer::from(&seeds),
+    )?;
+    Rating::new(
+        escrow.address(),
+        &consumer,
+        &specialist,
+        &judge,
+        slot,
+        bump[0],
+    )
+    .store(rating)?;
+    match &record {
+        AnyEscrow::Sol(record) => record.set_rated(escrow),
+        AnyEscrow::Token(record) => record.set_rated(escrow),
+    }
+}
+
+/// The rating account an exit of the rated escrow at `escrow` must be given:
+/// the first of `trailing`, the accounts after the instruction's own.
+///
+/// It must be writable, be the rating derived from this escrow, and still be
+/// waiting for the escrow to end.
+pub fn for_exit<'a>(
+    program_id: &Address,
+    escrow: &Address,
+    trailing: &'a mut [AccountView],
+) -> Result<(&'a mut AccountView, Rating), ProgramError> {
+    let Some(account) = trailing.first_mut() else {
+        return Err(fail(&RatingAccountRequired));
+    };
+    let record = Rating::load_checked(account, program_id)?;
+    writable(account)?;
+    require(&record.escrow == escrow, &InvalidRatingAccount)?;
+    require(
+        record.state == RATING_AWAITING_SETTLEMENT,
+        &RatingNotAwaitingSettlement,
+    )?;
+    Ok((account, record))
+}
+
+/// `commit_rating`: record the caller's commitment.
+///
+/// Accounts: `[w] rating`, `[s] signer`.
+/// Data: `commitment: [u8; 32]`, which is
+/// sha256(rating address ‖ signer address ‖ score byte ‖ 32-byte salt).
+///
+/// The signer is the rating's consumer or its specialist; which one is taken
+/// from the signer. Each commits once, within `RATING_COMMIT_SLOTS` of the
+/// paid settlement.
+pub fn commit(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+    let commitment: [u8; 32] = Args(data).array()?;
+    let [rating, caller, ..] = accounts else {
+        return Err(fail(&AccountNotEnoughKeys));
+    };
+    let mut record = Rating::load_checked(rating, program_id)?;
+    signer(caller)?;
+    writable(rating)?;
+
+    let is_consumer = caller.address() == &record.consumer;
+    require(
+        is_consumer || caller.address() == &record.specialist,
+        &UnauthorisedSigner,
+    )?;
+    require(record.state != RATING_AWAITING_SETTLEMENT, &JobNotPaid)?;
+    require(!record.is_final(), &AlreadyFinalised)?;
+    let slot = now()?.0;
+    let deadline = record.settled_slot().saturating_add(RATING_COMMIT_SLOTS);
+    let mine = if is_consumer {
+        &mut record.consumer_commitment
+    } else {
+        &mut record.specialist_commitment
+    };
+    require(*mine == UNSET, &AlreadyCommitted)?;
+    require(slot <= deadline, &CommitDeadlinePassed)?;
+    require(commitment != UNSET, &EmptyCommitment)?;
+    *mine = commitment;
+    if record.consumer_committed() && record.specialist_committed() {
+        record.state = RATING_BOTH_COMMITTED;
+        record.set_committed_slot(slot);
     }
     record.store(rating)
+}
+
+/// The registry record of one party to a rating, if it has one.
+struct Party<'a> {
+    account: &'a mut AccountView,
+    /// Length of the model name and the fields after it; `None` when the
+    /// party is not a registered agent.
+    record: Option<(usize, AgentTerms)>,
+}
+
+impl<'a> Party<'a> {
+    /// `account` must be the agent address derived from `owner`. A party that
+    /// is not registered there (never was, or deregistered) is left alone.
+    fn load(
+        account: &'a mut AccountView,
+        owner: &Address,
+        program_id: &Address,
+    ) -> Result<Self, ProgramError> {
+        writable(account)?;
+        let record = if account.owned_by(program_id) {
+            let (_, model_len, terms) = AgentHead::load_full(account, program_id)?;
+            at_seeds(
+                account,
+                &[AGENT_SEED, owner.as_ref(), &[terms.bump()]],
+                program_id,
+            )?;
+            Some((model_len, terms))
+        } else {
+            // Nothing is stored, so there is no bump to check against.
+            let (address, _) = derive(&[AGENT_SEED, owner.as_ref()], program_id);
+            require(account.address() == &address, &ConstraintSeeds)?;
+            None
+        };
+        Ok(Self { account, record })
+    }
+
+    fn update(&mut self, change: impl FnOnce(&mut AgentTerms)) {
+        if let Some((_, terms)) = &mut self.record {
+            change(terms);
+        }
+    }
+
+    fn store(self) -> ProgramResult {
+        match &self.record {
+            Some((model_len, terms)) => AgentHead::store_terms(self.account, *model_len, terms),
+            None => Ok(()),
+        }
+    }
 }
 
 /// A rating and the registry records of its two parties, checked.
@@ -113,64 +258,27 @@ struct Rated<'a> {
     consumer: Party<'a>,
 }
 
-struct Party<'a> {
-    account: &'a mut AccountView,
-    model_len: usize,
-    terms: AgentTerms,
-}
-
-impl<'a> Party<'a> {
-    /// The registry record at `account`, which must be the one derived from
-    /// `owner`.
-    fn load(account: &'a mut AccountView, program_id: &Address) -> Result<Self, ProgramError> {
-        let (_, model_len, terms) = AgentHead::load_full(account, program_id)?;
-        Ok(Self {
-            account,
-            model_len,
-            terms,
-        })
-    }
-
-    fn check(&self, owner: &Address, program_id: &Address) -> ProgramResult {
-        at_seeds(
-            self.account,
-            &[AGENT_SEED, owner.as_ref(), &[self.terms.bump()]],
-            program_id,
-        )?;
-        writable(self.account)
-    }
-
-    fn store(self) -> ProgramResult {
-        AgentHead::store_terms(self.account, self.model_len, &self.terms)
-    }
-}
-
 impl<'a> Rated<'a> {
     /// Accounts: `[w] rating`, `[s] caller`, `[w] specialist_agent`,
     /// `[w] consumer_agent`. Returns the caller with them.
     fn open(
         program_id: &Address,
         accounts: &'a mut [AccountView],
-        job_id: &[u8; 16],
     ) -> Result<(Self, &'a AccountView), ProgramError> {
         let [rating, caller, specialist_agent, consumer_agent, ..] = accounts else {
             return Err(fail(&AccountNotEnoughKeys));
         };
-        let record = Rating::load(rating, program_id)?;
+        let record = Rating::load_checked(rating, program_id)?;
         signer(caller)?;
-        let specialist = Party::load(specialist_agent, program_id)?;
-        let consumer = Party::load(consumer_agent, program_id)?;
-        // Each party's record is updated on its own, so one record cannot
+        writable(rating)?;
+        // Each party's record is updated on its own, so one account cannot
         // stand in for both.
         require(
-            specialist.account.address() != consumer.account.address(),
+            specialist_agent.address() != consumer_agent.address(),
             &ConstraintDuplicateMutableAccount,
         )?;
-
-        at_seeds(rating, &[RATING_SEED, job_id, &[record.bump]], program_id)?;
-        writable(rating)?;
-        specialist.check(&record.specialist, program_id)?;
-        consumer.check(&record.consumer, program_id)?;
+        let specialist = Party::load(specialist_agent, &record.specialist, program_id)?;
+        let consumer = Party::load(consumer_agent, &record.consumer, program_id)?;
         Ok((
             Self {
                 rating,
@@ -189,80 +297,152 @@ impl<'a> Rated<'a> {
     }
 }
 
-/// `reveal_rating`: reveal the caller's score for a job.
+/// `reveal_rating`: reveal the caller's score.
 ///
 /// Accounts: `[w] rating`, `[s] signer`, `[w] specialist_agent`,
-/// `[w] consumer_agent`.
-/// Data: `job_id: [u8; 16]`, `score: u8` (1 to 10), `salt: [u8; 32]`.
+/// `[w] consumer_agent` (the agent addresses derived from the rating's
+/// specialist and consumer, registered or not).
+/// Data: `score: u8` (1 to 10), `salt: [u8; 32]`.
 ///
-/// Both parties must have committed. The score and salt must hash to the
-/// caller's commitment. When the second party reveals, each score is folded
-/// into the other party's reputation and both job counts go up by one.
+/// Both parties must have committed, and the reveal must land within
+/// `RATING_REVEAL_SLOTS` of the second commitment. When the second party
+/// reveals, each score is folded into the other party's reputation and both
+/// job counts go up by one.
 pub fn reveal(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let mut args = Args(data);
-    let job_id: [u8; 16] = args.array()?;
     let score = args.u8()?;
     let salt: [u8; 32] = args.array()?;
-    let (mut rated, caller) = Rated::open(program_id, accounts, &job_id)?;
+    let (mut rated, caller) = Rated::open(program_id, accounts)?;
+    let rating_address = *rated.rating.address();
     let record = &mut rated.record;
 
-    require(record.state == Rating::BOTH_COMMITTED, &BothMustCommitFirst)?;
+    let is_consumer = caller.address() == &record.consumer;
+    require(
+        is_consumer || caller.address() == &record.specialist,
+        &UnauthorisedSigner,
+    )?;
+    require(record.state != RATING_AWAITING_SETTLEMENT, &JobNotPaid)?;
+    require(record.state != RATING_OPEN, &BothMustCommitFirst)?;
+    require(!record.is_final(), &AlreadyFinalised)?;
+    require(
+        now()?.0 <= record.committed_slot().saturating_add(RATING_REVEAL_SLOTS),
+        &RevealDeadlinePassed,
+    )?;
     require((1..=10).contains(&score), &InvalidScore)?;
-    let hash = sha256(&[&[score], &salt]);
-    let (commitment, revealed) = if caller.address() == &record.consumer {
+    let (commitment, revealed) = if is_consumer {
         (&record.consumer_commitment, &mut record.consumer_score)
-    } else if caller.address() == &record.specialist {
-        (&record.specialist_commitment, &mut record.specialist_score)
     } else {
-        return Err(fail(&UnauthorisedSigner));
+        (&record.specialist_commitment, &mut record.specialist_score)
     };
+    require(*revealed == 0, &AlreadyRevealed)?;
+    // The address of the rating and of the signer are part of what was
+    // committed to, so a commitment copied from the other party, or from
+    // another job, cannot be opened by replaying that reveal.
+    let hash = sha256(&[
+        rating_address.as_ref(),
+        caller.address().as_ref(),
+        &[score],
+        &salt,
+    ]);
     require(&hash == commitment, &CommitmentMismatch)?;
-    *revealed = Some(score);
+    *revealed = score;
 
-    if let (Some(from_consumer), Some(from_specialist)) =
-        (record.consumer_score, record.specialist_score)
-    {
-        record.state = Rating::REVEALED;
-        rated.specialist.terms.fold_rating(from_consumer);
-        rated.specialist.terms.count_completed();
-        rated.consumer.terms.fold_rating(from_specialist);
-        rated.consumer.terms.count_completed();
+    let (from_consumer, from_specialist) = (record.consumer_score, record.specialist_score);
+    if from_consumer != 0 && from_specialist != 0 {
+        record.state = RATING_REVEALED;
+        rated.specialist.update(|terms| {
+            terms.fold_rating(from_consumer);
+            terms.count_completed();
+        });
+        rated.consumer.update(|terms| {
+            terms.fold_rating(from_specialist);
+            terms.count_completed();
+        });
     }
     rated.store()
 }
 
-/// `expire_rating`: close out a rating one side never committed to.
+/// `expire_rating`: give an unfinished rating its final result after the
+/// deadline of the phase it stopped in.
 ///
-/// Accounts: `[w] rating`, `[s] caller`, `[w] specialist_agent`,
-/// `[w] consumer_agent`.
-/// Data: `job_id: [u8; 16]`.
+/// Accounts: `[w] rating`, `[s] caller` (anyone), `[w] specialist_agent`,
+/// `[w] consumer_agent` (as for `reveal_rating`).
+/// No data.
 ///
-/// Anyone may call it once the expiry period has passed since the rating was
-/// created. The party that did not commit loses reputation and gains a failed
-/// job.
-pub fn expire(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let job_id: [u8; 16] = Args(data).array()?;
-    let (mut rated, _) = Rated::open(program_id, accounts, &job_id)?;
+/// Stopped before both committed, after the commit deadline:
+/// - nobody committed: no reputation change;
+/// - one side committed: the silent side loses reputation and gains a failed
+///   job.
+///
+/// Stopped after both committed, after the reveal deadline:
+/// - one side revealed: its score counts for the other party, the side that
+///   withheld loses reputation and its own score is never counted, and both
+///   job counts go up by one;
+/// - nobody revealed: no reputation change.
+pub fn expire(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResult {
+    let (mut rated, _) = Rated::open(program_id, accounts)?;
     let record = &mut rated.record;
 
     let slot = now()?.0;
-    require(record.state == Rating::PENDING, &AlreadyFinalised)?;
-    require(
-        slot.saturating_sub(record.created_slot) >= RATING_EXPIRE_SLOTS,
-        &NotExpired,
-    )?;
-    record.state = Rating::EXPIRED;
-
-    let consumer_committed = record.consumer_commitment != UNSET;
-    let specialist_committed = record.specialist_commitment != UNSET;
-    let silent = match (consumer_committed, specialist_committed) {
-        (true, false) => Some(&mut rated.specialist.terms),
-        (false, true) => Some(&mut rated.consumer.terms),
-        _ => None,
-    };
-    if let Some(terms) = silent {
-        terms.penalise(RATING_EXPIRE_PENALTY);
-        terms.count_failed();
+    require(record.state != RATING_AWAITING_SETTLEMENT, &JobNotPaid)?;
+    require(!record.is_final(), &AlreadyFinalised)?;
+    if record.state == RATING_BOTH_COMMITTED {
+        require(
+            slot > record.committed_slot().saturating_add(RATING_REVEAL_SLOTS),
+            &NotExpired,
+        )?;
+        let (from_consumer, from_specialist) = (record.consumer_score, record.specialist_score);
+        // In this state at most one score is set.
+        let withheld = if from_consumer != 0 {
+            Some((&mut rated.specialist, &mut rated.consumer, from_consumer))
+        } else if from_specialist != 0 {
+            Some((&mut rated.consumer, &mut rated.specialist, from_specialist))
+        } else {
+            None
+        };
+        if let Some((withholder, revealer, score)) = withheld {
+            withholder.update(|terms| {
+                terms.fold_rating(score);
+                terms.penalise(RATING_EXPIRE_PENALTY);
+                terms.count_completed();
+            });
+            revealer.update(AgentTerms::count_completed);
+        }
+    } else {
+        require(
+            slot > record.settled_slot().saturating_add(RATING_COMMIT_SLOTS),
+            &NotExpired,
+        )?;
+        let silent = match (record.consumer_committed(), record.specialist_committed()) {
+            (true, false) => Some(&mut rated.specialist),
+            (false, true) => Some(&mut rated.consumer),
+            _ => None,
+        };
+        if let Some(silent) = silent {
+            silent.update(|terms| {
+                terms.penalise(RATING_EXPIRE_PENALTY);
+                terms.count_failed();
+            });
+        }
     }
+    record.state = RATING_EXPIRED;
     rated.store()
+}
+
+/// `close_rating`: close a rating that has its final result and return its
+/// rent to the consumer, who paid it.
+///
+/// Accounts: `[w] rating`, `[w, s] consumer`.
+/// No data.
+pub fn close_final(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResult {
+    let [rating, consumer, ..] = accounts else {
+        return Err(fail(&AccountNotEnoughKeys));
+    };
+    let record = Rating::load_checked(rating, program_id)?;
+    signer(consumer)?;
+    writable(rating)?;
+    writable(consumer)?;
+    require(consumer.address() == &record.consumer, &UnauthorisedSigner)?;
+    require(record.is_final(), &RatingNotFinal)?;
+    close(rating, consumer)
 }

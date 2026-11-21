@@ -5,11 +5,13 @@
 //! accounts unchanged. Each layout is a plain struct of byte fields with no
 //! padding, so an account's data is read or written with one length check and
 //! no field-by-field decoding.
-#[cfg(feature = "extended")]
-use crate::consts::SCORE_MAX;
 use {
     crate::{
-        consts::{discriminator, AGENT_MODEL_MAX_LEN, SYSTEM_PROGRAM_ID},
+        checks::at_seeds,
+        consts::{
+            discriminator, AGENT_MODEL_MAX_LEN, ATTESTATION_SEED, RATING_SEED, SCORE_MAX,
+            SYSTEM_PROGRAM_ID,
+        },
         error::{
             fail, AccountDidNotDeserialize, AccountDiscriminatorMismatch,
             AccountDiscriminatorNotFound, AccountNotInitialized, AccountOwnedByWrongProgram,
@@ -20,6 +22,15 @@ use {
 };
 
 pub const STATUS_LOCKED: u8 = 0;
+
+/// Bits of an escrow's `metered` byte. Bit 0 has been the whole byte since
+/// the layout was introduced, so an escrow that is not rated stores 0 or 1 as
+/// it always did.
+const FLAG_METERED: u8 = 0x01;
+/// The payer opted the escrow into rating with `open_rating`. Every exit of
+/// such an escrow takes its rating account.
+const FLAG_RATED: u8 = 0x02;
+const FLAGS_KNOWN: u8 = FLAG_METERED | FLAG_RATED;
 
 /// A record this program stores at the start of an account.
 ///
@@ -109,16 +120,21 @@ pub struct SolEscrow {
     claim_window_slots: [u8; 8],
     /// Slots after `created_slot` from which the payer may refund itself.
     cancel_window_slots: [u8; 8],
-    /// Set while the escrow is delegated to a PER session. Only the
-    /// `extended` instructions set it.
+    /// Set while the escrow is delegated to a PER session. Only the `per`
+    /// instructions set it.
     delegated_to_per: u8,
     /// Borsh tag of an optional session key: 0 for none, 1 when a 32-byte key
     /// follows. With a key present the two fields below sit 32 bytes further
     /// on in the account; `load_checked` reads them from there.
     per_session_key: u8,
     pub bump: u8,
+    /// `FLAG_METERED` and `FLAG_RATED`.
     metered: u8,
 }
+
+/// Where `metered` sits without a session key.
+const SOL_FLAGS_AT: usize = 132;
+const _: () = assert!(SOL_FLAGS_AT + 1 == size_of::<SolEscrow>());
 
 /// Where the session key starts when its tag is 1, and where `bump` and
 /// `metered` then sit.
@@ -183,7 +199,7 @@ impl SolEscrow {
         if record.status > 2
             || record.delegated_to_per > 1
             || record.per_session_key > 1
-            || record.metered > 1
+            || record.metered > FLAGS_KNOWN
         {
             return Err(fail(&AccountDidNotDeserialize));
         }
@@ -199,7 +215,29 @@ impl SolEscrow {
     }
 
     pub fn metered(&self) -> bool {
-        self.metered == 1
+        self.metered & FLAG_METERED != 0
+    }
+
+    /// Whether the payer opted this escrow into rating.
+    pub fn rated(&self) -> bool {
+        self.metered & FLAG_RATED != 0
+    }
+
+    /// Set the rated flag on `account`. `self` is the record `load_checked`
+    /// returned for the same account; the flag byte sits behind the session
+    /// key when there is one.
+    pub fn set_rated(&self, account: &mut AccountView) -> ProgramResult {
+        let at = if self.per_session_key == 1 {
+            DELEGATED_BUMP_AT + 1
+        } else {
+            SOL_FLAGS_AT
+        };
+        let mut data = account.try_borrow_mut()?;
+        let Some(flags) = data.get_mut(at) else {
+            return Err(ProgramError::AccountDataTooSmall);
+        };
+        *flags = self.metered | FLAG_RATED;
+        Ok(())
     }
 
     pub fn claim_window_slots(&self) -> u64 {
@@ -209,14 +247,16 @@ impl SolEscrow {
     pub fn cancel_window_slots(&self) -> u64 {
         u64::from_le_bytes(self.cancel_window_slots)
     }
-}
 
-#[cfg(feature = "extended")]
-impl SolEscrow {
+    /// Whether the escrow is delegated to a PER session. Read in every
+    /// build, though only a `per` build can set it.
     pub fn delegated(&self) -> bool {
         self.delegated_to_per == 1
     }
+}
 
+#[cfg(feature = "per")]
+impl SolEscrow {
     /// The session key recorded on `account`, if any. `self` is the record
     /// `load_checked` returned for the same account.
     pub fn session_key(&self, account: &AccountView) -> Result<Option<[u8; 32]>, ProgramError> {
@@ -278,12 +318,17 @@ pub struct TokenEscrow {
     pub status: u8,
     created_slot: [u8; 8],
     pub bump: u8,
+    /// `FLAG_METERED` and `FLAG_RATED`.
     metered: u8,
     /// Slots after `created_slot` from which the payee may claim.
     claim_window_slots: [u8; 8],
     /// Slots after `created_slot` from which the payer may refund itself.
     cancel_window_slots: [u8; 8],
 }
+
+/// Where `metered` sits in a token escrow.
+const TOKEN_FLAGS_AT: usize = 8 + 32 * 5 + 8 + 16 + 1 + 8 + 1;
+const _: () = assert!(TOKEN_FLAGS_AT + 1 + 8 + 8 == size_of::<TokenEscrow>());
 
 // SAFETY: byte fields only, discriminator first.
 unsafe impl Record for TokenEscrow {
@@ -336,7 +381,7 @@ impl TokenEscrow {
 
     pub fn load_checked(account: &AccountView, program_id: &Address) -> Result<Self, ProgramError> {
         let record = Self::load(account, program_id)?;
-        if record.status > 2 || record.metered > 1 {
+        if record.status > 2 || record.metered > FLAGS_KNOWN {
             return Err(fail(&AccountDidNotDeserialize));
         }
         Ok(record)
@@ -351,7 +396,44 @@ impl TokenEscrow {
     }
 
     pub fn metered(&self) -> bool {
-        self.metered == 1
+        self.metered & FLAG_METERED != 0
+    }
+
+    /// Whether the payer opted this escrow into rating.
+    pub fn rated(&self) -> bool {
+        self.metered & FLAG_RATED != 0
+    }
+
+    /// Set the rated flag on `account`, which holds this record.
+    pub fn set_rated(&self, account: &mut AccountView) -> ProgramResult {
+        let mut data = account.try_borrow_mut()?;
+        let Some(flags) = data.get_mut(TOKEN_FLAGS_AT) else {
+            return Err(ProgramError::AccountDataTooSmall);
+        };
+        *flags = self.metered | FLAG_RATED;
+        Ok(())
+    }
+}
+
+/// A locked escrow of either kind, told apart by its discriminator.
+pub enum AnyEscrow {
+    Sol(SolEscrow),
+    Token(TokenEscrow),
+}
+
+impl AnyEscrow {
+    pub fn load(account: &AccountView, program_id: &Address) -> Result<Self, ProgramError> {
+        let is_token = account.owned_by(program_id)
+            && account
+                .try_borrow()?
+                .first_chunk::<8>()
+                .is_some_and(|found| found == &TokenEscrow::DISCRIMINATOR);
+        if is_token {
+            Ok(Self::Token(TokenEscrow::load_checked(account, program_id)?))
+        } else {
+            // Reports the right error for an account that is neither.
+            Ok(Self::Sol(SolEscrow::load_checked(account, program_id)?))
+        }
     }
 }
 
@@ -400,7 +482,6 @@ const _: () = assert!(
     size_of::<AgentHead>() + AGENT_MODEL_MAX_LEN + size_of::<AgentTerms>() <= AgentHead::LEN
 );
 
-#[cfg(feature = "extended")]
 impl AgentTerms {
     pub fn bump(&self) -> u8 {
         self.bump
@@ -441,7 +522,6 @@ impl AgentTerms {
     }
 }
 
-#[cfg(feature = "extended")]
 impl AgentHead {
     pub fn agent_type(&self) -> u8 {
         self.agent_type
@@ -573,228 +653,212 @@ impl AgentHead {
     }
 }
 
-// ── Rating and attestation (extended) ───────────────────────────────────────
-//
-// These two records hold Borsh options, so a field's offset depends on the
-// options before it. They are decoded into plain values and encoded back in
-// field order, which reproduces the stored bytes exactly.
+// ── Rating ──────────────────────────────────────────────────────────────────
 
-#[cfg(feature = "extended")]
-pub use variable::{Attestation, Rating};
+/// The escrow is locked and rated; nothing can be committed yet.
+pub const RATING_AWAITING_SETTLEMENT: u8 = 0;
+/// The escrow was paid out; the two parties may commit.
+pub const RATING_OPEN: u8 = 1;
+/// Both parties committed; they may reveal.
+pub const RATING_BOTH_COMMITTED: u8 = 2;
+/// Both parties revealed. Final.
+pub const RATING_REVEALED: u8 = 3;
+/// Closed out by `expire_rating` after a deadline. Final.
+pub const RATING_EXPIRED: u8 = 4;
 
-#[cfg(feature = "extended")]
-mod variable {
-    use {
-        super::checked_data,
-        crate::{
-            consts::discriminator,
-            error::{fail, AccountDidNotDeserialize},
-        },
-        pinocchio::{error::ProgramError, AccountView, Address, ProgramResult},
-    };
+const UNSET: [u8; 32] = [0; 32];
 
-    struct Reader<'a>(&'a [u8]);
+/// The record of one rated job: created by `open_rating` for a locked escrow,
+/// filled in when the escrow is paid out, then the blind commit-reveal rating
+/// of the job by its two parties. PDA seeds: `["rating", escrow]`.
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct Rating {
+    discriminator: [u8; 8],
+    /// The escrow this rating was opened for.
+    pub escrow: Address,
+    /// The escrow's payer: the hiring party.
+    pub consumer: Address,
+    /// The escrow's payee: the hired party.
+    pub specialist: Address,
+    /// The judge the consumer named; all zero for none.
+    pub judge: Address,
+    /// The escrow mint; all zero for native SOL. Written at settlement.
+    pub mint: Address,
+    /// sha256(rating address, signer, score, salt) from each party; all zero
+    /// until committed.
+    pub consumer_commitment: [u8; 32],
+    pub specialist_commitment: [u8; 32],
+    /// What the escrow paid out, before the protocol fee.
+    paid: [u8; 8],
+    opened_slot: [u8; 8],
+    /// Slot of the paid settlement; the commit deadline counts from it.
+    settled_slot: [u8; 8],
+    /// Slot of the second commitment; the reveal deadline counts from it.
+    committed_slot: [u8; 8],
+    pub state: u8,
+    /// Revealed scores, 1 to 10; 0 while not revealed.
+    pub consumer_score: u8,
+    pub specialist_score: u8,
+    pub bump: u8,
+}
 
-    impl Reader<'_> {
-        fn take<const N: usize>(&mut self) -> Option<[u8; N]> {
-            let (head, rest) = self.0.split_first_chunk::<N>()?;
-            self.0 = rest;
-            Some(*head)
-        }
+// SAFETY: byte fields only, discriminator first.
+unsafe impl Record for Rating {
+    const DISCRIMINATOR: [u8; 8] = discriminator("account:RatingAccount");
+    const LEN: usize = 8 + 32 * 7 + 8 * 4 + 4;
+}
+assert_layout!(Rating, 268);
 
-        fn byte(&mut self) -> Option<u8> {
-            Some(self.take::<1>()?[0])
-        }
-
-        /// A Borsh option of one byte, the byte being at most `max`.
-        fn optional_byte(&mut self, max: u8) -> Option<Option<u8>> {
-            match self.byte()? {
-                0 => Some(None),
-                1 => Some(Some(self.byte().filter(|&value| value <= max)?)),
-                _ => None,
-            }
-        }
-    }
-
-    struct Writer<'a> {
-        data: &'a mut [u8],
-        at: usize,
-    }
-
-    impl Writer<'_> {
-        fn put(&mut self, bytes: &[u8]) -> ProgramResult {
-            let end = self.at.saturating_add(bytes.len());
-            let Some(slot) = self.data.get_mut(self.at..end) else {
-                return Err(ProgramError::AccountDataTooSmall);
-            };
-            for (to, from) in slot.iter_mut().zip(bytes) {
-                *to = *from;
-            }
-            self.at = end;
-            Ok(())
-        }
-
-        fn optional_byte(&mut self, value: Option<u8>) -> ProgramResult {
-            match value {
-                None => self.put(&[0]),
-                Some(value) => self.put(&[1, value]),
-            }
-        }
-    }
-
-    /// The fields of a live account of this program that starts with
-    /// `discriminator`, decoded by `parse`.
-    fn load<T>(
-        account: &AccountView,
-        program_id: &Address,
-        discriminator: &[u8; 8],
-        parse: fn(&mut Reader) -> Option<T>,
-    ) -> Result<T, ProgramError> {
-        checked_data(account, program_id, discriminator, 8)?;
-        let data = account.try_borrow()?;
-        data.get(8..)
-            .and_then(|fields| parse(&mut Reader(fields)))
-            .ok_or_else(|| fail(&AccountDidNotDeserialize))
-    }
-
-    pub const RATING_PENDING: u8 = 0;
-    pub const RATING_BOTH_COMMITTED: u8 = 1;
-    pub const RATING_REVEALED: u8 = 2;
-    pub const RATING_EXPIRED: u8 = 3;
-
-    /// Blind commit-reveal rating of one job by its two parties.
-    /// PDA seeds: `["rating", job_id]`.
-    pub struct Rating {
-        pub job_id: [u8; 16],
-        /// The hiring party.
-        pub consumer: Address,
-        /// The hired party.
-        pub specialist: Address,
-        /// sha256(score, salt) from each party; all zero until committed.
-        pub consumer_commitment: [u8; 32],
-        pub specialist_commitment: [u8; 32],
-        /// Revealed scores, 1 to 10.
-        pub consumer_score: Option<u8>,
-        pub specialist_score: Option<u8>,
-        pub state: u8,
-        pub created_at: i64,
-        pub created_slot: u64,
-        pub bump: u8,
-    }
-
-    impl Rating {
-        pub const DISCRIMINATOR: [u8; 8] = discriminator("account:RatingAccount");
-        /// Room for both scores revealed.
-        pub const LEN: usize = 175;
-        pub const PENDING: u8 = RATING_PENDING;
-        pub const BOTH_COMMITTED: u8 = RATING_BOTH_COMMITTED;
-        pub const REVEALED: u8 = RATING_REVEALED;
-        pub const EXPIRED: u8 = RATING_EXPIRED;
-
-        /// What a freshly created, zeroed account decodes to.
-        pub const EMPTY: Self = Self {
-            job_id: [0; 16],
-            consumer: Address::new_from_array([0; 32]),
-            specialist: Address::new_from_array([0; 32]),
-            consumer_commitment: [0; 32],
-            specialist_commitment: [0; 32],
-            consumer_score: None,
-            specialist_score: None,
-            state: RATING_PENDING,
-            created_at: 0,
-            created_slot: 0,
-            bump: 0,
-        };
-
-        fn parse(fields: &mut Reader) -> Option<Self> {
-            Some(Self {
-                job_id: fields.take()?,
-                consumer: Address::new_from_array(fields.take()?),
-                specialist: Address::new_from_array(fields.take()?),
-                consumer_commitment: fields.take()?,
-                specialist_commitment: fields.take()?,
-                consumer_score: fields.optional_byte(u8::MAX)?,
-                specialist_score: fields.optional_byte(u8::MAX)?,
-                state: fields.byte().filter(|&state| state <= RATING_EXPIRED)?,
-                created_at: i64::from_le_bytes(fields.take()?),
-                created_slot: u64::from_le_bytes(fields.take()?),
-                bump: fields.byte()?,
-            })
-        }
-
-        pub fn load(account: &AccountView, program_id: &Address) -> Result<Self, ProgramError> {
-            load(account, program_id, &Self::DISCRIMINATOR, Self::parse)
-        }
-
-        pub fn store(&self, account: &mut AccountView) -> ProgramResult {
-            let mut data = account.try_borrow_mut()?;
-            let mut out = Writer {
-                data: &mut data,
-                at: 0,
-            };
-            out.put(&Self::DISCRIMINATOR)?;
-            out.put(&self.job_id)?;
-            out.put(self.consumer.as_ref())?;
-            out.put(self.specialist.as_ref())?;
-            out.put(&self.consumer_commitment)?;
-            out.put(&self.specialist_commitment)?;
-            out.optional_byte(self.consumer_score)?;
-            out.optional_byte(self.specialist_score)?;
-            out.put(&[self.state])?;
-            out.put(&self.created_at.to_le_bytes())?;
-            out.put(&self.created_slot.to_le_bytes())?;
-            out.put(&[self.bump])
+impl Rating {
+    pub fn new(
+        escrow: &Address,
+        consumer: &Address,
+        specialist: &Address,
+        judge: &[u8; 32],
+        opened_slot: u64,
+        bump: u8,
+    ) -> Self {
+        Self {
+            discriminator: Self::DISCRIMINATOR,
+            escrow: *escrow,
+            consumer: *consumer,
+            specialist: *specialist,
+            judge: Address::new_from_array(*judge),
+            mint: Address::new_from_array(UNSET),
+            consumer_commitment: UNSET,
+            specialist_commitment: UNSET,
+            paid: [0; 8],
+            opened_slot: opened_slot.to_le_bytes(),
+            settled_slot: [0; 8],
+            committed_slot: [0; 8],
+            state: RATING_AWAITING_SETTLEMENT,
+            consumer_score: 0,
+            specialist_score: 0,
+            bump,
         }
     }
 
-    /// A judge's quality scores for one job, which the consumer then confirms
-    /// or disputes. PDA seeds: `["attestation", job_id]`.
-    pub struct Attestation {
-        pub job_id: [u8; 16],
-        pub judge: Address,
-        pub consumer: Address,
-        /// Accuracy, completeness, relevance, format, latency: 1 to 10 each.
-        pub scores: [u8; 5],
-        /// `None` while pending, then whether the consumer confirmed.
-        pub confirmed: Option<bool>,
-        pub created_at: i64,
-        pub bump: u8,
+    /// The record at `account`, which must be a rating of this program at the
+    /// address derived from the escrow it names.
+    pub fn load_checked(account: &AccountView, program_id: &Address) -> Result<Self, ProgramError> {
+        let record = Self::load(account, program_id)?;
+        if record.state > RATING_EXPIRED
+            || record.consumer_score > 10
+            || record.specialist_score > 10
+        {
+            return Err(fail(&AccountDidNotDeserialize));
+        }
+        at_seeds(
+            account,
+            &[RATING_SEED, record.escrow.as_ref(), &[record.bump]],
+            program_id,
+        )?;
+        Ok(record)
     }
 
-    impl Attestation {
-        pub const DISCRIMINATOR: [u8; 8] = discriminator("account:AttestationAccount");
-        pub const LEN: usize = 105;
-
-        fn parse(fields: &mut Reader) -> Option<Self> {
-            Some(Self {
-                job_id: fields.take()?,
-                judge: Address::new_from_array(fields.take()?),
-                consumer: Address::new_from_array(fields.take()?),
-                scores: fields.take()?,
-                confirmed: fields.optional_byte(1)?.map(|value| value == 1),
-                created_at: i64::from_le_bytes(fields.take()?),
-                bump: fields.byte()?,
-            })
+    /// Record the paid settlement of the escrow and open the rating.
+    pub fn settle(&mut self, paid: u64, mint: Option<&Address>, slot: u64) {
+        self.paid = paid.to_le_bytes();
+        if let Some(mint) = mint {
+            self.mint = *mint;
         }
+        self.settled_slot = slot.to_le_bytes();
+        self.state = RATING_OPEN;
+    }
 
-        pub fn load(account: &AccountView, program_id: &Address) -> Result<Self, ProgramError> {
-            load(account, program_id, &Self::DISCRIMINATOR, Self::parse)
-        }
+    pub fn settled_slot(&self) -> u64 {
+        u64::from_le_bytes(self.settled_slot)
+    }
 
-        pub fn store(&self, account: &mut AccountView) -> ProgramResult {
-            let mut data = account.try_borrow_mut()?;
-            let mut out = Writer {
-                data: &mut data,
-                at: 0,
-            };
-            out.put(&Self::DISCRIMINATOR)?;
-            out.put(&self.job_id)?;
-            out.put(self.judge.as_ref())?;
-            out.put(self.consumer.as_ref())?;
-            out.put(&self.scores)?;
-            out.optional_byte(self.confirmed.map(|value| value as u8))?;
-            out.put(&self.created_at.to_le_bytes())?;
-            out.put(&[self.bump])
+    pub fn committed_slot(&self) -> u64 {
+        u64::from_le_bytes(self.committed_slot)
+    }
+
+    pub fn set_committed_slot(&mut self, slot: u64) {
+        self.committed_slot = slot.to_le_bytes();
+    }
+
+    pub fn has_judge(&self) -> bool {
+        self.judge.as_array() != &UNSET
+    }
+
+    pub fn consumer_committed(&self) -> bool {
+        self.consumer_commitment != UNSET
+    }
+
+    pub fn specialist_committed(&self) -> bool {
+        self.specialist_commitment != UNSET
+    }
+
+    pub fn is_final(&self) -> bool {
+        self.state == RATING_REVEALED || self.state == RATING_EXPIRED
+    }
+}
+
+// ── Attestation ─────────────────────────────────────────────────────────────
+
+pub const ATTESTATION_PENDING: u8 = 0;
+pub const ATTESTATION_CONFIRMED: u8 = 1;
+pub const ATTESTATION_DISPUTED: u8 = 2;
+
+/// A judge's quality scores for one paid job, which the job's consumer then
+/// confirms or disputes. PDA seeds: `["attestation", escrow]`.
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct Attestation {
+    discriminator: [u8; 8],
+    pub escrow: Address,
+    pub judge: Address,
+    pub consumer: Address,
+    /// Accuracy, completeness, relevance, format, latency: 1 to 10 each.
+    pub scores: [u8; 5],
+    /// `ATTESTATION_PENDING`, then confirmed or disputed.
+    pub resolution: u8,
+    created_slot: [u8; 8],
+    pub bump: u8,
+}
+
+// SAFETY: byte fields only, discriminator first.
+unsafe impl Record for Attestation {
+    const DISCRIMINATOR: [u8; 8] = discriminator("account:AttestationAccount");
+    const LEN: usize = 8 + 32 * 3 + 5 + 1 + 8 + 1;
+}
+assert_layout!(Attestation, 119);
+
+impl Attestation {
+    pub fn new(
+        escrow: &Address,
+        judge: &Address,
+        consumer: &Address,
+        scores: [u8; 5],
+        created_slot: u64,
+        bump: u8,
+    ) -> Self {
+        Self {
+            discriminator: Self::DISCRIMINATOR,
+            escrow: *escrow,
+            judge: *judge,
+            consumer: *consumer,
+            scores,
+            resolution: ATTESTATION_PENDING,
+            created_slot: created_slot.to_le_bytes(),
+            bump,
         }
+    }
+
+    /// The record at `account`, which must be an attestation of this program
+    /// at the address derived from the escrow it names.
+    pub fn load_checked(account: &AccountView, program_id: &Address) -> Result<Self, ProgramError> {
+        let record = Self::load(account, program_id)?;
+        if record.resolution > ATTESTATION_DISPUTED {
+            return Err(fail(&AccountDidNotDeserialize));
+        }
+        at_seeds(
+            account,
+            &[ATTESTATION_SEED, record.escrow.as_ref(), &[record.bump]],
+            program_id,
+        )?;
+        Ok(record)
     }
 }

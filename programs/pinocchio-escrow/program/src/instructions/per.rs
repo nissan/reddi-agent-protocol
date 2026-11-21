@@ -1,4 +1,10 @@
-//! MagicBlock PER state tracking for SOL escrows (`extended` builds only).
+//! MagicBlock PER state tracking for SOL escrows (`per` builds only).
+//!
+//! Not part of V1. This is unfinished work kept for after the launch (issue
+//! #839): `release_escrow_per` takes no protocol fee and emits no settlement
+//! event yet, so the feature is off by default and is never enabled for a
+//! mainnet build. A rated escrow cannot be delegated, and a delegated escrow
+//! cannot be opted into rating, so the two never meet.
 //!
 //! Delegation to a private ephemeral rollup session is done by the client
 //! against MagicBlock's programs. These two instructions only record it: the
@@ -11,6 +17,7 @@ use {
         error::{
             fail, require, AccountNotEnoughKeys, AlreadyDelegated, ConstraintHasOne,
             ConstraintSeeds, NotDelegatedToPer, NotLocked, PerSessionKeyMismatch,
+            RatedEscrowNotDelegable,
         },
         log::Line,
         state::{SolEscrow, STATUS_LOCKED},
@@ -37,6 +44,9 @@ pub fn delegate(program_id: &Address, accounts: &mut [AccountView], data: &[u8])
 
     require(record.status == STATUS_LOCKED, &NotLocked)?;
     require(!record.delegated(), &AlreadyDelegated)?;
+    // The exits of a rated escrow settle its rating account; this path does
+    // not, so the two are kept apart.
+    require(!record.rated(), &RatedEscrowNotDelegable)?;
     record.delegate(escrow, &session_key)?;
     Line::new()
         .text("Escrow delegated to PER: escrow=")
@@ -72,6 +82,8 @@ pub fn release(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) 
 
     require(record.status == STATUS_LOCKED, &NotLocked)?;
     require(record.delegated(), &NotDelegatedToPer)?;
+    // Cannot happen: neither instruction lets a rated escrow be delegated.
+    require(!record.rated(), &RatedEscrowNotDelegable)?;
     require(
         record.session_key(escrow)? == Some(session_key),
         &PerSessionKeyMismatch,

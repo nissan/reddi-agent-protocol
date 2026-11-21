@@ -217,7 +217,6 @@ impl<'a> Args<'a> {
 
 /// Require `account` to be the program-derived address of `seeds`, the last
 /// seed being a stored bump.
-#[cfg(feature = "extended")]
 #[inline(never)]
 pub fn at_seeds(account: &AccountView, seeds: &[&[u8]], program_id: &Address) -> ProgramResult {
     match Address::create_program_address(seeds, program_id) {
@@ -227,7 +226,6 @@ pub fn at_seeds(account: &AccountView, seeds: &[&[u8]], program_id: &Address) ->
 }
 
 /// sha256 over the concatenation of `parts`.
-#[cfg(feature = "extended")]
 pub fn sha256(parts: &[&[u8]]) -> [u8; 32] {
     #[cfg_attr(not(target_os = "solana"), allow(unused_mut))]
     let mut hash = [0u8; 32];

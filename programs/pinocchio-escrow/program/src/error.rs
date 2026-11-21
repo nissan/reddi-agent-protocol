@@ -47,8 +47,8 @@ faults! {
     AccountNotSigner = 3010, "The given account did not sign";
     AccountNotInitialized = 3012, "The program expected this account to be already initialized";
 
-    // Program codes. Only the ones the V1 instructions can return are listed;
-    // the gaps belong to instructions outside V1 and keep their numbers.
+    // Program codes of the escrow and registry instructions. The gaps belong
+    // to the rating, attestation and PER codes below, or are unused.
     UnauthorisedSigner = 6000, "Unauthorised signer — only the payer can cancel";
     NotLocked = 6002, "Escrow is not in Locked state";
     ZeroAmount = 6004, "Amount must be greater than zero";
@@ -68,7 +68,8 @@ faults! {
     PayeeNotRentExempt = 6032, "Payee account would be left below the rent-exempt minimum: fund the payee first, or lock a larger amount";
 }
 
-#[cfg(feature = "extended")]
+// Rating and attestation. The first nine keep the numbers the archived Anchor
+// program declares for them; the rest are new and follow 6032.
 faults! {
     AlreadyCommitted = 6010, "Rating commitment already submitted";
     BothMustCommitFirst = 6011, "Cannot reveal until both parties commit";
@@ -79,6 +80,24 @@ faults! {
     NotAttestationAgent = 6016, "Agent type does not permit attestation";
     AttestationAlreadyResolved = 6018, "Attestation already resolved";
     AttestationScoreOutOfRange = 6019, "Score must be between 1 and 10";
+    RatingAccountRequired = 6033, "This escrow is rated: pass its rating account, writable, after the usual accounts";
+    InvalidRatingAccount = 6034, "Rating account does not belong to this escrow";
+    RatingNotAwaitingSettlement = 6035, "Rating account is not awaiting the settlement of its escrow";
+    RatingOptInClosed = 6036, "An escrow can be opted into rating only in the slot it was locked";
+    AlreadyRated = 6037, "Escrow is already opted into rating";
+    InvalidJudge = 6038, "The judge must be neither the payer nor the payee";
+    JobNotPaid = 6039, "The escrow of this rating has not been paid out yet";
+    CommitDeadlinePassed = 6040, "Commit deadline has passed";
+    RevealDeadlinePassed = 6041, "Reveal deadline has passed";
+    AlreadyRevealed = 6042, "Rating score already revealed";
+    EmptyCommitment = 6043, "Commitment must not be all zero";
+    RatingNotFinal = 6044, "Rating has no final result yet";
+    RatedEscrowNotDelegable = 6045, "A rated escrow cannot be delegated to PER, and a delegated escrow cannot be rated";
+}
+
+// PER tracking (`per` builds only), with the archived Anchor program's numbers.
+#[cfg(feature = "per")]
+faults! {
     NotDelegatedToPer = 6020, "Escrow is not delegated to PER";
     PerSessionKeyMismatch = 6021, "PER session key mismatch";
     AlreadyDelegated = 6022, "Escrow is already delegated to PER";

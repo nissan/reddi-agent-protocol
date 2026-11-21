@@ -1,6 +1,6 @@
 //! Reddi Agent Protocol escrow and agent registry, built with Pinocchio.
 //!
-//! One program, thirteen instructions in the default (V1) build:
+//! One program, twenty-one instructions in the default (V1) build:
 //!
 //! - SOL escrow: `lock_escrow`, `lock_metered_escrow`, `release_escrow`,
 //!   `settle_escrow`, `cancel_escrow`
@@ -8,15 +8,22 @@
 //!   `lock_metered_token_escrow`, `release_token_escrow`,
 //!   `settle_token_escrow`, `cancel_token_escrow`
 //! - registry: `register_agent`, `update_agent`, `deregister_agent`
+//! - ratings of jobs paid through escrow: `open_rating`, `commit_rating`,
+//!   `reveal_rating`, `expire_rating`, `close_rating`
+//! - judge attestations: `attest_quality`, `confirm_attestation`,
+//!   `dispute_attestation`
 //!
-//! The `extended` feature adds eight more that are not part of V1: blind
-//! commit-reveal ratings, judge attestations, and PER delegation tracking.
+//! The `per` feature adds two more that are not part of V1 and are never
+//! built for mainnet: `delegate_escrow` and `release_escrow_per`, which track
+//! a MagicBlock PER delegation (unfinished; see `instructions/per.rs`).
 //!
-//! It is designed to be interchangeable with the Anchor program in
-//! `archive/anchor-escrow` from the outside: the same instruction selectors,
-//! account order, account layouts, program-derived addresses, events and
-//! error numbers. Inside it is a different program: no framework, no heap, no
-//! serialisation layer. Instructions validate their accounts by hand, read
+//! For the first thirteen, on an escrow that is not opted into rating, it is
+//! interchangeable with the Anchor program in `archive/anchor-escrow` from
+//! the outside: the same instruction selectors, account order, account
+//! layouts, program-derived addresses, events and error numbers. The other
+//! eight, and the exits of a rated escrow, have no counterpart there; their
+//! interface is written down in the README. Inside it is a different program:
+//! no framework, no heap, no serialisation layer. Instructions validate their accounts by hand, read
 //! and write account bytes in place, and build events and cross-program calls
 //! on the stack.
 #![no_std]
@@ -33,7 +40,7 @@ pub mod token;
 use {
     consts::discriminator,
     error::{fail, InstructionFallbackNotFound},
-    instructions::{registry, sol_escrow, token_escrow},
+    instructions::{attestation, rating, registry, sol_escrow, token_escrow},
     pinocchio::{
         no_allocator, nostd_panic_handler, program_entrypoint, AccountView, Address, ProgramResult,
     },
@@ -41,8 +48,9 @@ use {
 
 solana_address::declare_id!("DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu");
 
-// The largest instruction takes nine accounts; anything past that is ignored.
-program_entrypoint!(process_instruction, 9);
+// The largest instruction takes ten accounts (a token payout of a rated
+// escrow: its nine, then the rating account); anything past that is ignored.
+program_entrypoint!(process_instruction, 10);
 // Nothing in the program allocates, so there is no heap to set up.
 no_allocator!();
 nostd_panic_handler!();
@@ -70,19 +78,22 @@ pub mod selector {
     pub const UPDATE_AGENT: u64 = of("global:update_agent");
     pub const DEREGISTER_AGENT: u64 = of("global:deregister_agent");
 
-    /// Selectors of the `extended` build.
-    #[cfg(feature = "extended")]
-    pub mod extended {
+    pub const OPEN_RATING: u64 = of("global:open_rating");
+    pub const COMMIT_RATING: u64 = of("global:commit_rating");
+    pub const REVEAL_RATING: u64 = of("global:reveal_rating");
+    pub const EXPIRE_RATING: u64 = of("global:expire_rating");
+    pub const CLOSE_RATING: u64 = of("global:close_rating");
+    pub const ATTEST_QUALITY: u64 = of("global:attest_quality");
+    pub const CONFIRM_ATTESTATION: u64 = of("global:confirm_attestation");
+    pub const DISPUTE_ATTESTATION: u64 = of("global:dispute_attestation");
+
+    /// Selectors of the `per` build.
+    #[cfg(feature = "per")]
+    pub mod per {
         use super::of;
 
-        pub const COMMIT_RATING: u64 = of("global:commit_rating");
-        pub const REVEAL_RATING: u64 = of("global:reveal_rating");
-        pub const EXPIRE_RATING: u64 = of("global:expire_rating");
         pub const DELEGATE_ESCROW: u64 = of("global:delegate_escrow");
         pub const RELEASE_ESCROW_PER: u64 = of("global:release_escrow_per");
-        pub const ATTEST_QUALITY: u64 = of("global:attest_quality");
-        pub const CONFIRM_ATTESTATION: u64 = of("global:confirm_attestation");
-        pub const DISPUTE_ATTESTATION: u64 = of("global:dispute_attestation");
     }
 }
 
@@ -114,34 +125,18 @@ pub fn process_instruction(
         selector::REGISTER_AGENT => registry::register(program_id, accounts, data),
         selector::UPDATE_AGENT => registry::update(program_id, accounts, data),
         selector::DEREGISTER_AGENT => registry::deregister(program_id, accounts),
-        #[cfg(feature = "extended")]
-        other => extended(program_id, accounts, other, data),
-        #[cfg(not(feature = "extended"))]
-        _ => Err(fail(&InstructionFallbackNotFound)),
-    }
-}
-
-/// The eight instructions outside V1: ratings, attestations and PER.
-#[cfg(feature = "extended")]
-fn extended(
-    program_id: &Address,
-    accounts: &mut [AccountView],
-    selector: u64,
-    data: &[u8],
-) -> ProgramResult {
-    use {
-        instructions::{attestation, per, rating},
-        selector::extended as ix,
-    };
-    match selector {
-        ix::COMMIT_RATING => rating::commit(program_id, accounts, data),
-        ix::REVEAL_RATING => rating::reveal(program_id, accounts, data),
-        ix::EXPIRE_RATING => rating::expire(program_id, accounts, data),
-        ix::DELEGATE_ESCROW => per::delegate(program_id, accounts, data),
-        ix::RELEASE_ESCROW_PER => per::release(program_id, accounts, data),
-        ix::ATTEST_QUALITY => attestation::attest(program_id, accounts, data),
-        ix::CONFIRM_ATTESTATION => attestation::resolve(program_id, accounts, data, true),
-        ix::DISPUTE_ATTESTATION => attestation::resolve(program_id, accounts, data, false),
+        selector::OPEN_RATING => rating::open(program_id, accounts, data),
+        selector::COMMIT_RATING => rating::commit(program_id, accounts, data),
+        selector::REVEAL_RATING => rating::reveal(program_id, accounts, data),
+        selector::EXPIRE_RATING => rating::expire(program_id, accounts),
+        selector::CLOSE_RATING => rating::close_final(program_id, accounts),
+        selector::ATTEST_QUALITY => attestation::attest(program_id, accounts, data),
+        selector::CONFIRM_ATTESTATION => attestation::resolve(program_id, accounts, true),
+        selector::DISPUTE_ATTESTATION => attestation::resolve(program_id, accounts, false),
+        #[cfg(feature = "per")]
+        selector::per::DELEGATE_ESCROW => instructions::per::delegate(program_id, accounts, data),
+        #[cfg(feature = "per")]
+        selector::per::RELEASE_ESCROW_PER => instructions::per::release(program_id, accounts, data),
         _ => Err(fail(&InstructionFallbackNotFound)),
     }
 }

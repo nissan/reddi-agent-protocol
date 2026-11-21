@@ -1,5 +1,6 @@
-//! Seeds, limits, allowlists and the fee rule. Values mirror
-//! `archive/anchor-escrow/src/constants.rs`; the equivalence tests fail if they drift.
+//! Seeds, limits, allowlists and the fee rule. The values the 13 escrow and
+//! registry instructions use mirror `archive/anchor-escrow/src/constants.rs`;
+//! the equivalence tests fail if they drift.
 use {pinocchio::Address, solana_address::address};
 
 pub const ESCROW_SEED: &[u8] = b"escrow";
@@ -105,25 +106,22 @@ pub const fn discriminator(preimage: &str) -> [u8; 8] {
     ]
 }
 
-// ── Extended instructions (rating, attestation) ─────────────────────────────
+// ── Rating and attestation ──────────────────────────────────────────────────
 
-#[cfg(feature = "extended")]
 pub const RATING_SEED: &[u8] = b"rating";
-/// Slots after the first commitment before a one-sided rating can be expired:
+/// Slots after the paid settlement in which the two parties may commit:
 /// about 7 days.
-#[cfg(feature = "extended")]
-pub const RATING_EXPIRE_SLOTS: u64 = 1_512_000;
-/// Reputation taken from a party that never committed, and from a judge whose
-/// attestation is disputed (5.00 points).
-#[cfg(feature = "extended")]
+pub const RATING_COMMIT_SLOTS: u64 = 7 * 24 * 60 * 60 * 1000 / NOMINAL_SLOT_MS;
+/// Slots after the second commitment in which the two parties may reveal:
+/// about 7 days.
+pub const RATING_REVEAL_SLOTS: u64 = 7 * 24 * 60 * 60 * 1000 / NOMINAL_SLOT_MS;
+/// Reputation taken from a party that never committed or withheld its reveal,
+/// and from a judge whose attestation is disputed (5.00 points).
 pub const RATING_EXPIRE_PENALTY: u16 = 500;
-#[cfg(feature = "extended")]
 pub const ATTESTATION_SEED: &[u8] = b"attestation";
 /// Added to a judge's attestation accuracy on confirmation (10.00 points).
-#[cfg(feature = "extended")]
 pub const ATTESTATION_CONFIRM_WEIGHT: u16 = 1000;
 /// Reputation and accuracy scores run from 0 to this (100.00).
-#[cfg(feature = "extended")]
 pub const SCORE_MAX: u16 = 10_000;
 
 #[cfg(test)]
@@ -151,5 +149,11 @@ mod tests {
         assert!(!escrow_windows_valid(0, 1));
         assert!(!escrow_windows_valid(2, 1));
         assert!(!escrow_windows_valid(1, MAX_ESCROW_WINDOW_SLOTS + 1));
+    }
+
+    #[test]
+    fn rating_deadlines_are_seven_days_of_slots() {
+        assert_eq!(RATING_COMMIT_SLOTS, 1_512_000);
+        assert_eq!(RATING_REVEAL_SLOTS, 1_512_000);
     }
 }

@@ -20,6 +20,7 @@ use {
             NotMetered, PayeeNotRentExempt, UnauthorisedSigner, ZeroAmount,
         },
         events::{Locked, Outcome, Settled},
+        instructions::rating,
         state::{Record, SolEscrow, STATUS_LOCKED},
     },
     pinocchio::{
@@ -128,7 +129,7 @@ pub fn lock(
 /// `release_escrow` (`actual` is `None`) and `settle_escrow`.
 ///
 /// Accounts: `[w] escrow`, `[w] payer`, `[w] payee`, `[w] treasury`,
-/// `[] system_program`.
+/// `[] system_program`, and for a rated escrow `[w] rating`.
 ///
 /// Release pays the whole locked amount: the payer may at any time, the payee
 /// once the claim window has elapsed. Whichever of the two signed is the
@@ -138,12 +139,15 @@ pub fn lock(
 /// a full release, or a refund once the refund window has elapsed. Either way
 /// the payee receives the paid amount less the protocol fee, the treasury
 /// receives the fee, and the rest returns to the payer with the rent.
+///
+/// A rated escrow's rating account records the paid amount and the slot, and
+/// the rating opens.
 pub fn pay_out(
     program_id: &Address,
     accounts: &mut [AccountView],
     actual: Option<u64>,
 ) -> ProgramResult {
-    let [escrow, payer, payee, treasury, system_program, ..] = accounts else {
+    let [escrow, payer, payee, treasury, system_program, trailing @ ..] = accounts else {
         return Err(fail(&AccountNotEnoughKeys));
     };
     let record = SolEscrow::load_checked(escrow, program_id)?;
@@ -194,6 +198,11 @@ pub fn pay_out(
         }
     };
     require(record.status == STATUS_LOCKED, &NotLocked)?;
+    let rated = if record.rated() {
+        Some(rating::for_exit(program_id, escrow.address(), trailing)?)
+    } else {
+        None
+    };
 
     let fee = protocol_fee(paid, true);
     let to_payee = paid - fee;
@@ -201,6 +210,10 @@ pub fn pay_out(
     credit(payee, to_payee)?;
     credit(treasury, fee)?;
     close(escrow, payer)?;
+    if let Some((account, mut job)) = rated {
+        job.settle(paid, None, slot);
+        job.store(account)?;
+    }
 
     Settled {
         escrow: escrow.address(),
@@ -220,11 +233,14 @@ pub fn pay_out(
 
 /// `cancel_escrow`: refund a locked SOL escrow to its payer and close it.
 ///
-/// Accounts: `[w] escrow`, `[s] authority`, `[w] payer`, `[] system_program`.
+/// Accounts: `[w] escrow`, `[s] authority`, `[w] payer`, `[] system_program`,
+/// and for a rated escrow `[w] rating`.
 /// The authority is the payee (declining, at any time) or the payer (after the
 /// cancel window). The payer receives the refund and does not need to sign.
+/// A rated escrow's rating account is closed and its rent returns to the
+/// payer too: a job that was not paid is not rated.
 pub fn cancel(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResult {
-    let [escrow, authority, payer, system_program, ..] = accounts else {
+    let [escrow, authority, payer, system_program, trailing @ ..] = accounts else {
         return Err(fail(&AccountNotEnoughKeys));
     };
     let record = SolEscrow::load_checked(escrow, program_id)?;
@@ -245,6 +261,10 @@ pub fn cancel(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResu
         slot,
         record.cancel_window_slots(),
     )?;
+    if record.rated() {
+        let (account, _) = rating::for_exit(program_id, escrow.address(), trailing)?;
+        close(account, payer)?;
+    }
     close(escrow, payer)?;
 
     Settled {
