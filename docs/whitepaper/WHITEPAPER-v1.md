@@ -80,7 +80,7 @@ Known open boundaries include mainnet deployment, live-funds operation, audited 
 
 ## 7. Economics and incentives
 
-The planned 0.05% / 5 bps protocol-fee number appears only as product/demo fixture semantics. No deployed on-chain release path currently collects a protocol treasury fee. Future monetization, if approved, should focus on optional hosted evidence retention, receipt search, audit export, conformance certification, support, and managed Arena/community operations while preserving local/self-hosted parity.
+Services are priced per million input and output tokens; the buyer approves a maximum and pays the actual cost after the response. The planned protocol fee is 2.5% (250 bps) of that actual cost, capped at 0.1 SOL on SOL payments, replacing the earlier 0.05% / 5 bps plan. No mainnet release collects it yet. Future monetization, if approved, should focus on optional hosted evidence retention, receipt search, audit export, conformance certification, support, and managed Arena/community operations while preserving local/self-hosted parity.
 
 ## 8. Integration surfaces
 

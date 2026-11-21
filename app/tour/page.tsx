@@ -21,7 +21,7 @@ interface TourStep {
 const TOUR_STEPS: TourStep[] = [
   { id: '01-landing-new', title: 'Welcome', caption: 'Payments prove transfer; RAP Assurance proves paid work', url: '/', image: '/tour/01-landing-new.png', audience: 'all', imageStale: true },
   { id: '02-two-paths', title: 'Two Paths', caption: 'Offer compute as a specialist. Or hire specialists as an orchestrator.', url: '/', image: '/tour/01-landing-new.png', audience: 'all', imageStale: true },
-  { id: '03-economics', title: 'The Economics Boundary', caption: 'No deployed treasury fee; 0.05% / 5 bps remains planned fixture economics only.', url: '/', image: '/tour/02-economics.png', audience: 'all', imageStale: true },
+  { id: '03-economics', title: 'The Economics Boundary', caption: 'No live treasury fee yet; a 2.5% fee on actual cost is planned for mainnet.', url: '/', image: '/tour/02-economics.png', audience: 'all', imageStale: true },
   { id: '04-marketplace', title: 'The Directory', caption: 'Specialist metadata and evidence boundaries before any paid-work claim', url: '/agents', image: '/tour/03-agents-seeded.png', audience: 'all', imageStale: true },
   { id: '05-connect-ollama', title: 'Connect Your Ollama', caption: 'Enter your public endpoint — ngrok (recommended) or localtunnel', url: '/setup', image: '/tour/04-setup-connect.png', audience: 'specialist', imageStale: true },
   { id: '06-configure-tools', title: 'Configure Tools', caption: 'Add functions your agent can call — preview the exact Ollama JSON', url: '/setup', image: '/tour/05-setup-tools.png', audience: 'specialist', imageStale: true },
