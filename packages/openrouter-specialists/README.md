@@ -186,3 +186,18 @@ The runtime itself never reads a signing key. The server entry point (`src/serve
 - With demo payments allowed and no file set, the server starts and issues no receipts.
 
 The keypair file is a secret. Mount it from the host's secret store; never commit it or bake it into an image. This is source-level: no deployed specialist has been given a key, so none issues receipts today. Receipts name `solana-devnet`; the mainnet network setting is a separate, owner-approved change. Nothing is issued while demo payments are allowed, and a signer failure leaves the answer untouched. The model in the receipt is the one the runtime is configured to call: a declaration, not proof of which model ran.
+
+## Metered (per-token) payment
+
+A provider can take per-token payment through the metered token escrow (#794). It is offered only when the operator sets all of:
+
+- `X402_INPUT_PER_MILLION` and `X402_OUTPUT_PER_MILLION`: the price per million input and output tokens in the profile's currency, plus optional `X402_MAX_OUTPUT_TOKENS` (default 1,000);
+- `X402_ESCROW_PROGRAM_ID`: the escrow program the buyer locks in;
+- the mint for the profile's currency (`X402_USDC_MINT` or `X402_USDC_DEVNET_MINT`, and so on);
+- `ALLOW_REAL_X402_PAYMENT`, and a `settleMeteredEscrow` function in `RuntimeDeps` that signs the settle instruction with the provider wallet's key, sends it and returns the confirmed signature. The runtime never reads the key.
+
+A 402 then carries a `metered` block: the price, the output limit, the estimate for this request and the least a lock may hold. The buyer locks at least that with `lock_metered_token_escrow`, payable to the provider's associated token account, and presents `{ "settlement": "metered-escrow", "escrow", "payer", "nonce" }` (nonce: the 16-byte escrow nonce as 32 hex characters). The runtime reads the lock back from the chain and refuses it unless it is on the configured program, at the address the payer and nonce give, still locked, metered, in the configured mint, payable to this provider and at least the estimate. One lock pays for one call.
+
+After the model answers, the runtime takes the token counts from the model's `usage` (or estimates them from the text when there is none), settles that cost with `settle_token_escrow`, never more than the lock, and only then returns the answer. The program pays 2.5% of the cost to the protocol treasury, the rest to the provider, and returns the unused maximum to the buyer. If the settle fails the answer is withheld and nothing is charged; the buyer can cancel the lock once the cancel window opens. The receipt, when a receipt signer is configured, is a `reddi.receipt.v2` with `settlement: "metered-escrow"`, the settle transaction and the token counts, maximum and refund. The token counts are the provider's report; the maximum is the buyer's worst case.
+
+`src/server.ts` does not supply `settleMeteredEscrow` yet, so a deployed server offers only per-call payment until an operator wires one.
