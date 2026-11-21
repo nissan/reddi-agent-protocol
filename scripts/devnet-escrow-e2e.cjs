@@ -221,7 +221,8 @@ async function solDelta(conn, signature, account) {
   const tx = await conn.getTransaction(signature, { commitment: 'finalized', maxSupportedTransactionVersion: 0 });
   const keys = tx.transaction.message.getAccountKeys().staticAccountKeys;
   const i = keys.findIndex(k => k.equals(account));
-  assert(i >= 0, `${account.toBase58()} not in ${signature}`);
+  // An account the transaction does not name cannot have changed (a cancel never names the treasury).
+  if (i < 0) return 0n;
   // The fee payer (key 0) also paid the network fee; leave that out so the check sees only the escrow's effect.
   const networkFee = i === 0 ? BigInt(tx.meta.fee) : 0n;
   return BigInt(tx.meta.postBalances[i]) - BigInt(tx.meta.preBalances[i]) + networkFee;
