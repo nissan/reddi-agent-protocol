@@ -4,7 +4,8 @@ export declare const SESSION_DELEGATION_HEADER = "x402-session-delegation";
 export declare const SESSION_SIGNATURE_HEADER = "x402-session-signature";
 /** The longest a delegation may run. A session settles before its refund window anyway. */
 export declare const MAX_SESSION_DELEGATION_SECONDS: number;
-export type SessionAction = 'call' | 'close' | 'read';
+/** `call`, `close`, `read`: session requests. `single`: a single metered call, sequence 0. */
+export type SessionAction = 'call' | 'close' | 'read' | 'single';
 export interface SessionDelegation {
     escrow: string;
     provider: string;
@@ -21,7 +22,7 @@ export type SessionAuthFailure = {
 export declare function sessionDelegationMessage(d: SessionDelegation): string;
 /** SHA-256 of a request body, hex. An empty body hashes as zero bytes. */
 export declare function sessionBodyHash(body?: Uint8Array | string): string;
-/** The bytes the session key signs for one request. `sequence` is the call number for `call`, and 0 for `close` and `read`. */
+/** The bytes the session key signs for one request. `sequence` is the call number for `call`, and 0 for `close`, `read` and `single`. */
 export declare function sessionRequestMessage(input: {
     action: SessionAction;
     escrow: string;
@@ -59,4 +60,25 @@ export declare function verifySessionRequest(input: {
     sessionKey: string;
     expiresAt: number;
 } | SessionAuthFailure;
+/**
+ * Buyer side, single metered call: both headers for one call on the lock
+ * `escrow`. With no `sessionKey`, the payer signs the request too (fine for a
+ * server-held keypair; a browser wallet would then sign twice, so pass a
+ * fresh key there and keep it for the call).
+ */
+export declare function paidCallAuthHeaders(input: {
+    escrow: string;
+    provider: string;
+    body: Uint8Array | string;
+    payer: string;
+    signWithPayer: Signer;
+    sessionKey?: {
+        publicKey: string;
+        sign: Signer;
+    };
+    expiresAt?: number;
+    nowMs?: number;
+}): Promise<Record<string, string>>;
+/** Provider side, single metered call: `verifySessionRequest` with action `single` and sequence 0. */
+export declare function verifyPaidCallRequest(input: Omit<Parameters<typeof verifySessionRequest>[0], 'action' | 'sequence'>): ReturnType<typeof verifySessionRequest>;
 export {};

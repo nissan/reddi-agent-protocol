@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, createPrivateKey, sign as edSign } from "node:crypto";
 import test from "node:test";
 import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { ESCROW_PROTOCOL_TREASURY, MemoryNonceReplayStore, tokenEscrowAddresses, treasuryTokenAccount } from "@redditech/x402-solana";
+import { ESCROW_PROTOCOL_TREASURY, MemoryNonceReplayStore, paidCallAuthHeaders, tokenEscrowAddresses, treasuryTokenAccount } from "@redditech/x402-solana";
 import { MockOpenRouterClient } from "../src/openrouter.js";
 import { getProfile } from "../src/profiles/index.js";
 import { handleRuntimeRequest, PROVIDER_RECEIPT_HEADER, type ProviderReceiptStatement, type RuntimeConfig, type RuntimeDeps } from "../src/index.js";
@@ -13,7 +13,8 @@ const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
 const SETTLE_SIG = "4".repeat(88);
 const profile = getProfile("planning-agent")!;
 const payee = new PublicKey(profile.walletAddress);
-const payer = Keypair.generate().publicKey;
+const payerKeypair = Keypair.generate();
+const payer = payerKeypair.publicKey;
 const NONCE = "00112233445566778899aabbccddeeff";
 
 const config: RuntimeConfig = {
@@ -96,10 +97,20 @@ function deps(account: { owner?: PublicKey; data: Uint8Array } | null, settle?: 
 
 const BODY = JSON.stringify({ messages: [{ role: "user", content: "Plan a three step rollout." }], max_tokens: 200 });
 
-function request(payment?: Record<string, unknown>) {
+// The payer's signature over BODY on the test lock (#866); any metered payment sends it unless `unsigned`.
+const payerKey = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(payerKeypair.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
+const SIGNED = await paidCallAuthHeaders({
+  escrow: tokenEscrowAddresses({ programId: PROGRAM, payer, nonce: Buffer.from(NONCE, "hex") }).escrow.toBase58(),
+  provider: payee.toBase58(),
+  body: BODY,
+  payer: payer.toBase58(),
+  signWithPayer: (m) => new Uint8Array(edSign(null, Buffer.from(m), payerKey)),
+});
+
+function request(payment?: Record<string, unknown>, unsigned = false) {
   return new Request("https://planning.example.test/v1/chat/completions", {
     method: "POST",
-    headers: { "content-type": "application/json", ...(payment ? { "x402-payment": JSON.stringify(payment) } : {}) },
+    headers: { "content-type": "application/json", ...(payment ? { "x402-payment": JSON.stringify(payment), ...(unsigned ? {} : SIGNED) } : {}) },
     body: BODY,
   });
 }
@@ -174,7 +185,7 @@ test("refuses a lock that does not match the provider's terms, before calling th
     ["refund window already open", { data: tokenEscrowBytes({ amount: BigInt(6000), createdSlot: CURRENT_SLOT - BigInt(10_000) }) }, 402],
     ["no window stated", { data: tokenEscrowBytes({ amount: BigInt(6000), windows: null }) }, 402],
     ["already settled", { data: tokenEscrowBytes({ amount: BigInt(6000), status: 1 }) }, 409],
-    ["other payer named", { data: tokenEscrowBytes({ amount: BigInt(6000) }) }, 402, { payer: stranger.toBase58() }],
+    ["other payer named", { data: tokenEscrowBytes({ amount: BigInt(6000) }) }, 401, { payer: stranger.toBase58() }], // refused at the signature check, before any chain read (#866)
     ["bad nonce", { data: tokenEscrowBytes({ amount: BigInt(6000) }) }, 402, { nonce: "xyz" }],
   ];
   for (const [name, account, status, overrides] of cases) {
@@ -218,4 +229,14 @@ test("does not answer when the settle fails, and refuses metered payment without
   assert.equal(unsigned.status, 402);
   assert.equal(((await unsigned.json()) as { error: { code: string } }).error.code, "metered_not_offered");
 
+});
+
+test("a metered call the payer did not sign is refused before the lock is read or the model runs (#866)", async () => {
+  const d = deps({ data: tokenEscrowBytes({ amount: BigInt(6000) }) });
+  const client = new MockOpenRouterClient();
+  const response = await handleRuntimeRequest(request(meteredPayment(), true), config, client, d.value);
+  assert.equal(response.status, 401);
+  assert.equal(((await response.json()) as { error: { code: string } }).error.code, "session_auth_required");
+  assert.equal(client.callCount, 0);
+  assert.equal(d.settled.length, 0);
 });

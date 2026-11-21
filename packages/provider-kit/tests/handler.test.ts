@@ -10,7 +10,8 @@ import { createProviderHandler, PROVIDER_RECEIPT_HEADER } from "../src/handler.j
 import { FileReplayStore } from "../src/replay.js";
 import { createMockUpstream, type Upstream } from "../src/upstream.js";
 import type { ProviderConfigFile } from "../src/config.js";
-import { ata, buyer, config, escrowAddress, fakeChain, paymentHeader, provider, SETTLE_SIGNATURE, tokenAccount, USDC, type FakeChain } from "./helpers.js";
+import { Keypair } from "@solana/web3.js";
+import { ata, buyer, config, escrowAddress, fakeChain, paymentHeader, provider, SETTLE_SIGNATURE, singleCallHeaders, tokenAccount, USDC, type FakeChain } from "./helpers.js";
 
 const privateKey = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(provider.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
 const signMessage = (message: Uint8Array) => edSign(null, message, privateKey);
@@ -40,8 +41,12 @@ function setup(options: { chain?: FakeChain; upstream?: Upstream; replayStore?: 
     now: () => new Date("2026-12-05T00:00:00.000Z"),
     log: (event) => events.push(event),
   });
-  const call = (body = BODY, headers: Record<string, string> = {}) =>
-    handler(new Request("http://localhost:8787/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", ...headers }, body }));
+  // A paid call is signed by the payer unless the test says otherwise (x-test-unsigned).
+  const call = async (body = BODY, headers: Record<string, string> = {}) => {
+    const { "x-test-unsigned": unsigned, ...rest } = headers;
+    const signed = rest["x402-payment"] && !unsigned ? await singleCallHeaders(body, Date.parse("2026-12-05T00:00:00.000Z")) : {};
+    return handler(new Request("http://localhost:8787/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", ...signed, ...rest }, body }));
+  };
   return { chain, handler, call, events };
 }
 
@@ -435,4 +440,19 @@ test("when the escrow cannot be read after a failed send, the buyer is not told 
   assert.equal(response.headers.get(PROVIDER_RECEIPT_HEADER), null);
   assert.equal(chain.attempts, 1);
   assert.ok(events.some((e) => e.event === "settle_unconfirmed" && e.state === "unknown"));
+});
+
+test("a single paid call that the payer did not sign is refused before the lock is read or the model runs (#866)", async () => {
+  const upstream = upstreamWithUsage(120, 333);
+  const { call, chain } = setup({ upstream });
+  const stranger = Keypair.generate();
+  const variants: Record<string, string>[] = [{ "x402-payment": paymentHeader(), "x-test-unsigned": "1" }, { "x402-payment": paymentHeader(), ...(await singleCallHeaders(BODY, Date.parse("2026-12-05T00:00:00.000Z"), stranger)) }];
+  for (const headers of variants) {
+    const response = await call(BODY, headers);
+    assert.equal(response.status, 401);
+    assert.match(((await response.json()) as { error: { code: string } }).error.code, /^session_auth_/);
+  }
+  assert.equal(upstream.calls, 0);
+  assert.equal(chain.sent.length, 0);
+  assert.equal((await call(BODY, { "x402-payment": paymentHeader() })).status, 200, "the payer's own call still goes through on the same lock");
 });

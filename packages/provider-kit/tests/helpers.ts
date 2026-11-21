@@ -163,3 +163,12 @@ export function fakeChain(escrow: EscrowFields | null = {}): FakeChain {
 }
 
 export const paymentHeader = () => JSON.stringify({ settlement: "metered-escrow", escrow: escrowAddress().toBase58(), payer: buyer.toBase58(), nonce: NONCE });
+
+const BUYER_PKCS8 = Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(buyerKeypair.secretKey.subarray(0, 32))]);
+/** The headers a buyer adds to a single paid call: the payer's own signature over this request (#866). */
+export async function singleCallHeaders(body: string, nowMs: number, signer: Keypair = buyerKeypair): Promise<Record<string, string>> {
+  const { createPrivateKey, sign } = await import("node:crypto");
+  const { paidCallAuthHeaders } = await import("@redditech/x402-solana");
+  const key = createPrivateKey({ key: signer === buyerKeypair ? BUYER_PKCS8 : Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(signer.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
+  return paidCallAuthHeaders({ escrow: escrowAddress().toBase58(), provider: provider.publicKey.toBase58(), body, payer: signer.publicKey.toBase58(), signWithPayer: (m) => new Uint8Array(sign(null, Buffer.from(m), key)), nowMs });
+}

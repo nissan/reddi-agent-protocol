@@ -2,6 +2,8 @@ import { sign as edSign, createPrivateKey } from 'node:crypto';
 import { Keypair } from '@solana/web3.js';
 import {
   MAX_SESSION_DELEGATION_SECONDS,
+  paidCallAuthHeaders,
+  verifyPaidCallRequest,
   SESSION_DELEGATION_HEADER,
   SESSION_SIGNATURE_HEADER,
   sessionDelegationHeaderValue,
@@ -82,5 +84,28 @@ describe('session request signatures (security review S-1)', () => {
       const result = check({ get: (name: string) => (name === SESSION_DELEGATION_HEADER ? d : s) });
       expect(!result.ok && result.reason).toBe('session_auth_invalid');
     }
+  });
+});
+
+describe('single metered call signatures (#866)', () => {
+  const singleCheck = (h: { get(name: string): string | null }, body = BODY) =>
+    verifyPaidCallRequest({ headers: h, escrow, payer: payer.publicKey, provider, body, nowMs: NOW });
+  const asHeaders = (r: Record<string, string>) => ({ get: (name: string) => r[name] ?? null });
+
+  test('accepts a call the payer signed directly, or through a fresh key', async () => {
+    const direct = await paidCallAuthHeaders({ escrow: escrow.toBase58(), provider: provider.toBase58(), body: BODY, payer: payer.publicKey.toBase58(), signWithPayer: signer(payer), nowMs: NOW });
+    expect(singleCheck(asHeaders(direct)).ok).toBe(true);
+    const viaKey = await paidCallAuthHeaders({ escrow: escrow.toBase58(), provider: provider.toBase58(), body: BODY, payer: payer.publicKey.toBase58(), signWithPayer: signer(payer), sessionKey: { publicKey: sessionKey.publicKey.toBase58(), sign: signer(sessionKey) }, nowMs: NOW });
+    expect(singleCheck(asHeaders(viaKey)).ok).toBe(true);
+  });
+
+  test('refuses a stranger, a changed body, and a session call presented as a single call', async () => {
+    const stranger = Keypair.generate();
+    const theirs = await paidCallAuthHeaders({ escrow: escrow.toBase58(), provider: provider.toBase58(), body: BODY, payer: stranger.publicKey.toBase58(), signWithPayer: signer(stranger), nowMs: NOW });
+    expect(singleCheck(asHeaders(theirs)).ok).toBe(false);
+    const mine = await paidCallAuthHeaders({ escrow: escrow.toBase58(), provider: provider.toBase58(), body: BODY, payer: payer.publicKey.toBase58(), signWithPayer: signer(payer), nowMs: NOW });
+    expect(singleCheck(asHeaders(mine), BODY + ' ').ok).toBe(false);
+    const sessionCall = await headers({ action: 'call', sequence: 0 });
+    expect(singleCheck(sessionCall).ok).toBe(false);
   });
 });

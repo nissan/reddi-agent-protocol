@@ -22,6 +22,7 @@ export {
   readMeteredPaymentHeader,
   usageFrom,
   verifyMeteredLock,
+  verifyPaidCallRequest,
   type AccountReader,
   type MeteredPaymentHeader,
   type MeteredSettleSigner,
