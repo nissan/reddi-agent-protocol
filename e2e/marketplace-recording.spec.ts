@@ -21,7 +21,7 @@ test.describe("RAP Assurance demo recording journey", () => {
     await page.goto("/");
     await expect(
       page.getByRole("heading", {
-        name: /payments prove transfer\. RAP Assurance proves paid work\./i,
+        name: /pay for an answer\. keep the receipt\./i,
       }),
     ).toBeVisible();
     await recordingBeat(page);

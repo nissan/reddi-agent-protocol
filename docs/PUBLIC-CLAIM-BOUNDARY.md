@@ -55,7 +55,7 @@ Nothing asserts that `SpecialistCard` marks the right fields. Widening the marke
 
 `/leaderboard` and `/agents` were gated earlier and were removed for the same reason: both render their copy only after a `force-dynamic` devnet `getProgramAccounts` read that carries no `AbortSignal`, so gating them made a live RPC a blocking-lane dependency. On `/agents` the fixture-backed candidate cards are behind the same wait, because the page resolves the registry and candidate reads together before it renders either list. `e2e/agents*.spec.ts` still cover `/agents` on the non-blocking lane.
 
-`e2e/home.spec.ts` runs in the same lane but is a separate literal-copy regression spec: it asserts the central message renders in the hero and footer, and does not consume the shared pattern list.
+`e2e/home.spec.ts` runs in the same lane but is a separate literal-copy regression spec: it asserts the hero heading, and that the central message renders in the hero and footer, and does not consume the shared pattern list.
 
 The static gate carries a negative control: `node scripts/check-public-claim-boundaries.mjs --negative-control` injects every forbidden claim's affirmative example and must exit 1, so a gate that has stopped catching overclaims fails CI.
 
