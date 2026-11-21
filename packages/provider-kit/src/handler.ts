@@ -30,7 +30,7 @@
  * and that settle has a closing receipt of its own.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { hashReddiReceiptV2, signReddiReceiptV2, type ReddiReceiptV2, type ReddiReceiptV2Session } from "@reddi/agent-protocol/receipt-v2";
+import { hashReddiReceiptV2, signReddiReceiptV2, type ReddiReceiptV2, type ReddiReceiptV2Session } from "@redditech/agent-protocol/receipt-v2";
 import { PublicKey } from "@solana/web3.js";
 import {
   baseUnitsToDecimal,
@@ -63,7 +63,7 @@ import {
   type SessionState,
   type TokenCounts,
   type VerifiedLock,
-} from "@reddi/x402-solana";
+} from "@redditech/x402-solana";
 import type { ProviderChain } from "./chain.js";
 import type { ProviderConfig } from "./config.js";
 import type { Upstream, UpstreamMessage } from "./upstream.js";

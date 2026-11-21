@@ -3,11 +3,11 @@ import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { SOLANA_GENESIS_HASHES } from "@reddi/x402-solana";
+import { SOLANA_GENESIS_HASHES } from "@redditech/x402-solana";
 import { runCli } from "../src/cli.js";
 import { formatDoctor, runDoctor } from "../src/doctor.js";
 import { startProvider } from "../src/server.js";
-import { ESCROW_PROTOCOL_TREASURY } from "@reddi/x402-solana";
+import { ESCROW_PROTOCOL_TREASURY } from "@redditech/x402-solana";
 import { Keypair } from "@solana/web3.js";
 import { ata, config, configFile, fakeChain, provider, tokenAccount } from "./helpers.js";
 

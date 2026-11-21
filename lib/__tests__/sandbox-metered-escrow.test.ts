@@ -1,8 +1,8 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { MemoryNonceReplayStore } from "@reddi/x402-solana";
-import { escrowAccountFlags, ratingPda } from "@reddi/x402-solana/rating";
+import { MemoryNonceReplayStore } from "@redditech/x402-solana";
+import { escrowAccountFlags, ratingPda } from "@redditech/x402-solana/rating";
 import vectors from "@/programs/pinocchio-escrow/interface/vectors.json";
-import { validateReddiReceiptV2, verifyReddiReceiptV2 } from "@reddi/agent-protocol/receipt-v2";
+import { validateReddiReceiptV2, verifyReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
 import { IX, ACCOUNT_DISC } from "@/lib/program";
 import devnetProfile from "@/config/networks/devnet.json";
 import { findSandboxProviderById, SANDBOX_PROVIDERS } from "@/lib/sandbox/catalog";

@@ -14,9 +14,9 @@ jest.mock("fs", () => ({
 
 import { generateKeyPairSync, sign as edSign, type KeyObject } from "crypto";
 import { PublicKey } from "@solana/web3.js";
-import { canonicalizeReddiReceiptV2, signReddiReceiptV2, hashReddiReceiptV2Body, type ReddiReceiptV2, type ReddiReceiptV2Session } from "@reddi/agent-protocol/receipt-v2";
-import { verifySessionRequest } from "@reddi/x402-solana";
-import { tokenCostBaseUnits } from "@reddi/x402-solana/metered";
+import { canonicalizeReddiReceiptV2, signReddiReceiptV2, hashReddiReceiptV2Body, type ReddiReceiptV2, type ReddiReceiptV2Session } from "@redditech/agent-protocol/receipt-v2";
+import { verifySessionRequest } from "@redditech/x402-solana";
+import { tokenCostBaseUnits } from "@redditech/x402-solana/metered";
 
 function keypair() {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -82,7 +82,7 @@ function providerChain(lockBaseUnits: bigint) {
   });
   const encode = async (receipt: ReddiReceiptV2) => {
     const signed = await signReddiReceiptV2(receipt, mockProvider.sign);
-    const { hashReddiReceiptV2 } = await import("@reddi/agent-protocol/receipt-v2");
+    const { hashReddiReceiptV2 } = await import("@redditech/agent-protocol/receipt-v2");
     previous = hashReddiReceiptV2(receipt);
     return Buffer.from(JSON.stringify(signed)).toString("base64url");
   };

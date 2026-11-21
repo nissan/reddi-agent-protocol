@@ -1,5 +1,5 @@
 {
-  "name": "@reddi/rap-mcp-bridge",
+  "name": "@redditech/rap-mcp-bridge",
   "version": "0.1.0",
   "description": "Dry-run MCP bridge for RAP Assurance specialist discovery, synthetic quotes, verification, and disclosure ledgers.",
   "type": "module",
@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "@reddi/x402-solana": "file:../x402-solana",
+    "@redditech/x402-solana": "file:../x402-solana",
     "@solana/web3.js": "^1.98.4",
     "zod": "^3.25.76"
   },

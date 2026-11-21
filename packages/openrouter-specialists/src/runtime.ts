@@ -12,7 +12,7 @@ import {
   type NonceReplayStore,
   type ReceiptVerificationResult,
   type X402Challenge,
-} from "@reddi/x402-solana";
+} from "@redditech/x402-solana";
 import { Connection, PublicKey } from "@solana/web3.js";
 import {
   estimateInputTokens,
@@ -513,7 +513,7 @@ const WALLET_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 /**
  * What this provider states about one paid call. Same shape as
- * `ReddiReceiptV2` in `@reddi/agent-protocol`. The model is the one
+ * `ReddiReceiptV2` in `@redditech/agent-protocol`. The model is the one
  * this runtime is configured to call: a declaration, not proof of execution.
  */
 export interface ProviderReceiptStatement {
@@ -546,7 +546,7 @@ export interface RuntimeDeps {
   replayStore?: NonceReplayStore;
   /**
    * Signs a receipt statement with the provider wallet's key and returns the
-   * signed receipt (`signReddiReceiptV2` from `@reddi/agent-protocol`
+   * signed receipt (`signReddiReceiptV2` from `@redditech/agent-protocol`
    * does this). The key stays with the operator; this runtime never reads one.
    * When absent, no receipt is issued.
    */

@@ -11,7 +11,7 @@ import "server-only";
  * `RATING_FLOW_UNAVAILABLE_REASON`. The app rating flow (#842) does this from the parties' own
  * wallets instead (`lib/rating`). No key is read, no
  * instruction is built and no RPC is opened. The builders for that flow are in
- * `@reddi/x402-solana/rating`.
+ * `@redditech/x402-solana/rating`.
  *
  * The refusals keep their order: Quasar target, blocked profile, then this one.
  * `listReputationCommits` still reads commits an earlier build stored.

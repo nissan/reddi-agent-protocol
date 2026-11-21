@@ -9,7 +9,7 @@ import "server-only";
  * whether the delegation and the signature are good.
  */
 
-import { hashReddiReceiptV2, hashReddiReceiptV2Body, verifyReddiReceiptV2, type ReddiReceiptV2 } from "@reddi/agent-protocol/receipt-v2";
+import { hashReddiReceiptV2, hashReddiReceiptV2Body, verifyReddiReceiptV2, type ReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
 import { parseProviderReceiptHeader, PROVIDER_RECEIPT_HEADER } from "@/lib/jobs/provider-receipt";
 
 export const SESSION_SEQUENCE_HEADER = "x402-session-sequence";

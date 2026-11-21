@@ -12,8 +12,8 @@ import "server-only";
  */
 
 import { Connection } from "@solana/web3.js";
-import { SolanaReceiptVerifier, baseUnitsToDecimal, decimalToBaseUnits, directPaymentCurrency, type ParsedTransactionConnection } from "@reddi/x402-solana/payment";
-import type { X402Challenge } from "@reddi/x402-solana/types";
+import { SolanaReceiptVerifier, baseUnitsToDecimal, decimalToBaseUnits, directPaymentCurrency, type ParsedTransactionConnection } from "@redditech/x402-solana/payment";
+import type { X402Challenge } from "@redditech/x402-solana/types";
 import type { NetworkProfileName } from "@/lib/config/network-profile-name";
 import { buyerMintFor, paymentNetworkForProfile } from "@/lib/payments/wallet-direct-payment";
 import { listingNetworkForProfile, type Listing } from "@/lib/listings/listing-store";

@@ -4,7 +4,7 @@ module.exports = {
   testEnvironment: "node",
   testMatch: ["**/tests/**/*.test.ts"],
   moduleNameMapper: {
-    "^@reddi/x402-solana$": "<rootDir>/../x402-solana/src/index.ts",
+    "^@redditech/x402-solana$": "<rootDir>/../x402-solana/src/index.ts",
   },
   transform: {
     "^.+\\.tsx?$": [

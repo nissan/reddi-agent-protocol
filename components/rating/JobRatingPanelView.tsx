@@ -1,6 +1,6 @@
 "use client";
 
-import type { AttestationAccount, RatingAccount } from "@reddi/x402-solana/rating";
+import type { AttestationAccount, RatingAccount } from "@redditech/x402-solana/rating";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RATINGS_DOC_PATH } from "@/lib/rating/reputation-display";

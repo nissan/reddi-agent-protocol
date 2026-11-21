@@ -101,7 +101,7 @@ Attestation/replay/conformance decide what the paid work evidence supports
 
 ## Getting started — local no-spend proof
 
-The fastest externally supportable path is the local `@reddi/agent-protocol` conformance workflow. It does not require a wallet, RPC endpoint, hosted Reddi service, provider key, paid API call, or live payment.
+The fastest externally supportable path is the local `@redditech/agent-protocol` conformance workflow. It does not require a wallet, RPC endpoint, hosted Reddi service, provider key, paid API call, or live payment.
 
 ```bash
 git clone https://github.com/nissan/reddi-agent-protocol
@@ -229,7 +229,7 @@ The earlier Anchor devnet deployment (`794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8d
 
 ## Stack
 
-- **Assurance packages:** `@reddi/agent-protocol`, `@reddi/x402-solana`, `@reddi/rap-mcp-bridge`
+- **Assurance packages:** `@redditech/agent-protocol`, `@redditech/x402-solana`, `@redditech/rap-mcp-bridge`
 - **Conformance:** deterministic Jest, Node, and package dry-run checks
 - **Reference Solana code:** legacy Anchor program plus experimental Quasar sources/lane
 - **MCP bridge:** repo-local bridge for discovery, synthetic quotes, dry-run verification, and disclosure ledgers

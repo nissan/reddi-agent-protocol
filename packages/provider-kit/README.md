@@ -1,4 +1,4 @@
-# @reddi/provider-kit
+# @redditech/provider-kit
 
 Run your own paid provider on Reddi Agent Protocol: one config file, one command, any OpenAI-compatible model.
 
@@ -148,12 +148,12 @@ While your price currency is paused, paid calls are refused with `currency_pause
 
 An agent that makes many small calls to you can lock one escrow and use it for all of them, so it pays one lock and you send one settle. The buyer sends the same `x402-payment` header on every call, plus `x402-session-sequence: 1`, `2`, `3` and so on.
 
-A lock's escrow, payer and nonce are public once it confirms, so they do not show who is calling. The buyer therefore makes a fresh session key and has its payer wallet sign, once, a delegation naming the escrow, your wallet, that key and an expiry of at most seven days (`x402-session-delegation`). Every call, close and read also carries that key's signature over the action, the escrow, the call number and the SHA-256 of the body (`x402-session-signature`). `sessionDelegationHeaderValue` and `sessionSignatureHeaderValue` in `@reddi/x402-solana` build both. A request without them, or signed by anyone else, is refused with `401` before the lock is read, and a session keeps the key it started with.
+A lock's escrow, payer and nonce are public once it confirms, so they do not show who is calling. The buyer therefore makes a fresh session key and has its payer wallet sign, once, a delegation naming the escrow, your wallet, that key and an expiry of at most seven days (`x402-session-delegation`). Every call, close and read also carries that key's signature over the action, the escrow, the call number and the SHA-256 of the body (`x402-session-signature`). `sessionDelegationHeaderValue` and `sessionSignatureHeaderValue` in `@redditech/x402-solana` build both. A request without them, or signed by anyone else, is refused with `401` before the lock is read, and a session keeps the key it started with.
 
 The kit then:
 
 - checks before each call that the cost so far plus this call's worst case still fits under the lock, and refuses with `session_max_reached` when it does not;
-- answers every call with a signed receipt whose `session` block carries the sequence, this call's tokens, the running totals and cost, and the hash of the previous receipt, so the buyer can check the chain (`verifyReddiReceiptV2Session` in `@reddi/agent-protocol`);
+- answers every call with a signed receipt whose `session` block carries the sequence, this call's tokens, the running totals and cost, and the hash of the previous receipt, so the buyer can check the chain (`verifyReddiReceiptV2Session` in `@redditech/agent-protocol`);
 - writes the session to `sessions.file` before it answers, so a restart goes on from the last answered call;
 - settles once, for the total, when the buyer sends `x402-session: close` on a call or `POST /v1/session/close`, when the lock is used up, after `sessions.idleSeconds` without a call, or before the lock's refund window opens. The closing receipt is the one with `closed: true` and a `payment` block for the amount settled.
 
@@ -173,7 +173,7 @@ The worst case of a call counts four characters of input as one token. A model t
 - **A buyer is told "nothing was charged" only when that was read from the chain.** If sending the settle reports a failure, the kit reads the escrow: still locked means nothing was charged and it tries once more; closed means the settle landed after all, so the kit finds it and answers as normal instead of sending it again. If the chain cannot say, the buyer gets the answer without a receipt rather than risk paying for nothing.
 - **Receipts state what the chain shows.** After the settle confirms, the kit reads the transaction back and signs a receipt for what actually moved: your credit plus the treasury's fee as the amount, and the model's token counts separately. If the transaction cannot be read back, or the amounts do not add up, the buyer still gets the answer it paid for, the response says `"confirmed": false`, and no receipt is signed.
 - **Your key signs two things only**: settle (or decline) transactions for escrows payable to you, and receipts. It is read once from the key file and is never logged or sent anywhere.
-- **Run one process per payment memory file.** For several instances behind a load balancer, use a shared database store (`DatabaseReplayStore` in `@reddi/x402-solana`) through the library API.
+- **Run one process per payment memory file.** For several instances behind a load balancer, use a shared database store (`DatabaseReplayStore` in `@redditech/x402-solana`) through the library API.
 
 ## Limits today
 
@@ -189,10 +189,10 @@ The worst case of a call counts four characters of input as one token. A model t
 ## Library use
 
 ```ts
-import { createProviderHandler, parseProviderConfig, createProviderChain, FileReplayStore } from "@reddi/provider-kit";
+import { createProviderHandler, parseProviderConfig, createProviderChain, FileReplayStore } from "@redditech/provider-kit";
 ```
 
-`createProviderHandler(config, deps)` returns a `(Request) => Promise<Response>` you can mount in any server. The seller-side payment logic on its own is in `@reddi/x402-solana/provider`.
+`createProviderHandler(config, deps)` returns a `(Request) => Promise<Response>` you can mount in any server. The seller-side payment logic on its own is in `@redditech/x402-solana/provider`.
 
 ## License
 

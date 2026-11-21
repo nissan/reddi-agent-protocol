@@ -105,7 +105,7 @@ For RAP v0.1, AUDD should stay adapter/proof based:
 - No new Quasar program.
 - No SPL custody program changes.
 - No mainnet/live settlement default.
-- No wallet/RPC transfer helpers in `@reddi/agent-protocol`.
+- No wallet/RPC transfer helpers in `@redditech/agent-protocol`.
 - Continue through #368/#357 local no-spend demo, #377 readiness gate, #386 UI readiness, and #393 receipt/evidence binding using proof metadata first.
 
 This decision should be revisited only if a product requirement demands escrowed AUDD custody instead of receipt/proof-based settlement evidence.

@@ -19,7 +19,7 @@
  * session-auth.ts, provider kit #865).
  */
 
-import { tokenCostBaseUnits, type PerTokenPrice, type TokenCounts } from "@reddi/x402-solana/metered";
+import { tokenCostBaseUnits, type PerTokenPrice, type TokenCounts } from "@redditech/x402-solana/metered";
 
 export const SESSION_SEQUENCE_HEADER = "x402-session-sequence";
 export const SESSION_HEADER = "x402-session";

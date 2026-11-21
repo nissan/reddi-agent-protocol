@@ -21,7 +21,7 @@ import {
 } from "@/lib/payments/metered-session";
 import { createSessionKey, sessionDelegationHeaderValue, sessionSignatureHeaderValue, type MessageSigner } from "@/lib/payments/session-auth";
 import { plannerChatBody } from "@/lib/onboarding/planner-payload";
-import type { PerTokenPrice } from "@reddi/x402-solana/metered";
+import type { PerTokenPrice } from "@redditech/x402-solana/metered";
 
 /** How long the wallet's delegation to the session key lasts. Providers accept at most 7 days. */
 export const SESSION_DELEGATION_SECONDS = 24 * 60 * 60;

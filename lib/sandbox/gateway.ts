@@ -23,7 +23,7 @@ import {
   type ParsedTransactionConnection,
   type ReceiptVerificationResult,
   type X402Challenge,
-} from "@reddi/x402-solana";
+} from "@redditech/x402-solana";
 import {
   findSandboxProviderByModel,
   SANDBOX_CURRENCY,
@@ -36,7 +36,7 @@ import {
   type SandboxSpotCheck,
 } from "./catalog";
 import { PublicKey } from "@solana/web3.js";
-import { decimalToBaseUnits } from "@reddi/x402-solana/payment";
+import { decimalToBaseUnits } from "@redditech/x402-solana/payment";
 import { bytesEqual, decodeSandboxEscrow, escrowNonceBytes, SANDBOX_ESCROW_PROGRAM_ID, refundSlotsLeft, SANDBOX_MIN_CANCEL_WINDOW_SLOTS, sandboxEscrowAddress, sandboxRatingAddress, sandboxRatingOpenedSlot } from "./escrow";
 import { sandboxProviderAddress, signAsSandboxProvider } from "./keys";
 import type { SandboxSettler } from "./settle-signer";

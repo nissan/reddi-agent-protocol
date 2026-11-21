@@ -1,5 +1,5 @@
 import { Keypair } from "@solana/web3.js";
-import { decodeRatingAccount, RATING_COMMIT_SLOTS, RATING_REVEAL_SLOTS } from "@reddi/x402-solana/rating";
+import { decodeRatingAccount, RATING_COMMIT_SLOTS, RATING_REVEAL_SLOTS } from "@redditech/x402-solana/rating";
 import { encodeRatingAccount, type RatingFixture } from "@/lib/rating/testing/fixtures";
 import { estimatedSlotDate, expiredOutcomeText, ratingView, timeLeftLabel } from "@/lib/rating/rating-state";
 

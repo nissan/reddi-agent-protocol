@@ -10,7 +10,7 @@
  * crypto, no keys. The server's signing step lives in `settle-signer.ts`.
  */
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
-import { decodeRatingAccount, ratingPda, withRatingAccount } from "@reddi/x402-solana/rating";
+import { decodeRatingAccount, ratingPda, withRatingAccount } from "@redditech/x402-solana/rating";
 import devnetProfile from "@/config/networks/devnet.json";
 import { SANDBOX_FEE_TREASURY } from "./pricing";
 

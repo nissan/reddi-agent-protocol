@@ -1,4 +1,4 @@
-import { SOURCE_TRUST_STATES } from "@reddi/agent-protocol/source-trust-conformance-matrix";
+import { SOURCE_TRUST_STATES } from "@redditech/agent-protocol/source-trust-conformance-matrix";
 
 import {
   buildArdCatalogCandidateCards,

@@ -10,13 +10,13 @@ This runbook defines the clean-checkout command for the current OSS v0.1 package
 
 Included:
 
-- `@reddi/agent-protocol`
-- `@reddi/x402-solana`
+- `@redditech/agent-protocol`
+- `@redditech/x402-solana`
 
 Excluded from v0.1 smoke:
 
-- `@reddi/sendai-x402`
-- `@reddi/eliza-plugin-x402`
+- `@redditech/sendai-x402`
+- `@redditech/eliza-plugin-x402`
 
 The SendAI and Eliza adapters are deferred experimental repo-local packages per [x402 Adapter Retention Decision](./X402-ADAPTER-RETENTION-DECISION-2026-06-24.md). Both manifests are marked `"private": true` with a deferred description, and this smoke enforces that. They must not appear in public v0.1 release claims, npm publication plans, or supported integration matrices unless a later promotion issue adds package metadata, README docs, stable smoke tests, and claim-boundary review.
 
@@ -30,12 +30,12 @@ npm run check:oss-release-smoke
 
 The script runs:
 
-- `@reddi/agent-protocol` tests.
-- `@reddi/agent-protocol` ARD no-spend example.
-- `@reddi/agent-protocol` import smoke for root, receipt, policy, provider-trust, source-diagnostics, discovery-source, and proof-chain surfaces.
-- `@reddi/x402-solana` tests.
-- `@reddi/x402-solana` build.
-- `@reddi/x402-solana` import smoke for root, budget-policy, client, Jupiter, middleware, nonce, and payment surfaces.
+- `@redditech/agent-protocol` tests.
+- `@redditech/agent-protocol` ARD no-spend example.
+- `@redditech/agent-protocol` import smoke for root, receipt, policy, provider-trust, source-diagnostics, discovery-source, and proof-chain surfaces.
+- `@redditech/x402-solana` tests.
+- `@redditech/x402-solana` build.
+- `@redditech/x402-solana` import smoke for root, budget-policy, client, Jupiter, middleware, nonce, and payment surfaces.
 - Package `npm pack --dry-run --json` inspection from each package directory.
 - RAP naming guard.
 - RAP Assurance public-claim boundary gate (`npm run check:claims:public`) over owned prose, package
@@ -62,8 +62,8 @@ The package dry-run fails if a candidate package includes:
 Passing this smoke means:
 
 - The current local package candidate set can build, test, import, and produce bounded dry-run package contents from a clean checkout.
-- `@reddi/agent-protocol` no-spend ARD/RAP examples work locally.
-- `@reddi/x402-solana` remains a repo-local OSS candidate with explicit x402/Solana package boundaries.
+- `@redditech/agent-protocol` no-spend ARD/RAP examples work locally.
+- `@redditech/x402-solana` remains a repo-local OSS candidate with explicit x402/Solana package boundaries.
 
 Passing this smoke does not mean:
 

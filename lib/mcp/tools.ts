@@ -394,7 +394,7 @@ export const MCP_TOOL_SCHEMAS = [
 // ── ElizaOS action manifest ───────────────────────────────────────────────────
 
 export const ELIZA_ACTION_MANIFEST = {
-  plugin: "@reddi/eliza-specialist-marketplace",
+  plugin: "@redditech/eliza-specialist-marketplace",
   version: "1.0.0",
   actions: [
     {

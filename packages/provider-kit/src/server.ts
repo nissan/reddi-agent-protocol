@@ -7,7 +7,7 @@ import { createProviderHandler } from "./handler.js";
 import { loadProviderKey } from "./keys.js";
 import { FileReplayStore } from "./replay.js";
 import { FileSessionStore } from "./sessions.js";
-import { MeteredSessionLedger } from "@reddi/x402-solana";
+import { MeteredSessionLedger } from "@redditech/x402-solana";
 import { createMockUpstream, createOpenAiCompatibleUpstream, type Upstream } from "./upstream.js";
 
 /** How often sessions are checked for an idle timeout or a refund window that is about to open. */
