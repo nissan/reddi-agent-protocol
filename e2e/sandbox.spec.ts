@@ -145,6 +145,9 @@ test.describe("/sandbox", () => {
     await expect(notice).toHaveAttribute("data-tone", "good");
     await expect(notice).toContainText("Refused with 409");
     await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("1");
+    // Per-token costs are a few thousand lamports: the total must not round to zero.
+    await expect(page.getByTestId("sandbox-spent")).toHaveText(/^[1-9][\d,]*lamports/);
+    await expect(page.getByTestId("sandbox-spent-tri")).toContainText("USDC");
     await expectCopyInsideClaimBoundary(page);
   });
 

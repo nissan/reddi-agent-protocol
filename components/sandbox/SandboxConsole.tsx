@@ -80,6 +80,13 @@ function lamportsFromSol(amount: string): number | undefined {
   return Number.isSafeInteger(lamports) && lamports > 0 ? lamports : undefined;
 }
 
+/** A fifth of the challenge's price, in SOL, for the "try to cheat" underpayment. At least one lamport. */
+function fifthOfPrice(amount: string): string | undefined {
+  const lamports = lamportsFromSol(amount);
+  if (lamports === undefined) return undefined;
+  return formatUnits(BigInt(Math.max(1, Math.floor(lamports / 5))), 9);
+}
+
 /** The most a request can cost with this provider, in lamports: what the challenge asks the buyer to authorise. */
 function maxChargeFor(provider: SandboxProvider, messages: readonly { content: string }[]): bigint {
   return providerPriceView(provider, requestInputTokens(messages)).maxLamports;
@@ -624,7 +631,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                           <div className="rounded-xl border border-amber-400/30 bg-amber-500/5 p-3">
                             <p className="text-xs font-semibold uppercase tracking-wide text-amber-200">Or try to cheat first</p>
                             <div className="mt-2 flex flex-wrap gap-2">
-                              <button type="button" data-testid="sandbox-underpay" className={quietButton} disabled={busy !== null} onClick={() => paySimulated({ amount: "0.0001" }, "Paid request, underpaid")}>Pay a fifth of the price</button>
+                              <button type="button" data-testid="sandbox-underpay" className={quietButton} disabled={busy !== null} onClick={() => paySimulated({ amount: fifthOfPrice(String(challenge.amount)) ?? "0.000000001" }, "Paid request, underpaid")}>Pay a fifth of the price</button>
                               <button type="button" data-testid="sandbox-wrong-payee" className={quietButton} disabled={busy !== null} onClick={() => paySimulated({ payTo: SANDBOX_PROVIDERS[0].payTo }, "Paid request, wrong payee")}>Pay a different wallet</button>
                             </div>
                           </div>
@@ -757,7 +764,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
             <h3 className="font-semibold text-white">Your session</h3>
             <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
               <div><dt className="text-xs uppercase tracking-wide text-gray-400">Receipts</dt><dd className="mt-1 text-2xl font-bold text-white" data-testid="sandbox-receipt-count">{receipts.length}</dd></div>
-              <div><dt className="text-xs uppercase tracking-wide text-gray-400">Spent</dt><dd className="mt-1 text-2xl font-bold text-white">{(totalSpentLamports / 1_000_000_000).toFixed(4)}<span className="ml-1 text-xs font-normal text-gray-400">test SOL</span></dd></div>
+              <div><dt className="text-xs uppercase tracking-wide text-gray-400">Spent</dt><dd className="mt-1 text-2xl font-bold text-white" data-testid="sandbox-spent">{totalSpentLamports.toLocaleString("en-AU")}<span className="ml-1 text-xs font-normal text-gray-400">lamports</span><span className="mt-1 block text-xs font-normal text-gray-400" data-testid="sandbox-spent-tri">{triPriceLabel(triPriceFromLamports(BigInt(totalSpentLamports)))}</span></dd></div>
             </dl>
             <button type="button" className={`${quietButton} mt-4 w-full`} disabled={receipts.length === 0} onClick={downloadReceipts}>Download receipts as JSON</button>
           </section>
