@@ -2,8 +2,8 @@
 /* Opt-in, offline, version-qualified Surfpool 1.7.0 local proof lane for the classic SPL token
  * escrow (#746). It builds the escrow ELF at the exact committed source, runs the existing validator
  * proof (archive/anchor-escrow/tests/local_token_escrow.cjs) unchanged, then runs the same scenario (lock
- * refusals, payer release, payee decline, payer refund after 648,000 slots, payee claim after
- * 1,512,000 slots, stranger refusals and replays) plus near-boundary, surplus-donation and
+ * refusals, payer release, payee decline, payer refund after the 648,000 slots its lock named, payee claim after
+ * the 1,512,000 slots its lock named, stranger refusals and replays) plus near-boundary, surplus-donation and
  * conservation checks against that same ELF on an embedded Surfpool 1.7.0 runtime, and requires the
  * two lanes to agree.
  *
@@ -58,8 +58,11 @@ const ALLOWLISTED_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 // constants.rs PROTOCOL_TREASURY and PROTOCOL_FEE_BPS. Only the address is used: a local token account is created for it.
 const PROTOCOL_TREASURY = "5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe";
 const PROTOCOL_FEE_BPS = 250;
-const CANCEL_WINDOW_SLOTS = 648_000; // constants.rs CANCEL_WINDOW_SLOTS
-const CLAIM_WINDOW_SLOTS = 1_512_000; // constants.rs CLAIM_WINDOW_SLOTS
+// Windows are named per escrow at lock, in slots. Every lock here names 648,000 slots (about 3 days) for both its
+// claim and its refund window, except the claim-case escrow, which names 1,512,000 (about 7 days) for both, so the
+// refund phase runs before any claim is open.
+const CANCEL_WINDOW_SLOTS = 648_000;
+const CLAIM_WINDOW_SLOTS = 1_512_000;
 const CREATED_SLOT_OFFSET = 193; // TokenEscrowAccount: disc 8 + 5 keys + amount 8 + nonce 16 + status 1
 const SOURCE_DIRTY_PATHS = ["archive/anchor-escrow", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "Anchor.toml"];
 
@@ -381,10 +384,10 @@ async function runSurfpoolProof() {
     otherMint.publicKey, otherSource.publicKey, otherRecipient.publicKey,
     ...Object.values(nonces).flatMap((nonce) => [escrowPda(nonce), vaultPda(escrowPda(nonce))])];
 
-  const lock = (nonce, amount, accounts = { mint: MINT, source: source.publicKey, recipient: recipient.publicKey }, metered = false) => {
+  const lock = (nonce, amount, accounts = { mint: MINT, source: source.publicKey, recipient: recipient.publicKey }, metered = false, windowSlots = CANCEL_WINDOW_SLOTS) => {
     const escrow = escrowPda(nonce), vault = vaultPda(escrow);
     return new TransactionInstruction({ programId: PROGRAM,
-      data: Buffer.concat([disc(metered ? "lock_metered_token_escrow" : "lock_token_escrow"), u64(amount), nonce]), keys: [
+      data: Buffer.concat([disc(metered ? "lock_metered_token_escrow" : "lock_token_escrow"), u64(amount), nonce, u64(windowSlots), u64(windowSlots)]), keys: [
       meta(escrow, true), meta(vault, true), meta(payer.publicKey, true, true), meta(payee.publicKey), meta(accounts.mint),
       meta(accounts.source, true), meta(accounts.recipient), meta(TOKEN), meta(SystemProgram.programId),
     ] });
@@ -586,7 +589,7 @@ async function runSurfpoolProof() {
 
   // Two escrows for the time-gated cases.
   await send("lock 150000 for refund", [lock(nonces.refund, 150_000)]);
-  await send("lock 100000 for claim", [lock(nonces.claim, 100_000)]);
+  await send("lock 100000 for claim", [lock(nonces.claim, 100_000, undefined, false, CLAIM_WINDOW_SLOTS)]);
   assert.deepEqual(await balances(), [199_230_000n, 507_000n, 13_000n]);
   const gatedKeys = [MINT, source.publicKey, recipient.publicKey, treasuryToken.publicKey, escrowPda(nonces.refund), vaultPda(escrowPda(nonces.refund)),
     escrowPda(nonces.claim), vaultPda(escrowPda(nonces.claim))];

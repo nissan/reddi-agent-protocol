@@ -27,8 +27,12 @@ pub struct EscrowAccount {
     pub status: EscrowStatus,
     /// Unix timestamp when escrow was created
     pub created_at: i64,
-    /// Slot number when escrow was created (for 7-day cancel window)
+    /// Slot number when escrow was created; both windows count from it
     pub created_slot: u64,
+    /// Slots after `created_slot` from which the payee may claim
+    pub claim_window_slots: u64,
+    /// Slots after `created_slot` from which the payer may refund itself
+    pub cancel_window_slots: u64,
     /// True when this escrow has been delegated to a MagicBlock PER session
     pub delegated_to_per: bool,
     /// Session key issued by the TEE for this delegation (None if not delegated)
@@ -50,6 +54,8 @@ impl EscrowAccount {
         + 1    // status (enum variant)
         + 8    // created_at
         + 8    // created_slot
+        + 8    // claim_window_slots
+        + 8    // cancel_window_slots
         + 1    // delegated_to_per
         + 33   // per_session_key (Option<Pubkey>: 1 + 32)
         + 1    // bump
@@ -76,10 +82,14 @@ pub struct TokenEscrowAccount {
     pub bump: u8,
     /// Metered (per-token) escrow; see `EscrowAccount::metered`.
     pub metered: bool,
+    /// Slots after `created_slot` from which the payee may claim.
+    pub claim_window_slots: u64,
+    /// Slots after `created_slot` from which the payer may refund itself.
+    pub cancel_window_slots: u64,
 }
 
 impl TokenEscrowAccount {
-    pub const LEN: usize = 8 + 32 * 5 + 8 + 16 + 1 + 8 + 1 + 1;
+    pub const LEN: usize = 8 + 32 * 5 + 8 + 16 + 1 + 8 + 1 + 1 + 8 + 8;
 }
 
 /// Type of work an agent supports in the marketplace.

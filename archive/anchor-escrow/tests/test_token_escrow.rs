@@ -11,7 +11,8 @@ use anchor_spl::token::spl_token::{self, instruction as token_ix, state::Account
 use escrow::{
     accounts, instruction,
     state::{EscrowStatus, TokenEscrowAccount},
-    AUDD_MAINNET_MINT, CANCEL_WINDOW_SLOTS, CLAIM_WINDOW_SLOTS, MAX_TOKEN_ESCROW_BASE_UNITS,
+    AUDD_MAINNET_MINT, DEFAULT_CANCEL_WINDOW_SLOTS as CANCEL_WINDOW_SLOTS,
+    DEFAULT_CLAIM_WINDOW_SLOTS as CLAIM_WINDOW_SLOTS, MAX_TOKEN_ESCROW_BASE_UNITS,
     PROTOCOL_TREASURY, USDC_DEVNET_MINT, USDC_MAINNET_MINT,
 };
 use litesvm::LiteSVM;
@@ -167,6 +168,8 @@ impl Fixture {
             &instruction::LockTokenEscrow {
                 amount,
                 nonce: self.nonce,
+                claim_window_slots: CLAIM_WINDOW_SLOTS,
+                cancel_window_slots: CANCEL_WINDOW_SLOTS,
             }
             .data(),
             accounts::LockTokenEscrow {
@@ -188,6 +191,8 @@ impl Fixture {
         ix.data = instruction::LockMeteredTokenEscrow {
             amount,
             nonce: self.nonce,
+            claim_window_slots: CLAIM_WINDOW_SLOTS,
+            cancel_window_slots: CANCEL_WINDOW_SLOTS,
         }
         .data();
         ix
@@ -460,17 +465,77 @@ fn payee_claim_boundary_is_exact_and_pays_only_the_recorded_recipient() {
     );
 }
 
+/// The claim window opens no later than the refund window: in between the
+/// payer cannot refund, the payee can claim, and nothing is left to refund.
 #[test]
-fn payer_refund_before_the_claim_window_beats_a_later_claim() {
+fn payee_claim_before_the_refund_window_beats_a_later_refund() {
     let mut f = Fixture::new();
     f.lock();
     let payee = f.payee.insecure_clone();
     let created = f.state().created_slot;
-    f.svm.warp_to_slot(created + CLAIM_WINDOW_SLOTS - 1);
+    f.svm.warp_to_slot(created + CANCEL_WINDOW_SLOTS - 1);
+    let err = f.reject(f.payer_cancel_ix(), false);
+    assert!(err.contains("Custom(6006)"), "{err}");
+    let ix = f.payout_ix(payee.pubkey());
+    send(&mut f.svm, &[ix], &[&payee]).unwrap();
+    f.svm.warp_to_slot(created + CANCEL_WINDOW_SLOTS + 1);
+    f.reject(f.payer_cancel_ix(), false);
+    assert_eq!(f.triple(), (600_000, 0, 390_000));
+}
+
+/// Each escrow carries its own windows, in slots from the lock, and a lock
+/// with windows outside the rule is refused.
+#[test]
+fn token_windows_are_set_per_escrow_and_bounded() {
+    let max = escrow::MAX_ESCROW_WINDOW_SLOTS;
+    let with_windows = |f: &Fixture, claim: u64, cancel: u64| {
+        let mut ix = f.lock_ix(400_000);
+        ix.data = instruction::LockTokenEscrow {
+            amount: 400_000,
+            nonce: f.nonce,
+            claim_window_slots: claim,
+            cancel_window_slots: cancel,
+        }
+        .data();
+        ix
+    };
+    let mut f = Fixture::new();
+    for (claim, cancel) in [(0, 0), (0, 10), (11, 10), (1, max + 1), (max + 1, max + 1)] {
+        let err = f.reject(with_windows(&f, claim, cancel), false);
+        assert!(err.contains("Custom(6031)"), "({claim}, {cancel}): {err}");
+        assert!(f.closed(f.escrow) && f.closed(f.vault));
+    }
+
+    // Ten seconds to claim, a hundred to refund.
+    let ix = with_windows(&f, 25, 250);
+    send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
+    let state = f.state();
+    assert_eq!(
+        (state.claim_window_slots, state.cancel_window_slots),
+        (25, 250)
+    );
+    let payee = f.payee.insecure_clone();
+    f.svm.warp_to_slot(state.created_slot + 24);
+    let err = f.reject_as(f.payout_ix(payee.pubkey()), &payee);
+    assert!(err.contains("Custom(6027)"), "{err}");
+    f.svm.warp_to_slot(state.created_slot + 25);
+    let err = f.reject(f.payer_cancel_ix(), false);
+    assert!(err.contains("Custom(6006)"), "{err}");
+    let ix = f.payout_ix(payee.pubkey());
+    send(&mut f.svm, &[ix], &[&payee]).unwrap();
+    assert_eq!(f.triple(), (600_000, 0, 390_000));
+
+    // Equal windows: at the boundary the payer's refund is allowed too.
+    let mut f = Fixture::new();
+    let ix = with_windows(&f, 25, 25);
+    send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
+    let created = f.state().created_slot;
+    f.svm.warp_to_slot(created + 24);
+    let err = f.reject(f.payer_cancel_ix(), false);
+    assert!(err.contains("Custom(6006)"), "{err}");
+    f.svm.warp_to_slot(created + 25);
     let ix = f.payer_cancel_ix();
     send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
-    f.svm.warp_to_slot(created + CLAIM_WINDOW_SLOTS + 1);
-    f.reject_as(f.payout_ix(payee.pubkey()), &payee);
     assert_eq!(f.triple(), (1_000_000, 0, 0));
 }
 
@@ -888,6 +953,8 @@ fn token_state_serializes_to_exact_allocated_size_for_all_statuses() {
             created_slot: u64::MAX,
             bump: 255,
             metered: true,
+            claim_window_slots: u64::MAX,
+            cancel_window_slots: u64::MAX,
         };
         let mut bytes = Vec::new();
         state.try_serialize(&mut bytes).unwrap();

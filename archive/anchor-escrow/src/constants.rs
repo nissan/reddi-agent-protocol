@@ -8,17 +8,34 @@ pub const ESCROW_DISCRIMINATOR_SIZE: usize = 8;
 /// Nominal slot time used to express durations in slots. Real slot times drift,
 /// so every duration below is approximate in wall-clock terms.
 pub const NOMINAL_SLOT_MS: u64 = 400;
-/// Slots after lock before the payer may refund itself: about 3 days at the
-/// nominal slot time. Until then the funds can only go to the payee (release) or
-/// come back because the payee declined.
-pub const CANCEL_WINDOW_SLOTS: u64 = 3 * 24 * 60 * 60 * 1000 / NOMINAL_SLOT_MS;
-/// Slots after lock before the payee may claim an escrow the payer has neither
-/// released nor refunded: about 7 days at the nominal slot time. Between the
-/// cancel window and this deadline only the payer can move the funds; from this
-/// deadline on, whichever of payer refund and payee claim lands first wins.
-pub const CLAIM_WINDOW_SLOTS: u64 = 7 * 24 * 60 * 60 * 1000 / NOMINAL_SLOT_MS;
-// The payer must have a real chance to refund before the payee can claim.
-const _: () = assert!(CLAIM_WINDOW_SLOTS > CANCEL_WINDOW_SLOTS);
+/// The longest refund window an escrow may name: about 30 days at the nominal
+/// slot time. It bounds how long a payer can be kept waiting for a refund.
+pub const MAX_ESCROW_WINDOW_SLOTS: u64 = 30 * 24 * 60 * 60 * 1000 / NOMINAL_SLOT_MS;
+/// The claim window clients use when the caller names none: about 10 minutes.
+/// The program itself has no default; every lock names both windows.
+pub const DEFAULT_CLAIM_WINDOW_SLOTS: u64 = 10 * 60 * 1000 / NOMINAL_SLOT_MS;
+/// The refund window clients use when the caller names none: about 30 minutes.
+pub const DEFAULT_CANCEL_WINDOW_SLOTS: u64 = 30 * 60 * 1000 / NOMINAL_SLOT_MS;
+const _: () = assert!(escrow_windows_valid(
+    DEFAULT_CLAIM_WINDOW_SLOTS,
+    DEFAULT_CANCEL_WINDOW_SLOTS
+));
+
+/// The rule for the two windows an escrow is locked with, both counted in
+/// slots from the lock.
+///
+/// - `claim_window_slots`: from then on the payee may claim the whole amount.
+/// - `cancel_window_slots`: from then on the payer may refund itself.
+///
+/// The claim window is at least one slot and never opens after the refund
+/// window, so a payee who did the work can always claim before, or at the
+/// latest when, the payer can take the funds back. The refund window is at
+/// most [`MAX_ESCROW_WINDOW_SLOTS`].
+pub const fn escrow_windows_valid(claim_window_slots: u64, cancel_window_slots: u64) -> bool {
+    claim_window_slots > 0
+        && claim_window_slots <= cancel_window_slots
+        && cancel_window_slots <= MAX_ESCROW_WINDOW_SLOTS
+}
 
 /// Guarded-beta cap on one SOL escrow: 0.5 SOL. Bounds the amount named at lock,
 /// not what a third party may later send to the escrow account.

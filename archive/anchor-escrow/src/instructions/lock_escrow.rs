@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
-use crate::constants::{ESCROW_SEED, MAX_SOL_ESCROW_LAMPORTS};
+use crate::constants::{escrow_windows_valid, ESCROW_SEED, MAX_SOL_ESCROW_LAMPORTS};
 use crate::error::EscrowError;
 use crate::events::EscrowLocked;
 use crate::state::{EscrowAccount, EscrowStatus};
@@ -15,12 +15,18 @@ pub fn lock_escrow_handler(
     ctx: Context<LockEscrow>,
     amount: u64,
     nonce: [u8; 16],
+    claim_window_slots: u64,
+    cancel_window_slots: u64,
     metered: bool,
 ) -> Result<()> {
     require!(amount > 0, EscrowError::ZeroAmount);
     require!(
         amount <= MAX_SOL_ESCROW_LAMPORTS,
         EscrowError::AmountAboveCap
+    );
+    require!(
+        escrow_windows_valid(claim_window_slots, cancel_window_slots),
+        EscrowError::InvalidWindows
     );
     // A payer paying themselves, or the escrow account itself, is never a real job.
     require_keys_neq!(
@@ -43,6 +49,8 @@ pub fn lock_escrow_handler(
     let clock = Clock::get()?;
     escrow.created_at = clock.unix_timestamp;
     escrow.created_slot = clock.slot;
+    escrow.claim_window_slots = claim_window_slots;
+    escrow.cancel_window_slots = cancel_window_slots;
     escrow.bump = ctx.bumps.escrow;
     escrow.metered = metered;
 

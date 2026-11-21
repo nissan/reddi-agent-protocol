@@ -2,8 +2,9 @@ use anchor_lang::prelude::*;
 
 use crate::{
     constants::{
-        allowed_token_program, protocol_fee, treasury_token_address, ALLOWED_MINT_DECIMALS,
-        MAX_TOKEN_ESCROW_BASE_UNITS, PROTOCOL_TREASURY, TOKEN_ESCROW_SEED, TOKEN_VAULT_SEED,
+        allowed_token_program, escrow_windows_valid, protocol_fee, treasury_token_address,
+        ALLOWED_MINT_DECIMALS, MAX_TOKEN_ESCROW_BASE_UNITS, PROTOCOL_TREASURY, TOKEN_ESCROW_SEED,
+        TOKEN_VAULT_SEED,
     },
     error::EscrowError,
     events::{EscrowLocked, EscrowSettled, SettlementOutcome},
@@ -18,6 +19,8 @@ pub fn lock_token_escrow_handler(
     ctx: Context<LockTokenEscrow>,
     amount: u64,
     nonce: [u8; 16],
+    claim_window_slots: u64,
+    cancel_window_slots: u64,
     metered: bool,
 ) -> Result<()> {
     require!(amount > 0, EscrowError::ZeroAmount);
@@ -33,6 +36,10 @@ pub fn lock_token_escrow_handler(
     require!(
         amount <= MAX_TOKEN_ESCROW_BASE_UNITS,
         EscrowError::AmountAboveCap
+    );
+    require!(
+        escrow_windows_valid(claim_window_slots, cancel_window_slots),
+        EscrowError::InvalidWindows
     );
     require_keys_neq!(
         ctx.accounts.payee.key(),
@@ -91,6 +98,8 @@ pub fn lock_token_escrow_handler(
     escrow.created_slot = Clock::get()?.slot;
     escrow.bump = ctx.bumps.escrow;
     escrow.metered = metered;
+    escrow.claim_window_slots = claim_window_slots;
+    escrow.cancel_window_slots = cancel_window_slots;
     emit!(EscrowLocked {
         escrow: escrow.key(),
         payer: escrow.payer,
@@ -114,6 +123,7 @@ pub fn release_token_escrow_handler(ctx: Context<ReleaseTokenEscrow>) -> Result<
         &escrow.payee,
         escrow.created_slot,
         Clock::get()?.slot,
+        escrow.claim_window_slots,
     )?;
     let amount = escrow.amount;
     pay_out(ctx.accounts, amount, outcome)
@@ -296,6 +306,7 @@ pub fn cancel_token_escrow_handler(ctx: Context<CancelTokenEscrow>) -> Result<()
         &escrow.payee,
         escrow.created_slot,
         Clock::get()?.slot,
+        escrow.cancel_window_slots,
     )?;
     require_keys_eq!(
         ctx.accounts.destination.owner,

@@ -24,8 +24,24 @@ pub mod escrow {
 
     // ── Phase 2: Escrow ──────────────────────────────────────────────────────
 
-    pub fn lock_escrow(ctx: Context<LockEscrow>, amount: u64, nonce: [u8; 16]) -> Result<()> {
-        instructions::lock_escrow::lock_escrow_handler(ctx, amount, nonce, false)
+    /// Lock a fixed-price SOL escrow. The payee may claim it from
+    /// `claim_window_slots` after the lock and the payer may refund itself
+    /// from `cancel_window_slots` after the lock.
+    pub fn lock_escrow(
+        ctx: Context<LockEscrow>,
+        amount: u64,
+        nonce: [u8; 16],
+        claim_window_slots: u64,
+        cancel_window_slots: u64,
+    ) -> Result<()> {
+        instructions::lock_escrow::lock_escrow_handler(
+            ctx,
+            amount,
+            nonce,
+            claim_window_slots,
+            cancel_window_slots,
+            false,
+        )
     }
 
     /// Lock a buyer-authorised maximum for a metered (per-token) call.
@@ -33,8 +49,17 @@ pub mod escrow {
         ctx: Context<LockEscrow>,
         amount: u64,
         nonce: [u8; 16],
+        claim_window_slots: u64,
+        cancel_window_slots: u64,
     ) -> Result<()> {
-        instructions::lock_escrow::lock_escrow_handler(ctx, amount, nonce, true)
+        instructions::lock_escrow::lock_escrow_handler(
+            ctx,
+            amount,
+            nonce,
+            claim_window_slots,
+            cancel_window_slots,
+            true,
+        )
     }
 
     pub fn release_escrow(ctx: Context<ReleaseEscrow>) -> Result<()> {
@@ -54,8 +79,17 @@ pub mod escrow {
         ctx: Context<LockTokenEscrow>,
         amount: u64,
         nonce: [u8; 16],
+        claim_window_slots: u64,
+        cancel_window_slots: u64,
     ) -> Result<()> {
-        instructions::token_escrow::lock_token_escrow_handler(ctx, amount, nonce, false)
+        instructions::token_escrow::lock_token_escrow_handler(
+            ctx,
+            amount,
+            nonce,
+            claim_window_slots,
+            cancel_window_slots,
+            false,
+        )
     }
 
     /// Lock a buyer-authorised maximum in tokens for a metered (per-token) call.
@@ -63,8 +97,17 @@ pub mod escrow {
         ctx: Context<LockTokenEscrow>,
         amount: u64,
         nonce: [u8; 16],
+        claim_window_slots: u64,
+        cancel_window_slots: u64,
     ) -> Result<()> {
-        instructions::token_escrow::lock_token_escrow_handler(ctx, amount, nonce, true)
+        instructions::token_escrow::lock_token_escrow_handler(
+            ctx,
+            amount,
+            nonce,
+            claim_window_slots,
+            cancel_window_slots,
+            true,
+        )
     }
 
     pub fn release_token_escrow(ctx: Context<ReleaseTokenEscrow>) -> Result<()> {

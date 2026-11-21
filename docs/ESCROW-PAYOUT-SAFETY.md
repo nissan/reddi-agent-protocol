@@ -29,6 +29,15 @@ Even so, sellers should:
   right after answering and does not wait for any window.
 - Treat a fixed-price lock as a deposit, not as payment, until it is released,
   settled or claimed.
+- Before doing the work, check how much of the refund window is left at that
+  moment, not the window the lock named: a buyer can lock, wait, and call
+  late. The in-repo sellers require about 10 minutes left and serve nothing
+  when the escrow or the current slot cannot be read.
+
+And buyers should know that on a fixed-price escrow there is no refund before
+the seller can claim. A seller can claim once the claim window opens, delivered
+or not. A buyer who wants time to judge the work names a claim window long
+enough for that, and releases early when satisfied.
 
 ## Metered billing
 

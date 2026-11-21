@@ -94,4 +94,7 @@ pub enum EscrowError {
 
     #[msg("Fee must go to the protocol treasury")]
     InvalidTreasury,
+
+    #[msg("Invalid windows: the claim window must be at least one slot, no later than the refund window, and the refund window at most 30 days")]
+    InvalidWindows,
 }

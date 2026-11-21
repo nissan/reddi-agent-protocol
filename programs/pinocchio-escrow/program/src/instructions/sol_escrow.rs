@@ -11,13 +11,13 @@ use {
             signer, transfer, writable, Args,
         },
         consts::{
-            protocol_fee, ESCROW_SEED, MAX_SOL_ESCROW_LAMPORTS, PROTOCOL_TREASURY,
-            SYSTEM_PROGRAM_ID,
+            escrow_windows_valid, protocol_fee, ESCROW_SEED, MAX_SOL_ESCROW_LAMPORTS,
+            PROTOCOL_TREASURY, SYSTEM_PROGRAM_ID,
         },
         error::{
             fail, require, AccountNotEnoughKeys, AmountAboveCap, ConstraintHasOne, ConstraintSeeds,
-            InvalidPayee, InvalidSettleAmount, InvalidTreasury, NotLocked, NotMetered,
-            UnauthorisedSigner, ZeroAmount,
+            InvalidPayee, InvalidSettleAmount, InvalidTreasury, InvalidWindows, NotLocked,
+            NotMetered, UnauthorisedSigner, ZeroAmount,
         },
         events::{Locked, Outcome, Settled},
         state::{Record, SolEscrow, STATUS_LOCKED},
@@ -31,7 +31,8 @@ use {
 /// `lock_escrow` / `lock_metered_escrow`.
 ///
 /// Accounts: `[w] escrow`, `[w, s] payer`, `[] payee`, `[] system_program`.
-/// Data: `amount: u64`, `nonce: [u8; 16]`.
+/// Data: `amount: u64`, `nonce: [u8; 16]`, `claim_window_slots: u64`,
+/// `cancel_window_slots: u64`.
 ///
 /// For a metered lock the amount is the buyer's authorised maximum.
 pub fn lock(
@@ -43,6 +44,8 @@ pub fn lock(
     let mut args = Args(data);
     let amount = args.u64()?;
     let nonce: [u8; 16] = args.array()?;
+    let claim_window_slots = args.u64()?;
+    let cancel_window_slots = args.u64()?;
     let [escrow, payer, payee, system_program, ..] = accounts else {
         return Err(fail(&AccountNotEnoughKeys));
     };
@@ -71,6 +74,10 @@ pub fn lock(
 
     require(amount > 0, &ZeroAmount)?;
     require(amount <= MAX_SOL_ESCROW_LAMPORTS, &AmountAboveCap)?;
+    require(
+        escrow_windows_valid(claim_window_slots, cancel_window_slots),
+        &InvalidWindows,
+    )?;
     // A payer paying themselves, or the escrow account itself, is never a real job.
     require(payee.address() != payer.address(), &InvalidPayee)?;
     require(payee.address() != escrow.address(), &InvalidPayee)?;
@@ -83,6 +90,8 @@ pub fn lock(
         nonce,
         unix_timestamp,
         slot,
+        claim_window_slots,
+        cancel_window_slots,
         bump[0],
         metered,
     )
@@ -154,6 +163,7 @@ pub fn pay_out(
                     &record.payee,
                     record.created_slot(),
                     slot,
+                    record.claim_window_slots(),
                 )?,
             )
         }
@@ -219,6 +229,7 @@ pub fn cancel(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResu
         &record.payee,
         record.created_slot(),
         slot,
+        record.cancel_window_slots(),
     )?;
     close(escrow, payer)?;
 

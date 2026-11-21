@@ -1,7 +1,6 @@
 //! Account checks and helpers shared by every instruction.
 use {
     crate::{
-        consts::{CANCEL_WINDOW_SLOTS, CLAIM_WINDOW_SLOTS},
         error::{
             fail, require, AccountNotSigner, CancelWindowNotElapsed, ClaimWindowNotElapsed,
             ConstraintMut, InstructionDidNotDeserialize, InvalidProgramId, Overflow,
@@ -36,7 +35,7 @@ pub fn program(account: &AccountView, id: &Address) -> ProgramResult {
 /// Who may end a locked escrow by refunding the payer, and why.
 ///
 /// - The payee may decline at any time.
-/// - The payer may refund itself once the cancel window has elapsed.
+/// - The payer may refund itself once the escrow's own cancel window has elapsed.
 /// - Nobody else may refund.
 pub fn refund_outcome(
     authority: &Address,
@@ -44,13 +43,14 @@ pub fn refund_outcome(
     payee: &Address,
     created_slot: u64,
     current_slot: u64,
+    cancel_window_slots: u64,
 ) -> Result<Outcome, ProgramError> {
     if authority == payee {
         return Ok(Outcome::DeclinedByPayee);
     }
     require(authority == payer, &UnauthorisedSigner)?;
     require(
-        current_slot.saturating_sub(created_slot) >= CANCEL_WINDOW_SLOTS,
+        current_slot.saturating_sub(created_slot) >= cancel_window_slots,
         &CancelWindowNotElapsed,
     )?;
     Ok(Outcome::RefundedAfterWindow)
@@ -59,7 +59,7 @@ pub fn refund_outcome(
 /// Who may end a locked escrow by paying the payee, and why.
 ///
 /// - The payer may release at any time.
-/// - The payee may claim once the claim window has elapsed.
+/// - The payee may claim once the escrow's own claim window has elapsed.
 /// - Nobody else may pay out.
 pub fn payout_outcome(
     authority: &Address,
@@ -67,13 +67,14 @@ pub fn payout_outcome(
     payee: &Address,
     created_slot: u64,
     current_slot: u64,
+    claim_window_slots: u64,
 ) -> Result<Outcome, ProgramError> {
     if authority == payer {
         return Ok(Outcome::Released);
     }
     require(authority == payee, &UnauthorisedSigner)?;
     require(
-        current_slot.saturating_sub(created_slot) >= CLAIM_WINDOW_SLOTS,
+        current_slot.saturating_sub(created_slot) >= claim_window_slots,
         &ClaimWindowNotElapsed,
     )?;
     Ok(Outcome::ClaimedByPayee)

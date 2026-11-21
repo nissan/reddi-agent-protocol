@@ -33,8 +33,10 @@ const PROGRAM = new PublicKey('DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu');
 const TOKEN = token.TOKEN_PROGRAM_ID;
 // Allowlisted in the default build (constants.rs USDC_MAINNET_MINT). Only the address is reused.
 const MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
-const CANCEL_WINDOW_SLOTS = 648_000; // constants.rs CANCEL_WINDOW_SLOTS
-const CLAIM_WINDOW_SLOTS = 1_512_000; // constants.rs CLAIM_WINDOW_SLOTS
+// Windows are named per escrow at lock, in slots. Every lock here names 648,000 slots for both its claim and its
+// refund window, except the claim-case escrow, which names 1,512,000 for both.
+const CANCEL_WINDOW_SLOTS = 648_000;
+const CLAIM_WINDOW_SLOTS = 1_512_000;
 // constants.rs PROTOCOL_TREASURY. Only the address is used: its associated token account is created locally; nothing is signed by it.
 const TREASURY = new PublicKey('5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -141,10 +143,10 @@ async function main() {
     metered: Buffer.alloc(16, 97) };
   const escrowPda = nonce => PublicKey.findProgramAddressSync([Buffer.from('token-escrow'), payer.publicKey.toBuffer(), nonce], PROGRAM)[0];
   const vaultPda = escrow => PublicKey.findProgramAddressSync([Buffer.from('token-vault'), escrow.toBuffer()], PROGRAM)[0];
-  const lock = (nonce, amount, accounts = { mint: MINT, source: source.publicKey, recipient: recipient.publicKey }, metered = false) => {
+  const lock = (nonce, amount, accounts = { mint: MINT, source: source.publicKey, recipient: recipient.publicKey }, metered = false, windowSlots = CANCEL_WINDOW_SLOTS) => {
     const escrow = escrowPda(nonce), vault = vaultPda(escrow);
     return new TransactionInstruction({ programId: PROGRAM,
-      data: Buffer.concat([disc(metered ? 'lock_metered_token_escrow' : 'lock_token_escrow'), u64(amount), nonce]), keys: [
+      data: Buffer.concat([disc(metered ? 'lock_metered_token_escrow' : 'lock_token_escrow'), u64(amount), nonce, u64(windowSlots), u64(windowSlots)]), keys: [
       meta(escrow, true), meta(vault, true), meta(payer.publicKey, true, true), meta(payee.publicKey), meta(accounts.mint),
       meta(accounts.source, true), meta(accounts.recipient), meta(TOKEN), meta(SystemProgram.programId),
     ] });
@@ -284,7 +286,7 @@ async function main() {
 
     // Two escrows for the time-gated cases.
     signatures.push(await send([lock(nonces.refund, 150_000)]));
-    signatures.push(await send([lock(nonces.claim, 100_000)]));
+    signatures.push(await send([lock(nonces.claim, 100_000, undefined, false, CLAIM_WINDOW_SLOTS)]));
     assert.deepEqual(await balances(), [199_230_000n, 507_000n, 13_000n]);
     const refundCreatedSlot = await createdSlotOf(nonces.refund), claimCreatedSlot = await createdSlotOf(nonces.claim);
     const lastCreatedSlot = Math.max(refundCreatedSlot, claimCreatedSlot);

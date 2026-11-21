@@ -24,6 +24,7 @@ import {
   usageFrom,
   verifyMeteredLock,
   type AccountReader,
+  type SlotReader,
   type MeteredSettleSigner,
 } from "./metered-payment.js";
 import { buildAgentDependencyManifestDisclosure, buildAgenticWorkflowManifestDisclosure, buildDownstreamDisclosureLedger, buildNoDownstreamDisclosureLedger } from "./agentic-workflow-disclosure.js";
@@ -548,6 +549,8 @@ export interface RuntimeDeps {
   settleMeteredEscrow?: MeteredSettleSigner;
   /** Reads chain accounts for a metered lock. Defaults to the configured RPC. */
   readAccount?: AccountReader;
+  /** Reads the current slot for a metered lock. Defaults to the configured RPC. */
+  readSlot?: SlotReader;
   now?: () => Date;
 }
 
@@ -718,7 +721,8 @@ async function handleMeteredChatCompletion(input: {
       const info = await connection.getAccountInfo(address, "confirmed");
       return info ? { owner: info.owner, data: new Uint8Array(info.data) } : null;
     });
-  const lock = await verifyMeteredLock({ header, terms, minimum, readAccount, replayStore: input.replayStore });
+  const readSlot: SlotReader = deps.readSlot ?? (() => connection.getSlot("confirmed"));
+  const lock = await verifyMeteredLock({ header, terms, minimum, readAccount, readSlot, replayStore: input.replayStore });
   if (!lock.ok) {
     return refuse(lock.reason === "payment_check_unavailable" ? 503 : lock.reason === "duplicate_nonce" ? 409 : 402, lock.reason, lock.message, { metered: meteredOffer(terms, messages, body.max_tokens) });
   }

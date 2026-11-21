@@ -25,6 +25,35 @@ export const SANDBOX_ESCROW_DISCRIMINATORS = {
   escrowAccount: Uint8Array.from([36, 69, 48, 18, 128, 225, 125, 135]),
 } as const;
 
+/**
+ * Windows a sandbox lock names, in slots from the lock (about 400 ms each). The provider may claim the whole
+ * maximum from the first; the visitor may refund from the second. Mirrors DEFAULT_CLAIM_WINDOW_SLOTS and
+ * DEFAULT_CANCEL_WINDOW_SLOTS in programs/pinocchio-escrow/program/src/consts.rs: about 10 and 30 minutes.
+ */
+export const SANDBOX_CLAIM_WINDOW_SLOTS = BigInt(1_500);
+export const SANDBOX_CANCEL_WINDOW_SLOTS = BigInt(4_500);
+/**
+ * The shortest refund window the sandbox provider serves against: about 10 minutes. With a shorter one the
+ * visitor could refund before the provider's settlement lands.
+ */
+export const SANDBOX_MIN_CANCEL_WINDOW_SLOTS = BigInt(1_500);
+/** Size of an escrow account locked before windows were stored on it (fixed 3-day refund, 7-day claim). */
+const LEGACY_ESCROW_ACCOUNT_LEN = 149;
+/** The refund window the earlier program gave every escrow: about 3 days. */
+export const LEGACY_CANCEL_WINDOW_SLOTS = BigInt(648_000);
+
+/**
+ * Slots left before the payer may refund, or undefined when that cannot be
+ * told. A seller needs enough of them for its settlement to land first, so
+ * what matters is the time left now, not the window the lock named: a buyer
+ * could lock, wait out most of the window, and only then make the call.
+ */
+export function refundSlotsLeft(escrow: Pick<DecodedSandboxEscrow, "createdSlot" | "cancelWindowSlots">, currentSlot: bigint): bigint {
+  const window = escrow.cancelWindowSlots ?? LEGACY_CANCEL_WINDOW_SLOTS;
+  const elapsed = currentSlot > escrow.createdSlot ? currentSlot - escrow.createdSlot : BigInt(0);
+  return window > elapsed ? window - elapsed : BigInt(0);
+}
+
 const NONCE_HEX = /^[0-9a-f]{32}$/;
 
 /** The 16 escrow nonce bytes for a challenge nonce: the challenge's 32 hex characters. */
@@ -55,7 +84,15 @@ function concat(...parts: Uint8Array[]): Buffer {
 }
 
 /** The visitor's signed step: lock `maxLamports` for this challenge, payable to the provider. */
-export function buildSandboxMeteredLock(input: { payer: PublicKey; payee: PublicKey; maxLamports: bigint; challengeNonce: string; programId?: PublicKey }): {
+export function buildSandboxMeteredLock(input: {
+  payer: PublicKey;
+  payee: PublicKey;
+  maxLamports: bigint;
+  challengeNonce: string;
+  programId?: PublicKey;
+  claimWindowSlots?: bigint;
+  cancelWindowSlots?: bigint;
+}): {
   instruction: TransactionInstruction;
   escrow: PublicKey;
 } {
@@ -69,7 +106,13 @@ export function buildSandboxMeteredLock(input: { payer: PublicKey; payee: Public
       { pubkey: input.payee, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
-    data: concat(SANDBOX_ESCROW_DISCRIMINATORS.lockMeteredEscrow, u64le(input.maxLamports), escrowNonceBytes(input.challengeNonce)),
+    data: concat(
+      SANDBOX_ESCROW_DISCRIMINATORS.lockMeteredEscrow,
+      u64le(input.maxLamports),
+      escrowNonceBytes(input.challengeNonce),
+      u64le(input.claimWindowSlots ?? SANDBOX_CLAIM_WINDOW_SLOTS),
+      u64le(input.cancelWindowSlots ?? SANDBOX_CANCEL_WINDOW_SLOTS),
+    ),
   });
   return { instruction, escrow };
 }
@@ -96,8 +139,14 @@ export type DecodedSandboxEscrow = {
   nonce: Uint8Array;
   status: "locked" | "released" | "cancelled";
   createdAt: bigint;
+  /** The slot the escrow was locked in; both windows count from it. */
+  createdSlot: bigint;
   delegatedToPer: boolean;
   metered: boolean;
+  /** Slots after the lock from which the payee may claim. Undefined on an account locked before windows were stored. */
+  claimWindowSlots?: bigint;
+  /** Slots after the lock from which the payer may refund. Undefined on an account locked before windows were stored. */
+  cancelWindowSlots?: bigint;
 };
 
 /** Reads an `EscrowAccount` (Borsh, as Anchor writes it). Undefined when the bytes are not one. */
@@ -120,7 +169,18 @@ export function decodeSandboxEscrow(data: Uint8Array): DecodedSandboxEscrow | un
   const status = statusByte === 0 ? "locked" : statusByte === 1 ? "released" : statusByte === 2 ? "cancelled" : undefined;
   if (!status) return undefined;
   const createdAt = view.getBigInt64(offset, true);
-  offset += 8 + 8; // created_at, created_slot
+  offset += 8;
+  const createdSlot = view.getBigUint64(offset, true);
+  offset += 8;
+  // The windows follow, except on an account the earlier program wrote, which is 16 bytes shorter.
+  let claimWindowSlots: bigint | undefined;
+  let cancelWindowSlots: bigint | undefined;
+  if (data.length !== LEGACY_ESCROW_ACCOUNT_LEN) {
+    if (data.length < offset + 16 + 4) return undefined;
+    claimWindowSlots = view.getBigUint64(offset, true);
+    cancelWindowSlots = view.getBigUint64(offset + 8, true);
+    offset += 16;
+  }
   const delegatedToPer = data[offset] === 1;
   offset += 1;
   const sessionTag = data[offset];
@@ -130,7 +190,7 @@ export function decodeSandboxEscrow(data: Uint8Array): DecodedSandboxEscrow | un
   if (data.length < offset + 2) return undefined;
   offset += 1; // bump
   const metered = data[offset] === 1;
-  return { payer, payee, amount, nonce, status, createdAt, delegatedToPer, metered };
+  return { payer, payee, amount, nonce, status, createdAt, createdSlot, delegatedToPer, metered, claimWindowSlots, cancelWindowSlots };
 }
 
 export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {

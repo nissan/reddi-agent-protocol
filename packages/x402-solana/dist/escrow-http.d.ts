@@ -18,6 +18,16 @@ export interface EscrowChallenge {
     amount: string;
     nonce: string;
     expiresAt: number;
+    /**
+     * Slots after the lock from which the payee may claim. A whole number,
+     * at least 1 and at most `cancelWindowSlots`. Omitted: about 10 minutes.
+     */
+    claimWindowSlots?: number;
+    /**
+     * Slots after the lock from which the payer may refund itself, at most
+     * about 30 days. Omitted: about 30 minutes.
+     */
+    cancelWindowSlots?: number;
 }
 export interface EscrowProof {
     nonce: string;

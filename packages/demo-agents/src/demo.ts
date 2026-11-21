@@ -150,10 +150,14 @@ function encodeLockEscrow(amount: bigint, nonce: Uint8Array): Buffer {
     buf.writeBigUInt64LE(escrowId, 9);
     return buf;
   }
-  const buf = Buffer.alloc(8 + 8 + 16);
+  // amount, nonce, then the two windows in slots: the payee may claim from the
+  // first (about 10 minutes) and the payer may refund from the second (about 30).
+  const buf = Buffer.alloc(8 + 8 + 16 + 8 + 8);
   disc("lock_escrow").copy(buf, 0);
   buf.writeBigUInt64LE(amount, 8);
   Buffer.from(nonce).copy(buf, 16);
+  buf.writeBigUInt64LE(BigInt(1_500), 32);
+  buf.writeBigUInt64LE(BigInt(4_500), 40);
   return buf;
 }
 

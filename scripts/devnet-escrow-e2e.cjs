@@ -13,8 +13,8 @@
  *                 replay) is simulated, not sent,
  *                 and must fail. Then it locks one escrow per currency for each time-gated case and leaves it
  *                 open for the finish modes below.
- *   finish-refund After the cancel window (648,000 slots, about 3 days): payer refunds the "refund" escrows.
- *   finish-claim  After the claim window (1,512,000 slots, about 7 days): payee claims the "claim" escrows.
+ *   finish-claim  After the claim window the locks named (750 slots, about 5 minutes): payee claims the "claim" escrows.
+ *   finish-refund After the cancel window the locks named (1,500 slots, about 10 minutes): payer refunds the "refund" escrows.
  *                 Before a window has passed, a finish mode simulates the action, shows it is refused, and stops.
  *
  * Signing modes read two keypair files by path: RAP_E2E_PAYER_KEYPAIR and RAP_E2E_PAYEE_KEYPAIR. The script never
@@ -50,8 +50,10 @@ const TREASURY = new PublicKey('5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe');
 const USDC = new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'); // constants.rs USDC_DEVNET_MINT
 const TOKEN = token.TOKEN_PROGRAM_ID;
 const TREASURY_USDC = token.getAssociatedTokenAddressSync(USDC, TREASURY, true, TOKEN);
-const CANCEL_WINDOW_SLOTS = 648_000; // constants.rs
-const CLAIM_WINDOW_SLOTS = 1_512_000; // constants.rs
+// Windows this script names on every lock, in slots (about 400 ms each): the payee may claim from the first, the
+// payer may refund from the second. Short on purpose, so the finish modes can run minutes after `run`.
+const CLAIM_WINDOW_SLOTS = 750; // about 5 minutes
+const CANCEL_WINDOW_SLOTS = 1_500; // about 10 minutes
 const FEE_BPS = 250n;
 const SOL_FEE_CAP = 100_000_000n;
 const SOL_CREATED_SLOT_OFFSET = 8 + 32 + 32 + 8 + 16 + 1 + 8; // EscrowAccount.created_slot
@@ -110,7 +112,7 @@ const tokenVault = escrow => PublicKey.findProgramAddressSync([Buffer.from('toke
 
 function solLock({ payer, payee, nonce, amount, metered = false }) {
   return new TransactionInstruction({ programId: PROGRAM,
-    data: Buffer.concat([disc(metered ? 'lock_metered_escrow' : 'lock_escrow'), u64(amount), nonce]),
+    data: Buffer.concat([disc(metered ? 'lock_metered_escrow' : 'lock_escrow'), u64(amount), nonce, u64(CLAIM_WINDOW_SLOTS), u64(CANCEL_WINDOW_SLOTS)]),
     keys: [meta(solEscrow(payer, nonce), true), meta(payer, true, true), meta(payee), meta(SystemProgram.programId)] });
 }
 // Release / settle: the payer or the payee signs; whichever signed is the authority.
@@ -128,7 +130,7 @@ function solCancel({ payer, nonce, authority }) {
 function usdcLock({ payer, payee, nonce, amount, source, recipient, metered = false }) {
   const escrow = tokenEscrow(payer, nonce);
   return new TransactionInstruction({ programId: PROGRAM,
-    data: Buffer.concat([disc(metered ? 'lock_metered_token_escrow' : 'lock_token_escrow'), u64(amount), nonce]),
+    data: Buffer.concat([disc(metered ? 'lock_metered_token_escrow' : 'lock_token_escrow'), u64(amount), nonce, u64(CLAIM_WINDOW_SLOTS), u64(CANCEL_WINDOW_SLOTS)]),
     keys: [meta(escrow, true), meta(tokenVault(escrow), true), meta(payer, true, true), meta(payee), meta(USDC),
       meta(source, true), meta(recipient), meta(TOKEN), meta(SystemProgram.programId)] });
 }

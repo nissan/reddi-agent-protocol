@@ -12,15 +12,15 @@ use {
             writable, Args,
         },
         consts::{
-            allowed_token_program, protocol_fee, ALLOWED_MINT_DECIMALS,
+            allowed_token_program, escrow_windows_valid, protocol_fee, ALLOWED_MINT_DECIMALS,
             ASSOCIATED_TOKEN_PROGRAM_ID, MAX_TOKEN_ESCROW_BASE_UNITS, PROTOCOL_TREASURY,
             SYSTEM_PROGRAM_ID, TOKEN_2022_ID, TOKEN_ESCROW_SEED, TOKEN_VAULT_SEED,
         },
         error::{
             fail, require, AccountNotEnoughKeys, AmountAboveCap, ConstraintDuplicateMutableAccount,
             ConstraintHasOne, ConstraintSeeds, InvalidPayee, InvalidProgramId, InvalidSettleAmount,
-            InvalidTokenAccount, InvalidTokenAmount, InvalidTreasury, MintNotAllowed, NotLocked,
-            NotMetered, UnauthorisedSigner, ZeroAmount,
+            InvalidTokenAccount, InvalidTokenAmount, InvalidTreasury, InvalidWindows,
+            MintNotAllowed, NotLocked, NotMetered, UnauthorisedSigner, ZeroAmount,
         },
         events::{Locked, Outcome, Settled},
         state::{Record, TokenEscrow, STATUS_LOCKED},
@@ -39,7 +39,8 @@ use {
 /// Accounts: `[w] escrow`, `[w] vault`, `[w, s] payer`, `[] payee`, `[] mint`,
 /// `[w] source` (payer's token account), `[] recipient` (payee's token
 /// account), `[] token_program`, `[] system_program`.
-/// Data: `amount: u64`, `nonce: [u8; 16]`.
+/// Data: `amount: u64`, `nonce: [u8; 16]`, `claim_window_slots: u64`,
+/// `cancel_window_slots: u64`.
 pub fn lock(
     program_id: &Address,
     accounts: &mut [AccountView],
@@ -49,6 +50,8 @@ pub fn lock(
     let mut args = Args(data);
     let amount = args.u64()?;
     let nonce: [u8; 16] = args.array()?;
+    let claim_window_slots = args.u64()?;
+    let cancel_window_slots = args.u64()?;
     let [escrow, vault, payer, payee, mint, source, recipient, token_program, system_program, ..] =
         accounts
     else {
@@ -128,6 +131,10 @@ pub fn lock(
         &MintNotAllowed,
     )?;
     require(amount <= MAX_TOKEN_ESCROW_BASE_UNITS, &AmountAboveCap)?;
+    require(
+        escrow_windows_valid(claim_window_slots, cancel_window_slots),
+        &InvalidWindows,
+    )?;
     require(payee.address() != payer.address(), &InvalidPayee)?;
     // Tokens paid to an account owned by the escrow or its vault could never
     // be moved again: this program signs for neither as a recipient's owner.
@@ -165,6 +172,8 @@ pub fn lock(
         amount,
         nonce,
         created_slot,
+        claim_window_slots,
+        cancel_window_slots,
         bump[0],
         metered,
     )
@@ -426,6 +435,7 @@ pub fn pay_out(
                 &record.payee,
                 record.created_slot(),
                 slot,
+                record.claim_window_slots(),
             )?,
         ),
         Some(actual) => {
@@ -543,6 +553,7 @@ pub fn cancel(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResu
         &record.payee,
         record.created_slot(),
         slot,
+        record.cancel_window_slots(),
     )?;
     require(
         destination_account.owner == record.payer,

@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { Connection } from '@solana/web3.js';
 import { PublicKey } from '@solana/web3.js';
 import { unpackAccount, unpackMint } from '@solana/spl-token';
-import { buildLockTokenEscrowInstruction, decodeTokenEscrowAccount, tokenEscrowAddresses, TokenEscrowTerms } from './token-escrow';
+import { buildLockTokenEscrowInstruction, decodeTokenEscrowAccount, escrowWindows, tokenEscrowAddresses, TokenEscrowTerms } from './token-escrow';
 
 /** RAP-specific escrow extension; not the interoperable x402 SVM exact scheme. */
 export interface EscrowChallenge {
@@ -22,6 +22,16 @@ export interface EscrowChallenge {
   amount: string;
   nonce: string;
   expiresAt: number;
+  /**
+   * Slots after the lock from which the payee may claim. A whole number,
+   * at least 1 and at most `cancelWindowSlots`. Omitted: about 10 minutes.
+   */
+  claimWindowSlots?: number;
+  /**
+   * Slots after the lock from which the payer may refund itself, at most
+   * about 30 days. Omitted: about 30 minutes.
+   */
+  cancelWindowSlots?: number;
 }
 export interface EscrowProof { nonce: string; lockSignature: string }
 export interface EscrowReceipt extends EscrowProof {
@@ -38,8 +48,13 @@ export function escrowTerms(c: EscrowChallenge): TokenEscrowTerms {
   if (c.scheme !== 'rap-spl-escrow-v1' || !['solana-local-validator', 'solana-devnet'].includes(c.network)) throw new Error('unsupported escrow scheme/network');
   if (!/^[0-9a-f]{32}$/.test(c.nonce) || !/^[1-9][0-9]*$/.test(c.amount)) throw new Error('invalid escrow nonce/amount');
   if (!Number.isInteger(c.decimals) || c.decimals < 0 || c.decimals > 255) throw new Error('invalid mint decimals');
-  const t = { tokenProgram: new PublicKey(c.tokenProgram), programId: new PublicKey(c.programId), payer: new PublicKey(c.payer), payee: new PublicKey(c.payee),
-    mint: new PublicKey(c.mint), source: new PublicKey(c.source), recipient: new PublicKey(c.recipient), amount: BigInt(c.amount), nonce: Buffer.from(c.nonce, 'hex') };
+  for (const window of [c.claimWindowSlots, c.cancelWindowSlots]) {
+    if (window !== undefined && (!Number.isSafeInteger(window) || window < 1)) throw new Error('invalid escrow window');
+  }
+  const t: TokenEscrowTerms = { tokenProgram: new PublicKey(c.tokenProgram), programId: new PublicKey(c.programId), payer: new PublicKey(c.payer), payee: new PublicKey(c.payee),
+    mint: new PublicKey(c.mint), source: new PublicKey(c.source), recipient: new PublicKey(c.recipient), amount: BigInt(c.amount), nonce: Buffer.from(c.nonce, 'hex'),
+    ...(c.claimWindowSlots !== undefined ? { claimWindowSlots: BigInt(c.claimWindowSlots) } : {}),
+    ...(c.cancelWindowSlots !== undefined ? { cancelWindowSlots: BigInt(c.cancelWindowSlots) } : {}) };
   buildLockTokenEscrowInstruction(t); // Validate u64 and native-mint boundary before signing.
   return t;
 }
@@ -72,6 +87,9 @@ export async function verifyEscrowLock(connection: Connection, c: EscrowChalleng
     if (!decoded[field].equals(t[field])) throw new Error(`wrong escrow ${field}`);
   }
   if (decoded.amount !== t.amount || !decoded.nonce.equals(Buffer.from(t.nonce)) || decoded.status !== 0 || decoded.bump !== bump || decoded.createdSlot !== BigInt(tx.slot)) throw new Error('escrow terms mismatch');
+  // An account the earlier program wrote stores no windows (they were fixed); otherwise they must be the challenge's.
+  const expected = escrowWindows(t);
+  if (decoded.claimWindowSlots !== undefined && (decoded.claimWindowSlots !== expected.claimWindowSlots || decoded.cancelWindowSlots !== expected.cancelWindowSlots)) throw new Error('escrow windows mismatch');
   const mintInfo = await connection.getAccountInfo(t.mint, { commitment: 'finalized', minContextSlot: tx.slot });
   if (!mintInfo || unpackMint(t.mint, mintInfo, t.tokenProgram).decimals !== c.decimals) throw new Error('mint decimals mismatch');
   const info = await connection.getAccountInfo(vault, { commitment: 'finalized', minContextSlot: tx.slot });
