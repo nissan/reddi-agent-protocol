@@ -31,11 +31,14 @@ export type SandboxReceiptPayment = {
   /** Present on a v2 receipt. A simulated receipt has no transaction. */
   txSignature?: string;
   currency: "SOL";
-  /** Listed price in lamports, as a decimal string. */
+  /** Lamports paid, as a decimal string. For a metered call, the actual cost. */
   amount: string;
-  fee: { amount: string };
+  /** Protocol fee taken out of `amount`; `treasury` is named when it is above zero. */
+  fee: { amount: string; treasury?: string };
   payer?: string;
-  settlement: "direct";
+  settlement: "direct" | "metered-escrow";
+  /** Tokens used and the maximum the buyer authorised, on a metered call. */
+  metered?: { inputTokens: string; outputTokens: string; maxAmount: string; refunded: string };
 };
 
 export type SandboxReceiptBody = {
@@ -161,9 +164,12 @@ export function canonicalizeSandboxReceipt(receipt: SandboxReceiptBody): string 
       ...(p.txSignature !== undefined ? { txSignature: p.txSignature } : {}),
       currency: p.currency,
       amount: p.amount,
-      fee: { amount: p.fee.amount },
+      fee: { amount: p.fee.amount, ...(p.fee.treasury !== undefined ? { treasury: p.fee.treasury } : {}) },
       ...(p.payer !== undefined ? { payer: p.payer } : {}),
       settlement: p.settlement,
+      ...(p.metered !== undefined
+        ? { metered: { inputTokens: p.metered.inputTokens, outputTokens: p.metered.outputTokens, maxAmount: p.metered.maxAmount, refunded: p.metered.refunded } }
+        : {}),
     },
     issuedAt: receipt.issuedAt,
   });
@@ -228,6 +234,7 @@ export type VerifySandboxReceiptInput = {
   /** Provider address the buyer expects, from the models listing. */
   expectedProviderId?: string;
   /** What the buyer knows it paid. Each field given is compared. */
+  /** `amount` is what the buyer paid or, on a metered call, the maximum it locked. */
   expectedPayment?: { amount?: string; txSignature?: string; payer?: string };
 };
 
@@ -240,7 +247,8 @@ const TX_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
 const BASE_UNITS = /^(0|[1-9]\d{0,29})$/;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 const RECEIPT_KEYS = ["schemaVersion", "providerId", "declaredModel", "requestHash", "responseHash", "payment", "issuedAt"];
-const PAYMENT_KEYS = ["network", "txSignature", "currency", "amount", "fee", "payer", "settlement"];
+const PAYMENT_KEYS = ["network", "txSignature", "currency", "amount", "fee", "payer", "settlement", "metered"];
+const METERED_KEYS = ["inputTokens", "outputTokens", "maxAmount", "refunded"];
 
 const onlyKeys = (value: Record<string, unknown>, allowed: string[]) => Object.keys(value).every((key) => allowed.includes(key));
 
@@ -259,9 +267,23 @@ export function isSandboxReceipt(value: unknown): value is SandboxReceipt {
   if (typeof receipt.issuedAt !== "string" || !ISO_UTC.test(receipt.issuedAt)) return false;
   const payment = receipt.payment;
   if (!isRecord(payment) || !onlyKeys(payment, PAYMENT_KEYS)) return false;
-  if (payment.network !== "solana-devnet" || payment.currency !== "SOL" || payment.settlement !== "direct") return false;
+  if (payment.network !== "solana-devnet" || payment.currency !== "SOL") return false;
   if (typeof payment.amount !== "string" || !BASE_UNITS.test(payment.amount) || payment.amount === "0") return false;
-  if (!isRecord(payment.fee) || !onlyKeys(payment.fee, ["amount"]) || payment.fee.amount !== "0") return false;
+  const fee = payment.fee;
+  if (!isRecord(fee) || !onlyKeys(fee, ["amount", "treasury"]) || typeof fee.amount !== "string" || !BASE_UNITS.test(fee.amount)) return false;
+  if (fee.treasury !== undefined && (typeof fee.treasury !== "string" || !base58Decode32(fee.treasury))) return false;
+  if ((fee.amount === "0") !== (fee.treasury === undefined)) return false;
+  if (BigInt(fee.amount) >= BigInt(payment.amount)) return false;
+  if (payment.settlement === "metered-escrow") {
+    // Only a simulated call is metered in the sandbox; a devnet transfer pays the maximum directly.
+    if (!simulated) return false;
+    const metered = payment.metered;
+    if (!isRecord(metered) || !onlyKeys(metered, METERED_KEYS) || !METERED_KEYS.every((key) => typeof metered[key] === "string" && BASE_UNITS.test(metered[key] as string))) return false;
+    const max = BigInt(metered.maxAmount as string);
+    if (BigInt(payment.amount) > max || BigInt(metered.refunded as string) !== max - BigInt(payment.amount)) return false;
+  } else if (payment.settlement !== "direct" || payment.metered !== undefined || fee.amount !== "0") {
+    return false;
+  }
   if (payment.payer !== undefined && (typeof payment.payer !== "string" || !base58Decode32(payment.payer))) return false;
   if (simulated) return payment.txSignature === undefined && payment.payer === undefined;
   return typeof payment.txSignature === "string" && TX_SIGNATURE.test(payment.txSignature);
@@ -335,7 +357,7 @@ export async function verifySandboxReceipt(input: VerifySandboxReceiptInput): Pr
 
   const expected = input.expectedPayment ?? {};
   const mismatched = [
-    expected.amount !== undefined && expected.amount !== receipt.payment.amount ? "amount" : undefined,
+    expected.amount !== undefined && expected.amount !== (receipt.payment.metered?.maxAmount ?? receipt.payment.amount) ? "amount" : undefined,
     expected.txSignature !== undefined && expected.txSignature !== receipt.payment.txSignature ? "transaction" : undefined,
     expected.payer !== undefined && expected.payer !== receipt.payment.payer ? "payer" : undefined,
   ].filter((entry): entry is string => entry !== undefined);
@@ -347,7 +369,9 @@ export async function verifySandboxReceipt(input: VerifySandboxReceiptInput): Pr
       ? `The receipt states a different ${mismatched.join(" and ")} than you paid.`
       : kind === "v2"
         ? "Currency, amount, fee, payer and transaction are the ones you paid with."
-        : "Simulated: the amount matches the challenge and no transaction is named.",
+        : receipt.payment.metered
+          ? "Simulated: the maximum matches the challenge, the cost is what the tokens used come to, and the rest of the maximum is returned. No transaction is named."
+          : "Simulated: the amount matches the challenge and no transaction is named.",
   });
 
   return { ok: checks.every((check) => check.passed), kind, checks };

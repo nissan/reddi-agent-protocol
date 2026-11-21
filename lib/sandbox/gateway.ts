@@ -11,7 +11,6 @@
 import {
   buildX402Challenge,
   parseX402PaymentHeader,
-  solAmountToLamports,
   SolanaReceiptVerifier,
   SOLANA_GENESIS_HASHES,
   verifyDemoPaymentReceipt,
@@ -32,6 +31,7 @@ import {
   type SandboxSpotCheck,
 } from "./catalog";
 import { sandboxProviderAddress, signAsSandboxProvider } from "./keys";
+import { countTokens, formatUnits, maxChargeLamports, requestInputTokens, SANDBOX_FEE_TREASURY, settleSandboxCall } from "./pricing";
 import {
   canonicalizeSandboxReceipt,
   encodeReceiptHeader,
@@ -122,12 +122,16 @@ function parseBody(body: unknown): ParsedBody | SandboxGatewayResponse {
   return { provider, messages, model: record.model };
 }
 
-export function sandboxChallenge(provider: SandboxProvider, origin: string, nonce: string): X402Challenge {
+/**
+ * The challenge asks for the most this call can cost: the request's input
+ * tokens plus the provider's full output limit, at the listed per-token price.
+ */
+export function sandboxChallenge(provider: SandboxProvider, origin: string, nonce: string, inputTokens: number): X402Challenge {
   return buildX402Challenge({
     version: "1",
     network: SANDBOX_NETWORK,
     payTo: provider.payTo,
-    amount: provider.priceSol,
+    amount: formatUnits(maxChargeLamports(provider, inputTokens), 9),
     currency: SANDBOX_CURRENCY,
     endpoint: `${origin}${SANDBOX_ENDPOINT_PATH}`,
     nonce,
@@ -149,14 +153,14 @@ function rejected(reason: Extract<ReceiptVerificationResult, { ok: false }>["rea
  * The challenge is rebuilt from the catalog and the presented nonce, so a caller
  * cannot choose its own price or payee.
  */
-async function verifySandboxPayment(header: string, provider: SandboxProvider, origin: string, deps: SandboxGatewayDeps): Promise<PaymentOutcome> {
+async function verifySandboxPayment(header: string, provider: SandboxProvider, origin: string, inputTokens: number, deps: SandboxGatewayDeps): Promise<PaymentOutcome> {
   const parsed = parseX402PaymentHeader(header);
 
   if (typeof parsed === "string") {
     if (!parsed.startsWith("demo:")) return rejected("invalid_receipt", "x402-payment must be demo:<nonce> or a JSON payment receipt.");
     const nonce = parsed.slice("demo:".length);
     if (!NONCE_PATTERN.test(nonce)) return rejected("invalid_nonce", "Use the nonce from the 402 challenge.");
-    const result = await verifyDemoPaymentReceipt({ receipt: parsed, challenge: sandboxChallenge(provider, origin, nonce), allowDemoPayment: true, replayStore: deps.replayStore });
+    const result = await verifyDemoPaymentReceipt({ receipt: parsed, challenge: sandboxChallenge(provider, origin, nonce, inputTokens), allowDemoPayment: true, replayStore: deps.replayStore });
     return result.ok ? { ok: true, mode: "simulated", nonce, payerId: SIMULATED_PAYER_ID, proofRef: `simulated:${nonce}` } : { ok: false, result };
   }
 
@@ -164,7 +168,7 @@ async function verifySandboxPayment(header: string, provider: SandboxProvider, o
   const record = parsed as Record<string, unknown>;
   const nonce = typeof record.nonce === "string" ? record.nonce : "";
   if (!NONCE_PATTERN.test(nonce)) return rejected("invalid_nonce", "Use the nonce from the 402 challenge.");
-  const challenge = sandboxChallenge(provider, origin, nonce);
+  const challenge = sandboxChallenge(provider, origin, nonce, inputTokens);
 
   if (record.simulated === true) {
     // A simulated payment states its own terms so the sandbox can show what a
@@ -202,12 +206,18 @@ async function writeReceipt(input: {
   requestBody: string;
   responseBody: string;
   payment: Extract<PaymentOutcome, { ok: true }>;
+  inputTokens: number;
+  answer: string;
   issuedAt: string;
 }): Promise<SandboxReceipt> {
   const { provider, payment } = input;
-  const lamports = solAmountToLamports(provider.priceSol);
-  if (lamports === undefined) throw new Error(`sandbox provider ${provider.id} has an invalid price`);
+  const maxAmount = maxChargeLamports(provider, input.inputTokens);
   const paid = payment.mode === "devnet-transfer";
+  // A devnet transfer paid the maximum straight to the provider: the receipt
+  // states that, with no fee and no refund, because nothing else happened on
+  // chain. A simulated call shows what the metered escrow does on V1: settle
+  // the actual tokens, take the 2.5% fee, return the rest of the maximum.
+  const settled = settleSandboxCall(provider, { inputTokens: input.inputTokens, outputTokens: countTokens(input.answer) }, maxAmount);
   const receipt: SandboxReceiptBody = {
     schemaVersion: paid ? REDDI_RECEIPT_V2_VERSION : SANDBOX_SIMULATED_RECEIPT_VERSION,
     providerId: await sandboxProviderAddress(provider.id),
@@ -218,11 +228,19 @@ async function writeReceipt(input: {
       network: SANDBOX_NETWORK,
       ...(paid ? { txSignature: payment.proofRef } : {}),
       currency: SANDBOX_CURRENCY,
-      amount: lamports.toString(),
-      // The sandbox takes no protocol fee.
-      fee: { amount: "0" },
-      ...(paid ? { payer: payment.payerAddress } : {}),
-      settlement: "direct",
+      ...(paid
+        ? { amount: maxAmount.toString(), fee: { amount: "0" }, payer: payment.payerAddress, settlement: "direct" as const }
+        : {
+            amount: settled.amount.toString(),
+            fee: settled.fee > BigInt(0) ? { amount: settled.fee.toString(), treasury: SANDBOX_FEE_TREASURY } : { amount: "0" },
+            settlement: "metered-escrow" as const,
+            metered: {
+              inputTokens: String(settled.usage.inputTokens),
+              outputTokens: String(settled.usage.outputTokens),
+              maxAmount: settled.maxAmount.toString(),
+              refunded: settled.refunded.toString(),
+            },
+          }),
     },
     issuedAt: input.issuedAt,
   };
@@ -241,9 +259,10 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
     return failure(503, "provider_unavailable", `${provider.name} is not answering. No payment was requested or accepted.`, { charged: false, provider: provider.id });
   }
 
+  const inputTokens = requestInputTokens(messages);
   const header = request.paymentHeader?.trim();
   if (!header) {
-    const challenge = sandboxChallenge(provider, request.origin, (deps.newNonce ?? randomNonce)());
+    const challenge = sandboxChallenge(provider, request.origin, (deps.newNonce ?? randomNonce)(), inputTokens);
     return respond(
       402,
       {
@@ -252,13 +271,14 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
         sandbox: {
           simulatedPayment: `Resend with header x402-payment: demo:${challenge.nonce}`,
           devnetPayment: "Or transfer the amount in devnet SOL to payTo from your own wallet and resend with a JSON x402-payment receipt naming txSignature and payer.",
+          pricing: `The amount is the most this call can cost: ${inputTokens} input tokens plus ${provider.pricing.maxOutputTokens} output tokens at ${provider.pricing.inputPerMillionUsd} and ${provider.pricing.outputPerMillionUsd} USD per million, paid in devnet SOL at a demo rate.`,
         },
       },
       { "x402-request": JSON.stringify(challenge) },
     );
   }
 
-  const payment = await verifySandboxPayment(header, provider, request.origin, deps);
+  const payment = await verifySandboxPayment(header, provider, request.origin, inputTokens, deps);
   if (!payment.ok) {
     const duplicate = payment.result.reason === "duplicate_nonce";
     return failure(duplicate ? 409 : 402, duplicate ? "payment_already_used" : "payment_rejected", payment.result.message, {
@@ -281,7 +301,7 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
     rap_sandbox: { scripted: true, paymentMode: payment.mode, spotCheck },
   });
   // The receipt travels in a header, as in V1, because it commits to the hash of the whole response body.
-  const receipt = await writeReceipt({ provider, requestBody: request.rawBody, responseBody: response.bodyText, payment, issuedAt: new Date(nowMs).toISOString() });
+  const receipt = await writeReceipt({ provider, requestBody: request.rawBody, responseBody: response.bodyText, payment, inputTokens, answer, issuedAt: new Date(nowMs).toISOString() });
   response.headers[payment.mode === "devnet-transfer" ? PROVIDER_RECEIPT_HEADER : SANDBOX_SIMULATED_RECEIPT_HEADER] = encodeReceiptHeader(receipt);
   return response;
 }
@@ -301,7 +321,13 @@ export async function sandboxModelsListing(): Promise<Record<string, unknown>> {
         declaredModel: provider.model,
         scripted: true,
         available: provider.behaviour !== "offline",
-        price: { amount: provider.priceSol, currency: SANDBOX_CURRENCY, network: SANDBOX_NETWORK },
+        pricing: {
+          currency: "USD",
+          inputPerMillion: provider.pricing.inputPerMillionUsd,
+          outputPerMillion: provider.pricing.outputPerMillionUsd,
+          maxOutputTokens: provider.pricing.maxOutputTokens,
+          paidIn: { currency: SANDBOX_CURRENCY, network: SANDBOX_NETWORK, rate: "demo" },
+        },
         payTo: provider.payTo,
         // The base58 address receipts from this provider name as providerId. A published test key, not a wallet.
         receiptProviderId: await sandboxProviderAddress(provider.id),

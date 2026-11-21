@@ -77,7 +77,11 @@ test.describe("/sandbox", () => {
     await open(page);
     await page.getByTestId("sandbox-send").click();
     const challenge = page.getByTestId("sandbox-challenge");
-    await expect(challenge).toContainText("0.002 SOL");
+    // Atlas Review: 31 input tokens plus up to 2,000 output tokens at $3 / $15 per million, paid in devnet SOL at the demo rate.
+    await expect(challenge).toContainText("0.00020062 SOL");
+    await expect(challenge).toContainText("0.030093 USDC · 0.046645 AUDD");
+    await expect(page.getByTestId("sandbox-price-atlas-review")).toContainText("$3.00 in, $15.00 out");
+    await expect(page.getByTestId("sandbox-max-atlas-review")).toContainText("0.030093 USDC · 0.046645 AUDD · 0.00020062 SOL");
     await expect(challenge).toContainText("solana-devnet");
     await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("0");
 
@@ -92,6 +96,13 @@ test.describe("/sandbox", () => {
     await expect(receipt).toContainText("Sandbox simulated receipt. Not a reddi.receipt.v2 receipt");
     await expect(receipt).toContainText("sandbox/atlas-coder-large");
     await expect(receipt).toContainText("simulated, no transaction");
+    // Settled at the tokens used: 31 in, 92 out = 9,820 lamports; 2.5% fee rounded down = 245; the rest of the maximum comes back.
+    await expect(receipt).toContainText("31 in, 92 out");
+    await expect(receipt).toContainText("(9820 lamports)");
+    await expect(receipt).toContainText("Protocol fee 2.5%");
+    await expect(receipt).toContainText("(245 lamports), to the protocol treasury");
+    await expect(receipt).toContainText("(9575 lamports)");
+    await expect(receipt).toContainText("(190800 lamports)");
     await expect(page.getByTestId("sandbox-answer")).toHaveValue(/Three issues before this ships\./);
     await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("1");
     await expect(page.getByTestId("sandbox-reputation-change")).toContainText("★ 4.80 → ★ 4.80");
