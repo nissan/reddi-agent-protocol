@@ -90,6 +90,7 @@ fn build() -> Value {
                     ix: Instruction,
                     names: &[&str],
                     signer: &solana_keypair::Keypair| {
+        let ix = world.resolve(&ix);
         instructions.push(instruction(name, note, &ix, names));
         world.ok(name, ix, &[signer]);
     };
@@ -117,7 +118,7 @@ fn build() -> Value {
     send(
         &mut world,
         "settle_escrow",
-        "rated SOL escrow: the rating account follows the five usual accounts; data: actual u64",
+        "rated SOL escrow: the rating account follows the five usual accounts; data: actual u64, then the slot the job's rating was opened in (u64 LE)",
         with_rating(sol_payout(&c, &s, n, &s, Some(600_000)), &escrow),
         &[
             "escrow",
@@ -138,7 +139,7 @@ fn build() -> Value {
     send(
         &mut world,
         "commit_rating",
-        "data: commitment = sha256(rating address, opened slot (u64 LE), signer address, score byte, 32-byte salt)",
+        "data: commitment = sha256(rating address, opened slot (u64 LE), signer address, score byte, 32-byte salt), then the slot the job's rating was opened in (u64 LE)",
         commit_rating(&rating, &c, consumer_commitment),
         &["rating", "signer"],
         &consumer,
@@ -185,7 +186,7 @@ fn build() -> Value {
     send(
         &mut world,
         "confirm_attestation",
-        "no data",
+        "data: the slot the job's rating was opened in (u64 LE), which the attestation stores",
         resolve_attestation(&escrow, &j, &c, true),
         &["attestation", "judge_agent", "consumer"],
         &consumer,
@@ -224,7 +225,7 @@ fn build() -> Value {
     send(
         &mut world,
         "release_escrow",
-        "rated SOL escrow: the rating account follows the five usual accounts; no data",
+        "rated SOL escrow: the rating account follows the five usual accounts; data: the slot the job's rating was opened in (u64 LE)",
         with_rating(sol_payout(&c, &s, n, &c, None), &escrow),
         &[
             "escrow",
@@ -244,7 +245,7 @@ fn build() -> Value {
     send(
         &mut world,
         "dispute_attestation",
-        "no data",
+        "data: the slot the job's rating was opened in (u64 LE), which the attestation stores",
         resolve_attestation(&escrow, &j, &c, false),
         &["attestation", "judge_agent", "consumer"],
         &consumer,
@@ -276,7 +277,7 @@ fn build() -> Value {
     send(
         &mut world,
         "cancel_escrow",
-        "rated SOL escrow: the rating account follows the four usual accounts and is closed; no data",
+        "rated SOL escrow: the rating account follows the four usual accounts and is closed; data: the slot the job's rating was opened in (u64 LE)",
         with_rating(sol_cancel(&c, n, &s), &escrow),
         &["escrow", "authority", "payer", "system_program", "rating"],
         &specialist,
@@ -313,7 +314,7 @@ fn build() -> Value {
                 send(
                     &mut world,
                     "release_token_escrow",
-                    "rated token escrow: the rating account follows the nine usual accounts; no data",
+                    "rated token escrow: the rating account follows the nine usual accounts; data: the slot the job's rating was opened in (u64 LE)",
                     with_rating(t.payout(nonce(i), &c, None), &escrow),
                     &TOKEN_PAYOUT,
                     &t.payer,
@@ -322,7 +323,7 @@ fn build() -> Value {
             5 => send(
                 &mut world,
                 "settle_token_escrow",
-                "rated token escrow: the rating account follows the nine usual accounts; data: actual u64",
+                "rated token escrow: the rating account follows the nine usual accounts; data: actual u64, then the slot the job's rating was opened in (u64 LE)",
                 with_rating(t.payout(nonce(i), &s, Some(250_000)), &escrow),
                 &TOKEN_PAYOUT,
                 &t.payee,
@@ -330,7 +331,7 @@ fn build() -> Value {
             _ => send(
                 &mut world,
                 "cancel_token_escrow",
-                "rated token escrow: the rating account follows the seven usual accounts and is closed; no data",
+                "rated token escrow: the rating account follows the seven usual accounts and is closed; data: the slot the job's rating was opened in (u64 LE)",
                 with_rating(t.cancel(nonce(i), &s), &escrow),
                 &[
                     "escrow",

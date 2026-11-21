@@ -204,6 +204,8 @@ impl World {
     /// Send one transaction. `signers[0]` pays the fee.
     /// After a successful `open_rating` the world moves to the next slot.
     pub fn send(&mut self, ixs: &[Instruction], signers: &[&Keypair]) -> Result<Sent, String> {
+        let ixs: Vec<Instruction> = ixs.iter().map(|ix| self.resolve(ix)).collect();
+        let ixs = &ixs[..];
         for ix in ixs {
             self.touched
                 .extend(ix.accounts.iter().map(|meta| meta.pubkey));
@@ -249,6 +251,31 @@ impl World {
             }),
             Err(failed) => Err(format!("{:?} {:?}", failed.err, failed.meta.logs)),
         }
+    }
+
+    /// `ix` with a trailing `THIS_JOB` replaced by the opening slot of the
+    /// job it is given: the first rating or attestation account among its
+    /// accounts, read now, or the current slot when there is none yet (the
+    /// rating is opened in the same transaction).
+    pub fn resolve(&self, ix: &Instruction) -> Instruction {
+        let mut ix = ix.clone();
+        if ix.program_id != escrow::id() || !ix.data.ends_with(&THIS_JOB) {
+            return ix;
+        }
+        let job = ix
+            .accounts
+            .iter()
+            .filter_map(|meta| self.svm.get_account(&meta.pubkey))
+            .filter(|account| account.owner == escrow::id())
+            .find_map(|account| match account.data.len() {
+                270 => Some(u64_at(&account.data, 240)),
+                ATTESTATION_LEN => Some(u64_at(&account.data, 119)),
+                _ => None,
+            })
+            .unwrap_or_else(|| self.slot());
+        let at = ix.data.len() - 8;
+        ix.data[at..].copy_from_slice(&job.to_le_bytes());
+        ix
     }
 
     pub fn ok(&mut self, label: &str, ix: Instruction, signers: &[&Keypair]) -> Sent {
@@ -403,7 +430,7 @@ pub fn attestation_address(escrow: &Pubkey) -> Pubkey {
 // ── Account layouts (README "Account layouts") ──────────────────────────────
 
 pub const RATING_LEN: usize = 270;
-pub const ATTESTATION_LEN: usize = 119;
+pub const ATTESTATION_LEN: usize = 127;
 
 fn pubkey_at(data: &[u8], at: usize) -> Pubkey {
     Pubkey::new_from_array(data[at..at + 32].try_into().unwrap())
@@ -479,6 +506,7 @@ pub struct Attestation {
     pub resolution: u8,
     pub created_slot: u64,
     pub bump: u8,
+    pub opened_slot: u64,
 }
 
 impl Attestation {
@@ -493,6 +521,7 @@ impl Attestation {
             resolution: data[109],
             created_slot: u64_at(data, 110),
             bump: data[118],
+            opened_slot: u64_at(data, 119),
         }
     }
 }
@@ -587,8 +616,25 @@ pub fn close_attestation(escrow: &Pubkey, judge: &Pubkey) -> Instruction {
 
 /// The same exit with the rating account of `escrow` after its own accounts,
 /// as an exit of a rated escrow needs it.
+/// Stand-in for "the job now at this address" in an instruction's data, for
+/// tests that do not care which job it names. `World::send` replaces it with
+/// that job's opening slot when the transaction is sent. Tests about a stale
+/// or wrong job name the slot themselves (the `_of` builders).
+pub const THIS_JOB: [u8; 8] = *b"thisjob!";
+
+/// `exit` for a rated escrow: the rating account after its own accounts,
+/// and the job (`THIS_JOB`) after its data.
 pub fn with_rating(exit: Instruction, escrow: &Pubkey) -> Instruction {
-    with_account(exit, rating_address(escrow), true)
+    let mut ix = with_account(exit, rating_address(escrow), true);
+    ix.data.extend_from_slice(&THIS_JOB);
+    ix
+}
+
+/// `exit` for a rated escrow, naming `opened_slot` as the job.
+pub fn with_rating_of(exit: Instruction, escrow: &Pubkey, opened_slot: u64) -> Instruction {
+    let mut ix = with_account(exit, rating_address(escrow), true);
+    ix.data.extend_from_slice(&opened_slot.to_le_bytes());
+    ix
 }
 
 pub fn with_account(mut ix: Instruction, address: Pubkey, writable: bool) -> Instruction {
@@ -625,9 +671,28 @@ pub fn commitment_of(
 }
 
 pub fn commit_rating(rating: &Pubkey, signer: &Pubkey, commitment: [u8; 32]) -> Instruction {
+    commit_rating_with(rating, signer, commitment, THIS_JOB)
+}
+
+/// `commit_rating` naming `opened_slot` as the job.
+pub fn commit_rating_of(
+    rating: &Pubkey,
+    signer: &Pubkey,
+    commitment: [u8; 32],
+    opened_slot: u64,
+) -> Instruction {
+    commit_rating_with(rating, signer, commitment, opened_slot.to_le_bytes())
+}
+
+fn commit_rating_with(
+    rating: &Pubkey,
+    signer: &Pubkey,
+    commitment: [u8; 32],
+    job: [u8; 8],
+) -> Instruction {
     ix(
         "commit_rating",
-        &commitment,
+        &[&commitment[..], &job[..]].concat(),
         vec![meta(*rating, false, true), meta(*signer, true, false)],
     )
 }
@@ -723,13 +788,35 @@ pub fn resolve_attestation(
     consumer: &Pubkey,
     confirm: bool,
 ) -> Instruction {
+    resolve_attestation_with(escrow, judge, consumer, confirm, THIS_JOB)
+}
+
+/// `confirm_attestation` or `dispute_attestation` naming `opened_slot` as
+/// the job.
+pub fn resolve_attestation_of(
+    escrow: &Pubkey,
+    judge: &Pubkey,
+    consumer: &Pubkey,
+    confirm: bool,
+    opened_slot: u64,
+) -> Instruction {
+    resolve_attestation_with(escrow, judge, consumer, confirm, opened_slot.to_le_bytes())
+}
+
+fn resolve_attestation_with(
+    escrow: &Pubkey,
+    judge: &Pubkey,
+    consumer: &Pubkey,
+    confirm: bool,
+    job: [u8; 8],
+) -> Instruction {
     ix(
         if confirm {
             "confirm_attestation"
         } else {
             "dispute_attestation"
         },
-        &[],
+        &job,
         vec![
             meta(attestation_address(escrow), false, true),
             meta(agent(judge), false, true),
