@@ -9,11 +9,28 @@ pub const AGENT_SEED: &[u8] = b"agent";
 
 /// Nominal slot time used to express durations in slots.
 pub const NOMINAL_SLOT_MS: u64 = 400;
-/// Slots after lock before the payer may refund itself: about 3 days.
-pub const CANCEL_WINDOW_SLOTS: u64 = 3 * 24 * 60 * 60 * 1000 / NOMINAL_SLOT_MS;
-/// Slots after lock before the payee may claim: about 7 days.
-pub const CLAIM_WINDOW_SLOTS: u64 = 7 * 24 * 60 * 60 * 1000 / NOMINAL_SLOT_MS;
-const _: () = assert!(CLAIM_WINDOW_SLOTS > CANCEL_WINDOW_SLOTS);
+/// The longest refund window an escrow may name: about 30 days.
+pub const MAX_ESCROW_WINDOW_SLOTS: u64 = 30 * 24 * 60 * 60 * 1000 / NOMINAL_SLOT_MS;
+/// The claim window clients use when the caller names none: about 10 minutes.
+/// The program itself has no default; every lock names both windows.
+pub const DEFAULT_CLAIM_WINDOW_SLOTS: u64 = 10 * 60 * 1000 / NOMINAL_SLOT_MS;
+/// The refund window clients use when the caller names none: about 30 minutes.
+pub const DEFAULT_CANCEL_WINDOW_SLOTS: u64 = 30 * 60 * 1000 / NOMINAL_SLOT_MS;
+const _: () = assert!(escrow_windows_valid(
+    DEFAULT_CLAIM_WINDOW_SLOTS,
+    DEFAULT_CANCEL_WINDOW_SLOTS
+));
+
+/// The rule for the two windows an escrow is locked with, both counted in
+/// slots from the lock: the payee may claim from `claim_window_slots` and the
+/// payer may refund itself from `cancel_window_slots`. The claim window is at
+/// least one slot and never opens after the refund window; the refund window
+/// is at most [`MAX_ESCROW_WINDOW_SLOTS`].
+pub const fn escrow_windows_valid(claim_window_slots: u64, cancel_window_slots: u64) -> bool {
+    claim_window_slots > 0
+        && claim_window_slots <= cancel_window_slots
+        && cancel_window_slots <= MAX_ESCROW_WINDOW_SLOTS
+}
 
 /// Guarded-beta cap on one SOL escrow: 0.5 SOL.
 pub const MAX_SOL_ESCROW_LAMPORTS: u64 = 500_000_000;
@@ -126,7 +143,13 @@ mod tests {
 
     #[test]
     fn windows_match_the_documented_slot_counts() {
-        assert_eq!(CANCEL_WINDOW_SLOTS, 648_000);
-        assert_eq!(CLAIM_WINDOW_SLOTS, 1_512_000);
+        assert_eq!(MAX_ESCROW_WINDOW_SLOTS, 6_480_000);
+        assert_eq!(DEFAULT_CLAIM_WINDOW_SLOTS, 1_500);
+        assert_eq!(DEFAULT_CANCEL_WINDOW_SLOTS, 4_500);
+        assert!(escrow_windows_valid(1, 1));
+        assert!(escrow_windows_valid(1, MAX_ESCROW_WINDOW_SLOTS));
+        assert!(!escrow_windows_valid(0, 1));
+        assert!(!escrow_windows_valid(2, 1));
+        assert!(!escrow_windows_valid(1, MAX_ESCROW_WINDOW_SLOTS + 1));
     }
 }

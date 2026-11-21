@@ -22,7 +22,8 @@ use {
     escrow::{
         accounts::{CancelEscrow, LockEscrow, ReleaseEscrow},
         state::EscrowAccount,
-        CANCEL_WINDOW_SLOTS, CLAIM_WINDOW_SLOTS, MAX_SOL_ESCROW_LAMPORTS,
+        DEFAULT_CANCEL_WINDOW_SLOTS as CANCEL_WINDOW_SLOTS,
+        DEFAULT_CLAIM_WINDOW_SLOTS as CLAIM_WINDOW_SLOTS, MAX_SOL_ESCROW_LAMPORTS,
     },
     litesvm::LiteSVM,
     solana_keypair::Keypair,
@@ -95,7 +96,13 @@ fn test_lock_escrow_success() {
 
     let ix = Instruction::new_with_bytes(
         escrow::id(),
-        &instruction::LockEscrow { amount, nonce }.data(),
+        &instruction::LockEscrow {
+            amount,
+            nonce,
+            claim_window_slots: CLAIM_WINDOW_SLOTS,
+            cancel_window_slots: CANCEL_WINDOW_SLOTS,
+        }
+        .data(),
         LockEscrow {
             escrow: escrow_pda,
             payer: payer.pubkey(),
@@ -135,7 +142,13 @@ fn test_release_escrow_success() {
     // Lock first
     let lock_ix = Instruction::new_with_bytes(
         escrow::id(),
-        &instruction::LockEscrow { amount, nonce }.data(),
+        &instruction::LockEscrow {
+            amount,
+            nonce,
+            claim_window_slots: CLAIM_WINDOW_SLOTS,
+            cancel_window_slots: CANCEL_WINDOW_SLOTS,
+        }
+        .data(),
         LockEscrow {
             escrow: escrow_pda,
             payer: payer.pubkey(),
@@ -195,7 +208,13 @@ fn test_cancel_escrow_refunds_payer() {
     // Lock
     let lock_ix = Instruction::new_with_bytes(
         escrow::id(),
-        &instruction::LockEscrow { amount, nonce }.data(),
+        &instruction::LockEscrow {
+            amount,
+            nonce,
+            claim_window_slots: CLAIM_WINDOW_SLOTS,
+            cancel_window_slots: CANCEL_WINDOW_SLOTS,
+        }
+        .data(),
         LockEscrow {
             escrow: escrow_pda,
             payer: payer.pubkey(),
@@ -267,7 +286,13 @@ fn test_cancel_window_not_elapsed() {
     // Lock
     let lock_ix = Instruction::new_with_bytes(
         escrow::id(),
-        &instruction::LockEscrow { amount, nonce }.data(),
+        &instruction::LockEscrow {
+            amount,
+            nonce,
+            claim_window_slots: CLAIM_WINDOW_SLOTS,
+            cancel_window_slots: CANCEL_WINDOW_SLOTS,
+        }
+        .data(),
         LockEscrow {
             escrow: escrow_pda,
             payer: payer.pubkey(),
@@ -318,7 +343,13 @@ fn test_release_payer_constraint() {
     // Lock with legitimate payer
     let lock_ix = Instruction::new_with_bytes(
         escrow::id(),
-        &instruction::LockEscrow { amount, nonce }.data(),
+        &instruction::LockEscrow {
+            amount,
+            nonce,
+            claim_window_slots: CLAIM_WINDOW_SLOTS,
+            cancel_window_slots: CANCEL_WINDOW_SLOTS,
+        }
+        .data(),
         LockEscrow {
             escrow: escrow_pda,
             payer: payer.pubkey(),
@@ -371,7 +402,13 @@ fn test_duplicate_nonce() {
     let lock_ix = || {
         Instruction::new_with_bytes(
             escrow::id(),
-            &instruction::LockEscrow { amount, nonce }.data(),
+            &instruction::LockEscrow {
+                amount,
+                nonce,
+                claim_window_slots: CLAIM_WINDOW_SLOTS,
+                cancel_window_slots: CANCEL_WINDOW_SLOTS,
+            }
+            .data(),
             LockEscrow {
                 escrow: escrow_pda,
                 payer: payer.pubkey(),
@@ -417,7 +454,13 @@ fn test_release_unauthorised_fails() {
     // Lock as payer
     let lock_ix = Instruction::new_with_bytes(
         escrow::id(),
-        &instruction::LockEscrow { amount, nonce }.data(),
+        &instruction::LockEscrow {
+            amount,
+            nonce,
+            claim_window_slots: CLAIM_WINDOW_SLOTS,
+            cancel_window_slots: CANCEL_WINDOW_SLOTS,
+        }
+        .data(),
         LockEscrow {
             escrow: escrow_pda,
             payer: payer.pubkey(),
@@ -474,7 +517,13 @@ fn test_lock_zero_amount_fails() {
 
     let ix = Instruction::new_with_bytes(
         escrow::id(),
-        &instruction::LockEscrow { amount: 0, nonce }.data(),
+        &instruction::LockEscrow {
+            amount: 0,
+            nonce,
+            claim_window_slots: CLAIM_WINDOW_SLOTS,
+            cancel_window_slots: CANCEL_WINDOW_SLOTS,
+        }
+        .data(),
         LockEscrow {
             escrow: escrow_pda,
             payer: payer.pubkey(),
@@ -521,7 +570,13 @@ fn lock_ix(
 ) -> Instruction {
     Instruction::new_with_bytes(
         escrow::id(),
-        &instruction::LockEscrow { amount, nonce }.data(),
+        &instruction::LockEscrow {
+            amount,
+            nonce,
+            claim_window_slots: CLAIM_WINDOW_SLOTS,
+            cancel_window_slots: CANCEL_WINDOW_SLOTS,
+        }
+        .data(),
         LockEscrow {
             escrow: escrow_pda(&payer.pubkey(), &nonce).0,
             payer: payer.pubkey(),
@@ -848,10 +903,30 @@ fn test_stranger_cannot_trigger_a_payout() {
     assert!(svm.get_account(&escrow).is_some());
 }
 
-/// Between the cancel window and the claim window the payer can refund, and a
-/// refunded escrow leaves nothing for the payee to claim later.
+/// A lock with windows of the caller's choosing, in slots from the lock.
+fn lock_with_windows_ix(
+    payer: &Keypair,
+    payee: &anchor_lang::prelude::Pubkey,
+    nonce: [u8; 16],
+    claim_window_slots: u64,
+    cancel_window_slots: u64,
+) -> Instruction {
+    let mut ix = lock_ix(payer, payee, 1_000_000, nonce);
+    ix.data = instruction::LockEscrow {
+        amount: 1_000_000,
+        nonce,
+        claim_window_slots,
+        cancel_window_slots,
+    }
+    .data();
+    ix
+}
+
+/// The claim window opens no later than the refund window. Between the two the
+/// payer cannot take the funds back, the payee can claim, and a claimed escrow
+/// leaves nothing to refund later.
 #[test]
-fn test_payer_refund_before_the_claim_window_beats_a_later_claim() {
+fn test_payee_claim_before_the_refund_window_beats_a_later_refund() {
     let (mut svm, _) = make_svm();
     let payer = Keypair::new();
     let payee = Keypair::new();
@@ -865,20 +940,147 @@ fn test_payer_refund_before_the_claim_window_beats_a_later_claim() {
     );
     let escrow = escrow_pda(&payer.pubkey(), &nonce).0;
     let created = created_slot(&svm, &escrow);
-    svm.warp_to_slot(created + CLAIM_WINDOW_SLOTS - 1);
-    send_ok(
-        &mut svm,
-        cancel_ix(&payer.pubkey(), &payer.pubkey(), nonce),
-        &[&payer],
+    svm.warp_to_slot(created + CANCEL_WINDOW_SLOTS - 1);
+    let err = format!(
+        "{:?}",
+        send(
+            &mut svm,
+            cancel_ix(&payer.pubkey(), &payer.pubkey(), nonce),
+            &[&payer],
+        )
     );
-    svm.warp_to_slot(created + CLAIM_WINDOW_SLOTS + 1);
-    let payee_before = lamports(&svm, &payee.pubkey());
-    let _ = send(
+    assert!(
+        err.contains("Custom(6006)"),
+        "expected CancelWindowNotElapsed, got: {err}"
+    );
+    send_ok(
         &mut svm,
         claim_ix(&payer.pubkey(), &payee.pubkey(), nonce),
         &[&payee],
     );
-    assert!(lamports(&svm, &payee.pubkey()) <= payee_before);
+    svm.warp_to_slot(created + CANCEL_WINDOW_SLOTS + 1);
+    let payer_before = lamports(&svm, &payer.pubkey());
+    let _ = send(
+        &mut svm,
+        cancel_ix(&payer.pubkey(), &payer.pubkey(), nonce),
+        &[&payer],
+    );
+    assert!(lamports(&svm, &payer.pubkey()) <= payer_before);
+}
+
+/// Each escrow carries its own windows. A lock is refused unless the claim
+/// window is at least one slot, no later than the refund window, and the
+/// refund window is at most the 30-day maximum.
+#[test]
+fn test_windows_are_set_per_escrow_and_bounded() {
+    let (mut svm, _) = make_svm();
+    let payer = Keypair::new();
+    let payee = Keypair::new();
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    svm.airdrop(&payee.pubkey(), 1_000_000_000).unwrap();
+    let max = escrow::MAX_ESCROW_WINDOW_SLOTS;
+    for (i, (claim, cancel)) in [(0, 0), (0, 10), (11, 10), (1, max + 1), (max + 1, max + 1)]
+        .into_iter()
+        .enumerate()
+    {
+        let nonce = [60 + i as u8; 16];
+        let err = format!(
+            "{:?}",
+            send(
+                &mut svm,
+                lock_with_windows_ix(&payer, &payee.pubkey(), nonce, claim, cancel),
+                &[&payer],
+            )
+        );
+        assert!(
+            err.contains("Custom(6031)"),
+            "({claim}, {cancel}): expected InvalidWindows, got: {err}"
+        );
+        assert!(svm
+            .get_account(&escrow_pda(&payer.pubkey(), &nonce).0)
+            .is_none());
+    }
+
+    // The widest pair the rule allows is recorded as given.
+    let wide = [70u8; 16];
+    send_ok(
+        &mut svm,
+        lock_with_windows_ix(&payer, &payee.pubkey(), wide, 1, max),
+        &[&payer],
+    );
+    let account = svm
+        .get_account(&escrow_pda(&payer.pubkey(), &wide).0)
+        .unwrap();
+    let state = EscrowAccount::try_deserialize(&mut account.data.as_slice()).unwrap();
+    assert_eq!(
+        (state.claim_window_slots, state.cancel_window_slots),
+        (1, max)
+    );
+
+    // Ten seconds for both: nothing moves one slot early, and at the boundary
+    // the payer's refund is as good as the payee's claim.
+    let short = [71u8; 16];
+    send_ok(
+        &mut svm,
+        lock_with_windows_ix(&payer, &payee.pubkey(), short, 25, 25),
+        &[&payer],
+    );
+    let escrow = escrow_pda(&payer.pubkey(), &short).0;
+    let created = created_slot(&svm, &escrow);
+    svm.warp_to_slot(created + 24);
+    let err = format!(
+        "{:?}",
+        send(
+            &mut svm,
+            claim_ix(&payer.pubkey(), &payee.pubkey(), short),
+            &[&payee],
+        )
+    );
+    assert!(err.contains("Custom(6027)"), "{err}");
+    let err = format!(
+        "{:?}",
+        send(
+            &mut svm,
+            cancel_ix(&payer.pubkey(), &payer.pubkey(), short),
+            &[&payer],
+        )
+    );
+    assert!(err.contains("Custom(6006)"), "{err}");
+    svm.warp_to_slot(created + 25);
+    svm.expire_blockhash();
+    send_ok(
+        &mut svm,
+        cancel_ix(&payer.pubkey(), &payer.pubkey(), short),
+        &[&payer],
+    );
+    assert!(svm.get_account(&escrow).is_none());
+
+    // A claim window of 25 slots under a longer refund window: the payee
+    // claims while the payer still cannot refund.
+    let quick = [72u8; 16];
+    send_ok(
+        &mut svm,
+        lock_with_windows_ix(&payer, &payee.pubkey(), quick, 25, 250),
+        &[&payer],
+    );
+    let escrow = escrow_pda(&payer.pubkey(), &quick).0;
+    let created = created_slot(&svm, &escrow);
+    svm.warp_to_slot(created + 25);
+    let err = format!(
+        "{:?}",
+        send(
+            &mut svm,
+            cancel_ix(&payer.pubkey(), &payer.pubkey(), quick),
+            &[&payer],
+        )
+    );
+    assert!(err.contains("Custom(6006)"), "{err}");
+    send_ok(
+        &mut svm,
+        claim_ix(&payer.pubkey(), &payee.pubkey(), quick),
+        &[&payee],
+    );
+    assert!(svm.get_account(&escrow).is_none());
 }
 
 /// A stranger cannot redirect a refund by naming themselves as the payer.
@@ -972,7 +1174,13 @@ fn metered_lock_ix(
 ) -> Instruction {
     Instruction::new_with_bytes(
         escrow::id(),
-        &instruction::LockMeteredEscrow { amount, nonce }.data(),
+        &instruction::LockMeteredEscrow {
+            amount,
+            nonce,
+            claim_window_slots: CLAIM_WINDOW_SLOTS,
+            cancel_window_slots: CANCEL_WINDOW_SLOTS,
+        }
+        .data(),
         LockEscrow {
             escrow: escrow_pda(&payer.pubkey(), &nonce).0,
             payer: payer.pubkey(),

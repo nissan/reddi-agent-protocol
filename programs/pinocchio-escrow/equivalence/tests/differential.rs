@@ -23,9 +23,11 @@ use {
     anchor_spl::token::spl_token::{self, instruction as token_ix},
     escrow::{
         accounts, instruction, state::AgentType, token_accounts::TOKEN_2022_ID,
-        AGENT_FEE_BURN_ADDRESS, AUDD_MAINNET_MINT, CANCEL_WINDOW_SLOTS, CLAIM_WINDOW_SLOTS,
-        MAX_SOL_ESCROW_LAMPORTS, MAX_TOKEN_ESCROW_BASE_UNITS, PROTOCOL_TREASURY,
-        PYUSD_MAINNET_MINT, USDC_DEVNET_MINT, USDC_MAINNET_MINT, USDG_MAINNET_MINT,
+        AGENT_FEE_BURN_ADDRESS, AUDD_MAINNET_MINT,
+        DEFAULT_CANCEL_WINDOW_SLOTS as CANCEL_WINDOW_SLOTS,
+        DEFAULT_CLAIM_WINDOW_SLOTS as CLAIM_WINDOW_SLOTS, MAX_SOL_ESCROW_LAMPORTS,
+        MAX_TOKEN_ESCROW_BASE_UNITS, PROTOCOL_TREASURY, PYUSD_MAINNET_MINT, USDC_DEVNET_MINT,
+        USDC_MAINNET_MINT, USDG_MAINNET_MINT,
     },
     litesvm::LiteSVM,
     solana_account::Account,
@@ -234,9 +236,21 @@ fn sol_lock(
     metered: bool,
 ) -> Instruction {
     let data = if metered {
-        instruction::LockMeteredEscrow { amount, nonce }.data()
+        instruction::LockMeteredEscrow {
+            amount,
+            nonce,
+            claim_window_slots: CLAIM_WINDOW_SLOTS,
+            cancel_window_slots: CANCEL_WINDOW_SLOTS,
+        }
+        .data()
     } else {
-        instruction::LockEscrow { amount, nonce }.data()
+        instruction::LockEscrow {
+            amount,
+            nonce,
+            claim_window_slots: CLAIM_WINDOW_SLOTS,
+            cancel_window_slots: CANCEL_WINDOW_SLOTS,
+        }
+        .data()
     };
     Instruction::new_with_bytes(
         escrow::id(),
@@ -275,6 +289,37 @@ fn sol_payout(
         None => instruction::ReleaseEscrow {}.data(),
     };
     Instruction::new_with_bytes(escrow::id(), &data, metas)
+}
+
+/// A lock of 1,000,000 lamports with windows of the caller's choosing.
+fn sol_lock_windows(
+    payer: &Pubkey,
+    payee: &Pubkey,
+    nonce: [u8; 16],
+    metered: bool,
+    claim_window_slots: u64,
+    cancel_window_slots: u64,
+) -> Instruction {
+    let amount = 1_000_000;
+    let mut ix = sol_lock(payer, payee, amount, nonce, metered);
+    ix.data = if metered {
+        instruction::LockMeteredEscrow {
+            amount,
+            nonce,
+            claim_window_slots,
+            cancel_window_slots,
+        }
+        .data()
+    } else {
+        instruction::LockEscrow {
+            amount,
+            nonce,
+            claim_window_slots,
+            cancel_window_slots,
+        }
+        .data()
+    };
+    ix
 }
 
 fn sol_cancel(payer: &Pubkey, nonce: [u8; 16], authority: &Pubkey) -> Instruction {
@@ -465,6 +510,27 @@ fn sol_escrow_matches_the_anchor_build() {
         &[&payer],
     );
     let locked_at = pair.slot();
+    // The claim window opens first: the payee can claim while the payer
+    // still cannot refund.
+    pair.warp(locked_at + CLAIM_WINDOW_SLOTS - 1);
+    pair.refused(
+        "sol claim one slot early",
+        sol_payout(&a, &b, n(7), &b, None),
+        &[&payee],
+        6027,
+    );
+    pair.warp(locked_at + CLAIM_WINDOW_SLOTS);
+    pair.refused(
+        "sol refund once the claim window is open, before the refund window",
+        sol_cancel(&a, n(6), &a),
+        &[&payer],
+        6006,
+    );
+    pair.ok(
+        "sol claim by payee after the window",
+        sol_payout(&a, &b, n(7), &b, None),
+        &[&payee],
+    );
     pair.warp(locked_at + CANCEL_WINDOW_SLOTS - 1);
     pair.refused(
         "sol refund one slot early",
@@ -477,19 +543,6 @@ fn sol_escrow_matches_the_anchor_build() {
         "sol refund by payer after the window",
         sol_cancel(&a, n(6), &a),
         &[&payer],
-    );
-    pair.warp(locked_at + CLAIM_WINDOW_SLOTS - 1);
-    pair.refused(
-        "sol claim one slot early",
-        sol_payout(&a, &b, n(7), &b, None),
-        &[&payee],
-        6027,
-    );
-    pair.warp(locked_at + CLAIM_WINDOW_SLOTS);
-    pair.ok(
-        "sol claim by payee after the window",
-        sol_payout(&a, &b, n(7), &b, None),
-        &[&payee],
     );
 
     // Refused locks.
@@ -547,6 +600,68 @@ fn sol_escrow_matches_the_anchor_build() {
         &[&payer],
     );
 
+    // Windows are named at lock, per escrow.
+    let max = escrow::MAX_ESCROW_WINDOW_SLOTS;
+    for (text, claim, cancel) in [
+        ("no claim window", 0, 10),
+        ("claim after the refund", 11, 10),
+        ("refund window above the maximum", 1, max + 1),
+        ("both above the maximum", max + 1, max + 1),
+    ] {
+        pair.refused(
+            &format!("sol lock: {text}"),
+            sol_lock_windows(&a, &b, n(13), false, claim, cancel),
+            &[&payer],
+            6031,
+        );
+    }
+    pair.ok(
+        "sol lock with the widest windows",
+        sol_lock_windows(&a, &b, n(13), true, 1, max),
+        &[&payer],
+    );
+    pair.ok(
+        "sol lock with ten-second windows",
+        sol_lock_windows(&a, &b, n(14), false, 25, 25),
+        &[&payer],
+    );
+    pair.ok(
+        "sol lock, claim in ten seconds, refund in a hundred",
+        sol_lock_windows(&a, &b, n(15), false, 25, 250),
+        &[&payer],
+    );
+    let locked_at = pair.slot();
+    pair.warp(locked_at + 24);
+    pair.refused(
+        "sol short window: claim one slot early",
+        sol_payout(&a, &b, n(15), &b, None),
+        &[&payee],
+        6027,
+    );
+    pair.refused(
+        "sol short window: refund one slot early",
+        sol_cancel(&a, n(14), &a),
+        &[&payer],
+        6006,
+    );
+    pair.warp(locked_at + 25);
+    pair.ok(
+        "sol short window: refund at the boundary of equal windows",
+        sol_cancel(&a, n(14), &a),
+        &[&payer],
+    );
+    pair.refused(
+        "sol short window: refund before its own later window",
+        sol_cancel(&a, n(15), &a),
+        &[&payer],
+        6006,
+    );
+    pair.ok(
+        "sol short window: claim",
+        sol_payout(&a, &b, n(15), &b, None),
+        &[&payee],
+    );
+
     pair.report("SOL escrow");
 }
 
@@ -592,6 +707,18 @@ fn malformed_calls_are_refused_the_same_way() {
     pair.refused(
         "lock with truncated arguments",
         raw(lock.data[..20].to_vec(), lock.accounts.clone()),
+        &[&payer],
+        102,
+    );
+    pair.refused(
+        "lock without its windows",
+        raw(lock.data[..32].to_vec(), lock.accounts.clone()),
+        &[&payer],
+        102,
+    );
+    pair.refused(
+        "lock with one window",
+        raw(lock.data[..40].to_vec(), lock.accounts.clone()),
         &[&payer],
         102,
     );
@@ -978,11 +1105,53 @@ impl Tokens {
         .0
     }
 
+    /// A lock of 1,000,000 base units with windows of the caller's choosing.
+    fn lock_windows(
+        &self,
+        nonce: [u8; 16],
+        metered: bool,
+        claim_window_slots: u64,
+        cancel_window_slots: u64,
+    ) -> Instruction {
+        let amount = 1_000_000;
+        let mut ix = self.lock(amount, nonce, metered);
+        ix.data = if metered {
+            instruction::LockMeteredTokenEscrow {
+                amount,
+                nonce,
+                claim_window_slots,
+                cancel_window_slots,
+            }
+            .data()
+        } else {
+            instruction::LockTokenEscrow {
+                amount,
+                nonce,
+                claim_window_slots,
+                cancel_window_slots,
+            }
+            .data()
+        };
+        ix
+    }
+
     fn lock(&self, amount: u64, nonce: [u8; 16], metered: bool) -> Instruction {
         let data = if metered {
-            instruction::LockMeteredTokenEscrow { amount, nonce }.data()
+            instruction::LockMeteredTokenEscrow {
+                amount,
+                nonce,
+                claim_window_slots: CLAIM_WINDOW_SLOTS,
+                cancel_window_slots: CANCEL_WINDOW_SLOTS,
+            }
+            .data()
         } else {
-            instruction::LockTokenEscrow { amount, nonce }.data()
+            instruction::LockTokenEscrow {
+                amount,
+                nonce,
+                claim_window_slots: CLAIM_WINDOW_SLOTS,
+                cancel_window_slots: CANCEL_WINDOW_SLOTS,
+            }
+            .data()
         };
         Instruction::new_with_bytes(
             escrow::id(),
@@ -1311,6 +1480,25 @@ fn token_rail(pair: &mut Pair, t: &Tokens, name: &str) {
     pair.ok(&label("lock"), t.lock(3_000_000, n(7), false), &[&t.payer]);
     pair.ok(&label("lock"), t.lock(4_000_000, n(8), false), &[&t.payer]);
     let locked_at = pair.slot();
+    pair.warp(locked_at + CLAIM_WINDOW_SLOTS - 1);
+    pair.refused(
+        &label("claim one slot early"),
+        t.payout(n(8), &b, None),
+        &[&t.payee],
+        6027,
+    );
+    pair.warp(locked_at + CLAIM_WINDOW_SLOTS);
+    pair.refused(
+        &label("refund once the claim window is open, before the refund window"),
+        t.cancel(n(7), &a, t.source),
+        &[&t.payer],
+        6006,
+    );
+    pair.ok(
+        &label("claim by payee after the window"),
+        t.payout(n(8), &b, None),
+        &[&t.payee],
+    );
     pair.warp(locked_at + CANCEL_WINDOW_SLOTS - 1);
     pair.refused(
         &label("refund one slot early"),
@@ -1330,17 +1518,49 @@ fn token_rail(pair: &mut Pair, t: &Tokens, name: &str) {
         t.cancel(n(7), &a, t.spare),
         &[&t.payer],
     );
-    pair.warp(locked_at + CLAIM_WINDOW_SLOTS - 1);
+
+    // Windows are named at lock, per escrow.
+    let max = escrow::MAX_ESCROW_WINDOW_SLOTS;
+    for (text, claim, cancel) in [
+        ("no claim window", 0, 10),
+        ("claim after the refund", 11, 10),
+        ("refund window above the maximum", 1, max + 1),
+    ] {
+        pair.refused(
+            &label(&format!("lock: {text}")),
+            t.lock_windows(n(13), false, claim, cancel),
+            &[&t.payer],
+            6031,
+        );
+    }
+    pair.ok(
+        &label("lock with the widest windows"),
+        t.lock_windows(n(13), true, 1, max),
+        &[&t.payer],
+    );
+    pair.ok(
+        &label("lock, claim in ten seconds, refund in a hundred"),
+        t.lock_windows(n(14), false, 25, 250),
+        &[&t.payer],
+    );
+    let locked_at = pair.slot();
+    pair.warp(locked_at + 24);
     pair.refused(
-        &label("claim one slot early"),
-        t.payout(n(8), &b, None),
+        &label("short window: claim one slot early"),
+        t.payout(n(14), &b, None),
         &[&t.payee],
         6027,
     );
-    pair.warp(locked_at + CLAIM_WINDOW_SLOTS);
+    pair.warp(locked_at + 25);
+    pair.refused(
+        &label("short window: refund before its own later window"),
+        t.cancel(n(14), &a, t.source),
+        &[&t.payer],
+        6006,
+    );
     pair.ok(
-        &label("claim by payee after the window"),
-        t.payout(n(8), &b, None),
+        &label("short window: claim"),
+        t.payout(n(14), &b, None),
         &[&t.payee],
     );
 

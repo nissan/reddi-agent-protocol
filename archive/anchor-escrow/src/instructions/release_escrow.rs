@@ -21,6 +21,7 @@ pub fn release_escrow_handler(ctx: Context<ReleaseEscrow>) -> Result<()> {
         &escrow.payee,
         escrow.created_slot,
         Clock::get()?.slot,
+        escrow.claim_window_slots,
     )?;
     let amount = escrow.amount;
     pay_out(ctx.accounts, amount, outcome)

@@ -16,7 +16,8 @@ use escrow::{
     accounts, instruction,
     state::TokenEscrowAccount,
     token_accounts::{TOKEN_2022_ID, TOKEN_2022_VAULT_LEN},
-    CANCEL_WINDOW_SLOTS, CLAIM_WINDOW_SLOTS, PROTOCOL_TREASURY, PYUSD_MAINNET_MINT,
+    DEFAULT_CANCEL_WINDOW_SLOTS as CANCEL_WINDOW_SLOTS,
+    DEFAULT_CLAIM_WINDOW_SLOTS as CLAIM_WINDOW_SLOTS, PROTOCOL_TREASURY, PYUSD_MAINNET_MINT,
     USDC_MAINNET_MINT, USDG_MAINNET_MINT,
 };
 use litesvm::LiteSVM;
@@ -247,6 +248,8 @@ impl Fixture {
             &instruction::LockTokenEscrow {
                 amount,
                 nonce: self.nonce,
+                claim_window_slots: CLAIM_WINDOW_SLOTS,
+                cancel_window_slots: CANCEL_WINDOW_SLOTS,
             }
             .data(),
             accounts::LockTokenEscrow {
@@ -651,6 +654,8 @@ fn pyusd_and_usdg_metered_escrow_settles_actual_cost_with_the_fee() {
         ix.data = instruction::LockMeteredTokenEscrow {
             amount: 400_000,
             nonce: f.nonce,
+            claim_window_slots: CLAIM_WINDOW_SLOTS,
+            cancel_window_slots: CANCEL_WINDOW_SLOTS,
         }
         .data();
         let payer = f.payer.insecure_clone();

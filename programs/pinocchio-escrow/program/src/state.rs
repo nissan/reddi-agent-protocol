@@ -105,6 +105,10 @@ pub struct SolEscrow {
     pub status: u8,
     created_at: [u8; 8],
     created_slot: [u8; 8],
+    /// Slots after `created_slot` from which the payee may claim.
+    claim_window_slots: [u8; 8],
+    /// Slots after `created_slot` from which the payer may refund itself.
+    cancel_window_slots: [u8; 8],
     /// Set while the escrow is delegated to a PER session. Only the
     /// `extended` instructions set it.
     delegated_to_per: u8,
@@ -118,7 +122,7 @@ pub struct SolEscrow {
 
 /// Where the session key starts when its tag is 1, and where `bump` and
 /// `metered` then sit.
-const SESSION_KEY_AT: usize = 115;
+const SESSION_KEY_AT: usize = 131;
 const DELEGATED_BUMP_AT: usize = SESSION_KEY_AT + 32;
 const _: () = assert!(DELEGATED_BUMP_AT + 2 == SolEscrow::LEN);
 
@@ -126,9 +130,9 @@ const _: () = assert!(DELEGATED_BUMP_AT + 2 == SolEscrow::LEN);
 unsafe impl Record for SolEscrow {
     const DISCRIMINATOR: [u8; 8] = discriminator("account:EscrowAccount");
     /// The Anchor account's size, which reserves room for a session key.
-    const LEN: usize = 8 + 32 + 32 + 8 + 16 + 1 + 8 + 8 + 1 + 33 + 1 + 1;
+    const LEN: usize = 8 + 32 + 32 + 8 + 16 + 1 + 8 + 8 + 8 + 8 + 1 + 33 + 1 + 1;
 }
-assert_layout!(SolEscrow, 117);
+assert_layout!(SolEscrow, 133);
 
 impl SolEscrow {
     #[allow(clippy::too_many_arguments)]
@@ -139,6 +143,8 @@ impl SolEscrow {
         nonce: [u8; 16],
         created_at: i64,
         created_slot: u64,
+        claim_window_slots: u64,
+        cancel_window_slots: u64,
         bump: u8,
         metered: bool,
     ) -> Self {
@@ -151,6 +157,8 @@ impl SolEscrow {
             status: STATUS_LOCKED,
             created_at: created_at.to_le_bytes(),
             created_slot: created_slot.to_le_bytes(),
+            claim_window_slots: claim_window_slots.to_le_bytes(),
+            cancel_window_slots: cancel_window_slots.to_le_bytes(),
             delegated_to_per: 0,
             per_session_key: 0,
             bump,
@@ -192,6 +200,14 @@ impl SolEscrow {
 
     pub fn metered(&self) -> bool {
         self.metered == 1
+    }
+
+    pub fn claim_window_slots(&self) -> u64 {
+        u64::from_le_bytes(self.claim_window_slots)
+    }
+
+    pub fn cancel_window_slots(&self) -> u64 {
+        u64::from_le_bytes(self.cancel_window_slots)
     }
 }
 
@@ -263,14 +279,18 @@ pub struct TokenEscrow {
     created_slot: [u8; 8],
     pub bump: u8,
     metered: u8,
+    /// Slots after `created_slot` from which the payee may claim.
+    claim_window_slots: [u8; 8],
+    /// Slots after `created_slot` from which the payer may refund itself.
+    cancel_window_slots: [u8; 8],
 }
 
 // SAFETY: byte fields only, discriminator first.
 unsafe impl Record for TokenEscrow {
     const DISCRIMINATOR: [u8; 8] = discriminator("account:TokenEscrowAccount");
-    const LEN: usize = 8 + 32 * 5 + 8 + 16 + 1 + 8 + 1 + 1;
+    const LEN: usize = 8 + 32 * 5 + 8 + 16 + 1 + 8 + 1 + 1 + 8 + 8;
 }
-assert_layout!(TokenEscrow, 203);
+assert_layout!(TokenEscrow, 219);
 
 impl TokenEscrow {
     #[allow(clippy::too_many_arguments)]
@@ -283,6 +303,8 @@ impl TokenEscrow {
         amount: u64,
         nonce: [u8; 16],
         created_slot: u64,
+        claim_window_slots: u64,
+        cancel_window_slots: u64,
         bump: u8,
         metered: bool,
     ) -> Self {
@@ -299,7 +321,17 @@ impl TokenEscrow {
             created_slot: created_slot.to_le_bytes(),
             bump,
             metered: metered as u8,
+            claim_window_slots: claim_window_slots.to_le_bytes(),
+            cancel_window_slots: cancel_window_slots.to_le_bytes(),
         }
+    }
+
+    pub fn claim_window_slots(&self) -> u64 {
+        u64::from_le_bytes(self.claim_window_slots)
+    }
+
+    pub fn cancel_window_slots(&self) -> u64 {
+        u64::from_le_bytes(self.cancel_window_slots)
     }
 
     pub fn load_checked(account: &AccountView, program_id: &Address) -> Result<Self, ProgramError> {

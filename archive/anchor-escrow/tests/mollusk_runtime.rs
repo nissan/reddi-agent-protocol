@@ -24,7 +24,10 @@
 /// narrowed some other gate would not fail here.
 use {
     anchor_lang::{InstructionData, ToAccountMetas},
-    escrow::{accounts::LockEscrow, instruction},
+    escrow::{
+        accounts::LockEscrow, instruction, DEFAULT_CANCEL_WINDOW_SLOTS as CANCEL_WINDOW_SLOTS,
+        DEFAULT_CLAIM_WINDOW_SLOTS as CLAIM_WINDOW_SLOTS,
+    },
     mollusk_svm::{program::keyed_account_for_system_program, result::Check, Mollusk},
     solana_account::Account,
     solana_keypair::Keypair,
@@ -54,7 +57,13 @@ fn mollusk_lock_escrow_zero_amount_returns_zero_amount_error_and_consumes_comput
 
     let ix = anchor_lang::solana_program::instruction::Instruction::new_with_bytes(
         escrow::id(),
-        &instruction::LockEscrow { amount: 0, nonce }.data(),
+        &instruction::LockEscrow {
+            amount: 0,
+            nonce,
+            claim_window_slots: CLAIM_WINDOW_SLOTS,
+            cancel_window_slots: CANCEL_WINDOW_SLOTS,
+        }
+        .data(),
         LockEscrow {
             escrow: escrow_pda,
             payer: payer.pubkey(),

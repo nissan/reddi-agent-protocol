@@ -81,6 +81,8 @@ fn lock_escrow(svm: &mut LiteSVM, payer: &Keypair, payee: Pk, nonce: [u8; 16]) -
         &instruction::LockEscrow {
             amount: 1_000_000,
             nonce,
+            claim_window_slots: escrow::DEFAULT_CLAIM_WINDOW_SLOTS,
+            cancel_window_slots: escrow::DEFAULT_CANCEL_WINDOW_SLOTS,
         }
         .data(),
         LockEscrow {
