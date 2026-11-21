@@ -33,12 +33,14 @@ import {
   ESCROW_FLAG_METERED,
   ESCROW_FLAG_RATED,
   isRatedEscrow,
+  payerReleaseOpensRating,
   RATING_ACCOUNT_LEN,
   RATING_DISCRIMINATORS,
   RATING_STATES,
   ratingCommitment,
   ratingPda,
   readEscrowRatingStatus,
+  readRatingAccount,
   sha256,
   SOL_ESCROW_FLAG_OFFSET,
   solEscrowPda,
@@ -389,12 +391,56 @@ describe('exits of a rated and an unrated escrow', () => {
     expect(shape(buildCancelSolEscrowInstruction({ programId, escrow: named(cancel, 'escrow'), payer, authority: payee }))).toEqual({ ...expected(cancel), accounts: expected(cancel).accounts.slice(0, 4) });
   });
 
-  it('marks who signs a SOL release: the payer, the payee claiming, or both', () => {
+  it('marks who signs a SOL release: the payer, or the payee claiming', () => {
     const escrow = named(instruction('release_escrow'), 'escrow');
-    const signers = (signer?: 'payer' | 'payee' | 'both') => buildReleaseSolEscrowInstruction({ programId, escrow, payer, payee, signer }).keys.slice(1, 3).map((meta) => meta.isSigner);
+    const signers = (signer?: 'payer' | 'payee') => buildReleaseSolEscrowInstruction({ programId, escrow, payer, payee, signer }).keys.slice(1, 3).map((meta) => meta.isSigner);
     expect(signers()).toEqual([true, false]);
+    expect(signers('payer')).toEqual([true, false]);
     expect(signers('payee')).toEqual([false, true]);
-    expect(signers('both')).toEqual([true, true]);
+  });
+
+  // The flag byte as stored: 0 neither, 1 metered, 2 rated, 3 metered and rated.
+  describe.each([[0, false], [1, false], [2, true], [3, true]] as const)('escrow flag byte %i', (flag, rated) => {
+    const tokenData = hex(account('token_escrow_rated').data_hex);
+    tokenData[TOKEN_ESCROW_FLAG_OFFSET] = flag;
+    const solData = hex(account('sol_escrow_rated_metered').data_hex);
+    solData[SOL_ESCROW_FLAG_OFFSET] = flag;
+    const solEscrow = key(account('sol_escrow_rated_metered').address);
+    const solRating = ratingPda(solEscrow, programId);
+    const tokenTermsOf = tokenTerms(4, instruction('release_token_escrow'));
+    const tokenRating = ratingPda(key(account('token_escrow_rated').address), programId);
+    const last = (ix: TransactionInstruction) => ix.keys[ix.keys.length - 1];
+
+    it(`decodes rated ${rated} from both escrow kinds`, () => {
+      expect(decodeTokenEscrowAccount(tokenData)).toMatchObject({ rated, metered: (flag & 1) === 1 });
+      expect(escrowAccountFlags(solData)).toEqual({ kind: 'sol', rated, metered: (flag & 1) === 1 });
+    });
+
+    it.each([
+      ['release_escrow (payer)', 5, () => buildReleaseSolEscrowInstruction({ programId, escrow: solEscrow, payer, payee, rated: isRatedEscrow(solData) })],
+      ['release_escrow (payee claim)', 5, () => buildReleaseSolEscrowInstruction({ programId, escrow: solEscrow, payer, payee, signer: 'payee', rated: isRatedEscrow(solData) })],
+      ['settle_escrow', 5, () => buildSettleSolEscrowInstruction({ programId, escrow: solEscrow, payer, payee, actual: 1n, rated: isRatedEscrow(solData) })],
+      ['cancel_escrow (decline)', 4, () => buildCancelSolEscrowInstruction({ programId, escrow: solEscrow, payer, authority: payee, rated: isRatedEscrow(solData) })],
+      ['cancel_escrow (refund)', 4, () => buildCancelSolEscrowInstruction({ programId, escrow: solEscrow, payer, authority: payer, rated: isRatedEscrow(solData) })],
+    ] as const)('%s: the rating account is passed exactly when the escrow is rated', (_name, usual, build) => {
+      const ix = build();
+      expect(ix.keys).toHaveLength(usual + (rated ? 1 : 0));
+      if (rated) expect(last(ix)).toEqual({ pubkey: solRating, isSigner: false, isWritable: true });
+      else expect(ix.keys.some((meta) => meta.pubkey.equals(solRating))).toBe(false);
+    });
+
+    it.each([
+      ['release_token_escrow (payer)', 9, { authority: payer }],
+      ['release_token_escrow (payee claim)', 9, { authority: payee }],
+      ['settle_token_escrow', 9, { authority: payee, options: { actual: 1n } }],
+      ['cancel_token_escrow (decline)', 7, { authority: payee, refund: true }],
+      ['cancel_token_escrow (refund)', 7, { authority: payer, refund: true }],
+    ] as const)('%s: the rating account is passed exactly when the escrow is rated', (_name, usual, exit) => {
+      const ix = buildTokenEscrowExitInstruction(tokenTermsOf, { ...exit, rated: decodeTokenEscrowAccount(tokenData).rated });
+      expect(ix.keys).toHaveLength(usual + (rated ? 1 : 0));
+      if (rated) expect(last(ix)).toEqual({ pubkey: tokenRating, isSigner: false, isWritable: true });
+      else expect(ix.keys.some((meta) => meta.pubkey.equals(tokenRating))).toBe(false);
+    });
   });
 
   it('puts the rating account right after the usual accounts, before any extra ones', () => {
@@ -485,6 +531,29 @@ describe('buyer helper: lock and opt in to rating in one transaction', () => {
     expect(() => buildRatedTokenEscrowLock(tokenTerms(4, instruction('release_token_escrow')), { judge: payee })).toThrow('judge');
     expect(() => buildLockSolEscrowInstruction({ ...terms, nonce: new Uint8Array(15) })).toThrow('16 bytes');
     expect(() => buildLockSolEscrowInstruction({ ...terms, claimWindowSlots: 10n, cancelWindowSlots: 5n })).toThrow('claim window');
+  });
+});
+
+describe('buyer: releasing a rated fixed-price job', () => {
+  const rating = (name: string) => decodeRatingAccount(hex(account(name).data_hex));
+
+  it('a payer release opens the rating only once the seller has accepted, and only while the escrow is unpaid', () => {
+    expect(payerReleaseOpensRating(rating('rating_awaiting_settlement'))).toBe(false);
+    expect(payerReleaseOpensRating(rating('rating_awaiting_settlement_accepted'))).toBe(true);
+    for (const name of ['rating_open', 'rating_both_committed', 'rating_revealed', 'rating_expired']) expect(payerReleaseOpensRating(rating(name))).toBe(false);
+  });
+
+  it('reads the rating account at confirmed, and answers undefined when there is none', async () => {
+    const escrow = named(instruction('release_escrow'), 'escrow');
+    const calls: unknown[][] = [];
+    const connection = (result: { owner: PublicKey; data: Uint8Array } | null) => ({ getAccountInfo: async (...args: unknown[]) => { calls.push(args); return result; } });
+    const found = await readRatingAccount(connection({ owner: programId, data: hex(account('rating_awaiting_settlement_accepted').data_hex) }), escrow, programId);
+    expect(found).toMatchObject({ state: 'awaiting_settlement', accepted: true });
+    expect(calls).toEqual([[ratingPda(escrow, programId), 'confirmed']]);
+    await expect(readRatingAccount(connection(null), escrow, programId)).resolves.toBeUndefined();
+    await expect(readRatingAccount(connection({ owner: SystemProgram.programId, data: hex(account('rating_open').data_hex) }), escrow, programId)).rejects.toThrow('not held by the escrow program');
+    // The rating of another escrow, served at this escrow's rating address.
+    await expect(readRatingAccount(connection({ owner: programId, data: hex(account('rating_open').data_hex) }), escrow, programId)).rejects.toThrow('another escrow');
   });
 });
 

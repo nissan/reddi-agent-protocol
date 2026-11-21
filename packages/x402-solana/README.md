@@ -71,7 +71,9 @@ const settle = withRatingAccount(buildSettleTokenEscrowInstruction(terms, false,
 const commitment = ratingCommitment(rating, signer, score, salt);
 ```
 
-A seller that settles or claims a rated escrow has agreed to be rated and must then commit and reveal within the program's windows. `verifyMeteredLock` in the provider module declines rated escrows unless `acceptRatedEscrows` is set.
+A seller that settles or claims a rated escrow has agreed to be rated and must then commit and reveal within the program's windows. Both seller paths here decline a rated escrow before serving unless `acceptRatedEscrows` is set: `verifyMeteredLock` (metered) and `verifyEscrowLock` / `EscrowSeller` (fixed price). When set, their exits carry the rating account (`meteredSettlement`, `meteredDecline`, `buildEscrowSellerExit`).
+
+Buyers of a fixed-price rated job: a release by the payer opens the rating only after the seller has called `accept_rating`. Before that, a release pays the seller as usual and closes the job unrated. Read the rating account (`readRatingAccount`) and release when `payerReleaseOpensRating(rating)` is true, or leave the seller to claim.
 
 ## Usage
 

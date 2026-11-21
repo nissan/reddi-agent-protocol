@@ -1,7 +1,8 @@
 import { Keypair, PublicKey, Transaction, Connection, SystemProgram, type AccountInfo, type TransactionError } from '@solana/web3.js';
 import { AccountLayout, MintLayout, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { createHash } from 'node:crypto';
-import { createEscrowChallenge, escrowTerms, escrowRequestHash, verifyEscrowLock, EscrowSeller, buyWithEscrow } from '../src/escrow-http';
+import { createEscrowChallenge, escrowTerms, escrowRequestHash, verifyEscrowLock, EscrowSeller, buyWithEscrow, buildEscrowSellerExit } from '../src/escrow-http';
+import { ratingPda } from '../src/rating';
 import { buildLockTokenEscrowInstruction, buildSettleTokenEscrowInstruction, tokenEscrowAddresses, decodeTokenEscrowAccount, treasuryTokenAccount,
   DEFAULT_CANCEL_WINDOW_SLOTS, DEFAULT_CLAIM_WINDOW_SLOTS, MAX_ESCROW_WINDOW_SLOTS, escrowWindowSlots, escrowWindows } from '../src/token-escrow';
 const pk = () => Keypair.generate().publicKey;
@@ -194,4 +195,66 @@ test('token escrow instructions carry the token program from the terms, for clas
     expect(buildSettleTokenEscrowInstruction(t, true).keys[6].pubkey.equals(tokenProgram)).toBe(true);
   }
   expect(() => buildLockTokenEscrowInstruction({ ...base, tokenProgram: pk() })).toThrow('classic SPL Token or Token-2022');
+});
+
+describe('rated escrows (flag byte bit 0x02)', () => {
+  const shape = (ix: { data: Buffer; keys: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] }) => ({ data: ix.data.toString('hex'), keys: ix.keys.map(k => [k.pubkey.toBase58(), k.isSigner, k.isWritable]) });
+
+  test.each([[2, 'rated'], [3, 'metered and rated']] as const)('flag byte %i (%s): declined before serving by default', async (flag, _what) => {
+    const f = fixture(); f.state[202] = flag;
+    expect(decodeTokenEscrowAccount(f.state)).toMatchObject({ rated: true, metered: flag === 3 });
+    await expect(verifyEscrowLock(f.rpc as unknown as Connection, f.c, f.proof)).rejects.toThrow('rated escrow declined');
+    await expect(verifyEscrowLock(f.rpc as unknown as Connection, f.c, f.proof, { acceptRatedEscrows: false })).rejects.toThrow('rated escrow declined');
+  });
+
+  test.each([[2], [3]] as const)('flag byte %i: accepted when the seller takes rated escrows, and the receipt says so', async (flag) => {
+    const f = fixture(); f.state[202] = flag;
+    const receipt = await verifyEscrowLock(f.rpc as unknown as Connection, f.c, f.proof, { acceptRatedEscrows: true });
+    expect(receipt).toMatchObject({ status: 'locked', rated: true });
+    const rating = ratingPda(f.addresses.escrow, f.t.programId);
+    // Claim and decline both carry the rating account, writable, after the usual accounts.
+    const claim = buildEscrowSellerExit(f.c, receipt, 'claim');
+    const plainClaim = buildSettleTokenEscrowInstruction(f.t, false, f.t.payee);
+    expect(shape(claim)).toEqual({ data: shape(plainClaim).data, keys: [...shape(plainClaim).keys, [rating.toBase58(), false, true]] });
+    expect(claim.keys).toHaveLength(10);
+    const decline = buildEscrowSellerExit(f.c, receipt, 'decline');
+    const plainDecline = buildSettleTokenEscrowInstruction(f.t, true, f.t.payee);
+    expect(shape(decline)).toEqual({ data: shape(plainDecline).data, keys: [...shape(plainDecline).keys, [rating.toBase58(), false, true]] });
+    expect(decline.keys).toHaveLength(8);
+  });
+
+  test.each([[0], [1]] as const)('flag byte %i (not rated): receipt and exits are exactly as before, whatever the setting', async (flag) => {
+    for (const options of [undefined, { acceptRatedEscrows: true }]) {
+      const f = fixture(); f.state[202] = flag;
+      const receipt = await verifyEscrowLock(f.rpc as unknown as Connection, f.c, f.proof, options);
+      expect(receipt).toEqual({ ...f.proof, scheme: 'rap-spl-escrow-v1', status: 'locked', escrow: f.addresses.escrow.toBase58(), amount: f.c.amount, mint: f.c.mint, requestHash: f.c.requestHash, slot: 100 });
+      expect('rated' in receipt).toBe(false);
+      expect(shape(buildEscrowSellerExit(f.c, receipt, 'claim'))).toEqual(shape(buildSettleTokenEscrowInstruction(f.t, false, f.t.payee)));
+      expect(shape(buildEscrowSellerExit(f.c, receipt, 'decline'))).toEqual(shape(buildSettleTokenEscrowInstruction(f.t, true, f.t.payee)));
+    }
+  });
+
+  test('EscrowSeller declines a rated escrow by default and keeps the challenge; a seller set to accept takes it', async () => {
+    for (const accept of [false, true]) {
+      const f = fixture(), seller = new EscrowSeller(f.rpc as unknown as Connection, accept ? { acceptRatedEscrows: true } : undefined);
+      const c = seller.issue(f.c);
+      const t = escrowTerms(c), addresses = tokenEscrowAddresses(t);
+      Buffer.from(t.nonce).copy(f.state, 176); f.state[201] = addresses.bump; f.state[202] = 2;
+      f.tx.transaction.message = new Transaction({ feePayer: t.payer, recentBlockhash: pk().toBase58() }).add(buildLockTokenEscrowInstruction(t)).compileMessage();
+      const original = f.rpc.getAccountInfo.getMockImplementation()!;
+      f.rpc.getAccountInfo.mockImplementation(async key => {
+        const info = (await original(key.equals(addresses.escrow) ? f.addresses.escrow : key))!;
+        if (key.equals(addresses.vault)) addresses.escrow.toBuffer().copy(info.data, 32);
+        return info;
+      });
+      const proof = { ...f.proof, nonce: c.nonce };
+      if (accept) {
+        await expect(seller.accept(c.endpoint, '{}', proof)).resolves.toMatchObject({ status: 'locked', rated: true });
+      } else {
+        await expect(seller.accept(c.endpoint, '{}', proof)).rejects.toThrow('rated escrow declined');
+        // Nothing was consumed: the same proof is refused for the same reason, not as a replay.
+        await expect(seller.accept(c.endpoint, '{}', proof)).rejects.toThrow('rated escrow declined');
+      }
+    }
+  });
 });

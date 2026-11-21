@@ -2,6 +2,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { Connection } from '@solana/web3.js';
 import { PublicKey } from '@solana/web3.js';
 import { unpackAccount, unpackMint } from '@solana/spl-token';
+import type { TransactionInstruction } from '@solana/web3.js';
+import { buildTokenEscrowExitInstruction } from './rating';
 import { buildLockTokenEscrowInstruction, decodeTokenEscrowAccount, escrowWindows, tokenEscrowAddresses, TokenEscrowTerms } from './token-escrow';
 
 /** RAP-specific escrow extension; not the interoperable x402 SVM exact scheme. */
@@ -42,6 +44,22 @@ export interface EscrowReceipt extends EscrowProof {
   mint: string;
   requestHash: string;
   slot: number;
+  /**
+   * Present, and true, only when the buyer opted the escrow in to rating and
+   * the seller accepts rated escrows. Every exit of that escrow must then
+   * pass its rating account: build the seller's claim or decline with
+   * `buildEscrowSellerExit`.
+   */
+  rated?: true;
+}
+export interface EscrowVerifyOptions {
+  /**
+   * Serve escrows the buyer opted in to rating. Default false: a rated escrow
+   * is refused before anything is served. A seller that claims a rated escrow
+   * has agreed to be rated and must then commit and reveal a rating of its
+   * own within the program's windows or lose reputation.
+   */
+  acceptRatedEscrows?: boolean;
 }
 export const escrowRequestHash = (body: string) => createHash('sha256').update(body).digest('hex');
 export function escrowTerms(c: EscrowChallenge): TokenEscrowTerms {
@@ -65,8 +83,13 @@ export function createEscrowChallenge(input: Omit<EscrowChallenge, 'scheme' | 'n
   return c;
 }
 
-/** Read-only verification against a trusted RPC. No caller-supplied state or token identity. */
-export async function verifyEscrowLock(connection: Connection, c: EscrowChallenge, proof: EscrowProof): Promise<EscrowReceipt> {
+/**
+ * Read-only verification against a trusted RPC. No caller-supplied state or token identity.
+ * The escrow is read at `finalized`, in or after the slot of the lock, which is the only slot a
+ * buyer can opt it in to rating in, so the rated bit read here is final. A rated escrow is
+ * refused unless `options.acceptRatedEscrows` is true; when accepted, the receipt says `rated`.
+ */
+export async function verifyEscrowLock(connection: Connection, c: EscrowChallenge, proof: EscrowProof, options: EscrowVerifyOptions = {}): Promise<EscrowReceipt> {
   const t = escrowTerms(c);
   if (!Number.isSafeInteger(c.expiresAt) || Date.now() >= c.expiresAt || proof.nonce !== c.nonce || !/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(proof.lockSignature)) throw new Error('invalid or expired payment proof');
   if (await connection.getGenesisHash() !== c.genesisHash) throw new Error('wrong cluster');
@@ -86,6 +109,7 @@ export async function verifyEscrowLock(connection: Connection, c: EscrowChalleng
   for (const field of ['payer', 'payee', 'mint', 'source', 'recipient'] as const) {
     if (!decoded[field].equals(t[field])) throw new Error(`wrong escrow ${field}`);
   }
+  if (decoded.rated && options.acceptRatedEscrows !== true) throw new Error('rated escrow declined: this seller does not take escrows opted in to rating');
   if (decoded.amount !== t.amount || !decoded.nonce.equals(Buffer.from(t.nonce)) || decoded.status !== 0 || decoded.bump !== bump || decoded.createdSlot !== BigInt(tx.slot)) throw new Error('escrow terms mismatch');
   // An account the earlier program wrote stores no windows (they were fixed); otherwise they must be the challenge's.
   const expected = escrowWindows(t);
@@ -96,14 +120,28 @@ export async function verifyEscrowLock(connection: Connection, c: EscrowChalleng
   if (!info) throw new Error('vault missing');
   const token = unpackAccount(vault, info, t.tokenProgram);
   if (!token.owner.equals(escrow) || !token.mint.equals(t.mint) || token.amount < t.amount || !token.isInitialized || token.isFrozen) throw new Error('vault mismatch');
-  return { ...proof, scheme: c.scheme, status: 'locked', escrow: escrow.toBase58(), amount: c.amount, mint: c.mint, requestHash: c.requestHash, slot: tx.slot };
+  return { ...proof, scheme: c.scheme, status: 'locked', escrow: escrow.toBase58(), amount: c.amount, mint: c.mint, requestHash: c.requestHash, slot: tx.slot, ...(decoded.rated ? { rated: true as const } : {}) };
+}
+
+/**
+ * The seller's exit of an escrow it accepted, signed by the payee: `claim`
+ * (release to itself, once the claim window has elapsed) or `decline`
+ * (everything back to the payer, at any time). For a receipt that says
+ * `rated` the escrow's rating account follows the usual accounts, without
+ * which the program refuses the exit; otherwise the instruction is exactly
+ * `buildSettleTokenEscrowInstruction`'s.
+ */
+export function buildEscrowSellerExit(c: EscrowChallenge, receipt: Pick<EscrowReceipt, 'rated'>, kind: 'claim' | 'decline'): TransactionInstruction {
+  const t = escrowTerms(c);
+  return buildTokenEscrowExitInstruction(t, { rated: receipt.rated === true, refund: kind === 'decline', authority: t.payee });
 }
 
 /** Single-process replay protection. Use durable atomic storage for multiple sellers/workers. */
 export class EscrowSeller {
   private pending = new Map<string, EscrowChallenge>();
   private busy = new Set<string>();
-  constructor(private connection: Connection) {}
+  /** `options.acceptRatedEscrows` (default false): serve escrows opted in to rating; see `EscrowVerifyOptions`. */
+  constructor(private connection: Connection, private options: EscrowVerifyOptions = {}) {}
   issue(input: Omit<EscrowChallenge, 'scheme' | 'nonce'>): EscrowChallenge {
     for (const [nonce, c] of this.pending) if (c.expiresAt <= Date.now()) this.pending.delete(nonce);
     if (this.pending.size >= 1000) throw new Error('challenge capacity exceeded');
@@ -114,7 +152,7 @@ export class EscrowSeller {
     if (!c || this.busy.has(c.nonce) || c.endpoint !== endpoint || c.requestHash !== escrowRequestHash(body)) throw new Error('unknown, replayed or mismatched challenge');
     this.busy.add(c.nonce);
     try {
-      const receipt = await verifyEscrowLock(this.connection, c, proof);
+      const receipt = await verifyEscrowLock(this.connection, c, proof, this.options);
       this.pending.delete(c.nonce);
       return receipt;
     } finally { this.busy.delete(c.nonce); }

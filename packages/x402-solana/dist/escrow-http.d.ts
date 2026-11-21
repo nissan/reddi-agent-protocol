@@ -1,4 +1,5 @@
 import type { Connection } from '@solana/web3.js';
+import type { TransactionInstruction } from '@solana/web3.js';
 import { TokenEscrowTerms } from './token-escrow';
 /** RAP-specific escrow extension; not the interoperable x402 SVM exact scheme. */
 export interface EscrowChallenge {
@@ -41,18 +42,50 @@ export interface EscrowReceipt extends EscrowProof {
     mint: string;
     requestHash: string;
     slot: number;
+    /**
+     * Present, and true, only when the buyer opted the escrow in to rating and
+     * the seller accepts rated escrows. Every exit of that escrow must then
+     * pass its rating account: build the seller's claim or decline with
+     * `buildEscrowSellerExit`.
+     */
+    rated?: true;
+}
+export interface EscrowVerifyOptions {
+    /**
+     * Serve escrows the buyer opted in to rating. Default false: a rated escrow
+     * is refused before anything is served. A seller that claims a rated escrow
+     * has agreed to be rated and must then commit and reveal a rating of its
+     * own within the program's windows or lose reputation.
+     */
+    acceptRatedEscrows?: boolean;
 }
 export declare const escrowRequestHash: (body: string) => string;
 export declare function escrowTerms(c: EscrowChallenge): TokenEscrowTerms;
 export declare function createEscrowChallenge(input: Omit<EscrowChallenge, 'scheme' | 'nonce'>): EscrowChallenge;
-/** Read-only verification against a trusted RPC. No caller-supplied state or token identity. */
-export declare function verifyEscrowLock(connection: Connection, c: EscrowChallenge, proof: EscrowProof): Promise<EscrowReceipt>;
+/**
+ * Read-only verification against a trusted RPC. No caller-supplied state or token identity.
+ * The escrow is read at `finalized`, in or after the slot of the lock, which is the only slot a
+ * buyer can opt it in to rating in, so the rated bit read here is final. A rated escrow is
+ * refused unless `options.acceptRatedEscrows` is true; when accepted, the receipt says `rated`.
+ */
+export declare function verifyEscrowLock(connection: Connection, c: EscrowChallenge, proof: EscrowProof, options?: EscrowVerifyOptions): Promise<EscrowReceipt>;
+/**
+ * The seller's exit of an escrow it accepted, signed by the payee: `claim`
+ * (release to itself, once the claim window has elapsed) or `decline`
+ * (everything back to the payer, at any time). For a receipt that says
+ * `rated` the escrow's rating account follows the usual accounts, without
+ * which the program refuses the exit; otherwise the instruction is exactly
+ * `buildSettleTokenEscrowInstruction`'s.
+ */
+export declare function buildEscrowSellerExit(c: EscrowChallenge, receipt: Pick<EscrowReceipt, 'rated'>, kind: 'claim' | 'decline'): TransactionInstruction;
 /** Single-process replay protection. Use durable atomic storage for multiple sellers/workers. */
 export declare class EscrowSeller {
     private connection;
+    private options;
     private pending;
     private busy;
-    constructor(connection: Connection);
+    /** `options.acceptRatedEscrows` (default false): serve escrows opted in to rating; see `EscrowVerifyOptions`. */
+    constructor(connection: Connection, options?: EscrowVerifyOptions);
     issue(input: Omit<EscrowChallenge, 'scheme' | 'nonce'>): EscrowChallenge;
     accept(endpoint: string, body: string, proof: EscrowProof): Promise<EscrowReceipt>;
 }

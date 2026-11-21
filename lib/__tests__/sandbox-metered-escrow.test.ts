@@ -271,11 +271,31 @@ describe("sandbox metered escrow: gateway", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("serves a rated metered escrow and tells the settler to pass the rating account; an unrated one is settled as before", async () => {
+  it("declines a rated metered escrow before serving by default, and leaves the lock unremembered", async () => {
+    const accounts: Accounts = new Map();
+    const { settler, calls } = fakeSettler();
+    const deps = makeDeps(accounts, settler);
+    const nonce = nonceOf(await call(deps));
+    const escrow = lockFor(accounts, nonce, { rated: true });
+    const response = await call(deps, meteredHeader(nonce, escrow));
+    expect(response.status).not.toBe(200);
+    expect(response.body.reason).toBe("unsupported_receipt");
+    expect(JSON.stringify(response.body)).toContain("opted in to rating");
+    expect(response.headers[PROVIDER_RECEIPT_HEADER]).toBeUndefined();
+    expect(response.body.choices).toBeUndefined();
+    expect(calls).toHaveLength(0);
+    // Not remembered as used: the same lock is served once the gateway accepts rated escrows.
+    const accepted = await call({ ...deps, acceptRatedEscrows: true }, meteredHeader(nonce, escrow));
+    expect(accepted.status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].rated).toBe(true);
+  });
+
+  it("when set to accept rated escrows, tells the settler to pass the rating account; an unrated one is settled as before", async () => {
     for (const rated of [true, false]) {
       const accounts: Accounts = new Map();
       const { settler, calls } = fakeSettler();
-      const deps = makeDeps(accounts, settler);
+      const deps = { ...makeDeps(accounts, settler), acceptRatedEscrows: true };
       const nonce = nonceOf(await call(deps));
       const escrow = lockFor(accounts, nonce, { rated });
       const response = await call(deps, meteredHeader(nonce, escrow));
@@ -291,9 +311,20 @@ describe("sandbox metered escrow: gateway", () => {
     const { settler, calls } = fakeSettler();
     const deps = makeDeps(accounts, settler);
     const nonce = nonceOf(await call(deps));
-    const response = await call(deps, meteredHeader(nonce, lockFor(accounts, nonce, { metered: false, rated: true })));
+    const response = await call({ ...deps, acceptRatedEscrows: true }, meteredHeader(nonce, lockFor(accounts, nonce, { metered: false, rated: true })));
     expect(response.body.reason).toBe("invalid_receipt");
     expect(calls).toHaveLength(0);
+  });
+
+  it("settles an unrated escrow with rated false whatever the setting", async () => {
+    for (const acceptRatedEscrows of [undefined, false, true]) {
+      const accounts: Accounts = new Map();
+      const { settler, calls } = fakeSettler();
+      const deps = { ...makeDeps(accounts, settler), ...(acceptRatedEscrows === undefined ? {} : { acceptRatedEscrows }) };
+      const nonce = nonceOf(await call(deps));
+      expect((await call(deps, meteredHeader(nonce, lockFor(accounts, nonce)))).status).toBe(200);
+      expect(calls.map((entry) => entry.rated)).toEqual([false]);
+    }
   });
 
   it("refuses a lock that does not match the challenge, without settling", async () => {

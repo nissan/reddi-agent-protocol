@@ -67,6 +67,12 @@ export type SandboxGatewayDeps = {
   readSlot?: () => Promise<number | bigint>;
   /** Settles a metered escrow with the provider's devnet key. Without it, metered payments are refused. */
   settler?: SandboxSettler;
+  /**
+   * Serve metered escrows the visitor opted in to rating. Default false: declined before serving.
+   * When true the settle passes the escrow's rating account. Nothing here commits or reveals a
+   * rating for the provider, so leave it off until something does (#842).
+   */
+  acceptRatedEscrows?: boolean;
   now?: () => number;
   newNonce?: () => string;
 };
@@ -244,9 +250,12 @@ async function verifyMeteredLock(record: Record<string, unknown>, provider: Sand
   if (!escrow) return rejected("invalid_receipt", "That account is not an escrow.");
   if (escrow.status !== "locked") return rejected("duplicate_nonce", "This escrow has already been settled or cancelled.", undefined, nonce);
   if (!escrow.metered) return rejected("invalid_receipt", "This escrow was not locked as a metered escrow.");
-  // An escrow the visitor also opted in to rating is served: `metered` is one bit of the flag
-  // byte and `rated` another. Its settle then has to pass the rating account, so `rated` travels
-  // with the payment. (The sandbox providers do not rate back; nothing here commits a rating.)
+  // `metered` is one bit of the flag byte and `rated` another. A provider that settles a rated
+  // escrow has agreed to be rated, so one is declined here, before anything is served or
+  // remembered, unless this gateway is set to accept them. When it is, the settle has to pass the
+  // rating account, so `rated` travels with the payment.
+  if (escrow.rated && deps.acceptRatedEscrows !== true)
+    return rejected("unsupported_receipt", "This escrow was opted in to rating, and this provider does not take rated jobs. Nothing was served or taken. Lock a new escrow without rating, and cancel this one for a full refund once its refund window has elapsed.");
   // The payer may refund once its window has elapsed, so the settlement has to
   // land before then. The time left now is what counts, not the window named
   // at lock, and when the slot cannot be read nothing is accepted.

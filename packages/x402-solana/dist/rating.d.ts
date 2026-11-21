@@ -255,12 +255,16 @@ interface SolEscrowExit {
 }
 /**
  * `release_escrow`: pays the whole locked amount, less the fee. `signer` is
- * who signs: the payer (any time), the payee (a claim, once the claim window
- * has elapsed), or both (the payee co-signing a payer's release agrees to the
- * rating of a rated escrow).
+ * who signs: the payer (any time) or the payee (a claim, once the claim
+ * window has elapsed).
+ *
+ * Rated escrow, released by the payer: the rating opens only if the seller
+ * called `accept_rating` first. Otherwise the money moves as usual and the
+ * rating account is closed, so the job is never rated. Check
+ * `payerReleaseOpensRating` before releasing, or leave the seller to claim.
  */
 export declare function buildReleaseSolEscrowInstruction(input: SolEscrowExit & {
-    signer?: 'payer' | 'payee' | 'both';
+    signer?: 'payer' | 'payee';
 }): TransactionInstruction;
 /** `settle_escrow`: the payee settles a metered escrow at `actual` lamports, at most the maximum; the rest returns to the payer. */
 export declare function buildSettleSolEscrowInstruction(input: SolEscrowExit & {
@@ -286,6 +290,11 @@ export interface RatedLock {
  * be split. Use a fresh nonce per job. The payer also pays the rating
  * account's rent, returned at `close_rating`, on a refund, or on a release
  * the seller never agreed to have rated.
+ *
+ * On a fixed-price job, do not release before the seller has agreed: read the
+ * rating account and release only when `payerReleaseOpensRating` is true, or
+ * leave the seller to claim. A release without the seller's agreement pays
+ * the seller and closes the job unrated.
  */
 export declare function buildRatedTokenEscrowLock(terms: TokenEscrowTerms, options?: {
     judge?: PublicKey;
@@ -296,7 +305,24 @@ export declare function buildRatedTokenEscrowLock(terms: TokenEscrowTerms, optio
 export declare function buildRatedSolEscrowLock(terms: SolEscrowTerms, options?: {
     judge?: PublicKey;
 }): RatedLock;
-/** The part of a `Connection` the seller helper uses. */
+/**
+ * Buyer: whether a release by the payer now would open the rating. True only
+ * while the escrow is unpaid and the seller has called `accept_rating`. When
+ * false, a payer's release still pays the seller in full but closes the
+ * rating account, and the job is never rated or attested; a buyer that wants
+ * the rating waits for the seller to accept, or leaves the seller to claim or
+ * settle (a paid exit the seller signs as the authority always opens it).
+ */
+export declare function payerReleaseOpensRating(rating: Pick<RatingAccount, 'state' | 'accepted'>): boolean;
+/**
+ * Reads the rating account of an escrow, at `confirmed` unless told
+ * otherwise. Undefined when there is none: the job was never opted in, was
+ * refunded, was released without the seller's agreement, or the rating was
+ * closed. Throws when the account is not this program's or is not a rating,
+ * and on RPC errors.
+ */
+export declare function readRatingAccount(connection: EscrowAccountReader, escrow: PublicKey, programId: PublicKey, commitment?: 'confirmed' | 'finalized'): Promise<RatingAccount | undefined>;
+/** The part of a `Connection` the buyer and seller helpers use. */
 export interface EscrowAccountReader {
     getAccountInfo(address: PublicKey, commitment?: Commitment): Promise<{
         owner: PublicKey;
