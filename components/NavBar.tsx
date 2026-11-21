@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletSignIn } from "@/components/auth/WalletSignIn";
 import ThemeToggle from "@/components/ThemeToggle";
+import { withoutInternalLinks } from "@/lib/internal-pages";
 
 const WalletMultiButton = dynamic(
   async () =>
@@ -28,7 +29,7 @@ const primaryLinks: { href: string; label: string }[] = [
   { href: "/setup", label: "Docs" },
 ];
 
-const secondaryLinks: { href: string; label: string }[] = [
+const secondaryLinks: { href: string; label: string }[] = withoutInternalLinks([
   { href: "/start", label: "Start here" },
   { href: "/planner", label: "Planner" },
   { href: "/runs", label: "History" },
@@ -48,7 +49,7 @@ const secondaryLinks: { href: string; label: string }[] = [
   { href: "/manager", label: "Manager" },
   { href: "/manager/discovery", label: "Discovery review" },
   { href: "/dogfood", label: "Dogfood" },
-];
+]);
 
 function isActive(pathname: string | null, href: string) {
   if (!pathname) return false;

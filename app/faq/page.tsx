@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
+import { internalPagesEnabled } from "@/lib/internal-pages";
 
 const faqs = [
   {
@@ -88,9 +89,11 @@ export default function FAQPage() {
               <Link href="/onboarding">
                 <Button>Start onboarding →</Button>
               </Link>
-              <Link href="/testers">
-                <Button variant="outline">Open tester guides</Button>
-              </Link>
+              {internalPagesEnabled() && (
+                <Link href="/testers">
+                  <Button variant="outline">Open tester guides</Button>
+                </Link>
+              )}
               <Link href="/agents">
                 <Button variant="outline">Browse agents</Button>
               </Link>

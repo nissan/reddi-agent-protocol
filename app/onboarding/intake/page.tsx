@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { internalPagesEnabled } from "@/lib/internal-pages";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -635,12 +636,14 @@ export default function OnboardingIntakePage() {
                 >
                   Continue via manual registration
                 </Link>
-                <Link
-                  href="/manager/listings"
-                  className="inline-flex min-h-9 items-center rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-muted-foreground hover:border-white/25"
-                >
-                  Operator review queue
-                </Link>
+                {internalPagesEnabled() && (
+                  <Link
+                    href="/manager/listings"
+                    className="inline-flex min-h-9 items-center rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-muted-foreground hover:border-white/25"
+                  >
+                    Operator review queue
+                  </Link>
+                )}
               </div>
             </div>
           )}

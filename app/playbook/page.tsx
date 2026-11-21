@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { internalPagesEnabled } from "@/lib/internal-pages";
 import { useMemo, useState } from "react";
 import { FEATURE_CATALOG, type AgentRole, type FeatureEntry } from "@/lib/features/catalog";
 
@@ -60,7 +61,7 @@ export default function PlaybookPage() {
             <div className="rounded-xl border border-white/10 bg-card/20 p-4 space-y-2">
               <p className="text-sm font-semibold text-white">No local agent yet?</p>
               <p className="text-xs text-gray-400">Try a bounded demo run first, then decide what to build.</p>
-              <Link href="/dogfood" className="text-xs text-indigo-300 hover:text-indigo-200">Run instant demo flow →</Link>
+              <Link href={internalPagesEnabled() ? "/dogfood" : "/sandbox"} className="text-xs text-indigo-300 hover:text-indigo-200">Run instant demo flow →</Link>
             </div>
             <div className="rounded-xl border border-white/10 bg-card/20 p-4 space-y-2">
               <p className="text-sm font-semibold text-white">Have an app or orchestrator?</p>

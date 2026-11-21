@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { internalPagesEnabled, isInternalPath } from "@/lib/internal-pages";
 
 const phases = [
   { phase: "Phase 0", title: "Scope and evidence baseline", status: "Complete" },
@@ -81,7 +82,7 @@ export default function WhitepaperPage() {
           <h2 className="font-display text-2xl font-semibold">Evidence screenshots</h2>
           <p className="text-sm text-gray-300">Initial screenshot pack used for bounded technical walkthroughs; screenshots are not production-readiness evidence. Captures that still assert retired claims are withheld until they are retaken.</p>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {screenshots.map((shot) => (
+            {screenshots.filter((shot) => internalPagesEnabled() || !isInternalPath(shot.route)).map((shot) => (
               <figure key={shot.src} className="rounded-xl border border-white/10 bg-card/40 overflow-hidden">
                 {shot.imageStale ? (
                   <div className="flex h-44 w-full items-center justify-center bg-card px-5 text-center">
