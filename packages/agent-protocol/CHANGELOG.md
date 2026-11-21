@@ -4,6 +4,10 @@ All notable changes to this package are documented here. Dates are AEST.
 
 ## Unreleased
 
+### Added
+
+- Receipt v2 `session` block for metered sessions (#863): sequence, this call's tokens, running token totals and cost, the previous receipt's hash, and `closed`. Receipts of a session carry no `payment` block until the closing one, whose metered payment must equal the running cost. `hashReddiReceiptV2` (SHA-256 of the canonical form) and `verifyReddiReceiptV2Session`, which checks a whole chain: one provider and escrow, sequence 1 to n, hash links, running sums, a cost that never goes down, and only the last receipt closed. New error codes `session_mismatch` and `session_chain_broken`.
+
 ### Removed
 
 - `reddi.receipt.v1` and the 28 modules built on it (#776, breaking; owner decision, 20 November 2026): `receipts`, `fixtures`, `buyer-seller`, `receipt-evidence-binding`, `rail-neutral-payment-receipts`, `rail-neutral-proof-chain-fixture`, `buyer-authority-policy`, `audd-payment-plan`, `seller-wrapper-config`, `seller-wrapper-rail-fixtures`, `pay-sh-sandbox-evidence`, `attestation-reputation-bridge`, `hosted-attestation-claim`, `offchain-reputation-preview`, `quasar-reputation-intent`, `reputation-credential-export`, `erc8004-export`, `erc8004-export-conformance`, `ap2-mandate-ingestion`, `ap2-mandate-conformance`, `airwallex-hosted-checkout-rail`, `airwallex-webhook-receipt-normalization`, `framework-template-contract`, `framework-template-conformance`, `framework-template-conformance-fixtures`, and the LangGraph, ADK and Strands templates, with their subpath exports and tests. `reddi.receipt.v2` is the only receipt. Nothing had been published, so there is no migration path.

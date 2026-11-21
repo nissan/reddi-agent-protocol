@@ -11,6 +11,7 @@ exports.meteredPaymentHeaderValue = meteredPaymentHeaderValue;
 exports.checkProviderCluster = checkProviderCluster;
 exports.checkMeteredPayout = checkMeteredPayout;
 exports.verifyMeteredLock = verifyMeteredLock;
+exports.meteredEscrowReplayKey = meteredEscrowReplayKey;
 exports.usageFrom = usageFrom;
 exports.meteredSettlement = meteredSettlement;
 exports.confirmMeteredSettlement = confirmMeteredSettlement;
@@ -235,6 +236,7 @@ async function checkMeteredPayout(input) {
  * answer to be final (see `AccountReader`).
  */
 async function verifyMeteredLock(input) {
+    const purpose = input.purpose ?? 'call';
     const { header, terms } = input;
     const expected = (0, token_escrow_1.tokenEscrowAddresses)({ programId: terms.programId, payer: header.payer, nonce: header.nonce }).escrow;
     if (!expected.equals(header.escrow))
@@ -272,16 +274,20 @@ async function verifyMeteredLock(input) {
     if (escrow.cancelWindowSlots === undefined) {
         return { ok: false, reason: 'invalid_receipt', message: 'This escrow states no refund window. Lock a new one with the current program.' };
     }
-    let currentSlot;
-    try {
-        currentSlot = BigInt(await input.readSlot());
-    }
-    catch {
-        return { ok: false, reason: 'payment_check_unavailable', message: 'The chain could not be read. Nothing was accepted; present the same receipt again.' };
-    }
-    const elapsed = currentSlot > escrow.createdSlot ? currentSlot - escrow.createdSlot : BigInt(0);
-    if (escrow.cancelWindowSlots < elapsed + token_escrow_1.SELLER_MIN_CANCEL_WINDOW_SLOTS) {
-        return { ok: false, reason: 'invalid_receipt', message: "This escrow's refund window has less than 10 minutes left. Lock a new one with a longer refund window, then make the call straight away." };
+    if (purpose !== 'session-settle') {
+        let currentSlot;
+        try {
+            currentSlot = BigInt(await input.readSlot());
+        }
+        catch {
+            return { ok: false, reason: 'payment_check_unavailable', message: 'The chain could not be read. Nothing was accepted; present the same receipt again.' };
+        }
+        const elapsed = currentSlot > escrow.createdSlot ? currentSlot - escrow.createdSlot : BigInt(0);
+        if (escrow.cancelWindowSlots < elapsed + token_escrow_1.SELLER_MIN_CANCEL_WINDOW_SLOTS) {
+            return purpose === 'session-call'
+                ? { ok: false, reason: 'session_window_closing', message: "This session's refund window has less than 10 minutes left, so it takes no more calls and is settled now. Lock a new escrow to go on." }
+                : { ok: false, reason: 'invalid_receipt', message: "This escrow's refund window has less than 10 minutes left. Lock a new one with a longer refund window, then make the call straight away." };
+        }
     }
     if (!escrow.payer.equals(header.payer))
         return { ok: false, reason: 'invalid_receipt', message: 'The escrow was locked by a different wallet.' };
@@ -322,7 +328,7 @@ async function verifyMeteredLock(input) {
     const payout = await checkMeteredPayout({ terms, escrow, readAccount: input.readAccount, ...(input.treasury ? { treasury: input.treasury } : {}) });
     if (!payout.ok)
         return payout;
-    if (!(await input.replayStore.checkAndStore(`metered-escrow:${header.escrow.toBase58()}`))) {
+    if (purpose === 'call' && !(await input.replayStore.checkAndStore(meteredEscrowReplayKey(header.escrow)))) {
         return { ok: false, reason: 'duplicate_nonce', message: 'This escrow has already paid for a call.' };
     }
     return {
@@ -330,6 +336,7 @@ async function verifyMeteredLock(input) {
         payer: escrow.payer,
         payout: payout.payout,
         rated: escrow.rated,
+        createdSlot: escrow.createdSlot,
         ...(openedSlot !== undefined ? { openedSlot } : {}),
         maxBaseUnits: escrow.amount,
         terms: {
@@ -348,6 +355,10 @@ async function verifyMeteredLock(input) {
                 : {}),
         },
     };
+}
+/** The replay-store key that marks an escrow as taken, by a single call or by a session's first call. */
+function meteredEscrowReplayKey(escrow) {
+    return `metered-escrow:${escrow.toBase58()}`;
 }
 /** Token counts from an OpenAI-style usage report, or the estimate from the text when it reports none. */
 function usageFrom(upstream, inputEstimate) {

@@ -6,7 +6,12 @@ import type { ProviderConfig } from "./config.js";
 import { createProviderHandler } from "./handler.js";
 import { loadProviderKey } from "./keys.js";
 import { FileReplayStore } from "./replay.js";
+import { FileSessionStore } from "./sessions.js";
+import { MeteredSessionLedger } from "@reddi/x402-solana";
 import { createMockUpstream, createOpenAiCompatibleUpstream, type Upstream } from "./upstream.js";
+
+/** How often sessions are checked for an idle timeout or a refund window that is about to open. */
+export const SESSION_SWEEP_MS = 30_000;
 
 export type StartResult = { ok: true; server: Server; close: () => Promise<void> } | { ok: false; message: string };
 
@@ -51,13 +56,42 @@ export async function startProvider(config: ProviderConfig, options: { log?: (ev
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "the payment memory file could not be opened" };
   }
+  // Sessions are kept beside the payment memory, whose lock already keeps a second process out.
+  let sessionStore: FileSessionStore | undefined;
+  let sessions: MeteredSessionLedger | undefined;
+  if (config.sessions.enabled) {
+    try {
+      sessionStore = new FileSessionStore(config.sessions.file);
+      sessions = new MeteredSessionLedger(config.terms, sessionStore);
+      const restored = await sessions.restore();
+      if (restored > 0) options.log?.({ event: "sessions_restored", count: restored });
+    } catch (error) {
+      sessionStore?.close();
+      replayStore.close();
+      return { ok: false, message: error instanceof Error ? `sessions: ${error.message}` : "the session file could not be opened" };
+    }
+  }
   const chain = options.chain ?? createProviderChain(config.rpcUrl, key.key.keypair);
-  const handler = createProviderHandler(config, { chain, upstream: upstreamFor(config), replayStore, signMessage: key.key.signMessage, log: options.log });
+  const handler = createProviderHandler(config, { chain, upstream: upstreamFor(config), replayStore, ...(sessions ? { sessions } : {}), signMessage: key.key.signMessage, log: options.log });
   const server = serve(handler, config.publicUrl);
+  // Settles idle sessions, closing ones, and any near its refund window, including those restored above.
+  let sweeping = false;
+  const sweep = sessions
+    ? setInterval(() => {
+        if (sweeping) return;
+        sweeping = true;
+        handler.settleDueSessions().catch(() => undefined).finally(() => {
+          sweeping = false;
+        });
+      }, SESSION_SWEEP_MS)
+    : undefined;
+  sweep?.unref();
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(config.port, options.host ?? "0.0.0.0", () => resolve());
   }).catch((error: unknown) => {
+    if (sweep) clearInterval(sweep);
+    sessionStore?.close();
     replayStore.close();
     throw error;
   });
@@ -66,7 +100,9 @@ export async function startProvider(config: ProviderConfig, options: { log?: (ev
     server,
     close: () =>
       new Promise<void>((resolve) => {
+        if (sweep) clearInterval(sweep);
         server.close(() => {
+          sessionStore?.close();
           replayStore.close();
           resolve();
         });

@@ -154,7 +154,7 @@ test("start serves a paid call over HTTP end to end", async () => {
   writeFileSync(keyPath, JSON.stringify([...provider.secretKey]));
   chmodSync(keyPath, 0o600);
   const chain = fakeChain();
-  const started = await startProvider(config({ keypairPath: keyPath, replayFile: join(dir, "accepted.log"), port: 0 as unknown as number }, { PORT: "18787" }), { chain, host: "127.0.0.1" });
+  const started = await startProvider(config({ keypairPath: keyPath, replayFile: join(dir, "accepted.log"), sessions: { file: join(dir, "sessions.jsonl") }, port: 0 as unknown as number }, { PORT: "18787" }), { chain, host: "127.0.0.1" });
   assert.ok(started.ok);
   try {
     const { paymentHeader } = await import("./helpers.js");
