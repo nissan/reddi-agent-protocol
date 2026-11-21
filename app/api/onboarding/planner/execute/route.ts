@@ -1,5 +1,6 @@
 import { authenticateWalletRequest, bearerToken } from "@/lib/auth/wallet-session";
 import { executePlannerSpecialistCall, listPlannerRuns } from "@/lib/onboarding/planner-execution";
+import { parsePlannerSessionRequest } from "@/lib/onboarding/planner-session";
 
 export const runtime = "nodejs";
 
@@ -28,7 +29,12 @@ export async function POST(req: Request) {
       const session = await authenticateWalletRequest(req.headers);
       if (session.ok) buyerSession = { userId: session.userId, wallet: session.wallet };
     }
+    const session = body.paymentMode === "wallet" ? parsePlannerSessionRequest(body.session) : undefined;
+    if (session && "error" in session) {
+      return Response.json({ ok: false, error: session.error }, { status: 400 });
+    }
     const result = await executePlannerSpecialistCall({
+      session,
       buyerSession,
       prompt: String(body.prompt || ""),
       consumerWallet: typeof body.consumerWallet === "string" ? body.consumerWallet : undefined,

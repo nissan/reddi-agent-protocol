@@ -16,6 +16,8 @@ import { ESCROW_PROGRAM_ID } from "@/lib/program";
 import { checkAndStoreProviderReceipt, PROVIDER_RECEIPT_HEADER } from "@/lib/jobs/provider-receipt";
 import { refreshProviderStats } from "@/lib/jobs/provider-stats";
 import { emitTorqueEvent } from "@/lib/torque/client";
+import { plannerChatPayload } from "@/lib/onboarding/planner-payload";
+import { checkSessionAnswer, sessionRequestHeaders, type PlannerSessionOutcome, type PlannerSessionRequest } from "@/lib/onboarding/planner-session";
 import { TORQUE_EVENTS } from "@/lib/torque/events";
 
 export type PlannerExecuteInput = {
@@ -36,6 +38,12 @@ export type PlannerExecuteInput = {
   paymentReceipt?: unknown;
   /** The signed-in buyer, from a checked session. Never taken from the request body. */
   buyerSession?: { userId: string; wallet: string };
+  /**
+   * Wallet mode with a metered receipt only: send the call as call `sequence`
+   * of a session on that lock (#863), signed by the buyer's session key over
+   * the exact request body (`plannerChatBody`).
+   */
+  session?: PlannerSessionRequest;
 };
 
 /** Handed to the browser so the buyer's wallet can pay. Never contains a signature. */
@@ -179,11 +187,7 @@ export async function executePlannerSpecialistCall(input: PlannerExecuteInput) {
   }
 
   const endpointUrl = routed.selected.endpointUrl;
-  const payload = {
-    model: "ollama-local",
-    messages: [{ role: "user", content: input.prompt }],
-    stream: false,
-  };
+  const payload = plannerChatPayload(input.prompt);
 
   trace.push(`planner:selected:${routed.selected.walletAddress}`);
 
@@ -557,12 +561,23 @@ async function executeWithWalletPayment(input: PlannerExecuteInput, ctx: WalletR
     });
   }
 
-  ctx.trace.push(`request:paid:${url}`);
+  const metered = (input.paymentReceipt as { settlement?: unknown }).settlement === "metered-escrow";
+  const session = input.session;
+  if (session && !metered) {
+    return fail({
+      challengeSeen: true,
+      error: "Only a metered escrow lock can pay for a session.",
+      trace: [...ctx.trace, "x402:wallet_receipt_refused:session_needs_metered_lock", "planner:failed"],
+    });
+  }
+  const escrow = (input.paymentReceipt as { escrow?: unknown }).escrow;
+
+  ctx.trace.push(session ? `request:session:${session.sequence}${session.close ? ":close" : ""}:${url}` : `request:paid:${url}`);
   const requestBody = JSON.stringify(ctx.payload);
   try {
     const paid = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json", "x402-payment": receipt.header },
+      headers: { "content-type": "application/json", "x402-payment": receipt.header, ...(session ? sessionRequestHeaders(session) : {}) },
       body: requestBody,
       signal: AbortSignal.timeout(30000),
     });
@@ -584,7 +599,33 @@ async function executeWithWalletPayment(input: PlannerExecuteInput, ctx: WalletR
           : `Specialist call failed after wallet payment (${paid.status}).`,
       trace: [...ctx.trace, `retry:status:${paid.status}`, paid.ok ? "planner:completed" : "planner:failed"],
     };
-    const metered = (input.paymentReceipt as { settlement?: unknown }).settlement === "metered-escrow";
+    if (session) {
+      // A session call is billed through the provider's receipt chain and settled once, so nothing is recorded per call.
+      const sessionOutcome = checkSessionAnswer({
+        status: paid.status,
+        headers: paid.headers,
+        responseText: text,
+        requestBody,
+        providerWallet: ctx.selectedWallet,
+        escrow: typeof escrow === "string" ? escrow : "",
+        sequence: session.sequence,
+      });
+      const settledBy = sessionOutcome.closing?.receipt.payment?.txSignature;
+      if (settledBy) run.settleTxSignature = settledBy;
+      if (!paid.ok) {
+        run.error = sessionOutcome.refusal
+          ? `The provider refused session call ${session.sequence} (${sessionOutcome.refusal}). Nothing was charged for it; anything it served before is settled from the lock.`
+          : `Session call ${session.sequence} failed (${paid.status}). Nothing was charged for it; send it again or start a new lock.`;
+      }
+      run.trace.push(
+        sessionOutcome.call ? "session:receipt_checked" : `session:receipt_not_checked:${sessionOutcome.problem ?? sessionOutcome.refusal ?? "none"}`,
+        ...(sessionOutcome.closing ? ["session:closing_receipt_checked"] : []),
+        ...(sessionOutcome.state ? [`session:state:${sessionOutcome.state}`] : []),
+        "job:not_recorded:session_call",
+      );
+      appendRun(run);
+      return { ok: paid.ok, result: run, response: text, candidates: ctx.candidates, session: sessionOutcome as PlannerSessionOutcome };
+    }
     const settleSignature = metered && paid.ok ? settleSignatureFromBody(text) : undefined;
     if (settleSignature) run.settleTxSignature = settleSignature;
     if (metered && !paid.ok) {
