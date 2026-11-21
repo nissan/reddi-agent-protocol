@@ -1,24 +1,38 @@
 # V1 program (Pinocchio)
 
-The Reddi Agent Protocol on-chain program: escrow and registry, built with
+The Reddi Agent Protocol on-chain program: escrow, registry, and ratings and
+judge attestations of jobs paid through escrow, built with
 [Pinocchio](https://github.com/anza-xyz/pinocchio).
 
 **Status.** This is the V1 program source (owner decision, 21 November 2026).
 It replaces the Anchor program, which is archived in `archive/anchor-escrow/`
-and kept as the behavioural reference this program is tested against. It has
+and kept as the behavioural reference its 13 escrow and registry instructions
+are tested against. It has
 not been deployed and has not had an independent security review. The program
 on devnet today is still the Anchor build (`DEPLOY.md`). Nothing in this
 directory deploys, creates keys or signs anything.
 
 ## What it is
 
-One program. The default build has the 13 instructions of V1:
+One program, one mainnet build. The default build has 21 instructions:
 
 | Area | Instructions |
 |---|---|
 | SOL escrow | `lock_escrow`, `lock_metered_escrow`, `release_escrow`, `settle_escrow`, `cancel_escrow` |
 | Token escrow (USDC, AUDD, PYUSD, USDG) | `lock_token_escrow`, `lock_metered_token_escrow`, `release_token_escrow`, `settle_token_escrow`, `cancel_token_escrow` |
 | Registry | `register_agent`, `update_agent`, `deregister_agent` |
+| Ratings of jobs paid through escrow | `open_rating`, `commit_rating`, `reveal_rating`, `expire_rating`, `close_rating` |
+| Judge attestations | `attest_quality`, `confirm_attestation`, `dispute_attestation` |
+
+The first 13 are the Anchor program's, with the same interface. The other
+eight are this program's own: see [Ratings and attestations](#ratings-and-attestations)
+and [Interface of the rating and attestation instructions](#interface-of-the-rating-and-attestation-instructions).
+
+Not part of V1: MagicBlock PER tracking (`delegate_escrow`,
+`release_escrow_per`). It sits behind the `per` Cargo feature, which is off by
+default and never used for a mainnet build; the default build answers neither
+selector. It is unfinished work for after the launch (issue #839): the PER
+release takes no protocol fee and emits no settlement event yet.
 
 Who may end an escrow, for SOL and tokens alike:
 
@@ -118,15 +132,13 @@ it, so open escrows on a program that is upgraded in place should be ended
 (the payee can decline at any time) before the upgrade. The decoders in
 `lib/sandbox/escrow.ts` and `packages/x402-solana` read both sizes.
 
-The `extended` feature adds the eight instructions that are not part of V1,
-as the Anchor program's `extended` feature does. The mainnet build does not
-include them.
-
-| Area | Instructions (`--features extended`) |
-|---|---|
-| Ratings | `commit_rating`, `reveal_rating`, `expire_rating` |
-| Attestations | `attest_quality`, `confirm_attestation`, `dispute_attestation` |
-| PER tracking | `delegate_escrow`, `release_escrow_per` |
+Each escrow has one flag byte, the byte that has always held `metered`: at
+offset 132 of a SOL escrow (164 when a PER session key is stored, `per` builds
+only) and at offset 202 of a token escrow. Bit `0x01` is metered, bit `0x02`
+is rated. An escrow that is not rated stores 0 or 1 there, as before, so
+nothing changes for it. A client that reads the byte must test the bits: a
+rated metered escrow stores 3, and a decoder that compares the byte with 1, or
+reads it as a Borsh `bool`, gets it wrong or fails.
 
 It is not a line-by-line port. The goal is the same outcome for every
 transaction, built the way a Pinocchio program is built:
@@ -139,7 +151,10 @@ transaction, built the way a Pinocchio program is built:
   deserialised into an owned value and serialised back.
 - **Explicit checks, one place each.** Signer, writable, owner, derived-address
   and token-account checks are small shared functions
-  (`program/src/checks.rs`, `program/src/token.rs`). The settlement
+  (`program/src/checks.rs`, `program/src/token.rs`). A rating or attestation
+  account is only ever read through one loader that checks its owner, its
+  discriminator, its size and that it sits at the address derived from the
+  escrow it names (`program/src/state.rs`). The settlement
   instructions of the token escrow share one validated `Open` value and one
   `drain` routine, so release, claim, settle, refund and decline differ only
   in who may call them and how the vault is split.
@@ -151,13 +166,13 @@ transaction, built the way a Pinocchio program is built:
 
 ## The contract it keeps
 
-The program is a drop-in for the Anchor one at the wire level, so the existing
-clients, IDL, tests and scripts work against it unchanged:
+For the 13 escrow and registry instructions, on an escrow that is not opted
+into rating, the program is a drop-in for the Anchor one at the wire level, so
+the existing clients, IDL, tests and scripts work against it unchanged:
 
 - the same 8-byte instruction selectors and argument encoding;
-- the same accounts in the same order;
-- the same derived addresses (`escrow`, `token-escrow`, `token-vault`, `agent`,
-  and in the extended build `rating` and `attestation` seeds);
+- the same accounts in the same order (accounts after them are ignored);
+- the same derived addresses (`escrow`, `token-escrow`, `token-vault`, `agent`);
 - the same account layouts, including the 8-byte account discriminators, so
   `program.account.*.fetch` and `lib/program.ts` read them;
 - the same events, byte for byte, on the `Program data:` log channel;
@@ -168,34 +183,372 @@ clients, IDL, tests and scripts work against it unchanged:
   rounded down, from the payee's share, capped at 0.1 SOL for SOL only, paid to
   the Squads vault).
 
-## Evidence of equivalence
+The rating and attestation instructions, and the exits of a rated escrow, are
+not in the Anchor IDL. The Anchor program has instructions with some of the
+same names (`commit_rating`, `attest_quality` and so on) behind its `extended`
+feature, with a different interface; a client built for those does not work
+here. This README and `interface/vectors.json` are the interface.
 
-Two layers, both in `equivalence/` (its own workspace, so the test harness's
+## Ratings and attestations
+
+A rating counts only for a job that was paid through escrow between the two
+parties, and the buyer opts in.
+
+1. **Opt in.** In the slot an escrow is locked (normally in the same
+   transaction), its payer calls `open_rating`. That creates the rating
+   account at `["rating", escrow address]`, which is the job's record: it
+   names the escrow, the payer (consumer), the payee (specialist) and an
+   optional judge. The escrow's rated bit is set. Opting in later is refused,
+   so a seller that reads the escrow before it serves knows whether the job is
+   rated, and can decline it. A seller should read the escrow at `confirmed`
+   commitment or better, so that it sees the whole slot of the lock.
+2. **Exit.** Every exit of a rated escrow takes the rating account, writable,
+   as the account right after the instruction's usual accounts. A paid exit
+   (release, claim, settle) writes the amount paid, the mint and the slot onto
+   it and opens the rating. A refund or decline closes it and returns its rent
+   to the payer: a job that was not paid is not rated. Without the rating
+   account the exit is refused (`RatingAccountRequired`, 6033), so a seller
+   that settles a rated escrow must pass it.
+3. **Commit.** Each party commits to
+   `sha256(rating address ‖ signer address ‖ score byte ‖ 32-byte salt)`
+   within `RATING_COMMIT_SLOTS` (1,512,000 slots, about 7 days) of the paid
+   settlement. The rating address and the signer are part of the hash, so a
+   commitment copied from the other party or from another job cannot be opened
+   by replaying that reveal.
+4. **Reveal.** Once both have committed, each reveals its score (1 to 10) and
+   salt within `RATING_REVEAL_SLOTS` (1,512,000 slots) of the second
+   commitment. On the second reveal each score is folded into the other
+   party's agent record (nine parts the old reputation, one part the score
+   scaled to 0..10000) and both job counts rise by one.
+5. **Expire.** After the deadline of the phase a rating stopped in, anyone may
+   call `expire_rating`, which gives it its final result:
+
+   | Stopped | Result |
+   |---|---|
+   | Before both committed, nobody committed | Final, no reputation change |
+   | Before both committed, one side committed | The silent side loses 5.00 points and gains a failed job |
+   | Both committed, one side revealed | The revealed score is folded into the other party, then that party (which withheld) loses 5.00 points; its own score is never counted; both job counts rise by one |
+   | Both committed, nobody revealed | Final, no reputation change |
+
+   A deadline includes its last slot: a commit or reveal in slot
+   `start + 1,512,000` is accepted, and `expire_rating` is accepted from the
+   slot after.
+6. **Close.** Once the rating is final (revealed or expired) the consumer
+   calls `close_rating` and gets the rent back.
+
+A party that is not a registered agent can rate and be rated: the instruction
+takes the agent address derived from each party, and updates only records that
+exist at the time. What counts is the registry as it stands when the rating is
+finalised.
+
+**Attestations.** The consumer may name one judge in `open_rating`. Once the
+job is paid, that judge, and nobody else, records five scores with
+`attest_quality`; it must be registered as an attestation agent (type 1 or 2).
+The attestation lives at `["attestation", escrow address]` and takes the job
+and the consumer from the rating account, so it must be made before the rating
+account is closed. Only that consumer confirms it (the judge's accuracy rises
+by 10.00 and a top score is folded into its reputation) or disputes it (the
+judge loses 5.00 points), once. The attestation account is not closed; its
+rent stays with it.
+
+Things to know:
+
+- A rating account costs 2,756,160 lamports of rent (268 bytes, at 6,960
+  lamports per byte with the 128-byte account overhead), paid by the buyer and
+  returned at `close_rating` or on a refund. An attestation costs the judge
+  1,719,120 lamports (119 bytes) and is not returned.
+- The addresses are derived from the escrow address, which is derived from the
+  payer and the nonce. A payer that reuses a nonce gets the same addresses:
+  the new job cannot be opted in until the earlier rating is closed, and can
+  never be attested if the earlier job was. Clients use a fresh nonce per job.
+- Reputation is not Sybil-proof. Two wallets of one owner can pay and rate
+  each other for the cost of fees. The paid amount and the mint are on the
+  rating account so that rankers can weight by them.
+- The payer can release an escrow at any time, so a rated job can be paid
+  without the payee ever acting: anyone can lock a rated escrow of one lamport
+  to a registered agent and release it in the same transaction. That agent
+  then has to commit and reveal within the windows or lose 5.00 points, and a
+  low score revealed against it is folded into its reputation either way. The
+  program does not weight reputation by the amount paid. This is an open
+  point for the security review; a provider's only on-chain answer today is to
+  commit and reveal.
+- An escrow delegated to a PER session (`per` builds only) cannot be opted in,
+  and a rated escrow cannot be delegated (`RatedEscrowNotDelegable`, 6045).
+
+## Interface of the rating and attestation instructions
+
+Selectors are the first eight bytes of `sha256("global:<name>")`. Data follows
+the selector; integers are little-endian; trailing data bytes and accounts
+after the ones listed are ignored. `w` writable, `s` signer. Examples of every
+instruction and account below, as bytes, are in `interface/vectors.json`;
+`equivalence/tests/interface_vectors.rs` fails when that file and the program
+disagree.
+
+Framework errors any of them can return: `InstructionDidNotDeserialize` (102,
+data too short), `ConstraintMut` (2000, an account that must be writable is
+not), `ConstraintSeeds` (2006, an account is not at its derived address),
+`AccountDiscriminatorMismatch` (3002) and `AccountDidNotDeserialize` (3003,
+an account of this program that is not the expected record),
+`AccountNotEnoughKeys` (3005), `AccountOwnedByWrongProgram` (3007),
+`InvalidProgramId` (3008, not the System program), `AccountNotSigner` (3010),
+`AccountNotInitialized` (3012, nothing at the address: for a rating, the job
+was never opted in, was refunded, or the rating was closed).
+
+### `open_rating`
+
+Data: `judge: [u8; 32]` (all zero for no judge).
+
+| # | Account | | |
+|---|---|---|---|
+| 0 | `rating` | w | `["rating", escrow]`, created here |
+| 1 | `escrow` | w | A SOL or token escrow of this program |
+| 2 | `payer` | w, s | The escrow's payer; pays the rating's rent |
+| 3 | `system_program` | | |
+
+Refused with: `UnauthorisedSigner` (6000) when the signer is not the escrow's
+payer; `NotLocked` (6002); `RatingOptInClosed` (6036) in any slot but the one
+the escrow was locked in; `AlreadyRated` (6037); `RatedEscrowNotDelegable`
+(6045) for an escrow delegated to PER; `InvalidPayee` (6007) when the payee is
+the payer or the rating address; `InvalidJudge` (6038) when the judge is the
+payer or the payee; a System program error when an account already exists at
+the rating address.
+
+### Exits of a rated escrow
+
+`release_escrow`, `settle_escrow`, `cancel_escrow`, `release_token_escrow`,
+`settle_token_escrow` and `cancel_token_escrow` keep their selectors, data and
+accounts. When the escrow's rated bit is set, one more account is required
+right after them:
+
+| Instruction | Usual accounts | Rating account at index |
+|---|---|---|
+| `release_escrow`, `settle_escrow` | `escrow` w, `payer` w, `payee` w, `treasury` w, `system_program` | 5 |
+| `cancel_escrow` | `escrow` w, `authority` s, `payer` w, `system_program` | 4 |
+| `release_token_escrow`, `settle_token_escrow` | `escrow` w, `vault` w, `authority` s, `payer` w, `mint`, `destination` w, `treasury_token` w, `refund` w, `token_program` | 9 |
+| `cancel_token_escrow` | `escrow` w, `vault` w, `authority` s, `payer` w, `mint`, `destination` w, `token_program` | 7 |
+
+The rating account must be writable, be the rating of this escrow, and be in
+state 0. Refused with `RatingAccountRequired` (6033) when it is missing,
+`InvalidRatingAccount` (6034) when it is the rating of another escrow,
+`RatingNotAwaitingSettlement` (6035) in any other state, and the framework
+errors above when it is not a rating account at all. Everything else about the
+exit, including who may call it, the money and the `EscrowSettled` event, is
+as for an escrow that is not rated.
+
+A paid exit sets on the rating account: `paid` (the amount paid out of the
+escrow before the protocol fee; for a token escrow, what left the vault for
+the payee and the treasury, which under Token-2022 can be less than the amount
+named when the issuer has shrunk the vault), `mint` (the escrow mint; zero for
+SOL), `settled_slot`, and state 1. A refund or decline closes the rating
+account; its lamports go to the escrow's payer.
+
+### `commit_rating`
+
+Data: `commitment: [u8; 32]`.
+
+| # | Account | | |
+|---|---|---|---|
+| 0 | `rating` | w | |
+| 1 | `signer` | s | The rating's consumer or specialist |
+
+Refused with: `UnauthorisedSigner` (6000) for anyone else; `JobNotPaid` (6039)
+in state 0; `AlreadyFinalised` (6015) in state 3 or 4; `AlreadyCommitted`
+(6010) when this party has committed; `CommitDeadlinePassed` (6040) after slot
+`settled_slot + 1,512,000`; `EmptyCommitment` (6043) for 32 zero bytes. The
+second commitment sets state 2 and `committed_slot`.
+
+### `reveal_rating`
+
+Data: `score: u8` (1 to 10), `salt: [u8; 32]`.
+
+| # | Account | | |
+|---|---|---|---|
+| 0 | `rating` | w | |
+| 1 | `signer` | s | The rating's consumer or specialist |
+| 2 | `specialist_agent` | w | `["agent", rating.specialist]`, registered or not |
+| 3 | `consumer_agent` | w | `["agent", rating.consumer]`, registered or not |
+
+Refused with: `ConstraintDuplicateMutableAccount` (2040) when accounts 2 and 3
+are the same; `ConstraintSeeds` (2006) when either is not the agent address of
+its party (swapped accounts included); `UnauthorisedSigner` (6000);
+`JobNotPaid` (6039) in state 0; `BothMustCommitFirst` (6011) in state 1;
+`AlreadyFinalised` (6015) in state 3 or 4; `RevealDeadlinePassed` (6041) after
+slot `committed_slot + 1,512,000`; `InvalidScore` (6013); `AlreadyRevealed`
+(6042); `CommitmentMismatch` (6012). The second reveal sets state 3 and
+updates the agent records that exist.
+
+### `expire_rating`
+
+No data.
+
+| # | Account | | |
+|---|---|---|---|
+| 0 | `rating` | w | |
+| 1 | `caller` | s | Anyone |
+| 2 | `specialist_agent` | w | As for `reveal_rating` |
+| 3 | `consumer_agent` | w | As for `reveal_rating` |
+
+Refused with the account errors of `reveal_rating`; `JobNotPaid` (6039) in
+state 0; `AlreadyFinalised` (6015) in state 3 or 4; `NotExpired` (6014) up to
+and including slot `settled_slot + 1,512,000` in state 1, or
+`committed_slot + 1,512,000` in state 2. Sets state 4, with the results in the
+table above.
+
+### `close_rating`
+
+No data.
+
+| # | Account | | |
+|---|---|---|---|
+| 0 | `rating` | w | Closed; its lamports go to the consumer |
+| 1 | `consumer` | w, s | The rating's consumer |
+
+Refused with `UnauthorisedSigner` (6000) for anyone else and `RatingNotFinal`
+(6044) in states 0 to 2.
+
+### `attest_quality`
+
+Data: `scores: [u8; 5]` (accuracy, completeness, relevance, format, latency;
+1 to 10 each).
+
+| # | Account | | |
+|---|---|---|---|
+| 0 | `attestation` | w | `["attestation", rating.escrow]`, created here |
+| 1 | `rating` | | The job's rating account |
+| 2 | `judge_agent` | | `["agent", judge]`, a registered agent of type 1 or 2 |
+| 3 | `judge` | w, s | The judge the rating names; pays the attestation's rent |
+| 4 | `system_program` | | |
+
+Refused with: `UnauthorisedSigner` (6000) when the signer is not the judge the
+rating names, or it names none; `JobNotPaid` (6039) in rating state 0;
+`NotAttestationAgent` (6016); `AttestationScoreOutOfRange` (6019); a System
+program error when the job is already attested. Rating states 1 to 4 are all
+accepted.
+
+### `confirm_attestation`, `dispute_attestation`
+
+No data.
+
+| # | Account | | |
+|---|---|---|---|
+| 0 | `attestation` | w | |
+| 1 | `judge_agent` | w | `["agent", attestation.judge]`, still registered |
+| 2 | `consumer` | s | The consumer the attestation names |
+
+Refused with `UnauthorisedSigner` (6000) for anyone else and
+`AttestationAlreadyResolved` (6018) the second time.
+
+### Account layouts
+
+Both are fixed layouts with no padding. Discriminators are the first eight
+bytes of `sha256("account:<name>")`.
+
+Rating account, `account:RatingAccount`, 268 bytes, seeds `["rating", escrow]`:
+
+| Offset | Size | Field | |
+|---|---|---|---|
+| 0 | 8 | discriminator | |
+| 8 | 32 | `escrow` | The escrow the rating was opened for |
+| 40 | 32 | `consumer` | The escrow's payer |
+| 72 | 32 | `specialist` | The escrow's payee |
+| 104 | 32 | `judge` | All zero for none |
+| 136 | 32 | `mint` | All zero for SOL and until the job is paid |
+| 168 | 32 | `consumer_commitment` | All zero until committed |
+| 200 | 32 | `specialist_commitment` | All zero until committed |
+| 232 | 8 | `paid` | u64 |
+| 240 | 8 | `opened_slot` | u64 |
+| 248 | 8 | `settled_slot` | u64, slot of the paid exit |
+| 256 | 8 | `committed_slot` | u64, slot of the second commitment |
+| 264 | 1 | `state` | 0 awaiting settlement, 1 open, 2 both committed, 3 revealed, 4 expired |
+| 265 | 1 | `consumer_score` | The consumer's score of the specialist; 0 until revealed |
+| 266 | 1 | `specialist_score` | The specialist's score of the consumer; 0 until revealed |
+| 267 | 1 | `bump` | |
+
+Attestation account, `account:AttestationAccount`, 119 bytes, seeds
+`["attestation", escrow]`:
+
+| Offset | Size | Field | |
+|---|---|---|---|
+| 0 | 8 | discriminator | |
+| 8 | 32 | `escrow` | |
+| 40 | 32 | `judge` | |
+| 72 | 32 | `consumer` | |
+| 104 | 5 | `scores` | |
+| 109 | 1 | `resolution` | 0 pending, 1 confirmed, 2 disputed |
+| 110 | 8 | `created_slot` | u64 |
+| 118 | 1 | `bump` | |
+
+The Anchor program's `extended` build uses the same two discriminators for
+records with other, shorter layouts (175 and 105 bytes). This program refuses
+them: an account must be at least the size above.
+
+New error numbers, all after 6032:
+
+| Number | Name |
+|---|---|
+| 6033 | `RatingAccountRequired` |
+| 6034 | `InvalidRatingAccount` |
+| 6035 | `RatingNotAwaitingSettlement` |
+| 6036 | `RatingOptInClosed` |
+| 6037 | `AlreadyRated` |
+| 6038 | `InvalidJudge` |
+| 6039 | `JobNotPaid` |
+| 6040 | `CommitDeadlinePassed` |
+| 6041 | `RevealDeadlinePassed` |
+| 6042 | `AlreadyRevealed` |
+| 6043 | `EmptyCommitment` |
+| 6044 | `RatingNotFinal` |
+| 6045 | `RatedEscrowNotDelegable` |
+
+6010 to 6016, 6018 and 6019 keep the numbers and names the Anchor program
+declares for its rating and attestation errors.
+
+## Evidence
+
+Three layers, all in `equivalence/` (its own workspace, so the test harness's
 dependencies stay out of the program's lockfile):
 
-1. **The Anchor program's own tests, unchanged.**
-   `scripts/sync-equivalence-tests.sh` copies the tests in
-   `archive/anchor-escrow/tests/`, changing only the path of the binary they
-   load. `--check` fails if a copy is stale. All 82 default-build tests pass
-   against the Pinocchio binary, and so do the 15 extended-build tests
-   (`reputation.rs`, `attestation.rs`, `per.rs`).
+1. **The Anchor program's own tests of the 13 escrow and registry
+   instructions, unchanged.** `scripts/sync-equivalence-tests.sh` copies them
+   from `archive/anchor-escrow/tests/`, changing only the path of the binary
+   they load. `--check` fails if a copy is stale. All 79 pass against the
+   Pinocchio binary.
 2. **A side-by-side suite** (`equivalence/tests/differential.rs`). It runs the
    same transaction against the Anchor binary and the Pinocchio binary in two
    simulators with identical state, and requires the same result, the same
    error, the same error log line, the same events, the same inner instructions
    and the same bytes and lamports in every account either transaction touched.
-   Default build: 435 transactions across SOL, classic SPL Token (USDC, AUDD)
-   and Token-2022 (PYUSD, USDG) escrows, the registry, malformed input, wrong
-   and duplicated accounts, uninitialised token accounts, mints off the
-   allowlist, transfer fees, and issuer actions on Token-2022 vaults. Extended
-   build: 181 more across ratings, attestations and PER tracking, including
-   the lines the PER instructions log and ordinary release, settle and refund
-   of a delegated escrow.
+   435 transactions across SOL, classic SPL Token (USDC, AUDD) and Token-2022
+   (PYUSD, USDG) escrows, the registry, malformed input, wrong and duplicated
+   accounts, uninitialised token accounts, mints off the allowlist, transfer
+   fees, and issuer actions on Token-2022 vaults. This is what holds an escrow
+   that is not rated to the behaviour it had before ratings were added: the
+   suite is unchanged.
+3. **This program's own tests** of what the Anchor program does not have, 49
+   tests against the Pinocchio binary: `rated_escrow.rs` (opt-in and every
+   exit of a rated SOL, USDC and PYUSD escrow), `rating.rs` (commit, reveal,
+   expire, close, the deadlines at their boundary slots, unregistered
+   parties), `judge_attestation.rs`, `instruction_surface.rs` (the default
+   build answers the 21 instructions and not the two PER selectors) and
+   `interface_vectors.rs` (the fixture in `interface/`). They cover every
+   refusal of each instruction: wrong owner, wrong address, wrong signer,
+   read-only, swapped and duplicated accounts, a rating of another escrow or
+   in the wrong state. Every transaction they send is also checked for lamport
+   conservation: the lamports of all accounts involved add up to the same
+   total before and after, less the transaction fee.
 
-The suite was checked against deliberate faults (fee set to 251 bps; in the
-extended build a wrong penalty, a rating folded into the wrong party, and a
-changed log line): each made it fail, and it passed again when the fault was
-removed.
+The suites were checked against deliberate faults. Earlier: the fee set to 251
+bps. For the rating work: the judge check skipped in `attest_quality`, the
+same-slot check skipped in `open_rating`, a rating of another escrow accepted
+at an exit, the signer left out of the commitment hash, and the penalty for a
+withheld reveal left out. Each made tests fail, and they passed again when the
+fault was removed.
+
+The `per` build (not V1) is tested as a separate last step, as the `extended`
+build was: the Anchor program's `per.rs` unchanged (5 tests), 37 more
+side-by-side transactions against the Anchor `extended` build, and
+`per_rated.rs` (a rated escrow cannot be delegated, a delegated one cannot be
+rated).
 
 Not run: `scripts/devnet-escrow-e2e.cjs`. It needs a deployed program, and
 nothing was deployed. It would need only its `PROGRAM`, `PROGRAM_DATA`,
@@ -206,14 +559,18 @@ build; the account offsets and error names it checks are the same.
 
 Local builds, Agave 4.2.2 toolchain, mainnet variant (no features). Build paths
 are embedded in the Anchor binary, so its size moves by a few dozen bytes with
-the checkout path:
+the checkout path. The Anchor figure is its default build, which has the 13
+escrow and registry instructions only:
 
-| | Anchor | Pinocchio | Change |
+| | Anchor (13 instructions) | Pinocchio (21 instructions) | Change |
 |---|---|---|---|
-| Program size | 345,536 bytes | 62,248 bytes | 82% smaller |
-| Rent at 6,960 lamports per byte | 2.4073 SOL | 0.4356 SOL | 1.9717 SOL less |
-| Rent at 5,080 lamports per byte | 1.7570 SOL | 0.3179 SOL | 1.4391 SOL less |
-| Extended build size (not for mainnet) | 496,120 bytes | 92,512 bytes | 81% smaller |
+| Program size | 345,536 bytes | 91,000 bytes | 74% smaller |
+| Rent at 6,960 lamports per byte | 2.4073 SOL | 0.6357 SOL | 1.7716 SOL less |
+| Rent at 5,080 lamports per byte | 1.7570 SOL | 0.4640 SOL | 1.2930 SOL less |
+| `per` build size (not for mainnet) | 496,120 bytes (`extended`) | 98,312 bytes | 80% smaller |
+
+Before ratings and attestations were added the Pinocchio build was 62,248
+bytes (0.4356 SOL at 6,960); they cost 28,752 bytes and 0.2001 SOL of rent.
 
 Rent is for the program account (36 bytes) plus the program data account (45
 bytes of header plus the binary), each with the 128-byte account overhead:
@@ -225,30 +582,52 @@ comes back if the program is closed. A deploy also needs the same amount
 again, briefly, for the upload buffer. A program data account can be given
 room to grow, which costs rent for the extra room.
 
-Compute units for successful calls, from the side-by-side suite:
+Compute units for successful calls of the 13 shared instructions on an escrow
+that is not rated, from the side-by-side suite:
 
 | Call | Anchor | Pinocchio |
 |---|---|---|
-| SOL lock | 10,459 | 5,283 |
-| SOL release | 5,942 | 1,343 |
-| USDC or AUDD lock | 25,503 | 15,039 |
-| USDC or AUDD release | 25,803 | 13,896 |
-| USDC or AUDD settle at actual cost | 27,666 | 15,074 |
-| PYUSD lock | 32,682 | 22,280 |
-| PYUSD settle at actual cost | 36,973 | 24,462 |
-| Register agent | 15,527 | 10,774 |
+| SOL lock | 10,459 | 5,286 |
+| SOL release | 5,942 | 1,355 |
+| USDC or AUDD lock | 25,503 | 15,038 |
+| USDC or AUDD release | 25,803 | 13,911 |
+| USDC or AUDD settle at actual cost | 27,666 | 15,096 |
+| PYUSD lock | 32,682 | 22,279 |
+| PYUSD settle at actual cost | 36,973 | 24,484 |
+| Register agent | 15,527 | 10,781 |
 | Update agent | 4,368 | 407 |
-| Deregister agent | 3,864 | 298 |
-| Commit rating (first) | 8,538 | 3,846 |
-| Reveal rating (second, finalises) | 18,330 | 6,813 |
-| Attest quality | 9,504 | 5,413 |
-| Confirm attestation | 7,448 | 4,184 |
-| Delegate escrow | 7,771 | 8,025 |
-| Release via PER | 6,815 | 5,336 |
+| Deregister agent | 3,864 | 297 |
 
-Most of what remains in the token rows is the token program's own work. The
-last six rows are the extended build. Delegating costs slightly more here:
-almost all of it is printing two addresses in the log line.
+Most of what remains in the token rows is the token program's own work.
+
+Compute units for the rating and attestation instructions and the exits of a
+rated escrow, from this program's own tests (`cargo test -- --nocapture`).
+Creating an account and deriving an address cost more for some addresses than
+others (each attempt at a bump is 1,500 units), so the figures with a range
+move with the keys:
+
+| Call | Pinocchio |
+|---|---|
+| `open_rating` | 3,833 to 6,833 |
+| `release_escrow` of a rated escrow (payer; payee claim 3,446) | 3,419 |
+| `settle_escrow` of a rated escrow | 3,383 |
+| `cancel_escrow` of a rated escrow (decline; refund 3,230) | 3,212 |
+| `release_token_escrow` of a rated escrow, USDC / PYUSD | 15,987 / 21,869 |
+| `settle_token_escrow` of a rated escrow, USDC / PYUSD | 17,172 / 26,560 |
+| `cancel_token_escrow` of a rated escrow (decline), USDC / PYUSD | 10,256 / 15,536 |
+| `commit_rating` (first / second) | 2,191 / 2,201 |
+| `reveal_rating` (first / second, both parties registered) | 6,644 / 6,670 |
+| `reveal_rating` (one party not registered) | 12,284 to 12,318 |
+| `expire_rating` | 6,333 to 6,360 |
+| `close_rating` | 1,963 |
+| `attest_quality` | 10,066 |
+| `confirm_attestation` / `dispute_attestation` | 3,913 / 3,915 |
+
+A rated exit costs about 2,000 units more than the same exit of an escrow that
+is not rated: almost all of it is checking that the rating account is at its
+derived address. A party that is not registered costs more because its agent
+address has to be derived from scratch; there is no stored bump to check
+against.
 
 ## Known differences
 
@@ -269,19 +648,15 @@ almost all of it is printing two addresses in the log line.
   reproduced.
 - Compute use is lower, so a transaction sized to fail on Anchor's compute use
   would behave differently.
-- A rating record whose stored size or rent was wrong would get Anchor's space
-  or rent-exemption error; here it gets none. The program only ever creates
-  that record at the right size with full rent.
 
-Behaviour kept on purpose because the Anchor program has it, and worth a
-decision before the extended build is ever deployed:
+Decisions worth knowing before this is deployed:
 
-- `release_escrow_per` pays the payee the whole locked amount. It takes no
-  protocol fee and emits no settlement event, unlike `release_escrow`.
 - `expire_rating` can be called by anyone, not only the two parties.
-- A rating created while the cluster clock reads Unix time zero records its
-  parties again on the next commitment. A real cluster never reports time
-  zero.
+- A consumer can dispute any attestation of its own job; the judge has no
+  appeal.
+- `confirm_attestation` and `dispute_attestation` need the judge to be still
+  registered. A judge that deregisters cannot be confirmed or disputed (and
+  has given up its record with its reputation).
 
 ## Build and test
 
@@ -290,18 +665,19 @@ From the repository root:
 
 ```bash
 # Anchor reference binary, used by the side-by-side suite
-cargo build-sbf --manifest-path archive/anchor-escrow/Cargo.toml
+cargo build-sbf --manifest-path archive/anchor-escrow/Cargo.toml --sbf-out-dir target/deploy
 
 cd programs/pinocchio-escrow
 cargo build-sbf --manifest-path program/Cargo.toml --sbf-out-dir target/deploy
 cargo test -p pinocchio-escrow                 # unit tests
 scripts/sync-equivalence-tests.sh --check      # copied tests are current
-(cd equivalence && cargo test -- --nocapture)  # Anchor tests + side by side, prints compute
+(cd equivalence && cargo test -- --nocapture)  # all three test layers, prints compute
 ```
 
-The extended build is tested the same way with `--features extended` on every
-command, including the Anchor reference build. Each build overwrites the
-binary of the other variant, so rebuild both programs when switching.
+The `per` build (not part of V1) is tested the same way with `--features per`
+on the Pinocchio build and on `cargo test`, against an Anchor reference built
+with `--features extended`. Each build overwrites the binary of the other
+variant, so rebuild both programs when switching back.
 
 `cargo build-sbf` writes a throwaway keypair file next to each binary. It is
 not used; delete it and never commit it (`target/` is ignored).
@@ -310,7 +686,8 @@ not used; delete it and never commit it (`target/` is ignored).
 does. Never use it for a mainnet build.
 
 CI runs all of the above (`.github/workflows/pinocchio-escrow-tests.yml`) on
-changes to this directory or to the Anchor reference. The container
+changes to this directory or to the Anchor reference, then the `per` build as
+a separate last step. The container
 (verifiable) build is `.github/workflows/escrow-verifiable-build.yml`: it
 builds this program with `solana-verify` and records the size and hash of the
 mainnet and devnet variants. When an Anchor test changes, run
@@ -318,11 +695,18 @@ mainnet and devnet variants. When an Anchor test changes, run
 
 ## Changing behaviour
 
-The Anchor tests are the specification. To change what the program does,
-change the Anchor test (and the Anchor reference, so the side-by-side suite
-still has something to compare with), regenerate the copies, then change this
-program until both layers pass. The IDL built from the Anchor crate stays the
-client interface while the wire contract is the same.
+For the 13 escrow and registry instructions the Anchor tests are the
+specification. To change what one of them does for an escrow that is not
+rated, change the Anchor test (and the Anchor reference, so the side-by-side
+suite still has something to compare with), regenerate the copies, then change
+this program until both layers pass. The IDL built from the Anchor crate stays
+the client interface for them while the wire contract is the same.
+
+The rating and attestation instructions, and the exits of a rated escrow, are
+specified by this README and tested by this program's own tests. To change
+one, change the test and the interface section together, then regenerate
+`interface/vectors.json` (`UPDATE_VECTORS=1 cargo test --test
+interface_vectors` in `equivalence/`) and review its diff.
 
 ## Before it is deployed
 
