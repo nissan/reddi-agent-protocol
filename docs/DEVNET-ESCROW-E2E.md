@@ -6,7 +6,7 @@ transactions. It complements the local-validator lane (`archive/anchor-escrow/te
 which covers the same paths with slot warps but never touches a public cluster.
 
 Before it signs anything the script checks that the RPC is devnet (genesis hash) and that the deployed
-program bytes hash to the recorded `5055df46…e142a`. It refuses otherwise.
+program bytes hash to the recorded `2576a9cc…32ac` (SHA-256 of the 96,272-byte file deployed on 21 November 2026; see `DEPLOY.md`). It refuses otherwise.
 
 The script also has a rated lane, for ratings and judge attestations: see
 [Rated lane](#rated-lane-ratings-and-judge-attestations) below.
