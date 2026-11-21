@@ -490,6 +490,7 @@ async function run(conn, runId) {
     step('usdc lock claim-case (left open)', sig, { amount: a.claim.toString() });
   }
   out.openEscrows = await openEscrowStatus(conn, payer, runId);
+  out.result = 'passed';
   return out;
 }
 
