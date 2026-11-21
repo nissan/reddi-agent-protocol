@@ -879,7 +879,10 @@ These are owner decisions and release steps, not something this directory does:
    reviews do not carry over; the checks Anchor generates are written by hand
    here.
 2. A devnet deploy, approved by the owner, and a run of
-   `scripts/devnet-escrow-e2e.cjs` against it.
+   `scripts/devnet-escrow-e2e.cjs` against it: the existing lane, and the
+   rated lane (`run-rated`, then `finish-rated` about 7 days later; see
+   `docs/DEVNET-ESCROW-E2E.md`). The rated lane has not been run against any
+   deployment.
 3. A container (verifiable) build for mainnet, as for the Anchor program.
 4. On mainnet, a first deploy under a program id that has never been deployed
    there. The rent saving exists only if this build is what gets deployed

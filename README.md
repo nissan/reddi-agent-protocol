@@ -147,13 +147,19 @@ The verifier checks public product routes, recorded Solana devnet transactions, 
 
 ## Reputation and attestation boundary
 
-RAP receipts and attestation records can bind evidence and make reputation inputs inspectable. They do not by themselves prove final settlement, mainnet execution, provider quality, legal/compliance approval, or live reputation mutation. Current Quasar readiness still has unresolved gates; do not treat the on-chain reputation system as mainnet-ready until those are closed and re-reviewed.
+RAP receipts and attestation records can bind evidence and make reputation inputs inspectable. They do not by themselves prove final settlement, mainnet execution, provider quality, legal/compliance approval, or live reputation mutation.
 
-### Commit-reveal reputation (reference mechanism)
+### Ratings and judge attestations in the V1 program
 
-The reference programs implement rating as commit-reveal, mirrored in `lib/program.ts`: each party submits `sha256(score || salt)` via `commit_rating`, neither side sees the other's score at commit time, and `reveal_rating` is verified against the stored hash before any score is written. `expire_rating` covers the non-reveal path.
+The V1 program source (`programs/pinocchio-escrow`) has ratings and judge attestations tied to a job paid through escrow. They are part of the one V1 build, with no feature flag. This is source: the program has not been deployed with them, it has had no independent security review, and nothing is on mainnet. [`docs/RATINGS-AND-ATTESTATIONS.md`](docs/RATINGS-AND-ATTESTATIONS.md) is the guide for buyers, sellers and judges; the program README is the interface.
 
-The intended property is that neither party can react to the other's score. This is a mechanism description, not a readiness claim: the CRITICAL-4 reveal/expiry griefing gate in `SECURITY.md` is still open, so the reputation path is neither audited nor mainnet-ready.
+- **Opt in.** The buyer calls `open_rating` in the same transaction as the lock. It costs about 0.00277 SOL of refundable rent for the rating account, and may name one judge.
+- **The seller must agree.** It agrees by calling `accept_rating`, or by being the authority of the claim or settle. Otherwise the job is paid as usual and never rated, so a buyer acting alone cannot change the record of an agent that signed nothing. The in-repo providers refuse rated escrows unless configured to accept them.
+- **One job at a time per address.** An escrow address can be used again once its escrow has ended, so the program names each job by the slot its rating was opened in (`opened_slot`). Every exit of a rated escrow, `accept_rating`, `commit_rating` and the commitments, `attest_quality` and the buyer's decision on an attestation carry that slot, and what was signed for one job is refused for a later job at the same address. A rated escrow cannot end in the slot its rating was opened in.
+- **Commit and reveal.** After the job is paid, each side commits to `sha256(rating address ‖ opened slot ‖ own address ‖ score ‖ salt)` within about 7 days, and both then reveal within about 7 days. Neither side sees the other's score before committing. `expire_rating` gives an unfinished rating its final result: a side that stayed silent, or committed and then withheld its reveal, loses 5.00 reputation points.
+- **Attestations.** Only the judge the buyer named can attest a paid job, once, and only the buyer can confirm or dispute it.
+
+What a score means: it comes from ratings of paid jobs. It is not proof of quality, or that the work was done. Two wallets of one owner can still rate each other, and a tiny job pays no fee. An agent can deregister and register again to reset its record. The "CRITICAL-4" note that used to be here refers to a finding against the frozen Quasar reputation experiment, recorded in [`docs/QUASAR-PROGRAMS-SECURITY-AUDIT-2026-05-06.md`](docs/QUASAR-PROGRAMS-SECURITY-AUDIT-2026-05-06.md): a rating not tied to a real job could name a victim, who was then penalised on expiry. In the V1 program a rating exists only for a job paid through escrow between the two parties, with the seller's agreement; that has tests but no independent review. MagicBlock PER is not part of V1 (planned follow-up, #839).
 
 ## RPC configuration
 

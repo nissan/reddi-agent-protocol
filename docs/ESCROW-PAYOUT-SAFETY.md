@@ -41,6 +41,52 @@ the seller can claim. A seller can claim once the claim window opens, delivered
 or not. A buyer who wants time to judge the work names a claim window long
 enough for that, and releases early when satisfied.
 
+## Rated escrows: one more account on every exit
+
+A buyer can opt an escrow in to rating when it locks it (`open_rating`, in the
+same transaction as the lock). [`RATINGS-AND-ATTESTATIONS.md`](RATINGS-AND-ATTESTATIONS.md)
+explains ratings; this section is only about what changes for a payout.
+
+- **Every exit takes the rating account.** Release, settle, claim, decline and
+  refund of a rated escrow each need the escrow's rating account, writable,
+  right after the usual accounts. Without it the program refuses the exit
+  (`RatingAccountRequired`, error 6033) and the escrow stays locked. Who may
+  call each exit, when, and how the money is split do not change.
+- **How to tell.** A rated escrow has bit `0x02` set in its flag byte (a rated
+  metered escrow stores 3). `readEscrowRatingStatus` and `withRatingAccount` in
+  `@reddi/x402-solana/rating` read the bit and add the account. Opting in is
+  only possible in the slot of the lock, so a seller that reads the escrow at
+  `confirmed` commitment before serving sees the final answer.
+- **What happens to the rating account.**
+
+  | Exit | Rating account |
+  |---|---|
+  | Settle or claim by the seller | Stays open: the job can now be rated |
+  | Release by the buyer, after the seller called `accept_rating` | The same |
+  | Release by the buyer, seller never agreed | Closed; its rent returns to the buyer. The seller is still paid in full |
+  | Decline or refund | Closed; its rent returns to the buyer |
+
+- **No exit in the opening slot.** A rated escrow cannot end in the slot its
+  rating was opened in (`RatingJustOpened`, 6050): lock and `open_rating` go in
+  one transaction, and any release, settle or decline in a later one. The
+  rating account's `opened_slot` names the job. Every exit of a rated escrow
+  carries it after its data, and an exit, `accept_rating`, `commit_rating`,
+  attestation or decision on an attestation naming another slot is refused
+  (6051), so what was signed for one job, a seller's settle or claim
+  included, cannot be used for a later job at the same escrow address.
+- **Rent.** The buyer pays about 0.00277 SOL of rent for the rating account on
+  top of the lock. It returns in the cases above, or when the buyer closes a
+  finished rating.
+- **A seller's claim must be signed by the seller alone.** If the buyer's
+  signature is on that transaction, even only as fee payer, the program treats
+  it as the buyer's release.
+- **In-repo providers refuse rated escrows by default.** Unless the operator
+  sets `acceptRatedEscrows`, a provider refuses a rated escrow before doing any
+  work (`rated_escrow_declined`). The buyer locks again without rating and
+  refunds the first escrow once its refund window opens. A provider that does
+  accept them has agreed to rate the buyer in turn: it must commit and reveal
+  within the deadlines or lose reputation.
+
 ## Metered billing
 
 On a metered escrow the buyer locks a maximum it has approved. After the call,

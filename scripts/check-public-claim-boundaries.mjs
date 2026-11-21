@@ -81,6 +81,7 @@ const activeClaimFiles = [
   "DEPLOY.md",
   "SECURITY.md",
   "docs/PAYMENT-FLOW-ARCHITECTURE.md",
+  "docs/RATINGS-AND-ATTESTATIONS.md",
   "docs/RAP-V0.1-DEVELOPER-QUICKSTART-AND-CONFORMANCE.md",
   "docs/RAP-INTERPRETATION-GUIDE-INTERIM.md",
   "docs/whitepaper/README.md",
