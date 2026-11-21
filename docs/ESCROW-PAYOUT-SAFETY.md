@@ -54,9 +54,15 @@ does not allow, even when the escrow program accepts it:
 
 - **SOL to an empty wallet.** A SOL payout to a wallet with no SOL must be at
   least the rent-exempt minimum (890,880 lamports, about 0.00089 SOL), or the
-  payout fails. The sandbox refuses to lock SOL for a provider whose wallet is
-  not already rent-exempt. Clients can use `solPayoutWouldFail` and
+  payout fails. The program refuses such a lock: a fixed-price SOL lock must be
+  large enough to leave the seller's wallet rent-exempt, and a metered SOL lock
+  needs a seller wallet that already is. The sandbox checks the same before
+  asking for a signature. Clients can use `solPayoutWouldFail` and
   `minimumSolPayout` from `@reddi/x402-solana`.
+- **A frozen or closed seller token account.** The program refuses a token lock
+  whose source or recipient account is frozen. If the recorded recipient is
+  closed or frozen after the lock, the seller claims or settles to another
+  token account it owns (`payTo` in `@reddi/x402-solana`).
 - **The treasury.** The protocol treasury (the Squads vault) must hold at least
   0.001 SOL before the first SOL payout, and must have a token account for every
   accepted mint before the first payout in that mint. `node
@@ -79,7 +85,10 @@ them:
   holding the mint, including an escrow vault.
 - **Transfer fee**: the mint carries a transfer fee, set to zero today. The
   issuer can raise it. The program pays out what the vault actually holds, so a
-  fee cannot strand funds, but the receiver gets less.
+  fee cannot strand funds, but the receiver gets less. Tokens sent to a vault
+  under a fee leave withheld fees on it; passing the mint writable on the
+  payout or refund moves them to the mint so the vault can close
+  (`harvestWithheldFees`).
 - **Transfer hook**: the mint carries a transfer hook slot, unset today. If the
   issuer sets one, transfers run the issuer's program, which can refuse them and
   so stop every lock and payout in that mint until it is removed.

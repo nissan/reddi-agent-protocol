@@ -33,6 +33,8 @@ Who may end an escrow, for SOL and tokens alike:
 The payer never chooses a smaller payout: a payer who signs a settle is
 refused. A lock is not a payment until one of these calls ends it.
 
+### Windows
+
 Each lock names its two windows, in slots from the lock (a nominal 400 ms
 each), after the amount and the nonce: `claim_window_slots` and
 `cancel_window_slots`. They are stored on the escrow and nothing else decides
@@ -69,6 +71,45 @@ minimum, and serves nothing when either cannot be read.
 `SELLER_MIN_CANCEL_WINDOW_SLOTS` in `packages/x402-solana` (1,500 slots, about
 10 minutes left) is the floor the in-repo sellers apply, which is why client
 defaults name a longer refund window than that.
+
+### Accounts a payout can reach
+
+A lock is refused when the money could not be paid out of it again:
+
+- **Token escrow.** The lock is refused (`InvalidTokenAccount`) when the
+  payer's source account or the payee's recipient account is frozen.
+- **SOL escrow.** The runtime refuses a payout that leaves the payee's account
+  holding something but less than its rent-exempt minimum. A fixed-price lock
+  is refused with `PayeeNotRentExempt` (6032) unless what the payee holds plus
+  the amount less the fee reaches that minimum. A metered lock pays whatever
+  the payee later reports, so its payee must already hold the minimum. The
+  check is made at lock; a payee that empties its wallet afterwards can still
+  block its own payout until it is funded again.
+
+Who chooses where a token payout lands:
+
+- The payer's release pays only the recipient token account recorded at lock.
+- The payee's own claim or settle may name any token account of the escrow mint
+  that the payee owns, so a recorded recipient that was closed or frozen after
+  the lock does not keep the payee from its money. Nobody else can redirect a
+  payout, and the fee and the refund go where they always do.
+
+Token-2022 only: tokens sent to a vault while the issuer charges a transfer fee
+leave withheld fees on the vault, and a vault holding withheld fees cannot be
+closed. Every exit takes the mint as a read-only account, and then such a vault
+is left open, empty, with its rent. When the caller passes the mint writable,
+the program first moves the withheld fees to the mint
+(`HarvestWithheldTokensToMint`, which anyone may do), closes the vault and
+returns its rent to the payer. Clients pass the mint writable only when a vault
+has withheld fees, because a writable mint makes every such transaction contend
+for one account (`harvestWithheldFees` in `packages/x402-solana`).
+
+Not changed: a transfer hook the issuer activates after a lock still stops
+every exit in that mint until it is removed or the program is upgraded. A lock
+while a hook is active already fails, because no hook accounts are passed. The
+daily mint watch (`scripts/check-token2022-mint-posture.mjs`) is the control.
+
+### Layouts
 
 The windows changed two account layouts. A SOL escrow is 165 bytes, with the
 two windows after `created_slot`; a token escrow is 219 bytes, with them at the
@@ -135,7 +176,7 @@ dependencies stay out of the program's lockfile):
 1. **The Anchor program's own tests, unchanged.**
    `scripts/sync-equivalence-tests.sh` copies the tests in
    `archive/anchor-escrow/tests/`, changing only the path of the binary they
-   load. `--check` fails if a copy is stale. All 69 default-build tests pass
+   load. `--check` fails if a copy is stale. All 82 default-build tests pass
    against the Pinocchio binary, and so do the 15 extended-build tests
    (`reputation.rs`, `attestation.rs`, `per.rs`).
 2. **A side-by-side suite** (`equivalence/tests/differential.rs`). It runs the
@@ -143,7 +184,7 @@ dependencies stay out of the program's lockfile):
    simulators with identical state, and requires the same result, the same
    error, the same error log line, the same events, the same inner instructions
    and the same bytes and lamports in every account either transaction touched.
-   Default build: 384 transactions across SOL, classic SPL Token (USDC, AUDD)
+   Default build: 435 transactions across SOL, classic SPL Token (USDC, AUDD)
    and Token-2022 (PYUSD, USDG) escrows, the registry, malformed input, wrong
    and duplicated accounts, uninitialised token accounts, mints off the
    allowlist, transfer fees, and issuer actions on Token-2022 vaults. Extended
@@ -169,10 +210,10 @@ the checkout path:
 
 | | Anchor | Pinocchio | Change |
 |---|---|---|---|
-| Program size | 340,144 bytes | 59,608 bytes | 82% smaller |
-| Rent at 6,960 lamports per byte | 2.3697 SOL | 0.4172 SOL | 1.9525 SOL less |
-| Rent at 5,080 lamports per byte | 1.7296 SOL | 0.3045 SOL | 1.4251 SOL less |
-| Extended build size (not for mainnet) | 490,872 bytes | 89,880 bytes | 82% smaller |
+| Program size | 345,536 bytes | 62,248 bytes | 82% smaller |
+| Rent at 6,960 lamports per byte | 2.4073 SOL | 0.4356 SOL | 1.9717 SOL less |
+| Rent at 5,080 lamports per byte | 1.7570 SOL | 0.3179 SOL | 1.4391 SOL less |
+| Extended build size (not for mainnet) | 496,120 bytes | 92,512 bytes | 81% smaller |
 
 Rent is for the program account (36 bytes) plus the program data account (45
 bytes of header plus the binary), each with the 128-byte account overhead:
@@ -188,13 +229,13 @@ Compute units for successful calls, from the side-by-side suite:
 
 | Call | Anchor | Pinocchio |
 |---|---|---|
-| SOL lock | 9,871 | 5,113 |
+| SOL lock | 10,459 | 5,283 |
 | SOL release | 5,942 | 1,343 |
-| USDC or AUDD lock | 25,460 | 14,970 |
-| USDC or AUDD release | 25,580 | 13,699 |
-| USDC or AUDD settle at actual cost | 27,446 | 14,876 |
-| PYUSD lock | 32,639 | 22,211 |
-| PYUSD settle at actual cost | 36,763 | 24,277 |
+| USDC or AUDD lock | 25,503 | 15,039 |
+| USDC or AUDD release | 25,803 | 13,896 |
+| USDC or AUDD settle at actual cost | 27,666 | 15,074 |
+| PYUSD lock | 32,682 | 22,280 |
+| PYUSD settle at actual cost | 36,973 | 24,462 |
 | Register agent | 15,527 | 10,774 |
 | Update agent | 4,368 | 407 |
 | Deregister agent | 3,864 | 298 |
