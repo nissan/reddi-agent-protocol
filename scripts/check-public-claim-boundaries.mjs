@@ -89,6 +89,7 @@ const activeClaimFiles = [
   "docs/verifiable-agent-protocol/README.md",
   "packages/per-client/README.md",
   "packages/openrouter-specialists/README.md",
+  "packages/provider-kit/README.md",
   ...servedPublicDocs,
   ...captionTrackFiles,
 ];
@@ -119,6 +120,7 @@ const packageManifestFiles = [
   "packages/demo-agents/package.json",
   "packages/openrouter-specialists/package.json",
   "packages/per-client/package.json",
+  "packages/provider-kit/package.json",
   "packages/rap-mcp-bridge/package.json",
   "packages/testing-specialists/package.json",
   "packages/x402-solana/package.json",
