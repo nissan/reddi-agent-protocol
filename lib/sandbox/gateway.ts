@@ -69,8 +69,9 @@ export type SandboxGatewayDeps = {
   settler?: SandboxSettler;
   /**
    * Serve metered escrows the visitor opted in to rating. Default false: declined before serving.
-   * When true the settle passes the escrow's rating account. Nothing here commits or reveals a
-   * rating for the provider, so leave it off until something does (#842).
+   * When true the settle passes the escrow's rating account, and by settling the provider agrees
+   * to be rated: turn it on only together with the provider's own commit and reveal
+   * (`seller-rating.ts`, wired in `runtime.ts` by SANDBOX_ACCEPT_RATED_ESCROWS).
    */
   acceptRatedEscrows?: boolean;
   now?: () => number;
@@ -404,7 +405,7 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
   return response;
 }
 
-export async function sandboxModelsListing(settler?: SandboxSettler): Promise<Record<string, unknown>> {
+export async function sandboxModelsListing(settler?: SandboxSettler, acceptRatedEscrows = false): Promise<Record<string, unknown>> {
   return {
     object: "list",
     sandbox: true,
@@ -428,7 +429,8 @@ export async function sandboxModelsListing(settler?: SandboxSettler): Promise<Re
         },
         payTo: provider.payTo,
         // Whether a wallet can lock a metered escrow for this provider, which the server then settles.
-        meteredEscrow: { available: provider.behaviour !== "offline" && (settler?.canSettle(provider.id) ?? false), programId: SANDBOX_ESCROW_PROGRAM_ID.toBase58() },
+        // acceptsRatedEscrows: whether an escrow the visitor opted in to rating is served, or declined before serving.
+        meteredEscrow: { available: provider.behaviour !== "offline" && (settler?.canSettle(provider.id) ?? false), programId: SANDBOX_ESCROW_PROGRAM_ID.toBase58(), acceptsRatedEscrows: acceptRatedEscrows === true },
         // The base58 address receipts from this provider name as providerId. A published test key, not a wallet.
         receiptProviderId: await sandboxProviderAddress(provider.id),
       },

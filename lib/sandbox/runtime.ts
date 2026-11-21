@@ -9,6 +9,7 @@ import { Connection, type PublicKey } from "@solana/web3.js";
 import type { NonceReplayStore } from "@reddi/x402-solana";
 import type { SandboxGatewayDeps } from "./gateway";
 import { createSandboxSettler, parseSandboxPayeeKeys, SANDBOX_PAYEE_KEYS_ENV } from "./settle-signer";
+import { ACCEPT_RATED_ESCROWS_ENV, acceptRatedEscrowsConfigured, SELLER_RATING_SCORE_ENV, sellerRatingScore } from "./seller-rating";
 
 const DEFAULT_DEVNET_RPC = "https://api.devnet.solana.com";
 const MAX_REMEMBERED_PAYMENTS = 50_000;
@@ -37,6 +38,9 @@ export function sandboxGatewayDeps(): SandboxGatewayDeps {
   if (!deps) {
     const rpcUrl = process.env.SANDBOX_DEVNET_RPC_URL?.trim() || DEFAULT_DEVNET_RPC;
     const connection = new Connection(rpcUrl, "confirmed");
+    // Off by default: a rated escrow is declined before serving. When the operator turns it on, the
+    // provider also commits and reveals its own rating of the buyer, as a seller that settles a rated job must.
+    const acceptRatedEscrows = acceptRatedEscrowsConfigured(process.env[ACCEPT_RATED_ESCROWS_ENV]);
     deps = {
       connection,
       replayStore: new BoundedReplayStore(),
@@ -45,7 +49,12 @@ export function sandboxGatewayDeps(): SandboxGatewayDeps {
         return info ? { owner: info.owner, data: new Uint8Array(info.data) } : null;
       },
       readSlot: () => connection.getSlot("confirmed"),
-      settler: createSandboxSettler(connection, parseSandboxPayeeKeys(process.env[SANDBOX_PAYEE_KEYS_ENV])),
+      acceptRatedEscrows,
+      settler: createSandboxSettler(
+        connection,
+        parseSandboxPayeeKeys(process.env[SANDBOX_PAYEE_KEYS_ENV]),
+        acceptRatedEscrows ? { rateBuyerScore: sellerRatingScore(process.env[SELLER_RATING_SCORE_ENV]) } : {},
+      ),
     };
   }
   return deps;

@@ -1,5 +1,6 @@
 "use client"
 
+import { ReputationMeaningNote } from "@/components/rating/ReputationSummary"
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
@@ -232,6 +233,11 @@ function AgentsPageContent() {
           <OnboardingVideoCard video={onboardingVideos.find((video) => video.id === "mcp-x402") ?? onboardingVideos[0]} layout="horizontal" hostRoute="/agents" />
         </section>
 
+        <div className="mb-8 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3" data-testid="agents-reputation-note">
+          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">About the scores</p>
+          <ReputationMeaningNote />
+        </div>
+
         <div className="mb-4">
           <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">Source</h2>
           <SourceFacetFilter options={sourceOptions} selected={selectedSources} onToggle={toggleSource} />
@@ -277,6 +283,7 @@ function AgentsPageContent() {
                 model={agent.onchain.model || "Specialist endpoint"}
                 taskTypes={agent.capabilities?.taskTypes ?? []}
                 reputationScore={agent.onchain.reputationScore}
+                ratedJobs={{ completed: String(agent.onchain.jobsCompleted), failed: String(agent.onchain.jobsFailed) }}
                 attested={agent.attestation.attested}
                 health={agent.health.status === "pass" ? "online" : agent.health.status === "fail" ? "offline" : "unknown"}
                 freshnessState={agent.health.freshnessState}

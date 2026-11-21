@@ -30,12 +30,19 @@ import {
 } from "@/lib/payments/wallet-direct-payment";
 import { planMeteredBuy } from "@/lib/payments/metered-buy";
 import { ESCROW_PROGRAM_ID } from "@/lib/program";
+import { JobRatingPanel } from "@/components/rating/JobRatingPanel";
+import { RateJobOption } from "@/components/rating/RateJobOption";
+import { isRatedDecline, parseJudgeAddress, ratedEscrowsEnabled, ratedJobStance, rememberRatedDecline } from "@/lib/rating/rated-pay";
+import { browserRatingStorage, rememberRatedJob } from "@/lib/rating/rating-secrets";
+import { RATING_RENT_SOL } from "@/lib/rating/rating-state";
 import type { SpecialistListing } from "@/lib/registry/bridge";
 
 // Read once at build time. Wallet-signed payment stays off unless the operator turns it on.
 const WALLET_PAYMENT_ENABLED = walletDirectPaymentEnabled(
   process.env.NEXT_PUBLIC_WALLET_DIRECT_PAYMENT,
 );
+// Rating needs an escrow program that has the rating instructions; the operator says so at build time.
+const RATED_ESCROWS_ENABLED = ratedEscrowsEnabled(process.env.NEXT_PUBLIC_RATED_ESCROWS);
 const BUYER_MINTS = {
   USDC: process.env.NEXT_PUBLIC_X402_USDC_MINT,
   AUDD: process.env.NEXT_PUBLIC_X402_AUDD_MINT,
@@ -133,6 +140,15 @@ function PlannerInner() {
   const [executing, setExecuting] = useState(false);
   const [run, setRun] = useState<PlannerRun | null>(null);
   const [rating, setRating] = useState(5);
+  // "Rate this job": off unless the buyer turns it on.
+  const [rateJob, setRateJob] = useState(false);
+  const [judgeText, setJudgeText] = useState("");
+  // What each provider's own offer said about rated jobs, by wallet.
+  const [statedRatedStance, setStatedRatedStance] = useState<Record<string, boolean>>({});
+  // Bumped when a refusal is remembered, so the stance below is read again.
+  const [declineVersion, setDeclineVersion] = useState(0);
+  // The escrow of the job just paid with rating on.
+  const [ratedEscrow, setRatedEscrow] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [completeOpen, setCompleteOpen] = useState(false);
@@ -268,6 +284,14 @@ function PlannerInner() {
     else showToast(data.error ?? nextRun?.error ?? "Execution failed", "error");
   }
 
+  const judgeChoice = parseJudgeAddress(judgeText, { payer: publicKey?.toBase58() ?? "", payee: selectedWallet });
+  const selectedStance = useMemo(
+    () => ratedJobStance({ stated: statedRatedStance[selectedWallet], providerWallet: selectedWallet, storage: browserRatingStorage() }),
+    // declineVersion: a remembered refusal is read from browser storage.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [statedRatedStance, selectedWallet, declineVersion],
+  );
+
   /** Presents a receipt for a payment already sent. Never asks the wallet to sign. */
   async function presentReceipt(receipt: unknown) {
     // When signed in, the session lets the server link the job record to this account.
@@ -281,6 +305,13 @@ function PlannerInner() {
     if (data.ok) {
       setPendingReceipt(null);
       setPaymentNote(null);
+    } else if (isRatedDecline(data.error) || isRatedDecline(data.result?.result?.error) || isRatedDecline(data.result?.result?.responsePreview)) {
+      // The provider refused because the escrow is rated. Presenting it again cannot work.
+      rememberRatedDecline(browserRatingStorage(), selectedWallet);
+      setDeclineVersion((version) => version + 1);
+      setPendingReceipt(null);
+      setRatedEscrow(null);
+      setPaymentNote("This provider does not take rated jobs and served nothing. Nothing was charged. Your maximum and the rating rent stay locked until the refund window opens; to use this provider, pay again with rating turned off.");
     } else {
       setPaymentNote("Your payment was sent, but the provider has not accepted it yet. Present it again; do not pay twice.");
     }
@@ -318,6 +349,10 @@ function PlannerInner() {
     };
     if (data.paymentRequired.metered && (prices.inputPerMillionUsd || prices.outputPerMillionUsd)) {
       await lockMeteredMaximum(data.paymentRequired.metered, listing.walletAddress, prices);
+      return;
+    }
+    if (rateJob && RATED_ESCROWS_ENABLED) {
+      setPaymentNote("This provider asked for a direct payment, which cannot be rated: a rating needs a payment through escrow. Turn off \"Rate this job\" to pay this provider. Nothing was signed.");
       return;
     }
     const solAmount = lamportsToSolAmount(listing.onchain.rateLamports);
@@ -389,6 +424,12 @@ function PlannerInner() {
       setPaymentNote("Wallet payment is not available on this network. Nothing was signed.");
       return;
     }
+    const wantsRating = rateJob && RATED_ESCROWS_ENABLED;
+    const judge = wantsRating ? parseJudgeAddress(judgeText, { payer: publicKey.toBase58(), payee: walletAddress }) : undefined;
+    if (judge && !judge.ok) {
+      setPaymentNote(`${judge.message} Nothing was signed.`);
+      return;
+    }
     const plan = planMeteredBuy({
       offer,
       listing: { walletAddress, prices },
@@ -399,14 +440,23 @@ function PlannerInner() {
       maxSpendUsd: maxSpend,
       mints: BUYER_MINTS,
       nonce: crypto.getRandomValues(new Uint8Array(16)),
+      ...(judge?.ok ? { rating: { judge: judge.judge } } : {}),
     });
     if (!plan.ok) {
       setPaymentNote(`Payment request refused: ${plan.message} Nothing was signed.`);
       return;
     }
+    if (plan.providerAcceptsRatedJobs !== undefined) {
+      setStatedRatedStance((current) => ({ ...current, [walletAddress]: plan.providerAcceptsRatedJobs === true }));
+    }
+    if (plan.rating && ratedJobStance({ stated: plan.providerAcceptsRatedJobs, providerWallet: walletAddress, storage: browserRatingStorage() }) === "declines") {
+      // Known before anything is signed: this provider would refuse the job.
+      setPaymentNote("This provider does not take rated jobs, so it would refuse this one. Turn off \"Rate this job\" to pay it without a rating, or choose another provider. Nothing was signed.");
+      return;
+    }
     const { quote } = plan;
     setPaymentNote(
-      `Estimated cost ${quote.estimatedCost} ${quote.currency}. Your wallet will ask you to lock up to ${quote.maxCharge} ${quote.currency} in escrow. ${quote.notice}`,
+      `Estimated cost ${quote.estimatedCost} ${quote.currency}. Your wallet will ask you to lock up to ${quote.maxCharge} ${quote.currency} in escrow${plan.rating ? `, and to pay about ${RATING_RENT_SOL} SOL of refundable rent for the rating` : ""}. ${quote.notice}`,
     );
     let signature: string;
     const latest = await connection.getLatestBlockhash("confirmed");
@@ -415,7 +465,7 @@ function PlannerInner() {
         feePayer: publicKey,
         blockhash: latest.blockhash,
         lastValidBlockHeight: latest.lastValidBlockHeight,
-      }).add(plan.instruction);
+      }).add(...plan.instructions);
       signature = await sendTransaction(transaction, connection);
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
@@ -429,6 +479,16 @@ function PlannerInner() {
     const receipt = plan.receiptFor(signature);
     // From here the maximum may be locked, so the receipt is remembered before anything else can fail.
     setPendingReceipt(receipt);
+    if (plan.rating) {
+      setRatedEscrow(plan.escrow);
+      const storage = browserRatingStorage();
+      try {
+        // Kept in this browser so the job can be found again when it is time to rate.
+        if (storage) rememberRatedJob(storage, { wallet: publicKey.toBase58(), escrow: plan.escrow, programId: ESCROW_PROGRAM_ID.toBase58(), counterparty: walletAddress, ...(judge?.ok && judge.judge ? { judge: judge.judge.toBase58() } : {}), openedAt: new Date().toISOString() });
+      } catch {
+        // The job can still be added later by its escrow address, from run history.
+      }
+    }
     setPaymentNote("Lock sent. Waiting for confirmation before presenting it to the provider.");
     try {
       await connection.confirmTransaction(
@@ -479,7 +539,7 @@ function PlannerInner() {
     setCompleteOpen(true);
     if (data.ok) {
       launchConfetti();
-      showToast("Rating committed", "success");
+      showToast("Feedback saved", "success");
     } else {
       showToast(data.error ?? "Feedback failed", "error");
     }
@@ -563,7 +623,7 @@ function PlannerInner() {
                 {step === 2 &&
                   "Watch x402 negotiation, receipt state, and completion status."}
                 {step === 3 &&
-                  "Commit feedback so future consumer agents can evaluate this specialist."}
+                  "Rate the job on chain if you paid with rating on, and leave an optional private note."}
               </p>
             </Card>
 
@@ -709,6 +769,17 @@ function PlannerInner() {
                       );
                     })}
                   </div>
+                  {WALLET_PAYMENT_ENABLED && RATED_ESCROWS_ENABLED && selectedWallet ? (
+                    <RateJobOption
+                      checked={rateJob}
+                      onCheckedChange={setRateJob}
+                      judge={judgeText}
+                      onJudgeChange={setJudgeText}
+                      judgeError={judgeChoice.ok ? undefined : judgeChoice.message}
+                      stance={selectedStance}
+                      disabled={executing || Boolean(pendingReceipt)}
+                    />
+                  ) : null}
                   <Button
                     className="w-full"
                     disabled={!selectedWallet || executing}
@@ -819,11 +890,20 @@ function PlannerInner() {
 
               {step === 3 ? (
                 <div className="space-y-4">
+                  {ratedEscrow ? (
+                    <JobRatingPanel escrow={ratedEscrow} showWhenNone />
+                  ) : (
+                    <p className="rounded-xl border border-white/10 bg-black/30 p-3 text-xs leading-5 text-gray-400" data-testid="planner-not-rated">
+                      This job was paid without rating, so there is nothing to rate on chain. You can still leave a private note below.
+                    </p>
+                  )}
+                  <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Private feedback (off-chain)</p>
                   <div className="flex gap-1">
                     {Array.from({ length: 5 }).map((_, index) => (
                       <button
                         key={index}
                         onClick={() => setRating(index + 1)}
+                        aria-label={`${index + 1} of 5`}
                         className={`text-3xl transition ${index < rating ? "text-indigo-400" : "text-white/20"}`}
                       >
                         ★
@@ -836,12 +916,15 @@ function PlannerInner() {
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
                   />
+                  <p className="text-xs leading-5 text-gray-400">
+                    Saved by this app only. It is not written to the chain and does not change the provider&apos;s on-chain reputation.
+                  </p>
                   <Button
                     className="w-full"
                     disabled={!run?.runId || submitted}
                     onClick={() => void submitFeedback()}
                   >
-                    {submitted ? "Committed ✓" : "Submit & Commit Rating"}
+                    {submitted ? "Saved ✓" : "Save feedback"}
                   </Button>
                 </div>
               ) : null}
@@ -856,7 +939,7 @@ function PlannerInner() {
             <div className="mb-4 text-6xl">🎉</div>
             <h2 className="font-display text-3xl text-white">Task Complete!</h2>
             <p className="mt-2 text-sm text-gray-400">
-              Your rating has been committed on-chain.
+              Your feedback note was saved off-chain. On-chain ratings are made from your own wallet, in the job rating panel.
             </p>
             <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
               <Link href="/runs">

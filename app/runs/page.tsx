@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
+import { RatedJobsList } from "@/components/rating/RatedJobsList"
 import type { SpecialistListing } from "@/lib/registry/bridge"
 
 type RunRecord = {
@@ -22,11 +23,6 @@ type RunRecord = {
   responsePreview?: string
   error?: string
   trace?: string[]
-}
-
-type CommitRecord = {
-  runId: string
-  revealed: boolean
 }
 
 function shortWallet(wallet: string) {
@@ -46,7 +42,6 @@ function timeAgo(iso: string) {
 export default function RunHistoryPage() {
   const [runs, setRuns] = useState<RunRecord[]>([])
   const [listings, setListings] = useState<SpecialistListing[]>([])
-  const [commits, setCommits] = useState<CommitRecord[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -54,16 +49,11 @@ export default function RunHistoryPage() {
     async function load() {
       setLoading(true)
       try {
-        const [runsRes, registryRes, revealRes] = await Promise.all([
-          fetch("/api/planner/runs"),
-          fetch("/api/registry"),
-          fetch("/api/onboarding/planner/reveal"),
-        ])
-        const [runsData, registryData, revealData] = await Promise.all([runsRes.json(), registryRes.json(), revealRes.json()])
+        const [runsRes, registryRes] = await Promise.all([fetch("/api/planner/runs"), fetch("/api/registry")])
+        const [runsData, registryData] = await Promise.all([runsRes.json(), registryRes.json()])
         if (cancelled) return
         setRuns((runsData.result?.results ?? []).slice().reverse())
         setListings(registryData.listings ?? [])
-        setCommits(revealData.result?.commits ?? [])
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -74,20 +64,7 @@ export default function RunHistoryPage() {
     }
   }, [])
 
-  const commitByRun = useMemo(() => Object.fromEntries(commits.map((commit) => [commit.runId, commit])), [commits])
   const byWallet = useMemo(() => Object.fromEntries(listings.map((agent) => [agent.walletAddress, agent])), [listings])
-
-  async function reveal(runId: string) {
-    const res = await fetch("/api/onboarding/planner/reveal", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ runId }),
-    })
-    const data = await res.json()
-    if (data.ok) {
-      setCommits((current) => current.map((commit) => (commit.runId === runId ? { ...commit, revealed: true } : commit)))
-    }
-  }
 
   return (
     <div className="min-h-screen bg-page">
@@ -103,6 +80,16 @@ export default function RunHistoryPage() {
           }
         />
 
+        <section className="space-y-3 rounded-xl bg-surface p-6 glow-border" aria-labelledby="rated-jobs-heading">
+          <div>
+            <h2 id="rated-jobs-heading" className="font-display text-xl text-white">Rated jobs</h2>
+            <p className="mt-1 text-sm text-gray-400">
+              Jobs you paid with &quot;Rate this job&quot; turned on. Each step is signed by your own wallet; the state shown is read from the job&apos;s rating account on chain.
+            </p>
+          </div>
+          <RatedJobsList />
+        </section>
+
         {loading ? (
           <div className="space-y-4">
             {Array.from({ length: 4 }).map((_, i) => (
@@ -113,9 +100,7 @@ export default function RunHistoryPage() {
           <div className="space-y-4">
             {runs.map((run) => {
               const specialist = run.selectedWallet ? byWallet[run.selectedWallet] : undefined
-              const commit = commitByRun[run.runId]
               const stepReached = run.status === "completed" ? 4 : run.challengeSeen ? 3 : 2
-              const pendingReveal = Boolean(commit && !commit.revealed)
 
               return (
                 <Card key={run.runId} className="flex items-center gap-4 p-5">
@@ -142,13 +127,6 @@ export default function RunHistoryPage() {
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-2">
-                    {pendingReveal ? (
-                      <Button size="sm" variant="outline" onClick={() => void reveal(run.runId)}>
-                        Reveal
-                      </Button>
-                    ) : (
-                      <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-300">Done ✓</Badge>
-                    )}
                     <Link href={run.selectedWallet ? `/agents/${run.selectedWallet}` : "/agents"} className="text-xs text-gray-400 hover:text-white">
                       View specialist
                     </Link>

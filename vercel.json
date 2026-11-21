@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/heartbeat",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/seller-ratings",
+      "schedule": "30 0 * * *"
     }
   ]
 }

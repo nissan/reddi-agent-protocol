@@ -30,6 +30,8 @@ export interface MeteredBuyInput {
   mints?: Partial<Record<string, string | undefined>>;
   /** 16 random bytes. */
   nonce: Uint8Array;
+  /** Opt the job in to rating: the lock transaction also carries `open_rating`. */
+  rating?: { judge?: PublicKey };
 }
 
 export type MeteredBuyPlan =
@@ -37,7 +39,13 @@ export type MeteredBuyPlan =
       ok: true;
       quote: Extract<MeteredBuyQuote, { ok: true }>;
       instruction: TransactionInstruction;
+      /** Everything the buyer signs, in order: the lock, then `open_rating` when the job is rated. */
+      instructions: TransactionInstruction[];
       escrow: string;
+      /** The rating account's address, when the job is rated. */
+      rating?: string;
+      /** What the provider's offer says about serving rated jobs (`acceptsRatedEscrows`), when it says anything. Untrusted. */
+      providerAcceptsRatedJobs?: boolean;
       /** The receipt to present once the lock is confirmed. */
       receiptFor: (lockSignature: string) => Record<string, unknown>;
     }
@@ -106,6 +114,7 @@ export function planMeteredBuy(input: MeteredBuyInput): MeteredBuyPlan {
     payee: new PublicKey(input.listing.walletAddress),
     mint: new PublicKey(mint),
     nonce: input.nonce,
+    rating: input.rating,
   });
   if (!lock.ok) return refuse(lock.reason, lock.message);
   const nonce = Buffer.from(input.nonce).toString("hex");
@@ -114,7 +123,10 @@ export function planMeteredBuy(input: MeteredBuyInput): MeteredBuyPlan {
     ok: true,
     quote: locked,
     instruction: lock.instruction,
+    instructions: lock.instructions,
     escrow,
+    ...(lock.rating ? { rating: lock.rating.toBase58() } : {}),
+    ...(typeof offer.acceptsRatedEscrows === "boolean" ? { providerAcceptsRatedJobs: offer.acceptsRatedEscrows } : {}),
     receiptFor: (lockSignature: string) => ({
       settlement: "metered-escrow",
       network: input.network,

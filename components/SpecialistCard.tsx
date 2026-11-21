@@ -10,6 +10,8 @@ interface SpecialistCardProps {
   model?: string
   taskTypes?: string[]
   reputationScore?: number
+  /** Job counts from the on-chain agent record. When given, the card says where the score comes from. */
+  ratedJobs?: { completed: string; failed: string }
   attested?: boolean
   health?: "online" | "offline" | "unknown"
   freshnessState?: "fresh" | "warm" | "stale" | "unknown"
@@ -53,6 +55,7 @@ export function SpecialistCard({
   model,
   taskTypes = [],
   reputationScore = 0,
+  ratedJobs,
   attested = false,
   health = "unknown",
   freshnessState = "unknown",
@@ -159,7 +162,7 @@ export function SpecialistCard({
           </div>
 
           <div className="flex items-center justify-between gap-2 text-xs text-gray-300">
-            <span>⭐ {Math.round(reputationScore / 100)}</span>
+            <span title="Score out of 100, from ratings on paid jobs">⭐ {Math.round(reputationScore / 100)}</span>
             <span>{formatSol(ratePerCall)}</span>
             {attested ? (
               <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-[11px] text-emerald-300">
@@ -171,6 +174,12 @@ export function SpecialistCard({
               </Badge>
             )}
           </div>
+
+          {ratedJobs ? (
+            <p className="text-[11px] text-gray-400" data-testid="specialist-card-rated-jobs">
+              Score from ratings on paid jobs: {ratedJobs.completed} completed · {ratedJobs.failed} failed
+            </p>
+          ) : null}
 
           {progress > 0 ? (
             <div className="space-y-1">
