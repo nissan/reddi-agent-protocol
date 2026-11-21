@@ -92,6 +92,9 @@ test('strict raw u64, classic program and nonce boundaries; settlement selects r
   expect(() => buildSettleTokenEscrowInstruction(f.t, false, f.t.payee, { actual: 0n })).toThrow('at most the locked amount');
   expect(() => buildSettleTokenEscrowInstruction(f.t, false, f.t.payee, { actual: f.t.amount + 1n })).toThrow('at most the locked amount');
   expect(() => buildSettleTokenEscrowInstruction(f.t, true, f.t.payee, { actual: 1n })).toThrow('no settled amount');
+  // Only the payee settles; the payer is the default authority, so it must be named.
+  expect(() => buildSettleTokenEscrowInstruction(f.t, false, undefined, { actual: 123n })).toThrow('only the payee settles');
+  expect(() => buildSettleTokenEscrowInstruction(f.t, false, f.t.payer, { actual: f.t.amount })).toThrow('only the payee settles');
   const meteredLock = buildLockTokenEscrowInstruction({ ...f.t, metered: true });
   expect(meteredLock.data.subarray(0, 8).equals(createHash('sha256').update('global:lock_metered_token_escrow').digest().subarray(0, 8))).toBe(true);
   expect(release.keys[2]).toMatchObject({ isSigner: true, isWritable: false });

@@ -31,24 +31,21 @@ pub fn release_escrow_handler(ctx: Context<ReleaseEscrow>) -> Result<()> {
 /// the escrow (the unused part of the authorised maximum, plus rent) returns to
 /// the payer when the account closes.
 ///
-/// The payee may settle a metered escrow at any time; the payer may settle any
-/// escrow at any time, which is a partial release.
+/// Only the payee may settle, and only a metered escrow. The payer never
+/// chooses a smaller amount: the payer's ways out are a full release, or a
+/// refund once the refund window has elapsed.
 pub fn settle_escrow_handler(ctx: Context<ReleaseEscrow>, actual: u64) -> Result<()> {
-    let authority = signing_party(&ctx.accounts.payer, &ctx.accounts.payee)?;
+    require!(
+        ctx.accounts.payee.is_signer,
+        EscrowError::UnauthorisedSigner
+    );
     let escrow = &ctx.accounts.escrow;
     require!(
         actual > 0 && actual <= escrow.amount,
         EscrowError::InvalidSettleAmount
     );
-    if authority != escrow.payer {
-        require!(escrow.metered, EscrowError::NotMetered);
-    }
-    let outcome = if actual == escrow.amount && authority == escrow.payer {
-        SettlementOutcome::Released
-    } else {
-        SettlementOutcome::SettledActual
-    };
-    pay_out(ctx.accounts, actual, outcome)
+    require!(escrow.metered, EscrowError::NotMetered);
+    pay_out(ctx.accounts, actual, SettlementOutcome::SettledActual)
 }
 
 fn signing_party(payer: &UncheckedAccount, payee: &UncheckedAccount) -> Result<Pubkey> {

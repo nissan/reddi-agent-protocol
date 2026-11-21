@@ -60,7 +60,8 @@ function buildLockTokenEscrowInstruction(t) {
 /**
  * Destination is always taken from the original lock terms. `authority` signs and defaults to the payer.
  * Release: the program accepts the payer at any time, or the payee once the claim window has elapsed.
- * Settle (`options.actual`): the payee on a metered escrow, or the payer, at any time.
+ * Settle (`options.actual`): only the payee, and only on a metered escrow; pass the payee as `authority`.
+ * The payer never chooses a smaller amount: it releases in full, or refunds once the cancel window has elapsed.
  * Every payout sends 2.5% of the paid amount to the treasury and the rest of the vault back to the payer.
  * Refund: the program accepts the payee at any time (decline), or the payer once the cancel window has elapsed.
  */
@@ -77,6 +78,8 @@ function buildSettleTokenEscrowInstruction(t, refund = false, authority = t.paye
     }
     let data = disc('global', 'release_token_escrow');
     if (options.actual !== undefined) {
+        if (!authority.equals(t.payee))
+            throw new Error('only the payee settles: pass the payee as the authority');
         if (options.actual <= 0n || options.actual > t.amount)
             throw new Error('settled amount must be above zero and at most the locked amount');
         const actual = Buffer.alloc(8);

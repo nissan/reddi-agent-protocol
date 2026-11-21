@@ -46,7 +46,8 @@ export interface SettleTokenEscrowOptions {
 /**
  * Destination is always taken from the original lock terms. `authority` signs and defaults to the payer.
  * Release: the program accepts the payer at any time, or the payee once the claim window has elapsed.
- * Settle (`options.actual`): the payee on a metered escrow, or the payer, at any time.
+ * Settle (`options.actual`): only the payee, and only on a metered escrow; pass the payee as `authority`.
+ * The payer never chooses a smaller amount: it releases in full, or refunds once the cancel window has elapsed.
  * Every payout sends 2.5% of the paid amount to the treasury and the rest of the vault back to the payer.
  * Refund: the program accepts the payee at any time (decline), or the payer once the cancel window has elapsed.
  */

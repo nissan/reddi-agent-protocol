@@ -105,15 +105,16 @@ pub fn lock(
 /// `release_escrow` (`actual` is `None`) and `settle_escrow`.
 ///
 /// Accounts: `[w] escrow`, `[w] payer`, `[w] payee`, `[w] treasury`,
-/// `[] system_program`. Whichever of payer and payee signed is the authority;
-/// the payer is preferred when both did.
+/// `[] system_program`.
 ///
 /// Release pays the whole locked amount: the payer may at any time, the payee
-/// once the claim window has elapsed. Settle pays `actual`, at most the locked
-/// amount: the payee may settle a metered escrow at any time, and the payer
-/// may settle any escrow at any time (a partial release). Either way the
-/// payee receives the paid amount less the protocol fee, the treasury receives
-/// the fee, and the rest returns to the payer with the rent.
+/// once the claim window has elapsed. Whichever of the two signed is the
+/// authority, and the payer is preferred when both did. Settle pays `actual`,
+/// at most the locked amount: only the payee may settle, and only a metered
+/// escrow. The payer never chooses a smaller amount: the payer's ways out are
+/// a full release, or a refund once the refund window has elapsed. Either way
+/// the payee receives the paid amount less the protocol fee, the treasury
+/// receives the fee, and the rest returns to the payer with the rent.
 pub fn pay_out(
     program_id: &Address,
     accounts: &mut [AccountView],
@@ -135,37 +136,37 @@ pub fn pay_out(
     writable(treasury)?;
     require(treasury.address() == &PROTOCOL_TREASURY, &InvalidTreasury)?;
 
-    let authority = if payer.is_signer() {
-        &record.payer
-    } else if payee.is_signer() {
-        &record.payee
-    } else {
-        return Err(fail(&UnauthorisedSigner));
-    };
     let slot = now()?.0;
     let (paid, outcome) = match actual {
-        None => (
-            record.amount(),
-            payout_outcome(
-                authority,
-                &record.payer,
-                &record.payee,
-                record.created_slot(),
-                slot,
-            )?,
-        ),
+        None => {
+            let authority = if payer.is_signer() {
+                &record.payer
+            } else if payee.is_signer() {
+                &record.payee
+            } else {
+                return Err(fail(&UnauthorisedSigner));
+            };
+            (
+                record.amount(),
+                payout_outcome(
+                    authority,
+                    &record.payer,
+                    &record.payee,
+                    record.created_slot(),
+                    slot,
+                )?,
+            )
+        }
         Some(actual) => {
+            // Only the payee names the amount. The payer's signature counts
+            // for nothing here.
+            require(payee.is_signer(), &UnauthorisedSigner)?;
             require(
                 actual > 0 && actual <= record.amount(),
                 &InvalidSettleAmount,
             )?;
-            let by_payer = authority == &record.payer;
-            require(by_payer || record.metered(), &NotMetered)?;
-            if by_payer && actual == record.amount() {
-                (actual, Outcome::Released)
-            } else {
-                (actual, Outcome::SettledActual)
-            }
+            require(record.metered(), &NotMetered)?;
+            (actual, Outcome::SettledActual)
         }
     };
     require(record.status == STATUS_LOCKED, &NotLocked)?;
