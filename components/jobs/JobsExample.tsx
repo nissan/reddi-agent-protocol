@@ -108,7 +108,7 @@ export function JobsExample() {
           </tbody>
         </table>
       </div>
-      <p className="text-sm text-ink-muted">Examples only. Devnet today: test funds with no value.</p>
+      <p className="text-sm text-ink-muted">Examples only. Today this runs on Solana devnet with test funds; mainnet is coming soon.</p>
     </section>
   );
 }
