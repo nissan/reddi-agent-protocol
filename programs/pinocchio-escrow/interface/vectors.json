@@ -1,0 +1,638 @@
+{
+  "about": "Examples of the instructions and accounts of programs/pinocchio-escrow that the Anchor IDL does not describe. Generated and checked by equivalence/tests/interface_vectors.rs; see the program README for the interface.",
+  "accounts": [
+    {
+      "address": "2wpE3xn9gvLWk1Rc3WhRyYB8EnEVVQL3vkS35if3zPHw",
+      "data_hex": "0f2885b46ff1c5e402f7e9003afc0359a6fac19cf82fb9ca501767be112ad7a19ba2b7ad3a0299fa8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e80300000000000000000000000000000000000000000000000000ff",
+      "length": 268,
+      "name": "rating_awaiting_settlement"
+    },
+    {
+      "address": "2wpE3xn9gvLWk1Rc3WhRyYB8EnEVVQL3vkS35if3zPHw",
+      "data_hex": "0f2885b46ff1c5e402f7e9003afc0359a6fac19cf82fb9ca501767be112ad7a19ba2b7ad3a0299fa8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c027090000000000e803000000000000f2030000000000000000000000000000010000ff",
+      "length": 268,
+      "name": "rating_open"
+    },
+    {
+      "address": "2wpE3xn9gvLWk1Rc3WhRyYB8EnEVVQL3vkS35if3zPHw",
+      "data_hex": "0f2885b46ff1c5e402f7e9003afc0359a6fac19cf82fb9ca501767be112ad7a19ba2b7ad3a0299fa8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c00000000000000000000000000000000000000000000000000000000000000001d513953a9416444edd23e3851aa166c520d4a7f62d7ba3165be075ba3df3072f0809e9d60ccb14196384b88ac44748e2ce62424438b3116c5a87dc8cc584905c027090000000000e803000000000000f2030000000000000604000000000000020000ff",
+      "length": 268,
+      "name": "rating_both_committed"
+    },
+    {
+      "address": "B3vnRFDEmcM79sPwdMXaZhLaS6wR5E9XoE2S7xiMSqfv",
+      "data_hex": "f7c3863cd8f979b702f7e9003afc0359a6fac19cf82fb9ca501767be112ad7a19ba2b7ad3a0299faca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c09080a0107001004000000000000f9",
+      "length": 119,
+      "name": "attestation_pending"
+    },
+    {
+      "address": "2wpE3xn9gvLWk1Rc3WhRyYB8EnEVVQL3vkS35if3zPHw",
+      "data_hex": "0f2885b46ff1c5e402f7e9003afc0359a6fac19cf82fb9ca501767be112ad7a19ba2b7ad3a0299fa8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c00000000000000000000000000000000000000000000000000000000000000001d513953a9416444edd23e3851aa166c520d4a7f62d7ba3165be075ba3df3072f0809e9d60ccb14196384b88ac44748e2ce62424438b3116c5a87dc8cc584905c027090000000000e803000000000000f2030000000000000604000000000000030904ff",
+      "length": 268,
+      "name": "rating_revealed"
+    },
+    {
+      "address": "B3vnRFDEmcM79sPwdMXaZhLaS6wR5E9XoE2S7xiMSqfv",
+      "data_hex": "f7c3863cd8f979b702f7e9003afc0359a6fac19cf82fb9ca501767be112ad7a19ba2b7ad3a0299faca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c09080a0107011004000000000000f9",
+      "length": 119,
+      "name": "attestation_confirmed"
+    },
+    {
+      "address": "9LVk3TpHTh6rFZw7go1VGjbcK91ovJB2KiM2BERt5JPF",
+      "data_hex": "0f2885b46ff1c5e4458cda602cf5bee010722b4211ba5df71ea33996a9e260a830f55634eb70633e8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000040420f0000000000100400000000000010040000000000000000000000000000040000fd",
+      "length": 268,
+      "name": "rating_expired"
+    },
+    {
+      "address": "Cb4y6Bq3n9SYmFenmVxN6uQBSC8F9boTakLr5pAcVcu",
+      "data_hex": "2445301280e17d878a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b39440420f000000000007070707070707070707070707070707000000000000000000e803000000000000dc0500000000000094110000000000000000ff030000000000000000000000000000000000000000000000000000000000000000",
+      "length": 165,
+      "name": "sol_escrow_rated_metered"
+    },
+    {
+      "address": "AToUeu3uMGJmsqFTGBF8oyMw4QYH42RmEbADtA4zuigv",
+      "data_hex": "5fa3fbfc347d25478a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394c6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d616565656565656565656565656565656565656565656565656565656565656565666666666666666666666666666666666666666666666666666666666666666640420f000000000004040404040404040404040404040404005116170000000000fc02dc050000000000009411000000000000",
+      "length": 219,
+      "name": "token_escrow_rated"
+    }
+  ],
+  "commitment": {
+    "preimage": "rating address (32) || signer address (32) || score (1) || salt (32)",
+    "preimage_hex": "1ce672b7a811f8634b5f883b3916c21c0b56651db48ca7dceb6f84523a22b1f68a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c09c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
+    "rating": "2wpE3xn9gvLWk1Rc3WhRyYB8EnEVVQL3vkS35if3zPHw",
+    "salt_hex": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
+    "score": 9,
+    "sha256_hex": "1d513953a9416444edd23e3851aa166c520d4a7f62d7ba3165be075ba3df3072",
+    "signer": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9"
+  },
+  "escrow_flag_byte": {
+    "metered": 1,
+    "rated": 2,
+    "sol_escrow_offset": 132,
+    "token_escrow_offset": 202
+  },
+  "instructions": [
+    {
+      "accounts": [
+        {
+          "address": "2wpE3xn9gvLWk1Rc3WhRyYB8EnEVVQL3vkS35if3zPHw",
+          "name": "rating",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "Cb4y6Bq3n9SYmFenmVxN6uQBSC8F9boTakLr5pAcVcu",
+          "name": "escrow",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "name": "payer",
+          "signer": true,
+          "writable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "name": "system_program",
+          "signer": false,
+          "writable": false
+        }
+      ],
+      "data_hex": "9d55310dbd09ef86ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c",
+      "name": "open_rating",
+      "note": "data: judge address (all zero for none)",
+      "selector_hex": "9d55310dbd09ef86"
+    },
+    {
+      "accounts": [
+        {
+          "address": "Cb4y6Bq3n9SYmFenmVxN6uQBSC8F9boTakLr5pAcVcu",
+          "name": "escrow",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "name": "payer",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "9hSR6S7WPtxmTojgo6GG3k4yDPecgJY292j7xrsUGWBu",
+          "name": "payee",
+          "signer": true,
+          "writable": true
+        },
+        {
+          "address": "5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe",
+          "name": "treasury",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "name": "system_program",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "2wpE3xn9gvLWk1Rc3WhRyYB8EnEVVQL3vkS35if3zPHw",
+          "name": "rating",
+          "signer": false,
+          "writable": true
+        }
+      ],
+      "data_hex": "1687a0c217ba7c6ec027090000000000",
+      "name": "settle_escrow",
+      "note": "rated SOL escrow: the rating account follows the five usual accounts; data: actual u64",
+      "selector_hex": "1687a0c217ba7c6e"
+    },
+    {
+      "accounts": [
+        {
+          "address": "2wpE3xn9gvLWk1Rc3WhRyYB8EnEVVQL3vkS35if3zPHw",
+          "name": "rating",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "name": "signer",
+          "signer": true,
+          "writable": false
+        }
+      ],
+      "data_hex": "5329cfe1a606f22d1d513953a9416444edd23e3851aa166c520d4a7f62d7ba3165be075ba3df3072",
+      "name": "commit_rating",
+      "note": "data: commitment = sha256(rating address, signer address, score byte, 32-byte salt)",
+      "selector_hex": "5329cfe1a606f22d"
+    },
+    {
+      "accounts": [
+        {
+          "address": "B3vnRFDEmcM79sPwdMXaZhLaS6wR5E9XoE2S7xiMSqfv",
+          "name": "attestation",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "2wpE3xn9gvLWk1Rc3WhRyYB8EnEVVQL3vkS35if3zPHw",
+          "name": "rating",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "6mynvpMKWNP77rG9FkmdHyUZmLFKRvFLCmXsAzFwF4Kb",
+          "name": "judge_agent",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "EdmxWPmx2WH6WgFfTdu9xfkYf3k1g5wD1zccTVySEEh1",
+          "name": "judge",
+          "signer": true,
+          "writable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "name": "system_program",
+          "signer": false,
+          "writable": false
+        }
+      ],
+      "data_hex": "9f8dc07d4090235009080a0107",
+      "name": "attest_quality",
+      "note": "data: five scores, 1 to 10",
+      "selector_hex": "9f8dc07d40902350"
+    },
+    {
+      "accounts": [
+        {
+          "address": "2wpE3xn9gvLWk1Rc3WhRyYB8EnEVVQL3vkS35if3zPHw",
+          "name": "rating",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "name": "signer",
+          "signer": true,
+          "writable": false
+        },
+        {
+          "address": "DsoFy41n1kXcS61ZKdSUkrT6VsT4FAHnpyq5aTJ5GfQz",
+          "name": "specialist_agent",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "JbzNUdydvcRvK5QBAdVmoZ4d8FtsDVYXxkQTSFaaXTU",
+          "name": "consumer_agent",
+          "signer": false,
+          "writable": true
+        }
+      ],
+      "data_hex": "82b4e16938617a3409c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
+      "name": "reveal_rating",
+      "note": "data: score byte, 32-byte salt",
+      "selector_hex": "82b4e16938617a34"
+    },
+    {
+      "accounts": [
+        {
+          "address": "B3vnRFDEmcM79sPwdMXaZhLaS6wR5E9XoE2S7xiMSqfv",
+          "name": "attestation",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "6mynvpMKWNP77rG9FkmdHyUZmLFKRvFLCmXsAzFwF4Kb",
+          "name": "judge_agent",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "name": "consumer",
+          "signer": true,
+          "writable": false
+        }
+      ],
+      "data_hex": "522b14238f181ce1",
+      "name": "confirm_attestation",
+      "note": "no data",
+      "selector_hex": "522b14238f181ce1"
+    },
+    {
+      "accounts": [
+        {
+          "address": "2wpE3xn9gvLWk1Rc3WhRyYB8EnEVVQL3vkS35if3zPHw",
+          "name": "rating",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "name": "consumer",
+          "signer": true,
+          "writable": true
+        }
+      ],
+      "data_hex": "9070d115a5d18100",
+      "name": "close_rating",
+      "note": "no data",
+      "selector_hex": "9070d115a5d18100"
+    },
+    {
+      "accounts": [
+        {
+          "address": "5gVhjU85QVUUTZAWRBmiYSXBBHwqUFsEsXngyjEXsyEV",
+          "name": "escrow",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "name": "payer",
+          "signer": true,
+          "writable": true
+        },
+        {
+          "address": "9hSR6S7WPtxmTojgo6GG3k4yDPecgJY292j7xrsUGWBu",
+          "name": "payee",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe",
+          "name": "treasury",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "name": "system_program",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "9LVk3TpHTh6rFZw7go1VGjbcK91ovJB2KiM2BERt5JPF",
+          "name": "rating",
+          "signer": false,
+          "writable": true
+        }
+      ],
+      "data_hex": "92fd81e91491b5ce",
+      "name": "release_escrow",
+      "note": "rated SOL escrow: the rating account follows the five usual accounts; no data",
+      "selector_hex": "92fd81e91491b5ce"
+    },
+    {
+      "accounts": [
+        {
+          "address": "AqMqhsbq98ehYvBkMEd2rnGWsmrc3GxLCAh6ecVyVYBw",
+          "name": "attestation",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "6mynvpMKWNP77rG9FkmdHyUZmLFKRvFLCmXsAzFwF4Kb",
+          "name": "judge_agent",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "name": "consumer",
+          "signer": true,
+          "writable": false
+        }
+      ],
+      "data_hex": "d03d20cba6346423",
+      "name": "dispute_attestation",
+      "note": "no data",
+      "selector_hex": "d03d20cba6346423"
+    },
+    {
+      "accounts": [
+        {
+          "address": "9LVk3TpHTh6rFZw7go1VGjbcK91ovJB2KiM2BERt5JPF",
+          "name": "rating",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "EdmxWPmx2WH6WgFfTdu9xfkYf3k1g5wD1zccTVySEEh1",
+          "name": "signer",
+          "signer": true,
+          "writable": false
+        },
+        {
+          "address": "DsoFy41n1kXcS61ZKdSUkrT6VsT4FAHnpyq5aTJ5GfQz",
+          "name": "specialist_agent",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "JbzNUdydvcRvK5QBAdVmoZ4d8FtsDVYXxkQTSFaaXTU",
+          "name": "consumer_agent",
+          "signer": false,
+          "writable": true
+        }
+      ],
+      "data_hex": "5b362766e1435e51",
+      "name": "expire_rating",
+      "note": "no data; the signer is anyone",
+      "selector_hex": "5b362766e1435e51"
+    },
+    {
+      "accounts": [
+        {
+          "address": "CQuuCMLuUVz3kvJF3e3c9Ert4LH8wBW6pBNQn9odN7EV",
+          "name": "escrow",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "9hSR6S7WPtxmTojgo6GG3k4yDPecgJY292j7xrsUGWBu",
+          "name": "authority",
+          "signer": true,
+          "writable": false
+        },
+        {
+          "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "name": "payer",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "name": "system_program",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "nHNXcw3JeMZRqTuNKqyG1vEtuXam2LLQWZ6v11mb3Lw",
+          "name": "rating",
+          "signer": false,
+          "writable": true
+        }
+      ],
+      "data_hex": "9ccb36b326482115",
+      "name": "cancel_escrow",
+      "note": "rated SOL escrow: the rating account follows the four usual accounts and is closed; no data",
+      "selector_hex": "9ccb36b326482115"
+    },
+    {
+      "accounts": [
+        {
+          "address": "AToUeu3uMGJmsqFTGBF8oyMw4QYH42RmEbADtA4zuigv",
+          "name": "escrow",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "7q84Mf8d2W8EsYkrMEogMqpR4vjo8cqNqJs6uNZjQtej",
+          "name": "vault",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "name": "authority",
+          "signer": true,
+          "writable": false
+        },
+        {
+          "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "name": "payer",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "name": "mint",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "7tj9biW3KRJ7EEWmVUGigHiouCTXhV2dzcyvwma7Cyu7",
+          "name": "destination",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "7kW4RStm1ygp5RKbwxY2yhr2PBbd9b7y95AaDYWXEid1",
+          "name": "treasury_token",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "7porTR32j7zt69GG4AwoPQx3f3FL2RLpSDKGtPXWTeaQ",
+          "name": "refund",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "name": "token_program",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "6htWRRcfvnCyfjAgeB4KPHZqXGmWGQFk2yaWa1MYdNAK",
+          "name": "rating",
+          "signer": false,
+          "writable": true
+        }
+      ],
+      "data_hex": "1d9e999ceb753b3d",
+      "name": "release_token_escrow",
+      "note": "rated token escrow: the rating account follows the nine usual accounts; no data",
+      "selector_hex": "1d9e999ceb753b3d"
+    },
+    {
+      "accounts": [
+        {
+          "address": "5fbiAByxQkGaCBuJLCS25NEcTE2dcp2JSesrd1eg1rj5",
+          "name": "escrow",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "587XX6jbHJGJwka27dq9XiH25XF6zbUvzzaMmSqnWabY",
+          "name": "vault",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "9hSR6S7WPtxmTojgo6GG3k4yDPecgJY292j7xrsUGWBu",
+          "name": "authority",
+          "signer": true,
+          "writable": false
+        },
+        {
+          "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "name": "payer",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "name": "mint",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "7tj9biW3KRJ7EEWmVUGigHiouCTXhV2dzcyvwma7Cyu7",
+          "name": "destination",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "7kW4RStm1ygp5RKbwxY2yhr2PBbd9b7y95AaDYWXEid1",
+          "name": "treasury_token",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "7porTR32j7zt69GG4AwoPQx3f3FL2RLpSDKGtPXWTeaQ",
+          "name": "refund",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "name": "token_program",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "FfP6wwipyH5DH5yv7sSj9NCzdq5HGDuNRto8QHMAJDC8",
+          "name": "rating",
+          "signer": false,
+          "writable": true
+        }
+      ],
+      "data_hex": "db98a8b9d5a6a2d190d0030000000000",
+      "name": "settle_token_escrow",
+      "note": "rated token escrow: the rating account follows the nine usual accounts; data: actual u64",
+      "selector_hex": "db98a8b9d5a6a2d1"
+    },
+    {
+      "accounts": [
+        {
+          "address": "FHgCUh6cnF3CBGxQqmvuiA2DdiCr8U9QP7KpfooSjboB",
+          "name": "escrow",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "7KG6pF25CtUM3CLNNNVC97YhYw6nxoYA4xaFoujBZF2h",
+          "name": "vault",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "9hSR6S7WPtxmTojgo6GG3k4yDPecgJY292j7xrsUGWBu",
+          "name": "authority",
+          "signer": true,
+          "writable": false
+        },
+        {
+          "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "name": "payer",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "name": "mint",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "7porTR32j7zt69GG4AwoPQx3f3FL2RLpSDKGtPXWTeaQ",
+          "name": "destination",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "name": "token_program",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "5gfNSNAsPP1WvmEJpyA64mSQrrwqEvdQ1BjNMQ7MLLzD",
+          "name": "rating",
+          "signer": false,
+          "writable": true
+        }
+      ],
+      "data_hex": "d0108abb1a5ea81d",
+      "name": "cancel_token_escrow",
+      "note": "rated token escrow: the rating account follows the seven usual accounts and is closed; no data",
+      "selector_hex": "d0108abb1a5ea81d"
+    }
+  ],
+  "program_id": "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu",
+  "rating_states": [
+    "awaiting_settlement",
+    "open",
+    "both_committed",
+    "revealed",
+    "expired"
+  ],
+  "seeds": {
+    "attestation": [
+      "\"attestation\"",
+      "escrow address"
+    ],
+    "rating": [
+      "\"rating\"",
+      "escrow address"
+    ]
+  }
+}
