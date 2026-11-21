@@ -49,6 +49,14 @@ export interface EscrowReceipt extends EscrowProof {
      * `buildEscrowSellerExit`.
      */
     rated?: true;
+    /**
+     * Present with `rated`: the rating account's `opened_slot` (a decimal u64)
+     * as read when the lock was verified. It names this job, and the seller's
+     * claim or decline must carry it (`buildEscrowSellerExit`), so an exit
+     * prepared for this job is refused (6051) once another job has taken the
+     * address.
+     */
+    openedSlot?: string;
 }
 export interface EscrowVerifyOptions {
     /**
@@ -73,11 +81,13 @@ export declare function verifyEscrowLock(connection: Connection, c: EscrowChalle
  * The seller's exit of an escrow it accepted, signed by the payee: `claim`
  * (release to itself, once the claim window has elapsed) or `decline`
  * (everything back to the payer, at any time). For a receipt that says
- * `rated` the escrow's rating account follows the usual accounts, without
- * which the program refuses the exit; otherwise the instruction is exactly
- * `buildSettleTokenEscrowInstruction`'s.
+ * `rated` the escrow's rating account follows the usual accounts and the
+ * receipt's `openedSlot` follows the data, without which the program refuses
+ * the exit; otherwise the instruction is exactly
+ * `buildSettleTokenEscrowInstruction`'s. Throws for a rated receipt without a
+ * valid `openedSlot`.
  */
-export declare function buildEscrowSellerExit(c: EscrowChallenge, receipt: Pick<EscrowReceipt, 'rated'>, kind: 'claim' | 'decline'): TransactionInstruction;
+export declare function buildEscrowSellerExit(c: EscrowChallenge, receipt: Pick<EscrowReceipt, 'rated' | 'openedSlot'>, kind: 'claim' | 'decline'): TransactionInstruction;
 /** Single-process replay protection. Use durable atomic storage for multiple sellers/workers. */
 export declare class EscrowSeller {
     private connection;

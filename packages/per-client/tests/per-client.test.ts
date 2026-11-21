@@ -183,10 +183,12 @@ describe("releaseEscrowFallback", () => {
     ]);
 
     // The program's own example of a payer's release_escrow: the same selector and the same first
-    // five accounts (the example is of a rated escrow, so a sixth, the rating account, follows).
+    // five accounts (the example is of a rated escrow, so a sixth, the rating account, follows, and
+    // the rating's opened slot follows the selector: 8 bytes an unrated release does not carry).
     const vectors = JSON.parse(readFileSync(join(__dirname, "../../../programs/pinocchio-escrow/interface/vectors.json"), "utf8"));
     const vector = vectors.instructions.find((entry: { name: string }) => entry.name === "release_escrow");
-    expect(ix.data.toString("hex")).toBe(vector.data_hex);
+    expect(vector.data_hex).toHaveLength(32);
+    expect(ix.data.toString("hex")).toBe(vector.data_hex.slice(0, 16));
     expect(ix.keys.map((key) => ({ address: key.pubkey.toBase58(), signer: key.isSigner, writable: key.isWritable }))).toEqual(
       vector.accounts.slice(0, 5).map((meta: { address: string; signer: boolean; writable: boolean }) => ({ address: meta.address, signer: meta.signer, writable: meta.writable })),
     );

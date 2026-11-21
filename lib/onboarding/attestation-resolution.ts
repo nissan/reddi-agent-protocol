@@ -1,8 +1,8 @@
 import { Connection, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
-import { agentPda, buildConfirmAttestationInstruction, buildDisputeAttestationInstruction } from "@reddi/x402-solana/rating";
+import { buildConfirmAttestationInstruction, buildDisputeAttestationInstruction } from "@reddi/x402-solana/rating";
 
 import { QUASAR_ESCROW_UNAVAILABLE_REASON } from "@/lib/onboarding/quasar-escrow-binding";
-import { ESCROW_PROGRAM_ID, IX, PROGRAM_TARGET } from "@/lib/program";
+import { ESCROW_PROGRAM_ID, PROGRAM_TARGET } from "@/lib/program";
 
 /**
  * Consumer follow-through on an operator attestation: confirm or dispute.
@@ -14,7 +14,9 @@ import { ESCROW_PROGRAM_ID, IX, PROGRAM_TARGET } from "@/lib/program";
  *
  * What is built below is the V1 program's `confirm_attestation` / `dispute_attestation`
  * (`@reddi/x402-solana/rating`): the attestation of the job paid through an escrow, the judge's
- * agent record, and the consumer as signer, with no instruction data. Nothing in the app records
+ * agent record, and the consumer as signer, and as data the job's opened slot as the attestation
+ * stores it (`openedSlot`, required: the program refuses a decision without it or naming another
+ * job, `RatingJobMismatch` 6051). Nothing in the app records
  * such an attestation yet: the operator attest step fails closed until the app rating flow lands
  * (#842), so the onboarding page never reaches this with a recorded attestation.
  */
@@ -30,6 +32,11 @@ export type AttestationResolutionRequest = {
   escrow?: string;
   /** Attestation address recorded by the attest step, as base58. Used instead of `escrow` when present. */
   attestationPda?: string;
+  /**
+   * The slot the job's rating was opened in, as the attestation the consumer was shown stores it
+   * (`decodeAttestationAccount(...).openedSlot`). Required: without it nothing is built.
+   */
+  openedSlot?: bigint;
 };
 
 export type AttestationResolutionDependencies = {
@@ -50,23 +57,24 @@ export function describeAttestationResolutionRefusal(): string | undefined {
 }
 
 function buildResolutionInstruction(request: AttestationResolutionRequest, operator: PublicKey): TransactionInstruction {
+  const openedSlot = request.openedSlot;
+  if (typeof openedSlot !== "bigint") {
+    throw new Error("Attestation resolution needs the job's opened slot, read from the attestation. Nothing was signed.");
+  }
+  const build = request.action === "confirm" ? buildConfirmAttestationInstruction : buildDisputeAttestationInstruction;
   if (request.attestationPda) {
-    // A recorded attestation address: the same accounts and selector the builders below produce.
+    // A recorded attestation address: the builder's accounts and data, with that address as account 0.
+    const built = build({ programId: ESCROW_PROGRAM_ID, escrow: PublicKey.default, judge: operator, consumer: request.consumer, openedSlot });
     return new TransactionInstruction({
       programId: ESCROW_PROGRAM_ID,
-      keys: [
-        { pubkey: new PublicKey(request.attestationPda), isSigner: false, isWritable: true },
-        { pubkey: agentPda(operator, ESCROW_PROGRAM_ID), isSigner: false, isWritable: true },
-        { pubkey: request.consumer, isSigner: true, isWritable: false },
-      ],
-      data: request.action === "confirm" ? IX.confirm_attestation : IX.dispute_attestation,
+      keys: [{ pubkey: new PublicKey(request.attestationPda), isSigner: false, isWritable: true }, ...built.keys.slice(1)],
+      data: built.data,
     });
   }
   if (!request.escrow) {
     throw new Error("Attestation resolution needs the escrow the job was paid through.");
   }
-  const input = { programId: ESCROW_PROGRAM_ID, escrow: new PublicKey(request.escrow), judge: operator, consumer: request.consumer };
-  return request.action === "confirm" ? buildConfirmAttestationInstruction(input) : buildDisputeAttestationInstruction(input);
+  return build({ programId: ESCROW_PROGRAM_ID, escrow: new PublicKey(request.escrow), judge: operator, consumer: request.consumer, openedSlot });
 }
 
 export async function submitAttestationResolution(
