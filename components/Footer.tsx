@@ -57,7 +57,7 @@ export default function Footer() {
         </div>
         <div className="mt-8 flex flex-col gap-2 border-t border-[#2b2f36] pt-6 font-mono text-xs text-[#b9b6ab] md:flex-row md:justify-between">
           <span>© 2026 Reddi Agent Protocol. Open source.</span>
-          <span>In development. Devnet today. Nothing is on mainnet yet.</span>
+          <span>Running on Solana devnet. Mainnet is coming soon.</span>
         </div>
       </div>
     </footer>
