@@ -1,0 +1,33 @@
+# Runs the Anchor program's own V1 test files against the Quasar binary.
+#
+# The tests import `escrow::{accounts, instruction, state, ...}`. This crate is
+# a host-side stand-in with that name and shape which encodes instructions and
+# decodes accounts in the Quasar program's format, so the test files run
+# unchanged apart from the path of the program binary (see sync-tests.sh).
+[package]
+name = "escrow"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+anchor-lang = "1.1.2"
+anchor-spl = { version = "=1.1.2", default-features = false, features = ["token"] }
+
+[dev-dependencies]
+litesvm = "0.16.0"
+solana-account = "4.3.2"
+solana-message = "4.4.1"
+solana-transaction = { version = "4.1.6", features = ["wincode"] }
+solana-signer = "3.0.1"
+solana-keypair = "3.1.2"
+solana-sdk-ids = "3.1.0"
+sha2 = { version = "0.10", default-features = false }
+
+[features]
+devnet = []
+
+[workspace]
