@@ -1837,7 +1837,6 @@ export default function OnboardingPage() {
                       action: "confirm",
                       consumer: publicKey,
                       operator: state.attestationOperator,
-                      jobIdHex: state.attestationJobIdHex,
                       attestationPda: state.attestationPda || undefined,
                     },
                     {
@@ -1886,7 +1885,6 @@ export default function OnboardingPage() {
                       action: "dispute",
                       consumer: publicKey,
                       operator: state.attestationOperator,
-                      jobIdHex: state.attestationJobIdHex,
                       attestationPda: state.attestationPda || undefined,
                     },
                     {

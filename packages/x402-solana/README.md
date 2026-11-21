@@ -51,6 +51,41 @@ const { settlement, instructions } = meteredSettlement(terms, lock, usageFrom(up
 
 `verifyMeteredLock` also checks that the payout can land (the provider's, the treasury's and the buyer's token accounts), and `confirmMeteredSettlement` reads what a confirmed settle moved, for the receipt. It reads no key and sends no transaction. `packages/provider-kit` wraps it in a runnable server. Token currencies only (USDC, AUDD, PYUSD, USDG).
 
+## Ratings and attestations
+
+`@reddi/x402-solana/rating` builds the rating and judge attestation instructions of the V1 program source (`programs/pinocchio-escrow`), derives their addresses and decodes their accounts. The program README and `interface/vectors.json` are the interface; this module is tested against that file byte for byte. No deployed program answers these instructions yet.
+
+```ts
+import { buildRatedTokenEscrowLock, buildSellerAcceptRating, readEscrowRatingStatus, readRatingAccount, withRatingAccount, ratingCommitment } from '@reddi/x402-solana/rating';
+
+// Buyer: lock and opt in to rating in one transaction (opting in later is refused).
+const { instructions, escrow, rating } = buildRatedTokenEscrowLock(terms, { judge });
+
+// Seller: before serving, read at `confirmed` whether the job is rated.
+const status = await readEscrowRatingStatus(connection, escrow, programId);
+
+// Read the job's opened slot when serving it, and keep it with the job.
+const openedSlot = status.ok && status.rated ? (await readRatingAccount(connection, escrow, programId))?.openedSlot : undefined;
+
+// Every exit of a rated escrow carries the rating account and names the job by its opened slot;
+// other exits are returned untouched.
+const settle = withRatingAccount(buildSettleTokenEscrowInstruction(terms, false, payee, { actual }), status.ok && status.rated, openedSlot);
+
+// Seller of a fixed-price job the payer will release: read the job and agree to it. Throws
+// SellerAcceptRatingError when the escrow or the rating is not what the seller expects.
+const accept = await buildSellerAcceptRating(connection, { programId, escrow, seller, expected: { judge, amount } });
+
+// Each party commits, then reveals the same score and salt. Keep both until the reveal.
+// `openedSlot` comes from the rating account (`readRatingAccount(...).openedSlot`).
+const commitment = ratingCommitment(rating, openedSlot, signer, score, salt);
+```
+
+Jobs can share an address: once an escrow has ended, the same payer can lock another job for the same payee under the same nonce. The rating account's `openedSlot` tells them apart, so every rated exit (`withRatingAccount`, the SOL exit builders, `buildTokenEscrowExitInstruction`), `ratingCommitment`, `buildAcceptRatingInstruction`, `buildCommitRatingInstruction`, `buildAttestQualityInstruction`, `buildConfirmAttestationInstruction` and `buildDisputeAttestationInstruction` take it as a required bigint, and the program refuses a missing or other one (`RatingJobMismatch`, 6051). A decision on an attestation names the slot the attestation stores (`decodeAttestationAccount(...).openedSlot`; the account is 127 bytes). Read the slot when the job is agreed or verified and keep it: an exit built from a slot re-read later would name whichever job holds the address by then. No exit of a rated escrow is accepted in the slot its rating was opened in (`RatingJustOpened`, 6050): lock and opt in go in one transaction, any exit in a later one.
+
+Consent: the seller agrees to be rated by `accept_rating`, or by being the authority of a claim or settle, and must then commit and reveal within the program's windows. Seller claim transactions must not carry the payer's signature: if the payer signs one, even only as fee payer, the program treats the payer as the authority, so it is a release by the payer and not the seller's agreement. Both seller paths here decline a rated escrow before serving unless `acceptRatedEscrows` is set: `verifyMeteredLock` (metered) and `verifyEscrowLock` / `EscrowSeller` (fixed price). When set, they read the rating account with the lock (a verified lock's `openedSlot`, a receipt's `openedSlot` as a decimal string), and their exits carry the rating account and that slot (`meteredSettlement`, `meteredDecline`, `buildEscrowSellerExit`).
+
+Buyers of a fixed-price rated job: a release by the payer opens the rating only after the seller has called `accept_rating`. Before that, a release pays the seller as usual and closes the job unrated; the payee co-signing the release changes nothing. A rated exit that pays the seller nothing also closes the rating unrated. `RATING_PROGRAM_ERRORS` / `ratingProgramErrorName(code)` name the program's rating and attestation errors (6010 to 6019, 6033 to 6051). Read the rating account (`readRatingAccount`) and release when `payerReleaseOpensRating(rating)` is true, or leave the seller to claim.
+
 ## Usage
 
 ### Express Middleware

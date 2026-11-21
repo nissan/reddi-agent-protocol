@@ -4,10 +4,12 @@ exports.EscrowPurchaseError = exports.EscrowSeller = exports.escrowRequestHash =
 exports.escrowTerms = escrowTerms;
 exports.createEscrowChallenge = createEscrowChallenge;
 exports.verifyEscrowLock = verifyEscrowLock;
+exports.buildEscrowSellerExit = buildEscrowSellerExit;
 exports.buyWithEscrow = buyWithEscrow;
 const node_crypto_1 = require("node:crypto");
 const web3_js_1 = require("@solana/web3.js");
 const spl_token_1 = require("@solana/spl-token");
+const rating_1 = require("./rating");
 const token_escrow_1 = require("./token-escrow");
 const escrowRequestHash = (body) => (0, node_crypto_1.createHash)('sha256').update(body).digest('hex');
 exports.escrowRequestHash = escrowRequestHash;
@@ -36,8 +38,13 @@ function createEscrowChallenge(input) {
         throw new Error('invalid challenge lifetime/request hash');
     return c;
 }
-/** Read-only verification against a trusted RPC. No caller-supplied state or token identity. */
-async function verifyEscrowLock(connection, c, proof) {
+/**
+ * Read-only verification against a trusted RPC. No caller-supplied state or token identity.
+ * The escrow is read at `finalized`, in or after the slot of the lock, which is the only slot a
+ * buyer can opt it in to rating in, so the rated bit read here is final. A rated escrow is
+ * refused unless `options.acceptRatedEscrows` is true; when accepted, the receipt says `rated`.
+ */
+async function verifyEscrowLock(connection, c, proof, options = {}) {
     const t = escrowTerms(c);
     if (!Number.isSafeInteger(c.expiresAt) || Date.now() >= c.expiresAt || proof.nonce !== c.nonce || !/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(proof.lockSignature))
         throw new Error('invalid or expired payment proof');
@@ -63,6 +70,8 @@ async function verifyEscrowLock(connection, c, proof) {
         if (!decoded[field].equals(t[field]))
             throw new Error(`wrong escrow ${field}`);
     }
+    if (decoded.rated && options.acceptRatedEscrows !== true)
+        throw new Error('rated escrow declined: this seller does not take escrows opted in to rating');
     if (decoded.amount !== t.amount || !decoded.nonce.equals(Buffer.from(t.nonce)) || decoded.status !== 0 || decoded.bump !== bump || decoded.createdSlot !== BigInt(tx.slot))
         throw new Error('escrow terms mismatch');
     // An account the earlier program wrote stores no windows (they were fixed); otherwise they must be the challenge's.
@@ -78,12 +87,45 @@ async function verifyEscrowLock(connection, c, proof) {
     const token = (0, spl_token_1.unpackAccount)(vault, info, t.tokenProgram);
     if (!token.owner.equals(escrow) || !token.mint.equals(t.mint) || token.amount < t.amount || !token.isInitialized || token.isFrozen)
         throw new Error('vault mismatch');
-    return { ...proof, scheme: c.scheme, status: 'locked', escrow: escrow.toBase58(), amount: c.amount, mint: c.mint, requestHash: c.requestHash, slot: tx.slot };
+    let rating;
+    if (decoded.rated) {
+        const ratingInfo = await connection.getAccountInfo((0, rating_1.ratingPda)(escrow, t.programId), { commitment: 'finalized', minContextSlot: tx.slot });
+        if (!ratingInfo || !ratingInfo.owner.equals(t.programId))
+            throw new Error('rating account missing or wrong owner');
+        const decodedRating = (0, rating_1.decodeRatingAccount)(ratingInfo.data);
+        if (!decodedRating.escrow.equals(escrow) || decodedRating.state !== 'awaiting_settlement')
+            throw new Error('rating account mismatch');
+        rating = { rated: true, openedSlot: decodedRating.openedSlot.toString() };
+    }
+    return { ...proof, scheme: c.scheme, status: 'locked', escrow: escrow.toBase58(), amount: c.amount, mint: c.mint, requestHash: c.requestHash, slot: tx.slot, ...(rating ?? {}) };
+}
+/**
+ * The seller's exit of an escrow it accepted, signed by the payee: `claim`
+ * (release to itself, once the claim window has elapsed) or `decline`
+ * (everything back to the payer, at any time). For a receipt that says
+ * `rated` the escrow's rating account follows the usual accounts and the
+ * receipt's `openedSlot` follows the data, without which the program refuses
+ * the exit; otherwise the instruction is exactly
+ * `buildSettleTokenEscrowInstruction`'s. Throws for a rated receipt without a
+ * valid `openedSlot`.
+ */
+function buildEscrowSellerExit(c, receipt, kind) {
+    const t = escrowTerms(c);
+    const rated = receipt.rated === true;
+    let openedSlot;
+    if (rated) {
+        if (typeof receipt.openedSlot !== 'string' || !/^(0|[1-9][0-9]{0,19})$/.test(receipt.openedSlot))
+            throw new Error('a rated receipt must carry the opened slot of its rating');
+        openedSlot = BigInt(receipt.openedSlot);
+    }
+    return (0, rating_1.buildTokenEscrowExitInstruction)(t, { rated, openedSlot, refund: kind === 'decline', authority: t.payee });
 }
 /** Single-process replay protection. Use durable atomic storage for multiple sellers/workers. */
 class EscrowSeller {
-    constructor(connection) {
+    /** `options.acceptRatedEscrows` (default false): serve escrows opted in to rating; see `EscrowVerifyOptions`. */
+    constructor(connection, options = {}) {
         this.connection = connection;
+        this.options = options;
         this.pending = new Map();
         this.busy = new Set();
     }
@@ -103,7 +145,7 @@ class EscrowSeller {
             throw new Error('unknown, replayed or mismatched challenge');
         this.busy.add(c.nonce);
         try {
-            const receipt = await verifyEscrowLock(this.connection, c, proof);
+            const receipt = await verifyEscrowLock(this.connection, c, proof, this.options);
             this.pending.delete(c.nonce);
             return receipt;
         }

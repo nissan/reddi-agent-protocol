@@ -10,6 +10,7 @@
  * crypto, no keys. The server's signing step lives in `settle-signer.ts`.
  */
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
+import { decodeRatingAccount, ratingPda, withRatingAccount } from "@reddi/x402-solana/rating";
 import devnetProfile from "@/config/networks/devnet.json";
 import { SANDBOX_FEE_TREASURY } from "./pricing";
 
@@ -117,9 +118,15 @@ export function buildSandboxMeteredLock(input: {
   return { instruction, escrow };
 }
 
-/** The provider's step: settle the actual cost. The payee signs; the payer and treasury are written to. */
-export function buildSandboxSettle(input: { escrow: PublicKey; payer: PublicKey; payee: PublicKey; actualLamports: bigint; programId?: PublicKey }): TransactionInstruction {
-  return new TransactionInstruction({
+/**
+ * The provider's step: settle the actual cost. The payee signs; the payer and treasury are written to.
+ * For an escrow the visitor opted in to rating (`rated`), the escrow's rating account follows the
+ * usual accounts and the job's `openedSlot` (read with the lock, `sandboxRatingOpenedSlot`)
+ * follows the data, as the program requires of every exit of a rated escrow; `openedSlot` is
+ * required then. Otherwise the instruction is the same as it has always been.
+ */
+export function buildSandboxSettle(input: { escrow: PublicKey; payer: PublicKey; payee: PublicKey; actualLamports: bigint; programId?: PublicKey; rated?: boolean; openedSlot?: bigint }): TransactionInstruction {
+  const settle = new TransactionInstruction({
     programId: input.programId ?? SANDBOX_ESCROW_PROGRAM_ID,
     keys: [
       { pubkey: input.escrow, isSigner: false, isWritable: true },
@@ -130,6 +137,31 @@ export function buildSandboxSettle(input: { escrow: PublicKey; payer: PublicKey;
     ],
     data: concat(SANDBOX_ESCROW_DISCRIMINATORS.settleEscrow, u64le(input.actualLamports)),
   });
+  return withRatingAccount(settle, input.rated === true, input.openedSlot);
+}
+
+/**
+ * The `opened_slot` of a rated escrow's rating account, from the account data read at its address,
+ * or undefined when that account is not the program's rating of this escrow awaiting settlement.
+ * Read it with the lock and keep it: it names the job the settle is for.
+ */
+export function sandboxRatingOpenedSlot(
+  escrow: PublicKey,
+  account: { owner: PublicKey; data: Uint8Array } | null,
+  programId: PublicKey = SANDBOX_ESCROW_PROGRAM_ID,
+): bigint | undefined {
+  if (!account || !account.owner.equals(programId)) return undefined;
+  try {
+    const rating = decodeRatingAccount(account.data);
+    return rating.escrow.equals(escrow) && rating.state === "awaiting_settlement" ? rating.openedSlot : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The rating account address of a sandbox escrow. */
+export function sandboxRatingAddress(escrow: PublicKey, programId: PublicKey = SANDBOX_ESCROW_PROGRAM_ID): PublicKey {
+  return ratingPda(escrow, programId);
 }
 
 export type DecodedSandboxEscrow = {
@@ -143,6 +175,8 @@ export type DecodedSandboxEscrow = {
   createdSlot: bigint;
   delegatedToPer: boolean;
   metered: boolean;
+  /** The payer opted this job in to rating: every exit of the escrow must pass its rating account. */
+  rated: boolean;
   /** Slots after the lock from which the payee may claim. */
   claimWindowSlots: bigint;
   /** Slots after the lock from which the payer may refund. */
@@ -183,8 +217,10 @@ export function decodeSandboxEscrow(data: Uint8Array): DecodedSandboxEscrow | un
   else if (sessionTag !== 0) return undefined;
   if (data.length < offset + 2) return undefined;
   offset += 1; // bump
-  const metered = data[offset] === 1;
-  return { payer, payee, amount, nonce, status, createdAt, createdSlot, delegatedToPer, metered, claimWindowSlots, cancelWindowSlots };
+  // One flag byte: bit 0x01 metered, bit 0x02 rated. A rated metered escrow stores 3.
+  const metered = (data[offset] & 0x01) !== 0;
+  const rated = (data[offset] & 0x02) !== 0;
+  return { payer, payee, amount, nonce, status, createdAt, createdSlot, delegatedToPer, metered, rated, claimWindowSlots, cancelWindowSlots };
 }
 
 export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {

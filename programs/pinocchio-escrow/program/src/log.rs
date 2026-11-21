@@ -26,15 +26,15 @@ pub fn data(record: &[u8]) {
     core::hint::black_box(record);
 }
 
+#[cfg(feature = "per")]
 /// One log line assembled on the stack: text, addresses in base58, numbers in
 /// decimal. Text that does not fit is dropped rather than overflowing.
-#[cfg(feature = "extended")]
 pub struct Line {
     bytes: [u8; 192],
     len: usize,
 }
 
-#[cfg(feature = "extended")]
+#[cfg(feature = "per")]
 impl Line {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
@@ -122,7 +122,7 @@ impl Line {
     }
 }
 
-#[cfg(all(test, feature = "extended"))]
+#[cfg(all(test, feature = "per"))]
 mod tests {
     use super::Line;
 

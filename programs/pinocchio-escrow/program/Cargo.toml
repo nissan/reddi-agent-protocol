@@ -12,8 +12,10 @@ crate-type = ["cdylib", "lib"]
 default = []
 # Also accept devnet USDC as an escrow mint. Never enabled for a mainnet build.
 devnet = []
-# Rating, attestation and PER instructions. Not part of the V1 mainnet build.
-extended = []
+# PER delegation tracking (`delegate_escrow`, `release_escrow_per`). Not part
+# of V1 and never enabled for a mainnet build: unfinished post-V1 work, the
+# release takes no protocol fee and emits no settlement event yet (#839).
+per = []
 
 [dependencies]
 pinocchio = { version = "0.12.0", default-features = false, features = ["cpi", "copy"] }

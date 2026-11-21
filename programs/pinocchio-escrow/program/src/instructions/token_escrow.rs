@@ -23,6 +23,7 @@ use {
             MintNotAllowed, NotLocked, NotMetered, UnauthorisedSigner, ZeroAmount,
         },
         events::{Locked, Outcome, Settled},
+        instructions::rating,
         state::{Record, TokenEscrow, STATUS_LOCKED},
         token::{self, is_token_program, mint_decimals, vault_len, TokenAccount},
     },
@@ -401,7 +402,11 @@ impl<'a> Open<'a> {
 /// Accounts: `[w] escrow`, `[w] vault`, `[s] authority`, `[w] payer`,
 /// `[] mint`, `[w] destination`, `[w] treasury_token` (the treasury's
 /// associated token account for the mint), `[w] refund` (any token account of
-/// the mint the payer owns), `[] token_program`.
+/// the mint the payer owns), `[] token_program`, and for a rated escrow
+/// `[w] rating`, which then records what was paid and opens when the payee
+/// is the authority or accepted the rating earlier, and something was paid;
+/// it is closed otherwise. The SOL escrow has the same rule. A rated
+/// escrow's exit also names its job: `opened_slot: u64` after the data.
 ///
 /// The destination is a token account of the mint that the payee owns. When
 /// the payer releases it must be the recipient recorded at lock. When the
@@ -421,8 +426,9 @@ pub fn pay_out(
     program_id: &Address,
     accounts: &mut [AccountView],
     actual: Option<u64>,
+    job: Option<u64>,
 ) -> ProgramResult {
-    let [escrow, vault, authority, payer, mint, destination, treasury_token, refund, token_program, ..] =
+    let [escrow, vault, authority, payer, mint, destination, treasury_token, refund, token_program, trailing @ ..] =
         accounts
     else {
         return Err(fail(&AccountNotEnoughKeys));
@@ -511,11 +517,37 @@ pub fn pay_out(
     let (payer_key, payee_key, mint_key, nonce) =
         (record.payer, record.payee, record.mint, record.nonce);
     let escrow_key = *open.escrow.address();
+    let rated = if record.rated() {
+        Some(rating::for_exit(
+            program_id,
+            &escrow_key,
+            trailing,
+            slot,
+            job,
+        )?)
+    } else {
+        rating::for_unrated_exit(job)?;
+        None
+    };
     let received = open.drain([
         (destination, destination_account.amount, payee_part),
         (treasury_token, treasury_account.amount, fee_part),
         (refund, refund_account.amount, refund_part),
     ])?;
+    if let Some((account, job)) = rated {
+        // What left the vault for the payee and the treasury. Under
+        // Token-2022 that can be less than the amount named, when the issuer
+        // has shrunk the vault.
+        rating::settle_exit(
+            account,
+            job,
+            authority.address() == &payee_key,
+            payee_part + fee_part,
+            Some(&mint_key),
+            slot,
+            payer,
+        )?;
+    }
     Settled {
         escrow: &escrow_key,
         payer: &payer_key,
@@ -535,8 +567,10 @@ pub fn pay_out(
 /// `cancel_token_escrow`: refund the payer the whole vault and close it.
 ///
 /// Accounts: `[w] escrow`, `[w] vault`, `[s] authority`, `[w] payer`,
-/// `[] mint`, `[w] destination`, `[] token_program`. The mint may be passed
-/// writable; see `Open::drain`.
+/// `[] mint`, `[w] destination`, `[] token_program`, and for a rated escrow
+/// `[w] rating`, which is closed with its rent going to the payer. The mint
+/// may be passed writable; see `Open::drain`. A rated escrow's cancel names
+/// its job: data `opened_slot: u64`.
 ///
 /// The payee may decline at any time; the payer may refund itself after the
 /// cancel window. A payee's decline goes to the source token account recorded
@@ -546,8 +580,14 @@ pub fn pay_out(
 /// Anyone can donate tokens to a vault; the whole balance is swept to the
 /// payer so a donation cannot block closing or strand funds. Under Token-2022
 /// the issuer can also shrink the vault, and the refund is whatever it holds.
-pub fn cancel(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResult {
-    let [escrow, vault, authority, payer, mint, destination, token_program, ..] = accounts else {
+pub fn cancel(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    job: Option<u64>,
+) -> ProgramResult {
+    let [escrow, vault, authority, payer, mint, destination, token_program, trailing @ ..] =
+        accounts
+    else {
         return Err(fail(&AccountNotEnoughKeys));
     };
     let (open, [destination_account]) = Open::check(
@@ -595,7 +635,16 @@ pub fn cancel(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResu
     let (payer_key, payee_key, mint_key, nonce) =
         (record.payer, record.payee, record.mint, record.nonce);
     let escrow_key = *open.escrow.address();
+    let rated = if record.rated() {
+        Some(rating::for_exit(program_id, &escrow_key, trailing, slot, job)?.0)
+    } else {
+        rating::for_unrated_exit(job)?;
+        None
+    };
     let [received] = open.drain([(destination, destination_account.amount, available)])?;
+    if let Some(account) = rated {
+        close(account, payer)?;
+    }
     Settled {
         escrow: &escrow_key,
         payer: &payer_key,

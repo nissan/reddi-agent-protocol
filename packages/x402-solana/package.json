@@ -71,6 +71,11 @@
       "import": "./dist/escrow-readiness.js",
       "require": "./dist/escrow-readiness.js"
     },
+    "./rating": {
+      "types": "./dist/rating.d.ts",
+      "import": "./dist/rating.js",
+      "require": "./dist/rating.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

@@ -12,7 +12,7 @@ export async function GET() {
   const state = keyStatus.state;
   const nextAction =
     state === "ready"
-      ? "Rotation check optional. Re-run status before recording attestation if this tab has been open for a while."
+      ? "Nothing to do. The key is valid, but on-chain attestations are not available until the app rating flow lands (#842)."
       : "Set ONBOARDING_ATTEST_OPERATOR_SECRET_KEY as a 64-byte JSON array, restart the app, then run this check again.";
 
   return Response.json({

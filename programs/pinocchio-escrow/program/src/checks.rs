@@ -176,6 +176,18 @@ pub fn close(account: &mut AccountView, to: &mut AccountView) -> ProgramResult {
 /// Instruction arguments, read front to back. Trailing bytes are ignored.
 pub struct Args<'a>(pub &'a [u8]);
 
+/// The job an exit of a rated escrow names: the `opened_slot` of its rating,
+/// as the 8 bytes (little-endian) after the exit's own data. An exit of an
+/// escrow that is not rated must not carry them (`RatingJobMismatch`), so an
+/// exit signed for a rated job cannot end an unrated job that later takes
+/// its address; callers of unrated escrows send none, so their wire format
+/// is unchanged.
+#[inline(always)]
+pub fn job(rest: &[u8]) -> Option<u64> {
+    rest.first_chunk::<8>()
+        .map(|bytes| u64::from_le_bytes(*bytes))
+}
+
 impl<'a> Args<'a> {
     #[inline(always)]
     pub fn array<const N: usize>(&mut self) -> Result<[u8; N], ProgramError> {
@@ -217,7 +229,6 @@ impl<'a> Args<'a> {
 
 /// Require `account` to be the program-derived address of `seeds`, the last
 /// seed being a stored bump.
-#[cfg(feature = "extended")]
 #[inline(never)]
 pub fn at_seeds(account: &AccountView, seeds: &[&[u8]], program_id: &Address) -> ProgramResult {
     match Address::create_program_address(seeds, program_id) {
@@ -227,7 +238,6 @@ pub fn at_seeds(account: &AccountView, seeds: &[&[u8]], program_id: &Address) ->
 }
 
 /// sha256 over the concatenation of `parts`.
-#[cfg(feature = "extended")]
 pub fn sha256(parts: &[&[u8]]) -> [u8; 32] {
     #[cfg_attr(not(target_os = "solana"), allow(unused_mut))]
     let mut hash = [0u8; 32];

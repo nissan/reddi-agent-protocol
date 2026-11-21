@@ -40,3 +40,10 @@ export const PERMISSION_PROGRAM_ID =
 /** MagicBlock Delegation Program address */
 export const DELEGATION_PROGRAM_ID =
   "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh";
+
+/**
+ * Protocol fee treasury fixed in the escrow program (the Squads vault).
+ * `release_escrow` takes it, writable, as its fourth account.
+ */
+export const PROTOCOL_TREASURY =
+  "5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe";
