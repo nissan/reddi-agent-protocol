@@ -5,13 +5,27 @@ import {
   defaultNonceReplayStore,
   directPaymentCurrency,
   DemoPaymentVerifier,
+  ESCROW_PROTOCOL_TREASURY,
+  tokenCostBaseUnits,
   parseX402PaymentHeader,
   SolanaReceiptVerifier,
   type NonceReplayStore,
   type ReceiptVerificationResult,
   type X402Challenge,
 } from "@reddi/x402-solana";
-import { Connection } from "@solana/web3.js";
+import { Connection, PublicKey } from "@solana/web3.js";
+import {
+  estimateInputTokens,
+  meteredOffer,
+  meteredSettlement,
+  meteredTerms,
+  outputLimit,
+  readMeteredPaymentHeader,
+  usageFrom,
+  verifyMeteredLock,
+  type AccountReader,
+  type MeteredSettleSigner,
+} from "./metered-payment.js";
 import { buildAgentDependencyManifestDisclosure, buildAgenticWorkflowManifestDisclosure, buildDownstreamDisclosureLedger, buildNoDownstreamDisclosureLedger } from "./agentic-workflow-disclosure.js";
 import { buildAttestationPromptEnvelope, evaluateAttestation, normalizeAttestationRequest } from "./attestation.js";
 import { buildLiveDelegationAuditEnvelope } from "./delegation-audit.js";
@@ -50,6 +64,15 @@ export function createRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runti
     usdcDevnetMint: env.X402_USDC_DEVNET_MINT,
     paymentMints: paymentMintsFromEnv(env),
     protocolFeeTreasury: env.X402_PROTOCOL_FEE_TREASURY || undefined,
+    meteredPrice:
+      env.X402_INPUT_PER_MILLION && env.X402_OUTPUT_PER_MILLION
+        ? {
+            inputPerMillion: env.X402_INPUT_PER_MILLION,
+            outputPerMillion: env.X402_OUTPUT_PER_MILLION,
+            ...(env.X402_MAX_OUTPUT_TOKENS ? { maxOutputTokens: Number.parseInt(env.X402_MAX_OUTPUT_TOKENS, 10) } : {}),
+          }
+        : undefined,
+    escrowProgramId: env.X402_ESCROW_PROGRAM_ID || undefined,
     enableAgentToAgentCalls: env.ENABLE_AGENT_TO_AGENT_CALLS === "1" || env.ENABLE_AGENT_TO_AGENT_CALLS === "true",
     enableLiveDelegationExecutor: env.ENABLE_LIVE_DELEGATION_EXECUTOR === "1" || env.ENABLE_LIVE_DELEGATION_EXECUTOR === "true",
     maxDownstreamCalls: env.MAX_DOWNSTREAM_CALLS ? Number.parseInt(env.MAX_DOWNSTREAM_CALLS, 10) : 0,
@@ -499,7 +522,10 @@ export interface ProviderReceiptStatement {
     fee: { amount: string; treasury?: string };
     /** Present when the payment named its payer, which the payment check then matched to the transaction. */
     payer?: string;
-    settlement: "direct";
+    /** `direct` names the buyer's transfer; `metered-escrow` names the provider's settle transaction. */
+    settlement: "direct" | "metered-escrow";
+    /** On a metered call: the tokens the model reported, the locked maximum and what went back to the buyer, in base units. */
+    metered?: { inputTokens: string; outputTokens: string; maxAmount: string; refunded: string };
   };
   issuedAt: string;
 }
@@ -514,6 +540,14 @@ export interface RuntimeDeps {
    * When absent, no receipt is issued.
    */
   signProviderReceipt?: (statement: ProviderReceiptStatement) => Promise<unknown> | unknown;
+  /**
+   * Signs a metered escrow's settle instruction with the provider wallet's
+   * key, sends it and returns the confirmed signature. The key stays with the
+   * operator. When absent, metered payment is not offered.
+   */
+  settleMeteredEscrow?: MeteredSettleSigner;
+  /** Reads chain accounts for a metered lock. Defaults to the configured RPC. */
+  readAccount?: AccountReader;
   now?: () => Date;
 }
 
@@ -630,7 +664,14 @@ export async function handleRuntimeRequest(request: Request, config = createRunt
       // An unreadable body is handled as an empty request, as before.
     }
     try {
+      if (readMeteredPaymentHeader(request.headers) !== undefined) {
+        return await handleMeteredChatCompletion({ headers: request.headers, body, config, client, replayStore, deps, requestText, profile });
+      }
       const result = await handleChatCompletions({ headers: request.headers, body, config, client, replayStore });
+      if (result.status === 402) {
+        const terms = deps.settleMeteredEscrow && config.allowRealPayment ? meteredTerms(profile, config) : undefined;
+        if (terms) result.body.metered = meteredOffer(terms, body.messages ?? [], body.max_tokens);
+      }
       if (result.status !== 200) return toResponse(result);
       // The receipt names the exact bytes sent, so the body is serialised once and reused.
       const responseText = JSON.stringify(result.body);
@@ -642,6 +683,105 @@ export async function handleRuntimeRequest(request: Request, config = createRunt
     }
   }
   return toResponse({ status: 404, headers: JSON_HEADERS, body: { error: { code: "not_found" } } });
+}
+
+/**
+ * A chat call paid with a metered token escrow: verify the lock, run the
+ * call, settle the actual tokens, then answer with a receipt naming the settle.
+ */
+async function handleMeteredChatCompletion(input: {
+  headers: Headers;
+  body: ChatCompletionRequest;
+  config: RuntimeConfig;
+  client: OpenRouterClient;
+  replayStore: NonceReplayStore;
+  deps: RuntimeDeps;
+  requestText: string;
+  profile: SpecialistProfile;
+}): Promise<Response> {
+  const { config, profile, deps, body } = input;
+  const refuse = (status: number, code: string, message: string, extra: Record<string, unknown> = {}) =>
+    toResponse({ status, headers: JSON_HEADERS, body: { error: { code, message }, ...extra } });
+  if (isAttestationMode(body) || isDelegationMode(body)) return refuse(400, "metered_not_supported", "Metered payment is for chat calls only.");
+  const terms = config.requirePayment && config.allowRealPayment && deps.settleMeteredEscrow ? meteredTerms(profile, config) : undefined;
+  if (!terms || !deps.settleMeteredEscrow) return refuse(402, "metered_not_offered", "This provider does not take metered payment. Nothing was taken; cancel the lock for a refund.");
+  const header = readMeteredPaymentHeader(input.headers);
+  if (!header || "error" in header) return refuse(402, "invalid_receipt", header && "error" in header ? header.error : "Unreadable metered payment.");
+  const messages = body.messages ?? [];
+  const outputTokens = outputLimit(terms, body.max_tokens);
+  const inputEstimate = estimateInputTokens(messages);
+  const minimum = tokenCostBaseUnits(terms.price, { inputTokens: inputEstimate, outputTokens });
+  const connection = new Connection(config.solanaRpcUrl ?? "https://api.devnet.solana.com", "confirmed");
+  const readAccount: AccountReader =
+    deps.readAccount ??
+    (async (address: PublicKey) => {
+      const info = await connection.getAccountInfo(address, "confirmed");
+      return info ? { owner: info.owner, data: new Uint8Array(info.data) } : null;
+    });
+  const lock = await verifyMeteredLock({ header, terms, minimum, readAccount, replayStore: input.replayStore });
+  if (!lock.ok) {
+    return refuse(lock.reason === "payment_check_unavailable" ? 503 : lock.reason === "duplicate_nonce" ? 409 : 402, lock.reason, lock.message, { metered: meteredOffer(terms, messages, body.max_tokens) });
+  }
+
+  const requestId = randomUUID();
+  const guardedMessages = [{ role: "system" as const, content: profile.systemPrompt }, ...messages.filter((m) => m.role !== "system")];
+  const reddi: Record<string, unknown> = {
+    profileId: profile.id,
+    requestId,
+    model: profile.model,
+    paymentSatisfied: true,
+    safetyMode: profile.safetyMode,
+    mockOpenRouter: config.mockOpenRouter,
+    downstreamDisclosureLedger: buildNoDownstreamDisclosureLedger(),
+  };
+  const upstream = await input.client.createChatCompletion({ model: profile.model, messages: guardedMessages, temperature: body.temperature, max_tokens: outputTokens, metadata: reddi });
+  const usage = usageFrom(upstream, inputEstimate);
+  let settled: ReturnType<typeof meteredSettlement>;
+  let settleSignature: string;
+  try {
+    settled = meteredSettlement(terms, lock, usage);
+    settleSignature = await deps.settleMeteredEscrow(settled.instruction);
+  } catch {
+    return refuse(502, "settle_failed", `The settle could not be sent. Nothing was charged; your maximum stays locked in escrow ${header.escrow.toBase58()} and can be cancelled for a full refund once the cancel window opens.`, { charged: false, escrow: header.escrow.toBase58() });
+  }
+  const s = settled.settlement;
+  reddi.metered = { inputTokens: s.inputTokens, outputTokens: s.outputTokens, currency: s.currency, charged: s.charged, fee: s.fee, provider: s.provider, refund: s.refund, capped: s.capped, settleSignature };
+  const responseText = JSON.stringify({ ...upstream, reddi });
+
+  let receiptHeader: string | undefined;
+  if (deps.signProviderReceipt) {
+    try {
+      const decimals = directPaymentCurrency(s.currency)!.decimals;
+      const fee = decimalToBaseUnits(s.fee, decimals) ?? BigInt(0);
+      const refunded = decimalToBaseUnits(s.refund, decimals) ?? BigInt(0);
+      const signed = await deps.signProviderReceipt({
+        schemaVersion: REDDI_RECEIPT_V2_VERSION,
+        providerId: profile.walletAddress,
+        declaredModel: profile.model,
+        requestHash: sha256Hex(input.requestText),
+        responseHash: sha256Hex(responseText),
+        payment: {
+          network: PAYMENT_NETWORK,
+          txSignature: settleSignature,
+          currency: s.currency,
+          mint: terms.mint.toBase58(),
+          amount: s.chargedBaseUnits.toString(),
+          fee: fee > BigInt(0) ? { amount: fee.toString(), treasury: ESCROW_PROTOCOL_TREASURY.toBase58() } : { amount: "0" },
+          payer: lock.payer.toBase58(),
+          settlement: "metered-escrow",
+          metered: { inputTokens: String(s.inputTokens), outputTokens: String(s.outputTokens), maxAmount: lock.maxBaseUnits.toString(), refunded: refunded.toString() },
+        },
+        issuedAt: (deps.now?.() ?? new Date()).toISOString(),
+      });
+      if (signed && typeof signed === "object") {
+        const encoded = Buffer.from(JSON.stringify(signed), "utf8").toString("base64url");
+        if (encoded.length <= MAX_PROVIDER_RECEIPT_HEADER_CHARS) receiptHeader = encoded;
+      }
+    } catch {
+      // The buyer still gets the answer the settle paid for.
+    }
+  }
+  return new Response(responseText, { status: 200, headers: receiptHeader ? { ...JSON_HEADERS, [PROVIDER_RECEIPT_HEADER]: receiptHeader } : JSON_HEADERS });
 }
 
 export function toResponse(runtimeResponse: RuntimeResponse): Response {

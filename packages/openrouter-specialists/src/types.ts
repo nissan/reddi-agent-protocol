@@ -47,6 +47,14 @@ export interface RuntimeConfig {
    * transfer. Operator configuration only.
    */
   protocolFeeTreasury?: string;
+  /**
+   * Per-token price for metered calls, in the profile's currency, and the
+   * escrow program the buyer locks the maximum in. Both are needed, with a
+   * settle signer in `RuntimeDeps`, before metered payment is offered.
+   * Operator configuration only.
+   */
+  meteredPrice?: { inputPerMillion: string; outputPerMillion: string; maxOutputTokens?: number };
+  escrowProgramId?: string;
   enableAgentToAgentCalls?: boolean;
   enableLiveDelegationExecutor?: boolean;
   maxDownstreamCalls?: number;
