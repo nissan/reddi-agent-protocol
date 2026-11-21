@@ -617,10 +617,12 @@ fn full_payout_does_not_need_a_refund_account_the_payer_owns() {
 #[test]
 fn any_refund_still_needs_a_refund_account_the_payer_owns() {
     let mut f = Fixture::new();
-    f.lock();
-    let mut ix = f.settle_ix(f.payer.pubkey(), 100_000);
+    let ix = f.metered_lock_ix(400_000);
+    send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
+    let payee = f.payee.insecure_clone();
+    let mut ix = f.settle_ix(payee.pubkey(), 100_000);
     ix.accounts[7].pubkey = f.attacker_token;
-    let err = f.reject(ix, false);
+    let err = f.reject_as(ix, &payee);
     assert!(err.contains("Custom(6023)"), "{err}");
 
     // One donated token makes a full release refund something.
@@ -958,18 +960,40 @@ fn token_settlement_stays_within_the_authorised_maximum() {
     assert_eq!(f.balance(f.treasury_token), 10_000);
 }
 
-/// On a fixed-price escrow only the payer can settle early (a partial
-/// release); the payee must wait for the claim window.
+/// Nobody settles a fixed-price escrow: the payee waits for the claim window
+/// and the payer releases in full. The payer never picks a smaller amount.
 #[test]
-fn only_the_payer_settles_a_fixed_price_token_escrow_early() {
+fn nobody_settles_a_fixed_price_token_escrow() {
     let mut f = Fixture::new();
     f.lock();
     assert!(!f.state().metered);
     let payee = f.payee.insecure_clone();
     let err = f.reject_as(f.settle_ix(payee.pubkey(), 1_000), &payee);
     assert!(err.contains("Custom(6029)"), "{err}");
-    let ix = f.settle_ix(f.payer.pubkey(), 200_000);
+    for actual in [1, 200_000, 400_000] {
+        let err = f.reject(f.settle_ix(f.payer.pubkey(), actual), false);
+        assert!(err.contains("Custom(6000)"), "{actual}: {err}");
+    }
+    let ix = f.release_ix();
     send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
+    assert_eq!(f.triple(), (600_000, 0, 390_000));
+    assert_eq!(f.balance(f.treasury_token), 10_000);
+    assert!(f.closed(f.escrow));
+}
+
+/// A metered escrow is the payee's to settle, never the payer's.
+#[test]
+fn the_payer_cannot_settle_a_metered_token_escrow() {
+    let mut f = Fixture::new();
+    let ix = f.metered_lock_ix(400_000);
+    send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
+    for actual in [1, 400_000] {
+        let err = f.reject(f.settle_ix(f.payer.pubkey(), actual), false);
+        assert!(err.contains("Custom(6000)"), "{actual}: {err}");
+    }
+    let payee = f.payee.insecure_clone();
+    let ix = f.settle_ix(payee.pubkey(), 200_000);
+    send(&mut f.svm, &[ix], &[&payee]).unwrap();
     assert_eq!(f.triple(), (800_000, 0, 195_000));
     assert_eq!(f.balance(f.treasury_token), 5_000);
     assert!(f.closed(f.escrow));

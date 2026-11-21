@@ -417,7 +417,6 @@ pub fn pay_out(
     let record = &open.record;
 
     let slot = now()?.0;
-    let by_payer = authority.address() == &record.payer;
     let (paid, outcome) = match actual {
         None => (
             record.amount(),
@@ -434,15 +433,10 @@ pub fn pay_out(
                 actual > 0 && actual <= record.amount(),
                 &InvalidSettleAmount,
             )?;
-            if !by_payer {
-                require(authority.address() == &record.payee, &UnauthorisedSigner)?;
-                require(record.metered(), &NotMetered)?;
-            }
-            if by_payer && actual == record.amount() {
-                (actual, Outcome::Released)
-            } else {
-                (actual, Outcome::SettledActual)
-            }
+            // Only the payee names the amount.
+            require(authority.address() == &record.payee, &UnauthorisedSigner)?;
+            require(record.metered(), &NotMetered)?;
+            (actual, Outcome::SettledActual)
         }
     };
 

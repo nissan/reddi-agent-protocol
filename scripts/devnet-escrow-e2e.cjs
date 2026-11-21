@@ -9,7 +9,8 @@
  *                 wallets' public addresses: RAP_E2E_PAYER and RAP_E2E_PAYEE.
  *   run           Signs on devnet. Per currency: lock then payer release; metered lock then payee settle at a
  *                 lower actual cost; lock then payee decline. Each refused case (early claim, early payer refund,
- *                 settle above the maximum, payee settle of an unmetered escrow, replay) is simulated, not sent,
+ *                 settle above the maximum, payee settle of an unmetered escrow, any settle by the payer,
+ *                 replay) is simulated, not sent,
  *                 and must fail. Then it locks one escrow per currency for each time-gated case and leaves it
  *                 open for the finish modes below.
  *   finish-refund After the cancel window (648,000 slots, about 3 days): payer refunds the "refund" escrows.
@@ -298,8 +299,8 @@ async function run(conn, runId) {
     const sig = await send('fund payee for its own fees', [SystemProgram.transfer({ fromPubkey: payer, toPubkey: payee, lamports: PAYEE_FEE_TOPUP })], [payerKp]);
     step('fund payee for fees', sig, { lamports: PAYEE_FEE_TOPUP.toString() });
   }
-  // Optional: close escrows left open by an earlier, interrupted run. The payer settles each at the smallest amount
-  // (one base unit to the payee, no fee at that size), so the rest comes back to the payer.
+  // Optional: close escrows left open by an earlier, interrupted run. The payee declines each, which the program
+  // allows at any time, so the whole amount comes back to the payer and no fee is taken.
   const leftoverRunId = env('RAP_E2E_LEFTOVER_RUN_ID', { required: false });
   if (leftoverRunId) {
     assert(/^[A-Za-z0-9-]{3,40}$/.test(leftoverRunId) && leftoverRunId !== runId, 'RAP_E2E_LEFTOVER_RUN_ID must be an earlier run id');
@@ -310,13 +311,12 @@ async function run(conn, runId) {
       const sol = label.startsWith('sol-');
       const address = sol ? solEscrow(payer, nonce) : tokenEscrow(payer, nonce);
       if (!(await conn.getAccountInfo(address, 'confirmed'))) continue;
-      assert(sol || (await tokenAmount(conn, recipient)) !== null, `leftover ${label}: payee has no USDC account yet`);
       const ix = sol
-        ? solPayout({ payer, payee, nonce, signer: 'payer', actual: 1n })
-        : usdcPayout({ payer, nonce, authority: payer, destination: recipient, refund: source, actual: 1n });
-      const sig = await send(`close leftover ${leftoverRunId}/${label}`, [ix], [payerKp]);
+        ? solCancel({ payer, nonce, authority: payee })
+        : usdcCancel({ payer, nonce, authority: payee, destination: source });
+      const sig = await send(`close leftover ${leftoverRunId}/${label}`, [ix], asPayee);
       if (sol) await assertClosed(conn, address); else await assertClosed(conn, address, tokenVault(address));
-      step(`close leftover ${leftoverRunId}/${label}`, sig, { escrow: address.toBase58(), paidToPayee: '1' });
+      step(`close leftover ${leftoverRunId}/${label}`, sig, { escrow: address.toBase58(), declinedByPayee: true });
     }
   }
 
@@ -329,6 +329,7 @@ async function run(conn, runId) {
     out.refusals.push(await refused('sol payee claim before the claim window', [solPayout({ payer, payee, nonce: n('sol-release'), signer: 'payee' })], asPayee, 'ClaimWindowNotElapsed'));
     out.refusals.push(await refused('sol payer refund before the cancel window', [solCancel({ payer, nonce: n('sol-release'), authority: payer })], [payerKp], 'CancelWindowNotElapsed'));
     out.refusals.push(await refused('sol payee settle of an unmetered escrow', [solPayout({ payer, payee, nonce: n('sol-release'), signer: 'payee', actual: a.release / 2n })], asPayee, 'NotMetered'));
+    out.refusals.push(await refused('sol payer settle of an unmetered escrow', [solPayout({ payer, payee, nonce: n('sol-release'), signer: 'payer', actual: a.release / 2n })], [payerKp], 'UnauthorisedSigner'));
     sig = await send('sol payer release', [solPayout({ payer, payee, nonce: n('sol-release'), signer: 'payer' })], [payerKp]);
     const relFee = fee(a.release, true);
     assert.equal(await solDelta(conn, sig, TREASURY), relFee, 'sol release: treasury fee');
@@ -342,6 +343,7 @@ async function run(conn, runId) {
     step('sol metered lock', sig, { max: a.meteredMax.toString() });
     out.refusals.push(await refused('sol settle above the authorised maximum', [solPayout({ payer, payee, nonce: n('sol-metered'), signer: 'payee', actual: a.meteredMax + 1n })], asPayee, 'InvalidSettleAmount'));
     out.refusals.push(await refused('sol settle of zero', [solPayout({ payer, payee, nonce: n('sol-metered'), signer: 'payee', actual: 0n })], asPayee, 'InvalidSettleAmount'));
+    out.refusals.push(await refused('sol payer settle of a metered escrow', [solPayout({ payer, payee, nonce: n('sol-metered'), signer: 'payer', actual: 1n })], [payerKp], 'UnauthorisedSigner'));
     sig = await send('sol payee settle at actual cost', [solPayout({ payer, payee, nonce: n('sol-metered'), signer: 'payee', actual: a.meteredActual })], asPayee);
     const setFee = fee(a.meteredActual, true);
     assert.equal(await solDelta(conn, sig, TREASURY), setFee, 'sol settle: treasury fee');
@@ -385,6 +387,7 @@ async function run(conn, runId) {
     out.refusals.push(await refused('usdc payee claim before the claim window', [payout('usdc-release', payee)], asPayee, 'ClaimWindowNotElapsed'));
     out.refusals.push(await refused('usdc payer refund before the cancel window', [cancel('usdc-release', payer)], [payerKp], 'CancelWindowNotElapsed'));
     out.refusals.push(await refused('usdc payer release to its own account', [payout('usdc-release', payer, undefined, source)], [payerKp]));
+    out.refusals.push(await refused('usdc payer settle of an unmetered escrow', [payout('usdc-release', payer, a.release / 2n)], [payerKp], 'UnauthorisedSigner'));
     sig = await send('usdc payer release', [payout('usdc-release', payer)], [payerKp]);
     const relFee = fee(a.release, false);
     assert.equal(await tokenDelta(conn, sig, TREASURY_USDC), relFee, 'usdc release: treasury fee');
@@ -396,6 +399,7 @@ async function run(conn, runId) {
     sig = await send('usdc metered lock', [lock('usdc-metered', a.meteredMax, true)], [payerKp]);
     step('usdc metered lock', sig, { max: a.meteredMax.toString() });
     out.refusals.push(await refused('usdc settle above the authorised maximum', [payout('usdc-metered', payee, a.meteredMax + 1n)], asPayee, 'InvalidSettleAmount'));
+    out.refusals.push(await refused('usdc payer settle of a metered escrow', [payout('usdc-metered', payer, 1n)], [payerKp], 'UnauthorisedSigner'));
     sig = await send('usdc payee settle at actual cost', [payout('usdc-metered', payee, a.meteredActual)], asPayee);
     const setFee = fee(a.meteredActual, false);
     assert.equal(await tokenDelta(conn, sig, TREASURY_USDC), setFee, 'usdc settle: treasury fee');
