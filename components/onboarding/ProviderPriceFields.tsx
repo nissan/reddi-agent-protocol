@@ -110,7 +110,7 @@ export function ProviderPriceFields({ inputPerMillionUsd, outputPerMillionUsd, o
           <p className="text-[#b9b6ab]">Enter both prices to see what one call earns.</p>
         )}
         <p className="mt-3 text-xs text-[#b9b6ab]">
-          {SANDBOX_DEMO_RATES_NOTE} The fee is planned and nothing is collected yet.
+          {SANDBOX_DEMO_RATES_NOTE} The fee starts with the mainnet release.
         </p>
       </div>
     </section>
