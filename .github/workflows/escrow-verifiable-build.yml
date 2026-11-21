@@ -1,0 +1,106 @@
+name: Escrow verifiable build
+
+# Container (verifiable) build of the escrow program, so the mainnet binary hash does
+# not depend on the machine that built it (owner decision, 21 November 2026). The
+# image tag matches the pinned Agave baseline (4.2.2). Anyone can repeat this build
+# with `solana-verify build` and compare the hash, and the same command backs
+# `solana-verify verify-from-repo` once the program is on mainnet.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "programs/escrow/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/escrow-verifiable-build.yml"
+  push:
+    branches: [main]
+    paths:
+      - "programs/escrow/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/escrow-verifiable-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOLANA_VERIFY_VERSION: "0.5.2"
+  BASE_IMAGE: "solanafoundation/solana-verifiable-build:4.2.2"
+
+jobs:
+  build:
+    name: Verifiable build (${{ matrix.variant }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: mainnet
+            features: ""
+          - variant: devnet
+            features: "--features devnet"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Cache solana-verify
+        id: cache-verify
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/solana-verify
+          key: solana-verify-${{ env.SOLANA_VERIFY_VERSION }}-${{ runner.os }}
+
+      - name: Install solana-verify
+        if: steps.cache-verify.outputs.cache-hit != 'true'
+        run: cargo install solana-verify --version "${SOLANA_VERIFY_VERSION}" --locked
+
+      - name: Pull build image
+        run: docker pull "${BASE_IMAGE}"
+
+      - name: Build in container
+        run: |
+          # shellcheck disable=SC2086
+          solana-verify build --library-name escrow --base-image "${BASE_IMAGE}" -- ${{ matrix.features }}
+
+      - name: Record hash
+        id: hash
+        run: |
+          # The container leaves target/ owned by root, so the record and a copy of the
+          # binary go to a runner-owned directory.
+          out="${RUNNER_TEMP}/escrow-build"
+          mkdir -p "$out"
+          so=target/deploy/escrow.so
+          test -f "$so"
+          hash=$(solana-verify get-executable-hash "$so")
+          size=$(stat -c %s "$so")
+          echo "hash=$hash" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Escrow ${{ matrix.variant }} build"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Commit | \`${GITHUB_SHA}\` |"
+            echo "| Image | \`${BASE_IMAGE}\` |"
+            echo "| Features | \`${{ matrix.features || 'default' }}\` |"
+            echo "| Size | ${size} bytes |"
+            echo "| Executable hash | \`${hash}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          printf '{"variant":"%s","commit":"%s","image":"%s","size":%s,"hash":"%s"}\n' \
+            "${{ matrix.variant }}" "$GITHUB_SHA" "$BASE_IMAGE" "$size" "$hash" > "$out/escrow-${{ matrix.variant }}-build.json"
+          cp "$so" "$out/escrow.so"
+
+      - name: Upload binary and hash
+        uses: actions/upload-artifact@v4
+        with:
+          name: escrow-${{ matrix.variant }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/escrow-build/escrow.so
+            ${{ runner.temp }}/escrow-build/escrow-${{ matrix.variant }}-build.json
+          if-no-files-found: error
+          retention-days: 90
