@@ -50,9 +50,25 @@ lamports, about 0.00277 SOL. It is a deposit, not a fee. It comes back when the
 buyer closes the rating, when the escrow is refunded or declined, or when the
 buyer releases an escrow the seller never agreed to have rated.
 
-Use a fresh nonce for every job. The rating address is derived from the escrow
-address, which is derived from the payer and the nonce, so a reused nonce
-cannot be opted in until the earlier rating is closed.
+**One job at a time per address.** The rating address is derived from the
+escrow address, which is derived from the payer and the nonce. An escrow
+address is free again once its escrow has ended, so a payer that reuses a
+nonce for the same seller gets the same escrow and rating addresses for a new
+job (once the earlier rating account is closed). The program tells such jobs
+apart by `opened_slot` on the rating account, the slot of `open_rating`:
+
+- `accept_rating`, both commitments and `attest_quality` name the job by its
+  `opened_slot`. What a seller, a party or a judge signed for one job is
+  refused for a later job at the same address (`RatingJobMismatch`, 6051).
+- A rated escrow cannot end in the slot its rating was opened in
+  (`RatingJustOpened`, 6050). Lock and `open_rating` in one transaction is
+  fine; lock, `open_rating` and a release, settle or decline in one
+  transaction is refused. Send the exit in a later transaction, after that
+  slot. This is what keeps two jobs at one address from ever sharing an
+  `opened_slot`.
+
+Use a fresh nonce for every job anyway: it keeps the records of different
+jobs apart for anyone reading them.
 
 `buildRatedTokenEscrowLock` and `buildRatedSolEscrowLock` in
 `@reddi/x402-solana/rating` build the two instructions together.
@@ -65,7 +81,8 @@ A rating opens only if the seller agreed. There are exactly two ways to agree:
    or claims a fixed-price one after its claim window. The seller signs that
    transaction and pays its fee.
 2. **Call `accept_rating`** while the escrow is still locked. After that, a
-   release by the buyer opens the rating.
+   release by the buyer opens the rating. `accept_rating` names the job by
+   the rating's `opened_slot`.
 
 Nothing else counts. If the buyer releases and the seller did not call
 `accept_rating`, the seller is paid as usual, the rating account is closed, its
@@ -77,6 +94,19 @@ buyer signs a transaction in which the seller claims, even only as its fee
 payer, the program treats the buyer as the authority. That is a release by the
 buyer, not the seller's claim, and without `accept_rating` the job closes
 unrated. The seller pays its own fees.
+
+**What a seller checks before it accepts.** Read the escrow and its rating
+account, at `confirmed` commitment or better, and check that: the escrow is
+still locked and rated; the seller is its payee; the rating account names
+this escrow, the buyer and the seller, and is still waiting for payment; the
+judge is the one agreed (or none); the amount and the mint are those of the
+job; and `opened_slot` is the slot of the lock the seller saw. Then pass that
+`opened_slot` to `accept_rating`. `buildSellerAcceptRating` in
+`@reddi/x402-solana/rating` reads both accounts, makes these checks against
+the `expected` values it is given (opened slot, judge, amount, mint), refuses
+with a reason when one differs, and returns the instruction. An acceptance
+signed for an earlier job at the same address is refused by the program
+(6051), so it cannot be replayed onto a later one.
 
 A seller that does not want a rated job declines it (cancel as the payee),
 which returns everything to the buyer and closes the rating account.
@@ -118,9 +148,12 @@ about 7 days; real slot times drift, so the dates are approximate.
 
 1. **Commit.** Within 1,512,000 slots of the paid exit, each side sends
    `commit_rating` with
-   `sha256(rating address ‖ its own address ‖ score byte ‖ 32-byte salt)`.
-   The score is 1 to 10. Keep the score and the salt: the reveal needs both.
-   Use a fresh random salt for every rating.
+   `sha256(rating address ‖ opened_slot (u64, little-endian) ‖ its own address ‖ score byte ‖ 32-byte salt)`,
+   where `opened_slot` is read from the rating account. The score is 1 to 10.
+   Keep the score and the salt: the reveal needs both. Use a fresh random
+   salt for every rating. Because the rating address, its opening slot and
+   the signer are in the hash, a commitment copied from the other side, from
+   another job, or from an earlier job at the same address cannot be opened.
 2. **Reveal.** Once both have committed, each side sends `reveal_rating` with
    its score and salt, within 1,512,000 slots of the second commitment. On the
    second reveal each score is folded into the other party's agent record
@@ -147,7 +180,9 @@ After the deadline of the phase a rating stopped in, anyone may call
 
 Once the job is paid, the judge the buyer named, and nobody else, can record
 five scores (accuracy, completeness, relevance, format, latency; 1 to 10 each)
-with `attest_quality`.
+with `attest_quality`. The call names the job by the rating's `opened_slot`,
+read from the rating account; scores signed for another job at the same
+address are refused (6051).
 
 - The judge must be a registered agent of type 1 (attestation) or 2 (both),
   and its record must be active.

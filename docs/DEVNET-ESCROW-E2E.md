@@ -73,7 +73,11 @@ Until then only the plan and its unit test have run.
 | `run-rated` | yes | The five parts below. Expect several minutes: there are about 25 transactions and each is awaited to finality. |
 | `finish-rated` | yes | After job 2's commit deadline: `expire_rating`, then the buyer's `close_rating`. Before the deadline it simulates the expiry, shows it is refused (`NotExpired`, 6014), prints the slots left and an estimated date, and sends nothing. |
 
-What `run-rated` does:
+What `run-rated` does. After each lock it reads the rating account and records its `opened_slot` (it
+must be the slot of the lock transaction). Every `accept_rating`, commitment and `attest_quality` it sends
+names the job by that slot, and no exit of a rated escrow is sent until the chain is past it: no exit ever
+shares a transaction with `open_rating`. `plan-rated` shows those instructions with slot 0, and lists under
+`openedSlotOf` the job each one names.
 
 1. **Job 1, SOL, metered.** Lock of a 0.02 SOL maximum and `open_rating` (naming the judge, when there is
    one) in one transaction. The payee settles 0.008 SOL with the rating account. Both sides commit, both
@@ -81,9 +85,12 @@ What `run-rated` does:
    fee to the treasury, and both agent records. Then the attestation (part 3), and last the buyer's
    `close_rating`, with the rating account's whole balance back to the buyer. The close comes after the
    attestation because a job can only be attested while its rating account exists.
-2. **Job 2, devnet USDC, fixed price.** Lock of 1 USDC and `open_rating` in one transaction, the seller's
-   `accept_rating`, the payer's release (fee checked), then the buyer commits and the seller does not. The
-   rating is left open for `finish-rated`.
+2. **Job 2, devnet USDC, fixed price.** Lock of 1 USDC and `open_rating` in one transaction, then the
+   seller's `accept_rating`, built with `buildSellerAcceptRating`: it reads the escrow and rating account
+   and checks the opened slot (the slot of the lock), no judge, the amount and the mint. The script first
+   checks that the same helper refuses another opened slot, another amount and a judge, without signing
+   anything, and that what it builds is the plan's instruction. Then the payer's release (fee checked),
+   the buyer commits and the seller does not. The rating is left open for `finish-rated`.
 3. **Attestation of job 1.** The judge's `attest_quality`, the buyer's `confirm_attestation` (the judge's
    accuracy must rise by 10.00 and its reputation take a top score), the judge's `close_attestation` with
    the rent back. Skipped, with a message, when there is no usable judge.
@@ -103,6 +110,9 @@ What `run-rated` does:
    | `delegate_escrow` and `release_escrow_per` (PER is not in V1) | 101 `InstructionFallbackNotFound` |
    | Reveal before both committed | 6011 `BothMustCommitFirst` |
    | `accept_rating` a second time | 6046 `RatingAlreadyAccepted` |
+   | `accept_rating` naming another opened slot (as one signed for an earlier job at the address would) | 6051 `RatingJobMismatch` |
+   | `attest_quality` of job 1 naming another opened slot (with a judge) | 6051 `RatingJobMismatch` |
+   | Lock, `open_rating` and the payer's release in one transaction (a separate escrow that never lands) | 6050 `RatingJustOpened` |
    | A second attestation of job 1; a dispute after the confirmation | 6048 `AlreadyAttested`; 6018 `AttestationAlreadyResolved` |
 
    The wrong-judge case is run twice. With a judge, the judge tries to attest job 2, which names no judge:

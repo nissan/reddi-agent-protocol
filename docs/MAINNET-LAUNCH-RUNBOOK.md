@@ -86,7 +86,8 @@ A payout fails if the treasury cannot receive it:
    provider, treasury and refund amounts on chain against the receipt.
 2. If rated escrows are opened to buyers at launch: one small rated call,
    settled by a provider that accepts them, with the rating account as the
-   extra account. Check that the same amounts moved as for an unrated call,
+   extra account, in a later transaction than the lock and `open_rating`
+   (an exit in the opening slot is refused, 6050). Check that the same amounts moved as for an unrated call,
    and that the rating account exists afterwards. The full rated lane
    (commit, reveal, expiry, attestation) is exercised on devnet by
    `scripts/devnet-escrow-e2e.cjs` (`docs/DEVNET-ESCROW-E2E.md`); its expiry

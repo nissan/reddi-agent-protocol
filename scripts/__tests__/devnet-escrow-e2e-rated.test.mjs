@@ -24,6 +24,10 @@ const runId = "unit-test-1";
 const selector = (name) => createHash("sha256").update(`global:${name}`).digest().subarray(0, 8).toString("hex");
 const pda = (seeds) => PublicKey.findProgramAddressSync(seeds, lane.PROGRAM)[0];
 const plan = lane.ratedPlan({ payer, payee, judge, runId });
+// The opened slots run-rated reads from the chain, here fixed: the lane built as it is after each lock.
+const openedSlots = { job1: 300_000_123n, job2: 300_000_456n, decline: 300_000_789n, unaccepted: 300_001_000n };
+const known = lane.ratedPlan({ payer, payee, judge, runId, openedSlots });
+const u64le = (value) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(value); return b.toString("hex"); };
 const step = (id, from = plan) => {
   const found = from.steps.find((s) => s.id === id);
   assert.ok(found, `plan has no step ${id}`);
@@ -43,6 +47,7 @@ test("the plan lists the rated lane in order, with a judge", () => {
     "send job1.reveal-consumer",
     "send job1.reveal-specialist",
     "refuse job1.attest-by-payee",
+    "refuse job1.attest-stale-slot",
     "send job1.attest",
     "refuse job1.attest-again",
     "send job1.confirm-attestation",
@@ -50,6 +55,7 @@ test("the plan lists the rated lane in order, with a judge", () => {
     "send job1.close-attestation",
     "send job1.close-rating",
     "send job2.lock-and-open-rating",
+    "refuse job2.accept-rating-stale-slot",
     "send job2.accept-rating",
     "refuse job2.accept-rating-again",
     "send job2.release",
@@ -60,6 +66,7 @@ test("the plan lists the rated lane in order, with a judge", () => {
     "send unaccepted.lock-and-open-rating",
     "send unaccepted.release",
     "refuse unaccepted.commit-after-unrated-close",
+    "refuse same-slot.lock-open-and-release",
     "send unrated.lock",
     "refuse unrated.open-rating-in-a-later-slot",
     "refuse unrated.commit-never-opted-in",
@@ -76,11 +83,14 @@ test("each refused case names the exact program error", () => {
     "job1.commit-before-paid": 6039,
     "job1.reveal-before-both-committed": 6011,
     "job1.attest-by-payee": 6000,
+    "job1.attest-stale-slot": 6051,
     "job1.attest-again": 6048,
     "job1.dispute-after-confirm": 6018,
+    "job2.accept-rating-stale-slot": 6051,
     "job2.accept-rating-again": 6046,
     "job2.attest-by-unnamed-judge": 6000,
     "unaccepted.commit-after-unrated-close": 3012,
+    "same-slot.lock-open-and-release": 6050,
     "unrated.open-rating-in-a-later-slot": 6036,
     "unrated.commit-never-opted-in": 3012,
     "per.delegate_escrow": 101,
@@ -108,7 +118,7 @@ test("without a judge no judge is named and the attestation steps are skipped", 
   const bare = lane.ratedPlan({ payer, payee, runId });
   assert.equal(bare.judge, null);
   assert.deepEqual(bare.steps.filter((s) => s.kind === "skip").map((s) => s.id),
-    ["job1.attest", "job1.attest-again", "job1.confirm-attestation", "job1.dispute-after-confirm", "job1.close-attestation", "job2.attest-by-unnamed-judge"]);
+    ["job1.attest-stale-slot", "job1.attest", "job1.attest-again", "job1.confirm-attestation", "job1.dispute-after-confirm", "job1.close-attestation", "job2.attest-by-unnamed-judge"]);
   const open = step("job1.lock-and-open-rating", bare).instructions[1];
   assert.equal(open.dataHex, selector("open_rating") + "00".repeat(32));
   assert.ok(!bare.steps.some((s) => s.signer === "judge"));
@@ -208,23 +218,26 @@ test("payouts go to the treasury the program fixes", () => {
   assert.equal(step("job2.release").instructions[0].accounts[6].address, lane.TREASURY_USDC.toBase58());
 });
 
-test("commitments are sha256(rating, signer, score, salt) and the reveals open them", () => {
+test("commitments are sha256(rating, opened slot, signer, score, salt) and the reveals open them", () => {
   const { commitment } = vectors;
   // The package's built output, which the script loads, against the vector.
   const built = require(`${root}packages/x402-solana/dist/rating.js`);
-  assert.equal(Buffer.from(built.ratingCommitment(new PublicKey(commitment.rating), new PublicKey(commitment.signer), commitment.score,
-    Buffer.from(commitment.salt_hex, "hex"))).toString("hex"), commitment.sha256_hex);
+  // The vector's hash is for opened slot 1000; later copies of the vector file record it as `opened_slot`.
+  assert.equal(Buffer.from(built.ratingCommitment(new PublicKey(commitment.rating), BigInt(commitment.opened_slot ?? 1000), new PublicKey(commitment.signer),
+    commitment.score, Buffer.from(commitment.salt_hex, "hex"))).toString("hex"), commitment.sha256_hex);
   for (const [commitId, revealId, signer, role, score] of [
     ["job1.commit-consumer", "job1.reveal-consumer", payer, "payer", lane.RATED_SCORES.job1Consumer],
     ["job1.commit-specialist", "job1.reveal-specialist", payee, "payee", lane.RATED_SCORES.job1Specialist],
   ]) {
-    const commit = step(commitId).instructions[0];
-    const reveal = step(revealId).instructions[0];
+    const commit = step(commitId, known).instructions[0];
+    const reveal = step(revealId, known).instructions[0];
     const salt = lane.saltFor(runId, "job1", role);
     assert.equal(reveal.dataHex, selector("reveal_rating") + Buffer.from([score]).toString("hex") + salt.toString("hex"));
     const rating = new PublicKey(commit.accounts[0].address);
-    const expected = createHash("sha256").update(Buffer.concat([rating.toBuffer(), signer.toBuffer(), Buffer.from([score]), salt])).digest("hex");
+    const slot = Buffer.from(u64le(openedSlots.job1), "hex");
+    const expected = createHash("sha256").update(Buffer.concat([rating.toBuffer(), slot, signer.toBuffer(), Buffer.from([score]), salt])).digest("hex");
     assert.equal(commit.dataHex, selector("commit_rating") + expected);
+    assert.deepEqual(step(commitId, known).openedSlotOf, ["job1"]);
     assert.equal(rating.toBase58(), plan.escrows.job1.rating);
     // Agent addresses: the specialist's, then the consumer's.
     assert.deepEqual(reveal.accounts.slice(2).map((a) => a.address),
@@ -234,9 +247,9 @@ test("commitments are sha256(rating, signer, score, salt) and the reveals open t
 });
 
 test("the attestation is of job 1, by the judge, at the address derived from the escrow", () => {
-  const attest = step("job1.attest").instructions[0];
+  const attest = step("job1.attest", known).instructions[0];
   const escrow = new PublicKey(plan.escrows.job1.escrow);
-  assert.equal(attest.dataHex, selector("attest_quality") + Buffer.from(lane.RATED_SCORES.attestation).toString("hex"));
+  assert.equal(attest.dataHex, selector("attest_quality") + Buffer.from(lane.RATED_SCORES.attestation).toString("hex") + u64le(openedSlots.job1));
   assert.deepEqual(attest.accounts.slice(0, 4).map((a) => a.address), [
     pda([Buffer.from("attestation"), escrow.toBuffer()]).toBase58(),
     plan.escrows.job1.rating,
@@ -248,6 +261,60 @@ test("the attestation is of job 1, by the judge, at the address derived from the
   const order = plan.steps.map((s) => s.id);
   assert.ok(order.indexOf("job1.reveal-specialist") < order.indexOf("job1.attest"));
   assert.ok(order.indexOf("job1.close-attestation") < order.indexOf("job1.close-rating"));
+});
+
+test("acceptance, commitments and attestations name the job by the opened slot read from the chain", () => {
+  // Until the slots are read, the plan says so and builds with slot 0.
+  assert.deepEqual(plan.openedSlots, { job1: null, job2: null, decline: null, unaccepted: null });
+  assert.match(plan.openedSlotNote, /opened_slot/);
+  assert.deepEqual(known.openedSlots, Object.fromEntries(Object.entries(openedSlots).map(([k, v]) => [k, v.toString()])));
+  assert.equal(step("job2.accept-rating").instructions[0].dataHex, selector("accept_rating") + u64le(0n));
+  // Every step that names a job, and which job.
+  const named = Object.fromEntries(known.steps.filter((s) => s.openedSlotOf).map((s) => [s.id, s.openedSlotOf]));
+  assert.deepEqual(named, {
+    "job1.commit-before-paid": ["job1"], "job1.commit-consumer": ["job1"], "job1.commit-specialist": ["job1"],
+    "job1.attest-by-payee": ["job1"], "job1.attest-stale-slot": ["job1"], "job1.attest": ["job1"], "job1.attest-again": ["job1"],
+    "job2.accept-rating-stale-slot": ["job2"], "job2.accept-rating": ["job2"], "job2.accept-rating-again": ["job2"],
+    "job2.attest-by-unnamed-judge": ["job2"], "job2.commit-consumer": ["job2"], "unaccepted.commit-after-unrated-close": ["unaccepted"],
+  });
+  // accept_rating: the selector, then the job's opened slot; the stale one names the slot before it.
+  const accept = step("job2.accept-rating", known).instructions[0];
+  assert.equal(accept.dataHex, selector("accept_rating") + u64le(openedSlots.job2));
+  assert.deepEqual(accept.accounts.map((a) => [a.address, a.writable, a.signer]),
+    [[known.escrows.job2.rating, true, false], [payee.toBase58(), false, true]]);
+  assert.equal(step("job2.accept-rating-again", known).instructions[0].dataHex, accept.dataHex);
+  assert.equal(step("job2.accept-rating-stale-slot", known).instructions[0].dataHex, selector("accept_rating") + u64le(openedSlots.job2 - 1n));
+  const scores = Buffer.from(lane.RATED_SCORES.attestation).toString("hex");
+  assert.equal(step("job1.attest-stale-slot", known).instructions[0].dataHex, selector("attest_quality") + scores + u64le(openedSlots.job1 - 1n));
+  assert.equal(step("job2.attest-by-unnamed-judge", known).instructions[0].dataHex, selector("attest_quality") + scores + u64le(openedSlots.job2));
+  // The escrow never opted in has no rating and no slot: its commitment hashes slot 0.
+  assert.equal(step("unrated.commit-never-opted-in", known).openedSlotOf, undefined);
+  // A slot that is not a u64 bigint is refused.
+  assert.throws(() => lane.ratedLane({ payer, payee, runId, openedSlots: { job1: 5 } }), /u64 bigint/);
+  assert.throws(() => lane.ratedLane({ payer, payee, runId, openedSlots: { job1: -1n } }), /u64 bigint/);
+  // Steps that name no job are the same before and after the slots are known.
+  const plain = (from) => from.steps.filter((s) => !named[s.id]);
+  assert.deepEqual(plain(known), plain(plan));
+});
+
+test("no exit shares a transaction with open_rating, except the case that must be refused for it", () => {
+  const exits = /^(release|settle|cancel)_/;
+  for (const s of plan.steps) {
+    const names = (s.instructions ?? []).map((ix) => ix.name);
+    if (!names.includes("open_rating") || !names.some((n) => exits.test(n))) continue;
+    assert.equal(s.id, "same-slot.lock-open-and-release");
+    assert.equal(s.kind, "refuse");
+    assert.equal(s.mustFailWith, 6050);
+    assert.deepEqual(names, ["lock_escrow", "open_rating", "release_escrow"]);
+    const [lock, open, release] = s.instructions;
+    assert.equal(open.accounts[1].address, lock.accounts[0].address);
+    assert.equal(release.accounts[0].address, lock.accounts[0].address);
+    assert.equal(release.accounts.at(-1).address, open.accounts[0].address, "the release takes the rating account");
+    assert.equal(lock.accounts[0].address, pda([Buffer.from("escrow"), payer.toBuffer(), lane.nonceFor(runId, "rated-sol-same-slot")]).toBase58());
+    // It is simulated only, so it is not among the escrows run-rated creates.
+    assert.ok(!Object.values(plan.escrows).some((e) => e.escrow === lock.accounts[0].address));
+  }
+  assert.ok(plan.steps.some((s) => s.id === "same-slot.lock-open-and-release"));
 });
 
 test("escrow addresses derive from the run id, and differ from the unrated lane's", () => {

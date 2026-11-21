@@ -29,6 +29,12 @@
  *                 release, the buyer commits and the seller does not; left open. Then a rated escrow the payee
  *                 declines, and one the payer releases without the seller's agreement. Refused cases are
  *                 simulated and must fail with the exact program error number.
+ *                 Each job is named by its rating's `opened_slot` (the slot of `open_rating`), read from the rating
+ *                 account after the lock: `accept_rating` (built with `buildSellerAcceptRating`, which checks the
+ *                 job against what the seller expects), the commitments and `attest_quality` carry it. No exit is
+ *                 ever in the transaction of `open_rating`: each is sent once the chain is past the opened slot.
+ *                 An acceptance or attestation naming another slot is refused (6051), and lock, `open_rating` and
+ *                 release in one transaction is refused (6050); both are simulated only.
  *   finish-rated  After job 2's commit deadline (1,512,000 slots after its release, about 7 days): `expire_rating`,
  *                 then the buyer's `close_rating`. Before the deadline it shows the refusal and the slots left.
  * RAP_E2E_JUDGE_KEYPAIR (optional, a third wallet) is the judge. Without it no judge is named and the attestation
@@ -113,7 +119,7 @@ const ATTESTATION_CONFIRM_WEIGHT = 1_000;
 // Program error numbers the rated lane asserts (program README, "Interface of the rating and attestation instructions").
 const ERR = { InstructionFallbackNotFound: 101, AccountNotInitialized: 3012, UnauthorisedSigner: 6000, BothMustCommitFirst: 6011,
   NotExpired: 6014, AttestationAlreadyResolved: 6018, RatingAccountRequired: 6033, RatingOptInClosed: 6036, JobNotPaid: 6039,
-  RatingAlreadyAccepted: 6046, AlreadyAttested: 6048 };
+  RatingAlreadyAccepted: 6046, AlreadyAttested: 6048, RatingJustOpened: 6050, RatingJobMismatch: 6051 };
 
 const RUN_ID = /^[A-Za-z0-9-]{3,40}$/;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -610,9 +616,13 @@ function expiryEstimate({ settledSlot, currentSlot, now = Date.now() }) {
 /* Every transaction and refused case of the rated lane, in the order the modes execute them. Pure: it reads no
  * account and signs nothing. `judge` is optional; without it no judge is named and the attestation steps are
  * listed as skipped. Each step: { id, mode, kind: 'send' | 'refuse', signer: 'payer' | 'payee' | 'judge', ixs }
- * and, for a refusal, the program error number it must fail with. */
-function ratedLane({ payer, payee, judge, runId }) {
+ * and, for a refusal, the program error number it must fail with.
+ * `openedSlots` maps a job (job1, job2, decline, unaccepted) to its rating's `opened_slot`, which only the chain
+ * knows: run-rated reads it from the rating account after the lock and builds the lane again. An instruction that
+ * names a job is built with slot 0 until then, and its step lists the job under `openedSlotOf`. */
+function ratedLane({ payer, payee, judge, runId, openedSlots = {} }) {
   assert(RUN_ID.test(runId), 'run id must be 3-40 letters, digits or dashes');
+  for (const [name, slot] of Object.entries(openedSlots)) assert(typeof slot === 'bigint' && slot >= 0n, `opened slot of ${name} must be a u64 bigint`);
   assert(!payer.equals(payee), 'payer and payee must differ');
   assert(!judge || (!judge.equals(payer) && !judge.equals(payee)), 'the judge must be neither the payer nor the payee');
   const a = RATED_AMOUNTS;
@@ -634,18 +644,28 @@ function ratedLane({ payer, payee, judge, runId }) {
   const sol = escrow => ({ ...of(escrow), payer, payee, treasury: TREASURY });
   const parties = { consumer: payer, specialist: payee };
   const who = { payer, payee, judge };
-  const commit = (escrow, role, score, label) => rating.buildCommitRatingInstruction({ ...of(escrow), signer: who[role],
-    commitment: rating.ratingCommitment(ratingOf(escrow), who[role], score, saltFor(runId, label, role)) });
+  // The opened slot of a job, as far as the lane knows it. Each use is recorded on the step it builds.
+  let namesJob = new Set();
+  const slot = name => { namesJob.add(name); return openedSlots[name] ?? 0n; };
+  // A slot that is not the job's: what an acceptance or attestation signed for an earlier job at the address names.
+  const staleSlot = name => { const s = slot(name); return s > 0n ? s - 1n : 1n; };
+  // `job` is the job whose opened slot the commitment hashes; null for an escrow that was never opted in (slot 0).
+  const commit = (escrow, role, score, label, job = label) => rating.buildCommitRatingInstruction({ ...of(escrow), signer: who[role],
+    commitment: rating.ratingCommitment(ratingOf(escrow), job ? slot(job) : 0n, who[role], score, saltFor(runId, label, role)) });
   const reveal = (escrow, role, score, label) => rating.buildRevealRatingInstruction({ ...of(escrow), ...parties, signer: who[role],
     score, salt: saltFor(runId, label, role) });
-  const attest = (escrow, signer) => rating.buildAttestQualityInstruction({ ...of(escrow), judge: signer, scores: RATED_SCORES.attestation });
+  const attest = (escrow, signer, job, openedSlot = slot(job)) => rating.buildAttestQualityInstruction({ ...of(escrow), judge: signer,
+    scores: RATED_SCORES.attestation, openedSlot });
+  const accept = (escrow, openedSlot) => rating.buildAcceptRatingInstruction({ ...of(escrow), specialist: payee, openedSlot });
   const unknownSelector = name => new TransactionInstruction({ programId: PROGRAM, data: disc(name),
     keys: [meta(escrows.job1, true), meta(payer, true, true)] });
 
   const steps = [];
   let mode = 'run-rated';
-  const send = (id, signer, ixs, note) => steps.push({ id, mode, kind: 'send', signer, ixs: ixs.map(local), note });
-  const refuse = (id, signer, ixs, code, note) => steps.push({ id, mode, kind: 'refuse', signer, ixs: ixs.map(local), code, note });
+  // The instructions are built (and `namesJob` filled) before these run, as they are the arguments.
+  const jobs = () => { const named = [...namesJob]; namesJob = new Set(); return named.length ? { openedSlotOf: named } : {}; };
+  const send = (id, signer, ixs, note) => steps.push({ id, mode, kind: 'send', signer, ixs: ixs.map(local), note, ...jobs() });
+  const refuse = (id, signer, ixs, code, note, extra = {}) => steps.push({ id, mode, kind: 'refuse', signer, ixs: ixs.map(local), code, note, ...extra, ...jobs() });
   const needsJudge = (id, build) => { if (judge) build(); else steps.push({ id, mode, kind: 'skip', note: 'no judge: attestation steps are skipped' }); };
 
   // Job 1: SOL, metered, rated, with a judge. The seller agrees by being the authority of the settle.
@@ -661,10 +681,12 @@ function ratedLane({ payer, payee, judge, runId }) {
   send('job1.reveal-consumer', 'payer', [reveal(escrows.job1, 'payer', RATED_SCORES.job1Consumer, 'job1')]);
   send('job1.reveal-specialist', 'payee', [reveal(escrows.job1, 'payee', RATED_SCORES.job1Specialist, 'job1')]);
   // attest_quality reads the signer's agent record before it compares the signer with the named judge.
-  steps.push({ id: 'job1.attest-by-payee', mode, kind: 'refuse', signer: 'payee', ixs: [attest(escrows.job1, payee)].map(local),
-    code: ERR.UnauthorisedSigner, codeIfSignerUnregistered: ERR.AccountNotInitialized, note: 'the payee is not the judge the rating names' });
-  needsJudge('job1.attest', () => send('job1.attest', 'judge', [attest(escrows.job1, judge)], 'attest_quality, before the rating account is closed'));
-  needsJudge('job1.attest-again', () => refuse('job1.attest-again', 'judge', [attest(escrows.job1, judge)], ERR.AlreadyAttested));
+  refuse('job1.attest-by-payee', 'payee', [attest(escrows.job1, payee, 'job1')], ERR.UnauthorisedSigner, 'the payee is not the judge the rating names',
+    { codeIfSignerUnregistered: ERR.AccountNotInitialized });
+  needsJudge('job1.attest-stale-slot', () => refuse('job1.attest-stale-slot', 'judge', [attest(escrows.job1, judge, 'job1', staleSlot('job1'))],
+    ERR.RatingJobMismatch, 'scores naming another opened slot: signed for another job at this address'));
+  needsJudge('job1.attest', () => send('job1.attest', 'judge', [attest(escrows.job1, judge, 'job1')], 'attest_quality, naming the job by its opened slot, before the rating account is closed'));
+  needsJudge('job1.attest-again', () => refuse('job1.attest-again', 'judge', [attest(escrows.job1, judge, 'job1')], ERR.AlreadyAttested));
   needsJudge('job1.confirm-attestation', () => send('job1.confirm-attestation', 'payer',
     [rating.buildConfirmAttestationInstruction({ ...of(escrows.job1), judge, consumer: payer })]));
   needsJudge('job1.dispute-after-confirm', () => refuse('job1.dispute-after-confirm', 'payer',
@@ -674,11 +696,14 @@ function ratedLane({ payer, payee, judge, runId }) {
 
   // Job 2: USDC, fixed price, rated, no judge. The seller agrees with accept_rating; the payer releases.
   send('job2.lock-and-open-rating', 'payer', job2Lock.instructions, 'lock_token_escrow and open_rating in one transaction');
-  send('job2.accept-rating', 'payee', [rating.buildSellerAcceptRating({ ...of(escrows.job2), seller: payee })]);
-  refuse('job2.accept-rating-again', 'payee', [rating.buildSellerAcceptRating({ ...of(escrows.job2), seller: payee })], ERR.RatingAlreadyAccepted);
+  refuse('job2.accept-rating-stale-slot', 'payee', [accept(escrows.job2, staleSlot('job2'))], ERR.RatingJobMismatch,
+    'an acceptance naming another opened slot: signed for another job at this address');
+  send('job2.accept-rating', 'payee', [accept(escrows.job2, slot('job2'))],
+    'run-rated builds it with buildSellerAcceptRating, which checks the opened slot, judge, amount and mint the seller expects');
+  refuse('job2.accept-rating-again', 'payee', [accept(escrows.job2, slot('job2'))], ERR.RatingAlreadyAccepted);
   send('job2.release', 'payer', [rating.buildTokenEscrowExitInstruction(usdcTerms, { rated: true, options: { treasuryToken: TREASURY_USDC } })],
     'the payer\'s release opens the rating because the seller accepted');
-  needsJudge('job2.attest-by-unnamed-judge', () => refuse('job2.attest-by-unnamed-judge', 'judge', [attest(escrows.job2, judge)], ERR.UnauthorisedSigner,
+  needsJudge('job2.attest-by-unnamed-judge', () => refuse('job2.attest-by-unnamed-judge', 'judge', [attest(escrows.job2, judge, 'job2')], ERR.UnauthorisedSigner,
     'job 2 names no judge'));
   send('job2.commit-consumer', 'payer', [commit(escrows.job2, 'payer', RATED_SCORES.job2Consumer, 'job2')],
     'the seller does not commit; finish-rated expires the rating after the deadline');
@@ -694,10 +719,16 @@ function ratedLane({ payer, payee, judge, runId }) {
   refuse('unaccepted.commit-after-unrated-close', 'payer', [commit(escrows.unaccepted, 'payer', 5, 'unaccepted')], ERR.AccountNotInitialized,
     'no rating account is left');
 
+  // A rated escrow cannot end in the slot its rating was opened in. Simulated only: nothing of it lands.
+  const sameSlotLock = rating.buildRatedSolEscrowLock(solTerms('rated-sol-same-slot', a.solDecline));
+  refuse('same-slot.lock-open-and-release', 'payer', [...sameSlotLock.instructions,
+    rating.buildReleaseSolEscrowInstruction({ ...sol(key(sameSlotLock.escrow)), signer: 'payer', rated: true })], ERR.RatingJustOpened,
+    'lock, open_rating and release in one transaction');
+
   // An escrow that was never opted in.
   send('unrated.lock', 'payer', [rating.buildLockSolEscrowInstruction(solTerms('rated-sol-unrated', a.solUnrated))]);
   refuse('unrated.open-rating-in-a-later-slot', 'payer', [rating.buildOpenRatingInstruction({ ...of(escrows.unrated), payer })], ERR.RatingOptInClosed);
-  refuse('unrated.commit-never-opted-in', 'payer', [commit(escrows.unrated, 'payer', 5, 'unrated')], ERR.AccountNotInitialized);
+  refuse('unrated.commit-never-opted-in', 'payer', [commit(escrows.unrated, 'payer', 5, 'unrated', null)], ERR.AccountNotInitialized);
   send('unrated.decline', 'payee', [rating.buildCancelSolEscrowInstruction({ ...of(escrows.unrated), payer, authority: payee, rated: false })]);
 
   // PER is not part of V1: the build answers neither selector.
@@ -710,7 +741,7 @@ function ratedLane({ payer, payee, judge, runId }) {
   send('job2.expire-rating', 'payer', [expire], 'from the slot after settled_slot + 1,512,000');
   send('job2.close-rating', 'payer', [rating.buildCloseRatingInstruction({ ...of(escrows.job2), consumer: payer })]);
 
-  return { payer, payee, judge, runId, escrows, source, recipient, usdcTerms, steps,
+  return { payer, payee, judge, runId, escrows, source, recipient, usdcTerms, steps, openedSlots: { ...openedSlots },
     ratings: Object.fromEntries(Object.entries(escrows).map(([name, escrow]) => [name, ratingOf(escrow)])),
     attestation: attestationOf(escrows.job1) };
 }
@@ -732,9 +763,13 @@ function ratedPlan(input) {
     scores: RATED_SCORES,
     escrows: Object.fromEntries(Object.entries(lane.escrows).map(([name, escrow]) => [name, { escrow: text(escrow), rating: text(lane.ratings[name]) }])),
     attestation: text(lane.attestation),
+    openedSlots: Object.fromEntries(['job1', 'job2', 'decline', 'unaccepted'].map(name => [name, lane.openedSlots[name]?.toString() ?? null])),
+    openedSlotNote: 'accept_rating, the commitments and attest_quality name the job by its rating\'s opened_slot, which run-rated reads '
+      + 'from the rating account after each lock. A step listing openedSlotOf is shown with slot 0 until then (a stale-slot refusal with 1).',
     steps: lane.steps.map(step => step.kind === 'skip' ? { id: step.id, mode: step.mode, kind: 'skip', note: step.note } : {
       id: step.id, mode: step.mode, kind: step.kind, signer: step.signer, ...(step.kind === 'refuse' ? { mustFailWith: step.code } : {}),
       ...(step.codeIfSignerUnregistered ? { mustFailWithIfSignerUnregistered: step.codeIfSignerUnregistered } : {}),
+      ...(step.openedSlotOf ? { openedSlotOf: step.openedSlotOf } : {}),
       ...(step.note ? { note: step.note } : {}), instructions: step.ixs.map(describeInstruction) }) };
 }
 
@@ -899,20 +934,44 @@ async function runRated(conn, runId) {
   const { escrows, ratings } = lane;
   const a = RATED_AMOUNTS;
   const signers = { payer: [payerKp], payee: [payeeKp], judge: [judgeKp] };
-  const byId = new Map(lane.steps.map(s => [s.id, s]));
+  // The opened slot of each job, read from its rating account after the lock. The lane is built again with them,
+  // so a step that names a job carries the slot the chain recorded.
+  const openedSlots = {};
+  const planned = id => {
+    const s = ratedLane({ payer, payee, judge, runId, openedSlots }).steps.find(x => x.id === id);
+    for (const job of s?.openedSlotOf ?? []) assert(openedSlots[job] !== undefined, `${id}: the opened slot of ${job} has not been read`);
+    return s;
+  };
   const done = [];
   // Each transaction and refusal comes from the plan, so `plan-rated` shows exactly what is sent here.
   const go = async id => {
-    const s = byId.get(id);
+    const s = planned(id);
     assert(s?.kind === 'send' && s.mode === 'run-rated', `${id} is not a transaction of the plan`);
     done.push(id);
     return send(id, s.ixs, signers[s.signer]);
   };
   const no = async (id, code) => {
-    const s = byId.get(id);
+    const s = planned(id);
     assert(s?.kind === 'refuse' && s.mode === 'run-rated', `${id} is not a refusal of the plan`);
     done.push(id);
     out.refusals.push(await refusedWith(id, s.ixs, signers[s.signer], code ?? s.code));
+  };
+  // The slot a finalized transaction landed in.
+  const slotOf = async signature => BigInt((await conn.getTransaction(signature, { commitment: 'finalized', maxSupportedTransactionVersion: 0 })).slot);
+  // A rating is opened in the slot of its lock transaction; record it for the steps that name the job.
+  const recordOpenedSlot = async (name, lockSignature, r) => {
+    const lockSlot = await slotOf(lockSignature);
+    assert.equal(r.openedSlot, lockSlot, `${name}: opened_slot is the slot of the lock and open_rating`);
+    openedSlots[name] = r.openedSlot;
+    return lockSlot;
+  };
+  // No exit of a rated escrow goes out until the chain is past the slot its rating was opened in (6050 otherwise).
+  const pastOpenedSlot = async name => {
+    const deadline = Date.now() + 60_000;
+    while (BigInt(await conn.getSlot('finalized')) <= openedSlots[name]) {
+      assert(Date.now() < deadline, `${name}: the chain did not pass the opened slot`);
+      await sleep(400);
+    }
   };
   const state = async (name, expected) => {
     const r = await readRating(conn, escrows[name]);
@@ -933,9 +992,11 @@ async function runRated(conn, runId) {
     assert.equal(text(r.specialist), text(payee), 'job1: specialist');
     assert.equal(text(r.judge), text(judge), 'job1: judge');
     assert.equal(r.accepted, false, 'job1: not accepted by accept_rating');
+    await recordOpenedSlot('job1', sig, r);
     const ratingRent = r.lamports;
     step('job1 lock and open_rating', sig, { escrow: text(escrows.job1), rating: text(ratings.job1), max: a.solMeteredMax.toString(),
-      ratingRent: ratingRent.toString(), ratingRentMatchesReadme: ratingRent === RATING_RENT_README });
+      openedSlot: r.openedSlot.toString(), ratingRent: ratingRent.toString(), ratingRentMatchesReadme: ratingRent === RATING_RENT_README });
+    await pastOpenedSlot('job1');
     await no('job1.settle-without-rating-account');
     await no('job1.commit-before-paid');
 
@@ -984,6 +1045,7 @@ async function runRated(conn, runId) {
     await no('job1.attest-by-payee', (await readAgent(conn, payee)) ? ERR.UnauthorisedSigner : ERR.AccountNotInitialized);
     if (judge) {
       const judgeBefore = await readAgent(conn, judge);
+      await no('job1.attest-stale-slot');
       sig = await go('job1.attest');
       const info = await conn.getAccountInfo(lane.attestation, 'finalized');
       assert(info, 'job1: attestation account missing');
@@ -1027,13 +1089,36 @@ async function runRated(conn, runId) {
     assert.deepEqual(flags, { kind: 'token', metered: false, rated: true }, 'job2: escrow flag byte');
     let r = await state('job2', 'awaiting_settlement');
     assert.equal(r.judge, undefined, 'job2: names no judge');
-    step('job2 lock and open_rating', sig, { escrow: text(escrows.job2), rating: text(ratings.job2), amount: a.usdcFixed.toString(), ratingRent: r.lamports.toString() });
+    // What the seller saw: the slot of the lock transaction. It accepts only that job.
+    const lockSlot = await recordOpenedSlot('job2', sig, r);
+    step('job2 lock and open_rating', sig, { escrow: text(escrows.job2), rating: text(ratings.job2), amount: a.usdcFixed.toString(),
+      openedSlot: r.openedSlot.toString(), ratingRent: r.lamports.toString() });
+    await no('job2.accept-rating-stale-slot');
+    const sellerInput = { programId: PROGRAM, escrow: escrows.job2, seller: payee, commitment: 'finalized',
+      expected: { openedSlot: lockSlot, judge: null, amount: a.usdcFixed, mint: USDC } };
+    // The seller's helper refuses, before anything is signed, a job other than the one it expects.
+    for (const [what, expected, reason] of [['another opened slot', { openedSlot: lockSlot - 1n }, 'opened_slot_mismatch'],
+      ['another amount', { amount: a.usdcFixed + 1n }, 'amount_mismatch'], ['a judge', { judge: payer }, 'judge_mismatch']]) {
+      await assert.rejects(rating.buildSellerAcceptRating(conn, { ...sellerInput, expected: { ...sellerInput.expected, ...expected } }),
+        err => err?.name === 'SellerAcceptRatingError' && err.reason === reason, `job2: the seller's helper must refuse ${what}`);
+    }
+    const accepted = await rating.buildSellerAcceptRating(conn, sellerInput);
+    assert.equal(accepted.openedSlot, lockSlot, 'job2: seller helper opened slot');
+    assert.equal(text(key(accepted.consumer)), text(payer), 'job2: seller helper consumer');
+    assert.equal(accepted.judge, undefined, 'job2: seller helper judge');
+    assert.equal(accepted.kind, 'token', 'job2: seller helper kind');
+    const planAccept = planned('job2.accept-rating').ixs[0];
+    const helperAccept = local(accepted.instruction);
+    assert(helperAccept.data.equals(planAccept.data) && JSON.stringify(describeInstruction(helperAccept)) === JSON.stringify(describeInstruction(planAccept)),
+      'job2: the seller helper built another accept_rating than the plan');
     sig = await go('job2.accept-rating');
     r = await state('job2', 'awaiting_settlement');
     assert.equal(r.accepted, true, 'job2: accepted');
     assert.equal(rating.payerReleaseOpensRating(r), true, 'job2: a payer release now opens the rating');
-    step('job2 seller accept_rating', sig, { accepted: true });
+    step('job2 seller accept_rating', sig, { accepted: true, openedSlot: accepted.openedSlot.toString(),
+      sellerHelperRefused: ['opened_slot_mismatch', 'amount_mismatch', 'judge_mismatch'] });
     await no('job2.accept-rating-again');
+    await pastOpenedSlot('job2');
     sig = await go('job2.release');
     const releaseFee = fee(a.usdcFixed, false);
     assert.equal(await tokenDelta(conn, sig, TREASURY_USDC), releaseFee, 'job2 release: treasury fee (2.5%)');
@@ -1056,9 +1141,10 @@ async function runRated(conn, runId) {
   console.log('Rated escrow declined by the payee');
   {
     let sig = await go('decline.lock-and-open-rating');
-    await state('decline', 'awaiting_settlement');
+    await recordOpenedSlot('decline', sig, await state('decline', 'awaiting_settlement'));
     const held = (await lamportsOf(conn, escrows.decline)) + (await lamportsOf(conn, ratings.decline));
     step('decline-case lock and open_rating', sig, { amount: a.solDecline.toString() });
+    await pastOpenedSlot('decline');
     sig = await go('decline.cancel');
     assert.equal(await solDelta(conn, sig, TREASURY), 0n, 'decline: no fee');
     assert.equal(await solDelta(conn, sig, payer), held, 'decline: locked amount, escrow rent and rating rent back to the payer');
@@ -1070,10 +1156,12 @@ async function runRated(conn, runId) {
   {
     let sig = await go('unaccepted.lock-and-open-rating');
     const r = await state('unaccepted', 'awaiting_settlement');
+    await recordOpenedSlot('unaccepted', sig, r);
     assert.equal(rating.payerReleaseOpensRating(r), false, 'unaccepted: a payer release will not open the rating');
     const held = (await lamportsOf(conn, escrows.unaccepted)) + r.lamports;
     step('unaccepted-case lock and open_rating', sig, { amount: a.solUnaccepted.toString() });
     const before = { payer: await readAgent(conn, payer), payee: await readAgent(conn, payee) };
+    await pastOpenedSlot('unaccepted');
     sig = await go('unaccepted.release');
     const releaseFee = fee(a.solUnaccepted, true);
     assert.equal(await solDelta(conn, sig, TREASURY), releaseFee, 'unaccepted release: treasury fee (2.5%)');
@@ -1088,6 +1176,9 @@ async function runRated(conn, runId) {
     step('payer release without acceptance', sig, { treasuryFee: releaseFee.toString(), payeeReceived: (a.solUnaccepted - releaseFee).toString(), ratingClosed: true });
     await no('unaccepted.commit-after-unrated-close');
   }
+
+  console.log('No rated escrow ends in the slot its rating was opened in');
+  await no('same-slot.lock-open-and-release');
 
   console.log('Escrow never opted in, and the PER selectors');
   {
