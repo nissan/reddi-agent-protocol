@@ -70,11 +70,13 @@ function ThemeIcon({ choice }: { choice: ThemeChoice }) {
 
 export default function ThemeToggle({ className = "" }: { className?: string }) {
   const [choice, setChoice] = useState<ThemeChoice>("auto");
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     // Sync with the value the inline script applied before hydration.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setChoice(readChoice());
+    setReady(true);
   }, []);
 
   const next = ORDER[(ORDER.indexOf(choice) + 1) % ORDER.length];
@@ -84,6 +86,7 @@ export default function ThemeToggle({ className = "" }: { className?: string }) 
       type="button"
       data-testid="theme-toggle"
       data-theme-choice={choice}
+      data-ready={ready ? "true" : "false"}
       onClick={() => {
         applyChoice(next);
         setChoice(next);
