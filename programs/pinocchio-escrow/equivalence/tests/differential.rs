@@ -39,6 +39,7 @@ use {
 const ANCHOR: &[u8] = include_bytes!("../../../../target/deploy/escrow.so");
 const PINOCCHIO: &[u8] = include_bytes!("../../target/deploy/pinocchio_escrow.so");
 const PYUSD_MINT_FIXTURE: &[u8] = include_bytes!("fixtures/pyusd_mainnet_mint_2026-11-20.bin");
+const USDG_MINT_FIXTURE: &[u8] = include_bytes!("fixtures/usdg_mainnet_mint_2026-11-21.bin");
 const TOKEN_2022_ACCOUNT_LEN: usize = 183;
 
 fn key(seed: u8) -> Keypair {
@@ -860,7 +861,12 @@ impl Tokens {
             pair.fund(who, 10_000_000_000);
         }
         let mint_data = if program == TOKEN_2022_ID {
-            let mut data = PYUSD_MINT_FIXTURE.to_vec();
+            let fixture = if mint == USDG_MAINNET_MINT {
+                USDG_MINT_FIXTURE
+            } else {
+                PYUSD_MINT_FIXTURE
+            };
+            let mut data = fixture.to_vec();
             data[36..44].copy_from_slice(&3_000_000_000u64.to_le_bytes());
             data[44] = decimals;
             data
@@ -1084,8 +1090,8 @@ fn token_rail(pair: &mut Pair, t: &Tokens, name: &str) {
         6030,
     );
     pair.refused(
-        &label("release: refund to a stranger's token account"),
-        swap(t.payout(n(1), &a, None), 7, t.stranger_token),
+        &label("settle: refund to a stranger's token account"),
+        swap(t.payout(n(1), &a, Some(5)), 7, t.stranger_token),
         &[&t.payer],
         6023,
     );
@@ -1206,6 +1212,32 @@ fn token_rail(pair: &mut Pair, t: &Tokens, name: &str) {
         &[&t.payer],
     );
 
+    // Nothing goes back on a full payout, so the refund account need not be
+    // the payer's. With a donation in the vault something does, and it must.
+    pair.ok(&label("lock"), t.lock(1_000_000, n(11), false), &[&t.payer]);
+    pair.ok(
+        &label("release: nothing to refund, refund account is a stranger's"),
+        swap(t.payout(n(11), &a, None), 7, t.stranger_token),
+        &[&t.payer],
+    );
+    pair.ok(&label("lock"), t.lock(1_000_000, n(12), false), &[&t.payer]);
+    pair.ok(
+        &label("donate to the vault"),
+        t.transfer(t.stranger_token, t.vault(n(12)), &s, 1),
+        &[&t.stranger],
+    );
+    pair.refused(
+        &label("release: a donation to refund, refund account is a stranger's"),
+        swap(t.payout(n(12), &a, None), 7, t.stranger_token),
+        &[&t.payer],
+        6023,
+    );
+    pair.ok(
+        &label("release after a donation"),
+        t.payout(n(12), &a, None),
+        &[&t.payer],
+    );
+
     // A donation to the vault is swept on settlement.
     pair.ok(
         &label("lock at the cap"),
@@ -1302,6 +1334,17 @@ fn token_rail(pair: &mut Pair, t: &Tokens, name: &str) {
         &[&t.payer],
         6007,
     );
+    // Tokens paid to an account the escrow or its vault owns could never move.
+    for (what, owner) in [("escrow", t.escrow(n(9))), ("vault", t.vault(n(9)))] {
+        let recipient = Pubkey::new_unique();
+        t.put_account(pair, recipient, &owner, 0);
+        pair.refused(
+            &label(&format!("lock: the {what} as payee")),
+            swap(swap(t.lock(1, n(9), false), 3, owner), 6, recipient),
+            &[&t.payer],
+            6007,
+        );
+    }
     pair.refused(
         &label("lock: vault address of another escrow"),
         swap(t.lock(1, n(9), false), 1, t.vault(n(10))),

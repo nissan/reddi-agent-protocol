@@ -39,6 +39,13 @@ pub fn lock_token_escrow_handler(
         ctx.accounts.payer.key(),
         EscrowError::InvalidPayee
     );
+    // Tokens paid to an account owned by the escrow or its vault could never
+    // be moved again.
+    require!(
+        ctx.accounts.payee.key() != ctx.accounts.escrow.key()
+            && ctx.accounts.payee.key() != ctx.accounts.vault.key(),
+        EscrowError::InvalidPayee
+    );
     // Native SOL keeps its own instructions. The allowlist holds no native mint,
     // and no transfer-hook accounts are ever passed, so a mint with an active
     // hook cannot be locked.
@@ -159,15 +166,6 @@ fn pay_out(accounts: &mut ReleaseTokenEscrow, paid: u64, outcome: SettlementOutc
         escrow.payee,
         EscrowError::InvalidTokenAccount
     );
-    // Any token account of the mint the payer owns. Not only the recorded
-    // source: the payer may close or re-own that after locking, and the payee
-    // must still be able to settle (it can create the payer's associated
-    // account in the same transaction).
-    require_keys_eq!(
-        accounts.refund.owner,
-        escrow.payer,
-        EscrowError::InvalidTokenAccount
-    );
     require_keys_eq!(
         accounts.treasury_token.key(),
         treasury_token_address(&escrow.mint, &accounts.token_program.key()),
@@ -198,6 +196,14 @@ fn pay_out(accounts: &mut ReleaseTokenEscrow, paid: u64, outcome: SettlementOutc
     let payee_part = to_payee.min(available);
     let fee_part = fee.min(available - payee_part);
     let refund_part = available - payee_part - fee_part;
+    // When something goes back to the payer it must go to a token account of
+    // the mint the payer owns (any one: the payer may close or re-own the
+    // recorded source after locking). When nothing goes back the refund account
+    // receives nothing, so its owner is not checked.
+    require!(
+        refund_part == 0 || accounts.refund.owner == escrow.payer,
+        EscrowError::InvalidTokenAccount
+    );
 
     let bump = [escrow.bump];
     let seeds: &[&[u8]] = &[

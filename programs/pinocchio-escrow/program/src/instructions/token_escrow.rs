@@ -129,6 +129,12 @@ pub fn lock(
     )?;
     require(amount <= MAX_TOKEN_ESCROW_BASE_UNITS, &AmountAboveCap)?;
     require(payee.address() != payer.address(), &InvalidPayee)?;
+    // Tokens paid to an account owned by the escrow or its vault could never
+    // be moved again: this program signs for neither as a recipient's owner.
+    require(
+        payee.address() != escrow.address() && payee.address() != vault.address(),
+        &InvalidPayee,
+    )?;
 
     InitializeAccount3::new(vault, mint, escrow.address())
         .invoke_with_unverified_program(token_program_id)?;
@@ -448,10 +454,6 @@ pub fn pay_out(
         destination_account.owner == record.payee,
         &InvalidTokenAccount,
     )?;
-    // Any token account of the mint the payer owns. Not only the recorded
-    // source: the payer may close or re-own that after locking, and the payee
-    // must still be able to settle.
-    require(refund_account.owner == record.payer, &InvalidTokenAccount)?;
     // The fee goes only to the treasury's associated token account, so it
     // lands where the Squads vault shows it.
     let (treasury_address, _) = derive(
@@ -475,6 +477,16 @@ pub fn pay_out(
     let payee_part = (paid - fee).min(available);
     let fee_part = fee.min(available - payee_part);
     let refund_part = available - payee_part - fee_part;
+    // When something goes back to the payer it must go to a token account of
+    // the mint the payer owns. Not only the recorded source: the payer may
+    // close or re-own that after locking, and the payee must still be able to
+    // settle. When nothing goes back the refund account receives nothing, so
+    // its owner is not checked and a payer cannot hold up a full payout by
+    // closing or restricting its own token accounts.
+    require(
+        refund_part == 0 || refund_account.owner == record.payer,
+        &InvalidTokenAccount,
+    )?;
 
     let (payer_key, payee_key, mint_key, nonce) =
         (record.payer, record.payee, record.mint, record.nonce);
