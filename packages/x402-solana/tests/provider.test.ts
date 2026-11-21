@@ -80,9 +80,23 @@ function tokenAccount(mint: PublicKey, owner: PublicKey, state = 1): Uint8Array 
   return data;
 }
 type Accounts = Map<string, { owner: PublicKey; data: Uint8Array } | null>;
-/** The provider's, the treasury's and the buyer's USDC accounts, all able to receive. */
+/** The slot the escrow's rating was opened in: the lock's. */
+const OPENED_SLOT = CURRENT_SLOT - BigInt(10);
+/** The escrow's rating account, awaiting settlement (read only for a rated escrow). */
+function ratingBytes(f: { escrow?: PublicKey; state?: number; openedSlot?: bigint } = {}): Uint8Array {
+  const data = Buffer.alloc(270);
+  createHash('sha256').update('account:RatingAccount').digest().copy(data, 0, 0, 8);
+  (f.escrow ?? header.escrow).toBuffer().copy(data, 8);
+  payer.toBuffer().copy(data, 40);
+  payee.toBuffer().copy(data, 72);
+  data.writeBigUInt64LE(f.openedSlot ?? OPENED_SLOT, 240);
+  data[264] = f.state ?? 0;
+  return data;
+}
+/** The provider's, the treasury's and the buyer's USDC accounts, all able to receive, and the escrow's rating account. */
 function payoutAccounts(): Accounts {
   return new Map<string, { owner: PublicKey; data: Uint8Array } | null>([
+    [ratingPda(header.escrow, PROGRAM).toBase58(), { owner: PROGRAM, data: ratingBytes() }],
     [ata(payee).toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, payee) }],
     [ata(ESCROW_PROTOCOL_TREASURY).toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, ESCROW_PROTOCOL_TREASURY) }],
     [ata(payer).toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, payer) }],
@@ -355,6 +369,7 @@ describe('rated escrows', () => {
   const shape = (ix: { data: Buffer; keys: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] }) => ({ data: ix.data.toString('hex'), keys: ix.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable]) });
   const rating = ratingPda(header.escrow, PROGRAM);
   const usage = { inputTokens: 120, outputTokens: 333 };
+  const slotHex = (() => { const b = Buffer.alloc(8); b.writeBigUInt64LE(OPENED_SLOT); return b.toString('hex'); })();
 
   it('declines a rated escrow before serving unless the provider accepts rated jobs, and does not remember it', async () => {
     const replayStore = new MemoryNonceReplayStore();
@@ -378,14 +393,36 @@ describe('rated escrows', () => {
     const settle = meteredSettlement(terms, lock, usage);
     const plainSettle = meteredSettlement(terms, plain, usage);
     expect(settle.settlement).toEqual(plainSettle.settlement);
-    expect(shape(settle.instruction)).toEqual({ data: shape(plainSettle.instruction).data, keys: [...shape(plainSettle.instruction).keys, [rating.toBase58(), false, true]] });
+    expect(lock.openedSlot).toBe(OPENED_SLOT);
+    expect(shape(settle.instruction)).toEqual({ data: shape(plainSettle.instruction).data + slotHex, keys: [...shape(plainSettle.instruction).keys, [rating.toBase58(), false, true]] });
     expect(settle.instruction.keys).toHaveLength(10);
     expect(settle.instructions[settle.instructions.length - 1]).toBe(settle.instruction);
     const decline = meteredDecline(terms, lock);
     const plainDecline = meteredDecline(terms, plain);
-    expect(shape(decline)).toEqual({ data: shape(plainDecline).data, keys: [...shape(plainDecline).keys, [rating.toBase58(), false, true]] });
+    expect(shape(decline)).toEqual({ data: shape(plainDecline).data + slotHex, keys: [...shape(plainDecline).keys, [rating.toBase58(), false, true]] });
     expect(decline.keys).toHaveLength(8);
     expect(meteredRatingAccount(lock)?.equals(rating)).toBe(true);
+    // A rated lock that lost its opened slot builds no exit: the program would refuse it (6051).
+    const { openedSlot: _slot, ...withoutSlot } = lock;
+    expect(() => meteredSettlement(terms, withoutSlot, usage)).toThrow('openedSlot');
+    expect(() => meteredDecline(terms, withoutSlot)).toThrow('openedSlot');
+  });
+
+  it('reads the opened slot with the lock, and refuses a rated escrow whose rating account is not this job\'s', async () => {
+    const accounts = (rating: { owner: PublicKey; data: Uint8Array } | null) => {
+      const map = payoutAccounts();
+      map.set(ratingPda(header.escrow, PROGRAM).toBase58(), rating);
+      return map;
+    };
+    expect(await verify({ rated: true }, { acceptRatedEscrows: true, accounts: accounts({ owner: PROGRAM, data: ratingBytes({ openedSlot: BigInt(77) }) }) })).toMatchObject({ ok: true, openedSlot: BigInt(77) });
+    for (const rating of [null, { owner: Keypair.generate().publicKey, data: ratingBytes() }, { owner: PROGRAM, data: ratingBytes({ escrow: Keypair.generate().publicKey }) }, { owner: PROGRAM, data: ratingBytes({ state: 1 }) }, { owner: PROGRAM, data: new Uint8Array(10) }]) {
+      const replayStore = new MemoryNonceReplayStore();
+      expect(await verify({ rated: true }, { acceptRatedEscrows: true, replayStore, accounts: accounts(rating) })).toMatchObject({ ok: false, reason: 'invalid_receipt' });
+      // Not remembered either.
+      expect(await verify({ rated: true }, { acceptRatedEscrows: true, replayStore })).toMatchObject({ ok: true });
+    }
+    // An unrated lock never reads the rating account and carries no opened slot.
+    expect('openedSlot' in ((await verify({}, { acceptRatedEscrows: true, accounts: accounts(null) })) as object)).toBe(false);
   });
 
   it('leaves an escrow that is not rated exactly as before, whether or not rated jobs are accepted', async () => {
@@ -421,8 +458,9 @@ describe('rated escrows', () => {
       expect(result).toMatchObject({ ok: true, rated });
       const lock = result as Extract<VerifiedLock, { ok: true }>;
       const extra = rated ? [[rating.toBase58(), false, true]] : [];
-      expect(shape(meteredSettlement(terms, lock, usage).instruction)).toEqual({ data: shape(meteredSettlement(terms, plain, usage).instruction).data, keys: [...shape(meteredSettlement(terms, plain, usage).instruction).keys, ...extra] });
-      expect(shape(meteredDecline(terms, lock))).toEqual({ data: shape(meteredDecline(terms, plain)).data, keys: [...shape(meteredDecline(terms, plain)).keys, ...extra] });
+      const tail = rated ? slotHex : '';
+      expect(shape(meteredSettlement(terms, lock, usage).instruction)).toEqual({ data: shape(meteredSettlement(terms, plain, usage).instruction).data + tail, keys: [...shape(meteredSettlement(terms, plain, usage).instruction).keys, ...extra] });
+      expect(shape(meteredDecline(terms, lock))).toEqual({ data: shape(meteredDecline(terms, plain)).data + tail, keys: [...shape(meteredDecline(terms, plain)).keys, ...extra] });
     }
   });
 

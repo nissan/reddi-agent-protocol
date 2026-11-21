@@ -95,6 +95,7 @@ const expected = (vector: VectorInstruction) => ({
   data: vector.data_hex,
   accounts: vector.accounts.map(({ address, signer, writable }) => ({ address, signer, writable })),
 });
+const expectedOf = expected;
 
 // The parties the fixture uses throughout.
 const payer = key('AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9');
@@ -119,24 +120,33 @@ const tokenTerms = (nonceByte: number, vector: VectorInstruction): TokenEscrowTe
 /** The `opened_slot` of one of the fixture's rating accounts, as a party reads it before signing. */
 const openedSlotOf = (name: string) => decodeRatingAccount(hex(account(name).data_hex)).openedSlot;
 
+/** The `opened_slot` the fixture's attestations store. */
+const attestedSlotOf = (name: string) => decodeAttestationAccount(hex(account(name).data_hex)).openedSlot;
+/**
+ * The `opened_slot` named by a fixture exit whose rating has no account vector:
+ * the last eight bytes of its data (the README fixes where they go; these
+ * jobs' slots are not otherwise in the fixture).
+ */
+const namedSlotOf = (name: string) => hex(instruction(name).data_hex).readBigUInt64LE(hex(instruction(name).data_hex).length - 8);
+
 /** Every instruction in the fixture, built by this package from addresses and values only. */
 const built: Record<string, () => TransactionInstruction> = {
   open_rating: () => buildOpenRatingInstruction({ programId, escrow: named(instruction('open_rating'), 'escrow'), payer, judge: key(bs58FromHex(instruction('open_rating').data_hex.slice(16))) }),
   accept_rating: () => buildAcceptRatingInstruction({ programId, escrow: named(instruction('release_escrow'), 'escrow'), specialist: payee, openedSlot: openedSlotOf('rating_awaiting_settlement_accepted') }),
-  commit_rating: () => buildCommitRatingInstruction({ programId, escrow: named(instruction('open_rating'), 'escrow'), signer: payer, commitment: hex(vectors.commitment.sha256_hex) }),
+  commit_rating: () => buildCommitRatingInstruction({ programId, escrow: named(instruction('open_rating'), 'escrow'), signer: payer, commitment: hex(vectors.commitment.sha256_hex), openedSlot: openedSlotOf('rating_open') }),
   reveal_rating: () => buildRevealRatingInstruction({ programId, escrow: named(instruction('open_rating'), 'escrow'), signer: payer, consumer: payer, specialist: payee, score: vectors.commitment.score, salt }),
   expire_rating: () => buildExpireRatingInstruction({ programId, escrow: named(instruction('release_escrow'), 'escrow'), caller: judge, consumer: payer, specialist: payee }),
   close_rating: () => buildCloseRatingInstruction({ programId, escrow: named(instruction('open_rating'), 'escrow'), consumer: payer }),
   attest_quality: () => buildAttestQualityInstruction({ programId, escrow: named(instruction('open_rating'), 'escrow'), judge, scores: [9, 8, 10, 1, 7], openedSlot: openedSlotOf('rating_open') }),
-  confirm_attestation: () => buildConfirmAttestationInstruction({ programId, escrow: named(instruction('open_rating'), 'escrow'), judge, consumer: payer }),
-  dispute_attestation: () => buildDisputeAttestationInstruction({ programId, escrow: named(instruction('release_escrow'), 'escrow'), judge, consumer: payer }),
+  confirm_attestation: () => buildConfirmAttestationInstruction({ programId, escrow: named(instruction('open_rating'), 'escrow'), judge, consumer: payer, openedSlot: attestedSlotOf('attestation_pending') }),
+  dispute_attestation: () => buildDisputeAttestationInstruction({ programId, escrow: named(instruction('release_escrow'), 'escrow'), judge, consumer: payer, openedSlot: openedSlotOf('rating_awaiting_settlement_accepted') }),
   close_attestation: () => buildCloseAttestationInstruction({ programId, escrow: named(instruction('release_escrow'), 'escrow'), judge }),
-  settle_escrow: () => buildSettleSolEscrowInstruction({ programId, escrow: named(instruction('settle_escrow'), 'escrow'), payer, payee, actual: 600_000n, rated: true }),
-  release_escrow: () => buildReleaseSolEscrowInstruction({ programId, escrow: named(instruction('release_escrow'), 'escrow'), payer, payee, rated: true }),
-  cancel_escrow: () => buildCancelSolEscrowInstruction({ programId, escrow: named(instruction('cancel_escrow'), 'escrow'), payer, authority: payee, rated: true }),
-  release_token_escrow: () => buildTokenEscrowExitInstruction(tokenTerms(4, instruction('release_token_escrow')), { rated: true }),
-  settle_token_escrow: () => buildTokenEscrowExitInstruction(tokenTerms(5, instruction('settle_token_escrow')), { rated: true, authority: payee, options: { actual: 250_000n } }),
-  cancel_token_escrow: () => buildTokenEscrowExitInstruction(tokenTerms(6, instruction('cancel_token_escrow')), { rated: true, refund: true, authority: payee }),
+  settle_escrow: () => buildSettleSolEscrowInstruction({ programId, escrow: named(instruction('settle_escrow'), 'escrow'), payer, payee, actual: 600_000n, rated: true, openedSlot: openedSlotOf('rating_open') }),
+  release_escrow: () => buildReleaseSolEscrowInstruction({ programId, escrow: named(instruction('release_escrow'), 'escrow'), payer, payee, rated: true, openedSlot: openedSlotOf('rating_awaiting_settlement_accepted') }),
+  cancel_escrow: () => buildCancelSolEscrowInstruction({ programId, escrow: named(instruction('cancel_escrow'), 'escrow'), payer, authority: payee, rated: true, openedSlot: namedSlotOf('cancel_escrow') }),
+  release_token_escrow: () => buildTokenEscrowExitInstruction(tokenTerms(4, instruction('release_token_escrow')), { rated: true, openedSlot: namedSlotOf('release_token_escrow') }),
+  settle_token_escrow: () => buildTokenEscrowExitInstruction(tokenTerms(5, instruction('settle_token_escrow')), { rated: true, openedSlot: namedSlotOf('settle_token_escrow'), authority: payee, options: { actual: 250_000n } }),
+  cancel_token_escrow: () => buildTokenEscrowExitInstruction(tokenTerms(6, instruction('cancel_token_escrow')), { rated: true, openedSlot: namedSlotOf('cancel_token_escrow'), refund: true, authority: payee }),
 };
 
 function bs58FromHex(value: string): string {
@@ -192,8 +202,8 @@ describe('commitment hash', () => {
     const preimage = Buffer.concat([key(commitment.rating).toBuffer(), slotBytes, key(commitment.signer).toBuffer(), Buffer.from([commitment.score]), salt]);
     expect(createHash('sha256').update(preimage).digest('hex')).toBe(commitment.sha256_hex);
     expect(Buffer.from(ratingCommitment(key(commitment.rating), slot, key(commitment.signer), commitment.score, salt)).toString('hex')).toBe(commitment.sha256_hex);
-    // And it is what the fixture's commit_rating carries.
-    expect(instruction('commit_rating').data_hex.slice(16)).toBe(commitment.sha256_hex);
+    // And it is what the fixture's commit_rating carries, followed by the same opened slot.
+    expect(instruction('commit_rating').data_hex.slice(16)).toBe(commitment.sha256_hex + slotBytes.toString('hex'));
   });
 
   it('changes with the rating, the opened slot, the signer, the score and the salt', () => {
@@ -299,7 +309,9 @@ describe('rating account decoder', () => {
 describe('attestation account decoder', () => {
   it('reads a pending and a confirmed attestation', () => {
     const pending = decodeAttestationAccount(hex(account('attestation_pending').data_hex));
-    expect(pending).toEqual({ escrow: named(instruction('open_rating'), 'escrow'), judge, consumer: payer, scores: [9, 8, 10, 1, 7], resolution: 'pending', createdSlot: 1040n, bump: 249 });
+    expect(pending).toEqual({ escrow: named(instruction('open_rating'), 'escrow'), judge, consumer: payer, scores: [9, 8, 10, 1, 7], resolution: 'pending', createdSlot: 1040n, bump: 249, openedSlot: 1000n });
+    // The attestation names the job of the rating it was made for.
+    expect(pending.openedSlot).toBe(openedSlotOf('rating_open'));
     expect(decodeAttestationAccount(hex(account('attestation_confirmed').data_hex))).toEqual({ ...pending, resolution: 'confirmed' });
     expect(account('attestation_pending').length).toBe(ATTESTATION_ACCOUNT_LEN);
   });
@@ -387,8 +399,8 @@ describe('exits of a rated and an unrated escrow', () => {
       const unrated = buildTokenEscrowExitInstruction(terms, { rated: false, refund, authority, options });
       expect(shape(unrated)).toEqual(shape(today));
       expect(bytes(unrated, authority)).toBe(bytes(today, authority));
-      const rated = buildTokenEscrowExitInstruction(terms, { rated: true, refund, authority, options });
-      expect(rated.data).toEqual(today.data);
+      const rated = buildTokenEscrowExitInstruction(terms, { rated: true, openedSlot: 0x0102030405060708n, refund, authority, options });
+      expect(rated.data).toEqual(Buffer.concat([today.data, Buffer.from('0807060504030201', 'hex')]));
       expect(shape(rated).accounts).toEqual([...shape(today).accounts, { address: instruction('settle_token_escrow').accounts[9].address, signer: false, writable: true }]);
     }
   });
@@ -398,7 +410,9 @@ describe('exits of a rated and an unrated escrow', () => {
     expect(withRatingAccount(today, false)).toBe(today);
   });
 
-  it('builds an unrated SOL settle, release and cancel with the usual accounts only', () => {
+  it('builds an unrated SOL settle, release and cancel with the usual accounts and their own data only', () => {
+    // The fixture's rated exit without the rating account and without the opened slot after the data.
+    const expected = (vector: VectorInstruction) => ({ ...expectedOf(vector), data: vector.data_hex.slice(0, -16) });
     const escrow = named(instruction('settle_escrow'), 'escrow');
     const settle = instruction('settle_escrow');
     const unratedSettle = buildSettleSolEscrowInstruction({ programId, escrow, payer, payee, actual: 600_000n });
@@ -438,16 +452,20 @@ describe('exits of a rated and an unrated escrow', () => {
     });
 
     it.each([
-      ['release_escrow (payer)', 5, () => buildReleaseSolEscrowInstruction({ programId, escrow: solEscrow, payer, payee, rated: isRatedEscrow(solData) })],
-      ['release_escrow (payee claim)', 5, () => buildReleaseSolEscrowInstruction({ programId, escrow: solEscrow, payer, payee, signer: 'payee', rated: isRatedEscrow(solData) })],
-      ['settle_escrow', 5, () => buildSettleSolEscrowInstruction({ programId, escrow: solEscrow, payer, payee, actual: 1n, rated: isRatedEscrow(solData) })],
-      ['cancel_escrow (decline)', 4, () => buildCancelSolEscrowInstruction({ programId, escrow: solEscrow, payer, authority: payee, rated: isRatedEscrow(solData) })],
-      ['cancel_escrow (refund)', 4, () => buildCancelSolEscrowInstruction({ programId, escrow: solEscrow, payer, authority: payer, rated: isRatedEscrow(solData) })],
+      ['release_escrow (payer)', 5, () => buildReleaseSolEscrowInstruction({ programId, escrow: solEscrow, payer, payee, rated: isRatedEscrow(solData), openedSlot: 1000n })],
+      ['release_escrow (payee claim)', 5, () => buildReleaseSolEscrowInstruction({ programId, escrow: solEscrow, payer, payee, signer: 'payee', rated: isRatedEscrow(solData), openedSlot: 1000n })],
+      ['settle_escrow', 5, () => buildSettleSolEscrowInstruction({ programId, escrow: solEscrow, payer, payee, actual: 1n, rated: isRatedEscrow(solData), openedSlot: 1000n })],
+      ['cancel_escrow (decline)', 4, () => buildCancelSolEscrowInstruction({ programId, escrow: solEscrow, payer, authority: payee, rated: isRatedEscrow(solData), openedSlot: 1000n })],
+      ['cancel_escrow (refund)', 4, () => buildCancelSolEscrowInstruction({ programId, escrow: solEscrow, payer, authority: payer, rated: isRatedEscrow(solData), openedSlot: 1000n })],
     ] as const)('%s: the rating account is passed exactly when the escrow is rated', (_name, usual, build) => {
       const ix = build();
       expect(ix.keys).toHaveLength(usual + (rated ? 1 : 0));
       if (rated) expect(last(ix)).toEqual({ pubkey: solRating, isSigner: false, isWritable: true });
       else expect(ix.keys.some((meta) => meta.pubkey.equals(solRating))).toBe(false);
+      // The opened slot is appended exactly when the escrow is rated.
+      const own = _name.startsWith('settle') ? 16 : 8;
+      expect(ix.data).toHaveLength(own + (rated ? 8 : 0));
+      if (rated) expect(ix.data.readBigUInt64LE(own)).toBe(1000n);
     });
 
     it.each([
@@ -457,8 +475,10 @@ describe('exits of a rated and an unrated escrow', () => {
       ['cancel_token_escrow (decline)', 7, { authority: payee, refund: true }],
       ['cancel_token_escrow (refund)', 7, { authority: payer, refund: true }],
     ] as const)('%s: the rating account is passed exactly when the escrow is rated', (_name, usual, exit) => {
-      const ix = buildTokenEscrowExitInstruction(tokenTermsOf, { ...exit, rated: decodeTokenEscrowAccount(tokenData).rated });
+      const ix = buildTokenEscrowExitInstruction(tokenTermsOf, { ...exit, rated: decodeTokenEscrowAccount(tokenData).rated, openedSlot: 1000n });
       expect(ix.keys).toHaveLength(usual + (rated ? 1 : 0));
+      const own = _name.startsWith('settle') ? 16 : 8;
+      expect(ix.data).toHaveLength(own + (rated ? 8 : 0));
       if (rated) expect(last(ix)).toEqual({ pubkey: tokenRating, isSigner: false, isWritable: true });
       else expect(ix.keys.some((meta) => meta.pubkey.equals(tokenRating))).toBe(false);
     });
@@ -468,7 +488,7 @@ describe('exits of a rated and an unrated escrow', () => {
     const extra = key('SysvarC1ock11111111111111111111111111111111');
     const today = buildSettleTokenEscrowInstruction(terms, false, payee, { actual: 1n });
     today.keys.push({ pubkey: extra, isSigner: false, isWritable: false });
-    const rated = withRatingAccount(today, true);
+    const rated = withRatingAccount(today, true, 5n);
     expect(rated.keys).toHaveLength(11);
     expect(rated.keys[9].pubkey.toBase58()).toBe(instruction('settle_token_escrow').accounts[9].address);
     expect(rated.keys[10].pubkey).toEqual(extra);
@@ -476,11 +496,25 @@ describe('exits of a rated and an unrated escrow', () => {
   });
 
   it('refuses an instruction that is not an exit, or that lacks its usual accounts', () => {
-    expect(() => withRatingAccount(buildLockTokenEscrowInstruction(terms), true)).toThrow('not an escrow exit instruction');
-    expect(() => withRatingAccount(built.commit_rating(), true)).toThrow('not an escrow exit instruction');
+    expect(() => withRatingAccount(buildLockTokenEscrowInstruction(terms), true, 5n)).toThrow('not an escrow exit instruction');
+    expect(() => withRatingAccount(built.commit_rating(), true, 5n)).toThrow('not an escrow exit instruction');
     const short = buildSettleTokenEscrowInstruction(terms, false, payee, { actual: 1n });
     short.keys.pop();
-    expect(() => withRatingAccount(short, true)).toThrow('missing');
+    expect(() => withRatingAccount(short, true, 5n)).toThrow('missing');
+  });
+
+  it('requires the opened slot for every rated exit, and refuses an exit that already carries one', () => {
+    const settle = buildSettleTokenEscrowInstruction(terms, false, payee, { actual: 1n });
+    expect(() => withRatingAccount(settle, true)).toThrow('openedSlot');
+    expect(() => withRatingAccount(settle, true, -1n)).toThrow('openedSlot');
+    expect(() => withRatingAccount(withRatingAccount(settle, true, 5n), true, 5n)).toThrow('more data');
+    const escrow = named(instruction('settle_escrow'), 'escrow');
+    expect(() => buildSettleSolEscrowInstruction({ programId, escrow, payer, payee, actual: 1n, rated: true })).toThrow('openedSlot');
+    expect(() => buildReleaseSolEscrowInstruction({ programId, escrow, payer, payee, rated: true })).toThrow('openedSlot');
+    expect(() => buildCancelSolEscrowInstruction({ programId, escrow, payer, authority: payee, rated: true })).toThrow('openedSlot');
+    expect(() => buildTokenEscrowExitInstruction(terms, { rated: true, refund: true, authority: payee })).toThrow('openedSlot');
+    // An unrated exit ignores a slot it is given and is unchanged.
+    expect(shape(buildTokenEscrowExitInstruction(terms, { rated: false, openedSlot: 5n, authority: payee, options: { actual: 1n } }))).toEqual(shape(settle));
   });
 });
 
@@ -498,8 +532,8 @@ describe('instruction input checks', () => {
   });
 
   it('refuses an empty or mis-sized commitment, a bad score and a bad salt', () => {
-    expect(() => buildCommitRatingInstruction({ programId, escrow, signer: payer, commitment: new Uint8Array(32) })).toThrow('all zero');
-    expect(() => buildCommitRatingInstruction({ programId, escrow, signer: payer, commitment: new Uint8Array(31) })).toThrow('32 bytes');
+    expect(() => buildCommitRatingInstruction({ programId, escrow, signer: payer, commitment: new Uint8Array(32), openedSlot: 1000n })).toThrow('all zero');
+    expect(() => buildCommitRatingInstruction({ programId, escrow, signer: payer, commitment: new Uint8Array(31), openedSlot: 1000n })).toThrow('32 bytes');
     expect(() => buildRevealRatingInstruction({ programId, escrow, signer: payer, consumer: payer, specialist: payee, score: 0, salt })).toThrow('1 to 10');
     expect(() => buildRevealRatingInstruction({ programId, escrow, signer: payer, consumer: payer, specialist: payee, score: 5, salt: salt.subarray(1) })).toThrow('32 bytes');
     expect(() => buildAttestQualityInstruction({ programId, escrow, judge, scores: [1, 2, 3, 4, 11], openedSlot: 1000n })).toThrow('1 to 10');
@@ -507,12 +541,18 @@ describe('instruction input checks', () => {
     expect(() => buildSettleSolEscrowInstruction({ programId, escrow, payer, payee, actual: 0n })).toThrow('positive u64');
   });
 
-  it('requires the opened slot, as a u64 bigint, in accept_rating and attest_quality', () => {
+  it('requires the opened slot, as a u64 bigint, in accept_rating, commit_rating, attest_quality and the decisions on an attestation', () => {
+    const commitment = hex(vectors.commitment.sha256_hex);
     for (const bad of [undefined, 1000, -1n, 1n << 64n]) {
       const openedSlot = bad as unknown as bigint;
       expect(() => buildAcceptRatingInstruction({ programId, escrow, specialist: payee, openedSlot })).toThrow('openedSlot');
+      expect(() => buildCommitRatingInstruction({ programId, escrow, signer: payer, commitment, openedSlot })).toThrow('openedSlot');
       expect(() => buildAttestQualityInstruction({ programId, escrow, judge, scores: [1, 2, 3, 4, 5], openedSlot })).toThrow('openedSlot');
+      expect(() => buildConfirmAttestationInstruction({ programId, escrow, judge, consumer: payer, openedSlot })).toThrow('openedSlot');
+      expect(() => buildDisputeAttestationInstruction({ programId, escrow, judge, consumer: payer, openedSlot })).toThrow('openedSlot');
     }
+    expect(buildCommitRatingInstruction({ programId, escrow, signer: payer, commitment, openedSlot: 9n }).data).toHaveLength(48);
+    expect(buildConfirmAttestationInstruction({ programId, escrow, judge, consumer: payer, openedSlot: 9n }).data).toHaveLength(16);
     // The slot is the last eight bytes of each.
     expect(buildAcceptRatingInstruction({ programId, escrow, specialist: payee, openedSlot: 0xfffffffffffffffen }).data.subarray(8).toString('hex')).toBe('feffffffffffffff');
     expect(buildAttestQualityInstruction({ programId, escrow, judge, scores: [1, 2, 3, 4, 5], openedSlot: 7n }).data).toHaveLength(21);

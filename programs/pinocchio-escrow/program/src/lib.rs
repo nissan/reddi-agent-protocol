@@ -110,20 +110,28 @@ pub fn process_instruction(
     match u64::from_le_bytes(*selector) {
         selector::LOCK_ESCROW => sol_escrow::lock(program_id, accounts, data, false),
         selector::LOCK_METERED_ESCROW => sol_escrow::lock(program_id, accounts, data, true),
-        selector::RELEASE_ESCROW => sol_escrow::pay_out(program_id, accounts, None),
-        selector::SETTLE_ESCROW => {
-            let actual = checks::Args(data).u64()?;
-            sol_escrow::pay_out(program_id, accounts, Some(actual))
+        selector::RELEASE_ESCROW => {
+            sol_escrow::pay_out(program_id, accounts, None, checks::job(data))
         }
-        selector::CANCEL_ESCROW => sol_escrow::cancel(program_id, accounts),
+        selector::SETTLE_ESCROW => {
+            let mut args = checks::Args(data);
+            let actual = args.u64()?;
+            sol_escrow::pay_out(program_id, accounts, Some(actual), checks::job(args.0))
+        }
+        selector::CANCEL_ESCROW => sol_escrow::cancel(program_id, accounts, checks::job(data)),
         selector::LOCK_TOKEN_ESCROW => token_escrow::lock(program_id, accounts, data, false),
         selector::LOCK_METERED_TOKEN_ESCROW => token_escrow::lock(program_id, accounts, data, true),
-        selector::RELEASE_TOKEN_ESCROW => token_escrow::pay_out(program_id, accounts, None),
-        selector::SETTLE_TOKEN_ESCROW => {
-            let actual = checks::Args(data).u64()?;
-            token_escrow::pay_out(program_id, accounts, Some(actual))
+        selector::RELEASE_TOKEN_ESCROW => {
+            token_escrow::pay_out(program_id, accounts, None, checks::job(data))
         }
-        selector::CANCEL_TOKEN_ESCROW => token_escrow::cancel(program_id, accounts),
+        selector::SETTLE_TOKEN_ESCROW => {
+            let mut args = checks::Args(data);
+            let actual = args.u64()?;
+            token_escrow::pay_out(program_id, accounts, Some(actual), checks::job(args.0))
+        }
+        selector::CANCEL_TOKEN_ESCROW => {
+            token_escrow::cancel(program_id, accounts, checks::job(data))
+        }
         selector::REGISTER_AGENT => registry::register(program_id, accounts, data),
         selector::UPDATE_AGENT => registry::update(program_id, accounts, data),
         selector::DEREGISTER_AGENT => registry::deregister(program_id, accounts),
@@ -135,8 +143,8 @@ pub fn process_instruction(
         selector::EXPIRE_RATING => rating::expire(program_id, accounts),
         selector::CLOSE_RATING => rating::close_final(program_id, accounts),
         selector::ATTEST_QUALITY => attestation::attest(program_id, accounts, data),
-        selector::CONFIRM_ATTESTATION => attestation::resolve(program_id, accounts, true),
-        selector::DISPUTE_ATTESTATION => attestation::resolve(program_id, accounts, false),
+        selector::CONFIRM_ATTESTATION => attestation::resolve(program_id, accounts, data, true),
+        selector::DISPUTE_ATTESTATION => attestation::resolve(program_id, accounts, data, false),
         #[cfg(feature = "per")]
         selector::per::DELEGATE_ESCROW => instructions::per::delegate(program_id, accounts, data),
         #[cfg(feature = "per")]

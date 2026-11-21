@@ -25,9 +25,15 @@
  * Jobs can share an address: once an escrow has ended, the same payer can lock
  * another job for the same payee under the same nonce, and the escrow and
  * rating addresses are the same. The rating's `opened_slot` (the slot of
- * `open_rating`) tells the jobs apart, so `accept_rating`, the commitments and
- * `attest_quality` all name it: every builder for them takes it as a required
- * `openedSlot`, read from the rating account (`decodeRatingAccount`). The
+ * `open_rating`) tells the jobs apart, so every exit of a rated escrow,
+ * `accept_rating`, `commit_rating` and the commitment itself,
+ * `attest_quality` and the consumer's `confirm_attestation` or
+ * `dispute_attestation` all name it: every builder for them takes it as a
+ * required `openedSlot`, read from the rating account (`decodeRatingAccount`)
+ * or, for a decision on an attestation, from the attestation
+ * (`decodeAttestationAccount`). Read it when the job is agreed or verified and
+ * keep it with the job: re-reading it just before an exit would name
+ * whichever job holds the address by then. The
  * program refuses another slot (`RatingJobMismatch`, 6051), and refuses any
  * exit of a rated escrow in the slot its rating was opened in
  * (`RatingJustOpened`, 6050): lock and `open_rating` go in one transaction,
@@ -90,7 +96,7 @@ export const RATING_REVEAL_SLOTS = 1_512_000n;
 export const ATTESTATION_RESOLUTION_SLOTS = 1_512_000n;
 
 export const RATING_ACCOUNT_LEN = 270;
-export const ATTESTATION_ACCOUNT_LEN = 119;
+export const ATTESTATION_ACCOUNT_LEN = 127;
 
 // ── Escrow flag byte ─────────────────────────────────────────────────────────
 
@@ -284,13 +290,18 @@ export function buildAcceptRatingInstruction(input: OfEscrow & { specialist: Pub
   });
 }
 
-/** `commit_rating`: the consumer or the specialist commits to `ratingCommitment(...)`, made with the rating's `openedSlot`. */
-export function buildCommitRatingInstruction(input: OfEscrow & { signer: PublicKey; commitment: Uint8Array }): TransactionInstruction {
+/**
+ * `commit_rating`: the consumer or the specialist commits to
+ * `ratingCommitment(...)`. `openedSlot` names the job: the rating account's
+ * `openedSlot`, the same one the commitment was made with. The program refuses
+ * another (`RatingJobMismatch`, 6051) before storing anything.
+ */
+export function buildCommitRatingInstruction(input: OfEscrow & { signer: PublicKey; commitment: Uint8Array; openedSlot: bigint }): TransactionInstruction {
   const commitment = bytes32(input.commitment, 'commitment');
   if (commitment.every((byte) => byte === 0)) throw new Error('commitment must not be all zero');
   return new TransactionInstruction({
     programId: input.programId,
-    data: Buffer.concat([disc('global:commit_rating'), commitment]),
+    data: Buffer.concat([disc('global:commit_rating'), commitment, openedSlotBytes(input.openedSlot)]),
     keys: [meta(ratingPda(input.escrow, input.programId), true), meta(input.signer, false, true)],
   });
 }
@@ -359,21 +370,32 @@ export function buildAttestQualityInstruction(input: OfEscrow & { judge: PublicK
   });
 }
 
-function resolveAttestation(name: string, input: OfEscrow & { judge: PublicKey; consumer: PublicKey }): TransactionInstruction {
+interface AttestationDecision {
+  judge: PublicKey;
+  consumer: PublicKey;
+  /**
+   * Names the job: the attestation's `openedSlot`, as the consumer read it
+   * with the scores it is deciding on. The program refuses another
+   * (`RatingJobMismatch`, 6051).
+   */
+  openedSlot: bigint;
+}
+
+function resolveAttestation(name: string, input: OfEscrow & AttestationDecision): TransactionInstruction {
   return new TransactionInstruction({
     programId: input.programId,
-    data: disc(name),
+    data: Buffer.concat([disc(name), openedSlotBytes(input.openedSlot)]),
     keys: [meta(attestationPda(input.escrow, input.programId), true), meta(agentPda(input.judge, input.programId), true), meta(input.consumer, false, true)],
   });
 }
 
 /** `confirm_attestation`: the consumer the attestation names confirms it, once. */
-export function buildConfirmAttestationInstruction(input: OfEscrow & { judge: PublicKey; consumer: PublicKey }): TransactionInstruction {
+export function buildConfirmAttestationInstruction(input: OfEscrow & AttestationDecision): TransactionInstruction {
   return resolveAttestation('global:confirm_attestation', input);
 }
 
 /** `dispute_attestation`: the consumer the attestation names disputes it, once. */
-export function buildDisputeAttestationInstruction(input: OfEscrow & { judge: PublicKey; consumer: PublicKey }): TransactionInstruction {
+export function buildDisputeAttestationInstruction(input: OfEscrow & AttestationDecision): TransactionInstruction {
   return resolveAttestation('global:dispute_attestation', input);
 }
 
@@ -422,7 +444,11 @@ export const RATING_PROGRAM_ERRORS = {
   6049: 'JudgeNotActive',
   /** An exit of a rated escrow in the slot its rating was opened in. */
   6050: 'RatingJustOpened',
-  /** `accept_rating` or `attest_quality` named an `opened_slot` other than the rating's: another job now holds the address. */
+  /**
+   * A rated exit, `accept_rating`, `commit_rating`, `attest_quality` or a
+   * decision on an attestation named an `opened_slot` other than the job's (or
+   * a rated exit named none): another job now holds the address.
+   */
   6051: 'RatingJobMismatch',
 } as const;
 export type RatingProgramErrorName = (typeof RATING_PROGRAM_ERRORS)[keyof typeof RATING_PROGRAM_ERRORS];
@@ -526,6 +552,8 @@ export interface AttestationAccount {
   /** Slot the attestation was made in; the judge may close an unresolved one after `ATTESTATION_RESOLUTION_SLOTS` from it. */
   createdSlot: bigint;
   bump: number;
+  /** The slot the job's rating was opened in. `confirm_attestation` and `dispute_attestation` name it. */
+  openedSlot: bigint;
 }
 
 /** Reads an attestation account. Throws when the bytes are not one. */
@@ -542,6 +570,7 @@ export function decodeAttestationAccount(accountData: Uint8Array): AttestationAc
     resolution,
     createdSlot: data.readBigUInt64LE(110),
     bump: data[118],
+    openedSlot: data.readBigUInt64LE(119),
   };
 }
 
@@ -557,41 +586,62 @@ const EXIT_ACCOUNTS: readonly (readonly [name: string, usual: number])[] = [
   ['global:cancel_token_escrow', 7],
 ];
 
+/** Data length of each exit without the job's `opened_slot`: the selector, and `actual` for a settle. */
+const EXIT_DATA_LEN: Readonly<Record<string, number>> = {
+  'global:release_escrow': 8,
+  'global:settle_escrow': 16,
+  'global:cancel_escrow': 8,
+  'global:release_token_escrow': 8,
+  'global:settle_token_escrow': 16,
+  'global:cancel_token_escrow': 8,
+};
+
 /**
- * Adds the rating account to an exit of a rated escrow: release, claim,
- * settle, refund or decline, SOL or token. The escrow is the instruction's
- * first account, and the rating account goes right after the usual accounts,
- * writable. Without it the program refuses the exit of a rated escrow
- * (`RatingAccountRequired`, 6033).
+ * Makes an exit of a rated escrow (release, claim, settle, refund or
+ * decline, SOL or token) into the rated form: the rating account right after
+ * the usual accounts, writable, and the job's `openedSlot` (the rating
+ * account's `opened_slot`, u64 LE) after the instruction's data. The escrow is
+ * the instruction's first account. Without the account the program refuses
+ * the exit (`RatingAccountRequired`, 6033); without the slot, or with another
+ * job's, `RatingJobMismatch` (6051).
  *
  * With `rated` false the instruction is returned as it is, so a transaction
- * for an escrow that is not rated does not change by a byte. Throws for an
- * instruction that is not one of the six exits or lacks its usual accounts.
+ * for an escrow that is not rated does not change by a byte. With `rated`
+ * true, `openedSlot` is required. Throws for an instruction that is not one
+ * of the six exits, lacks its usual accounts or already carries more data.
  */
-export function withRatingAccount(exit: TransactionInstruction, rated: boolean): TransactionInstruction {
+export function withRatingAccount(exit: TransactionInstruction, rated: false): TransactionInstruction;
+export function withRatingAccount(exit: TransactionInstruction, rated: true, openedSlot: bigint): TransactionInstruction;
+export function withRatingAccount(exit: TransactionInstruction, rated: boolean, openedSlot?: bigint): TransactionInstruction;
+export function withRatingAccount(exit: TransactionInstruction, rated: boolean, openedSlot?: bigint): TransactionInstruction {
   if (!rated) return exit;
-  const usual = EXIT_ACCOUNTS.find(([name]) => startsWith(exit.data, disc(name)))?.[1];
-  if (usual === undefined) throw new Error('not an escrow exit instruction');
+  const found = EXIT_ACCOUNTS.find(([name]) => startsWith(exit.data, disc(name)));
+  if (found === undefined) throw new Error('not an escrow exit instruction');
+  const [name, usual] = found;
   if (exit.keys.length < usual) throw new Error('the exit instruction is missing some of its usual accounts');
+  if (openedSlot === undefined) throw new Error("a rated exit names the job: pass the rating account's openedSlot");
+  if (exit.data.length !== EXIT_DATA_LEN[name]) throw new Error('the exit instruction already carries more data than its own');
   const rating = ratingPda(exit.keys[0].pubkey, exit.programId);
   return new TransactionInstruction({
     programId: exit.programId,
-    data: exit.data,
+    data: Buffer.concat([exit.data, openedSlotBytes(openedSlot)]),
     keys: [...exit.keys.slice(0, usual), meta(rating, true), ...exit.keys.slice(usual)],
   });
 }
 
 /**
  * `buildSettleTokenEscrowInstruction` for an escrow that may be rated: the
- * same release, claim, settle, refund or decline, with the rating account
- * added when `rated` is true. Read `rated` from the escrow account
- * (`decodeTokenEscrowAccount(...).rated`).
+ * same release, claim, settle, refund or decline, with the rating account and
+ * the job's `openedSlot` added when `rated` is true. Read `rated` from the
+ * escrow account (`decodeTokenEscrowAccount(...).rated`) and `openedSlot`
+ * from its rating account when the job was agreed; `openedSlot` is required
+ * when `rated` is true.
  */
 export function buildTokenEscrowExitInstruction(
   terms: TokenEscrowTerms,
-  exit: { rated: boolean; refund?: boolean; authority?: PublicKey; options?: SettleTokenEscrowOptions },
+  exit: { rated: boolean; openedSlot?: bigint; refund?: boolean; authority?: PublicKey; options?: SettleTokenEscrowOptions },
 ): TransactionInstruction {
-  return withRatingAccount(buildSettleTokenEscrowInstruction(terms, exit.refund ?? false, exit.authority ?? terms.payer, exit.options ?? {}), exit.rated);
+  return withRatingAccount(buildSettleTokenEscrowInstruction(terms, exit.refund ?? false, exit.authority ?? terms.payer, exit.options ?? {}), exit.rated, exit.openedSlot);
 }
 
 export interface SolEscrowTerms {
@@ -634,8 +684,10 @@ interface SolEscrowExit {
   escrow: PublicKey;
   payer: PublicKey;
   payee: PublicKey;
-  /** Whether the escrow's rated bit is set; read it from the escrow account. Adds the rating account. */
+  /** Whether the escrow's rated bit is set; read it from the escrow account. Adds the rating account and `openedSlot`. */
   rated?: boolean;
+  /** The rating account's `opened_slot`, naming the job. Required when `rated` is true. */
+  openedSlot?: bigint;
   /** Defaults to the protocol treasury fixed in the program. */
   treasury?: PublicKey;
 }
@@ -665,6 +717,7 @@ export function buildReleaseSolEscrowInstruction(input: SolEscrowExit & { signer
       ],
     }),
     input.rated === true,
+    input.openedSlot,
   );
 }
 
@@ -677,6 +730,7 @@ export function buildSettleSolEscrowInstruction(input: SolEscrowExit & { actual:
       keys: [meta(input.escrow, true), meta(input.payer, true), meta(input.payee, true, true), meta(input.treasury ?? ESCROW_PROTOCOL_TREASURY, true), meta(SystemProgram.programId)],
     }),
     input.rated === true,
+    input.openedSlot,
   );
 }
 
@@ -693,6 +747,7 @@ export function buildCancelSolEscrowInstruction(input: Omit<SolEscrowExit, 'paye
       keys: [meta(input.escrow, true), meta(input.authority, false, true), meta(input.payer, true), meta(SystemProgram.programId)],
     }),
     input.rated === true,
+    input.openedSlot,
   );
 }
 

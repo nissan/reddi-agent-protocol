@@ -10,7 +10,7 @@
  * crypto, no keys. The server's signing step lives in `settle-signer.ts`.
  */
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
-import { withRatingAccount } from "@reddi/x402-solana/rating";
+import { decodeRatingAccount, ratingPda, withRatingAccount } from "@reddi/x402-solana/rating";
 import devnetProfile from "@/config/networks/devnet.json";
 import { SANDBOX_FEE_TREASURY } from "./pricing";
 
@@ -121,10 +121,11 @@ export function buildSandboxMeteredLock(input: {
 /**
  * The provider's step: settle the actual cost. The payee signs; the payer and treasury are written to.
  * For an escrow the visitor opted in to rating (`rated`), the escrow's rating account follows the
- * usual accounts, as the program requires of every exit of a rated escrow. Otherwise the
- * instruction is the same as it has always been.
+ * usual accounts and the job's `openedSlot` (read with the lock, `sandboxRatingOpenedSlot`)
+ * follows the data, as the program requires of every exit of a rated escrow; `openedSlot` is
+ * required then. Otherwise the instruction is the same as it has always been.
  */
-export function buildSandboxSettle(input: { escrow: PublicKey; payer: PublicKey; payee: PublicKey; actualLamports: bigint; programId?: PublicKey; rated?: boolean }): TransactionInstruction {
+export function buildSandboxSettle(input: { escrow: PublicKey; payer: PublicKey; payee: PublicKey; actualLamports: bigint; programId?: PublicKey; rated?: boolean; openedSlot?: bigint }): TransactionInstruction {
   const settle = new TransactionInstruction({
     programId: input.programId ?? SANDBOX_ESCROW_PROGRAM_ID,
     keys: [
@@ -136,7 +137,31 @@ export function buildSandboxSettle(input: { escrow: PublicKey; payer: PublicKey;
     ],
     data: concat(SANDBOX_ESCROW_DISCRIMINATORS.settleEscrow, u64le(input.actualLamports)),
   });
-  return withRatingAccount(settle, input.rated === true);
+  return withRatingAccount(settle, input.rated === true, input.openedSlot);
+}
+
+/**
+ * The `opened_slot` of a rated escrow's rating account, from the account data read at its address,
+ * or undefined when that account is not the program's rating of this escrow awaiting settlement.
+ * Read it with the lock and keep it: it names the job the settle is for.
+ */
+export function sandboxRatingOpenedSlot(
+  escrow: PublicKey,
+  account: { owner: PublicKey; data: Uint8Array } | null,
+  programId: PublicKey = SANDBOX_ESCROW_PROGRAM_ID,
+): bigint | undefined {
+  if (!account || !account.owner.equals(programId)) return undefined;
+  try {
+    const rating = decodeRatingAccount(account.data);
+    return rating.escrow.equals(escrow) && rating.state === "awaiting_settlement" ? rating.openedSlot : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The rating account address of a sandbox escrow. */
+export function sandboxRatingAddress(escrow: PublicKey, programId: PublicKey = SANDBOX_ESCROW_PROGRAM_ID): PublicKey {
+  return ratingPda(escrow, programId);
 }
 
 export type DecodedSandboxEscrow = {

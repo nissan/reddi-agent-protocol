@@ -130,6 +130,7 @@ fn s1_the_named_judge_attests_a_paid_job() {
             resolution: 0,
             created_slot: t.world.slot(),
             bump: Pubkey::find_program_address(&[b"attestation", escrow.as_ref()], &escrow::id()).1,
+            opened_slot: t.world.opened_slot(&rating_address(&escrow)),
         }
     );
     // The judge paid the attestation's rent.

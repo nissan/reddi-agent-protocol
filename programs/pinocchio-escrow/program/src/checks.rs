@@ -176,6 +176,16 @@ pub fn close(account: &mut AccountView, to: &mut AccountView) -> ProgramResult {
 /// Instruction arguments, read front to back. Trailing bytes are ignored.
 pub struct Args<'a>(pub &'a [u8]);
 
+/// The job an exit of a rated escrow names: the `opened_slot` of its rating,
+/// as the 8 bytes (little-endian) after the exit's own data. An exit of an
+/// escrow that is not rated ignores anything after its own data, as the
+/// Anchor program does, so its wire format is unchanged.
+#[inline(always)]
+pub fn job(rest: &[u8]) -> Option<u64> {
+    rest.first_chunk::<8>()
+        .map(|bytes| u64::from_le_bytes(*bytes))
+}
+
 impl<'a> Args<'a> {
     #[inline(always)]
     pub fn array<const N: usize>(&mut self) -> Result<[u8; N], ProgramError> {
