@@ -236,7 +236,9 @@ reputation, job counts or accuracy of an agent that signed nothing.
    instruction's data. Without the account the exit is refused
    (`RatingAccountRequired`, 6033), and without the slot, or with another
    one, `RatingJobMismatch` (6051), so a seller that settles a rated escrow
-   must pass both.
+   must pass both. An exit that names a job is refused on an escrow that is
+   not rated, so it cannot end an unrated job that took a rated job's
+   address either.
 
    | Exit | Rating account |
    |---|---|
@@ -404,9 +406,12 @@ an unaccepted release there is no rating account (`AccountNotInitialized`,
 accounts. When the escrow's rated bit is set, one more account is required
 right after them, and the data must go on with `opened_slot: u64`, the rating
 account's `opened_slot` (offset 240) as the caller read it: after the
-selector for a release or cancel, after `actual` for a settle. On an escrow
-that is not rated these 8 bytes, like any trailing data, are ignored, so the
-wire format of an unrated exit is unchanged.
+selector for a release or cancel, after `actual` for a settle. An exit of an
+escrow that is not rated must not carry these 8 bytes: it is refused with
+`RatingJobMismatch` (6051), so an exit signed for a rated job cannot move the
+money of an unrated job that later takes the same address. Callers of an
+unrated escrow send no such bytes (an extra rating account alone is still
+ignored), so the wire format of an unrated exit is unchanged.
 
 | Instruction | Usual accounts | Rating account at index |
 |---|---|---|
@@ -671,10 +676,10 @@ dependencies stay out of the program's lockfile):
    acting alone cannot move the record of an agent that signed nothing;
    `accept_rating`; which releases open a rating), `rating.rs` (commit,
    reveal, expire, close, the deadlines at their boundary slots, unregistered
-   parties), `job_instance.rs` (an acceptance, a seller's settle or claim, a
-   commitment, a judge's scores or a consumer's decision on them, signed for
-   one job, are refused for the next job at the same address and change
-   nothing; no exit in the slot the rating was opened in),
+   parties), `job_instance.rs` (an acceptance, a seller's settle, claim or
+   decline, a commitment, a judge's scores or a consumer's decision on them,
+   signed for one job, are refused for the next job at the same address,
+   rated or not, and change nothing; no exit in the slot the rating was opened in),
    `judge_attestation.rs`, `instruction_surface.rs` (the default
    build answers the 23 instructions and not the two PER selectors) and
    `interface_vectors.rs` (the fixture in `interface/`). They cover every
@@ -716,13 +721,13 @@ escrow and registry instructions only:
 
 | | Anchor (13 instructions) | Pinocchio (23 instructions) | Change |
 |---|---|---|---|
-| Program size | 345,152 bytes | 96,000 bytes | 72% smaller |
-| Rent at 6,960 lamports per byte | 2.4046 SOL | 0.6705 SOL | 1.7341 SOL less |
-| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.4894 SOL | 1.2657 SOL less |
-| `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 103,336 bytes | 79% smaller |
+| Program size | 345,152 bytes | 96,240 bytes | 72% smaller |
+| Rent at 6,960 lamports per byte | 2.4046 SOL | 0.6722 SOL | 1.7324 SOL less |
+| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.4906 SOL | 1.2645 SOL less |
+| `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 103,576 bytes | 79% smaller |
 
 Before ratings and attestations were added the Pinocchio build was 62,248
-bytes (0.4356 SOL at 6,960); they cost 33,752 bytes and 0.2349 SOL of rent.
+bytes (0.4356 SOL at 6,960); they cost 33,992 bytes and 0.2366 SOL of rent.
 
 Rent is for the program account (36 bytes) plus the program data account (45
 bytes of header plus the binary), each with the 128-byte account overhead:
@@ -735,7 +740,9 @@ again, briefly, for the upload buffer. A program data account can be given
 room to grow, which costs rent for the extra room.
 
 Compute units for successful calls of the 13 shared instructions on an escrow
-that is not rated, from the side-by-side suite:
+that is not rated, from the side-by-side suite. The exits were measured
+before rated exits had to name their job; an unrated exit now costs up to
+about 25 units more for the check that it names none:
 
 | Call | Anchor | Pinocchio |
 |---|---|---|
@@ -765,9 +772,9 @@ move with the keys:
 | `release_escrow` of a rated escrow (payer, accepted; not accepted 3,478; payee claim 3,523) | 3,499 |
 | `settle_escrow` of a rated escrow | 3,458 |
 | `cancel_escrow` of a rated escrow (decline; refund 3,279) | 3,261 |
-| `release_token_escrow` of a rated escrow (payer, accepted), USDC / PYUSD | 16,077 / 21,959 |
-| `settle_token_escrow` of a rated escrow, USDC / PYUSD | 17,269 / 26,657 |
-| `cancel_token_escrow` of a rated escrow (decline), USDC / PYUSD | 10,305 / 15,585 |
+| `release_token_escrow` of a rated escrow (payer, accepted), USDC / PYUSD | 16,078 / 21,960 |
+| `settle_token_escrow` of a rated escrow, USDC / PYUSD | 17,270 / 26,658 |
+| `cancel_token_escrow` of a rated escrow (decline), USDC / PYUSD | 10,304 / 15,584 |
 | `commit_rating` (first / second) | 2,216 / 2,226 |
 | `reveal_rating` (first / second, both parties registered) | 6,680 / 6,706 |
 | `reveal_rating` (one party not registered) | 12,320 to 12,354 |
