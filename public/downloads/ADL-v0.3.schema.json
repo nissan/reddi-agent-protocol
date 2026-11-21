@@ -2495,6 +2495,28 @@
             },
             "paidBy": {
               "const": "provider"
+            },
+            "cap": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "symbol",
+                "amount"
+              ],
+              "description": "Most the fee can be on one payment in this asset. The protocol caps SOL payments at 0.1 SOL; stablecoins have no cap.",
+              "properties": {
+                "symbol": {
+                  "const": "SOL"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                }
+              }
+            },
+            "base": {
+              "const": "actual-cost",
+              "description": "The fee is taken from the amount actually paid: the price per call, or the settled cost of a per-token call."
             }
           }
         }
@@ -2562,24 +2584,52 @@
           ]
         },
         "price": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "amount",
-            "per"
-          ],
-          "properties": {
-            "amount": {
-              "type": "string",
-              "pattern": "^[0-9]+(\\.[0-9]+)?$"
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "amount",
+                "per"
+              ],
+              "properties": {
+                "amount": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                },
+                "per": {
+                  "const": "call"
+                }
+              }
             },
-            "per": {
-              "type": "string",
-              "enum": [
-                "call"
-              ]
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "per",
+                "inputPerMillion",
+                "outputPerMillion",
+                "maxPerCall"
+              ],
+              "properties": {
+                "per": {
+                  "const": "token"
+                },
+                "inputPerMillion": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                },
+                "outputPerMillion": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                },
+                "maxPerCall": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                }
+              }
             }
-          }
+          ]
         },
         "payTo": {
           "type": "string",
@@ -2589,7 +2639,8 @@
           "type": "string",
           "enum": [
             "direct",
-            "escrow"
+            "escrow",
+            "metered-escrow"
           ]
         }
       },
