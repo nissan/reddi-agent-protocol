@@ -397,3 +397,42 @@ test("a paused currency takes no new locks and says so in the provider's metadat
   const open = setup({ file: { pausedCurrencies: ["PYUSD"] } });
   assert.equal((await open.call(BODY, { "x402-payment": paymentHeader() })).status, 200);
 });
+
+test("a settle that lands but reports failure is not sent again: the buyer gets the answer and a receipt, never a false 'nothing was charged'", async () => {
+  const chain = fakeChain();
+  chain.landButReportFailure = true;
+  const { call, events } = setup({ chain });
+  const response = await call(BODY, { "x402-payment": paymentHeader() });
+  assert.equal(response.status, 200);
+  assert.equal(chain.attempts, 1, "the settle is not sent a second time");
+  const body = (await response.json()) as { choices: { message: { content: string } }[]; reddi: { metered: Record<string, unknown> } };
+  assert.equal(body.choices[0].message.content, "hello");
+  assert.deepEqual([body.reddi.metered.charged, body.reddi.metered.confirmed, body.reddi.metered.settleSignature], ["0.005355", true, SETTLE_SIGNATURE]);
+  assert.ok(response.headers.get(PROVIDER_RECEIPT_HEADER));
+  assert.ok(events.some((e) => e.event === "settle_unconfirmed" && e.state === "closed"));
+
+  // The same, but the settle's signature cannot be found: the answer still returns, with no receipt and no claim about amounts being confirmed.
+  const lost = fakeChain();
+  lost.landButReportFailure = true;
+  lost.hideSignatures = true;
+  const second = await setup({ chain: lost }).call(BODY, { "x402-payment": paymentHeader() });
+  assert.equal(second.status, 200);
+  assert.equal(second.headers.get(PROVIDER_RECEIPT_HEADER), null);
+  const lostBody = (await second.json()) as { reddi: { metered: Record<string, unknown> } };
+  assert.deepEqual([lostBody.reddi.metered.confirmed, "settleSignature" in lostBody.reddi.metered], [false, false]);
+});
+
+test("when the escrow cannot be read after a failed send, the buyer is not told nothing was charged", async () => {
+  const chain = fakeChain();
+  chain.failSend = true;
+  chain.failEscrowReadsAfterSend = true;
+  const { call, events } = setup({ chain });
+  const response = await call(BODY, { "x402-payment": paymentHeader() });
+  const text = await response.text();
+  assert.ok(!text.includes("Nothing was charged"));
+  assert.equal(response.status, 200);
+  assert.equal(JSON.parse(text).reddi.metered.confirmed, false);
+  assert.equal(response.headers.get(PROVIDER_RECEIPT_HEADER), null);
+  assert.equal(chain.attempts, 1);
+  assert.ok(events.some((e) => e.event === "settle_unconfirmed" && e.state === "unknown"));
+});

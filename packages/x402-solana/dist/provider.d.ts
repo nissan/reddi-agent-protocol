@@ -260,7 +260,9 @@ export type ConfirmedSettlement = {
  * provider's credit and the treasury's fee are read from the balance changes,
  * not from what the provider intended. Refused when the buyer got back less
  * than the maximum less the amount billed, or more was billed than was
- * locked: a receipt cannot state that honestly.
+ * locked: a receipt cannot state that honestly. A mint that charges a
+ * non-zero transfer fee would land here on every settle, since each transfer
+ * arrives short; the accepted Token-2022 mints are watched to stay at zero.
  */
 export declare function confirmMeteredSettlement(record: SettlementRecord | null, expected: {
     programId: PublicKey;

@@ -45,8 +45,10 @@ A payout fails if the treasury cannot receive it:
    rent-exempt minimum fails.
 2. Create the vault's associated token accounts for USDC and AUDD (classic SPL
    Token) and PYUSD and USDG (Token-2022). Anyone can pay for these; the vault
-   owns them. The provider settle path also creates them on demand, but release
-   and claim do not.
+   owns them. Nothing creates them later: release, claim and the provider's
+   settle all expect them. Until the account for a currency exists and can
+   receive, a provider running the provider kit refuses calls in that currency
+   with `provider_not_ready`.
 3. Run the read-only check until it passes:
 
    ```bash

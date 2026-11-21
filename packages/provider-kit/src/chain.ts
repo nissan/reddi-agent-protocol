@@ -14,6 +14,8 @@ export interface ProviderChain {
   sendInstructions(instructions: TransactionInstruction[]): Promise<string>;
   /** What a confirmed transaction did: the programs it called, the accounts it named and each token balance before and after. Null when it cannot be found. */
   readSettlement(signature: string): Promise<SettlementRecord | null>;
+  /** The newest successful transaction that named this account, or null. Used to find a settle whose send reported failure but landed. */
+  latestSuccess(address: PublicKey): Promise<string | null>;
 }
 
 const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
@@ -56,6 +58,10 @@ export function createProviderChain(rpcUrl: string, keypair?: Keypair): Provider
         };
       }
       return null;
+    },
+    async latestSuccess(address) {
+      const recent = await connection.getSignaturesForAddress(address, { limit: 10 }, "confirmed");
+      return recent.find((entry) => entry.err === null)?.signature ?? null;
     },
     async sendInstructions(instructions) {
       if (!keypair) throw new Error("no provider key is loaded");

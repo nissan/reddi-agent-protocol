@@ -80,6 +80,14 @@ export interface FakeChain extends ProviderChain {
   settlement?: SettlementRecord | null | "unreadable";
   /** Tokens someone else sent to the vault, which the settle returns to the buyer. */
   donated: bigint;
+  /** The next send lands on chain (the escrow closes) but reports failure. */
+  landButReportFailure: boolean;
+  /** Reads of the escrow account fail after a send was attempted. */
+  failEscrowReadsAfterSend: boolean;
+  attempts: number;
+  landedMax?: bigint;
+  /** The settle's signature cannot be found afterwards. */
+  hideSignatures?: boolean;
 }
 
 /** What the program does with a settle of `actual`: 2.5% rounded down to the treasury, the rest to the payee, the unused maximum back. */
@@ -114,13 +122,25 @@ export function fakeChain(escrow: EscrowFields | null = {}): FakeChain {
     failSend: false,
     failReads: false,
     donated: 0n,
+    landButReportFailure: false,
+    failEscrowReadsAfterSend: false,
+    attempts: 0,
     readGenesisHash: async () => chain.genesis,
     readAccount: async (address) => {
       if (chain.failReads) throw new Error("rpc down");
+      if (chain.failEscrowReadsAfterSend && chain.attempts > 0 && address.equals(escrowAddress())) throw new Error("rpc down");
       return accounts.get(address.toBase58()) ?? null;
     },
     readSlot: async () => CURRENT_SLOT,
     sendInstructions: async (instructions) => {
+      chain.attempts += 1;
+      if (chain.landButReportFailure) {
+        chain.landButReportFailure = false;
+        chain.sent.push(instructions);
+        chain.landedMax = Buffer.from(accounts.get(escrowAddress().toBase58())!.data).readBigUInt64LE(168);
+        accounts.delete(escrowAddress().toBase58()); // a settle closes the escrow
+        throw new Error("confirmation timed out");
+      }
       if (chain.failSend) throw new Error("send failed");
       if (chain.failSends > 0) {
         chain.failSends -= 1;
@@ -133,9 +153,10 @@ export function fakeChain(escrow: EscrowFields | null = {}): FakeChain {
       if (chain.settlement === "unreadable") throw new Error("rpc down");
       if (chain.settlement !== undefined) return chain.settlement;
       const last = chain.sent[chain.sent.length - 1];
-      const max = Buffer.from(accounts.get(escrowAddress().toBase58())!.data).readBigUInt64LE(168);
+      const max = chain.landedMax ?? Buffer.from(accounts.get(escrowAddress().toBase58())!.data).readBigUInt64LE(168);
       return last ? settledRecord(last[last.length - 1], max, chain.donated) : null;
     },
+    latestSuccess: async () => (chain.sent.length > 0 && !chain.hideSignatures ? SETTLE_SIGNATURE : null),
   };
   return chain;
 }
