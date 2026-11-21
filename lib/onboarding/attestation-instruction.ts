@@ -1,34 +1,21 @@
-import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
+import { PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { attestationPda, buildAttestQualityInstruction } from "@reddi/x402-solana/rating";
 
-import {
-  AGENT_SEED,
-  ATTESTATION_SEED,
-  buildAttestQualityData,
-} from "@/lib/program";
-
-export function onboardingAttestationPda(jobId: Uint8Array, programId: PublicKey): PublicKey {
-  if (jobId.length !== 16) throw new Error("job_id_must_be_16_bytes");
-  return PublicKey.findProgramAddressSync([ATTESTATION_SEED, Buffer.from(jobId)], programId)[0];
+/** The attestation account of the job paid through `escrow`: ["attestation", escrow]. */
+export function onboardingAttestationPda(escrow: PublicKey, programId: PublicKey): PublicKey {
+  return attestationPda(escrow, programId);
 }
 
+/**
+ * `attest_quality` as the V1 program takes it: five scores, for the job paid through `escrow`,
+ * signed by the judge that job's rating account names. The consumer and the job come from the
+ * rating account, so neither is in the instruction data any more.
+ */
 export function buildOnboardingAttestQualityInstruction(input: {
   programId: PublicKey;
-  jobId: Uint8Array;
+  escrow: PublicKey;
   scores: [number, number, number, number, number];
-  consumer: PublicKey;
   judge: PublicKey;
 }): TransactionInstruction {
-  const judgeAgent = PublicKey.findProgramAddressSync([AGENT_SEED, input.judge.toBytes()], input.programId)[0];
-  const attestation = onboardingAttestationPda(input.jobId, input.programId);
-
-  return new TransactionInstruction({
-    programId: input.programId,
-    keys: [
-      { pubkey: attestation, isSigner: false, isWritable: true },
-      { pubkey: judgeAgent, isSigner: false, isWritable: false },
-      { pubkey: input.judge, isSigner: true, isWritable: true },
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-    ],
-    data: buildAttestQualityData(input.jobId, input.scores, input.consumer),
-  });
+  return buildAttestQualityInstruction(input);
 }

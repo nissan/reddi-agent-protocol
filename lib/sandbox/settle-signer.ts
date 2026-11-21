@@ -15,7 +15,15 @@ import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { SANDBOX_PROVIDERS } from "./catalog";
 import { buildSandboxSettle } from "./escrow";
 
-export type SandboxSettleInput = { providerId: string; escrow: PublicKey; payer: PublicKey; payee: PublicKey; actualLamports: bigint };
+export type SandboxSettleInput = {
+  providerId: string;
+  escrow: PublicKey;
+  payer: PublicKey;
+  payee: PublicKey;
+  actualLamports: bigint;
+  /** The escrow is opted in to rating, so the settle must pass its rating account. */
+  rated?: boolean;
+};
 export type SandboxSettleResult = { ok: true; signature: string } | { ok: false; message: string };
 
 export interface SandboxSettler {
@@ -59,7 +67,7 @@ export function createSandboxSettler(connection: Connection, keys: Map<string, K
       try {
         const latest = await connection.getLatestBlockhash("confirmed");
         const transaction = new Transaction({ feePayer: keypair.publicKey, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight }).add(
-          buildSandboxSettle({ escrow: input.escrow, payer: input.payer, payee: input.payee, actualLamports: input.actualLamports }),
+          buildSandboxSettle({ escrow: input.escrow, payer: input.payer, payee: input.payee, actualLamports: input.actualLamports, rated: input.rated === true }),
         );
         transaction.sign(keypair);
         const signature = await connection.sendRawTransaction(transaction.serialize(), { preflightCommitment: "confirmed" });

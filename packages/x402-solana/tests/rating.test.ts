@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
+import { PublicKey, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import * as index from '../src/index';
 import {
@@ -398,7 +398,7 @@ describe('exits of a rated and an unrated escrow', () => {
   });
 
   it('puts the rating account right after the usual accounts, before any extra ones', () => {
-    const extra = Keypair.generate().publicKey;
+    const extra = key('SysvarC1ock11111111111111111111111111111111');
     const today = buildSettleTokenEscrowInstruction(terms, false, payee, { actual: 1n });
     today.keys.push({ pubkey: extra, isSigner: false, isWritable: false });
     const rated = withRatingAccount(today, true);

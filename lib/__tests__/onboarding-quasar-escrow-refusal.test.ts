@@ -171,7 +171,7 @@ describe("onboarding Quasar reputation/attestation refuses without a lock-create
           consumer: new PublicKey(SPECIALIST),
           // Deliberately unparseable: reaching PublicKey parsing would surface as a different error.
           operator: "not a base58 operator",
-          jobIdHex: "not a job id",
+          escrow: "not an escrow address",
         },
         { getConnection, sendTransaction },
       );
@@ -206,7 +206,7 @@ describe("onboarding Quasar reputation/attestation refuses without a lock-create
         action: "confirm",
         consumer: new PublicKey(SPECIALIST),
         operator: SPECIALIST,
-        jobIdHex: "00112233445566778899aabbccddeeff",
+        escrow: SPECIALIST,
       },
       { getConnection, sendTransaction },
     );
@@ -249,7 +249,7 @@ describe("onboarding Quasar reputation/attestation refuses without a lock-create
     expect(rpcConstructions).toEqual([]);
   });
 
-  it("the refusal is scoped to the Quasar target: legacy-anchor still reaches its RPC step", async () => {
+  it("the Quasar refusal is scoped to the Quasar target: legacy-anchor gets the rating-flow refusal, still before any signer or RPC", async () => {
     process.env.NETWORK_PROFILE = "devnet";
     process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "legacy-anchor";
     process.env.ONBOARDING_ATTEST_OPERATOR_SECRET_KEY = await operatorSecretKey();
@@ -264,6 +264,22 @@ describe("onboarding Quasar reputation/attestation refuses without a lock-create
 
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.error).not.toBe(QUASAR_ESCROW_UNAVAILABLE_REASON);
-    expect(rpcConstructions.length).toBeGreaterThan(0);
+    // The V1 program ties a rating to an escrow opted in at lock; the operator-key commit cannot
+    // work against it, so it fails closed until the app rating flow lands (#842).
+    const { RATING_FLOW_UNAVAILABLE_REASON } = await import("@/lib/onboarding/rating-flow-availability");
+    expect(result.ok === false && result.error).toBe(RATING_FLOW_UNAVAILABLE_REASON);
+    expect(RATING_FLOW_UNAVAILABLE_REASON).toMatch(/not available until the app rating flow lands \(#842\)/);
+    expect(result.trace).toEqual(["reputation:unavailable_until_app_rating_flow"]);
+    expect(rpcConstructions).toEqual([]);
+
+    const { revealReputationRating } = await import("@/lib/onboarding/reputation-signal");
+    const reveal = await revealReputationRating("run-1");
+    expect(reveal).toEqual({ ok: false, error: RATING_FLOW_UNAVAILABLE_REASON, trace: ["reputation:unavailable_until_app_rating_flow"] });
+
+    const { submitOnchainOnboardingAttestation } = await import("@/lib/onboarding/onchain-attestation");
+    await expect(submitOnchainOnboardingAttestation({ walletAddress: SPECIALIST })).rejects.toThrow(RATING_FLOW_UNAVAILABLE_REASON);
+    expect(rpcConstructions).toEqual([]);
+    const fsMock = jest.requireMock("fs") as { writeFileSync: jest.Mock };
+    expect(fsMock.writeFileSync).not.toHaveBeenCalled();
   });
 });
