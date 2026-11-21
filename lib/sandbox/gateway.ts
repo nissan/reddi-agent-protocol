@@ -5,8 +5,10 @@
  * sandbox simulated form for a simulated payment.
  *
  * Server-side only. It is pinned to Solana devnet whatever network profile the
- * app runs with, holds no wallet, and submits no transaction: a visitor either
- * presents a simulated payment or a devnet transfer their own wallet signed.
+ * app runs with. A visitor presents a simulated payment, a devnet transfer
+ * their own wallet signed, or a metered escrow their wallet locked. For the
+ * escrow, the server settles the actual cost with the provider's devnet-only
+ * key (`settle-signer.ts`); it holds no other wallet.
  */
 import {
   buildX402Challenge,
@@ -30,7 +32,10 @@ import {
   type SandboxProvider,
   type SandboxSpotCheck,
 } from "./catalog";
+import { PublicKey } from "@solana/web3.js";
+import { bytesEqual, decodeSandboxEscrow, escrowNonceBytes, SANDBOX_ESCROW_PROGRAM_ID, sandboxEscrowAddress } from "./escrow";
 import { sandboxProviderAddress, signAsSandboxProvider } from "./keys";
+import type { SandboxSettler } from "./settle-signer";
 import { countTokens, formatUnits, maxChargeLamports, requestInputTokens, SANDBOX_FEE_TREASURY, settleSandboxCall } from "./pricing";
 import {
   canonicalizeSandboxReceipt,
@@ -56,6 +61,10 @@ export type SandboxGatewayDeps = {
   /** Devnet RPC used only to read a visitor's own transfer. */
   connection: ParsedTransactionConnection;
   replayStore: NonceReplayStore;
+  /** Devnet account reader, for a metered escrow the visitor locked. */
+  readAccount?: (address: PublicKey) => Promise<{ owner: PublicKey; data: Uint8Array } | null>;
+  /** Settles a metered escrow with the provider's devnet key. Without it, metered payments are refused. */
+  settler?: SandboxSettler;
   now?: () => number;
   newNonce?: () => string;
 };
@@ -142,6 +151,7 @@ export function sandboxChallenge(provider: SandboxProvider, origin: string, nonc
 type PaymentOutcome =
   | { ok: true; mode: "simulated"; nonce: string; payerId: string; proofRef: string }
   | { ok: true; mode: "devnet-transfer"; nonce: string; payerId: string; payerAddress: string; proofRef: string }
+  | { ok: true; mode: "metered-escrow"; nonce: string; payerId: string; payerAddress: string; escrow: string; maxLamports: bigint; proofRef: string }
   | { ok: false; result: Extract<ReceiptVerificationResult, { ok: false }> };
 
 function rejected(reason: Extract<ReceiptVerificationResult, { ok: false }>["reason"], message: string, expected?: unknown, actual?: unknown): PaymentOutcome {
@@ -182,6 +192,7 @@ async function verifySandboxPayment(header: string, provider: SandboxProvider, o
   }
 
   if (typeof record.payer !== "string" || record.payer.length === 0) return rejected("invalid_receipt", "A devnet payment receipt must name the paying wallet in payer.");
+  if (record.settlement === "metered-escrow") return verifyMeteredLock(record, provider, nonce, inputTokens, deps);
   const verifier = new SolanaReceiptVerifier({
     allowRealPayment: true,
     connection: deps.connection,
@@ -201,6 +212,45 @@ async function verifySandboxPayment(header: string, provider: SandboxProvider, o
   return { ok: true, mode: "devnet-transfer", nonce, payerId: record.payer, payerAddress: record.payer, proofRef: signature };
 }
 
+/**
+ * Checks a metered escrow the visitor's wallet locked: on the devnet program,
+ * at the address the payer and challenge nonce give, still locked, metered,
+ * payable to this provider, for exactly the challenge's maximum.
+ */
+async function verifyMeteredLock(record: Record<string, unknown>, provider: SandboxProvider, nonce: string, inputTokens: number, deps: SandboxGatewayDeps): Promise<PaymentOutcome> {
+  if (!deps.settler?.canSettle(provider.id) || !deps.readAccount) {
+    return rejected("unsupported_receipt", `${provider.name} cannot settle a metered escrow on devnet right now. Nothing was taken; cancel the lock for a full refund, or pay with a simulated payment.`);
+  }
+  let payer: PublicKey;
+  let escrowAddress: PublicKey;
+  try {
+    payer = new PublicKey(record.payer as string);
+    escrowAddress = new PublicKey(String(record.escrow));
+  } catch {
+    return rejected("invalid_receipt", "A metered payment must name the payer and the escrow address.");
+  }
+  if (!escrowAddress.equals(sandboxEscrowAddress(payer, nonce))) return rejected("invalid_receipt", "The escrow address is not the one this payer and challenge nonce give.");
+  let account: { owner: PublicKey; data: Uint8Array } | null;
+  try {
+    account = await deps.readAccount(escrowAddress);
+  } catch {
+    return rejected("unsupported_receipt", "The devnet RPC could not be read. Nothing was accepted; present the same receipt again shortly.");
+  }
+  if (!account) return rejected("invalid_receipt", "No escrow is locked at that address yet. Wait for the lock to confirm, then present it again.");
+  if (!account.owner.equals(SANDBOX_ESCROW_PROGRAM_ID)) return rejected("invalid_receipt", "That account is not held by the devnet escrow program.");
+  const escrow = decodeSandboxEscrow(account.data);
+  if (!escrow) return rejected("invalid_receipt", "That account is not an escrow.");
+  if (escrow.status !== "locked") return rejected("duplicate_nonce", "This escrow has already been settled or cancelled.", undefined, nonce);
+  if (!escrow.metered) return rejected("invalid_receipt", "This escrow was not locked as a metered escrow.");
+  if (!escrow.payer.equals(payer)) return rejected("invalid_receipt", "The escrow was locked by a different wallet.");
+  if (escrow.payee.toBase58() !== provider.payTo) return rejected("wrong_payee", "escrow payee does not match challenge", provider.payTo, escrow.payee.toBase58());
+  if (!bytesEqual(escrow.nonce, escrowNonceBytes(nonce))) return rejected("invalid_nonce", "The escrow nonce does not match the challenge.");
+  const maxLamports = maxChargeLamports(provider, inputTokens);
+  if (escrow.amount !== maxLamports) return rejected("wrong_amount", "escrow amount does not match challenge", maxLamports.toString(), escrow.amount.toString());
+  if (!(await deps.replayStore.checkAndStore(`escrow:${escrowAddress.toBase58()}`))) return rejected("duplicate_nonce", "receipt nonce has already been used", undefined, nonce);
+  return { ok: true, mode: "metered-escrow", nonce, payerId: payer.toBase58(), payerAddress: payer.toBase58(), escrow: escrowAddress.toBase58(), maxLamports, proofRef: escrowAddress.toBase58() };
+}
+
 async function writeReceipt(input: {
   provider: SandboxProvider;
   requestBody: string;
@@ -209,14 +259,17 @@ async function writeReceipt(input: {
   inputTokens: number;
   answer: string;
   issuedAt: string;
+  /** The settle transaction, for a metered escrow. */
+  settleSignature?: string;
 }): Promise<SandboxReceipt> {
   const { provider, payment } = input;
   const maxAmount = maxChargeLamports(provider, input.inputTokens);
-  const paid = payment.mode === "devnet-transfer";
+  const direct = payment.mode === "devnet-transfer";
+  const paid = direct || payment.mode === "metered-escrow";
   // A devnet transfer paid the maximum straight to the provider: the receipt
   // states that, with no fee and no refund, because nothing else happened on
-  // chain. A simulated call shows what the metered escrow does on V1: settle
-  // the actual tokens, take the 2.5% fee, return the rest of the maximum.
+  // chain. A metered escrow settled the actual tokens on devnet, and a
+  // simulated call shows the same arithmetic with no transaction.
   const settled = settleSandboxCall(provider, { inputTokens: input.inputTokens, outputTokens: countTokens(input.answer) }, maxAmount);
   const receipt: SandboxReceiptBody = {
     schemaVersion: paid ? REDDI_RECEIPT_V2_VERSION : SANDBOX_SIMULATED_RECEIPT_VERSION,
@@ -226,11 +279,13 @@ async function writeReceipt(input: {
     responseHash: await sha256Hex(input.responseBody),
     payment: {
       network: SANDBOX_NETWORK,
-      ...(paid ? { txSignature: payment.proofRef } : {}),
+      ...(direct ? { txSignature: payment.proofRef } : {}),
+      ...(payment.mode === "metered-escrow" ? { txSignature: input.settleSignature } : {}),
       currency: SANDBOX_CURRENCY,
-      ...(paid
+      ...(direct
         ? { amount: maxAmount.toString(), fee: { amount: "0" }, payer: payment.payerAddress, settlement: "direct" as const }
         : {
+            ...(payment.mode === "metered-escrow" ? { payer: payment.payerAddress } : {}),
             amount: settled.amount.toString(),
             fee: settled.fee > BigInt(0) ? { amount: settled.fee.toString(), treasury: SANDBOX_FEE_TREASURY } : { amount: "0" },
             settlement: "metered-escrow" as const,
@@ -271,6 +326,11 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
         sandbox: {
           simulatedPayment: `Resend with header x402-payment: demo:${challenge.nonce}`,
           devnetPayment: "Or transfer the amount in devnet SOL to payTo from your own wallet and resend with a JSON x402-payment receipt naming txSignature and payer.",
+          ...(deps.settler?.canSettle(provider.id)
+            ? {
+                meteredPayment: `Or lock the amount with lock_metered_escrow on ${SANDBOX_ESCROW_PROGRAM_ID.toBase58()} (payee payTo, nonce the challenge nonce as 16 bytes) and resend with a JSON x402-payment naming settlement "metered-escrow", payer, escrow and nonce. The provider settles the actual tokens and the rest comes back to you.`,
+              }
+            : {}),
           pricing: `The amount is the most this call can cost: ${inputTokens} input tokens plus ${provider.pricing.maxOutputTokens} output tokens at ${provider.pricing.inputPerMillionUsd} and ${provider.pricing.outputPerMillionUsd} USD per million, paid in devnet SOL at a demo rate.`,
         },
       },
@@ -290,6 +350,19 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
 
   const prompt = [...messages].reverse().find((message) => message.role === "user")?.content ?? messages[messages.length - 1].content;
   const answer = scriptedSandboxAnswer(provider, prompt);
+  let settleSignature: string | undefined;
+  if (payment.mode === "metered-escrow") {
+    // The provider settles the actual tokens before it answers, so the answer
+    // and its receipt name a settle transaction that already happened.
+    const settled = settleSandboxCall(provider, { inputTokens, outputTokens: countTokens(answer) }, payment.maxLamports);
+    const result = deps.settler
+      ? await deps.settler.settle({ providerId: provider.id, escrow: new PublicKey(payment.escrow), payer: new PublicKey(payment.payerAddress), payee: new PublicKey(provider.payTo), actualLamports: settled.amount })
+      : { ok: false as const, message: "No settler is configured." };
+    if (!result.ok) {
+      return failure(502, "settle_failed", `${result.message} Your maximum stays locked in escrow ${payment.escrow}; nothing was charged, and you can cancel it for a full refund from day 3.`, { charged: false, escrow: payment.escrow });
+    }
+    settleSignature = result.signature;
+  }
   const nowMs = (deps.now ?? Date.now)();
   const spotCheck: SandboxSpotCheck = simulatedSpotCheck(provider);
   const response = respond(200, {
@@ -301,12 +374,12 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
     rap_sandbox: { scripted: true, paymentMode: payment.mode, spotCheck },
   });
   // The receipt travels in a header, as in V1, because it commits to the hash of the whole response body.
-  const receipt = await writeReceipt({ provider, requestBody: request.rawBody, responseBody: response.bodyText, payment, inputTokens, answer, issuedAt: new Date(nowMs).toISOString() });
-  response.headers[payment.mode === "devnet-transfer" ? PROVIDER_RECEIPT_HEADER : SANDBOX_SIMULATED_RECEIPT_HEADER] = encodeReceiptHeader(receipt);
+  const receipt = await writeReceipt({ provider, requestBody: request.rawBody, responseBody: response.bodyText, payment, inputTokens, answer, issuedAt: new Date(nowMs).toISOString(), settleSignature });
+  response.headers[payment.mode !== "simulated" ? PROVIDER_RECEIPT_HEADER : SANDBOX_SIMULATED_RECEIPT_HEADER] = encodeReceiptHeader(receipt);
   return response;
 }
 
-export async function sandboxModelsListing(): Promise<Record<string, unknown>> {
+export async function sandboxModelsListing(settler?: SandboxSettler): Promise<Record<string, unknown>> {
   return {
     object: "list",
     sandbox: true,
@@ -329,6 +402,8 @@ export async function sandboxModelsListing(): Promise<Record<string, unknown>> {
           paidIn: { currency: SANDBOX_CURRENCY, network: SANDBOX_NETWORK, rate: "demo" },
         },
         payTo: provider.payTo,
+        // Whether a wallet can lock a metered escrow for this provider, which the server then settles.
+        meteredEscrow: { available: provider.behaviour !== "offline" && (settler?.canSettle(provider.id) ?? false), programId: SANDBOX_ESCROW_PROGRAM_ID.toBase58() },
         // The base58 address receipts from this provider name as providerId. A published test key, not a wallet.
         receiptProviderId: await sandboxProviderAddress(provider.id),
       },

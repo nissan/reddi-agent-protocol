@@ -5,9 +5,10 @@
  * endpoint to report the devnet genesis hash before it accepts a transfer, so an
  * override pointed at another cluster is refused instead of trusted.
  */
-import { Connection } from "@solana/web3.js";
+import { Connection, type PublicKey } from "@solana/web3.js";
 import type { NonceReplayStore } from "@reddi/x402-solana";
 import type { SandboxGatewayDeps } from "./gateway";
+import { createSandboxSettler, parseSandboxPayeeKeys, SANDBOX_PAYEE_KEYS_ENV } from "./settle-signer";
 
 const DEFAULT_DEVNET_RPC = "https://api.devnet.solana.com";
 const MAX_REMEMBERED_PAYMENTS = 50_000;
@@ -35,7 +36,16 @@ let deps: SandboxGatewayDeps | undefined;
 export function sandboxGatewayDeps(): SandboxGatewayDeps {
   if (!deps) {
     const rpcUrl = process.env.SANDBOX_DEVNET_RPC_URL?.trim() || DEFAULT_DEVNET_RPC;
-    deps = { connection: new Connection(rpcUrl, "confirmed"), replayStore: new BoundedReplayStore() };
+    const connection = new Connection(rpcUrl, "confirmed");
+    deps = {
+      connection,
+      replayStore: new BoundedReplayStore(),
+      readAccount: async (address: PublicKey) => {
+        const info = await connection.getAccountInfo(address, "confirmed");
+        return info ? { owner: info.owner, data: new Uint8Array(info.data) } : null;
+      },
+      settler: createSandboxSettler(connection, parseSandboxPayeeKeys(process.env[SANDBOX_PAYEE_KEYS_ENV])),
+    };
   }
   return deps;
 }
