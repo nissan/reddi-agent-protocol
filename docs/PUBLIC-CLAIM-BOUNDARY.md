@@ -19,7 +19,7 @@ RAP Assurance (Reddi Agent Protocol Assurance) is an open, integration-first rec
 
 - Do not claim RAP Assurance is a broad agent marketplace, app store, generic agent runtime, hosted runtime, wallet/action toolkit, payment facilitator, custody product, or escrow provider.
 - Production readiness, mainnet readiness, live AUDD/Solana settlement, unreviewed deployment, legal/compliance approval, or security audit completion.
-- Protocol transaction take-rate or collected treasury fees. The 0.05% / 5 bps figure is planned/product-fixture economics only.
+- Protocol transaction take-rate or collected treasury fees. The 2.5% (250 bps) fee, capped at 0.1 SOL on SOL payments, is planned until a mainnet release collects it. It replaces the earlier 0.05% / 5 bps plan.
 - That payment evidence proves work quality, trust, reputation, settlement finality, or dispute outcome by itself.
 - That hosted Reddi/Redditech services are required for the OSS core or are live production services unless a separately approved release says so.
 

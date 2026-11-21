@@ -42,7 +42,7 @@ RAP is intentionally complementary to adjacent standards and products: x402 and 
 - Not mainnet-ready and not a live-funds production deployment.
 - Not a security-audited release; `SECURITY.md` is a threat-model and disclosure boundary.
 - Not proof that AUDD/Solana custody or settlement is supported beyond the explicitly labelled proof/payment-plan/read-only observation paths.
-- Not an implemented transaction take-rate: 0.05% / 5 bps examples are planned/product-fixture economics only.
+- Not a live transaction take-rate: the planned protocol fee is 2.5% (250 bps) of the actual cost of a call, capped at 0.1 SOL on SOL payments, and no mainnet release collects it yet.
 
 ## Open-source core and hosted boundary
 
@@ -139,7 +139,8 @@ The verifier checks public product routes, recorded Solana devnet transactions, 
 | Topic | Current repository behavior |
 |---|---|
 | Protocol fee | No deployed on-chain release path collects a protocol treasury fee. |
-| 0.05% / 5 bps | Planned/product-fixture semantics only; zero fee is modeled on failed examples. `packages/x402-solana` has source-level helpers that state and verify a 5 bps split on a direct per-call payment when an operator configures a treasury; no deployed service is configured with one. |
+| Per-token pricing | Listings are priced per million input and output tokens. The buyer sees an estimated cost and approves a maximum (by default twice the estimate, never below it). The actual cost comes from the tokens used after the response. |
+| 2.5% / 250 bps (planned) | Planned fee of 2.5% of the amount actually paid, rounded down and taken from the provider's share, capped at 0.1 SOL on SOL payments only; stablecoins have no cap. It replaces the earlier 0.05% / 5 bps plan. In source, the metered escrow (`lock_metered_escrow`, `settle_escrow` and their token versions) locks the maximum, pays the fee to the protocol treasury and the rest to the provider, and refunds the unused maximum. `packages/x402-solana` mirrors the math (`protocolFeeBaseUnits`, `settleMeteredCall`). Only devnet runs it; no mainnet release collects the fee. |
 | Registration fee | The legacy registry burn constant is a devnet-era anti-sybil fixture, not protocol revenue. |
 | Custody | Current shipped public package flows are no-spend/proof-reference/read-only observation helpers. |
 | AUDD/Solana | AUDD is payment-plan/proof metadata and read-only SPL observation unless a separate approved live rail lands. |
