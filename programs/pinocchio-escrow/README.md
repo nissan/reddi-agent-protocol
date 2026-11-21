@@ -113,8 +113,9 @@ daily mint watch (`scripts/check-token2022-mint-posture.mjs`) is the control.
 
 The windows changed two account layouts. A SOL escrow is 165 bytes, with the
 two windows after `created_slot`; a token escrow is 219 bytes, with them at the
-end. An escrow written by an earlier build is shorter and this build refuses
-it, so open escrows on a program that is upgraded in place should be ended
+end. An escrow written by an earlier build is shorter (149 and 203 bytes) and
+both builds refuse it by its size, before reading a field, with
+`AccountDidNotDeserialize` (3003), so open escrows on a program that is upgraded in place should be ended
 (the payee can decline at any time) before the upgrade. The decoders in
 `lib/sandbox/escrow.ts` and `packages/x402-solana` read both sizes.
 
@@ -184,8 +185,9 @@ dependencies stay out of the program's lockfile):
    simulators with identical state, and requires the same result, the same
    error, the same error log line, the same events, the same inner instructions
    and the same bytes and lamports in every account either transaction touched.
-   Default build: 435 transactions across SOL, classic SPL Token (USDC, AUDD)
-   and Token-2022 (PYUSD, USDG) escrows, the registry, malformed input, wrong
+   Default build: 459 transactions across SOL, classic SPL Token (USDC, AUDD)
+   and Token-2022 (PYUSD, USDG) escrows, the registry, malformed input,
+   earlier-format escrow records, wrong
    and duplicated accounts, uninitialised token accounts, mints off the
    allowlist, transfer fees, and issuer actions on Token-2022 vaults. Extended
    build: 181 more across ratings, attestations and PER tracking, including
@@ -210,10 +212,10 @@ the checkout path:
 
 | | Anchor | Pinocchio | Change |
 |---|---|---|---|
-| Program size | 345,536 bytes | 62,248 bytes | 82% smaller |
-| Rent at 6,960 lamports per byte | 2.4073 SOL | 0.4356 SOL | 1.9717 SOL less |
-| Rent at 5,080 lamports per byte | 1.7570 SOL | 0.3179 SOL | 1.4391 SOL less |
-| Extended build size (not for mainnet) | 496,120 bytes | 92,512 bytes | 81% smaller |
+| Program size | 345,152 bytes | 62,248 bytes | 82% smaller |
+| Rent at 6,960 lamports per byte | 2.4046 SOL | 0.4356 SOL | 1.9690 SOL less |
+| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.3179 SOL | 1.4372 SOL less |
+| Extended build size (not for mainnet) | 495,744 bytes | 92,512 bytes | 81% smaller |
 
 Rent is for the program account (36 bytes) plus the program data account (45
 bytes of header plus the binary), each with the 128-byte account overhead:

@@ -808,6 +808,113 @@ fn malformed_calls_are_refused_the_same_way() {
     pair.report("Malformed calls");
 }
 
+/// Rewrite a live escrow record in place as the given earlier, shorter
+/// format, keeping its balance.
+fn shorten(pair: &mut Pair, address: Pubkey, earlier: impl Fn(&[u8]) -> Vec<u8>) {
+    let mut account = pair.anchor.get_account(&address).unwrap();
+    account.data = earlier(&account.data);
+    pair.set(address, account);
+}
+
+/// Records written before each escrow named its own windows are 16 bytes
+/// shorter: 149 bytes for SOL, where the two windows sat between the creation
+/// slot and the delegation flag, and 203 for tokens, where they were appended.
+/// Every instruction that reads one must refuse it, the same way in both builds.
+#[test]
+fn earlier_format_records_are_refused_the_same_way() {
+    let mut pair = Pair::new();
+    let payer = key(1);
+    let payee = key(2);
+    let (a, b) = (payer.pubkey(), payee.pubkey());
+    pair.fund(&payer, 1_000_000_000);
+    pair.fund(&payee, 1_000_000_000);
+
+    for (nonce, metered) in [([1; 16], false), ([2; 16], true)] {
+        pair.ok(
+            "lock",
+            sol_lock(&a, &b, 1_000_000, nonce, metered),
+            &[&payer],
+        );
+        shorten(&mut pair, sol_escrow(&a, nonce), |data| {
+            assert_eq!(data.len(), 165);
+            let earlier = [&data[..113], &data[129..]].concat();
+            assert_eq!(earlier.len(), 149);
+            earlier
+        });
+        pair.refused(
+            "release of a 149-byte record",
+            sol_payout(&a, &b, nonce, &a, None),
+            &[&payer],
+            3003,
+        );
+        pair.refused(
+            "claim of a 149-byte record",
+            sol_payout(&a, &b, nonce, &b, None),
+            &[&payee],
+            3003,
+        );
+        pair.refused(
+            "settle of a 149-byte record",
+            sol_payout(&a, &b, nonce, &b, Some(1_000)),
+            &[&payee],
+            3003,
+        );
+        pair.refused(
+            "refund of a 149-byte record by the payee",
+            sol_cancel(&a, nonce, &b),
+            &[&payee],
+            3003,
+        );
+        pair.refused(
+            "refund of a 149-byte record by the payer",
+            sol_cancel(&a, nonce, &a),
+            &[&payer],
+            3003,
+        );
+    }
+
+    let t = Tokens::install(&mut pair, spl_token::ID, USDC_MAINNET_MINT, 6);
+    let (payer, payee) = (t.payer.pubkey(), t.payee.pubkey());
+    for (nonce, metered) in [([3; 16], false), ([4; 16], true)] {
+        pair.ok("token lock", t.lock(1_000_000, nonce, metered), &[&t.payer]);
+        shorten(&mut pair, t.escrow(nonce), |data| {
+            assert_eq!(data.len(), 219);
+            data[..203].to_vec()
+        });
+        pair.refused(
+            "release of a 203-byte record",
+            t.payout(nonce, &payer, None),
+            &[&t.payer],
+            3003,
+        );
+        pair.refused(
+            "claim of a 203-byte record",
+            t.payout(nonce, &payee, None),
+            &[&t.payee],
+            3003,
+        );
+        pair.refused(
+            "settle of a 203-byte record",
+            t.payout(nonce, &payee, Some(1_000)),
+            &[&t.payee],
+            3003,
+        );
+        pair.refused(
+            "refund of a 203-byte record by the payee",
+            t.cancel(nonce, &payee, t.source),
+            &[&t.payee],
+            3003,
+        );
+        pair.refused(
+            "refund of a 203-byte record by the payer",
+            t.cancel(nonce, &payer, t.source),
+            &[&t.payer],
+            3003,
+        );
+    }
+    pair.report("Earlier-format records");
+}
+
 fn key_funded(pair: &mut Pair, seed: u8) -> Keypair {
     let keypair = key(seed);
     pair.fund(&keypair, 1_000_000_000);
