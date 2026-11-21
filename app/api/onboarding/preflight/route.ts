@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { DEVNET_RPC, ESCROW_PROGRAM_ID } from "@/lib/program";
+import { ESCROW_PROGRAM_ID } from "@/lib/program";
+import { describeRpcEndpoint, serverRpcEndpoint } from "@/lib/rpc/server-rpc";
 import { checkOperatorKeyStatus } from "@/lib/onboarding/operator-key";
 import { runSpecialistHealthcheck } from "@/lib/onboarding/healthcheck";
 
@@ -85,7 +86,10 @@ export async function POST(req: Request) {
 
     // 3) Program ID / RPC consistency
     try {
-      const conn = new Connection(DEVNET_RPC, "confirmed");
+      const endpoint = serverRpcEndpoint();
+      if (!endpoint.ok) throw new Error(endpoint.message);
+      const conn = new Connection(endpoint.url, "confirmed");
+      const rpcHost = describeRpcEndpoint(endpoint.url);
       const escrowPk = new PublicKey(ESCROW_PROGRAM_ID);
       const [latest, programInfo] = await Promise.all([
         conn.getLatestBlockhash(),
@@ -99,8 +103,8 @@ export async function POST(req: Request) {
         status: ok ? "pass" : "fail",
         blocking: true,
         detail: ok
-          ? `Program ${ESCROW_PROGRAM_ID} is executable on configured RPC (${DEVNET_RPC}).`
-          : `Program ${ESCROW_PROGRAM_ID} is missing/non-executable on configured RPC (${DEVNET_RPC}).`,
+          ? `Program ${ESCROW_PROGRAM_ID} is executable on configured RPC (${rpcHost}).`
+          : `Program ${ESCROW_PROGRAM_ID} is missing/non-executable on configured RPC (${rpcHost}).`,
         fix: ok
           ? undefined
           : "Align NEXT_PUBLIC_RPC_ENDPOINT + NEXT_PUBLIC_ESCROW_PROGRAM_ID to the same deployed cluster/program.",
@@ -129,7 +133,9 @@ export async function POST(req: Request) {
       });
     } else {
       try {
-        const conn = new Connection(DEVNET_RPC, "confirmed");
+        const endpoint = serverRpcEndpoint();
+        if (!endpoint.ok) throw new Error(endpoint.message);
+        const conn = new Connection(endpoint.url, "confirmed");
         const lamports = await conn.getBalance(new PublicKey(walletAddress));
         const sol = lamports / LAMPORTS_PER_SOL;
         const ok = sol >= minSol;
