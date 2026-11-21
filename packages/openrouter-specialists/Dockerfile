@@ -7,7 +7,7 @@ RUN npm ci --ignore-scripts
 COPY packages/x402-solana/ ./
 RUN npm run build
 
-# The receipt signer comes from @reddi/agent-protocol, which has no dependencies
+# The receipt signer comes from @redditech/agent-protocol, which has no dependencies
 # and ships its built dist/ in the repository.
 WORKDIR /workspace
 COPY packages/agent-protocol/package.json packages/agent-protocol/

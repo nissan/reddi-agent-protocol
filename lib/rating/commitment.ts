@@ -10,7 +10,7 @@
  * name is kept so the app's call sites read as "the commitment for this job".
  */
 import type { PublicKey } from "@solana/web3.js";
-import { ratingCommitment } from "@reddi/x402-solana/rating";
+import { ratingCommitment } from "@redditech/x402-solana/rating";
 
 export function jobRatingCommitment(rating: PublicKey, openedSlot: bigint, signer: PublicKey, score: number, salt: Uint8Array): Uint8Array {
   return ratingCommitment(rating, openedSlot, signer, score, salt);

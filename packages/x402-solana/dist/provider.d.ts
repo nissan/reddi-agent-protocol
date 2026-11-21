@@ -205,6 +205,8 @@ export type VerifiedLock = {
      * then. Undefined for a lock that is not rated.
      */
     openedSlot?: bigint;
+    /** The slot the lock was made in. The buyer may refund from `createdSlot + terms.cancelWindowSlots`. */
+    createdSlot: bigint;
 } | {
     ok: false;
     reason: string;
@@ -230,6 +232,7 @@ export declare function verifyMeteredLock(input: {
     minimum: bigint;
     readAccount: AccountReader;
     readSlot: SlotReader;
+    /** Unused for `session-call` and `session-settle`. */
     replayStore: NonceReplayStore;
     /** The protocol treasury. Only a local test deployment has another. */
     treasury?: PublicKey;
@@ -241,7 +244,20 @@ export declare function verifyMeteredLock(input: {
      * for a provider that does that.
      */
     acceptRatedEscrows?: boolean;
+    /**
+     * What the lock is checked for. `call` (the default): one call, and the
+     * escrow is remembered so it pays for no other. `session-call`: a call of a
+     * session (`MeteredSessionLedger`), which itself claims the escrow and orders
+     * the calls, so nothing is remembered here; a refund window too short for
+     * another call is reported as `session_window_closing`. `session-settle`:
+     * reading the lock back to settle a session's calls already served, so
+     * neither the refund window left nor the replay store is consulted; every
+     * other check still applies.
+     */
+    purpose?: 'call' | 'session-call' | 'session-settle';
 }): Promise<VerifiedLock>;
+/** The replay-store key that marks an escrow as taken, by a single call or by a session's first call. */
+export declare function meteredEscrowReplayKey(escrow: PublicKey): string;
 /** Token counts from an OpenAI-style usage report, or the estimate from the text when it reports none. */
 export declare function usageFrom(upstream: Record<string, unknown>, inputEstimate: number): TokenCounts;
 /**

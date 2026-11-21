@@ -216,8 +216,8 @@ Do not fake the payment or use the older synthetic SOL-only MCP receipt as if it
 
 Local no-spend implementation now exists for the Claude Code MCP x402 specialist path:
 
-- `@reddi/x402-solana` has a devnet USDC payer helper and Solana SPL-token adapter boundary.
-- `@reddi/rap-mcp-bridge` now gates and exposes:
+- `@redditech/x402-solana` has a devnet USDC payer helper and Solana SPL-token adapter boundary.
+- `@redditech/rap-mcp-bridge` now gates and exposes:
   - `reddi.prepare_x402_specialist_call`
   - `reddi.execute_x402_specialist_call`
   - `reddi.verify_x402_specialist_receipt`

@@ -2,8 +2,8 @@ jest.mock("server-only", () => ({}));
 
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { tokenEscrowAddresses, treasuryTokenAccount, ESCROW_PROTOCOL_TREASURY } from "@reddi/x402-solana/token-escrow";
-import { RATING_DISCRIMINATORS, ratingPda } from "@reddi/x402-solana/rating";
+import { tokenEscrowAddresses, treasuryTokenAccount, ESCROW_PROTOCOL_TREASURY } from "@redditech/x402-solana/token-escrow";
+import { RATING_DISCRIMINATORS, ratingPda } from "@redditech/x402-solana/rating";
 import { planMeteredBuy } from "@/lib/payments/metered-buy";
 import { receiptHeaderForProvider } from "@/lib/payments/wallet-direct-payment";
 import { verifyAndRecordMeteredCall } from "@/lib/jobs/metered-call";

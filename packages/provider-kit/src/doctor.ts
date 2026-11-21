@@ -5,7 +5,7 @@
 import { accessSync, constants, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { PublicKey } from "@solana/web3.js";
-import { checkProviderCluster, checkTokenAccount, checkTreasuryReadiness, ESCROW_PROTOCOL_TREASURY, token2022MintPosture, treasuryTokenAccount } from "@reddi/x402-solana";
+import { checkProviderCluster, checkTokenAccount, checkTreasuryReadiness, ESCROW_PROTOCOL_TREASURY, token2022MintPosture, treasuryTokenAccount } from "@redditech/x402-solana";
 import type { ProviderChain } from "./chain.js";
 import type { ProviderConfig } from "./config.js";
 import type { ProviderKeyResult } from "./keys.js";

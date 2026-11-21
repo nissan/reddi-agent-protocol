@@ -1,11 +1,11 @@
 /**
- * Thin wrapper around @reddi/x402-solana escrow helpers.
+ * Thin wrapper around @redditech/x402-solana escrow helpers.
  *
  * We keep this layer so actions don't import x402-solana directly —
  * makes mocking cleaner in tests and isolates any future API changes.
  */
 import { Keypair, Connection, PublicKey } from "@solana/web3.js";
-import { parseX402Header, sendPayment, isValidPaymentAddress } from "@reddi/x402-solana";
+import { parseX402Header, sendPayment, isValidPaymentAddress } from "@redditech/x402-solana";
 
 export { parseX402Header, isValidPaymentAddress };
 

@@ -54,7 +54,7 @@ explains ratings; this section is only about what changes for a payout.
   call each exit, when, and how the money is split do not change.
 - **How to tell.** A rated escrow has bit `0x02` set in its flag byte (a rated
   metered escrow stores 3). `readEscrowRatingStatus` and `withRatingAccount` in
-  `@reddi/x402-solana/rating` read the bit and add the account. Opting in is
+  `@redditech/x402-solana/rating` read the bit and add the account. Opting in is
   only possible in the slot of the lock, so a seller that reads the escrow at
   `confirmed` commitment before serving sees the final answer.
 - **What happens to the rating account.**
@@ -74,7 +74,7 @@ explains ratings; this section is only about what changes for a payout.
   attestation or decision on an attestation naming another slot is refused
   (6051), so what was signed for one job, a seller's settle or claim
   included, cannot be used for a later job at the same escrow address.
-- **Rent.** The buyer pays about 0.00277 SOL of rent for the rating account on
+- **Rent.** The buyer pays about 0.00202 SOL of rent for the rating account on
   top of the lock. It returns in the cases above, or when the buyer closes a
   finished rating.
 - **A seller's claim must be signed by the seller alone.** If the buyer's
@@ -106,11 +106,11 @@ does not allow, even when the escrow program accepts it:
   large enough to leave the seller's wallet rent-exempt, and a metered SOL lock
   needs a seller wallet that already is. The sandbox checks the same before
   asking for a signature. Clients can use `solPayoutWouldFail` and
-  `minimumSolPayout` from `@reddi/x402-solana`.
+  `minimumSolPayout` from `@redditech/x402-solana`.
 - **A frozen or closed seller token account.** The program refuses a token lock
   whose source or recipient account is frozen. If the recorded recipient is
   closed or frozen after the lock, the seller claims or settles to another
-  token account it owns (`payTo` in `@reddi/x402-solana`).
+  token account it owns (`payTo` in `@redditech/x402-solana`).
 - **The treasury.** The protocol treasury (the Squads vault) must hold at least
   0.001 SOL before the first SOL payout, and must have a token account for every
   accepted mint before the first payout in that mint. `node
@@ -120,7 +120,7 @@ does not allow, even when the escrow program accepts it:
   accepts a lock it reads the three accounts the settle pays into: its own
   token account, the treasury's, and the account the buyer funded the lock
   from, which receives the unused part (`checkMeteredPayout` in
-  `@reddi/x402-solana`, run by `verifyMeteredLock`). Each must exist, be
+  `@redditech/x402-solana`, run by `verifyMeteredLock`). Each must exist, be
   initialised, not frozen, belong to the right owner and not require a memo;
   otherwise the call is refused before any work and the lock stays usable. The
   treasury's token account for each currency must therefore exist before any

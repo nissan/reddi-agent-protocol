@@ -1,8 +1,9 @@
+import { createPrivateKey, sign as edSign } from "crypto";
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { MemoryNonceReplayStore } from "@reddi/x402-solana";
-import { escrowAccountFlags, ratingPda } from "@reddi/x402-solana/rating";
+import { MemoryNonceReplayStore } from "@redditech/x402-solana";
+import { escrowAccountFlags, ratingPda } from "@redditech/x402-solana/rating";
 import vectors from "@/programs/pinocchio-escrow/interface/vectors.json";
-import { validateReddiReceiptV2, verifyReddiReceiptV2 } from "@reddi/agent-protocol/receipt-v2";
+import { validateReddiReceiptV2, verifyReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
 import { IX, ACCOUNT_DISC } from "@/lib/program";
 import devnetProfile from "@/config/networks/devnet.json";
 import { findSandboxProviderById, SANDBOX_PROVIDERS } from "@/lib/sandbox/catalog";
@@ -20,6 +21,7 @@ import {
 import { handleSandboxChatCompletion, sandboxModelsListing, type SandboxGatewayDeps } from "@/lib/sandbox/gateway";
 import { countTokens, maxChargeLamports, requestInputTokens, SANDBOX_FEE_TREASURY, settleSandboxCall } from "@/lib/sandbox/pricing";
 import { decodeReceiptHeader, isSandboxReceipt, PROVIDER_RECEIPT_HEADER, verifySandboxReceipt } from "@/lib/sandbox/receipt";
+import { createSessionKey, paidCallAuthHeaders, sessionDelegationHeaderValue, type MessageSigner } from "@/lib/payments/session-auth";
 import { parseSandboxPayeeKeys, type SandboxSettleInput, type SandboxSettler } from "@/lib/sandbox/settle-signer";
 
 const ORIGIN = "https://sandbox.example";
@@ -27,7 +29,10 @@ const NOW_MS = Date.UTC(2026, 10, 21, 2, 0, 0);
 const swift = findSandboxProviderById("swift-infer")!;
 const messages = [{ role: "user", content: "Explain exponential backoff in two sentences." }];
 const MAX_LAMPORTS = maxChargeLamports(swift, requestInputTokens(messages));
-const payer = Keypair.generate().publicKey;
+const payerKeypair = Keypair.generate();
+const payer = payerKeypair.publicKey;
+const signerFor = (keypair: Keypair): MessageSigner => (message) =>
+  new Uint8Array(edSign(null, Buffer.from(message), createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(keypair.secretKey.slice(0, 32))]), format: "der", type: "pkcs8" })));
 const SETTLE_SIG = "3".repeat(88);
 const LOCK_SIG = "2".repeat(88);
 /** The slot the fake chain is at. Locks are made 10 slots earlier unless a test says otherwise. */
@@ -99,9 +104,28 @@ function makeDeps(accounts: Accounts, settler: SandboxSettler | undefined): Sand
   };
 }
 
-function call(deps: SandboxGatewayDeps, paymentHeader?: string) {
+/** The payer's delegation to a fresh key and that key's `single` signature over the body (#866). */
+async function singleCallAuth(escrow: string, body: string, signer: MessageSigner = signerFor(payerKeypair)) {
+  const sessionKey = await createSessionKey();
+  const delegation = await sessionDelegationHeaderValue({ escrow, provider: swift.payTo, sessionKey: sessionKey.publicKey, expiresAt: Math.floor(NOW_MS / 1000) + 600 }, signer);
+  const headers = await paidCallAuthHeaders({ delegation, sessionKey, escrow, body });
+  return { delegation: headers["x402-session-delegation"], signature: headers["x402-session-signature"] };
+}
+
+/** Sends the request; a metered payment is signed by the payer unless `auth` says otherwise. */
+async function call(deps: SandboxGatewayDeps, paymentHeader?: string, auth: "payer" | "none" | MessageSigner = "payer") {
   const body = { model: swift.model, messages };
-  return handleSandboxChatCompletion({ body, rawBody: JSON.stringify(body), paymentHeader, origin: ORIGIN }, deps);
+  const rawBody = JSON.stringify(body);
+  let session: { delegation: string; signature: string } | undefined;
+  try {
+    const parsed = paymentHeader ? (JSON.parse(paymentHeader) as { settlement?: string; escrow?: string }) : undefined;
+    if (parsed?.settlement === "metered-escrow" && typeof parsed.escrow === "string" && auth !== "none") {
+      session = await singleCallAuth(parsed.escrow, rawBody, auth === "payer" ? undefined : auth);
+    }
+  } catch {
+    // Not JSON: nothing to sign.
+  }
+  return handleSandboxChatCompletion({ body, rawBody, paymentHeader, origin: ORIGIN, ...(session ? { session } : {}) }, deps);
 }
 
 /** The slot a rated lock's rating was opened in: the lock's own. */
@@ -210,7 +234,7 @@ describe("sandbox metered escrow: instructions and layout", () => {
       [{ rated: true }, 3, true, true],
     ];
     for (const [fields, byte, metered, rated] of cases) {
-      for (const layout of [{}, { windows: null }, { session: new PublicKey(SANDBOX_FEE_TREASURY) }] as const) {
+      for (const layout of [{}, { session: new PublicKey(SANDBOX_FEE_TREASURY) }] as const) {
         const bytes = escrowBytes({ ...base, ...fields, ...layout });
         expect(decodeSandboxEscrow(bytes)).toMatchObject({ metered, rated });
         // The package's own reader agrees on every layout.
@@ -234,11 +258,9 @@ describe("sandbox metered escrow: instructions and layout", () => {
       cancelWindowSlots: SANDBOX_CANCEL_WINDOW_SLOTS,
     });
     expect(decodeSandboxEscrow(escrowBytes({ ...base, windows: { claim: BigInt(25), cancel: BigInt(250) } }))).toMatchObject({ claimWindowSlots: BigInt(25), cancelWindowSlots: BigInt(250), metered: true });
-    // An account the earlier program wrote has no windows and still decodes.
-    const legacy = decodeSandboxEscrow(escrowBytes({ ...base, windows: null }));
-    expect(legacy).toMatchObject({ amount: BigInt(9), status: "locked", metered: true });
-    expect(legacy?.cancelWindowSlots).toBeUndefined();
-    expect(decodeSandboxEscrow(escrowBytes({ ...base, windows: null, session: Keypair.generate().publicKey, metered: false }))).toMatchObject({ metered: false });
+    // An account the earlier program wrote has no windows and is 16 bytes shorter; the program refuses it, and so does the decoder.
+    expect(decodeSandboxEscrow(escrowBytes({ ...base, windows: null }))).toBeUndefined();
+    expect(decodeSandboxEscrow(escrowBytes({ ...base, windows: null, session: Keypair.generate().publicKey, metered: false }))).toBeUndefined();
     expect(decodeSandboxEscrow(escrowBytes({ ...base, session: Keypair.generate().publicKey, metered: false }))).toMatchObject({ metered: false });
     expect(decodeSandboxEscrow(escrowBytes({ ...base, status: 1 }))?.status).toBe("released");
     const wrongDisc = escrowBytes(base);
@@ -377,10 +399,10 @@ describe("sandbox metered escrow: gateway", () => {
       // A long window named at lock, most of it already used up before the call.
       { name: "refund window nearly over", setup: (accounts, nonce) => lockFor(accounts, nonce, { createdSlot: CURRENT_SLOT - BigInt(3_001) }), reason: "invalid_receipt" },
       { name: "refund window already open", setup: (accounts, nonce) => lockFor(accounts, nonce, { createdSlot: CURRENT_SLOT - BigInt(10_000) }), reason: "invalid_receipt" },
-      { name: "earlier-format lock, refund window nearly over", setup: (accounts, nonce) => lockFor(accounts, nonce, { windows: null, createdSlot: CURRENT_SLOT - BigInt(646_501) }), reason: "invalid_receipt" },
+      { name: "earlier-format lock", setup: (accounts, nonce) => lockFor(accounts, nonce, { windows: null }), reason: "invalid_receipt" },
       { name: "already released", setup: (accounts, nonce) => lockFor(accounts, nonce, { status: 1 }), reason: "duplicate_nonce" },
       { name: "escrow for another nonce", setup: (accounts) => lockFor(accounts, "0".repeat(32)), reason: "invalid_receipt" },
-      { name: "payer who did not lock", setup: (accounts, nonce) => lockFor(accounts, nonce), header: (nonce, escrow) => meteredHeader(nonce, escrow, { payer: other.toBase58() }), reason: "invalid_receipt" },
+      { name: "payer who did not lock", setup: (accounts, nonce) => lockFor(accounts, nonce), header: (nonce, escrow) => meteredHeader(nonce, escrow, { payer: other.toBase58() }), reason: "session_auth_invalid" },
     ];
     for (const entry of cases) {
       const accounts: Accounts = new Map();
@@ -389,14 +411,15 @@ describe("sandbox metered escrow: gateway", () => {
       const nonce = nonceOf(await call(deps));
       const escrow = entry.setup(accounts, nonce);
       const response = await call(deps, (entry.header ?? meteredHeader)(nonce, escrow));
-      expect([entry.name, response.body.reason]).toEqual([entry.name, entry.reason]);
+      // A payer the caller cannot sign for is refused by the auth check (#866), before the chain is read.
+      expect([entry.name, response.body.reason ?? (response.body.error as { code?: string } | undefined)?.code]).toEqual([entry.name, entry.reason]);
       expect(response.headers[PROVIDER_RECEIPT_HEADER]).toBeUndefined();
       expect(calls).toHaveLength(0);
     }
   });
 
-  it("accepts a lock with exactly the minimum left or in the earlier format, and nothing when the slot cannot be read", async () => {
-    for (const overrides of [{ createdSlot: CURRENT_SLOT - BigInt(3_000) }, { windows: null }] as const) {
+  it("accepts a lock with exactly the minimum left, and nothing when the slot cannot be read", async () => {
+    for (const overrides of [{ createdSlot: CURRENT_SLOT - BigInt(3_000) }] as const) {
       const accounts: Accounts = new Map();
       const { settler, calls } = fakeSettler();
       const deps = makeDeps(accounts, settler);
@@ -464,5 +487,27 @@ describe("sandbox payee keys", () => {
     expect(parseSandboxPayeeKeys("not json").size).toBe(0);
     expect(parseSandboxPayeeKeys(JSON.stringify({ "swift-infer": Array.from(stranger.secretKey) })).size).toBe(0);
     expect(parseSandboxPayeeKeys(JSON.stringify({ "swift-infer": [1, 2, 3] })).size).toBe(0);
+  });
+});
+
+describe("sandbox metered escrow: single calls are signed by the payer (#866)", () => {
+  it("refuses an unsigned call or one signed by another wallet with 401, before reading the chain", async () => {
+    const reads: string[] = [];
+    const deps = makeDeps(new Map(), fakeSettler().settler);
+    const readAccount = deps.readAccount!;
+    deps.readAccount = async (address) => {
+      reads.push(address.toBase58());
+      return readAccount(address);
+    };
+    const nonce = "0".repeat(31) + "1";
+    const escrow = sandboxEscrowAddress(payer, nonce).toBase58();
+    const header = JSON.stringify({ settlement: "metered-escrow", network: "solana-devnet", payTo: swift.payTo, amount: "x", currency: "SOL", nonce, escrow, lockSignature: LOCK_SIG, payer: payer.toBase58() });
+    const unsigned = await call(deps, header, "none");
+    expect(unsigned.status).toBe(401);
+    expect((unsigned.body.error as { code?: string }).code).toBe("session_auth_required");
+    const stranger = await call(deps, header, signerFor(Keypair.generate()));
+    expect(stranger.status).toBe(401);
+    expect((stranger.body.error as { code?: string }).code).toBe("session_auth_invalid");
+    expect(reads).toHaveLength(0);
   });
 });

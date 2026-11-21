@@ -15,7 +15,7 @@ import { PublicKey } from "@solana/web3.js";
 import { createProviderChain, type ProviderChain } from "./chain.js";
 import { listingBody, publishListing, readListings, type ListingFetch } from "./listing.js";
 import { AGENT_REGISTRATION_FEE_LAMPORTS, agentAddress, buildRegisterAgentInstruction, readAgentRecord } from "./registry.js";
-import { checkProviderCluster } from "@reddi/x402-solana";
+import { checkProviderCluster } from "@redditech/x402-solana";
 import { DEFAULT_CONFIG_FILE, exampleConfig, parseProviderConfig, type ProviderConfig } from "./config.js";
 import { formatDoctor, runDoctor } from "./doctor.js";
 import { loadProviderKey } from "./keys.js";

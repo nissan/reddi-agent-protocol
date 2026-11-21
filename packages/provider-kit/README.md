@@ -1,4 +1,4 @@
-# @reddi/provider-kit
+# @redditech/provider-kit
 
 Run your own paid provider on Reddi Agent Protocol: one config file, one command, any OpenAI-compatible model.
 
@@ -69,6 +69,8 @@ BUYER_KEYPAIR_PATH=~/.config/solana/buyer.json \
 
 It prints the price, the quote, the lock transaction, the answer, what was charged and refunded, the settle transaction, and whether the receipt verified.
 
+To try a session (one lock, several calls, one settle), run `node packages/provider-kit/examples/session-call.mjs http://localhost:8787 3` with the same `BUYER_KEYPAIR_PATH`. It checks the whole receipt chain at the end.
+
 ### Switch to a real model
 
 In `provider.json`:
@@ -127,6 +129,9 @@ The wallet sign-in was checked against the devnet app on 21 November 2026: a mes
 | `pausedCurrencies` | Currencies you have stopped taking new locks in, for example `["PYUSD"]`. Also `RAP_PROVIDER_PAUSED_CURRENCIES=PYUSD,USDG`. See "Pausing a currency". |
 | `payoutAccount` | Recovery only: another token account of the currency that your wallet owns. Payouts go there when your usual token account is closed or frozen. |
 | `refundAccountSubsidy.maxPerDay` | Off unless set. How many buyer token accounts you will pay to create in a UTC day, when a buyer closed its own after you accepted its lock. |
+| `sessions.enabled` | `true` by default. `false` refuses session calls with `sessions_not_offered`; single calls are unchanged. |
+| `sessions.idleSeconds` | How long a session may sit without a call before the kit settles it. 30 to 3600, default 600. |
+| `sessions.file` | Where open sessions are remembered. Default `.rap-provider/sessions.jsonl`. Keep it on a disk that survives restarts. |
 
 ## Pausing a currency
 
@@ -139,9 +144,29 @@ RAP_PROVIDER_PAUSED_CURRENCIES=PYUSD rap-provider start
 
 While your price currency is paused, paid calls are refused with `currency_paused` before any lock is read, no price is offered, and `/.well-known/reddi-agent.json` and `/healthz` report `"acceptingPayments": false`, which is what a listing should show. `rap-provider doctor` shows the pause. Remove the currency from the list and restart to resume. `docs/ESCROW-PAYOUT-SAFETY.md` says when to pause.
 
+## Sessions: several calls, one settle
+
+An agent that makes many small calls to you can lock one escrow and use it for all of them, so it pays one lock and you send one settle. The buyer sends the same `x402-payment` header on every call, plus `x402-session-sequence: 1`, `2`, `3` and so on.
+
+A lock's escrow, payer and nonce are public once it confirms, so they do not show who is calling. The buyer therefore makes a fresh session key and has its payer wallet sign, once, a delegation naming the escrow, your wallet, that key and an expiry of at most seven days (`x402-session-delegation`). Every call, close and read also carries that key's signature over the action, the escrow, the call number and the SHA-256 of the body (`x402-session-signature`). `sessionDelegationHeaderValue` and `sessionSignatureHeaderValue` in `@redditech/x402-solana` build both. A request without them, or signed by anyone else, is refused with `401` before the lock is read, and a session keeps the key it started with.
+
+The kit then:
+
+- checks before each call that the cost so far plus this call's worst case still fits under the lock, and refuses with `session_max_reached` when it does not;
+- answers every call with a signed receipt whose `session` block carries the sequence, this call's tokens, the running totals and cost, and the hash of the previous receipt, so the buyer can check the chain (`verifyReddiReceiptV2Session` in `@redditech/agent-protocol`);
+- writes the session to `sessions.file` before it answers, so a restart goes on from the last answered call;
+- settles once, for the total, when the buyer sends `x402-session: close` on a call or `POST /v1/session/close`, when the lock is used up, after `sessions.idleSeconds` without a call, or before the lock's refund window opens. The closing receipt is the one with `closed: true` and a `payment` block for the amount settled.
+
+A call number that is out of order or used before is refused with `session_sequence_invalid`, and a request signed by another key than the session started with with `session_key_mismatch`; a call the model could not answer is not counted and can be sent again with the same number. A lock used for a session cannot also pay for a single call, or the other way round. If no call was answered, closing the session declines the lock and the buyer gets it all back. `GET /v1/session/<escrow>` shows a session's totals and, once closed, its closing receipt.
+
+If the escrow is already gone when the kit goes to settle, it reads the escrow's last transaction: when that paid you, the session is recorded as settled; when it did not (the buyer refunded once the refund window opened), it is recorded as `refunded_unpaid` and logged as `session_refunded_unpaid`, because the calls served were not paid. The kit settles ahead of the refund window to avoid this.
+
+The worst case of a call counts four characters of input as one token. A model that bills more input than that can take a session's total past the lock; the charge is capped at the lock, so you absorb the difference and the buyer never pays more than it locked.
+
 ## What the kit does to protect you and your buyers
 
 - **It refuses to start half-working**: no key, a key for another wallet, a key file others can read, a payment memory file another process holds, or mock answers on mainnet.
+- **Only the payer's own call is served.** The lock is public on chain, so a paid call must also carry the payer's signature over that exact request (`x402-session-delegation` and `x402-session-signature`, action `single`; `paidCallAuthHeaders` in `@redditech/x402-solana` builds them). A call without it, or signed by anyone else, is refused with `401` before the lock is read, and the lock stays usable by its payer. Hardware wallets that sign Solana off-chain messages with a header prefix are not accepted yet: sign with a software wallet or a key the wallet delegated to.
 - **One lock pays for one call**, including after a restart. Accepted escrows are written to disk before the model is called.
 - **It checks the cluster** before trusting any account, so a lock on another network is never taken as payment.
 - **It checks that the payout can land before doing any work.** With the lock it reads your token account, the treasury's and the account the buyer funded the lock from: each must exist, be initialised, not frozen, belong to the right owner and not require a memo. If one fails, the call is refused, the lock is not used up, and the buyer can present it again once the account is fixed.
@@ -149,26 +174,26 @@ While your price currency is paused, paid calls are refused with `currency_pause
 - **A buyer is told "nothing was charged" only when that was read from the chain.** If sending the settle reports a failure, the kit reads the escrow: still locked means nothing was charged and it tries once more; closed means the settle landed after all, so the kit finds it and answers as normal instead of sending it again. If the chain cannot say, the buyer gets the answer without a receipt rather than risk paying for nothing.
 - **Receipts state what the chain shows.** After the settle confirms, the kit reads the transaction back and signs a receipt for what actually moved: your credit plus the treasury's fee as the amount, and the model's token counts separately. If the transaction cannot be read back, or the amounts do not add up, the buyer still gets the answer it paid for, the response says `"confirmed": false`, and no receipt is signed.
 - **Your key signs two things only**: settle (or decline) transactions for escrows payable to you, and receipts. It is read once from the key file and is never logged or sent anywhere.
-- **Run one process per payment memory file.** For several instances behind a load balancer, use a shared database store (`DatabaseReplayStore` in `@reddi/x402-solana`) through the library API.
+- **Run one process per payment memory file.** For several instances behind a load balancer, use a shared database store (`DatabaseReplayStore` in `@redditech/x402-solana`) through the library API.
 
 ## Limits today
 
-- Do not run a funded provider on mainnet yet. The payout checks and confirmed receipts above are covered by tests against a simulated chain; they have not been run against a live cluster, and the treasury's token accounts must be confirmed ready for each currency first (`rap-provider doctor` checks yours).
-- A settle that is held is not retried later by itself. The log line `settle_failed` names the escrow; the lock stays open until its refund window, and you can settle it by hand within that time.
+- Do not run a funded provider on mainnet yet. A single paid call and a three-call session were run end to end on devnet on 21 November 2026 (mock answers, devnet USDC); the payout refusals and recovery paths above are covered by tests against a simulated chain only. The treasury's token accounts must be confirmed ready for each currency first (`rap-provider doctor` checks yours).
+- A held single-call settle is not retried later by itself (a session's settle is retried by the idle sweep until the refund window). The log line `settle_failed` names the escrow; the lock stays open until its refund window, and you can settle it by hand within that time.
 - No streaming responses. Requests with `stream: true` are refused.
 - Message content must be text.
 - Token currencies only. SOL-priced metered calls are not offered.
 - The estimate counts four characters as one token. A buyer who locks exactly the minimum caps your payment at that estimate, so text that tokenises more densely can cost you the difference.
 - When the model reports no usage, tokens are estimated the same way.
-- `rap-provider register` (list yourself in the registry from the command line) is planned; until then use the web form.
+- Sessions on a rated escrow are not offered yet.
 
 ## Library use
 
 ```ts
-import { createProviderHandler, parseProviderConfig, createProviderChain, FileReplayStore } from "@reddi/provider-kit";
+import { createProviderHandler, parseProviderConfig, createProviderChain, FileReplayStore } from "@redditech/provider-kit";
 ```
 
-`createProviderHandler(config, deps)` returns a `(Request) => Promise<Response>` you can mount in any server. The seller-side payment logic on its own is in `@reddi/x402-solana/provider`.
+`createProviderHandler(config, deps)` returns a `(Request) => Promise<Response>` you can mount in any server. The seller-side payment logic on its own is in `@redditech/x402-solana/provider`.
 
 ## License
 

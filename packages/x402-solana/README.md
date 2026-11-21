@@ -1,4 +1,4 @@
-# @reddi/x402-solana
+# @redditech/x402-solana
 
 HTTP 402 proof-reference primitives for Solana-oriented RAP Assurance workflows.
 
@@ -31,10 +31,10 @@ npm --prefix packages/x402-solana run build
 
 ## Provider side: metered calls
 
-`@reddi/x402-solana/provider` is the seller side of a per-token call. A buyer locks the most it will pay in a metered token escrow; the provider checks the lock on chain, serves the call, and settles the actual cost.
+`@redditech/x402-solana/provider` is the seller side of a per-token call. A buyer locks the most it will pay in a metered token escrow; the provider checks the lock on chain, serves the call, and settles the actual cost.
 
 ```typescript
-import { providerMeteredTerms, meteredOffer, readMeteredPaymentHeader, checkProviderCluster, verifyMeteredLock, usageFrom, meteredSettlement } from '@reddi/x402-solana/provider';
+import { providerMeteredTerms, meteredOffer, readMeteredPaymentHeader, checkProviderCluster, verifyMeteredLock, usageFrom, meteredSettlement } from '@redditech/x402-solana/provider';
 
 const terms = providerMeteredTerms({ currency: 'USDC', inputPerMillion: '0.15', outputPerMillion: '0.60', programId, mint, payee: wallet });
 
@@ -53,10 +53,10 @@ const { settlement, instructions } = meteredSettlement(terms, lock, usageFrom(up
 
 ## Ratings and attestations
 
-`@reddi/x402-solana/rating` builds the rating and judge attestation instructions of the V1 program source (`programs/pinocchio-escrow`), derives their addresses and decodes their accounts. The program README and `interface/vectors.json` are the interface; this module is tested against that file byte for byte. No deployed program answers these instructions yet.
+`@redditech/x402-solana/rating` builds the rating and judge attestation instructions of the V1 program source (`programs/pinocchio-escrow`), derives their addresses and decodes their accounts. The program README and `interface/vectors.json` are the interface; this module is tested against that file byte for byte. No deployed program answers these instructions yet.
 
 ```ts
-import { buildRatedTokenEscrowLock, buildSellerAcceptRating, readEscrowRatingStatus, readRatingAccount, withRatingAccount, ratingCommitment } from '@reddi/x402-solana/rating';
+import { buildRatedTokenEscrowLock, buildSellerAcceptRating, readEscrowRatingStatus, readRatingAccount, withRatingAccount, ratingCommitment } from '@redditech/x402-solana/rating';
 
 // Buyer: lock and opt in to rating in one transaction (opting in later is refused).
 const { instructions, escrow, rating } = buildRatedTokenEscrowLock(terms, { judge });
@@ -92,7 +92,7 @@ Buyers of a fixed-price rated job: a release by the payer opens the rating only 
 
 ```typescript
 import express from 'express';
-import { createX402Middleware } from '@reddi/x402-solana';
+import { createX402Middleware } from '@redditech/x402-solana';
 
 const app = express();
 
@@ -109,7 +109,7 @@ app.listen(3000);
 ### Creating x402 Requests
 
 ```typescript
-import { createX402Header } from '@reddi/x402-solana';
+import { createX402Header } from '@redditech/x402-solana';
 
 // Create header for payment request
 const header = createX402Header(
@@ -165,6 +165,19 @@ if (checkAndStoreNonce(nonce)) {
 
 Read-only verifier for SVM SPL Token / Token-2022 `TransferChecked` observations. It consumes an already parsed transaction object and checks transaction success, confirmation metadata, transaction-signature match, exact mint, exact token program, destination token-account ownership by `payTo`, exact base-unit amount, optional authority, optional decimals, exactly one matching transfer, replay store, and required memo binding. It does not fetch RPC, submit transactions, load wallets, sign, or hold funds.
 
+`SolanaReceiptVerifier` also requires, by default, proof that the request presenting a direct receipt comes from the wallet that paid, because a confirmed transfer is public and anyone could otherwise present it first. A provider passes the check for each request; the buyer adds the headers after its transfer confirms:
+
+```ts
+// Provider: `rawBody` is the request body exactly as received.
+const result = await verifier.verifyReceipt(receipt, challenge, replayStore, directPaymentProofCheck({ headers, body: rawBody }));
+
+// Buyer: sign with the paying wallet, or with a session key it delegated once
+// (directPaymentDelegationHeaderValue) and pass that as `delegation`.
+const proof = await directPaymentProofHeaders({ network, txSignature, payTo, body, sign: (m) => wallet.signMessage(m) });
+```
+
+A verifier that serves nothing, such as a ledger recording jobs after the call, sets `payerProof: 'not-required'`.
+
 `SolanaReceiptVerifier` requires a replay store for real receipts and records the transaction signature, so one transaction satisfies one challenge; USDC needs a configured `usdcMint` and a `transferChecked` instruction. It bridges AUDD receipts to this stricter x402 v2 SVM `exact` verifier only when the verifier is configured with an explicit `auddMint`; it will not trust a receipt-supplied mint as the AUDD identity. AUDD amounts are base units, not UI decimal strings.
 
 For a `solana-mainnet-beta` challenge the verifier also refuses a transaction older than 900 seconds (`maxTransactionAgeSeconds`) or without a block time, and requires the connection to report the public mainnet genesis hash. On other networks those two checks run only when `maxTransactionAgeSeconds` or `expectedGenesisHash` is set.
@@ -192,7 +205,7 @@ const receipt = await sendPayment(request);
 Runs a pure local buyer preflight check before any signer, hosted facilitator, or downstream x402/OpenRouter call is used. Amounts are represented in the payment asset's smallest unit.
 
 ```typescript
-import { assetNetworkKey, evaluateBudgetPolicy } from '@reddi/x402-solana';
+import { assetNetworkKey, evaluateBudgetPolicy } from '@redditech/x402-solana';
 
 const decision = evaluateBudgetPolicy({
   policy: {

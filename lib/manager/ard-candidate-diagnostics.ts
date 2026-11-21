@@ -1,18 +1,18 @@
 import {
   validateDiscoveryCandidate,
   type DiscoveryCandidatePolicy,
-} from "@reddi/agent-protocol/discovery-source";
+} from "@redditech/agent-protocol/discovery-source";
 import {
   deriveRankingCandidateExplainability,
   type RankingCandidateEvidenceInput,
   type RankingCandidateExplainability,
-} from "@reddi/agent-protocol/ranking-explainability";
+} from "@redditech/agent-protocol/ranking-explainability";
 import type { ReputationListingProjection } from "@/lib/manager/hosted-attestation-types";
 import type {
   SourceTrustConformanceRow,
   SourceTrustDiagnosticsProjectionMessage,
   SourceTrustState,
-} from "@reddi/agent-protocol/source-trust-conformance-matrix";
+} from "@redditech/agent-protocol/source-trust-conformance-matrix";
 
 import {
   deriveHostedDiscoveryActionabilityMatrix,
@@ -25,7 +25,7 @@ import type { MarketplaceHostedSearchResultItem } from "@/lib/manager/marketplac
  *
  * Composes the existing projections — the #577 discovery actionability matrix
  * (`lib/manager/discovery-actionability-matrix.ts`), the #593 source/trust
- * conformance projections (`@reddi/agent-protocol/source-trust-conformance-matrix`),
+ * conformance projections (`@redditech/agent-protocol/source-trust-conformance-matrix`),
  * the #606 attestation/reputation bridge `listingProjection`, and the #344
  * `reddi.ranking-explainability.v1` block — into one per-candidate view whose
  * sections keep capability relevance STRUCTURALLY separate from publisher

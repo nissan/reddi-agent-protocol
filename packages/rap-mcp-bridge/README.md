@@ -1,4 +1,4 @@
-# @reddi/rap-mcp-bridge
+# @redditech/rap-mcp-bridge
 
 Dry-run MCP bridge for RAP Assurance specialist discovery, synthetic quotes, receipt verification, and disclosure ledgers.
 

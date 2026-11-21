@@ -86,7 +86,7 @@ export function findSandboxProviderById(id: unknown): SandboxProvider | undefine
   return typeof id === "string" ? SANDBOX_PROVIDERS.find((provider) => provider.id === id) : undefined;
 }
 
-export type SandboxScenarioId = "buy-a-review" | "shop-around" | "try-to-cheat" | "provider-offline";
+export type SandboxScenarioId = "buy-a-review" | "shop-around" | "run-a-session" | "try-to-cheat" | "provider-offline";
 
 export type SandboxScenario = {
   id: SandboxScenarioId;
@@ -126,6 +126,15 @@ export const SANDBOX_SCENARIOS: readonly SandboxScenario[] = [
     takeaway: "Receipts feed reputation. The cheapest provider here fails a spot check, and its score drops where you can see it.",
     prompt: REVIEW_PROMPT,
     providerIds: ["atlas-review", "swift-infer", "bargain-models"],
+  },
+  {
+    id: "run-a-session",
+    title: "Run a session",
+    persona: "Your agent makes many small calls to one provider, each worth a fraction of a cent.",
+    hook: "Ten calls, one lock, one settle. Watch the running total.",
+    takeaway: "One lock pays for a whole session. Each receipt carries the running total and chains to the one before, and the provider settles once, so network fees stop eating small calls.",
+    prompt: "Name one risk of retrying a payment without an idempotency key.",
+    providerIds: ["swift-infer"],
   },
   {
     id: "try-to-cheat",

@@ -213,7 +213,7 @@ export async function releaseEscrowViaPer(
  * This is the release of an escrow that is not opted in to rating. A rated
  * escrow also needs its rating account after these five and the rating's
  * opened slot after the selector; see `withRatingAccount` in
- * `@reddi/x402-solana`.
+ * `@redditech/x402-solana`.
  */
 export function buildReleaseEscrowInstruction(
   escrowProgramId: PublicKey,

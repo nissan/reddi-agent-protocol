@@ -8,7 +8,7 @@ import "server-only";
  * database (local development, tests) callers keep using the file index.
  */
 
-import { MAINNET_STABLECOIN_MINTS } from "@reddi/x402-solana/payment";
+import { MAINNET_STABLECOIN_MINTS } from "@redditech/x402-solana/payment";
 import { resolveNetworkProfileName } from "@/lib/config/network";
 import { DEVNET_USDC_MINT } from "@/lib/payments/wallet-direct-payment";
 import { computeFreshnessState, type SpecialistIndexEntry } from "@/lib/onboarding/specialist-index";

@@ -11,7 +11,7 @@ Method: full-repo sweep of both repositories (programs, app routes, packages, te
 
 ## 1. Executive summary
 
-**Built and defensible:** five Quasar Rust programs with 70 CI-gated tests plus the CI-gated legacy Anchor 1.1.2 reference; an honest four-document adversarial security-audit chain with named regression tests; a complete external-audit handoff pack with frozen commit and full ABI appendix; `@reddi/agent-protocol` (47 modules, ~586 tests, CI-gated, release-guarded); mechanically enforced claim boundaries; a real on-chain registration flow at `/register`; and, lab-side, a stable ADL v0.2 spec with a deterministic conformance suite.
+**Built and defensible:** five Quasar Rust programs with 70 CI-gated tests plus the CI-gated legacy Anchor 1.1.2 reference; an honest four-document adversarial security-audit chain with named regression tests; a complete external-audit handoff pack with frozen commit and full ABI appendix; `@redditech/agent-protocol` (47 modules, ~586 tests, CI-gated, release-guarded); mechanically enforced claim boundaries; a real on-chain registration flow at `/register`; and, lab-side, a stable ADL v0.2 spec with a deterministic conformance suite.
 
 **Not built / blocking:**
 
@@ -54,7 +54,7 @@ The reputation program carries the audit-hardened commit-reveal (`sha256(score �
 
 ### 2.4 Packages
 
-`@reddi/agent-protocol` is release-ready in engineering terms (47 src modules, 48 export subpaths, ~556 tests, README/LICENSE/CHANGELOG, committed dist, CI guard) but **unpublished** pending an approved release issue. `@reddi/x402-solana` is second (real verification path, Jupiter Swap V2 client). The rest range from moderate (`rap-mcp-bridge`, `openrouter-specialists`) to stub/deferred (`sendai-x402`, `eliza-plugin-x402` — formally deferred from v0.1).
+`@redditech/agent-protocol` is release-ready in engineering terms (47 src modules, 48 export subpaths, ~556 tests, README/LICENSE/CHANGELOG, committed dist, CI guard) but **unpublished** pending an approved release issue. `@redditech/x402-solana` is second (real verification path, Jupiter Swap V2 client). The rest range from moderate (`rap-mcp-bridge`, `openrouter-specialists`) to stub/deferred (`sendai-x402`, `eliza-plugin-x402` — formally deferred from v0.1).
 
 ### 2.5 Lab repo (reddiagent-lab)
 

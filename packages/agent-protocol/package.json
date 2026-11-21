@@ -1,5 +1,5 @@
 {
-  "name": "@reddi/agent-protocol",
+  "name": "@redditech/agent-protocol",
   "version": "0.1.0",
   "description": "Open RAP Assurance primitives for paid agent work: receipts, policy decisions, fixtures, and local conformance helpers.",
   "type": "module",

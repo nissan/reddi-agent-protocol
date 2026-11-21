@@ -72,8 +72,8 @@ const rating = require(path.join(__dirname, '..', 'packages', 'x402-solana', 'di
 const DEVNET_GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
 const PROGRAM = new PublicKey('DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu');
 const PROGRAM_DATA = new PublicKey('8cCmxnMPU8EQR7ECfff19Dr4gu1n7jyFCuEEyaYspRn2');
-const PROGRAM_LEN = 337_760;
-const PROGRAM_SHA256 = '5055df469642a3429c524a312b129c7e9b7cb6fdbeb37fa2e8275ab87b8e142a';
+const PROGRAM_LEN = 96_272;
+const PROGRAM_SHA256 = '2576a9cccb15ea09aa675e1a2d415043f8d231179772e5fa23728402b10a32ac';
 const TREASURY = new PublicKey('5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe');
 const USDC = new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'); // constants.rs USDC_DEVNET_MINT
 const TOKEN = token.TOKEN_PROGRAM_ID;
@@ -112,7 +112,7 @@ const JUDGE_FLOOR = 20_000_000n;
 const JUDGE_TOPUP = 25_000_000n;
 const AGENT_REGISTRATION_FEE = 10_000_000n;
 const AGENT_FEE_BURN_ADDRESS = new PublicKey('1nc1nerator11111111111111111111111111111111');
-const RATING_RENT_README = 2_770_080n; // 270 bytes at 6,960 lamports per byte; reported, not asserted
+const RATING_RENT_README = 2_021_840n; // 270 bytes + 128 overhead at 5,080 lamports per byte (devnet and mainnet, 22 Nov 2026); reported, not asserted
 const SLOT_MS = 400; // nominal
 const SCORE_MAX = 10_000;
 const RATING_EXPIRE_PENALTY = 500;
@@ -490,6 +490,7 @@ async function run(conn, runId) {
     step('usdc lock claim-case (left open)', sig, { amount: a.claim.toString() });
   }
   out.openEscrows = await openEscrowStatus(conn, payer, runId);
+  out.result = 'passed';
   return out;
 }
 

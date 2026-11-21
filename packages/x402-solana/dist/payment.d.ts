@@ -1,6 +1,6 @@
 import { SwapClient } from './jupiter';
 import { X402Request, PaymentReceipt } from './types';
-import type { NonceReplayStore, ProtocolFeeConfig, ReceiptVerificationResult, ReceiptVerifier, SolanaPaymentNetwork, X402Challenge, X402ChallengeInput, X402FeeTerms } from './types';
+import type { NonceReplayStore, PayerProofCheck, ProtocolFeeConfig, ReceiptVerificationResult, ReceiptVerifier, SolanaPaymentNetwork, X402Challenge, X402ChallengeInput, X402FeeTerms } from './types';
 /**
  * Strictly validate canonical Solana public-key text.
  * Requires base58 decode to exactly 32 bytes and round-trips to the same string.
@@ -121,6 +121,16 @@ export interface SolanaReceiptVerifierOptions {
      * from here only, never from the challenge or the receipt.
      */
     protocolFee?: ProtocolFeeConfig | 'disabled';
+    /**
+     * Whether the request presenting a receipt must prove it comes from the
+     * wallet that paid. Defaults to `'required'`: a confirmed transfer is public,
+     * so anyone who sees it could otherwise present it first and be served,
+     * leaving the buyer refused as a duplicate. A provider passes a check built by
+     * `directPaymentProofCheck` to `verifyReceipt`. `'not-required'` is only for a
+     * verifier that serves nothing, such as a job ledger checking a receipt after
+     * the call.
+     */
+    payerProof?: 'required' | 'not-required';
 }
 export declare class SolanaReceiptVerifier implements ReceiptVerifier {
     private readonly options;
@@ -136,7 +146,7 @@ export declare class SolanaReceiptVerifier implements ReceiptVerifier {
     private clusterFailure;
     /** Refuses a transaction older than the configured limit, or one with no usable block time when a limit applies. */
     private ageFailure;
-    verifyReceipt(receiptInput: unknown, challenge: X402Challenge, replayStore?: NonceReplayStore): Promise<ReceiptVerificationResult>;
+    verifyReceipt(receiptInput: unknown, challenge: X402Challenge, replayStore?: NonceReplayStore, payerProof?: PayerProofCheck): Promise<ReceiptVerificationResult>;
     /**
      * Works out the fee split this verifier requires for a challenge, from its own
      * configuration. Fee terms printed in the challenge are only compared against

@@ -6,7 +6,7 @@
  * override pointed at another cluster is refused instead of trusted.
  */
 import { Connection, type PublicKey } from "@solana/web3.js";
-import type { NonceReplayStore } from "@reddi/x402-solana";
+import type { NonceReplayStore } from "@redditech/x402-solana";
 import type { SandboxGatewayDeps } from "./gateway";
 import { createSandboxSettler, parseSandboxPayeeKeys, SANDBOX_PAYEE_KEYS_ENV } from "./settle-signer";
 import { ACCEPT_RATED_ESCROWS_ENV, acceptRatedEscrowsConfigured, SELLER_RATING_SCORE_ENV, sellerRatingScore } from "./seller-rating";
@@ -50,6 +50,8 @@ export function sandboxGatewayDeps(): SandboxGatewayDeps {
       },
       readSlot: () => connection.getSlot("confirmed"),
       acceptRatedEscrows,
+      // Devnet escrow sessions: every call is signed by a session key the payer's wallet delegated.
+      acceptMeteredSessions: true,
       settler: createSandboxSettler(
         connection,
         parseSandboxPayeeKeys(process.env[SANDBOX_PAYEE_KEYS_ENV]),
