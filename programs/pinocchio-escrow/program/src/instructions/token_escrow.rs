@@ -405,7 +405,8 @@ impl<'a> Open<'a> {
 /// the mint the payer owns), `[] token_program`, and for a rated escrow
 /// `[w] rating`, which then records what was paid and opens when the payee
 /// is the authority or accepted the rating earlier, and something was paid;
-/// it is closed otherwise. The SOL escrow has the same rule.
+/// it is closed otherwise. The SOL escrow has the same rule. A rated
+/// escrow's exit also names its job: `opened_slot: u64` after the data.
 ///
 /// The destination is a token account of the mint that the payee owns. When
 /// the payer releases it must be the recipient recorded at lock. When the
@@ -425,6 +426,7 @@ pub fn pay_out(
     program_id: &Address,
     accounts: &mut [AccountView],
     actual: Option<u64>,
+    job: Option<u64>,
 ) -> ProgramResult {
     let [escrow, vault, authority, payer, mint, destination, treasury_token, refund, token_program, trailing @ ..] =
         accounts
@@ -516,7 +518,13 @@ pub fn pay_out(
         (record.payer, record.payee, record.mint, record.nonce);
     let escrow_key = *open.escrow.address();
     let rated = if record.rated() {
-        Some(rating::for_exit(program_id, &escrow_key, trailing, slot)?)
+        Some(rating::for_exit(
+            program_id,
+            &escrow_key,
+            trailing,
+            slot,
+            job,
+        )?)
     } else {
         None
     };
@@ -560,7 +568,8 @@ pub fn pay_out(
 /// Accounts: `[w] escrow`, `[w] vault`, `[s] authority`, `[w] payer`,
 /// `[] mint`, `[w] destination`, `[] token_program`, and for a rated escrow
 /// `[w] rating`, which is closed with its rent going to the payer. The mint
-/// may be passed writable; see `Open::drain`.
+/// may be passed writable; see `Open::drain`. A rated escrow's cancel names
+/// its job: data `opened_slot: u64`.
 ///
 /// The payee may decline at any time; the payer may refund itself after the
 /// cancel window. A payee's decline goes to the source token account recorded
@@ -570,7 +579,11 @@ pub fn pay_out(
 /// Anyone can donate tokens to a vault; the whole balance is swept to the
 /// payer so a donation cannot block closing or strand funds. Under Token-2022
 /// the issuer can also shrink the vault, and the refund is whatever it holds.
-pub fn cancel(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResult {
+pub fn cancel(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    job: Option<u64>,
+) -> ProgramResult {
     let [escrow, vault, authority, payer, mint, destination, token_program, trailing @ ..] =
         accounts
     else {
@@ -622,7 +635,7 @@ pub fn cancel(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResu
         (record.payer, record.payee, record.mint, record.nonce);
     let escrow_key = *open.escrow.address();
     let rated = if record.rated() {
-        Some(rating::for_exit(program_id, &escrow_key, trailing, slot)?.0)
+        Some(rating::for_exit(program_id, &escrow_key, trailing, slot, job)?.0)
     } else {
         None
     };
