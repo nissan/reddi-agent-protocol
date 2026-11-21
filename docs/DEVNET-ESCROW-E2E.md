@@ -155,9 +155,11 @@ The same variables as above, plus:
   early; it waits for `finish-rated` under its own run id.
 - `finish-rated` needs the payer and payee keypairs and the run id of the `run-rated` it finishes.
 
-The payer needs about 0.13 devnet SOL (0.032 SOL of locks, four rating accounts at about 0.00277 SOL each,
+The payer needs about 0.13 devnet SOL (0.032 SOL of locks, four rating accounts at about 0.00202 SOL each on devnet,
 of which three come back during the run, the top-ups for the payee and the judge, and room for fees) and
-1 devnet USDC. With `RAP_E2E_REGISTER_PARTIES=1` the payer and the payee each need about 0.012 SOL more.
+1 devnet USDC. Devnet currently charges 5,080 lamports of rent per byte (a 270-byte rating account costs
+2,021,840 lamports); the program README's 0.00277 SOL uses 6,960 per byte, so the run reports
+`ratingRentMatchesReadme: false` on devnet. With `RAP_E2E_REGISTER_PARTIES=1` the payer and the payee each need about 0.012 SOL more.
 `plan-rated` reports any shortfall. Payee transactions are signed by the payee alone: a seller's settle or
 claim that also carries the payer's signature counts as the payer's action.
 
