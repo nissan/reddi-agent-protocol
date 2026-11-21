@@ -210,6 +210,15 @@ pub fn settle_exit(
     }
 }
 
+/// An exit of an escrow that is not rated must not name a job. Data after
+/// the exit's own is how a signer binds an exit to one rated job; if the job
+/// at that address has ended and an unrated one has taken it, the exit must
+/// not move the new job's money. Callers of an unrated escrow send no such
+/// bytes, so its wire format is unchanged for them.
+pub fn for_unrated_exit(job: Option<u64>) -> ProgramResult {
+    require(job.is_none(), &RatingJobMismatch)
+}
+
 /// The rating account an exit of the rated escrow at `escrow` must be given:
 /// the first of `trailing`, the accounts after the instruction's own.
 ///

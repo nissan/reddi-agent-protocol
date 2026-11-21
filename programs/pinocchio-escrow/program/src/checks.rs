@@ -178,8 +178,10 @@ pub struct Args<'a>(pub &'a [u8]);
 
 /// The job an exit of a rated escrow names: the `opened_slot` of its rating,
 /// as the 8 bytes (little-endian) after the exit's own data. An exit of an
-/// escrow that is not rated ignores anything after its own data, as the
-/// Anchor program does, so its wire format is unchanged.
+/// escrow that is not rated must not carry them (`RatingJobMismatch`), so an
+/// exit signed for a rated job cannot end an unrated job that later takes
+/// its address; callers of unrated escrows send none, so their wire format
+/// is unchanged.
 #[inline(always)]
 pub fn job(rest: &[u8]) -> Option<u64> {
     rest.first_chunk::<8>()
