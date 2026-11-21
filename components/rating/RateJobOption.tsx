@@ -3,6 +3,7 @@
 import { RATINGS_DOC_PATH } from "@/lib/rating/reputation-display";
 import type { RatedJobStance } from "@/lib/rating/rated-pay";
 import { RATING_RENT_SOL } from "@/lib/rating/rating-state";
+import { LimitNotice } from "@/components/ui/limit-notice";
 
 export interface RateJobOptionProps {
   checked: boolean;
@@ -57,9 +58,9 @@ export function RateJobOption({ checked, onCheckedChange, judge, onJudgeChange, 
           </ul>
 
           {stance === "declines" ? (
-            <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100" role="alert" data-testid="rate-job-declines">
+            <LimitNotice as="p" tone="warning" role="alert" data-testid="rate-job-declines">
               This provider does not take rated jobs. If you pay with rating on, it will refuse the job and you will have to wait for the refund window. Turn rating off to use this provider, or choose another one.
-            </p>
+            </LimitNotice>
           ) : null}
           {stance === "unknown" ? (
             <p className="rounded-lg border border-white/10 bg-black/30 p-3 text-gray-300" data-testid="rate-job-unknown">

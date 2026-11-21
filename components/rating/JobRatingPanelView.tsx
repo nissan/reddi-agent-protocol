@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RATINGS_DOC_PATH } from "@/lib/rating/reputation-display";
 import { estimatedSlotDate, expiredOutcomeText, MISSED_STEP_PENALTY_POINTS, RATING_RENT_SOL, timeLeftLabel, type RatingView } from "@/lib/rating/rating-state";
+import { LimitNotice } from "@/components/ui/limit-notice";
 
 export const ATTESTATION_SCORE_LABELS = ["Accuracy", "Completeness", "Relevance", "Format", "Latency"] as const;
 
@@ -122,9 +123,9 @@ export function JobRatingPanelView(props: JobRatingPanelViewProps) {
           </p>
           <p className="text-xs leading-5 text-gray-400">The rating opens when the job is paid. A provider that settles or claims the payment itself has agreed by doing so.</p>
           {!view.releaseOpensRating ? (
-            <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100" role="alert" data-testid="rating-release-warning">
+            <LimitNotice as="p" tone="warning" className="text-xs leading-5" role="alert" data-testid="rating-release-warning">
               If you release this payment yourself now, the provider is paid in full but the job closes without a rating, and your rent comes back. To keep the rating, wait until the provider has agreed, or leave the provider to collect the payment.
-            </p>
+            </LimitNotice>
           ) : (
             <p className="text-xs leading-5 text-emerald-200">The provider has agreed, so the rating opens whoever pays out the escrow.</p>
           )}

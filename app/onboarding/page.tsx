@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { LimitNotice } from "@/components/ui/limit-notice";
 import dynamic from "next/dynamic";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { Connection, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
@@ -1150,14 +1151,13 @@ export default function OnboardingPage() {
             </Button>
 
             {PROGRAM_KNOWN_GAPS.length > 0 && (
-              <div className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-xs text-amber-100">
-                <p className="font-semibold">Known readiness gaps for the active network profile:</p>
+              <LimitNotice title="Known readiness gaps for this network:">
                 <ul className="mt-2 list-disc space-y-1 pl-4">
                   {PROGRAM_KNOWN_GAPS.map((gap) => (
                     <li key={gap}>{gap}</li>
                   ))}
                 </ul>
-              </div>
+              </LimitNotice>
             )}
 
             {registerError && (

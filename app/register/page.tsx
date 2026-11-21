@@ -48,6 +48,7 @@ import { OnboardingVideoCard } from "@/components/onboarding/OnboardingVideoCard
 import StepIndicator from "@/components/StepIndicator";
 import GuidedSetupModal from "@/components/GuidedSetupModal";
 import { showToast } from "@/components/ui/toast";
+import { LimitNotice } from "@/components/ui/limit-notice";
 import { onboardingVideos } from "@/lib/onboarding/video-guides";
 import {
   AlertTriangle,
@@ -504,14 +505,10 @@ function RegisterInner() {
           )}
         </p>
         {txError && (
-          <div className="p-4 rounded-lg border border-amber-500/30 bg-amber-500/10 text-left">
-            <p className="text-xs text-amber-400 mb-1">
-              ⚠️ On-chain tx failed — showing simulated sig
-            </p>
-            <p className="font-mono text-xs text-amber-200/80 break-all">
-              {txError}
-            </p>
-          </div>
+          <LimitNotice tone="warning" title="The on-chain transaction failed." className="text-left">
+            The signature below is simulated.
+            <span className="mt-1 block break-all font-mono text-xs text-ink-muted">{txError}</span>
+          </LimitNotice>
         )}
         {txSig && (
           <div className="p-4 rounded-lg border border-border bg-surface/80 text-left">
