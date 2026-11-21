@@ -230,14 +230,14 @@ try {
 process.exit(exitCode);
 
 async function legacyAnchorProgramDescriptors() {
-  const source = await fs.readFile(path.join(repoRoot, "programs/escrow/src/lib.rs"), "utf8");
+  const source = await fs.readFile(path.join(repoRoot, "archive/anchor-escrow/src/lib.rs"), "utf8");
   const declared = source.match(/declare_id!\("([^"]+)"\)/)?.[1];
-  if (!declared) throw new Error("declare_id! not found in programs/escrow/src/lib.rs");
+  if (!declared) throw new Error("declare_id! not found in archive/anchor-escrow/src/lib.rs");
   return [
     {
       key: "escrow",
       label: "legacy Anchor escrow reference",
-      manifest: "programs/escrow/Cargo.toml",
+      manifest: "archive/anchor-escrow/Cargo.toml",
       packageTarget: "legacy-anchor",
       soName: "escrow",
       programId: declared,

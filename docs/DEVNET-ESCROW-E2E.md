@@ -2,7 +2,7 @@
 
 `scripts/devnet-escrow-e2e.cjs` exercises the V1 escrow program deployed on devnet
 (`DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu`, see `DEPLOY.md`) in SOL and devnet USDC, with real
-transactions. It complements the local-validator lane (`programs/escrow/tests/local_token_escrow.cjs`),
+transactions. It complements the local-validator lane (`archive/anchor-escrow/tests/local_token_escrow.cjs`),
 which covers the same paths with slot warps but never touches a public cluster.
 
 Before it signs anything the script checks that the RPC is devnet (genesis hash) and that the deployed

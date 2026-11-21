@@ -19,10 +19,20 @@ not product adoption or benchmark evidence. Do not manually run the historical b
 validator, smoke, deployment, signing, or RPC procedures without a new authorization
 that supersedes the freeze.
 
+## V1 program source (from 21 November 2026)
+
+The V1 program is the Pinocchio program in `programs/pinocchio-escrow/` (owner decision,
+21 November 2026). It keeps the Anchor program's wire contract and declares the same
+program ID. It has not been deployed anywhere yet. The release binary is the artifact of
+the container build (`.github/workflows/escrow-verifiable-build.yml`, library
+`pinocchio_escrow`). The devnet record below is the Anchor build that is on devnet today,
+now archived under `archive/anchor-escrow/`. Any deploy or upgrade needs the owner's
+explicit approval.
+
 ## V1 escrow program (devnet)
 
 Deployed to devnet on 21 November 2026 with owner approval, from commit `8c21aee`
-(`programs/escrow`, built with `--features devnet`). Devnet only: nothing is deployed to
+(`archive/anchor-escrow`, built with `--features devnet`). Devnet only: nothing is deployed to
 mainnet, and this record is not an audit, production or mainnet readiness claim.
 
 | Field | Value |
@@ -39,7 +49,7 @@ and section layout but a different hash (`1238a4b2118858826e096dbba75b245d8c4521
 because the prebuilt toolchain library embeds different build paths per host. Compare a
 build with the hash for its own host, or use a container build.
 
-This ID is set in `programs/escrow/src/lib.rs` (`declare_id!`), `Anchor.toml`,
+This ID is set in `programs/pinocchio-escrow/program/src/lib.rs`, `archive/anchor-escrow/src/lib.rs` (`declare_id!`), `Anchor.toml`,
 `packages/demo-agents/src/config.ts` (`defaultEscrowProgramId`) and
 `config/networks/devnet.json`. Both key files are held by the owner; agents use them by
 path only and never read them.
@@ -57,7 +67,7 @@ placeholder.
 ### When to redeploy
 
 Redeploy the legacy Anchor program if:
-- On-chain program changes are made (any `programs/escrow/src/` edits)
+- On-chain program changes are made (any `archive/anchor-escrow/src/` edits)
 - The program account runs out of rent (unlikely for demo scale)
 - A fresh devnet keypair is needed
 

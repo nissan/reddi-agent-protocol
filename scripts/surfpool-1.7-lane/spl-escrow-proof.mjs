@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* Opt-in, offline, version-qualified Surfpool 1.7.0 local proof lane for the classic SPL token
  * escrow (#746). It builds the escrow ELF at the exact committed source, runs the existing validator
- * proof (programs/escrow/tests/local_token_escrow.cjs) unchanged, then runs the same scenario (lock
+ * proof (archive/anchor-escrow/tests/local_token_escrow.cjs) unchanged, then runs the same scenario (lock
  * refusals, payer release, payee decline, payer refund after 648,000 slots, payee claim after
  * 1,512,000 slots, stranger refusals and replays) plus near-boundary, surplus-donation and
  * conservation checks against that same ELF on an embedded Surfpool 1.7.0 runtime, and requires the
@@ -61,7 +61,7 @@ const PROTOCOL_FEE_BPS = 250;
 const CANCEL_WINDOW_SLOTS = 648_000; // constants.rs CANCEL_WINDOW_SLOTS
 const CLAIM_WINDOW_SLOTS = 1_512_000; // constants.rs CLAIM_WINDOW_SLOTS
 const CREATED_SLOT_OFFSET = 193; // TokenEscrowAccount: disc 8 + 5 keys + amount 8 + nonce 16 + status 1
-const SOURCE_DIRTY_PATHS = ["programs/escrow", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "Anchor.toml"];
+const SOURCE_DIRTY_PATHS = ["archive/anchor-escrow", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "Anchor.toml"];
 
 assertLocalOnlyEnvironment(process.env);
 assert.equal(process.version, NODE_VERSION, `repo-local Node ${NODE_VERSION} required (.mise.toml)`);
@@ -232,7 +232,7 @@ function resolvedProofDependencies() {
 /** The install the proof's require() will load `name` from: nearest ancestor node_modules, else the lane's NODE_PATH. */
 function proofDependency(name) {
   const candidates = [];
-  for (let dir = path.join(repoRoot, "programs", "escrow", "tests"); ; dir = path.dirname(dir)) {
+  for (let dir = path.join(repoRoot, "archive", "anchor-escrow", "tests"); ; dir = path.dirname(dir)) {
     candidates.push(path.join(dir, "node_modules", name));
     if (path.dirname(dir) === dir) break;
   }
@@ -251,9 +251,9 @@ function sourceProvenance() {
   assertSourcesClean("; commit or discard before proving");
   return {
     commit: git("rev-parse", "HEAD"),
-    escrowTree: git("rev-parse", "HEAD:programs/escrow"),
+    escrowTree: git("rev-parse", "HEAD:archive/anchor-escrow"),
     cargoLockBlob: git("rev-parse", "HEAD:Cargo.lock"),
-    validatorProofBlob: git("rev-parse", "HEAD:programs/escrow/tests/local_token_escrow.cjs"),
+    validatorProofBlob: git("rev-parse", "HEAD:archive/anchor-escrow/tests/local_token_escrow.cjs"),
   };
 }
 
@@ -268,7 +268,7 @@ function agaveToolchain() {
 function buildEscrowElf() {
   console.log("[surfpool-1.7] building escrow ELF with pinned cargo-build-sbf");
   execFileSync(path.join(agaveBin, "cargo-build-sbf"),
-    ["--manifest-path", "programs/escrow/Cargo.toml", "--sbf-out-dir", "target/deploy"], {
+    ["--manifest-path", "archive/anchor-escrow/Cargo.toml", "--sbf-out-dir", "target/deploy"], {
       cwd: repoRoot,
       stdio: ["ignore", "inherit", "inherit"],
       env: { ...process.env, CARGO_TARGET_DIR: cargoTargetDir, PATH: `${agaveBin}${path.delimiter}${process.env.PATH}` },
@@ -287,7 +287,7 @@ async function runValidatorProof() {
     NODE_PATH: path.join(laneDir, "node_modules") }, { repoRoot, childTmpDir: childTmp });
   console.log("[surfpool-1.7] running unchanged validator proof");
   // Its own process group, so an interrupt reaches the validator it spawned as well.
-  const child = spawn(process.execPath, ["programs/escrow/tests/local_token_escrow.cjs"], {
+  const child = spawn(process.execPath, ["archive/anchor-escrow/tests/local_token_escrow.cjs"], {
     cwd: repoRoot, env, stdio: ["ignore", "pipe", "pipe"], detached: true,
   });
   activeChild = child;

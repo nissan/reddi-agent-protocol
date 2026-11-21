@@ -1,10 +1,10 @@
-name: Anchor Program Tests
+name: Archived Anchor program tests
 
 on:
   push:
     branches: [main]
     paths:
-      - "programs/escrow/**"
+      - "archive/anchor-escrow/**"
       - "Anchor.toml"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -22,7 +22,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "programs/escrow/**"
+      - "archive/anchor-escrow/**"
       - "Anchor.toml"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -86,10 +86,12 @@ jobs:
       # The LiteSVM tests embed target/deploy/escrow.so via include_bytes!, and
       # the Mollusk smoke loads the same artifact through SBF_OUT_DIR, so the SBF
       # build must complete before the test crate compiles.
-      # The default build is the mainnet candidate: nine instructions only.
+      # The Anchor program is archived: it is the behavioural reference for the
+      # Pinocchio program, not a release candidate. Its default build is the V1
+      # instruction set.
       # tests/instruction_surface.rs asserts that against the built artifact.
       - name: Build escrow program (SBF, default nine-instruction build)
-        run: cargo build-sbf --manifest-path programs/escrow/Cargo.toml
+        run: cargo build-sbf --manifest-path archive/anchor-escrow/Cargo.toml
 
       - name: Run LiteSVM and Mollusk tests (default build)
         run: cargo test -p escrow
@@ -104,7 +106,7 @@ jobs:
       # default build. This step overwrites target/deploy/escrow.so, so it runs
       # last and the tests below embed the extended artifact.
       - name: Build escrow program (SBF, extended feature)
-        run: cargo build-sbf --manifest-path programs/escrow/Cargo.toml --features extended
+        run: cargo build-sbf --manifest-path archive/anchor-escrow/Cargo.toml --features extended
 
       - name: Run LiteSVM and Mollusk tests (extended build)
         run: cargo test -p escrow --features extended

@@ -4,8 +4,8 @@
 
 **Auditor:** Claude (Opus 4.7), acting as security reviewer
 **Date:** 2026-05-06
-**Scope:** `experiments/quasar-{registry,escrow,attestation,reputation}/src/**/*.rs` (the four Quasar parity ports of the Anchor `programs/escrow/` program)
-**Out of scope:** the Anchor source under `programs/escrow/`, the vendored framework under `third_party/quasar/`, the Next.js/TypeScript app, deployment artifacts. The framework was read only as far as needed to understand what guarantees the programs inherit vs. what they enforce themselves.
+**Scope:** `experiments/quasar-{registry,escrow,attestation,reputation}/src/**/*.rs` (the four Quasar parity ports of the Anchor `archive/anchor-escrow/` program)
+**Out of scope:** the Anchor source under `archive/anchor-escrow/`, the vendored framework under `third_party/quasar/`, the Next.js/TypeScript app, deployment artifacts. The framework was read only as far as needed to understand what guarantees the programs inherit vs. what they enforce themselves.
 **Method:** Manual code review with full reading of every instruction, account struct, and `Cargo.toml`. Quasar framework's `lang/` and `derive/` were read first to establish the safety surface (PDA verification, owner+discriminator checks, `init` / `init_if_needed` semantics, `close` semantics).
 
 ---

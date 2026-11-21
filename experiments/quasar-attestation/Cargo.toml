@@ -2,7 +2,7 @@
 name = "quasar-attestation"
 version = "0.1.0"
 edition = "2021"
-description = "Quasar SOL-native attestation judges — parity port of programs/escrow attestation handlers (attest_quality/confirm_attestation/dispute_attestation)"
+description = "Quasar SOL-native attestation judges — parity port of archive/anchor-escrow attestation handlers (attest_quality/confirm_attestation/dispute_attestation)"
 
 [lib]
 crate-type = ["cdylib", "lib"]

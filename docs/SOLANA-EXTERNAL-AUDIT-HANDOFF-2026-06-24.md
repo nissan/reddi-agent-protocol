@@ -41,7 +41,7 @@ In scope for handoff:
 - Separate Quasar proof lane, not the current reputation/attestation escrow boundary:
   - `experiments/quasar-escrow-per`
 - Legacy/reference targets:
-  - `programs/escrow`
+  - `archive/anchor-escrow`
 - Active client and instruction-builder surfaces:
   - `lib/quasar/instruction-builders.ts`
   - `lib/quasar/instructions.ts`
@@ -78,7 +78,7 @@ Explicitly out of scope unless a later approved issue changes scope:
   #530 before any external auditor submission.
 - Current active escrow target for reputation/attestation job binding: `experiments/quasar-escrow`
 - Current MagicBlock PER proof lane outside that boundary: `experiments/quasar-escrow-per`
-- Current Anchor reference: `programs/escrow`
+- Current Anchor reference: `archive/anchor-escrow`
 - Current AUDD posture: first-class payment-plan/proof metadata only.
 - Current USDC posture: package/proof/helper rail only, not Quasar or Anchor
   custody.

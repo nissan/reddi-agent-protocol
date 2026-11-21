@@ -2,7 +2,7 @@
 
 ## Decision and boundary
 
-This is a **default-off, non-production alpha evaluation** of exactly one existing non-custodial instruction: `update_agent`. The authoritative RAP Anchor lane remains `programs/escrow/` on Anchor `1.1.2`. Nothing here changes product/runtime selection, Quasar, custody, AUDD semantics, external-operator authority, receipt/evidence semantics, controlled-live blocks, RPC configuration, deployment state, or submission readiness.
+This is a **default-off, non-production alpha evaluation** of exactly one existing non-custodial instruction: `update_agent`. The authoritative RAP Anchor lane remains `archive/anchor-escrow/` on Anchor `1.1.2`. Nothing here changes product/runtime selection, Quasar, custody, AUDD semantics, external-operator authority, receipt/evidence semantics, controlled-live blocks, RPC configuration, deployment state, or submission readiness.
 
 The pilot does not create wallets or keys, sign or construct transactions, contact an RPC, simulate a transaction, deploy, or use funds. Its local runtime evidence is one instruction-level Mollusk invocation with fixed public addresses and signer **account metadata** only. It is not authorization or evidence for production, audit readiness, mainnet, deployment, transactions, full feature coverage, or runtime parity.
 
@@ -20,7 +20,7 @@ Anchor v2 is therefore not final enough for adoption or production comparison. I
 
 ## Why `update_agent`
 
-`programs/escrow/src/instructions/update_agent.rs` changes only registry metadata (`rate_lamports`, `min_reputation`, and `active`) after validating the canonical `[b"agent", owner]` PDA and owner authority. It does not move value, create an account, invoke a wallet, touch an RPC, or alter receipt/payment state. The pilot mirrors this one instruction and the existing `AgentAccount` Borsh layout under:
+`archive/anchor-escrow/src/instructions/update_agent.rs` changes only registry metadata (`rate_lamports`, `min_reputation`, and `active`) after validating the canonical `[b"agent", owner]` PDA and owner authority. It does not move value, create an account, invoke a wallet, touch an RPC, or alter receipt/payment state. The pilot mirrors this one instruction and the existing `AgentAccount` Borsh layout under:
 
 - `pilots/anchor-v2-update-agent/programs/stable/` — isolated Anchor `1.1.2` comparator;
 - `pilots/anchor-v2-update-agent/programs/alpha/` — commit-pinned Anchor v2 alpha port.
@@ -41,7 +41,7 @@ The runner:
 2. compiles both isolated programs with platform-tools `v1.54`, SBF v3, and locked dependencies;
 3. pre-creates directory sentinels at both expected `*-keypair.json` paths and fails if any keypair file appears;
 4. generates stable and alpha JSON/TypeScript IDL types with the compile-only `anchor idl build` path and `/dev/null` as a non-wallet sentinel;
-5. checks both isolated generated Rust clients directly against the authoritative `programs/escrow` instruction bytes, account metas, program ID, and account discriminator;
+5. checks both isolated generated Rust clients directly against the authoritative `archive/anchor-escrow` instruction bytes, account metas, program ID, and account discriminator;
 6. invokes each binary directly through Mollusk `0.15.1`, without a transaction or signature; and
 7. writes machine-readable output to `.tmp/anchor-v2-update-agent-pilot/evidence.json`.
 
@@ -75,7 +75,7 @@ The 2026-10-02 size and CU values above are preserved historical observations, b
 
 Both binaries were measured as built; they were not built under a symmetric logging/default-feature profile. Framework generation, implementation, and enabled features are therefore confounders. The smaller binary and lower CU observations must not be attributed solely to the Anchor version. No binary or runtime evidence was regenerated for this interpretation update.
 
-The machine evidence also has narrower provenance than the summary labels alone suggest. Binary sizes and SHA-256 values come from the generated SBF files, and CU values come from the runtime log. The compatibility, TypeScript-generation, and deterministic-behavior labels are fixed values emitted after preceding checks: the comparator does not consume separate generated-client or runtime result artifacts, does not take the generated TypeScript paths as inputs, and does not directly compare the alpha account discriminator with the authoritative `programs/escrow` discriminator. Those executable evidence improvements remain tracked in [#669](https://github.com/nissan/reddi-agent-protocol/issues/669); this dated disclosure does not claim they have landed.
+The machine evidence also has narrower provenance than the summary labels alone suggest. Binary sizes and SHA-256 values come from the generated SBF files, and CU values come from the runtime log. The compatibility, TypeScript-generation, and deterministic-behavior labels are fixed values emitted after preceding checks: the comparator does not consume separate generated-client or runtime result artifacts, does not take the generated TypeScript paths as inputs, and does not directly compare the alpha account discriminator with the authoritative `archive/anchor-escrow` discriminator. Those executable evidence improvements remain tracked in [#669](https://github.com/nissan/reddi-agent-protocol/issues/669); this dated disclosure does not claim they have landed.
 
 The generated `.ts` files are IDL type outputs only. Their historical labels are not proof of a usable Anchor v2 TypeScript runtime client, signing client, or transaction path. Likewise, the keypair safety check uses pre-created sentinels at the two expected SBF output paths and scans the pilot output directory for matching files. It does not inspect toolchain or dependency caches, prove the whole dependency closure incapable of signing, or establish a general key-material audit.
 

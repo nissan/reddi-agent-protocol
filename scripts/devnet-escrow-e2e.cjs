@@ -101,7 +101,7 @@ function nonceFor(runId, label) {
   return createHash('sha256').update(`rap-devnet-escrow-e2e:${runId}:${label}`).digest().subarray(0, 16);
 }
 
-// ── instruction builders (layouts from programs/escrow/src) ─────────────────────────────────────
+// ── instruction builders (layouts from archive/anchor-escrow/src) ─────────────────────────────────────
 
 const solEscrow = (payer, nonce) => PublicKey.findProgramAddressSync([Buffer.from('escrow'), payer.toBuffer(), nonce], PROGRAM)[0];
 const tokenEscrow = (payer, nonce) => PublicKey.findProgramAddressSync([Buffer.from('token-escrow'), payer.toBuffer(), nonce], PROGRAM)[0];

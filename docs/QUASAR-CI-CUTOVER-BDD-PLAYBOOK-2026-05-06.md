@@ -4,7 +4,7 @@
 
 ## Goal
 
-Replace final-demo integrity checks that currently depend on legacy Anchor `programs/escrow` with required CI that compiles and tests the Quasar-based Solana programs used by the final Colosseum demo.
+Replace final-demo integrity checks that currently depend on legacy Anchor `archive/anchor-escrow` with required CI that compiles and tests the Quasar-based Solana programs used by the final Colosseum demo.
 
 The target state is **not** “no LiteSVM.” LiteSVM/QuasarSVM-style local execution remains useful. The target state is **no Anchor program tests masquerading as final Quasar proof**.
 
@@ -23,8 +23,8 @@ The target state is **not** “no LiteSVM.” LiteSVM/QuasarSVM-style local exec
 - `.github/workflows/anchor-test.yml`
   - Current name: `Anchor Tests`
   - Job: `Build & Test (Anchor 1.0.0 / LiteSVM)`
-  - Builds `programs/escrow` via `anchor build --ignore-keys`
-  - Runs `cargo test --manifest-path programs/escrow/Cargo.toml`
+  - Builds `archive/anchor-escrow` via `anchor build --ignore-keys`
+  - Runs `cargo test --manifest-path archive/anchor-escrow/Cargo.toml`
   - This is legacy/reference coverage only.
 - `.github/workflows/quasar-readiness-guard.yml`
   - Runs `npm run check:quasar:submission`

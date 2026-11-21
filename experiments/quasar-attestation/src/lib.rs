@@ -1,7 +1,7 @@
 #![no_std]
 //! Quasar SOL-native attestation judges
 //!
-//! Parity port of `programs/escrow/` attestation handlers for
+//! Parity port of `archive/anchor-escrow/` attestation handlers for
 //! benchmark comparison against the Anchor implementation.
 //!
 //! Instruction map:

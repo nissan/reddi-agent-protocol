@@ -1,7 +1,7 @@
 #![no_std]
 //! Quasar SOL-native agent registry
 //!
-//! Parity port of `programs/escrow/` registry handlers for
+//! Parity port of `archive/anchor-escrow/` registry handlers for
 //! benchmark comparison against the Anchor implementation.
 //!
 //! Instruction map:

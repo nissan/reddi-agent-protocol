@@ -187,10 +187,11 @@ npm run check:oss-release-smoke
 npm run check:claims:public
 ```
 
-Legacy Anchor reference checks (no live deployment):
+V1 program checks (no live deployment; see [`programs/pinocchio-escrow/README.md`](programs/pinocchio-escrow/README.md)):
 
 ```bash
-cargo build-sbf --manifest-path programs/escrow/Cargo.toml --sbf-out-dir target/deploy
+cargo build-sbf --manifest-path archive/anchor-escrow/Cargo.toml --sbf-out-dir target/deploy
+(cd programs/pinocchio-escrow && cargo build-sbf --manifest-path program/Cargo.toml --sbf-out-dir target/deploy && cd equivalence && cargo test)
 cargo test -p escrow
 anchor idl build -p escrow --skip-lint -o .tmp/escrow-idl.json -t .tmp/escrow-idl.ts
 ```
@@ -212,7 +213,7 @@ Inspect scripts before running anything with `devnet`, `live`, `surfpool`, or `e
 
 ## Solana programs
 
-Stable Anchor `1.1.2` under `programs/escrow/` is the authoritative reference implementation. The Anchor v2 `update_agent` pilot is isolated, default-off alpha research only.
+The V1 program source is the Pinocchio program under `programs/pinocchio-escrow/`. It has not been independently reviewed or deployed. The Anchor `1.1.2` program it replaces is archived under `archive/anchor-escrow/` as the behavioural reference it is tested against; the current devnet deployment is still that Anchor build. The Anchor v2 `update_agent` pilot is isolated, default-off alpha research only.
 
 The four historical **Quasar** program ids recorded for devnet live in [`config/quasar/deployments.json`](config/quasar/deployments.json), which is the single source of truth for their blocked status. The binaries predate the job-binding rework and no longer match the in-repo client, so the Quasar target is blocked before instruction construction, signer access, or RPC. Quasar is frozen and retired from current product, production, submission, deployment, audit, and mainnet planning; the existing size/CU document does not provide a semantics-matched primary Anchor comparison. See the [experimental freeze decision](docs/QUASAR-EXPERIMENTAL-FREEZE-2026-10-02.md).
 

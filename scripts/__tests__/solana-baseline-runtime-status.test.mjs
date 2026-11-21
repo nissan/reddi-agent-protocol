@@ -30,7 +30,7 @@ const FIXTURE_PATHS = [
   'package.json',
   'package-lock.json',
   'Cargo.lock',
-  'programs/escrow/Cargo.toml',
+  'archive/anchor-escrow/Cargo.toml',
   'config/toolchain/solana-baseline-assets.json',
   '.github/workflows/anchor-program-tests.yml',
   '.github/workflows/quasar-program-tests.yml',
@@ -41,8 +41,8 @@ const FIXTURE_PATHS = [
   'scripts/lib/solana-baseline-version-match.sh',
   // The checker resolves each execution profile's pinnedBy against the repository root, so
   // the tests those profiles cite have to exist in the fixture too.
-  'programs/escrow/tests/litesvm_runtime_profile.rs',
-  'programs/escrow/tests/mollusk_runtime.rs',
+  'archive/anchor-escrow/tests/litesvm_runtime_profile.rs',
+  'archive/anchor-escrow/tests/mollusk_runtime.rs',
 ];
 
 const ASSETS_REL = 'config/toolchain/solana-baseline-assets.json';
@@ -341,7 +341,7 @@ test('an unrecognised evidence strength, or a claim without the test backing it,
   patchExecutionProfile(dir, 'litesvm', {
     profileEvidence: 'source-observed',
     completeSetSource: undefined,
-    pinnedBy: 'programs/escrow/tests/litesvm_runtime_profile.rs',
+    pinnedBy: 'archive/anchor-escrow/tests/litesvm_runtime_profile.rs',
   });
   const mislabelled = runChecker(dir);
   assert.equal(mislabelled.status, 1, 'source-observed evidence must not name a pinning test');

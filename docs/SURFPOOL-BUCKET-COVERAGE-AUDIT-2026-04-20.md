@@ -10,7 +10,7 @@ Scope: verify whether Surfpool-driven tests are leveraged across active BDD buck
 
 ## Existing non-Surfpool coverage baseline
 - Bucket suite/index guard: `npm run test:bdd:index`, `npm run test:bdd:sweep`
-- Rust on-chain simulation: LiteSVM tests under `programs/escrow/tests/*.rs`
+- Rust on-chain simulation: LiteSVM tests under `archive/anchor-escrow/tests/*.rs`
 - PER client routing/fallback tests: `packages/per-client/tests/per-client.test.ts`
 - UI/integration lanes: Playwright e2e + integration scripts
 

@@ -38,7 +38,7 @@ function parseSimpleToml(file) {
 const mise = parseSimpleToml('.mise.toml');
 const rust = parseSimpleToml('rust-toolchain.toml');
 const anchor = parseSimpleToml('Anchor.toml');
-const escrowCargo = parseSimpleToml('programs/escrow/Cargo.toml');
+const escrowCargo = parseSimpleToml('archive/anchor-escrow/Cargo.toml');
 const escrowAnchorLangReq = escrowCargo.dependencies?.['anchor-lang']?.match(/version\s*=\s*"([^"]+)"/)?.[1];
 const escrowLiteSvmReq = escrowCargo['dev-dependencies']?.litesvm;
 const escrowMolluskSvmReq = escrowCargo['dev-dependencies']?.['mollusk-svm'];
@@ -161,7 +161,7 @@ const checks = [
   ['rust-toolchain.toml includes rustfmt', rust.toolchain?.components?.includes('rustfmt')],
   ['rust-toolchain.toml includes clippy', rust.toolchain?.components?.includes('clippy')],
   [`Anchor.toml pins stable Anchor ${STABLE_ANCHOR_VERSION}`, anchor.toolchain?.anchor_version === STABLE_ANCHOR_VERSION],
-  ['programs/escrow anchor-lang requirement matches the Anchor.toml pin', escrowAnchorLangReq === anchor.toolchain?.anchor_version],
+  ['archive/anchor-escrow anchor-lang requirement matches the Anchor.toml pin', escrowAnchorLangReq === anchor.toolchain?.anchor_version],
   ['Cargo.lock resolves anchor-lang to the Anchor.toml pin', lockedAnchorLang === anchor.toolchain?.anchor_version],
   ['CI workflows share one Agave pin', workflowVersions.size === 1],
   [`CI Agave pin is ${BASELINE_AGAVE_VERSION}`, workflowVersions.has(BASELINE_AGAVE_VERSION)],
@@ -175,13 +175,13 @@ const checks = [
     assets.sbf?.platformToolsVersionByCargoBuildSbfVersion?.[BASELINE_CARGO_BUILD_SBF_VERSION] === BASELINE_PLATFORM_TOOLS_VERSION,
   ],
   [
-    'recorded LiteSVM pin matches the programs/escrow dev-dependency and lockfile',
+    'recorded LiteSVM pin matches the archive/anchor-escrow dev-dependency and lockfile',
     typeof escrowLiteSvmReq === 'string' &&
       assets.programRuntime?.liteSvmVersion === escrowLiteSvmReq &&
       lockedLiteSvm === escrowLiteSvmReq,
   ],
   [
-    'recorded Mollusk pin matches the programs/escrow dev-dependency and lockfile',
+    'recorded Mollusk pin matches the archive/anchor-escrow dev-dependency and lockfile',
     typeof escrowMolluskSvmReq === 'string' &&
       assets.programRuntime?.molluskSvmVersion === escrowMolluskSvmReq &&
       lockedMolluskSvm === escrowMolluskSvmReq,

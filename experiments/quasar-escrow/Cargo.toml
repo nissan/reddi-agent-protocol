@@ -2,7 +2,7 @@
 name = "quasar-escrow-poc"
 version = "0.1.0"
 edition = "2021"
-description = "Quasar SOL-native escrow POC — parity port of programs/escrow hot path"
+description = "Quasar SOL-native escrow POC — parity port of archive/anchor-escrow hot path"
 
 [lib]
 crate-type = ["cdylib", "lib"]

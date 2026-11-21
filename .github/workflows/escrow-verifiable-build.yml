@@ -1,6 +1,7 @@
 name: Escrow verifiable build
 
-# Container (verifiable) build of the escrow program, so the mainnet binary hash does
+# Container (verifiable) build of the V1 program (programs/pinocchio-escrow, library
+# pinocchio_escrow), so the mainnet binary hash does
 # not depend on the machine that built it (owner decision, 21 November 2026). The
 # image tag matches the pinned Agave baseline (4.2.2). Anyone can repeat this build
 # with `solana-verify build` and compare the hash, and the same command backs
@@ -10,17 +11,17 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "programs/escrow/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
+      - "programs/pinocchio-escrow/program/**"
+      - "programs/pinocchio-escrow/Cargo.toml"
+      - "programs/pinocchio-escrow/Cargo.lock"
       - "rust-toolchain.toml"
       - ".github/workflows/escrow-verifiable-build.yml"
   push:
     branches: [main]
     paths:
-      - "programs/escrow/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
+      - "programs/pinocchio-escrow/program/**"
+      - "programs/pinocchio-escrow/Cargo.toml"
+      - "programs/pinocchio-escrow/Cargo.lock"
       - "rust-toolchain.toml"
       - ".github/workflows/escrow-verifiable-build.yml"
   workflow_dispatch:
@@ -63,10 +64,12 @@ jobs:
       - name: Pull build image
         run: docker pull "${BASE_IMAGE}"
 
+      # The program is its own Cargo workspace, so the build is mounted there.
       - name: Build in container
+        working-directory: programs/pinocchio-escrow
         run: |
           # shellcheck disable=SC2086
-          solana-verify build --library-name escrow --base-image "${BASE_IMAGE}" -- ${{ matrix.features }}
+          solana-verify build --library-name pinocchio_escrow --base-image "${BASE_IMAGE}" -- ${{ matrix.features }}
 
       - name: Record hash
         id: hash
@@ -75,13 +78,13 @@ jobs:
           # binary go to a runner-owned directory.
           out="${RUNNER_TEMP}/escrow-build"
           mkdir -p "$out"
-          so=target/deploy/escrow.so
+          so=programs/pinocchio-escrow/target/deploy/pinocchio_escrow.so
           test -f "$so"
           hash=$(solana-verify get-executable-hash "$so")
           size=$(stat -c %s "$so")
           echo "hash=$hash" >> "$GITHUB_OUTPUT"
           {
-            echo "### Escrow ${{ matrix.variant }} build"
+            echo "### V1 program (Pinocchio) ${{ matrix.variant }} build"
             echo ""
             echo "| | |"
             echo "|---|---|"
@@ -93,14 +96,14 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           printf '{"variant":"%s","commit":"%s","image":"%s","size":%s,"hash":"%s"}\n' \
             "${{ matrix.variant }}" "$GITHUB_SHA" "$BASE_IMAGE" "$size" "$hash" > "$out/escrow-${{ matrix.variant }}-build.json"
-          cp "$so" "$out/escrow.so"
+          cp "$so" "$out/pinocchio_escrow.so"
 
       - name: Upload binary and hash
         uses: actions/upload-artifact@v4
         with:
           name: escrow-${{ matrix.variant }}-${{ github.sha }}
           path: |
-            ${{ runner.temp }}/escrow-build/escrow.so
+            ${{ runner.temp }}/escrow-build/pinocchio_escrow.so
             ${{ runner.temp }}/escrow-build/escrow-${{ matrix.variant }}-build.json
           if-no-files-found: error
           retention-days: 90

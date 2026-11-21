@@ -79,7 +79,7 @@ function jobIdFromRunId(runId: string): Uint8Array {
 
 /**
  * Rating PDA: seeds = [b"rating", job_id(16)]
- * (matches programs/escrow/src/instructions/commit_rating.rs)
+ * (matches archive/anchor-escrow/src/instructions/commit_rating.rs)
  */
 function ratingPdaFor(jobId: Uint8Array): PublicKey {
   return PublicKey.findProgramAddressSync(

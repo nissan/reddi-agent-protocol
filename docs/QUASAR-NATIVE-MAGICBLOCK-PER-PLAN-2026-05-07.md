@@ -170,7 +170,7 @@ Flow:
 
 - Keep this crawl artifact and plan in repo.
 - Add a BDD row: “Quasar-native PER settlement does not use Anchor program IDs.”
-- Add a source-conformance guard that fails if `MAGICBLOCK_PER_MODE=quasar-native` references `programs/escrow` or Anchor program ID `794n...`.
+- Add a source-conformance guard that fails if `MAGICBLOCK_PER_MODE=quasar-native` references `archive/anchor-escrow` or Anchor program ID `794n...`.
 
 Exit: docs + guards merged; no live mutation.
 

@@ -1,5 +1,5 @@
 //! Seeds, limits, allowlists and the fee rule. Values mirror
-//! `programs/escrow/src/constants.rs`; the equivalence tests fail if they drift.
+//! `archive/anchor-escrow/src/constants.rs`; the equivalence tests fail if they drift.
 use {pinocchio::Address, solana_address::address};
 
 pub const ESCROW_SEED: &[u8] = b"escrow";
