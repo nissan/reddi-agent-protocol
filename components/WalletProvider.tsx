@@ -40,7 +40,9 @@ const WalletProvider: FC<Props> = ({ children }) => {
   }, [enablePlaywrightWallet, endpoint, network.name, network.solana.rpcWs]);
 
   return (
-    <ConnectionProvider endpoint={endpoint}>
+    // wsEndpoint is explicit: when the HTTP endpoint is the app's /api/rpc proxy,
+    // web3.js would otherwise derive a websocket URL from it that does not exist.
+    <ConnectionProvider endpoint={endpoint} config={{ commitment: "confirmed", wsEndpoint: network.solana.rpcWs }}>
       <SolanaWalletProvider wallets={wallets} autoConnect={enablePlaywrightWallet}>
         <WalletModalProvider>{children}</WalletModalProvider>
       </SolanaWalletProvider>
