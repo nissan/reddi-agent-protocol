@@ -16,6 +16,9 @@ import {
   SolanaReceiptVerifier,
   SOLANA_GENESIS_HASHES,
   verifyDemoPaymentReceipt,
+  verifySessionRequest,
+  SESSION_DELEGATION_HEADER,
+  SESSION_SIGNATURE_HEADER,
   type NonceReplayStore,
   type ParsedTransactionConnection,
   type ReceiptVerificationResult,
@@ -79,7 +82,15 @@ export const SESSION_STATE_HEADER = "x-reddi-session-state";
 /** Calls a sandbox session may hold. */
 export const SANDBOX_MAX_SESSION_CALLS = 50;
 
-export type SessionRefusalCode = "session_max_reached" | "session_window_closing" | "session_sequence_invalid" | "session_closed" | "session_invalid";
+export type SessionRefusalCode =
+  | "session_max_reached"
+  | "session_window_closing"
+  | "session_sequence_invalid"
+  | "session_closed"
+  | "session_invalid"
+  | "session_auth_required"
+  | "session_auth_invalid"
+  | "session_auth_expired";
 
 export type SandboxGatewayDeps = {
   /** Devnet RPC used only to read a visitor's own transfer. */
@@ -99,11 +110,9 @@ export type SandboxGatewayDeps = {
    */
   acceptRatedEscrows?: boolean;
   /**
-   * Serve sessions on a devnet metered escrow. Default false. A V1 session call
-   * also carries the payer's delegation to a session key and that key's
-   * signature over each call (provider kit, #865); until the sandbox checks
-   * those, anyone who saw a visitor's lock header could spend it, so only
-   * simulated sessions run.
+   * Serve sessions on a devnet metered escrow. Each call must carry the
+   * payer's delegation to a session key and that key's signature over the
+   * call (provider kit, #865), so a lock header alone cannot spend the lock.
    */
   acceptMeteredSessions?: boolean;
   now?: () => number;
@@ -127,7 +136,7 @@ export type SandboxGatewayRequest = {
   /** Origin the endpoint is served from, used in the challenge. */
   origin: string;
   /** Session headers, when the call is part of a session. */
-  session?: { sequence?: string | null; close?: string | null; previousReceipt?: string | null };
+  session?: { sequence?: string | null; close?: string | null; previousReceipt?: string | null; delegation?: string | null; signature?: string | null };
 };
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
@@ -464,13 +473,14 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
 }
 
 function sessionRefusal(code: SessionRefusalCode, message: string): SandboxGatewayResponse {
-  return failure(code === "session_max_reached" || code === "session_sequence_invalid" || code === "session_closed" ? 409 : 402, code, message, { charged: false });
+  const status = code.startsWith("session_auth_") ? 401 : code === "session_max_reached" || code === "session_sequence_invalid" || code === "session_closed" ? 409 : 402;
+  return failure(status, code, message, { charged: false });
 }
 
 type SessionLock = { mode: "simulated" | "metered-escrow"; escrow: string; payer?: string; maxLamports: bigint; nonce: string };
 
 /** The lock a session call presents: a simulated session maximum or a metered escrow on devnet. */
-async function verifySessionLock(header: string, provider: SandboxProvider, origin: string, inputTokens: number, deps: SandboxGatewayDeps): Promise<{ ok: true; lock: SessionLock } | { ok: false; response: SandboxGatewayResponse }> {
+async function verifySessionLock(header: string, provider: SandboxProvider, origin: string, inputTokens: number, deps: SandboxGatewayDeps, auth: { request: SandboxGatewayRequest; sequence: number }): Promise<{ ok: true; lock: SessionLock } | { ok: false; response: SandboxGatewayResponse }> {
   const parsed = parseX402PaymentHeader(header);
   const refuse = (code: SessionRefusalCode, message: string) => ({ ok: false as const, response: sessionRefusal(code, message) });
   if (!parsed || typeof parsed !== "object") return refuse("session_invalid", "A session is paid by a metered lock: send a JSON x402-payment with settlement \"metered-escrow\".");
@@ -487,8 +497,31 @@ async function verifySessionLock(header: string, provider: SandboxProvider, orig
     if (lamports === undefined || lamports <= BigInt(0)) return refuse("session_invalid", "The simulated session lock needs an amount in SOL.");
     return { ok: true, lock: { mode: "simulated", escrow: `simulated:${nonce}`, maxLamports: lamports, nonce } };
   }
-  if (deps.acceptMeteredSessions !== true) return refuse("session_invalid", "The sandbox runs sessions with a simulated lock for now. Devnet escrow sessions follow once each call is signed with a session key the wallet delegates.");
+  if (deps.acceptMeteredSessions !== true) return refuse("session_invalid", "This sandbox runs sessions with a simulated lock only.");
   if (typeof record.payer !== "string" || record.payer.length === 0) return refuse("session_invalid", "A session lock must name the paying wallet in payer.");
+  // The lock's escrow, payer and nonce are public, so they cannot show who is calling: the payer's
+  // delegation to a session key and that key's signature over this exact call do. Checked before
+  // anything is read from chain or reserved.
+  let payerKey: PublicKey;
+  let escrowKey: PublicKey;
+  try {
+    payerKey = new PublicKey(record.payer);
+    escrowKey = new PublicKey(String(record.escrow));
+  } catch {
+    return refuse("session_invalid", "A session lock must name the payer and the escrow address.");
+  }
+  const s = auth.request.session ?? {};
+  const authorised = verifySessionRequest({
+    headers: { get: (name: string) => (name === SESSION_DELEGATION_HEADER ? s.delegation ?? null : name === SESSION_SIGNATURE_HEADER ? s.signature ?? null : null) },
+    action: "call",
+    escrow: escrowKey,
+    payer: payerKey,
+    provider: new PublicKey(provider.payTo),
+    sequence: auth.sequence,
+    body: auth.request.rawBody,
+    nowMs: (deps.now ?? Date.now)(),
+  });
+  if (!authorised.ok) return refuse(authorised.reason, authorised.message);
   const outcome = await verifyMeteredLock(record, provider, nonce, inputTokens, deps, true);
   if (!outcome.ok) {
     if (outcome.sessionCode) return refuse(outcome.sessionCode, outcome.result.message);
@@ -539,7 +572,7 @@ async function handleSessionCall(input: {
     previousHash = await hashSandboxReceipt(decoded.receipt);
   }
 
-  const verified = await verifySessionLock(input.header, provider, request.origin, inputTokens, deps);
+  const verified = await verifySessionLock(input.header, provider, request.origin, inputTokens, deps, { request, sequence });
   if (!verified.ok) return verified.response;
   const lock = verified.lock;
   if (previous && (previous.escrow !== lock.escrow || previous.maxAmount !== lock.maxLamports.toString() || previous.payer !== lock.payer)) {

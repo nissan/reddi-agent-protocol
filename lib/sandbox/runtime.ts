@@ -50,6 +50,8 @@ export function sandboxGatewayDeps(): SandboxGatewayDeps {
       },
       readSlot: () => connection.getSlot("confirmed"),
       acceptRatedEscrows,
+      // Devnet escrow sessions: every call is signed by a session key the payer's wallet delegated.
+      acceptMeteredSessions: true,
       settler: createSandboxSettler(
         connection,
         parseSandboxPayeeKeys(process.env[SANDBOX_PAYEE_KEYS_ENV]),
