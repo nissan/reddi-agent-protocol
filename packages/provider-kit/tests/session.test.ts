@@ -5,17 +5,30 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { verifyReddiReceiptV2Session, type SignedReddiReceiptV2 } from "@reddi/agent-protocol/receipt-v2";
-import { MemoryNonceReplayStore, MeteredSessionLedger, type NonceReplayStore, type SessionStore } from "@reddi/x402-solana";
+import { Keypair } from "@solana/web3.js";
+import { MemoryNonceReplayStore, MeteredSessionLedger, SESSION_DELEGATION_HEADER, SESSION_SIGNATURE_HEADER, sessionDelegationHeaderValue, sessionSignatureHeaderValue, type NonceReplayStore, type SessionAction, type SessionStore } from "@reddi/x402-solana";
 import { createProviderHandler, PROVIDER_RECEIPT_HEADER, SESSION_RECEIPT_HEADER, SESSION_STATE_HEADER } from "../src/handler.js";
 import { FileSessionStore } from "../src/sessions.js";
 import type { Upstream } from "../src/upstream.js";
-import { config, escrowAddress, fakeChain, paymentHeader, provider, type FakeChain } from "./helpers.js";
+import { buyerKeypair, config, escrowAddress, fakeChain, paymentHeader, provider, type FakeChain } from "./helpers.js";
 
 const privateKey = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(provider.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
 const signMessage = (message: Uint8Array) => edSign(null, message, privateKey);
 // 100 input tokens estimated, 500 output allowed: a worst case of 7,800 base units. The lock holds 20,000.
 const BODY = JSON.stringify({ messages: [{ role: "user", content: "x".repeat(400) }] });
 const ESCROW = escrowAddress().toBase58();
+const PKCS8 = Buffer.from("302e020100300506032b657004220420", "hex");
+const keySigner = (k: Keypair) => { const key = createPrivateKey({ key: Buffer.concat([PKCS8, Buffer.from(k.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" }); return (m: Uint8Array) => new Uint8Array(edSign(null, Buffer.from(m), key)); };
+const SESSION_KEY = Keypair.generate();
+
+/** The headers a buyer's session client sends: the payer's delegation to a session key, and that key's signature over the request. */
+async function signed(action: SessionAction, sequence: number, body: string, nowMs: number, opts: { payer?: Keypair; key?: Keypair } = {}): Promise<Record<string, string>> {
+  const key = opts.key ?? SESSION_KEY;
+  return {
+    [SESSION_DELEGATION_HEADER]: await sessionDelegationHeaderValue({ escrow: ESCROW, provider: provider.publicKey.toBase58(), sessionKey: key.publicKey.toBase58(), expiresAt: Math.floor(nowMs / 1000) + 3600 }, keySigner(opts.payer ?? buyerKeypair)),
+    [SESSION_SIGNATURE_HEADER]: await sessionSignatureHeaderValue({ action, escrow: ESCROW, sequence, body }, keySigner(key)),
+  };
+}
 
 function upstream(fail = false): Upstream & { calls: number; fail: boolean } {
   const u = {
@@ -46,14 +59,15 @@ function setup(options: { chain?: FakeChain; store?: SessionStore; replayStore?:
     now: () => new Date(clock.ms),
     log: (event) => events.push(event),
   });
-  const call = (sequence?: number, extra: Record<string, string> = {}) =>
+  type As = { payer?: Keypair; key?: Keypair; unsigned?: boolean };
+  const call = async (sequence?: number, extra: Record<string, string> = {}, as: As = {}) =>
     handler(new Request("http://localhost:8787/v1/chat/completions", {
       method: "POST",
-      headers: { "content-type": "application/json", "x402-payment": paymentHeader(), ...(sequence === undefined ? {} : { "x402-session-sequence": String(sequence) }), ...extra },
+      headers: { "content-type": "application/json", "x402-payment": paymentHeader(), ...(sequence === undefined ? {} : { "x402-session-sequence": String(sequence), ...(as.unsigned ? {} : await signed("call", sequence, BODY, clock.ms, as)) }), ...extra },
       body: BODY,
     }));
-  const close = () => handler(new Request("http://localhost:8787/v1/session/close", { method: "POST", headers: { "x402-payment": paymentHeader() } }));
-  const read = () => handler(new Request(`http://localhost:8787/v1/session/${ESCROW}`));
+  const close = async (as: As = {}) => handler(new Request("http://localhost:8787/v1/session/close", { method: "POST", headers: { "x402-payment": paymentHeader(), ...(as.unsigned ? {} : await signed("close", 0, "", clock.ms, as)) } }));
+  const read = async (as: As = {}) => handler(new Request(`http://localhost:8787/v1/session/${ESCROW}`, { headers: as.unsigned ? {} : await signed("read", 0, "", clock.ms, as) }));
   return { chain, handler, call, close, read, events, clock, ledger, model };
 }
 const receiptOf = (response: Response, header = PROVIDER_RECEIPT_HEADER) => JSON.parse(Buffer.from(response.headers.get(header)!, "base64url").toString("utf8")) as SignedReddiReceiptV2;
@@ -197,4 +211,48 @@ test("malformed session headers and a provider without sessions are refused befo
   const refused = await none.call(1);
   assert.equal(refused.status, 400);
   assert.equal(((await refused.json()) as { error: { code: string } }).error.code, "sessions_not_offered");
+});
+
+test("someone who knows the public lock but is not the payer cannot call, close or read the session (security review S-1, S-3)", async () => {
+  const { call, close, read, model, chain } = setup();
+  const stranger = Keypair.generate();
+  for (const response of [await call(1, {}, { unsigned: true }), await call(1, {}, { payer: stranger, key: stranger })]) {
+    assert.equal(response.status, 401);
+    assert.match(((await response.json()) as { error: { code: string } }).error.code, /^session_auth_/);
+  }
+  assert.equal(model.calls, 0, "the model never ran for the stranger");
+  assert.equal((await call(1)).status, 200, "the buyer still starts at call 1");
+  for (const response of [await close({ unsigned: true }), await read({ unsigned: true }), await close({ payer: stranger, key: stranger })]) assert.equal(response.status, 401);
+  assert.equal(settles(chain), 0, "nothing was closed by the stranger");
+  assert.equal((await read()).status, 200);
+});
+
+test("a second key delegated by the payer cannot take over a session already started", async () => {
+  const { call, close } = setup();
+  assert.equal((await call(1)).status, 200);
+  const other = Keypair.generate();
+  const response = await call(2, {}, { key: other });
+  assert.equal(response.status, 409);
+  assert.equal(((await response.json()) as { error: { code: string } }).error.code, "session_key_mismatch");
+  assert.equal((await close({ key: other })).status, 409);
+});
+
+test("a signed call whose body was changed in transit is refused", async () => {
+  const { handler, clock, model } = setup();
+  const headers = { "content-type": "application/json", "x402-payment": paymentHeader(), "x402-session-sequence": "1", ...(await signed("call", 1, BODY, clock.ms)) };
+  const response = await handler(new Request("http://localhost:8787/v1/chat/completions", { method: "POST", headers, body: BODY.replace("x", "y") }));
+  assert.equal(response.status, 401);
+  assert.equal(model.calls, 0);
+});
+
+test("a lock the buyer refunded before the settle is recorded as unpaid, not settled (security review S-2)", async () => {
+  const { call, close, chain, events } = setup();
+  assert.equal((await call(1)).status, 200);
+  chain.accounts.delete(ESCROW);
+  const refund = "R".repeat(88);
+  chain.latestSuccess = async () => refund;
+  chain.settlement = { failed: false, programIds: [config().terms.programId.toBase58()], accounts: [ESCROW], tokenBalances: [{ account: config().terms.payee.toBase58(), mint: config().terms.mint.toBase58(), before: 0n, after: 0n }] };
+  const closed = await close();
+  assert.equal(((await closed.json()) as { status: string }).status, "refunded_unpaid");
+  assert.ok(events.some((e) => e.event === "session_refunded_unpaid" && e.signature === refund));
 });

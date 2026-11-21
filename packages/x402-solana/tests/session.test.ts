@@ -25,6 +25,7 @@ const TOKEN_PROGRAM = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
 const payee = Keypair.generate().publicKey;
 const payer = Keypair.generate().publicKey;
 const NONCE = '00112233445566778899aabbccddeeff';
+const KEY = Keypair.generate().publicKey.toBase58();
 const CURRENT_SLOT = 1_000_000n;
 // RAP-SESSION-S1: $2 in / $10 out per million, 0.15 USDC locked.
 const terms = providerMeteredTerms({ currency: 'USDC', inputPerMillion: '2', outputPerMillion: '10', maxOutputTokens: 350, programId: PROGRAM, mint: USDC, payee });
@@ -129,7 +130,7 @@ describe('MeteredSessionLedger', () => {
     const replayStore = new MemoryNonceReplayStore();
     const l = await lock();
     for (let sequence = 1; sequence <= 10; sequence += 1) {
-      const begun = await ledger.begin({ lock: l, escrow, sequence, worstCase: CALL, replayStore, nowMs: sequence });
+      const begun = await ledger.begin({ lock: l, escrow, sequence, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: sequence });
       if (!begun.ok) throw new Error(begun.message);
       const recorded = await ledger.record(begun.reservation, CALL, 'h'.repeat(64), sequence);
       expect(recorded.state.sequence).toBe(sequence);
@@ -150,22 +151,22 @@ describe('MeteredSessionLedger', () => {
     const l = await lock();
     let sequence = 1;
     for (; sequence <= 23; sequence += 1) {
-      const begun = await ledger.begin({ lock: l, escrow, sequence, worstCase: CALL, replayStore, nowMs: 0 });
+      const begun = await ledger.begin({ lock: l, escrow, sequence, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 });
       if (!begun.ok) throw new Error(`call ${sequence}: ${begun.message}`);
       await ledger.record(begun.reservation, CALL, undefined, 0);
     }
     // 23 calls cost 149,500; one more could take it to 156,000.
-    const refused = await ledger.begin({ lock: l, escrow, sequence, worstCase: CALL, replayStore, nowMs: 0 });
+    const refused = await ledger.begin({ lock: l, escrow, sequence, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 });
     expect(refused).toMatchObject({ ok: false, reason: 'session_max_reached' });
     expect(ledger.get(escrow)!.costBaseUnits).toBe('149500');
     // A smaller call still fits.
-    expect((await ledger.begin({ lock: l, escrow, sequence, worstCase: { inputTokens: 100, outputTokens: 10 }, replayStore, nowMs: 0 })).ok).toBe(true);
+    expect((await ledger.begin({ lock: l, escrow, sequence, sessionKey: KEY, worstCase: { inputTokens: 100, outputTokens: 10 }, replayStore, nowMs: 0 })).ok).toBe(true);
   });
 
   test('a call that uses more than its worst case is capped at the lock and fills the session', async () => {
     const ledger = new MeteredSessionLedger(terms);
     const l = await lock();
-    const begun = await ledger.begin({ lock: l, escrow, sequence: 1, worstCase: CALL, replayStore: new MemoryNonceReplayStore(), nowMs: 0 });
+    const begun = await ledger.begin({ lock: l, escrow, sequence: 1, sessionKey: KEY, worstCase: CALL, replayStore: new MemoryNonceReplayStore(), nowMs: 0 });
     if (!begun.ok) throw new Error();
     const recorded = await ledger.record(begun.reservation, { inputTokens: 100_000, outputTokens: 0 }, undefined, 0);
     expect(recorded.full).toBe(true);
@@ -177,35 +178,48 @@ describe('MeteredSessionLedger', () => {
     const ledger = new MeteredSessionLedger(terms);
     const replayStore = new MemoryNonceReplayStore();
     const l = await lock();
-    expect(await ledger.begin({ lock: l, escrow, sequence: 2, worstCase: CALL, replayStore, nowMs: 0 })).toMatchObject({ ok: false, reason: 'session_sequence_invalid' });
-    const first = await ledger.begin({ lock: l, escrow, sequence: 1, worstCase: CALL, replayStore, nowMs: 0 });
+    expect(await ledger.begin({ lock: l, escrow, sequence: 2, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 })).toMatchObject({ ok: false, reason: 'session_sequence_invalid' });
+    const first = await ledger.begin({ lock: l, escrow, sequence: 1, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 });
     if (!first.ok) throw new Error();
-    expect(await ledger.begin({ lock: l, escrow, sequence: 2, worstCase: CALL, replayStore, nowMs: 0 })).toMatchObject({ ok: false, reason: 'session_call_in_progress' });
+    expect(await ledger.begin({ lock: l, escrow, sequence: 2, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 })).toMatchObject({ ok: false, reason: 'session_call_in_progress' });
     await ledger.record(first.reservation, CALL, undefined, 0);
     const before = ledger.get(escrow);
-    expect(await ledger.begin({ lock: l, escrow, sequence: 1, worstCase: CALL, replayStore, nowMs: 0 })).toMatchObject({ ok: false, reason: 'session_sequence_invalid' });
-    expect(await ledger.begin({ lock: l, escrow, sequence: 3, worstCase: CALL, replayStore, nowMs: 0 })).toMatchObject({ ok: false, reason: 'session_sequence_invalid' });
+    expect(await ledger.begin({ lock: l, escrow, sequence: 1, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 })).toMatchObject({ ok: false, reason: 'session_sequence_invalid' });
+    expect(await ledger.begin({ lock: l, escrow, sequence: 3, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 })).toMatchObject({ ok: false, reason: 'session_sequence_invalid' });
     expect(ledger.get(escrow)).toEqual(before);
+  });
+
+  test('a session keeps the key it started with: another key cannot go on with it', async () => {
+    const ledger = new MeteredSessionLedger(terms, new MemoryStore());
+    const replayStore = new MemoryNonceReplayStore();
+    const l = await lock();
+    const first = await ledger.begin({ lock: l, escrow, sequence: 1, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 });
+    if (!first.ok) throw new Error(first.message);
+    await ledger.record(first.reservation, CALL, 'h'.repeat(64), 0);
+    const other = await ledger.begin({ lock: l, escrow, sequence: 2, sessionKey: Keypair.generate().publicKey.toBase58(), worstCase: CALL, replayStore, nowMs: 0 });
+    expect(other.ok).toBe(false);
+    expect(!other.ok && other.reason).toBe('session_key_mismatch');
+    expect(ledger.get(escrow)!.sequence).toBe(1);
   });
 
   test('a released call adds nothing and its number is reused', async () => {
     const ledger = new MeteredSessionLedger(terms);
     const replayStore = new MemoryNonceReplayStore();
     const l = await lock();
-    const begun = await ledger.begin({ lock: l, escrow, sequence: 1, worstCase: CALL, replayStore, nowMs: 0 });
+    const begun = await ledger.begin({ lock: l, escrow, sequence: 1, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 });
     if (!begun.ok) throw new Error();
     ledger.release(begun.reservation);
     expect(ledger.get(escrow)).toMatchObject({ sequence: 0, costBaseUnits: '0' });
-    expect((await ledger.begin({ lock: l, escrow, sequence: 1, worstCase: CALL, replayStore, nowMs: 0 })).ok).toBe(true);
+    expect((await ledger.begin({ lock: l, escrow, sequence: 1, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 })).ok).toBe(true);
   });
 
   test('a lock that paid for a single call cannot start a session, nor a session lock pay for a single call', async () => {
     const replayStore = new MemoryNonceReplayStore();
     expect((await verify('call', {}, CURRENT_SLOT, replayStore)).ok).toBe(true);
     const ledger = new MeteredSessionLedger(terms);
-    expect(await ledger.begin({ lock: await lock(), escrow, sequence: 1, worstCase: CALL, replayStore, nowMs: 0 })).toMatchObject({ ok: false, reason: 'duplicate_nonce' });
+    expect(await ledger.begin({ lock: await lock(), escrow, sequence: 1, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 })).toMatchObject({ ok: false, reason: 'duplicate_nonce' });
     const other = new MemoryNonceReplayStore();
-    const begun = await new MeteredSessionLedger(terms).begin({ lock: await lock(), escrow, sequence: 1, worstCase: CALL, replayStore: other, nowMs: 0 });
+    const begun = await new MeteredSessionLedger(terms).begin({ lock: await lock(), escrow, sequence: 1, sessionKey: KEY, worstCase: CALL, replayStore: other, nowMs: 0 });
     expect(begun.ok).toBe(true);
     expect(await verify('call', {}, CURRENT_SLOT, other)).toMatchObject({ ok: false, reason: 'duplicate_nonce' });
   });
@@ -214,13 +228,13 @@ describe('MeteredSessionLedger', () => {
     const ledger = new MeteredSessionLedger(terms);
     const replayStore = new MemoryNonceReplayStore();
     const l = await lock();
-    const begun = await ledger.begin({ lock: l, escrow, sequence: 1, worstCase: CALL, replayStore, nowMs: 0 });
+    const begun = await ledger.begin({ lock: l, escrow, sequence: 1, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 });
     if (!begun.ok) throw new Error();
     await ledger.record(begun.reservation, CALL, undefined, 0);
     await ledger.close(escrow);
-    expect(await ledger.begin({ lock: l, escrow, sequence: 2, worstCase: CALL, replayStore, nowMs: 0 })).toMatchObject({ ok: false, reason: 'session_closed' });
+    expect(await ledger.begin({ lock: l, escrow, sequence: 2, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 })).toMatchObject({ ok: false, reason: 'session_closed' });
     await ledger.finish(escrow.toBase58(), { status: 'settled', signature: 'sig' });
-    expect(await ledger.begin({ lock: l, escrow, sequence: 2, worstCase: CALL, replayStore, nowMs: 0 })).toMatchObject({ ok: false, reason: 'session_closed' });
+    expect(await ledger.begin({ lock: l, escrow, sequence: 2, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 })).toMatchObject({ ok: false, reason: 'session_closed' });
     expect(ledger.due(10 ** 12, CURRENT_SLOT, 1)).toEqual([]);
   });
 
@@ -229,7 +243,7 @@ describe('MeteredSessionLedger', () => {
     const replayStore = new MemoryNonceReplayStore();
     const l = await lock();
     const idle = DEFAULT_SESSION_IDLE_SECONDS * 1_000;
-    const begun = await ledger.begin({ lock: l, escrow, sequence: 1, worstCase: CALL, replayStore, nowMs: 1_000 });
+    const begun = await ledger.begin({ lock: l, escrow, sequence: 1, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 1_000 });
     if (!begun.ok) throw new Error();
     expect(ledger.due(1_000 + idle, CURRENT_SLOT, idle)).toEqual([]);
     await ledger.record(begun.reservation, CALL, undefined, 1_000);
@@ -246,17 +260,17 @@ describe('MeteredSessionLedger', () => {
     const l = await lock();
     const first = new MeteredSessionLedger(terms, store);
     for (const sequence of [1, 2]) {
-      const begun = await first.begin({ lock: l, escrow, sequence, worstCase: CALL, replayStore, nowMs: 0 });
+      const begun = await first.begin({ lock: l, escrow, sequence, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 });
       if (!begun.ok) throw new Error();
       await first.record(begun.reservation, CALL, `${sequence}`.repeat(64), 0);
     }
     // A third call was running when the process stopped: never recorded.
-    const third = await first.begin({ lock: l, escrow, sequence: 3, worstCase: CALL, replayStore, nowMs: 0 });
+    const third = await first.begin({ lock: l, escrow, sequence: 3, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 });
     expect(third.ok).toBe(true);
     const second = new MeteredSessionLedger(terms, store);
     expect(await second.restore()).toBe(1);
     expect(second.get(escrow)).toMatchObject({ sequence: 2, costBaseUnits: '13000', lastReceiptHash: '2'.repeat(64) });
-    const next = await second.begin({ lock: l, escrow, sequence: 3, worstCase: CALL, replayStore, nowMs: 0 });
+    const next = await second.begin({ lock: l, escrow, sequence: 3, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 });
     expect(next.ok).toBe(true);
   });
 
@@ -265,18 +279,18 @@ describe('MeteredSessionLedger', () => {
     const ledger = new MeteredSessionLedger(terms, store);
     const replayStore = new MemoryNonceReplayStore();
     const l = await lock();
-    const begun = await ledger.begin({ lock: l, escrow, sequence: 1, worstCase: CALL, replayStore, nowMs: 0 });
+    const begun = await ledger.begin({ lock: l, escrow, sequence: 1, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 });
     if (!begun.ok) throw new Error();
     store.failNext = true;
     await expect(ledger.record(begun.reservation, CALL, undefined, 0)).rejects.toThrow('disk');
     expect(ledger.get(escrow)).toMatchObject({ sequence: 0, costBaseUnits: '0' });
-    expect((await ledger.begin({ lock: l, escrow, sequence: 1, worstCase: CALL, replayStore, nowMs: 0 })).ok).toBe(true);
+    expect((await ledger.begin({ lock: l, escrow, sequence: 1, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 })).ok).toBe(true);
   });
 
   test('the settle refuses a lock that is not the session’s', async () => {
     const ledger = new MeteredSessionLedger(terms);
     const l = await lock();
-    const begun = await ledger.begin({ lock: l, escrow, sequence: 1, worstCase: CALL, replayStore: new MemoryNonceReplayStore(), nowMs: 0 });
+    const begun = await ledger.begin({ lock: l, escrow, sequence: 1, sessionKey: KEY, worstCase: CALL, replayStore: new MemoryNonceReplayStore(), nowMs: 0 });
     if (!begun.ok) throw new Error();
     const recorded = await ledger.record(begun.reservation, CALL, undefined, 0);
     expect(() => sessionSettlement(terms, { ...l, maxBaseUnits: 1n }, recorded.state)).toThrow('does not match');

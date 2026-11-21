@@ -105,6 +105,7 @@ class MeteredSessionLedger {
                     payer: input.lock.payer.toBase58(),
                     nonce: Buffer.from(input.lock.terms.nonce).toString('hex'),
                     maxBaseUnits: input.lock.maxBaseUnits.toString(),
+                    sessionKey: input.sessionKey,
                     createdSlot: input.lock.createdSlot.toString(),
                     cancelWindowSlots: (input.lock.terms.cancelWindowSlots ?? 0n).toString(),
                     sequence: 0,
@@ -122,6 +123,8 @@ class MeteredSessionLedger {
                 this.inFlight.delete(key);
             }
         }
+        if (state.sessionKey !== input.sessionKey)
+            return { ok: false, reason: 'session_key_mismatch', message: 'This session was started with another session key. Sign with the key it was started with.' };
         if (state.status !== 'open')
             return { ok: false, reason: 'session_closed', message: state.status === 'settled' ? 'This session has been settled. Lock a new escrow to go on.' : 'This session is closed and being settled. Lock a new escrow to go on.' };
         if (state.payer !== input.lock.payer.toBase58() || state.maxBaseUnits !== input.lock.maxBaseUnits.toString()) {

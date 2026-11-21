@@ -22,3 +22,4 @@ export * from './escrow-readiness';
 export * from './provider';
 export * from './rating';
 export * from './session';
+export * from './session-auth';

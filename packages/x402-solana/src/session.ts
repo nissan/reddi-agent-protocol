@@ -59,6 +59,8 @@ export interface SessionState {
   /** The lock's 16-byte nonce, hex: with the payer it names the escrow, so the lock can be read back to settle. */
   nonce: string;
   maxBaseUnits: string;
+  /** The session key the payer delegated to at call 1 (see `session-auth`). Later calls, the close and reads must be signed by it. */
+  sessionKey: string;
   /** The slot the lock was made in and its refund window: the session is settled before the buyer may refund. */
   createdSlot: string;
   cancelWindowSlots: string;
@@ -71,7 +73,7 @@ export interface SessionState {
   /** Hash of the last call's receipt, which the next call's receipt names. */
   lastReceiptHash?: string;
   /** `closing`: no more calls; the settle (or, with nothing to charge, the decline) is due. */
-  status: 'open' | 'closing' | 'settled' | 'declined';
+  status: 'open' | 'closing' | 'settled' | 'declined' | 'refunded_unpaid';
   /** When the last call was recorded, in milliseconds since the epoch. */
   lastActivityMs: number;
   settleSignature?: string;
@@ -87,7 +89,7 @@ export interface SessionStore {
 
 export type SessionRefusal = {
   ok: false;
-  reason: 'session_sequence_invalid' | 'session_call_in_progress' | 'session_closed' | 'session_max_reached' | 'session_lock_mismatch' | 'duplicate_nonce';
+  reason: 'session_sequence_invalid' | 'session_call_in_progress' | 'session_closed' | 'session_max_reached' | 'session_lock_mismatch' | 'session_key_mismatch' | 'duplicate_nonce';
   message: string;
 };
 
@@ -141,7 +143,7 @@ export class MeteredSessionLedger {
    * under the lock. Release the reservation if the call fails before its
    * tokens are known; record them with `record` otherwise.
    */
-  async begin(input: { lock: Extract<VerifiedLock, { ok: true }>; escrow: PublicKey; sequence: number; worstCase: TokenCounts; replayStore: NonceReplayStore; nowMs: number }): Promise<{ ok: true; reservation: SessionReservation } | SessionRefusal> {
+  async begin(input: { lock: Extract<VerifiedLock, { ok: true }>; escrow: PublicKey; sequence: number; sessionKey: string; worstCase: TokenCounts; replayStore: NonceReplayStore; nowMs: number }): Promise<{ ok: true; reservation: SessionReservation } | SessionRefusal> {
     const key = input.escrow.toBase58();
     if (this.inFlight.has(key)) return { ok: false, reason: 'session_call_in_progress', message: 'The previous call of this session is still being served. Send the next call when it has answered.' };
     let state = this.sessions.get(key);
@@ -157,6 +159,7 @@ export class MeteredSessionLedger {
           payer: input.lock.payer.toBase58(),
           nonce: Buffer.from(input.lock.terms.nonce).toString('hex'),
           maxBaseUnits: input.lock.maxBaseUnits.toString(),
+          sessionKey: input.sessionKey,
           createdSlot: input.lock.createdSlot.toString(),
           cancelWindowSlots: (input.lock.terms.cancelWindowSlots ?? 0n).toString(),
           sequence: 0,
@@ -173,6 +176,7 @@ export class MeteredSessionLedger {
         this.inFlight.delete(key);
       }
     }
+    if (state.sessionKey !== input.sessionKey) return { ok: false, reason: 'session_key_mismatch', message: 'This session was started with another session key. Sign with the key it was started with.' };
     if (state.status !== 'open') return { ok: false, reason: 'session_closed', message: state.status === 'settled' ? 'This session has been settled. Lock a new escrow to go on.' : 'This session is closed and being settled. Lock a new escrow to go on.' };
     if (state.payer !== input.lock.payer.toBase58() || state.maxBaseUnits !== input.lock.maxBaseUnits.toString()) {
       return { ok: false, reason: 'session_lock_mismatch', message: 'This lock no longer matches the session opened on it.' };
@@ -252,7 +256,7 @@ export class MeteredSessionLedger {
   }
 
   /** Records the settle (or, for a session with nothing to charge, the decline) that ended a session. */
-  async finish(escrow: string, outcome: { status: 'settled' | 'declined'; signature?: string; closingReceipt?: unknown }): Promise<void> {
+  async finish(escrow: string, outcome: { status: 'settled' | 'declined' | 'refunded_unpaid'; signature?: string; closingReceipt?: unknown }): Promise<void> {
     const state = this.sessions.get(escrow);
     if (!state) return;
     const next: SessionState = { ...state, status: outcome.status, ...(outcome.signature ? { settleSignature: outcome.signature } : {}), ...(outcome.closingReceipt !== undefined ? { closingReceipt: outcome.closingReceipt } : {}) };

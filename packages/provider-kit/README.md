@@ -144,16 +144,22 @@ While your price currency is paused, paid calls are refused with `currency_pause
 
 ## Sessions: several calls, one settle
 
-An agent that makes many small calls to you can lock one escrow and use it for all of them, so it pays one lock and you send one settle. The buyer sends the same `x402-payment` header on every call, plus `x402-session-sequence: 1`, `2`, `3` and so on. The kit then:
+An agent that makes many small calls to you can lock one escrow and use it for all of them, so it pays one lock and you send one settle. The buyer sends the same `x402-payment` header on every call, plus `x402-session-sequence: 1`, `2`, `3` and so on.
+
+A lock's escrow, payer and nonce are public once it confirms, so they do not show who is calling. The buyer therefore makes a fresh session key and has its payer wallet sign, once, a delegation naming the escrow, your wallet, that key and an expiry of at most seven days (`x402-session-delegation`). Every call, close and read also carries that key's signature over the action, the escrow, the call number and the SHA-256 of the body (`x402-session-signature`). `sessionDelegationHeaderValue` and `sessionSignatureHeaderValue` in `@reddi/x402-solana` build both. A request without them, or signed by anyone else, is refused with `401` before the lock is read, and a session keeps the key it started with.
+
+The kit then:
 
 - checks before each call that the cost so far plus this call's worst case still fits under the lock, and refuses with `session_max_reached` when it does not;
 - answers every call with a signed receipt whose `session` block carries the sequence, this call's tokens, the running totals and cost, and the hash of the previous receipt, so the buyer can check the chain (`verifyReddiReceiptV2Session` in `@reddi/agent-protocol`);
 - writes the session to `sessions.file` before it answers, so a restart goes on from the last answered call;
 - settles once, for the total, when the buyer sends `x402-session: close` on a call or `POST /v1/session/close`, when the lock is used up, after `sessions.idleSeconds` without a call, or before the lock's refund window opens. The closing receipt is the one with `closed: true` and a `payment` block for the amount settled.
 
-A call number that is out of order or used before is refused with `session_sequence_invalid`; a call the model could not answer is not counted and can be sent again with the same number. A lock used for a session cannot also pay for a single call, or the other way round. If no call was answered, closing the session declines the lock and the buyer gets it all back. `GET /v1/session/<escrow>` shows a session's totals and, once closed, its closing receipt.
+A call number that is out of order or used before is refused with `session_sequence_invalid`, and a request signed by another key than the session started with with `session_key_mismatch`; a call the model could not answer is not counted and can be sent again with the same number. A lock used for a session cannot also pay for a single call, or the other way round. If no call was answered, closing the session declines the lock and the buyer gets it all back. `GET /v1/session/<escrow>` shows a session's totals and, once closed, its closing receipt.
 
-The close route and the session read take the escrow's address, which is public on chain, so anyone who knows it can see the totals or close the session early. Closing early only settles what was already answered.
+If the escrow is already gone when the kit goes to settle, it reads the escrow's last transaction: when that paid you, the session is recorded as settled; when it did not (the buyer refunded once the refund window opened), it is recorded as `refunded_unpaid` and logged as `session_refunded_unpaid`, because the calls served were not paid. The kit settles ahead of the refund window to avoid this.
+
+The worst case of a call counts four characters of input as one token. A model that bills more input than that can take a session's total past the lock; the charge is capped at the lock, so you absorb the difference and the buyer never pays more than it locked.
 
 ## What the kit does to protect you and your buyers
 

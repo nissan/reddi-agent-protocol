@@ -50,6 +50,8 @@ export interface SessionState {
     /** The lock's 16-byte nonce, hex: with the payer it names the escrow, so the lock can be read back to settle. */
     nonce: string;
     maxBaseUnits: string;
+    /** The session key the payer delegated to at call 1 (see `session-auth`). Later calls, the close and reads must be signed by it. */
+    sessionKey: string;
     /** The slot the lock was made in and its refund window: the session is settled before the buyer may refund. */
     createdSlot: string;
     cancelWindowSlots: string;
@@ -62,7 +64,7 @@ export interface SessionState {
     /** Hash of the last call's receipt, which the next call's receipt names. */
     lastReceiptHash?: string;
     /** `closing`: no more calls; the settle (or, with nothing to charge, the decline) is due. */
-    status: 'open' | 'closing' | 'settled' | 'declined';
+    status: 'open' | 'closing' | 'settled' | 'declined' | 'refunded_unpaid';
     /** When the last call was recorded, in milliseconds since the epoch. */
     lastActivityMs: number;
     settleSignature?: string;
@@ -76,7 +78,7 @@ export interface SessionStore {
 }
 export type SessionRefusal = {
     ok: false;
-    reason: 'session_sequence_invalid' | 'session_call_in_progress' | 'session_closed' | 'session_max_reached' | 'session_lock_mismatch' | 'duplicate_nonce';
+    reason: 'session_sequence_invalid' | 'session_call_in_progress' | 'session_closed' | 'session_max_reached' | 'session_lock_mismatch' | 'session_key_mismatch' | 'duplicate_nonce';
     message: string;
 };
 export interface SessionReservation {
@@ -119,6 +121,7 @@ export declare class MeteredSessionLedger {
         }>;
         escrow: PublicKey;
         sequence: number;
+        sessionKey: string;
         worstCase: TokenCounts;
         replayStore: NonceReplayStore;
         nowMs: number;
@@ -141,7 +144,7 @@ export declare class MeteredSessionLedger {
     close(escrow: PublicKey | string): Promise<SessionState | undefined>;
     /** Records the settle (or, for a session with nothing to charge, the decline) that ended a session. */
     finish(escrow: string, outcome: {
-        status: 'settled' | 'declined';
+        status: 'settled' | 'declined' | 'refunded_unpaid';
         signature?: string;
         closingReceipt?: unknown;
     }): Promise<void>;

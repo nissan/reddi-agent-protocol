@@ -51,8 +51,11 @@ import {
   sessionSettlement,
   tokenCostBaseUnits,
   tokenEscrowAddresses,
+  treasuryTokenAccount,
   usageFrom,
   verifyMeteredLock,
+  verifySessionRequest,
+  type SessionAction,
   type MeteredPaymentHeader,
   type MeteredSessionLedger,
   type NonceReplayStore,
@@ -290,9 +293,27 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     };
   }
 
-  async function sessionCall(c: { header: MeteredPaymentHeader; sequence: number; close: boolean; requestText: string; upstreamMessages: UpstreamMessage[]; temperature?: number; worstCase: TokenCounts; minimum: bigint }): Promise<Response> {
+  /** Checks that a session request is signed by a key the escrow's payer delegated to (security review S-1). */
+  function sessionAuth(request: { headers: Headers }, action: SessionAction, escrow: PublicKey, payer: PublicKey, sequence: number, body: string): { ok: true; sessionKey: string } | { ok: false; response: Response } {
+    const auth = verifySessionRequest({ headers: request.headers, action, escrow, payer, provider: terms.payee, sequence, body, nowMs: nowMs() });
+    if (auth.ok) return { ok: true, sessionKey: auth.sessionKey };
+    return { ok: false, response: refuse(401, auth.reason, auth.message, { charged: false }) };
+  }
+
+  /** A session request signed by another key than the one the session started with. */
+  function keyMismatch(escrow: string, sessionKey: string): Response | undefined {
+    const state = deps.sessions?.get(escrow);
+    return state && state.sessionKey !== sessionKey ? refuse(409, "session_key_mismatch", "This session was started with another session key. Sign with the key it was started with.", { charged: false }) : undefined;
+  }
+
+  async function sessionCall(c: { header: MeteredPaymentHeader; sequence: number; close: boolean; requestText: string; headers: Headers; upstreamMessages: UpstreamMessage[]; temperature?: number; worstCase: TokenCounts; minimum: bigint }): Promise<Response> {
     const ledger = deps.sessions!;
     const escrow = c.header.escrow.toBase58();
+    // Before any chain read: the escrow, payer and nonce are public, so only a signature shows the payer is calling.
+    const auth = sessionAuth(c, "call", c.header.escrow, c.header.payer, c.sequence, c.requestText);
+    if (!auth.ok) return auth.response;
+    const mismatch = keyMismatch(escrow, auth.sessionKey);
+    if (mismatch) return mismatch;
     let lock: VerifiedLock;
     try {
       lock = await verifyMeteredLock({ header: c.header, terms, minimum: c.minimum, readAccount, readSlot, replayStore: deps.replayStore, purpose: "session-call" });
@@ -308,7 +329,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     }
     let begun: Awaited<ReturnType<MeteredSessionLedger["begin"]>>;
     try {
-      begun = await ledger.begin({ lock, escrow: c.header.escrow, sequence: c.sequence, worstCase: c.worstCase, replayStore: deps.replayStore, nowMs: nowMs() });
+      begun = await ledger.begin({ lock, escrow: c.header.escrow, sequence: c.sequence, sessionKey: auth.sessionKey, worstCase: c.worstCase, replayStore: deps.replayStore, nowMs: nowMs() });
     } catch {
       return refuse(503, "payment_check_unavailable", "The session could not be recorded. Nothing was charged for this call; send it again.", { charged: false });
     }
@@ -381,7 +402,16 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     return new Response(responseText, { status: 200, headers });
   }
 
-  type SessionEnd = { status: "settled" | "declined" | "pending" | "none"; receipt?: string; state?: SessionState };
+  type SessionEnd = { status: "settled" | "declined" | "refunded_unpaid" | "pending" | "none"; receipt?: string; state?: SessionState };
+
+  /** What a transaction on `escrow` paid this provider: its token account, or its recovery account. 0 for anything else. */
+  async function providerCredit(signature: string, escrow: PublicKey): Promise<bigint> {
+    const record = await deps.chain.readSettlement(signature);
+    if (!record || record.failed || !record.programIds.includes(terms.programId.toBase58()) || !record.accounts.includes(escrow.toBase58())) return 0n;
+    const mine = new Set([treasuryTokenAccount({ mint: terms.mint, tokenProgram: terms.tokenProgram }, terms.payee).toBase58(), ...(terms.payoutAccount ? [terms.payoutAccount.toBase58()] : [])]);
+    const mint = terms.mint.toBase58();
+    return record.tokenBalances.filter((b) => b.mint === mint && mine.has(b.account)).reduce((sum, b) => sum + (b.after - b.before), 0n);
+  }
   const settling = new Set<string>();
 
   /** The signed closing receipt of a settled session and the summary its response hash covers. */
@@ -444,7 +474,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       const state = await ledger.close(escrow).catch(() => undefined);
       if (!state) return { status: ledger.get(escrow) ? "pending" : "none" };
       const kept = state.closingReceipt as { receipt?: string } | undefined;
-      if (state.status === "settled" || state.status === "declined") return { status: state.status, state, ...(kept?.receipt ? { receipt: kept.receipt } : {}) };
+      if (state.status === "settled" || state.status === "declined" || state.status === "refunded_unpaid") return { status: state.status, state, ...(kept?.receipt ? { receipt: kept.receipt } : {}) };
       if (!clusterConfirmed) {
         const cluster = await checkProviderCluster(() => deps.chain.readGenesisHash(), config.network, config.genesisHash);
         if (!cluster.ok) return { status: "pending", state };
@@ -460,10 +490,14 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       if (!lock.ok) {
         // The escrow is no longer locked: settled before a restart could record it, or refunded by the buyer.
         if ((await escrowState(header.escrow)) === "closed") {
+          // The last transaction may be our settle (landed before a restart could record it) or the buyer's
+          // refund. Count it as settled only when it credited this provider (security review S-2).
           const signature = (await deps.chain.latestSuccess(header.escrow).catch(() => null)) ?? undefined;
-          log({ event: "session_lock_gone", escrow, ...(signature ? { signature } : {}), cumulativeCost: state.costBaseUnits });
-          await ledger.finish(escrow, { status: signature ? "settled" : "declined", ...(signature ? { signature } : {}) }).catch(() => undefined);
-          return { status: signature ? "settled" : "declined", state };
+          const credited = signature ? await providerCredit(signature, header.escrow).catch(() => 0n) : 0n;
+          const ended = credited > 0n ? "settled" : BigInt(state.costBaseUnits) > 0n ? "refunded_unpaid" : "declined";
+          log({ event: ended === "refunded_unpaid" ? "session_refunded_unpaid" : "session_lock_gone", escrow, ...(signature ? { signature } : {}), cumulativeCost: state.costBaseUnits, credited: credited.toString() });
+          await ledger.finish(escrow, { status: ended, ...(signature ? { signature } : {}) }).catch(() => undefined);
+          return { status: ended, state };
         }
         if (lock.reason === "payment_check_unavailable") clusterConfirmed = false;
         log({ event: "session_settle_waiting", escrow, reason: lock.reason });
@@ -517,13 +551,18 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       return refuse(400, "invalid_receipt", "The escrow address is not the one this payer and nonce give.");
     }
     const escrow = header.escrow.toBase58();
+    const auth = sessionAuth(request, "close", header.escrow, header.payer, 0, await request.text().catch(() => ""));
+    if (!auth.ok) return auth.response;
+    if (!deps.sessions.get(escrow)) return refuse(404, "session_not_found", "No session is open on this lock.");
+    const mismatch = keyMismatch(escrow, auth.sessionKey);
+    if (mismatch) return mismatch;
     const end = await settleSession(escrow);
     if (end.status === "none") return refuse(404, "session_not_found", "No session is open on this lock.");
     const state = deps.sessions.get(escrow);
     return json(end.status === "pending" ? 202 : 200, { ok: end.status !== "pending", status: end.status, session: state ? sessionSummary(state) : undefined }, end.receipt ? { [SESSION_RECEIPT_HEADER]: end.receipt } : {});
   }
 
-  function sessionRead(escrowText: string): Response {
+  function sessionRead(request: Request, escrowText: string): Response {
     if (!deps.sessions) return refuse(404, "session_not_found", "This provider has no sessions.");
     let escrow: string;
     try {
@@ -533,6 +572,11 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     }
     const state = deps.sessions.get(escrow);
     if (!state) return refuse(404, "session_not_found", "No session on that escrow.");
+    // Only the payer's session key may read the totals.
+    const auth = sessionAuth(request, "read", new PublicKey(escrow), new PublicKey(state.payer), 0, "");
+    if (!auth.ok) return auth.response;
+    const mismatch = keyMismatch(escrow, auth.sessionKey);
+    if (mismatch) return mismatch;
     const kept = state.closingReceipt as { receipt?: string; summary?: string } | undefined;
     return json(200, { session: sessionSummary(state), ...(kept?.receipt ? { closing: { summary: kept.summary, receipt: kept.receipt } } : {}) });
   }
@@ -585,7 +629,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     if (sessionHeaders !== undefined) {
       if ("error" in sessionHeaders) return refuse(400, "session_invalid", sessionHeaders.error, { charged: false });
       if (!deps.sessions) return refuse(400, "sessions_not_offered", "This provider settles each call on its own. Send the call without x402-session-sequence.", { charged: false });
-      return sessionCall({ header, sequence: sessionHeaders.sequence, close: sessionHeaders.close, requestText, upstreamMessages, temperature, worstCase: { inputTokens: inputEstimate, outputTokens }, minimum });
+      return sessionCall({ header, sequence: sessionHeaders.sequence, close: sessionHeaders.close, requestText, headers: request.headers, upstreamMessages, temperature, worstCase: { inputTokens: inputEstimate, outputTokens }, minimum });
     }
     let lock: Awaited<ReturnType<typeof verifyMeteredLock>>;
     try {
@@ -691,7 +735,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
         return refuse(500, "internal_error", "The provider hit an unexpected error.");
       }
     }
-    if (request.method === "GET" && url.pathname.startsWith("/v1/session/")) return sessionRead(decodeURIComponent(url.pathname.slice("/v1/session/".length)));
+    if (request.method === "GET" && url.pathname.startsWith("/v1/session/")) return sessionRead(request, decodeURIComponent(url.pathname.slice("/v1/session/".length)));
     if (request.method === "GET" && url.pathname === "/healthz") return json(200, { ok: true, name: config.name, network: config.network, acceptingPayments: !config.paused });
     if (request.method === "GET" && url.pathname === "/v1/models") return json(200, { object: "list", data: [{ id: config.model, object: "model", owned_by: config.wallet }] });
     if (request.method === "GET" && url.pathname === "/.well-known/reddi-agent.json") return json(200, providerMetadata(config));
