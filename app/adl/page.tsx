@@ -15,7 +15,7 @@ type DemoMode = "mock" | "live";
 type RunState = "idle" | "running" | "complete" | "error";
 
 function stateClass(state: AdlPaymentStepState) {
-  if (state === "complete") return "border-[#14F195]/40 bg-[#14F195]/10 text-[#14F195]";
+  if (state === "complete") return "border-brand-green/40 bg-brand-green/10 text-brand-green";
   if (state === "blocked") return "border-red-400/40 bg-red-400/10 text-red-200";
   if (state === "mocked") return "border-accent-purple/40 bg-accent-purple/10 text-accent-purple";
   return "border-white/15 bg-white/5 text-gray-300";
@@ -120,14 +120,14 @@ export default function AdlPage() {
                 href={reviewUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-white/90 hover:border-[#14F195]/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+                className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-white/90 hover:border-brand-green/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-page"
               >
                 <MessageSquare aria-hidden="true" size={16} />
                 Open review issue
               </a>
               <Link
                 href="/sandbox"
-                className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-white/90 hover:border-[#14F195]/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+                className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-white/20 px-4 py-2 text-sm font-semibold text-white/90 hover:border-brand-green/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-page"
               >
                 <ExternalLink aria-hidden="true" size={16} />
                 Devnet sandbox
@@ -144,8 +144,8 @@ export default function AdlPage() {
           ["Export", "Map into RAP, x402 wrappers, Agent Spec targets, and framework templates without silent loss."],
         ].map(([title, body]) => (
           <div key={title} className="rounded-lg border border-white/10 bg-card/35 p-5">
-            <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[#14F195]/30 bg-[#14F195]/10">
-              <ShieldCheck aria-hidden="true" size={18} className="text-[#14F195]" />
+            <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-lg border border-brand-green/30 bg-brand-green/10">
+              <ShieldCheck aria-hidden="true" size={18} className="text-brand-green" />
             </div>
             <h2 className="font-display text-xl font-semibold">{title}</h2>
             <p className="mt-2 text-sm leading-6 text-gray-300">{body}</p>
@@ -189,7 +189,7 @@ export default function AdlPage() {
                   onClick={() => setSelectedId(useCase.id)}
                   className={`min-h-10 w-full rounded-lg border p-4 text-left transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-page ${
                     selected.id === useCase.id
-                      ? "border-[#14F195]/60 bg-[#14F195]/10"
+                      ? "border-brand-green/60 bg-brand-green/10"
                       : "border-white/10 bg-card/35 hover:border-white/25"
                   }`}
                 >
@@ -224,7 +224,7 @@ export default function AdlPage() {
                       <div key={step.id} className="rounded-lg border border-white/10 bg-page/50 p-4">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                           <div className="flex items-center gap-2">
-                            <CheckCircle2 aria-hidden="true" size={17} className="text-[#14F195]" />
+                            <CheckCircle2 aria-hidden="true" size={17} className="text-brand-green" />
                             <h4 className="text-sm font-semibold text-white">{step.label}</h4>
                           </div>
                           <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${stateClass(step.state)}`}>
@@ -270,7 +270,7 @@ export default function AdlPage() {
                     type="button"
                     onClick={runDemo}
                     disabled={runState === "running"}
-                    className="mt-4 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-[#14F195] px-4 py-2 text-sm font-bold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+                    className="mt-4 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-ink px-4 py-2 text-sm font-bold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-page"
                   >
                     <Play aria-hidden="true" size={16} />
                     {runState === "running" ? "Running..." : mode === "mock" ? "Run mock flow" : "Run live endpoint"}
@@ -332,7 +332,7 @@ export default function AdlPage() {
               href={reviewUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-5 inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#14F195]/40 bg-[#14F195]/10 px-4 py-2 text-sm font-semibold text-[#14F195] hover:bg-[#14F195]/15 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+              className="mt-5 inline-flex min-h-10 items-center gap-2 rounded-lg border border-brand-green/40 bg-brand-green/10 px-4 py-2 text-sm font-semibold text-brand-green hover:bg-brand-green/15 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-page"
             >
               <MessageSquare aria-hidden="true" size={16} />
               Draft GitHub review
@@ -344,7 +344,7 @@ export default function AdlPage() {
             <ul className="mt-4 space-y-3 text-sm leading-6 text-gray-300">
               {selected.adlHighlights.map((highlight) => (
                 <li key={highlight} className="flex gap-3">
-                  <CheckCircle2 aria-hidden="true" size={16} className="mt-1 shrink-0 text-[#14F195]" />
+                  <CheckCircle2 aria-hidden="true" size={16} className="mt-1 shrink-0 text-brand-green" />
                   <span>{highlight}</span>
                 </li>
               ))}

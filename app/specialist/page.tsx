@@ -30,7 +30,7 @@ function HealthBadge({ status }: { status: string }) {
 }
 
 function ReadinessPill({ status }: { status: "pass" | "warn" | "fail" }) {
-  if (status === "pass") return <span className="text-[#14F195]">Pass</span>;
+  if (status === "pass") return <span className="text-brand-green">Pass</span>;
   if (status === "warn") return <span className="text-yellow-300">Check</span>;
   return <span className="text-red-300">Blocked</span>;
 }
@@ -139,7 +139,7 @@ export default function SpecialistDashboard() {
         <div className="rounded-lg border border-red-500/30 bg-red-950/20 text-red-300 text-xs px-4 py-3 flex items-center justify-between">
           <span>{error}</span>
           <Link href="/onboarding">
-            <Button size="sm" style={{ background: "linear-gradient(135deg,#9945FF,#14F195)", color: "#000" }}>
+            <Button size="sm" style={{ background: "var(--color-ink)", color: "var(--color-paper)" }}>
               Start onboarding →
             </Button>
           </Link>
@@ -154,13 +154,13 @@ export default function SpecialistDashboard() {
               <h2 className="font-mono text-sm text-muted-foreground">{shortWallet(listing.walletAddress)}</h2>
               <HealthBadge status={listing.health.status} />
               {listing.attestation.attested && (
-                <span className="text-xs px-2 py-0.5 rounded-full border border-[#14F195]/30 bg-[#14F195]/10 text-[#14F195]">✓ Attested</span>
+                <span className="text-xs px-2 py-0.5 rounded-full border border-brand-green/30 bg-brand-green/10 text-brand-green">✓ Attested</span>
               )}
               {listing.pda && (
                 <a
                   href={toExplorerAddressUrl(listing.pda)}
                   target="_blank" rel="noopener noreferrer"
-                  className="text-xs text-[#9945FF] hover:underline"
+                  className="text-xs text-brand-violet hover:underline"
                 >
                   View on-chain ↗
                 </a>
@@ -195,7 +195,7 @@ export default function SpecialistDashboard() {
           {callableReadiness && (
             <div className={`rounded-xl border p-5 space-y-4 ${
               callableReadiness.status === "callable"
-                ? "border-[#14F195]/30 bg-[#14F195]/5"
+                ? "border-brand-green/30 bg-brand-green/5"
                 : callableReadiness.status === "blocked"
                   ? "border-red-500/30 bg-red-950/20"
                   : "border-yellow-500/30 bg-yellow-950/20"
@@ -256,7 +256,7 @@ export default function SpecialistDashboard() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs text-muted-foreground">
                 <div><span className="text-white font-medium">{signals.feedbackCount}</span> feedback responses</div>
                 <div><span className="text-white font-medium">★ {signals.avgFeedbackScore.toFixed(1)}</span> avg score</div>
-                <div><span className="text-[#14F195] font-medium">{signals.attestationAgreements}</span> attestation agreements</div>
+                <div><span className="text-brand-green font-medium">{signals.attestationAgreements}</span> attestation agreements</div>
                 <div><span className="text-red-400 font-medium">{signals.attestationDisagreements}</span> disagreements</div>
               </div>
             </div>
@@ -278,7 +278,7 @@ export default function SpecialistDashboard() {
                     {cap.taskTypes.map((t) => {
                       const meta = TASK_TYPES.find((x) => x.id === t);
                       return (
-                        <Badge key={t} variant="outline" className="border-[#9945FF]/30 text-[#9945FF] bg-[#9945FF]/5" title={meta?.description}>
+                        <Badge key={t} variant="outline" className="border-brand-violet/30 text-brand-violet bg-brand-violet/5" title={meta?.description}>
                           {meta?.label ?? t}
                         </Badge>
                       );
@@ -315,7 +315,7 @@ export default function SpecialistDashboard() {
           <p className="text-muted-foreground">Enter your wallet address above to view your specialist dashboard.</p>
           <p className="text-sm text-muted-foreground/60">Not registered yet?</p>
           <Link href="/onboarding">
-            <Button style={{ background: "linear-gradient(135deg,#9945FF,#14F195)", color: "#000", fontWeight: 600 }}>
+            <Button style={{ background: "var(--color-ink)", color: "var(--color-paper)", fontWeight: 600 }}>
               Start onboarding →
             </Button>
           </Link>

@@ -94,7 +94,7 @@ export default function OrchestratorSettingsPage() {
           <button
             onClick={() => setPolicy((p) => ({ ...p, enabled: !p.enabled }))}
             className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
-              policy.enabled ? "bg-[#14F195]" : "bg-white/20"
+              policy.enabled ? "bg-ink" : "bg-white/20"
             }`}
           >
             <span
@@ -105,7 +105,7 @@ export default function OrchestratorSettingsPage() {
           </button>
         </div>
         {policy.enabled && (
-          <div className="text-xs text-[#14F195] bg-[#14F195]/10 border border-[#14F195]/20 rounded-lg px-3 py-2">
+          <div className="text-xs text-brand-green bg-brand-green/10 border border-brand-green/20 rounded-lg px-3 py-2">
             ✓ Specialist directory policy active — agents can query candidates during planning, with payment still gated by policy.
           </div>
         )}
@@ -159,9 +159,9 @@ export default function OrchestratorSettingsPage() {
                 onClick={() => toggleTaskType(t.id)}
                 className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
                   selected
-                    ? "border-[#9945FF] bg-[#9945FF]/20 text-[#9945FF]"
+                    ? "border-brand-violet bg-brand-violet/20 text-brand-violet"
                     : active
-                    ? "border-white/10 bg-white/5 text-muted-foreground hover:border-[#9945FF]/40"
+                    ? "border-white/10 bg-white/5 text-muted-foreground hover:border-brand-violet/40"
                     : "border-white/10 bg-white/5 text-muted-foreground/40"
                 }`}
               >
@@ -244,7 +244,7 @@ export default function OrchestratorSettingsPage() {
         <Button
           onClick={save}
           disabled={saving}
-          style={{ background: "linear-gradient(135deg,#9945FF,#14F195)", color: "#000", fontWeight: 600 }}
+          style={{ background: "var(--color-ink)", color: "var(--color-paper)", fontWeight: 600 }}
         >
           {saving ? "Saving…" : "Save settings"}
         </Button>

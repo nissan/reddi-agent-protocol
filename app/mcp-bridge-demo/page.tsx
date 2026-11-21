@@ -4,7 +4,7 @@ function statusClass(
   status: "pass" | "blocked" | "pending" | "not_applicable",
 ) {
   if (status === "pass")
-    return "border-[#14F195]/40 bg-[#14F195]/10 text-[#14F195]";
+    return "border-brand-green/40 bg-brand-green/10 text-brand-green";
   if (status === "blocked")
     return "border-red-400/40 bg-red-400/10 text-red-200";
   if (status === "pending")
@@ -21,8 +21,8 @@ export default function McpBridgeDemoPage() {
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-      <section className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/10 to-white/[0.03] p-8 shadow-2xl">
-        <p className="mb-3 text-sm font-semibold uppercase tracking-[0.3em] text-[#14F195]">
+      <section className="rounded-3xl border border-white/10 bg-paper-raised p-8">
+        <p className="mb-3 text-sm font-semibold uppercase tracking-[0.3em] text-brand-green">
           Reddi Agent Protocol
         </p>
         <div className="grid gap-8 lg:grid-cols-[1.25fr_0.75fr] lg:items-end">
@@ -35,7 +35,7 @@ export default function McpBridgeDemoPage() {
             </p>
           </div>
           <div className="space-y-3">
-            <div className="rounded-2xl border border-[#14F195]/30 bg-[#14F195]/10 p-5 text-sm leading-6 text-[#DFFFEF]">
+            <div className="rounded-2xl border border-brand-green/30 bg-brand-green/10 p-5 text-sm leading-6 text-ink">
               <p className="font-semibold text-white">
                 For existing agent systems
               </p>
@@ -48,13 +48,13 @@ export default function McpBridgeDemoPage() {
               <div className="mt-4 flex flex-wrap gap-2">
                 <a
                   href="/planner"
-                  className="rounded-lg bg-[#14F195] px-3 py-2 text-xs font-semibold text-black hover:bg-[#14F195]/90"
+                  className="rounded-lg bg-ink px-3 py-2 text-xs font-semibold text-black hover:bg-brand-violet"
                 >
                   Try planner path
                 </a>
                 <a
                   href="/sandbox"
-                  className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white hover:border-[#14F195]/40"
+                  className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white hover:border-brand-green/40"
                 >
                   Try the devnet sandbox
                 </a>
@@ -112,7 +112,7 @@ export default function McpBridgeDemoPage() {
       </section>
 
       <section className="mt-8 rounded-2xl border border-white/10 bg-card/40 p-6">
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#14F195]">
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-green">
           Proof artifacts
         </p>
         <h2 className="mt-3 text-2xl font-semibold text-white">
@@ -129,7 +129,7 @@ export default function McpBridgeDemoPage() {
                   <h3 className="text-base font-semibold text-white">
                     {artifact.label}
                   </h3>
-                  <p className="mt-2 text-xs uppercase tracking-wide text-[#14F195]">
+                  <p className="mt-2 text-xs uppercase tracking-wide text-brand-green">
                     {artifact.result}
                   </p>
                 </div>
@@ -180,7 +180,7 @@ export default function McpBridgeDemoPage() {
           <dl className="mt-6 grid gap-4 text-sm">
             <div className="flex justify-between gap-4 border-b border-white/10 pb-3">
               <dt className="text-gray-400">Quote authority</dt>
-              <dd className="font-mono text-[#14F195]">
+              <dd className="font-mono text-brand-green">
                 {fixture.quote.quoteAuthority}
               </dd>
             </div>
@@ -218,7 +218,7 @@ export default function McpBridgeDemoPage() {
         </article>
 
         <article className="rounded-2xl border border-white/10 bg-card/40 p-6">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#14F195]">
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-green">
             Disclosure ledger
           </p>
           <h2 className="mt-3 text-2xl font-semibold text-white">
@@ -240,7 +240,7 @@ export default function McpBridgeDemoPage() {
               key={line}
               className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm leading-6 text-gray-300"
             >
-              <span className="mb-3 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#14F195]/10 text-xs font-semibold text-[#14F195]">
+              <span className="mb-3 inline-flex h-7 w-7 items-center justify-center rounded-full bg-brand-green/10 text-xs font-semibold text-brand-green">
                 {index + 1}
               </span>
               <p>{line}</p>

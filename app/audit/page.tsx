@@ -77,7 +77,7 @@ export default function AuditPage() {
             onClick={() => setTab(item.id as typeof tab)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
               tab === item.id
-                ? "border-[#9945FF] text-foreground"
+                ? "border-brand-violet text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -123,7 +123,7 @@ export default function AuditPage() {
                           href={item.explorer_url}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-[#14F195] hover:underline"
+                          className="text-brand-green hover:underline"
                         >
                           {item.tx_signature}
                         </a>

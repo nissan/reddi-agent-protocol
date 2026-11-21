@@ -155,7 +155,6 @@ export default function TestersPage() {
   return (
     <div className="min-h-screen bg-page">
       <section className="relative overflow-hidden border-b border-white/5">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(20,241,149,0.18),transparent_32%),radial-gradient(circle_at_80%_0%,rgba(153,69,255,0.22),transparent_30%)]" />
         <div className="relative mx-auto max-w-6xl px-4 py-20 sm:px-6 lg:px-8">
           <div className="max-w-3xl space-y-6">
             <span className="section-label">Devnet volunteer testing</span>

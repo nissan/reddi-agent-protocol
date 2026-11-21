@@ -17,7 +17,7 @@ export function formatSol(lamports: number): string {
 export default function SolAmount({ lamports, className = "", showUnit = true }: Props) {
   return (
     <span className={className}>
-      <span style={{ color: "#14F195" }} className="font-mono font-semibold">
+      <span style={{ color: "var(--color-brand-green)" }} className="font-mono font-semibold">
         {formatSol(lamports)}
       </span>
       {showUnit && (

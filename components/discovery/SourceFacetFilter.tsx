@@ -40,12 +40,12 @@ export function SourceFacetFilter({
             data-testid={`source-facet-${option.id}`}
             className={cn(
               "rounded-full px-3 py-1.5 text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400",
-              active ? "bg-indigo-500 text-white" : "bg-surface text-gray-400 glow-border hover:text-white",
-              !option.available && !active ? "opacity-70" : null,
+              active ? "bg-ink text-paper" : "bg-surface text-gray-400 glow-border hover:text-white",
+              !option.available && !active ? "border border-dashed border-line-strong" : null,
             )}
           >
             {option.label}
-            <span className={cn("ml-1.5 text-[10px]", active ? "text-indigo-100" : "text-gray-500")}>
+            <span className={cn("ml-1.5 text-[10px]", active ? "text-paper/80" : "text-gray-500")}>
               {option.count}
             </span>
           </button>

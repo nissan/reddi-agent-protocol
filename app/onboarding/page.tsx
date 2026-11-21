@@ -501,7 +501,7 @@ export default function OnboardingPage() {
         </p>
         <p className="text-sm text-muted-foreground" data-testid="onboarding-intake-entry">
           Onboarding an existing MCP/OpenAPI/A2A/AI-Catalog source instead?{" "}
-          <Link href="/onboarding/intake" className="text-[#14F195] hover:text-emerald-200">
+          <Link href="/onboarding/intake" className="text-brand-green hover:text-emerald-200">
             Use the guided intake flow →
           </Link>
         </p>
@@ -528,7 +528,7 @@ export default function OnboardingPage() {
                 type="checkbox"
                 checked={state.consentExposeEndpoint}
                 onChange={(e) => setState((s) => ({ ...s, consentExposeEndpoint: e.target.checked }))}
-                className="mt-1 accent-[#9945FF]"
+                className="mt-1 accent-brand-violet"
               />
               <span>I consent to exposing my local runtime API through a tunnel endpoint.</span>
             </label>
@@ -537,7 +537,7 @@ export default function OnboardingPage() {
                 type="checkbox"
                 checked={state.consentProtocolOps}
                 onChange={(e) => setState((s) => ({ ...s, consentProtocolOps: e.target.checked }))}
-                className="mt-1 accent-[#9945FF]"
+                className="mt-1 accent-brand-violet"
               />
               <span>I consent to protocol-funded onboarding transactions (rent + registration fee only).</span>
             </label>
@@ -594,7 +594,7 @@ export default function OnboardingPage() {
             </div>
             {state.runtimeType === "openai_local" && (
               <div className="rounded-lg border border-white/10 bg-black/30 p-3 text-xs text-muted-foreground space-y-1">
-                <p className="text-[#14F195]">Quick starts (OpenAI-compatible local server):</p>
+                <p className="text-brand-green">Quick starts (OpenAI-compatible local server):</p>
                 <p className="font-mono">llama.cpp: ./llama-server -m /path/to/model.gguf --port 8080</p>
                 <p className="font-mono">vLLM: python -m vllm.entrypoints.openai.api_server --model /path/to/model</p>
                 <p>LM Studio: Local Server tab → select model → Start Server.</p>
@@ -690,13 +690,13 @@ export default function OnboardingPage() {
 
             {state.runtimeNote && (
               <div className="rounded-lg border border-white/10 bg-black/30 p-3 text-xs text-muted-foreground">
-                <p className={state.runtimeReady ? "text-[#14F195]" : "text-yellow-400"}>
+                <p className={state.runtimeReady ? "text-brand-green" : "text-yellow-400"}>
                   {state.runtimeReady ? "Runtime ready" : "Runtime not ready"}
                 </p>
                 <p className="mt-1">{state.runtimeNote}</p>
               </div>
             )}
-            <div className="rounded-lg border border-[#14F195]/20 bg-[#14F195]/5 p-3 text-xs font-mono text-muted-foreground">
+            <div className="rounded-lg border border-brand-green/20 bg-brand-green/5 p-3 text-xs font-mono text-muted-foreground">
               Installer command (planned): curl -fsSL https://reddi.tech/install-specialist | bash
             </div>
           </div>
@@ -728,7 +728,7 @@ export default function OnboardingPage() {
             </div>
             <div className="rounded-lg border border-white/10 bg-black/30 p-3 text-sm">
               <p className="text-muted-foreground text-xs">Effective endpoint</p>
-              <p className="font-mono text-[#14F195] break-all">{endpointPreview}</p>
+              <p className="font-mono text-brand-green break-all">{endpointPreview}</p>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -857,7 +857,7 @@ export default function OnboardingPage() {
               <p
                 className={
                   state.endpointStatus === "online"
-                    ? "text-[#14F195]"
+                    ? "text-brand-green"
                     : state.endpointStatus === "offline"
                     ? "text-red-400"
                     : "text-yellow-400"
@@ -907,7 +907,7 @@ export default function OnboardingPage() {
                       sponsorshipLamports: 0,
                     }))
                   }
-                  className="accent-[#9945FF]"
+                  className="accent-brand-violet"
                 />
                 I already have a wallet
               </label>
@@ -928,7 +928,7 @@ export default function OnboardingPage() {
                       sponsorshipLamports: 0,
                     }))
                   }
-                  className="accent-[#9945FF]"
+                  className="accent-brand-violet"
                 />
                 Create local non-custodial wallet
               </label>
@@ -973,7 +973,7 @@ export default function OnboardingPage() {
                         sponsorshipLamports: 0,
                       }))
                     }
-                    className="mt-0.5 accent-[#14F195]"
+                    className="mt-0.5 accent-brand-green"
                   />
                   <span>Backup checkpoint complete: I saved recovery material before continuing.</span>
                 </label>
@@ -1079,7 +1079,7 @@ export default function OnboardingPage() {
               Submit `register_agent` directly from the wizard using your connected wallet and endpoint metadata.
             </p>
             <div className="w-full">
-              <WalletMultiButton className="!bg-[#9945FF] hover:!bg-[#7f34df] !text-white !rounded-md !h-10" />
+              <WalletMultiButton className="!bg-ink hover:!bg-brand-violet !text-paper !rounded-md !h-10" />
             </div>
             <div className="rounded-lg border border-white/10 bg-black/30 p-3 text-xs font-mono space-y-1">
               <p>wallet: {state.walletAddress || "(missing)"}</p>
@@ -1105,7 +1105,7 @@ export default function OnboardingPage() {
 
             {registerPreflight && (
               <div className="rounded-lg border border-white/10 bg-black/30 p-3 text-xs text-muted-foreground space-y-1">
-                <p className={registerPreflight.ok ? "text-[#14F195]" : "text-red-400"}>
+                <p className={registerPreflight.ok ? "text-brand-green" : "text-red-400"}>
                   {registerPreflight.ok ? "Preflight PASS" : "Preflight FAIL"}
                 </p>
                 <p className="font-mono break-all">agent PDA: {registerPreflight.agentPda}</p>
@@ -1140,7 +1140,7 @@ export default function OnboardingPage() {
                 state.endpointStatus !== "online" ||
                 !state.sponsorshipReady
               }
-              style={{ background: "linear-gradient(135deg, #9945FF, #14F195)", color: "#000" }}
+              style={{ background: "var(--color-ink)", color: "var(--color-paper)" }}
             >
               {SUBMISSION_BLOCKED
                 ? SUBMISSION_BLOCKED_LABEL
@@ -1167,8 +1167,8 @@ export default function OnboardingPage() {
             )}
 
             {state.registrationTxSig && (
-              <div className="rounded-lg border border-[#14F195]/30 bg-[#14F195]/10 p-3 text-xs">
-                <p className="text-[#14F195]">Registration submitted</p>
+              <div className="rounded-lg border border-brand-green/30 bg-brand-green/10 p-3 text-xs">
+                <p className="text-brand-green">Registration submitted</p>
                 <a
                   href={toExplorerTxUrl(state.registrationTxSig)}
                   target="_blank"
@@ -1313,7 +1313,7 @@ export default function OnboardingPage() {
                             capabilityNote: "",
                           }))
                         }
-                        className="accent-[#9945FF]"
+                        className="accent-brand-violet"
                       />
                       <span>{RUNTIME_CAPABILITY_LABELS[capability] ?? capability}</span>
                     </label>
@@ -1376,7 +1376,7 @@ export default function OnboardingPage() {
                                   capabilityNote: "",
                                 }))
                               }
-                              className="accent-[#9945FF]"
+                              className="accent-brand-violet"
                             />
                             Required
                           </label>
@@ -1532,7 +1532,7 @@ export default function OnboardingPage() {
                 {capabilityLoading ? "Saving capabilities..." : "Save capability profile"}
               </Button>
               {state.capabilityNote && (
-                <p className={`text-xs ${state.capabilitySaved ? "text-[#14F195]" : "text-red-400"}`}>
+                <p className={`text-xs ${state.capabilitySaved ? "text-brand-green" : "text-red-400"}`}>
                   {state.capabilityNote}
                 </p>
               )}
@@ -1617,7 +1617,7 @@ export default function OnboardingPage() {
               <span
                 className={`text-sm self-center ${
                   state.healthcheckStatus === "pass"
-                    ? "text-[#14F195]"
+                    ? "text-brand-green"
                     : state.healthcheckStatus === "fail"
                     ? "text-red-400"
                     : "text-muted-foreground"
@@ -1907,7 +1907,7 @@ export default function OnboardingPage() {
             </Button>
           ) : (
             <Button
-              style={{ background: "linear-gradient(135deg, #9945FF, #14F195)", color: "#000" }}
+              style={{ background: "var(--color-ink)", color: "var(--color-paper)" }}
               onClick={async () => {
                 if (state.onboardingCompletedEventSent) {
                   showToast("Onboarding already completed", "success");

@@ -25,10 +25,10 @@ test.describe("Home page", () => {
     ).toBeVisible();
   });
 
-  test("navbar has directory link", async ({ page }) => {
+  test("navbar has providers directory link", async ({ page }) => {
     await page.goto("/");
     await expect(
-      page.getByRole("navigation").getByRole("link", { name: /directory/i }),
+      page.getByRole("navigation").getByRole("link", { name: /^providers$/i }),
     ).toBeVisible();
   });
 

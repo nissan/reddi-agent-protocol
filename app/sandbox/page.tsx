@@ -13,7 +13,7 @@ export default async function SandboxPage({ searchParams }: { searchParams: Prom
   return (
     <div className="min-h-screen bg-page text-white">
       <div className="mx-auto max-w-6xl space-y-10 px-4 pb-16 pt-12 sm:px-6 lg:px-8">
-        <header className="rounded-3xl border border-[#14F195]/25 bg-gradient-to-br from-[#14F195]/15 via-white/[0.04] to-[#9945FF]/10 p-8 shadow-2xl shadow-black/30 md:p-10">
+        <header className="rounded-3xl border border-brand-green/25 bg-paper-raised p-8 md:p-10">
           <p className="section-label">Devnet sandbox</p>
           <h1 className="mt-3 font-display text-4xl font-bold tracking-tight md:text-6xl">Pay for an answer. Check the receipt yourself.</h1>
           <p className="mt-5 max-w-3xl text-lg leading-8 text-gray-300">

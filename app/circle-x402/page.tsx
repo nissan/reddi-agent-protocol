@@ -190,7 +190,7 @@ export default function CircleX402Page() {
               key={name}
               onClick={() => setCategory(name)}
               className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                category === name ? "bg-indigo-500 text-white" : "bg-surface text-gray-400 glow-border hover:text-white"
+                category === name ? "bg-ink text-paper" : "bg-surface text-gray-400 glow-border hover:text-white"
               }`}
             >
               {name.replaceAll("_", " ")}
@@ -230,7 +230,7 @@ export default function CircleX402Page() {
                   type="button"
                   onClick={() => void previewQuote(candidate)}
                   disabled={quoteLoading}
-                  className="mt-4 w-full rounded-lg bg-indigo-500 px-3 py-2 text-sm font-medium text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="mt-4 w-full rounded-lg bg-ink px-3 py-2 text-sm font-medium text-paper transition hover:bg-brand-violet disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {quoteLoading ? "Previewing…" : "Preview RAP route — no spend"}
                 </button>
