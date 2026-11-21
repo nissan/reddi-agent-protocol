@@ -207,3 +207,33 @@ impl<'a> Args<'a> {
         }
     }
 }
+
+/// Require `account` to be the program-derived address of `seeds`, the last
+/// seed being a stored bump.
+#[cfg(feature = "extended")]
+#[inline(never)]
+pub fn at_seeds(account: &AccountView, seeds: &[&[u8]], program_id: &Address) -> ProgramResult {
+    match Address::create_program_address(seeds, program_id) {
+        Ok(address) if &address == account.address() => Ok(()),
+        _ => Err(fail(&crate::error::ConstraintSeeds)),
+    }
+}
+
+/// sha256 over the concatenation of `parts`.
+#[cfg(feature = "extended")]
+pub fn sha256(parts: &[&[u8]]) -> [u8; 32] {
+    #[cfg_attr(not(target_os = "solana"), allow(unused_mut))]
+    let mut hash = [0u8; 32];
+    #[cfg(target_os = "solana")]
+    // SAFETY: `parts` is a valid array of slices and `hash` holds 32 bytes.
+    unsafe {
+        pinocchio::syscalls::sol_sha256(
+            parts.as_ptr() as *const u8,
+            parts.len() as u64,
+            hash.as_mut_ptr(),
+        );
+    }
+    #[cfg(not(target_os = "solana"))]
+    core::hint::black_box(parts);
+    hash
+}

@@ -1,3 +1,9 @@
+#[cfg(feature = "extended")]
+pub mod attestation;
+#[cfg(feature = "extended")]
+pub mod per;
+#[cfg(feature = "extended")]
+pub mod rating;
 pub mod registry;
 pub mod sol_escrow;
 pub mod token_escrow;

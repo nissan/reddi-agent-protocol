@@ -74,10 +74,13 @@ jobs:
         run: |
           cargo fmt --check
           cargo clippy --all-targets -- -D warnings
+          cargo clippy --all-targets --features extended -- -D warnings
 
       - name: Unit tests
         working-directory: programs/pinocchio-escrow
-        run: cargo test -p pinocchio-escrow
+        run: |
+          cargo test -p pinocchio-escrow
+          cargo test -p pinocchio-escrow --features extended
 
       - name: Anchor tests and side-by-side suite against the Pinocchio binary
         working-directory: programs/pinocchio-escrow/equivalence
@@ -94,5 +97,33 @@ jobs:
             echo "|---|---|---|"
             echo "| Anchor (default) | $(stat -c %s "$anchor") | \`$(sha256sum "$anchor" | cut -d' ' -f1)\` |"
             echo "| Pinocchio (mainnet variant) | $(stat -c %s "$pinocchio") | \`$(sha256sum "$pinocchio" | cut -d' ' -f1)\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          ls -l "$anchor" "$pinocchio"
+
+      # Rating, attestation and PER are not part of the V1 build. They are
+      # built and tested behind the `extended` feature on both programs. These
+      # steps overwrite both binaries, so they run last.
+      - name: Build both programs with the extended feature
+        run: |
+          cargo build-sbf --manifest-path archive/anchor-escrow/Cargo.toml --features extended
+          cd programs/pinocchio-escrow
+          cargo build-sbf --manifest-path program/Cargo.toml --sbf-out-dir target/deploy --features extended
+          rm -f target/deploy/*-keypair.json ../../target/deploy/*-keypair.json
+
+      - name: Anchor tests and side-by-side suite, extended build
+        working-directory: programs/pinocchio-escrow/equivalence
+        run: cargo test --features extended -- --nocapture
+
+      - name: Record extended sizes
+        run: |
+          anchor=target/deploy/escrow.so
+          pinocchio=programs/pinocchio-escrow/target/deploy/pinocchio_escrow.so
+          {
+            echo "### Program size, extended build"
+            echo ""
+            echo "| Build | Bytes |"
+            echo "|---|---|"
+            echo "| Anchor (extended) | $(stat -c %s "$anchor") |"
+            echo "| Pinocchio (extended) | $(stat -c %s "$pinocchio") |"
           } >> "$GITHUB_STEP_SUMMARY"
           ls -l "$anchor" "$pinocchio"

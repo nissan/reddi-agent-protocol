@@ -5,6 +5,8 @@
 //! accounts unchanged. Each layout is a plain struct of byte fields with no
 //! padding, so an account's data is read or written with one length check and
 //! no field-by-field decoding.
+#[cfg(feature = "extended")]
+use crate::consts::SCORE_MAX;
 use {
     crate::{
         consts::{discriminator, AGENT_MODEL_MAX_LEN, SYSTEM_PROGRAM_ID},
@@ -103,14 +105,22 @@ pub struct SolEscrow {
     pub status: u8,
     created_at: [u8; 8],
     created_slot: [u8; 8],
-    /// Always 0 in V1: no instruction delegates an escrow.
+    /// Set while the escrow is delegated to a PER session. Only the
+    /// `extended` instructions set it.
     delegated_to_per: u8,
-    /// Borsh tag of an optional session key. Always 0 ("none") in V1, which
-    /// is what keeps the two fields after it at fixed offsets.
+    /// Borsh tag of an optional session key: 0 for none, 1 when a 32-byte key
+    /// follows. With a key present the two fields below sit 32 bytes further
+    /// on in the account; `load_checked` reads them from there.
     per_session_key: u8,
     pub bump: u8,
     metered: u8,
 }
+
+/// Where the session key starts when its tag is 1, and where `bump` and
+/// `metered` then sit.
+const SESSION_KEY_AT: usize = 115;
+const DELEGATED_BUMP_AT: usize = SESSION_KEY_AT + 32;
+const _: () = assert!(DELEGATED_BUMP_AT + 2 == SolEscrow::LEN);
 
 // SAFETY: byte fields only, discriminator first.
 unsafe impl Record for SolEscrow {
@@ -149,10 +159,22 @@ impl SolEscrow {
     }
 
     pub fn load_checked(account: &AccountView, program_id: &Address) -> Result<Self, ProgramError> {
-        let record = Self::load(account, program_id)?;
+        let mut record = Self::load(account, program_id)?;
+        if record.per_session_key == 1 {
+            let data = account.try_borrow()?;
+            // `load` checked the account holds `LEN` bytes.
+            let Some(&[bump, metered]) = data
+                .get(DELEGATED_BUMP_AT..)
+                .and_then(|tail| tail.first_chunk::<2>())
+            else {
+                return Err(fail(&AccountDidNotDeserialize));
+            };
+            record.bump = bump;
+            record.metered = metered;
+        }
         if record.status > 2
-            || record.delegated_to_per != 0
-            || record.per_session_key != 0
+            || record.delegated_to_per > 1
+            || record.per_session_key > 1
             || record.metered > 1
         {
             return Err(fail(&AccountDidNotDeserialize));
@@ -170,6 +192,52 @@ impl SolEscrow {
 
     pub fn metered(&self) -> bool {
         self.metered == 1
+    }
+}
+
+#[cfg(feature = "extended")]
+impl SolEscrow {
+    pub fn delegated(&self) -> bool {
+        self.delegated_to_per == 1
+    }
+
+    /// The session key recorded on `account`, if any. `self` is the record
+    /// `load_checked` returned for the same account.
+    pub fn session_key(&self, account: &AccountView) -> Result<Option<[u8; 32]>, ProgramError> {
+        if self.per_session_key == 0 {
+            return Ok(None);
+        }
+        let data = account.try_borrow()?;
+        match data
+            .get(SESSION_KEY_AT..)
+            .and_then(|tail| tail.first_chunk::<32>())
+        {
+            Some(key) => Ok(Some(*key)),
+            None => Err(fail(&AccountDidNotDeserialize)),
+        }
+    }
+
+    /// Record a delegation: set the flag, store the key, and move `bump` and
+    /// `metered` behind it.
+    pub fn delegate(&self, account: &mut AccountView, session_key: &[u8; 32]) -> ProgramResult {
+        let mut data = account.try_borrow_mut()?;
+        let Some(tail) = data
+            .get_mut(SESSION_KEY_AT - 2..)
+            .and_then(|tail| tail.first_chunk_mut::<36>())
+        else {
+            return Err(ProgramError::AccountDataTooSmall);
+        };
+        let mut delegated = [1u8; 36];
+        if let Some(key) = delegated
+            .get_mut(2..)
+            .and_then(|key| key.first_chunk_mut::<32>())
+        {
+            *key = *session_key;
+        }
+        delegated[34] = self.bump;
+        delegated[35] = self.metered;
+        *tail = delegated;
+        Ok(())
     }
 }
 
@@ -300,6 +368,96 @@ const _: () = assert!(
     size_of::<AgentHead>() + AGENT_MODEL_MAX_LEN + size_of::<AgentTerms>() <= AgentHead::LEN
 );
 
+#[cfg(feature = "extended")]
+impl AgentTerms {
+    pub fn bump(&self) -> u8 {
+        self.bump
+    }
+
+    fn reputation(&self) -> u16 {
+        u16::from_le_bytes(self.reputation_score)
+    }
+
+    /// Fold a 1 to 10 rating into the rolling reputation score: nine parts
+    /// the old score, one part the rating scaled to 0..=10000.
+    pub fn fold_rating(&mut self, rating: u8) {
+        let updated = (self.reputation() as u32 * 9 + rating as u32 * 1000) / 10;
+        self.reputation_score = (updated.min(SCORE_MAX as u32) as u16).to_le_bytes();
+    }
+
+    pub fn penalise(&mut self, points: u16) {
+        self.reputation_score = self.reputation().saturating_sub(points).to_le_bytes();
+    }
+
+    pub fn count_completed(&mut self) {
+        self.jobs_completed = u64::from_le_bytes(self.jobs_completed)
+            .saturating_add(1)
+            .to_le_bytes();
+    }
+
+    pub fn count_failed(&mut self) {
+        self.jobs_failed = u64::from_le_bytes(self.jobs_failed)
+            .saturating_add(1)
+            .to_le_bytes();
+    }
+
+    pub fn raise_accuracy(&mut self, points: u16) {
+        self.attestation_accuracy = u16::from_le_bytes(self.attestation_accuracy)
+            .saturating_add(points)
+            .min(SCORE_MAX)
+            .to_le_bytes();
+    }
+}
+
+#[cfg(feature = "extended")]
+impl AgentHead {
+    pub fn agent_type(&self) -> u8 {
+        self.agent_type
+    }
+
+    /// A stored record in full: head, length of the model name, and the
+    /// fields after the name.
+    pub fn load_full(
+        account: &AccountView,
+        program_id: &Address,
+    ) -> Result<(Self, usize, AgentTerms), ProgramError> {
+        let (head, model_len) = Self::load_checked(account, program_id)?;
+        let data = account.try_borrow()?;
+        // SAFETY: `load_checked` checked the account holds `LEN` bytes and
+        // the name is at most `AGENT_MODEL_MAX_LEN`, so the terms are in
+        // bounds (asserted above); `AgentTerms` has alignment 1 and no
+        // invalid bit patterns.
+        let terms = unsafe {
+            core::ptr::read(data.as_ptr().add(size_of::<Self>() + model_len) as *const AgentTerms)
+        };
+        if terms.active > 1 {
+            return Err(fail(&AccountDidNotDeserialize));
+        }
+        Ok((head, model_len, terms))
+    }
+
+    /// Write back the fields after the name. `model_len` comes from
+    /// `load_full` on the same account.
+    pub fn store_terms(
+        account: &mut AccountView,
+        model_len: usize,
+        terms: &AgentTerms,
+    ) -> ProgramResult {
+        let mut data = account.try_borrow_mut()?;
+        if data.len() < Self::LEN || model_len > AGENT_MODEL_MAX_LEN {
+            return Err(ProgramError::InvalidAccountData);
+        }
+        // SAFETY: bounds as in `load_full`; the borrow is exclusive.
+        unsafe {
+            core::ptr::write(
+                data.as_mut_ptr().add(size_of::<Self>() + model_len) as *mut AgentTerms,
+                *terms,
+            )
+        };
+        Ok(())
+    }
+}
+
 impl AgentHead {
     /// The head of a stored record, with the length of its model name.
     pub fn load_checked(
@@ -380,5 +538,231 @@ impl AgentHead {
         terms.min_reputation = min_reputation;
         terms.active = active as u8;
         Ok(())
+    }
+}
+
+// ── Rating and attestation (extended) ───────────────────────────────────────
+//
+// These two records hold Borsh options, so a field's offset depends on the
+// options before it. They are decoded into plain values and encoded back in
+// field order, which reproduces the stored bytes exactly.
+
+#[cfg(feature = "extended")]
+pub use variable::{Attestation, Rating};
+
+#[cfg(feature = "extended")]
+mod variable {
+    use {
+        super::checked_data,
+        crate::{
+            consts::discriminator,
+            error::{fail, AccountDidNotDeserialize},
+        },
+        pinocchio::{error::ProgramError, AccountView, Address, ProgramResult},
+    };
+
+    struct Reader<'a>(&'a [u8]);
+
+    impl Reader<'_> {
+        fn take<const N: usize>(&mut self) -> Option<[u8; N]> {
+            let (head, rest) = self.0.split_first_chunk::<N>()?;
+            self.0 = rest;
+            Some(*head)
+        }
+
+        fn byte(&mut self) -> Option<u8> {
+            Some(self.take::<1>()?[0])
+        }
+
+        /// A Borsh option of one byte, the byte being at most `max`.
+        fn optional_byte(&mut self, max: u8) -> Option<Option<u8>> {
+            match self.byte()? {
+                0 => Some(None),
+                1 => Some(Some(self.byte().filter(|&value| value <= max)?)),
+                _ => None,
+            }
+        }
+    }
+
+    struct Writer<'a> {
+        data: &'a mut [u8],
+        at: usize,
+    }
+
+    impl Writer<'_> {
+        fn put(&mut self, bytes: &[u8]) -> ProgramResult {
+            let end = self.at.saturating_add(bytes.len());
+            let Some(slot) = self.data.get_mut(self.at..end) else {
+                return Err(ProgramError::AccountDataTooSmall);
+            };
+            for (to, from) in slot.iter_mut().zip(bytes) {
+                *to = *from;
+            }
+            self.at = end;
+            Ok(())
+        }
+
+        fn optional_byte(&mut self, value: Option<u8>) -> ProgramResult {
+            match value {
+                None => self.put(&[0]),
+                Some(value) => self.put(&[1, value]),
+            }
+        }
+    }
+
+    /// The fields of a live account of this program that starts with
+    /// `discriminator`, decoded by `parse`.
+    fn load<T>(
+        account: &AccountView,
+        program_id: &Address,
+        discriminator: &[u8; 8],
+        parse: fn(&mut Reader) -> Option<T>,
+    ) -> Result<T, ProgramError> {
+        checked_data(account, program_id, discriminator, 8)?;
+        let data = account.try_borrow()?;
+        data.get(8..)
+            .and_then(|fields| parse(&mut Reader(fields)))
+            .ok_or_else(|| fail(&AccountDidNotDeserialize))
+    }
+
+    pub const RATING_PENDING: u8 = 0;
+    pub const RATING_BOTH_COMMITTED: u8 = 1;
+    pub const RATING_REVEALED: u8 = 2;
+    pub const RATING_EXPIRED: u8 = 3;
+
+    /// Blind commit-reveal rating of one job by its two parties.
+    /// PDA seeds: `["rating", job_id]`.
+    pub struct Rating {
+        pub job_id: [u8; 16],
+        /// The hiring party.
+        pub consumer: Address,
+        /// The hired party.
+        pub specialist: Address,
+        /// sha256(score, salt) from each party; all zero until committed.
+        pub consumer_commitment: [u8; 32],
+        pub specialist_commitment: [u8; 32],
+        /// Revealed scores, 1 to 10.
+        pub consumer_score: Option<u8>,
+        pub specialist_score: Option<u8>,
+        pub state: u8,
+        pub created_at: i64,
+        pub created_slot: u64,
+        pub bump: u8,
+    }
+
+    impl Rating {
+        pub const DISCRIMINATOR: [u8; 8] = discriminator("account:RatingAccount");
+        /// Room for both scores revealed.
+        pub const LEN: usize = 175;
+        pub const PENDING: u8 = RATING_PENDING;
+        pub const BOTH_COMMITTED: u8 = RATING_BOTH_COMMITTED;
+        pub const REVEALED: u8 = RATING_REVEALED;
+        pub const EXPIRED: u8 = RATING_EXPIRED;
+
+        /// What a freshly created, zeroed account decodes to.
+        pub const EMPTY: Self = Self {
+            job_id: [0; 16],
+            consumer: Address::new_from_array([0; 32]),
+            specialist: Address::new_from_array([0; 32]),
+            consumer_commitment: [0; 32],
+            specialist_commitment: [0; 32],
+            consumer_score: None,
+            specialist_score: None,
+            state: RATING_PENDING,
+            created_at: 0,
+            created_slot: 0,
+            bump: 0,
+        };
+
+        fn parse(fields: &mut Reader) -> Option<Self> {
+            Some(Self {
+                job_id: fields.take()?,
+                consumer: Address::new_from_array(fields.take()?),
+                specialist: Address::new_from_array(fields.take()?),
+                consumer_commitment: fields.take()?,
+                specialist_commitment: fields.take()?,
+                consumer_score: fields.optional_byte(u8::MAX)?,
+                specialist_score: fields.optional_byte(u8::MAX)?,
+                state: fields.byte().filter(|&state| state <= RATING_EXPIRED)?,
+                created_at: i64::from_le_bytes(fields.take()?),
+                created_slot: u64::from_le_bytes(fields.take()?),
+                bump: fields.byte()?,
+            })
+        }
+
+        pub fn load(account: &AccountView, program_id: &Address) -> Result<Self, ProgramError> {
+            load(account, program_id, &Self::DISCRIMINATOR, Self::parse)
+        }
+
+        pub fn store(&self, account: &mut AccountView) -> ProgramResult {
+            let mut data = account.try_borrow_mut()?;
+            let mut out = Writer {
+                data: &mut data,
+                at: 0,
+            };
+            out.put(&Self::DISCRIMINATOR)?;
+            out.put(&self.job_id)?;
+            out.put(self.consumer.as_ref())?;
+            out.put(self.specialist.as_ref())?;
+            out.put(&self.consumer_commitment)?;
+            out.put(&self.specialist_commitment)?;
+            out.optional_byte(self.consumer_score)?;
+            out.optional_byte(self.specialist_score)?;
+            out.put(&[self.state])?;
+            out.put(&self.created_at.to_le_bytes())?;
+            out.put(&self.created_slot.to_le_bytes())?;
+            out.put(&[self.bump])
+        }
+    }
+
+    /// A judge's quality scores for one job, which the consumer then confirms
+    /// or disputes. PDA seeds: `["attestation", job_id]`.
+    pub struct Attestation {
+        pub job_id: [u8; 16],
+        pub judge: Address,
+        pub consumer: Address,
+        /// Accuracy, completeness, relevance, format, latency: 1 to 10 each.
+        pub scores: [u8; 5],
+        /// `None` while pending, then whether the consumer confirmed.
+        pub confirmed: Option<bool>,
+        pub created_at: i64,
+        pub bump: u8,
+    }
+
+    impl Attestation {
+        pub const DISCRIMINATOR: [u8; 8] = discriminator("account:AttestationAccount");
+        pub const LEN: usize = 105;
+
+        fn parse(fields: &mut Reader) -> Option<Self> {
+            Some(Self {
+                job_id: fields.take()?,
+                judge: Address::new_from_array(fields.take()?),
+                consumer: Address::new_from_array(fields.take()?),
+                scores: fields.take()?,
+                confirmed: fields.optional_byte(1)?.map(|value| value == 1),
+                created_at: i64::from_le_bytes(fields.take()?),
+                bump: fields.byte()?,
+            })
+        }
+
+        pub fn load(account: &AccountView, program_id: &Address) -> Result<Self, ProgramError> {
+            load(account, program_id, &Self::DISCRIMINATOR, Self::parse)
+        }
+
+        pub fn store(&self, account: &mut AccountView) -> ProgramResult {
+            let mut data = account.try_borrow_mut()?;
+            let mut out = Writer {
+                data: &mut data,
+                at: 0,
+            };
+            out.put(&Self::DISCRIMINATOR)?;
+            out.put(&self.job_id)?;
+            out.put(self.judge.as_ref())?;
+            out.put(self.consumer.as_ref())?;
+            out.put(&self.scores)?;
+            out.optional_byte(self.confirmed.map(|value| value as u8))?;
+            out.put(&self.created_at.to_le_bytes())?;
+            out.put(&[self.bump])
+        }
     }
 }

@@ -66,6 +66,22 @@ faults! {
     InvalidTreasury = 6030, "Fee must go to the protocol treasury";
 }
 
+#[cfg(feature = "extended")]
+faults! {
+    AlreadyCommitted = 6010, "Rating commitment already submitted";
+    BothMustCommitFirst = 6011, "Cannot reveal until both parties commit";
+    CommitmentMismatch = 6012, "Commitment hash mismatch";
+    InvalidScore = 6013, "Score must be 1-10";
+    NotExpired = 6014, "Rating has not expired";
+    AlreadyFinalised = 6015, "Rating already finalised";
+    NotAttestationAgent = 6016, "Agent type does not permit attestation";
+    AttestationAlreadyResolved = 6018, "Attestation already resolved";
+    AttestationScoreOutOfRange = 6019, "Score must be between 1 and 10";
+    NotDelegatedToPer = 6020, "Escrow is not delegated to PER";
+    PerSessionKeyMismatch = 6021, "PER session key mismatch";
+    AlreadyDelegated = 6022, "Escrow is already delegated to PER";
+}
+
 /// Log the error line and turn the fault into the error the runtime reports.
 #[cold]
 #[inline(never)]

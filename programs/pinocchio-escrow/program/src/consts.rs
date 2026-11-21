@@ -88,6 +88,27 @@ pub const fn discriminator(preimage: &str) -> [u8; 8] {
     ]
 }
 
+// ── Extended instructions (rating, attestation) ─────────────────────────────
+
+#[cfg(feature = "extended")]
+pub const RATING_SEED: &[u8] = b"rating";
+/// Slots after the first commitment before a one-sided rating can be expired:
+/// about 7 days.
+#[cfg(feature = "extended")]
+pub const RATING_EXPIRE_SLOTS: u64 = 1_512_000;
+/// Reputation taken from a party that never committed, and from a judge whose
+/// attestation is disputed (5.00 points).
+#[cfg(feature = "extended")]
+pub const RATING_EXPIRE_PENALTY: u16 = 500;
+#[cfg(feature = "extended")]
+pub const ATTESTATION_SEED: &[u8] = b"attestation";
+/// Added to a judge's attestation accuracy on confirmation (10.00 points).
+#[cfg(feature = "extended")]
+pub const ATTESTATION_CONFIRM_WEIGHT: u16 = 1000;
+/// Reputation and accuracy scores run from 0 to this (100.00).
+#[cfg(feature = "extended")]
+pub const SCORE_MAX: u16 = 10_000;
+
 #[cfg(test)]
 mod tests {
     use super::*;
