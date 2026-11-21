@@ -38,9 +38,10 @@ test.describe('/onboarding page', () => {
 
   test('loads wizard header, all 8 step labels, and step indicator', async ({ page }) => {
     await page.goto('/onboarding')
-    await expect(page.getByRole('heading', { name: /Specialist Onboarding Wizard/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^Run a provider$/i, level: 1 })).toBeVisible()
 
-    const stepList = page.locator('div.space-y-3').first()
+    const stepList = page.getByRole('navigation', { name: 'Setup steps' })
+    await expect(stepList.locator('[aria-current="step"]')).toHaveText(/Consent/)
     for (const label of ['Consent', 'Runtime', 'Endpoint', 'Wallet', 'Register', 'Healthcheck', 'Attestation', 'Try Planner']) {
       await expect(stepList.getByText(new RegExp(`^${label}$`))).toBeVisible()
     }
@@ -98,6 +99,46 @@ test.describe('/onboarding page', () => {
     await page.getByRole('button', { name: 'Next', exact: true }).click()
 
     await expect(page.getByText(/Endpoint setup/i)).toBeVisible()
+  })
+
+  // ── Step 5 — Price per token ──────────────────────────────────────────────
+
+  test('step 5 register — price per token fields are labelled and preview one call', async ({ page }) => {
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem('e2e-wizard-seeded')) return
+      sessionStorage.setItem('e2e-wizard-seeded', '1')
+      localStorage.setItem(
+        'reddi-onboarding-wizard-v1',
+        JSON.stringify({
+          runtimeType: 'openai_local',
+          runtimeReady: true,
+          endpointUrl: 'http://localhost:11434',
+          endpointStatus: 'online',
+          hasWallet: 'yes',
+          walletAddress: 'AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVv',
+          walletBackupConfirmed: true,
+          sponsorshipReady: true,
+        }),
+      )
+    })
+    await page.goto('/onboarding')
+    await completeStep1(page)
+    for (let i = 0; i < 3; i++) {
+      await page.getByRole('button', { name: 'Next', exact: true }).click()
+    }
+    await expect(page.getByRole('navigation', { name: 'Setup steps' }).locator('[aria-current="step"]')).toHaveText(/Register/)
+
+    const fields = page.getByTestId('provider-price-fields')
+    await expect(fields.getByRole('heading', { name: /set your price per token/i })).toBeVisible()
+    const preview = page.getByTestId('provider-price-preview')
+    await expect(preview).toContainText(/enter both prices/i)
+
+    await fields.getByLabel('Input, per million tokens').fill('0.50')
+    await fields.getByLabel('Output, per million tokens').fill('1.50')
+    await expect(preview).toContainText('0.00825 USDC')
+    await expect(preview).toContainText('Protocol fee (planned, 2.5%)')
+    await expect(preview).toContainText('0.008044 USDC')
+    await expect(preview).toContainText(/demo rates/i)
   })
 
   // ── Step 8 — Planner UI ───────────────────────────────────────────────────

@@ -15,7 +15,7 @@ test.describe("playwright wallet simulation", () => {
     await page.goto("/onboarding");
     await connectMockWallet(page);
 
-    await expect(page.getByRole("heading", { name: /Specialist Onboarding Wizard/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^Run a provider$/i, level: 1 })).toBeVisible();
 
     await page.screenshot({
       path: "artifacts/playwright-wallet/onboarding-wallet-mock.png",

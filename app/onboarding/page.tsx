@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { ProviderPriceFields } from "@/components/onboarding/ProviderPriceFields";
 import dynamic from "next/dynamic";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { Connection, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
@@ -9,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { RATINGS_DOC_PATH } from "@/lib/rating/reputation-display";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import StepIndicator from "@/components/StepIndicator";
 import { showToast } from "@/components/ui/toast";
 import { RUNTIME_CAPABILITIES } from "@/lib/capabilities/taxonomy";
 import { toExplorerTxUrl } from "@/lib/config/explorer";
@@ -490,33 +490,57 @@ export default function OnboardingPage() {
 
   return (
     <div
-      className="max-w-3xl mx-auto px-4 py-10 space-y-8"
+      className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8"
       data-onboarding-wizard=""
       data-hydrated={hydrated ? "true" : "false"}
     >
-      <div className="space-y-2">
-        <h1 className="text-3xl font-bold">Specialist Onboarding Wizard</h1>
-        <p className="text-sm text-muted-foreground">
-          Zero-to-registered flow, consent-first. Installs local runtime, exposes endpoint, then registers and verifies your specialist.
+      <div className="max-w-3xl space-y-3">
+        <p className="section-label">
+          Run a provider · Step {step} of {STEPS.length}
         </p>
-        <p className="text-sm text-muted-foreground" data-testid="onboarding-intake-entry">
+        <h1 className="text-4xl leading-tight sm:text-5xl">Run a provider</h1>
+        <p className="text-lg leading-relaxed text-ink-muted">
+          Put your model behind one endpoint, set your price per token, register on devnet and check
+          that buyers can reach you. Each step checks one thing before the next, and nothing goes on
+          chain until you sign it with your wallet.
+        </p>
+        <p className="text-sm text-ink-muted" data-testid="onboarding-intake-entry">
           Onboarding an existing MCP/OpenAPI/A2A/AI-Catalog source instead?{" "}
-          <Link href="/onboarding/intake" className="text-brand-green hover:text-emerald-200">
-            Use the guided intake flow →
+          <Link href="/onboarding/intake" className="font-semibold text-ink underline underline-offset-4">
+            Use the guided intake flow
           </Link>
         </p>
       </div>
 
-      <div className="space-y-3">
-        {STEPS.map((title, idx) => {
-          const number = idx + 1;
-          const status = number < step ? "complete" : number === step ? "in-progress" : "not-started";
-          return <StepIndicator key={title} number={number} title={title} status={status} />;
-        })}
-      </div>
+      <div className="mt-10 flex flex-col gap-10 lg:flex-row lg:items-start">
+      <nav aria-label="Setup steps" className="lg:w-56 lg:flex-none">
+        <ol className="flex flex-wrap gap-1 lg:flex-col" data-testid="onboarding-step-list">
+          {STEPS.map((title, idx) => {
+            const number = idx + 1;
+            const status = number < step ? "complete" : number === step ? "current" : "upcoming";
+            return (
+              <li
+                key={title}
+                aria-current={status === "current" ? "step" : undefined}
+                data-step-status={status}
+                className={`flex items-center gap-2 rounded px-3 py-2 text-[15px] ${
+                  status === "current"
+                    ? "border-2 border-ink bg-paper-raised font-bold text-ink"
+                    : "border-2 border-transparent text-ink-muted"
+                }`}
+              >
+                <span aria-hidden="true" className="w-4 font-mono text-xs">
+                  {status === "complete" ? "✓" : number}
+                </span>
+                <span>{title}</span>
+                {status === "complete" && <span className="sr-only">(done)</span>}
+              </li>
+            );
+          })}
+        </ol>
+      </nav>
 
-
-      <div className="rounded-xl border border-white/10 bg-card/30 p-6 space-y-5">
+      <div className="min-w-0 flex-1 space-y-5 rounded-md border border-line bg-paper-raised p-6">
         {step === 1 && (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold">1. Consent</h2>
@@ -1074,10 +1098,23 @@ export default function OnboardingPage() {
 
         {step === 5 && (
           <div className="space-y-4">
-            <h2 className="text-lg font-semibold">5. Register specialist</h2>
+            <h2 className="text-lg font-semibold">5. Set your price and register</h2>
             <p className="text-sm text-muted-foreground">
               Submit `register_agent` directly from the wizard using your connected wallet and endpoint metadata.
             </p>
+            <ProviderPriceFields
+              inputPerMillionUsd={state.capabilityInputPerMillionUsd}
+              outputPerMillionUsd={state.capabilityOutputPerMillionUsd}
+              onChange={(field, value) =>
+                setState((s) => ({
+                  ...s,
+                  [field === "input" ? "capabilityInputPerMillionUsd" : "capabilityOutputPerMillionUsd"]: value,
+                  capabilitySaved: false,
+                  capabilityNote: "",
+                }))
+              }
+            />
+
             <div className="w-full">
               <WalletMultiButton className="!bg-ink hover:!bg-brand-violet !text-paper !rounded-md !h-10" />
             </div>
@@ -1256,30 +1293,6 @@ export default function OnboardingPage() {
                     }))
                   }
                   placeholder="per-job USD (fixed price)"
-                />
-                <Input
-                  value={state.capabilityInputPerMillionUsd}
-                  onChange={(e) =>
-                    setState((s) => ({
-                      ...s,
-                      capabilityInputPerMillionUsd: e.target.value,
-                      capabilitySaved: false,
-                      capabilityNote: "",
-                    }))
-                  }
-                  placeholder="USD per million input tokens"
-                />
-                <Input
-                  value={state.capabilityOutputPerMillionUsd}
-                  onChange={(e) =>
-                    setState((s) => ({
-                      ...s,
-                      capabilityOutputPerMillionUsd: e.target.value,
-                      capabilitySaved: false,
-                      capabilityNote: "",
-                    }))
-                  }
-                  placeholder="USD per million output tokens"
                 />
               </div>
               <Input
@@ -1939,6 +1952,7 @@ export default function OnboardingPage() {
             </Button>
           )}
         </div>
+      </div>
       </div>
     </div>
   );
