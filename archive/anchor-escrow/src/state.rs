@@ -13,7 +13,9 @@ pub enum EscrowStatus {
 
 /// On-chain escrow account.
 /// PDA seeds: [b"escrow", payer, nonce]
-#[account]
+// The account traits are written out below instead of coming from
+// `#[account]`, so that reading a record can also check its size.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct EscrowAccount {
     /// Payer (Agent A — the buyer)
     pub payer: Pubkey,
@@ -60,6 +62,56 @@ impl EscrowAccount {
         + 33   // per_session_key (Option<Pubkey>: 1 + 32)
         + 1    // bump
         + 1; // metered
+}
+
+impl Discriminator for EscrowAccount {
+    /// First 8 bytes of SHA-256("account:EscrowAccount"), as `#[account]` derives it.
+    const DISCRIMINATOR: &'static [u8] = &[36, 69, 48, 18, 128, 225, 125, 135];
+}
+
+impl Owner for EscrowAccount {
+    fn owner() -> Pubkey {
+        crate::ID
+    }
+}
+
+impl AccountSerialize for EscrowAccount {
+    fn try_serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<()> {
+        if writer.write_all(Self::DISCRIMINATOR).is_err() {
+            return Err(ErrorCode::AccountDidNotSerialize.into());
+        }
+        if AnchorSerialize::serialize(self, writer).is_err() {
+            return Err(ErrorCode::AccountDidNotSerialize.into());
+        }
+        Ok(())
+    }
+}
+
+impl AccountDeserialize for EscrowAccount {
+    fn try_deserialize(buf: &mut &[u8]) -> Result<Self> {
+        if buf.len() < Self::DISCRIMINATOR.len() {
+            return Err(ErrorCode::AccountDiscriminatorNotFound.into());
+        }
+        if Self::DISCRIMINATOR != &buf[..Self::DISCRIMINATOR.len()] {
+            return Err(
+                error!(ErrorCode::AccountDiscriminatorMismatch).with_account_name("EscrowAccount")
+            );
+        }
+        Self::try_deserialize_unchecked(buf)
+    }
+
+    /// Every escrow is created with `LEN` bytes. A shorter account was written
+    /// in an earlier format: its fields sit at other offsets, and the bytes of
+    /// such a record can still decode as this struct, so it is refused by size
+    /// before any field is read.
+    fn try_deserialize_unchecked(buf: &mut &[u8]) -> Result<Self> {
+        if buf.len() < Self::LEN {
+            return Err(ErrorCode::AccountDidNotDeserialize.into());
+        }
+        let mut data: &[u8] = &buf[Self::DISCRIMINATOR.len()..];
+        AnchorDeserialize::deserialize(&mut data)
+            .map_err(|_| ErrorCode::AccountDidNotDeserialize.into())
+    }
 }
 
 /// Classic SPL Token escrow, separate from the unchanged SOL account layout.
