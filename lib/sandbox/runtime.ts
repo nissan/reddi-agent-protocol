@@ -44,6 +44,7 @@ export function sandboxGatewayDeps(): SandboxGatewayDeps {
         const info = await connection.getAccountInfo(address, "confirmed");
         return info ? { owner: info.owner, data: new Uint8Array(info.data) } : null;
       },
+      readSlot: () => connection.getSlot("confirmed"),
       settler: createSandboxSettler(connection, parseSandboxPayeeKeys(process.env[SANDBOX_PAYEE_KEYS_ENV])),
     };
   }

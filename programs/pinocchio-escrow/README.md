@@ -49,14 +49,26 @@ The program has no default. Clients that name none use
 `DEFAULT_CLAIM_WINDOW_SLOTS` (1,500, about 10 minutes) and
 `DEFAULT_CANCEL_WINDOW_SLOTS` (4,500, about 30 minutes).
 
-Two things follow, and both sides should know them. The claim opens first, so
-on a fixed-price escrow a payer who does nothing pays the payee once the claim
-window opens, delivered or not: the lock is the payer's commitment up to the
-locked amount. And a seller serving against a lock must read its windows
-before doing the work: once the cancel window has elapsed the payer can
-refund, so the seller's settle or claim has to land before then.
-`SELLER_MIN_CANCEL_WINDOW_SLOTS` in `packages/x402-solana` is the floor the
-in-repo sellers apply.
+Two things follow, and both sides should know them.
+
+For buyers: the claim opens first. On a fixed-price escrow there is no refund
+route before the payee can claim, so a payee can claim once the claim window
+opens, delivered or not, and a payer who does nothing pays. The lock is the
+payer's commitment up to the locked amount. A buyer who wants time to judge the
+work before the payee can take the money names a claim window long enough for
+that, and releases early when satisfied; a buyer paying per call uses a metered
+lock, where the payee is paid for what it reports and the rest returns.
+
+For sellers: once the cancel window has elapsed the payer can refund, so the
+seller's settle or claim has to land before then. What counts is the time
+left when the request arrives, not the window named at lock: a buyer can lock,
+wait out most of the window, and only then make the call. Before doing the
+work a seller reads the escrow and the current slot and checks that
+`created_slot + cancel_window_slots - current_slot` is at least its own
+minimum, and serves nothing when either cannot be read.
+`SELLER_MIN_CANCEL_WINDOW_SLOTS` in `packages/x402-solana` (1,500 slots, about
+10 minutes left) is the floor the in-repo sellers apply, which is why client
+defaults name a longer refund window than that.
 
 The windows changed two account layouts. A SOL escrow is 165 bytes, with the
 two windows after `created_slot`; a token escrow is 219 bytes, with them at the

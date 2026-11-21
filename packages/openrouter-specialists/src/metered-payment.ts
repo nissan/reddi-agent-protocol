@@ -45,6 +45,8 @@ export interface MeteredPriceConfig {
 
 /** What a reader of chain accounts returns. A `Connection` adapts to it. */
 export type AccountReader = (address: PublicKey) => Promise<{ owner: PublicKey; data: Uint8Array } | null>;
+/** The chain's current slot. */
+export type SlotReader = () => Promise<number | bigint>;
 
 /** Signs the settle instruction with the provider wallet's key, sends it and waits for confirmation. Returns the signature. */
 export type MeteredSettleSigner = (instruction: TransactionInstruction) => Promise<string>;
@@ -148,6 +150,7 @@ export async function verifyMeteredLock(input: {
   terms: MeteredTerms;
   minimum: bigint;
   readAccount: AccountReader;
+  readSlot: SlotReader;
   replayStore: NonceReplayStore;
 }): Promise<VerifiedLock> {
   const { header, terms } = input;
@@ -169,9 +172,23 @@ export async function verifyMeteredLock(input: {
   }
   if (escrow.status !== 0) return { ok: false, reason: "duplicate_nonce", message: "This escrow has already been settled or cancelled." };
   if (!escrow.metered) return { ok: false, reason: "invalid_receipt", message: "This escrow was not locked as a metered escrow." };
-  // The payer may refund once its window has elapsed, so the settlement has to land before then.
-  if (escrow.cancelWindowSlots !== undefined && escrow.cancelWindowSlots < SELLER_MIN_CANCEL_WINDOW_SLOTS) {
-    return { ok: false, reason: "invalid_receipt", message: "This escrow's refund window is too short. Lock it with a refund window of at least 10 minutes." };
+  // The payer may refund once its window has elapsed, so the settlement has to
+  // land before then. The time left now is what counts, not the window named
+  // at lock: a buyer could lock, wait out most of the window, then make the
+  // call. An escrow that states no window, or a slot that cannot be read, is
+  // refused.
+  if (escrow.cancelWindowSlots === undefined) {
+    return { ok: false, reason: "invalid_receipt", message: "This escrow states no refund window. Lock a new one with the current program." };
+  }
+  let currentSlot: bigint;
+  try {
+    currentSlot = BigInt(await input.readSlot());
+  } catch {
+    return { ok: false, reason: "payment_check_unavailable", message: "The chain could not be read. Nothing was accepted; present the same receipt again." };
+  }
+  const elapsed = currentSlot > escrow.createdSlot ? currentSlot - escrow.createdSlot : 0n;
+  if (escrow.cancelWindowSlots < elapsed + SELLER_MIN_CANCEL_WINDOW_SLOTS) {
+    return { ok: false, reason: "invalid_receipt", message: "This escrow's refund window has less than 10 minutes left. Lock a new one with a longer refund window, then make the call straight away." };
   }
   if (!escrow.payer.equals(header.payer)) return { ok: false, reason: "invalid_receipt", message: "The escrow was locked by a different wallet." };
   if (!escrow.payee.equals(terms.payee)) return { ok: false, reason: "wrong_payee", message: "The escrow pays a different provider." };

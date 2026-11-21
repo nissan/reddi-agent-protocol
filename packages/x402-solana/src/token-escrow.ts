@@ -54,10 +54,11 @@ export const DEFAULT_CANCEL_WINDOW_SLOTS = 4_500n;
 /** The longest refund window the program accepts: about 30 days. */
 export const MAX_ESCROW_WINDOW_SLOTS = 6_480_000n;
 /**
- * The shortest refund window a seller should serve a metered call against:
- * about 10 minutes. The payer may refund once its window has elapsed, so a
- * seller must settle before then; with a very short window the refund could
- * land first.
+ * The least a seller should have left of a metered escrow's refund window
+ * when it takes the call: about 10 minutes. The payer may refund once its
+ * window has elapsed, so the seller must settle before then. Compare it with
+ * `createdSlot + cancelWindowSlots - current slot`, not with the window named
+ * at lock, which a buyer can let run down before calling.
  */
 export const SELLER_MIN_CANCEL_WINDOW_SLOTS = 1_500n;
 

@@ -28,6 +28,8 @@ const MAX_LAMPORTS = maxChargeLamports(swift, requestInputTokens(messages));
 const payer = Keypair.generate().publicKey;
 const SETTLE_SIG = "3".repeat(88);
 const LOCK_SIG = "2".repeat(88);
+/** The slot the fake chain is at. Locks are made 10 slots earlier unless a test says otherwise. */
+const CURRENT_SLOT = BigInt(1_000_000);
 
 /** Borsh bytes of an EscrowAccount as Anchor writes it. */
 function escrowBytes(fields: {
@@ -40,6 +42,7 @@ function escrowBytes(fields: {
   session?: PublicKey;
   /** `null` writes the account as the earlier program did, with no windows (149 bytes). */
   windows?: { claim: bigint; cancel: bigint } | null;
+  createdSlot?: bigint;
 }): Uint8Array {
   const parts: number[] = [...SANDBOX_ESCROW_DISCRIMINATORS.escrowAccount, ...fields.payer.toBytes(), ...fields.payee.toBytes()];
   const amount = Buffer.alloc(8);
@@ -47,6 +50,7 @@ function escrowBytes(fields: {
   parts.push(...amount, ...fields.nonce, fields.status ?? 0);
   const time = Buffer.alloc(16);
   time.writeBigInt64LE(BigInt(Math.floor(NOW_MS / 1000)));
+  time.writeBigUInt64LE(fields.createdSlot ?? CURRENT_SLOT - BigInt(10), 8);
   parts.push(...time);
   if (fields.windows !== null) {
     const windows = Buffer.alloc(16);
@@ -84,6 +88,7 @@ function makeDeps(accounts: Accounts, settler: SandboxSettler | undefined): Sand
     connection: { getGenesisHash: async () => "", getParsedTransaction: async () => null } as unknown as SandboxGatewayDeps["connection"],
     replayStore: new MemoryNonceReplayStore(),
     readAccount: async (address) => accounts.get(address.toBase58()) ?? null,
+    readSlot: async () => CURRENT_SLOT,
     settler,
     now: () => NOW_MS,
     newNonce: () => (++counter).toString(16).padStart(32, "a"),
@@ -228,6 +233,10 @@ describe("sandbox metered escrow: gateway", () => {
       { name: "wrong payee", setup: (accounts, nonce) => lockFor(accounts, nonce, { payee: other }), reason: "wrong_payee" },
       { name: "not metered", setup: (accounts, nonce) => lockFor(accounts, nonce, { metered: false }), reason: "invalid_receipt" },
       { name: "refund window too short", setup: (accounts, nonce) => lockFor(accounts, nonce, { windows: { claim: BigInt(1), cancel: BigInt(1_499) } }), reason: "invalid_receipt" },
+      // A long window named at lock, most of it already used up before the call.
+      { name: "refund window nearly over", setup: (accounts, nonce) => lockFor(accounts, nonce, { createdSlot: CURRENT_SLOT - BigInt(3_001) }), reason: "invalid_receipt" },
+      { name: "refund window already open", setup: (accounts, nonce) => lockFor(accounts, nonce, { createdSlot: CURRENT_SLOT - BigInt(10_000) }), reason: "invalid_receipt" },
+      { name: "earlier-format lock, refund window nearly over", setup: (accounts, nonce) => lockFor(accounts, nonce, { windows: null, createdSlot: CURRENT_SLOT - BigInt(646_501) }), reason: "invalid_receipt" },
       { name: "already released", setup: (accounts, nonce) => lockFor(accounts, nonce, { status: 1 }), reason: "duplicate_nonce" },
       { name: "escrow for another nonce", setup: (accounts) => lockFor(accounts, "0".repeat(32)), reason: "invalid_receipt" },
       { name: "payer who did not lock", setup: (accounts, nonce) => lockFor(accounts, nonce), header: (nonce, escrow) => meteredHeader(nonce, escrow, { payer: other.toBase58() }), reason: "invalid_receipt" },
@@ -243,6 +252,30 @@ describe("sandbox metered escrow: gateway", () => {
       expect(response.headers[PROVIDER_RECEIPT_HEADER]).toBeUndefined();
       expect(calls).toHaveLength(0);
     }
+  });
+
+  it("accepts a lock with exactly the minimum left or in the earlier format, and nothing when the slot cannot be read", async () => {
+    for (const overrides of [{ createdSlot: CURRENT_SLOT - BigInt(3_000) }, { windows: null }] as const) {
+      const accounts: Accounts = new Map();
+      const { settler, calls } = fakeSettler();
+      const deps = makeDeps(accounts, settler);
+      const nonce = nonceOf(await call(deps));
+      const response = await call(deps, meteredHeader(nonce, lockFor(accounts, nonce, overrides)));
+      expect(response.status).toBe(200);
+      expect(calls).toHaveLength(1);
+    }
+
+    const accounts: Accounts = new Map();
+    const { settler, calls } = fakeSettler();
+    const deps = makeDeps(accounts, settler);
+    const nonce = nonceOf(await call(deps));
+    const header = meteredHeader(nonce, lockFor(accounts, nonce));
+    const blind = await call({ ...deps, readSlot: async () => Promise.reject(new Error("rpc down")) }, header);
+    expect(blind.body.reason).toBe("unsupported_receipt");
+    expect(calls).toHaveLength(0);
+    expect((await call({ ...deps, readSlot: undefined }, header)).body.reason).toBe("unsupported_receipt");
+    // Nothing was remembered, so the same lock is good once the chain can be read.
+    expect((await call(deps, header)).status).toBe(200);
   });
 
   it("refuses metered payments when the server holds no key for the provider", async () => {

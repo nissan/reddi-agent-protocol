@@ -39,6 +39,20 @@ export const SANDBOX_CANCEL_WINDOW_SLOTS = BigInt(4_500);
 export const SANDBOX_MIN_CANCEL_WINDOW_SLOTS = BigInt(1_500);
 /** Size of an escrow account locked before windows were stored on it (fixed 3-day refund, 7-day claim). */
 const LEGACY_ESCROW_ACCOUNT_LEN = 149;
+/** The refund window the earlier program gave every escrow: about 3 days. */
+export const LEGACY_CANCEL_WINDOW_SLOTS = BigInt(648_000);
+
+/**
+ * Slots left before the payer may refund, or undefined when that cannot be
+ * told. A seller needs enough of them for its settlement to land first, so
+ * what matters is the time left now, not the window the lock named: a buyer
+ * could lock, wait out most of the window, and only then make the call.
+ */
+export function refundSlotsLeft(escrow: Pick<DecodedSandboxEscrow, "createdSlot" | "cancelWindowSlots">, currentSlot: bigint): bigint {
+  const window = escrow.cancelWindowSlots ?? LEGACY_CANCEL_WINDOW_SLOTS;
+  const elapsed = currentSlot > escrow.createdSlot ? currentSlot - escrow.createdSlot : BigInt(0);
+  return window > elapsed ? window - elapsed : BigInt(0);
+}
 
 const NONCE_HEX = /^[0-9a-f]{32}$/;
 
@@ -125,6 +139,8 @@ export type DecodedSandboxEscrow = {
   nonce: Uint8Array;
   status: "locked" | "released" | "cancelled";
   createdAt: bigint;
+  /** The slot the escrow was locked in; both windows count from it. */
+  createdSlot: bigint;
   delegatedToPer: boolean;
   metered: boolean;
   /** Slots after the lock from which the payee may claim. Undefined on an account locked before windows were stored. */
@@ -153,7 +169,9 @@ export function decodeSandboxEscrow(data: Uint8Array): DecodedSandboxEscrow | un
   const status = statusByte === 0 ? "locked" : statusByte === 1 ? "released" : statusByte === 2 ? "cancelled" : undefined;
   if (!status) return undefined;
   const createdAt = view.getBigInt64(offset, true);
-  offset += 8 + 8; // created_at, created_slot
+  offset += 8;
+  const createdSlot = view.getBigUint64(offset, true);
+  offset += 8;
   // The windows follow, except on an account the earlier program wrote, which is 16 bytes shorter.
   let claimWindowSlots: bigint | undefined;
   let cancelWindowSlots: bigint | undefined;
@@ -172,7 +190,7 @@ export function decodeSandboxEscrow(data: Uint8Array): DecodedSandboxEscrow | un
   if (data.length < offset + 2) return undefined;
   offset += 1; // bump
   const metered = data[offset] === 1;
-  return { payer, payee, amount, nonce, status, createdAt, delegatedToPer, metered, claimWindowSlots, cancelWindowSlots };
+  return { payer, payee, amount, nonce, status, createdAt, createdSlot, delegatedToPer, metered, claimWindowSlots, cancelWindowSlots };
 }
 
 export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {

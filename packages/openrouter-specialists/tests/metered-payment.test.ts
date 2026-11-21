@@ -29,9 +29,12 @@ const config: RuntimeConfig = {
   escrowProgramId: PROGRAM.toBase58(),
 };
 
+/** The slot the fake chain is at. Locks are made 10 slots earlier unless a test says otherwise. */
+const CURRENT_SLOT = BigInt(1_000_000);
+
 const disc = (name: string) => createHash("sha256").update(`account:${name}`).digest().subarray(0, 8);
 
-function tokenEscrowBytes(fields: { amount: bigint; payee?: PublicKey; mint?: PublicKey; recipient?: PublicKey; status?: number; metered?: boolean; payer?: PublicKey; /** `null`: an account the earlier program wrote, with no windows. */ windows?: { claim: bigint; cancel: bigint } | null }): Uint8Array {
+function tokenEscrowBytes(fields: { amount: bigint; payee?: PublicKey; mint?: PublicKey; recipient?: PublicKey; status?: number; metered?: boolean; payer?: PublicKey; /** `null`: an account the earlier program wrote, with no windows. */ windows?: { claim: bigint; cancel: bigint } | null; createdSlot?: bigint }): Uint8Array {
   const mint = fields.mint ?? USDC;
   const owner = fields.payee ?? payee;
   const data = Buffer.alloc(fields.windows === null ? 203 : 219);
@@ -44,6 +47,7 @@ function tokenEscrowBytes(fields: { amount: bigint; payee?: PublicKey; mint?: Pu
   data.writeBigUInt64LE(fields.amount, 168);
   Buffer.from(NONCE, "hex").copy(data, 176);
   data[192] = fields.status ?? 0;
+  data.writeBigUInt64LE(fields.createdSlot ?? CURRENT_SLOT - BigInt(10), 193);
   data[201] = 254;
   data[202] = fields.metered === false ? 0 : 1;
   if (fields.windows !== null) {
@@ -55,12 +59,13 @@ function tokenEscrowBytes(fields: { amount: bigint; payee?: PublicKey; mint?: Pu
 
 const escrow = tokenEscrowAddresses({ programId: PROGRAM, payer, nonce: Buffer.from(NONCE, "hex") }).escrow;
 
-function deps(account: { owner?: PublicKey; data: Uint8Array } | null, settle?: (ix: TransactionInstruction) => Promise<string>) {
+function deps(account: { owner?: PublicKey; data: Uint8Array } | null, settle?: (ix: TransactionInstruction) => Promise<string>, readSlot: () => Promise<bigint> = async () => CURRENT_SLOT) {
   const settled: TransactionInstruction[] = [];
   const statements: ProviderReceiptStatement[] = [];
   const value: RuntimeDeps = {
     replayStore: new MemoryNonceReplayStore(),
     readAccount: async (address) => (address.equals(escrow) && account ? { owner: account.owner ?? PROGRAM, data: account.data } : null),
+    readSlot,
     settleMeteredEscrow:
       settle ??
       (async (ix) => {
@@ -145,6 +150,10 @@ test("refuses a lock that does not match the provider's terms, before calling th
     ["other recipient", { data: tokenEscrowBytes({ amount: BigInt(6000), recipient: stranger }) }, 402],
     ["not metered", { data: tokenEscrowBytes({ amount: BigInt(6000), metered: false }) }, 402],
     ["refund window too short", { data: tokenEscrowBytes({ amount: BigInt(6000), windows: { claim: BigInt(1), cancel: BigInt(1_499) } }) }, 402],
+    // A long window named at lock, most of it already used up before the call.
+    ["refund window nearly over", { data: tokenEscrowBytes({ amount: BigInt(6000), createdSlot: CURRENT_SLOT - BigInt(3_001) }) }, 402],
+    ["refund window already open", { data: tokenEscrowBytes({ amount: BigInt(6000), createdSlot: CURRENT_SLOT - BigInt(10_000) }) }, 402],
+    ["no window stated", { data: tokenEscrowBytes({ amount: BigInt(6000), windows: null }) }, 402],
     ["already settled", { data: tokenEscrowBytes({ amount: BigInt(6000), status: 1 }) }, 409],
     ["other payer named", { data: tokenEscrowBytes({ amount: BigInt(6000) }) }, 402, { payer: stranger.toBase58() }],
     ["bad nonce", { data: tokenEscrowBytes({ amount: BigInt(6000) }) }, 402, { nonce: "xyz" }],
@@ -157,6 +166,23 @@ test("refuses a lock that does not match the provider's terms, before calling th
     assert.equal(client.callCount, 0, name);
     assert.equal(d.settled.length, 0, name);
   }
+});
+
+test("accepts a lock with exactly the seller's minimum left, and accepts nothing when the slot cannot be read", async () => {
+  const edge = deps({ data: tokenEscrowBytes({ amount: BigInt(6000), createdSlot: CURRENT_SLOT - BigInt(3_000) }) });
+  assert.equal((await handleRuntimeRequest(request(meteredPayment()), config, new MockOpenRouterClient(), edge.value)).status, 200);
+
+  const blind = deps({ data: tokenEscrowBytes({ amount: BigInt(6000) }) }, undefined, async () => {
+    throw new Error("rpc down");
+  });
+  const client = new MockOpenRouterClient();
+  const response = await handleRuntimeRequest(request(meteredPayment()), config, client, blind.value);
+  assert.equal(response.status, 503);
+  assert.equal(client.callCount, 0);
+  assert.equal(blind.settled.length, 0);
+  // Nothing was remembered, so the same lock is good once the chain can be read.
+  const retry = await handleRuntimeRequest(request(meteredPayment()), config, new MockOpenRouterClient(), { ...blind.value, readSlot: async () => CURRENT_SLOT });
+  assert.equal(retry.status, 200);
 });
 
 test("does not answer when the settle fails, and refuses metered payment without a signer", async () => {

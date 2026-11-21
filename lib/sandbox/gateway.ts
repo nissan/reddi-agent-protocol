@@ -33,7 +33,7 @@ import {
   type SandboxSpotCheck,
 } from "./catalog";
 import { PublicKey } from "@solana/web3.js";
-import { bytesEqual, decodeSandboxEscrow, escrowNonceBytes, SANDBOX_ESCROW_PROGRAM_ID, SANDBOX_MIN_CANCEL_WINDOW_SLOTS, sandboxEscrowAddress } from "./escrow";
+import { bytesEqual, decodeSandboxEscrow, escrowNonceBytes, SANDBOX_ESCROW_PROGRAM_ID, refundSlotsLeft, SANDBOX_MIN_CANCEL_WINDOW_SLOTS, sandboxEscrowAddress } from "./escrow";
 import { sandboxProviderAddress, signAsSandboxProvider } from "./keys";
 import type { SandboxSettler } from "./settle-signer";
 import { countTokens, formatUnits, maxChargeLamports, requestInputTokens, SANDBOX_FEE_TREASURY, settleSandboxCall } from "./pricing";
@@ -63,6 +63,8 @@ export type SandboxGatewayDeps = {
   replayStore: NonceReplayStore;
   /** Devnet account reader, for a metered escrow the visitor locked. */
   readAccount?: (address: PublicKey) => Promise<{ owner: PublicKey; data: Uint8Array } | null>;
+  /** The current devnet slot, to tell how long a metered escrow's refund window has left. Without it, metered payments are refused. */
+  readSlot?: () => Promise<number | bigint>;
   /** Settles a metered escrow with the provider's devnet key. Without it, metered payments are refused. */
   settler?: SandboxSettler;
   now?: () => number;
@@ -218,7 +220,7 @@ async function verifySandboxPayment(header: string, provider: SandboxProvider, o
  * payable to this provider, for exactly the challenge's maximum.
  */
 async function verifyMeteredLock(record: Record<string, unknown>, provider: SandboxProvider, nonce: string, inputTokens: number, deps: SandboxGatewayDeps): Promise<PaymentOutcome> {
-  if (!deps.settler?.canSettle(provider.id) || !deps.readAccount) {
+  if (!deps.settler?.canSettle(provider.id) || !deps.readAccount || !deps.readSlot) {
     return rejected("unsupported_receipt", `${provider.name} cannot settle a metered escrow on devnet right now. Nothing was taken; cancel the lock for a full refund, or pay with a simulated payment.`);
   }
   let payer: PublicKey;
@@ -242,9 +244,17 @@ async function verifyMeteredLock(record: Record<string, unknown>, provider: Sand
   if (!escrow) return rejected("invalid_receipt", "That account is not an escrow.");
   if (escrow.status !== "locked") return rejected("duplicate_nonce", "This escrow has already been settled or cancelled.", undefined, nonce);
   if (!escrow.metered) return rejected("invalid_receipt", "This escrow was not locked as a metered escrow.");
-  // With a short refund window the payer could take the maximum back before the settlement lands.
-  if (escrow.cancelWindowSlots !== undefined && escrow.cancelWindowSlots < SANDBOX_MIN_CANCEL_WINDOW_SLOTS)
-    return rejected("invalid_receipt", "This escrow's refund window is too short. Lock it with a refund window of at least 10 minutes.");
+  // The payer may refund once its window has elapsed, so the settlement has to
+  // land before then. The time left now is what counts, not the window named
+  // at lock, and when the slot cannot be read nothing is accepted.
+  let currentSlot: bigint;
+  try {
+    currentSlot = BigInt(await deps.readSlot());
+  } catch {
+    return rejected("unsupported_receipt", "The devnet RPC could not be read. Nothing was accepted; present the same receipt again shortly.");
+  }
+  if (refundSlotsLeft(escrow, currentSlot) < SANDBOX_MIN_CANCEL_WINDOW_SLOTS)
+    return rejected("invalid_receipt", "This escrow's refund window has less than 10 minutes left. Lock a new one with a longer refund window, then make the call straight away.");
   if (!escrow.payer.equals(payer)) return rejected("invalid_receipt", "The escrow was locked by a different wallet.");
   if (escrow.payee.toBase58() !== provider.payTo) return rejected("wrong_payee", "escrow payee does not match challenge", provider.payTo, escrow.payee.toBase58());
   if (!bytesEqual(escrow.nonce, escrowNonceBytes(nonce))) return rejected("invalid_nonce", "The escrow nonce does not match the challenge.");
