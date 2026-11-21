@@ -141,7 +141,9 @@ pub fn lock(
 /// receives the fee, and the rest returns to the payer with the rent.
 ///
 /// A rated escrow's rating account records the paid amount and the slot, and
-/// the rating opens.
+/// the rating opens, when the payee signed this call or accepted the rating
+/// earlier. Otherwise the money moves the same way and the rating account is
+/// closed, its rent returning to the payer.
 pub fn pay_out(
     program_id: &Address,
     accounts: &mut [AccountView],
@@ -210,9 +212,8 @@ pub fn pay_out(
     credit(payee, to_payee)?;
     credit(treasury, fee)?;
     close(escrow, payer)?;
-    if let Some((account, mut job)) = rated {
-        job.settle(paid, None, slot);
-        job.store(account)?;
+    if let Some((account, job)) = rated {
+        rating::settle_exit(account, job, payee.is_signer(), paid, None, slot, payer)?;
     }
 
     Settled {

@@ -700,15 +700,22 @@ pub struct Rating {
     /// Revealed scores, 1 to 10; 0 while not revealed.
     pub consumer_score: u8,
     pub specialist_score: u8,
+    /// 1 once the specialist agreed to the job being rated (`accept_rating`).
+    /// A paid exit the specialist signs counts as agreeing too and does not
+    /// need it.
+    accepted: u8,
+    /// 1 once the judge has attested this job (`attest_quality`), so that a
+    /// closed attestation cannot be made again for the same job.
+    attested: u8,
     pub bump: u8,
 }
 
 // SAFETY: byte fields only, discriminator first.
 unsafe impl Record for Rating {
     const DISCRIMINATOR: [u8; 8] = discriminator("account:RatingAccount");
-    const LEN: usize = 8 + 32 * 7 + 8 * 4 + 4;
+    const LEN: usize = 8 + 32 * 7 + 8 * 4 + 6;
 }
-assert_layout!(Rating, 268);
+assert_layout!(Rating, 270);
 
 impl Rating {
     pub fn new(
@@ -735,8 +742,28 @@ impl Rating {
             state: RATING_AWAITING_SETTLEMENT,
             consumer_score: 0,
             specialist_score: 0,
+            accepted: 0,
+            attested: 0,
             bump,
         }
+    }
+
+    /// Whether the specialist agreed to the job being rated.
+    pub fn accepted(&self) -> bool {
+        self.accepted == 1
+    }
+
+    pub fn accept(&mut self) {
+        self.accepted = 1;
+    }
+
+    /// Whether the judge has attested this job.
+    pub fn attested(&self) -> bool {
+        self.attested == 1
+    }
+
+    pub fn set_attested(&mut self) {
+        self.attested = 1;
     }
 
     /// The record at `account`, which must be a rating of this program at the
@@ -746,6 +773,8 @@ impl Rating {
         if record.state > RATING_EXPIRED
             || record.consumer_score > 10
             || record.specialist_score > 10
+            || record.accepted > 1
+            || record.attested > 1
         {
             return Err(fail(&AccountDidNotDeserialize));
         }
@@ -845,6 +874,10 @@ impl Attestation {
             created_slot: created_slot.to_le_bytes(),
             bump,
         }
+    }
+
+    pub fn created_slot(&self) -> u64 {
+        u64::from_le_bytes(self.created_slot)
     }
 
     /// The record at `account`, which must be an attestation of this program

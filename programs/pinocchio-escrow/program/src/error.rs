@@ -93,6 +93,9 @@ faults! {
     EmptyCommitment = 6043, "Commitment must not be all zero";
     RatingNotFinal = 6044, "Rating has no final result yet";
     RatedEscrowNotDelegable = 6045, "A rated escrow cannot be delegated to PER, and a delegated escrow cannot be rated";
+    RatingAlreadyAccepted = 6046, "The specialist has already accepted this rating";
+    AttestationNotClosable = 6047, "An unresolved attestation can be closed only after its resolution window";
+    AlreadyAttested = 6048, "This job has already been attested";
 }
 
 // PER tracking (`per` builds only), with the archived Anchor program's numbers.

@@ -4,8 +4,10 @@
 //! in the slot of the lock. That creates the rating account, which is the
 //! job's record: it names the escrow, the two parties and an optional judge.
 //! Every exit of a rated escrow takes that account. A paid exit (release,
-//! claim, settle, PER release) writes the paid amount, mint and slot onto it
-//! and opens the rating; a refund or decline closes it.
+//! claim, settle) that the specialist agreed to writes the paid amount, mint
+//! and slot onto it and opens the rating. The specialist agrees by signing
+//! that exit or with `accept_rating` beforehand. A release without that
+//! agreement, a refund and a decline close the rating account.
 //!
 //! Once the job is paid, each party commits to
 //! sha256(rating address, signer, score, salt) without seeing the other's
@@ -26,8 +28,9 @@ use {
             AlreadyRevealed, BothMustCommitFirst, CommitDeadlinePassed, CommitmentMismatch,
             ConstraintDuplicateMutableAccount, ConstraintSeeds, EmptyCommitment, InvalidJudge,
             InvalidPayee, InvalidRatingAccount, InvalidScore, JobNotPaid, NotExpired, NotLocked,
-            RatedEscrowNotDelegable, RatingAccountRequired, RatingNotAwaitingSettlement,
-            RatingNotFinal, RatingOptInClosed, RevealDeadlinePassed, UnauthorisedSigner,
+            RatedEscrowNotDelegable, RatingAccountRequired, RatingAlreadyAccepted,
+            RatingNotAwaitingSettlement, RatingNotFinal, RatingOptInClosed, RevealDeadlinePassed,
+            UnauthorisedSigner,
         },
         state::{
             AgentHead, AgentTerms, AnyEscrow, Rating, Record, RATING_AWAITING_SETTLEMENT,
@@ -136,6 +139,59 @@ pub fn open(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> 
     }
 }
 
+/// `accept_rating`: the specialist agrees to the job being rated.
+///
+/// Accounts: `[w] rating`, `[s] specialist`.
+/// No data.
+///
+/// A rating opens only with the specialist's agreement, so that nobody can
+/// move an agent's record with a job the agent took no part in. Agreeing is
+/// this call, while the escrow is still locked, or signing the paid exit
+/// (settle or claim). A release by the payer of a job the specialist never
+/// agreed to pays as usual and closes the rating unrated.
+pub fn accept(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResult {
+    let [rating, specialist, ..] = accounts else {
+        return Err(fail(&AccountNotEnoughKeys));
+    };
+    let mut record = Rating::load_checked(rating, program_id)?;
+    signer(specialist)?;
+    writable(rating)?;
+    require(
+        specialist.address() == &record.specialist,
+        &UnauthorisedSigner,
+    )?;
+    require(
+        record.state == RATING_AWAITING_SETTLEMENT,
+        &RatingNotAwaitingSettlement,
+    )?;
+    require(!record.accepted(), &RatingAlreadyAccepted)?;
+    record.accept();
+    record.store(rating)
+}
+
+/// What a paid exit does with the rating account of its escrow.
+///
+/// With the specialist's agreement (it signed this exit, or accepted
+/// earlier) the job is recorded and the rating opens. Without it the job is
+/// paid but not rated: the rating account is closed and its lamports go to
+/// `payer`, the escrow's payer, who funded it.
+pub fn settle_exit(
+    account: &mut AccountView,
+    mut record: Rating,
+    specialist_signed: bool,
+    paid: u64,
+    mint: Option<&Address>,
+    slot: u64,
+    payer: &mut AccountView,
+) -> ProgramResult {
+    if specialist_signed || record.accepted() {
+        record.settle(paid, mint, slot);
+        record.store(account)
+    } else {
+        close(account, payer)
+    }
+}
+
 /// The rating account an exit of the rated escrow at `escrow` must be given:
 /// the first of `trailing`, the accounts after the instruction's own.
 ///
@@ -202,8 +258,9 @@ pub fn commit(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -
     record.store(rating)
 }
 
-/// The registry record of one party to a rating, if it has one.
-struct Party<'a> {
+/// The registry record of one party to a rating, or of a judge, if it has
+/// one.
+pub(crate) struct Party<'a> {
     account: &'a mut AccountView,
     /// Length of the model name and the fields after it; `None` when the
     /// party is not a registered agent.
@@ -213,7 +270,7 @@ struct Party<'a> {
 impl<'a> Party<'a> {
     /// `account` must be the agent address derived from `owner`. A party that
     /// is not registered there (never was, or deregistered) is left alone.
-    fn load(
+    pub(crate) fn load(
         account: &'a mut AccountView,
         owner: &Address,
         program_id: &Address,
@@ -236,13 +293,13 @@ impl<'a> Party<'a> {
         Ok(Self { account, record })
     }
 
-    fn update(&mut self, change: impl FnOnce(&mut AgentTerms)) {
+    pub(crate) fn update(&mut self, change: impl FnOnce(&mut AgentTerms)) {
         if let Some((_, terms)) = &mut self.record {
             change(terms);
         }
     }
 
-    fn store(self) -> ProgramResult {
+    pub(crate) fn store(self) -> ProgramResult {
         match &self.record {
             Some((model_len, terms)) => AgentHead::store_terms(self.account, *model_len, terms),
             None => Ok(()),

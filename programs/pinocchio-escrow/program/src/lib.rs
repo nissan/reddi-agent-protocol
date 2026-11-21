@@ -1,6 +1,6 @@
 //! Reddi Agent Protocol escrow and agent registry, built with Pinocchio.
 //!
-//! One program, twenty-one instructions in the default (V1) build:
+//! One program, twenty-three instructions in the default (V1) build:
 //!
 //! - SOL escrow: `lock_escrow`, `lock_metered_escrow`, `release_escrow`,
 //!   `settle_escrow`, `cancel_escrow`
@@ -8,10 +8,10 @@
 //!   `lock_metered_token_escrow`, `release_token_escrow`,
 //!   `settle_token_escrow`, `cancel_token_escrow`
 //! - registry: `register_agent`, `update_agent`, `deregister_agent`
-//! - ratings of jobs paid through escrow: `open_rating`, `commit_rating`,
-//!   `reveal_rating`, `expire_rating`, `close_rating`
+//! - ratings of jobs paid through escrow: `open_rating`, `accept_rating`,
+//!   `commit_rating`, `reveal_rating`, `expire_rating`, `close_rating`
 //! - judge attestations: `attest_quality`, `confirm_attestation`,
-//!   `dispute_attestation`
+//!   `dispute_attestation`, `close_attestation`
 //!
 //! The `per` feature adds two more that are not part of V1 and are never
 //! built for mainnet: `delegate_escrow` and `release_escrow_per`, which track
@@ -21,7 +21,7 @@
 //! interchangeable with the Anchor program in `archive/anchor-escrow` from
 //! the outside: the same instruction selectors, account order, account
 //! layouts, program-derived addresses, events and error numbers. The other
-//! eight, and the exits of a rated escrow, have no counterpart there; their
+//! ten, and the exits of a rated escrow, have no counterpart there; their
 //! interface is written down in the README. Inside it is a different program:
 //! no framework, no heap, no serialisation layer. Instructions validate their accounts by hand, read
 //! and write account bytes in place, and build events and cross-program calls
@@ -79,6 +79,8 @@ pub mod selector {
     pub const DEREGISTER_AGENT: u64 = of("global:deregister_agent");
 
     pub const OPEN_RATING: u64 = of("global:open_rating");
+    pub const ACCEPT_RATING: u64 = of("global:accept_rating");
+    pub const CLOSE_ATTESTATION: u64 = of("global:close_attestation");
     pub const COMMIT_RATING: u64 = of("global:commit_rating");
     pub const REVEAL_RATING: u64 = of("global:reveal_rating");
     pub const EXPIRE_RATING: u64 = of("global:expire_rating");
@@ -126,6 +128,8 @@ pub fn process_instruction(
         selector::UPDATE_AGENT => registry::update(program_id, accounts, data),
         selector::DEREGISTER_AGENT => registry::deregister(program_id, accounts),
         selector::OPEN_RATING => rating::open(program_id, accounts, data),
+        selector::ACCEPT_RATING => rating::accept(program_id, accounts),
+        selector::CLOSE_ATTESTATION => attestation::close_resolved(program_id, accounts),
         selector::COMMIT_RATING => rating::commit(program_id, accounts, data),
         selector::REVEAL_RATING => rating::reveal(program_id, accounts, data),
         selector::EXPIRE_RATING => rating::expire(program_id, accounts),

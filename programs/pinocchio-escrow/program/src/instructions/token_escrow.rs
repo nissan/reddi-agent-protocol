@@ -403,7 +403,8 @@ impl<'a> Open<'a> {
 /// `[] mint`, `[w] destination`, `[w] treasury_token` (the treasury's
 /// associated token account for the mint), `[w] refund` (any token account of
 /// the mint the payer owns), `[] token_program`, and for a rated escrow
-/// `[w] rating`, which then records what was paid and opens.
+/// `[w] rating`, which then records what was paid and opens when the payee
+/// is the authority or accepted the rating earlier, and is closed otherwise.
 ///
 /// The destination is a token account of the mint that the payee owns. When
 /// the payer releases it must be the recipient recorded at lock. When the
@@ -523,12 +524,19 @@ pub fn pay_out(
         (treasury_token, treasury_account.amount, fee_part),
         (refund, refund_account.amount, refund_part),
     ])?;
-    if let Some((account, mut job)) = rated {
+    if let Some((account, job)) = rated {
         // What left the vault for the payee and the treasury. Under
         // Token-2022 that can be less than the amount named, when the issuer
         // has shrunk the vault.
-        job.settle(payee_part + fee_part, Some(&mint_key), slot);
-        job.store(account)?;
+        rating::settle_exit(
+            account,
+            job,
+            authority.address() == &payee_key,
+            payee_part + fee_part,
+            Some(&mint_key),
+            slot,
+            payer,
+        )?;
     }
     Settled {
         escrow: &escrow_key,
