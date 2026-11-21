@@ -1,5 +1,5 @@
 {
-  "name": "@reddi/provider-kit",
+  "name": "@redditech/provider-kit",
   "version": "0.1.0",
   "description": "Run your own paid, per-token priced provider on Reddi Agent Protocol: one config file, one command, any OpenAI-compatible model.",
   "license": "MIT",
@@ -35,8 +35,8 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@reddi/agent-protocol": "file:../agent-protocol",
-    "@reddi/x402-solana": "file:../x402-solana",
+    "@redditech/agent-protocol": "file:../agent-protocol",
+    "@redditech/x402-solana": "file:../x402-solana",
     "@solana/web3.js": "^1.98.4"
   },
   "devDependencies": {

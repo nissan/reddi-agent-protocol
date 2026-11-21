@@ -12,7 +12,7 @@
  *   });
  */
 import { Connection, Keypair } from "@solana/web3.js";
-import { sendPayment } from "@reddi/x402-solana";
+import { sendPayment } from "@redditech/x402-solana";
 import type { X402Config } from "./middleware";
 
 export interface EarnConfig extends X402Config {

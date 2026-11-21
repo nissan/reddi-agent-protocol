@@ -1,4 +1,4 @@
-import { validateAiCatalog } from "@reddi/agent-protocol/ai-catalog";
+import { validateAiCatalog } from "@redditech/agent-protocol/ai-catalog";
 
 import {
   getFixtureBackedMarketplacePublicExportSnapshot,

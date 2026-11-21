@@ -41,6 +41,28 @@ export type SandboxReceiptPayment = {
   metered?: { inputTokens: string; outputTokens: string; maxAmount: string; refunded: string };
 };
 
+/**
+ * One call of a session (#863): many calls paid from one metered escrow lock
+ * and settled once. Field order and meaning match `ReddiReceiptV2Session` in
+ * the package. A simulated session has no escrow on chain, so its `escrow` is
+ * `simulated:<nonce>` and it names no payer.
+ */
+export type SandboxReceiptSession = {
+  escrow: string;
+  payer?: string;
+  network: "solana-devnet";
+  currency: "SOL";
+  maxAmount: string;
+  sequence: string;
+  inputTokens: string;
+  outputTokens: string;
+  cumulativeInputTokens: string;
+  cumulativeOutputTokens: string;
+  cumulativeCost: string;
+  previousReceiptHash?: string;
+  closed: boolean;
+};
+
 export type SandboxReceiptBody = {
   schemaVersion: typeof REDDI_RECEIPT_V2_VERSION | typeof SANDBOX_SIMULATED_RECEIPT_VERSION;
   /** Base58 address of the sandbox provider's test key. The signature verifies against it. */
@@ -51,7 +73,10 @@ export type SandboxReceiptBody = {
   requestHash: string;
   /** SHA-256 of the response body bytes, lowercase hex. */
   responseHash: string;
-  payment: SandboxReceiptPayment;
+  /** Absent only on a session call before the session settles. */
+  payment?: SandboxReceiptPayment;
+  /** Present on every call of a session. */
+  session?: SandboxReceiptSession;
   issuedAt: string;
 };
 
@@ -153,13 +178,14 @@ export function bytesToBase64(bytes: Uint8Array): string {
  */
 export function canonicalizeSandboxReceipt(receipt: SandboxReceiptBody): string {
   const p = receipt.payment;
+  const s = receipt.session;
   return JSON.stringify({
     schemaVersion: receipt.schemaVersion,
     providerId: receipt.providerId,
     declaredModel: receipt.declaredModel,
     requestHash: receipt.requestHash,
     responseHash: receipt.responseHash,
-    payment: {
+    ...(p !== undefined ? { payment: {
       network: p.network,
       ...(p.txSignature !== undefined ? { txSignature: p.txSignature } : {}),
       currency: p.currency,
@@ -170,9 +196,33 @@ export function canonicalizeSandboxReceipt(receipt: SandboxReceiptBody): string 
       ...(p.metered !== undefined
         ? { metered: { inputTokens: p.metered.inputTokens, outputTokens: p.metered.outputTokens, maxAmount: p.metered.maxAmount, refunded: p.metered.refunded } }
         : {}),
-    },
+    } } : {}),
+    ...(s !== undefined
+      ? {
+          session: {
+            escrow: s.escrow,
+            ...(s.payer !== undefined ? { payer: s.payer } : {}),
+            network: s.network,
+            currency: s.currency,
+            maxAmount: s.maxAmount,
+            sequence: s.sequence,
+            inputTokens: s.inputTokens,
+            outputTokens: s.outputTokens,
+            cumulativeInputTokens: s.cumulativeInputTokens,
+            cumulativeOutputTokens: s.cumulativeOutputTokens,
+            cumulativeCost: s.cumulativeCost,
+            ...(s.previousReceiptHash !== undefined ? { previousReceiptHash: s.previousReceiptHash } : {}),
+            closed: s.closed,
+          },
+        }
+      : {}),
     issuedAt: receipt.issuedAt,
   });
+}
+
+/** SHA-256 of a receipt's signed bytes: what the next call of a session names as `previousReceiptHash`. */
+export async function hashSandboxReceipt(receipt: SandboxReceiptBody): Promise<string> {
+  return sha256Hex(canonicalizeSandboxReceipt(receipt));
 }
 
 export function encodeReceiptHeader(receipt: SandboxReceipt): string {
@@ -246,7 +296,38 @@ const HASH = /^[0-9a-f]{64}$/;
 const TX_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
 const BASE_UNITS = /^(0|[1-9]\d{0,29})$/;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
-const RECEIPT_KEYS = ["schemaVersion", "providerId", "declaredModel", "requestHash", "responseHash", "payment", "issuedAt"];
+const RECEIPT_KEYS = ["schemaVersion", "providerId", "declaredModel", "requestHash", "responseHash", "payment", "session", "issuedAt"];
+const SESSION_KEYS = ["escrow", "payer", "network", "currency", "maxAmount", "sequence", "inputTokens", "outputTokens", "cumulativeInputTokens", "cumulativeOutputTokens", "cumulativeCost", "previousReceiptHash", "closed"];
+const SESSION_COUNTS = ["maxAmount", "sequence", "inputTokens", "outputTokens", "cumulativeInputTokens", "cumulativeOutputTokens", "cumulativeCost"];
+const SIMULATED_ESCROW = /^simulated:[0-9a-f]{32}$/;
+
+/** The session block's own rules, and how it agrees with the payment on the closing receipt. */
+function isSessionBlock(session: unknown, payment: unknown, simulated: boolean): boolean {
+  if (!isRecord(session) || !onlyKeys(session, SESSION_KEYS)) return false;
+  if (simulated) {
+    if (typeof session.escrow !== "string" || !SIMULATED_ESCROW.test(session.escrow) || session.payer !== undefined) return false;
+  } else if (typeof session.escrow !== "string" || !base58Decode32(session.escrow) || typeof session.payer !== "string" || !base58Decode32(session.payer)) {
+    return false;
+  }
+  if (session.network !== "solana-devnet" || session.currency !== "SOL" || typeof session.closed !== "boolean") return false;
+  if (!SESSION_COUNTS.every((key) => typeof session[key] === "string" && BASE_UNITS.test(session[key] as string))) return false;
+  const n = (key: string) => BigInt(session[key] as string);
+  if (n("sequence") < BigInt(1) || n("cumulativeCost") > n("maxAmount")) return false;
+  if (n("cumulativeInputTokens") < n("inputTokens") || n("cumulativeOutputTokens") < n("outputTokens")) return false;
+  if (n("sequence") === BigInt(1)) {
+    if (session.previousReceiptHash !== undefined || n("cumulativeInputTokens") !== n("inputTokens") || n("cumulativeOutputTokens") !== n("outputTokens")) return false;
+  } else if (typeof session.previousReceiptHash !== "string" || !HASH.test(session.previousReceiptHash)) {
+    return false;
+  }
+  if (payment === undefined) return session.closed === false;
+  if (session.closed !== true || !isRecord(payment) || !isRecord(payment.metered)) return false;
+  return payment.settlement === "metered-escrow"
+    && payment.amount === session.cumulativeCost
+    && (payment.payer === undefined || payment.payer === session.payer)
+    && payment.metered.inputTokens === session.cumulativeInputTokens
+    && payment.metered.outputTokens === session.cumulativeOutputTokens
+    && payment.metered.maxAmount === session.maxAmount;
+}
 const PAYMENT_KEYS = ["network", "txSignature", "currency", "amount", "fee", "payer", "settlement", "metered"];
 const METERED_KEYS = ["inputTokens", "outputTokens", "maxAmount", "refunded"];
 
@@ -266,6 +347,9 @@ export function isSandboxReceipt(value: unknown): value is SandboxReceipt {
   if (typeof receipt.responseHash !== "string" || !HASH.test(receipt.responseHash)) return false;
   if (typeof receipt.issuedAt !== "string" || !ISO_UTC.test(receipt.issuedAt)) return false;
   const payment = receipt.payment;
+  if (receipt.session !== undefined && !isSessionBlock(receipt.session, payment, simulated)) return false;
+  // A session call before the settle states no payment: the session block states what the lock owes.
+  if (payment === undefined) return receipt.session !== undefined;
   if (!isRecord(payment) || !onlyKeys(payment, PAYMENT_KEYS)) return false;
   if (payment.network !== "solana-devnet" || payment.currency !== "SOL") return false;
   if (typeof payment.amount !== "string" || !BASE_UNITS.test(payment.amount) || payment.amount === "0") return false;
@@ -286,6 +370,15 @@ export function isSandboxReceipt(value: unknown): value is SandboxReceipt {
   if (payment.payer !== undefined && (typeof payment.payer !== "string" || !base58Decode32(payment.payer))) return false;
   if (simulated) return payment.txSignature === undefined && payment.payer === undefined;
   return typeof payment.txSignature === "string" && TX_SIGNATURE.test(payment.txSignature);
+}
+
+/** True when the proof is the provider's Ed25519 signature over the receipt's canonical bytes. */
+export async function sandboxReceiptSignatureValid(value: SandboxReceipt): Promise<boolean> {
+  const rawKey = base58Decode32(value.receipt.providerId);
+  const signature = base64ToBytes(value.proof.signature);
+  if (!rawKey || !signature || signature.length !== 64) return false;
+  const key = await subtle().importKey("raw", rawKey, { name: "Ed25519" }, false, ["verify"]);
+  return subtle().verify({ name: "Ed25519" }, key, signature, utf8Bytes(canonicalizeSandboxReceipt(value.receipt)));
 }
 
 /**
@@ -354,11 +447,22 @@ export async function verifySandboxReceipt(input: VerifySandboxReceiptInput): Pr
   }
   checks.push({ id: "signature", label: "Provider signature is valid", passed: signatureValid, detail: signatureDetail });
 
+  const payment = receipt.payment;
+  if (!payment) {
+    const session = receipt.session!;
+    checks.push({
+      id: "payment",
+      label: "Payment fields match what you paid",
+      passed: true,
+      detail: `Session call ${session.sequence}: nothing has moved yet. The lock owes ${session.cumulativeCost} lamports so far, settled once when the session closes.`,
+    });
+    return { ok: checks.every((check) => check.passed), kind, checks };
+  }
   const expected = input.expectedPayment ?? {};
   const mismatched = [
-    expected.amount !== undefined && expected.amount !== (receipt.payment.metered?.maxAmount ?? receipt.payment.amount) ? "amount" : undefined,
-    expected.txSignature !== undefined && expected.txSignature !== receipt.payment.txSignature ? "transaction" : undefined,
-    expected.payer !== undefined && expected.payer !== receipt.payment.payer ? "payer" : undefined,
+    expected.amount !== undefined && expected.amount !== (payment.metered?.maxAmount ?? payment.amount) ? "amount" : undefined,
+    expected.txSignature !== undefined && expected.txSignature !== payment.txSignature ? "transaction" : undefined,
+    expected.payer !== undefined && expected.payer !== payment.payer ? "payer" : undefined,
   ].filter((entry): entry is string => entry !== undefined);
   checks.push({
     id: "payment",
@@ -368,7 +472,7 @@ export async function verifySandboxReceipt(input: VerifySandboxReceiptInput): Pr
       ? `The receipt states a different ${mismatched.join(" and ")} than you paid.`
       : kind === "v2"
         ? "Currency, amount, fee, payer and transaction are the ones you paid with."
-        : receipt.payment.metered
+        : payment.metered
           ? "Simulated: the maximum matches the challenge, the cost is what the tokens used come to, and the rest of the maximum is returned. No transaction is named."
           : "Simulated: the amount matches the challenge and no transaction is named.",
   });

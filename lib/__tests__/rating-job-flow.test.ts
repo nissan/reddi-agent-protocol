@@ -1,7 +1,7 @@
 jest.mock("server-only", () => ({}));
 
 import { Keypair, PublicKey, type Transaction } from "@solana/web3.js";
-import { attestationPda, decodeRatingAccount, RATING_DISCRIMINATORS, ratingPda, type AttestationScores } from "@reddi/x402-solana/rating";
+import { attestationPda, decodeRatingAccount, RATING_DISCRIMINATORS, ratingPda, type AttestationScores } from "@redditech/x402-solana/rating";
 import { encodeAttestationAccount, encodeRatingAccount, type RatingFixture } from "@/lib/rating/testing/fixtures";
 import { jobRatingCommitment } from "@/lib/rating/commitment";
 import { attestationBelongsToJob, commitJobRating, readJobRating, resolveJobAttestation, revealJobRating, type RatingConnection } from "@/lib/rating/job-rating";

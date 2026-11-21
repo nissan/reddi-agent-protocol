@@ -2,7 +2,7 @@
 
 Issue: [#353](https://github.com/nissan/reddi-agent-protocol/issues/353) (parent epic: #355 — OSS developer release and conformance readiness)
 
-This is the single public entry point for an external developer adopting `@reddi/agent-protocol`. It was rebuilt on `reddi.receipt.v2` when receipt v1 and the modules built on it were removed before V1 (#776). Payments prove transfer; RAP Assurance proves paid work. This guide ties together the quickstart, the example specialist workflow, the consolidated conformance suite, the fixture coverage matrix, and the OSS-vs-hosted boundary docs. Everything here is local, offline, deterministic, and no-spend: no hosted services, no wallet, no RPC, no secrets, no live payment.
+This is the single public entry point for an external developer adopting `@redditech/agent-protocol`. It was rebuilt on `reddi.receipt.v2` when receipt v1 and the modules built on it were removed before V1 (#776). Payments prove transfer; RAP Assurance proves paid work. This guide ties together the quickstart, the example specialist workflow, the consolidated conformance suite, the fixture coverage matrix, and the OSS-vs-hosted boundary docs. Everything here is local, offline, deterministic, and no-spend: no hosted services, no wallet, no RPC, no secrets, no live payment.
 
 ## 1. Quickstart: install to running proof in under five minutes
 

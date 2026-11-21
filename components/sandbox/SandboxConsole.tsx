@@ -2,17 +2,17 @@
 
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Connection, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
-import { buildOpenRatingInstruction } from "@reddi/x402-solana/rating";
+import { buildOpenRatingInstruction } from "@redditech/x402-solana/rating";
 import { JobRatingPanel } from "@/components/rating/JobRatingPanel";
 import { RateJobOption } from "@/components/rating/RateJobOption";
 import { parseJudgeAddress } from "@/lib/rating/rated-pay";
 import { browserRatingStorage, rememberRatedJob } from "@/lib/rating/rating-secrets";
 import { RATING_RENT_LAMPORTS, RATING_RENT_SOL } from "@/lib/rating/rating-state";
 import { buildSandboxMeteredLock, SANDBOX_ESCROW_PROGRAM_ID } from "@/lib/sandbox/escrow";
-import { minimumSolPayout, solPayoutWouldFail } from "@reddi/x402-solana/escrow-readiness";
+import { minimumSolPayout, solPayoutWouldFail } from "@redditech/x402-solana/escrow-readiness";
 
 import {
   findSandboxProviderById,
@@ -44,6 +44,8 @@ import {
 } from "@/lib/sandbox/client";
 import { isSandboxReceipt, responseBodyWithAnswer, type SandboxReceiptPayment, verifySandboxReceipt, type SandboxReceipt, type SandboxVerification } from "@/lib/sandbox/receipt";
 import { formatUnits, requestInputTokens, SANDBOX_DEMO_RATES_NOTE, SANDBOX_FEE_BPS, triPriceFromLamports, TYPICAL_REVIEW } from "@/lib/sandbox/pricing";
+import { createSessionKey, directPaymentDelegationHeaderValue, directPaymentProofHeaders, paidCallAuthHeaders, sessionDelegationHeaderValue, type MessageSigner } from "@/lib/payments/session-auth";
+import SandboxSessionRunner from "@/components/sandbox/SandboxSessionRunner";
 import { applySandboxReputation, initialSandboxReputation, type SandboxReputation } from "@/lib/sandbox/reputation";
 
 const WalletMultiButton = dynamic(
@@ -54,6 +56,8 @@ const WalletMultiButton = dynamic(
 /** The sandbox talks to devnet whatever network profile the rest of the app uses. */
 const DEVNET_RPC = "https://api.devnet.solana.com";
 const DEVNET_GENESIS_HASH = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
+/** How long a delegation to this tab's key runs: an hour, well inside the 24-hour limit asked for in #883. */
+const DELEGATION_SECONDS = 3600;
 const FEE_HEADROOM_LAMPORTS = 10_000;
 /** Rent for the escrow account, returned to the visitor when the provider settles. */
 const ESCROW_RENT_HEADROOM_LAMPORTS = 2_500_000;
@@ -251,7 +255,13 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
   // True once the page is interactive and the provider key listing has settled.
   const [ready, setReady] = useState(false);
 
-  const { publicKey, signTransaction, connected } = useWallet();
+  const { publicKey, signTransaction, signMessage, connected } = useWallet();
+  // How each wallet payment signs a request body, by payment header: a metered lock's delegated key (#866),
+  // or a direct transfer's proof (#882). Keys and delegations live in this tab's memory only.
+  const payerSigners = useRef(new Map<string, (body: string) => Promise<Record<string, string>>>());
+  // The wallet's direct-payment delegation to a tab key, by provider payee, reused until it nears expiry.
+  const directDelegations = useRef(new Map<string, { delegation: string; sessionKey: { sign: MessageSigner }; expiresAt: number }>());
+  const signedFor = (paymentHeader: string | undefined) => (paymentHeader ? payerSigners.current.get(paymentHeader) : undefined);
   const devnet = useMemo(() => new Connection(DEVNET_RPC, "confirmed"), []);
   const provider = findSandboxProviderById(providerId) ?? SANDBOX_PROVIDERS[0];
   const messages = useMemo(() => [{ role: "user", content: prompt }], [prompt]);
@@ -341,7 +351,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
 
   /** Returns "settled", "retry" when the provider has not seen the transfer yet, or "refused". */
   async function settle(paymentHeader: string, label: string): Promise<"settled" | "retry" | "refused"> {
-    const result = await callSandbox({ label, model: provider.model, messages, paymentHeader });
+    const result = await callSandbox({ label, model: provider.model, messages, paymentHeader, signBody: signedFor(paymentHeader) });
     record(result.exchange);
     if (result.status !== 200) {
       setNotice({ tone: "bad", title: result.status === 409 ? "Refused: this payment was already used" : `Payment refused (${String(result.body.reason ?? result.status)})`, text: errorMessageOf(result.body) });
@@ -426,6 +436,11 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
         setNotice({ tone: "bad", title: "Not connected to devnet", text: "The sandbox only builds devnet transfers, so nothing was signed." });
         return;
       }
+      // Every devnet payment is presented with the payer's signature (#866, #882), so the wallet must sign messages.
+      if (!signMessage) {
+        setNotice({ tone: "info", title: "This wallet cannot sign messages", text: "The provider needs your wallet's signature to know the payment is yours. Nothing was signed; use a wallet that can sign messages, or the simulated payment." });
+        return;
+      }
       const metered = meteredProviders[provider.id] === true;
       const balance = await devnet.getBalance(publicKey);
       if (balance < lamports + FEE_HEADROOM_LAMPORTS + (metered ? ESCROW_RENT_HEADROOM_LAMPORTS : 0)) {
@@ -457,6 +472,29 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
         setNotice({ tone: "info", title: "This wallet needs more devnet SOL", text: `Rating adds about ${RATING_RENT_SOL} SOL of refundable rent. Get free test SOL from ${FAUCET_URL}, or pay without rating.` });
         return;
       }
+      // Before paying: the wallet signs one message delegating to a key held in this tab, which then signs
+      // each request. Per lock when metered; per provider for an hour when direct. Declining pays nothing.
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      let auth: { escrow: string; delegation: string; sessionKey: { sign: MessageSigner } } | undefined;
+      let direct = lock ? undefined : directDelegations.current.get(challenge.payTo);
+      if (direct && direct.expiresAt - nowSeconds < 300) direct = undefined;
+      try {
+        if (lock) {
+          const sessionKey = await createSessionKey();
+          const escrow = lock.escrow.toBase58();
+          const delegation = await sessionDelegationHeaderValue({ escrow, provider: challenge.payTo, sessionKey: sessionKey.publicKey, expiresAt: nowSeconds + DELEGATION_SECONDS }, (message) => signMessage(message));
+          auth = { escrow, delegation, sessionKey };
+        } else if (!direct) {
+          const sessionKey = await createSessionKey();
+          const expiresAt = nowSeconds + DELEGATION_SECONDS;
+          const delegation = await directPaymentDelegationHeaderValue({ provider: challenge.payTo, sessionKey: sessionKey.publicKey, expiresAt }, (message) => signMessage(message));
+          direct = { delegation, sessionKey, expiresAt };
+          directDelegations.current.set(challenge.payTo, direct);
+        }
+      } catch {
+        setNotice({ tone: "info", title: "You declined the message", text: "The provider needs your wallet's signature to know the payment is yours. Nothing was paid; pay again when you are ready, or use the simulated payment." });
+        return;
+      }
       const transaction = new Transaction({ feePayer: publicKey, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight }).add(
         lock ? lock.instruction : SystemProgram.transfer({ fromPubkey: publicKey, toPubkey: new PublicKey(challenge.payTo), lamports }),
       );
@@ -469,6 +507,14 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
       const paymentHeader = lock
         ? meteredPaymentHeader(challenge, lock.escrow.toBase58(), signature, publicKey.toBase58())
         : devnetPaymentHeader(challenge, signature, publicKey.toBase58());
+      if (auth) {
+        const lockAuth = auth;
+        payerSigners.current.set(paymentHeader, (body) => paidCallAuthHeaders({ ...lockAuth, body }));
+      } else if (direct) {
+        const { delegation, sessionKey } = direct;
+        const payTo = challenge.payTo;
+        payerSigners.current.set(paymentHeader, (body) => directPaymentProofHeaders({ network: "solana-devnet", txSignature: signature, payTo, body, sign: sessionKey.sign, delegation }));
+      }
       // From here the transfer may be on devnet, so it is remembered before anything else can fail.
       setPendingWalletPayment(paymentHeader);
       if (lock && judge?.ok) {
@@ -516,7 +562,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
     if (!answered) return;
     setBusy("reuse");
     try {
-      const result = await callSandbox({ label: "Second request reusing the same payment", model: answered.provider.model, messages: answered.messages, paymentHeader: answered.paymentHeader });
+      const result = await callSandbox({ label: "Second request reusing the same payment", model: answered.provider.model, messages: answered.messages, paymentHeader: answered.paymentHeader, signBody: signedFor(answered.paymentHeader) });
       record(result.exchange);
       setNotice(
         result.status === 200
@@ -567,15 +613,15 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
 
   const cheating = scenario.id === "try-to-cheat";
   const lastExchange = exchanges[exchanges.length - 1];
-  const totalSpentLamports = receipts.reduce((sum, entry) => sum + Number(entry.receipt.payment.amount), 0);
+  const totalSpentLamports = receipts.reduce((sum, entry) => sum + Number(entry.receipt.payment?.amount ?? 0), 0);
   const edited = answered !== null && heldAnswer !== answered.answer;
-  const proofRef = answered?.receipt.receipt.payment.txSignature ?? "";
+  const proofRef = answered?.receipt.receipt.payment?.txSignature ?? "";
 
   return (
     <div className="space-y-10" data-testid="sandbox-console" data-ready={ready ? "true" : "false"}>
       <section aria-labelledby="sandbox-scenarios">
         <h2 id="sandbox-scenarios" className="font-display text-2xl font-bold text-white">Pick a scenario</h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {SANDBOX_SCENARIOS.map((entry) => (
             <button
               key={entry.id}
@@ -594,6 +640,12 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
       </section>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+        {scenario.id === "run-a-session" ? (
+          <div className="min-w-0 space-y-5">
+            <SandboxSessionRunner provider={provider} providerReceiptId={providerKeys[provider.id]} onExchange={(list) => setExchanges((current) => [...current, ...list])} onSettled={(list) => setReceipts((current) => [...current, ...list])} />
+            <p className="rounded-xl border border-[#9945FF]/30 bg-[#9945FF]/10 p-4 text-sm leading-6 text-gray-200" data-testid="sandbox-takeaway">{scenario.takeaway}</p>
+          </div>
+        ) : (
         <div className="min-w-0 space-y-5">
           <StepCard index={1} title="Send the request" active={phase === "idle" || phase === "unavailable"} done={phase === "challenged" || phase === "answered"}>
             <div className={`grid gap-3 ${scenario.providerIds.length > 1 ? "sm:grid-cols-3" : ""}`}>
@@ -763,7 +815,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                   </Field>
                   <Field label="Provider">{answered.provider.name} ({shortAddress(answered.receipt.receipt.providerId)}, sandbox test key)</Field>
                   <Field label="Declared model">{answered.receipt.receipt.declaredModel}</Field>
-                  <ReceiptPaymentFields payment={answered.receipt.receipt.payment} simulated={!proofRef} />
+                  {answered.receipt.receipt.payment ? <ReceiptPaymentFields payment={answered.receipt.receipt.payment} simulated={!proofRef} /> : null}
                   <Field label="Payment proof">
                     {proofRef ? (
                       <a className="underline" href={explorerTxUrl(proofRef)} target="_blank" rel="noreferrer">{shortAddress(proofRef)} on Solana Explorer</a>
@@ -795,6 +847,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
             )}
           </StepCard>
         </div>
+        )}
 
         <aside className="min-w-0 space-y-5">
           <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">

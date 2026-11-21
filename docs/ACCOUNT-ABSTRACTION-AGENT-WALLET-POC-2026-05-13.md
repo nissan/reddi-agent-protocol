@@ -225,7 +225,7 @@ If we only build one first while staying Solana-focused: **Pay.sh source/consume
 
 1. User installs RAP MCP client:
    ```bash
-   npx @reddi/rap-mcp install
+   npx @redditech/rap-mcp install
    ```
 2. CLI opens browser/device-code auth:
    ```text

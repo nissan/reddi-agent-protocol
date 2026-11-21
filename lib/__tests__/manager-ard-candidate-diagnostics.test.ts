@@ -1,8 +1,8 @@
 import {
   classifySourceTrustCandidate,
   sourceTrustConformanceFixtureCases,
-} from "@reddi/agent-protocol/source-trust-conformance-matrix";
-import type { DiscoveryCandidatePolicy } from "@reddi/agent-protocol/discovery-source";
+} from "@redditech/agent-protocol/source-trust-conformance-matrix";
+import type { DiscoveryCandidatePolicy } from "@redditech/agent-protocol/discovery-source";
 
 import {
   ARD_CANDIDATE_DIAGNOSTICS_SCHEMA_VERSION,

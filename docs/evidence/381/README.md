@@ -15,7 +15,7 @@ Cards show source badge, media/resource type, trust boundary, and readiness stat
 thin adapters (`lib/discovery/source-facets.ts`, `lib/discovery/marketplace-candidate-cards.ts`)
 over the existing #577 discovery actionability matrix
 (`lib/manager/discovery-actionability-matrix.ts`) and the #593 source-trust vocabulary
-(`@reddi/agent-protocol/source-trust-conformance-matrix`). The legacy
+(`@redditech/agent-protocol/source-trust-conformance-matrix`). The legacy
 `externally_listed_unattested` adapter literal is mapped to `listed_untrusted`, never
 propagated. No new trust logic was introduced.
 

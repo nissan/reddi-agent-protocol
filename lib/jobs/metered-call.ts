@@ -14,9 +14,9 @@ import "server-only";
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
-import { PROTOCOL_FEE_BPS, directPaymentCurrency, protocolFeeBaseUnits, protocolFeeCapBaseUnits, type ParsedTransactionConnection } from "@reddi/x402-solana/payment";
-import { ratingPda } from "@reddi/x402-solana/rating";
-import { ESCROW_PROTOCOL_TREASURY, tokenEscrowAddresses, treasuryTokenAccount } from "@reddi/x402-solana/token-escrow";
+import { PROTOCOL_FEE_BPS, directPaymentCurrency, protocolFeeBaseUnits, protocolFeeCapBaseUnits, type ParsedTransactionConnection } from "@redditech/x402-solana/payment";
+import { ratingPda } from "@redditech/x402-solana/rating";
+import { ESCROW_PROTOCOL_TREASURY, tokenEscrowAddresses, treasuryTokenAccount } from "@redditech/x402-solana/token-escrow";
 import type { NetworkProfileName } from "@/lib/config/network-profile-name";
 import { buyerMintFor, paymentNetworkForProfile } from "@/lib/payments/wallet-direct-payment";
 import { listingNetworkForProfile, type Listing } from "@/lib/listings/listing-store";

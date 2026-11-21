@@ -9,10 +9,11 @@ import {
   tokenCostBaseUnits,
   parseX402PaymentHeader,
   SolanaReceiptVerifier,
+  directPaymentProofCheck,
   type NonceReplayStore,
   type ReceiptVerificationResult,
   type X402Challenge,
-} from "@reddi/x402-solana";
+} from "@redditech/x402-solana";
 import { Connection, PublicKey } from "@solana/web3.js";
 import {
   estimateInputTokens,
@@ -23,6 +24,7 @@ import {
   readMeteredPaymentHeader,
   usageFrom,
   verifyMeteredLock,
+  verifyPaidCallRequest,
   type AccountReader,
   type SlotReader,
   type MeteredSettleSigner,
@@ -137,6 +139,8 @@ export async function verifyPayment(input: {
   config: RuntimeConfig;
   replayStore?: NonceReplayStore;
   endpointPath?: string;
+  /** The raw request body exactly as received; a direct payment's proof signs over it. */
+  requestText?: string;
 }): Promise<ReceiptVerificationResult> {
   const value = input.headers.get("x402-payment") ?? input.headers.get("x-payment");
   if (!value) return { ok: false, reason: "invalid_receipt", message: "missing x402-payment header" };
@@ -160,7 +164,8 @@ export async function verifyPayment(input: {
     mints: input.config.paymentMints,
     protocolFee: input.config.protocolFeeTreasury ? { treasury: input.config.protocolFeeTreasury } : undefined,
   });
-  return realVerifier.verifyReceipt(parsed, challenge, input.replayStore);
+  // A confirmed transfer is public, so the request must come from the wallet that paid.
+  return realVerifier.verifyReceipt(parsed, challenge, input.replayStore, directPaymentProofCheck({ headers: input.headers, body: input.requestText ?? "" }));
 }
 
 export function marketplaceMetadata(profile: SpecialistProfile, config: RuntimeConfig): Record<string, unknown> {
@@ -219,9 +224,10 @@ export async function ensurePaid(input: {
   config: RuntimeConfig;
   replayStore?: NonceReplayStore;
   endpointPath?: string;
+  requestText?: string;
 }): Promise<RuntimeResponse | undefined> {
   if (!input.config.requirePayment) return undefined;
-  const payment = await verifyPayment({ headers: input.headers, profile: input.profile, config: input.config, replayStore: input.replayStore, endpointPath: input.endpointPath });
+  const payment = await verifyPayment({ headers: input.headers, profile: input.profile, config: input.config, replayStore: input.replayStore, endpointPath: input.endpointPath, requestText: input.requestText });
   if (payment.ok) return undefined;
   const response = paymentRequired(buildProfileChallenge(input.profile, input.config, randomUUID(), input.endpointPath));
   response.body.error = {
@@ -245,6 +251,8 @@ export async function handleDelegationPlanning(input: {
   config: RuntimeConfig;
   replayStore?: NonceReplayStore;
   liveDelegationExecutor?: LiveDelegationExecutor;
+  /** The raw request body exactly as received. */
+  requestText?: string;
 }): Promise<RuntimeResponse> {
   const profile = getProfile(input.config.profileId);
   if (!profile) return { status: 500, headers: JSON_HEADERS, body: { error: { code: "unknown_profile" } } };
@@ -252,7 +260,7 @@ export async function handleDelegationPlanning(input: {
     return { status: 403, headers: JSON_HEADERS, body: { error: { code: "profile_not_consumer", message: `${profile.id} cannot plan downstream marketplace delegation.` } } };
   }
 
-  const unpaid = await ensurePaid({ headers: input.headers, profile, config: input.config, replayStore: input.replayStore });
+  const unpaid = await ensurePaid({ headers: input.headers, profile, config: input.config, replayStore: input.replayStore, requestText: input.requestText });
   if (unpaid) return unpaid;
 
   const metadata = input.body.metadata ?? {};
@@ -402,6 +410,8 @@ export async function handleAttestationEvaluation(input: {
   client: OpenRouterClient;
   replayStore?: NonceReplayStore;
   endpointPath?: string;
+  /** The raw request body exactly as received. */
+  requestText?: string;
 }): Promise<RuntimeResponse> {
   const profile = getProfile(input.config.profileId);
   if (!profile) return { status: 500, headers: JSON_HEADERS, body: { error: { code: "unknown_profile" } } };
@@ -409,7 +419,7 @@ export async function handleAttestationEvaluation(input: {
     return { status: 403, headers: JSON_HEADERS, body: { error: { code: "profile_not_attestor", message: `${profile.id} is not configured for attestation.` } } };
   }
 
-  const unpaid = await ensurePaid({ headers: input.headers, profile, config: input.config, replayStore: input.replayStore, endpointPath: input.endpointPath ?? "/v1/attestations" });
+  const unpaid = await ensurePaid({ headers: input.headers, profile, config: input.config, replayStore: input.replayStore, endpointPath: input.endpointPath ?? "/v1/attestations", requestText: input.requestText });
   if (unpaid) return unpaid;
 
   const requestId = randomUUID();
@@ -453,6 +463,8 @@ export async function handleChatCompletions(input: {
   config: RuntimeConfig;
   client: OpenRouterClient;
   replayStore?: NonceReplayStore;
+  /** The raw request body exactly as received. */
+  requestText?: string;
 }): Promise<RuntimeResponse> {
   if (isAttestationMode(input.body)) return handleAttestationEvaluation({ ...input, endpointPath: "/v1/chat/completions" });
   if (isDelegationMode(input.body)) return handleDelegationPlanning(input);
@@ -460,7 +472,7 @@ export async function handleChatCompletions(input: {
   const profile = getProfile(input.config.profileId);
   if (!profile) return { status: 500, headers: JSON_HEADERS, body: { error: { code: "unknown_profile" } } };
 
-  const unpaid = await ensurePaid({ headers: input.headers, profile, config: input.config, replayStore: input.replayStore });
+  const unpaid = await ensurePaid({ headers: input.headers, profile, config: input.config, replayStore: input.replayStore, requestText: input.requestText });
   if (unpaid) return unpaid;
 
   const requestId = randomUUID();
@@ -513,7 +525,7 @@ const WALLET_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 /**
  * What this provider states about one paid call. Same shape as
- * `ReddiReceiptV2` in `@reddi/agent-protocol`. The model is the one
+ * `ReddiReceiptV2` in `@redditech/agent-protocol`. The model is the one
  * this runtime is configured to call: a declaration, not proof of execution.
  */
 export interface ProviderReceiptStatement {
@@ -546,7 +558,7 @@ export interface RuntimeDeps {
   replayStore?: NonceReplayStore;
   /**
    * Signs a receipt statement with the provider wallet's key and returns the
-   * signed receipt (`signReddiReceiptV2` from `@reddi/agent-protocol`
+   * signed receipt (`signReddiReceiptV2` from `@redditech/agent-protocol`
    * does this). The key stays with the operator; this runtime never reads one.
    * When absent, no receipt is issued.
    */
@@ -659,9 +671,16 @@ export async function handleRuntimeRequest(request: Request, config = createRunt
   if (request.method === "GET" && url.pathname === "/api/tags") return toResponse(tagsResponse());
   if (request.method === "GET" && url.pathname === "/.well-known/reddi-agent.json") return toResponse({ status: 200, headers: JSON_HEADERS, body: marketplaceMetadata(profile, config) });
   if (request.method === "POST" && url.pathname === "/v1/attestations") {
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const requestText = await request.text().catch(() => "");
+    let body: Record<string, unknown> = {};
     try {
-      return toResponse(await handleAttestationEvaluation({ headers: request.headers, body, config, client, replayStore, endpointPath: "/v1/attestations" }));
+      const parsed: unknown = JSON.parse(requestText);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) body = parsed as Record<string, unknown>;
+    } catch {
+      // An unreadable body is handled as an empty request, as before.
+    }
+    try {
+      return toResponse(await handleAttestationEvaluation({ headers: request.headers, body, config, client, replayStore, endpointPath: "/v1/attestations", requestText }));
     } catch (error) {
       if (isReplayStoreFailure(error)) return toResponse(REPLAY_UNAVAILABLE);
       throw error;
@@ -680,7 +699,7 @@ export async function handleRuntimeRequest(request: Request, config = createRunt
       if (readMeteredPaymentHeader(request.headers) !== undefined) {
         return await handleMeteredChatCompletion({ headers: request.headers, body, config, client, replayStore, deps, requestText, profile });
       }
-      const result = await handleChatCompletions({ headers: request.headers, body, config, client, replayStore });
+      const result = await handleChatCompletions({ headers: request.headers, body, config, client, replayStore, requestText });
       if (result.status === 402) {
         const terms = deps.settleMeteredEscrow && config.allowRealPayment ? meteredTerms(profile, config) : undefined;
         if (terms) result.body.metered = specialistMeteredOffer(terms, body.messages ?? [], body.max_tokens);
@@ -720,6 +739,9 @@ async function handleMeteredChatCompletion(input: {
   if (!terms || !deps.settleMeteredEscrow) return refuse(402, "metered_not_offered", "This provider does not take metered payment. Nothing was taken; cancel the lock for a refund.");
   const header = readMeteredPaymentHeader(input.headers);
   if (!header || "error" in header) return refuse(402, "invalid_receipt", header && "error" in header ? header.error : "Unreadable metered payment.");
+  // The lock's escrow, payer and nonce are public: only the payer's signature over this request shows who is calling (#866).
+  const auth = verifyPaidCallRequest({ headers: input.headers, escrow: header.escrow, payer: header.payer, provider: terms.payee, body: input.requestText, nowMs: Date.now() });
+  if (!auth.ok) return refuse(401, auth.reason, auth.message, { charged: false });
   const messages = body.messages ?? [];
   const outputTokens = outputLimit(terms, body.max_tokens);
   const inputEstimate = estimateInputTokens(messages);

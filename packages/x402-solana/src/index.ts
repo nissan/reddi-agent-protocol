@@ -1,5 +1,5 @@
 /**
- * @reddi/x402-solana - HTTP 402 primitives for Solana-oriented RAP workflows.
+ * @redditech/x402-solana - HTTP 402 primitives for Solana-oriented RAP workflows.
  *
  * Repo-local v0.1 OSS candidate. Clean-checkout smoke must stay local and
  * must not imply npm publication, live payment, custody, mainnet, or
@@ -22,3 +22,6 @@ export * from './escrow-http';
 export * from './escrow-readiness';
 export * from './provider';
 export * from './rating';
+export * from './session';
+export * from './session-auth';
+export * from './direct-auth';

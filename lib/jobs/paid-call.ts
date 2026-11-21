@@ -12,8 +12,8 @@ import "server-only";
  */
 
 import { Connection } from "@solana/web3.js";
-import { SolanaReceiptVerifier, baseUnitsToDecimal, decimalToBaseUnits, directPaymentCurrency, type ParsedTransactionConnection } from "@reddi/x402-solana/payment";
-import type { X402Challenge } from "@reddi/x402-solana/types";
+import { SolanaReceiptVerifier, baseUnitsToDecimal, decimalToBaseUnits, directPaymentCurrency, type ParsedTransactionConnection } from "@redditech/x402-solana/payment";
+import type { X402Challenge } from "@redditech/x402-solana/types";
 import type { NetworkProfileName } from "@/lib/config/network-profile-name";
 import { buyerMintFor, paymentNetworkForProfile } from "@/lib/payments/wallet-direct-payment";
 import { listingNetworkForProfile, type Listing } from "@/lib/listings/listing-store";
@@ -104,6 +104,9 @@ export async function verifyAndRecordPaidCall(input: PaidCallInput, deps: PaidCa
 
   const verifier = new SolanaReceiptVerifier({
     allowRealPayment: true,
+    // This records a job after the call and serves nothing, so it needs no proof
+    // that the caller paid: the provider checked that before answering.
+    payerProof: "not-required",
     connection,
     mints: currency === "SOL" ? undefined : { [currency]: expectedMint },
     // With no treasury configured a mainnet verifier refuses every receipt, which is the safe default.

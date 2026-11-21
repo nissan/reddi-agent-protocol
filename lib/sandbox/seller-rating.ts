@@ -29,7 +29,7 @@ import {
   RATING_REVEAL_SLOTS,
   ratingPda,
   type RatingAccount,
-} from "@reddi/x402-solana/rating";
+} from "@redditech/x402-solana/rating";
 import { jobRatingCommitment } from "@/lib/rating/commitment";
 
 export const SELLER_RATING_DEFAULT_SCORE = 10;

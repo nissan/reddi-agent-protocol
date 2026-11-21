@@ -1,6 +1,6 @@
 # RAP → ERC-8004 Export Spec — `reddi.erc8004-export.v1` (#562)
 
-> **Status, 20 November 2026:** the `@reddi/agent-protocol` modules this document describes were removed before V1 with `reddi.receipt.v1` ([#776](https://github.com/nissan/reddi-agent-protocol/issues/776)). `reddi.receipt.v2` is the only receipt. This document is kept as a historical record and does not describe current code.
+> **Status, 20 November 2026:** the `@redditech/agent-protocol` modules this document describes were removed before V1 with `reddi.receipt.v1` ([#776](https://github.com/nissan/reddi-agent-protocol/issues/776)). `reddi.receipt.v2` is the only receipt. This document is kept as a historical record and does not describe current code.
 
 **Status: v1 spec (promoted from the PR #570 DRAFT by issue #562).**
 Module: `packages/agent-protocol/src/erc8004-export.ts` · Conformance: `packages/agent-protocol/src/erc8004-export-conformance.ts` (`reddi.erc8004-export-conformance.v1`) · Tests: `packages/agent-protocol/tests/erc8004-export*.test.ts`.

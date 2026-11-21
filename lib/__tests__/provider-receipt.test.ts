@@ -3,7 +3,7 @@ jest.mock("server-only", () => ({}));
 
 import { generateKeyPairSync, sign as edSign } from "crypto";
 import { PublicKey } from "@solana/web3.js";
-import { REDDI_RECEIPT_V2_VERSION, hashReddiReceiptV2Body, signReddiReceiptV2, type ReddiReceiptV2 } from "@reddi/agent-protocol/receipt-v2";
+import { REDDI_RECEIPT_V2_VERSION, hashReddiReceiptV2Body, signReddiReceiptV2, type ReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
 
 import { checkAndStoreProviderReceipt, parseProviderReceiptHeader } from "@/lib/jobs/provider-receipt";
 

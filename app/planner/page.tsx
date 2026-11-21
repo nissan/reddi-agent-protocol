@@ -29,9 +29,20 @@ import {
   walletDirectPaymentEnabled,
 } from "@/lib/payments/wallet-direct-payment";
 import { planMeteredBuy } from "@/lib/payments/metered-buy";
+import {
+  applySessionOutcome,
+  attachLockReceipt,
+  delegateLock,
+  openPlannerSession,
+  signSingleCall,
+  type LockAuth,
+  prepareSessionCall,
+  type PlannerSessionHandle,
+} from "@/lib/payments/planner-session-client";
 import { ESCROW_PROGRAM_ID } from "@/lib/program";
 import { JobRatingPanel } from "@/components/rating/JobRatingPanel";
 import { RateJobOption } from "@/components/rating/RateJobOption";
+import { SessionOption } from "@/components/payments/SessionOption";
 import { isRatedDecline, parseJudgeAddress, ratedEscrowsEnabled, ratedJobStance, rememberRatedDecline } from "@/lib/rating/rated-pay";
 import { browserRatingStorage, rememberRatedJob } from "@/lib/rating/rating-secrets";
 import { RATING_RENT_SOL } from "@/lib/rating/rating-state";
@@ -117,7 +128,7 @@ function launchConfetti() {
 const STEPS = ["Describe task", "Select specialist", "Execute", "Feedback"];
 
 function PlannerInner() {
-  const { connected, publicKey, sendTransaction } = useWallet();
+  const { connected, publicKey, sendTransaction, signMessage } = useWallet();
   const { connection } = useConnection();
   const [paymentNote, setPaymentNote] = useState<string | null>(null);
   // A receipt for a transaction that was sent but not yet accepted by the provider.
@@ -153,6 +164,16 @@ function PlannerInner() {
   const [submitted, setSubmitted] = useState(false);
   const [completeOpen, setCompleteOpen] = useState(false);
   const [allAgents, setAllAgents] = useState<SpecialistListing[]>([]);
+  // Sessions (#863): one lock pays for many calls to a provider, settled once.
+  const [useSession, setUseSession] = useState(true);
+  const [sessionCalls, setSessionCalls] = useState(10);
+  const [settleAfterNext, setSettleAfterNext] = useState(false);
+  // In memory only: the session key never leaves this tab. A provider settles an idle session itself.
+  const sessionsRef = useRef(new Map<string, PlannerSessionHandle>());
+  // Each metered lock's delegation to a key held in this tab, by escrow (#866).
+  const lockAuthRef = useRef(new Map<string, LockAuth>());
+  // The same sessions, for showing on screen.
+  const [sessionViews, setSessionViews] = useState<Record<string, PlannerSessionHandle>>({});
   const prevStep = useRef(step);
 
   useEffect(() => {
@@ -296,10 +317,14 @@ function PlannerInner() {
   async function presentReceipt(receipt: unknown) {
     // When signed in, the session lets the server link the job record to this account.
     const token = await currentAccessToken().catch(() => undefined);
+    // A single metered call carries the payer's signature (#866), made with the lock's delegated key.
+    const escrow = (receipt as { settlement?: unknown; escrow?: unknown } | null)?.settlement === "metered-escrow" ? (receipt as { escrow?: unknown }).escrow : undefined;
+    const lockAuth = typeof escrow === "string" ? lockAuthRef.current.get(escrow) : undefined;
+    const paidCallAuth = lockAuth ? await signSingleCall(lockAuth, prompt) : undefined;
     const res = await fetch("/api/onboarding/planner/execute", {
       method: "POST",
       headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-      body: runRequestBody({ paymentMode: "wallet", paymentReceipt: receipt, consumerWallet: publicKey?.toBase58() }),
+      body: runRequestBody({ paymentMode: "wallet", paymentReceipt: receipt, consumerWallet: publicKey?.toBase58(), ...(paidCallAuth ? { paidCallAuth } : {}) }),
     });
     const data = await res.json();
     if (data.ok) {
@@ -318,14 +343,63 @@ function PlannerInner() {
     showRun(data);
   }
 
+  function keepSession(handle: PlannerSessionHandle) {
+    sessionsRef.current.set(handle.ledger.providerKey, handle);
+    setSessionViews((current) => ({ ...current, [handle.ledger.providerKey]: handle }));
+  }
+
+  /**
+   * Sends this prompt as the next call of an open session. Signed by the
+   * session key, so the wallet is not asked. Returns false when the session
+   * cannot take the call, so the caller locks a new maximum.
+   */
+  async function callInSession(handle: PlannerSessionHandle): Promise<boolean> {
+    const prepared = await prepareSessionCall(handle, prompt, settleAfterNext);
+    if (!prepared.ok) {
+      keepSession(prepared.handle);
+      return false;
+    }
+    const token = await currentAccessToken().catch(() => undefined);
+    const res = await fetch("/api/onboarding/planner/execute", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: runRequestBody({ paymentMode: "wallet", paymentReceipt: handle.receipt, consumerWallet: publicKey?.toBase58(), session: prepared.request }),
+    });
+    const data = await res.json();
+    const applied = applySessionOutcome(handle, Boolean(data.ok), data.result?.session);
+    keepSession(applied.handle);
+    if (data.ok) {
+      setPendingReceipt(null);
+      setSettleAfterNext(false);
+    }
+    const firstRefused = !data.ok && applied.handle.ledger.calls.length === 0 && applied.handle.ledger.state !== "open";
+    setPaymentNote(
+      firstRefused
+        ? `${applied.note.split(". ")[0]}. Nothing was charged. Present the lock again to use it for this call alone; the rest of the maximum comes back after the provider settles.`
+        : applied.note,
+    );
+    showRun(data);
+    return true;
+  }
+
   async function executeWithWallet() {
     if (!publicKey || !sendTransaction) {
       setPaymentNote("Connect a wallet to pay for this call.");
       return;
     }
+    const openSession = sessionsRef.current.get(selectedWallet);
+    if (openSession && openSession.ledger.state === "open" && openSession.ledger.calls.length === 0 && pendingReceipt === openSession.receipt) {
+      // The session's lock is sent; its first call has not been answered yet.
+      await callInSession(openSession);
+      return;
+    }
     if (pendingReceipt) {
       await presentReceipt(pendingReceipt);
       return;
+    }
+    if (openSession && openSession.ledger.state === "open" && !(rateJob && RATED_ESCROWS_ENABLED)) {
+      if (await callInSession(openSession)) return;
+      // The open session cannot take this call; the provider settles it, and a new lock follows.
     }
     setPaymentNote(null);
     const res = await fetch("/api/onboarding/planner/execute", {
@@ -430,24 +504,31 @@ function PlannerInner() {
       setPaymentNote(`${judge.message} Nothing was signed.`);
       return;
     }
-    const plan = planMeteredBuy({
-      offer,
-      listing: { walletAddress, prices },
-      network,
-      programId: ESCROW_PROGRAM_ID,
-      payer: publicKey,
-      prompt,
-      maxSpendUsd: maxSpend,
-      mints: BUYER_MINTS,
-      nonce: crypto.getRandomValues(new Uint8Array(16)),
-      ...(judge?.ok ? { rating: { judge: judge.judge } } : {}),
-    });
+    const buy = (calls?: number) =>
+      planMeteredBuy({
+        offer,
+        listing: { walletAddress, prices },
+        network,
+        programId: ESCROW_PROGRAM_ID,
+        payer: publicKey,
+        prompt,
+        maxSpendUsd: maxSpend,
+        mints: BUYER_MINTS,
+        nonce: crypto.getRandomValues(new Uint8Array(16)),
+        ...(judge?.ok ? { rating: { judge: judge.judge } } : {}),
+        ...(calls !== undefined ? { sessionCalls: calls } : {}),
+      });
+    // A session needs the wallet to sign one message; a rated job is paid one call at a time.
+    const wantsSession = useSession && !wantsRating && Boolean(signMessage);
+    let plan = buy(wantsSession ? sessionCalls : undefined);
+    if (!plan.ok && wantsSession && plan.reason === "no_output_limit") plan = buy();
     if (!plan.ok) {
       setPaymentNote(`Payment request refused: ${plan.message} Nothing was signed.`);
       return;
     }
-    if (plan.providerAcceptsRatedJobs !== undefined) {
-      setStatedRatedStance((current) => ({ ...current, [walletAddress]: plan.providerAcceptsRatedJobs === true }));
+    const stated = plan.providerAcceptsRatedJobs;
+    if (stated !== undefined) {
+      setStatedRatedStance((current) => ({ ...current, [walletAddress]: stated === true }));
     }
     if (plan.rating && ratedJobStance({ stated: plan.providerAcceptsRatedJobs, providerWallet: walletAddress, storage: browserRatingStorage() }) === "declines") {
       // Known before anything is signed: this provider would refuse the job.
@@ -455,8 +536,40 @@ function PlannerInner() {
       return;
     }
     const { quote } = plan;
+    // Providers take a metered call only with the payer's signature (#866): the wallet signs one
+    // message per lock, delegating its calls to a key held in this tab. Asked before the lock.
+    if (!signMessage) {
+      setPaymentNote("Your wallet cannot sign messages, and a per-token call needs your signature so the provider knows it is yours. Nothing was signed; use a wallet that can sign messages.");
+      return;
+    }
     setPaymentNote(
-      `Estimated cost ${quote.estimatedCost} ${quote.currency}. Your wallet will ask you to lock up to ${quote.maxCharge} ${quote.currency} in escrow${plan.rating ? `, and to pay about ${RATING_RENT_SOL} SOL of refundable rent for the rating` : ""}. ${quote.notice}`,
+      plan.session
+        ? `Your wallet will first ask you to sign a message (no payment) that lets this tab make up to ${plan.session.calls} calls to this provider on one lock, then to lock up to ${quote.maxCharge} ${quote.currency}. The provider settles once for the calls it serves; the rest comes back.`
+        : `Your wallet will first ask you to sign a message (no payment) that lets this tab present this call to the provider, then to lock up to ${quote.maxCharge} ${quote.currency}.`,
+    );
+    let lockAuth: LockAuth;
+    try {
+      lockAuth = await delegateLock({ escrow: plan.escrow, providerWallet: walletAddress, signWithPayer: (message) => signMessage(message) });
+    } catch {
+      setPaymentNote("You declined the message. Nothing was locked or charged.");
+      return;
+    }
+    lockAuthRef.current.set(plan.escrow, lockAuth);
+    let session: PlannerSessionHandle | undefined;
+    if (plan.session) {
+      session = await openPlannerSession({
+        escrow: plan.escrow,
+        providerWallet: walletAddress,
+        lockBaseUnits: plan.session.lockBaseUnits,
+        price: plan.session.price,
+        maxOutputTokens: plan.session.maxOutputTokens,
+        signWithPayer: (message) => signMessage(message),
+        auth: lockAuth,
+      });
+    }
+    const lockQuote = plan.quote;
+    setPaymentNote(
+      `Estimated cost ${lockQuote.estimatedCost} ${lockQuote.currency}${session ? " a call" : ""}. Your wallet will ask you to lock up to ${lockQuote.maxCharge} ${lockQuote.currency} in escrow${plan.rating ? `, and to pay about ${RATING_RENT_SOL} SOL of refundable rent for the rating` : ""}. ${lockQuote.notice}`,
     );
     let signature: string;
     const latest = await connection.getLatestBlockhash("confirmed");
@@ -479,6 +592,10 @@ function PlannerInner() {
     const receipt = plan.receiptFor(signature);
     // From here the maximum may be locked, so the receipt is remembered before anything else can fail.
     setPendingReceipt(receipt);
+    if (session) {
+      session = attachLockReceipt(session, receipt);
+      keepSession(session);
+    }
     if (plan.rating) {
       setRatedEscrow(plan.escrow);
       const storage = browserRatingStorage();
@@ -497,6 +614,10 @@ function PlannerInner() {
       );
     } catch {
       setPaymentNote("Your lock was sent but is not confirmed yet. Present it again in a few seconds; do not lock twice.");
+      return;
+    }
+    if (session) {
+      await callInSession(session);
       return;
     }
     await presentReceipt(receipt);
@@ -780,6 +901,25 @@ function PlannerInner() {
                       disabled={executing || Boolean(pendingReceipt)}
                     />
                   ) : null}
+                  {WALLET_PAYMENT_ENABLED && selectedWallet ? (
+                    <SessionOption
+                      enabled={useSession && !(rateJob && RATED_ESCROWS_ENABLED)}
+                      onEnabledChange={setUseSession}
+                      calls={sessionCalls}
+                      onCallsChange={setSessionCalls}
+                      settleAfterNext={settleAfterNext}
+                      onSettleAfterNextChange={setSettleAfterNext}
+                      session={sessionViews[selectedWallet]}
+                      unavailable={
+                        rateJob && RATED_ESCROWS_ENABLED
+                          ? "A rated job is paid one call at a time."
+                          : !signMessage
+                            ? "Your wallet cannot sign messages, so each call is locked on its own."
+                            : undefined
+                      }
+                      disabled={executing || Boolean(pendingReceipt)}
+                    />
+                  ) : null}
                   <Button
                     className="w-full"
                     disabled={!selectedWallet || executing}
@@ -787,11 +927,15 @@ function PlannerInner() {
                   >
                     {executing
                       ? "Executing…"
-                      : pendingReceipt
-                        ? "Present payment again →"
-                        : WALLET_PAYMENT_ENABLED
-                          ? "Pay and execute with this specialist →"
-                          : "Execute with this specialist →"}
+                      : sessionViews[selectedWallet]?.ledger.state === "open" && sessionViews[selectedWallet]?.receipt === pendingReceipt
+                        ? "Send the first call of your session again →"
+                        : pendingReceipt
+                          ? "Present payment again →"
+                          : WALLET_PAYMENT_ENABLED && sessionViews[selectedWallet]?.ledger.state === "open"
+                            ? "Execute in your open session →"
+                            : WALLET_PAYMENT_ENABLED
+                              ? "Pay and execute with this specialist →"
+                              : "Execute with this specialist →"}
                   </Button>
                   {paymentNote ? (
                     <p

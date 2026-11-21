@@ -1,6 +1,6 @@
 import http from "node:http";
 import crypto from "node:crypto";
-import { createX402Header } from "@reddi/x402-solana";
+import { createX402Header } from "@redditech/x402-solana";
 
 type SpecialistProfileId = "qa-security" | "ux-usability" | "integration-tester";
 

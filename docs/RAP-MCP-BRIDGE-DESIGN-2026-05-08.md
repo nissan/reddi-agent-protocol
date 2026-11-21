@@ -497,7 +497,7 @@ Production-ish readiness adds:
 
 ## Open questions
 
-1. Should the bridge live inside `reddi-agent-protocol-code` or as a standalone `@reddi/rap-mcp-bridge` package published separately?
+1. Should the bridge live inside `reddi-agent-protocol-code` or as a standalone `@redditech/rap-mcp-bridge` package published separately?
 2. Which payment lane is the first demo target: pay.sh x402, existing `reddi-x402`, or devnet Solana adapter?
 3. What wallet UX do we want first: manual CLI approval, env keypair, browser wallet, or OpenClaw native approval?
 4. Do we require quote before invoke always, or support one-shot `hire_specialist` for agent ergonomics?

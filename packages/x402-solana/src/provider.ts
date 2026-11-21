@@ -334,6 +334,8 @@ export type VerifiedLock =
        * then. Undefined for a lock that is not rated.
        */
       openedSlot?: bigint;
+      /** The slot the lock was made in. The buyer may refund from `createdSlot + terms.cancelWindowSlots`. */
+      createdSlot: bigint;
     }
   | { ok: false; reason: string; message: string };
 
@@ -357,6 +359,7 @@ export async function verifyMeteredLock(input: {
   minimum: bigint;
   readAccount: AccountReader;
   readSlot: SlotReader;
+  /** Unused for `session-call` and `session-settle`. */
   replayStore: NonceReplayStore;
   /** The protocol treasury. Only a local test deployment has another. */
   treasury?: PublicKey;
@@ -368,7 +371,19 @@ export async function verifyMeteredLock(input: {
    * for a provider that does that.
    */
   acceptRatedEscrows?: boolean;
+  /**
+   * What the lock is checked for. `call` (the default): one call, and the
+   * escrow is remembered so it pays for no other. `session-call`: a call of a
+   * session (`MeteredSessionLedger`), which itself claims the escrow and orders
+   * the calls, so nothing is remembered here; a refund window too short for
+   * another call is reported as `session_window_closing`. `session-settle`:
+   * reading the lock back to settle a session's calls already served, so
+   * neither the refund window left nor the replay store is consulted; every
+   * other check still applies.
+   */
+  purpose?: 'call' | 'session-call' | 'session-settle';
 }): Promise<VerifiedLock> {
+  const purpose = input.purpose ?? 'call';
   const { header, terms } = input;
   const expected = tokenEscrowAddresses({ programId: terms.programId, payer: header.payer, nonce: header.nonce }).escrow;
   if (!expected.equals(header.escrow)) return { ok: false, reason: 'invalid_receipt', message: 'The escrow address is not the one this payer and nonce give.' };
@@ -399,15 +414,19 @@ export async function verifyMeteredLock(input: {
   if (escrow.cancelWindowSlots === undefined) {
     return { ok: false, reason: 'invalid_receipt', message: 'This escrow states no refund window. Lock a new one with the current program.' };
   }
-  let currentSlot: bigint;
-  try {
-    currentSlot = BigInt(await input.readSlot());
-  } catch {
-    return { ok: false, reason: 'payment_check_unavailable', message: 'The chain could not be read. Nothing was accepted; present the same receipt again.' };
-  }
-  const elapsed = currentSlot > escrow.createdSlot ? currentSlot - escrow.createdSlot : BigInt(0);
-  if (escrow.cancelWindowSlots < elapsed + SELLER_MIN_CANCEL_WINDOW_SLOTS) {
-    return { ok: false, reason: 'invalid_receipt', message: "This escrow's refund window has less than 10 minutes left. Lock a new one with a longer refund window, then make the call straight away." };
+  if (purpose !== 'session-settle') {
+    let currentSlot: bigint;
+    try {
+      currentSlot = BigInt(await input.readSlot());
+    } catch {
+      return { ok: false, reason: 'payment_check_unavailable', message: 'The chain could not be read. Nothing was accepted; present the same receipt again.' };
+    }
+    const elapsed = currentSlot > escrow.createdSlot ? currentSlot - escrow.createdSlot : BigInt(0);
+    if (escrow.cancelWindowSlots < elapsed + SELLER_MIN_CANCEL_WINDOW_SLOTS) {
+      return purpose === 'session-call'
+        ? { ok: false, reason: 'session_window_closing', message: "This session's refund window has less than 10 minutes left, so it takes no more calls and is settled now. Lock a new escrow to go on." }
+        : { ok: false, reason: 'invalid_receipt', message: "This escrow's refund window has less than 10 minutes left. Lock a new one with a longer refund window, then make the call straight away." };
+    }
   }
   if (!escrow.payer.equals(header.payer)) return { ok: false, reason: 'invalid_receipt', message: 'The escrow was locked by a different wallet.' };
   if (!escrow.payee.equals(terms.payee)) return { ok: false, reason: 'wrong_payee', message: 'The escrow pays a different provider.' };
@@ -442,7 +461,7 @@ export async function verifyMeteredLock(input: {
   }
   const payout = await checkMeteredPayout({ terms, escrow, readAccount: input.readAccount, ...(input.treasury ? { treasury: input.treasury } : {}) });
   if (!payout.ok) return payout;
-  if (!(await input.replayStore.checkAndStore(`metered-escrow:${header.escrow.toBase58()}`))) {
+  if (purpose === 'call' && !(await input.replayStore.checkAndStore(meteredEscrowReplayKey(header.escrow)))) {
     return { ok: false, reason: 'duplicate_nonce', message: 'This escrow has already paid for a call.' };
   }
   return {
@@ -450,6 +469,7 @@ export async function verifyMeteredLock(input: {
     payer: escrow.payer,
     payout: payout.payout,
     rated: escrow.rated,
+    createdSlot: escrow.createdSlot,
     ...(openedSlot !== undefined ? { openedSlot } : {}),
     maxBaseUnits: escrow.amount,
     terms: {
@@ -468,6 +488,11 @@ export async function verifyMeteredLock(input: {
         : {}),
     },
   };
+}
+
+/** The replay-store key that marks an escrow as taken, by a single call or by a session's first call. */
+export function meteredEscrowReplayKey(escrow: PublicKey): string {
+  return `metered-escrow:${escrow.toBase58()}`;
 }
 
 /** Token counts from an OpenAI-style usage report, or the estimate from the text when it reports none. */

@@ -1,6 +1,6 @@
 # Framework Template Comparison & Selection Guide
 
-> **Status, 20 November 2026:** the `@reddi/agent-protocol` modules this document describes were removed before V1 with `reddi.receipt.v1` ([#776](https://github.com/nissan/reddi-agent-protocol/issues/776)). `reddi.receipt.v2` is the only receipt. This document is kept as a historical record and does not describe current code.
+> **Status, 20 November 2026:** the `@redditech/agent-protocol` modules this document describes were removed before V1 with `reddi.receipt.v1` ([#776](https://github.com/nissan/reddi-agent-protocol/issues/776)). `reddi.receipt.v2` is the only receipt. This document is kept as a historical record and does not describe current code.
 
 Issue: #547
 
@@ -40,7 +40,7 @@ Shared support surfaces:
   (`listLandedFrameworkTemplateConformanceFixtures()`, `runUniformFrameworkTemplateConformance()`)
 
 Each module is a published subpath export (see `packages/agent-protocol/package.json` `exports`), e.g.
-`@reddi/agent-protocol/langgraph-rap-template`, `.../adk-rap-template`, `.../strands-rap-template`,
+`@redditech/agent-protocol/langgraph-rap-template`, `.../adk-rap-template`, `.../strands-rap-template`,
 `.../framework-template-contract`, `.../framework-template-conformance`.
 
 ---
@@ -99,7 +99,7 @@ The canonical way to construct each mode is exactly what the #553 checker does i
 
 ```ts
 import { frameworkTemplateFixtures, validateFrameworkTemplateContract }
-  from '@reddi/agent-protocol/framework-template-contract';
+  from '@redditech/agent-protocol/framework-template-contract';
 
 function contractForMode(mode) {
   const contract = structuredClone(frameworkTemplateFixtures.invocation.contract);
@@ -122,7 +122,7 @@ that wrapper's `selectedContract`, then re-validate with the framework's validat
 
 ```ts
 import { listFrameworkTemplateFixtures, validateFrameworkTemplateContract }
-  from '@reddi/agent-protocol/framework-template-contract';
+  from '@redditech/agent-protocol/framework-template-contract';
 
 for (const fx of listFrameworkTemplateFixtures()) {
   // fx.contract.agentIdentity.templateMode === 'dual-mode' by default
@@ -137,7 +137,7 @@ for (const fx of listFrameworkTemplateFixtures()) {
 
 ```ts
 import { createLangGraphRapTemplateFixture, validateLangGraphRapTemplate }
-  from '@reddi/agent-protocol/langgraph-rap-template';
+  from '@redditech/agent-protocol/langgraph-rap-template';
 
 const graph = createLangGraphRapTemplateFixture({ scenario: 'allowed-no-live-invocation' });
 validateLangGraphRapTemplate(graph); // { valid: true, reasonCodes: ['langgraph_rap_template_valid'] }
@@ -156,7 +156,7 @@ validateLangGraphRapTemplate(graph); // { valid: true, reasonCodes: ['langgraph_
 
 ```ts
 import { createStrandsRapTemplateFixture, validateStrandsRapTemplate }
-  from '@reddi/agent-protocol/strands-rap-template';
+  from '@redditech/agent-protocol/strands-rap-template';
 
 const plugin = createStrandsRapTemplateFixture({ scenario: 'allowed-no-live-invocation' });
 validateStrandsRapTemplate(plugin); // { valid: true, reasonCodes: ['strands_rap_template_valid'] }
@@ -175,7 +175,7 @@ import {
   createAdkRapTemplateFixture,
   createAdkFrameworkTemplateContract,
   validateAdkRapTemplate,
-} from '@reddi/agent-protocol/adk-rap-template';
+} from '@redditech/agent-protocol/adk-rap-template';
 
 const card = createAdkRapTemplateFixture({ scenario: 'allowed-no-live-invocation' });
 validateAdkRapTemplate(card); // { valid: true, reasonCodes: ['adk_rap_template_valid'] }

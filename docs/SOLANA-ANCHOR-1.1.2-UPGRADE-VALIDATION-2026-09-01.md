@@ -86,9 +86,9 @@ Results:
 
 - Root Jest passed: 125 suites / 597 tests.
 - Root Next build passed with existing Turbopack/bigint warnings only.
-- `@reddi/per-client` tests and TypeScript build passed.
-- `@reddi/agent-protocol` tests passed: 83 suites / 586 tests; build passed.
-- `@reddi/x402-solana` tests passed: 4 suites / 57 tests; build passed.
+- `@redditech/per-client` tests and TypeScript build passed.
+- `@redditech/agent-protocol` tests passed: 83 suites / 586 tests; build passed.
+- `@redditech/x402-solana` tests passed: 4 suites / 57 tests; build passed.
 - Package artifact, OSS release smoke, and public conformance checks passed without publishing or live payment activity.
 
 ## Solana/AUDD/readiness proof

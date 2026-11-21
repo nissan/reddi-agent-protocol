@@ -46,7 +46,7 @@ async function stubRpc(page: Page, accounts: Map<string, Uint8Array>) {
       if (call.method === "getSlot") return { jsonrpc: "2.0", id: call.id, result: CURRENT_SLOT };
       if (call.method === "getAccountInfo") {
         const data = accounts.get(String(call.params?.[0]));
-        const value = data ? { data: [Buffer.from(data).toString("base64"), "base64"], executable: false, lamports: 2_770_080, owner: PROGRAM.toBase58(), rentEpoch: 0, space: data.length } : null;
+        const value = data ? { data: [Buffer.from(data).toString("base64"), "base64"], executable: false, lamports: 2_021_840, owner: PROGRAM.toBase58(), rentEpoch: 0, space: data.length } : null;
         return { jsonrpc: "2.0", id: call.id, result: { context: { slot: CURRENT_SLOT }, value } };
       }
       return { jsonrpc: "2.0", id: call.id, error: { code: -32601, message: "not stubbed" } };
@@ -175,7 +175,7 @@ test.describe("app rating flow (#842)", () => {
     await expect(option).toBeVisible();
     await expect(option).not.toBeChecked();
     await option.check();
-    await expect(page.getByText(/0\.00277/).first()).toBeVisible();
+    await expect(page.getByText(/0\.00202/).first()).toBeVisible();
     await shot(page, "pay-flow-rate-this-job");
   });
 });

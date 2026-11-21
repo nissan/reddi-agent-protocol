@@ -60,9 +60,9 @@ Attestation records and off-chain reputation previews can explain whether eviden
 
 Current repository evidence includes:
 
-- `@reddi/agent-protocol` receipt, policy, evidence, rail-neutral proof-chain, and conformance helpers.
-- `@reddi/x402-solana` local x402 parsing, budget preflight, nonce/replay protections, demo receipt handling, gated devnet helpers, and read-only SPL `TransferChecked` observation.
-- `@reddi/rap-mcp-bridge` dry-run specialist discovery, synthetic quotes, receipt verification, and disclosure-ledger tooling.
+- `@redditech/agent-protocol` receipt, policy, evidence, rail-neutral proof-chain, and conformance helpers.
+- `@redditech/x402-solana` local x402 parsing, budget preflight, nonce/replay protections, demo receipt handling, gated devnet helpers, and read-only SPL `TransferChecked` observation.
+- `@redditech/rap-mcp-bridge` dry-run specialist discovery, synthetic quotes, receipt verification, and disclosure-ledger tooling.
 - The public conformance suite (`npm run check:conformance:public`) and OSS release smoke (`npm run check:oss-release-smoke`).
 - Recorded/local Solana reference evidence, with the current Quasar devnet deployment explicitly blocked by `config/quasar/deployments.json`.
 

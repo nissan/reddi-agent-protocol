@@ -1,6 +1,6 @@
 # Reddi Agent Protocol OSS v0.1 Package Plan
 
-> **Status, 20 November 2026:** the `@reddi/agent-protocol` modules this document describes were removed before V1 with `reddi.receipt.v1` ([#776](https://github.com/nissan/reddi-agent-protocol/issues/776)). `reddi.receipt.v2` is the only receipt. This document is kept as a historical record and does not describe current code.
+> **Status, 20 November 2026:** the `@redditech/agent-protocol` modules this document describes were removed before V1 with `reddi.receipt.v1` ([#776](https://github.com/nissan/reddi-agent-protocol/issues/776)). `reddi.receipt.v2` is the only receipt. This document is kept as a historical record and does not describe current code.
 
 Issue: [#356](https://github.com/nissan/reddi-agent-protocol/issues/356)
 
@@ -8,15 +8,15 @@ This plan defines the first public npm package boundary for Reddi Agent Protocol
 
 ## Package Identity
 
-- npm name: `@reddi/agent-protocol`
+- npm name: `@redditech/agent-protocol`
 - local package path: `packages/agent-protocol`
 - first public version: `0.1.0`
 - license: inherit the repo license for the package README and npm metadata
-- Node runtime: Node.js 20+, matching newer package surfaces such as `@reddi/rap-mcp-bridge`
+- Node runtime: Node.js 20+, matching newer package surfaces such as `@redditech/rap-mcp-bridge`
 - module plan: publish explicit ESM with TypeScript declarations unless implementation constraints require a CommonJS compatibility subpath
 - package contents: `dist`, `README.md`, `LICENSE`, and a small `fixtures` bundle only; exclude tests, local artifacts, logs, credentials, and generated proof outputs
 
-The existing `@reddi/x402-solana` package remains the Solana x402 payment rail. `@reddi/agent-protocol` should be the protocol/devtool package above that rail: receipts, policy, buyer/seller interfaces, fixtures, and conformance helpers.
+The existing `@redditech/x402-solana` package remains the Solana x402 payment rail. `@redditech/agent-protocol` should be the protocol/devtool package above that rail: receipts, policy, buyer/seller interfaces, fixtures, and conformance helpers.
 
 ## Export Surface
 
@@ -24,7 +24,7 @@ Use stable subpath exports from day one so consumers can import only the surface
 
 ```json
 {
-  "name": "@reddi/agent-protocol",
+  "name": "@redditech/agent-protocol",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -70,13 +70,13 @@ Use stable subpath exports from day one so consumers can import only the surface
 
 Planned exported surfaces:
 
-- `@reddi/agent-protocol`: top-level stable types and convenience helpers.
-- `@reddi/agent-protocol/receipts`: receipt schema, receipt validation, evidence hash helpers, and claim-boundary metadata.
-- `@reddi/agent-protocol/policy`: local budget policy evaluator, policy decision types, denial reasons, and dry-run policy planning.
-- `@reddi/agent-protocol/buyer`: buyer client primitives for quote preview, policy evaluation, request construction, receipt verification, and disclosure export.
-- `@reddi/agent-protocol/seller`: seller middleware primitives for challenge construction, policy/receipt attachment, and local request verification.
-- `@reddi/agent-protocol/fixtures`: deterministic no-secret fixtures for receipts, policies, buyer requests, seller responses, and conformance examples.
-- `@reddi/agent-protocol/conformance`: fixture runner and helper assertions that external SDKs/adapters can use without hosted Reddi services.
+- `@redditech/agent-protocol`: top-level stable types and convenience helpers.
+- `@redditech/agent-protocol/receipts`: receipt schema, receipt validation, evidence hash helpers, and claim-boundary metadata.
+- `@redditech/agent-protocol/policy`: local budget policy evaluator, policy decision types, denial reasons, and dry-run policy planning.
+- `@redditech/agent-protocol/buyer`: buyer client primitives for quote preview, policy evaluation, request construction, receipt verification, and disclosure export.
+- `@redditech/agent-protocol/seller`: seller middleware primitives for challenge construction, policy/receipt attachment, and local request verification.
+- `@redditech/agent-protocol/fixtures`: deterministic no-secret fixtures for receipts, policies, buyer requests, seller responses, and conformance examples.
+- `@redditech/agent-protocol/conformance`: fixture runner and helper assertions that external SDKs/adapters can use without hosted Reddi services.
 
 Do not export app internals, Next.js route handlers, local `@/` aliases, private proof artifacts, or direct hosted-service clients from v0.1.
 
@@ -148,7 +148,7 @@ The package README must be written for a developer installing the npm package, n
 
 Required sections:
 
-- What `@reddi/agent-protocol` is and how it differs from `@reddi/x402-solana`, `@reddi/rap-mcp-bridge`, and hosted Reddi services.
+- What `@redditech/agent-protocol` is and how it differs from `@redditech/x402-solana`, `@redditech/rap-mcp-bridge`, and hosted Reddi services.
 - Install command.
 - Local quickstart that uses fixtures and performs no live payment.
 - Receipt validation example.

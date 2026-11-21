@@ -1,5 +1,5 @@
 import { Keypair } from "@solana/web3.js";
-import { ratingPda, sha256 } from "@reddi/x402-solana/rating";
+import { ratingPda, sha256 } from "@redditech/x402-solana/rating";
 import { jobRatingCommitment } from "@/lib/rating/commitment";
 import {
   findRatedJob,

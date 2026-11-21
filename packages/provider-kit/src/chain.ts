@@ -4,7 +4,7 @@
  * from Solana goes through this, so tests replace it whole.
  */
 import { Connection, PublicKey, Transaction, type Keypair, type TransactionInstruction } from "@solana/web3.js";
-import type { SettlementRecord } from "@reddi/x402-solana";
+import type { SettlementRecord } from "@redditech/x402-solana";
 
 export interface ProviderChain {
   readGenesisHash(): Promise<string>;

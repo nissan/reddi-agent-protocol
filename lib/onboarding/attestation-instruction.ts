@@ -1,5 +1,5 @@
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
-import { attestationPda, buildAttestQualityInstruction } from "@reddi/x402-solana/rating";
+import { attestationPda, buildAttestQualityInstruction } from "@redditech/x402-solana/rating";
 
 /** The attestation account of the job paid through `escrow`: ["attestation", escrow]. */
 export function onboardingAttestationPda(escrow: PublicKey, programId: PublicKey): PublicKey {
