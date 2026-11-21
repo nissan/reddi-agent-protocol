@@ -4,13 +4,15 @@ export function showToast(msg: string, type: ToastType = "info") {
   if (typeof document === "undefined") return
 
   const colors = {
-    success: "#059669",
-    error: "#dc2626",
-    info: "#4f46e5",
+    // White text on each passes WCAG AA (4.5:1) in both themes.
+    success: "#075e39",
+    error: "#b91c1c",
+    info: "#14161a",
   } as const
 
   const t = document.createElement("div")
   t.className = "toast"
+  t.setAttribute("role", type === "error" ? "alert" : "status")
   t.style.background = colors[type]
   t.style.color = "white"
   t.textContent = msg

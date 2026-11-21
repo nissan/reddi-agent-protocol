@@ -1,576 +1,177 @@
-"use client";
-
-import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
-import { Button } from "@/components/ui/button";
-import { StatsBar } from "@/components/ui/stats-bar";
-import { OnboardingVideoGrid } from "@/components/onboarding/OnboardingVideoGrid";
-import { SpecialistCard } from "@/components/SpecialistCard";
-import { onboardingVideos, onboardingWalkthroughHeading } from "@/lib/onboarding/video-guides";
 import {
   directoryFixtureProfileCount,
   sourceTrustConformanceCaseCount,
 } from "@/lib/assurance/public-metrics";
-import type { SpecialistListing } from "@/lib/registry/bridge";
 
-const LANDING_PROOF_GUIDES = onboardingVideos.filter((video) => video.id !== "overview");
+const RECEIPT_ROWS: Array<[string, string]> = [
+  ["provider", "Atlas Review"],
+  ["model declared", "atlas-coder-large"],
+  ["tokens", "12,000 in · 1,500 out"],
+  ["cost", "0.0975 USDC"],
+  ["max you allowed", "0.1950 USDC"],
+  ["fee (planned)", "2.5% of cost"],
+];
 
-const JUDGE_METRICS = {
-  specialists: directoryFixtureProfileCount,
-  conformanceCases: sourceTrustConformanceCaseCount,
-};
-
-const ECOSYSTEM_PROOFS = [
+const WAYS_IN = [
   {
-    name: "Quasar",
-    status: "Local/blocked boundary",
-    desc: "Current Quasar sources are exercised in the local Surfpool lane; the recorded devnet deployment is blocked and not a live target.",
-    href: "/judge-replication",
-  },
-  {
-    name: "x402",
-    status: "Visible payment boundary",
-    desc: "Planner, onboarding, tester guides, and the devnet sandbox show 402 challenges, receipts, and fail-closed paid calls.",
-    href: "/planner",
-  },
-  {
-    name: "OpenRouter specialists",
-    status: "Directory fixture",
-    desc: "Specialist profiles support the workflow story without hidden paid calls, automatic publication, or live invocation on page load.",
+    role: "Buyer",
+    title: "Buy inference",
+    desc: "Compare providers by price per token and track record. Set the most a call may cost. Pay only for what it used.",
     href: "/agents",
+    cta: "Browse providers",
   },
   {
-    name: "Jupiter",
-    status: "Boundary proof",
-    desc: "SOL→USDC quote/build/sign is evidenced; public devnet execution is not claimed. Surfpool provides the successful no-real-funds visual.",
-    href: "/judge-replication",
+    role: "Provider",
+    title: "Run a provider",
+    desc: "Put your model behind one endpoint, set your price per token, and get paid per call on Solana devnet.",
+    href: "/register",
+    cta: "Start setup",
+    tinted: true,
   },
   {
-    name: "Surfpool",
-    status: "Local rehearsal",
-    desc: "Local validator rehearsal exercises payment ordering, budget reconciliation, and Quasar assumptions before any devnet claim.",
-    href: "/judge-replication",
-  },
-  {
-    name: "Torque",
-    status: "Retention layer",
-    desc: "Leaderboard and custom-event plumbing show how completed-job evidence could become retention and reward signals.",
-    href: "/leaderboard",
-  },
-  {
-    name: "MagicBlock",
-    status: "PER evidence bounded",
-    desc: "MagicBlock/PER material remains reference evidence with explicit boundaries; it is not a mainnet, custody, or broad private-payee settlement claim.",
-    href: "/judge-replication",
-  },
-  {
-    name: "ElizaOS + SendAI",
-    status: "Adapter evidence",
-    desc: "Framework packages are experimental/deferred adapter evidence, not public production package claims.",
-    href: "/testers",
+    role: "Anyone",
+    title: "Check a receipt",
+    desc: "Make a test call in the sandbox and see who answered, what they declared, and which payment covered it.",
+    href: "/sandbox",
+    cta: "Open the sandbox",
   },
 ];
 
+const NEXT_UP = [
+  {
+    title: "Try it on devnet today",
+    desc: "Make a paid call with test funds and check its receipt, right now.",
+  },
+  {
+    title: "Mainnet, coming soon",
+    desc: "The same providers, prices and receipts, with real payments, in the next release.",
+  },
+  {
+    title: "Simple pricing",
+    desc: "A planned 2.5% of the actual cost, from the provider's share. Buyers pay only for the tokens used.",
+  },
+];
+
+const PUBLIC_COUNTS = [
+  { label: "Directory fixtures", value: directoryFixtureProfileCount },
+  { label: "Source-trust conformance cases", value: sourceTrustConformanceCaseCount },
+];
+
 export default function Home() {
-  const [agents, setAgents] = useState<SpecialistListing[]>([]);
-  const stats = JUDGE_METRICS;
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadFeaturedSpecialists() {
-      try {
-        const registryRes = await fetch("/api/registry");
-        const registry = (await registryRes.json()) as {
-          listings?: SpecialistListing[];
-        };
-        if (!cancelled) setAgents((registry.listings ?? []).slice(0, 4));
-      } catch {
-        if (!cancelled) setAgents([]);
-      }
-    }
-
-    void loadFeaturedSpecialists();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const steps = useMemo(
-    () => [
-      {
-        n: "01",
-        icon: "🔎",
-        title: "Discover",
-        desc: "Your agent finds a specialist by capability, reputation, price, and policy fit.",
-      },
-      {
-        n: "02",
-        icon: "💳",
-        title: "Pay",
-        desc: "Payment rails or fixtures quote the job; RAP records the payment-proof reference and budget decision.",
-      },
-      {
-        n: "03",
-        icon: "✅",
-        title: "Verify",
-        desc: "Attestors inspect outputs and receipt chains before reputation inputs are reused."
-      },
-    ],
-    [],
-  );
-
-  const roleCards = useMemo(
-    () => [
-      {
-        title: "I run agents",
-        desc: "Connect OpenClaw, Claude/MCP, OpenSwarm-style systems, ElizaOS, or custom agents to discover specialists and inspect policy/evidence before trust changes.",
-        href: "/mcp-bridge-demo",
-        cta: "Connect your agent system →",
-      },
-      {
-        title: "I build specialist agents",
-        desc: "Add x402-style payment gates, publish capability/pricing metadata, and attach scoped work to RAP Assurance receipts.",
-        href: "/register",
-        cta: "Describe your specialist →",
-      },
-      {
-        title: "I verify work",
-        desc: "Run attestor agents that validate outputs, receipt chains, release criteria, and reputation inputs for paid workflows.",
-        href: "/attestation",
-        cta: "Become an attestor →",
-      },
-    ],
-    [],
-  );
-
   return (
-    <div className="min-h-screen bg-page">
-      <section className="relative overflow-hidden border-b border-white/5">
-        <div className="relative mx-auto max-w-6xl px-4 py-24 sm:px-6 lg:px-8">
-          <div className="max-w-3xl space-y-6">
-            <span className="section-label">Reddi Agent Protocol</span>
-            <h1 className="font-display text-4xl font-bold text-white sm:text-5xl lg:text-6xl">
-              Payments prove transfer. RAP Assurance proves paid work.
+    <div className="min-h-screen bg-paper text-ink">
+      <p className="border-b border-line bg-[#101216] px-4 py-2 text-center font-mono text-xs text-[#e9e6dc]">
+        Running on Solana devnet with test funds. Mainnet is coming soon.
+      </p>
+
+      <section className="mx-auto max-w-6xl px-4 pb-16 pt-14 sm:px-6 lg:px-8 lg:pt-20">
+        <div className="grid items-center gap-14 lg:grid-cols-2">
+          <div>
+            <p className="section-label mb-4">The app</p>
+            <h1 className="text-5xl leading-[1.02] sm:text-6xl">
+              Pay for an answer.{" "}
+              <span className="block text-brand-violet">Keep the receipt.</span>
             </h1>
-            <p className="max-w-2xl text-base leading-7 text-gray-400 sm:text-lg">
-              RAP Assurance is the open receipt and conformance layer for paid
-              MCP/API and agent work. It records terms, policy, payment-proof
-              references, evidence, attestations, replay metadata, and reputation
-              inputs without becoming the payment rail or custody provider.
+            <p className="mt-5 max-w-xl text-lg leading-relaxed text-ink-muted sm:text-xl">
+              Buy inference from independent providers, priced per token, with a
+              signed receipt for every call. Or run a provider and start a public
+              track record.
             </p>
-            <div className="flex flex-wrap gap-3 pt-2">
-              <Link href="/sandbox">
-                <Button size="lg">Try the devnet sandbox →</Button>
-              </Link>
-              <Link href="/register">
-                <Button size="lg" variant="outline">
-                  Register a specialist
-                </Button>
-              </Link>
-              <Link href="/mcp-bridge-demo">
-                <Button size="lg" variant="outline">
-                  Connect your agent system
-                </Button>
-              </Link>
-              <Link href="/agents">
-                <Button size="lg" variant="outline">
-                  Explore directory
-                </Button>
-              </Link>
-            </div>
-            <div className="flex flex-wrap gap-2 pt-2 text-xs text-gray-300">
-              <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1">
-                OpenClaw, Claude/MCP, OpenSwarm + custom agents
-              </span>
-              <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1">
-                x402/Solana helpers are adapter primitives
-              </span>
-              <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1">
-                No wallet required for default demo
-              </span>
-              <a
-                href="https://x.com/reddiagent"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-full border border-white/15 bg-white/5 px-3 py-1 hover:border-indigo-300/50 hover:text-indigo-200"
-              >
-                Follow updates on X: @reddiagent
-              </a>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <div className="mx-auto -mt-6 max-w-6xl px-4 sm:px-6 lg:px-8 relative z-20">
-        <StatsBar
-          stats={[
-            { label: "Directory fixtures", value: stats.specialists },
-            { label: "Source-trust conformance cases", value: stats.conformanceCases },
-          ]}
-        />
-      </div>
-
-      <section className="mx-auto max-w-6xl px-4 pt-10 sm:px-6 lg:px-8">
-        <div className="rounded-xl border border-white/10 bg-card/20 p-6 space-y-5">
-          <div className="max-w-3xl">
-            <p className="section-label">Choose your role</p>
-            <h2 className="font-display text-2xl font-bold text-white sm:text-3xl">
-              One assurance layer, three ways to integrate
-            </h2>
-            <p className="mt-3 text-sm leading-6 text-gray-400">
-              Bring your existing agents, describe specialist capabilities, or
-              verify paid work. The assurance layer works because payment proof,
-              evidence, and reputation inputs stay separate and inspectable.
+            <p className="mt-4 max-w-xl text-base font-semibold">
+              Payments prove transfer; RAP Assurance proves paid work.
             </p>
-          </div>
-          <div className="grid gap-4 md:grid-cols-3">
-            {roleCards.map((role) => (
+            <div className="mt-8 flex flex-wrap items-center gap-5">
               <Link
-                key={role.title}
-                href={role.href}
-                className="rounded-xl border border-white/10 bg-white/5 p-5 transition hover:border-brand-green/40 hover:bg-white/[0.07]"
+                href="/sandbox"
+                className="rounded border-2 border-ink bg-ink px-5 py-3 font-bold text-paper no-underline hover:opacity-90"
               >
-                <h3 className="font-display text-lg font-semibold text-white">
-                  {role.title}
-                </h3>
-                <p className="mt-3 text-sm leading-6 text-gray-400">
-                  {role.desc}
-                </p>
-                <p className="mt-4 text-sm font-semibold text-brand-green">
-                  {role.cta}
-                </p>
+                Try the sandbox
               </Link>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-4 pt-10 sm:px-6 lg:px-8">
-        <div className="rounded-xl border border-brand-green/20 bg-brand-green/10 p-6 glow-border">
-          <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="section-label">One paid-work receipt, end to end</p>
-              <h2 className="font-display text-2xl font-bold text-white">
-                Discover. Decide. Prove.
-              </h2>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-300">
-                Your agent discovers a specialist, evaluates price and authority
-                policy, records payment-proof and evidence references, then uses
-                attestation/replay data to decide what the paid work proves.
-              </p>
-            </div>
-            <Link
-              href="/sandbox"
-              className="text-sm text-brand-green hover:text-brand-green/80"
-            >
-              Try the devnet sandbox →
-            </Link>
-          </div>
-          <div className="grid gap-3 md:grid-cols-5">
-            {[
-              "User request",
-              "Specialist quote",
-              "Payment-proof reference",
-              "Attested work",
-              "Reputation trail",
-            ].map((step, index) => (
-              <div
-                key={step}
-                className="rounded-lg border border-white/10 bg-black/20 p-4"
+              <Link
+                href="/agents"
+                className="font-bold underline decoration-2 underline-offset-4 hover:text-brand-violet"
               >
-                <p className="font-mono text-xs text-brand-green">
-                  {String(index + 1).padStart(2, "0")}
-                </p>
-                <p className="mt-2 text-sm font-semibold text-white">{step}</p>
+                Browse providers
+              </Link>
+            </div>
+          </div>
+
+          <figure className="m-0 flex justify-center">
+            <div className="w-full max-w-sm rotate-[1.5deg] border border-line bg-paper-raised p-6 font-mono text-[13px] shadow-[0_18px_40px_rgba(20,22,26,0.12)]">
+              <div className="mb-1.5 flex items-center justify-between border-b border-dashed border-ink pb-3">
+                <strong>RECEIPT</strong>
+                <span className="border-[1.5px] border-brand-violet px-2 py-0.5 text-[11px] font-bold tracking-[0.08em] text-brand-violet">
+                  EXAMPLE
+                </span>
               </div>
-            ))}
-          </div>
+              <dl className="m-0">
+                {RECEIPT_ROWS.map(([label, value]) => (
+                  <div
+                    key={label}
+                    className="grid grid-cols-[120px_minmax(0,1fr)] gap-2.5 border-b border-dotted border-line py-2"
+                  >
+                    <dt className="text-ink-muted">{label}</dt>
+                    <dd className="m-0">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="mb-1.5 mt-3.5 font-bold text-brand-green">✓ signature matches provider key</p>
+              <figcaption className="text-[11px] text-ink-muted">
+                Made-up values for illustration.
+              </figcaption>
+            </div>
+          </figure>
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-4 pt-10 sm:px-6 lg:px-8">
-        <div className="rounded-xl border border-indigo-300/20 bg-card/30 p-6 glow-border">
-          <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="section-label">Protocol proof, not hand-waving</p>
-              <h2 className="font-display text-2xl font-bold text-white">
-                Every sponsor surface, honestly labelled
-              </h2>
-            </div>
+      <section aria-labelledby="ways-in" className="mx-auto max-w-6xl px-4 pb-16 sm:px-6 lg:px-8">
+        <p className="section-label mb-4">What do you want to do?</p>
+        <h2 id="ways-in" className="mb-7 text-4xl">
+          Three ways in.
+        </h2>
+        <div className="grid overflow-hidden rounded-md border-2 border-ink bg-paper-raised md:grid-cols-3">
+          {WAYS_IN.map((way, index) => (
             <Link
-              href="/judge-replication"
-              className="text-sm text-indigo-300 hover:text-indigo-200"
+              key={way.title}
+              href={way.href}
+              className={`group flex flex-col gap-2.5 p-7 no-underline ${
+                way.tinted ? "bg-well" : ""
+              } ${index < WAYS_IN.length - 1 ? "border-b border-line md:border-b-0 md:border-r" : ""}`}
             >
-              Inspect proof →
+              <span className="font-mono text-xs font-bold uppercase text-brand-violet">{way.role}</span>
+              <strong className="text-[22px] tracking-tight">{way.title}</strong>
+              <span className="text-[15px] leading-relaxed text-ink-muted">{way.desc}</span>
+              <span className="mt-auto pt-2 font-bold underline underline-offset-4 group-hover:text-brand-violet">
+                {way.cta}
+              </span>
             </Link>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-            {ECOSYSTEM_PROOFS.map((proof) => (
-              <Link
-                key={proof.name}
-                href={proof.href}
-                className="rounded-lg border border-white/10 bg-white/[0.03] p-4 transition hover:border-indigo-300/40 hover:bg-white/[0.06]"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <h3 className="text-sm font-semibold text-white">
-                    {proof.name}
-                  </h3>
-                  <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[10px] uppercase tracking-wide text-gray-300">
-                    {proof.status}
-                  </span>
-                </div>
-                <p className="mt-3 text-xs leading-5 text-gray-400">
-                  {proof.desc}
-                </p>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-4 pt-10 sm:px-6 lg:px-8">
-        <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="section-label">Start faster</p>
-            <h2 className="font-display text-2xl font-bold text-white">
-              {onboardingWalkthroughHeading(LANDING_PROOF_GUIDES)}
-            </h2>
-          </div>
-          <Link href="/start" className="text-sm text-brand-green hover:text-brand-green/80">
-            Open onboarding hub →
-          </Link>
-        </div>
-        <OnboardingVideoGrid videos={LANDING_PROOF_GUIDES} hostRoute="/" />
-      </section>
-
-      <section id="verify-demo" className="mx-auto max-w-6xl px-4 pt-10 sm:px-6 lg:px-8">
-        <div className="rounded-xl border border-brand-green/25 bg-brand-green/10 p-6 glow-border">
-          <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-            <div className="max-w-3xl space-y-2">
-              <p className="section-label">Verify the demo yourself</p>
-              <h2 className="font-display text-2xl font-bold text-white">
-                Judge-ready replication guide and public verifier
-              </h2>
-              <p className="text-sm leading-6 text-gray-300">
-                The submitted videos are backed by reproducible steps: public
-                routes, recorded devnet transaction signatures, and a script
-                that verifies the Loop 51 registered agent PDA via Solana RPC.
-              </p>
-              <code className="block rounded-lg border border-white/10 bg-black/30 px-4 py-3 text-xs text-brand-green">
-                node scripts/judge-replication-check.mjs
-              </code>
-            </div>
-            <div className="flex shrink-0 flex-col gap-3 sm:flex-row md:flex-col">
-              <a
-                href="https://github.com/nissan/reddi-agent-protocol/blob/main/docs/JUDGE-REPLICATION-GUIDE.md"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-lg border border-brand-green/30 bg-black/20 px-4 py-2 text-center text-sm font-semibold text-brand-green hover:border-brand-green/60"
-              >
-                Open replication guide →
-              </a>
-              <a
-                href="https://github.com/nissan/reddi-agent-protocol/blob/main/scripts/judge-replication-check.mjs"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-center text-sm font-semibold text-gray-200 hover:border-white/30"
-              >
-                Inspect verifier script →
-              </a>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-4 pt-10 sm:px-6 lg:px-8">
-        <div className="rounded-xl border border-emerald-300/20 bg-emerald-400/10 p-6 glow-border">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="max-w-3xl space-y-2">
-              <p className="section-label">Devnet/local testers wanted</p>
-              <h2 className="font-display text-2xl font-bold text-white">
-                Describe a specialist, connect a consumer agent, or run an attestor
-              </h2>
-              <p className="text-sm leading-6 text-gray-300">
-                Bring an Ollama-style local specialist, an OpenOnion adapter, or
-                an existing agent system. Use x402/MCP helpers to exercise the
-                assurance path without mainnet funds or custody claims.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <Link href="/register">
-                <Button>Register a specialist →</Button>
-              </Link>
-              <Link href="/mcp-bridge-demo">
-                <Button variant="outline">Connect via MCP bridge</Button>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
-        <div className="mb-6 flex items-end justify-between gap-4 flex-wrap">
-          <div>
-            <p className="section-label mb-2">Featured specialists</p>
-            <h2 className="font-display text-2xl font-bold text-white sm:text-3xl">
-              Directory Specialists
-            </h2>
-          </div>
-          <Link
-            href="/agents"
-            className="text-sm text-indigo-300 hover:text-indigo-200"
-          >
-            View directory →
-          </Link>
-        </div>
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {agents.map((agent) => (
-            <SpecialistCard
-              key={agent.walletAddress}
-              wallet={agent.walletAddress}
-              name={agent.onchain.model || agent.walletAddress.slice(0, 8)}
-              model={agent.onchain.model || "Ollama"}
-              taskTypes={agent.capabilities?.taskTypes ?? []}
-              reputationScore={agent.onchain.reputationScore}
-              attested={agent.attestation.attested}
-              health={
-                agent.health.status === "pass"
-                  ? "online"
-                  : agent.health.status === "fail"
-                    ? "offline"
-                    : "unknown"
-              }
-              freshnessState={agent.health.freshnessState}
-              ratePerCall={Number(agent.onchain.rateLamports)}
-              progress={Math.min(
-                100,
-                (Number(agent.onchain.jobsCompleted) % 10) * 10,
-              )}
-            />
           ))}
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-4 pb-8 sm:px-6 lg:px-8">
-        <div className="rounded-xl bg-surface p-6 glow-border">
-          <p className="section-label mb-3">How paid-work assurance works</p>
-          <div className="grid gap-5 md:grid-cols-3">
-            {steps.map((step) => (
-              <div key={step.n} className="space-y-3">
-                <div className="inline-flex items-center gap-3">
-                  <span className="rounded-full bg-indigo-500/20 px-2.5 py-1 text-xs font-semibold text-indigo-300">
-                    {step.n}
-                  </span>
-                  <span className="text-2xl">{step.icon}</span>
-                </div>
-                <h3 className="font-display text-lg font-semibold text-white">
-                  {step.title}
-                </h3>
-                <p className="text-sm leading-6 text-gray-400">{step.desc}</p>
-              </div>
-            ))}
-          </div>
+      <section aria-labelledby="whats-next" className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 lg:px-8">
+        <h2 id="whats-next" className="mb-4 text-xl">
+          Now and next
+        </h2>
+        <div className="grid gap-4 md:grid-cols-3">
+          {NEXT_UP.map((item) => (
+            <div key={item.title} className="rounded border border-line-strong bg-paper-raised p-4">
+              <strong className="block text-[15px]">{item.title}</strong>
+              <span className="text-sm text-ink-muted">{item.desc}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-6 flex flex-wrap gap-x-10 gap-y-4 text-sm text-ink-muted">
+          {PUBLIC_COUNTS.map((stat) => (
+            <div key={stat.label}>
+              <strong className="block font-mono text-2xl text-ink">{stat.value}</strong>
+              <span>{stat.label}</span>
+            </div>
+          ))}
         </div>
       </section>
-
-      <section className="mx-auto max-w-6xl px-4 pb-12 sm:px-6 lg:px-8">
-        <div className="rounded-xl border border-white/10 bg-card/20 p-6 space-y-4">
-          <p className="section-label">Get started your way</p>
-          <h2 className="font-display text-2xl font-bold text-white">
-            Three paths, one protocol
-          </h2>
-          <p className="text-sm text-gray-400 max-w-3xl">
-            Whether you are new, integrating an existing app, or listing your
-            own specialist, you can inspect current no-spend and devnet-bounded
-            proof paths without treating them as production services.
-          </p>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-2">
-              <p className="text-sm font-semibold text-white">
-                1) Try the workflow
-              </p>
-              <p className="text-xs text-gray-400">
-                Watch one request turn into paid-work evidence, attestation,
-                receipts, and reputation inputs.
-              </p>
-              <Link
-                href="/sandbox"
-                className="text-xs text-indigo-300 hover:text-indigo-200"
-              >
-                Try the devnet sandbox →
-              </Link>
-            </div>
-            <div className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-2">
-              <p className="text-sm font-semibold text-white">
-                2) Connect your agent
-              </p>
-              <p className="text-xs text-gray-400">
-                Use MCP/planner rails to discover specialists, enforce budget
-                policy, and inspect receipts.
-              </p>
-              <Link
-                href="/planner"
-                className="text-xs text-indigo-300 hover:text-indigo-200"
-              >
-                Open planner/MCP path →
-              </Link>
-            </div>
-            <div className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-2">
-              <p className="text-sm font-semibold text-white">
-                3) List your specialist
-              </p>
-              <p className="text-xs text-gray-400">
-                Integrate x402-style helpers, publish capability metadata, then
-                attach useful work to receipts and evidence.
-              </p>
-              <Link
-                href="/register"
-                className="text-xs text-indigo-300 hover:text-indigo-200"
-              >
-                Start registration →
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-4 pb-12 sm:px-6 lg:px-8">
-        <div className="rounded-xl border border-white/10 bg-card/20 p-6 space-y-3">
-          <p className="section-label">Playbook</p>
-          <h2 className="font-display text-2xl font-bold text-white">
-            Explore the adoption playbook
-          </h2>
-          <p className="text-sm text-gray-400 max-w-3xl">
-            See capabilities by role and runtime stack (Ollama, OpenOnion, and
-            more), then jump straight to the right path.
-          </p>
-          <div>
-            <Link
-              href="/playbook"
-              className="text-sm text-indigo-300 hover:text-indigo-200"
-            >
-              Open adoption playbook →
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      <footer className="mt-16 border-t border-surface py-8 text-center text-sm text-gray-500">
-        <div className="space-y-2">
-          <p>Payments prove transfer; RAP Assurance proves paid work.</p>
-          <a
-            href="https://x.com/reddiagent"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-indigo-300 hover:text-indigo-200"
-          >
-            @reddiagent on X
-          </a>
-        </div>
-      </footer>
     </div>
   );
 }

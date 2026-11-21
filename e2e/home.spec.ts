@@ -6,8 +6,15 @@ test.describe("Home page", () => {
     await expect(page).toHaveTitle(/Reddi Agent Protocol|AI agents/i);
     await expect(
       page.getByRole("heading", {
-        name: /payments prove transfer\. RAP Assurance proves paid work\./i,
+        name: /pay for an answer\. keep the receipt\./i,
       }),
+    ).toBeVisible();
+    // The central message stays in the hero, not only in the footer.
+    await expect(
+      page
+        .locator("section")
+        .first()
+        .getByText(/Payments prove transfer; RAP Assurance proves paid work\./i),
     ).toBeVisible();
   });
 
@@ -15,14 +22,19 @@ test.describe("Home page", () => {
     await page.goto("/");
     const hero = page.locator("section").first();
     await expect(
-      hero.getByRole("link", { name: /try the devnet sandbox/i }),
-    ).toBeVisible();
+      hero.getByRole("link", { name: /^try the sandbox$/i }),
+    ).toHaveAttribute("href", "/sandbox");
     await expect(
-      hero.getByRole("link", { name: /register a specialist/i }),
-    ).toBeVisible();
-    await expect(
-      hero.getByRole("link", { name: /connect your agent system/i }),
-    ).toBeVisible();
+      hero.getByRole("link", { name: /^browse providers$/i }),
+    ).toHaveAttribute("href", "/agents");
+  });
+
+  test("offers three ways in: buy, run a provider, check a receipt", async ({ page }) => {
+    await page.goto("/");
+    const ways = page.locator("section", { has: page.getByRole("heading", { name: /three ways in/i }) });
+    await expect(ways.getByRole("link", { name: /buy inference/i })).toHaveAttribute("href", "/agents");
+    await expect(ways.getByRole("link", { name: /run a provider/i })).toHaveAttribute("href", "/register");
+    await expect(ways.getByRole("link", { name: /check a receipt/i })).toHaveAttribute("href", "/sandbox");
   });
 
   test("navbar has providers directory link", async ({ page }) => {
