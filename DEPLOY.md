@@ -23,31 +23,36 @@ that supersedes the freeze.
 
 The V1 program is the Pinocchio program in `programs/pinocchio-escrow/` (owner decision,
 21 November 2026). It keeps the Anchor program's wire contract and declares the same
-program ID. It has not been deployed anywhere yet. The release binary is the artifact of
-the container build (`.github/workflows/escrow-verifiable-build.yml`, library
-`pinocchio_escrow`). The devnet record below is the Anchor build that is on devnet today,
-now archived under `archive/anchor-escrow/`. Any deploy or upgrade needs the owner's
-explicit approval.
+program ID. It runs on devnet (record below) and is not on mainnet. The release binary is
+the artifact of the container build (`.github/workflows/escrow-verifiable-build.yml`, library
+`pinocchio_escrow`). Any deploy or upgrade needs the owner's explicit approval.
 
 ## V1 escrow program (devnet)
 
-Deployed to devnet on 21 November 2026 with owner approval, from commit `8c21aee`
-(`archive/anchor-escrow`, built with `--features devnet`). Devnet only: nothing is deployed to
+Upgraded in place on devnet on 21 November 2026 with owner approval, to the Pinocchio
+program with ratings and judge attestations: commit `2b7e2c1` (program source as at
+`b71a91e`), container build with `--features devnet`. Devnet only: nothing is deployed to
 mainnet, and this record is not an audit, production or mainnet readiness claim.
 
 | Field | Value |
 |---|---|
 | Program ID | `DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu` |
 | Upgrade authority (devnet) | `hbr2Fee3ewDbm33wTDrdEF3e7byNCzNgQ57CwJWaPtt` (managed deployer key) |
-| ProgramData address | `8cCmxnMPU8EQR7ECfff19Dr4gu1n7jyFCuEEyaYspRn2` |
-| Deployed in slot | 524536326 |
-| Size | 337,760 bytes |
-| SHA-256 of the deployed file (read back from devnet) | `5055df469642a3429c524a312b129c7e9b7cb6fdbeb37fa2e8275ab87b8e142a` |
+| ProgramData address | `8cCmxnMPU8EQR7ECfff19Dr4gu1n7jyFCuEEyaYspRn2` (337,760 bytes reserved, kept from the first deploy) |
+| Upgraded in slot | 524707788 |
+| Upgrade signature | `5FMKo1K8ufkxB9SHzDCghnA4EXWm2gRaDS3esLoq3LMJPTrEAFHjeNMAsTpTSrUQZsKa5mUCaiJJu2Z1qEzZSR4t` |
+| Build | `solana-verify` 0.5.2, image `solanafoundation/solana-verifiable-build:4.2.2` |
+| Executable hash (`solana-verify get-executable-hash`, read back from devnet) | `10e986fe1b1e619fff02b2120fcc9c47bd373677526b8f386095360bb15b0e7b`, same as CI run 44900313151 |
+| File size and SHA-256 | 96,272 bytes, `2576a9cccb15ea09aa675e1a2d415043f8d231179772e5fa23728402b10a32ac` |
 
-The deployed file was built on macOS. A Linux build of the same commit has the same size
-and section layout but a different hash (`1238a4b2118858826e096dbba75b245d8c45219360bdcecd57af0c80e034bb4b`),
-because the prebuilt toolchain library embeds different build paths per host. Compare a
-build with the hash for its own host, or use a container build.
+Escrow accounts written by the earlier Anchor build (149 and 203 bytes) cannot be read by
+this build; the four left open by e2e run v3 were abandoned (owner decision).
+
+Earlier on 21 November 2026 the same ID was first deployed from commit `8c21aee` (the
+Anchor program, now under `archive/anchor-escrow`, built on macOS; slot 524536326,
+337,760 bytes, SHA-256 `5055df469642a3429c524a312b129c7e9b7cb6fdbeb37fa2e8275ab87b8e142a`).
+A host build embeds host paths, so compare a host build only with a hash from the same
+host; the container build gives the same hash anywhere.
 
 This ID is set in `programs/pinocchio-escrow/program/src/lib.rs`, `archive/anchor-escrow/src/lib.rs` (`declare_id!`), `Anchor.toml`,
 `packages/demo-agents/src/config.ts` (`defaultEscrowProgramId`) and

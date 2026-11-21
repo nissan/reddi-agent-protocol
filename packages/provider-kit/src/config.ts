@@ -16,6 +16,7 @@ export const DEFAULT_ESCROW_PROGRAM_ID = "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvg
 export const DEFAULT_DEVNET_RPC_URL = "https://api.devnet.solana.com";
 export const DEFAULT_CONFIG_FILE = "provider.json";
 export const DEFAULT_REPLAY_FILE = ".rap-provider/accepted-escrows.log";
+export const DEFAULT_SESSION_FILE = ".rap-provider/sessions.jsonl";
 export const DEFAULT_PORT = 8787;
 export const DEFAULT_APP_URL = "https://app.agent-protocol.reddi.tech";
 
@@ -86,6 +87,13 @@ export interface ProviderConfigFile {
   listing?: { appUrl?: string; capabilities?: Record<string, unknown> };
   /** For a local validator only: the genesis hash to expect instead of the public devnet one. */
   genesisHash?: string;
+  /**
+   * Sessions: one lock pays for many calls and is settled once. On unless
+   * `enabled` is false. A session is settled after `idleSeconds` without a call
+   * (default 600), when the buyer closes it, or before its refund window opens.
+   * `file` keeps the sessions across restarts.
+   */
+  sessions?: { enabled?: boolean; idleSeconds?: number; file?: string };
   keypairPath?: string;
   replayFile?: string;
   port?: number;
@@ -113,6 +121,7 @@ export interface ProviderConfig {
   genesisHash?: string;
   keypairPath?: string;
   replayFile: string;
+  sessions: { enabled: boolean; idleMs: number; file: string };
   port: number;
 }
 
@@ -235,6 +244,13 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
   if (listingRaw.capabilities !== undefined && !isRecord(listingRaw.capabilities)) errors.push("listing.capabilities: must be an object");
   const listingCapabilities = isRecord(listingRaw.capabilities) ? listingRaw.capabilities : {};
 
+  const sessionsRaw = file.sessions === undefined ? {} : isRecord(file.sessions) ? file.sessions : undefined;
+  if (!sessionsRaw) errors.push("sessions: must be an object");
+  const sessionsEnabled = sessionsRaw?.enabled !== false;
+  if (sessionsRaw?.enabled !== undefined && typeof sessionsRaw.enabled !== "boolean") errors.push("sessions.enabled: must be true or false");
+  const idleSeconds = sessionsRaw?.idleSeconds === undefined ? 600 : Number(sessionsRaw.idleSeconds);
+  if (!Number.isSafeInteger(idleSeconds) || idleSeconds < 30 || idleSeconds > 3_600) errors.push("sessions.idleSeconds: must be a whole number from 30 to 3600");
+
   const genesisHash = text(file.genesisHash) || undefined;
   if (genesisHash && network === "solana-mainnet-beta") errors.push("genesisHash: cannot be set on mainnet");
 
@@ -295,6 +311,7 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
       ...(genesisHash ? { genesisHash } : {}),
       ...(text(env.RAP_PROVIDER_KEYPAIR_PATH) || text(file.keypairPath) ? { keypairPath: text(env.RAP_PROVIDER_KEYPAIR_PATH) || text(file.keypairPath) } : {}),
       replayFile: text(file.replayFile) || DEFAULT_REPLAY_FILE,
+      sessions: { enabled: sessionsEnabled, idleMs: idleSeconds * 1_000, file: text(sessionsRaw?.file) || DEFAULT_SESSION_FILE },
       port,
     },
   };
