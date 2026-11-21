@@ -32,7 +32,20 @@ export const REDDI_RECEIPT_V2_PROOF_TYPE = 'ed25519' as const;
 export type ReddiReceiptV2Network = 'solana-devnet' | 'solana-mainnet-beta';
 export const REDDI_RECEIPT_V2_CURRENCIES = ['SOL', 'USDC', 'PYUSD', 'USDG', 'AUDD'] as const;
 export type ReddiReceiptV2Currency = (typeof REDDI_RECEIPT_V2_CURRENCIES)[number];
-export type ReddiReceiptV2Settlement = 'direct' | 'escrow';
+export type ReddiReceiptV2Settlement = 'direct' | 'escrow' | 'metered-escrow';
+
+/**
+ * What a per-token call used and settled. Present exactly when `settlement`
+ * is 'metered-escrow'. Token counts are the provider's report; `maxAmount` is
+ * what the buyer authorised and locked, `amount` is the actual cost paid, and
+ * `refunded` is the rest, returned to the buyer.
+ */
+export type ReddiReceiptV2Metered = {
+  inputTokens: string;
+  outputTokens: string;
+  maxAmount: string;
+  refunded: string;
+};
 
 export type ReddiReceiptV2Payment = {
   network: ReddiReceiptV2Network;
@@ -41,7 +54,7 @@ export type ReddiReceiptV2Payment = {
   currency: ReddiReceiptV2Currency;
   /** Token mint address (base58). Required for every currency except SOL, which has none. */
   mint?: string;
-  /** Listed price the buyer paid in total, in the currency's smallest unit, as a decimal string. */
+  /** What the buyer paid in total, in the currency's smallest unit, as a decimal string. For a metered call, the actual cost. */
   amount: string;
   /**
    * Protocol fee taken out of `amount`, in the smallest unit. "0" when no fee
@@ -52,6 +65,8 @@ export type ReddiReceiptV2Payment = {
   /** Paying wallet (base58). Present only when the provider checked it against the transaction. */
   payer?: string;
   settlement: ReddiReceiptV2Settlement;
+  /** Token counts and the authorised maximum of a per-token call. */
+  metered?: ReddiReceiptV2Metered;
 };
 
 export type ReddiReceiptV2 = {
@@ -116,7 +131,8 @@ const TX_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 const RECEIPT_KEYS = ['schemaVersion', 'providerId', 'declaredModel', 'requestHash', 'responseHash', 'payment', 'jobId', 'issuedAt'];
-const PAYMENT_KEYS = ['network', 'txSignature', 'currency', 'mint', 'amount', 'fee', 'payer', 'settlement'];
+const PAYMENT_KEYS = ['network', 'txSignature', 'currency', 'mint', 'amount', 'fee', 'payer', 'settlement', 'metered'];
+const METERED_KEYS = ['inputTokens', 'outputTokens', 'maxAmount', 'refunded'];
 /** Smallest-unit amount: digits only, no leading zero, at most 30 digits. */
 const BASE_UNITS = /^(0|[1-9]\d{0,29})$/;
 const JOB_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/;
@@ -200,7 +216,22 @@ export function validateReddiReceiptV2(input: unknown): ReddiReceiptV2Verificati
       if (typeof payment.amount === 'string' && BASE_UNITS.test(payment.amount) && BigInt(fee.amount) >= BigInt(payment.amount)) errors.push(err('malformed_receipt', '$.payment.fee.amount', 'fee must be less than the amount'));
     }
     if (payment.payer !== undefined && !publicKeyBytes(payment.payer)) errors.push(err('malformed_receipt', '$.payment.payer', 'payer must be a base58 address'));
-    if (payment.settlement !== 'direct' && payment.settlement !== 'escrow') errors.push(err('malformed_receipt', '$.payment.settlement', 'settlement must be direct or escrow'));
+    if (payment.settlement !== 'direct' && payment.settlement !== 'escrow' && payment.settlement !== 'metered-escrow') {
+      errors.push(err('malformed_receipt', '$.payment.settlement', 'settlement must be direct, escrow or metered-escrow'));
+    }
+    const metered = payment.metered;
+    if (payment.settlement === 'metered-escrow') {
+      if (!isRecord(metered) || !onlyKeys(metered, METERED_KEYS) || !METERED_KEYS.every((key) => typeof metered[key] === 'string' && BASE_UNITS.test(metered[key] as string))) {
+        errors.push(err('malformed_receipt', '$.payment.metered', 'a metered-escrow payment must state { inputTokens, outputTokens, maxAmount, refunded } as whole numbers'));
+      } else if (typeof payment.amount === 'string' && BASE_UNITS.test(payment.amount)) {
+        const max = BigInt(metered.maxAmount as string);
+        const paid = BigInt(payment.amount);
+        if (paid > max) errors.push(err('malformed_receipt', '$.payment.amount', 'a metered payment cannot exceed the authorised maximum'));
+        else if (BigInt(metered.refunded as string) !== max - paid) errors.push(err('malformed_receipt', '$.payment.metered.refunded', 'refunded must be the maximum less the amount paid'));
+      }
+    } else if (metered !== undefined) {
+      errors.push(err('malformed_receipt', '$.payment.metered', 'only a metered-escrow payment states token counts'));
+    }
     if (payment.network !== 'solana-devnet' && payment.network !== 'solana-mainnet-beta') errors.push(err('malformed_receipt', '$.payment.network', 'network must be solana-devnet or solana-mainnet-beta'));
     if (typeof payment.txSignature !== 'string' || !TX_SIGNATURE.test(payment.txSignature)) errors.push(err('malformed_receipt', '$.payment.txSignature', 'txSignature must be a base58 transaction signature'));
   }
@@ -233,6 +264,9 @@ export function canonicalizeReddiReceiptV2(receipt: ReddiReceiptV2): string {
       fee: { amount: p.fee.amount, ...(p.fee.treasury !== undefined ? { treasury: p.fee.treasury } : {}) },
       ...(p.payer !== undefined ? { payer: p.payer } : {}),
       settlement: p.settlement,
+      ...(p.metered !== undefined
+        ? { metered: { inputTokens: p.metered.inputTokens, outputTokens: p.metered.outputTokens, maxAmount: p.metered.maxAmount, refunded: p.metered.refunded } }
+        : {}),
     },
     ...(receipt.jobId !== undefined ? { jobId: receipt.jobId } : {}),
     issuedAt: receipt.issuedAt,
@@ -301,6 +335,7 @@ export function verifyReddiReceiptV2(input: unknown, expected: ReddiReceiptV2Exp
       || (want.amount !== undefined && want.amount !== got.amount)
       || (want.payer !== undefined && want.payer !== got.payer)
       || (want.settlement !== undefined && want.settlement !== got.settlement)
+      || (want.metered !== undefined && (got.metered === undefined || METERED_KEYS.some((key) => want.metered![key as keyof ReddiReceiptV2Metered] !== got.metered![key as keyof ReddiReceiptV2Metered])))
       || (want.fee !== undefined && (want.fee.amount !== got.fee.amount || (want.fee.treasury !== undefined && want.fee.treasury !== got.fee.treasury)));
     if (differs) errors.push(err('payment_mismatch', '$.receipt.payment', 'payment differs from the payment that was made'));
   }

@@ -33,7 +33,8 @@ const TX_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 const RECEIPT_KEYS = ['schemaVersion', 'providerId', 'declaredModel', 'requestHash', 'responseHash', 'payment', 'jobId', 'issuedAt'];
-const PAYMENT_KEYS = ['network', 'txSignature', 'currency', 'mint', 'amount', 'fee', 'payer', 'settlement'];
+const PAYMENT_KEYS = ['network', 'txSignature', 'currency', 'mint', 'amount', 'fee', 'payer', 'settlement', 'metered'];
+const METERED_KEYS = ['inputTokens', 'outputTokens', 'maxAmount', 'refunded'];
 /** Smallest-unit amount: digits only, no leading zero, at most 30 digits. */
 const BASE_UNITS = /^(0|[1-9]\d{0,29})$/;
 const JOB_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/;
@@ -129,8 +130,26 @@ export function validateReddiReceiptV2(input) {
         }
         if (payment.payer !== undefined && !publicKeyBytes(payment.payer))
             errors.push(err('malformed_receipt', '$.payment.payer', 'payer must be a base58 address'));
-        if (payment.settlement !== 'direct' && payment.settlement !== 'escrow')
-            errors.push(err('malformed_receipt', '$.payment.settlement', 'settlement must be direct or escrow'));
+        if (payment.settlement !== 'direct' && payment.settlement !== 'escrow' && payment.settlement !== 'metered-escrow') {
+            errors.push(err('malformed_receipt', '$.payment.settlement', 'settlement must be direct, escrow or metered-escrow'));
+        }
+        const metered = payment.metered;
+        if (payment.settlement === 'metered-escrow') {
+            if (!isRecord(metered) || !onlyKeys(metered, METERED_KEYS) || !METERED_KEYS.every((key) => typeof metered[key] === 'string' && BASE_UNITS.test(metered[key]))) {
+                errors.push(err('malformed_receipt', '$.payment.metered', 'a metered-escrow payment must state { inputTokens, outputTokens, maxAmount, refunded } as whole numbers'));
+            }
+            else if (typeof payment.amount === 'string' && BASE_UNITS.test(payment.amount)) {
+                const max = BigInt(metered.maxAmount);
+                const paid = BigInt(payment.amount);
+                if (paid > max)
+                    errors.push(err('malformed_receipt', '$.payment.amount', 'a metered payment cannot exceed the authorised maximum'));
+                else if (BigInt(metered.refunded) !== max - paid)
+                    errors.push(err('malformed_receipt', '$.payment.metered.refunded', 'refunded must be the maximum less the amount paid'));
+            }
+        }
+        else if (metered !== undefined) {
+            errors.push(err('malformed_receipt', '$.payment.metered', 'only a metered-escrow payment states token counts'));
+        }
         if (payment.network !== 'solana-devnet' && payment.network !== 'solana-mainnet-beta')
             errors.push(err('malformed_receipt', '$.payment.network', 'network must be solana-devnet or solana-mainnet-beta'));
         if (typeof payment.txSignature !== 'string' || !TX_SIGNATURE.test(payment.txSignature))
@@ -165,6 +184,9 @@ export function canonicalizeReddiReceiptV2(receipt) {
             fee: { amount: p.fee.amount, ...(p.fee.treasury !== undefined ? { treasury: p.fee.treasury } : {}) },
             ...(p.payer !== undefined ? { payer: p.payer } : {}),
             settlement: p.settlement,
+            ...(p.metered !== undefined
+                ? { metered: { inputTokens: p.metered.inputTokens, outputTokens: p.metered.outputTokens, maxAmount: p.metered.maxAmount, refunded: p.metered.refunded } }
+                : {}),
         },
         ...(receipt.jobId !== undefined ? { jobId: receipt.jobId } : {}),
         issuedAt: receipt.issuedAt,
@@ -238,6 +260,7 @@ export function verifyReddiReceiptV2(input, expected = {}) {
             || (want.amount !== undefined && want.amount !== got.amount)
             || (want.payer !== undefined && want.payer !== got.payer)
             || (want.settlement !== undefined && want.settlement !== got.settlement)
+            || (want.metered !== undefined && (got.metered === undefined || METERED_KEYS.some((key) => want.metered[key] !== got.metered[key])))
             || (want.fee !== undefined && (want.fee.amount !== got.fee.amount || (want.fee.treasury !== undefined && want.fee.treasury !== got.fee.treasury)));
         if (differs)
             errors.push(err('payment_mismatch', '$.receipt.payment', 'payment differs from the payment that was made'));

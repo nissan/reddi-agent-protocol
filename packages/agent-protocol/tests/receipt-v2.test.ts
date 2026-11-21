@@ -39,7 +39,7 @@ const TX = '5'.repeat(88);
 const MINT = base58(Buffer.alloc(32, 4));
 const TREASURY = base58(Buffer.alloc(32, 3));
 const PAYER = base58(Buffer.alloc(32, 2));
-/** A 1.000000 USDC call with the 0.05% fee, paid directly. */
+/** A 1.000000 USDC call with a 0.05% fee, paid directly. The fee value is arbitrary to this module. */
 const PAYMENT = {
   network: 'solana-devnet',
   txSignature: TX,
@@ -242,6 +242,35 @@ describe('reddi.receipt.v2', () => {
       { ...base, fee: { amount: '500', treasury: PAYER } },
     ];
     for (const payment of wrong) assert.deepEqual(codes(verifyReddiReceiptV2(signed, { payment })), ['payment_mismatch'], JSON.stringify(payment));
+  });
+
+  it('states token counts and the refund of a metered call (RAP-794-S3)', async () => {
+    const provider = testProvider();
+    // 123,457 actual of a 300,000 maximum, 2.5% fee, 176,543 returned.
+    const metered = {
+      ...PAYMENT,
+      amount: '123457',
+      fee: { amount: '3086', treasury: TREASURY },
+      settlement: 'metered-escrow',
+      metered: { inputTokens: '1200', outputTokens: '800', maxAmount: '300000', refunded: '176543' },
+    } as const;
+    const signed = await signReddiReceiptV2(receiptFor(provider.address, { payment: metered }), provider.signer);
+    assert.match(canonicalizeReddiReceiptV2(signed.receipt), /"settlement":"metered-escrow","metered":\{"inputTokens":"1200","outputTokens":"800","maxAmount":"300000","refunded":"176543"\}\}/);
+    const base = { network: metered.network, txSignature: TX };
+    assert.equal(verifyReddiReceiptV2(signed, { payment: { ...base, metered: metered.metered } }).ok, true);
+    assert.deepEqual(codes(verifyReddiReceiptV2(signed, { payment: { ...base, metered: { ...metered.metered, outputTokens: '801' } } })), ['payment_mismatch']);
+    // The token counts are signed.
+    const edited = { ...signed, receipt: { ...signed.receipt, payment: { ...metered, metered: { ...metered.metered, outputTokens: '80' } } } };
+    assert.deepEqual(codes(verifyReddiReceiptV2(edited)), ['signature_invalid']);
+
+    const bad = (payment: unknown) => validateReddiReceiptV2(receiptFor(provider.address, { payment: payment as ReddiReceiptV2['payment'] }));
+    assert.equal(bad({ ...metered, metered: undefined }).ok, false);
+    assert.equal(bad({ ...metered, metered: { ...metered.metered, refunded: '176542' } }).ok, false);
+    assert.equal(bad({ ...metered, amount: '300001', metered: { ...metered.metered, refunded: '0' } }).ok, false);
+    assert.equal(bad({ ...metered, metered: { ...metered.metered, inputTokens: '-1' } }).ok, false);
+    assert.equal(bad({ ...metered, metered: { ...metered.metered, extra: '1' } }).ok, false);
+    assert.equal(bad({ ...PAYMENT, metered: metered.metered }).ok, false);
+    assert.equal(bad({ ...metered, amount: '300000', metered: { ...metered.metered, refunded: '0' } }).ok, true);
   });
 
   it('refuses to sign an invalid receipt', async () => {
