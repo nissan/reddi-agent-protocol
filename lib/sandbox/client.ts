@@ -44,12 +44,15 @@ export async function callSandbox(input: {
   paymentHeader?: string;
   /** More request headers, such as a session's sequence. */
   extraHeaders?: Record<string, string>;
+  /** Headers signed over the exact request body, such as a metered call's payer auth (#866). */
+  signBody?: (requestText: string) => Promise<Record<string, string>>;
   fetchImpl?: typeof fetch;
 }): Promise<SandboxCallResult> {
   const requestBody = { model: input.model, messages: input.messages };
   const headers: Record<string, string> = { "content-type": "application/json", ...input.extraHeaders };
   if (input.paymentHeader) headers["x402-payment"] = input.paymentHeader;
   const requestText = JSON.stringify(requestBody);
+  if (input.signBody) Object.assign(headers, await input.signBody(requestText));
   const response = await (input.fetchImpl ?? fetch)(SANDBOX_ENDPOINT_PATH, { method: "POST", headers, body: requestText, cache: "no-store" });
   let body: Record<string, unknown>;
   let responseText = "";

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Connection, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { buildOpenRatingInstruction } from "@redditech/x402-solana/rating";
@@ -44,6 +44,7 @@ import {
 } from "@/lib/sandbox/client";
 import { isSandboxReceipt, responseBodyWithAnswer, type SandboxReceiptPayment, verifySandboxReceipt, type SandboxReceipt, type SandboxVerification } from "@/lib/sandbox/receipt";
 import { formatUnits, requestInputTokens, SANDBOX_DEMO_RATES_NOTE, SANDBOX_FEE_BPS, triPriceFromLamports, TYPICAL_REVIEW } from "@/lib/sandbox/pricing";
+import { createSessionKey, paidCallAuthHeaders, sessionDelegationHeaderValue, type MessageSigner } from "@/lib/payments/session-auth";
 import SandboxSessionRunner from "@/components/sandbox/SandboxSessionRunner";
 import { applySandboxReputation, initialSandboxReputation, type SandboxReputation } from "@/lib/sandbox/reputation";
 
@@ -252,7 +253,13 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
   // True once the page is interactive and the provider key listing has settled.
   const [ready, setReady] = useState(false);
 
-  const { publicKey, signTransaction, connected } = useWallet();
+  const { publicKey, signTransaction, signMessage, connected } = useWallet();
+  // A metered lock's payer auth (#866), by payment header: the wallet's one delegation and the key it names. In memory only.
+  const paidCallAuth = useRef(new Map<string, { escrow: string; delegation: string; sessionKey: { sign: MessageSigner } }>());
+  const signedFor = (paymentHeader: string | undefined) => {
+    const auth = paymentHeader ? paidCallAuth.current.get(paymentHeader) : undefined;
+    return auth ? (body: string) => paidCallAuthHeaders({ ...auth, body }) : undefined;
+  };
   const devnet = useMemo(() => new Connection(DEVNET_RPC, "confirmed"), []);
   const provider = findSandboxProviderById(providerId) ?? SANDBOX_PROVIDERS[0];
   const messages = useMemo(() => [{ role: "user", content: prompt }], [prompt]);
@@ -342,7 +349,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
 
   /** Returns "settled", "retry" when the provider has not seen the transfer yet, or "refused". */
   async function settle(paymentHeader: string, label: string): Promise<"settled" | "retry" | "refused"> {
-    const result = await callSandbox({ label, model: provider.model, messages, paymentHeader });
+    const result = await callSandbox({ label, model: provider.model, messages, paymentHeader, signBody: signedFor(paymentHeader) });
     record(result.exchange);
     if (result.status !== 200) {
       setNotice({ tone: "bad", title: result.status === 409 ? "Refused: this payment was already used" : `Payment refused (${String(result.body.reason ?? result.status)})`, text: errorMessageOf(result.body) });
@@ -427,7 +434,8 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
         setNotice({ tone: "bad", title: "Not connected to devnet", text: "The sandbox only builds devnet transfers, so nothing was signed." });
         return;
       }
-      const metered = meteredProviders[provider.id] === true;
+      // A metered call is signed by the payer (#866); a wallet that cannot sign messages pays by direct transfer.
+      const metered = meteredProviders[provider.id] === true && Boolean(signMessage);
       const balance = await devnet.getBalance(publicKey);
       if (balance < lamports + FEE_HEADROOM_LAMPORTS + (metered ? ESCROW_RENT_HEADROOM_LAMPORTS : 0)) {
         setNotice({ tone: "info", title: "This wallet needs devnet SOL", text: `It holds ${(balance / 1_000_000_000).toFixed(4)} devnet SOL. Get free test SOL from ${FAUCET_URL}, or switch to the simulated payment.` });
@@ -458,6 +466,20 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
         setNotice({ tone: "info", title: "This wallet needs more devnet SOL", text: `Rating adds about ${RATING_RENT_SOL} SOL of refundable rent. Get free test SOL from ${FAUCET_URL}, or pay without rating.` });
         return;
       }
+      // Before the lock: the wallet signs one message delegating this lock's calls to a key held in this tab.
+      // Declining it locks nothing.
+      let auth: { escrow: string; delegation: string; sessionKey: { sign: MessageSigner } } | undefined;
+      if (lock && signMessage) {
+        const sessionKey = await createSessionKey();
+        const escrow = lock.escrow.toBase58();
+        try {
+          const delegation = await sessionDelegationHeaderValue({ escrow, provider: challenge.payTo, sessionKey: sessionKey.publicKey, expiresAt: Math.floor(Date.now() / 1000) + 3600 }, (message) => signMessage(message));
+          auth = { escrow, delegation, sessionKey };
+        } catch {
+          setNotice({ tone: "info", title: "You declined the message", text: "The provider needs your wallet's signature to know the call is yours. Nothing was locked; pay again when you are ready, or use the simulated payment." });
+          return;
+        }
+      }
       const transaction = new Transaction({ feePayer: publicKey, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight }).add(
         lock ? lock.instruction : SystemProgram.transfer({ fromPubkey: publicKey, toPubkey: new PublicKey(challenge.payTo), lamports }),
       );
@@ -470,6 +492,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
       const paymentHeader = lock
         ? meteredPaymentHeader(challenge, lock.escrow.toBase58(), signature, publicKey.toBase58())
         : devnetPaymentHeader(challenge, signature, publicKey.toBase58());
+      if (auth) paidCallAuth.current.set(paymentHeader, auth);
       // From here the transfer may be on devnet, so it is remembered before anything else can fail.
       setPendingWalletPayment(paymentHeader);
       if (lock && judge?.ok) {
@@ -517,7 +540,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
     if (!answered) return;
     setBusy("reuse");
     try {
-      const result = await callSandbox({ label: "Second request reusing the same payment", model: answered.provider.model, messages: answered.messages, paymentHeader: answered.paymentHeader });
+      const result = await callSandbox({ label: "Second request reusing the same payment", model: answered.provider.model, messages: answered.messages, paymentHeader: answered.paymentHeader, signBody: signedFor(answered.paymentHeader) });
       record(result.exchange);
       setNotice(
         result.status === 200
@@ -714,7 +737,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                         <div className="flex flex-wrap items-center gap-3">
                           <WalletMultiButton />
                           <button type="button" data-testid="sandbox-pay-wallet" className={actionButton} disabled={busy !== null || !connected || pendingWalletPayment !== null} onClick={payWithWallet}>
-                            {busy === "pay" ? "Waiting for devnet…" : meteredProviders[provider.id] ? `Lock up to ${String(challenge.amount)} devnet SOL` : `Pay ${String(challenge.amount)} devnet SOL`}
+                            {busy === "pay" ? "Waiting for devnet…" : meteredProviders[provider.id] && signMessage ? `Lock up to ${String(challenge.amount)} devnet SOL` : `Pay ${String(challenge.amount)} devnet SOL`}
                           </button>
                           {pendingWalletPayment ? (
                             <button type="button" className={quietButton} disabled={busy !== null} onClick={presentPendingAgain}>Present my transfer again</button>

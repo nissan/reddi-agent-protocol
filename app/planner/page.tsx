@@ -32,7 +32,10 @@ import { planMeteredBuy } from "@/lib/payments/metered-buy";
 import {
   applySessionOutcome,
   attachLockReceipt,
+  delegateLock,
   openPlannerSession,
+  signSingleCall,
+  type LockAuth,
   prepareSessionCall,
   type PlannerSessionHandle,
 } from "@/lib/payments/planner-session-client";
@@ -167,6 +170,8 @@ function PlannerInner() {
   const [settleAfterNext, setSettleAfterNext] = useState(false);
   // In memory only: the session key never leaves this tab. A provider settles an idle session itself.
   const sessionsRef = useRef(new Map<string, PlannerSessionHandle>());
+  // Each metered lock's delegation to a key held in this tab, by escrow (#866).
+  const lockAuthRef = useRef(new Map<string, LockAuth>());
   // The same sessions, for showing on screen.
   const [sessionViews, setSessionViews] = useState<Record<string, PlannerSessionHandle>>({});
   const prevStep = useRef(step);
@@ -312,10 +317,14 @@ function PlannerInner() {
   async function presentReceipt(receipt: unknown) {
     // When signed in, the session lets the server link the job record to this account.
     const token = await currentAccessToken().catch(() => undefined);
+    // A single metered call carries the payer's signature (#866), made with the lock's delegated key.
+    const escrow = (receipt as { settlement?: unknown; escrow?: unknown } | null)?.settlement === "metered-escrow" ? (receipt as { escrow?: unknown }).escrow : undefined;
+    const lockAuth = typeof escrow === "string" ? lockAuthRef.current.get(escrow) : undefined;
+    const paidCallAuth = lockAuth ? await signSingleCall(lockAuth, prompt) : undefined;
     const res = await fetch("/api/onboarding/planner/execute", {
       method: "POST",
       headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-      body: runRequestBody({ paymentMode: "wallet", paymentReceipt: receipt, consumerWallet: publicKey?.toBase58() }),
+      body: runRequestBody({ paymentMode: "wallet", paymentReceipt: receipt, consumerWallet: publicKey?.toBase58(), ...(paidCallAuth ? { paidCallAuth } : {}) }),
     });
     const data = await res.json();
     if (data.ok) {
@@ -527,29 +536,36 @@ function PlannerInner() {
       return;
     }
     const { quote } = plan;
+    // Providers take a metered call only with the payer's signature (#866): the wallet signs one
+    // message per lock, delegating its calls to a key held in this tab. Asked before the lock.
+    if (!signMessage) {
+      setPaymentNote("Your wallet cannot sign messages, and a per-token call needs your signature so the provider knows it is yours. Nothing was signed; use a wallet that can sign messages.");
+      return;
+    }
+    setPaymentNote(
+      plan.session
+        ? `Your wallet will first ask you to sign a message (no payment) that lets this tab make up to ${plan.session.calls} calls to this provider on one lock, then to lock up to ${quote.maxCharge} ${quote.currency}. The provider settles once for the calls it serves; the rest comes back.`
+        : `Your wallet will first ask you to sign a message (no payment) that lets this tab present this call to the provider, then to lock up to ${quote.maxCharge} ${quote.currency}.`,
+    );
+    let lockAuth: LockAuth;
+    try {
+      lockAuth = await delegateLock({ escrow: plan.escrow, providerWallet: walletAddress, signWithPayer: (message) => signMessage(message) });
+    } catch {
+      setPaymentNote("You declined the message. Nothing was locked or charged.");
+      return;
+    }
+    lockAuthRef.current.set(plan.escrow, lockAuth);
     let session: PlannerSessionHandle | undefined;
-    if (plan.session && signMessage) {
-      setPaymentNote(
-        `Your wallet will first ask you to sign a message (no payment) that lets this tab make up to ${plan.session.calls} calls to this provider on one lock, then to lock up to ${quote.maxCharge} ${quote.currency}. The provider settles once for the calls it serves; the rest comes back.`,
-      );
-      try {
-        session = await openPlannerSession({
-          escrow: plan.escrow,
-          providerWallet: walletAddress,
-          lockBaseUnits: plan.session.lockBaseUnits,
-          price: plan.session.price,
-          maxOutputTokens: plan.session.maxOutputTokens,
-          signWithPayer: (message) => signMessage(message),
-        });
-      } catch {
-        // Declined: pay for this call alone.
-        const single = buy();
-        if (!single.ok) {
-          setPaymentNote(`Payment request refused: ${single.message} Nothing was signed.`);
-          return;
-        }
-        plan = single;
-      }
+    if (plan.session) {
+      session = await openPlannerSession({
+        escrow: plan.escrow,
+        providerWallet: walletAddress,
+        lockBaseUnits: plan.session.lockBaseUnits,
+        price: plan.session.price,
+        maxOutputTokens: plan.session.maxOutputTokens,
+        signWithPayer: (message) => signMessage(message),
+        auth: lockAuth,
+      });
     }
     const lockQuote = plan.quote;
     setPaymentNote(
