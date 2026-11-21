@@ -17,6 +17,7 @@ export const DEFAULT_DEVNET_RPC_URL = "https://api.devnet.solana.com";
 export const DEFAULT_CONFIG_FILE = "provider.json";
 export const DEFAULT_REPLAY_FILE = ".rap-provider/accepted-escrows.log";
 export const DEFAULT_PORT = 8787;
+export const DEFAULT_APP_URL = "https://app.agent-protocol.reddi.tech";
 
 export interface ProviderConfigFile {
   name: string;
@@ -81,6 +82,8 @@ export interface ProviderConfigFile {
    * bounds how many it pays for in a UTC day.
    */
   refundAccountSubsidy?: { maxPerDay: number };
+  /** For `rap-provider register`: the app to list in (default: the Reddi Agent Protocol app) and what the listing says this provider can do. */
+  listing?: { appUrl?: string; capabilities?: Record<string, unknown> };
   /** For a local validator only: the genesis hash to expect instead of the public devnet one. */
   genesisHash?: string;
   keypairPath?: string;
@@ -102,6 +105,9 @@ export interface ProviderConfig {
   pausedCurrencies: string[];
   /** Buyer token accounts the provider will pay to create in a UTC day. 0: never. */
   refundAccountsPerDay: number;
+  /** The app `register` lists in. An https origin. */
+  appUrl: string;
+  listingCapabilities: Record<string, unknown>;
   systemPrompt?: string;
   rpcUrl: string;
   genesisHash?: string;
@@ -222,6 +228,13 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
     else refundAccountsPerDay = maxPerDay;
   }
 
+  const listingRaw = isRecord(file.listing) ? file.listing : {};
+  const appUrlRaw = text(env.RAP_APP_URL) || text(listingRaw.appUrl) || DEFAULT_APP_URL;
+  const appUrl = serviceUrl(appUrlRaw)?.origin;
+  if (!appUrl || new URL(appUrlRaw).pathname.replace(/\/+$/, "") !== "") errors.push("listing.appUrl: must be the app's address, such as https://app.agent-protocol.reddi.tech");
+  if (listingRaw.capabilities !== undefined && !isRecord(listingRaw.capabilities)) errors.push("listing.capabilities: must be an object");
+  const listingCapabilities = isRecord(listingRaw.capabilities) ? listingRaw.capabilities : {};
+
   const genesisHash = text(file.genesisHash) || undefined;
   if (genesisHash && network === "solana-mainnet-beta") errors.push("genesisHash: cannot be set on mainnet");
 
@@ -275,6 +288,8 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
       paused: pausedCurrencies.includes(currency),
       pausedCurrencies,
       refundAccountsPerDay,
+      appUrl: appUrl ?? DEFAULT_APP_URL,
+      listingCapabilities,
       ...(systemPrompt ? { systemPrompt } : {}),
       rpcUrl,
       ...(genesisHash ? { genesisHash } : {}),
