@@ -257,6 +257,9 @@ async function verifySandboxPayment(header: string, provider: SandboxProvider, o
   }
   const verifier = new SolanaReceiptVerifier({
     allowRealPayment: true,
+    // TODO(sandbox): require the payer's proof (directPaymentProofCheck over the raw
+    // body) once the sandbox console signs direct payments.
+    payerProof: "not-required",
     connection: deps.connection,
     expectedGenesisHash: SOLANA_GENESIS_HASHES[SANDBOX_NETWORK],
     maxTransactionAgeSeconds: SANDBOX_MAX_TRANSACTION_AGE_SECONDS,

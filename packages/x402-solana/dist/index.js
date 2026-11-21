@@ -39,3 +39,4 @@ __exportStar(require("./provider"), exports);
 __exportStar(require("./rating"), exports);
 __exportStar(require("./session"), exports);
 __exportStar(require("./session-auth"), exports);
+__exportStar(require("./direct-auth"), exports);

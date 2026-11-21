@@ -165,6 +165,19 @@ if (checkAndStoreNonce(nonce)) {
 
 Read-only verifier for SVM SPL Token / Token-2022 `TransferChecked` observations. It consumes an already parsed transaction object and checks transaction success, confirmation metadata, transaction-signature match, exact mint, exact token program, destination token-account ownership by `payTo`, exact base-unit amount, optional authority, optional decimals, exactly one matching transfer, replay store, and required memo binding. It does not fetch RPC, submit transactions, load wallets, sign, or hold funds.
 
+`SolanaReceiptVerifier` also requires, by default, proof that the request presenting a direct receipt comes from the wallet that paid, because a confirmed transfer is public and anyone could otherwise present it first. A provider passes the check for each request; the buyer adds the headers after its transfer confirms:
+
+```ts
+// Provider: `rawBody` is the request body exactly as received.
+const result = await verifier.verifyReceipt(receipt, challenge, replayStore, directPaymentProofCheck({ headers, body: rawBody }));
+
+// Buyer: sign with the paying wallet, or with a session key it delegated once
+// (directPaymentDelegationHeaderValue) and pass that as `delegation`.
+const proof = await directPaymentProofHeaders({ network, txSignature, payTo, body, sign: (m) => wallet.signMessage(m) });
+```
+
+A verifier that serves nothing, such as a ledger recording jobs after the call, sets `payerProof: 'not-required'`.
+
 `SolanaReceiptVerifier` requires a replay store for real receipts and records the transaction signature, so one transaction satisfies one challenge; USDC needs a configured `usdcMint` and a `transferChecked` instruction. It bridges AUDD receipts to this stricter x402 v2 SVM `exact` verifier only when the verifier is configured with an explicit `auddMint`; it will not trust a receipt-supplied mint as the AUDD identity. AUDD amounts are base units, not UI decimal strings.
 
 For a `solana-mainnet-beta` challenge the verifier also refuses a transaction older than 900 seconds (`maxTransactionAgeSeconds`) or without a block time, and requires the connection to report the public mainnet genesis hash. On other networks those two checks run only when `maxTransactionAgeSeconds` or `expectedGenesisHash` is set.

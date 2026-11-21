@@ -90,7 +90,33 @@ export interface PaymentReceipt {
         outAmount?: string;
     };
 }
-export type ReceiptVerificationFailureReason = 'invalid_receipt' | 'invalid_payee' | 'invalid_nonce' | 'duplicate_nonce' | 'wrong_amount' | 'wrong_currency' | 'wrong_payee' | 'wrong_network' | 'demo_payment_disabled' | 'unsupported_receipt';
+export type ReceiptVerificationFailureReason = 'invalid_receipt' | 'invalid_payee' | 'invalid_nonce' | 'duplicate_nonce' | 'wrong_amount' | 'wrong_currency' | 'wrong_payee' | 'wrong_network' | 'demo_payment_disabled' | 'unsupported_receipt' | 'payer_proof_required' | 'payer_proof_invalid' | 'payer_proof_expired';
+/** The payment a direct receipt proved, handed to a payer-proof check. */
+export interface ProvenDirectPayment {
+    network: SolanaPaymentNetwork;
+    txSignature: string;
+    /** The wallet that signed the transaction and moved the funds. */
+    payer: string;
+    payTo: string;
+}
+/**
+ * Checks that the request presenting a direct receipt comes from the wallet
+ * that paid. `directPaymentProofCheck` builds one from the request's headers
+ * and raw body.
+ */
+export type PayerProofCheck = (paid: ProvenDirectPayment) => {
+    ok: true;
+} | {
+    ok: false;
+    reason: 'payer_proof_required' | 'payer_proof_invalid' | 'payer_proof_expired';
+    message: string;
+} | Promise<{
+    ok: true;
+} | {
+    ok: false;
+    reason: 'payer_proof_required' | 'payer_proof_invalid' | 'payer_proof_expired';
+    message: string;
+}>;
 export type ReceiptVerificationResult = {
     ok: true;
     receipt: X402PaymentReceipt;
@@ -107,7 +133,7 @@ export interface NonceReplayStore {
     checkAndStore(nonce: string): boolean | Promise<boolean>;
 }
 export interface ReceiptVerifier {
-    verifyReceipt(receipt: unknown, challenge: X402Challenge, replayStore?: NonceReplayStore): Promise<ReceiptVerificationResult>;
+    verifyReceipt(receipt: unknown, challenge: X402Challenge, replayStore?: NonceReplayStore, payerProof?: PayerProofCheck): Promise<ReceiptVerificationResult>;
 }
 /**
  * x402 error codes.
