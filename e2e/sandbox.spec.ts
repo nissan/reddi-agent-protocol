@@ -179,6 +179,12 @@ test.describe("/sandbox", () => {
     await expect(page.getByTestId("sandbox-session-network")).toContainText("2 (one lock, one settle) instead of 20");
     await expect(page.getByTestId("sandbox-session-fee-share")).toContainText("about 11.2%");
     await expect(page.getByTestId("sandbox-session-error")).toHaveCount(0);
+    // The sidebar counts the session: ten call receipts plus the closing one, and the settled total as spent.
+    const settled = await page.getByTestId("sandbox-session-settled").textContent();
+    const total = Number(/Settled once: ([\d,]+) lamports/.exec(settled ?? "")?.[1]?.replace(/,/g, ""));
+    expect(total).toBeGreaterThan(0);
+    await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("11");
+    await expect(page.getByTestId("sandbox-spent")).toHaveText(new RegExp(`^${total.toLocaleString("en-AU")}lamports`));
     await expectCopyInsideClaimBoundary(page);
   });
 

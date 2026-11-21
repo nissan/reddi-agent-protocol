@@ -4,13 +4,14 @@ import { useState } from "react";
 import type { SandboxProvider } from "@/lib/sandbox/catalog";
 import type { SandboxExchange } from "@/lib/sandbox/client";
 import { triPriceFromLamports } from "@/lib/sandbox/pricing";
+import type { SandboxReceipt } from "@/lib/sandbox/receipt";
 import { networkFeeShare, runSandboxSession, sessionMaxLamports, SESSION_PROMPTS, type SessionCallRow, type SessionRunResult } from "@/lib/sandbox/session-run";
 
 const actionButton = "rounded-lg bg-[#14F195] px-4 py-2.5 text-sm font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40";
 const percent = (share: number) => `${(share * 100).toFixed(share < 0.01 ? 2 : 1)}%`;
 
 /** Ten small calls, one simulated lock, one settle (#863). */
-export default function SandboxSessionRunner({ provider, providerReceiptId, onExchange }: { provider: SandboxProvider; providerReceiptId?: string; onExchange?: (exchanges: SandboxExchange[]) => void }) {
+export default function SandboxSessionRunner({ provider, providerReceiptId, onExchange, onSettled }: { provider: SandboxProvider; providerReceiptId?: string; onExchange?: (exchanges: SandboxExchange[]) => void; onSettled?: (receipts: SandboxReceipt[]) => void }) {
   const [rows, setRows] = useState<SessionCallRow[]>([]);
   const [result, setResult] = useState<SessionRunResult | null>(null);
   const [running, setRunning] = useState(false);
@@ -25,6 +26,8 @@ export default function SandboxSessionRunner({ provider, providerReceiptId, onEx
       const outcome = await runSandboxSession({ provider, providerReceiptId, onCall: (row) => setRows((current) => [...current, row]) });
       setResult(outcome);
       onExchange?.(outcome.exchanges);
+      // The calls' receipts and the closing receipt, which carries the one payment.
+      if (outcome.ok) onSettled?.([...outcome.receipts, outcome.closing]);
     } catch {
       setResult({ ok: false, message: "The sandbox could not be reached. Nothing was paid.", rows: [], exchanges: [] });
     } finally {
