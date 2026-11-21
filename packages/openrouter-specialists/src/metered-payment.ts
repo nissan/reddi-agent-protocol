@@ -19,6 +19,7 @@ import {
   decodeTokenEscrowAccount,
   directPaymentCurrency,
   parseX402PaymentHeader,
+  prepareTokenPayout,
   settleMeteredCall,
   tokenCostBaseUnits,
   tokenEscrowAddresses,
@@ -45,8 +46,13 @@ export interface MeteredPriceConfig {
 /** What a reader of chain accounts returns. A `Connection` adapts to it. */
 export type AccountReader = (address: PublicKey) => Promise<{ owner: PublicKey; data: Uint8Array } | null>;
 
-/** Signs the settle instruction with the provider wallet's key, sends it and waits for confirmation. Returns the signature. */
-export type MeteredSettleSigner = (instruction: TransactionInstruction) => Promise<string>;
+/**
+ * Signs the settle transaction with the provider wallet's key, sends it and
+ * waits for confirmation. Returns the signature. The instructions go into one
+ * transaction, in order, with the provider wallet as fee payer: idempotent
+ * creates of the treasury's and the buyer's token accounts, then the settle.
+ */
+export type MeteredSettleSigner = (instructions: TransactionInstruction[]) => Promise<string>;
 
 export interface MeteredTerms {
   price: PerTokenPrice;
@@ -212,11 +218,22 @@ export function usageFrom(upstream: Record<string, unknown>, inputEstimate: numb
   return { inputTokens: input ?? inputEstimate, outputTokens: output ?? Math.ceil(text.length / 4) };
 }
 
-/** The settle for the tokens used, never above the locked maximum. */
-export function meteredSettlement(terms: MeteredTerms, lock: Extract<VerifiedLock, { ok: true }>, usage: { inputTokens: number; outputTokens: number }): { settlement: MeteredSettlement; instruction: TransactionInstruction } {
+/**
+ * The settle for the tokens used, never above the locked maximum. The unused
+ * part goes to the buyer's associated token account, and the transaction first
+ * creates it and the treasury's token account if either is missing, so a
+ * closed source account or a treasury account not yet created cannot stop the
+ * payout. The provider pays rent for anything it creates.
+ */
+export function meteredSettlement(terms: MeteredTerms, lock: Extract<VerifiedLock, { ok: true }>, usage: { inputTokens: number; outputTokens: number }): { settlement: MeteredSettlement; instruction: TransactionInstruction; instructions: TransactionInstruction[] } {
   const decimals = directPaymentCurrency(terms.price.currency)!.decimals;
   const settlement = settleMeteredCall(terms.price, usage, baseUnitsToDecimal(lock.maxBaseUnits, decimals));
   if (settlement.chargedBaseUnits <= BigInt(0)) throw new Error("nothing to settle");
-  const instruction = buildSettleTokenEscrowInstruction(lock.terms, false, terms.payee, { actual: settlement.chargedBaseUnits });
-  return { settlement, instruction };
+  const prep = prepareTokenPayout(lock.terms, terms.payee);
+  const instruction = buildSettleTokenEscrowInstruction(lock.terms, false, terms.payee, {
+    actual: settlement.chargedBaseUnits,
+    treasuryToken: prep.treasuryToken,
+    refundTo: prep.refundTo,
+  });
+  return { settlement, instruction, instructions: [...prep.instructions, instruction] };
 }

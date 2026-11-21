@@ -45,6 +45,8 @@
     "demo:testing-specialist:smoke": "node ./scripts/run-testing-specialist-smoke.mjs",
     "demo:testing-specialist:capture": "node ./scripts/capture-testing-specialist-demo.mjs",
     "smoke:app-adapter": "node ./scripts/run-app-adapter-smoke.mjs",
+    "check:escrow:treasury": "node ./scripts/check-escrow-treasury.mjs",
+    "check:escrow:mint-posture": "node ./scripts/check-token2022-mint-posture.mjs",
     "check:quasar:deployments": "node ./scripts/check-quasar-deployment-inventory.mjs",
     "check:quasar:demo-readiness": "node ./scripts/check-quasar-demo-readiness.mjs",
     "check:quasar:runtime-compatibility": "node ./scripts/check-quasar-runtime-compatibility.mjs",
