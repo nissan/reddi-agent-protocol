@@ -516,7 +516,7 @@ pub fn pay_out(
         (record.payer, record.payee, record.mint, record.nonce);
     let escrow_key = *open.escrow.address();
     let rated = if record.rated() {
-        Some(rating::for_exit(program_id, &escrow_key, trailing)?)
+        Some(rating::for_exit(program_id, &escrow_key, trailing, slot)?)
     } else {
         None
     };
@@ -622,7 +622,7 @@ pub fn cancel(program_id: &Address, accounts: &mut [AccountView]) -> ProgramResu
         (record.payer, record.payee, record.mint, record.nonce);
     let escrow_key = *open.escrow.address();
     let rated = if record.rated() {
-        Some(rating::for_exit(program_id, &escrow_key, trailing)?.0)
+        Some(rating::for_exit(program_id, &escrow_key, trailing, slot)?.0)
     } else {
         None
     };

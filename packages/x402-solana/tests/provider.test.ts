@@ -402,6 +402,30 @@ describe('rated escrows', () => {
     expect(shape(meteredSettlement(terms, older as typeof before, usage).instruction)).toEqual(shape(direct));
   });
 
+  // The flag byte as stored: 0 neither, 1 metered, 2 rated, 3 metered and rated.
+  it.each([[0, false, false], [1, true, false], [2, false, true], [3, true, true]] as const)('flag byte %i: decision and exit accounts for a provider that does and one that does not take rated jobs', async (flag, metered, rated) => {
+    const fields = { metered, rated };
+    expect(escrowBytes(fields)[202]).toBe(flag);
+    const plain = (await verify()) as Extract<VerifiedLock, { ok: true }>;
+    for (const acceptRatedEscrows of [false, true]) {
+      const result = await verify(fields, { acceptRatedEscrows });
+      if (!metered) {
+        // Not metered: never a metered lock, whatever the rated bit.
+        expect(result).toMatchObject({ ok: false, reason: 'invalid_receipt' });
+        continue;
+      }
+      if (rated && !acceptRatedEscrows) {
+        expect(result).toMatchObject({ ok: false, reason: 'rated_escrow_declined' });
+        continue;
+      }
+      expect(result).toMatchObject({ ok: true, rated });
+      const lock = result as Extract<VerifiedLock, { ok: true }>;
+      const extra = rated ? [[rating.toBase58(), false, true]] : [];
+      expect(shape(meteredSettlement(terms, lock, usage).instruction)).toEqual({ data: shape(meteredSettlement(terms, plain, usage).instruction).data, keys: [...shape(meteredSettlement(terms, plain, usage).instruction).keys, ...extra] });
+      expect(shape(meteredDecline(terms, lock))).toEqual({ data: shape(meteredDecline(terms, plain)).data, keys: [...shape(meteredDecline(terms, plain)).keys, ...extra] });
+    }
+  });
+
   it('confirms a settle that names the rating account, and refuses one that should and does not', () => {
     const expected = { programId: PROGRAM, escrow: header.escrow, mint: USDC, destination: ata(payee), treasuryToken: ata(ESCROW_PROTOCOL_TREASURY), refundTo: ata(payer), maxBaseUnits: BigInt(15_600) };
     const row = (account: PublicKey, before: number, after: number) => ({ account: account.toBase58(), mint: USDC.toBase58(), before: BigInt(before), after: BigInt(after) });

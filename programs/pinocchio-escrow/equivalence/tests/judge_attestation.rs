@@ -81,7 +81,11 @@ impl Court {
         let (escrow, n) = self.locked(judge);
         self.world.ok(
             "accept_rating",
-            accept_rating(&rating_address(&escrow), &self.specialist.pubkey()),
+            accept_rating(
+                &self.world,
+                &rating_address(&escrow),
+                &self.specialist.pubkey(),
+            ),
             &[&self.specialist],
         );
         self.world.ok(
@@ -112,7 +116,7 @@ fn s1_the_named_judge_attests_a_paid_job() {
     t.world.warp(t.world.slot() + 40);
     t.world.ok(
         "attest_quality",
-        attest_quality(&escrow, &j, SCORES),
+        attest_quality(&t.world, &escrow, &j, SCORES),
         &[&t.judge],
     );
     let address = attestation_address(&escrow);
@@ -144,7 +148,7 @@ fn s1_the_named_judge_attests_a_paid_job() {
     // One attestation per job.
     t.world.refused(
         "attest twice",
-        attest_quality(&escrow, &j, [5; 5]),
+        attest_quality(&t.world, &escrow, &j, [5; 5]),
         &[&t.judge],
         ALREADY_ATTESTED,
     );
@@ -173,7 +177,7 @@ fn s2_nobody_but_the_named_judge_can_attest() {
         }
         t.world.refused(
             label,
-            attest_quality(&escrow, &who.pubkey(), SCORES),
+            attest_quality(&t.world, &escrow, &who.pubkey(), SCORES),
             &[who],
             UNAUTHORISED_SIGNER,
         );
@@ -181,7 +185,11 @@ fn s2_nobody_but_the_named_judge_can_attest() {
     // The named judge's agent record with another signer.
     t.world.refused(
         "the rival signing with the judge's record",
-        swap(attest_quality(&escrow, &j, SCORES), 3, t.rival.pubkey()),
+        swap(
+            attest_quality(&t.world, &escrow, &j, SCORES),
+            3,
+            t.rival.pubkey(),
+        ),
         &[&t.rival],
         UNAUTHORISED_SIGNER,
     );
@@ -189,7 +197,7 @@ fn s2_nobody_but_the_named_judge_can_attest() {
     for who in [&t.judge, &t.rival] {
         t.world.refused(
             "a job with no judge",
-            attest_quality(&unjudged, &who.pubkey(), SCORES),
+            attest_quality(&t.world, &unjudged, &who.pubkey(), SCORES),
             &[who],
             UNAUTHORISED_SIGNER,
         );
@@ -213,7 +221,7 @@ fn s3_a_job_never_opted_in_refunded_or_not_yet_paid_cannot_be_attested() {
     );
     t.world.refused(
         "never opted in, locked",
-        attest_quality(&plain, &j, SCORES),
+        attest_quality(&t.world, &plain, &j, SCORES),
         &[&t.judge],
         NOT_INITIALIZED,
     );
@@ -224,7 +232,7 @@ fn s3_a_job_never_opted_in_refunded_or_not_yet_paid_cannot_be_attested() {
     );
     t.world.refused(
         "never opted in, paid",
-        attest_quality(&plain, &j, SCORES),
+        attest_quality(&t.world, &plain, &j, SCORES),
         &[&t.judge],
         NOT_INITIALIZED,
     );
@@ -233,7 +241,7 @@ fn s3_a_job_never_opted_in_refunded_or_not_yet_paid_cannot_be_attested() {
     let (pending, n) = t.locked(Some(&j));
     t.world.refused(
         "not yet paid",
-        attest_quality(&pending, &j, SCORES),
+        attest_quality(&t.world, &pending, &j, SCORES),
         &[&t.judge],
         JOB_NOT_PAID,
     );
@@ -246,7 +254,7 @@ fn s3_a_job_never_opted_in_refunded_or_not_yet_paid_cannot_be_attested() {
     );
     t.world.refused(
         "refunded",
-        attest_quality(&pending, &j, SCORES),
+        attest_quality(&t.world, &pending, &j, SCORES),
         &[&t.judge],
         NOT_INITIALIZED,
     );
@@ -263,7 +271,7 @@ fn attest_refuses_every_wrong_account_and_score() {
     let other = t.paid(Some(&j));
     let primary_job = t.paid(Some(&t.primary.pubkey()));
     let unregistered_job = t.paid(Some(&t.stranger.pubkey()));
-    let good = attest_quality(&escrow, &j, SCORES);
+    let good = attest_quality(&t.world, &escrow, &j, SCORES);
 
     t.world.refused(
         "too few accounts",
@@ -284,7 +292,7 @@ fn attest_refuses_every_wrong_account_and_score() {
     for scores in [[0, 5, 5, 5, 5], [5, 5, 5, 5, 11], [5, 5, 255, 5, 5]] {
         t.world.refused(
             "score out of range",
-            attest_quality(&escrow, &j, scores),
+            attest_quality(&t.world, &escrow, &j, scores),
             &[&t.judge],
             ATTESTATION_SCORE_OUT_OF_RANGE,
         );
@@ -321,7 +329,17 @@ fn attest_refuses_every_wrong_account_and_score() {
     );
     t.world.refused(
         "rating of another job with this job's attestation address",
-        swap(good.clone(), 1, rating_address(&other)),
+        // Names the other job's slot, so only the address is wrong.
+        swap(
+            attest_quality_of(
+                &escrow,
+                &j,
+                SCORES,
+                t.world.opened_slot(&rating_address(&other)),
+            ),
+            1,
+            rating_address(&other),
+        ),
         &[&t.judge],
         CONSTRAINT_SEEDS,
     );
@@ -367,14 +385,14 @@ fn attest_refuses_every_wrong_account_and_score() {
     // A named judge that is registered, but not as an attestation agent.
     t.world.refused(
         "a primary agent named as judge",
-        attest_quality(&primary_job, &t.primary.pubkey(), SCORES),
+        attest_quality(&t.world, &primary_job, &t.primary.pubkey(), SCORES),
         &[&t.primary],
         NOT_ATTESTATION_AGENT,
     );
     // A named judge that is not registered at all.
     t.world.refused(
         "an unregistered wallet named as judge",
-        attest_quality(&unregistered_job, &t.stranger.pubkey(), SCORES),
+        attest_quality(&t.world, &unregistered_job, &t.stranger.pubkey(), SCORES),
         &[&t.stranger],
         NOT_INITIALIZED,
     );
@@ -398,8 +416,11 @@ fn a_job_can_be_attested_once_its_rating_is_final() {
         expire_rating(&rating, &j, &t.specialist.pubkey(), &t.c()),
         &[&t.judge],
     );
-    t.world
-        .ok("attest", attest_quality(&escrow, &j, SCORES), &[&t.judge]);
+    t.world.ok(
+        "attest",
+        attest_quality(&t.world, &escrow, &j, SCORES),
+        &[&t.judge],
+    );
     // The attestation outlives the rating account.
     t.world
         .ok("close", close_rating(&rating, &t.c()), &[&t.consumer]);
@@ -423,8 +444,11 @@ fn s4_s5_only_the_jobs_buyer_resolves_and_only_once() {
         let j = t.j();
         t.world.set_reputation(&j, 6_000);
         let escrow = t.paid(Some(&j));
-        t.world
-            .ok("attest", attest_quality(&escrow, &j, SCORES), &[&t.judge]);
+        t.world.ok(
+            "attest",
+            attest_quality(&t.world, &escrow, &j, SCORES),
+            &[&t.judge],
+        );
         let address = attestation_address(&escrow);
 
         // S4: nobody but the buyer.
@@ -487,8 +511,11 @@ fn resolve_refuses_every_wrong_account() {
     let j = t.j();
     let escrow = t.paid(Some(&j));
     let unattested = t.paid(Some(&j));
-    t.world
-        .ok("attest", attest_quality(&escrow, &j, SCORES), &[&t.judge]);
+    t.world.ok(
+        "attest",
+        attest_quality(&t.world, &escrow, &j, SCORES),
+        &[&t.judge],
+    );
     let good = resolve_attestation(&escrow, &j, &t.c(), true);
 
     t.world.refused(
@@ -572,7 +599,7 @@ fn a_job_the_specialist_never_agreed_to_rate_cannot_be_attested() {
     assert!(!t.world.exists(&rating_address(&escrow)));
     t.world.refused(
         "attest a job that is paid but not rated",
-        attest_quality(&escrow, &j, SCORES),
+        attest_quality(&t.world, &escrow, &j, SCORES),
         &[&t.judge],
         NOT_INITIALIZED,
     );
@@ -586,8 +613,11 @@ fn a_resolved_attestation_can_be_closed_by_its_judge() {
         let j = t.j();
         let escrow = t.paid(Some(&j));
         let address = attestation_address(&escrow);
-        t.world
-            .ok("attest", attest_quality(&escrow, &j, SCORES), &[&t.judge]);
+        t.world.ok(
+            "attest",
+            attest_quality(&t.world, &escrow, &j, SCORES),
+            &[&t.judge],
+        );
         let good = close_attestation(&escrow, &j);
 
         // Unresolved and inside the window: not yet.
@@ -662,7 +692,7 @@ fn a_resolved_attestation_can_be_closed_by_its_judge() {
         assert!(t.world.rating(&rating_address(&escrow)).attested);
         t.world.refused(
             "attest the same job again after closing",
-            attest_quality(&escrow, &j, [10; 5]),
+            attest_quality(&t.world, &escrow, &j, [10; 5]),
             &[&t.judge],
             ALREADY_ATTESTED,
         );
@@ -684,8 +714,11 @@ fn an_unresolved_attestation_can_be_closed_only_after_its_window() {
     let j = t.j();
     let escrow = t.paid(Some(&j));
     t.world.warp(t.world.slot() + 500);
-    t.world
-        .ok("attest", attest_quality(&escrow, &j, SCORES), &[&t.judge]);
+    t.world.ok(
+        "attest",
+        attest_quality(&t.world, &escrow, &j, SCORES),
+        &[&t.judge],
+    );
     let created = t
         .world
         .attestation(&attestation_address(&escrow))
@@ -722,8 +755,11 @@ fn an_attestation_of_a_judge_that_deregistered_is_still_resolved() {
         let mut t = Court::new();
         let j = t.j();
         let escrow = t.paid(Some(&j));
-        t.world
-            .ok("attest", attest_quality(&escrow, &j, SCORES), &[&t.judge]);
+        t.world.ok(
+            "attest",
+            attest_quality(&t.world, &escrow, &j, SCORES),
+            &[&t.judge],
+        );
         t.world.deregister(&key(4));
         assert!(!t.world.exists(&agent(&j)));
 
@@ -787,8 +823,11 @@ fn a_closed_attestation_frees_the_address_for_a_later_job() {
     let j = t.j();
     let escrow = t.paid(Some(&j));
     let rating = rating_address(&escrow);
-    t.world
-        .ok("attest", attest_quality(&escrow, &j, SCORES), &[&t.judge]);
+    t.world.ok(
+        "attest",
+        attest_quality(&t.world, &escrow, &j, SCORES),
+        &[&t.judge],
+    );
     t.world.ok(
         "dispute",
         resolve_attestation(&escrow, &j, &t.c(), false),
@@ -813,7 +852,7 @@ fn a_closed_attestation_frees_the_address_for_a_later_job() {
     assert_eq!(t.paid(Some(&j)), escrow);
     t.world.ok(
         "attest again",
-        attest_quality(&escrow, &j, [3; 5]),
+        attest_quality(&t.world, &escrow, &j, [3; 5]),
         &[&t.judge],
     );
     let fresh = t.world.attestation(&attestation_address(&escrow));
@@ -836,7 +875,7 @@ fn a_judge_whose_record_is_not_active_cannot_attest() {
     );
     t.world.refused(
         "attest while not active",
-        attest_quality(&escrow, &j, SCORES),
+        attest_quality(&t.world, &escrow, &j, SCORES),
         &[&t.judge],
         JUDGE_NOT_ACTIVE,
     );
@@ -846,8 +885,11 @@ fn a_judge_whose_record_is_not_active_cannot_attest() {
         update_agent(&j, rate, floor, true),
         &[&t.judge],
     );
-    t.world
-        .ok("attest", attest_quality(&escrow, &j, SCORES), &[&t.judge]);
+    t.world.ok(
+        "attest",
+        attest_quality(&t.world, &escrow, &j, SCORES),
+        &[&t.judge],
+    );
     // An attestation made while active is still resolved after the judge
     // switches off.
     t.world.ok(
