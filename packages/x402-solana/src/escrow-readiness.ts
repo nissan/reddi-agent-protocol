@@ -5,11 +5,13 @@ import {
   createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddressSync,
   getExtensionTypes,
+  getMemoTransfer,
   getMintCloseAuthority,
   getPausableConfig,
   getPermanentDelegate,
   getTransferFeeConfig,
   getTransferHook,
+  unpackAccount,
   unpackMint,
 } from '@solana/spl-token';
 import { ESCROW_PROTOCOL_TREASURY, TokenEscrowTerms, treasuryTokenAccount } from './token-escrow';
@@ -46,38 +48,87 @@ export function minimumSolPayout(currentLamports: bigint, rentExemptLamports: bi
 }
 
 export interface SettlePreparation {
-  /** Idempotent creates to put before the settle in the same transaction. */
+  /** Creates to put before the settle in the same transaction. Empty unless a create was asked for. */
   instructions: TransactionInstruction[];
-  /** The payer's associated token account, to pass as `refundTo`. */
+  /** Where the unused part returns: the account named in the options, or the payer's associated token account. */
   refundTo: PublicKey;
   treasuryToken: PublicKey;
 }
 
+export interface TokenPayoutOptions {
+  /** Return the unused part to this token account of the payer instead of its associated token account. */
+  refundTo?: PublicKey;
+  /**
+   * Create the treasury's associated token account if it is missing, at the
+   * funder's cost. Off by default: readiness is checked before a currency
+   * opens, and a settle should not carry the create every time.
+   */
+  createTreasuryAccount?: boolean;
+  /**
+   * Create the payer's associated token account if it is missing, at the
+   * funder's cost (its rent, about 0.002 SOL, is not returned to the funder).
+   * Off by default: this is a subsidy, and the caller decides when to pay it.
+   */
+  createRefundAccount?: boolean;
+}
+
 /**
- * Instructions that make sure a token payout's destinations exist: the
- * treasury's associated token account for the mint, and the payer's, which
- * receives the unused part. Both creates are idempotent, so they cost nothing
- * when the accounts are already there. `funder` pays rent for any account it
- * creates and must sign the transaction; for a settle that is the payee.
+ * The accounts a token payout names next to the escrow's own: the treasury's
+ * associated token account for the mint, and the account the unused part
+ * returns to. Nothing is created unless the options ask for it; a create is
+ * idempotent, `funder` pays its rent and must sign the transaction.
  */
 export function prepareTokenPayout(
   t: Pick<TokenEscrowTerms, 'mint' | 'tokenProgram' | 'payer'>,
   funder: PublicKey,
   treasury: PublicKey = ESCROW_PROTOCOL_TREASURY,
+  options: TokenPayoutOptions = {},
 ): SettlePreparation {
   if (!t.tokenProgram.equals(TOKEN_PROGRAM_ID) && !t.tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
     throw new Error('token program must be classic SPL Token or Token-2022');
   }
   const treasuryToken = treasuryTokenAccount(t, treasury);
-  const refundTo = getAssociatedTokenAddressSync(t.mint, t.payer, true, t.tokenProgram);
-  return {
-    treasuryToken,
-    refundTo,
-    instructions: [
-      createAssociatedTokenAccountIdempotentInstruction(funder, treasuryToken, treasury, t.mint, t.tokenProgram),
-      createAssociatedTokenAccountIdempotentInstruction(funder, refundTo, t.payer, t.mint, t.tokenProgram),
-    ],
-  };
+  const payerToken = getAssociatedTokenAddressSync(t.mint, t.payer, true, t.tokenProgram);
+  if (options.createRefundAccount && options.refundTo && !options.refundTo.equals(payerToken)) {
+    throw new Error("only the payer's associated token account can be created here");
+  }
+  const instructions: TransactionInstruction[] = [];
+  if (options.createTreasuryAccount) instructions.push(createAssociatedTokenAccountIdempotentInstruction(funder, treasuryToken, treasury, t.mint, t.tokenProgram));
+  if (options.createRefundAccount) instructions.push(createAssociatedTokenAccountIdempotentInstruction(funder, payerToken, t.payer, t.mint, t.tokenProgram));
+  return { treasuryToken, refundTo: options.refundTo ?? payerToken, instructions };
+}
+
+export type TokenAccountProblem = 'missing' | 'wrong_program' | 'not_token_account' | 'uninitialised' | 'frozen' | 'wrong_mint' | 'wrong_owner' | 'memo_required';
+export type TokenAccountCheck = { ok: true; amount: bigint } | { ok: false; problem: TokenAccountProblem; detail: string };
+
+/**
+ * Whether a token account can receive a transfer of `mint` right now: it
+ * exists under the mint's token program, is initialised and not frozen, holds
+ * the mint, belongs to `owner` when one is named, and does not require a memo
+ * on incoming transfers (the escrow program sends none). Reads the whole
+ * account, not only its first fields.
+ */
+export function checkTokenAccount(
+  address: PublicKey,
+  account: Pick<ReadAccount, 'owner' | 'data'> | null,
+  expected: { mint: PublicKey; tokenProgram: PublicKey; owner?: PublicKey },
+): TokenAccountCheck {
+  if (!account) return { ok: false, problem: 'missing', detail: 'missing' };
+  if (!account.owner.equals(expected.tokenProgram)) {
+    return { ok: false, problem: 'wrong_program', detail: `owned by ${account.owner.toBase58()}, expected ${expected.tokenProgram.toBase58()}` };
+  }
+  let token: ReturnType<typeof unpackAccount>;
+  try {
+    token = unpackAccount(address, { data: Buffer.from(account.data), owner: account.owner, lamports: 0, executable: false }, expected.tokenProgram);
+  } catch {
+    return { ok: false, problem: 'not_token_account', detail: 'not a token account' };
+  }
+  if (!token.isInitialized) return { ok: false, problem: 'uninitialised', detail: 'not initialised' };
+  if (!token.mint.equals(expected.mint)) return { ok: false, problem: 'wrong_mint', detail: `holds mint ${token.mint.toBase58()}` };
+  if (expected.owner && !token.owner.equals(expected.owner)) return { ok: false, problem: 'wrong_owner', detail: `owned by ${token.owner.toBase58()}` };
+  if (token.isFrozen) return { ok: false, problem: 'frozen', detail: 'frozen by the issuer' };
+  if (getMemoTransfer(token)?.requireIncomingTransferMemos) return { ok: false, problem: 'memo_required', detail: 'requires a memo on incoming transfers' };
+  return { ok: true, amount: token.amount };
 }
 
 export interface EscrowMint {
@@ -115,8 +166,9 @@ export interface ReadinessItem {
 
 /**
  * Read-only check that the treasury can receive every payout: enough SOL for a
- * small fee to land, and a token account owned by the treasury for each mint,
- * under the mint's token program. Nothing is sent.
+ * small fee to land, and for each mint a token account under the mint's token
+ * program that the treasury owns, initialised, not frozen and not requiring a
+ * memo. Nothing is sent.
  */
 export async function checkTreasuryReadiness(
   lookup: AccountLookup,
@@ -135,21 +187,15 @@ export async function checkTreasuryReadiness(
   for (const m of mints) {
     const ata = getAssociatedTokenAddressSync(m.mint, treasury, true, m.tokenProgram);
     const account = await lookup(ata);
-    let ok = false;
-    let detail: string;
-    if (!account) {
-      detail = 'missing: create the associated token account before the first payout in this mint';
-    } else if (!account.owner.equals(m.tokenProgram)) {
-      detail = `owned by ${account.owner.toBase58()}, expected ${m.tokenProgram.toBase58()}`;
-    } else if (account.data.length < 72) {
-      detail = 'not a token account';
-    } else {
-      const mint = new PublicKey(account.data.subarray(0, 32));
-      const owner = new PublicKey(account.data.subarray(32, 64));
-      if (!mint.equals(m.mint)) detail = `holds mint ${mint.toBase58()}`;
-      else if (!owner.equals(treasury)) detail = `owned by ${owner.toBase58()}, not the treasury`;
-      else { ok = true; detail = 'exists'; }
-    }
+    const check = checkTokenAccount(ata, account, { mint: m.mint, tokenProgram: m.tokenProgram, owner: treasury });
+    const ok = check.ok;
+    const detail = check.ok
+      ? 'exists, initialised and not frozen'
+      : check.problem === 'missing'
+        ? 'missing: create the associated token account before the first payout in this mint'
+        : check.problem === 'wrong_owner'
+          ? `${check.detail}, not the treasury`
+          : check.detail;
     items.push({ name: `Treasury ${m.symbol} token account`, address: ata.toBase58(), ok, detail });
   }
   return { ok: items.every((i) => i.ok), items };

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { SOLANA_GENESIS_HASHES, tokenEscrowAddresses, treasuryTokenAccount, ESCROW_PROTOCOL_TREASURY } from "@reddi/x402-solana";
+import { SOLANA_GENESIS_HASHES, tokenEscrowAddresses, treasuryTokenAccount, ESCROW_PROTOCOL_TREASURY, type SettlementRecord } from "@reddi/x402-solana";
 import type { ProviderChain } from "../src/chain.js";
 import { parseProviderConfig, type ProviderConfig, type ProviderConfigFile } from "../src/config.js";
 
@@ -58,19 +58,41 @@ export function escrowBytes(f: EscrowFields = {}): Uint8Array {
   return data;
 }
 
-function tokenAccountBytes(mint: PublicKey, owner: PublicKey): Uint8Array {
+/** `state`: 0 uninitialised, 1 initialised, 2 frozen. */
+export function tokenAccountBytes(mint: PublicKey, owner: PublicKey, state = 1): Uint8Array {
   const data = Buffer.alloc(165);
   mint.toBuffer().copy(data, 0);
   owner.toBuffer().copy(data, 32);
+  data[108] = state;
   return data;
 }
+export const tokenAccount = (owner: PublicKey, state = 1) => ({ owner: TOKEN_PROGRAM, data: tokenAccountBytes(USDC, owner, state), lamports: 2_039_280n, executable: false });
 
 export interface FakeChain extends ProviderChain {
   accounts: Map<string, { owner: PublicKey; data: Uint8Array; lamports: bigint; executable: boolean }>;
   sent: TransactionInstruction[][];
   genesis: string;
+  /** Fail this many sends, then succeed. `failSend` fails them all. */
+  failSends: number;
   failSend: boolean;
   failReads: boolean;
+  /** What reading the settle back returns. Unset: what the sent settle would move on chain. */
+  settlement?: SettlementRecord | null | "unreadable";
+  /** Tokens someone else sent to the vault, which the settle returns to the buyer. */
+  donated: bigint;
+}
+
+/** What the program does with a settle of `actual`: 2.5% rounded down to the treasury, the rest to the payee, the unused maximum back. */
+function settledRecord(instruction: TransactionInstruction, max: bigint, donated: bigint): SettlementRecord {
+  const actual = instruction.data.readBigUInt64LE(8);
+  const fee = (actual * 250n) / 10_000n;
+  const row = (index: number, before: bigint, gain: bigint) => ({ account: instruction.keys[index].pubkey.toBase58(), mint: USDC.toBase58(), before, after: before + gain });
+  return {
+    failed: false,
+    programIds: [instruction.programId.toBase58()],
+    accounts: instruction.keys.map((k) => k.pubkey.toBase58()),
+    tokenBalances: [row(5, 1_000n, actual - fee), row(6, 40n, fee), row(7, 0n, max - actual + donated)],
+  };
 }
 
 /** A chain with the program deployed, a funded provider wallet with its USDC account, and a ready treasury. */
@@ -79,16 +101,19 @@ export function fakeChain(escrow: EscrowFields | null = {}): FakeChain {
   const system = PublicKey.default;
   accounts.set(PROGRAM.toBase58(), { owner: system, data: new Uint8Array(36), lamports: 1n, executable: true });
   accounts.set(provider.publicKey.toBase58(), { owner: system, data: new Uint8Array(0), lamports: 50_000_000n, executable: false });
-  accounts.set(ata(provider.publicKey).toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccountBytes(USDC, provider.publicKey), lamports: 2_039_280n, executable: false });
+  accounts.set(ata(provider.publicKey).toBase58(), tokenAccount(provider.publicKey));
+  accounts.set(ata(buyer).toBase58(), tokenAccount(buyer));
   accounts.set(ESCROW_PROTOCOL_TREASURY.toBase58(), { owner: system, data: new Uint8Array(0), lamports: 2_000_000n, executable: false });
-  accounts.set(ata(ESCROW_PROTOCOL_TREASURY).toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccountBytes(USDC, ESCROW_PROTOCOL_TREASURY), lamports: 2_039_280n, executable: false });
+  accounts.set(ata(ESCROW_PROTOCOL_TREASURY).toBase58(), tokenAccount(ESCROW_PROTOCOL_TREASURY));
   if (escrow) accounts.set(escrowAddress().toBase58(), { owner: PROGRAM, data: escrowBytes(escrow), lamports: 2_000_000n, executable: false });
   const chain: FakeChain = {
     accounts,
     sent: [],
     genesis: SOLANA_GENESIS_HASHES["solana-devnet"],
+    failSends: 0,
     failSend: false,
     failReads: false,
+    donated: 0n,
     readGenesisHash: async () => chain.genesis,
     readAccount: async (address) => {
       if (chain.failReads) throw new Error("rpc down");
@@ -97,8 +122,19 @@ export function fakeChain(escrow: EscrowFields | null = {}): FakeChain {
     readSlot: async () => CURRENT_SLOT,
     sendInstructions: async (instructions) => {
       if (chain.failSend) throw new Error("send failed");
+      if (chain.failSends > 0) {
+        chain.failSends -= 1;
+        throw new Error("send failed");
+      }
       chain.sent.push(instructions);
       return SETTLE_SIGNATURE;
+    },
+    readSettlement: async () => {
+      if (chain.settlement === "unreadable") throw new Error("rpc down");
+      if (chain.settlement !== undefined) return chain.settlement;
+      const last = chain.sent[chain.sent.length - 1];
+      const max = Buffer.from(accounts.get(escrowAddress().toBase58())!.data).readBigUInt64LE(168);
+      return last ? settledRecord(last[last.length - 1], max, chain.donated) : null;
     },
   };
   return chain;

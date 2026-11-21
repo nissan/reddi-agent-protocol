@@ -49,7 +49,7 @@ const lock = await verifyMeteredLock({ header, terms, minimum, readAccount, read
 const { settlement, instructions } = meteredSettlement(terms, lock, usageFrom(upstreamAnswer, inputEstimate));
 ```
 
-It reads no key and sends no transaction. `packages/provider-kit` wraps it in a runnable server. Token currencies only (USDC, AUDD, PYUSD, USDG).
+`verifyMeteredLock` also checks that the payout can land (the provider's, the treasury's and the buyer's token accounts), and `confirmMeteredSettlement` reads what a confirmed settle moved, for the receipt. It reads no key and sends no transaction. `packages/provider-kit` wraps it in a runnable server. Token currencies only (USDC, AUDD, PYUSD, USDG).
 
 ## Usage
 

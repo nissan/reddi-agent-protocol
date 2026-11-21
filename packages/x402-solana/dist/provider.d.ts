@@ -28,8 +28,9 @@ export type SlotReader = () => Promise<number | bigint>;
 /**
  * Signs the settle transaction with the provider wallet's key, sends it and
  * waits for confirmation. Returns the signature. The instructions go into one
- * transaction, in order, with the provider wallet as fee payer: idempotent
- * creates of the treasury's and the buyer's token accounts, then the settle.
+ * transaction, in order, with the provider wallet as fee payer: the settle,
+ * preceded by a create of the buyer's token account only when the operator
+ * has chosen to pay for one.
  */
 export type MeteredSettleSigner = (instructions: TransactionInstruction[]) => Promise<string>;
 export interface MeteredTerms {
@@ -39,6 +40,12 @@ export interface MeteredTerms {
     tokenProgram: PublicKey;
     payee: PublicKey;
     maxOutputTokens: number;
+    /**
+     * Another token account of the mint that the provider wallet owns. Payouts
+     * go here when the provider's associated token account, which locks name,
+     * is closed or frozen. A recovery setting; leave it unset otherwise.
+     */
+    payoutAccount?: PublicKey;
 }
 export interface MeteredTermsInput {
     /** A token currency the escrow program accepts: USDC, AUDD, PYUSD or USDG. */
@@ -54,6 +61,8 @@ export interface MeteredTermsInput {
     mint: string | PublicKey;
     /** The provider's wallet. Payouts go to its associated token account for the mint. */
     payee: string | PublicKey;
+    /** Recovery only: another token account of the mint the provider wallet owns, used when its associated token account cannot receive. */
+    payoutAccount?: string | PublicKey;
 }
 /**
  * A provider's metered terms. Throws when the currency is not a token
@@ -130,11 +139,52 @@ export type ClusterCheck = {
  * trusting any account the endpoint returns.
  */
 export declare function checkProviderCluster(readGenesisHash: () => Promise<string>, network: SolanaPaymentNetwork, expectedGenesisHash?: string): Promise<ClusterCheck>;
+/** The accounts a settle pays into, as checked on chain. */
+export interface PayoutAccounts {
+    /** Set when the provider is paid at its recovery account instead of the recipient the lock names. */
+    payTo?: PublicKey;
+    treasuryToken: PublicKey;
+    /** Where the unused part returns: a token account of the mint the payer owns. */
+    refundTo: PublicKey;
+    /** Pass the mint writable, so fees withheld on a Token-2022 vault are moved out and the vault can close. */
+    harvestWithheldFees: boolean;
+    /** The settle first creates `refundTo`, the payer's associated token account, at the provider's cost. */
+    createRefundAccount?: boolean;
+}
+export type PayoutCheck = {
+    ok: true;
+    payout: PayoutAccounts;
+} | {
+    ok: false;
+    reason: 'refund_account_unusable' | 'provider_not_ready' | 'payment_check_unavailable';
+    message: string;
+};
+/**
+ * Reads every account a settle of this escrow would pay into and says whether
+ * the payout can land: the provider's token account (or its recovery
+ * account), the treasury's, and the buyer's account for the unused part. Each
+ * must exist under the mint's token program, be initialised, not frozen, hold
+ * the mint, have the right owner and not require a memo.
+ *
+ * Nothing is created by default. `allowPayerAssociatedAccount` lets the
+ * unused part go to the payer's associated token account when the recorded
+ * source no longer works; `createRefundAccount` lets the provider pay to
+ * create that account when it does not exist at all.
+ */
+export declare function checkMeteredPayout(input: {
+    terms: MeteredTerms;
+    escrow: Pick<TokenEscrowTerms, 'payer' | 'source' | 'recipient'>;
+    readAccount: AccountReader;
+    treasury?: PublicKey;
+    allowPayerAssociatedAccount?: boolean;
+    createRefundAccount?: boolean;
+}): Promise<PayoutCheck>;
 export type VerifiedLock = {
     ok: true;
     terms: TokenEscrowTerms;
     maxBaseUnits: bigint;
     payer: PublicKey;
+    payout: PayoutAccounts;
 } | {
     ok: false;
     reason: string;
@@ -143,7 +193,10 @@ export type VerifiedLock = {
 /**
  * Checks the lock on chain against this provider's terms: the escrow program,
  * the address the payer and nonce give, still locked, metered, payable to this
- * provider's token account in the accepted mint, and at least `minimum`.
+ * provider's token account in the accepted mint, and at least `minimum`. Then
+ * checks that the payout can land (`checkMeteredPayout`), using the source
+ * account the lock recorded for the unused part, so a call is refused before
+ * any work is done rather than left unpaid after it.
  * The escrow is then remembered, so one lock pays for one call.
  */
 export declare function verifyMeteredLock(input: {
@@ -153,28 +206,77 @@ export declare function verifyMeteredLock(input: {
     readAccount: AccountReader;
     readSlot: SlotReader;
     replayStore: NonceReplayStore;
+    /** The protocol treasury. Only a local test deployment has another. */
+    treasury?: PublicKey;
 }): Promise<VerifiedLock>;
 /** Token counts from an OpenAI-style usage report, or the estimate from the text when it reports none. */
 export declare function usageFrom(upstream: Record<string, unknown>, inputEstimate: number): TokenCounts;
 /**
- * The settle for the tokens used, never above the locked maximum. The unused
- * part goes to the buyer's associated token account, and the transaction first
- * creates it and the treasury's token account if either is missing, so a
- * closed source account or a treasury account not yet created cannot stop the
- * payout. The provider pays rent for anything it creates.
+ * The settle for the tokens used, never above the locked maximum. It pays
+ * into the accounts checked with the lock (`lock.payout`), or into `payout`
+ * when the caller has checked them again. Nothing is created unless that
+ * check chose to create the buyer's token account.
  */
 export declare function meteredSettlement(terms: MeteredTerms, lock: Extract<VerifiedLock, {
     ok: true;
-}>, usage: TokenCounts): {
+}>, usage: TokenCounts, payout?: PayoutAccounts): {
     settlement: MeteredSettlement;
     instruction: TransactionInstruction;
     instructions: TransactionInstruction[];
 };
+/** One token account's balance before and after a transaction, in base units. */
+export interface TokenBalanceChange {
+    account: string;
+    mint: string;
+    before: bigint;
+    after: bigint;
+}
+/** What a confirmed transaction did, as read back from the chain. */
+export interface SettlementRecord {
+    failed: boolean;
+    /** Programs its instructions called. */
+    programIds: string[];
+    /** Every account it named. */
+    accounts: string[];
+    tokenBalances: TokenBalanceChange[];
+}
+export type ConfirmedSettlement = {
+    ok: true;
+    /** What left the lock for the provider and the treasury together: the amount billed. */
+    paidBaseUnits: bigint;
+    feeBaseUnits: bigint;
+    providerBaseUnits: bigint;
+    /** The buyer's own unused part: the maximum less the amount billed. */
+    refundedBaseUnits: bigint;
+    /** Anything returned to the buyer above that, for example tokens someone else sent to the vault. */
+    surplusBaseUnits: bigint;
+} | {
+    ok: false;
+    reason: 'not_found' | 'failed' | 'wrong_transaction' | 'amounts_do_not_add_up';
+};
+/**
+ * The amounts a settle actually moved, from the confirmed transaction: it
+ * must have succeeded, called the escrow program and named this escrow. The
+ * provider's credit and the treasury's fee are read from the balance changes,
+ * not from what the provider intended. Refused when the buyer got back less
+ * than the maximum less the amount billed, or more was billed than was
+ * locked: a receipt cannot state that honestly.
+ */
+export declare function confirmMeteredSettlement(record: SettlementRecord | null, expected: {
+    programId: PublicKey;
+    escrow: PublicKey;
+    mint: PublicKey;
+    destination: PublicKey;
+    treasuryToken: PublicKey;
+    refundTo: PublicKey;
+    maxBaseUnits: bigint;
+}): ConfirmedSettlement;
 /**
  * Declines a verified lock the provider will not serve, for example when the
  * model failed before any work was done: the payee may refund the whole
- * amount to the payer at any time. Returns the instruction for the operator
- * to sign with the provider wallet.
+ * amount to the payer at any time. The program sends a decline to the source
+ * account the lock recorded, which the lock check found usable. Returns the
+ * instruction for the operator to sign with the provider wallet.
  */
 export declare function meteredDecline(terms: MeteredTerms, lock: Extract<VerifiedLock, {
     ok: true;

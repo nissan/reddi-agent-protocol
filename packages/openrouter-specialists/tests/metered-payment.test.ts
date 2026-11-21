@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { MemoryNonceReplayStore, tokenEscrowAddresses, treasuryTokenAccount } from "@reddi/x402-solana";
+import { ESCROW_PROTOCOL_TREASURY, MemoryNonceReplayStore, tokenEscrowAddresses, treasuryTokenAccount } from "@reddi/x402-solana";
 import { MockOpenRouterClient } from "../src/openrouter.js";
 import { getProfile } from "../src/profiles/index.js";
 import { handleRuntimeRequest, PROVIDER_RECEIPT_HEADER, type ProviderReceiptStatement, type RuntimeConfig, type RuntimeDeps } from "../src/index.js";
@@ -10,7 +10,6 @@ import { handleRuntimeRequest, PROVIDER_RECEIPT_HEADER, type ProviderReceiptStat
 const PROGRAM = new PublicKey("DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu");
 const USDC = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
 const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-const ASSOCIATED_TOKEN_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 const SETTLE_SIG = "4".repeat(88);
 const profile = getProfile("planning-agent")!;
 const payee = new PublicKey(profile.walletAddress);
@@ -67,7 +66,17 @@ function deps(account: { owner?: PublicKey; data: Uint8Array } | null, settle?: 
   const statements: ProviderReceiptStatement[] = [];
   const value: RuntimeDeps = {
     replayStore: new MemoryNonceReplayStore(),
-    readAccount: async (address) => (address.equals(escrow) && account ? { owner: account.owner ?? PROGRAM, data: account.data } : null),
+    readAccount: async (address) => {
+      if (address.equals(escrow)) return account ? { owner: account.owner ?? PROGRAM, data: account.data } : null;
+      // The provider's, the treasury's and the buyer's USDC accounts exist and can receive.
+      const owner = [payee, ESCROW_PROTOCOL_TREASURY, payer].find((wallet) => treasuryTokenAccount({ mint: USDC, tokenProgram: TOKEN_PROGRAM }, wallet).equals(address));
+      if (!owner) return null;
+      const data = Buffer.alloc(165);
+      USDC.toBuffer().copy(data, 0);
+      owner.toBuffer().copy(data, 32);
+      data[108] = 1;
+      return { owner: TOKEN_PROGRAM, data };
+    },
     readSlot,
     settleMeteredEscrow:
       settle ??
@@ -121,19 +130,12 @@ test("settles the reported tokens, answers, and signs a metered-escrow receipt n
   assert.equal(d.settled[0].data.readBigUInt64LE(8), BigInt(18));
   assert.ok(d.settled[0].keys[2].pubkey.equals(payee));
   assert.equal(d.settled[0].keys[2].isSigner, true);
-  // Before the settle, idempotent creates of the treasury's and the buyer's token accounts, paid by the provider.
-  const [treasuryCreate, refundCreate, settle] = d.transactions[0];
-  assert.equal(d.transactions[0].length, 3);
+  // The settle goes alone: the accounts it pays were read with the lock, and nothing is created.
+  const [settle] = d.transactions[0];
+  assert.equal(d.transactions[0].length, 1);
   assert.equal(settle, d.settled[0]);
-  for (const create of [treasuryCreate, refundCreate]) {
-    assert.ok(create.programId.equals(ASSOCIATED_TOKEN_PROGRAM));
-    assert.deepEqual(Array.from(create.data), [1]);
-    assert.ok(create.keys[0].pubkey.equals(payee));
-  }
-  // The treasury account it creates is the one the settle pays the fee to; the unused part goes to the buyer's associated token account.
-  assert.ok(treasuryCreate.keys[1].pubkey.equals(settle.keys[6].pubkey));
-  assert.ok(refundCreate.keys[1].pubkey.equals(settle.keys[7].pubkey));
-  assert.ok(refundCreate.keys[2].pubkey.equals(payer));
+  assert.ok(settle.keys[6].pubkey.equals(treasuryTokenAccount({ mint: USDC, tokenProgram: TOKEN_PROGRAM }, ESCROW_PROTOCOL_TREASURY)));
+  assert.ok(settle.keys[7].pubkey.equals(treasuryTokenAccount({ mint: USDC, tokenProgram: TOKEN_PROGRAM }, payer)));
   const body = (await response.clone().json()) as { reddi: { metered: Record<string, unknown> } };
   assert.equal(body.reddi.metered.settleSignature, SETTLE_SIG);
   assert.equal(body.reddi.metered.refund, "0.005982");

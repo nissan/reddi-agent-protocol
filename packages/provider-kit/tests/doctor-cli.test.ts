@@ -7,7 +7,9 @@ import { SOLANA_GENESIS_HASHES } from "@reddi/x402-solana";
 import { runCli } from "../src/cli.js";
 import { formatDoctor, runDoctor } from "../src/doctor.js";
 import { startProvider } from "../src/server.js";
-import { ata, config, configFile, fakeChain, provider } from "./helpers.js";
+import { ESCROW_PROTOCOL_TREASURY } from "@reddi/x402-solana";
+import { Keypair } from "@solana/web3.js";
+import { ata, config, configFile, fakeChain, provider, tokenAccount } from "./helpers.js";
 
 const key = { ok: true as const, key: { keypair: provider, signMessage: () => new Uint8Array(64) } };
 const okFetch = async () => ({ ok: true, status: 200 });
@@ -28,6 +30,33 @@ test("a missing token account fails with the command that creates it", async () 
   const check = result.checks.find((c) => c.name === "USDC token account")!;
   assert.equal(check.status, "fail");
   assert.match(check.fix!, /^Create it: spl-token create-account 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU --owner .* --url devnet$/);
+});
+
+test("a frozen or missing treasury account fails, a frozen payout account fails unless a recovery account is ready, and a pause is shown", async () => {
+  const run = (chain = fakeChain(null), file = {}) => runDoctor({ config: config(file), chain, key, fetchImpl: okFetch, canWrite: () => true });
+
+  const frozenTreasury = fakeChain(null);
+  frozenTreasury.accounts.set(ata(ESCROW_PROTOCOL_TREASURY).toBase58(), tokenAccount(ESCROW_PROTOCOL_TREASURY, 2));
+  const treasury = await run(frozenTreasury);
+  assert.equal(statusOf(treasury, "Protocol treasury"), "fail");
+  assert.match(treasury.checks.find((c) => c.name === "Protocol treasury")!.detail, /frozen/);
+  const missingTreasury = fakeChain(null);
+  missingTreasury.accounts.delete(ata(ESCROW_PROTOCOL_TREASURY).toBase58());
+  assert.equal(statusOf(await run(missingTreasury), "Protocol treasury"), "fail");
+
+  const frozenPayout = fakeChain(null);
+  frozenPayout.accounts.set(ata(provider.publicKey).toBase58(), tokenAccount(provider.publicKey, 2));
+  assert.equal(statusOf(await run(frozenPayout), "USDC token account"), "fail");
+  const recovery = Keypair.generate().publicKey;
+  frozenPayout.accounts.set(recovery.toBase58(), tokenAccount(provider.publicKey));
+  const recovered = await run(frozenPayout, { payoutAccount: recovery.toBase58() });
+  assert.deepEqual([statusOf(recovered, "USDC token account"), statusOf(recovered, "Recovery payout account"), recovered.ok], ["warn", "pass", true]);
+  // A recovery account someone else owns is a failure.
+  frozenPayout.accounts.set(recovery.toBase58(), tokenAccount(Keypair.generate().publicKey));
+  assert.equal(statusOf(await run(frozenPayout, { payoutAccount: recovery.toBase58() }), "Recovery payout account"), "fail");
+
+  const paused = await run(fakeChain(null), { pausedCurrencies: ["USDC"] });
+  assert.deepEqual([statusOf(paused, "Payments"), paused.ok], ["warn", true]);
 });
 
 test("the wrong cluster stops the run at the RPC line", async () => {

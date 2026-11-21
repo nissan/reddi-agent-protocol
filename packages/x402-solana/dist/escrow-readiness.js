@@ -4,6 +4,7 @@ exports.ESCROW_DEVNET_MINTS = exports.ESCROW_MAINNET_MINTS = exports.TREASURY_MI
 exports.solPayoutWouldFail = solPayoutWouldFail;
 exports.minimumSolPayout = minimumSolPayout;
 exports.prepareTokenPayout = prepareTokenPayout;
+exports.checkTokenAccount = checkTokenAccount;
 exports.checkTreasuryReadiness = checkTreasuryReadiness;
 exports.token2022MintPosture = token2022MintPosture;
 exports.mintPostureChanges = mintPostureChanges;
@@ -38,26 +39,58 @@ function minimumSolPayout(currentLamports, rentExemptLamports = exports.SYSTEM_A
     return currentLamports >= rentExemptLamports ? 0n : rentExemptLamports - currentLamports;
 }
 /**
- * Instructions that make sure a token payout's destinations exist: the
- * treasury's associated token account for the mint, and the payer's, which
- * receives the unused part. Both creates are idempotent, so they cost nothing
- * when the accounts are already there. `funder` pays rent for any account it
- * creates and must sign the transaction; for a settle that is the payee.
+ * The accounts a token payout names next to the escrow's own: the treasury's
+ * associated token account for the mint, and the account the unused part
+ * returns to. Nothing is created unless the options ask for it; a create is
+ * idempotent, `funder` pays its rent and must sign the transaction.
  */
-function prepareTokenPayout(t, funder, treasury = token_escrow_1.ESCROW_PROTOCOL_TREASURY) {
+function prepareTokenPayout(t, funder, treasury = token_escrow_1.ESCROW_PROTOCOL_TREASURY, options = {}) {
     if (!t.tokenProgram.equals(spl_token_1.TOKEN_PROGRAM_ID) && !t.tokenProgram.equals(spl_token_1.TOKEN_2022_PROGRAM_ID)) {
         throw new Error('token program must be classic SPL Token or Token-2022');
     }
     const treasuryToken = (0, token_escrow_1.treasuryTokenAccount)(t, treasury);
-    const refundTo = (0, spl_token_1.getAssociatedTokenAddressSync)(t.mint, t.payer, true, t.tokenProgram);
-    return {
-        treasuryToken,
-        refundTo,
-        instructions: [
-            (0, spl_token_1.createAssociatedTokenAccountIdempotentInstruction)(funder, treasuryToken, treasury, t.mint, t.tokenProgram),
-            (0, spl_token_1.createAssociatedTokenAccountIdempotentInstruction)(funder, refundTo, t.payer, t.mint, t.tokenProgram),
-        ],
-    };
+    const payerToken = (0, spl_token_1.getAssociatedTokenAddressSync)(t.mint, t.payer, true, t.tokenProgram);
+    if (options.createRefundAccount && options.refundTo && !options.refundTo.equals(payerToken)) {
+        throw new Error("only the payer's associated token account can be created here");
+    }
+    const instructions = [];
+    if (options.createTreasuryAccount)
+        instructions.push((0, spl_token_1.createAssociatedTokenAccountIdempotentInstruction)(funder, treasuryToken, treasury, t.mint, t.tokenProgram));
+    if (options.createRefundAccount)
+        instructions.push((0, spl_token_1.createAssociatedTokenAccountIdempotentInstruction)(funder, payerToken, t.payer, t.mint, t.tokenProgram));
+    return { treasuryToken, refundTo: options.refundTo ?? payerToken, instructions };
+}
+/**
+ * Whether a token account can receive a transfer of `mint` right now: it
+ * exists under the mint's token program, is initialised and not frozen, holds
+ * the mint, belongs to `owner` when one is named, and does not require a memo
+ * on incoming transfers (the escrow program sends none). Reads the whole
+ * account, not only its first fields.
+ */
+function checkTokenAccount(address, account, expected) {
+    if (!account)
+        return { ok: false, problem: 'missing', detail: 'missing' };
+    if (!account.owner.equals(expected.tokenProgram)) {
+        return { ok: false, problem: 'wrong_program', detail: `owned by ${account.owner.toBase58()}, expected ${expected.tokenProgram.toBase58()}` };
+    }
+    let token;
+    try {
+        token = (0, spl_token_1.unpackAccount)(address, { data: Buffer.from(account.data), owner: account.owner, lamports: 0, executable: false }, expected.tokenProgram);
+    }
+    catch {
+        return { ok: false, problem: 'not_token_account', detail: 'not a token account' };
+    }
+    if (!token.isInitialized)
+        return { ok: false, problem: 'uninitialised', detail: 'not initialised' };
+    if (!token.mint.equals(expected.mint))
+        return { ok: false, problem: 'wrong_mint', detail: `holds mint ${token.mint.toBase58()}` };
+    if (expected.owner && !token.owner.equals(expected.owner))
+        return { ok: false, problem: 'wrong_owner', detail: `owned by ${token.owner.toBase58()}` };
+    if (token.isFrozen)
+        return { ok: false, problem: 'frozen', detail: 'frozen by the issuer' };
+    if ((0, spl_token_1.getMemoTransfer)(token)?.requireIncomingTransferMemos)
+        return { ok: false, problem: 'memo_required', detail: 'requires a memo on incoming transfers' };
+    return { ok: true, amount: token.amount };
 }
 /** The mainnet allowlist of the V1 escrow program (programs/pinocchio-escrow/program/src/consts.rs). */
 exports.ESCROW_MAINNET_MINTS = Object.freeze([
@@ -72,8 +105,9 @@ exports.ESCROW_DEVNET_MINTS = Object.freeze([
 ]);
 /**
  * Read-only check that the treasury can receive every payout: enough SOL for a
- * small fee to land, and a token account owned by the treasury for each mint,
- * under the mint's token program. Nothing is sent.
+ * small fee to land, and for each mint a token account under the mint's token
+ * program that the treasury owns, initialised, not frozen and not requiring a
+ * memo. Nothing is sent.
  */
 async function checkTreasuryReadiness(lookup, mints = exports.ESCROW_MAINNET_MINTS, treasury = token_escrow_1.ESCROW_PROTOCOL_TREASURY) {
     const items = [];
@@ -88,29 +122,15 @@ async function checkTreasuryReadiness(lookup, mints = exports.ESCROW_MAINNET_MIN
     for (const m of mints) {
         const ata = (0, spl_token_1.getAssociatedTokenAddressSync)(m.mint, treasury, true, m.tokenProgram);
         const account = await lookup(ata);
-        let ok = false;
-        let detail;
-        if (!account) {
-            detail = 'missing: create the associated token account before the first payout in this mint';
-        }
-        else if (!account.owner.equals(m.tokenProgram)) {
-            detail = `owned by ${account.owner.toBase58()}, expected ${m.tokenProgram.toBase58()}`;
-        }
-        else if (account.data.length < 72) {
-            detail = 'not a token account';
-        }
-        else {
-            const mint = new web3_js_1.PublicKey(account.data.subarray(0, 32));
-            const owner = new web3_js_1.PublicKey(account.data.subarray(32, 64));
-            if (!mint.equals(m.mint))
-                detail = `holds mint ${mint.toBase58()}`;
-            else if (!owner.equals(treasury))
-                detail = `owned by ${owner.toBase58()}, not the treasury`;
-            else {
-                ok = true;
-                detail = 'exists';
-            }
-        }
+        const check = checkTokenAccount(ata, account, { mint: m.mint, tokenProgram: m.tokenProgram, owner: treasury });
+        const ok = check.ok;
+        const detail = check.ok
+            ? 'exists, initialised and not frozen'
+            : check.problem === 'missing'
+                ? 'missing: create the associated token account before the first payout in this mint'
+                : check.problem === 'wrong_owner'
+                    ? `${check.detail}, not the treasury`
+                    : check.detail;
         items.push({ name: `Treasury ${m.symbol} token account`, address: ata.toBase58(), ok, detail });
     }
     return { ok: items.every((i) => i.ok), items };
