@@ -128,7 +128,7 @@ pub fn process_instruction(
         selector::UPDATE_AGENT => registry::update(program_id, accounts, data),
         selector::DEREGISTER_AGENT => registry::deregister(program_id, accounts),
         selector::OPEN_RATING => rating::open(program_id, accounts, data),
-        selector::ACCEPT_RATING => rating::accept(program_id, accounts),
+        selector::ACCEPT_RATING => rating::accept(program_id, accounts, data),
         selector::CLOSE_ATTESTATION => attestation::close_resolved(program_id, accounts),
         selector::COMMIT_RATING => rating::commit(program_id, accounts, data),
         selector::REVEAL_RATING => rating::reveal(program_id, accounts, data),

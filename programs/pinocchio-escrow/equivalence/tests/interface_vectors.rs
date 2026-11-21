@@ -131,13 +131,13 @@ fn build() -> Value {
     );
     accounts.push(account(&world, "rating_open", &rating));
 
-    let consumer_commitment = commitment(&rating, &c, 9, SALT_CONSUMER);
-    let specialist_commitment = commitment(&rating, &s, 4, SALT_SPECIALIST);
+    let consumer_commitment = commitment(&world, &rating, &c, 9, SALT_CONSUMER);
+    let specialist_commitment = commitment(&world, &rating, &s, 4, SALT_SPECIALIST);
     world.warp(1_020);
     send(
         &mut world,
         "commit_rating",
-        "data: commitment = sha256(rating address, signer address, score byte, 32-byte salt)",
+        "data: commitment = sha256(rating address, opened slot (u64 LE), signer address, score byte, 32-byte salt)",
         commit_rating(&rating, &c, consumer_commitment),
         &["rating", "signer"],
         &consumer,
@@ -151,11 +151,12 @@ fn build() -> Value {
     accounts.push(account(&world, "rating_both_committed", &rating));
 
     world.warp(1_040);
+    let attest = attest_quality(&world, &escrow, &j, [9, 8, 10, 1, 7]);
     send(
         &mut world,
         "attest_quality",
-        "data: five scores, 1 to 10",
-        attest_quality(&escrow, &j, [9, 8, 10, 1, 7]),
+        "data: five scores, 1 to 10, then the slot the rating was opened in (u64 LE)",
+        attest,
         &[
             "attestation",
             "rating",
@@ -205,11 +206,12 @@ fn build() -> Value {
     let rating = rating_address(&escrow);
     world.ok("lock", sol_lock(&c, &s, 1_000_000, n, false), &[&consumer]);
     world.ok("open", open_rating(&escrow, &c, Some(&j)), &[&consumer]);
+    let accept = accept_rating(&world, &rating, &s);
     send(
         &mut world,
         "accept_rating",
-        "no data; lets a release by the payer open the rating",
-        accept_rating(&rating, &s),
+        "data: the slot the rating was opened in (u64 LE); lets a release by the payer open the rating",
+        accept,
         &["rating", "specialist"],
         &specialist,
     );
@@ -233,7 +235,11 @@ fn build() -> Value {
         ],
         &consumer,
     );
-    world.ok("attest", attest_quality(&escrow, &j, [2; 5]), &[&judge]);
+    world.ok(
+        "attest",
+        attest_quality(&world, &escrow, &j, [2; 5]),
+        &[&judge],
+    );
     send(
         &mut world,
         "dispute_attestation",
@@ -250,7 +256,7 @@ fn build() -> Value {
         &["attestation", "judge"],
         &judge,
     );
-    world.warp(1_040 + RATING_COMMIT_SLOTS + 1);
+    world.warp(world.slot() + RATING_COMMIT_SLOTS + 1);
     send(
         &mut world,
         "expire_rating",

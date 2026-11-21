@@ -202,6 +202,7 @@ impl World {
     }
 
     /// Send one transaction. `signers[0]` pays the fee.
+    /// After a successful `open_rating` the world moves to the next slot.
     pub fn send(&mut self, ixs: &[Instruction], signers: &[&Keypair]) -> Result<Sent, String> {
         for ix in ixs {
             self.touched
@@ -224,6 +225,17 @@ impl World {
             fee,
             "lamports must be conserved: every lamport that left one account arrived in another"
         );
+        // A confirmed transaction that opened a rating is followed by a later
+        // slot, as on a live cluster: a rated escrow cannot end in the slot
+        // its rating was opened in, and tests that need that slot build both
+        // steps into one transaction.
+        if result.is_ok()
+            && ixs
+                .iter()
+                .any(|ix| ix.data.starts_with(&selector("open_rating")))
+        {
+            self.next_slot();
+        }
         match result {
             Ok(meta) => Ok(Sent {
                 events: meta
@@ -349,6 +361,22 @@ impl World {
         account.data[at..at + 2].copy_from_slice(&score.to_le_bytes());
         self.set(address, account);
         assert_eq!(self.agent(owner).reputation_score, score);
+    }
+
+    /// The slot the rating at `address` was opened in; 0 when the account is
+    /// not a rating of the program.
+    pub fn opened_slot(&self, address: &Pubkey) -> u64 {
+        match self.svm.get_account(address) {
+            Some(account) if account.data.len() == 270 => u64_at(&account.data, 240),
+            _ => 0,
+        }
+    }
+
+    /// Move to the next slot. A rated escrow cannot end in the slot its
+    /// rating was opened in.
+    pub fn next_slot(&mut self) {
+        let slot = self.slot();
+        self.warp(slot + 1);
     }
 
     pub fn rating(&self, address: &Pubkey) -> Rating {
@@ -531,10 +559,17 @@ pub fn open_rating(escrow: &Pubkey, payer: &Pubkey, judge: Option<&Pubkey>) -> I
     )
 }
 
-pub fn accept_rating(rating: &Pubkey, specialist: &Pubkey) -> Instruction {
+/// `accept_rating` for the job now at `rating`: it names the slot that
+/// rating was opened in (0 when there is no rating account).
+pub fn accept_rating(world: &World, rating: &Pubkey, specialist: &Pubkey) -> Instruction {
+    accept_rating_of(rating, specialist, world.opened_slot(rating))
+}
+
+/// `accept_rating` naming `opened_slot` as the job.
+pub fn accept_rating_of(rating: &Pubkey, specialist: &Pubkey, opened_slot: u64) -> Instruction {
     ix(
         "accept_rating",
-        &[],
+        &opened_slot.to_le_bytes(),
         vec![meta(*rating, false, true), meta(*specialist, true, false)],
     )
 }
@@ -561,10 +596,28 @@ pub fn with_account(mut ix: Instruction, address: Pubkey, writable: bool) -> Ins
     ix
 }
 
-/// sha256(rating ‖ signer ‖ score ‖ salt).
-pub fn commitment(rating: &Pubkey, signer: &Pubkey, score: u8, salt: [u8; 32]) -> [u8; 32] {
+/// The commitment for the job now at `rating`.
+pub fn commitment(
+    world: &World,
+    rating: &Pubkey,
+    signer: &Pubkey,
+    score: u8,
+    salt: [u8; 32],
+) -> [u8; 32] {
+    commitment_of(rating, world.opened_slot(rating), signer, score, salt)
+}
+
+/// sha256(rating ‖ opened slot (8 bytes LE) ‖ signer ‖ score ‖ salt).
+pub fn commitment_of(
+    rating: &Pubkey,
+    opened_slot: u64,
+    signer: &Pubkey,
+    score: u8,
+    salt: [u8; 32],
+) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(rating.as_ref());
+    hasher.update(opened_slot.to_le_bytes());
     hasher.update(signer.as_ref());
     hasher.update([score]);
     hasher.update(salt);
@@ -631,10 +684,29 @@ pub fn close_rating(rating: &Pubkey, consumer: &Pubkey) -> Instruction {
     )
 }
 
-pub fn attest_quality(escrow: &Pubkey, judge: &Pubkey, scores: [u8; 5]) -> Instruction {
+/// `attest_quality` for the job now rated at `escrow`'s rating address.
+pub fn attest_quality(
+    world: &World,
+    escrow: &Pubkey,
+    judge: &Pubkey,
+    scores: [u8; 5],
+) -> Instruction {
+    let opened_slot = world.opened_slot(&rating_address(escrow));
+    attest_quality_of(escrow, judge, scores, opened_slot)
+}
+
+/// `attest_quality` naming `opened_slot` as the job.
+pub fn attest_quality_of(
+    escrow: &Pubkey,
+    judge: &Pubkey,
+    scores: [u8; 5],
+    opened_slot: u64,
+) -> Instruction {
+    let mut args = scores.to_vec();
+    args.extend_from_slice(&opened_slot.to_le_bytes());
     ix(
         "attest_quality",
-        &scores,
+        &args,
         vec![
             meta(attestation_address(escrow), false, true),
             meta(rating_address(escrow), false, true),
