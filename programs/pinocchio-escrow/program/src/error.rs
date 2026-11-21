@@ -65,6 +65,7 @@ faults! {
     NotMetered = 6029, "Only a metered escrow can be settled by the payee before the claim window";
     InvalidTreasury = 6030, "Fee must go to the protocol treasury";
     InvalidWindows = 6031, "Invalid windows: the claim window must be at least one slot, no later than the refund window, and the refund window at most 30 days";
+    PayeeNotRentExempt = 6032, "Payee account would be left below the rent-exempt minimum: fund the payee first, or lock a larger amount";
 }
 
 #[cfg(feature = "extended")]

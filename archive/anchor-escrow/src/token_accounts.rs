@@ -5,12 +5,17 @@
 //! on its Token-2022 surface. Both programs share the base account layouts and
 //! the three instructions the escrow uses (`InitializeAccount3`,
 //! `TransferChecked`, `CloseAccount`), so the classic builders are reused and
-//! pointed at the program that owns the mint.
+//! pointed at the program that owns the mint. One Token-2022 instruction is
+//! built by hand: `HarvestWithheldTokensToMint`.
 //!
 //! Token-2022 is accepted only for mints on the allowlist. Their extension set
 //! is fixed at mint creation; see `TOKEN_2022_VAULT_LEN`.
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::{program::invoke_signed, program_pack::Pack};
+use anchor_lang::solana_program::{
+    instruction::{AccountMeta, Instruction},
+    program::{invoke, invoke_signed},
+    program_pack::Pack,
+};
 use anchor_spl::token::spl_token;
 
 /// The Token-2022 program.
@@ -68,6 +73,8 @@ pub struct TokenAccount {
     pub mint: Pubkey,
     pub owner: Pubkey,
     pub amount: u64,
+    /// Frozen by the mint's freeze authority: it can neither send nor receive.
+    pub frozen: bool,
     /// Transfer fees withheld on this account (Token-2022 only). A token
     /// account holding withheld fees cannot be closed.
     pub withheld_fees: u64,
@@ -126,6 +133,7 @@ impl AccountDeserialize for TokenAccount {
             mint: account.mint,
             owner: account.owner,
             amount: account.amount,
+            frozen: account.state == spl_token::state::AccountState::Frozen,
             withheld_fees: withheld_fees(extensions)?,
         })
     }
@@ -228,4 +236,26 @@ pub fn close_account<'info>(
         signer_seeds,
     )
     .map_err(Into::into)
+}
+
+/// Token-2022 `TransferFeeExtension::HarvestWithheldTokensToMint`: move the
+/// transfer fees withheld on `account` to its mint, where the issuer collects
+/// them. Anyone may do this, and it needs the mint writable. An account with
+/// no withheld fees left can be closed.
+pub fn harvest_withheld_fees<'info>(
+    token_program: &AccountInfo<'info>,
+    mint: &AccountInfo<'info>,
+    account: &AccountInfo<'info>,
+) -> Result<()> {
+    const TRANSFER_FEE_EXTENSION: u8 = 26;
+    const HARVEST_WITHHELD_TOKENS_TO_MINT: u8 = 4;
+    let ix = Instruction {
+        program_id: *token_program.key,
+        accounts: vec![
+            AccountMeta::new(*mint.key, false),
+            AccountMeta::new(*account.key, false),
+        ],
+        data: vec![TRANSFER_FEE_EXTENSION, HARVEST_WITHHELD_TOKENS_TO_MINT],
+    };
+    invoke(&ix, &[mint.clone(), account.clone()]).map_err(Into::into)
 }

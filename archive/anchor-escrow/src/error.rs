@@ -97,4 +97,7 @@ pub enum EscrowError {
 
     #[msg("Invalid windows: the claim window must be at least one slot, no later than the refund window, and the refund window at most 30 days")]
     InvalidWindows,
+
+    #[msg("Payee account would be left below the rent-exempt minimum: fund the payee first, or lock a larger amount")]
+    PayeeNotRentExempt,
 }

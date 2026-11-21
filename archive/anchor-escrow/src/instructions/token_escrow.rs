@@ -112,9 +112,10 @@ pub fn lock_token_escrow_handler(
     Ok(())
 }
 
-/// Pay the recorded recipient token account the whole locked amount, less the
-/// protocol fee. Signed by the payer at any time (release) or by the payee once
-/// the claim window has elapsed (claim).
+/// Pay the payee the whole locked amount, less the protocol fee. Signed by the
+/// payer at any time (release), which pays the recipient token account recorded
+/// at lock, or by the payee once the claim window has elapsed (claim), which
+/// may name any token account of the mint the payee owns.
 pub fn release_token_escrow_handler(ctx: Context<ReleaseTokenEscrow>) -> Result<()> {
     let escrow = &ctx.accounts.escrow;
     let outcome = payout_outcome(
@@ -160,9 +161,11 @@ pub fn settle_token_escrow_handler(ctx: Context<ReleaseTokenEscrow>, actual: u64
 fn pay_out(accounts: &mut ReleaseTokenEscrow, paid: u64, outcome: SettlementOutcome) -> Result<()> {
     let escrow = &accounts.escrow;
     let issuer_controlled = accounts.token_program.key() == TOKEN_2022_ID;
-    require_keys_eq!(
-        accounts.destination.key(),
-        escrow.recipient,
+    // The payer cannot redirect the payee's money; the payee can, to any token
+    // account of the mint it owns, so a recorded recipient that was since
+    // closed or frozen cannot keep the payee from its money.
+    require!(
+        accounts.authority.key() == escrow.payee || accounts.destination.key() == escrow.recipient,
         EscrowError::InvalidTokenAccount
     );
     require_keys_eq!(
@@ -269,6 +272,12 @@ fn pay_out(accounts: &mut ReleaseTokenEscrow, paid: u64, outcome: SettlementOutc
         );
     }
     require!(accounts.vault.amount == 0, EscrowError::InvalidTokenAmount);
+    // Fees withheld on the vault block closing it. When the caller passed the
+    // mint writable they are harvested to the mint first.
+    if accounts.vault.withheld_fees != 0 && mint_info.is_writable {
+        token::harvest_withheld_fees(&token_program, &mint_info, &vault_info)?;
+        accounts.vault.reload()?;
+    }
     if accounts.vault.withheld_fees == 0 {
         token::close_account(
             &token_program,
@@ -406,6 +415,14 @@ fn settle(parts: SettleParts, outcome: SettlementOutcome) -> Result<()> {
             && (received == payout || (issuer_controlled && received <= payout)),
         EscrowError::InvalidTokenAmount
     );
+    if parts.vault.withheld_fees != 0 && parts.mint.to_account_info().is_writable {
+        token::harvest_withheld_fees(
+            &parts.token_program,
+            &parts.mint.to_account_info(),
+            &parts.vault.to_account_info(),
+        )?;
+        parts.vault.reload()?;
+    }
     if parts.vault.withheld_fees == 0 {
         token::close_account(
             &parts.token_program,
@@ -450,11 +467,13 @@ pub struct LockTokenEscrow<'info> {
     pub mint: InterfaceAccount<'info, Mint>,
     #[account(mut,
         constraint = source.mint == mint.key() && source.owner == payer.key()
-            && *source.to_account_info().owner == token_program.key() @ EscrowError::InvalidTokenAccount)]
+            && *source.to_account_info().owner == token_program.key()
+            && !source.frozen @ EscrowError::InvalidTokenAccount)]
     pub source: InterfaceAccount<'info, TokenAccount>,
     #[account(
         constraint = recipient.mint == mint.key() && recipient.owner == payee.key()
-            && *recipient.to_account_info().owner == token_program.key() @ EscrowError::InvalidTokenAccount,
+            && *recipient.to_account_info().owner == token_program.key()
+            && !recipient.frozen @ EscrowError::InvalidTokenAccount,
         constraint = recipient.key() != vault.key() @ EscrowError::InvalidTokenAccount)]
     pub recipient: InterfaceAccount<'info, TokenAccount>,
     pub token_program: Interface<'info, TokenPrograms>,

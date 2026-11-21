@@ -4,7 +4,8 @@
 //! Both programs share the base account layouts and the three instructions
 //! the escrow uses (`InitializeAccount3`, `TransferChecked`, `CloseAccount`),
 //! so one code path serves both and is pointed at the program that owns the
-//! mint. Token-2022 is accepted only for mints on the allowlist.
+//! mint. Token-2022 is accepted only for mints on the allowlist, and one
+//! instruction of its own is used: `HarvestWithheldTokensToMint`.
 use {
     crate::{
         consts::{SYSTEM_PROGRAM_ID, TOKEN_2022_ID, TOKEN_PROGRAM_ID},
@@ -12,7 +13,12 @@ use {
             fail, AccountDidNotDeserialize, AccountNotInitialized, AccountOwnedByWrongProgram,
         },
     },
-    pinocchio::{cpi::Signer, error::ProgramError, AccountView, Address, ProgramResult},
+    pinocchio::{
+        cpi::{invoke, Signer},
+        error::ProgramError,
+        instruction::{InstructionAccount, InstructionView},
+        AccountView, Address, ProgramResult,
+    },
     pinocchio_token::instructions::{CloseAccount, TransferChecked},
 };
 
@@ -54,6 +60,8 @@ pub struct TokenAccount {
     pub mint: Address,
     pub owner: Address,
     pub amount: u64,
+    /// Frozen by the mint's freeze authority: it can neither send nor receive.
+    pub frozen: bool,
     /// Transfer fees withheld on this account (Token-2022 only). A token
     /// account holding withheld fees cannot be closed.
     pub withheld_fees: u64,
@@ -125,12 +133,14 @@ struct RawTokenAccount {
     rest: [u8; 56],
 }
 const _: () = assert!(core::mem::size_of::<RawTokenAccount>() == BASE_ACCOUNT_LEN);
+const STATE_FROZEN: u8 = 2;
 
 impl TokenAccount {
     pub const EMPTY: Self = Self {
         mint: Address::new_from_array([0; 32]),
         owner: Address::new_from_array([0; 32]),
         amount: 0,
+        frozen: false,
         withheld_fees: 0,
     };
 
@@ -144,13 +154,14 @@ impl TokenAccount {
         // and no invalid bit patterns.
         let raw = unsafe { &*(base.as_ptr() as *const RawTokenAccount) };
         match raw.state {
-            1 | 2 => {}
+            1 | STATE_FROZEN => {}
             state => return Err(unusable(state)),
         }
         Ok(Self {
             mint: raw.mint,
             owner: raw.owner,
             amount: u64::from_le_bytes(raw.amount),
+            frozen: raw.state == STATE_FROZEN,
             withheld_fees: withheld_fees(extensions)?,
         })
     }
@@ -220,4 +231,29 @@ pub fn close_account(
 ) -> ProgramResult {
     CloseAccount::new(account, destination, authority)
         .invoke_signed_with_unverified_program(signers, token_program.address())
+}
+
+/// Token-2022 `TransferFeeExtension::HarvestWithheldTokensToMint`: move the
+/// transfer fees withheld on `account` to its mint, where the issuer collects
+/// them. Anyone may do this, and it needs the mint writable. An account with
+/// no withheld fees left can be closed.
+#[inline(never)]
+pub fn harvest_withheld_fees(
+    token_program: &AccountView,
+    mint: &AccountView,
+    account: &AccountView,
+) -> ProgramResult {
+    const TRANSFER_FEE_EXTENSION: u8 = 26;
+    const HARVEST_WITHHELD_TOKENS_TO_MINT: u8 = 4;
+    invoke(
+        &InstructionView {
+            program_id: token_program.address(),
+            data: &[TRANSFER_FEE_EXTENSION, HARVEST_WITHHELD_TOKENS_TO_MINT],
+            accounts: &[
+                InstructionAccount::writable(mint.address()),
+                InstructionAccount::writable(account.address()),
+            ],
+        },
+        &[mint, account],
+    )
 }

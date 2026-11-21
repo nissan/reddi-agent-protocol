@@ -582,6 +582,52 @@ fn a_fee_bearing_donation_cannot_block_settlement() {
     assert!(!f.closed(f.vault));
 }
 
+/// With the mint passed writable, fees withheld on the vault are harvested to
+/// the mint before the vault is closed, so the vault closes and its rent
+/// returns to the payer. Payouts and refunds both do it.
+#[test]
+fn withheld_fees_are_harvested_so_the_vault_closes_when_the_mint_is_writable() {
+    for exit in ["claim", "decline"] {
+        let mut f = Fixture::new(PYUSD_MAINNET_MINT);
+        f.lock();
+        f.set_transfer_fee(100);
+        let issuer = f.issuer.insecure_clone();
+        f.transfer(f.issuer_token, f.vault, &issuer, 10_000)
+            .unwrap();
+        let rent_held = f.svm.get_account(&f.escrow).unwrap().lamports
+            + f.svm.get_account(&f.vault).unwrap().lamports;
+        let payer_before = f.svm.get_account(&f.payer.pubkey()).unwrap().lamports;
+        let payee = f.payee.insecure_clone();
+        let mut ix = match exit {
+            "claim" => f.payout_ix(payee.pubkey()),
+            _ => f.cancel_ix(payee.pubkey()),
+        };
+        if exit == "claim" {
+            let created = f.created_slot();
+            f.svm
+                .warp_to_slot(created + escrow::DEFAULT_CLAIM_WINDOW_SLOTS);
+        }
+        assert_eq!(ix.accounts[4].pubkey, f.mint);
+        ix.accounts[4].is_writable = true;
+        send(&mut f.svm, &[ix], &[&payee]).unwrap();
+        assert!(f.closed(f.escrow), "{exit}");
+        assert!(f.closed(f.vault), "{exit}: the vault closes");
+        assert_eq!(
+            f.svm.get_account(&f.payer.pubkey()).unwrap().lamports,
+            payer_before + rent_held,
+            "{exit}: both rents return to the payer"
+        );
+        if exit == "claim" {
+            assert_eq!(f.balance(f.recipient), 386_100);
+            assert_eq!(f.balance(f.treasury_token), 9_900);
+            assert_eq!(f.balance(f.source), 609_801);
+        } else {
+            // 409,900 back to the payer, less the 1% the token program withholds.
+            assert_eq!(f.balance(f.source), 600_000 + 409_900 - 4_099);
+        }
+    }
+}
+
 #[test]
 fn a_permanent_delegate_taking_vault_tokens_does_not_strand_the_escrow() {
     // Partly drained: the remainder is paid.

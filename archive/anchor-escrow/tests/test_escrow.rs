@@ -200,6 +200,7 @@ fn test_cancel_escrow_refunds_payer() {
     let amount = 500_000u64;
 
     svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    svm.airdrop(&payee.pubkey(), 1_000_000_000).unwrap();
 
     let (escrow_pda, _) = escrow_pda(&payer.pubkey(), &nonce);
 
@@ -278,6 +279,7 @@ fn test_cancel_window_not_elapsed() {
     let amount = 500_000u64;
 
     svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    svm.airdrop(&payee.pubkey(), 1_000_000_000).unwrap();
 
     let (escrow_pda, _) = escrow_pda(&payer.pubkey(), &nonce);
 
@@ -1484,4 +1486,160 @@ fn test_fee_cannot_be_redirected_and_strangers_cannot_settle() {
     assert!(svm
         .get_account(&escrow_pda(&payer.pubkey(), &nonce).0)
         .is_some());
+}
+
+// ── A lock the payee could not be paid from is refused ───────────────────────
+
+fn release_ix(
+    payer: &anchor_lang::prelude::Pubkey,
+    payee: &anchor_lang::prelude::Pubkey,
+    nonce: [u8; 16],
+) -> Instruction {
+    Instruction::new_with_bytes(
+        escrow::id(),
+        &instruction::ReleaseEscrow {}.data(),
+        ReleaseEscrow {
+            escrow: escrow_pda(payer, &nonce).0,
+            payer: *payer,
+            payee: *payee,
+            treasury: escrow::PROTOCOL_TREASURY,
+            system_program: anchor_lang::solana_program::system_program::id(),
+        }
+        .to_account_metas(None),
+    )
+}
+
+/// The runtime refuses a payout that leaves the payee holding less than the
+/// rent-exempt minimum. A fixed-price lock is refused when its payout would do
+/// that, and accepted, and then payable, from the exact boundary.
+#[test]
+fn test_fixed_price_lock_must_leave_the_payee_rent_exempt() {
+    let (mut svm, _) = make_svm();
+    let payer = Keypair::new();
+    let payee = Keypair::new();
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    let floor = svm.minimum_balance_for_rent_exemption(0);
+    // The smallest amount whose payout, less the 2.5% fee, reaches the floor.
+    let mut enough = floor;
+    while enough - escrow::protocol_fee(enough, true) < floor {
+        enough += 1;
+    }
+
+    let err = format!(
+        "{:?}",
+        send(
+            &mut svm,
+            lock_ix(&payer, &payee.pubkey(), enough - 1, [60u8; 16]),
+            &[&payer]
+        )
+    );
+    assert!(
+        err.contains("Custom(6032)"),
+        "expected PayeeNotRentExempt, got: {err}"
+    );
+    assert!(svm
+        .get_account(&escrow_pda(&payer.pubkey(), &[60u8; 16]).0)
+        .is_none());
+
+    send_ok(
+        &mut svm,
+        lock_ix(&payer, &payee.pubkey(), enough, [61u8; 16]),
+        &[&payer],
+    );
+    send_ok(
+        &mut svm,
+        release_ix(&payer.pubkey(), &payee.pubkey(), [61u8; 16]),
+        &[&payer],
+    );
+    assert_eq!(lamports(&svm, &payee.pubkey()), floor);
+
+    // A payee that already holds the minimum can be locked any amount.
+    send_ok(
+        &mut svm,
+        lock_ix(&payer, &payee.pubkey(), 1, [62u8; 16]),
+        &[&payer],
+    );
+    send_ok(
+        &mut svm,
+        release_ix(&payer.pubkey(), &payee.pubkey(), [62u8; 16]),
+        &[&payer],
+    );
+    assert_eq!(lamports(&svm, &payee.pubkey()), floor + 1);
+
+    // What the payee holds counts towards the floor. An account short of it
+    // cannot exist on chain, so the test writes one, 10 lamports short.
+    let short = Keypair::new();
+    svm.set_account(
+        short.pubkey(),
+        solana_account::Account {
+            lamports: floor - 10,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let err = format!(
+        "{:?}",
+        send(
+            &mut svm,
+            lock_ix(&payer, &short.pubkey(), 9, [63u8; 16]),
+            &[&payer]
+        )
+    );
+    assert!(
+        err.contains("Custom(6032)"),
+        "expected PayeeNotRentExempt, got: {err}"
+    );
+    send_ok(
+        &mut svm,
+        lock_ix(&payer, &short.pubkey(), 10, [64u8; 16]),
+        &[&payer],
+    );
+}
+
+/// A metered escrow pays whatever the payee reports, which may be very little,
+/// so its payee must already hold the rent-exempt minimum.
+#[test]
+fn test_metered_lock_needs_a_payee_that_already_holds_the_rent_minimum() {
+    let (mut svm, _) = make_svm();
+    let payer = Keypair::new();
+    let payee = Keypair::new();
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    let floor = svm.minimum_balance_for_rent_exemption(0);
+
+    let err = format!(
+        "{:?}",
+        send(
+            &mut svm,
+            metered_lock_ix(&payer, &payee.pubkey(), 400_000_000, [65u8; 16]),
+            &[&payer]
+        )
+    );
+    assert!(
+        err.contains("Custom(6032)"),
+        "expected PayeeNotRentExempt, got: {err}"
+    );
+
+    svm.airdrop(&payee.pubkey(), floor + 10_000).unwrap();
+    svm.expire_blockhash();
+    send_ok(
+        &mut svm,
+        metered_lock_ix(&payer, &payee.pubkey(), 400_000_000, [65u8; 16]),
+        &[&payer],
+    );
+    // The smallest settlement lands.
+    send_ok(
+        &mut svm,
+        settle_ix(
+            &payer.pubkey(),
+            &payee.pubkey(),
+            [65u8; 16],
+            1,
+            true,
+            escrow::PROTOCOL_TREASURY,
+        ),
+        &[&payee],
+    );
+    assert!(svm
+        .get_account(&escrow_pda(&payer.pubkey(), &[65u8; 16]).0)
+        .is_none());
 }
