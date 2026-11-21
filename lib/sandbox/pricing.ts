@@ -56,6 +56,15 @@ export function countTokens(text: string): number {
 
 export type TokenUsage = { inputTokens: number; outputTokens: number };
 
+/**
+ * Tokens in a typical single-pass code review of a real pull request: the diff,
+ * the code around it and the reviewer's instructions in, a written review out.
+ * The sandbox prompts are a few dozen tokens, so their costs look like nothing;
+ * this shows what a real job would cost. It is our estimate (median case) from
+ * the task token research of 21 Nov 2026, not a measurement.
+ */
+export const TYPICAL_REVIEW: TokenUsage = { inputTokens: 12_000, outputTokens: 1_500 };
+
 /** Cost of the given tokens in micro-dollars, rounded up. */
 export function usageCostMicroUsd(provider: SandboxProvider, usage: TokenUsage): bigint {
   const input = decimalUnits(provider.pricing.inputPerMillionUsd, 6);

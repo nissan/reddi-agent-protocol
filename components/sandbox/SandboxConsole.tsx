@@ -37,7 +37,7 @@ import {
   type SandboxExchange,
 } from "@/lib/sandbox/client";
 import { isSandboxReceipt, responseBodyWithAnswer, type SandboxReceiptPayment, verifySandboxReceipt, type SandboxReceipt, type SandboxVerification } from "@/lib/sandbox/receipt";
-import { formatUnits, requestInputTokens, SANDBOX_DEMO_RATES_NOTE, SANDBOX_FEE_BPS, triPriceFromLamports } from "@/lib/sandbox/pricing";
+import { formatUnits, requestInputTokens, SANDBOX_DEMO_RATES_NOTE, SANDBOX_FEE_BPS, triPriceFromLamports, TYPICAL_REVIEW } from "@/lib/sandbox/pricing";
 import { applySandboxReputation, initialSandboxReputation, type SandboxReputation } from "@/lib/sandbox/reputation";
 
 const WalletMultiButton = dynamic(
@@ -171,6 +171,10 @@ function PriceLines({ provider, inputTokens }: { provider: SandboxProvider; inpu
       <p>
         Max this call, up to {provider.pricing.maxOutputTokens.toLocaleString("en-US")} output tokens:{" "}
         <span className="font-mono" data-testid={`sandbox-max-${provider.id}`}>{triPriceLabel(view.maxPerCall)}</span>
+      </p>
+      <p className="text-gray-400">
+        A typical real code review ({TYPICAL_REVIEW.inputTokens.toLocaleString("en-US")} tokens in, {TYPICAL_REVIEW.outputTokens.toLocaleString("en-US")} out) would cost{" "}
+        <span className="font-mono" data-testid={`sandbox-typical-${provider.id}`}>{triPriceLabel(view.typicalReview)}</span>
       </p>
     </div>
   );

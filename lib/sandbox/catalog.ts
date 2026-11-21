@@ -41,7 +41,7 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
     model: "sandbox/atlas-coder-large",
     name: "Atlas Review",
     tagline: "Careful, slower, priced for depth.",
-    pricing: { inputPerMillionUsd: "3", outputPerMillionUsd: "15", maxOutputTokens: 2000 },
+    pricing: { inputPerMillionUsd: "5", outputPerMillionUsd: "25", maxOutputTokens: 5000 },
     payTo: "i63cUYvKsdECVoyYV7LYHTa3tCvjGnJR6yxrKPAyYdq",
     behaviour: "honest",
     reputation: { score: 4.8, receipts: 212 },

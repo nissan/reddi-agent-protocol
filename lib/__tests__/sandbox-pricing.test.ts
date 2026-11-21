@@ -20,9 +20,9 @@ const n = (value: number) => BigInt(value);
 
 describe("sandbox per-token pricing", () => {
   it("prices tokens exactly at the listed per-million rates, rounding up to the micro-dollar", () => {
-    expect(usageCostMicroUsd(atlas, { inputTokens: 1_000_000, outputTokens: 0 })).toBe(n(3_000_000));
-    expect(usageCostMicroUsd(atlas, { inputTokens: 0, outputTokens: 1_000_000 })).toBe(n(15_000_000));
-    expect(usageCostMicroUsd(atlas, { inputTokens: 1_200, outputTokens: 800 })).toBe(n(15_600));
+    expect(usageCostMicroUsd(atlas, { inputTokens: 1_000_000, outputTokens: 0 })).toBe(n(5_000_000));
+    expect(usageCostMicroUsd(atlas, { inputTokens: 0, outputTokens: 1_000_000 })).toBe(n(25_000_000));
+    expect(usageCostMicroUsd(atlas, { inputTokens: 1_200, outputTokens: 800 })).toBe(n(26_000));
     // 1 input token at $0.20 per million is a fifth of a micro-dollar: the provider is paid the whole micro-dollar.
     expect(usageCostMicroUsd(swift, { inputTokens: 1, outputTokens: 0 })).toBe(n(1));
     expect(usageCostMicroUsd(swift, { inputTokens: 0, outputTokens: 0 })).toBe(n(0));
@@ -47,20 +47,22 @@ describe("sandbox per-token pricing", () => {
 
   it("sets the maximum per call from the request plus the provider's full output limit", () => {
     expect(maxChargeLamports(swift, 12)).toBe(microUsdToLamports(usageCostMicroUsd(swift, { inputTokens: 12, outputTokens: 1_000 })));
-    expect(maxChargeLamports(atlas, 0)).toBe(n(200_000)); // 2,000 output tokens at $15 per million = $0.03 = 0.0002 SOL
+    expect(maxChargeLamports(atlas, 0)).toBe(n(833_334)); // 5,000 output tokens at $25 per million = $0.125, about 0.000833 SOL, rounded up
     const view = providerPriceView(atlas, 0);
-    expect(view.inputPerMillion).toEqual({ usdc: "3", audd: "4.65", sol: "0.02" });
-    expect(view.outputPerMillion).toEqual({ usdc: "15", audd: "23.25", sol: "0.1" });
-    expect(triPriceLabel(view.maxPerCall)).toBe("0.03 USDC · 0.0465 AUDD · 0.0002 SOL");
+    expect(view.inputPerMillion).toEqual({ usdc: "5", audd: "7.75", sol: "0.033333334" });
+    expect(view.outputPerMillion).toEqual({ usdc: "25", audd: "38.75", sol: "0.166666667" });
+    expect(triPriceLabel(view.maxPerCall)).toBe("0.125 USDC · 0.19375 AUDD · 0.000833334 SOL");
+    // A typical real review: 12,000 tokens in and 1,500 out at $5 / $25 per million = $0.0975.
+    expect(view.typicalReview).toEqual({ usdc: "0.0975", audd: "0.151125", sol: "0.00065" });
   });
 
   it("settles the actual cost against the maximum: 2.5% fee rounded down, provider gets the rest, the remainder goes back", () => {
     const max = maxChargeLamports(atlas, 1_200);
     const settled = settleSandboxCall(atlas, { inputTokens: 1_200, outputTokens: 800 }, max);
-    expect(settled.amount).toBe(n(104_000)); // $0.0156 at $150 per SOL
-    expect(settled.fee).toBe(n(2_600));
-    expect(settled.provider).toBe(n(101_400));
-    expect(settled.refunded).toBe(max - n(104_000));
+    expect(settled.amount).toBe(n(173_334)); // $0.026 at $150 per SOL, rounded up
+    expect(settled.fee).toBe(n(4_333));
+    expect(settled.provider).toBe(n(169_001));
+    expect(settled.refunded).toBe(max - n(173_334));
     expect(settled.fee + settled.provider + settled.refunded).toBe(max);
   });
 
