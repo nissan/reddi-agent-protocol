@@ -19,12 +19,37 @@ not product adoption or benchmark evidence. Do not manually run the historical b
 validator, smoke, deployment, signing, or RPC procedures without a new authorization
 that supersedes the freeze.
 
+## V1 escrow program (devnet)
+
+Deployed to devnet on 21 November 2026 with owner approval, from commit `8c21aee`
+(`programs/escrow`, built with `--features devnet`). Devnet only: nothing is deployed to
+mainnet, and this record is not an audit, production or mainnet readiness claim.
+
+| Field | Value |
+|---|---|
+| Program ID | `DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu` |
+| Upgrade authority (devnet) | `hbr2Fee3ewDbm33wTDrdEF3e7byNCzNgQ57CwJWaPtt` (managed deployer key) |
+| ProgramData address | `8cCmxnMPU8EQR7ECfff19Dr4gu1n7jyFCuEEyaYspRn2` |
+| Deployed in slot | 524536326 |
+| Size | 337,760 bytes |
+| SHA-256 of the deployed file (read back from devnet) | `5055df469642a3429c524a312b129c7e9b7cb6fdbeb37fa2e8275ab87b8e142a` |
+
+The deployed file was built on macOS. A Linux build of the same commit has the same size
+and section layout but a different hash (`1238a4b2118858826e096dbba75b245d8c45219360bdcecd57af0c80e034bb4b`),
+because the prebuilt toolchain library embeds different build paths per host. Compare a
+build with the hash for its own host, or use a container build.
+
+This ID is set in `programs/escrow/src/lib.rs` (`declare_id!`), `Anchor.toml`,
+`packages/demo-agents/src/config.ts` (`defaultEscrowProgramId`) and
+`config/networks/devnet.json`. Both key files are held by the owner; agents use them by
+path only and never read them.
+
 ## Legacy Anchor reference program
 
-**Deployed ID:** `DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu` (historical
-comparison only — must not be used as the demo target). This ID is set in
-`packages/demo-agents/src/config.ts` (`defaultEscrowProgramId`) and
-`config/networks/devnet.json`.
+**Earlier devnet ID:** `794nTFNyJknzDrR13ApSfVyNCRvcvnCN3BVDfic8dcZD` (historical only).
+Its upgrade key is no longer available, so that deployment cannot be changed and must not
+be used as a target. `config/networks/mainnet.json` still carries it as a not-deployed
+placeholder.
 
 > Note: the `77rkRQxe…UZXmX` ID that appears in some older `declare_id!`
 > macros and stale docs predates the current deployment — ignore it.
