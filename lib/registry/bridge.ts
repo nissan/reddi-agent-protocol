@@ -52,6 +52,9 @@ export type SpecialistListing = {
     tags: string[];
     baseUsd: number;
     perCallUsd: number;
+    /** Per-token prices in US dollars per million tokens, when the listing is priced per token. */
+    inputPerMillionUsd?: number;
+    outputPerMillionUsd?: number;
     context_requirements: ContextRequirement[];
     runtime_capabilities: RuntimeCapability[];
     agent_composition?: {
@@ -364,6 +367,10 @@ function buildFromIndexOnly(entry: SpecialistIndexEntry): SpecialistListing {
   };
 }
 
+function positiveNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
 function normalizeCapabilities(cap: SpecialistIndexEntry["capabilities"] | undefined): SpecialistListing["capabilities"] {
   if (!cap) return null;
   return {
@@ -374,6 +381,8 @@ function normalizeCapabilities(cap: SpecialistIndexEntry["capabilities"] | undef
     tags: normalizeArray<string>(cap.tags ?? []),
     baseUsd: typeof cap.pricing === "object" ? (cap.pricing?.baseUsd ?? 0) : 0,
     perCallUsd: typeof cap.pricing === "object" ? (cap.pricing?.perCallUsd ?? 0) : 0,
+    ...(typeof cap.pricing === "object" && positiveNumber(cap.pricing?.inputPerMillionUsd) ? { inputPerMillionUsd: cap.pricing!.inputPerMillionUsd } : {}),
+    ...(typeof cap.pricing === "object" && positiveNumber(cap.pricing?.outputPerMillionUsd) ? { outputPerMillionUsd: cap.pricing!.outputPerMillionUsd } : {}),
     context_requirements: Array.isArray(cap.context_requirements) ? cap.context_requirements : [],
     runtime_capabilities: Array.isArray(cap.runtime_capabilities) ? normalizeArray<RuntimeCapability>(cap.runtime_capabilities) : [],
     agent_composition: cap.agent_composition

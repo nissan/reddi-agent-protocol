@@ -11,6 +11,8 @@ import { paymentNetworkForProfile, receiptHeaderForProvider } from "@/lib/paymen
 import { getNetworkProfile, resolveNetworkProfileName } from "@/lib/config/network";
 import { readOwnListing } from "@/lib/listings/listing-store";
 import { verifyAndRecordPaidCall, type PaidCallOutcome } from "@/lib/jobs/paid-call";
+import { verifyAndRecordMeteredCall, type MeteredCallOutcome } from "@/lib/jobs/metered-call";
+import { ESCROW_PROGRAM_ID } from "@/lib/program";
 import { checkAndStoreProviderReceipt, PROVIDER_RECEIPT_HEADER } from "@/lib/jobs/provider-receipt";
 import { refreshProviderStats } from "@/lib/jobs/provider-stats";
 import { emitTorqueEvent } from "@/lib/torque/client";
@@ -44,7 +46,36 @@ export type PlannerPaymentRequired = {
   /** The provider the server routed to. The browser refuses if it is not the one the buyer selected. */
   selectedWallet: string;
   perCallUsd?: number;
+  /**
+   * The provider's per-token offer from its 402 body, when it takes a metered
+   * escrow (#794). Unchecked here; the browser checks it against the listing.
+   */
+  metered?: Record<string, unknown>;
 };
+
+/** The provider's metered offer in a 402 body, or undefined when there is none. */
+export function meteredOfferFromBody(body: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(body) as { metered?: unknown };
+    const offer = parsed?.metered;
+    if (offer && typeof offer === "object" && !Array.isArray(offer) && (offer as { settlement?: unknown }).settlement === "metered-escrow") {
+      return offer as Record<string, unknown>;
+    }
+  } catch {
+    // Not JSON: no metered offer.
+  }
+  return undefined;
+}
+
+/** The settle transaction a provider names in a paid metered answer. */
+export function settleSignatureFromBody(body: string): string | undefined {
+  try {
+    const signature = (JSON.parse(body) as { reddi?: { metered?: { settleSignature?: unknown } } })?.reddi?.metered?.settleSignature;
+    return typeof signature === "string" ? signature : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export type PlannerRunRecord = {
   runId: string;
@@ -61,6 +92,8 @@ export type PlannerRunRecord = {
   paymentSatisfied: boolean;
   x402TxSignature?: string;
   x402ReceiptNonce?: string;
+  /** A metered call: the provider's settle transaction (x402TxSignature is then the buyer's lock). */
+  settleTxSignature?: string;
   /** Set when the server verified the payment on chain and stored a job record. */
   jobId?: string;
   reputationCommitTx?: string;
@@ -344,6 +377,15 @@ type WalletRunContext = {
   candidates: unknown[];
 };
 
+function buyerMints() {
+  return {
+    USDC: process.env.NEXT_PUBLIC_X402_USDC_MINT,
+    AUDD: process.env.NEXT_PUBLIC_X402_AUDD_MINT,
+    PYUSD: process.env.NEXT_PUBLIC_X402_PYUSD_MINT,
+    USDG: process.env.NEXT_PUBLIC_X402_USDG_MINT,
+  };
+}
+
 /**
  * Checks a wallet-paid call on chain and stores a job record for it. Any
  * failure here leaves no record; it never changes what the buyer is told
@@ -353,29 +395,43 @@ async function recordWalletPaidJob(
   input: PlannerExecuteInput,
   ctx: WalletRunContext,
   outcome: { delivered: boolean; responseText?: string },
-): Promise<PaidCallOutcome> {
+): Promise<PaidCallOutcome | MeteredCallOutcome> {
   try {
     const listing = await readOwnListing(ctx.selectedWallet);
     if (!listing.ok || !listing.listing) return { recorded: false, reason: "listing_not_found" };
+    const responseHash = outcome.responseText === undefined ? undefined : createHash("sha256").update(outcome.responseText).digest("hex");
+    if ((input.paymentReceipt as { settlement?: unknown } | undefined)?.settlement === "metered-escrow") {
+      // Nothing is charged until the provider settles; without a settle there is no job to record.
+      if (outcome.responseText === undefined) return { recorded: false, reason: "not_settled" };
+      return await verifyAndRecordMeteredCall(
+        {
+          receipt: input.paymentReceipt,
+          settleSignature: settleSignatureFromBody(outcome.responseText),
+          listing: listing.listing,
+          profile: resolveNetworkProfileName(),
+          requestHash: ctx.promptSha256,
+          responseHash,
+          declaredModel: ctx.model,
+          delivered: outcome.delivered,
+          session: input.buyerSession,
+        },
+        { rpcUrl: getNetworkProfile().solana.rpcHttp, mints: buyerMints(), programId: ESCROW_PROGRAM_ID },
+      );
+    }
     return await verifyAndRecordPaidCall(
       {
         receipt: input.paymentReceipt,
         listing: listing.listing,
         profile: resolveNetworkProfileName(),
         requestHash: ctx.promptSha256,
-        responseHash: outcome.responseText === undefined ? undefined : createHash("sha256").update(outcome.responseText).digest("hex"),
+        responseHash,
         declaredModel: ctx.model,
         delivered: outcome.delivered,
         session: input.buyerSession,
       },
       {
         rpcUrl: getNetworkProfile().solana.rpcHttp,
-        mints: {
-          USDC: process.env.NEXT_PUBLIC_X402_USDC_MINT,
-          AUDD: process.env.NEXT_PUBLIC_X402_AUDD_MINT,
-          PYUSD: process.env.NEXT_PUBLIC_X402_PYUSD_MINT,
-          USDG: process.env.NEXT_PUBLIC_X402_USDG_MINT,
-        },
+        mints: buyerMints(),
         feeTreasury: process.env.X402_PROTOCOL_FEE_TREASURY?.trim() || undefined,
       },
     );
@@ -472,6 +528,8 @@ async function executeWithWalletPayment(input: PlannerExecuteInput, ctx: WalletR
         selectedWallet: ctx.selectedWallet,
         perCallUsd: ctx.perCallUsd,
       };
+      const metered = meteredOfferFromBody(firstBody);
+      if (metered) paymentRequired.metered = metered;
       return { ok: false as const, result: run, paymentRequired, candidates: ctx.candidates };
     } catch (error) {
       return fail({
@@ -526,6 +584,12 @@ async function executeWithWalletPayment(input: PlannerExecuteInput, ctx: WalletR
           : `Specialist call failed after wallet payment (${paid.status}).`,
       trace: [...ctx.trace, `retry:status:${paid.status}`, paid.ok ? "planner:completed" : "planner:failed"],
     };
+    const metered = (input.paymentReceipt as { settlement?: unknown }).settlement === "metered-escrow";
+    const settleSignature = metered && paid.ok ? settleSignatureFromBody(text) : undefined;
+    if (settleSignature) run.settleTxSignature = settleSignature;
+    if (metered && !paid.ok) {
+      run.error = `Specialist call failed after the lock (${paid.status}). Nothing is charged until the provider settles; your maximum stays in escrow and can be cancelled for a refund once the cancel window opens.`;
+    }
     // With a database configured, the server checks the payment on chain itself and only then keeps a job record.
     if (ctx.listingSource === "database") {
       const recorded = await recordWalletPaidJob(input, ctx, { delivered: paid.ok, responseText: paid.ok ? text : undefined });
@@ -546,8 +610,9 @@ async function executeWithWalletPayment(input: PlannerExecuteInput, ctx: WalletR
           requestBody,
           responseBody: text,
           network: receiptNetwork,
-          txSignature: receipt.signature,
+          txSignature: settleSignature ?? receipt.signature,
           paid: recorded.paid,
+          settlement: "maxAmountBaseUnits" in recorded.paid ? { kind: "metered-escrow", maxAmountBaseUnits: recorded.paid.maxAmountBaseUnits } : { kind: "direct" },
         }).catch(() => ({ stored: false as const, reason: "check_failed" }));
         run.trace.push(kept.stored ? "provider_receipt:stored" : `provider_receipt:not_stored:${kept.reason}`);
       }
