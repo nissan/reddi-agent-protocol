@@ -49,7 +49,11 @@ export declare function directPaymentProofMessage(input: {
 }): string;
 /** Buyer side: a signer for a server-held Keypair (a browser wallet passes its own `signMessage`). */
 export declare function keypairSigner(keypair: Keypair): Signer;
-/** Buyer side: the delegation header value, signed once by the payer wallet. Keep it with the session key and reuse it until it expires. */
+/**
+ * Buyer side: the delegation header value, signed once by the payer wallet.
+ * Keep it with the session key, in memory only, and reuse it until it expires.
+ * Use `delegationExpiresAt()` (a day) for `expiresAt` rather than the maximum.
+ */
 export declare function directPaymentDelegationHeaderValue(d: DirectPaymentDelegation, signWithPayer: Signer): Promise<string>;
 /**
  * Buyer side: the headers for one request that presents a direct payment.

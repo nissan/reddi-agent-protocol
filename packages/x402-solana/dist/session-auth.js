@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MAX_SESSION_DELEGATION_SECONDS = exports.SESSION_SIGNATURE_HEADER = exports.SESSION_DELEGATION_HEADER = void 0;
+exports.DEFAULT_DELEGATION_SECONDS = exports.MAX_SESSION_DELEGATION_SECONDS = exports.SESSION_SIGNATURE_HEADER = exports.SESSION_DELEGATION_HEADER = void 0;
+exports.delegationExpiresAt = delegationExpiresAt;
 exports.sessionDelegationMessage = sessionDelegationMessage;
 exports.sessionBodyHash = sessionBodyHash;
 exports.sessionRequestMessage = sessionRequestMessage;
@@ -38,6 +39,20 @@ exports.SESSION_DELEGATION_HEADER = 'x402-session-delegation';
 exports.SESSION_SIGNATURE_HEADER = 'x402-session-signature';
 /** The longest a delegation may run. A session settles before its refund window anyway. */
 exports.MAX_SESSION_DELEGATION_SECONDS = 7 * 24 * 60 * 60;
+/**
+ * How long a buyer client should let a delegation run unless it has a reason
+ * to choose otherwise: a day, well short of the maximum, because anyone holding
+ * the session key can sign for the payer until then. Keep the key in memory
+ * only (never in localStorage or on disk), and sign a new delegation when it runs out.
+ */
+exports.DEFAULT_DELEGATION_SECONDS = 24 * 60 * 60;
+/** Buyer side: the `expiresAt` for a new delegation, `seconds` (default a day) from `nowMs`. */
+function delegationExpiresAt(nowMs = Date.now(), seconds = exports.DEFAULT_DELEGATION_SECONDS) {
+    if (!Number.isSafeInteger(seconds) || seconds <= 0 || seconds > exports.MAX_SESSION_DELEGATION_SECONDS) {
+        throw new Error(`a delegation runs for 1 to ${exports.MAX_SESSION_DELEGATION_SECONDS} seconds`);
+    }
+    return Math.floor(nowMs / 1000) + seconds;
+}
 /** The text the payer wallet signs to hand a session to `sessionKey`. */
 function sessionDelegationMessage(d) {
     return [
@@ -57,7 +72,7 @@ function sessionBodyHash(body = '') {
 function sessionRequestMessage(input) {
     return ['reddi-session/1', input.action, input.escrow, String(input.sequence), input.bodyHash].join('\n');
 }
-/** Buyer side: the delegation header value, signed by the payer wallet. */
+/** Buyer side: the delegation header value, signed by the payer wallet. Use `delegationExpiresAt()` for `expiresAt`. */
 async function sessionDelegationHeaderValue(d, signWithPayer) {
     const signature = await signWithPayer(new TextEncoder().encode(sessionDelegationMessage(d)));
     return Buffer.from(JSON.stringify({ ...d, signature: Buffer.from(signature).toString('base64') }), 'utf8').toString('base64');

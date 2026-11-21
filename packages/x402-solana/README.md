@@ -176,7 +176,11 @@ const result = await verifier.verifyReceipt(receipt, challenge, replayStore, dir
 const proof = await directPaymentProofHeaders({ network, txSignature, payTo, body, sign: (m) => wallet.signMessage(m) });
 ```
 
-A verifier that serves nothing, such as a ledger recording jobs after the call, sets `payerProof: 'not-required'`.
+A verifier that serves nothing, such as a job ledger recording calls after they are served, sets `payerProof: 'not-required'`.
+
+Delegations (session and direct payment) may run for up to seven days, but a buyer client should use `delegationExpiresAt()`, a day, and keep the session key in memory only, never in localStorage or on disk: whoever holds the key can sign for the payer until the delegation expires.
+
+Hardware wallets such as Ledger sign Solana off-chain messages with a header prefix, which these checks do not accept yet. A payer that uses one cannot sign the delegation or the request; pay from a software wallet for now.
 
 `SolanaReceiptVerifier` requires a replay store for real receipts and records the transaction signature, so one transaction satisfies one challenge; USDC needs a configured `usdcMint` and a `transferChecked` instruction. It bridges AUDD receipts to this stricter x402 v2 SVM `exact` verifier only when the verifier is configured with an explicit `auddMint`; it will not trust a receipt-supplied mint as the AUDD identity. AUDD amounts are base units, not UI decimal strings.
 

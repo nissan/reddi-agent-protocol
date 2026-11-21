@@ -64,7 +64,11 @@ export function keypairSigner(keypair: Keypair): Signer {
   return (message) => ed25519Sign(keypair, message);
 }
 
-/** Buyer side: the delegation header value, signed once by the payer wallet. Keep it with the session key and reuse it until it expires. */
+/**
+ * Buyer side: the delegation header value, signed once by the payer wallet.
+ * Keep it with the session key, in memory only, and reuse it until it expires.
+ * Use `delegationExpiresAt()` (a day) for `expiresAt` rather than the maximum.
+ */
 export async function directPaymentDelegationHeaderValue(d: DirectPaymentDelegation, signWithPayer: Signer): Promise<string> {
   const signature = await signWithPayer(new TextEncoder().encode(directPaymentDelegationMessage(d)));
   return Buffer.from(JSON.stringify({ ...d, signature: Buffer.from(signature).toString('base64') }), 'utf8').toString('base64');

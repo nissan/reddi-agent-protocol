@@ -4,6 +4,15 @@ export declare const SESSION_DELEGATION_HEADER = "x402-session-delegation";
 export declare const SESSION_SIGNATURE_HEADER = "x402-session-signature";
 /** The longest a delegation may run. A session settles before its refund window anyway. */
 export declare const MAX_SESSION_DELEGATION_SECONDS: number;
+/**
+ * How long a buyer client should let a delegation run unless it has a reason
+ * to choose otherwise: a day, well short of the maximum, because anyone holding
+ * the session key can sign for the payer until then. Keep the key in memory
+ * only (never in localStorage or on disk), and sign a new delegation when it runs out.
+ */
+export declare const DEFAULT_DELEGATION_SECONDS: number;
+/** Buyer side: the `expiresAt` for a new delegation, `seconds` (default a day) from `nowMs`. */
+export declare function delegationExpiresAt(nowMs?: number, seconds?: number): number;
 /** `call`, `close`, `read`: session requests. `single`: a single metered call, sequence 0. */
 export type SessionAction = 'call' | 'close' | 'read' | 'single';
 export interface SessionDelegation {
@@ -30,7 +39,7 @@ export declare function sessionRequestMessage(input: {
     bodyHash: string;
 }): string;
 export type Signer = (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;
-/** Buyer side: the delegation header value, signed by the payer wallet. */
+/** Buyer side: the delegation header value, signed by the payer wallet. Use `delegationExpiresAt()` for `expiresAt`. */
 export declare function sessionDelegationHeaderValue(d: SessionDelegation, signWithPayer: Signer): Promise<string>;
 /** Buyer side: the signature header value for one request, signed by the session key. */
 export declare function sessionSignatureHeaderValue(input: {
