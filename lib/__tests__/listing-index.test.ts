@@ -44,7 +44,7 @@ describe("database listings as the planner index (#740)", () => {
     process.env = { ...env };
   });
 
-  function mockServices(options: { rows?: unknown[]; readStatus?: number; patchStatus?: number; health?: Record<string, number | "throw"> } = {}) {
+  function mockServices(options: { rows?: unknown[]; readStatus?: number; patchStatus?: number; health?: Record<string, number | "throw">; healthBody?: Record<string, string> } = {}) {
     const calls: Call[] = [];
     global.fetch = jest.fn(async (url: string, init: Call["init"]) => {
       calls.push({ url, init });
@@ -58,7 +58,7 @@ describe("database listings as the planner index (#740)", () => {
       }
       const outcome = options.health?.[url] ?? 200;
       if (outcome === "throw") throw new Error("unreachable");
-      return { ok: outcome >= 200 && outcome < 300, status: outcome, json: async () => ({}) };
+      return { ok: outcome >= 200 && outcome < 300, status: outcome, json: async () => ({}), text: async () => options.healthBody?.[url] ?? "" };
     }) as unknown as typeof fetch;
     return calls;
   }
@@ -133,6 +133,33 @@ describe("database listings as the planner index (#740)", () => {
     const byWallet = Object.fromEntries(patches.map((c) => [c.url.split("wallet=eq.")[1], JSON.parse(c.init.body!).health_status]));
     expect(byWallet).toEqual({ [WALLET]: "pass", [OTHER]: "fail" });
     expect(Object.keys(JSON.parse(patches[0].init.body!)).sort()).toEqual(["health_status", "last_seen_at"]);
+  });
+
+  it("does not route to a provider that reports a payment pause, and routes to it again once the pause is lifted (#852)", async () => {
+    const healthz = "https://provider.example/v1/healthz";
+    const paused = mockServices({ healthBody: { [healthz]: JSON.stringify({ ok: true, acceptingPayments: false }) } });
+    const { observeListedHealth } = await import("@/lib/listings/listing-health");
+    expect(await observeListedHealth()).toEqual({ source: "database", available: true, checked: 1, passed: 0, failed: 1, unrecorded: 0 });
+    expect(JSON.parse(paused.find((c) => c.init.method === "PATCH")!.init.body!).health_status).toBe("fail");
+
+    const resumed = mockServices({ healthBody: { [healthz]: JSON.stringify({ ok: true, acceptingPayments: true }) } });
+    expect(await observeListedHealth()).toMatchObject({ passed: 1, failed: 0 });
+    expect(JSON.parse(resumed.find((c) => c.init.method === "PATCH")!.init.body!).health_status).toBe("pass");
+  });
+
+  it("judges a provider that does not report the pause on reachability alone", async () => {
+    const { probeEndpoint } = await import("@/lib/listings/listing-health");
+    const answer = (body: string | undefined, status = 200) => async () => ({ ok: status < 300, status, ...(body === undefined ? {} : { text: async () => body }) });
+    expect(await probeEndpoint("https://p.example", answer(undefined))).toBe(true);
+    expect(await probeEndpoint("https://p.example", answer(""))).toBe(true);
+    expect(await probeEndpoint("https://p.example", answer("ok"))).toBe(true);
+    expect(await probeEndpoint("https://p.example", answer(JSON.stringify({ status: "ok" })))).toBe(true);
+    expect(await probeEndpoint("https://p.example", answer(JSON.stringify({ acceptingPayments: "false" })))).toBe(true);
+    expect(await probeEndpoint("https://p.example", answer(JSON.stringify({ acceptingPayments: false })))).toBe(false);
+    // A paused flag on an error answer changes nothing: it already fails.
+    expect(await probeEndpoint("https://p.example", answer(JSON.stringify({ acceptingPayments: true }), 503))).toBe(false);
+    // A body too large to be a health answer is not parsed.
+    expect(await probeEndpoint("https://p.example", answer(JSON.stringify({ acceptingPayments: false, pad: "x".repeat(20_000) })))).toBe(true);
   });
 
   it("treats an unreachable endpoint as failed and a failed write as not recorded", async () => {
