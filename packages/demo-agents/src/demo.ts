@@ -6,6 +6,12 @@
  * Agent B (Specialist)   → receives payment → delivers work → reveals rating
  * Agent C (Judge)        → attests quality of Agent B's work
  *
+ * Legacy (non-Quasar) target, against the V1 program (programs/pinocchio-escrow): the cycle is
+ * lock, deliver, release. The rating and attestation steps are skipped with a message, because the
+ * V1 program ties them to an escrow the buyer opts in at lock (`open_rating`) and this script does
+ * not do that yet (#842; builders are in packages/x402-solana/src/rating.ts). The PER release is
+ * skipped too: the V1 build does not answer `delegate_escrow` / `release_escrow_per` (#839).
+ *
  * Run: npm run demo
  * Target: < 10s end-to-end (excl. async PER confirmation polling)
  */
@@ -30,7 +36,7 @@ import {
   REPUTATION_PROGRAM_ID,
   ATTESTATION_PROGRAM_ID,
   PROGRAM_TARGET,
-  PER_DEVNET_RPC,
+  PROTOCOL_TREASURY,
   RATING_SEED,
   ESCROW_SEED,
   explorerTxUrl,
@@ -84,16 +90,8 @@ function agentPdaForProgram(owner: PublicKey, programId: PublicKey): PublicKey {
   return findPdaForProgram([AGENT_SEED, Buffer.from(owner.toBytes())], programId);
 }
 
-function ratingPda(jobId: Uint8Array): PublicKey {
-  return findPdaForProgram([RATING_SEED, Buffer.from(jobId)], PROGRAM_ID);
-}
-
 function quasarRatingPdaForEscrow(escrow: PublicKey): PublicKey {
   return findPdaForProgram([RATING_SEED, Buffer.from(escrow.toBytes())], REPUTATION_PROGRAM);
-}
-
-function attestationPda(jobId: Uint8Array): PublicKey {
-  return findPdaForProgram([ATTESTATION_SEED, Buffer.from(jobId)], PROGRAM_ID);
 }
 
 function quasarAttestationPdaForEscrow(escrow: PublicKey): PublicKey {
@@ -112,16 +110,23 @@ async function sendTx(ix: TransactionInstruction, signers: Keypair[]): Promise<s
   return sig;
 }
 
-function ratingCommitment(score: number, salt: Uint8Array, jobId: Uint8Array, escrow?: PublicKey): Uint8Array {
+/**
+ * Why a rating or attestation encoder refuses the legacy target. The V1 program's instructions of
+ * these names take other data and accounts than the job-id based ones this script used to build
+ * (programs/pinocchio-escrow/README.md, interface section), so the old encodings are gone rather
+ * than left to fail on chain.
+ */
+const V1_RATING_STEPS_SKIPPED =
+  "ratings and attestations are tied to an escrow opted in at lock (open_rating); this demo does not do that yet (#842). Builders: packages/x402-solana/src/rating.ts";
+
+/** Quasar only: sha256(score ‖ salt ‖ escrow address ‖ reputation program id). */
+function quasarRatingCommitment(score: number, salt: Uint8Array, escrow: PublicKey): Uint8Array {
   const h = crypto.createHash("sha256");
   h.update(Buffer.from([score]));
   h.update(salt);
-  if (PROGRAM_TARGET === "quasar") {
-    if (!escrow) throw new Error("quasar_rating_commitment_requires_escrow");
-    // Quasar job binding commits to the escrow account address and program ID.
-    h.update(Buffer.from(escrow.toBytes()));
-    h.update(Buffer.from(REPUTATION_PROGRAM.toBytes()));
-  }
+  // Quasar job binding commits to the escrow account address and program ID.
+  h.update(Buffer.from(escrow.toBytes()));
+  h.update(Buffer.from(REPUTATION_PROGRAM.toBytes()));
   return new Uint8Array(h.digest());
 }
 
@@ -161,20 +166,6 @@ function encodeLockEscrow(amount: bigint, nonce: Uint8Array): Buffer {
   return buf;
 }
 
-function encodeDelegateEscrow(sessionKey: PublicKey): Buffer {
-  const buf = Buffer.alloc(8 + 32);
-  disc("delegate_escrow").copy(buf, 0);
-  Buffer.from(sessionKey.toBytes()).copy(buf, 8);
-  return buf;
-}
-
-function encodeReleaseEscrowPer(sessionKey: PublicKey): Buffer {
-  const buf = Buffer.alloc(8 + 32);
-  disc("release_escrow_per").copy(buf, 0);
-  Buffer.from(sessionKey.toBytes()).copy(buf, 8);
-  return buf;
-}
-
 function encodeReleaseEscrow(): Buffer {
   if (PROGRAM_TARGET === "quasar") {
     throw new Error("encodeReleaseEscrow requires escrow_id in Quasar mode");
@@ -189,64 +180,29 @@ function encodeQuasarReleaseEscrow(escrowId: bigint): Buffer {
   return buf;
 }
 
-function encodeCommitRating(
-  jobId: Uint8Array, commitment: Uint8Array, role: 0 | 1,
-  consumerPk: PublicKey, specialistPk: PublicKey
-): Buffer {
-  if (PROGRAM_TARGET === "quasar") {
-    const buf = Buffer.alloc(1 + 32 + 1);
-    let o = 0;
-    buf.writeUInt8(1, o++); // Quasar reputation commit discriminator
-    Buffer.from(commitment).copy(buf, o); o += 32;
-    buf.writeUInt8(role, o);
-    return buf;
-  }
-  // discriminator(8) + job_id(16) + commitment(32) + role enum(1) + consumer(32) + specialist(32)
-  const buf = Buffer.alloc(8 + 16 + 32 + 1 + 32 + 32);
+function encodeQuasarCommitRating(commitment: Uint8Array, role: 0 | 1): Buffer {
+  const buf = Buffer.alloc(1 + 32 + 1);
   let o = 0;
-  disc("commit_rating").copy(buf, o); o += 8;
-  Buffer.from(jobId).copy(buf, o); o += 16;
+  buf.writeUInt8(1, o++); // Quasar reputation commit discriminator
   Buffer.from(commitment).copy(buf, o); o += 32;
-  buf.writeUInt8(role, o); o += 1;
-  Buffer.from(consumerPk.toBytes()).copy(buf, o); o += 32;
-  Buffer.from(specialistPk.toBytes()).copy(buf, o);
+  buf.writeUInt8(role, o);
   return buf;
 }
 
-function encodeRevealRating(jobId: Uint8Array, score: number, salt: Uint8Array): Buffer {
-  if (PROGRAM_TARGET === "quasar") {
-    const buf = Buffer.alloc(1 + 1 + 32);
-    let o = 0;
-    buf.writeUInt8(2, o++); // Quasar reputation reveal discriminator
-    buf.writeUInt8(score, o); o += 1;
-    Buffer.from(salt).copy(buf, o);
-    return buf;
-  }
-  // discriminator(8) + job_id(16) + score(1) + salt(32)
-  const buf = Buffer.alloc(8 + 16 + 1 + 32);
+function encodeQuasarRevealRating(score: number, salt: Uint8Array): Buffer {
+  const buf = Buffer.alloc(1 + 1 + 32);
   let o = 0;
-  disc("reveal_rating").copy(buf, o); o += 8;
-  Buffer.from(jobId).copy(buf, o); o += 16;
+  buf.writeUInt8(2, o++); // Quasar reputation reveal discriminator
   buf.writeUInt8(score, o); o += 1;
   Buffer.from(salt).copy(buf, o);
   return buf;
 }
 
-function encodeAttestQuality(jobId: Uint8Array, scores: number[], consumerPk: PublicKey): Buffer {
-  if (PROGRAM_TARGET === "quasar") {
-    const buf = Buffer.alloc(1 + 5);
-    let o = 0;
-    buf.writeUInt8(1, o++); // Quasar attestation attest discriminator
-    for (const s of scores) { buf.writeUInt8(s, o++); }
-    return buf;
-  }
-  // discriminator(8) + job_id(16) + scores[u8;5](5) + consumer(32)
-  const buf = Buffer.alloc(8 + 16 + 5 + 32);
+function encodeQuasarAttestQuality(scores: number[]): Buffer {
+  const buf = Buffer.alloc(1 + 5);
   let o = 0;
-  disc("attest_quality").copy(buf, o); o += 8;
-  Buffer.from(jobId).copy(buf, o); o += 16;
+  buf.writeUInt8(1, o++); // Quasar attestation attest discriminator
   for (const s of scores) { buf.writeUInt8(s, o++); }
-  Buffer.from(consumerPk.toBytes()).copy(buf, o);
   return buf;
 }
 
@@ -304,7 +260,6 @@ function bannerLine(text: string): string {
 async function runDemo() {
   const start = Date.now();
   const requestedSettlementMode = readSettlementMode();
-  const allowFallback = String(process.env.DEMO_ALLOW_FALLBACK ?? "true").toLowerCase() === "true";
   const transferContract = resolveTransferContractForDemo(requestedSettlementMode);
 
   if (PROGRAM_TARGET === "quasar" && requestedSettlementMode === "magicblock_per") {
@@ -414,7 +369,6 @@ async function runDemo() {
   });
 
   let settlementSig: string;
-  let settlementRouteUsed: "magicblock_per" | "public";
 
   const releaseViaL1 = async (): Promise<string> => {
     const releaseL1Ix = new TransactionInstruction({
@@ -426,9 +380,12 @@ async function runDemo() {
             { pubkey: ePda, isSigner: false, isWritable: true },
           ]
         : [
+            // release_escrow: escrow, payer, payee, treasury, system program. The program pays
+            // the protocol fee to the treasury, so it is required and writable.
             { pubkey: ePda, isSigner: false, isWritable: true },
             { pubkey: AGENT_A_KEYPAIR.publicKey, isSigner: true, isWritable: true },
             { pubkey: AGENT_B, isSigner: false, isWritable: true },
+            { pubkey: new PublicKey(PROTOCOL_TREASURY), isSigner: false, isWritable: true },
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
           ],
       data: PROGRAM_TARGET === "quasar" ? encodeQuasarReleaseEscrow(quasarEscrowId!) : encodeReleaseEscrow(),
@@ -436,79 +393,28 @@ async function runDemo() {
     return sendTx(releaseL1Ix, [AGENT_A_KEYPAIR]);
   };
 
-  const releaseViaPer = async (): Promise<string> => {
-    const sessionKeypair = Keypair.generate();
-
-    const delegateIx = new TransactionInstruction({
-      programId: PROGRAM_ID,
-      keys: [
-        { pubkey: ePda, isSigner: false, isWritable: true },
-        { pubkey: AGENT_A_KEYPAIR.publicKey, isSigner: true, isWritable: true },
-      ],
-      data: encodeDelegateEscrow(sessionKeypair.publicKey),
-    });
-    await sendTx(delegateIx, [AGENT_A_KEYPAIR]);
-    console.log(`   ✅ Escrow delegated to PER. Session key: ${sessionKeypair.publicKey.toBase58()}`);
-
-    const releasePerIx = new TransactionInstruction({
-      programId: PROGRAM_ID,
-      keys: [
-        { pubkey: ePda, isSigner: false, isWritable: true },
-        { pubkey: AGENT_A_KEYPAIR.publicKey, isSigner: true, isWritable: true },
-        { pubkey: AGENT_B, isSigner: false, isWritable: true },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      ],
-      data: encodeReleaseEscrowPer(sessionKeypair.publicKey),
-    });
-
-    // MagicBlock delegated-account transactions need a blockhash selected for the
-    // writable account set (`getBlockhashForAccounts`), not a plain public/TEE
-    // blockhash. The SDK's ConnectionMagicRouter wraps that custom RPC method.
-    // Keep the import local so this demo package can reuse the checked-in PER
-    // client dependency without adding another install step during hackathon runs.
-    const { ConnectionMagicRouter } = await import("../../per-client/node_modules/@magicblock-labs/ephemeral-rollups-sdk");
-    const perConn = new ConnectionMagicRouter(PER_DEVNET_RPC, "confirmed");
-
-    const perTx = new Transaction();
-    perTx.feePayer = AGENT_A_KEYPAIR.publicKey;
-    perTx.add(releasePerIx);
-
-    return perConn.sendTransaction(perTx, [AGENT_A_KEYPAIR], { skipPreflight: true });
-  };
-
   if (PROGRAM_TARGET === "quasar") {
     settlementSig = await releaseViaL1();
-    settlementRouteUsed = "public";
     console.log(`   🌐 Quasar-native public escrow settlement used — sig: ${explorerTxUrl(settlementSig)}`);
     console.log("   ℹ️  MagicBlock PER/TEE is explicitly not a final Quasar claim in this script until live Quasar PER validation exists.\n");
-  } else if (requestedSettlementMode === "public") {
-    settlementSig = await releaseViaL1();
-    settlementRouteUsed = "public";
-    console.log(`   🌐 Public L1 settlement used — sig: ${explorerTxUrl(settlementSig)}\n`);
   } else {
-    if (requestedSettlementMode === "vanish_core") {
-      console.log("   ℹ️  Vanish Core is swap-privacy routing (x402_private_swap). This escrow release demo uses PER/public rails.");
+    // PER tracking (delegate_escrow, release_escrow_per) is not in the V1 program build; it is
+    // post-V1 work (#839). A run that asks for it outright is refused; `auto` and `vanish_core`
+    // say so and release on L1.
+    if (requestedSettlementMode === "magicblock_per") {
+      throw new Error(
+        "SKIPPED — PER settlement is not available: the V1 program build does not answer delegate_escrow or release_escrow_per (post-V1, issue #839). " +
+          "Use DEMO_SETTLEMENT_MODE=public.",
+      );
     }
-
-    try {
-      settlementSig = await releaseViaPer();
-      settlementRouteUsed = "magicblock_per";
-      console.log(`   🔒 PER settlement submitted: ${settlementSig}`);
-      console.log(`   ℹ️  Confirmation polling via TEE endpoint (async, omitted from timing)\n`);
-      if (String(process.env.DEMO_STOP_AFTER_SETTLEMENT ?? "false").toLowerCase() === "true") {
-        console.log("   ✅ DEMO_STOP_AFTER_SETTLEMENT=true — stopping after bounded PER settlement lane.\n");
-        return;
+    if (requestedSettlementMode !== "public") {
+      if (requestedSettlementMode === "vanish_core") {
+        console.log("   ℹ️  Vanish Core is swap-privacy routing (x402_private_swap). This escrow release demo uses the public rail.");
       }
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      if (!allowFallback || requestedSettlementMode === "magicblock_per") {
-        throw new Error(`PER settlement failed and fallback disabled: ${message}`);
-      }
-      console.log(`   ⚠️  PER unavailable (${message.slice(0, 60)}...) — using L1 fallback`);
-      settlementSig = await releaseViaL1();
-      settlementRouteUsed = "public";
-      console.log(`   ✅ L1 fallback used — sig: ${explorerTxUrl(settlementSig)}\n`);
+      console.log("   ⏭️  SKIPPED — PER settlement: PER tracking instructions are not in the V1 program build (post-V1, issue #839). Releasing on L1.");
     }
+    settlementSig = await releaseViaL1();
+    console.log(`   🌐 Public L1 settlement used — sig: ${explorerTxUrl(settlementSig)}\n`);
   }
 
   const payeeWallet = AGENT_B.toBase58();
@@ -571,128 +477,111 @@ async function runDemo() {
   }
   console.log("   ✅ Jupiter Swap V2 integration: wired and verified\n");
 
+  if (PROGRAM_TARGET !== "quasar") {
+    // ── Steps 6–8 (legacy target): skipped ───────────────────────────────────
+    console.log(`⏭️  Step 6 — SKIPPED (commit ratings): ${V1_RATING_STEPS_SKIPPED}`);
+    console.log(`⏭️  Step 7 — SKIPPED (reveal ratings): ${V1_RATING_STEPS_SKIPPED}`);
+    console.log(`⏭️  Step 8 — SKIPPED (judge attestation): ${V1_RATING_STEPS_SKIPPED}\n`);
+
+    const elapsed = Date.now() - start;
+    console.log("╔══════════════════════════════════════════════════════════╗");
+    console.log("║  🏁  A→B payment cycle complete; rating steps skipped   ║");
+    console.log("╚══════════════════════════════════════════════════════════╝\n");
+    console.log(`  Escrow PDA:      ${ePda.toBase58()}`);
+    console.log("  Rating PDA:      skipped (#842)");
+    console.log("  Attestation PDA: skipped (#842)");
+    console.log("  Settlement:      L1 direct (public)");
+    console.log(`  Settlement sig:  ${settlementSig}`);
+    console.log(`\n  ⏱  Total time: ${elapsed}ms`);
+    console.log("\n  ℹ️  PER settlement was not attempted: PER tracking is not in the V1 program build (post-V1, #839).");
+    return;
+  }
+
+  // Quasar target only from here on.
+
   // ── Step 6: Blind commit ratings ──────────────────────────────────────────
   console.log("⭐ Step 6 — Committing blind ratings...");
-  const jobId = nonce; // legacy Anchor job id; Quasar records derive job id from escrow_id.
-  const rPda = PROGRAM_TARGET === "quasar" ? quasarRatingPdaForEscrow(ePda) : ratingPda(jobId);
+  const rPda = quasarRatingPdaForEscrow(ePda);
 
   const consumerScore = 8;
   const specialistScore = 9;
   const consumerSalt = new Uint8Array(crypto.randomBytes(32));
   const specialistSalt = new Uint8Array(crypto.randomBytes(32));
-  const cCommitment = ratingCommitment(consumerScore, consumerSalt, jobId, ePda);
-  const sCommitment = ratingCommitment(specialistScore, specialistSalt, jobId, ePda);
+  const cCommitment = quasarRatingCommitment(consumerScore, consumerSalt, ePda);
+  const sCommitment = quasarRatingCommitment(specialistScore, specialistSalt, ePda);
 
   // Consumer commits (role=0)
   const commitConsumerIx = new TransactionInstruction({
-    programId: PROGRAM_TARGET === "quasar" ? REPUTATION_PROGRAM : PROGRAM_ID,
-    keys: PROGRAM_TARGET === "quasar"
-      ? [
-          { pubkey: ePda, isSigner: false, isWritable: false },
-          { pubkey: rPda, isSigner: false, isWritable: true },
-          { pubkey: AGENT_A_KEYPAIR.publicKey, isSigner: true, isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ]
-      : [
-          { pubkey: rPda, isSigner: false, isWritable: true },
-          { pubkey: AGENT_A_KEYPAIR.publicKey, isSigner: true, isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ],
-    data: encodeCommitRating(jobId, cCommitment, 0, AGENT_A_KEYPAIR.publicKey, AGENT_B),
+    programId: REPUTATION_PROGRAM,
+    keys: [
+      { pubkey: ePda, isSigner: false, isWritable: false },
+      { pubkey: rPda, isSigner: false, isWritable: true },
+      { pubkey: AGENT_A_KEYPAIR.publicKey, isSigner: true, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: encodeQuasarCommitRating(cCommitment, 0),
   });
   await sendTx(commitConsumerIx, [AGENT_A_KEYPAIR]);
 
   // Specialist commits (role=1)
   const commitSpecIx = new TransactionInstruction({
-    programId: PROGRAM_TARGET === "quasar" ? REPUTATION_PROGRAM : PROGRAM_ID,
-    keys: PROGRAM_TARGET === "quasar"
-      ? [
-          { pubkey: ePda, isSigner: false, isWritable: false },
-          { pubkey: rPda, isSigner: false, isWritable: true },
-          { pubkey: AGENT_B_KEYPAIR.publicKey, isSigner: true, isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ]
-      : [
-          { pubkey: rPda, isSigner: false, isWritable: true },
-          { pubkey: AGENT_B_KEYPAIR.publicKey, isSigner: true, isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ],
-    data: encodeCommitRating(jobId, sCommitment, 1, AGENT_A_KEYPAIR.publicKey, AGENT_B),
+    programId: REPUTATION_PROGRAM,
+    keys: [
+      { pubkey: ePda, isSigner: false, isWritable: false },
+      { pubkey: rPda, isSigner: false, isWritable: true },
+      { pubkey: AGENT_B_KEYPAIR.publicKey, isSigner: true, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: encodeQuasarCommitRating(sCommitment, 1),
   });
   await sendTx(commitSpecIx, [AGENT_B_KEYPAIR]);
   console.log(`   ✅ Both parties committed (blind). Rating PDA: ${rPda.toBase58()}\n`);
 
   // ── Step 7: Reveal ratings ────────────────────────────────────────────────
   console.log("🎭 Step 7 — Revealing ratings...");
-  const agentBPdaAddr = PROGRAM_TARGET === "quasar" ? quasarReputationAgentB! : agentPda(AGENT_B);
-  const agentAPdaAddr = PROGRAM_TARGET === "quasar" ? quasarReputationAgentA! : agentPda(AGENT_A_KEYPAIR.publicKey);
+  const agentBPdaAddr = quasarReputationAgentB!;
+  const agentAPdaAddr = quasarReputationAgentA!;
+  const revealKeys = (signer: PublicKey) => [
+    { pubkey: ePda, isSigner: false, isWritable: false },
+    { pubkey: rPda, isSigner: false, isWritable: true },
+    { pubkey: signer, isSigner: true, isWritable: false },
+    { pubkey: agentBPdaAddr, isSigner: false, isWritable: true },
+    { pubkey: agentAPdaAddr, isSigner: false, isWritable: true },
+  ];
 
   // Consumer reveals
   const revealConsumerIx = new TransactionInstruction({
-    programId: PROGRAM_TARGET === "quasar" ? REPUTATION_PROGRAM : PROGRAM_ID,
-    keys: PROGRAM_TARGET === "quasar"
-      ? [
-          { pubkey: ePda, isSigner: false, isWritable: false },
-          { pubkey: rPda, isSigner: false, isWritable: true },
-          { pubkey: AGENT_A_KEYPAIR.publicKey, isSigner: true, isWritable: false },
-          { pubkey: agentBPdaAddr, isSigner: false, isWritable: true },
-          { pubkey: agentAPdaAddr, isSigner: false, isWritable: true },
-        ]
-      : [
-          { pubkey: rPda, isSigner: false, isWritable: true },
-          { pubkey: AGENT_A_KEYPAIR.publicKey, isSigner: true, isWritable: false },
-          { pubkey: agentBPdaAddr, isSigner: false, isWritable: true },
-          { pubkey: agentAPdaAddr, isSigner: false, isWritable: true },
-        ],
-    data: encodeRevealRating(jobId, consumerScore, consumerSalt),
+    programId: REPUTATION_PROGRAM,
+    keys: revealKeys(AGENT_A_KEYPAIR.publicKey),
+    data: encodeQuasarRevealRating(consumerScore, consumerSalt),
   });
   await sendTx(revealConsumerIx, [AGENT_A_KEYPAIR]);
 
   // Specialist reveals — triggers reputation update
   const revealSpecIx = new TransactionInstruction({
-    programId: PROGRAM_TARGET === "quasar" ? REPUTATION_PROGRAM : PROGRAM_ID,
-    keys: PROGRAM_TARGET === "quasar"
-      ? [
-          { pubkey: ePda, isSigner: false, isWritable: false },
-          { pubkey: rPda, isSigner: false, isWritable: true },
-          { pubkey: AGENT_B_KEYPAIR.publicKey, isSigner: true, isWritable: false },
-          { pubkey: agentBPdaAddr, isSigner: false, isWritable: true },
-          { pubkey: agentAPdaAddr, isSigner: false, isWritable: true },
-        ]
-      : [
-          { pubkey: rPda, isSigner: false, isWritable: true },
-          { pubkey: AGENT_B_KEYPAIR.publicKey, isSigner: true, isWritable: false },
-          { pubkey: agentBPdaAddr, isSigner: false, isWritable: true },
-          { pubkey: agentAPdaAddr, isSigner: false, isWritable: true },
-        ],
-    data: encodeRevealRating(jobId, specialistScore, specialistSalt),
+    programId: REPUTATION_PROGRAM,
+    keys: revealKeys(AGENT_B_KEYPAIR.publicKey),
+    data: encodeQuasarRevealRating(specialistScore, specialistSalt),
   });
   await sendTx(revealSpecIx, [AGENT_B_KEYPAIR]);
   console.log(`   ✅ Ratings revealed — consumer gave ${consumerScore}/10, specialist gave ${specialistScore}/10\n`);
 
   // ── Step 8: Agent C attests quality ──────────────────────────────────────
   console.log("👨‍⚖️ Step 8 — Agent C: attesting quality of Agent B's work...");
-  const attestPda = PROGRAM_TARGET === "quasar" ? quasarAttestationPdaForEscrow(ePda) : attestationPda(jobId);
-  const agentCPdaAddr = PROGRAM_TARGET === "quasar" ? quasarAttestationAgentC! : agentPda(AGENT_C);
+  const attestPda = quasarAttestationPdaForEscrow(ePda);
+  const agentCPdaAddr = quasarAttestationAgentC!;
   const qualityScores = [8, 8, 9, 8, 8]; // accuracy, completeness, relevance, format, latency
 
   const attestIx = new TransactionInstruction({
-    programId: PROGRAM_TARGET === "quasar" ? ATTESTATION_PROGRAM : PROGRAM_ID,
-    keys: PROGRAM_TARGET === "quasar"
-      ? [
-          { pubkey: ePda, isSigner: false, isWritable: false },
-          { pubkey: attestPda, isSigner: false, isWritable: true },
-          { pubkey: agentCPdaAddr, isSigner: false, isWritable: false },
-          { pubkey: AGENT_C_KEYPAIR.publicKey, isSigner: true, isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ]
-      : [
-          { pubkey: attestPda, isSigner: false, isWritable: true },
-          { pubkey: agentCPdaAddr, isSigner: false, isWritable: false },
-          { pubkey: AGENT_C_KEYPAIR.publicKey, isSigner: true, isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ],
-    data: encodeAttestQuality(jobId, qualityScores, AGENT_A_KEYPAIR.publicKey),
+    programId: ATTESTATION_PROGRAM,
+    keys: [
+      { pubkey: ePda, isSigner: false, isWritable: false },
+      { pubkey: attestPda, isSigner: false, isWritable: true },
+      { pubkey: agentCPdaAddr, isSigner: false, isWritable: false },
+      { pubkey: AGENT_C_KEYPAIR.publicKey, isSigner: true, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: encodeQuasarAttestQuality(qualityScores),
   });
   await sendTx(attestIx, [AGENT_C_KEYPAIR]);
   console.log(`   ✅ Quality attested — scores: [${qualityScores.join(", ")}] (accuracy/completeness/relevance/format/latency)\n`);
@@ -706,21 +595,10 @@ async function runDemo() {
   console.log(`  Escrow PDA:      ${ePda.toBase58()}`);
   console.log(`  Rating PDA:      ${rPda.toBase58()}`);
   console.log(`  Attestation PDA: ${attestPda.toBase58()}`);
-  console.log(`  Settlement:      ${settlementRouteUsed === "magicblock_per" ? "MagicBlock PER (private)" : PROGRAM_TARGET === "quasar" ? "Quasar escrow public settlement" : "L1 direct (public/fallback)"}`);
-  console.log(`  Settlement sig:  ${settlementSig!}`);
+  console.log("  Settlement:      Quasar escrow public settlement");
+  console.log(`  Settlement sig:  ${settlementSig}`);
   console.log(`\n  ⏱  Total time: ${elapsed}ms ${elapsed < 10_000 ? "✅ (< 10s target)" : "⚠️  (> 10s target)"}`);
-
-  if (settlementRouteUsed !== "magicblock_per") {
-    if (PROGRAM_TARGET === "quasar") {
-      console.log(`\n  ℹ️  MagicBlock PER/TEE is not claimed by this Quasar final path; no Anchor/PER fallback was used.`);
-    } else {
-      console.log(`\n  ℹ️  PER was unavailable — L1 fallback used. No funds stuck.`);
-      console.log(`      For PER settlement, ensure ${PER_DEVNET_RPC} is reachable.`);
-    }
-  } else {
-    console.log(`\n  🔒 PER settlement sent to ${PER_DEVNET_RPC}`);
-    console.log(`     Poll for TEE confirmation: new Connection("${PER_DEVNET_RPC}").confirmTransaction(sig)`);
-  }
+  console.log(`\n  ℹ️  MagicBlock PER/TEE is not claimed by this Quasar final path; no Anchor/PER fallback was used.`);
 }
 
 runDemo().catch((e) => {

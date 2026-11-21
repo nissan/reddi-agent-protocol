@@ -107,7 +107,10 @@ export const DEVNET_RPC = pickEnv("DEMO_DEVNET_RPC", "NEXT_PUBLIC_RPC_ENDPOINT")
 /** Solana WebSocket RPC (required when the HTTP/WS ports are independently dynamic, as with the Surfpool SDK). */
 export const DEVNET_RPC_WS = pickEnv("DEMO_DEVNET_RPC_WS", "NEXT_PUBLIC_RPC_WS_ENDPOINT");
 
-/** MagicBlock PER endpoint (overrideable for local Surfpool/test lanes) */
+/**
+ * MagicBlock PER endpoint (overrideable for local Surfpool/test lanes). The demo does not use it:
+ * PER tracking instructions are not in the V1 program build (post-V1, #839).
+ */
 export const PER_DEVNET_RPC = pickEnv("DEMO_PER_RPC", "NEXT_PUBLIC_PER_RPC") ?? activeProfile.defaultPerRpc;
 
 export function explorerTxUrl(signature: string): string {
@@ -122,8 +125,18 @@ export const PERMISSION_PROGRAM_ID = "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQn
 export const DELEGATION_PROGRAM_ID = "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh";
 export const PER_VALIDATOR_PUBKEY = "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo";
 
+/**
+ * Protocol fee treasury fixed in the escrow program (the Squads vault). `release_escrow` takes it,
+ * writable, as its fourth account: escrow, payer, payee, treasury, system program.
+ */
+export const PROTOCOL_TREASURY = "5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe";
+
 /** PDA seeds — must match the on-chain program */
 export const ESCROW_SEED = Buffer.from("escrow");
 export const AGENT_SEED = Buffer.from("agent");
+/**
+ * Followed by the escrow address the job was paid through, never by a job id:
+ * ["rating", escrow] and ["attestation", escrow] (programs/pinocchio-escrow/README.md).
+ */
 export const RATING_SEED = Buffer.from("rating");
 export const ATTESTATION_SEED = Buffer.from("attestation");
