@@ -127,6 +127,9 @@ The wallet sign-in was checked against the devnet app on 21 November 2026: a mes
 | `pausedCurrencies` | Currencies you have stopped taking new locks in, for example `["PYUSD"]`. Also `RAP_PROVIDER_PAUSED_CURRENCIES=PYUSD,USDG`. See "Pausing a currency". |
 | `payoutAccount` | Recovery only: another token account of the currency that your wallet owns. Payouts go there when your usual token account is closed or frozen. |
 | `refundAccountSubsidy.maxPerDay` | Off unless set. How many buyer token accounts you will pay to create in a UTC day, when a buyer closed its own after you accepted its lock. |
+| `sessions.enabled` | `true` by default. `false` refuses session calls with `sessions_not_offered`; single calls are unchanged. |
+| `sessions.idleSeconds` | How long a session may sit without a call before the kit settles it. 30 to 3600, default 600. |
+| `sessions.file` | Where open sessions are remembered. Default `.rap-provider/sessions.jsonl`. Keep it on a disk that survives restarts. |
 
 ## Pausing a currency
 
@@ -138,6 +141,19 @@ RAP_PROVIDER_PAUSED_CURRENCIES=PYUSD rap-provider start
 ```
 
 While your price currency is paused, paid calls are refused with `currency_paused` before any lock is read, no price is offered, and `/.well-known/reddi-agent.json` and `/healthz` report `"acceptingPayments": false`, which is what a listing should show. `rap-provider doctor` shows the pause. Remove the currency from the list and restart to resume. `docs/ESCROW-PAYOUT-SAFETY.md` says when to pause.
+
+## Sessions: several calls, one settle
+
+An agent that makes many small calls to you can lock one escrow and use it for all of them, so it pays one lock and you send one settle. The buyer sends the same `x402-payment` header on every call, plus `x402-session-sequence: 1`, `2`, `3` and so on. The kit then:
+
+- checks before each call that the cost so far plus this call's worst case still fits under the lock, and refuses with `session_max_reached` when it does not;
+- answers every call with a signed receipt whose `session` block carries the sequence, this call's tokens, the running totals and cost, and the hash of the previous receipt, so the buyer can check the chain (`verifyReddiReceiptV2Session` in `@reddi/agent-protocol`);
+- writes the session to `sessions.file` before it answers, so a restart goes on from the last answered call;
+- settles once, for the total, when the buyer sends `x402-session: close` on a call or `POST /v1/session/close`, when the lock is used up, after `sessions.idleSeconds` without a call, or before the lock's refund window opens. The closing receipt is the one with `closed: true` and a `payment` block for the amount settled.
+
+A call number that is out of order or used before is refused with `session_sequence_invalid`; a call the model could not answer is not counted and can be sent again with the same number. A lock used for a session cannot also pay for a single call, or the other way round. If no call was answered, closing the session declines the lock and the buyer gets it all back. `GET /v1/session/<escrow>` shows a session's totals and, once closed, its closing receipt.
+
+The close route and the session read take the escrow's address, which is public on chain, so anyone who knows it can see the totals or close the session early. Closing early only settles what was already answered.
 
 ## What the kit does to protect you and your buyers
 
@@ -154,13 +170,13 @@ While your price currency is paused, paid calls are refused with `currency_pause
 ## Limits today
 
 - Do not run a funded provider on mainnet yet. The payout checks and confirmed receipts above are covered by tests against a simulated chain; they have not been run against a live cluster, and the treasury's token accounts must be confirmed ready for each currency first (`rap-provider doctor` checks yours).
-- A settle that is held is not retried later by itself. The log line `settle_failed` names the escrow; the lock stays open until its refund window, and you can settle it by hand within that time.
+- A held single-call settle is not retried later by itself (a session's settle is retried by the idle sweep until the refund window). The log line `settle_failed` names the escrow; the lock stays open until its refund window, and you can settle it by hand within that time.
 - No streaming responses. Requests with `stream: true` are refused.
 - Message content must be text.
 - Token currencies only. SOL-priced metered calls are not offered.
 - The estimate counts four characters as one token. A buyer who locks exactly the minimum caps your payment at that estimate, so text that tokenises more densely can cost you the difference.
 - When the model reports no usage, tokens are estimated the same way.
-- `rap-provider register` (list yourself in the registry from the command line) is planned; until then use the web form.
+- Sessions on a rated escrow are not offered yet.
 
 ## Library use
 

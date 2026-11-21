@@ -32,7 +32,9 @@ const HASH = /^[0-9a-f]{64}$/;
 const TX_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
-const RECEIPT_KEYS = ['schemaVersion', 'providerId', 'declaredModel', 'requestHash', 'responseHash', 'payment', 'jobId', 'issuedAt'];
+const RECEIPT_KEYS = ['schemaVersion', 'providerId', 'declaredModel', 'requestHash', 'responseHash', 'payment', 'session', 'jobId', 'issuedAt'];
+const SESSION_KEYS = ['escrow', 'payer', 'network', 'currency', 'mint', 'maxAmount', 'sequence', 'inputTokens', 'outputTokens', 'cumulativeInputTokens', 'cumulativeOutputTokens', 'cumulativeCost', 'previousReceiptHash', 'closed'];
+const SESSION_COUNTS = ['maxAmount', 'sequence', 'inputTokens', 'outputTokens', 'cumulativeInputTokens', 'cumulativeOutputTokens', 'cumulativeCost'];
 const PAYMENT_KEYS = ['network', 'txSignature', 'currency', 'mint', 'amount', 'fee', 'payer', 'settlement', 'metered'];
 const METERED_KEYS = ['inputTokens', 'outputTokens', 'maxAmount', 'refunded'];
 /** Smallest-unit amount: digits only, no leading zero, at most 30 digits. */
@@ -103,7 +105,13 @@ export function validateReddiReceiptV2(input) {
     if (typeof input.responseHash !== 'string' || !HASH.test(input.responseHash))
         errors.push(err('malformed_receipt', '$.responseHash', 'responseHash must be lowercase hex SHA-256'));
     const payment = input.payment;
-    if (!isRecord(payment) || !onlyKeys(payment, PAYMENT_KEYS)) {
+    const session = input.session;
+    if (session !== undefined)
+        validateSession(session, payment, errors);
+    if (payment === undefined && session !== undefined) {
+        // A session receipt before the settle: the session block states the money.
+    }
+    else if (!isRecord(payment) || !onlyKeys(payment, PAYMENT_KEYS)) {
         errors.push(err('malformed_receipt', '$.payment', 'payment must be an object with only the fields this version defines'));
     }
     else {
@@ -162,6 +170,67 @@ export function validateReddiReceiptV2(input) {
     }
     return errors.length > 0 ? { ok: false, errors } : { ok: true, receipt: input };
 }
+function validateSession(session, payment, errors) {
+    if (!isRecord(session) || !onlyKeys(session, SESSION_KEYS)) {
+        errors.push(err('malformed_receipt', '$.session', 'session must be an object with only the fields this version defines'));
+        return;
+    }
+    if (!publicKeyBytes(session.escrow))
+        errors.push(err('malformed_receipt', '$.session.escrow', 'escrow must be a base58 address'));
+    if (!publicKeyBytes(session.payer))
+        errors.push(err('malformed_receipt', '$.session.payer', 'payer must be a base58 address'));
+    if (session.network !== 'solana-devnet' && session.network !== 'solana-mainnet-beta')
+        errors.push(err('malformed_receipt', '$.session.network', 'network must be solana-devnet or solana-mainnet-beta'));
+    if (!REDDI_RECEIPT_V2_CURRENCIES.includes(session.currency))
+        errors.push(err('malformed_receipt', '$.session.currency', 'currency must be SOL, USDC, PYUSD, USDG or AUDD'));
+    else if (session.currency === 'SOL' ? session.mint !== undefined : !publicKeyBytes(session.mint))
+        errors.push(err('malformed_receipt', '$.session.mint', 'mint must be a base58 address for a token currency, and absent for SOL'));
+    if (typeof session.closed !== 'boolean')
+        errors.push(err('malformed_receipt', '$.session.closed', 'closed must be true or false'));
+    if (!SESSION_COUNTS.every((key) => typeof session[key] === 'string' && BASE_UNITS.test(session[key]))) {
+        errors.push(err('malformed_receipt', '$.session', 'session amounts and token counts must be whole numbers, as strings'));
+        return;
+    }
+    const n = (key) => BigInt(session[key]);
+    const sequence = n('sequence');
+    if (sequence < 1n)
+        errors.push(err('malformed_receipt', '$.session.sequence', 'sequence starts at 1'));
+    if (n('cumulativeCost') > n('maxAmount'))
+        errors.push(err('malformed_receipt', '$.session.cumulativeCost', 'cumulative cost cannot exceed the locked maximum'));
+    if (n('cumulativeInputTokens') < n('inputTokens') || n('cumulativeOutputTokens') < n('outputTokens'))
+        errors.push(err('malformed_receipt', '$.session', 'totals cannot be below this call'));
+    if (sequence === 1n) {
+        if (session.previousReceiptHash !== undefined)
+            errors.push(err('malformed_receipt', '$.session.previousReceiptHash', 'the first call has no previous receipt'));
+        if (n('cumulativeInputTokens') !== n('inputTokens') || n('cumulativeOutputTokens') !== n('outputTokens'))
+            errors.push(err('malformed_receipt', '$.session', "the first call's totals are its own counts"));
+    }
+    else if (typeof session.previousReceiptHash !== 'string' || !HASH.test(session.previousReceiptHash)) {
+        errors.push(err('malformed_receipt', '$.session.previousReceiptHash', 'every call after the first names the previous receipt by its hash'));
+    }
+    if (payment === undefined) {
+        if (session.closed !== false)
+            errors.push(err('malformed_receipt', '$.session.closed', 'a closed session receipt states the payment that settled it'));
+        return;
+    }
+    if (session.closed !== true)
+        errors.push(err('malformed_receipt', '$.session.closed', 'only the receipt of the settle states a payment'));
+    if (!isRecord(payment))
+        return;
+    const metered = isRecord(payment.metered) ? payment.metered : undefined;
+    const agrees = payment.settlement === 'metered-escrow'
+        && payment.network === session.network
+        && payment.currency === session.currency
+        && payment.mint === session.mint
+        && (payment.payer === undefined || payment.payer === session.payer)
+        && payment.amount === session.cumulativeCost
+        && metered !== undefined
+        && metered.inputTokens === session.cumulativeInputTokens
+        && metered.outputTokens === session.cumulativeOutputTokens
+        && metered.maxAmount === session.maxAmount;
+    if (!agrees)
+        errors.push(err('malformed_receipt', '$.session', "the settle's payment must be the session's cumulative cost and totals, on the same lock"));
+}
 /**
  * The exact bytes the provider signs: JSON with a fixed field order and no
  * whitespace. The version string is the first field, so a signature for this
@@ -169,28 +238,52 @@ export function validateReddiReceiptV2(input) {
  */
 export function canonicalizeReddiReceiptV2(receipt) {
     const p = receipt.payment;
+    // A receipt with neither block fails validation; this keeps the shape total for callers that canonicalise first.
     return JSON.stringify({
         schemaVersion: receipt.schemaVersion,
         providerId: receipt.providerId,
         declaredModel: receipt.declaredModel,
         requestHash: receipt.requestHash,
         responseHash: receipt.responseHash,
-        payment: {
-            network: p.network,
-            txSignature: p.txSignature,
-            currency: p.currency,
-            ...(p.mint !== undefined ? { mint: p.mint } : {}),
-            amount: p.amount,
-            fee: { amount: p.fee.amount, ...(p.fee.treasury !== undefined ? { treasury: p.fee.treasury } : {}) },
-            ...(p.payer !== undefined ? { payer: p.payer } : {}),
-            settlement: p.settlement,
-            ...(p.metered !== undefined
-                ? { metered: { inputTokens: p.metered.inputTokens, outputTokens: p.metered.outputTokens, maxAmount: p.metered.maxAmount, refunded: p.metered.refunded } }
-                : {}),
-        },
+        ...(p !== undefined ? { payment: {
+                network: p.network,
+                txSignature: p.txSignature,
+                currency: p.currency,
+                ...(p.mint !== undefined ? { mint: p.mint } : {}),
+                amount: p.amount,
+                fee: { amount: p.fee.amount, ...(p.fee.treasury !== undefined ? { treasury: p.fee.treasury } : {}) },
+                ...(p.payer !== undefined ? { payer: p.payer } : {}),
+                settlement: p.settlement,
+                ...(p.metered !== undefined
+                    ? { metered: { inputTokens: p.metered.inputTokens, outputTokens: p.metered.outputTokens, maxAmount: p.metered.maxAmount, refunded: p.metered.refunded } }
+                    : {}),
+            } } : {}),
+        ...(receipt.session !== undefined ? { session: canonicalSession(receipt.session) } : {}),
         ...(receipt.jobId !== undefined ? { jobId: receipt.jobId } : {}),
         issuedAt: receipt.issuedAt,
     });
+}
+function canonicalSession(s) {
+    return {
+        escrow: s.escrow,
+        payer: s.payer,
+        network: s.network,
+        currency: s.currency,
+        ...(s.mint !== undefined ? { mint: s.mint } : {}),
+        maxAmount: s.maxAmount,
+        sequence: s.sequence,
+        inputTokens: s.inputTokens,
+        outputTokens: s.outputTokens,
+        cumulativeInputTokens: s.cumulativeInputTokens,
+        cumulativeOutputTokens: s.cumulativeOutputTokens,
+        cumulativeCost: s.cumulativeCost,
+        ...(s.previousReceiptHash !== undefined ? { previousReceiptHash: s.previousReceiptHash } : {}),
+        closed: s.closed,
+    };
+}
+/** SHA-256 of a receipt's canonical bytes, lowercase hex: what the next call of a session names as `previousReceiptHash`. */
+export function hashReddiReceiptV2(receipt) {
+    return hashReddiReceiptV2Body(canonicalizeReddiReceiptV2(receipt));
 }
 /** Validates the receipt, asks the signer for a signature, and refuses to return one that does not verify. */
 export async function signReddiReceiptV2(receipt, signer) {
@@ -250,7 +343,15 @@ export function verifyReddiReceiptV2(input, expected = {}) {
         errors.push(err('request_hash_mismatch', '$.receipt.requestHash', 'request hash differs from the request that was sent'));
     if (expected.responseHash !== undefined && expected.responseHash !== receipt.responseHash)
         errors.push(err('response_hash_mismatch', '$.receipt.responseHash', 'response hash differs from the response that was received'));
-    if (expected.payment !== undefined) {
+    if (expected.session !== undefined) {
+        const got = receipt.session;
+        if (!got || Object.entries(expected.session).some(([key, value]) => value !== undefined && got[key] !== value))
+            errors.push(err('session_mismatch', '$.receipt.session', 'session differs from the session expected'));
+    }
+    if (expected.payment !== undefined && receipt.payment === undefined) {
+        errors.push(err('payment_mismatch', '$.receipt.payment', 'this receipt states no payment yet'));
+    }
+    else if (expected.payment !== undefined && receipt.payment !== undefined) {
         const want = expected.payment;
         const got = receipt.payment;
         const differs = want.network !== got.network
@@ -266,4 +367,52 @@ export function verifyReddiReceiptV2(input, expected = {}) {
             errors.push(err('payment_mismatch', '$.receipt.payment', 'payment differs from the payment that was made'));
     }
     return errors.length > 0 ? { ok: false, errors } : { ok: true, receipt };
+}
+/**
+ * Checks a session's receipts as one chain, oldest first: each verifies on its
+ * own (pass `expected` for what every receipt must state, for example the
+ * provider and the escrow), they share provider, escrow, payer, network,
+ * currency, mint and maximum, sequences run 1, 2, 3 with no gap, each names the
+ * previous receipt's hash, the totals are the running sums of each call's
+ * counts, the cost never goes down, and only the last may be closed. It does
+ * not recompute cost from a price: compare `cumulativeCost` with your own
+ * count of tokens at the price you were quoted.
+ */
+export function verifyReddiReceiptV2Session(chain, expected = {}) {
+    if (chain.length === 0)
+        return { ok: false, errors: [err('session_chain_broken', '$', 'no receipts')] };
+    const receipts = [];
+    for (const [index, item] of chain.entries()) {
+        const one = verifyReddiReceiptV2(item, { ...(expected.providerId !== undefined ? { providerId: expected.providerId } : {}), ...(expected.declaredModel !== undefined ? { declaredModel: expected.declaredModel } : {}), ...(expected.session !== undefined ? { session: expected.session } : {}) });
+        if (!one.ok)
+            return { ok: false, errors: one.errors.map((e) => ({ ...e, path: `$[${index}]${e.path.slice(1)}` })) };
+        if (!one.receipt.session)
+            return { ok: false, errors: [err('session_chain_broken', `$[${index}].receipt.session`, 'not a session receipt')] };
+        receipts.push(one.receipt);
+    }
+    const broken = (index, message) => ({ ok: false, errors: [err('session_chain_broken', `$[${index}].receipt.session`, message)] });
+    const first = receipts[0];
+    let input = 0n;
+    let output = 0n;
+    let cost = 0n;
+    for (const [index, receipt] of receipts.entries()) {
+        const s = receipt.session;
+        const f = first.session;
+        if (receipt.providerId !== first.providerId || s.escrow !== f.escrow || s.payer !== f.payer || s.network !== f.network || s.currency !== f.currency || s.mint !== f.mint || s.maxAmount !== f.maxAmount)
+            return broken(index, 'a different provider, lock or currency than the first receipt');
+        if (BigInt(s.sequence) !== BigInt(index + 1))
+            return broken(index, `expected sequence ${index + 1}`);
+        if (index > 0 && s.previousReceiptHash !== hashReddiReceiptV2(receipts[index - 1]))
+            return broken(index, 'does not name the previous receipt');
+        input += BigInt(s.inputTokens);
+        output += BigInt(s.outputTokens);
+        if (BigInt(s.cumulativeInputTokens) !== input || BigInt(s.cumulativeOutputTokens) !== output)
+            return broken(index, 'totals are not the sum of the calls');
+        if (BigInt(s.cumulativeCost) < cost)
+            return broken(index, 'cumulative cost went down');
+        cost = BigInt(s.cumulativeCost);
+        if (s.closed && index !== receipts.length - 1)
+            return broken(index, 'a receipt follows the closing one');
+    }
+    return { ok: true, receipts, closed: receipts[receipts.length - 1].session.closed };
 }
