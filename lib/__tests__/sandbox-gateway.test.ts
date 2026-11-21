@@ -2,6 +2,7 @@ import { MemoryNonceReplayStore, SOLANA_GENESIS_HASHES } from "@reddi/x402-solan
 import { validateReddiReceiptV2, verifyReddiReceiptV2 } from "@reddi/agent-protocol/receipt-v2";
 import { findSandboxProviderById, SANDBOX_ENDPOINT_PATH, SANDBOX_PROVIDERS } from "@/lib/sandbox/catalog";
 import { marketingSignupUrl } from "@/lib/sandbox/client";
+import { countTokens, formatUnits, maxChargeLamports, requestInputTokens, SANDBOX_FEE_TREASURY, settleSandboxCall } from "@/lib/sandbox/pricing";
 import { handleSandboxChatCompletion, sandboxModelsListing, type SandboxGatewayDeps } from "@/lib/sandbox/gateway";
 import {
   decodeReceiptHeader,
@@ -23,6 +24,9 @@ const messages = [{ role: "user", content: "Explain exponential backoff in two s
 // A transaction signature in the form the chain uses. Not a real transaction.
 const SIG_A = "5".repeat(88);
 const REQUEST_TEXT = JSON.stringify({ model: swift.model, messages });
+// The most this request can cost with Swift Inference: its input plus 1,000 output tokens, at $0.20 / $0.80 per million and the demo SOL rate.
+const MAX_LAMPORTS = maxChargeLamports(swift, requestInputTokens(messages));
+const MAX_SOL = formatUnits(MAX_LAMPORTS, 9);
 
 type FakeTransfer = { source?: string; destination?: string; lamports?: number; blockTime?: number; failed?: boolean };
 
@@ -46,7 +50,7 @@ function fakeConnection(transfers: Record<string, FakeTransfer>, options: { gene
           message: {
             instructions: [{
               programId: SYSTEM_PROGRAM,
-              parsed: { type: "transfer", info: { source: transfer.source ?? PAYER, destination: transfer.destination ?? swift.payTo, lamports: transfer.lamports ?? 500_000 } },
+              parsed: { type: "transfer", info: { source: transfer.source ?? PAYER, destination: transfer.destination ?? swift.payTo, lamports: transfer.lamports ?? Number(MAX_LAMPORTS) } },
             }],
           },
         },
@@ -93,7 +97,7 @@ function nonceOf(response: { body: Record<string, unknown> }): string {
 }
 
 function devnetHeader(nonce: string, txSignature: string, overrides: Record<string, unknown> = {}) {
-  return JSON.stringify({ network: "solana-devnet", payTo: swift.payTo, amount: swift.priceSol, currency: "SOL", nonce, txSignature, payer: PAYER, ...overrides });
+  return JSON.stringify({ network: "solana-devnet", payTo: swift.payTo, amount: MAX_SOL, currency: "SOL", nonce, txSignature, payer: PAYER, ...overrides });
 }
 
 describe("sandbox gateway: challenge", () => {
@@ -104,7 +108,7 @@ describe("sandbox gateway: challenge", () => {
       version: "1",
       network: "solana-devnet",
       payTo: swift.payTo,
-      amount: swift.priceSol,
+      amount: MAX_SOL,
       currency: "SOL",
       endpoint: `${ORIGIN}${SANDBOX_ENDPOINT_PATH}`,
       nonce: "00000000000000000000000000000001",
@@ -150,13 +154,24 @@ describe("sandbox gateway: simulated payment", () => {
     expect(response.headers[PROVIDER_RECEIPT_HEADER]).toBeUndefined();
     expect(response.body.rap_receipt).toBeUndefined();
     const receipt = receiptOf(response);
+    // The simulated call settles at the tokens it used: 12 in, and the scripted answer out.
+    const outputTokens = countTokens((response.body as { choices: { message: { content: string } }[] }).choices[0].message.content);
+    const settled = settleSandboxCall(swift, { inputTokens: 12, outputTokens }, MAX_LAMPORTS);
+    expect([settled.amount, settled.fee, settled.provider, settled.refunded]).toEqual([BigInt(160), BigInt(4), BigInt(156), MAX_LAMPORTS - BigInt(160)]);
     expect(receipt.receipt).toEqual({
       schemaVersion: "reddi.sandbox.simulated-receipt.v1",
       providerId: await listedProviderId(),
       declaredModel: swift.model,
       requestHash: await sha256Hex(REQUEST_TEXT),
       responseHash: await sha256Hex(response.bodyText),
-      payment: { network: "solana-devnet", currency: "SOL", amount: "500000", fee: { amount: "0" }, settlement: "direct" },
+      payment: {
+        network: "solana-devnet",
+        currency: "SOL",
+        amount: settled.amount.toString(),
+        fee: { amount: settled.fee.toString(), treasury: SANDBOX_FEE_TREASURY },
+        settlement: "metered-escrow",
+        metered: { inputTokens: "12", outputTokens: String(outputTokens), maxAmount: MAX_LAMPORTS.toString(), refunded: settled.refunded.toString() },
+      },
       issuedAt: new Date(NOW_MS).toISOString(),
     });
     // No transaction paid for it, so it must never pass as reddi.receipt.v2.
@@ -164,7 +179,7 @@ describe("sandbox gateway: simulated payment", () => {
     expect(verifyReddiReceiptV2(receipt).ok).toBe(false);
     expect(verifyReddiReceiptV2({ ...receipt, receipt: { ...receipt.receipt, schemaVersion: "reddi.receipt.v2" } }).ok).toBe(false);
 
-    const verified = await verifySandboxReceipt({ receipt, model: swift.model, requestBody: REQUEST_TEXT, responseBody: response.bodyText, expectedProviderId: await listedProviderId(), expectedPayment: { amount: "500000" } });
+    const verified = await verifySandboxReceipt({ receipt, model: swift.model, requestBody: REQUEST_TEXT, responseBody: response.bodyText, expectedProviderId: await listedProviderId(), expectedPayment: { amount: MAX_LAMPORTS.toString() } });
     expect(verified.checks.map((check) => [check.id, check.passed])).toEqual([["shape", true], ["request-hash", true], ["response-hash", true], ["provider-key", true], ["signature", true], ["payment", true]]);
     expect(verified.kind).toBe("simulated");
     expect(verified.ok).toBe(true);
@@ -178,14 +193,14 @@ describe("sandbox gateway: simulated payment", () => {
     expect(replay.status).toBe(409);
     expect(replay.body.reason).toBe("duplicate_nonce");
     noReceipt(replay);
-    const jsonReplay = await call(deps, JSON.stringify({ simulated: true, network: "solana-devnet", payTo: swift.payTo, amount: swift.priceSol, currency: "SOL", nonce }));
+    const jsonReplay = await call(deps, JSON.stringify({ simulated: true, network: "solana-devnet", payTo: swift.payTo, amount: MAX_SOL, currency: "SOL", nonce }));
     expect(jsonReplay.status).toBe(409);
   });
 
   it("refuses a simulated payment with the wrong amount, payee, network or currency, without consuming the nonce", async () => {
     const deps = makeDeps();
     const nonce = nonceOf(await call(deps));
-    const good = { simulated: true, network: "solana-devnet", payTo: swift.payTo, amount: swift.priceSol, currency: "SOL", nonce };
+    const good = { simulated: true, network: "solana-devnet", payTo: swift.payTo, amount: MAX_SOL, currency: "SOL", nonce };
     const cases: [Record<string, unknown>, string][] = [
       [{ amount: "0.0001" }, "wrong_amount"],
       [{ payTo: PAYER }, "wrong_payee"],
@@ -219,7 +234,7 @@ describe("sandbox gateway: devnet transfer", () => {
     const receipt = receiptOf(response, PROVIDER_RECEIPT_HEADER);
     const providerId = await listedProviderId();
     expect(receipt.receipt.schemaVersion).toBe("reddi.receipt.v2");
-    expect(receipt.receipt.payment).toEqual({ network: "solana-devnet", txSignature: SIG_A, currency: "SOL", amount: "500000", fee: { amount: "0" }, payer: PAYER, settlement: "direct" });
+    expect(receipt.receipt.payment).toEqual({ network: "solana-devnet", txSignature: SIG_A, currency: "SOL", amount: MAX_LAMPORTS.toString(), fee: { amount: "0" }, payer: PAYER, settlement: "direct" });
     expect(deps.connection.calls.genesis).toBe(1);
 
     // The package's own offline verifier, given everything the buyer knows.
@@ -228,11 +243,11 @@ describe("sandbox gateway: devnet transfer", () => {
       declaredModel: swift.model,
       requestHash: await sha256Hex(REQUEST_TEXT),
       responseHash: await sha256Hex(response.bodyText),
-      payment: { network: "solana-devnet", txSignature: SIG_A, currency: "SOL", amount: "500000", fee: { amount: "0" }, payer: PAYER, settlement: "direct" },
+      payment: { network: "solana-devnet", txSignature: SIG_A, currency: "SOL", amount: MAX_LAMPORTS.toString(), fee: { amount: "0" }, payer: PAYER, settlement: "direct" },
     });
     expect(packageCheck).toEqual({ ok: true, receipt: receipt.receipt });
 
-    const input = { receipt, model: swift.model, requestBody: REQUEST_TEXT, responseBody: response.bodyText, expectedProviderId: providerId, expectedPayment: { amount: "500000", txSignature: SIG_A, payer: PAYER } };
+    const input = { receipt, model: swift.model, requestBody: REQUEST_TEXT, responseBody: response.bodyText, expectedProviderId: providerId, expectedPayment: { amount: MAX_LAMPORTS.toString(), txSignature: SIG_A, payer: PAYER } };
     const verified = await verifySandboxReceipt(input);
     expect(verified.kind).toBe("v2");
     expect(verified.ok).toBe(true);
@@ -250,7 +265,7 @@ describe("sandbox gateway: devnet transfer", () => {
       expect(verifyReddiReceiptV2(forged).ok).toBe(false);
       expect((await verifySandboxReceipt({ ...input, receipt: forged, model: forged.receipt.declaredModel })).ok).toBe(false);
     }
-    expect((await verifySandboxReceipt({ ...input, expectedPayment: { amount: "500000", txSignature: "4".repeat(88), payer: PAYER } })).checks.filter((check) => !check.passed).map((check) => check.id)).toEqual(["payment"]);
+    expect((await verifySandboxReceipt({ ...input, expectedPayment: { amount: MAX_LAMPORTS.toString(), txSignature: "4".repeat(88), payer: PAYER } })).checks.filter((check) => !check.passed).map((check) => check.id)).toEqual(["payment"]);
   });
 
   it("refuses the same transaction for a second call, even under a new nonce", async () => {
@@ -263,7 +278,7 @@ describe("sandbox gateway: devnet transfer", () => {
   it("refuses transfers that do not settle the challenge", async () => {
     const day = 24 * 60 * 60;
     const deps = makeDeps(fakeConnection({
-      underpaid: { lamports: 499_999 },
+      underpaid: { lamports: Number(MAX_LAMPORTS) - 1 },
       elsewhere: { destination: PAYER },
       otherPayer: { source: swift.payTo },
       failed: { failed: true },
@@ -333,7 +348,7 @@ describe("sandbox receipt verification", () => {
     const { receipt, input } = await paidCall();
     for (const forged of [
       { ...receipt, receipt: { ...receipt.receipt, declaredModel: "sandbox/atlas-coder-large" } },
-      { ...receipt, receipt: { ...receipt.receipt, payment: { ...receipt.receipt.payment, amount: "1" } } },
+      { ...receipt, receipt: { ...receipt.receipt, payment: { ...receipt.receipt.payment, amount: "100", ...(receipt.receipt.payment.metered ? { metered: { ...receipt.receipt.payment.metered, refunded: (MAX_LAMPORTS - BigInt(100)).toString() } } : {}) } } },
       { ...receipt, receipt: { ...receipt.receipt, issuedAt: "2026-11-21T00:00:00.000Z" } },
     ]) {
       const result = await verifySandboxReceipt({ ...input, receipt: forged, model: forged.receipt.declaredModel });
@@ -344,7 +359,7 @@ describe("sandbox receipt verification", () => {
   it("fails when the receipt names a provider other than the listed one, or an amount other than the price", async () => {
     const { input } = await paidCall();
     expect(failed(await verifySandboxReceipt({ ...input, expectedProviderId: PAYER }))).toEqual(["provider-key"]);
-    expect(failed(await verifySandboxReceipt({ ...input, expectedPayment: { amount: "499999" } }))).toEqual(["payment"]);
+    expect(failed(await verifySandboxReceipt({ ...input, expectedPayment: { amount: (MAX_LAMPORTS - BigInt(1)).toString() } }))).toEqual(["payment"]);
   });
 
   it("fails closed on anything that is not a sandbox receipt", async () => {

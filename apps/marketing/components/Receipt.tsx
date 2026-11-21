@@ -6,7 +6,12 @@ const ROWS: [string, string][] = [
   ["model declared", "open-model-7b-instruct"],
   ["request hash", "9f2c…a41e"],
   ["response hash", "5b07…d3c9"],
-  ["paid", "0.002 USDC · x402 · Solana devnet"],
+  ["tokens", "1,200 in · 800 out"],
+  ["price", "$3.00 / $15.00 per million tokens"],
+  ["max approved", "0.0336 USDC"],
+  ["cost", "0.0156 USDC · 0.02418 AUDD · x402 · Solana devnet"],
+  ["protocol fee (planned)", "2.5% · 0.00039 USDC"],
+  ["refunded", "0.018 USDC"],
   ["payment tx", "4xQp…sample"],
   ["provider signature", "ed25519 · 7Hn3…sample"],
 ];

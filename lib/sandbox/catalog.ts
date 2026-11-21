@@ -20,8 +20,13 @@ export type SandboxProvider = {
   model: string;
   name: string;
   tagline: string;
-  /** Price per call in SOL, as an exact decimal string. */
-  priceSol: string;
+  /**
+   * Per-token price in US dollars per million tokens, as exact decimal strings,
+   * and the output limit that sets the most one call can cost. Modelled on what
+   * comparable hosted models charge; the sandbox pays the dollar amount in devnet
+   * SOL at a fixed demo rate.
+   */
+  pricing: { inputPerMillionUsd: string; outputPerMillionUsd: string; maxOutputTokens: number };
   /** Public devnet wallet that receives wallet-mode payments. */
   payTo: string;
   behaviour: SandboxProviderBehaviour;
@@ -35,7 +40,7 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
     model: "sandbox/atlas-coder-large",
     name: "Atlas Review",
     tagline: "Careful, slower, priced for depth.",
-    priceSol: "0.002",
+    pricing: { inputPerMillionUsd: "3", outputPerMillionUsd: "15", maxOutputTokens: 2000 },
     payTo: "8qSuegJzQ9QGWnXZve5fKahq4rDm6K3o9wEnKLkXp3To",
     behaviour: "honest",
     reputation: { score: 4.8, receipts: 212 },
@@ -45,7 +50,7 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
     model: "sandbox/swift-coder-small",
     name: "Swift Inference",
     tagline: "Fast and cheap, shorter answers.",
-    priceSol: "0.0005",
+    pricing: { inputPerMillionUsd: "0.2", outputPerMillionUsd: "0.8", maxOutputTokens: 1000 },
     payTo: "2EmtCTzhoSSorg2rRSnTbngGJqkqNufgtFUZRGU4iFWq",
     behaviour: "honest",
     reputation: { score: 4.1, receipts: 57 },
@@ -55,7 +60,7 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
     model: "sandbox/bargain-general-small",
     name: "Bargain Models",
     tagline: "Lowest price on the list.",
-    priceSol: "0.0002",
+    pricing: { inputPerMillionUsd: "0.05", outputPerMillionUsd: "0.2", maxOutputTokens: 1000 },
     payTo: "4WzsVzdmCDjqZ5Ab63hCntNHoz6L2ziQ9Jmat3satHzD",
     behaviour: "fails-spot-check",
     reputation: { score: 3.2, receipts: 18 },
@@ -65,7 +70,7 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
     model: "sandbox/night-owl-medium",
     name: "Night Owl Compute",
     tagline: "Listed, but not answering right now.",
-    priceSol: "0.001",
+    pricing: { inputPerMillionUsd: "0.6", outputPerMillionUsd: "2.4", maxOutputTokens: 2000 },
     payTo: "CischZ2HZBazNPJJLdc5yYr9u8ith1vn5V2pQZUPQqEF",
     behaviour: "offline",
     reputation: { score: 4.4, receipts: 96 },

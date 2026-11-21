@@ -26,13 +26,15 @@ import {
   explorerAddressUrl,
   explorerTxUrl,
   marketingSignupUrl,
-  priceLabel,
+  providerPriceView,
   shortAddress,
   simulatedPaymentHeader,
+  triPriceLabel,
   type SandboxChallenge,
   type SandboxExchange,
 } from "@/lib/sandbox/client";
-import { isSandboxReceipt, responseBodyWithAnswer, verifySandboxReceipt, type SandboxReceipt, type SandboxVerification } from "@/lib/sandbox/receipt";
+import { isSandboxReceipt, responseBodyWithAnswer, type SandboxReceiptPayment, verifySandboxReceipt, type SandboxReceipt, type SandboxVerification } from "@/lib/sandbox/receipt";
+import { formatUnits, requestInputTokens, SANDBOX_DEMO_RATES_NOTE, SANDBOX_FEE_BPS, triPriceFromLamports } from "@/lib/sandbox/pricing";
 import { applySandboxReputation, initialSandboxReputation, type SandboxReputation } from "@/lib/sandbox/reputation";
 
 const WalletMultiButton = dynamic(
@@ -74,10 +76,17 @@ function lamportsFromSol(amount: string): number | undefined {
   return Number.isSafeInteger(lamports) && lamports > 0 ? lamports : undefined;
 }
 
-/** What the visitor knows it paid: the listed price, and the transaction and wallet for a devnet transfer. */
-function expectedPaymentFor(provider: SandboxProvider, paymentHeader: string): { amount?: string; txSignature?: string; payer?: string } {
-  const lamports = lamportsFromSol(provider.priceSol);
-  const expected: { amount?: string; txSignature?: string; payer?: string } = lamports !== undefined ? { amount: String(lamports) } : {};
+/** The most a request can cost with this provider, in lamports: what the challenge asks the buyer to authorise. */
+function maxChargeFor(provider: SandboxProvider, messages: readonly { content: string }[]): bigint {
+  return providerPriceView(provider, requestInputTokens(messages)).maxLamports;
+}
+
+/**
+ * What the visitor knows it authorised: the maximum for this request at the
+ * listed per-token price, and the transaction and wallet for a devnet transfer.
+ */
+function expectedPaymentFor(provider: SandboxProvider, messages: readonly { content: string }[], paymentHeader: string): { amount?: string; txSignature?: string; payer?: string } {
+  const expected: { amount?: string; txSignature?: string; payer?: string } = { amount: maxChargeFor(provider, messages).toString() };
   try {
     const sent = JSON.parse(paymentHeader) as { txSignature?: unknown; payer?: unknown };
     if (typeof sent.txSignature === "string") expected.txSignature = sent.txSignature;
@@ -129,6 +138,63 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+/** A dollar figure with at least two decimals, as prices are usually written: 0.2 becomes 0.20. */
+function dollars(amount: string): string {
+  const [whole, fraction = ""] = amount.split(".");
+  return `${whole}.${fraction.padEnd(2, "0")}`;
+}
+
+/** A provider's listed per-token prices and the most this request can cost, in USDC, AUDD and SOL. */
+function PriceLines({ provider, inputTokens }: { provider: SandboxProvider; inputTokens: number }) {
+  const view = providerPriceView(provider, inputTokens);
+  return (
+    <div className="mt-2 space-y-1 text-xs text-gray-300" data-testid={`sandbox-price-${provider.id}`}>
+      <p>
+        Per million tokens: <span className="font-mono">${dollars(view.inputPerMillion.usdc)}</span> in, <span className="font-mono">${dollars(view.outputPerMillion.usdc)}</span> out
+      </p>
+      <p className="text-gray-400">
+        ({view.inputPerMillion.audd} / {view.outputPerMillion.audd} AUDD · {view.inputPerMillion.sol} / {view.outputPerMillion.sol} SOL)
+      </p>
+      <p>
+        Max this call, up to {provider.pricing.maxOutputTokens.toLocaleString("en-US")} output tokens:{" "}
+        <span className="font-mono" data-testid={`sandbox-max-${provider.id}`}>{triPriceLabel(view.maxPerCall)}</span>
+      </p>
+    </div>
+  );
+}
+
+/** The payment lines of a receipt: tokens, cost, fee, provider share and refund, in all three currencies. */
+function ReceiptPaymentFields({ payment, simulated }: { payment: SandboxReceiptPayment; simulated: boolean }) {
+  const amount = BigInt(payment.amount);
+  const fee = BigInt(payment.fee.amount);
+  const sol = (lamports: bigint) => `${triPriceLabel(triPriceFromLamports(lamports))} (${lamports.toString()} lamports)`;
+  const feePercent = `${Number(SANDBOX_FEE_BPS) / 100}%`;
+  if (payment.metered) {
+    const tokens = `${Number(payment.metered.inputTokens).toLocaleString("en-US")} in, ${Number(payment.metered.outputTokens).toLocaleString("en-US")} out`;
+    return (
+      <>
+        <Field label="Tokens used">{tokens}</Field>
+        <Field label="Max approved">{sol(BigInt(payment.metered.maxAmount))}</Field>
+        <Field label={simulated ? "Cost (simulated, nothing was paid)" : "Cost"}>{sol(amount)}</Field>
+        <Field label={`Protocol fee ${feePercent}`}>
+          {sol(fee)}
+          {payment.fee.treasury ? <>, to the protocol treasury {shortAddress(payment.fee.treasury)}</> : <>, rounds down to nothing at this size</>}
+        </Field>
+        <Field label="Provider receives">{sol(amount - fee)}</Field>
+        <Field label="Back to you">{sol(BigInt(payment.metered.refunded))}</Field>
+      </>
+    );
+  }
+  return (
+    <>
+      <Field label={simulated ? "Paid (simulated, nothing was paid)" : "Paid"}>{sol(amount)} on {payment.network}</Field>
+      <Field label="Protocol fee">
+        none on this transfer. A direct devnet transfer pays the maximum straight to the provider; the metered escrow that takes the {feePercent} fee and refunds the rest is not on devnet yet.
+      </Field>
+    </>
+  );
+}
+
 const actionButton = "rounded-lg bg-[#14F195] px-4 py-2.5 text-sm font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40";
 const quietButton = "rounded-lg border border-white/20 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40";
 
@@ -158,6 +224,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
   const devnet = useMemo(() => new Connection(DEVNET_RPC, "confirmed"), []);
   const provider = findSandboxProviderById(providerId) ?? SANDBOX_PROVIDERS[0];
   const messages = useMemo(() => [{ role: "user", content: prompt }], [prompt]);
+  const inputTokens = requestInputTokens(messages);
 
   useEffect(() => {
     setOrigin(window.location.origin);
@@ -256,7 +323,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
       requestBody: result.requestText,
       responseBody: result.responseText,
       expectedProviderId: providerKeys[provider.id],
-      expectedPayment: expectedPaymentFor(provider, paymentHeader),
+      expectedPayment: expectedPaymentFor(provider, messages, paymentHeader),
     });
     const before = reputation[provider.id];
     const after = applySandboxReputation(before, { receiptVerified: checked.ok, spotCheckPassed: spotCheck.passed });
@@ -311,8 +378,9 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
         return;
       }
       const lamports = lamportsFromSol(String(challenge.amount));
-      // The page only ever signs the catalog's own price to the catalog's own payee.
-      if (lamports === undefined || challenge.payTo !== provider.payTo || String(challenge.amount) !== provider.priceSol || challenge.network !== "solana-devnet") {
+      // The page only ever signs the maximum the catalog's own per-token price gives for this request, to the catalog's own payee.
+      const expectedMax = formatUnits(maxChargeFor(provider, messages), 9);
+      if (lamports === undefined || challenge.payTo !== provider.payTo || String(challenge.amount) !== expectedMax || challenge.network !== "solana-devnet") {
         setNotice({ tone: "bad", title: "Challenge does not match the sandbox catalog", text: "The page will not ask your wallet to sign it." });
         return;
       }
@@ -392,7 +460,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
       requestBody: answered.requestText,
       responseBody: responseBodyWithAnswer(answered.responseText, answered.answer, text),
       expectedProviderId: providerKeys[answered.provider.id],
-      expectedPayment: expectedPaymentFor(answered.provider, answered.paymentHeader),
+      expectedPayment: expectedPaymentFor(answered.provider, answered.messages, answered.paymentHeader),
     }));
   }
 
@@ -466,12 +534,15 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                     <p className="font-semibold text-white">{entry.name}</p>
                     <p className="mt-1 text-gray-300">{entry.tagline}</p>
                     <p className="mt-2 font-mono text-xs text-gray-300">{entry.model}</p>
-                    <p className="mt-1 text-xs text-gray-300">{priceLabel(entry)} per call</p>
+                    <PriceLines provider={entry} inputTokens={inputTokens} />
                     <p className="mt-1 text-xs text-amber-200" data-testid={`sandbox-reputation-${entry.id}`}>★ {score.score.toFixed(2)} from {score.receipts} receipts</p>
                   </button>
                 );
               })}
             </div>
+            <p className="text-xs leading-5 text-gray-400" data-testid="sandbox-pricing-note">
+              Providers price per token. You approve a maximum for each call, the provider settles the tokens it actually used, and the rest comes back to you. A planned protocol fee of {Number(SANDBOX_FEE_BPS) / 100}% comes out of the provider&apos;s share. This request is about {inputTokens.toLocaleString("en-US")} input tokens. The sandbox pays in devnet SOL. {SANDBOX_DEMO_RATES_NOTE}
+            </p>
             <label className="block text-sm text-gray-300">
               <span className="mb-1 block text-xs uppercase tracking-wide text-gray-400">Your request</span>
               <textarea
@@ -500,7 +571,15 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
               <>
                 <p className="text-sm leading-6 text-gray-300">The provider answered <span className="font-mono text-amber-200">402 Payment Required</span> with these terms. Nothing has been paid.</p>
                 <dl className="space-y-2 rounded-xl border border-white/10 bg-black/30 p-4" data-testid="sandbox-challenge">
-                  <Field label="Amount">{String(challenge.amount)} {challenge.currency}</Field>
+                  <Field label="Maximum">
+                    {String(challenge.amount)} {challenge.currency}
+                    {(() => {
+                      const lamports = lamportsFromSol(String(challenge.amount));
+                      if (lamports === undefined) return null;
+                      const tri = triPriceFromLamports(BigInt(lamports));
+                      return <> ({tri.usdc} USDC · {tri.audd} AUDD at demo rates). You approve up to this; the call settles at the tokens it uses.</>;
+                    })()}
+                  </Field>
                   <Field label="Pay to"><a className="underline decoration-dotted" href={explorerAddressUrl(challenge.payTo)} target="_blank" rel="noreferrer">{challenge.payTo}</a></Field>
                   <Field label="Network">{challenge.network}</Field>
                   <Field label="Nonce">{challenge.nonce}</Field>
@@ -598,7 +677,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                   </Field>
                   <Field label="Provider">{answered.provider.name} ({shortAddress(answered.receipt.receipt.providerId)}, sandbox test key)</Field>
                   <Field label="Declared model">{answered.receipt.receipt.declaredModel}</Field>
-                  <Field label={proofRef ? "Paid" : "Price (simulated, nothing was paid)"}>{answered.provider.priceSol} SOL ({answered.receipt.receipt.payment.amount} lamports) on {answered.receipt.receipt.payment.network}, fee {answered.receipt.receipt.payment.fee.amount}</Field>
+                  <ReceiptPaymentFields payment={answered.receipt.receipt.payment} simulated={!proofRef} />
                   <Field label="Payment proof">
                     {proofRef ? (
                       <a className="underline" href={explorerTxUrl(proofRef)} target="_blank" rel="noreferrer">{shortAddress(proofRef)} on Solana Explorer</a>

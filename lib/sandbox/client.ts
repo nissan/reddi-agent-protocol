@@ -3,6 +3,7 @@
  * signatures happen in the visitor's own wallet, in the page component.
  */
 import { SANDBOX_CURRENCY, SANDBOX_ENDPOINT_PATH, SANDBOX_NETWORK, type SandboxProvider } from "./catalog";
+import { maxChargeLamports, triPriceFromLamports, triPriceFromMicroUsd, usageCostMicroUsd, type TriPrice } from "./pricing";
 import { decodeReceiptHeader, PROVIDER_RECEIPT_HEADER, SANDBOX_SIMULATED_RECEIPT_HEADER, type SandboxChatMessage } from "./receipt";
 
 export type SandboxChallenge = {
@@ -128,8 +129,29 @@ export function shortAddress(address: string): string {
   return address.length > 12 ? `${address.slice(0, 4)}…${address.slice(-4)}` : address;
 }
 
-export function priceLabel(provider: SandboxProvider): string {
-  return `${provider.priceSol} devnet SOL`;
+/** One amount in USDC, AUDD and SOL, in that order. */
+export function triPriceLabel(price: TriPrice): string {
+  return `${price.usdc} USDC · ${price.audd} AUDD · ${price.sol} SOL`;
+}
+
+export type ProviderPriceView = {
+  /** Listed price per million input and output tokens. */
+  inputPerMillion: TriPrice;
+  outputPerMillion: TriPrice;
+  /** The most this request can cost: its input plus the provider's full output limit. */
+  maxPerCall: TriPrice;
+  maxLamports: bigint;
+};
+
+/** What a provider card shows for the current request. */
+export function providerPriceView(provider: SandboxProvider, inputTokens: number): ProviderPriceView {
+  const maxLamports = maxChargeLamports(provider, inputTokens);
+  return {
+    inputPerMillion: triPriceFromMicroUsd(usageCostMicroUsd(provider, { inputTokens: 1_000_000, outputTokens: 0 })),
+    outputPerMillion: triPriceFromMicroUsd(usageCostMicroUsd(provider, { inputTokens: 0, outputTokens: 1_000_000 })),
+    maxPerCall: triPriceFromLamports(maxLamports),
+    maxLamports,
+  };
 }
 
 /**
