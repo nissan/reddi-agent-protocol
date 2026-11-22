@@ -14,7 +14,7 @@ import "server-only";
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
-import { PROTOCOL_FEE_BPS, directPaymentCurrency, protocolFeeBaseUnits, protocolFeeCapBaseUnits, type ParsedTransactionConnection } from "@redditech/x402-solana/payment";
+import { protocolFeeBpsNear, directPaymentCurrency, protocolFeeBaseUnits, protocolFeeCapBaseUnits, type ParsedTransactionConnection } from "@redditech/x402-solana/payment";
 import { ratingPda } from "@redditech/x402-solana/rating";
 import { ESCROW_PROTOCOL_TREASURY, tokenEscrowAddresses, treasuryTokenAccount } from "@redditech/x402-solana/token-escrow";
 import type { NetworkProfileName } from "@/lib/config/network-profile-name";
@@ -128,6 +128,7 @@ export async function verifyAndRecordMeteredCall(input: MeteredCallInput, deps: 
   const parsed = tx as {
     meta?: { err?: unknown; preTokenBalances?: unknown; postTokenBalances?: unknown } | null;
     transaction?: { message?: { accountKeys?: unknown[]; instructions?: unknown[] } };
+    blockTime?: number | null;
   } | null;
   if (!parsed?.meta || !parsed.transaction?.message) return refuse("settle_not_found");
   if (parsed.meta.err !== null && parsed.meta.err !== undefined) return refuse("settle_failed_on_chain");
@@ -161,7 +162,11 @@ export async function verifyAndRecordMeteredCall(input: MeteredCallInput, deps: 
   const maxAmount = balanceOf(parsed.meta.preTokenBalances, accountKeys, vault.toBase58(), expectedMint);
   if (providerShare <= BigInt(0) || fee < BigInt(0)) return refuse("settle_paid_nothing");
   if (charged > maxAmount) return refuse("settle_above_maximum");
-  if (fee !== protocolFeeBaseUnits(charged, PROTOCOL_FEE_BPS, protocolFeeCapBaseUnits(currency))) return refuse("fee_mismatch");
+  // The program reads the fee rate from the cluster clock at settle: 2.5% until 1 April 2027, then 5%. Check against the
+  // settle's block time, allowing either rate right at the switch (or when the block time is missing).
+  const blockTimeMs = typeof parsed.blockTime === "number" ? parsed.blockTime * 1000 : undefined;
+  const cap = protocolFeeCapBaseUnits(currency);
+  if (!protocolFeeBpsNear(blockTimeMs).some((bps) => fee === protocolFeeBaseUnits(charged, bps, cap))) return refuse("fee_mismatch");
 
   const written = await recordVerifiedJob(
     {

@@ -118,7 +118,7 @@ export async function runDoctor(input: DoctorInput): Promise<{ ok: boolean; chec
     const notReady = treasury.items.find((item) => !item.ok);
     add(notReady
       ? { name: "Protocol treasury", status: "fail", detail: `${notReady.name}: ${notReady.detail}`, fix: `The protocol treasury cannot receive ${terms.price.currency} fees on this network yet, and a settle does not create its account. This provider refuses calls in ${terms.price.currency} until it is ready. ${config.network === "solana-devnet" && notReady.detail.startsWith("missing") ? `On devnet anyone can create it once: spl-token create-account ${terms.mint.toBase58()} --owner ${ESCROW_PROTOCOL_TREASURY.toBase58()} --fee-payer <your keypair> --url devnet` : "Report it to the Reddi Agent Protocol team."}` }
-      : { name: "Protocol treasury", status: "pass", detail: `ready to receive the 2.5% fee in ${terms.price.currency}` });
+      : { name: "Protocol treasury", status: "pass", detail: `ready to receive the protocol fee in ${terms.price.currency}` });
 
     if (terms.tokenProgram.toBase58() === TOKEN_2022_PROGRAM) {
       const mint = await chain.readAccount(terms.mint);

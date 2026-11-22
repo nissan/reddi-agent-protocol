@@ -23,7 +23,7 @@ exports.meteredRatingAccount = meteredRatingAccount;
  * A buyer locks the most it will pay in a metered token escrow payable to the
  * provider. The provider reads the lock back from the chain, serves the call,
  * counts the tokens the model reports and settles the actual cost. The escrow
- * program pays 2.5% of that to the protocol treasury, the rest to the
+ * program pays the protocol fee (2.5% until 1 April 2027, then 5%) of that to the protocol treasury, the rest to the
  * provider, and returns the unused maximum to the buyer.
  *
  * Nothing here reads a key or sends a transaction. `meteredSettlement` returns

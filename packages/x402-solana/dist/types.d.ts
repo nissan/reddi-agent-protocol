@@ -47,7 +47,7 @@ export interface X402FeeTerms {
 export interface ProtocolFeeConfig {
     /** Treasury owner address. */
     treasury: string;
-    /** Fee rate in basis points. Defaults to PROTOCOL_FEE_BPS. */
+    /** Fee rate in basis points. Defaults to the scheduled rate (protocolFeeBpsAt): 2.5% until 1 April 2027, then 5%. */
     bps?: number;
 }
 export interface X402Challenge extends X402ChallengeInput {

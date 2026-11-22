@@ -12,6 +12,7 @@
  */
 
 import type { SandboxProvider } from "@/lib/sandbox/catalog";
+import { protocolFeeBpsAt } from "@redditech/x402-solana/payment";
 
 /** Fixed rates for the demo only. Not market prices. */
 export const SANDBOX_DEMO_RATES = {
@@ -23,8 +24,13 @@ export const SANDBOX_DEMO_RATES = {
 
 export const SANDBOX_DEMO_RATES_NOTE = `Demo rates: 1 SOL = ${SANDBOX_DEMO_RATES.usdPerSol} USD, 1 USD = ${SANDBOX_DEMO_RATES.auddPerUsd} AUDD. Not market prices.`;
 
-/** Protocol fee in basis points, as the escrow program takes it. */
-export const SANDBOX_FEE_BPS = BigInt(250);
+/**
+ * Protocol fee in basis points at `atMs`, as the escrow program takes it: the
+ * 2.5% launch rate until 1 April 2027 00:00 UTC, then the standard 5%.
+ */
+export function sandboxFeeBps(atMs: number = Date.now()): bigint {
+  return BigInt(protocolFeeBpsAt(atMs));
+}
 /** The protocol treasury the escrow program pays fees to: the Squads vault. */
 export const SANDBOX_FEE_TREASURY = "5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe";
 
@@ -126,11 +132,11 @@ export type MeteredSettlementLamports = {
 /**
  * Settles a call at its actual tokens against the maximum the buyer locked,
  * as the metered escrow does: the cost never exceeds the maximum, the fee is
- * 2.5% of the cost rounded down, and the rest of the maximum goes back.
+ * the scheduled rate of the cost rounded down, and the rest of the maximum goes back.
  */
 export function settleSandboxCall(provider: SandboxProvider, usage: TokenUsage, maxAmount: bigint): MeteredSettlementLamports {
   const cost = microUsdToLamports(usageCostMicroUsd(provider, usage));
   const amount = cost < maxAmount ? cost : maxAmount;
-  const fee = (amount * SANDBOX_FEE_BPS) / BigInt(10_000);
+  const fee = (amount * sandboxFeeBps()) / BigInt(10_000);
   return { usage, maxAmount, amount, fee, provider: amount - fee, refunded: maxAmount - amount };
 }

@@ -5,7 +5,7 @@
  * the buyer.
  */
 
-import { baseUnitsToDecimal, decimalToBaseUnits, PROTOCOL_FEE_BPS, protocolFeeBaseUnits, protocolFeeCapBaseUnits } from "@redditech/x402-solana/payment";
+import { baseUnitsToDecimal, decimalToBaseUnits, protocolFeeBpsAt, protocolFeeBaseUnits, protocolFeeCapBaseUnits } from "@redditech/x402-solana/payment";
 import { tokenCostBaseUnits, type PerTokenPrice, type TokenCounts } from "@redditech/x402-solana/metered";
 
 /** The default maximum, as a multiple of the estimate (Nissan, 20 November 2026). */
@@ -96,7 +96,7 @@ export function quoteMeteredBuy(input: {
       message: `The maximum must be at least the estimate of ${baseUnitsToDecimal(estimated, DECIMALS)} ${input.currency}.`,
     };
   }
-  const fee = protocolFeeBaseUnits(estimated, PROTOCOL_FEE_BPS, protocolFeeCapBaseUnits(input.currency));
+  const fee = protocolFeeBaseUnits(estimated, protocolFeeBpsAt(), protocolFeeCapBaseUnits(input.currency));
   return {
     ok: true,
     currency: input.currency,

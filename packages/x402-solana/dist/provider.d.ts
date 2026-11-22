@@ -4,7 +4,7 @@
  * A buyer locks the most it will pay in a metered token escrow payable to the
  * provider. The provider reads the lock back from the chain, serves the call,
  * counts the tokens the model reports and settles the actual cost. The escrow
- * program pays 2.5% of that to the protocol treasury, the rest to the
+ * program pays the protocol fee (2.5% until 1 April 2027, then 5%) of that to the protocol treasury, the rest to the
  * provider, and returns the unused maximum to the buyer.
  *
  * Nothing here reads a key or sends a transaction. `meteredSettlement` returns
@@ -98,7 +98,7 @@ export interface MeteredOffer {
     /** The maximum a buyer locks by default: twice the estimate. A buyer may lock more, never less than the estimate. */
     suggestedMaxCharge: string;
     suggestedMaxChargeBaseUnits: string;
-    /** Protocol fee if the estimate holds: 2.5%, taken out of the provider's share. */
+    /** Protocol fee if the estimate holds, at the scheduled rate (2.5% until 1 April 2027, then 5%), taken out of the provider's share. */
     estimatedFee: string;
     /** The least a lock may hold, in base units: the cost of the estimate. */
     minimumLockBaseUnits: string;
