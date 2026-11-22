@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { toExplorerTxUrl } from "@/lib/config/explorer";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 export const runtime = "nodejs";
 
@@ -32,6 +33,8 @@ function summariseHeartbeatResults(results: unknown): string {
 }
 
 export async function GET() {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   const attestationsRaw = readJson(join(DATA_DIR, "attestations.json"));
   const heartbeatPollsRaw = readJson(join(DATA_DIR, "heartbeat-poll.json"));
 

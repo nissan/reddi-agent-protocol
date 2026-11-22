@@ -424,69 +424,27 @@ describe("Quasar demo program target config", () => {
     );
   });
 
-  it("stops claiming placeholder aliasing once mainnet program ids are supplied", async () => {
+  it("ignores per-program overrides on mainnet and keeps the registered (placeholder) set", async () => {
+    // Mainnet fence (audit S2-claude-01): program ids come from config/networks/mainnet.json only.
     process.env.NETWORK_PROFILE = "mainnet";
-    process.env.NEXT_PUBLIC_DEMO_PROGRAM_TARGET = "quasar";
     process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = "EscrowMainnet1111111111111111111111111111111";
     process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryMainnet1111111111111111111111111111";
     process.env.NEXT_PUBLIC_REPUTATION_PROGRAM_ID = "ReputationMainnet11111111111111111111111111";
     process.env.NEXT_PUBLIC_ATTESTATION_PROGRAM_ID = "AttestationMainnet1111111111111111111111111";
 
     const { getNetworkProfile } = await import("@/lib/config/network");
-    const gaps = getNetworkProfile().programs.knownGaps.join(" ");
-
-    expect(gaps).not.toMatch(/placeholder/);
-    expect(gaps).not.toMatch(/alias/);
-    expect(gaps).toMatch(/no audited mainnet deployment is registered for it/);
-    expect(getNetworkProfile().programs.submissionReady).toBe(false);
-  });
-
-  it("still discloses aliasing when only the mainnet escrow id is supplied", async () => {
-    process.env.NETWORK_PROFILE = "mainnet";
-    process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = "EscrowMainnet1111111111111111111111111111111";
-
-    const { getNetworkProfile } = await import("@/lib/config/network");
+    const { ESCROW_PROGRAM_ID, REGISTRY_PROGRAM_ID } = await import("@/lib/program");
     const profile = getNetworkProfile();
     const gaps = profile.programs.knownGaps.join(" ");
 
-    expect(profile.programs.registryProgramId).toBe("EscrowMainnet1111111111111111111111111111111");
-    expect(gaps).toMatch(/registry, reputation and attestation/);
-    expect(gaps).toMatch(/they alias to the escrow program id on this profile/);
-  });
-
-  it("names only the programs that still alias when some mainnet ids are supplied", async () => {
-    process.env.NETWORK_PROFILE = "mainnet";
-    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryMainnet1111111111111111111111111111";
-
-    const { getNetworkProfile } = await import("@/lib/config/network");
-    const gaps = getNetworkProfile().programs.knownGaps.join(" ");
-
-    expect(gaps).toMatch(/reputation and attestation/);
-    expect(gaps).not.toMatch(/registry, reputation and attestation/);
+    expect(profile.programs.escrowProgramId).toBe(MAINNET_PLACEHOLDER_PROGRAM_ID);
+    expect(profile.programs.registryProgramId).toBe(MAINNET_PLACEHOLDER_PROGRAM_ID);
+    expect(ESCROW_PROGRAM_ID.toBase58()).toBe(MAINNET_PLACEHOLDER_PROGRAM_ID);
+    expect(REGISTRY_PROGRAM_ID.toBase58()).toBe(MAINNET_PLACEHOLDER_PROGRAM_ID);
+    expect(gaps).toMatch(/escrow, registry, reputation, attestation program id overrides do not match the registered mainnet program set/);
     expect(gaps).toMatch(/placeholder devnet id/);
-  });
-
-  it("honours the documented per-program mainnet overrides instead of aliasing them to escrow", async () => {
-    process.env.NETWORK_PROFILE = "mainnet";
-    process.env.NEXT_PUBLIC_ESCROW_PROGRAM_ID = "EscrowMainnet1111111111111111111111111111111";
-    process.env.NEXT_PUBLIC_REGISTRY_PROGRAM_ID = "RegistryMainnet1111111111111111111111111111";
-    process.env.NEXT_PUBLIC_REPUTATION_PROGRAM_ID = "ReputationMainnet11111111111111111111111111";
-    process.env.NEXT_PUBLIC_ATTESTATION_PROGRAM_ID = "AttestationMainnet1111111111111111111111111";
-
-    const { getNetworkProfile } = await import("@/lib/config/network");
-    const { ESCROW_PROGRAM_ID, REGISTRY_PROGRAM_ID, REPUTATION_PROGRAM_ID, ATTESTATION_PROGRAM_ID } = await import(
-      "@/lib/program"
-    );
-    const profile = getNetworkProfile();
-
-    expect(profile.programs.escrowProgramId).toBe("EscrowMainnet1111111111111111111111111111111");
-    expect(profile.programs.registryProgramId).toBe("RegistryMainnet1111111111111111111111111111");
-    expect(profile.programs.reputationProgramId).toBe("ReputationMainnet11111111111111111111111111");
-    expect(profile.programs.attestationProgramId).toBe("AttestationMainnet1111111111111111111111111");
-    expect(ESCROW_PROGRAM_ID.toBase58()).toBe("EscrowMainnet1111111111111111111111111111111");
-    expect(REGISTRY_PROGRAM_ID.toBase58()).toBe("RegistryMainnet1111111111111111111111111111");
-    expect(REPUTATION_PROGRAM_ID.toBase58()).toBe("ReputationMainnet11111111111111111111111111");
-    expect(ATTESTATION_PROGRAM_ID.toBase58()).toBe("AttestationMainnet1111111111111111111111111");
+    expect(gaps).not.toMatch(/EscrowMainnet/);
+    expect(profile.programs.submissionReady).toBe(false);
   });
 
   it("rejects a malformed program id override instead of crashing lib/program at module scope", async () => {

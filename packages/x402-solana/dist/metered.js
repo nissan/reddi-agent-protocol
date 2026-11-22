@@ -38,7 +38,7 @@ function tokenCostBaseUnits(price, counts) {
  * What a buyer sees before a metered call: the estimated cost and the maximum
  * it authorises. The maximum must cover the estimate.
  */
-function quoteMeteredCall(price, estimate, maxCharge) {
+function quoteMeteredCall(price, estimate, maxCharge, atMs = Date.now()) {
     const decimals = currencyDecimals(price.currency);
     const estimated = tokenCostBaseUnits(price, estimate);
     const max = (0, payment_1.decimalToBaseUnits)(maxCharge, decimals);
@@ -50,7 +50,7 @@ function quoteMeteredCall(price, estimate, maxCharge) {
         currency: price.currency,
         estimatedCost: (0, payment_1.baseUnitsToDecimal)(estimated, decimals),
         maxCharge: (0, payment_1.baseUnitsToDecimal)(max, decimals),
-        estimatedFee: (0, payment_1.baseUnitsToDecimal)((0, payment_1.protocolFeeBaseUnits)(estimated, payment_1.PROTOCOL_FEE_BPS, (0, payment_1.protocolFeeCapBaseUnits)(price.currency)), decimals),
+        estimatedFee: (0, payment_1.baseUnitsToDecimal)((0, payment_1.protocolFeeBaseUnits)(estimated, (0, payment_1.protocolFeeBpsAt)(atMs), (0, payment_1.protocolFeeCapBaseUnits)(price.currency)), decimals),
     };
 }
 /**
@@ -58,14 +58,14 @@ function quoteMeteredCall(price, estimate, maxCharge) {
  * are known. This is the same split the escrow program applies on-chain when
  * the payee settles with `chargedBaseUnits`.
  */
-function settleMeteredCall(price, usage, maxCharge) {
+function settleMeteredCall(price, usage, maxCharge, atMs = Date.now()) {
     const decimals = currencyDecimals(price.currency);
     const max = (0, payment_1.decimalToBaseUnits)(maxCharge, decimals);
     if (max === undefined)
         throw new Error(`maxCharge must be a positive ${price.currency} amount with at most ${decimals} decimal places`);
     const actual = tokenCostBaseUnits(price, usage);
     const charged = actual > max ? max : actual;
-    const fee = (0, payment_1.protocolFeeBaseUnits)(charged, payment_1.PROTOCOL_FEE_BPS, (0, payment_1.protocolFeeCapBaseUnits)(price.currency));
+    const fee = (0, payment_1.protocolFeeBaseUnits)(charged, (0, payment_1.protocolFeeBpsAt)(atMs), (0, payment_1.protocolFeeCapBaseUnits)(price.currency));
     const text = (units) => (0, payment_1.baseUnitsToDecimal)(units, decimals);
     return {
         currency: price.currency,

@@ -42,7 +42,7 @@ RAP is intentionally complementary to adjacent standards and products: x402 and 
 - Not mainnet-ready and not a live-funds production deployment.
 - Not a security-audited release; `SECURITY.md` is a threat-model and disclosure boundary.
 - Not proof that AUDD/Solana custody or settlement is supported beyond the explicitly labelled proof/payment-plan/read-only observation paths.
-- Not a live transaction take-rate: the planned protocol fee is 2.5% (250 bps) of the actual cost of a call, capped at 0.1 SOL on SOL payments, and no mainnet release collects it yet.
+- Not a live transaction take-rate: the planned protocol fee is 5% (500 bps) of the actual cost of a call, with a 2.5% (250 bps) launch rate until 31 March 2027, capped at 0.1 SOL on SOL payments, and no mainnet release collects it yet.
 
 ## Open-source core and hosted boundary
 
@@ -140,7 +140,7 @@ The verifier checks public product routes, recorded Solana devnet transactions, 
 |---|---|
 | Protocol fee | No deployed on-chain release path collects a protocol treasury fee. |
 | Per-token pricing | Listings are priced per million input and output tokens. The buyer sees an estimated cost and approves a maximum (by default twice the estimate, never below it). The actual cost comes from the tokens used after the response. |
-| 2.5% / 250 bps (planned) | Planned fee of 2.5% of the amount actually paid, rounded down and taken from the provider's share, capped at 0.1 SOL on SOL payments only; stablecoins have no cap. It replaces the earlier 0.05% / 5 bps plan. In source, the metered escrow (`lock_metered_escrow`, `settle_escrow` and their token versions) locks the maximum, pays the fee to the protocol treasury and the rest to the provider, and refunds the unused maximum. `packages/x402-solana` mirrors the math (`protocolFeeBaseUnits`, `settleMeteredCall`). Only devnet runs it; no mainnet release collects the fee. |
+| 5% / 500 bps, 2.5% launch rate (planned) | Planned fee of 5% of the amount actually paid (2.5% for payouts before 2027-04-01 00:00 UTC, read by the program from the cluster clock at payout), rounded down and taken from the provider's share, capped at 0.1 SOL on SOL payments only; stablecoins have no cap. It replaces the earlier 0.05% / 5 bps plan. In source, the metered escrow (`lock_metered_escrow`, `settle_escrow` and their token versions) locks the maximum, pays the fee to the protocol treasury and the rest to the provider, and refunds the unused maximum. `packages/x402-solana` mirrors the math (`protocolFeeBaseUnits`, `settleMeteredCall`). Only devnet runs it; no mainnet release collects the fee. |
 | Registration fee | The legacy registry burn constant is a devnet-era anti-sybil fixture, not protocol revenue. |
 | Custody | Current shipped public package flows are no-spend/proof-reference/read-only observation helpers. |
 | AUDD/Solana | AUDD is payment-plan/proof metadata and read-only SPL observation unless a separate approved live rail lands. |

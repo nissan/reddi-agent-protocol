@@ -4,6 +4,7 @@ import { ESCROW_PROGRAM_ID } from "@/lib/program";
 import { describeRpcEndpoint, serverRpcEndpoint } from "@/lib/rpc/server-rpc";
 import { checkOperatorKeyStatus } from "@/lib/onboarding/operator-key";
 import { runSpecialistHealthcheck } from "@/lib/onboarding/healthcheck";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 type CheckStatus = "pass" | "fail";
 
@@ -24,6 +25,8 @@ function parseMinSolFloor() {
 }
 
 export async function POST(req: Request) {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   try {
     const body = await req.json().catch(() => ({}));
     const endpointUrl = typeof body?.endpointUrl === "string" ? body.endpointUrl.trim() : "";

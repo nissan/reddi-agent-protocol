@@ -42,6 +42,9 @@ on:
       - ".github/workflows/public-claim-boundary.yml"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   public-claim-boundary-gate:
     name: RAP Assurance public-claim boundary
@@ -51,6 +54,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Setup Node
         uses: actions/setup-node@v5

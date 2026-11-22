@@ -8,6 +8,7 @@ import {
 } from "@/lib/onboarding/specialist-index";
 
 import { observeListedHealth } from "@/lib/listings/listing-health";
+import { bearerMatchesSecret } from "@/lib/http/cron-auth";
 
 export const runtime = "nodejs";
 
@@ -24,9 +25,14 @@ function readHistory(): Array<{ polled_at: string; specialists_checked: number; 
 }
 
 export async function GET(req: Request) {
-  // When the operator sets CRON_SECRET the scheduler sends it, and nobody else can trigger a sweep.
+  // The scheduler sends the operator's CRON_SECRET and nobody else can trigger a sweep. In a
+  // production build the sweep fails closed when no secret is configured (audit S2-claude-06);
+  // local development may run it without one.
   const secret = process.env.CRON_SECRET?.trim();
-  if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!secret && process.env.NODE_ENV === "production") {
+    return NextResponse.json({ ok: false, error: "CRON_SECRET is not configured" }, { status: 503 });
+  }
+  if (secret && !bearerMatchesSecret(req.headers.get("authorization"), secret)) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 

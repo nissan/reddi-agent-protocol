@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { Connection } from "@solana/web3.js";
 import { storeOnWalrus } from "@/lib/walrus";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 const DEVNET_RPC = "https://api.devnet.solana.com";
 const PROGRAM_ID = "9xWmNT4EfAeEnLb947izUX8u2U3Kw8BL4vd85x65w24f";
@@ -46,6 +47,8 @@ async function getDevnetProof(): Promise<{ blockhash: string; slot: number }> {
 }
 
 export async function POST(req: Request) {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   const { brief, ollamaUrl } = await req.json();
 
   if (!brief || !ollamaUrl) {

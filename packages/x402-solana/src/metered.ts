@@ -1,4 +1,4 @@
-import { baseUnitsToDecimal, decimalToBaseUnits, directPaymentCurrency, PROTOCOL_FEE_BPS, protocolFeeBaseUnits, protocolFeeCapBaseUnits } from './payment';
+import { baseUnitsToDecimal, decimalToBaseUnits, directPaymentCurrency, protocolFeeBpsAt, protocolFeeBaseUnits, protocolFeeCapBaseUnits } from './payment';
 
 /**
  * Per-token pricing for a listing, as most AI inference services price. Prices
@@ -62,7 +62,7 @@ export interface MeteredQuote {
  * What a buyer sees before a metered call: the estimated cost and the maximum
  * it authorises. The maximum must cover the estimate.
  */
-export function quoteMeteredCall(price: PerTokenPrice, estimate: TokenCounts, maxCharge: string): MeteredQuote {
+export function quoteMeteredCall(price: PerTokenPrice, estimate: TokenCounts, maxCharge: string, atMs: number = Date.now()): MeteredQuote {
   const decimals = currencyDecimals(price.currency);
   const estimated = tokenCostBaseUnits(price, estimate);
   const max = decimalToBaseUnits(maxCharge, decimals);
@@ -72,7 +72,7 @@ export function quoteMeteredCall(price: PerTokenPrice, estimate: TokenCounts, ma
     currency: price.currency,
     estimatedCost: baseUnitsToDecimal(estimated, decimals),
     maxCharge: baseUnitsToDecimal(max, decimals),
-    estimatedFee: baseUnitsToDecimal(protocolFeeBaseUnits(estimated, PROTOCOL_FEE_BPS, protocolFeeCapBaseUnits(price.currency)), decimals),
+    estimatedFee: baseUnitsToDecimal(protocolFeeBaseUnits(estimated, protocolFeeBpsAt(atMs), protocolFeeCapBaseUnits(price.currency)), decimals),
   };
 }
 
@@ -84,7 +84,7 @@ export interface MeteredSettlement {
   actualCost: string;
   /** What the buyer pays: the actual cost, never more than the authorised maximum. */
   charged: string;
-  /** 2.5% of `charged`, rounded down; at most 0.1 SOL for SOL. Goes to the treasury. */
+  /** The scheduled rate of `charged` (2.5% until 1 April 2027, then 5%), rounded down; at most 0.1 SOL for SOL. Goes to the treasury. */
   fee: string;
   /** `charged` less the fee. */
   provider: string;
@@ -101,13 +101,13 @@ export interface MeteredSettlement {
  * are known. This is the same split the escrow program applies on-chain when
  * the payee settles with `chargedBaseUnits`.
  */
-export function settleMeteredCall(price: PerTokenPrice, usage: TokenCounts, maxCharge: string): MeteredSettlement {
+export function settleMeteredCall(price: PerTokenPrice, usage: TokenCounts, maxCharge: string, atMs: number = Date.now()): MeteredSettlement {
   const decimals = currencyDecimals(price.currency);
   const max = decimalToBaseUnits(maxCharge, decimals);
   if (max === undefined) throw new Error(`maxCharge must be a positive ${price.currency} amount with at most ${decimals} decimal places`);
   const actual = tokenCostBaseUnits(price, usage);
   const charged = actual > max ? max : actual;
-  const fee = protocolFeeBaseUnits(charged, PROTOCOL_FEE_BPS, protocolFeeCapBaseUnits(price.currency));
+  const fee = protocolFeeBaseUnits(charged, protocolFeeBpsAt(atMs), protocolFeeCapBaseUnits(price.currency));
   const text = (units: bigint) => baseUnitsToDecimal(units, decimals);
   return {
     currency: price.currency,

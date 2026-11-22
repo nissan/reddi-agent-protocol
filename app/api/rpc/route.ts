@@ -1,6 +1,10 @@
 import { getNetworkProfile } from "@/lib/config/network";
 import { checkRpcBody, forwardRpc, isAllowedOrigin, MAX_RPC_BODY_BYTES, parseAllowedOrigins, rpcErrorResponse } from "@/lib/rpc/proxy";
 import { serverRpcEndpoint } from "@/lib/rpc/server-rpc";
+import { createRpcRateLimiter, rpcClientKey } from "@/lib/rpc/rate-limit";
+
+// One limiter per server instance; see lib/rpc/rate-limit.ts.
+const limiter = createRpcRateLimiter();
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,5 +35,11 @@ export async function POST(req: Request) {
 
   const checked = checkRpcBody(await req.text(), appProgramIds());
   if (!checked.ok) return rpcErrorResponse(checked.status, checked.code, checked.message, checked.id);
+  const allowed = limiter.take(rpcClientKey(req.headers), checked.calls, checked.scans);
+  if (!allowed.ok) {
+    const limited = rpcErrorResponse(429, "rpc_rate_limited", "Too many RPC requests from this client. Try again shortly.");
+    limited.headers.set("retry-after", String(allowed.retryAfterSeconds));
+    return limited;
+  }
   return forwardRpc(checked.body, endpoint.url);
 }

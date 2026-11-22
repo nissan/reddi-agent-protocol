@@ -18,6 +18,8 @@ earlier review lists things it did not verify.
 | 2026-11-21 | S1 Pinocchio program, follow-up | Codex | `a3995a4` | GO for a guarded beta (program); HOLD on provider rollout until provider items closed | counts on #737 | Provider and docs items routed to their owners; re-verify in S4 and S7 |
 | 2026-11-21 | S1 rated escrow (rating and attestation, #855) | Claude | `d6fc739` | Merge OK | 0/0/1/5/3 | Fixed before merge |
 | 2026-11-21 | S1 rated escrow (#855) | Codex | `f4a1881`, `5f3efe5`, `e37e755`, `f592382` | NO-GO ×3, then GO at `f592382` | per round | Merged as `b71a91e` |
+| 2026-11-22 | S1–S7 pre-freeze round (interim, Codex S1/S7 pending) | Claude (Fable, Opus, Sonnet) | `45445b1` | Interim NO-GO; program itself 0 C/H; blockers all off-chain | S1 0/0/1/4/5, S2 0/0/5/6/1, S3 0/1/3/3/2, S4 0/1/2/3/2, S5 0/0/3/5/3, S6 1/1/6/4/3, S7 0/1/3/4/4 | Fixes pending |
+| 2026-11-22 | S1 fee launch-rate schedule (#896) | Claude | `6780b00` | Program OK | 0/0/0/0/1 (+ off-chain follow-ups) | Pending merge |
 | 2026-11-21 | S2/S4 paid-request authentication | Claude (security thread) | #865, #879, #882, #884, #886 | Cleared each PR | – | Merged: every paid request carries the payer's signature |
 
 ## Surfaces with no dedicated review yet

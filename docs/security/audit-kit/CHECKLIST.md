@@ -30,7 +30,7 @@ passes, whatever the finding counts say.
 - [ ] S1.13 Lock: amount bounds and per-escrow caps hold; windows obey claim > 0, claim ≤ refund, refund ≤ maximum.
 - [ ] S1.14 Release (payer), claim (payee after claim window), refund (payer after refund window) and settle (payee only, metered only) each require the right signer and slot.
 - [ ] S1.15 At the exact boundary slot, the outcome is defined and documented when both parties act.
-- [ ] S1.16 Fee: 2.5% of the amount paid, rounded down, from the provider's share, capped at 0.1 SOL on SOL only, using widening arithmetic, on every payout path.
+- [ ] S1.16 Fee: the rate in `consts.rs` for the payout time (2.5% launch rate before 2027-04-01 00:00 UTC by cluster clock, then 5%, owner decision 2026-11-22) of the amount paid, rounded down, from the provider's share, capped at 0.1 SOL on SOL only, using widening arithmetic, on every payout path; the lock rent check allows for the higher rate; off-chain fee mirrors (`packages/x402-solana`, `lib/jobs/`, `lib/payments/`) agree with the program on both sides of the cutoff.
 - [ ] S1.17 The fee always goes to the treasury vault or its canonical token account; no caller-chosen fee destination.
 - [ ] S1.18 Metered settle cannot exceed the locked maximum; the unused part always returns to the payer.
 - [ ] S1.19 SOL payouts respect rent rules (payee rent check, treasury minimum); no lamport underflow.

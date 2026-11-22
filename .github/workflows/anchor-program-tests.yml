@@ -39,6 +39,9 @@ on:
       - ".github/workflows/surfpool-quasar-critical-sdk.yml"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   anchor-program-tests:
     name: Legacy Anchor escrow tests (LiteSVM / Mollusk)
@@ -47,6 +50,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Verify pinned Solana toolchain baseline
         run: |

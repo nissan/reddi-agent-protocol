@@ -99,7 +99,7 @@ function buildLockTokenEscrowInstruction(t) {
  * Release: the program accepts the payer at any time, or the payee once the claim window has elapsed.
  * Settle (`options.actual`): only the payee, and only on a metered escrow; pass the payee as `authority`.
  * The payer never chooses a smaller amount: it releases in full, or refunds once the cancel window has elapsed.
- * Every payout sends 2.5% of the paid amount to the treasury and the rest of the vault back to the payer.
+ * Every payout sends the protocol fee (2.5% until 1 April 2027, then 5%) of the paid amount to the treasury and the rest of the vault back to the payer.
  * Refund: the program accepts the payee at any time (decline), or the payer once the cancel window has elapsed.
  *
  * This builds the exit's own data and accounts only. The program also requires the escrow's lock slot

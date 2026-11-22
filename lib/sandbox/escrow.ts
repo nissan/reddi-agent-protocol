@@ -3,7 +3,7 @@
  *
  * The visitor's wallet locks the most a call can cost in an escrow on the
  * devnet program. After the answer, the provider settles the actual cost: the
- * program pays 2.5% to the protocol treasury, the rest to the provider, and
+ * program pays the protocol fee (2.5% until 1 April 2027, then 5%) to the treasury, the rest to the provider, and
  * returns the unused part of the maximum to the visitor.
  *
  * Pinned to devnet whatever profile the app runs with. Browser-safe: no node

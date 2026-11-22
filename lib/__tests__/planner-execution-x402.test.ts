@@ -1,3 +1,7 @@
+// Provider endpoints are fetched through the outbound guard, which resolves the host first.
+// Test hosts resolve to a public address here; the guard itself is tested in outbound-guard.test.ts.
+jest.mock("dns/promises", () => ({ lookup: jest.fn(async () => [{ address: "93.184.215.14", family: 4 }]) }));
+
 jest.mock("server-only", () => ({}));
 
 jest.mock("fs", () => ({
@@ -60,5 +64,23 @@ describe("planner execution x402 fail-closed behavior", () => {
     });
     expect((result as { response?: string }).response).toBeUndefined();
     expect(result.result.trace).toContain("x402:missing_challenge_unpaid_response_blocked");
+  });
+
+  it("refuses the non-wallet (operator-paid, simulated) path on mainnet without calling the provider (audit S2-claude-10)", async () => {
+    const saved = process.env.NETWORK_PROFILE;
+    process.env.NETWORK_PROFILE = "mainnet";
+    try {
+      global.fetch = jest.fn() as unknown as typeof fetch;
+      const { executePlannerSpecialistCall } = await import("@/lib/onboarding/planner-execution");
+      const { processX402Challenge } = await import("@/lib/onboarding/x402-settlement");
+      const result = await executePlannerSpecialistCall({ prompt: "summarize this" });
+      expect(result.ok).toBe(false);
+      expect(result.result.error).toMatch(/wallet payment only/);
+      expect(global.fetch).not.toHaveBeenCalled();
+      expect(processX402Challenge).not.toHaveBeenCalled();
+    } finally {
+      if (saved === undefined) delete process.env.NETWORK_PROFILE;
+      else process.env.NETWORK_PROFILE = saved;
+    }
   });
 });

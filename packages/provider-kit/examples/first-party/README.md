@@ -1,4 +1,4 @@
-# Reddi's own providers: a worked example
+# RAP's own providers: a worked example
 
 Two first-party providers run on this kit: the video scene and script writer (#846) and the humaniser. Their configs are here as an example of a real listing; their instructions are not. Each config points at a `*.prompt.private.txt` file kept on the host. Those files are ignored by git and left out of the npm package, so the house style rules are never published.
 

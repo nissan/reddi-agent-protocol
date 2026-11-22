@@ -22,7 +22,7 @@ export interface BuyerDirectPaymentInput {
     /** Older name for `mint`, kept for USDC callers. */
     usdcMint?: PublicKey;
     payerTokenAccount?: PublicKey;
-    /** Highest fee rate the buyer accepts. Defaults to PROTOCOL_FEE_BPS. */
+    /** Highest fee rate the buyer accepts. Defaults to the rate in force now (protocolFeeBpsAt). */
     maxFeeBps?: number;
 }
 export type BuyerPaymentRefusalReason = 'invalid_challenge' | 'wrong_network' | 'wrong_payee' | 'wrong_currency' | 'price_above_listing' | 'above_spend_cap' | 'fee_terms_rejected';

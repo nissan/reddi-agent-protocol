@@ -1,3 +1,7 @@
+// Provider endpoints are fetched through the outbound guard, which resolves the host first.
+// Test hosts resolve to a public address here; the guard itself is tested in outbound-guard.test.ts.
+jest.mock("dns/promises", () => ({ lookup: jest.fn(async () => [{ address: "93.184.215.14", family: 4 }]) }));
+
 jest.mock("server-only", () => ({}));
 
 jest.mock("fs", () => ({
@@ -108,6 +112,34 @@ describe("planner execution, wallet payment mode (#738)", () => {
     const result = await run({ paymentReceipt: receipt });
     expect(result.result).toMatchObject({ status: "failed", paymentAttempted: true, x402TxSignature: SIGNATURE, error: expect.stringContaining("do not pay twice") });
   });
+  it("still returns the paid answer when the run log cannot be written (audit S2-claude-04)", async () => {
+    const fs = jest.requireMock("fs") as { writeFileSync: jest.Mock };
+    fs.writeFileSync.mockImplementation(() => {
+      throw Object.assign(new Error("EROFS: read-only file system, open '/var/task/data/onboarding/planner-runs.json'"), { code: "EROFS" });
+    });
+    try {
+      global.fetch = jest.fn().mockResolvedValue(response(200, JSON.stringify({ choices: [{ message: { content: "answer" } }] }))) as unknown as typeof fetch;
+      const result = await run({ paymentReceipt: receipt, preferredWallet: PROVIDER });
+      expect(result.ok).toBe(true);
+      expect(result.result).toMatchObject({ status: "completed", paymentSatisfied: true });
+      expect(JSON.stringify(result)).not.toContain("/var/task");
+    } finally {
+      fs.writeFileSync.mockReset();
+    }
+  });
+
+  it("does not follow a provider's redirect to an internal address (audit S2-claude-02)", async () => {
+    const fetchMock = jest.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.redirect).toBe("manual");
+      return response(303, "", { location: "http://169.254.169.254/latest/meta-data/" });
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const result = await run({ preferredWallet: PROVIDER });
+    expect(result.ok).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://specialist.example/v1/chat/completions");
+  });
+
   describe("per-token calls (#794)", () => {
     const ESCROW = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
     const metered = {

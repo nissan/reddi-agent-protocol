@@ -7,15 +7,6 @@ name: Package tests
 
 on:
   pull_request:
-    paths:
-      - "packages/x402-solana/**"
-      - "packages/rap-mcp-bridge/**"
-      - "packages/openrouter-specialists/**"
-      - "packages/eliza-plugin-x402/**"
-      - "packages/sendai-x402/**"
-      - "packages/per-client/**"
-      - "packages/provider-kit/**"
-      - ".github/workflows/package-tests.yml"
   push:
     branches: [main]
     paths:
@@ -37,7 +28,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Runs on every pull request, so the gate below always reports. The work runs only
+  # when the pull request touches these paths (push and manual runs always do it).
+  changes:
+    name: Relevant changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      relevant: ${{ steps.diff.outputs.relevant }}
+    steps:
+      - id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          PATTERN: '^(packages/(x402-solana|rap-mcp-bridge|openrouter-specialists|eliza-plugin-x402|sendai-x402|per-client|provider-kit)/|\.github/workflows/package-tests\.yml$)'
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          files=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" --paginate --jq '.[].filename')
+          if printf '%s\n' "$files" | grep -qE "$PATTERN"; then relevant=true; else relevant=false; fi
+          echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
+          echo "Relevant to this workflow: $relevant"
+
   package-tests:
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -72,3 +91,20 @@ jobs:
       - name: Run the package's tests
         working-directory: packages/${{ matrix.package }}
         run: npm test
+
+  # The check to require on main: passes when the work passed, or was not needed.
+  gate:
+    name: Package tests gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [changes, package-tests]
+    if: always()
+    steps:
+      - env:
+          RELEVANT: ${{ needs.changes.outputs.relevant }}
+          CHANGES: ${{ needs.changes.result }}
+          RESULT: ${{ needs.package-tests.result }}
+        run: |
+          echo "changes=$CHANGES relevant=$RELEVANT work=$RESULT"
+          if [ "$CHANGES" != "success" ]; then exit 1; fi
+          if [ "$RELEVANT" = "true" ] && [ "$RESULT" != "success" ]; then exit 1; fi
