@@ -83,7 +83,7 @@ export default function SandboxSessionRunner({ provider, providerReceiptId, onEx
           <p className="text-sm font-semibold text-white">Settled once: {done.totalLamports.toString()} lamports for {done.rows.length} calls</p>
           <ul className="space-y-1 text-sm leading-6 text-gray-300">
             <li>The closing receipt is call {done.rows.length + 1} in the chain: no tokens of its own, the running totals, and the settle.</li>
-            <li>Planned protocol fee, 2.5% of the total: {done.feeLamports.toString()} lamports. Returned to you from the lock: {done.refundedLamports.toString()} lamports.</li>
+            <li>Planned protocol fee, 2.5% of the total at the launch rate: {done.feeLamports.toString()} lamports. Returned to you from the lock: {done.refundedLamports.toString()} lamports.</li>
             <li data-testid="sandbox-session-network">Network transactions: 2 (one lock, one settle) instead of {done.rows.length * 2} if each call paid on its own.</li>
           </ul>
           <p className="text-xs leading-5 text-gray-400" data-testid="sandbox-session-fee-share">

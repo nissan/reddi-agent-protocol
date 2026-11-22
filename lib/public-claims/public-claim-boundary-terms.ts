@@ -56,7 +56,7 @@ export const FORBIDDEN_PUBLIC_CLAIMS: ForbiddenPublicClaim[] = [
   },
   {
     id: "collected-fee",
-    pattern: /\b(?:collects?|charges?|takes?)\s+(?:a\s+)?(?:2\.5\s*%|250\s*bps\b|0\.05\s*%|5\s*bps\b|protocol\s+fee\b|take-?rate\b)/i,
+    pattern: /\b(?:collects?|charges?|takes?)\s+(?:a\s+)?(?:2\.5\s*%|250\s*bps\b|5\s*%|500\s*bps\b|0\.05\s*%|5\s*bps\b|protocol\s+fee\b|take-?rate\b)/i,
     reason: "Protocol fee/take-rate is not live until a mainnet release collects it.",
     injectionExample: "The protocol collects a 2.5% take-rate on every settled job.",
   },
@@ -108,7 +108,7 @@ const CLAIM_PREDICATES: Record<string, string> = {
   "generic-runtime": "\\b(?:generic|hosted|production)\\s+(?:agent\\s+)?runtime\\b",
   "custody-provider": "\\bcustody\\b",
   "escrow-provider": "\\bescrow\\s+(?:provider|service|product|finality|guarantee)\\b",
-  "collected-fee": "(?:2\\.5\\s*%|250\\s*bps|0\\.05\\s*%|5\\s*bps|protocol\\s+fee|take-?rate)",
+  "collected-fee": "(?:2\\.5\\s*%|250\\s*bps|5\\s*%|500\\s*bps|0\\.05\\s*%|5\\s*bps|protocol\\s+fee|take-?rate)",
   "production-ready": "\\b(?:production[-\\s]?read(?:y|iness)|ready\\s+for\\s+production)\\b",
   "mainnet-ready": "\\b(?:mainnet[-\\s]?read(?:y|iness)|ready\\s+for\\s+mainnet)\\b",
   "security-audited": "\\baudit(?:ed|s)?\\b",

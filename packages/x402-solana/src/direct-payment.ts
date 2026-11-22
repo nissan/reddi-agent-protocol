@@ -1,6 +1,6 @@
 import { PublicKey, SystemProgram, TransactionInstruction } from '@solana/web3.js';
 import { createTransferCheckedInstruction, getAssociatedTokenAddressSync } from '@solana/spl-token';
-import { decimalToBaseUnits, directPaymentCurrency, PROTOCOL_FEE_BPS, protocolFeeBaseUnits, protocolFeeCapBaseUnits } from './payment';
+import { decimalToBaseUnits, directPaymentCurrency, protocolFeeBpsAt, protocolFeeBaseUnits, protocolFeeCapBaseUnits } from './payment';
 import type { X402Challenge } from './types';
 
 export interface DirectPaymentInput {
@@ -47,7 +47,7 @@ export function buildDirectPaymentInstructions(input: DirectPaymentInput): Trans
   let feeUnits = BigInt(0);
   let treasury: PublicKey | undefined;
   if (challenge.fee) {
-    const maxFeeBps = input.maxFeeBps ?? PROTOCOL_FEE_BPS;
+    const maxFeeBps = input.maxFeeBps ?? protocolFeeBpsAt();
     if (challenge.fee.bps > maxFeeBps) throw new Error(`challenge fee of ${challenge.fee.bps} bps exceeds the accepted ${maxFeeBps} bps`);
     // The ceiling is the buyer's own rule for the currency, never the challenge's.
     feeUnits = protocolFeeBaseUnits(price, challenge.fee.bps, protocolFeeCapBaseUnits(challenge.currency));

@@ -9,7 +9,7 @@
 
 import type { SandboxProvider } from "./catalog";
 import { callSandbox, challengeFrom, errorMessageOf, type SandboxExchange } from "./client";
-import { countTokens, formatUnits, maxChargeLamports, requestInputTokens, SANDBOX_FEE_BPS, sessionCallLamports } from "./pricing";
+import { countTokens, formatUnits, maxChargeLamports, requestInputTokens, sandboxFeeBps, sessionCallLamports } from "./pricing";
 import { encodeReceiptHeader, hashSandboxReceipt, isSandboxReceipt, sandboxReceiptSignatureValid, type SandboxReceipt } from "./receipt";
 
 export const SESSION_PROMPTS: readonly string[] = [
@@ -157,7 +157,7 @@ export async function runSandboxSession(input: {
     }
   }
   if (!closing?.receipt.payment) return fail("The session did not close.");
-  const fee = (cumulative * SANDBOX_FEE_BPS) / BigInt(10_000);
-  if (closing.receipt.payment.fee.amount !== fee.toString()) return fail("The closing receipt states a different fee from 2.5% of the total.");
+  const fee = (cumulative * sandboxFeeBps()) / BigInt(10_000);
+  if (closing.receipt.payment.fee.amount !== fee.toString()) return fail("The closing receipt states a different fee from the protocol fee on the total.");
   return { ok: true, maxLamports, rows, totalLamports: cumulative, feeLamports: fee, refundedLamports: maxLamports - cumulative, receipts, closing, exchanges };
 }

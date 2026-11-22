@@ -136,7 +136,7 @@ test.describe('/onboarding page', () => {
     await fields.getByLabel('Input, per million tokens').fill('0.50')
     await fields.getByLabel('Output, per million tokens').fill('1.50')
     await expect(preview).toContainText('0.00825 USDC')
-    await expect(preview).toContainText('Protocol fee (planned, 2.5%)')
+    await expect(preview).toContainText('Protocol fee (planned, 2.5% launch rate, then 5%)')
     await expect(preview).toContainText('0.008044 USDC')
     await expect(preview).toContainText(/demo rates/i)
   })
