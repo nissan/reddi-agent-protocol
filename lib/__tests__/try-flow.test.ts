@@ -97,7 +97,8 @@ describe("try page: Solana Pay transaction request flow (#925)", () => {
     const tx = Transaction.from(Buffer.from(built.transaction, "base64"));
     expect(tx.feePayer?.equals(payer.publicKey)).toBe(true);
     expect(tx.instructions).toHaveLength(4);
-    const [lock, memo, limit, price] = tx.instructions;
+    // The budget comes first, where wallets' transaction checkers expect it.
+    const [limit, price, lock, memo] = tx.instructions;
     // An explicit, small compute budget, so the wallet does not add a priority fee larger than the call.
     expect(limit.programId.equals(ComputeBudgetProgram.programId) && price.programId.equals(ComputeBudgetProgram.programId)).toBe(true);
     expect(Buffer.from(limit.data)).toEqual(Buffer.from(ComputeBudgetProgram.setComputeUnitLimit({ units: TRY_LOCK_COMPUTE_UNITS }).data));
@@ -151,7 +152,7 @@ describe("try page: Solana Pay transaction request flow (#925)", () => {
     const theirs = await buildTryTransaction({ token: s.token, account: stranger.publicKey.toBase58(), secret: SECRET, connection: w.connection, nowMs: NOW_MS });
     if (!theirs.ok) throw new Error(theirs.message);
     const tampered = Transaction.from(Buffer.from(theirs.transaction, "base64"));
-    const noMemo = new Transaction({ feePayer: stranger.publicKey, blockhash: BLOCKHASH, lastValidBlockHeight: 100 }).add(tampered.instructions[0]);
+    const noMemo = new Transaction({ feePayer: stranger.publicKey, blockhash: BLOCKHASH, lastValidBlockHeight: 100 }).add(tampered.instructions.find((ix) => ix.programId.equals(SANDBOX_ESCROW_PROGRAM_ID))!);
     w.walletSignsAndLands(noMemo.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64"), stranger, "5".repeat(88));
     expect(await runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS })).toEqual({ ok: true, state: "waiting" });
     const mine = await buildTryTransaction({ token: s.token, account: payer.publicKey.toBase58(), secret: SECRET, connection: w.connection, nowMs: NOW_MS });
@@ -182,7 +183,7 @@ describe("try page: Solana Pay transaction request flow (#925)", () => {
     const built = await buildTryTransaction({ token: s.token, account: payer.publicKey.toBase58(), secret: SECRET, connection: w.connection, nowMs: NOW_MS });
     if (!built.ok) throw new Error(built.message);
     const stripped = Transaction.from(Buffer.from(built.transaction, "base64"));
-    const withoutMemo = new Transaction({ feePayer: payer.publicKey, blockhash: BLOCKHASH, lastValidBlockHeight: 100 }).add(stripped.instructions[0]);
+    const withoutMemo = new Transaction({ feePayer: payer.publicKey, blockhash: BLOCKHASH, lastValidBlockHeight: 100 }).add(stripped.instructions.find((ix) => ix.programId.equals(SANDBOX_ESCROW_PROGRAM_ID))!);
     w.walletSignsAndLands(withoutMemo.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64"), payer);
     const result = await runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS });
     expect(result).toEqual({ ok: true, state: "waiting" });
