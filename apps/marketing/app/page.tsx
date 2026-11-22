@@ -23,6 +23,7 @@ export default function Home() {
           <div className="hero-actions">
             <a className="button primary" href="#updates">Tell me when it opens</a>
             <Link className="text-link" href="/sandbox">See the devnet sandbox ↗</Link>
+            <Link className="text-link" href="/watch">Watch the 30-second trailer ↗</Link>
           </div>
           <p className="small muted">{STAGE}</p>
         </div>

@@ -16,7 +16,17 @@ export type Video = {
   status: "draft" | "published";
 };
 
-export const VIDEOS: readonly Video[] = [];
+export const VIDEOS: readonly Video[] = [
+  {
+    slug: "trailer",
+    date: "2026-11-22",
+    title: "Reddi Agent Protocol in 30 seconds",
+    summary: "The short trailer: pay for AI inference on Solana and keep a signed receipt for every answer. Mainnet is coming soon.",
+    youtubeId: "R9gb8i4iH8Q",
+    minutes: 1,
+    status: "published",
+  },
+];
 
 const byNewest = (a: Video, b: Video) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.slug.localeCompare(b.slug));
 
