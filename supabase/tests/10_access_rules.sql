@@ -168,6 +168,13 @@ do $$ begin
   if (select count(*) from public.provider_stats) <> 1 then raise exception 'anon cannot see stats of a listed provider'; end if;
 end $$;
 select pg_temp.expect_error('anon reads owner_user_id', 'select owner_user_id from public.providers');
+-- The columns the app's public listing reads (lib/listings/listing-store.ts), ADL included.
+do $$ begin
+  perform wallet, display_name, endpoint_url, declared_models, capabilities, price_per_call_base_units,
+    price_input_per_million_base_units, price_output_per_million_base_units, price_mint, network, status,
+    health_status, last_seen_at, updated_at, adl, adl_source
+  from public.providers;
+end $$;
 select pg_temp.expect_denied('anon writes an attestation', $q$
   insert into public.attestations (job_id, provider_wallet, attestor_wallet, outcome)
   values ('00000000-0000-0000-0000-0000000000f1', '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'x', 'pass') $q$);
