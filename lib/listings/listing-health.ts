@@ -15,7 +15,7 @@ import "server-only";
 import { resolveNetworkProfileName } from "@/lib/config/network";
 import { supabasePublicConfig } from "@/lib/supabase/config";
 import { listingNetworkForProfile, readPublicListings, recordListingHealth, type ListingStoreDeps } from "@/lib/listings/listing-store";
-import { checkOutboundUrl } from "@/lib/http/outbound";
+import { fetchOutbound } from "@/lib/http/outbound";
 
 type ProbeResponse = { ok: boolean; status: number; text?: () => Promise<string> };
 type ProbeFetch = (input: string, init: { method: string; redirect: "manual"; signal?: AbortSignal }) => Promise<ProbeResponse>;
@@ -50,12 +50,9 @@ async function reportedAcceptingPayments(response: ProbeResponse): Promise<boole
 export async function probeEndpoint(endpointUrl: string, probe?: ProbeFetch): Promise<boolean> {
   try {
     const target = `${endpointUrl.replace(/\/+$/, "")}/healthz`;
-    if (!probe) {
-      // The real probe reaches public addresses only (audit S2-claude-02).
-      const checked = await checkOutboundUrl(target);
-      if (!checked.ok) return false;
-    }
-    const response = await (probe ?? (fetch as unknown as ProbeFetch))(target, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(5000) });
+    const init = { method: "GET", redirect: "manual" as const, signal: AbortSignal.timeout(5000) };
+    // The real probe reaches public addresses only, pinned to the checked ones (audit S2-claude-02).
+    const response = probe ? await probe(target, init) : await fetchOutbound(target, init);
     if (!response.ok) return false;
     return (await reportedAcceptingPayments(response)) !== false;
   } catch {
