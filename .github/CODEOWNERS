@@ -6,6 +6,7 @@
 /programs/                         @nissan
 /archive/anchor-escrow/            @nissan
 /lib/program.ts                    @nissan
+/lib/config/                       @nissan
 /Anchor.toml                       @nissan
 /Cargo.toml                        @nissan
 /Cargo.lock                        @nissan
@@ -27,14 +28,15 @@
 /vercel.json                       @nissan
 /apps/marketing/vercel.json        @nissan
 
-# Payments: verification, settlement, fees, sessions, signing
-/packages/x402-solana/             @nissan
-/packages/provider-kit/            @nissan
+# Payments: verification, settlement, fees, sessions, signing; every published package
+/packages/                         @nissan
+/lib/jobs/                         @nissan
 /lib/payments/                     @nissan
 /lib/sandbox/                      @nissan
 /lib/wallet/                       @nissan
 /app/api/sandbox/                  @nissan
 /app/api/cron/                     @nissan
+/app/api/onboarding/               @nissan
 
 # RPC proxy (holds the provider key server-side)
 /lib/rpc/                          @nissan
@@ -46,7 +48,9 @@
 /lib/auth/                         @nissan
 /app/api/auth/                     @nissan
 
-# Dependency manifests (supply chain)
+# Dependency manifests and toolchain pins (supply chain)
+/.mise.toml                        @nissan
+/rust-toolchain.toml               @nissan
 /package.json                      @nissan
 /package-lock.json                 @nissan
 /apps/marketing/package.json       @nissan
