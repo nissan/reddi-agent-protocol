@@ -20,6 +20,7 @@
     "dist",
     "!dist/tests",
     "examples",
+    "!examples/**/*.private.txt",
     "Dockerfile",
     "README.md",
     "LICENSE"

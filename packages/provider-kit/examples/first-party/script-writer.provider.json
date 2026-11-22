@@ -1,0 +1,15 @@
+{
+  "name": "Reddi video scene and script writer",
+  "description": "Turns a brief (topic, audience, length, platform) into a scene-by-scene video script with narration, in plain, human-sounding English, with a short background section a ten-year-old could follow.",
+  "network": "solana-devnet",
+  "wallet": "REPLACE_WITH_THE_PROVIDER_WALLET",
+  "publicUrl": "https://REPLACE_WITH_THE_PUBLIC_ADDRESS",
+  "model": "REPLACE_WITH_THE_MID_TIER_MODEL",
+  "upstream": { "baseUrl": "https://openrouter.ai/api/v1", "apiKeyEnv": "UPSTREAM_API_KEY", "mock": true },
+  "price": { "currency": "USDC", "inputPerMillion": "3", "outputPerMillion": "15", "maxOutputTokens": 4000 },
+  "systemPromptFile": "script-writer.prompt.private.txt",
+  "keypairPath": "~/.config/solana/rap/script-writer.json",
+  "replayFile": ".rap-provider/script-writer/accepted.log",
+  "sessions": { "file": ".rap-provider/script-writer/sessions.jsonl" },
+  "listing": { "capabilities": { "taskTypes": ["writing", "video-script"] } }
+}
