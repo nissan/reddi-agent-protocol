@@ -48,6 +48,12 @@ import { OnboardingVideoCard } from "@/components/onboarding/OnboardingVideoCard
 import StepIndicator from "@/components/StepIndicator";
 import GuidedSetupModal from "@/components/GuidedSetupModal";
 import { showToast } from "@/components/ui/toast";
+import { ProviderPriceFields } from "@/components/onboarding/ProviderPriceFields";
+import { currentAccessToken } from "@/components/auth/WalletSignIn";
+import { publishListing } from "@/lib/listings/listing-client";
+import { resolveNetworkProfileName } from "@/lib/config/network";
+import { getBrowserSupabase } from "@/lib/supabase/browser";
+import { perTokenPriceProblem, registryRateLamports, sellsAnswers } from "@/lib/register/provider-pricing";
 import { LimitNotice } from "@/components/ui/limit-notice";
 import { onboardingVideos } from "@/lib/onboarding/video-guides";
 import {
@@ -84,7 +90,8 @@ interface FormData {
   endpoint: string;
   model: string;
   privacyTier: PrivacyTier;
-  primaryRate: string;
+  inputPerMillionUsd: string;
+  outputPerMillionUsd: string;
   attestationRate: string;
   minConsumerRep: number;
   acceptUnrated: boolean;
@@ -97,7 +104,8 @@ const INITIAL_FORM: FormData = {
   endpoint: "",
   model: "",
   privacyTier: "local",
-  primaryRate: "0.001",
+  inputPerMillionUsd: "3",
+  outputPerMillionUsd: "15",
   attestationRate: "0.0005",
   minConsumerRep: 0,
   acceptUnrated: true,
@@ -183,6 +191,8 @@ function RegisterInner() {
   const [success, setSuccess] = useState(false);
   const [txSig, setTxSig] = useState<string | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
+  const [listingNote, setListingNote] = useState<{ published: boolean; message: string } | null>(null);
+  const [publishingListing, setPublishingListing] = useState(false);
   const [setupModalOpen, setSetupModalOpen] = useState(false);
   const [endpointProbeStatus, setEndpointProbeStatus] =
     useState<EndpointProbeStatus>("idle");
@@ -194,9 +204,41 @@ function RegisterInner() {
   const endpointProbeTimeoutRef = useRef<number | null>(null);
   const endpointProbeRequestRef = useRef(0);
   const endpointCompliancePassed = endpointProbeStatus === "reachable";
+  const priceProblem = perTokenPriceProblem(form);
   const canAdvanceToReview = Boolean(
-    form.name && form.model && form.endpoint.trim() && endpointCompliancePassed,
+    form.name && form.model && form.endpoint.trim() && endpointCompliancePassed && !priceProblem,
   );
+
+  // The per-token price lives in the listing, published under the signed-in wallet.
+  const publishProviderListing = async () => {
+    if (!publicKey || !sellsAnswers(form.agentType)) return;
+    if (!getBrowserSupabase()) {
+      setListingNote({ published: false, message: "Listings are not switched on for this deployment yet." });
+      return;
+    }
+    setPublishingListing(true);
+    try {
+      const outcome = await publishListing(
+        {
+          walletAddress: publicKey.toBase58(),
+          endpointUrl: form.endpoint,
+          perCallUsd: "",
+          inputPerMillionUsd: form.inputPerMillionUsd,
+          outputPerMillionUsd: form.outputPerMillionUsd,
+          taskTypes: [],
+          inputModes: [],
+          outputModes: [],
+          privacyModes: [],
+          tags: [],
+          profile: resolveNetworkProfileName(),
+        },
+        await currentAccessToken().catch(() => undefined),
+      );
+      setListingNote(outcome);
+    } finally {
+      setPublishingListing(false);
+    }
+  };
 
   const runEndpointProbe = async (rawEndpoint: string) => {
     const endpoint = rawEndpoint.trim();
@@ -277,10 +319,11 @@ function RegisterInner() {
     const endpoint = searchParams.get("endpoint")?.trim();
     const model = searchParams.get("model")?.trim();
     const name = searchParams.get("name")?.trim();
-    const primaryRate = searchParams.get("primaryRate")?.trim();
+    const inputPerMillion = searchParams.get("inputPerMillion")?.trim();
+    const outputPerMillion = searchParams.get("outputPerMillion")?.trim();
     const attestationRate = searchParams.get("attestationRate")?.trim();
 
-    if (!endpoint && !model && !name && !primaryRate && !attestationRate)
+    if (!endpoint && !model && !name && !inputPerMillion && !outputPerMillion && !attestationRate)
       return;
 
     setForm((prev) => ({
@@ -288,7 +331,8 @@ function RegisterInner() {
       endpoint: endpoint || prev.endpoint,
       model: model || prev.model,
       name: name || prev.name,
-      primaryRate: primaryRate || prev.primaryRate,
+      inputPerMillionUsd: inputPerMillion || prev.inputPerMillionUsd,
+      outputPerMillionUsd: outputPerMillion || prev.outputPerMillionUsd,
       attestationRate: attestationRate || prev.attestationRate,
     }));
   }, [searchParams]);
@@ -399,15 +443,7 @@ function RegisterInner() {
             ? AGENT_TYPE_ENUM.Attestation
             : AGENT_TYPE_ENUM.Both;
 
-      const rateLamports = BigInt(
-        Math.round(
-          parseFloat(
-            form.agentType === "attestation"
-              ? form.attestationRate || "0.0005"
-              : form.primaryRate || "0.001",
-          ) * 1_000_000_000,
-        ),
-      );
+      const rateLamports = registryRateLamports(form);
 
       const modelName = form.model || "unknown";
       const minRep = form.minConsumerRep ?? 0;
@@ -465,6 +501,7 @@ function RegisterInner() {
       setTxSig(sig);
       setSuccess(true);
       showToast("Registration confirmed", "success");
+      void publishProviderListing();
     } catch (err: unknown) {
       const msg = formatRegisterError(err);
       setTxError(msg);
@@ -531,6 +568,22 @@ function RegisterInner() {
             )}
           </div>
         )}
+        {!txError && sellsAnswers(form.agentType) && (
+          <div className="p-4 rounded-lg border border-border bg-surface/80 text-left" data-testid="register-listing">
+            <p className="text-xs text-muted-foreground mb-1">Your listing</p>
+            <p className="text-sm text-foreground">
+              ${form.inputPerMillionUsd} per million input tokens, ${form.outputPerMillionUsd} per million output tokens (USDC).
+            </p>
+            <p className="mt-2 text-sm text-ink-muted" role="status">
+              {publishingListing ? "Publishing your listing..." : listingNote?.message ?? ""}
+            </p>
+            {listingNote && !listingNote.published && !publishingListing ? (
+              <Button className="mt-3" size="sm" variant="outline" onClick={() => void publishProviderListing()}>
+                Publish listing
+              </Button>
+            ) : null}
+          </div>
+        )}
         {form.endpoint && (
           <div className="p-4 rounded-lg border border-border bg-surface/80 text-left">
             <p className="text-xs text-muted-foreground mb-1">Your endpoint</p>
@@ -580,16 +633,16 @@ function RegisterInner() {
         </span>
       </Card>
       <PageHeader
-        label="Specialist supply path"
+        label="Run a provider"
         title={
           alreadyRegistered
             ? "Your wallet already has an agent"
-            : "Describe your specialist for RAP Assurance"
+            : "Describe your provider"
         }
         subtitle={
           alreadyRegistered
             ? "Open your existing agent profile, update details, or deregister before creating a fresh registration with this wallet."
-            : "Publish capability, pricing, and endpoint metadata so consumer agents can discover a specialist and bind paid work to receipts, evidence, and attestation inputs."
+            : "Set your model, your endpoint and your price per million input and output tokens. Registering puts you on the Solana registry and publishes your listing, so buyers can find you and pay per token with a receipt for every call."
         }
       />
       <Card
@@ -1071,28 +1124,15 @@ function RegisterInner() {
               </Select>
             </div>
 
-            {/* Primary Rate */}
+            {/* Price per token */}
             {(form.agentType === "primary" || form.agentType === "both") && (
-              <div className="space-y-1.5">
-                <Label
-                  htmlFor="rate"
-                  className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block"
-                >
-                  Primary Rate (SOL per call)
-                </Label>
-                <Input
-                  id="rate"
-                  type="number"
-                  step="0.0001"
-                  min="0"
-                  placeholder="0.001"
-                  value={form.primaryRate}
-                  onChange={(e) =>
-                    setForm({ ...form, primaryRate: e.target.value })
-                  }
-                  className="!w-full !rounded-lg !border !border-gray-200 dark:!border-gray-700 !bg-white dark:!bg-gray-900 !px-3 !py-2 !text-sm focus:!ring-2 focus:!ring-blue-500 focus:!outline-none"
-                />
-              </div>
+              <ProviderPriceFields
+                inputPerMillionUsd={form.inputPerMillionUsd}
+                outputPerMillionUsd={form.outputPerMillionUsd}
+                onChange={(field, value) =>
+                  setForm({ ...form, ...(field === "input" ? { inputPerMillionUsd: value } : { outputPerMillionUsd: value }) })
+                }
+              />
             )}
 
             {/* Attestation Rate */}
@@ -1102,7 +1142,7 @@ function RegisterInner() {
                   htmlFor="attest-rate"
                   className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block"
                 >
-                  Attestation Rate (SOL per judging)
+                  Judging fee (SOL per job)
                 </Label>
                 <Input
                   id="attest-rate"
@@ -1205,6 +1245,12 @@ function RegisterInner() {
             </Button>
           </div>
 
+          {priceProblem && (
+            <p className="text-xs text-amber-300" role="alert">
+              {priceProblem}
+            </p>
+          )}
+
           {!endpointCompliancePassed && (
             <p className="text-xs text-amber-300">
               Run endpoint probe until it passes compliance before proceeding to
@@ -1227,14 +1273,14 @@ function RegisterInner() {
               ["Privacy", form.privacyTier],
               ["Endpoint", form.endpoint || "—"],
               [
-                "Primary Rate",
+                "Price per million tokens",
                 form.agentType !== "attestation"
-                  ? `${form.primaryRate} SOL/call`
+                  ? `$${form.inputPerMillionUsd} in, $${form.outputPerMillionUsd} out (USDC)`
                   : "—",
               ],
               ...(isJudge
                 ? [
-                    ["Attestation Rate", `${form.attestationRate} SOL/job`] as [
+                    ["Judging fee", `${form.attestationRate} SOL per job`] as [
                       string,
                       string,
                     ],
@@ -1302,13 +1348,7 @@ function RegisterInner() {
             </p>
             <p className="pl-4 text-foreground/80">
               rate_lamports:{" "}
-              {Math.round(
-                parseFloat(
-                  (form.agentType === "attestation"
-                    ? form.attestationRate
-                    : form.primaryRate) || "0",
-                ) * 1e9,
-              )}
+              {registryRateLamports(form).toString()}
               ,
             </p>
             <p className="pl-4 text-foreground/80">

@@ -68,7 +68,7 @@ test.describe("RAP Assurance demo recording journey", () => {
       await connectMockWallet(page);
       await expect(
         page.getByRole("heading", {
-          name: /describe your specialist for RAP Assurance/i,
+          name: /describe your provider/i,
         }),
       ).toBeVisible();
       await expect(page.getByText(/gate work with x402/i)).toBeVisible();

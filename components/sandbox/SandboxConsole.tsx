@@ -673,7 +673,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
               })}
             </div>
             <p className="text-xs leading-5 text-gray-400" data-testid="sandbox-pricing-note">
-              Providers price per token. You approve a maximum for each call, the provider settles the tokens it actually used, and the rest comes back to you. A planned protocol fee of {Number(sandboxFeeBps()) / 100}% comes out of the provider&apos;s share. This request is about {inputTokens.toLocaleString("en-US")} input tokens. The sandbox pays in devnet SOL. {SANDBOX_DEMO_RATES_NOTE}
+              Providers price per token. You approve a maximum for each call, the provider settles the tokens it actually used, and the rest comes back to you. A planned protocol fee of {Number(sandboxFeeBps()) / 100}% (the 2.5% launch rate until 31 March 2027, then 5%) comes out of the provider&apos;s share. This request is about {inputTokens.toLocaleString("en-US")} input tokens. The sandbox pays in devnet SOL. {SANDBOX_DEMO_RATES_NOTE}
             </p>
             <label className="block text-sm text-gray-300">
               <span className="mb-1 block text-xs uppercase tracking-wide text-gray-400">Your request</span>
