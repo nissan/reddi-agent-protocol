@@ -30,6 +30,7 @@ import {
 } from "@/lib/payments/wallet-direct-payment";
 import { planMeteredBuy } from "@/lib/payments/metered-buy";
 import {
+  applySessionClose,
   applySessionOutcome,
   attachLockReceipt,
   delegateLock,
@@ -37,6 +38,7 @@ import {
   signSingleCall,
   type LockAuth,
   prepareSessionCall,
+  prepareSessionClose,
   type PlannerSessionHandle,
 } from "@/lib/payments/planner-session-client";
 import { ESCROW_PROGRAM_ID } from "@/lib/program";
@@ -168,6 +170,7 @@ function PlannerInner() {
   const [useSession, setUseSession] = useState(true);
   const [sessionCalls, setSessionCalls] = useState(10);
   const [settleAfterNext, setSettleAfterNext] = useState(false);
+  const [settlingSession, setSettlingSession] = useState(false);
   // In memory only: the session key never leaves this tab. A provider settles an idle session itself.
   const sessionsRef = useRef(new Map<string, PlannerSessionHandle>());
   // Each metered lock's delegation to a key held in this tab, by escrow (#866).
@@ -380,6 +383,35 @@ function PlannerInner() {
     );
     showRun(data);
     return true;
+  }
+
+  /** Asks the provider to settle the open session now. Signed by the session key; no wallet prompt. */
+  async function settleSessionNow() {
+    const handle = sessionsRef.current.get(selectedWallet);
+    if (!handle) return;
+    const prepared = await prepareSessionClose(handle);
+    if (!prepared.ok) {
+      setPaymentNote(prepared.message);
+      return;
+    }
+    setSettlingSession(true);
+    try {
+      const token = await currentAccessToken().catch(() => undefined);
+      const res = await fetch("/api/onboarding/planner/session/close", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ preferredWallet: selectedWallet, paymentReceipt: handle.receipt, close: prepared.close }),
+      });
+      const data = await res.json().catch(() => ({ ok: false, error: "The settle request could not be read." }));
+      const applied = applySessionClose(handle, data);
+      keepSession(applied.handle);
+      setSettleAfterNext(false);
+      setPaymentNote(applied.note);
+    } catch {
+      setPaymentNote("The settle request did not go through. Nothing changed; the provider still settles the session once it is idle.");
+    } finally {
+      setSettlingSession(false);
+    }
   }
 
   async function executeWithWallet() {
@@ -909,6 +941,8 @@ function PlannerInner() {
                       onCallsChange={setSessionCalls}
                       settleAfterNext={settleAfterNext}
                       onSettleAfterNextChange={setSettleAfterNext}
+                      onSettleNow={settleSessionNow}
+                      settling={settlingSession}
                       session={sessionViews[selectedWallet]}
                       unavailable={
                         rateJob && RATED_ESCROWS_ENABLED

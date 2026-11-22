@@ -14,6 +14,10 @@ export interface SessionOptionProps {
   onCallsChange: (calls: number) => void;
   settleAfterNext: boolean;
   onSettleAfterNextChange: (value: boolean) => void;
+  /** Settle the open session now, without another call. */
+  onSettleNow?: () => void;
+  /** True while a settle-now request is in flight. */
+  settling?: boolean;
   /** The session with the selected provider, open or ended. */
   session?: PlannerSessionHandle;
   /** Why a session cannot be used for this payment, when it cannot. */
@@ -26,7 +30,7 @@ export interface SessionOptionProps {
  * of the session with the selected provider. Controlled: the page owns the
  * state and the session key.
  */
-export function SessionOption({ enabled, onEnabledChange, calls, onCallsChange, settleAfterNext, onSettleAfterNextChange, session, unavailable, disabled }: SessionOptionProps) {
+export function SessionOption({ enabled, onEnabledChange, calls, onCallsChange, settleAfterNext, onSettleAfterNextChange, onSettleNow, settling, session, unavailable, disabled }: SessionOptionProps) {
   const ledger = session?.ledger;
   const open = ledger?.state === "open" && ledger.calls.length > 0;
   const currency = ledger?.price.currency ?? "";
@@ -51,6 +55,17 @@ export function SessionOption({ enabled, onEnabledChange, calls, onCallsChange, 
           />
           <span>Settle after the next call. Otherwise the provider settles once the session is idle, and the rest of the lock comes back to you.</span>
         </label>
+        {onSettleNow ? (
+          <button
+            type="button"
+            className="mt-3 rounded-lg border border-emerald-400/40 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500/20 disabled:opacity-50"
+            disabled={disabled || settling}
+            onClick={onSettleNow}
+            data-testid="planner-session-settle-now"
+          >
+            {settling ? "Settling…" : "Settle now"}
+          </button>
+        ) : null}
       </div>
     );
   }

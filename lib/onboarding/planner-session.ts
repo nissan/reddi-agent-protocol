@@ -161,3 +161,62 @@ export function checkSessionAnswer(input: {
   }
   return outcome;
 }
+
+/** A request to settle a session now (#863 follow-up), as the browser asks for it. */
+export interface PlannerSessionCloseRequest {
+  /** The closing receipt's number: one past the last call the buyer counted. */
+  sequence: number;
+  delegation: string;
+  /** The session key's `close` signature, sequence 0, over an empty body. */
+  signature: string;
+}
+
+/** Reads a settle-now request. An error when malformed. */
+export function parsePlannerSessionClose(value: unknown): PlannerSessionCloseRequest | { error: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { error: "close must be an object" };
+  const v = value as Record<string, unknown>;
+  if (typeof v.sequence !== "number" || !Number.isSafeInteger(v.sequence) || v.sequence < 2 || v.sequence > MAX_SEQUENCE + 1) return { error: "close.sequence must be a whole number from 2" };
+  const auth = parsePaidCallAuth({ delegation: v.delegation, signature: v.signature });
+  if (!auth || "error" in auth) return { error: (auth?.error ?? "close needs delegation and signature").replace("paidCallAuth", "close") };
+  return { sequence: v.sequence, ...auth };
+}
+
+/** The headers of a settle-now request: the session key's `close` signature. */
+export function sessionCloseRequestHeaders(close: PlannerSessionCloseRequest): Record<string, string> {
+  return { [SESSION_DELEGATION_HEADER]: close.delegation, [SESSION_SIGNATURE_HEADER]: close.signature };
+}
+
+/**
+ * Checks what a provider answered to a settle-now request (`POST
+ * /v1/session/close`). 200 carries the closing receipt; 202 means the settle
+ * is still pending. The closing receipt is passed on only when it is signed by
+ * the paid provider and names this escrow, the closing number and `closed`.
+ */
+export function checkSessionCloseAnswer(input: { status: number; headers: Headers; responseText: string; providerWallet: string; escrow: string; sequence: number }): PlannerSessionOutcome {
+  const outcome: PlannerSessionOutcome = { escrow: input.escrow, sequence: input.sequence };
+  if (input.status === 202) {
+    outcome.state = "pending";
+    return outcome;
+  }
+  if (input.status < 200 || input.status >= 300) {
+    const code = refusalCode(input.responseText);
+    outcome.refusal = code ?? `http_${input.status}`;
+    return outcome;
+  }
+  const header = input.headers.get(SESSION_RECEIPT_HEADER);
+  if (!header) {
+    outcome.problem = "closing receipt: none";
+    return outcome;
+  }
+  const verified = verifyReddiReceiptV2(parseProviderReceiptHeader(header), {
+    providerId: input.providerWallet,
+    session: { escrow: input.escrow, sequence: String(input.sequence), closed: true },
+  });
+  if (verified.ok) {
+    outcome.closing = { receipt: verified.receipt, receiptHash: hashReddiReceiptV2(verified.receipt) };
+    outcome.state = "settled";
+  } else {
+    outcome.problem = `closing receipt: ${verified.errors[0]?.code ?? "invalid"}`;
+  }
+  return outcome;
+}

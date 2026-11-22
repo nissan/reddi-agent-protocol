@@ -45,11 +45,18 @@ jest.mock("@/lib/onboarding/planner-router", () => ({
 }));
 jest.mock("@/lib/onboarding/x402-settlement", () => ({ processX402Challenge: jest.fn() }));
 jest.mock("@/lib/torque/client", () => ({ emitTorqueEvent: jest.fn() }));
+// Files by default, as with no database configured; a test can switch one run to the database path.
+jest.mock("@/lib/listings/listing-index", () => ({ loadListingIndex: jest.fn(async () => ({ source: "files" })) }));
+jest.mock("@/lib/listings/listing-store", () => ({ readOwnListing: jest.fn(async (wallet: string) => ({ ok: true, listing: { wallet } })) }));
+jest.mock("@/lib/jobs/metered-call", () => ({ verifyAndRecordMeteredCall: jest.fn(async () => ({ recorded: true, jobId: "job-1", paid: { maxAmountBaseUnits: "100000" } })) }));
+jest.mock("@/lib/jobs/provider-stats", () => ({ refreshProviderStats: jest.fn(async () => ({ updated: true })) }));
 
 import { planMeteredBuy, MAX_SESSION_CALLS } from "@/lib/payments/metered-buy";
-import { applySessionOutcome, attachLockReceipt, delegateLock, openPlannerSession, prepareSessionCall, signSingleCall, type PlannerSessionHandle } from "@/lib/payments/planner-session-client";
+import { applySessionClose, applySessionOutcome, attachLockReceipt, delegateLock, openPlannerSession, prepareSessionCall, prepareSessionClose, signSingleCall, type PlannerSessionHandle } from "@/lib/payments/planner-session-client";
+import { loadListingIndex } from "@/lib/listings/listing-index";
+import { verifyAndRecordMeteredCall } from "@/lib/jobs/metered-call";
 import { plannerChatBody, plannerChatPayload } from "@/lib/onboarding/planner-payload";
-import { checkSessionAnswer, parsePaidCallAuth, parsePlannerSessionRequest, SESSION_RECEIPT_HEADER, SESSION_STATE_HEADER } from "@/lib/onboarding/planner-session";
+import { checkSessionAnswer, parsePaidCallAuth, parsePlannerSessionClose, parsePlannerSessionRequest, SESSION_RECEIPT_HEADER, SESSION_STATE_HEADER } from "@/lib/onboarding/planner-session";
 
 const lockReceipt = { settlement: "metered-escrow", network: "solana-devnet", currency: "USDC", payTo: mockProvider.address, payer: payer.address, nonce: "09".repeat(16), escrow: ESCROW, lockSignature: LOCK_SIG };
 
@@ -434,5 +441,122 @@ describe("signing a single metered call (#866)", () => {
     expect(parsePaidCallAuth([good])).toHaveProperty("error");
     expect(parsePaidCallAuth({ ...good, signature: "not base64!" })).toHaveProperty("error");
     expect(parsePaidCallAuth({ delegation: good.delegation })).toHaveProperty("error");
+  });
+});
+
+describe("a settled session is one job, and the buyer can settle now (#863 follow-ups)", () => {
+  const originalFetch = global.fetch;
+  const onDatabase = () => (loadListingIndex as jest.Mock).mockResolvedValueOnce({ source: "database", available: true, entries: [] });
+  beforeEach(() => jest.clearAllMocks());
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  async function oneCall(handle: PlannerSessionHandle, chain: ReturnType<typeof providerChain>, close: boolean) {
+    const { executePlannerSpecialistCall } = await import("@/lib/onboarding/planner-execution");
+    const prepared = await prepareSessionCall(handle, "summarise this", close);
+    if (!prepared.ok) throw new Error(prepared.message);
+    const served = await chain.call(plannerChatBody("summarise this"), { inputTokens: 40, outputTokens: 120 });
+    const closing = close ? await chain.close() : undefined;
+    global.fetch = jest.fn().mockResolvedValue(
+      response(200, served.body, { "x-reddi-provider-receipt": served.header, ...(closing ? { [SESSION_RECEIPT_HEADER]: closing, [SESSION_STATE_HEADER]: "settled" } : {}) }),
+    ) as unknown as typeof fetch;
+    const result = await executePlannerSpecialistCall({ prompt: "summarise this", paymentMode: "wallet", preferredWallet: mockProvider.address, paymentReceipt: lockReceipt, session: prepared.request });
+    const outcome = (result as { session?: Parameters<typeof applySessionOutcome>[2] }).session;
+    return { result, handle: applySessionOutcome(handle, result.ok, outcome).handle, outcome };
+  }
+
+  it("records the session once, on the call that settles it, named by the settle and the closing receipt", async () => {
+    const chain = providerChain(BigInt(100_000));
+    onDatabase();
+    const first = await oneCall(await openSession(), chain, false);
+    expect(first.result.result.trace).toContain("job:not_recorded:session_call");
+    expect(verifyAndRecordMeteredCall).not.toHaveBeenCalled();
+
+    onDatabase();
+    const last = await oneCall(first.handle, chain, true);
+    expect(last.handle.ledger.state).toBe("settled");
+    expect(last.result.result).toMatchObject({ jobId: "job-1", settleTxSignature: SETTLE_SIG });
+    expect(last.result.result.trace).toContain("job:recorded:session");
+    expect(verifyAndRecordMeteredCall).toHaveBeenCalledTimes(1);
+    expect((verifyAndRecordMeteredCall as jest.Mock).mock.calls[0][0]).toMatchObject({ settleSignature: SETTLE_SIG, requestHash: last.outcome?.closing?.receiptHash, responseHash: undefined, delivered: true, receipt: lockReceipt });
+  });
+
+  it("without a database, says so rather than recording", async () => {
+    const last = await oneCall(await openSession(), providerChain(BigInt(100_000)), true);
+    expect(last.result.result.trace).toContain("job:not_recorded:no_database");
+    expect(verifyAndRecordMeteredCall).not.toHaveBeenCalled();
+  });
+
+  it("settles now with the session key's close signature, checks the closing receipt and records one job", async () => {
+    const { closePlannerSession } = await import("@/lib/onboarding/planner-execution");
+    const chain = providerChain(BigInt(100_000));
+    let { handle } = await oneCall(await openSession(), chain, false);
+    ({ handle } = await oneCall(handle, chain, false));
+    const prepared = await prepareSessionClose(handle);
+    if (!prepared.ok) throw new Error(prepared.message);
+    expect(prepared.close.sequence).toBe(3);
+
+    const closing = await chain.close();
+    let sent: { url: string; headers: Record<string, string>; body: unknown } | undefined;
+    global.fetch = jest.fn(async (url: string, init: { headers: Record<string, string>; body: unknown }) => {
+      sent = { url, headers: init.headers, body: init.body };
+      return response(200, JSON.stringify({ ok: true, status: "settled" }), { [SESSION_RECEIPT_HEADER]: closing });
+    }) as unknown as typeof fetch;
+    onDatabase();
+    const result = await closePlannerSession({ preferredWallet: mockProvider.address, paymentReceipt: lockReceipt, close: prepared.close });
+    expect(sent?.url).toBe("https://specialist.example/v1/session/close");
+    expect(sent?.body).toBe("");
+    expect(sent?.headers["x402-payment"]).toBe(handle.ledger.paymentHeader);
+    // The provider's own verifier accepts the close, and only as a close.
+    const headers = new Headers(sent?.headers);
+    const check = (action: "close" | "read") =>
+      verifySessionRequest({ headers: { get: (n: string) => headers.get(n) }, action, escrow: new PublicKey(ESCROW), payer: new PublicKey(payer.address), provider: new PublicKey(mockProvider.address), sequence: 0, body: "", nowMs: NOW_MS });
+    expect(check("close")).toMatchObject({ ok: true });
+    expect(check("read")).toMatchObject({ ok: false });
+
+    expect(result).toMatchObject({ ok: true, settleTxSignature: SETTLE_SIG, jobId: "job-1" });
+    expect((verifyAndRecordMeteredCall as jest.Mock).mock.calls[0][0]).toMatchObject({ settleSignature: SETTLE_SIG, requestHash: result.session.closing?.receiptHash });
+    const applied = applySessionClose(handle, JSON.parse(JSON.stringify(result)));
+    expect(applied.handle.ledger).toMatchObject({ state: "settled", settleSignature: SETTLE_SIG, costBaseUnits: chain.cost });
+    expect(applied.note).toMatch(/Session settled: 2 calls/);
+  });
+
+  it("reports a pending settle, a session already gone, and a closing receipt that does not check out", async () => {
+    const { closePlannerSession } = await import("@/lib/onboarding/planner-execution");
+    const chain = providerChain(BigInt(100_000));
+    const { handle } = await oneCall(await openSession(), chain, false);
+    const prepared = await prepareSessionClose(handle);
+    if (!prepared.ok) throw new Error(prepared.message);
+    const settle = async (answer: ReturnType<typeof response>) => {
+      global.fetch = jest.fn().mockResolvedValue(answer) as unknown as typeof fetch;
+      const result = await closePlannerSession({ preferredWallet: mockProvider.address, paymentReceipt: lockReceipt, close: prepared.close });
+      return { result, applied: applySessionClose(handle, JSON.parse(JSON.stringify(result))) };
+    };
+
+    const pending = await settle(response(202, JSON.stringify({ ok: false, status: "pending" })));
+    expect(pending.result.ok).toBe(false);
+    expect(pending.applied.handle.ledger.state).toBe("closing");
+    expect(pending.applied.note).toMatch(/settling the session now/);
+
+    const gone = await settle(response(404, JSON.stringify({ error: { code: "session_not_found" } })));
+    expect(gone.applied.handle.ledger.state).toBe("closing");
+    expect(gone.applied.note).toMatch(/may have settled already/);
+
+    // A closing receipt for the wrong number does not check out, and nothing is recorded.
+    await chain.call(plannerChatBody("x"), { inputTokens: 1, outputTokens: 1 });
+    const wrong = await settle(response(200, "{}", { [SESSION_RECEIPT_HEADER]: await chain.close() }));
+    expect(wrong.result.session.problem).toMatch(/^closing receipt:/);
+    expect(wrong.applied.handle.ledger.state).toBe("open");
+    expect(verifyAndRecordMeteredCall).not.toHaveBeenCalled();
+  });
+
+  it("refuses locally to settle a session that served nothing, and refuses a malformed request", async () => {
+    expect(await prepareSessionClose(await openSession())).toMatchObject({ ok: false });
+    const good = { sequence: 2, delegation: "ZGVsZWdhdGlvbg==", signature: "c2lnbmF0dXJl" };
+    expect(parsePlannerSessionClose(good)).toEqual(good);
+    for (const bad of [undefined, [good], { ...good, sequence: 1 }, { ...good, sequence: 2.5 }, { ...good, signature: "not base64!" }, { sequence: 2 }]) {
+      expect(parsePlannerSessionClose(bad)).toHaveProperty("error");
+    }
   });
 });
