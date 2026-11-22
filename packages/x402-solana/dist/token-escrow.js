@@ -101,6 +101,10 @@ function buildLockTokenEscrowInstruction(t) {
  * The payer never chooses a smaller amount: it releases in full, or refunds once the cancel window has elapsed.
  * Every payout sends the protocol fee (2.5% until 1 April 2027, then 5%) of the paid amount to the treasury and the rest of the vault back to the payer.
  * Refund: the program accepts the payee at any time (decline), or the payer once the cancel window has elapsed.
+ *
+ * This builds the exit's own data and accounts only. The program also requires the escrow's lock slot
+ * (`createdSlot` of `decodeTokenEscrowAccount`) after the data, naming the escrow being ended, so send it through
+ * `buildTokenEscrowExitInstruction` (or `withRatingAccount`), which adds that and, for a rated escrow, its rating account.
  */
 function buildSettleTokenEscrowInstruction(t, refund = false, authority = t.payer, options = {}) {
     buildLockTokenEscrowInstruction(t);

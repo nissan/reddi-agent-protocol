@@ -25,8 +25,8 @@ export type SandboxSettleInput = {
   actualLamports: bigint;
   /** The escrow is opted in to rating, so the settle must pass its rating account. */
   rated?: boolean;
-  /** For a rated escrow, the rating's opened slot read with the lock: the settle names this job. */
-  openedSlot?: bigint;
+  /** The escrow's lock slot, read with the lock: the settle names this escrow by it (a rated job's opened slot is the same slot). */
+  createdSlot: bigint;
 };
 export type SandboxSettleResult = { ok: true; signature: string } | { ok: false; message: string };
 
@@ -81,7 +81,7 @@ export function createSandboxSettler(connection: Connection, keys: Map<string, K
       try {
         const latest = await connection.getLatestBlockhash("confirmed");
         const transaction = new Transaction({ feePayer: keypair.publicKey, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight }).add(
-          buildSandboxSettle({ escrow: input.escrow, payer: input.payer, payee: input.payee, actualLamports: input.actualLamports, rated: input.rated === true, openedSlot: input.openedSlot }),
+          buildSandboxSettle({ escrow: input.escrow, payer: input.payer, payee: input.payee, actualLamports: input.actualLamports, rated: input.rated === true, createdSlot: input.createdSlot }),
         );
         transaction.sign(keypair);
         const signature = await connection.sendRawTransaction(transaction.serialize(), { preflightCommitment: "confirmed" });

@@ -396,7 +396,7 @@ function buildCloseAttestationInstruction(input) {
 /**
  * The program's custom error codes for ratings and attestations, by number.
  * 6010 to 6019 keep the numbers of the earlier program; 6033 to 6051 are new
- * with the escrow-bound rating. Held to the program's `error.rs` by a test.
+ * with the escrow-bound rating, and 6052 and 6053 with exits that name their escrow. Held to the program's `error.rs` by a test.
  */
 exports.RATING_PROGRAM_ERRORS = {
     6010: 'AlreadyCommitted',
@@ -433,6 +433,13 @@ exports.RATING_PROGRAM_ERRORS = {
      * a rated exit named none): another job now holds the address.
      */
     6051: 'RatingJobMismatch',
+    /** An exit of an escrow in the slot it was locked in. */
+    6052: 'EscrowJustLocked',
+    /**
+     * An exit named a lock slot other than its escrow's (or none): it was
+     * signed for an earlier escrow at the same address.
+     */
+    6053: 'EscrowInstanceMismatch',
 };
 /** The name of a rating or attestation error code, or undefined for any other code. */
 function ratingProgramErrorName(code) {
@@ -519,36 +526,57 @@ const EXIT_DATA_LEN = {
     'global:settle_token_escrow': 16,
     'global:cancel_token_escrow': 8,
 };
-function withRatingAccount(exit, rated, openedSlot) {
-    if (!rated)
-        return exit;
+/**
+ * Makes an exit of an escrow (release, claim, settle, refund or decline, SOL
+ * or token) into the form the program takes: the escrow's lock slot
+ * (`createdSlot`, u64 LE) after the instruction's data, and for a rated
+ * escrow the rating account right after the usual accounts, writable. The
+ * escrow is the instruction's first account.
+ *
+ * The slot names the escrow. An address is used again when a payer locks
+ * with the same nonce after its earlier escrow ended, and no escrow ends in
+ * the slot it was locked in, so an exit signed for one escrow is refused for
+ * the next one at that address (`EscrowInstanceMismatch`, 6053) and an exit
+ * in the lock slot is refused (`EscrowJustLocked`, 6052). A rated escrow's
+ * rating is opened in its lock slot, so its `openedSlot` is the same slot;
+ * a rated exit naming another is refused (`RatingJobMismatch`, 6051), and one
+ * without the rating account (`RatingAccountRequired`, 6033).
+ *
+ * Read `rated` and `createdSlot` from the escrow account. Throws for an
+ * instruction that is not one of the six exits, lacks its usual accounts or
+ * already carries more data, or when the slot is missing.
+ */
+function withRatingAccount(exit, rated, createdSlot) {
     const found = EXIT_ACCOUNTS.find(([name]) => startsWith(exit.data, disc(name)));
     if (found === undefined)
         throw new Error('not an escrow exit instruction');
     const [name, usual] = found;
     if (exit.keys.length < usual)
         throw new Error('the exit instruction is missing some of its usual accounts');
-    if (openedSlot === undefined)
-        throw new Error("a rated exit names the job: pass the rating account's openedSlot");
+    if (createdSlot === undefined)
+        throw new Error("an exit names its escrow: pass the escrow account's createdSlot (for a rated escrow, its rating's openedSlot, the same slot)");
     if (exit.data.length !== EXIT_DATA_LEN[name])
         throw new Error('the exit instruction already carries more data than its own');
+    const data = Buffer.concat([exit.data, openedSlotBytes(createdSlot)]);
+    if (!rated)
+        return new web3_js_1.TransactionInstruction({ programId: exit.programId, data, keys: [...exit.keys] });
     const rating = ratingPda(exit.keys[0].pubkey, exit.programId);
     return new web3_js_1.TransactionInstruction({
         programId: exit.programId,
-        data: Buffer.concat([exit.data, openedSlotBytes(openedSlot)]),
+        data,
         keys: [...exit.keys.slice(0, usual), meta(rating, true), ...exit.keys.slice(usual)],
     });
 }
 /**
- * `buildSettleTokenEscrowInstruction` for an escrow that may be rated: the
- * same release, claim, settle, refund or decline, with the rating account and
- * the job's `openedSlot` added when `rated` is true. Read `rated` from the
- * escrow account (`decodeTokenEscrowAccount(...).rated`) and `openedSlot`
- * from its rating account when the job was agreed; `openedSlot` is required
- * when `rated` is true.
+ * `buildSettleTokenEscrowInstruction` in the form the program takes: the
+ * same release, claim, settle, refund or decline, naming the escrow by its
+ * lock slot, with the rating account added when `rated` is true. Read
+ * `rated` and `createdSlot` from the escrow account
+ * (`decodeTokenEscrowAccount(...)`); a rated escrow's `openedSlot` is the
+ * same slot and may be passed instead.
  */
 function buildTokenEscrowExitInstruction(terms, exit) {
-    return withRatingAccount((0, token_escrow_1.buildSettleTokenEscrowInstruction)(terms, exit.refund ?? false, exit.authority ?? terms.payer, exit.options ?? {}), exit.rated, exit.openedSlot);
+    return withRatingAccount((0, token_escrow_1.buildSettleTokenEscrowInstruction)(terms, exit.refund ?? false, exit.authority ?? terms.payer, exit.options ?? {}), exit.rated, exit.createdSlot ?? exit.openedSlot);
 }
 function u64(value, what) {
     if (value <= 0n || value > 0xffffffffffffffffn)
@@ -593,7 +621,7 @@ function buildReleaseSolEscrowInstruction(input) {
             meta(input.treasury ?? token_escrow_1.ESCROW_PROTOCOL_TREASURY, true),
             meta(web3_js_1.SystemProgram.programId),
         ],
-    }), input.rated === true, input.openedSlot);
+    }), input.rated === true, input.createdSlot ?? input.openedSlot);
 }
 /** `settle_escrow`: the payee settles a metered escrow at `actual` lamports, at most the maximum; the rest returns to the payer. */
 function buildSettleSolEscrowInstruction(input) {
@@ -601,7 +629,7 @@ function buildSettleSolEscrowInstruction(input) {
         programId: input.programId,
         data: Buffer.concat([disc('global:settle_escrow'), u64(input.actual, 'settled amount')]),
         keys: [meta(input.escrow, true), meta(input.payer, true), meta(input.payee, true, true), meta(input.treasury ?? token_escrow_1.ESCROW_PROTOCOL_TREASURY, true), meta(web3_js_1.SystemProgram.programId)],
-    }), input.rated === true, input.openedSlot);
+    }), input.rated === true, input.createdSlot ?? input.openedSlot);
 }
 /**
  * `cancel_escrow`: everything back to the payer, no fee. `authority` signs:
@@ -613,7 +641,7 @@ function buildCancelSolEscrowInstruction(input) {
         programId: input.programId,
         data: disc('global:cancel_escrow'),
         keys: [meta(input.escrow, true), meta(input.authority, false, true), meta(input.payer, true), meta(web3_js_1.SystemProgram.programId)],
-    }), input.rated === true, input.openedSlot);
+    }), input.rated === true, input.createdSlot ?? input.openedSlot);
 }
 /**
  * Buyer: lock a token escrow and opt it in to rating in one transaction.

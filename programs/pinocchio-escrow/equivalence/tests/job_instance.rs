@@ -26,6 +26,7 @@ use {
 
 const RATING_JUST_OPENED: u32 = 6050;
 const RATING_JOB_MISMATCH: u32 = 6051;
+const ESCROW_INSTANCE_MISMATCH: u32 = 6053;
 const SALT: [u8; 32] = [0x5C; 32];
 
 #[test]
@@ -364,26 +365,27 @@ fn a_held_seller_exit_cannot_end_the_next_job(
     assert!(!world.exists(&escrow) && !world.exists(&rating));
 
     if !next_rated {
-        // Job B is not rated. The held exit names a job, so it is refused:
-        // B's escrow decides nothing about the signer's restriction.
+        // Job B is not rated. The held exit names job A's slot, which is
+        // not B's lock slot, so it is refused: an unrated escrow is named by
+        // its lock slot, and B was locked after A ended.
         job(world, false);
         world.refused(
             &format!("{label} signed for rated job A, on unrated job B"),
             held,
             &[seller],
-            RATING_JOB_MISMATCH,
+            ESCROW_INSTANCE_MISMATCH,
         );
-        // Naming a job without passing a rating account is refused too.
+        // Naming job A without passing a rating account is refused too.
         let mut named = seller_exit.clone();
         named.data.extend_from_slice(&job_a.to_le_bytes());
         world.refused(
             &format!("{label} on an unrated escrow, naming a job"),
             named,
             &[seller],
-            RATING_JOB_MISMATCH,
+            ESCROW_INSTANCE_MISMATCH,
         );
         assert!(world.exists(&escrow) && !world.exists(&rating), "{label}");
-        // The ordinary exit for B works and rates nothing.
+        // The ordinary exit for B, naming B, works and rates nothing.
         world.ok(&format!("{label}, unrated job B"), seller_exit, &[seller]);
         assert!(!world.exists(&escrow) && !world.exists(&rating), "{label}");
         return;
@@ -518,6 +520,150 @@ fn a_seller_exit_signed_for_one_job_is_refused_for_the_next_rated_or_not() {
             t.cancel(n, &b),
             1,
             next_rated,
+        );
+    }
+}
+
+const ESCROW_JUST_LOCKED: u32 = 6052;
+
+/// The unrated form of the case above. The seller signs its exit
+/// (`seller_exit`) for escrow A, naming A by its lock slot, and the
+/// transaction is held back. In one transaction the payer ends A
+/// (`end_by_payer`) and locks B at the same address, so B is created in the
+/// very slot A closed in. The held exit must not end B, whichever slot it
+/// names other than B's, and must change nothing; a fresh exit for B works.
+/// `wait` is how long after the lock the seller may make its exit.
+#[allow(clippy::too_many_arguments)]
+fn a_held_unrated_exit_cannot_end_the_next_escrow(
+    world: &mut World,
+    label: &str,
+    escrow: Pubkey,
+    lock: Instruction,
+    payer: &Keypair,
+    seller: &Keypair,
+    end_by_payer: Instruction,
+    seller_exit: Instruction,
+    wait: u64,
+) {
+    let created = |world: &World| {
+        support::instance::created_slot(&world.svm.get_account(&escrow).unwrap().data)
+    };
+
+    // An escrow cannot end in the slot it was locked in, so no two escrows at
+    // one address share a lock slot: a lock and the seller's exit in one
+    // transaction are refused. (A claim is refused there anyway, by its
+    // window, so this is checked for the exits that have none.)
+    if wait == 1 {
+        let here = world.slot();
+        let both = world.send(
+            &[lock.clone(), support::instance::naming(&seller_exit, here)],
+            &[seller, payer],
+        );
+        let Err(error) = both else {
+            panic!("{label}: a lock and an exit in one transaction succeeded");
+        };
+        assert!(
+            error.contains(&format!("Custom({ESCROW_JUST_LOCKED})")),
+            "{label}: {error}"
+        );
+        assert!(!world.exists(&escrow), "{label}");
+    }
+
+    world.ok("lock A", lock.clone(), &[payer]);
+    let slot_a = created(world);
+    world.warp(world.slot() + wait);
+    let held = support::instance::naming(&seller_exit, slot_a);
+
+    // The payer ends A and locks B at the same address in one transaction.
+    world
+        .send(&[end_by_payer, lock], &[payer])
+        .unwrap_or_else(|error| panic!("{label}: end A and lock B: {error}"));
+    let slot_b = created(world);
+    assert!(slot_b > slot_a, "{label}");
+    world.warp(world.slot() + wait);
+
+    world.refused(
+        &format!("{label} signed for escrow A, on escrow B"),
+        held,
+        &[seller],
+        ESCROW_INSTANCE_MISMATCH,
+    );
+    for wrong in [0, slot_b - 1, slot_b + 1, u64::MAX] {
+        world.refused(
+            &format!("{label} naming another slot"),
+            support::instance::naming(&seller_exit, wrong),
+            &[seller],
+            ESCROW_INSTANCE_MISMATCH,
+        );
+    }
+    assert!(world.exists(&escrow), "{label}");
+    world.ok(
+        &format!("{label} signed for escrow B"),
+        support::instance::naming(&seller_exit, slot_b),
+        &[seller],
+    );
+    assert!(!world.exists(&escrow), "{label}");
+}
+
+#[test]
+fn a_seller_exit_signed_for_one_unrated_escrow_is_refused_for_the_next() {
+    let mut world = World::new();
+    let (consumer, specialist) = (world.wallet(1), world.wallet(2));
+    let (c, s) = (consumer.pubkey(), specialist.pubkey());
+
+    for (i, label, metered, actual, wait) in [
+        (21, "SOL settle", true, Some(600_000), 1),
+        (22, "SOL claim", false, None, CLAIM_WINDOW + 1),
+        (23, "SOL decline", false, None, 1),
+    ] {
+        let n = nonce(i);
+        let exit = if label.ends_with("decline") {
+            sol_cancel(&c, n, &s)
+        } else {
+            sol_payout(&c, &s, n, &s, actual)
+        };
+        a_held_unrated_exit_cannot_end_the_next_escrow(
+            &mut world,
+            label,
+            sol_escrow(&c, n),
+            sol_lock(&c, &s, 1_000_000, n, metered),
+            &consumer,
+            &specialist,
+            sol_payout(&c, &s, n, &c, None),
+            exit,
+            wait,
+        );
+    }
+
+    let t = Tokens::install(
+        &mut world,
+        anchor_spl::token::spl_token::ID,
+        USDC_MAINNET_MINT,
+        consumer,
+        specialist,
+    );
+    let (a, b) = (t.payer.pubkey(), t.payee.pubkey());
+    for (i, label, metered, actual, wait) in [
+        (24, "token settle", true, Some(600_000), 1),
+        (25, "token claim", false, None, CLAIM_WINDOW + 1),
+        (26, "token decline", false, None, 1),
+    ] {
+        let n = nonce(i);
+        let exit = if label.ends_with("decline") {
+            t.cancel(n, &b)
+        } else {
+            t.payout(n, &b, actual)
+        };
+        a_held_unrated_exit_cannot_end_the_next_escrow(
+            &mut world,
+            label,
+            t.escrow(n),
+            t.lock(1_000_000, n, metered),
+            &t.payer,
+            &t.payee,
+            t.payout(n, &a, None),
+            exit,
+            wait,
         );
     }
 }

@@ -120,12 +120,12 @@ export function buildSandboxMeteredLock(input: {
 
 /**
  * The provider's step: settle the actual cost. The payee signs; the payer and treasury are written to.
- * For an escrow the visitor opted in to rating (`rated`), the escrow's rating account follows the
- * usual accounts and the job's `openedSlot` (read with the lock, `sandboxRatingOpenedSlot`)
- * follows the data, as the program requires of every exit of a rated escrow; `openedSlot` is
- * required then. Otherwise the instruction is the same as it has always been.
+ * The escrow's `createdSlot` (read with the lock) follows the data, naming this escrow, as the
+ * program requires of every exit: a settle signed for one escrow cannot end a later one at the same
+ * address. For an escrow the visitor opted in to rating (`rated`), the escrow's rating account
+ * follows the usual accounts; its rating opened in the lock slot, so the slot names the job too.
  */
-export function buildSandboxSettle(input: { escrow: PublicKey; payer: PublicKey; payee: PublicKey; actualLamports: bigint; programId?: PublicKey; rated?: boolean; openedSlot?: bigint }): TransactionInstruction {
+export function buildSandboxSettle(input: { escrow: PublicKey; payer: PublicKey; payee: PublicKey; actualLamports: bigint; programId?: PublicKey; rated?: boolean; createdSlot: bigint }): TransactionInstruction {
   const settle = new TransactionInstruction({
     programId: input.programId ?? SANDBOX_ESCROW_PROGRAM_ID,
     keys: [
@@ -137,7 +137,7 @@ export function buildSandboxSettle(input: { escrow: PublicKey; payer: PublicKey;
     ],
     data: concat(SANDBOX_ESCROW_DISCRIMINATORS.settleEscrow, u64le(input.actualLamports)),
   });
-  return withRatingAccount(settle, input.rated === true, input.openedSlot);
+  return withRatingAccount(settle, input.rated === true, input.createdSlot);
 }
 
 /**

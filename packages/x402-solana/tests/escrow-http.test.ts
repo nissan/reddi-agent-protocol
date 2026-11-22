@@ -230,8 +230,13 @@ describe('rated escrows (flag byte bit 0x02)', () => {
     expect(decline.keys).toHaveLength(8);
     // The receipt round-trips through JSON (the slot is a decimal string), and a rated receipt without it builds nothing.
     expect(shape(buildEscrowSellerExit(f.c, JSON.parse(JSON.stringify(receipt)), 'claim'))).toEqual(shape(claim));
-    expect(() => buildEscrowSellerExit(f.c, { rated: true }, 'claim')).toThrow('opened slot');
-    expect(() => buildEscrowSellerExit(f.c, { rated: true, openedSlot: '-1' }, 'claim')).toThrow('opened slot');
+    expect(() => buildEscrowSellerExit(f.c, { rated: true, slot: 100 }, 'claim')).toThrow('opened slot');
+    expect(() => buildEscrowSellerExit(f.c, { rated: true, openedSlot: '-1', slot: 100 }, 'claim')).toThrow('opened slot');
+    expect(() => buildEscrowSellerExit(f.c, { rated: true, openedSlot: '99', slot: 100 }, 'claim')).toThrow('opened slot');
+    // Every exit names its escrow by the lock slot: an unrated receipt too, and one without a slot builds nothing.
+    const unratedClaim = buildEscrowSellerExit(f.c, { slot: 100 }, 'claim');
+    expect(shape(unratedClaim)).toEqual({ data: shape(plainClaim).data + slot.toString('hex'), keys: shape(plainClaim).keys });
+    expect(() => buildEscrowSellerExit(f.c, { slot: undefined as unknown as number }, 'claim')).toThrow('slot of the lock');
   });
 
   test('a rated escrow whose rating account is missing, not the program\'s, another escrow\'s or past settlement is refused', async () => {
@@ -252,14 +257,16 @@ describe('rated escrows (flag byte bit 0x02)', () => {
     }
   });
 
-  test.each([[0], [1]] as const)('flag byte %i (not rated): receipt and exits are exactly as before, whatever the setting', async (flag) => {
+  test.each([[0], [1]] as const)('flag byte %i (not rated): the receipt is as before and the exits carry no rating account, whatever the setting', async (flag) => {
     for (const options of [undefined, { acceptRatedEscrows: true }]) {
       const f = fixture(); f.state[202] = flag;
       const receipt = await verifyEscrowLock(f.rpc as unknown as Connection, f.c, f.proof, options);
       expect(receipt).toEqual({ ...f.proof, scheme: 'rap-spl-escrow-v1', status: 'locked', escrow: f.addresses.escrow.toBase58(), amount: f.c.amount, mint: f.c.mint, requestHash: f.c.requestHash, slot: 100 });
       expect('rated' in receipt).toBe(false);
-      expect(shape(buildEscrowSellerExit(f.c, receipt, 'claim'))).toEqual(shape(buildSettleTokenEscrowInstruction(f.t, false, f.t.payee)));
-      expect(shape(buildEscrowSellerExit(f.c, receipt, 'decline'))).toEqual(shape(buildSettleTokenEscrowInstruction(f.t, true, f.t.payee)));
+      // Named by the lock slot (100, little-endian) after their own data.
+      const named = (ix: ReturnType<typeof shape>) => ({ ...ix, data: ix.data + '6400000000000000' });
+      expect(shape(buildEscrowSellerExit(f.c, receipt, 'claim'))).toEqual(named(shape(buildSettleTokenEscrowInstruction(f.t, false, f.t.payee))));
+      expect(shape(buildEscrowSellerExit(f.c, receipt, 'decline'))).toEqual(named(shape(buildSettleTokenEscrowInstruction(f.t, true, f.t.payee))));
     }
   });
 

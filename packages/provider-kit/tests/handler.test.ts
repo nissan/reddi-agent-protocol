@@ -12,7 +12,7 @@ import { MemoryPendingSettleStore } from "../src/pending.js";
 import { createMockUpstream, type Upstream } from "../src/upstream.js";
 import type { ProviderConfigFile } from "../src/config.js";
 import { Keypair } from "@solana/web3.js";
-import { ata, buyer, config, escrowAddress, fakeChain, paymentHeader, provider, SETTLE_SIGNATURE, singleCallHeaders, tokenAccount, USDC, type FakeChain } from "./helpers.js";
+import { ata, buyer, config, CURRENT_SLOT, escrowAddress, fakeChain, paymentHeader, provider, SETTLE_SIGNATURE, singleCallHeaders, tokenAccount, USDC, type FakeChain } from "./helpers.js";
 
 const privateKey = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(provider.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
 const signMessage = (message: Uint8Array) => edSign(null, message, privateKey);
@@ -101,7 +101,10 @@ test("a paid call answers, settles the actual cost and returns a receipt that ve
   const settle = chain.sent[0][chain.sent[0].length - 1];
   const amount = Buffer.alloc(8);
   amount.writeBigUInt64LE(5355n);
-  assert.deepEqual([...settle.data.subarray(8)], [...amount]);
+  assert.deepEqual([...settle.data.subarray(8, 16)], [...amount]);
+  // The escrow's lock slot follows, naming the escrow this settle ends.
+  assert.equal(settle.data.length, 24);
+  assert.equal(settle.data.readBigUInt64LE(16), CURRENT_SLOT - 10n);
   assert.ok(settle.keys[2].pubkey.equals(provider.publicKey) && settle.keys[2].isSigner, "the provider wallet signs the settle");
   assert.ok(settle.keys[0].pubkey.equals(escrowAddress()));
 
@@ -171,7 +174,9 @@ test("when the model fails, nothing is settled and the lock is declined so the b
   assert.equal(chain.sent.length, 1);
   const decline = chain.sent[0][0];
   const expected = createHash("sha256").update("global:cancel_token_escrow").digest().subarray(0, 8);
-  assert.deepEqual([...decline.data], [...expected]);
+  assert.deepEqual([...decline.data.subarray(0, 8)], [...expected]);
+  assert.equal(decline.data.length, 16);
+  assert.equal(decline.data.readBigUInt64LE(8), CURRENT_SLOT - 10n);
   assert.ok(decline.keys[2].pubkey.equals(provider.publicKey));
 });
 

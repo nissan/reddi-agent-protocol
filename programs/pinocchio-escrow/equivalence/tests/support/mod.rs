@@ -205,7 +205,8 @@ impl World {
     /// After a successful `open_rating` the world moves to the next slot.
     pub fn send(&mut self, ixs: &[Instruction], signers: &[&Keypair]) -> Result<Sent, String> {
         let ixs: Vec<Instruction> = ixs.iter().map(|ix| self.resolve(ix)).collect();
-        let ixs = &ixs[..];
+        // Unrated exits built without their instance get it, as a client sends them.
+        let ixs = &instance::bind(&mut self.svm, &ixs)[..];
         for ix in ixs {
             self.touched
                 .extend(ix.accounts.iter().map(|meta| meta.pubkey));
@@ -1135,3 +1136,6 @@ impl Tokens {
         )
     }
 }
+
+#[path = "../common/instance.rs"]
+pub mod instance;

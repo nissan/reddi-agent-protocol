@@ -24,7 +24,7 @@ use {
 
 const AMOUNT: u64 = 1_000_000;
 const FEE: u64 = 25_000;
-const RATING_JOB_MISMATCH: u32 = 6051;
+const ESCROW_INSTANCE_MISMATCH: u32 = 6053;
 
 struct Sol {
     world: World,
@@ -652,21 +652,25 @@ fn an_unrated_escrow_ignores_a_rating_account_passed_to_it() {
     t.lock(3, false);
     let before = t.world.svm.get_account(&rating_address(&rated));
     let job = t.world.opened_slot(&rating_address(&rated));
-    // An exit that names a job is refused on an escrow that is not rated:
-    // it was signed for a rated job.
+    // Escrows 2 and 3 were locked in the slot after the rated one's, so
+    // `job` is not their lock slot.
+    t.world.next_slot();
+    // An exit of an unrated escrow names the escrow by its lock slot. One
+    // that names something else, here the rated job's opening slot, is
+    // refused: it was signed for a different escrow.
     t.world.refused(
         "release naming a job, not rated",
         with_rating_of(t.payout(2, &t.payer, None), &rated, job),
         &[&t.payer],
-        RATING_JOB_MISMATCH,
+        ESCROW_INSTANCE_MISMATCH,
     );
     t.world.refused(
         "decline naming a job, not rated",
         with_rating_of(t.cancel(3, &t.payee), &rated, job),
         &[&t.payee],
-        RATING_JOB_MISMATCH,
+        ESCROW_INSTANCE_MISMATCH,
     );
-    // The account alone is ignored.
+    // The account alone is ignored: the exit gets its escrow's lock slot.
     t.world.ok(
         "release",
         with_account(t.payout(2, &t.payer, None), rating_address(&rated), true),
@@ -950,12 +954,12 @@ fn rated_token_rail(program: Pubkey, mint: Pubkey, name: &str) {
     payer_transactions += 1;
 
     // The escrow that was not opted in ends as before, rating account or
-    // not, as long as the exit names no job.
+    // not, as long as the exit names that escrow and not a rated job.
     world.refused(
         "release, not rated, naming a job",
         rated(t.payout(nonce(6), &a, None), 1),
         &[&t.payer],
-        RATING_JOB_MISMATCH,
+        ESCROW_INSTANCE_MISMATCH,
     );
     payer_transactions += 1;
     world.ok(

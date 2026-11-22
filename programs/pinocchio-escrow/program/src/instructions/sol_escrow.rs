@@ -219,7 +219,7 @@ pub fn pay_out(
             job,
         )?)
     } else {
-        rating::for_unrated_exit(job)?;
+        rating::for_unrated_exit(record.created_slot(), slot, job)?;
         None
     };
 
@@ -288,7 +288,7 @@ pub fn cancel(
         let (account, _) = rating::for_exit(program_id, escrow.address(), trailing, slot, job)?;
         close(account, payer)?;
     } else {
-        rating::for_unrated_exit(job)?;
+        rating::for_unrated_exit(record.created_slot(), slot, job)?;
     }
     close(escrow, payer)?;
 

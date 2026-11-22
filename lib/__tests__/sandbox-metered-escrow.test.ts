@@ -189,9 +189,12 @@ describe("sandbox metered escrow: instructions and layout", () => {
       ["11111111111111111111111111111111", false, false],
     ]);
 
-    const settle = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207) });
+    const settle = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), createdSlot: BigInt(4242) });
     expect(settle.data.subarray(0, 8)).toEqual(IX.settle_escrow);
     expect(settle.data.readBigUInt64LE(8)).toBe(BigInt(207));
+    // The escrow's lock slot follows the data: the settle names this escrow and no later one at its address.
+    expect(settle.data).toHaveLength(24);
+    expect(settle.data.readBigUInt64LE(16)).toBe(BigInt(4242));
     expect(settle.keys.map((key) => [key.pubkey.toBase58(), key.isSigner, key.isWritable])).toEqual([
       [escrow.toBase58(), false, true],
       [payer.toBase58(), false, true],
@@ -202,14 +205,16 @@ describe("sandbox metered escrow: instructions and layout", () => {
     expect(() => escrowNonceBytes("not-hex")).toThrow();
 
     // Not rated: exactly the same instruction whether or not `rated` is stated.
-    const unrated = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: false });
+    const unrated = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: false, createdSlot: BigInt(4242) });
     expect(unrated.data).toEqual(settle.data);
     expect(unrated.keys).toEqual(settle.keys);
-    // Rated: the escrow's rating account follows the five usual accounts, writable, and the job's opened slot follows the data.
-    expect(() => buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: true })).toThrow("openedSlot");
-    const rated = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: true, openedSlot: BigInt(4242) });
-    expect(rated.data.subarray(0, 16)).toEqual(settle.data);
-    expect(rated.data.readBigUInt64LE(16)).toBe(BigInt(4242));
+    // Without the lock slot no settle is built, rated or not: the program would refuse it.
+    for (const rated of [false, true]) {
+      expect(() => buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated, createdSlot: undefined as unknown as bigint })).toThrow("createdSlot");
+    }
+    // Rated: the escrow's rating account follows the five usual accounts, writable; the data is the same.
+    const rated = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: true, createdSlot: BigInt(4242) });
+    expect(rated.data).toEqual(settle.data);
     expect(rated.keys.slice(0, 5)).toEqual(settle.keys);
     expect(rated.keys.slice(5).map((key) => [key.pubkey.toBase58(), key.isSigner, key.isWritable])).toEqual([[ratingPda(escrow, SANDBOX_ESCROW_PROGRAM_ID).toBase58(), false, true]]);
   });
@@ -218,7 +223,7 @@ describe("sandbox metered escrow: instructions and layout", () => {
     const vector = vectors.instructions.find((entry) => entry.name === "settle_escrow")!;
     const at = (name: string) => new PublicKey(vector.accounts.find((meta) => meta.name === name)!.address);
     expect(at("treasury").toBase58()).toBe(SANDBOX_FEE_TREASURY);
-    const settle = buildSandboxSettle({ escrow: at("escrow"), payer: at("payer"), payee: at("payee"), actualLamports: BigInt(600_000), rated: true, openedSlot: BigInt(1000), programId: new PublicKey(vectors.program_id) });
+    const settle = buildSandboxSettle({ escrow: at("escrow"), payer: at("payer"), payee: at("payee"), actualLamports: BigInt(600_000), rated: true, createdSlot: BigInt(1000), programId: new PublicKey(vectors.program_id) });
     expect(settle.data.toString("hex")).toBe(vector.data_hex);
     expect(settle.keys.map((key) => ({ address: key.pubkey.toBase58(), signer: key.isSigner, writable: key.isWritable }))).toEqual(
       vector.accounts.map(({ address, signer, writable }) => ({ address, signer, writable })),
@@ -329,7 +334,7 @@ describe("sandbox metered escrow: gateway", () => {
     expect(accepted.status).toBe(200);
     expect(calls).toHaveLength(1);
     expect(calls[0].rated).toBe(true);
-    expect(calls[0].openedSlot).toBe(OPENED_SLOT);
+    expect(calls[0].createdSlot).toBe(OPENED_SLOT);
   });
 
   it("when set to accept rated escrows, tells the settler to pass the rating account; an unrated one is settled as before", async () => {
@@ -343,13 +348,14 @@ describe("sandbox metered escrow: gateway", () => {
       expect(response.status).toBe(200);
       expect(calls).toHaveLength(1);
       expect(calls[0].rated).toBe(rated);
-      expect(calls[0].openedSlot).toBe(rated ? OPENED_SLOT : undefined);
+      // Every settle names its escrow by the lock slot; a rated job's rating opened in that slot.
+      expect(calls[0].createdSlot).toBe(CURRENT_SLOT - BigInt(10));
       expect(calls[0].escrow.toBase58()).toBe(escrow);
     }
   });
 
   it("refuses a rated escrow whose rating account is missing, another escrow's or past settlement, before serving", async () => {
-    for (const rating of ["missing", "other", "paid"] as const) {
+    for (const rating of ["missing", "other", "paid", "earlier job"] as const) {
       const accounts: Accounts = new Map();
       const { settler, calls } = fakeSettler();
       const deps = { ...makeDeps(accounts, settler), acceptRatedEscrows: true };
@@ -358,6 +364,7 @@ describe("sandbox metered escrow: gateway", () => {
       const address = ratingPda(new PublicKey(escrow), SANDBOX_ESCROW_PROGRAM_ID).toBase58();
       if (rating === "missing") accounts.delete(address);
       if (rating === "other") accounts.set(address, { owner: SANDBOX_ESCROW_PROGRAM_ID, data: ratingBytes(Keypair.generate().publicKey) });
+      if (rating === "earlier job") accounts.set(address, { owner: SANDBOX_ESCROW_PROGRAM_ID, data: ratingBytes(new PublicKey(escrow), { openedSlot: OPENED_SLOT - BigInt(1) }) });
       if (rating === "paid") accounts.set(address, { owner: SANDBOX_ESCROW_PROGRAM_ID, data: ratingBytes(new PublicKey(escrow), { state: 1 }) });
       const response = await call(deps, meteredHeader(nonce, escrow));
       expect(response.body.reason).toBe("invalid_receipt");

@@ -271,10 +271,9 @@ export declare function usageFrom(upstream: Record<string, unknown>, inputEstima
  * The settle for the tokens used, never above the locked maximum. It pays
  * into the accounts checked with the lock (`lock.payout`), or into `payout`
  * when the caller has checked them again. Nothing is created unless that
- * check chose to create the buyer's token account. The settle of a rated
- * lock carries the escrow's rating account after the usual accounts and the
- * job's opened slot (`lock.openedSlot`) after its data; for a lock that is
- * not rated the instruction is unchanged.
+ * check chose to create the buyer's token account. The settle names the
+ * escrow by its lock slot (`lock.createdSlot`) after its data, and a rated
+ * lock's settle carries the escrow's rating account after the usual accounts.
  */
 export declare function meteredSettlement(terms: MeteredTerms, lock: Extract<VerifiedLock, {
     ok: true;

@@ -33,8 +33,9 @@ use {
         error::{
             fail, require, AccountNotEnoughKeys, AlreadyCommitted, AlreadyFinalised, AlreadyRated,
             AlreadyRevealed, BothMustCommitFirst, CommitDeadlinePassed, CommitmentMismatch,
-            ConstraintDuplicateMutableAccount, ConstraintSeeds, EmptyCommitment, InvalidJudge,
-            InvalidPayee, InvalidRatingAccount, InvalidScore, JobNotPaid, NotExpired, NotLocked,
+            ConstraintDuplicateMutableAccount, ConstraintSeeds, EmptyCommitment,
+            EscrowInstanceMismatch, EscrowJustLocked, InvalidJudge, InvalidPayee,
+            InvalidRatingAccount, InvalidScore, JobNotPaid, NotExpired, NotLocked,
             RatedEscrowNotDelegable, RatingAccountRequired, RatingAlreadyAccepted,
             RatingJobMismatch, RatingJustOpened, RatingNotAwaitingSettlement, RatingNotFinal,
             RatingOptInClosed, RevealDeadlinePassed, UnauthorisedSigner,
@@ -210,13 +211,19 @@ pub fn settle_exit(
     }
 }
 
-/// An exit of an escrow that is not rated must not name a job. Data after
-/// the exit's own is how a signer binds an exit to one rated job; if the job
-/// at that address has ended and an unrated one has taken it, the exit must
-/// not move the new job's money. Callers of an unrated escrow send no such
-/// bytes, so its wire format is unchanged for them.
-pub fn for_unrated_exit(job: Option<u64>) -> ProgramResult {
-    require(job.is_none(), &RatingJobMismatch)
+/// An exit of an escrow that is not rated must name the escrow: data after
+/// the exit's own is the slot the escrow was locked in (`created`), 8 bytes
+/// little-endian, and the exit must come after that slot (`slot` is the
+/// current one). An escrow address is reused when a payer locks again with
+/// the same nonce after the earlier escrow ended. Since no escrow ends in the
+/// slot it was locked in, the later escrow's lock slot is always later than
+/// the earlier one's, so an exit signed for one escrow (a seller's settle,
+/// claim or decline in particular) cannot end the next one at that address.
+/// A rated escrow is named the same way, through its rating: the rating is
+/// opened in the lock slot, so its opening slot is the lock slot.
+pub fn for_unrated_exit(created: u64, slot: u64, job: Option<u64>) -> ProgramResult {
+    require(slot > created, &EscrowJustLocked)?;
+    require(job == Some(created), &EscrowInstanceMismatch)
 }
 
 /// The rating account an exit of the rated escrow at `escrow` must be given:

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { Keypair, PublicKey } from '@solana/web3.js';
+import { Keypair, PublicKey, TransactionInstruction } from '@solana/web3.js';
 import {
   buildSettleTokenEscrowInstruction,
   checkMeteredPayout,
@@ -394,18 +394,22 @@ describe('rated escrows', () => {
     const plainSettle = meteredSettlement(terms, plain, usage);
     expect(settle.settlement).toEqual(plainSettle.settlement);
     expect(lock.openedSlot).toBe(OPENED_SLOT);
-    expect(shape(settle.instruction)).toEqual({ data: shape(plainSettle.instruction).data + slotHex, keys: [...shape(plainSettle.instruction).keys, [rating.toBase58(), false, true]] });
+    // Every exit names its escrow by the lock slot, which is the rated job's opened slot too.
+    expect(shape(plainSettle.instruction).data.endsWith(slotHex)).toBe(true);
+    expect(shape(settle.instruction)).toEqual({ data: shape(plainSettle.instruction).data, keys: [...shape(plainSettle.instruction).keys, [rating.toBase58(), false, true]] });
     expect(settle.instruction.keys).toHaveLength(10);
     expect(settle.instructions[settle.instructions.length - 1]).toBe(settle.instruction);
     const decline = meteredDecline(terms, lock);
     const plainDecline = meteredDecline(terms, plain);
-    expect(shape(decline)).toEqual({ data: shape(plainDecline).data + slotHex, keys: [...shape(plainDecline).keys, [rating.toBase58(), false, true]] });
+    expect(shape(decline)).toEqual({ data: shape(plainDecline).data, keys: [...shape(plainDecline).keys, [rating.toBase58(), false, true]] });
     expect(decline.keys).toHaveLength(8);
     expect(meteredRatingAccount(lock)?.equals(rating)).toBe(true);
-    // A rated lock that lost its opened slot builds no exit: the program would refuse it (6051).
-    const { openedSlot: _slot, ...withoutSlot } = lock;
-    expect(() => meteredSettlement(terms, withoutSlot, usage)).toThrow('openedSlot');
-    expect(() => meteredDecline(terms, withoutSlot)).toThrow('openedSlot');
+    // A lock that lost its lock slot builds no exit: the program would refuse it (6053).
+    const { createdSlot: _slot, ...withoutSlot } = lock;
+    for (const l of [withoutSlot, { ...plain, createdSlot: undefined }]) {
+      expect(() => meteredSettlement(terms, l as typeof lock, usage)).toThrow('createdSlot');
+      expect(() => meteredDecline(terms, l as typeof lock)).toThrow('createdSlot');
+    }
   });
 
   it('reads the opened slot with the lock, and refuses a rated escrow whose rating account is not this job\'s', async () => {
@@ -414,8 +418,8 @@ describe('rated escrows', () => {
       map.set(ratingPda(header.escrow, PROGRAM).toBase58(), rating);
       return map;
     };
-    expect(await verify({ rated: true }, { acceptRatedEscrows: true, accounts: accounts({ owner: PROGRAM, data: ratingBytes({ openedSlot: BigInt(77) }) }) })).toMatchObject({ ok: true, openedSlot: BigInt(77) });
-    for (const rating of [null, { owner: Keypair.generate().publicKey, data: ratingBytes() }, { owner: PROGRAM, data: ratingBytes({ escrow: Keypair.generate().publicKey }) }, { owner: PROGRAM, data: ratingBytes({ state: 1 }) }, { owner: PROGRAM, data: new Uint8Array(10) }]) {
+    expect(await verify({ rated: true, createdSlot: CURRENT_SLOT - BigInt(77) }, { acceptRatedEscrows: true, accounts: accounts({ owner: PROGRAM, data: ratingBytes({ openedSlot: CURRENT_SLOT - BigInt(77) }) }) })).toMatchObject({ ok: true, openedSlot: CURRENT_SLOT - BigInt(77) });
+    for (const rating of [{ owner: PROGRAM, data: ratingBytes({ openedSlot: OPENED_SLOT - BigInt(1) }) }, null, { owner: Keypair.generate().publicKey, data: ratingBytes() }, { owner: PROGRAM, data: ratingBytes({ escrow: Keypair.generate().publicKey }) }, { owner: PROGRAM, data: ratingBytes({ state: 1 }) }, { owner: PROGRAM, data: new Uint8Array(10) }]) {
       const replayStore = new MemoryNonceReplayStore();
       expect(await verify({ rated: true }, { acceptRatedEscrows: true, replayStore, accounts: accounts(rating) })).toMatchObject({ ok: false, reason: 'invalid_receipt' });
       // Not remembered either.
@@ -431,12 +435,14 @@ describe('rated escrows', () => {
     expect(before.rated).toBe(false);
     expect(accepting).toEqual(before);
     expect(meteredRatingAccount(before)).toBeUndefined();
+    // The direct builders' bytes, naming the escrow by its lock slot as every exit does.
     const direct = buildSettleTokenEscrowInstruction(before.terms, false, payee, { actual: BigInt(5355), treasuryToken: ata(ESCROW_PROTOCOL_TREASURY), refundTo: ata(payer) });
-    expect(shape(meteredSettlement(terms, accepting, usage).instruction)).toEqual(shape(direct));
-    expect(shape(meteredDecline(terms, accepting))).toEqual(shape(buildSettleTokenEscrowInstruction(before.terms, true, payee)));
+    expect(shape(meteredSettlement(terms, accepting, usage).instruction)).toEqual({ ...shape(direct), data: shape(direct).data + slotHex });
+    const directDecline = shape(buildSettleTokenEscrowInstruction(before.terms, true, payee));
+    expect(shape(meteredDecline(terms, accepting))).toEqual({ ...directDecline, data: directDecline.data + slotHex });
     // A lock verified before `rated` existed (no such field) settles as an unrated one.
     const { rated: _rated, ...older } = before;
-    expect(shape(meteredSettlement(terms, older as typeof before, usage).instruction)).toEqual(shape(direct));
+    expect(shape(meteredSettlement(terms, older as typeof before, usage).instruction)).toEqual({ ...shape(direct), data: shape(direct).data + slotHex });
   });
 
   // The flag byte as stored: 0 neither, 1 metered, 2 rated, 3 metered and rated.
@@ -458,9 +464,8 @@ describe('rated escrows', () => {
       expect(result).toMatchObject({ ok: true, rated });
       const lock = result as Extract<VerifiedLock, { ok: true }>;
       const extra = rated ? [[rating.toBase58(), false, true]] : [];
-      const tail = rated ? slotHex : '';
-      expect(shape(meteredSettlement(terms, lock, usage).instruction)).toEqual({ data: shape(meteredSettlement(terms, plain, usage).instruction).data + tail, keys: [...shape(meteredSettlement(terms, plain, usage).instruction).keys, ...extra] });
-      expect(shape(meteredDecline(terms, lock))).toEqual({ data: shape(meteredDecline(terms, plain)).data + tail, keys: [...shape(meteredDecline(terms, plain)).keys, ...extra] });
+      expect(shape(meteredSettlement(terms, lock, usage).instruction)).toEqual({ data: shape(meteredSettlement(terms, plain, usage).instruction).data, keys: [...shape(meteredSettlement(terms, plain, usage).instruction).keys, ...extra] });
+      expect(shape(meteredDecline(terms, lock))).toEqual({ data: shape(meteredDecline(terms, plain)).data, keys: [...shape(meteredDecline(terms, plain)).keys, ...extra] });
     }
   });
 
@@ -482,6 +487,7 @@ describe('rated escrows', () => {
 });
 
 describe('settlement', () => {
+  const named = (ix: TransactionInstruction, slot: bigint) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(slot); return new TransactionInstruction({ programId: ix.programId, keys: ix.keys, data: Buffer.concat([ix.data, b]) }); };
   const locked = async () => (await verify()) as Extract<VerifiedLock, { ok: true }>;
 
   it('charges the actual cost, takes 2.5% rounded down, and builds the same bytes as the instruction builder', async () => {
@@ -491,7 +497,7 @@ describe('settlement', () => {
     expect(settlement.chargedBaseUnits).toBe(BigInt(5355));
     expect(settlement).toMatchObject({ charged: '0.005355', fee: '0.000133', provider: '0.005222', refund: '0.010245', capped: false });
     // Paid into the accounts the lock check read: the recorded source takes the unused part, and nothing is created.
-    const direct = buildSettleTokenEscrowInstruction(lock.terms, false, payee, { actual: BigInt(5355), treasuryToken: ata(ESCROW_PROTOCOL_TREASURY), refundTo: ata(payer) });
+    const direct = named(buildSettleTokenEscrowInstruction(lock.terms, false, payee, { actual: BigInt(5355), treasuryToken: ata(ESCROW_PROTOCOL_TREASURY), refundTo: ata(payer) }), lock.createdSlot);
     expect(instruction.data.equals(direct.data)).toBe(true);
     expect(instruction.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable])).toEqual(direct.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable]));
     expect(instructions).toEqual([instruction]);
@@ -507,7 +513,7 @@ describe('settlement', () => {
     const lock = await locked();
     expect(() => meteredSettlement(terms, lock, { inputTokens: 0, outputTokens: 0 })).toThrow(/nothing to settle/);
     const decline = meteredDecline(terms, lock);
-    expect(decline.data.equals(buildSettleTokenEscrowInstruction(lock.terms, true, payee).data)).toBe(true);
+    expect(decline.data.equals(named(buildSettleTokenEscrowInstruction(lock.terms, true, payee), lock.createdSlot).data)).toBe(true);
     expect(decline.keys[2]).toMatchObject({ isSigner: true });
     expect(decline.keys[2].pubkey.equals(payee)).toBe(true);
   });

@@ -193,7 +193,7 @@ export declare function buildCloseAttestationInstruction(input: OfEscrow & {
 /**
  * The program's custom error codes for ratings and attestations, by number.
  * 6010 to 6019 keep the numbers of the earlier program; 6033 to 6051 are new
- * with the escrow-bound rating. Held to the program's `error.rs` by a test.
+ * with the escrow-bound rating, and 6052 and 6053 with exits that name their escrow. Held to the program's `error.rs` by a test.
  */
 export declare const RATING_PROGRAM_ERRORS: {
     readonly 6010: "AlreadyCommitted";
@@ -230,6 +230,13 @@ export declare const RATING_PROGRAM_ERRORS: {
      * a rated exit named none): another job now holds the address.
      */
     readonly 6051: "RatingJobMismatch";
+    /** An exit of an escrow in the slot it was locked in. */
+    readonly 6052: "EscrowJustLocked";
+    /**
+     * An exit named a lock slot other than its escrow's (or none): it was
+     * signed for an earlier escrow at the same address.
+     */
+    readonly 6053: "EscrowInstanceMismatch";
 };
 export type RatingProgramErrorName = (typeof RATING_PROGRAM_ERRORS)[keyof typeof RATING_PROGRAM_ERRORS];
 /** The name of a rating or attestation error code, or undefined for any other code. */
@@ -297,32 +304,37 @@ export interface AttestationAccount {
 /** Reads an attestation account. Throws when the bytes are not one. */
 export declare function decodeAttestationAccount(accountData: Uint8Array): AttestationAccount;
 /**
- * Makes an exit of a rated escrow (release, claim, settle, refund or
- * decline, SOL or token) into the rated form: the rating account right after
- * the usual accounts, writable, and the job's `openedSlot` (the rating
- * account's `opened_slot`, u64 LE) after the instruction's data. The escrow is
- * the instruction's first account. Without the account the program refuses
- * the exit (`RatingAccountRequired`, 6033); without the slot, or with another
- * job's, `RatingJobMismatch` (6051).
+ * Makes an exit of an escrow (release, claim, settle, refund or decline, SOL
+ * or token) into the form the program takes: the escrow's lock slot
+ * (`createdSlot`, u64 LE) after the instruction's data, and for a rated
+ * escrow the rating account right after the usual accounts, writable. The
+ * escrow is the instruction's first account.
  *
- * With `rated` false the instruction is returned as it is, so a transaction
- * for an escrow that is not rated does not change by a byte. With `rated`
- * true, `openedSlot` is required. Throws for an instruction that is not one
- * of the six exits, lacks its usual accounts or already carries more data.
+ * The slot names the escrow. An address is used again when a payer locks
+ * with the same nonce after its earlier escrow ended, and no escrow ends in
+ * the slot it was locked in, so an exit signed for one escrow is refused for
+ * the next one at that address (`EscrowInstanceMismatch`, 6053) and an exit
+ * in the lock slot is refused (`EscrowJustLocked`, 6052). A rated escrow's
+ * rating is opened in its lock slot, so its `openedSlot` is the same slot;
+ * a rated exit naming another is refused (`RatingJobMismatch`, 6051), and one
+ * without the rating account (`RatingAccountRequired`, 6033).
+ *
+ * Read `rated` and `createdSlot` from the escrow account. Throws for an
+ * instruction that is not one of the six exits, lacks its usual accounts or
+ * already carries more data, or when the slot is missing.
  */
-export declare function withRatingAccount(exit: TransactionInstruction, rated: false): TransactionInstruction;
-export declare function withRatingAccount(exit: TransactionInstruction, rated: true, openedSlot: bigint): TransactionInstruction;
-export declare function withRatingAccount(exit: TransactionInstruction, rated: boolean, openedSlot?: bigint): TransactionInstruction;
+export declare function withRatingAccount(exit: TransactionInstruction, rated: boolean, createdSlot: bigint | undefined): TransactionInstruction;
 /**
- * `buildSettleTokenEscrowInstruction` for an escrow that may be rated: the
- * same release, claim, settle, refund or decline, with the rating account and
- * the job's `openedSlot` added when `rated` is true. Read `rated` from the
- * escrow account (`decodeTokenEscrowAccount(...).rated`) and `openedSlot`
- * from its rating account when the job was agreed; `openedSlot` is required
- * when `rated` is true.
+ * `buildSettleTokenEscrowInstruction` in the form the program takes: the
+ * same release, claim, settle, refund or decline, naming the escrow by its
+ * lock slot, with the rating account added when `rated` is true. Read
+ * `rated` and `createdSlot` from the escrow account
+ * (`decodeTokenEscrowAccount(...)`); a rated escrow's `openedSlot` is the
+ * same slot and may be passed instead.
  */
 export declare function buildTokenEscrowExitInstruction(terms: TokenEscrowTerms, exit: {
     rated: boolean;
+    createdSlot?: bigint;
     openedSlot?: bigint;
     refund?: boolean;
     authority?: PublicKey;
@@ -348,9 +360,11 @@ interface SolEscrowExit {
     escrow: PublicKey;
     payer: PublicKey;
     payee: PublicKey;
-    /** Whether the escrow's rated bit is set; read it from the escrow account. Adds the rating account and `openedSlot`. */
+    /** Whether the escrow's rated bit is set; read it from the escrow account. Adds the rating account. */
     rated?: boolean;
-    /** The rating account's `opened_slot`, naming the job. Required when `rated` is true. */
+    /** The escrow account's `created_slot`, naming the escrow. One of this and `openedSlot` is required. */
+    createdSlot?: bigint;
+    /** A rated escrow's rating `opened_slot`, which is its `created_slot`. */
     openedSlot?: bigint;
     /** Defaults to the protocol treasury fixed in the program. */
     treasury?: PublicKey;

@@ -24,8 +24,9 @@ One program, one mainnet build. The default build has 23 instructions:
 | Ratings of jobs paid through escrow | `open_rating`, `accept_rating`, `commit_rating`, `reveal_rating`, `expire_rating`, `close_rating` |
 | Judge attestations | `attest_quality`, `confirm_attestation`, `dispute_attestation`, `close_attestation` |
 
-The first 13 are the Anchor program's, with the same interface. The other
-ten are this program's own: see [Ratings and attestations](#ratings-and-attestations)
+The first 13 are the Anchor program's, with the same interface except that
+every exit names the escrow it ends (see [Every exit names its
+escrow](#every-exit-names-its-escrow)). The other ten are this program's own: see [Ratings and attestations](#ratings-and-attestations)
 and [Interface of the rating and attestation instructions](#interface-of-the-rating-and-attestation-instructions).
 
 Not part of V1: MagicBlock PER tracking (`delegate_escrow`,
@@ -168,8 +169,12 @@ transaction, built the way a Pinocchio program is built:
 ## The contract it keeps
 
 For the 13 escrow and registry instructions, on an escrow that is not opted
-into rating, the program is a drop-in for the Anchor one at the wire level, so
-the existing clients, IDL, tests and scripts work against it unchanged:
+into rating, the program kept the Anchor one's wire contract until 22 November
+2026, when it forked from it in one place (owner decision: the Anchor program
+was a starting reference, and V1 need not stay compatible with it). Every exit
+now names the escrow it ends: see [Every exit names its
+escrow](#every-exit-names-its-escrow). Everything else is as the Anchor
+program has it:
 
 - the same 8-byte instruction selectors and argument encoding;
 - the same accounts in the same order (accounts after them are ignored);
@@ -183,6 +188,38 @@ the existing clients, IDL, tests and scripts work against it unchanged:
 - the same program id declaration and fee rules (2.5% of the amount paid,
   rounded down, from the payee's share, capped at 0.1 SOL for SOL only, paid to
   the Squads vault).
+
+### Every exit names its escrow
+
+An escrow address is free again once its escrow has ended, and the same payer
+can lock another escrow for the same payee under the same nonce, so two
+escrows can share an address over time. Without more, an exit signed for one
+of them (a seller's settle, claim or decline held back, or a payer's release)
+would end whichever escrow holds the address when it lands.
+
+So every exit (`release_escrow`, `settle_escrow`, `cancel_escrow`,
+`release_token_escrow`, `settle_token_escrow`, `cancel_token_escrow`) carries
+the escrow's `created_slot` as 8 more bytes, a little-endian `u64`, after its
+own data: after the selector for a release or cancel, after `actual` for a
+settle. Read it from the escrow record (offset 105 of a SOL escrow, 193 of a
+token escrow) when the escrow is verified, and keep it. The program refuses:
+
+- an exit that lands in the slot its escrow was locked in
+  (`EscrowJustLocked`, 6052). A lock and an exit of the same escrow cannot
+  share a transaction or a slot, so an escrow locked again at an address is
+  always locked in a later slot than the one before it, even when the first
+  ended in the same transaction as the second was locked;
+- an exit whose 8 bytes are missing or are not the escrow's `created_slot`
+  (`EscrowInstanceMismatch`, 6053), before any money moves.
+
+An exit signed for one escrow is therefore refused for any later escrow at the
+same address, on both rails and for every authority. A rated escrow's rating
+is opened in its lock slot, so its `opened_slot` is the same number and a rated
+exit carries it once (see [Exits of a rated
+escrow](#exits-of-a-rated-escrow)). The accounts of every exit are unchanged.
+The Anchor build ignores the extra bytes, which is how the side-by-side suite
+still compares the two. `release_escrow_per` (the `per` build only, not V1)
+does not name its escrow yet.
 
 The rating and attestation instructions, and the exits of a rated escrow, are
 not in the Anchor IDL. The Anchor program has instructions with some of the
@@ -212,7 +249,9 @@ reputation, job counts or accuracy of an agent that signed nothing.
    is `opened_slot` on the rating account, the slot of `open_rating`. A rated
    escrow cannot end in that slot (`RatingJustOpened`, 6050; so lock, opt in
    and release in one transaction is refused), which means two ratings at one
-   address never have the same one. Every exit of a rated escrow,
+   address never have the same one. Since a rating opens in its escrow's lock
+   slot, `opened_slot` is also the escrow's `created_slot`, which every exit
+   names (see [Every exit names its escrow](#every-exit-names-its-escrow)). Every exit of a rated escrow,
    `accept_rating`, `commit_rating`, the commitments themselves,
    `attest_quality` and the consumer's decision on an attestation all name
    it, so what a seller, a party, a judge or a consumer signed for one job is
@@ -236,9 +275,9 @@ reputation, job counts or accuracy of an agent that signed nothing.
    instruction's data. Without the account the exit is refused
    (`RatingAccountRequired`, 6033), and without the slot, or with another
    one, `RatingJobMismatch` (6051), so a seller that settles a rated escrow
-   must pass both. An exit that names a job is refused on an escrow that is
-   not rated, so it cannot end an unrated job that took a rated job's
-   address either.
+   must pass both. An exit of an escrow that is not rated names it the same
+   way, by its lock slot, so no exit signed for one escrow, rated or not,
+   ends a later one at the same address.
 
    | Exit | Rating account |
    |---|---|
@@ -402,16 +441,14 @@ an unaccepted release there is no rating account (`AccountNotInitialized`,
 ### Exits of a rated escrow
 
 `release_escrow`, `settle_escrow`, `cancel_escrow`, `release_token_escrow`,
-`settle_token_escrow` and `cancel_token_escrow` keep their selectors, data and
-accounts. When the escrow's rated bit is set, one more account is required
-right after them, and the data must go on with `opened_slot: u64`, the rating
-account's `opened_slot` (offset 240) as the caller read it: after the
-selector for a release or cancel, after `actual` for a settle. An exit of an
-escrow that is not rated must not carry these 8 bytes: it is refused with
-`RatingJobMismatch` (6051), so an exit signed for a rated job cannot move the
-money of an unrated job that later takes the same address. Callers of an
-unrated escrow send no such bytes (an extra rating account alone is still
-ignored), so the wire format of an unrated exit is unchanged.
+`settle_token_escrow` and `cancel_token_escrow` keep their selectors and
+accounts, and every one carries 8 more bytes after its data (see [Every exit
+names its escrow](#every-exit-names-its-escrow)). When the escrow's rated bit
+is set, one more account is required right after the usual ones, and those 8
+bytes are read as `opened_slot: u64`, the rating account's `opened_slot`
+(offset 240) as the caller read it, which is also the escrow's
+`created_slot`. An extra rating account on an exit of an escrow that is not
+rated is ignored.
 
 | Instruction | Usual accounts | Rating account at index |
 |---|---|---|
@@ -644,6 +681,8 @@ New error numbers, all after 6032:
 | 6049 | `JudgeNotActive` |
 | 6050 | `RatingJustOpened` |
 | 6051 | `RatingJobMismatch` |
+| 6052 | `EscrowJustLocked` |
+| 6053 | `EscrowInstanceMismatch` |
 
 6010 to 6016, 6018 and 6019 keep the numbers and names the Anchor program
 declares for its rating and attestation errors.
@@ -654,10 +693,15 @@ Three layers, all in `equivalence/` (its own workspace, so the test harness's
 dependencies stay out of the program's lockfile):
 
 1. **The Anchor program's own tests of the 13 escrow and registry
-   instructions, unchanged.** `scripts/sync-equivalence-tests.sh` copies them
-   from `archive/anchor-escrow/tests/`, changing only the path of the binary
-   they load. `--check` fails if a copy is stale. All 79 pass against the
-   Pinocchio binary.
+   instructions.** The registry and runtime tests are copied unchanged by
+   `scripts/sync-equivalence-tests.sh` from `archive/anchor-escrow/tests/`,
+   changing only the path of the binary they load; `--check` fails if a copy
+   is stale. The escrow tests (`test_escrow.rs`, `test_token_escrow.rs`,
+   `test_token2022_escrow.rs`, and `per.rs` for the `per` build) were forked
+   from those copies on 22 November 2026, when every exit began to name its
+   escrow: their exits go through `tests/common/instance.rs`, which adds the
+   escrow's lock slot the way a client does, and they are otherwise as the
+   Anchor program has them. All 79 pass against the Pinocchio binary.
 2. **A side-by-side suite** (`equivalence/tests/differential.rs`). It runs the
    same transaction against the Anchor binary and the Pinocchio binary in two
    simulators with identical state, and requires the same result, the same
@@ -668,9 +712,10 @@ dependencies stay out of the program's lockfile):
    records, wrong and duplicated
    accounts, uninitialised token accounts, mints off the allowlist, transfer
    fees, and issuer actions on Token-2022 vaults. This is what holds an escrow
-   that is not rated to the behaviour it had before ratings were added: the
-   suite is unchanged.
-3. **This program's own tests** of what the Anchor program does not have, 68
+   that is not rated to the behaviour it had before ratings were added. Its
+   exits name their escrow as a client does (the Anchor binary ignores the
+   extra bytes); otherwise the suite is unchanged.
+3. **This program's own tests** of what the Anchor program does not have, 71
    tests against the Pinocchio binary: `rated_escrow.rs` (opt-in and every
    exit of a rated SOL, USDC and PYUSD escrow), `rating_consent.rs` (a payer
    acting alone cannot move the record of an agent that signed nothing;
@@ -679,7 +724,10 @@ dependencies stay out of the program's lockfile):
    parties), `job_instance.rs` (an acceptance, a seller's settle, claim or
    decline, a commitment, a judge's scores or a consumer's decision on them,
    signed for one job, are refused for the next job at the same address,
-   rated or not, and change nothing; no exit in the slot the rating was opened in),
+   rated or not, and change nothing; no exit in the slot the rating was opened in;
+   a seller's settle, claim or decline signed for one unrated SOL or token
+   escrow is refused for the next one at its address, including one locked in
+   the same transaction that ended the first, and no exit lands in the lock slot),
    `judge_attestation.rs`, `instruction_surface.rs` (the default
    build answers the 23 instructions and not the two PER selectors) and
    `interface_vectors.rs` (the fixture in `interface/`). They cover every
@@ -698,7 +746,9 @@ agreement, `accept_rating` open to any signer, the attested mark not checked,
 and an unresolved attestation closable at once; the seller's signature
 anywhere in a payer's SOL release treated as agreement, a rating opened with
 nothing paid, and the judge's active flag not checked; the job check
-skipped in `accept_rating`, and an exit allowed in the opening slot. Each made tests fail, and they passed again when the
+skipped in `accept_rating`, and an exit allowed in the opening slot. For
+exits naming their escrow: the lock-slot check skipped, and an exit allowed in
+the lock slot. Each made tests fail, and they passed again when the
 fault was removed.
 
 The `per` build (not V1) is tested as a separate last step, as the `extended`
@@ -710,7 +760,10 @@ rated).
 Not run: `scripts/devnet-escrow-e2e.cjs`. It needs a deployed program, and
 nothing was deployed. It would need only its `PROGRAM`, `PROGRAM_DATA`,
 `PROGRAM_LEN` and `PROGRAM_SHA256` constants pointed at a deployment of this
-build; the account offsets and error names it checks are the same.
+build; the account offsets and error names it checks are the same, and its
+exits name their escrow. A build from before 22 November 2026 refuses those
+exits, so the devnet program must be upgraded to this build before the script
+runs against it again.
 
 ## Size, rent and compute
 
@@ -721,13 +774,14 @@ escrow and registry instructions only:
 
 | | Anchor (13 instructions) | Pinocchio (23 instructions) | Change |
 |---|---|---|---|
-| Program size | 345,152 bytes | 96,240 bytes | 72% smaller |
-| Rent at 6,960 lamports per byte | 2.4046 SOL | 0.6722 SOL | 1.7324 SOL less |
-| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.4906 SOL | 1.2645 SOL less |
-| `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 103,576 bytes | 79% smaller |
+| Program size | 345,152 bytes | 96,872 bytes | 72% smaller |
+| Rent at 6,960 lamports per byte | 2.4046 SOL | 0.6766 SOL | 1.7280 SOL less |
+| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.4938 SOL | 1.2613 SOL less |
+| `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 104,208 bytes | 79% smaller |
 
 Before ratings and attestations were added the Pinocchio build was 62,248
 bytes (0.4356 SOL at 6,960); they cost 33,992 bytes and 0.2366 SOL of rent.
+Making every exit name its escrow added 632 bytes (0.0044 SOL at 6,960).
 
 Rent is for the program account (36 bytes) plus the program data account (45
 bytes of header plus the binary), each with the 128-byte account overhead:
@@ -740,17 +794,16 @@ again, briefly, for the upload buffer. A program data account can be given
 room to grow, which costs rent for the extra room.
 
 Compute units for successful calls of the 13 shared instructions on an escrow
-that is not rated, from the side-by-side suite. The exits were measured
-before rated exits had to name their job; an unrated exit now costs up to
-about 25 units more for the check that it names none:
+that is not rated, from the side-by-side suite. The exits include the check
+that they name their escrow (about 35 units):
 
 | Call | Anchor | Pinocchio |
 |---|---|---|
 | SOL lock | 10,459 | 5,286 |
-| SOL release | 5,942 | 1,355 |
+| SOL release | 5,910 | 1,391 |
 | USDC or AUDD lock | 25,503 | 15,038 |
-| USDC or AUDD release | 25,803 | 13,911 |
-| USDC or AUDD settle at actual cost | 27,666 | 15,096 |
+| USDC or AUDD release | 25,803 | 13,945 |
+| USDC or AUDD settle at actual cost | 27,666 | 15,130 |
 | PYUSD lock | 32,682 | 22,279 |
 | PYUSD settle at actual cost | 36,973 | 24,484 |
 | Register agent | 15,527 | 10,781 |
@@ -858,12 +911,15 @@ mainnet and devnet variants. When an Anchor test changes, run
 
 ## Changing behaviour
 
-For the 13 escrow and registry instructions the Anchor tests are the
-specification. To change what one of them does for an escrow that is not
-rated, change the Anchor test (and the Anchor reference, so the side-by-side
-suite still has something to compare with), regenerate the copies, then change
-this program until both layers pass. The IDL built from the Anchor crate stays
-the client interface for them while the wire contract is the same.
+For the registry instructions the Anchor tests are the specification. To
+change what one of them does, change the Anchor test (and the Anchor
+reference, so the side-by-side suite still has something to compare with),
+regenerate the copies, then change this program until both layers pass. For
+the escrow instructions the forked tests in `equivalence/tests/` are the
+specification: change them and this program, and the side-by-side suite where
+the Anchor reference still agrees. The IDL built from the Anchor crate stays
+the client interface for selectors, accounts and arguments; the 8 bytes every
+exit carries after its arguments are specified here, not in the IDL.
 
 The rating and attestation instructions, and the exits of a rated escrow, are
 specified by this README and tested by this program's own tests. To change

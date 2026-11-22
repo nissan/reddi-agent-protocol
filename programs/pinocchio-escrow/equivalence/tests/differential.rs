@@ -71,6 +71,9 @@ struct Pair {
 
 fn observe(svm: &mut LiteSVM, ixs: &[Instruction], signers: &[&Keypair]) -> (Observed, u64) {
     svm.expire_blockhash();
+    // Both builds get the instance bytes and a slot after the lock; the
+    // archived Anchor program ignores data after its own.
+    let ixs = &instance::bind(svm, ixs);
     let msg = Message::new_with_blockhash(ixs, Some(&signers[0].pubkey()), &svm.latest_blockhash());
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), signers).unwrap();
     let (error, meta) = match svm.send_transaction(tx) {
@@ -2264,3 +2267,6 @@ mod per {
         pair.report("PER tracking");
     }
 }
+
+#[path = "common/instance.rs"]
+mod instance;

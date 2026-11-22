@@ -3,6 +3,8 @@ export {
   releaseEscrowViaPer,
   releaseEscrowFallback,
   buildReleaseEscrowInstruction,
+  escrowCreatedSlot,
+  ESCROW_CREATED_SLOT_OFFSET,
 } from "./client";
 export type { PerSession, DelegateOptions } from "./client";
 export {

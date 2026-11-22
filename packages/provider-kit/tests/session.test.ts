@@ -165,7 +165,8 @@ test("closing a session with no call recorded declines the lock: the buyer gets 
   assert.equal(((await closed.json()) as { status: string }).status, "declined");
   assert.equal(settles(chain), 1);
   const cancel = createHash("sha256").update("global:cancel_token_escrow").digest().subarray(0, 8);
-  assert.deepEqual([...chain.sent[0]![0]!.data], [...cancel], "a decline, not a settle");
+  assert.deepEqual([...chain.sent[0]![0]!.data.subarray(0, 8)], [...cancel], "a decline, not a settle");
+  assert.equal(chain.sent[0]![0]!.data.length, 16, "named by the escrow's lock slot");
 });
 
 test("a settle that does not land leaves the session closing and is tried again", async () => {

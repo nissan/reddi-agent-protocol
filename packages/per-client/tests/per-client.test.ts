@@ -51,13 +51,17 @@ import { DISCRIMINATORS } from "../src/idl";
 const MOCK_SIG = "3xtMockedSig111111111111111111111111111111111111111111111111";
 const MOCK_BLOCKHASH = "EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N";
 const MOCK_SLOT = 50_000;
+const MOCK_CREATED_SLOT = BigInt(49_990);
 
 function makeMockConnection(opts: {
   sendRawTransaction?: jest.MockedFunction<any>;
   confirmTransaction?: jest.MockedFunction<any>;
   getLatestBlockhash?: jest.MockedFunction<any>;
   getSlot?: jest.MockedFunction<any>;
+  getAccountInfo?: jest.MockedFunction<any>;
 } = {}): Connection {
+  const escrowRecord = Buffer.alloc(165);
+  escrowRecord.writeBigUInt64LE(MOCK_CREATED_SLOT, 105);
   return {
     getLatestBlockhash: opts.getLatestBlockhash ??
       jest.fn().mockResolvedValue({ blockhash: MOCK_BLOCKHASH, lastValidBlockHeight: 999 }),
@@ -67,6 +71,8 @@ function makeMockConnection(opts: {
       jest.fn().mockResolvedValue(MOCK_SIG),
     getSlot: opts.getSlot ??
       jest.fn().mockResolvedValue(MOCK_SLOT),
+    getAccountInfo: opts.getAccountInfo ??
+      jest.fn().mockResolvedValue({ data: escrowRecord }),
   } as unknown as Connection;
 }
 
@@ -169,11 +175,16 @@ describe("releaseEscrowFallback", () => {
     const payer = new PublicKey("AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9");
     const payee = new PublicKey("9hSR6S7WPtxmTojgo6GG3k4yDPecgJY292j7xrsUGWBu");
 
-    const ix = buildReleaseEscrowInstruction(escrowProgramId, escrowPda, payee, payer);
+    const vectors = JSON.parse(readFileSync(join(__dirname, "../../../programs/pinocchio-escrow/interface/vectors.json"), "utf8"));
+    const vector = vectors.instructions.find((entry: { name: string }) => entry.name === "release_escrow");
+    // The example names its escrow by the slot after the selector (its rating opened in the lock slot).
+    const lockSlot = Buffer.from(vector.data_hex, "hex").readBigUInt64LE(8);
+    const ix = buildReleaseEscrowInstruction(escrowProgramId, escrowPda, payee, payer, lockSlot);
 
     expect(PROTOCOL_TREASURY).toBe("5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe");
     expect(ix.programId.toBase58()).toBe(escrowProgramId.toBase58());
-    expect(ix.data.equals(DISCRIMINATORS.release_escrow)).toBe(true);
+    expect(ix.data.subarray(0, 8).equals(DISCRIMINATORS.release_escrow)).toBe(true);
+    expect(ix.data.readBigUInt64LE(8)).toBe(lockSlot);
     expect(ix.keys.map((key) => [key.pubkey.toBase58(), key.isSigner, key.isWritable])).toEqual([
       [escrowPda.toBase58(), false, true],
       [payer.toBase58(), true, true],
@@ -182,13 +193,11 @@ describe("releaseEscrowFallback", () => {
       [SystemProgram.programId.toBase58(), false, false],
     ]);
 
-    // The program's own example of a payer's release_escrow: the same selector and the same first
-    // five accounts (the example is of a rated escrow, so a sixth, the rating account, follows, and
-    // the rating's opened slot follows the selector: 8 bytes an unrated release does not carry).
-    const vectors = JSON.parse(readFileSync(join(__dirname, "../../../programs/pinocchio-escrow/interface/vectors.json"), "utf8"));
-    const vector = vectors.instructions.find((entry: { name: string }) => entry.name === "release_escrow");
+    // The program's own example of a payer's release_escrow: the same data and the same first
+    // five accounts (the example is of a rated escrow, so a sixth, the rating account, follows).
     expect(vector.data_hex).toHaveLength(32);
-    expect(ix.data.toString("hex")).toBe(vector.data_hex.slice(0, 16));
+    expect(ix.data.toString("hex")).toBe(vector.data_hex);
+    expect(() => buildReleaseEscrowInstruction(escrowProgramId, escrowPda, payee, payer, BigInt(-1))).toThrow("createdSlot");
     expect(ix.keys.map((key) => ({ address: key.pubkey.toBase58(), signer: key.isSigner, writable: key.isWritable }))).toEqual(
       vector.accounts.slice(0, 5).map((meta: { address: string; signer: boolean; writable: boolean }) => ({ address: meta.address, signer: meta.signer, writable: meta.writable })),
     );
@@ -207,7 +216,10 @@ describe("releaseEscrowFallback", () => {
     expect(sent.instructions).toHaveLength(1);
     const [ix] = sent.instructions;
     expect(ix.programId.toBase58()).toBe(escrowProgramId.toBase58());
-    expect(ix.data.equals(DISCRIMINATORS.release_escrow)).toBe(true);
+    // Named by the lock slot read from the escrow record.
+    expect(ix.data.subarray(0, 8).equals(DISCRIMINATORS.release_escrow)).toBe(true);
+    expect(ix.data.readBigUInt64LE(8)).toBe(MOCK_CREATED_SLOT);
+    expect((mockL1Connection.getAccountInfo as jest.Mock).mock.calls[0][0].equals(escrowPda)).toBe(true);
     expect(ix.keys.map((key) => [key.pubkey.toBase58(), key.isSigner, key.isWritable])).toEqual([
       [escrowPda.toBase58(), false, true],
       [payer.publicKey.toBase58(), true, true],
@@ -216,6 +228,15 @@ describe("releaseEscrowFallback", () => {
       [SystemProgram.programId.toBase58(), false, false],
     ]);
     expect((mockL1Connection.sendRawTransaction as jest.Mock).mock.calls[0][1]).toEqual({ skipPreflight: false });
+  });
+
+  it("sends nothing when the escrow record cannot be read, since the release must name its lock slot", async () => {
+    for (const account of [null, { data: Buffer.alloc(100) }]) {
+      const connection = makeMockConnection({ getAccountInfo: jest.fn().mockResolvedValue(account) });
+      const escrowPda = Keypair.generate().publicKey;
+      await expect(releaseEscrowFallback(new PublicKey("11111111111111111111111111111111"), escrowPda, Keypair.generate().publicKey, Keypair.generate(), connection)).rejects.toThrow("could not be read");
+      expect((connection.sendRawTransaction as jest.Mock).mock.calls).toHaveLength(0);
+    }
   });
 
   it("BDD TTL expired: fallback succeeds even when delegation state is set", async () => {
