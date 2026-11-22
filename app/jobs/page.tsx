@@ -7,7 +7,6 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { currentAccessToken, WalletSignIn } from "@/components/auth/WalletSignIn";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { JobsExample } from "@/components/jobs/JobsExample";
 import { formatJobAmount, jobExplorerTxUrl, jobNetworkLabel, jobStatusLabel, shortAddress } from "@/lib/jobs/job-display";
 import type { JobSummary } from "@/lib/jobs/job-store";
@@ -109,24 +108,24 @@ export default function MyJobsPage() {
         {view.state === "loading" ? (
           <div className="space-y-4" aria-busy="true">
             {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-20 animate-pulse rounded-xl bg-surface glow-border" />
+              <div key={i} className="h-20 animate-pulse rounded-md border border-line bg-paper-raised" />
             ))}
           </div>
         ) : null}
 
         {view.state === "error" ? (
-          <Card className="space-y-3 p-6 text-sm text-gray-300" role="alert">
+          <div className="space-y-3 rounded-md border border-line-strong bg-paper-raised p-5 text-[15px] text-ink" role="alert">
             <p>{view.message}</p>
             <Button size="sm" variant="outline" onClick={retry}>
               Try again
             </Button>
-          </Card>
+          </div>
         ) : null}
 
         {view.state === "ready" && view.jobs.length === 0 ? (
-          <Card className="p-6 text-sm text-gray-300" data-testid="jobs-empty">
-            No jobs yet. A job is saved when you pay a specialist from your wallet in the planner while signed in.
-          </Card>
+          <div className="rounded-md border border-line bg-paper-raised p-5 text-[15px] text-ink-muted" data-testid="jobs-empty">
+            No jobs yet. A job is saved when you pay a provider from your wallet in the planner while signed in.
+          </div>
         ) : null}
 
         {view.state === "ready" && view.jobs.length > 0 ? (
@@ -136,34 +135,34 @@ export default function MyJobsPage() {
               const mine = address && job.providerWallet === address;
               return (
                 <li key={job.id}>
-                  <Card className="space-y-2 p-5">
+                  <div className="space-y-2 rounded-md border border-line bg-paper-raised p-5">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="font-medium text-white">{job.declaredModel || "Model not stated"}</h2>
-                      <Badge variant="outline" className={job.status === "delivered" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-amber-500/30 bg-amber-500/10 text-amber-300"}>
+                      <h2 className="text-lg font-bold text-ink">{job.declaredModel || "Model not stated"}</h2>
+                      <Badge variant="outline" className={job.status === "delivered" ? "border-brand-green text-brand-green" : "border-line-strong text-ink"}>
                         {jobStatusLabel(job.status)}
                       </Badge>
-                      <Badge variant="outline" className="border-white/10 bg-white/5 text-gray-300">
+                      <Badge variant="outline" className="border-line text-ink-muted">
                         {jobNetworkLabel(job.network)}
                       </Badge>
-                      <Badge variant="outline" className="border-white/10 bg-white/5 text-gray-300">
+                      <Badge variant="outline" className="border-line text-ink-muted">
                         {mine ? "You were paid" : "You paid"}
                       </Badge>
                     </div>
-                    <p className="text-sm text-gray-300">
+                    <p className="text-sm text-ink">
                       {formatJobAmount(job.amountBaseUnits, job.mint, job.network)} to <span className="font-mono">{shortAddress(job.providerWallet)}</span>
                     </p>
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-ink-muted">
                       {when(job.createdAt)}
                       {explorer ? (
                         <>
                           {" · "}
-                          <a href={explorer} target="_blank" rel="noopener noreferrer" className="text-indigo-300 hover:text-indigo-200">
+                          <a href={explorer} target="_blank" rel="noopener noreferrer" className="font-semibold text-brand-violet underline underline-offset-4">
                             View payment
                           </a>
                         </>
                       ) : null}
                     </p>
-                  </Card>
+                  </div>
                 </li>
               );
             })}
