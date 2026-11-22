@@ -73,6 +73,23 @@ jobs:
             node scripts/check-package-artifact-contents.mjs --dir "packages/$p"
           done
 
+      # npm checks provenance against the manifest's repository, so it must
+      # name this repository and the package's folder in it.
+      - name: Manifests name this repository
+        run: |
+          set -euo pipefail
+          for p in $PACKAGES; do
+            node -e '
+              const [dir, repo] = process.argv.slice(1);
+              const r = require(`./${dir}/package.json`).repository ?? {};
+              const url = String(r.url ?? "").replace(/^git\+/, "").replace(/\.git$/, "");
+              if (url !== `https://github.com/${repo}` || r.directory !== dir) {
+                console.error(`::error::${dir}/package.json: repository must be {url: git+https://github.com/${repo}.git, directory: ${dir}}`);
+                process.exit(1);
+              }
+            ' "packages/$p" "$GITHUB_REPOSITORY"
+          done
+
   publish:
     name: Publish to npm
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
