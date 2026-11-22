@@ -38,7 +38,7 @@ default program twice and compare sha256. Delete any keypair file
    each lamport and token goes. Prove the invariant: payer receives at most
    what it locked; payee receives at most the amount owed less the fee; the
    treasury receives exactly the fee; nothing is left stranded.
-3. **Fee math.** 250 bps of the amount paid, rounded down, from the provider's
+3. **Fee math.** 250 bps before 2027-04-01 00:00 UTC (cluster clock) and 500 bps after, of the amount paid, rounded down, from the provider's
    share, SOL-only 0.1 SOL cap. Look for overflow, rounding in the wrong
    direction, a zero-fee path, and any caller-chosen fee destination.
 4. **Token-2022.** Transfer fee (amount received vs sent), transfer hook added

@@ -11,7 +11,8 @@ Reddi Agent Protocol (RAP) is a marketplace and receipt layer for paid AI agent
 work on Solana. Providers list a service priced per token. A buyer either pays a
 call directly (x402-style, the payer signs a proof over the payment) or locks a
 maximum in an on-chain escrow; after the response the provider settles the
-actual cost, the program sends a 2.5% protocol fee to the treasury (capped at
+actual cost, the program sends a protocol fee to the treasury (2.5% launch rate
+until 1 April 2027, then 5%; capped at
 0.1 SOL on SOL payments only) and returns the unused part to the buyer. Buyers
 can opt a job into an on-chain rating, and judges can attest to job quality.
 Receipts (`reddi.receipt.v2`) tie the payment, the work and the evidence
@@ -140,6 +141,6 @@ paying.
 |---|---|
 | V1 program id (devnet and planned mainnet) | `DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu` |
 | Treasury and upgrade authority (Squads vault) | `5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe` |
-| Fee | 2.5% (250 bps) of the amount paid, rounded down, from the provider's share; 0.1 SOL cap on SOL only |
+| Fee | 250 bps before 2027-04-01 00:00 UTC by cluster clock, then 500 bps (owner decision 2026-11-22, #896), of the amount paid, rounded down, from the provider's share; 0.1 SOL cap on SOL only. Check `consts.rs` at the commit under review. |
 | Mainnet mints | USDC `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`, AUDD `AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw` (classic SPL Token); PYUSD `2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo`, USDG `2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH` (Token-2022). Check against `config/` before relying on them. |
 | Launch runbook | `docs/MAINNET-LAUNCH-RUNBOOK.md` |
