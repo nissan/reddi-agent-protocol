@@ -9,7 +9,7 @@
  * Browsers reach the same provider through `/api/rpc` (see lib/rpc/proxy.ts),
  * which forwards an allowlist of methods without exposing the URL.
  */
-import { getNetworkProfile } from "@/lib/config/network";
+import { getNetworkProfile, registeredRpcHttp } from "@/lib/config/network";
 
 export const SERVER_RPC_ENV = "SOLANA_RPC_URL";
 
@@ -24,7 +24,12 @@ export function serverRpcEndpoint(env: Record<string, string | undefined> = proc
   }
   const raw = env[SERVER_RPC_ENV]?.trim();
   if (!raw) {
-    return { ok: true, url: getNetworkProfile().solana.rpcHttp, keyed: false, source: "profile" };
+    const profile = getNetworkProfile();
+    // The browser-facing endpoint can be the app's own /api/rpc proxy. The server never calls
+    // that (it would be refused for having no Origin, and loops back to itself); it uses the
+    // profile's registered cluster RPC instead.
+    const url = isAppRpcProxyPath(profile.solana.rpcHttp) ? registeredRpcHttp(profile.name) : profile.solana.rpcHttp;
+    return { ok: true, url, keyed: false, source: "profile" };
   }
   let parsed: URL;
   try {
@@ -45,4 +50,22 @@ export function describeRpcEndpoint(url: string): string {
   } catch {
     return "unparseable RPC endpoint";
   }
+}
+
+/** True when `url` points at an /api/rpc proxy path rather than a Solana RPC provider. */
+export function isAppRpcProxyPath(url: string): boolean {
+  try {
+    return new URL(url).pathname.replace(/\/+$/, "") === "/api/rpc";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The RPC URL for server-side reads and verification (job records, registry, leaderboard).
+ * Never the browser proxy. Undefined when SOLANA_RPC_URL is set but malformed.
+ */
+export function serverRpcUrl(env: Record<string, string | undefined> = process.env): string | undefined {
+  const endpoint = serverRpcEndpoint(env);
+  return endpoint.ok ? endpoint.url : undefined;
 }

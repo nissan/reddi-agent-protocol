@@ -12,6 +12,7 @@ import "server-only";
  * behind that amount are the provider's report and are not checked here.
  */
 
+import { createHash } from "crypto";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { protocolFeeBpsNear, directPaymentCurrency, protocolFeeBaseUnits, protocolFeeCapBaseUnits, type ParsedTransactionConnection } from "@redditech/x402-solana/payment";
@@ -50,8 +51,12 @@ export interface MeteredCallDeps extends JobStoreDeps {
 }
 
 export interface VerifiedMeteredPayment extends VerifiedPayment {
+  /** What the buyer locked, from the lock transaction. */
   maxAmountBaseUnits: string;
+  /** The unused part of that maximum. */
   refundedBaseUnits: string;
+  /** Tokens that were in the vault beyond the lock (sent by someone else), when there were any. */
+  surplusBaseUnits?: string;
 }
 
 type Refusal = { recorded: false; reason: string };
@@ -77,7 +82,74 @@ function parsePublicKey(value: unknown): PublicKey | undefined {
   }
 }
 
-type TokenBalance = { accountIndex?: unknown; mint?: unknown; uiTokenAmount?: { amount?: unknown } };
+type TokenBalance = { accountIndex?: unknown; mint?: unknown; owner?: unknown; uiTokenAmount?: { amount?: unknown } };
+
+/** True when the transaction's own token balances show `account` as a `mint` account owned by `owner`. */
+function tokenAccountOwnedBy(balances: unknown[], accountKeys: string[], account: string, mint: string, owner: string): boolean {
+  return balances.some((list) =>
+    Array.isArray(list) &&
+    (list as TokenBalance[]).some(
+      (entry) => typeof entry?.accountIndex === "number" && accountKeys[entry.accountIndex] === account && entry.mint === mint && entry.owner === owner,
+    ),
+  );
+}
+
+const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+function decodeBase58(value: string): Uint8Array | undefined {
+  let n = BigInt(0);
+  for (const char of value) {
+    const digit = BASE58.indexOf(char);
+    if (digit < 0) return undefined;
+    n = n * BigInt(58) + BigInt(digit);
+  }
+  const bytes: number[] = [];
+  while (n > BigInt(0)) {
+    bytes.unshift(Number(n & BigInt(255)));
+    n >>= BigInt(8);
+  }
+  for (const char of value) {
+    if (char !== "1") break;
+    bytes.unshift(0);
+  }
+  return Uint8Array.from(bytes);
+}
+
+/** lock_metered_token_escrow: discriminator (sha256("global:lock_metered_token_escrow")[0..8]), amount (u64 LE), nonce (16 bytes), windows. */
+const LOCK_METERED_DISCRIMINATOR = createHash("sha256").update("global:lock_metered_token_escrow").digest().subarray(0, 8);
+
+/**
+ * The maximum the buyer locked, read from the lock transaction the receipt names
+ * (audit S7-Codex-05, condition C20). The vault balance at settle time is not the
+ * maximum: anyone can send tokens to the vault, which would raise it.
+ */
+async function lockedMaximum(
+  connection: ParsedTransactionConnection,
+  lockSignature: string,
+  expected: { programId: string; escrow: string; vault: string; payer: string; mint: string; nonce: string },
+): Promise<bigint | undefined> {
+  let tx: unknown;
+  try {
+    tx = await connection.getParsedTransaction(lockSignature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+  } catch {
+    return undefined;
+  }
+  const parsed = tx as { meta?: { err?: unknown } | null; transaction?: { message?: { instructions?: unknown[] } } } | null;
+  if (!parsed?.meta || (parsed.meta.err !== null && parsed.meta.err !== undefined)) return undefined;
+  const amounts: bigint[] = [];
+  for (const ix of parsed.transaction?.message?.instructions ?? []) {
+    const instruction = ix as { programId?: unknown; accounts?: unknown[]; data?: unknown };
+    if (key(instruction.programId) !== expected.programId || !Array.isArray(instruction.accounts) || typeof instruction.data !== "string") continue;
+    const accounts = instruction.accounts.map(key);
+    if (accounts[0] !== expected.escrow || accounts[1] !== expected.vault || accounts[2] !== expected.payer || accounts[4] !== expected.mint) continue;
+    const data = decodeBase58(instruction.data);
+    if (!data || data.length < 32) continue;
+    const bytes = Buffer.from(data);
+    if (!bytes.subarray(0, 8).equals(LOCK_METERED_DISCRIMINATOR)) continue;
+    if (bytes.subarray(16, 32).toString("hex") !== expected.nonce) continue;
+    amounts.push(bytes.readBigUInt64LE(8));
+  }
+  return amounts.length === 1 ? amounts[0] : undefined;
+}
 
 function balanceOf(balances: unknown, accountKeys: string[], account: string, mint: string): bigint {
   if (!Array.isArray(balances)) return BigInt(0);
@@ -112,9 +184,12 @@ export async function verifyAndRecordMeteredCall(input: MeteredCallInput, deps: 
   const settleSignature = typeof input.settleSignature === "string" ? input.settleSignature : "";
   if (!/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(settleSignature)) return refuse("settle_signature_missing");
 
+  const lockSignature = typeof receipt.lockSignature === "string" ? receipt.lockSignature : "";
+  if (!/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(lockSignature)) return refuse("lock_signature_missing");
+
   const mint = new PublicKey(expectedMint);
   const tokenProgram = new PublicKey(terms.tokenProgram);
-  const recipient = getAssociatedTokenAddressSync(mint, new PublicKey(input.listing.wallet), true, tokenProgram).toBase58();
+  const associatedRecipient = getAssociatedTokenAddressSync(mint, new PublicKey(input.listing.wallet), true, tokenProgram).toBase58();
   const treasuryToken = treasuryTokenAccount({ mint, tokenProgram }).toBase58();
 
   const connection = deps.connection ?? (deps.rpcUrl ? (new Connection(deps.rpcUrl, "confirmed") as unknown as ParsedTransactionConnection) : undefined);
@@ -134,6 +209,12 @@ export async function verifyAndRecordMeteredCall(input: MeteredCallInput, deps: 
   if (parsed.meta.err !== null && parsed.meta.err !== undefined) return refuse("settle_failed_on_chain");
   const accountKeys = (parsed.transaction.message.accountKeys ?? []).map(key);
   const programId = deps.programId.toBase58();
+  const balances = [parsed.meta.preTokenBalances, parsed.meta.postTokenBalances];
+  // The provider's payout account: its associated account, or a recovery account it owns for this
+  // mint (the provider kit settles there when the associated account cannot receive). Ownership is
+  // read from the settle transaction's own token balances (audit S7-Codex-05, condition C20).
+  const isProviderPayout = (account: string) =>
+    account === associatedRecipient || tokenAccountOwnedBy(balances, accountKeys, account, expectedMint, input.listing.wallet);
 
   // The settle (or a full release) of this escrow, paying this listing's token account and the treasury.
   const settles = (parsed.transaction.message.instructions ?? []).filter((ix) => {
@@ -147,19 +228,31 @@ export async function verifyAndRecordMeteredCall(input: MeteredCallInput, deps: 
       accounts[1] === vault.toBase58() &&
       accounts[3] === payer.toBase58() &&
       accounts[4] === expectedMint &&
-      accounts[5] === recipient &&
+      isProviderPayout(accounts[5]) &&
       accounts[6] === treasuryToken &&
       accounts[8] === tokenProgram.toBase58()
     );
   });
   if (settles.length !== 1) return refuse("settle_not_for_this_escrow");
+  const recipient = key((settles[0] as { accounts: unknown[] }).accounts[5]);
 
   const delta = (account: string) =>
     balanceOf(parsed.meta!.postTokenBalances, accountKeys, account, expectedMint) - balanceOf(parsed.meta!.preTokenBalances, accountKeys, account, expectedMint);
   const providerShare = delta(recipient);
   const fee = delta(treasuryToken);
   const charged = providerShare + fee;
-  const maxAmount = balanceOf(parsed.meta.preTokenBalances, accountKeys, vault.toBase58(), expectedMint);
+  const maxAmount = await lockedMaximum(connection, lockSignature, {
+    programId,
+    escrow: escrow.toBase58(),
+    vault: vault.toBase58(),
+    payer: payer.toBase58(),
+    mint: expectedMint,
+    nonce,
+  });
+  if (maxAmount === undefined) return refuse("lock_not_verified");
+  // Tokens in the vault beyond the lock (a donation) are reported apart; they never raise the maximum.
+  const vaultBefore = balanceOf(parsed.meta.preTokenBalances, accountKeys, vault.toBase58(), expectedMint);
+  const surplus = vaultBefore > maxAmount ? vaultBefore - maxAmount : BigInt(0);
   if (providerShare <= BigInt(0) || fee < BigInt(0)) return refuse("settle_paid_nothing");
   if (charged > maxAmount) return refuse("settle_above_maximum");
   // The program reads the fee rate from the cluster clock at settle: 2.5% until 1 April 2027, then 5%. Check against the
@@ -196,6 +289,7 @@ export async function verifyAndRecordMeteredCall(input: MeteredCallInput, deps: 
       fee: fee > BigInt(0) ? { amount: fee.toString(), treasury: ESCROW_PROTOCOL_TREASURY.toBase58() } : { amount: "0" },
       maxAmountBaseUnits: maxAmount.toString(),
       refundedBaseUnits: (maxAmount - charged).toString(),
+      ...(surplus > BigInt(0) ? { surplusBaseUnits: surplus.toString() } : {}),
     },
   };
 }
