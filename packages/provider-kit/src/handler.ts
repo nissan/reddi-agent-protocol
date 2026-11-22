@@ -46,7 +46,9 @@ import {
   meteredSettlement,
   outputLimit,
   readMeteredPaymentHeader,
+  lockMatchesSession,
   readSessionHeaders,
+  recordedInstruction,
   sessionPaymentHeader,
   sessionSettlement,
   tokenCostBaseUnits,
@@ -60,11 +62,13 @@ import {
   type MeteredSessionLedger,
   type NonceReplayStore,
   type PayoutAccounts,
+  type PendingSettle,
   type SessionState,
   type TokenCounts,
   type VerifiedLock,
 } from "@redditech/x402-solana";
 import type { ProviderChain } from "./chain.js";
+import { MemoryPendingSettleStore, type PendingCallSettle, type PendingSettleStore } from "./pending.js";
 import type { ProviderConfig } from "./config.js";
 import type { Upstream, UpstreamMessage } from "./upstream.js";
 
@@ -76,6 +80,8 @@ export const SESSION_STATE_HEADER = "x-reddi-session-state";
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const MAX_BODY_BYTES = 1_000_000;
 const MAX_RECEIPT_HEADER_CHARS = 4096;
+/** How long the answer of a call whose settle outcome is not known is held for the buyer to collect. */
+const HELD_ANSWER_MS = 10 * 60_000;
 
 export interface ProviderDeps {
   chain: ProviderChain;
@@ -83,6 +89,8 @@ export interface ProviderDeps {
   replayStore: NonceReplayStore;
   /** The session ledger. Without it, session calls are refused. */
   sessions?: MeteredSessionLedger;
+  /** Where single-call settles are recorded before they are sent. In memory when not given. */
+  pendingSettles?: PendingSettleStore;
   /** Ed25519 signature by the provider wallet, for receipts. */
   signMessage: (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;
   now?: () => Date;
@@ -148,6 +156,9 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
   // Buyer token accounts this provider paid to create today (UTC), against the operator's daily bound.
   const subsidy = { day: "", used: 0 };
   const today = () => (deps.now?.() ?? new Date()).toISOString().slice(0, 10);
+  const pendingSettles: PendingSettleStore = deps.pendingSettles ?? new MemoryPendingSettleStore();
+  // Answers of single calls whose settle was sent but not yet known to land, by escrow.
+  const waitingCalls = new Map<string, PaidCall>();
   const subsidyLeft = () => {
     if (subsidy.day !== today()) Object.assign(subsidy, { day: today(), used: 0 });
     return config.refundAccountsPerDay - subsidy.used > 0;
@@ -155,8 +166,13 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
 
 
   type Settled = ReturnType<typeof meteredSettlement>;
-  type SettleOutcome = { ok: true; settled: Settled; settleSignature?: string; confirmed: ReturnType<typeof confirmMeteredSettlement>; payout: PayoutAccounts } | { ok: false };
+  type SettleOutcome =
+    | { ok: true; settled?: Settled; settleSignature: string; confirmed: ReturnType<typeof confirmMeteredSettlement>; payout?: PayoutAccounts }
+    | { ok: false }
+    | { ok: "closed" }
+    | { ok: "pending"; signature: string };
   type Lock = Extract<VerifiedLock, { ok: true }>;
+  type PaidCall = { escrow: string; escrowAddress: PublicKey; lock: Lock; requestId: string; requestText: string; upstream: Record<string, unknown>; usage: TokenCounts; createdMs: number };
 
   // "locked": the buyer's maximum is still in escrow. "closed": a settle landed. "unknown": the chain could not say.
   const escrowState = async (address: PublicKey): Promise<"locked" | "closed" | "unknown"> => {
@@ -171,77 +187,129 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
   };
 
   /**
-   * Sends the settle `build` makes and reads back what it moved. `ok: false`
-   * only when nothing was charged: the escrow was read back as still locked,
-   * or no settle could be built at all.
+   * Sends the settle `build` makes and reads back what it moved (security
+   * review round 1, B9). The settle is signed first and recorded through
+   * `record` before it is sent, so after a failure, a timeout or a restart the
+   * only transaction that can count as this settle is that signature. The
+   * outcome is:
+   *
+   * - `ok: true`: this settle landed (confirmed on chain under its own
+   *   signature). `confirmed` says whether what it moved could be read back and
+   *   adds up, with the settle instruction matched exactly.
+   * - `ok: false`: nothing was charged by this provider: no settle could be
+   *   built or recorded, or every one sent is known not to have landed while
+   *   the escrow stays locked.
+   * - `closed`: the escrow was closed by something else (the buyer's refund)
+   *   and no settle of this provider landed.
+   * - `pending`: a settle was sent and its outcome is not known. It stays
+   *   recorded and is looked up again later; nothing else counts as settled.
+   *
+   * `resume` picks up a settle recorded earlier instead of building a new one.
    */
-  async function settleLock(lock: Lock, escrowAddress: PublicKey, requestId: string, build: (payout: PayoutAccounts) => Settled): Promise<SettleOutcome> {
+  async function settleLock(
+    lock: Lock,
+    escrowAddress: PublicKey,
+    requestId: string,
+    build: (payout: PayoutAccounts) => Settled,
+    record: (pending: PendingSettle | undefined) => Promise<void>,
+    resume?: PendingSettle,
+  ): Promise<SettleOutcome> {
     const escrow = escrowAddress.toBase58();
-    let payout = lock.payout;
-    let settled: Settled | undefined;
-    let settleSignature: string | undefined;
-    try {
-      settled = build(payout);
-      settleSignature = await deps.chain.sendInstructions(settled.instructions);
-    } catch {
-      settleSignature = undefined;
-      // A send can report failure and still land. Only an escrow read back as
-      // still locked means nothing was charged; only then is the settle sent again.
-      let state = await escrowState(escrowAddress);
-      if (state === "locked") {
-        // An account may have gone since the lock was checked. Look once more:
-        // the buyer's associated token account will do for the unused part, and
-        // the provider pays to create one only inside the operator's daily bound.
-        // One place in today's bound is held across the reads and the send, so calls in flight together cannot pass it.
-        const reserved = subsidyLeft();
-        if (reserved) subsidy.used += 1;
-        let created = false;
-        try {
-          const again = await checkMeteredPayout({ terms, escrow: lock.terms, readAccount: (address) => deps.chain.readAccount(address), allowPayerAssociatedAccount: true, createRefundAccount: reserved });
-          if (again.ok) {
-            payout = again.payout;
-            settled = build(payout);
-            settleSignature = await deps.chain.sendInstructions(settled.instructions);
-            created = payout.createRefundAccount === true;
-            if (created) log({ event: "refund_account_created", requestId, escrow, account: payout.refundTo.toBase58() });
-          }
-        } catch {
-          settleSignature = undefined;
-        }
-        if (reserved && !created) subsidy.used = Math.max(0, subsidy.used - 1);
-        if (!settleSignature) state = await escrowState(escrowAddress);
-      }
-      if (!settleSignature) {
-        if (state === "locked" || !settled) {
-          log({ event: "settle_failed", requestId, escrow });
-          return { ok: false };
-        }
-        // The escrow is closed, so a settle landed (only this provider could close it inside the buyer's
-        // refund window), or the chain cannot say. Either way the buyer may have paid, so it gets its answer.
-        if (state === "closed") settleSignature = (await deps.chain.latestSuccess(escrowAddress).catch(() => null)) ?? undefined;
-        log({ event: "settle_unconfirmed", requestId, escrow, state, found: settleSignature !== undefined });
-      }
-    }
-    if (!settled) return { ok: false };
 
-    // What the settle actually moved, from the confirmed transaction on the cluster checked before the lock was trusted.
-    let confirmed: ReturnType<typeof confirmMeteredSettlement> = { ok: false, reason: "not_found" };
-    if (settleSignature) {
+    // Signs one settle and records it before it is sent. Undefined when it could not be built, signed or recorded: then nothing was sent.
+    const prepare = async (payout: PayoutAccounts): Promise<{ settled: Settled; payout: PayoutAccounts; pending: PendingSettle } | undefined> => {
       try {
-        confirmed = confirmMeteredSettlement(await deps.chain.readSettlement(settleSignature), {
+        const settled = build(payout);
+        const signed = await deps.chain.signInstructions(settled.instructions);
+        const pending: PendingSettle = {
+          signature: signed.signature,
+          transaction: signed.transaction,
+          lastValidBlockHeight: signed.lastValidBlockHeight,
+          instruction: recordedInstruction(settled.instruction),
+          destination: (payout.payTo ?? lock.terms.recipient).toBase58(),
+          treasuryToken: payout.treasuryToken.toBase58(),
+          refundTo: payout.refundTo.toBase58(),
+          requestId,
+        };
+        await record(pending);
+        return { settled, payout, pending };
+      } catch {
+        return undefined;
+      }
+    };
+
+    // Sends (or sends again) a recorded settle and says where it stands.
+    const sendAndResolve = async (pending: PendingSettle): Promise<"landed" | "failed" | "expired" | "unknown"> => {
+      try {
+        const signature = await deps.chain.sendSigned({ signature: pending.signature, transaction: pending.transaction, lastValidBlockHeight: pending.lastValidBlockHeight });
+        if (signature === pending.signature) return "landed";
+      } catch {
+        // Sending can fail and the transaction still land: look it up by its own signature.
+      }
+      return deps.chain.signatureState(pending.signature, pending.lastValidBlockHeight);
+    };
+
+    const confirm = async (pending: PendingSettle, settled: Settled | undefined, payout: PayoutAccounts | undefined): Promise<SettleOutcome> => {
+      let confirmed: ReturnType<typeof confirmMeteredSettlement> = { ok: false, reason: "not_found" };
+      try {
+        confirmed = confirmMeteredSettlement(await deps.chain.readSettlement(pending.signature), {
           programId: terms.programId,
           escrow: escrowAddress,
           mint: terms.mint,
-          destination: payout.payTo ?? lock.terms.recipient,
-          treasuryToken: payout.treasuryToken,
-          refundTo: payout.refundTo,
+          destination: new PublicKey(pending.destination),
+          treasuryToken: new PublicKey(pending.treasuryToken),
+          refundTo: new PublicKey(pending.refundTo),
           maxBaseUnits: lock.maxBaseUnits,
+          instruction: pending.instruction,
         });
       } catch {
         confirmed = { ok: false, reason: "not_found" };
       }
+      return { ok: true, settleSignature: pending.signature, confirmed, ...(settled ? { settled } : {}), ...(payout ? { payout } : {}) };
+    };
+
+    let current: { settled?: Settled; payout?: PayoutAccounts; pending: PendingSettle } | undefined;
+    if (resume) current = { pending: resume };
+    else current = await prepare(lock.payout);
+    if (!current) {
+      log({ event: "settle_failed", requestId, escrow, reason: "not_sent" });
+      return { ok: false };
     }
-    return { ok: true, settled, ...(settleSignature ? { settleSignature } : {}), confirmed, payout };
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const state = await sendAndResolve(current.pending);
+      if (state === "landed") return confirm(current.pending, current.settled, current.payout);
+      if (state === "unknown") {
+        log({ event: "settle_pending", requestId, escrow, signature: current.pending.signature, alert: true });
+        return { ok: "pending", signature: current.pending.signature };
+      }
+      // It moved nothing and never will. Forget it, then look at the escrow.
+      await record(undefined).catch(() => undefined);
+      const escrowNow = await escrowState(escrowAddress);
+      if (escrowNow === "closed") {
+        log({ event: "settle_lost_to_close", requestId, escrow, signature: current.pending.signature });
+        return { ok: "closed" };
+      }
+      if (escrowNow !== "locked" || attempt === 1) break;
+      // Still locked: an account may have gone since the lock was checked. The
+      // buyer's associated token account will do for the unused part; the
+      // provider pays to create it within the operator's daily bound.
+      const reserved = subsidyLeft();
+      if (reserved) subsidy.used += 1;
+      let next: typeof current | undefined;
+      try {
+        const again = await checkMeteredPayout({ terms, escrow: lock.terms, readAccount: (address) => deps.chain.readAccount(address), allowPayerAssociatedAccount: true, createRefundAccount: reserved || lock.payout.createRefundAccount === true });
+        if (again.ok) next = await prepare(again.payout);
+        if (next?.payout?.createRefundAccount) log({ event: "refund_account_created", requestId, escrow, account: next.payout.refundTo.toBase58() });
+      } catch {
+        next = undefined;
+      }
+      if (reserved && !next?.payout?.createRefundAccount) subsidy.used = Math.max(0, subsidy.used - 1);
+      if (!next) break;
+      current = next;
+    }
+    log({ event: "settle_failed", requestId, escrow });
+    return { ok: false };
   }
 
 
@@ -404,14 +472,6 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
 
   type SessionEnd = { status: "settled" | "declined" | "refunded_unpaid" | "pending" | "none"; receipt?: string; state?: SessionState };
 
-  /** What a transaction on `escrow` paid this provider: its token account, or its recovery account. 0 for anything else. */
-  async function providerCredit(signature: string, escrow: PublicKey): Promise<bigint> {
-    const record = await deps.chain.readSettlement(signature);
-    if (!record || record.failed || !record.programIds.includes(terms.programId.toBase58()) || !record.accounts.includes(escrow.toBase58())) return 0n;
-    const mine = new Set([treasuryTokenAccount({ mint: terms.mint, tokenProgram: terms.tokenProgram }, terms.payee).toBase58(), ...(terms.payoutAccount ? [terms.payoutAccount.toBase58()] : [])]);
-    const mint = terms.mint.toBase58();
-    return record.tokenBalances.filter((b) => b.mint === mint && mine.has(b.account)).reduce((sum, b) => sum + (b.after - b.before), 0n);
-  }
   const settling = new Set<string>();
 
   /** The signed closing receipt of a settled session and the summary its response hash covers. */
@@ -462,8 +522,10 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
   /**
    * Ends a session: stops new calls, then settles the ledger's total (or, when
    * no call was recorded, declines the lock so the buyer gets it all back).
-   * `pending` means nothing was charged yet and it will be tried again: a call
-   * is running, the chain could not be read, or the settle did not land.
+   * `pending` means it is not finished and will be tried again: a call is
+   * running, the chain could not be read, or a settle was sent and its outcome
+   * is not known yet. A session counts as settled only when its own recorded
+   * settle signature has landed (security review round 1, B9).
    */
   async function settleSession(escrow: string, requestId: string = randomUUID()): Promise<SessionEnd> {
     const ledger = deps.sessions;
@@ -481,27 +543,54 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
         clusterConfirmed = true;
       }
       const header = sessionPaymentHeader(state);
+      const record = (pending: PendingSettle | undefined) => ledger.markSettling(escrow, pending);
+      const waiting = (reason: string): SessionEnd => {
+        // The operator should know: a session that cannot settle is revenue at risk once the refund window opens.
+        log({ event: "session_settle_waiting", escrow, reason, cumulativeCost: state.costBaseUnits, alert: true });
+        return { status: "pending", state };
+      };
+
+      // A settle sent earlier whose outcome was not known: it alone can count as this session's settle.
+      if (state.pendingSettle) {
+        const pending = state.pendingSettle;
+        const where = await deps.chain.signatureState(pending.signature, pending.lastValidBlockHeight);
+        if (where === "unknown") {
+          // Send the same signed transaction again; it lands at most once.
+          await deps.chain.sendSigned({ signature: pending.signature, transaction: pending.transaction, lastValidBlockHeight: pending.lastValidBlockHeight }).catch(() => undefined);
+          const again = await deps.chain.signatureState(pending.signature, pending.lastValidBlockHeight);
+          if (again === "unknown") return waiting("settle_outcome_unknown");
+          if (again === "landed") return finishSettled(state, await confirmPending(state, pending), requestId);
+          await record(undefined).catch(() => undefined);
+        } else if (where === "landed") {
+          return finishSettled(state, await confirmPending(state, pending), requestId);
+        } else {
+          await record(undefined).catch(() => undefined);
+        }
+      }
+
       let lock: VerifiedLock;
       try {
         lock = await verifyMeteredLock({ header, terms, minimum: 0n, readAccount, readSlot, replayStore: deps.replayStore, purpose: "session-settle" });
       } catch {
-        return { status: "pending", state };
+        return waiting("payment_check_unavailable");
       }
       if (!lock.ok) {
-        // The escrow is no longer locked: settled before a restart could record it, or refunded by the buyer.
+        // The escrow is no longer locked. No settle of this session landed (that was checked above), so the buyer refunded it.
         if ((await escrowState(header.escrow)) === "closed") {
-          // The last transaction may be our settle (landed before a restart could record it) or the buyer's
-          // refund. Count it as settled only when it credited this provider (security review S-2).
-          const signature = (await deps.chain.latestSuccess(header.escrow).catch(() => null)) ?? undefined;
-          const credited = signature ? await providerCredit(signature, header.escrow).catch(() => 0n) : 0n;
-          const ended = credited > 0n ? "settled" : BigInt(state.costBaseUnits) > 0n ? "refunded_unpaid" : "declined";
-          log({ event: ended === "refunded_unpaid" ? "session_refunded_unpaid" : "session_lock_gone", escrow, ...(signature ? { signature } : {}), cumulativeCost: state.costBaseUnits, credited: credited.toString() });
-          await ledger.finish(escrow, { status: ended, ...(signature ? { signature } : {}) }).catch(() => undefined);
+          const ended = BigInt(state.costBaseUnits) > 0n ? "refunded_unpaid" : "declined";
+          log({ event: ended === "refunded_unpaid" ? "session_refunded_unpaid" : "session_lock_gone", escrow, cumulativeCost: state.costBaseUnits, ...(ended === "refunded_unpaid" ? { alert: true } : {}) });
+          await ledger.finish(escrow, { status: ended }).catch(() => undefined);
           return { status: ended, state };
         }
         if (lock.reason === "payment_check_unavailable") clusterConfirmed = false;
-        log({ event: "session_settle_waiting", escrow, reason: lock.reason });
-        return { status: "pending", state };
+        return waiting(lock.reason);
+      }
+      // The lock at this address must be the one the session was opened on, not a later one made with the same nonce (C19).
+      if (!lockMatchesSession(lock, state)) {
+        log({ event: "session_lock_replaced", escrow, alert: true });
+        const ended = BigInt(state.costBaseUnits) > 0n ? "refunded_unpaid" : "declined";
+        await ledger.finish(escrow, { status: ended }).catch(() => undefined);
+        return { status: ended, state };
       }
       if (BigInt(state.costBaseUnits) === 0n) {
         try {
@@ -513,23 +602,56 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
           return { status: "pending", state };
         }
       }
-      const outcome = await settleLock(lock, header.escrow, requestId, (payout) => sessionSettlement(terms, lock as Lock, state, payout));
+      const outcome = await settleLock(lock, header.escrow, requestId, (payout) => sessionSettlement(terms, lock as Lock, state, payout), record);
+      if (outcome.ok === "pending") return waiting("settle_outcome_unknown");
+      if (outcome.ok === "closed") {
+        const ended = BigInt(state.costBaseUnits) > 0n ? "refunded_unpaid" : "declined";
+        log({ event: "session_refunded_unpaid", escrow, cumulativeCost: state.costBaseUnits, alert: true });
+        await ledger.finish(escrow, { status: ended }).catch(() => undefined);
+        return { status: ended, state };
+      }
       if (!outcome.ok) {
-        log({ event: "session_settle_failed", escrow });
+        log({ event: "session_settle_failed", escrow, alert: true });
         return { status: "pending", state };
       }
-      const closing = await closingReceipt(state, outcome);
-      if (!closing) log({ event: "receipt_withheld", requestId, escrow, ...(outcome.settleSignature ? { settleSignature: outcome.settleSignature } : {}), reason: outcome.confirmed.ok ? "not_signed" : outcome.confirmed.reason });
-      await ledger.finish(escrow, { status: "settled", ...(outcome.settleSignature ? { signature: outcome.settleSignature } : {}), ...(closing ? { closingReceipt: closing } : {}) }).catch(() => undefined);
-      log({ event: "session_settled", requestId, escrow, calls: state.sequence, charged: state.costBaseUnits, ...(outcome.settleSignature ? { settleSignature: outcome.settleSignature } : {}), confirmed: outcome.confirmed.ok, receipt: closing !== undefined });
-      return { status: "settled", state, ...(closing ? { receipt: closing.receipt } : {}) };
+      return finishSettled(state, outcome, requestId);
     } finally {
       settling.delete(escrow);
     }
   }
 
+  /** Reads back a session's recorded settle once it is known to have landed. */
+  async function confirmPending(state: SessionState, pending: PendingSettle): Promise<Extract<SettleOutcome, { ok: true }>> {
+    let confirmed: ReturnType<typeof confirmMeteredSettlement> = { ok: false, reason: "not_found" };
+    try {
+      confirmed = confirmMeteredSettlement(await deps.chain.readSettlement(pending.signature), {
+        programId: terms.programId,
+        escrow: new PublicKey(state.escrow),
+        mint: terms.mint,
+        destination: new PublicKey(pending.destination),
+        treasuryToken: new PublicKey(pending.treasuryToken),
+        refundTo: new PublicKey(pending.refundTo),
+        maxBaseUnits: BigInt(state.maxBaseUnits),
+        instruction: pending.instruction,
+      });
+    } catch {
+      confirmed = { ok: false, reason: "not_found" };
+    }
+    return { ok: true, settleSignature: pending.signature, confirmed };
+  }
+
+  async function finishSettled(state: SessionState, outcome: Extract<SettleOutcome, { ok: true }>, requestId: string): Promise<SessionEnd> {
+    const ledger = deps.sessions!;
+    const closing = await closingReceipt(state, outcome);
+    if (!closing) log({ event: "receipt_withheld", requestId, escrow: state.escrow, settleSignature: outcome.settleSignature, reason: outcome.confirmed.ok ? "not_signed" : outcome.confirmed.reason });
+    await ledger.finish(state.escrow, { status: "settled", signature: outcome.settleSignature, ...(closing ? { closingReceipt: closing } : {}) }).catch(() => undefined);
+    log({ event: "session_settled", requestId, escrow: state.escrow, calls: state.sequence, charged: state.costBaseUnits, settleSignature: outcome.settleSignature, confirmed: outcome.confirmed.ok, receipt: closing !== undefined });
+    return { status: "settled", state, ...(closing ? { receipt: closing.receipt } : {}) };
+  }
+
   /** Settles every session that is closing, idle, or near its refund window. The server calls this on a timer. */
   async function settleDueSessions(): Promise<SessionEnd[]> {
+    await reconcilePendingCalls().catch(() => undefined);
     const ledger = deps.sessions;
     if (!ledger) return [];
     let slot = 0n;
@@ -634,6 +756,20 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     // The lock's escrow, payer and nonce are public: only the payer's signature shows who is calling (#866).
     const auth = sessionAuth(request, "single", header.escrow, header.payer, 0, requestText);
     if (!auth.ok) return auth.response;
+    // A call whose settle was sent but not yet known to land: the same request collects its answer.
+    const waiting = waitingCalls.get(header.escrow.toBase58());
+    if (waiting) {
+      if (sha256Hex(waiting.requestText) !== sha256Hex(requestText)) return refuse(409, "settle_pending", "This lock's settle for an earlier request is still being confirmed. Send that same request again to collect its answer.", { charged: "unknown" });
+      const recorded = (await Promise.resolve(pendingSettles.load())).find((r) => r.escrow === waiting.escrow && r.status === "pending");
+      return settleAndAnswer(waiting, recorded);
+    }
+    const orphan = (await Promise.resolve(pendingSettles.load())).find((r) => r.escrow === header.escrow.toBase58() && r.status === "pending");
+    if (orphan) {
+      const where = await reconcileOrphan(orphan);
+      if (where === "landed") return refuse(410, "answer_unavailable", "This lock was settled, but the answer it paid for was lost when the provider restarted. The provider's operator has been alerted.", { charged: true, settleSignature: orphan.signature });
+      if (where === "pending") return refuse(503, "settle_pending", "This lock's settle is still being confirmed. Try again shortly.", { charged: "unknown" }, { "retry-after": "10" });
+      return refuse(409, "duplicate_nonce", "This lock's earlier settle did not land; nothing was charged, and the lock was given back if it was still there.", { charged: false });
+    }
     let lock: Awaited<ReturnType<typeof verifyMeteredLock>>;
     try {
       lock = await verifyMeteredLock({ header, terms, minimum, readAccount: (address) => deps.chain.readAccount(address), readSlot: () => deps.chain.readSlot(), replayStore: deps.replayStore });
@@ -669,10 +805,43 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     }
 
     const usage = usageFrom(upstream, inputEstimate);
-    const outcome = await settleLock(lock, header.escrow, requestId, (payout) => meteredSettlement(terms, lock, usage, payout));
+    return settleAndAnswer({ escrow, escrowAddress: header.escrow, lock, requestId, requestText, upstream, usage, createdMs: nowMs() });
+  }
+
+  /**
+   * Settles a served single call and returns its answer, or withholds the
+   * answer when the settle did not land. A settle whose outcome is not known
+   * leaves the answer waiting here: the buyer sends the same signed request
+   * again, and gets it once that settle is known to have landed. It is never
+   * counted as paid by another transaction on the escrow (round 1, B9).
+   */
+  async function settleAndAnswer(call: PaidCall, resume?: PendingCallSettle): Promise<Response> {
+    const { escrow, lock, requestId, usage, upstream } = call;
+    const requestHash = sha256Hex(call.requestText);
+    let last: PendingCallSettle | undefined = resume;
+    const record = async (pending: PendingSettle | undefined) => {
+      if (pending) {
+        last = { ...pending, escrow, requestHash, status: "pending" };
+        await pendingSettles.save(last);
+      } else if (last) {
+        last = { ...last, status: "dropped" };
+        await pendingSettles.save(last);
+      }
+    };
+    const outcome = await settleLock(lock, call.escrowAddress, requestId, (payout) => meteredSettlement(terms, lock, usage, payout), record, resume);
+    if (outcome.ok === "pending") {
+      waitingCalls.set(escrow, call);
+      return refuse(503, "settle_pending", "The payment's settle was sent but whether it landed is not known yet, so the answer is held. Send the same request again shortly to get it; you are not charged twice.", { charged: "unknown", escrow, settleSignature: outcome.signature }, { "retry-after": "10" });
+    }
+    waitingCalls.delete(escrow);
+    if (outcome.ok === "closed") {
+      return refuse(402, "escrow_closed", `The escrow ${escrow} was closed before the settle landed, so nothing was charged and the answer is withheld.`, { charged: false, escrow });
+    }
     if (!outcome.ok) return refuse(502, "settle_failed", `The payment could not be settled, so the answer is withheld. Nothing was charged; your maximum stays locked in escrow ${escrow} and you can refund it once its refund window opens.`, { charged: false, escrow });
-    const { settled, settleSignature, confirmed, payout } = outcome;
-    const s = settled.settlement;
+    if (last) await Promise.resolve(pendingSettles.save({ ...last, status: "landed" })).catch(() => undefined);
+    const { settleSignature, confirmed } = outcome;
+    // The amounts the settle asked for; it was built from these.
+    const s = (outcome.settled ?? meteredSettlement(terms, lock, usage)).settlement;
     const decimals = directPaymentCurrency(s.currency)!.decimals;
     const amounts = confirmed.ok
       ? {
@@ -687,18 +856,18 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       provider: config.wallet,
       model: config.model,
       // Token counts are the model's report. The amounts are the confirmed settle's when `confirmed` is true, and otherwise what the settle asked for.
-      metered: { inputTokens: s.inputTokens, outputTokens: s.outputTokens, currency: s.currency, ...amounts, capped: s.capped, ...(settleSignature ? { settleSignature } : {}), confirmed: confirmed.ok },
+      metered: { inputTokens: s.inputTokens, outputTokens: s.outputTokens, currency: s.currency, ...amounts, capped: s.capped, settleSignature, confirmed: confirmed.ok },
     };
     const responseText = JSON.stringify({ ...upstream, reddi });
 
     let receiptHeader: string | undefined;
-    if (confirmed.ok && settleSignature) {
+    if (confirmed.ok) {
       try {
         const statement = {
           schemaVersion: "reddi.receipt.v2",
           providerId: config.wallet,
           declaredModel: config.model,
-          requestHash: sha256Hex(requestText),
+          requestHash,
           responseHash: sha256Hex(responseText),
           payment: {
             network: config.network,
@@ -721,11 +890,68 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
         log({ event: "receipt_failed", requestId, escrow });
       }
     } else {
-      // The settle confirmed, but what it moved could not be read back. No financial statement is signed on a guess.
-      log({ event: "receipt_withheld", requestId, escrow, ...(settleSignature ? { settleSignature } : {}), reason: confirmed.ok ? "not_found" : confirmed.reason });
+      // The settle landed, but what it moved could not be read back. No financial statement is signed on a guess.
+      log({ event: "receipt_withheld", requestId, escrow, settleSignature, reason: confirmed.reason });
     }
-    log({ event: "paid_call", requestId, escrow, ...(settleSignature ? { settleSignature } : {}), charged: amounts.charged, fee: amounts.fee, confirmed: confirmed.ok, currency: s.currency, inputTokens: s.inputTokens, outputTokens: s.outputTokens, receipt: receiptHeader !== undefined });
+    log({ event: "paid_call", requestId, escrow, settleSignature, charged: amounts.charged, fee: amounts.fee, confirmed: confirmed.ok, currency: s.currency, inputTokens: s.inputTokens, outputTokens: s.outputTokens, receipt: receiptHeader !== undefined });
     return new Response(responseText, { status: 200, headers: receiptHeader ? { ...JSON_HEADERS, [PROVIDER_RECEIPT_HEADER]: receiptHeader } : JSON_HEADERS });
+  }
+
+  /**
+   * A single call's settle recorded as pending whose answer is no longer held
+   * (after a restart, or held too long). Finds out where it stands: if it
+   * landed the buyer paid and the operator is alerted to make it right; if it
+   * cannot land and the escrow is still locked, the lock is declined so the
+   * buyer gets it all back.
+   */
+  async function reconcileOrphan(record: PendingCallSettle): Promise<"landed" | "dropped" | "pending"> {
+    const where = await deps.chain.signatureState(record.signature, record.lastValidBlockHeight);
+    if (where === "unknown") {
+      await deps.chain.sendSigned({ signature: record.signature, transaction: record.transaction, lastValidBlockHeight: record.lastValidBlockHeight }).catch(() => undefined);
+      return "pending";
+    }
+    if (where === "landed") {
+      await Promise.resolve(pendingSettles.save({ ...record, status: "landed" })).catch(() => undefined);
+      log({ event: "paid_answer_lost", escrow: record.escrow, settleSignature: record.signature, alert: true });
+      return "landed";
+    }
+    await Promise.resolve(pendingSettles.save({ ...record, status: "dropped" })).catch(() => undefined);
+    // Nothing was charged by it. Give the lock back if it is still there.
+    const header = { escrow: new PublicKey(record.escrow) };
+    if ((await escrowState(header.escrow)) === "locked") {
+      try {
+        const account = await deps.chain.readAccount(header.escrow);
+        const decoded = account ? decodeTokenEscrowAccount(Buffer.from(account.data)) : undefined;
+        if (decoded) {
+          const lock = await verifyMeteredLock({ header: { escrow: header.escrow, payer: decoded.payer, nonce: Uint8Array.from(decoded.nonce) }, terms, minimum: 0n, readAccount, readSlot, replayStore: deps.replayStore, purpose: "session-settle", acceptRatedEscrows: true });
+          if (lock.ok) {
+            const signature = await deps.chain.sendInstructions([meteredDecline(terms, lock)]);
+            log({ event: "pending_settle_declined", escrow: record.escrow, signature });
+          }
+        }
+      } catch {
+        log({ event: "pending_settle_decline_failed", escrow: record.escrow, alert: true });
+      }
+    }
+    return "dropped";
+  }
+
+  /** Looks again at single-call settles whose outcome was not known and whose answer is no longer held. */
+  async function reconcilePendingCalls(): Promise<void> {
+    const now = nowMs();
+    for (const [escrow, call] of waitingCalls) {
+      if (now - call.createdMs > HELD_ANSWER_MS) waitingCalls.delete(escrow);
+    }
+    let records: PendingCallSettle[];
+    try {
+      records = await Promise.resolve(pendingSettles.load());
+    } catch {
+      return;
+    }
+    for (const record of records) {
+      if (record.status !== "pending" || waitingCalls.has(record.escrow)) continue;
+      await reconcileOrphan(record).catch(() => undefined);
+    }
   }
 
   async function handle(request: Request): Promise<Response> {

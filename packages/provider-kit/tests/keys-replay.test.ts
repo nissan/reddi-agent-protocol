@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import { loadProviderKey } from "../src/keys.js";
 import { FileReplayStore } from "../src/replay.js";
 
@@ -72,4 +72,12 @@ test("a second process cannot share the file, and a dead owner's lock is taken o
   const store = new FileReplayStore(path);
   assert.equal(store.checkAndStore("k"), true);
   store.close();
+});
+
+test("transaction signatures are named in base58 as the cluster names them", async () => {
+  const { base58 } = await import("../src/chain.js");
+  // Public keys are 32 bytes in the same base58; leading zero bytes become leading 1s.
+  for (const bytes of [new Uint8Array(32).fill(7), Uint8Array.from([0, 0, ...new Uint8Array(30).fill(255)]), Keypair.generate().publicKey.toBytes(), new Uint8Array(32)]) {
+    assert.equal(base58(bytes), new PublicKey(bytes).toBase58());
+  }
 });

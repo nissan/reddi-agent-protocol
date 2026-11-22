@@ -283,6 +283,12 @@ export interface TokenBalanceChange {
     before: bigint;
     after: bigint;
 }
+/** A top-level instruction as read back from the chain: its program, its accounts in order, and its data in base64. */
+export interface RecordedInstruction {
+    programId: string;
+    accounts: string[];
+    data: string;
+}
 /** What a confirmed transaction did, as read back from the chain. */
 export interface SettlementRecord {
     failed: boolean;
@@ -291,7 +297,18 @@ export interface SettlementRecord {
     /** Every account it named. */
     accounts: string[];
     tokenBalances: TokenBalanceChange[];
+    /** Its top-level instructions. Needed when the settle instruction itself is checked (`expected.instruction`). */
+    instructions?: RecordedInstruction[];
 }
+/** The form a settle instruction is recorded and compared in. */
+export declare function recordedInstruction(instruction: TransactionInstruction): RecordedInstruction;
+/**
+ * True when the transaction calls the escrow program exactly once, with
+ * exactly `expected`: the same accounts in the same order and the same data.
+ * So the credits read from its balances are this settle's, not another
+ * instruction's.
+ */
+export declare function transactionHasOnlyInstruction(record: SettlementRecord, expected: RecordedInstruction): boolean;
 export type ConfirmedSettlement = {
     ok: true;
     /** What left the lock for the provider and the treasury together: the amount billed. */
@@ -328,6 +345,7 @@ export declare function confirmMeteredSettlement(record: SettlementRecord | null
     refundTo: PublicKey;
     maxBaseUnits: bigint;
     rating?: PublicKey;
+    instruction?: RecordedInstruction;
 }): ConfirmedSettlement;
 /**
  * Declines a verified lock the provider will not serve, for example when the
