@@ -3,6 +3,7 @@ import localSurfpoolProfile from "./config/networks/local-surfpool.json";
 import { isLoopbackRpcUrl } from "./lib/config/loopback-endpoint";
 import { resolveNetworkProfileNameFromEnv } from "./lib/config/network-profile-name";
 import { legacyPageRedirects } from "./lib/legacy-pages";
+import { markdownPageRewrites } from "./lib/llms/markdown-aliases";
 
 const PLAYWRIGHT_SIGNER_BUILD_REFUSAL =
   "NEXT_PUBLIC_PLAYWRIGHT_WALLET_SECRET_KEY is refused unless the build/dev profile is local-surfpool with loopback-only RPC/WS";
@@ -56,6 +57,10 @@ const nextConfig: NextConfig = {
   // Pages that need the legacy API routes go to their replacements where those routes are off.
   async redirects() {
     return legacyPageRedirects(process.env);
+  },
+  // Markdown versions of key pages for agents (llms.txt convention: the page URL plus ".md").
+  async rewrites() {
+    return markdownPageRewrites();
   },
   async headers() {
     return [

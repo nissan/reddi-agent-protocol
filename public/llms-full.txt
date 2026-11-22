@@ -1,0 +1,288 @@
+# Reddi Agent Protocol
+
+> Pay AI inference providers per token on Solana, through one interface, and get a signed receipt for every call. Providers list a price per million tokens; buyers lock the most a call can cost in escrow, the provider settles the actual tokens, and the unused part comes back.
+
+Reddi Agent Protocol (RAP) answers the Solana Foundation's Request for Startups item "An open marketplace for AI inference" (https://solana.com/request-for-startups#ai-inference-marketplace): let developers choose, verify and pay inference providers through one interface. We started building it in March 2026, months before that item was published. Not affiliated with or endorsed by the Solana Foundation.
+
+Key facts for agents:
+
+- Network: Solana devnet today. Mainnet is coming soon. Use devnet unless your person tells you otherwise.
+- Requests: OpenAI-style `POST <provider url>/v1/chat/completions`. An unpaid request comes back as HTTP 402 with a per-token price, an estimate and a suggested maximum (twice the estimate).
+- Payment: the buyer locks the maximum in a metered escrow; after the answer the provider settles the actual cost and the rest returns to the buyer. Payments are in SOL, USDC, AUDD, PYUSD or USDG.
+- Protocol fee (planned): 5% of the actual cost, with a 2.5% launch rate for payouts before 1 April 2027 (UTC), taken out of the provider's share, capped at 0.1 SOL on SOL payments.
+- Receipts: every paid answer carries a `reddi.receipt.v2` receipt signed by the provider, naming the settle transaction and the tokens used. Payments prove transfer; RAP Assurance proves paid work.
+- Providers describe themselves in ADL (Agent Definition Language) v0.3; a listing needs an ADL document that passes Level 3.
+- Markdown: key pages also answer at their URL plus `.md`, for example https://app.agent-protocol.reddi.tech/register.md and https://app.agent-protocol.reddi.tech/agent-setup.md.
+
+## Buying agents
+
+- [Buyer skill](https://app.agent-protocol.reddi.tech/skill.md): find a provider, get a quote, pay from an escrow lock and check the receipt. Give this file to your agent.
+- [Hand it to your agent](https://app.agent-protocol.reddi.tech/agent-setup): copy-paste setup for Claude Code, Codex, Cursor and other agents.
+- [Provider directory API](https://app.agent-protocol.reddi.tech/api/listings): JSON list of listed providers on the app's network, with per-token prices.
+- [Sandbox models API](https://app.agent-protocol.reddi.tech/api/sandbox/v1/models): scripted devnet providers for rehearsing the whole loop without a wallet.
+- [@redditech/x402-solana](https://www.npmjs.com/package/@redditech/x402-solana): build the escrow lock, the payment headers and the payer signatures.
+- [@redditech/agent-protocol](https://www.npmjs.com/package/@redditech/agent-protocol): find and rank providers, read ADL documents, apply payment policy and verify `reddi.receipt.v2` receipts.
+
+## Service providers
+
+- [Provider skill](https://app.agent-protocol.reddi.tech/provider.md): set up, price, list and run a paid provider with the provider kit. Give this file to your agent.
+- [@redditech/provider-kit](https://www.npmjs.com/package/@redditech/provider-kit): the `rap-provider` CLI. One config file and one command put a paid, per-token endpoint in front of any OpenAI-compatible model (OpenRouter, a hosted API, Ollama or vLLM).
+- [Provider kit README](https://github.com/nissan/reddi-agent-protocol/blob/main/packages/provider-kit/README.md): full configuration reference, sessions, currency pausing and payout safety.
+- [ADL v0.3 specification](https://app.agent-protocol.reddi.tech/downloads/ADL-v0.3.md): the agent definition format every listing carries. JSON Schema at https://app.agent-protocol.reddi.tech/downloads/ADL-v0.3.schema.json.
+- [A listed provider's ADL](https://app.agent-protocol.reddi.tech/api/listings/{wallet}/adl): YAML by default, `?format=json` adds the Level 3 conformance result.
+- [Register a provider](https://app.agent-protocol.reddi.tech/register): list a model or specialist in the app and get paid per token.
+
+## Pricing and fees
+
+- [Pricing and fees](https://app.agent-protocol.reddi.tech/pricing.md): per-token pricing, the buyer's maximum, the protocol fee and its launch rate, the SOL cap, currencies, and Founding Providers, with a worked example.
+
+## Optional
+
+- [Full text for LLMs](https://app.agent-protocol.reddi.tech/llms-full.txt): this index plus the buyer skill, the provider skill and the pricing page in one file.
+- [Try one call yourself](https://app.agent-protocol.reddi.tech/try): pay a provider once from your own wallet (scan a Solana Pay QR code or connect a wallet) and see the answer and receipt.
+- [Devnet sandbox](https://app.agent-protocol.reddi.tech/sandbox): walk through paying, shopping around, sessions and attempts to cheat.
+- [Market case](https://agent-protocol.reddi.tech/market): the market for paid AI inference and how RAP maps to the Solana RFS.
+- [Paid-call example](https://github.com/nissan/reddi-agent-protocol/blob/main/packages/provider-kit/examples/paid-call.mjs): one quote, one lock, one paid call, one checked receipt.
+- [GitHub](https://github.com/nissan/reddi-agent-protocol): Solana programs, SDKs, provider kit and examples.
+
+---
+
+<!-- Source: https://app.agent-protocol.reddi.tech/skill.md -->
+
+---
+name: reddi-agent-protocol-buyer
+description: Pay AI inference providers on Solana through Reddi Agent Protocol. Find a provider, get a per-token quote, lock the most a call can cost in escrow, make the call, and check the signed receipt. Use when a task needs a paid model or specialist and the person has set a budget.
+---
+
+# Use Reddi Agent Protocol as a buying agent
+
+Reddi Agent Protocol (RAP) lets an agent pay an inference provider per token on Solana and get back a receipt it can check. The provider names a price per million tokens. You lock the most one call can cost in an escrow. After the answer, the provider settles what was actually used, the protocol fee comes out of the provider's share, and the rest of your lock comes back to the wallet that paid.
+
+Ask your person to try one call by hand first at https://app.agent-protocol.reddi.tech/try. It takes a minute, and afterwards you both know what a payment and a receipt look like.
+
+## Rules you always follow
+
+1. **Never spend without a budget from your person.** Ask for a per-call maximum and a total, in SOL or USDC, before your first paid call. Keep a running total and stop when it is reached.
+2. **Quote before you pay.** The first request to a provider comes back as HTTP 402 with the price. Show your person the estimate and the maximum the first time, and whenever a call would cost more than they said is fine without asking.
+3. **Devnet until told otherwise.** Use `solana-devnet` unless your person says to use mainnet. Refuse an offer whose `network` is not the one you were told.
+4. **Keys stay out of chat and out of files you write.** Read the wallet's keypair from the path your person gives you. Never print, copy or commit it.
+5. **Check every receipt.** A call is done when the receipt verifies. If it does not, tell your person and do not pay that provider again until they say so.
+
+## Set up
+
+```bash
+npm install @redditech/x402-solana @redditech/agent-protocol @solana/web3.js
+```
+
+Ask your person for:
+
+- `BUYER_KEYPAIR_PATH`: a keypair file for a wallet that holds only what you may spend.
+- `SOLANA_RPC_URL`: optional. Defaults to `https://api.devnet.solana.com`.
+- Your budget: the most per call, and the most in total.
+
+## Find a provider
+
+`GET https://app.agent-protocol.reddi.tech/api/listings` returns the listed providers on the app's network with their per-token prices. Pick by task, price and track record. If it answers `503`, the directory is briefly unavailable: wait and try again, or practise in the sandbox (below) meanwhile. Each provider takes OpenAI-style requests at `POST <provider url>/v1/chat/completions`.
+
+## Make one paid call
+
+1. **Ask for the price.** Send the request with no payment. A `402` reply carries a `metered` offer: `inputPerMillion`, `outputPerMillion`, `currency`, `estimatedCost`, `suggestedMaxCharge` (twice the estimate), `payTo`, `escrowProgramId`, `mint` and `network`.
+2. **Check it against your budget.** If `suggestedMaxCharge` is above your per-call maximum, or the network is wrong, stop and ask.
+3. **Lock the maximum.** Build the lock with `buildLockTokenEscrowInstruction({ ..., metered: true })` from `@redditech/x402-solana`, sign it with the buyer wallet and wait until it confirms.
+4. **Call again with the lock.** Send the same body with these headers:
+   - `x402-payment`: `meteredPaymentHeaderValue({ payer, nonce, programId })`
+   - the two headers from `paidCallAuthHeaders({ escrow, provider, body, payer, signWithPayer })`. They prove the call comes from the wallet that locked, and they cover the exact body bytes, so send the body exactly as you signed it.
+5. **Read the answer and the settlement.** A `200` carries the answer and `reddi.metered`: tokens used, amount charged, fee, provider share, refund and the settle transaction.
+6. **Verify the receipt.** Decode the `x-reddi-provider-receipt` header (base64url JSON) and check it with `verifyReddiReceiptV2` from `@redditech/agent-protocol/receipt-v2`, passing the SHA-256 of the request body and of the response body you received.
+
+A complete worked example lives at https://github.com/nissan/reddi-agent-protocol/blob/main/packages/provider-kit/examples/paid-call.mjs.
+
+## Practise in the sandbox first
+
+The sandbox runs scripted providers on devnet, so you can rehearse the whole loop without a wallet. It speaks a simpler dialect than a live provider, so do not apply the live steps above to it word for word.
+
+1. **Find a provider.** `GET https://app.agent-protocol.reddi.tech/api/sandbox/v1/models` lists each provider's model `id`, per-token pricing, `payTo` and `rap.receiptProviderId`, the key its receipts are signed with.
+2. **Ask for the price.** `POST https://app.agent-protocol.reddi.tech/api/sandbox/v1/chat/completions` with `{"model": "<id>", "messages": [...]}` and no payment. The `402` carries the offer as `x402` in the body and in the `x402-request` header: `amount` is the most the call can cost, in SOL, and `nonce` names this quote. `sandbox` in the body lists the ways you can pay.
+3. **Pay with a simulated payment.** Send the same body again with the header `x402-payment: demo:<nonce>`. Nothing moves on chain.
+4. **Check the receipt.** A simulated call returns `x-reddi-sandbox-simulated-receipt`, base64url JSON of `{receipt, proof}`. It names no transaction, so no `reddi.receipt.v2` verifier accepts it, and that is deliberate. Check it yourself:
+   - `receipt.requestHash` is the SHA-256 (hex) of the exact request body bytes you sent, and `receipt.responseHash` the SHA-256 of the response body bytes.
+   - `receipt.providerId` equals that provider's `rap.receiptProviderId` from the models list.
+   - `proof.signature` (base64) is an Ed25519 signature by `receipt.providerId` (base58 public key) over the `receipt` object as compact JSON, keys in the order they arrived (`JSON.stringify(decoded.receipt)`).
+   - `receipt.payment.amount` (lamports, 1 SOL = 1,000,000,000) is no more than the quoted `amount`, and `amount` plus `metered.refunded` equals `metered.maxAmount`.
+
+A paid sandbox call (a devnet transfer or a metered escrow lock, described in the `402` body) returns `x-reddi-provider-receipt` instead, a `reddi.receipt.v2` that `verifyReddiReceiptV2` checks, as on a live provider.
+
+## Many calls to one provider
+
+Lock once and make many calls as a session: the provider settles once at the end, so network fees stop eating small calls. See `examples/session-call.mjs` next to the single-call example. Each call is still held to its own maximum.
+
+## When something fails
+
+- `401 session_auth_*`: the auth headers are missing, expired, or the body changed after signing. Sign again over the exact body.
+- `402` after you locked: the lock has not confirmed yet, or it pays another provider. Wait a few seconds and send the same request again.
+- `409` or `duplicate_nonce`: that lock already paid for a call. Lock a new one.
+- The provider stops answering: nothing is taken until it settles. After the refund window opens, your wallet can take the whole lock back.
+
+## Coming soon
+
+Your person will be able to hand you a spending budget from the app, signed once in their own wallet, so they never need to give you a keypair file. Until then, use a wallet that holds only your budget.
+
+More: https://agent-protocol.reddi.tech and https://app.agent-protocol.reddi.tech/agent-setup
+
+---
+
+<!-- Source: https://app.agent-protocol.reddi.tech/provider.md -->
+
+---
+name: reddi-agent-protocol-provider
+description: Set up and run a paid AI inference provider on Reddi Agent Protocol with the @redditech/provider-kit CLI. Put a per-token priced, receipted endpoint in front of any OpenAI-compatible model, describe it in ADL v0.3 and list it. Use when your person wants to sell a model, a specialist or a prompt as a paid service on Solana.
+---
+
+# Run a provider on Reddi Agent Protocol
+
+Reddi Agent Protocol (RAP) is an open marketplace for paid AI inference on Solana, built for the Solana Foundation's Request for Startups item "An open marketplace for AI inference". As a provider you bring a model and a Solana wallet. The provider kit puts a paid endpoint in front of the model: buyers pay per token through a metered escrow, and every paid answer carries a `reddi.receipt.v2` receipt signed by your wallet.
+
+The whole provider is one config file (`provider.json`) and one command (`rap-provider`).
+
+## Rules you always follow
+
+1. **Devnet until told otherwise.** Set `"network": "solana-devnet"` unless your person says to use mainnet. Mainnet is coming soon.
+2. **Keys stay out of chat and out of files you write.** The wallet keypair lives in the file `keypairPath` names, readable only by its owner (`chmod 600`). Never print, copy or commit it. The upstream model's API key goes in an environment variable (`UPSTREAM_API_KEY` by default), never in `provider.json`.
+3. **Dry-run before anything that signs.** Run `rap-provider doctor` and `rap-provider register --dry-run` and show your person the output before `rap-provider register`, which sends a transaction and pays a 0.01 SOL registration fee.
+4. **Your person sets the price.** Propose a price per million input and output tokens, with the reasoning, and wait for a yes before you list it.
+5. **Do not serve mock answers to paying buyers.** `upstream.mock` is for trying the payment flow; it is refused on mainnet.
+
+## Set up
+
+You need Node 20 or newer and the Solana CLI.
+
+```bash
+npm install -g @redditech/provider-kit
+rap-provider --help
+```
+
+1. **A wallet.** `solana-keygen new --outfile ~/.config/solana/provider.json`. Ask your person to fund its address with 0.5 devnet SOL at https://faucet.solana.com, then create its USDC token account:
+   `spl-token create-account 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU --owner "$(solana address -k ~/.config/solana/provider.json)" --url devnet`
+2. **A config.** `rap-provider init --wallet "$(solana address -k ~/.config/solana/provider.json)"`, then set `"keypairPath": "~/.config/solana/provider.json"` in `provider.json`. It starts with mock answers so you can try the payment flow first.
+3. **Check it.** `rap-provider doctor` reads only; it sends and spends nothing. It checks the key matches the wallet, the token accounts can receive, and the ADL document passes Level 3.
+4. **Serve.** `rap-provider start` (port 8787 by default).
+5. **Make a paid call to yourself** with a second devnet wallet: `BUYER_KEYPAIR_PATH=~/.config/solana/buyer.json node packages/provider-kit/examples/paid-call.mjs http://localhost:8787 "Write a haiku about escrow"` from a clone of https://github.com/nissan/reddi-agent-protocol. It prints the quote, the lock, the answer, the charge and refund, the settle transaction and whether the receipt verified.
+
+## Connect a real model
+
+In `provider.json`:
+
+```json
+"upstream": { "baseUrl": "https://openrouter.ai/api/v1", "apiKeyEnv": "UPSTREAM_API_KEY", "mock": false },
+"model": "openai/gpt-4o-mini"
+```
+
+Then `UPSTREAM_API_KEY=... rap-provider start`. For a local model, point `baseUrl` at it, for example `http://localhost:11434/v1` for Ollama; no key is needed.
+
+To sell more than a raw model, add instructions with `"systemPrompt"`, or `"systemPromptFile": "prompt.txt"` for long or private ones. The prompt stays on your server. Its tokens are counted in every quote.
+
+## Set a price
+
+```json
+"price": { "currency": "USDC", "inputPerMillion": "3", "outputPerMillion": "15", "maxOutputTokens": 1000 }
+```
+
+- `currency` is `USDC`, `AUDD`, `PYUSD` or `USDG`.
+- The charge for a call is tokens used times your price, rounded up to the smallest unit. The buyer locks a maximum (twice the estimate by default) and the charge never goes above it.
+- The protocol fee is planned at 5% of the charge, with a 2.5% launch rate for payouts before 1 April 2027 (UTC), rounded down and taken out of your share. The buyer pays nothing on top. On SOL payments the fee is capped at 0.1 SOL.
+- The first 100 services to take a paid job on mainnet become Founding Providers: every 90 days for their first year, those rated 4.5 stars or better and ranked in the top 100 by volume get back every fee they paid above 1.5%.
+
+Full detail and a worked example: https://app.agent-protocol.reddi.tech/pricing.md
+
+## Describe it in ADL and list it
+
+Every provider describes itself in Agent Definition Language (ADL) v0.3, generated from `provider.json`: the model, a charge on the Solana rail settled through metered escrow, the per-token price, the most one call can cost, the wallet that is paid, the protocol fee and a `reddi.receipt.v2` receipt for every paid answer. Because the listing and the ADL come from the same config, they cannot drift.
+
+```bash
+rap-provider adl                  # prints your ADL document; --json prints the Level 3 report
+rap-provider register --dry-run   # prints the registry accounts and the listing; signs and sends nothing
+rap-provider register             # registers on chain, signs in with your wallet, lists
+rap-provider status               # reads both records back
+```
+
+Before listing, set `publicUrl` to a public `https` address and `listing.capabilities`, for example `{ "taskTypes": ["writing"] }`. The provider serves its ADL at `/.well-known/adl.yaml` and links it from `/.well-known/reddi-agent.json`. The app checks the ADL on every listing and refuses one that fails Level 3 or says something different from the listing.
+
+Once listed, buyers find you at https://app.agent-protocol.reddi.tech/api/listings, and anyone can read your ADL at `https://app.agent-protocol.reddi.tech/api/listings/<wallet>/adl`.
+
+## Offer sessions
+
+For agents that make many small calls, set `"sessions": { "enabled": true }`. A buyer locks once, makes numbered calls, and you settle once for the total. Each receipt chains to the previous one so the buyer can check the whole run.
+
+## Reference
+
+- Provider kit README (every config field, sessions, currency pausing, payout safety): https://github.com/nissan/reddi-agent-protocol/blob/main/packages/provider-kit/README.md
+- ADL v0.3 specification: https://app.agent-protocol.reddi.tech/downloads/ADL-v0.3.md
+- Buyer side, so you know what your buyers do: https://app.agent-protocol.reddi.tech/skill.md
+- Index of everything for agents: https://app.agent-protocol.reddi.tech/llms.txt
+
+---
+
+<!-- Source: https://app.agent-protocol.reddi.tech/pricing.md -->
+
+# Reddi Agent Protocol pricing and fees
+
+> Providers set a price per million tokens. Buyers lock the most a call can cost, pay only for the tokens actually used, and get the rest back. A planned protocol fee of 5% (2.5% at the launch rate) comes out of the provider's share; buyers pay nothing on top.
+
+Reddi Agent Protocol (RAP) is an open marketplace for paid AI inference on Solana, answering the Solana Foundation's Request for Startups item "An open marketplace for AI inference" (https://solana.com/request-for-startups#ai-inference-marketplace). Not affiliated with or endorsed by the Solana Foundation. Payments prove transfer; RAP Assurance proves paid work.
+
+## How a call is priced
+
+1. **The provider's price.** Each listing names a price per million input tokens and per million output tokens, in one currency.
+2. **The quote.** An unpaid request comes back as HTTP 402 with that price, an estimated cost for this request, and a suggested maximum: twice the estimate by default, never below it.
+3. **The buyer's maximum.** The buyer authorises a maximum and locks it in a metered escrow payable to the provider. The charge can never exceed it.
+4. **The actual cost.** After the model answers, the provider counts the tokens used and settles tokens used times the price, rounded up to the smallest unit of the currency.
+5. **The split.** In the same transaction the escrow program pays the provider, sends the protocol fee to the RAP treasury and returns the unused part of the maximum to the buyer.
+
+## The protocol fee
+
+| | |
+|---|---|
+| Standard rate | 5% (500 basis points) of the actual cost. |
+| Launch rate | 2.5% (250 basis points) for payouts before 1 April 2027, 00:00 UTC. The rate is read when the payout happens. |
+| Who pays it | It comes out of the provider's share. The buyer pays the actual cost and nothing on top. |
+| Rounding | Rounded down to the smallest unit of the currency. |
+| SOL cap | At most 0.1 SOL per payment on SOL payments. Stablecoin payments have no cap. |
+| Status | Planned: set in the V1 escrow program and paid on every settle, release and claim once it is on mainnet. Mainnet is coming soon. |
+
+## Founding Providers
+
+The first 100 services to take a paid job on mainnet become Founding Providers. Every 90 days for their first year, Founding Providers rated 4.5 stars or better, from at least 10 rated jobs by 5 different buyers, and ranked in the top 100 by volume get back every fee they paid above 1.5%. The rebate never exceeds the fees paid, and one owner wallet can hold up to 3 seats. Ratings are on chain, so anyone can check who qualified.
+
+## Currencies
+
+- SOL, USDC, AUDD, PYUSD and USDG for per-call payments and escrow.
+- PYUSD and USDG are Token-2022 mints. A provider can pause a currency without delisting.
+- The provider kit prices in USDC, AUDD, PYUSD or USDG.
+
+## Worked example
+
+A provider lists a model at 3 USDC per million input tokens and 15 USDC per million output tokens. A request is quoted with an estimate of 0.012 USDC, so the suggested maximum is 0.024 USDC, which the buyer locks.
+
+The model reads 1,000 input tokens and writes 500 output tokens:
+
+| | USDC |
+|---|---|
+| Input: 1,000 × 3 / 1,000,000 | 0.003000 |
+| Output: 500 × 15 / 1,000,000 | 0.007500 |
+| Actual cost, paid by the buyer | 0.010500 |
+| Protocol fee at the 2.5% launch rate | 0.000262 |
+| Provider receives | 0.010238 |
+| Returned to the buyer (0.024 − 0.0105) | 0.013500 |
+
+At the standard 5% rate the fee on the same call is 0.000525 USDC and the provider receives 0.009975 USDC.
+
+## Sessions
+
+An agent that makes many small calls can lock once and make numbered calls against that lock. The provider settles once, for the total, and the fee applies to that total. Every receipt in the session chains to the one before, so the buyer can check the whole run.
+
+## More
+
+- Buyer skill: https://app.agent-protocol.reddi.tech/skill.md
+- Provider skill: https://app.agent-protocol.reddi.tech/provider.md
+- Market case and revenue model: https://agent-protocol.reddi.tech/market
+- Index for agents: https://app.agent-protocol.reddi.tech/llms.txt
