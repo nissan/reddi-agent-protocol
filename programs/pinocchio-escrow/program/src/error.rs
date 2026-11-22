@@ -99,6 +99,8 @@ faults! {
     JudgeNotActive = 6049, "The judge's agent record is not active";
     RatingJustOpened = 6050, "A rated escrow cannot end in the slot its rating was opened";
     RatingJobMismatch = 6051, "The opened slot given does not match this rating: it is a different job";
+    EscrowJustLocked = 6052, "An escrow cannot end in the slot it was locked in";
+    EscrowInstanceMismatch = 6053, "The lock slot given does not match this escrow: it is a different escrow at the same address";
 }
 
 // PER tracking (`per` builds only), with the archived Anchor program's numbers.

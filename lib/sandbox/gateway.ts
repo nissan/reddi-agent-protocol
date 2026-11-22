@@ -208,7 +208,7 @@ export function sandboxChallenge(provider: SandboxProvider, origin: string, nonc
 type PaymentOutcome =
   | { ok: true; mode: "simulated"; nonce: string; payerId: string; proofRef: string }
   | { ok: true; mode: "devnet-transfer"; nonce: string; payerId: string; payerAddress: string; proofRef: string }
-  | { ok: true; mode: "metered-escrow"; nonce: string; payerId: string; payerAddress: string; escrow: string; maxLamports: bigint; rated: boolean; openedSlot?: bigint; proofRef: string }
+  | { ok: true; mode: "metered-escrow"; nonce: string; payerId: string; payerAddress: string; escrow: string; maxLamports: bigint; rated: boolean; createdSlot: bigint; proofRef: string }
   | { ok: false; result: Extract<ReceiptVerificationResult, { ok: false }>; sessionCode?: SessionRefusalCode };
 
 function rejected(reason: Extract<ReceiptVerificationResult, { ok: false }>["reason"], message: string, expected?: unknown, actual?: unknown): PaymentOutcome {
@@ -371,19 +371,19 @@ async function verifyMeteredLock(record: Record<string, unknown>, provider: Sand
   // A session's lock covers many calls; the session path checks its running total against it.
   const maxLamports = session ? escrow.amount : maxChargeLamports(provider, inputTokens);
   if (escrow.amount !== maxLamports) return rejected("wrong_amount", "escrow amount does not match challenge", maxLamports.toString(), escrow.amount.toString());
-  // A rated job is named by its rating's opened slot. It is read now, with the lock being
-  // served, and travels with the payment to the settle, which names it.
-  let openedSlot: bigint | undefined;
+  // The settle names this escrow by its lock slot, read now with the lock being served, so it
+  // cannot end a later escrow at the same address. A rated job's rating opens in that slot.
   if (escrow.rated) {
+    let openedSlot: bigint | undefined;
     try {
       openedSlot = sandboxRatingOpenedSlot(escrowAddress, await deps.readAccount(sandboxRatingAddress(escrowAddress)));
     } catch {
       return rejected("unsupported_receipt", "The devnet RPC could not be read. Nothing was accepted; present the same receipt again shortly.");
     }
-    if (openedSlot === undefined) return rejected("invalid_receipt", "This escrow is opted in to rating, but its rating account could not be read as this job's. Nothing was accepted.");
+    if (openedSlot === undefined || openedSlot !== escrow.createdSlot) return rejected("invalid_receipt", "This escrow is opted in to rating, but its rating account could not be read as this job's. Nothing was accepted.");
   }
   if (!session && !(await deps.replayStore.checkAndStore(`escrow:${escrowAddress.toBase58()}`))) return rejected("duplicate_nonce", "receipt nonce has already been used", undefined, nonce);
-  return { ok: true, mode: "metered-escrow", nonce, payerId: payer.toBase58(), payerAddress: payer.toBase58(), escrow: escrowAddress.toBase58(), maxLamports, rated: escrow.rated, ...(openedSlot !== undefined ? { openedSlot } : {}), proofRef: escrowAddress.toBase58() };
+  return { ok: true, mode: "metered-escrow", nonce, payerId: payer.toBase58(), payerAddress: payer.toBase58(), escrow: escrowAddress.toBase58(), maxLamports, rated: escrow.rated, createdSlot: escrow.createdSlot, proofRef: escrowAddress.toBase58() };
 }
 
 async function writeReceipt(input: {
@@ -497,7 +497,7 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
     // and its receipt name a settle transaction that already happened.
     const settled = settleSandboxCall(provider, { inputTokens, outputTokens: countTokens(answer) }, payment.maxLamports);
     const result = deps.settler
-      ? await deps.settler.settle({ providerId: provider.id, escrow: new PublicKey(payment.escrow), payer: new PublicKey(payment.payerAddress), payee: new PublicKey(provider.payTo), actualLamports: settled.amount, rated: payment.rated, openedSlot: payment.openedSlot })
+      ? await deps.settler.settle({ providerId: provider.id, escrow: new PublicKey(payment.escrow), payer: new PublicKey(payment.payerAddress), payee: new PublicKey(provider.payTo), actualLamports: settled.amount, rated: payment.rated, createdSlot: payment.createdSlot })
       : { ok: false as const, message: "No settler is configured." };
     if (!result.ok) {
       return failure(502, "settle_failed", `${result.message} Your maximum stays locked in escrow ${payment.escrow}; nothing was charged, and you can cancel it for a full refund once its refund window has elapsed, about 30 minutes after the lock.`, { charged: false, escrow: payment.escrow });
@@ -525,7 +525,7 @@ function sessionRefusal(code: SessionRefusalCode, message: string): SandboxGatew
   return failure(status, code, message, { charged: false });
 }
 
-type SessionLock = { mode: "simulated" | "metered-escrow"; escrow: string; payer?: string; maxLamports: bigint; nonce: string };
+type SessionLock = { mode: "simulated" | "metered-escrow"; escrow: string; payer?: string; maxLamports: bigint; nonce: string; createdSlot?: bigint };
 
 /** The lock a session call presents: a simulated session maximum or a metered escrow on devnet. */
 async function verifySessionLock(header: string, provider: SandboxProvider, origin: string, inputTokens: number, deps: SandboxGatewayDeps, auth: { request: SandboxGatewayRequest; sequence: number }): Promise<{ ok: true; lock: SessionLock } | { ok: false; response: SandboxGatewayResponse }> {
@@ -578,7 +578,7 @@ async function verifySessionLock(header: string, provider: SandboxProvider, orig
     return { ok: false, response: failure(402, "payment_rejected", outcome.result.message, { reason: outcome.result.reason, charged: false }) };
   }
   if (outcome.mode !== "metered-escrow") return refuse("session_invalid", "A session is paid by a metered lock.");
-  return { ok: true, lock: { mode: "metered-escrow", escrow: outcome.escrow, payer: outcome.payerAddress, maxLamports: outcome.maxLamports, nonce } };
+  return { ok: true, lock: { mode: "metered-escrow", escrow: outcome.escrow, payer: outcome.payerAddress, maxLamports: outcome.maxLamports, nonce, createdSlot: outcome.createdSlot } };
 }
 
 /**
@@ -647,7 +647,7 @@ async function handleSessionCall(input: {
   let settleSignature: string | undefined;
   if (close && lock.mode === "metered-escrow") {
     const result = deps.settler
-      ? await deps.settler.settle({ providerId: provider.id, escrow: new PublicKey(lock.escrow), payer: new PublicKey(lock.payer!), payee: new PublicKey(provider.payTo), actualLamports: cumulative, rated: false })
+      ? await deps.settler.settle({ providerId: provider.id, escrow: new PublicKey(lock.escrow), payer: new PublicKey(lock.payer!), payee: new PublicKey(provider.payTo), actualLamports: cumulative, rated: false, createdSlot: lock.createdSlot! })
       : { ok: false as const, message: "No settler is configured." };
     if (!result.ok) {
       return failure(502, "settle_failed", `${result.message} The session's maximum stays locked in escrow ${lock.escrow}; nothing was charged, and you can cancel it for a full refund once its refund window has elapsed.`, { charged: false, escrow: lock.escrow });

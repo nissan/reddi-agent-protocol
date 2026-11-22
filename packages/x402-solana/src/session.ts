@@ -178,7 +178,8 @@ export class MeteredSessionLedger {
     }
     if (state.sessionKey !== input.sessionKey) return { ok: false, reason: 'session_key_mismatch', message: 'This session was started with another session key. Sign with the key it was started with.' };
     if (state.status !== 'open') return { ok: false, reason: 'session_closed', message: state.status === 'settled' ? 'This session has been settled. Lock a new escrow to go on.' : 'This session is closed and being settled. Lock a new escrow to go on.' };
-    if (state.payer !== input.lock.payer.toBase58() || state.maxBaseUnits !== input.lock.maxBaseUnits.toString()) {
+    // The lock slot tells this session's escrow from a later one locked at the same address.
+    if (state.payer !== input.lock.payer.toBase58() || state.maxBaseUnits !== input.lock.maxBaseUnits.toString() || state.createdSlot !== input.lock.createdSlot.toString()) {
       return { ok: false, reason: 'session_lock_mismatch', message: 'This lock no longer matches the session opened on it.' };
     }
     if (input.sequence !== state.sequence + 1) {
@@ -296,7 +297,7 @@ export function sessionUsage(state: SessionState): TokenCounts {
  * disagree, which would mean the receipts and the settle differ.
  */
 export function sessionSettlement(terms: MeteredTerms, lock: Extract<VerifiedLock, { ok: true }>, state: SessionState, payout?: Parameters<typeof meteredSettlement>[3]): ReturnType<typeof meteredSettlement> {
-  if (lock.maxBaseUnits.toString() !== state.maxBaseUnits || lock.payer.toBase58() !== state.payer) throw new Error('the lock does not match the session');
+  if (lock.maxBaseUnits.toString() !== state.maxBaseUnits || lock.payer.toBase58() !== state.payer || lock.createdSlot.toString() !== state.createdSlot) throw new Error('the lock does not match the session');
   const settled = meteredSettlement(terms, lock, sessionUsage(state), payout);
   if (settled.settlement.chargedBaseUnits.toString() !== state.costBaseUnits) throw new Error('the settle would charge a different amount than the session recorded');
   return settled;

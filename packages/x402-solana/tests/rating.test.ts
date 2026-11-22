@@ -392,43 +392,48 @@ describe('exits of a rated and an unrated escrow', () => {
     return tx.serializeMessage().toString('hex');
   };
 
-  it('leaves an unrated token exit exactly as buildSettleTokenEscrowInstruction builds it', () => {
+  it('names an unrated token exit by its lock slot, with the accounts buildSettleTokenEscrowInstruction passes', () => {
     const cases: [boolean, PublicKey, { actual?: bigint }][] = [[false, payer, {}], [false, payee, { actual: 250_000n }], [true, payee, {}], [true, payer, {}]];
     for (const [refund, authority, options] of cases) {
       const today = buildSettleTokenEscrowInstruction(terms, refund, authority, options);
-      const unrated = buildTokenEscrowExitInstruction(terms, { rated: false, refund, authority, options });
-      expect(shape(unrated)).toEqual(shape(today));
-      expect(bytes(unrated, authority)).toBe(bytes(today, authority));
+      const unrated = buildTokenEscrowExitInstruction(terms, { rated: false, createdSlot: 0x0102030405060708n, refund, authority, options });
+      expect(unrated.data).toEqual(Buffer.concat([today.data, Buffer.from('0807060504030201', 'hex')]));
+      expect(shape(unrated).accounts).toEqual(shape(today).accounts);
+      expect(bytes(unrated, authority)).not.toBe(bytes(today, authority));
       const rated = buildTokenEscrowExitInstruction(terms, { rated: true, openedSlot: 0x0102030405060708n, refund, authority, options });
       expect(rated.data).toEqual(Buffer.concat([today.data, Buffer.from('0807060504030201', 'hex')]));
       expect(shape(rated).accounts).toEqual([...shape(today).accounts, { address: instruction('settle_token_escrow').accounts[9].address, signer: false, writable: true }]);
     }
   });
 
-  it('returns the same instruction object when the escrow is not rated', () => {
+  it('leaves the instruction it is given unchanged, and adds no account when the escrow is not rated', () => {
     const today = buildSettleTokenEscrowInstruction(terms, false, payee, { actual: 1n });
-    expect(withRatingAccount(today, false)).toBe(today);
+    const before = shape(today);
+    const unrated = withRatingAccount(today, false, 5n);
+    expect(shape(today)).toEqual(before);
+    expect(unrated.keys).toEqual(today.keys);
+    expect(unrated.data.readBigUInt64LE(16)).toBe(5n);
   });
 
-  it('builds an unrated SOL settle, release and cancel with the usual accounts and their own data only', () => {
-    // The fixture's rated exit without the rating account and without the opened slot after the data.
-    const expected = (vector: VectorInstruction) => ({ ...expectedOf(vector), data: vector.data_hex.slice(0, -16) });
+  it('builds an unrated SOL settle, release and cancel with the usual accounts, naming the escrow by its lock slot', () => {
+    // The fixture's rated exit without the rating account; its opened slot is the escrow's lock slot, so the data is the same.
+    const slotOf = (vector: VectorInstruction) => hex(vector.data_hex).readBigUInt64LE(hex(vector.data_hex).length - 8);
     const escrow = named(instruction('settle_escrow'), 'escrow');
     const settle = instruction('settle_escrow');
-    const unratedSettle = buildSettleSolEscrowInstruction({ programId, escrow, payer, payee, actual: 600_000n });
-    expect(shape(unratedSettle)).toEqual({ ...expected(settle), accounts: expected(settle).accounts.slice(0, 5) });
-    expect(shape(buildSettleSolEscrowInstruction({ programId, escrow, payer, payee, actual: 600_000n, rated: false }))).toEqual(shape(unratedSettle));
+    const unratedSettle = buildSettleSolEscrowInstruction({ programId, escrow, payer, payee, actual: 600_000n, createdSlot: slotOf(settle) });
+    expect(shape(unratedSettle)).toEqual({ ...expectedOf(settle), accounts: expectedOf(settle).accounts.slice(0, 5) });
+    expect(shape(buildSettleSolEscrowInstruction({ programId, escrow, payer, payee, actual: 600_000n, rated: false, createdSlot: slotOf(settle) }))).toEqual(shape(unratedSettle));
 
     const release = instruction('release_escrow');
-    expect(shape(buildReleaseSolEscrowInstruction({ programId, escrow: named(release, 'escrow'), payer, payee }))).toEqual({ ...expected(release), accounts: expected(release).accounts.slice(0, 5) });
+    expect(shape(buildReleaseSolEscrowInstruction({ programId, escrow: named(release, 'escrow'), payer, payee, createdSlot: slotOf(release) }))).toEqual({ ...expectedOf(release), accounts: expectedOf(release).accounts.slice(0, 5) });
 
     const cancel = instruction('cancel_escrow');
-    expect(shape(buildCancelSolEscrowInstruction({ programId, escrow: named(cancel, 'escrow'), payer, authority: payee }))).toEqual({ ...expected(cancel), accounts: expected(cancel).accounts.slice(0, 4) });
+    expect(shape(buildCancelSolEscrowInstruction({ programId, escrow: named(cancel, 'escrow'), payer, authority: payee, createdSlot: slotOf(cancel) }))).toEqual({ ...expectedOf(cancel), accounts: expectedOf(cancel).accounts.slice(0, 4) });
   });
 
   it('marks who signs a SOL release: the payer, or the payee claiming', () => {
     const escrow = named(instruction('release_escrow'), 'escrow');
-    const signers = (signer?: 'payer' | 'payee') => buildReleaseSolEscrowInstruction({ programId, escrow, payer, payee, signer }).keys.slice(1, 3).map((meta) => meta.isSigner);
+    const signers = (signer?: 'payer' | 'payee') => buildReleaseSolEscrowInstruction({ programId, escrow, payer, payee, signer, createdSlot: 1n }).keys.slice(1, 3).map((meta) => meta.isSigner);
     expect(signers()).toEqual([true, false]);
     expect(signers('payer')).toEqual([true, false]);
     expect(signers('payee')).toEqual([false, true]);
@@ -462,10 +467,10 @@ describe('exits of a rated and an unrated escrow', () => {
       expect(ix.keys).toHaveLength(usual + (rated ? 1 : 0));
       if (rated) expect(last(ix)).toEqual({ pubkey: solRating, isSigner: false, isWritable: true });
       else expect(ix.keys.some((meta) => meta.pubkey.equals(solRating))).toBe(false);
-      // The opened slot is appended exactly when the escrow is rated.
+      // The lock slot (a rated job's opened slot) is appended either way.
       const own = _name.startsWith('settle') ? 16 : 8;
-      expect(ix.data).toHaveLength(own + (rated ? 8 : 0));
-      if (rated) expect(ix.data.readBigUInt64LE(own)).toBe(1000n);
+      expect(ix.data).toHaveLength(own + 8);
+      expect(ix.data.readBigUInt64LE(own)).toBe(1000n);
     });
 
     it.each([
@@ -478,7 +483,7 @@ describe('exits of a rated and an unrated escrow', () => {
       const ix = buildTokenEscrowExitInstruction(tokenTermsOf, { ...exit, rated: decodeTokenEscrowAccount(tokenData).rated, openedSlot: 1000n });
       expect(ix.keys).toHaveLength(usual + (rated ? 1 : 0));
       const own = _name.startsWith('settle') ? 16 : 8;
-      expect(ix.data).toHaveLength(own + (rated ? 8 : 0));
+      expect(ix.data).toHaveLength(own + 8);
       if (rated) expect(last(ix)).toEqual({ pubkey: tokenRating, isSigner: false, isWritable: true });
       else expect(ix.keys.some((meta) => meta.pubkey.equals(tokenRating))).toBe(false);
     });
@@ -503,18 +508,20 @@ describe('exits of a rated and an unrated escrow', () => {
     expect(() => withRatingAccount(short, true, 5n)).toThrow('missing');
   });
 
-  it('requires the opened slot for every rated exit, and refuses an exit that already carries one', () => {
+  it('requires the lock slot for every exit, rated or not, and refuses an exit that already carries one', () => {
     const settle = buildSettleTokenEscrowInstruction(terms, false, payee, { actual: 1n });
-    expect(() => withRatingAccount(settle, true)).toThrow('openedSlot');
-    expect(() => withRatingAccount(settle, true, -1n)).toThrow('openedSlot');
-    expect(() => withRatingAccount(withRatingAccount(settle, true, 5n), true, 5n)).toThrow('more data');
-    const escrow = named(instruction('settle_escrow'), 'escrow');
-    expect(() => buildSettleSolEscrowInstruction({ programId, escrow, payer, payee, actual: 1n, rated: true })).toThrow('openedSlot');
-    expect(() => buildReleaseSolEscrowInstruction({ programId, escrow, payer, payee, rated: true })).toThrow('openedSlot');
-    expect(() => buildCancelSolEscrowInstruction({ programId, escrow, payer, authority: payee, rated: true })).toThrow('openedSlot');
-    expect(() => buildTokenEscrowExitInstruction(terms, { rated: true, refund: true, authority: payee })).toThrow('openedSlot');
-    // An unrated exit ignores a slot it is given and is unchanged.
-    expect(shape(buildTokenEscrowExitInstruction(terms, { rated: false, openedSlot: 5n, authority: payee, options: { actual: 1n } }))).toEqual(shape(settle));
+    for (const rated of [false, true]) {
+      expect(() => withRatingAccount(settle, rated, undefined)).toThrow('createdSlot');
+      expect(() => withRatingAccount(settle, rated, -1n)).toThrow('u64');
+      expect(() => withRatingAccount(withRatingAccount(settle, rated, 5n), rated, 5n)).toThrow('more data');
+      const escrow = named(instruction('settle_escrow'), 'escrow');
+      expect(() => buildSettleSolEscrowInstruction({ programId, escrow, payer, payee, actual: 1n, rated })).toThrow('createdSlot');
+      expect(() => buildReleaseSolEscrowInstruction({ programId, escrow, payer, payee, rated })).toThrow('createdSlot');
+      expect(() => buildCancelSolEscrowInstruction({ programId, escrow, payer, authority: payee, rated })).toThrow('createdSlot');
+      expect(() => buildTokenEscrowExitInstruction(terms, { rated, refund: true, authority: payee })).toThrow('createdSlot');
+    }
+    // A rated job's opened slot is its escrow's lock slot, so either name builds the same exit.
+    expect(shape(buildTokenEscrowExitInstruction(terms, { rated: false, openedSlot: 5n, authority: payee, options: { actual: 1n } }))).toEqual(shape(buildTokenEscrowExitInstruction(terms, { rated: false, createdSlot: 5n, authority: payee, options: { actual: 1n } })));
   });
 });
 
@@ -774,11 +781,13 @@ describe('program error names', () => {
     const declared = new Map<number, string>();
     for (const m of source.matchAll(/^\s*(\w+) = (\d+), "/gm)) declared.set(Number(m[2]), m[1]);
     for (const [code, name] of Object.entries(RATING_PROGRAM_ERRORS)) expect(declared.get(Number(code))).toBe(name);
-    for (let code = 6033; code <= 6051; code++) expect(ratingProgramErrorName(code)).toBe(declared.get(code));
+    for (let code = 6033; code <= 6053; code++) expect(ratingProgramErrorName(code)).toBe(declared.get(code));
     expect(ratingProgramErrorName(6049)).toBe('JudgeNotActive');
     expect(ratingProgramErrorName(6050)).toBe('RatingJustOpened');
     expect(ratingProgramErrorName(6051)).toBe('RatingJobMismatch');
-    expect(ratingProgramErrorName(6052)).toBeUndefined();
+    expect(ratingProgramErrorName(6052)).toBe('EscrowJustLocked');
+    expect(ratingProgramErrorName(6053)).toBe('EscrowInstanceMismatch');
+    expect(ratingProgramErrorName(6054)).toBeUndefined();
     expect(ratingProgramErrorName(6002)).toBeUndefined();
   });
 });

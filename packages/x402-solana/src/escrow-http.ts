@@ -142,22 +142,20 @@ export async function verifyEscrowLock(connection: Connection, c: EscrowChalleng
 /**
  * The seller's exit of an escrow it accepted, signed by the payee: `claim`
  * (release to itself, once the claim window has elapsed) or `decline`
- * (everything back to the payer, at any time). For a receipt that says
- * `rated` the escrow's rating account follows the usual accounts and the
- * receipt's `openedSlot` follows the data, without which the program refuses
- * the exit; otherwise the instruction is exactly
- * `buildSettleTokenEscrowInstruction`'s. Throws for a rated receipt without a
- * valid `openedSlot`.
+ * (everything back to the payer, at any time). It names the escrow by the
+ * receipt's `slot`, the lock's slot, which the escrow recorded; an exit
+ * prepared for this escrow is refused (6053) once another escrow has taken
+ * the address. For a receipt that says `rated` the escrow's rating account
+ * follows the usual accounts. Throws for a receipt without a valid slot, or
+ * a rated one whose `openedSlot` is not that slot.
  */
-export function buildEscrowSellerExit(c: EscrowChallenge, receipt: Pick<EscrowReceipt, 'rated' | 'openedSlot'>, kind: 'claim' | 'decline'): TransactionInstruction {
+export function buildEscrowSellerExit(c: EscrowChallenge, receipt: Pick<EscrowReceipt, 'rated' | 'openedSlot' | 'slot'>, kind: 'claim' | 'decline'): TransactionInstruction {
   const t = escrowTerms(c);
   const rated = receipt.rated === true;
-  let openedSlot: bigint | undefined;
-  if (rated) {
-    if (typeof receipt.openedSlot !== 'string' || !/^(0|[1-9][0-9]{0,19})$/.test(receipt.openedSlot)) throw new Error('a rated receipt must carry the opened slot of its rating');
-    openedSlot = BigInt(receipt.openedSlot);
-  }
-  return buildTokenEscrowExitInstruction(t, { rated, openedSlot, refund: kind === 'decline', authority: t.payee });
+  if (!Number.isSafeInteger(receipt.slot) || receipt.slot < 0) throw new Error('the receipt must carry the slot of the lock');
+  const createdSlot = BigInt(receipt.slot);
+  if (rated && receipt.openedSlot !== createdSlot.toString()) throw new Error('a rated receipt must carry the opened slot of its rating, which is the slot of the lock');
+  return buildTokenEscrowExitInstruction(t, { rated, createdSlot, refund: kind === 'decline', authority: t.payee });
 }
 
 /** Single-process replay protection. Use durable atomic storage for multiple sellers/workers. */

@@ -4,6 +4,10 @@ All notable changes to this package are documented here. Dates are AEST.
 
 ## Unreleased
 
+### Changed
+
+- Every escrow exit names the escrow it ends, as the V1 program now requires: the escrow's lock slot (`created_slot`, u64 little-endian) follows the exit's data, rated or not. `withRatingAccount(exit, rated, createdSlot)` always appends it and throws without it; the SOL exit builders and `buildTokenEscrowExitInstruction` take `createdSlot` (or a rated job's `openedSlot`, the same slot). `meteredSettlement`, `meteredDecline` and `buildEscrowSellerExit` name the escrow from the verified lock or receipt. `verifyMeteredLock` refuses a rated lock whose rating's opened slot is not the escrow's lock slot. The session ledger and `sessionSettlement` refuse a lock at the session's address that was locked in another slot (`session_lock_mismatch`). `RATING_PROGRAM_ERRORS` names 6052 `EscrowJustLocked` and 6053 `EscrowInstanceMismatch`.
+
 ### Added
 
 - `session` module (re-exported from the root): the seller side of a metered session, one escrow paying for many calls with one settle (#863). `MeteredSessionLedger` (per-call sequence numbers, the worst-case check against the lock, running totals, saved through a `SessionStore` before each answer, `restore()` after a restart, `due()` for idle sessions and locks near their refund window), `readSessionHeaders` (`x402-session-sequence`, `x402-session: close`), `sessionSettlement` and `sessionPaymentHeader`. `verifyMeteredLock` gains `purpose` (`call`, `session-call`, `session-settle`) and returns the lock's `createdSlot`; `meteredEscrowReplayKey` is the key single calls and sessions share, so a lock pays for one or the other. It signs and sends nothing.

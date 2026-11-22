@@ -203,25 +203,37 @@ export async function releaseEscrowViaPer(
   return sig;
 }
 
+/** Offset of `created_slot` in a SOL escrow record (165 bytes, or 197 with a PER session key). */
+export const ESCROW_CREATED_SLOT_OFFSET = 105;
+
 /**
- * The escrow program's `release_escrow`, signed by the payer: no data after
- * the selector, and five accounts in this order: escrow (writable), payer
- * (signer, writable), payee (writable), protocol treasury (writable), System
- * program. The program pays the protocol fee to the treasury, so a release
- * without it is refused.
+ * The escrow program's `release_escrow`, signed by the payer: the escrow's
+ * lock slot (`createdSlot`, u64 little-endian) after the selector, and five
+ * accounts in this order: escrow (writable), payer (signer, writable), payee
+ * (writable), protocol treasury (writable), System program. The program pays
+ * the protocol fee to the treasury, so a release without it is refused.
+ *
+ * The lock slot names the escrow being ended, so a release signed for one
+ * escrow cannot end a later one at the same address; read it from the escrow
+ * record (`escrowCreatedSlot`). The program refuses an exit in the lock slot.
  *
  * This is the release of an escrow that is not opted in to rating. A rated
- * escrow also needs its rating account after these five and the rating's
- * opened slot after the selector; see `withRatingAccount` in
- * `@redditech/x402-solana`.
+ * escrow also needs its rating account after these five; see
+ * `withRatingAccount` in `@redditech/x402-solana`.
  */
 export function buildReleaseEscrowInstruction(
   escrowProgramId: PublicKey,
   escrowPda: PublicKey,
   payeePubkey: PublicKey,
   payerPubkey: PublicKey,
+  createdSlot: bigint,
   treasury: PublicKey = new PublicKey(PROTOCOL_TREASURY)
 ): TransactionInstruction {
+  if (typeof createdSlot !== "bigint" || createdSlot < BigInt(0) || createdSlot > BigInt("18446744073709551615")) {
+    throw new Error("createdSlot must be the escrow record's created_slot, as a u64 bigint");
+  }
+  const slot = Buffer.alloc(8);
+  slot.writeBigUInt64LE(createdSlot);
   return new TransactionInstruction({
     programId: escrowProgramId,
     keys: [
@@ -231,8 +243,17 @@ export function buildReleaseEscrowInstruction(
       { pubkey: treasury, isSigner: false, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
-    data: DISCRIMINATORS.release_escrow,
+    data: Buffer.concat([DISCRIMINATORS.release_escrow, slot]),
   });
+}
+
+/** The lock slot of the SOL escrow at `escrowPda`, read from its record. */
+export async function escrowCreatedSlot(connection: Connection, escrowPda: PublicKey): Promise<bigint> {
+  const account = await connection.getAccountInfo(escrowPda, "confirmed");
+  if (!account || account.data.length < ESCROW_CREATED_SLOT_OFFSET + 8) {
+    throw new Error(`escrow ${escrowPda.toBase58()} could not be read`);
+  }
+  return Buffer.from(account.data).readBigUInt64LE(ESCROW_CREATED_SLOT_OFFSET);
 }
 
 /**
@@ -258,7 +279,8 @@ export async function releaseEscrowFallback(
   payerKeypair: Keypair,
   connection: Connection
 ): Promise<string> {
-  const ix = buildReleaseEscrowInstruction(escrowProgramId, escrowPda, payeePubkey, payerKeypair.publicKey);
+  const createdSlot = await escrowCreatedSlot(connection, escrowPda);
+  const ix = buildReleaseEscrowInstruction(escrowProgramId, escrowPda, payeePubkey, payerKeypair.publicKey, createdSlot);
 
   const tx = new Transaction().add(ix);
   const { blockhash } = await connection.getLatestBlockhash();

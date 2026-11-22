@@ -127,7 +127,8 @@ class MeteredSessionLedger {
             return { ok: false, reason: 'session_key_mismatch', message: 'This session was started with another session key. Sign with the key it was started with.' };
         if (state.status !== 'open')
             return { ok: false, reason: 'session_closed', message: state.status === 'settled' ? 'This session has been settled. Lock a new escrow to go on.' : 'This session is closed and being settled. Lock a new escrow to go on.' };
-        if (state.payer !== input.lock.payer.toBase58() || state.maxBaseUnits !== input.lock.maxBaseUnits.toString()) {
+        // The lock slot tells this session's escrow from a later one locked at the same address.
+        if (state.payer !== input.lock.payer.toBase58() || state.maxBaseUnits !== input.lock.maxBaseUnits.toString() || state.createdSlot !== input.lock.createdSlot.toString()) {
             return { ok: false, reason: 'session_lock_mismatch', message: 'This lock no longer matches the session opened on it.' };
         }
         if (input.sequence !== state.sequence + 1) {
@@ -246,7 +247,7 @@ function sessionUsage(state) {
  * disagree, which would mean the receipts and the settle differ.
  */
 function sessionSettlement(terms, lock, state, payout) {
-    if (lock.maxBaseUnits.toString() !== state.maxBaseUnits || lock.payer.toBase58() !== state.payer)
+    if (lock.maxBaseUnits.toString() !== state.maxBaseUnits || lock.payer.toBase58() !== state.payer || lock.createdSlot.toString() !== state.createdSlot)
         throw new Error('the lock does not match the session');
     const settled = (0, provider_1.meteredSettlement)(terms, lock, sessionUsage(state), payout);
     if (settled.settlement.chargedBaseUnits.toString() !== state.costBaseUnits)

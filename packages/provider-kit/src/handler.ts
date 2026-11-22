@@ -503,6 +503,14 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
         log({ event: "session_settle_waiting", escrow, reason: lock.reason });
         return { status: "pending", state };
       }
+      if (lock.createdSlot.toString() !== state.createdSlot) {
+        // This session's escrow ended and another was locked at its address since: the session's
+        // calls are not that escrow's to pay, so it is left alone (its own exits name it).
+        const ended = BigInt(state.costBaseUnits) > 0n ? "refunded_unpaid" : "declined";
+        log({ event: "session_lock_replaced", escrow, cumulativeCost: state.costBaseUnits });
+        await ledger.finish(escrow, { status: ended }).catch(() => undefined);
+        return { status: ended, state };
+      }
       if (BigInt(state.costBaseUnits) === 0n) {
         try {
           const signature = await deps.chain.sendInstructions([meteredDecline(terms, lock)]);

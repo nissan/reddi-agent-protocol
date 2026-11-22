@@ -127,7 +127,10 @@ job's, `RatingJobMismatch` (6051). `withRatingAccount` in
 `@redditech/x402-solana/rating` adds both, and requires the slot for a rated exit.
 Read the slot when the job is agreed or verified and keep it with the job: a
 slot read again just before the exit would name whichever job holds the
-address by then. An exit of an escrow that is not rated is unchanged. A rated escrow has bit `0x02` set in its
+address by then. Every exit names its escrow this way, rated or not: an escrow's lock slot follows the data
+of each of its exits (a rated job's rating opens in that slot, so it is the same number), and the program
+refuses an exit naming another (`EscrowInstanceMismatch`, 6053) or landing in the lock slot
+(`EscrowJustLocked`, 6052). An exit of an escrow that is not rated takes no rating account. A rated escrow has bit `0x02` set in its
 flag byte; a rated metered escrow stores 3 there, so test the bits.
 
 What agreeing commits the seller to: it must commit and reveal its own score

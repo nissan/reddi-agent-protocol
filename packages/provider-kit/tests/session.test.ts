@@ -163,7 +163,8 @@ test("closing a session with no call recorded declines the lock: the buyer gets 
   assert.equal(((await closed.json()) as { status: string }).status, "declined");
   assert.equal(settles(chain), 1);
   const cancel = createHash("sha256").update("global:cancel_token_escrow").digest().subarray(0, 8);
-  assert.deepEqual([...chain.sent[0]![0]!.data], [...cancel], "a decline, not a settle");
+  assert.deepEqual([...chain.sent[0]![0]!.data.subarray(0, 8)], [...cancel], "a decline, not a settle");
+  assert.equal(chain.sent[0]![0]!.data.length, 16, "named by the escrow's lock slot");
 });
 
 test("a settle that does not land leaves the session closing and is tried again", async () => {
@@ -243,6 +244,22 @@ test("a signed call whose body was changed in transit is refused", async () => {
   const response = await handler(new Request("http://localhost:8787/v1/chat/completions", { method: "POST", headers, body: BODY.replace("x", "y") }));
   assert.equal(response.status, 401);
   assert.equal(model.calls, 0);
+});
+
+test("a later escrow locked at the session's address is not settled for the session's calls", async () => {
+  const { call, close, chain, events } = setup();
+  assert.equal((await call(1)).status, 200);
+  // The buyer refunded the session's escrow and locked another at the same address in a later slot.
+  const account = chain.accounts.get(ESCROW)!;
+  const data = Buffer.from(account.data);
+  data.writeBigUInt64LE(data.readBigUInt64LE(193) + 5n, 193);
+  chain.accounts.set(ESCROW, { ...account, data });
+  const refused = await call(2);
+  assert.equal(((await refused.json()) as { error: { code: string } }).error.code, "session_lock_mismatch");
+  const closed = await close();
+  assert.equal(((await closed.json()) as { status: string }).status, "refunded_unpaid");
+  assert.equal(settles(chain), 0, "nothing is sent against the later escrow");
+  assert.ok(events.some((e) => e.event === "session_lock_replaced"));
 });
 
 test("a lock the buyer refunded before the settle is recorded as unpaid, not settled (security review S-2)", async () => {

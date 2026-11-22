@@ -80,14 +80,14 @@ export declare function verifyEscrowLock(connection: Connection, c: EscrowChalle
 /**
  * The seller's exit of an escrow it accepted, signed by the payee: `claim`
  * (release to itself, once the claim window has elapsed) or `decline`
- * (everything back to the payer, at any time). For a receipt that says
- * `rated` the escrow's rating account follows the usual accounts and the
- * receipt's `openedSlot` follows the data, without which the program refuses
- * the exit; otherwise the instruction is exactly
- * `buildSettleTokenEscrowInstruction`'s. Throws for a rated receipt without a
- * valid `openedSlot`.
+ * (everything back to the payer, at any time). It names the escrow by the
+ * receipt's `slot`, the lock's slot, which the escrow recorded; an exit
+ * prepared for this escrow is refused (6053) once another escrow has taken
+ * the address. For a receipt that says `rated` the escrow's rating account
+ * follows the usual accounts. Throws for a receipt without a valid slot, or
+ * a rated one whose `openedSlot` is not that slot.
  */
-export declare function buildEscrowSellerExit(c: EscrowChallenge, receipt: Pick<EscrowReceipt, 'rated' | 'openedSlot'>, kind: 'claim' | 'decline'): TransactionInstruction;
+export declare function buildEscrowSellerExit(c: EscrowChallenge, receipt: Pick<EscrowReceipt, 'rated' | 'openedSlot' | 'slot'>, kind: 'claim' | 'decline'): TransactionInstruction;
 /** Single-process replay protection. Use durable atomic storage for multiple sellers/workers. */
 export declare class EscrowSeller {
     private connection;

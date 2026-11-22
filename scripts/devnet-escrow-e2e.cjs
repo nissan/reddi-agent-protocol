@@ -161,6 +161,19 @@ const solEscrow = (payer, nonce) => PublicKey.findProgramAddressSync([Buffer.fro
 const tokenEscrow = (payer, nonce) => PublicKey.findProgramAddressSync([Buffer.from('token-escrow'), payer.toBuffer(), nonce], PROGRAM)[0];
 const tokenVault = escrow => PublicKey.findProgramAddressSync([Buffer.from('token-vault'), escrow.toBuffer()], PROGRAM)[0];
 
+// Every exit names the escrow it ends by the slot it was locked in (u64 LE after its data): the escrow record's
+// created_slot. `send` records it for each lock it lands; a run that finds an escrow open reads it from the record.
+const LOCK_SLOTS = new Map();
+function noteLockSlot(escrow, data) {
+  const offset = data.length === 219 ? TOKEN_CREATED_SLOT_OFFSET : SOL_CREATED_SLOT_OFFSET;
+  LOCK_SLOTS.set(escrow.toBase58(), data.readBigUInt64LE(offset));
+}
+function naming(data, escrow) {
+  const slot = LOCK_SLOTS.get(escrow.toBase58());
+  assert(slot !== undefined, `the lock slot of escrow ${escrow.toBase58()} has not been read`);
+  return Buffer.concat([data, u64(slot)]);
+}
+
 function solLock({ payer, payee, nonce, amount, metered = false }) {
   return new TransactionInstruction({ programId: PROGRAM,
     data: Buffer.concat([disc(metered ? 'lock_metered_escrow' : 'lock_escrow'), u64(amount), nonce, u64(CLAIM_WINDOW_SLOTS), u64(CANCEL_WINDOW_SLOTS)]),
@@ -169,12 +182,12 @@ function solLock({ payer, payee, nonce, amount, metered = false }) {
 // Release / settle: the payer or the payee signs; whichever signed is the authority.
 function solPayout({ payer, payee, nonce, signer, actual }) {
   return new TransactionInstruction({ programId: PROGRAM,
-    data: actual === undefined ? disc('release_escrow') : Buffer.concat([disc('settle_escrow'), u64(actual)]),
+    data: naming(actual === undefined ? disc('release_escrow') : Buffer.concat([disc('settle_escrow'), u64(actual)]), solEscrow(payer, nonce)),
     keys: [meta(solEscrow(payer, nonce), true), meta(payer, true, signer === 'payer'), meta(payee, true, signer === 'payee'),
       meta(TREASURY, true), meta(SystemProgram.programId)] });
 }
 function solCancel({ payer, nonce, authority }) {
-  return new TransactionInstruction({ programId: PROGRAM, data: disc('cancel_escrow'),
+  return new TransactionInstruction({ programId: PROGRAM, data: naming(disc('cancel_escrow'), solEscrow(payer, nonce)),
     keys: [meta(solEscrow(payer, nonce), true), meta(authority, false, true), meta(payer, true), meta(SystemProgram.programId)] });
 }
 
@@ -188,13 +201,13 @@ function usdcLock({ payer, payee, nonce, amount, source, recipient, metered = fa
 function usdcPayout({ payer, nonce, authority, destination, refund, actual }) {
   const escrow = tokenEscrow(payer, nonce);
   return new TransactionInstruction({ programId: PROGRAM,
-    data: actual === undefined ? disc('release_token_escrow') : Buffer.concat([disc('settle_token_escrow'), u64(actual)]),
+    data: naming(actual === undefined ? disc('release_token_escrow') : Buffer.concat([disc('settle_token_escrow'), u64(actual)]), escrow),
     keys: [meta(escrow, true), meta(tokenVault(escrow), true), meta(authority, false, true), meta(payer, true), meta(USDC),
       meta(destination, true), meta(TREASURY_USDC, true), meta(refund, true), meta(TOKEN)] });
 }
 function usdcCancel({ payer, nonce, authority, destination }) {
   const escrow = tokenEscrow(payer, nonce);
-  return new TransactionInstruction({ programId: PROGRAM, data: disc('cancel_token_escrow'),
+  return new TransactionInstruction({ programId: PROGRAM, data: naming(disc('cancel_token_escrow'), escrow),
     keys: [meta(escrow, true), meta(tokenVault(escrow), true), meta(authority, false, true), meta(payer, true), meta(USDC),
       meta(destination, true), meta(TOKEN)] });
 }
@@ -225,6 +238,7 @@ async function tokenAmount(conn, address) {
 // The fee payer is the first signer. It matters: a fee payer always signs, and the SOL release and settle
 // instructions take whichever party signed as the authority (payer first). So a payee action must be signed, and
 // paid for, by the payee alone, or the program sees a payer action.
+const LOCK_DISCS = ['lock_escrow', 'lock_metered_escrow', 'lock_token_escrow', 'lock_metered_token_escrow'].map(name => disc(name));
 function makeSender(conn) {
   async function build(ixs, signers) {
     const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash('confirmed');
@@ -251,6 +265,12 @@ function makeSender(conn) {
       if (status?.err) throw new Error(`${label} failed: ${JSON.stringify(status.err)} ${explorer(signature)}`);
       if (status?.confirmationStatus === 'finalized') {
         console.log(`  ✓ ${label}  ${explorer(signature)}`);
+        for (const ix of ixs) {
+          if (!ix.programId.equals(PROGRAM) || !LOCK_DISCS.some(d => ix.data.subarray(0, 8).equals(d))) continue;
+          const info = await conn.getAccountInfo(ix.keys[0].pubkey, 'finalized');
+          assert(info, `${label}: the escrow it locked could not be read`);
+          noteLockSlot(ix.keys[0].pubkey, info.data);
+        }
         return signature;
       }
       await sleep(800);
@@ -378,7 +398,9 @@ async function run(conn, runId) {
       const nonce = nonceFor(leftoverRunId, label);
       const sol = label.startsWith('sol-');
       const address = sol ? solEscrow(payer, nonce) : tokenEscrow(payer, nonce);
-      if (!(await conn.getAccountInfo(address, 'confirmed'))) continue;
+      const info = await conn.getAccountInfo(address, 'confirmed');
+      if (!info) continue;
+      noteLockSlot(address, info.data);
       const ix = sol
         ? solCancel({ payer, nonce, authority: payee })
         : usdcCancel({ payer, nonce, authority: payee, destination: source });
@@ -505,6 +527,7 @@ async function openEscrowStatus(conn, payer, runId) {
   ]) {
     const info = await conn.getAccountInfo(address, 'confirmed');
     if (!info) { status[label] = { address: address.toBase58(), open: false }; continue; }
+    noteLockSlot(address, info.data);
     const created = Number(info.data.readBigUInt64LE(offset));
     status[label] = { address: address.toBase58(), open: true, createdSlot: created, opensAtSlot: created + window,
       slotsRemaining: Math.max(0, created + window - slot) };
@@ -675,7 +698,7 @@ function ratedLane({ payer, payee, judge, runId, openedSlots = {} }) {
 
   // Job 1: SOL, metered, rated, with a judge. The seller agrees by being the authority of the settle.
   send('job1.lock-and-open-rating', 'payer', job1Lock.instructions, 'lock_metered_escrow and open_rating in one transaction');
-  refuse('job1.settle-without-rating-account', 'payee', [rating.buildSettleSolEscrowInstruction({ ...sol(escrows.job1), actual: a.solMeteredActual, rated: false })],
+  refuse('job1.settle-without-rating-account', 'payee', [rating.buildSettleSolEscrowInstruction({ ...sol(escrows.job1), actual: a.solMeteredActual, rated: false, createdSlot: slot('job1') })],
     ERR.RatingAccountRequired, 'every exit of a rated escrow takes the rating account');
   refuse('job1.commit-before-paid', 'payer', [commit(escrows.job1, 'payer', RATED_SCORES.job1Consumer, 'job1')], ERR.JobNotPaid, 'rating not open yet');
   refuse('job1.settle-stale-slot', 'payee', [rating.buildSettleSolEscrowInstruction({ ...sol(escrows.job1), actual: a.solMeteredActual, rated: true,
@@ -738,7 +761,7 @@ function ratedLane({ payer, payee, judge, runId, openedSlots = {} }) {
   send('unrated.lock', 'payer', [rating.buildLockSolEscrowInstruction(solTerms('rated-sol-unrated', a.solUnrated))]);
   refuse('unrated.open-rating-in-a-later-slot', 'payer', [rating.buildOpenRatingInstruction({ ...of(escrows.unrated), payer })], ERR.RatingOptInClosed);
   refuse('unrated.commit-never-opted-in', 'payer', [commit(escrows.unrated, 'payer', 5, 'unrated', null)], ERR.AccountNotInitialized);
-  send('unrated.decline', 'payee', [rating.buildCancelSolEscrowInstruction({ ...of(escrows.unrated), payer, authority: payee, rated: false })]);
+  send('unrated.decline', 'payee', [rating.buildCancelSolEscrowInstruction({ ...of(escrows.unrated), payer, authority: payee, rated: false, createdSlot: slot('unrated') })]);
 
   // PER is not part of V1: the build answers neither selector.
   refuse('per.delegate_escrow', 'payer', [unknownSelector('delegate_escrow')], ERR.InstructionFallbackNotFound);
@@ -772,10 +795,11 @@ function ratedPlan(input) {
     scores: RATED_SCORES,
     escrows: Object.fromEntries(Object.entries(lane.escrows).map(([name, escrow]) => [name, { escrow: text(escrow), rating: text(lane.ratings[name]) }])),
     attestation: text(lane.attestation),
-    openedSlots: Object.fromEntries(['job1', 'job2', 'decline', 'unaccepted'].map(name => [name, lane.openedSlots[name]?.toString() ?? null])),
+    openedSlots: Object.fromEntries(['job1', 'job2', 'decline', 'unaccepted', 'unrated'].map(name => [name, lane.openedSlots[name]?.toString() ?? null])),
     openedSlotNote: 'every rated exit, accept_rating, commit_rating and the commitments, attest_quality and the decision on an attestation '
       + 'name the job by its rating\'s opened_slot, which run-rated reads from the rating account after each lock. A step listing '
-      + 'openedSlotOf is shown with slot 0 until then (a stale-slot refusal with 1).',
+      + 'openedSlotOf is shown with slot 0 until then (a stale-slot refusal with 1). Every exit, rated or not, also names its escrow by '
+      + 'its lock slot (a rated job\'s opened slot is that slot); the unrated escrow\'s lock slot is listed as "unrated".',
     steps: lane.steps.map(step => step.kind === 'skip' ? { id: step.id, mode: step.mode, kind: 'skip', note: step.note } : {
       id: step.id, mode: step.mode, kind: step.kind, signer: step.signer, ...(step.kind === 'refuse' ? { mustFailWith: step.code } : {}),
       ...(step.codeIfSignerUnregistered ? { mustFailWithIfSignerUnregistered: step.codeIfSignerUnregistered } : {}),
@@ -914,10 +938,12 @@ async function runRated(conn, runId) {
       // A rated decline names the job: the opened slot of the rating now at this escrow, one of this lane's own.
       const leftoverRating = rated ? await readRating(conn, escrow) : null;
       assert(!rated || leftoverRating, `leftover ${leftoverRunId}/${name}: rated escrow without its rating account`);
-      const openedSlot = leftoverRating ? leftoverRating.openedSlot : undefined;
+      // Every decline names its escrow by the lock slot; a rated one's rating opened in that slot.
+      const createdSlot = rating.escrowAccountFlags(info.data)?.kind === 'token' ? info.data.readBigUInt64LE(TOKEN_CREATED_SLOT_OFFSET) : info.data.readBigUInt64LE(SOL_CREATED_SLOT_OFFSET);
+      assert(!leftoverRating || leftoverRating.openedSlot === createdSlot, `leftover ${leftoverRunId}/${name}: the rating is not this escrow's job`);
       const ix = name === 'job2'
-        ? rating.buildTokenEscrowExitInstruction(old.usdcTerms, { rated, openedSlot, refund: true, authority: payee })
-        : rating.buildCancelSolEscrowInstruction({ programId: PROGRAM, escrow, payer, authority: payee, rated, openedSlot });
+        ? rating.buildTokenEscrowExitInstruction(old.usdcTerms, { rated, createdSlot, refund: true, authority: payee })
+        : rating.buildCancelSolEscrowInstruction({ programId: PROGRAM, escrow, payer, authority: payee, rated, createdSlot });
       const sig = await send(`close leftover ${leftoverRunId}/${name}`, [local(ix)], [payeeKp]);
       await assertClosed(conn, escrow, ...(rated ? [old.ratings[name]] : []));
       step(`close leftover ${leftoverRunId}/${name}`, sig, { escrow: escrow.toBase58(), declinedByPayee: true, rated });
@@ -1198,8 +1224,12 @@ async function runRated(conn, runId) {
   console.log('Escrow never opted in, and the PER selectors');
   {
     let sig = await go('unrated.lock');
-    const flags = rating.escrowAccountFlags((await conn.getAccountInfo(escrows.unrated, 'finalized')).data);
+    const unratedData = (await conn.getAccountInfo(escrows.unrated, 'finalized')).data;
+    const flags = rating.escrowAccountFlags(unratedData);
     assert.deepEqual(flags, { kind: 'sol', metered: false, rated: false }, 'unrated: escrow flag byte');
+    // Its decline names it by the lock slot, as every exit does.
+    openedSlots.unrated = unratedData.readBigUInt64LE(SOL_CREATED_SLOT_OFFSET);
+    assert.equal(openedSlots.unrated, await slotOf(sig), 'unrated: created_slot is the slot of the lock');
     step('unrated-case lock', sig, { amount: a.solUnrated.toString() });
     await no('unrated.open-rating-in-a-later-slot');
     await no('unrated.commit-never-opted-in');

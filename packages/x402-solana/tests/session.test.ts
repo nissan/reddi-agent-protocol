@@ -287,6 +287,19 @@ describe('MeteredSessionLedger', () => {
     expect((await ledger.begin({ lock: l, escrow, sequence: 1, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 })).ok).toBe(true);
   });
 
+  test('a later escrow locked at the session\'s address cannot go on with the session', async () => {
+    const ledger = new MeteredSessionLedger(terms);
+    const replayStore = new MemoryNonceReplayStore();
+    const l = await lock();
+    const begun = await ledger.begin({ lock: l, escrow, sequence: 1, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 });
+    if (!begun.ok) throw new Error();
+    await ledger.record(begun.reservation, CALL, undefined, 0);
+    const next = { ...l, createdSlot: l.createdSlot + 5n };
+    expect(await ledger.begin({ lock: next, escrow, sequence: 2, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 })).toMatchObject({ ok: false, reason: 'session_lock_mismatch' });
+    expect(ledger.get(escrow)).toMatchObject({ sequence: 1 });
+    expect((await ledger.begin({ lock: l, escrow, sequence: 2, sessionKey: KEY, worstCase: CALL, replayStore, nowMs: 0 })).ok).toBe(true);
+  });
+
   test('the settle refuses a lock that is not the session’s', async () => {
     const ledger = new MeteredSessionLedger(terms);
     const l = await lock();
@@ -294,6 +307,8 @@ describe('MeteredSessionLedger', () => {
     if (!begun.ok) throw new Error();
     const recorded = await ledger.record(begun.reservation, CALL, undefined, 0);
     expect(() => sessionSettlement(terms, { ...l, maxBaseUnits: 1n }, recorded.state)).toThrow('does not match');
+    // A later escrow locked at the same address, with the same payer and maximum, is not this session's.
+    expect(() => sessionSettlement(terms, { ...l, createdSlot: l.createdSlot + 5n }, recorded.state)).toThrow('does not match');
     expect(() => sessionSettlement(terms, l, { ...recorded.state, costBaseUnits: '1' })).toThrow('different amount');
   });
 });

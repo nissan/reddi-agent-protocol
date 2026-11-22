@@ -38,7 +38,7 @@ passes, whatever the finding counts say.
 - [ ] S1.21 No path lets a third party move funds, and no path lets the payer take more than it deposited or the payee more than it is owed.
 
 ### Rating and attestation
-- [ ] S1.22 A rating opens only with the seller's consent and is bound to one job (`opened_slot`); an unrated exit naming a job is refused.
+- [ ] S1.22 A rating opens only with the seller's consent and is bound to one job (`opened_slot`); every exit, rated or not, names its escrow by `created_slot` and is refused for any other escrow at the same address.
 - [ ] S1.23 Commit, reveal, expire and close always reach a final state; neither party can stall the other forever.
 - [ ] S1.24 Attestations are bound to a real paid job and cannot be squatted by an unrelated judge.
 - [ ] S1.25 A refused instruction never changes an agent's record.

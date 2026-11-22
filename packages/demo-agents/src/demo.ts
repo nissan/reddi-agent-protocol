@@ -166,11 +166,27 @@ function encodeLockEscrow(amount: bigint, nonce: Uint8Array): Buffer {
   return buf;
 }
 
-function encodeReleaseEscrow(): Buffer {
+/** Offset of `created_slot` in a SOL escrow record (165 bytes, or 197 with a PER session key). */
+const ESCROW_CREATED_SLOT_OFFSET = 105;
+
+/**
+ * `release_escrow` names the escrow it ends by the slot it was locked in, read
+ * from the escrow record: a release signed for one escrow cannot end a later
+ * one at the same address. The program refuses an exit in the lock slot itself.
+ */
+function encodeReleaseEscrow(createdSlot: bigint): Buffer {
   if (PROGRAM_TARGET === "quasar") {
     throw new Error("encodeReleaseEscrow requires escrow_id in Quasar mode");
   }
-  return disc("release_escrow");
+  const slot = Buffer.alloc(8);
+  slot.writeBigUInt64LE(createdSlot);
+  return Buffer.concat([disc("release_escrow"), slot]);
+}
+
+async function escrowCreatedSlot(escrow: PublicKey): Promise<bigint> {
+  const account = await connection.getAccountInfo(escrow, "confirmed");
+  if (!account || account.data.length < ESCROW_CREATED_SLOT_OFFSET + 8) throw new Error(`escrow ${escrow.toBase58()} could not be read`);
+  return account.data.readBigUInt64LE(ESCROW_CREATED_SLOT_OFFSET);
 }
 
 function encodeQuasarReleaseEscrow(escrowId: bigint): Buffer {
@@ -371,6 +387,7 @@ async function runDemo() {
   let settlementSig: string;
 
   const releaseViaL1 = async (): Promise<string> => {
+    const releaseData = PROGRAM_TARGET === "quasar" ? encodeQuasarReleaseEscrow(quasarEscrowId!) : encodeReleaseEscrow(await escrowCreatedSlot(ePda));
     const releaseL1Ix = new TransactionInstruction({
       programId: PROGRAM_ID,
       keys: PROGRAM_TARGET === "quasar"
@@ -388,7 +405,7 @@ async function runDemo() {
             { pubkey: new PublicKey(PROTOCOL_TREASURY), isSigner: false, isWritable: true },
             { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
           ],
-      data: PROGRAM_TARGET === "quasar" ? encodeQuasarReleaseEscrow(quasarEscrowId!) : encodeReleaseEscrow(),
+      data: releaseData,
     });
     return sendTx(releaseL1Ix, [AGENT_A_KEYPAIR]);
   };

@@ -454,7 +454,9 @@ export async function verifyMeteredLock(input: {
     } catch {
       rating = undefined;
     }
-    if (!rating || !rating.escrow.equals(header.escrow) || rating.state !== 'awaiting_settlement') {
+    // A rating opens in its escrow's lock slot, so a rating whose opened slot
+    // is not this escrow's lock slot belongs to another job at this address.
+    if (!rating || !rating.escrow.equals(header.escrow) || rating.state !== 'awaiting_settlement' || rating.openedSlot !== escrow.createdSlot) {
       return { ok: false, reason: 'invalid_receipt', message: "This escrow is opted in to rating, but its rating account could not be read as this job's. Nothing was accepted." };
     }
     openedSlot = rating.openedSlot;
@@ -511,10 +513,9 @@ export function usageFrom(upstream: Record<string, unknown>, inputEstimate: numb
  * The settle for the tokens used, never above the locked maximum. It pays
  * into the accounts checked with the lock (`lock.payout`), or into `payout`
  * when the caller has checked them again. Nothing is created unless that
- * check chose to create the buyer's token account. The settle of a rated
- * lock carries the escrow's rating account after the usual accounts and the
- * job's opened slot (`lock.openedSlot`) after its data; for a lock that is
- * not rated the instruction is unchanged.
+ * check chose to create the buyer's token account. The settle names the
+ * escrow by its lock slot (`lock.createdSlot`) after its data, and a rated
+ * lock's settle carries the escrow's rating account after the usual accounts.
  */
 export function meteredSettlement(
   terms: MeteredTerms,
@@ -535,7 +536,7 @@ export function meteredSettlement(
       ...(payout.harvestWithheldFees ? { harvestWithheldFees: true } : {}),
     }),
     lock.rated === true,
-    lock.openedSlot,
+    lock.createdSlot,
   );
   return { settlement, instruction, instructions: [...prep.instructions, instruction] };
 }
@@ -618,7 +619,7 @@ export function confirmMeteredSettlement(
  * job that was not paid is not rated.
  */
 export function meteredDecline(terms: MeteredTerms, lock: Extract<VerifiedLock, { ok: true }>): TransactionInstruction {
-  return withRatingAccount(buildSettleTokenEscrowInstruction(lock.terms, true, terms.payee, lock.payout.harvestWithheldFees ? { harvestWithheldFees: true } : {}), lock.rated === true, lock.openedSlot);
+  return withRatingAccount(buildSettleTokenEscrowInstruction(lock.terms, true, terms.payee, lock.payout.harvestWithheldFees ? { harvestWithheldFees: true } : {}), lock.rated === true, lock.createdSlot);
 }
 
 /** The rating account a rated lock's settle and decline carry, or undefined for a lock that is not rated. */
