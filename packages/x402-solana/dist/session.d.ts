@@ -55,6 +55,9 @@ export interface SessionState {
     /** The slot the lock was made in and its refund window: the session is settled before the buyer may refund. */
     createdSlot: string;
     cancelWindowSlots: string;
+    /** The lock's funding account and claim window, kept so a later lock at the same address is not taken for this one. Absent on sessions saved before they were kept. */
+    source?: string;
+    claimWindowSlots?: string;
     /** The last call served and recorded. 0 before the first. */
     sequence: number;
     inputTokens: number;
@@ -70,7 +73,43 @@ export interface SessionState {
     settleSignature?: string;
     /** The signed receipt of the settle, kept for a buyer who asks after the session closed. */
     closingReceipt?: unknown;
+    /**
+     * A settle signed and saved before it was sent. Until it is known to have
+     * landed or to be unable to land, it is the only transaction that can count
+     * as this session's settle.
+     */
+    pendingSettle?: PendingSettle;
 }
+/**
+ * A settle transaction recorded before it is sent: its signature, the signed
+ * transaction (base64) so it can be sent again unchanged, the last block height
+ * it can land at, and the settle instruction it carries.
+ */
+export interface PendingSettle {
+    signature: string;
+    transaction: string;
+    lastValidBlockHeight: number;
+    instruction: {
+        programId: string;
+        accounts: string[];
+        data: string;
+    };
+    /** Where the settle pays: the provider's account, the treasury's, and the buyer's for the unused part. */
+    destination: string;
+    treasuryToken: string;
+    refundTo: string;
+    requestId?: string;
+}
+/**
+ * True when a lock read back is the same lock a session was opened on: same
+ * payer, maximum, creation slot and refund window, and (when the session kept
+ * them) the same funding account and claim window. A lock closed and made again
+ * at the same address is a different lock, and a session's calls are never
+ * charged to it.
+ */
+export declare function lockMatchesSession(lock: Extract<VerifiedLock, {
+    ok: true;
+}>, state: SessionState): boolean;
 /** Where the ledger saves sessions so a restart can go on or settle them. `save` must be durable before it resolves. */
 export interface SessionStore {
     load(): SessionState[] | Promise<SessionState[]>;
@@ -142,6 +181,12 @@ export declare class MeteredSessionLedger {
     preview(reservation: SessionReservation, usage: TokenCounts): SessionState;
     /** Stops new calls on a session, so it can be settled. Refused while a call of it is running. */
     close(escrow: PublicKey | string): Promise<SessionState | undefined>;
+    /**
+     * Saves the settle about to be sent, or clears it (`undefined`) once it is
+     * known that it cannot land. Durable before it resolves, so a settle is never
+     * sent without a record of it.
+     */
+    markSettling(escrow: string, pending: PendingSettle | undefined): Promise<void>;
     /** Records the settle (or, for a session with nothing to charge, the decline) that ended a session. */
     finish(escrow: string, outcome: {
         status: 'settled' | 'declined' | 'refunded_unpaid';

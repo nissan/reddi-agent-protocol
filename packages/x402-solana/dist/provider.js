@@ -14,6 +14,8 @@ exports.verifyMeteredLock = verifyMeteredLock;
 exports.meteredEscrowReplayKey = meteredEscrowReplayKey;
 exports.usageFrom = usageFrom;
 exports.meteredSettlement = meteredSettlement;
+exports.recordedInstruction = recordedInstruction;
+exports.transactionHasOnlyInstruction = transactionHasOnlyInstruction;
 exports.confirmMeteredSettlement = confirmMeteredSettlement;
 exports.meteredDecline = meteredDecline;
 exports.meteredRatingAccount = meteredRatingAccount;
@@ -325,7 +327,17 @@ async function verifyMeteredLock(input) {
         }
         openedSlot = rating.openedSlot;
     }
-    const payout = await checkMeteredPayout({ terms, escrow, readAccount: input.readAccount, ...(input.treasury ? { treasury: input.treasury } : {}) });
+    // Reading a lock back to settle calls already served: if the account that
+    // funded it is gone, the unused part goes to the payer's associated token
+    // account, created by the settle at the provider's cost when it does not
+    // exist and the provider allowed that.
+    const payout = await checkMeteredPayout({
+        terms,
+        escrow,
+        readAccount: input.readAccount,
+        ...(input.treasury ? { treasury: input.treasury } : {}),
+        ...(purpose === 'session-settle' ? { allowPayerAssociatedAccount: true, createRefundAccount: input.createRefundAccount === true } : {}),
+    });
     if (!payout.ok)
         return payout;
     if (purpose === 'call' && !(await input.replayStore.checkAndStore(meteredEscrowReplayKey(header.escrow)))) {
@@ -396,6 +408,31 @@ function meteredSettlement(terms, lock, usage, payout = lock.payout) {
     }), lock.rated === true, lock.openedSlot);
     return { settlement, instruction, instructions: [...prep.instructions, instruction] };
 }
+/** The form a settle instruction is recorded and compared in. */
+function recordedInstruction(instruction) {
+    return {
+        programId: instruction.programId.toBase58(),
+        accounts: instruction.keys.map((key) => key.pubkey.toBase58()),
+        data: Buffer.from(instruction.data).toString('base64'),
+    };
+}
+/**
+ * True when the transaction calls the escrow program exactly once, with
+ * exactly `expected`: the same accounts in the same order and the same data.
+ * So the credits read from its balances are this settle's, not another
+ * instruction's.
+ */
+function transactionHasOnlyInstruction(record, expected) {
+    if (!record.instructions)
+        return false;
+    const calls = record.instructions.filter((ix) => ix.programId === expected.programId);
+    if (calls.length !== 1)
+        return false;
+    const [call] = calls;
+    return call.data === expected.data
+        && call.accounts.length === expected.accounts.length
+        && call.accounts.every((account, index) => account === expected.accounts[index]);
+}
 /**
  * The amounts a settle actually moved, from the confirmed transaction: it
  * must have succeeded, called the escrow program and named this escrow (and,
@@ -415,6 +452,8 @@ function confirmMeteredSettlement(record, expected) {
     if (record.failed)
         return { ok: false, reason: 'failed' };
     if (!record.programIds.includes(expected.programId.toBase58()) || !record.accounts.includes(expected.escrow.toBase58()))
+        return { ok: false, reason: 'wrong_transaction' };
+    if (expected.instruction && (expected.instruction.programId !== expected.programId.toBase58() || !transactionHasOnlyInstruction(record, expected.instruction)))
         return { ok: false, reason: 'wrong_transaction' };
     if (expected.rating && !record.accounts.includes(expected.rating.toBase58()))
         return { ok: false, reason: 'wrong_transaction' };

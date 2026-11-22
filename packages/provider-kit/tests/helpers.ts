@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { SOLANA_GENESIS_HASHES, tokenEscrowAddresses, treasuryTokenAccount, ESCROW_PROTOCOL_TREASURY, type SettlementRecord } from "@redditech/x402-solana";
+import { recordedInstruction, SOLANA_GENESIS_HASHES, tokenEscrowAddresses, treasuryTokenAccount, ESCROW_PROTOCOL_TREASURY, type SettlementRecord } from "@redditech/x402-solana";
 import type { ProviderChain } from "../src/chain.js";
 import { parseProviderConfig, type ProviderConfig, type ProviderConfigFile } from "../src/config.js";
 
@@ -87,12 +87,17 @@ export interface FakeChain extends ProviderChain {
   failEscrowReadsAfterSend: boolean;
   attempts: number;
   landedMax?: bigint;
-  /** The settle's signature cannot be found afterwards. */
-  hideSignatures?: boolean;
+  /** Where a signature stands cannot be read (an RPC outage): `signatureState` answers `unknown`. */
+  statusUnknown: boolean;
+  /** Signatures that landed. */
+  landed: Set<string>;
+  /** Signed settles by signature. */
+  signed: Map<string, TransactionInstruction[]>;
 }
 
 /** What the program does with a settle of `actual`: 2.5% rounded down to the treasury, the rest to the payee, the unused maximum back. */
-function settledRecord(instruction: TransactionInstruction, max: bigint, donated: bigint): SettlementRecord {
+function settledRecord(instructions: TransactionInstruction[], max: bigint, donated: bigint): SettlementRecord {
+  const instruction = instructions[instructions.length - 1];
   const actual = instruction.data.readBigUInt64LE(8);
   const fee = (actual * 250n) / 10_000n;
   const row = (index: number, before: bigint, gain: bigint) => ({ account: instruction.keys[index].pubkey.toBase58(), mint: USDC.toBase58(), before, after: before + gain });
@@ -101,6 +106,7 @@ function settledRecord(instruction: TransactionInstruction, max: bigint, donated
     programIds: [instruction.programId.toBase58()],
     accounts: instruction.keys.map((k) => k.pubkey.toBase58()),
     tokenBalances: [row(5, 1_000n, actual - fee), row(6, 40n, fee), row(7, 0n, max - actual + donated)],
+    instructions: instructions.map((ix) => recordedInstruction(ix)),
   };
 }
 
@@ -126,6 +132,9 @@ export function fakeChain(escrow: EscrowFields | null = {}): FakeChain {
     landButReportFailure: false,
     failEscrowReadsAfterSend: false,
     attempts: 0,
+    statusUnknown: false,
+    landed: new Set(),
+    signed: new Map(),
     readGenesisHash: async () => chain.genesis,
     readAccount: async (address) => {
       if (chain.failReads) throw new Error("rpc down");
@@ -134,10 +143,25 @@ export function fakeChain(escrow: EscrowFields | null = {}): FakeChain {
     },
     readSlot: async () => CURRENT_SLOT,
     sendInstructions: async (instructions) => {
+      if (chain.failSend) throw new Error("send failed");
+      chain.sent.push(instructions);
+      return `decline-${chain.sent.length}`;
+    },
+    signInstructions: async (instructions) => {
+      // Later settles get other signatures of the same shape: 88 base58 characters.
+      const signature = chain.signed.size === 0 ? SETTLE_SIGNATURE : "6789ABCDEFGH"[chain.signed.size - 1].repeat(88);
+      chain.signed.set(signature, instructions);
+      return { signature, transaction: Buffer.from(signature).toString("base64"), lastValidBlockHeight: 1_000 };
+    },
+    sendSigned: async (signed) => {
+      const instructions = chain.signed.get(signed.signature);
+      if (!instructions) throw new Error("unknown transaction");
+      if (chain.landed.has(signed.signature)) return signed.signature;
       chain.attempts += 1;
       if (chain.landButReportFailure) {
         chain.landButReportFailure = false;
         chain.sent.push(instructions);
+        chain.landed.add(signed.signature);
         chain.landedMax = Buffer.from(accounts.get(escrowAddress().toBase58())!.data).readBigUInt64LE(168);
         accounts.delete(escrowAddress().toBase58()); // a settle closes the escrow
         throw new Error("confirmation timed out");
@@ -148,16 +172,21 @@ export function fakeChain(escrow: EscrowFields | null = {}): FakeChain {
         throw new Error("send failed");
       }
       chain.sent.push(instructions);
-      return SETTLE_SIGNATURE;
+      chain.landed.add(signed.signature);
+      return signed.signature;
     },
-    readSettlement: async () => {
+    signatureState: async (signature) => {
+      if (chain.landed.has(signature)) return "landed";
+      return chain.statusUnknown ? "unknown" : "expired";
+    },
+    readSettlement: async (signature) => {
       if (chain.settlement === "unreadable") throw new Error("rpc down");
       if (chain.settlement !== undefined) return chain.settlement;
-      const last = chain.sent[chain.sent.length - 1];
-      const max = chain.landedMax ?? Buffer.from(accounts.get(escrowAddress().toBase58())!.data).readBigUInt64LE(168);
-      return last ? settledRecord(last[last.length - 1], max, chain.donated) : null;
+      const instructions = chain.landed.has(signature) ? chain.signed.get(signature) : undefined;
+      const escrowAccount = accounts.get(escrowAddress().toBase58());
+      const max = chain.landedMax ?? (escrowAccount ? Buffer.from(escrowAccount.data).readBigUInt64LE(168) : 0n);
+      return instructions ? settledRecord(instructions, max, chain.donated) : null;
     },
-    latestSuccess: async () => (chain.sent.length > 0 && !chain.hideSignatures ? SETTLE_SIGNATURE : null),
   };
   return chain;
 }

@@ -10,7 +10,8 @@ import { MemoryNonceReplayStore, MeteredSessionLedger, SESSION_DELEGATION_HEADER
 import { createProviderHandler, PROVIDER_RECEIPT_HEADER, SESSION_RECEIPT_HEADER, SESSION_STATE_HEADER } from "../src/handler.js";
 import { FileSessionStore } from "../src/sessions.js";
 import type { Upstream } from "../src/upstream.js";
-import { buyerKeypair, singleCallHeaders, config, escrowAddress, fakeChain, paymentHeader, provider, type FakeChain } from "./helpers.js";
+import { ata, buyer, buyerKeypair, configFile, CURRENT_SLOT, escrowBytes, singleCallHeaders, config, escrowAddress, fakeChain, paymentHeader, provider, SETTLE_SIGNATURE, type FakeChain } from "./helpers.js";
+import { parseProviderConfig } from "../src/config.js";
 
 const privateKey = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(provider.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
 const signMessage = (message: Uint8Array) => edSign(null, message, privateKey);
@@ -43,11 +44,11 @@ function upstream(fail = false): Upstream & { calls: number; fail: boolean } {
   return u;
 }
 
-function setup(options: { chain?: FakeChain; store?: SessionStore; replayStore?: NonceReplayStore; sessions?: boolean } = {}) {
+function setup(options: { chain?: FakeChain; store?: SessionStore; replayStore?: NonceReplayStore; sessions?: boolean; file?: Parameters<typeof config>[0] } = {}) {
   const chain = options.chain ?? fakeChain();
   const clock = { ms: Date.parse("2026-12-05T00:00:00.000Z") };
   const events: Record<string, unknown>[] = [];
-  const cfg = config();
+  const cfg = config(options.file);
   const ledger = new MeteredSessionLedger(cfg.terms, options.store);
   const model = upstream();
   const handler = createProviderHandler(cfg, {
@@ -249,10 +250,91 @@ test("a lock the buyer refunded before the settle is recorded as unpaid, not set
   const { call, close, chain, events } = setup();
   assert.equal((await call(1)).status, 200);
   chain.accounts.delete(ESCROW);
-  const refund = "R".repeat(88);
-  chain.latestSuccess = async () => refund;
-  chain.settlement = { failed: false, programIds: [config().terms.programId.toBase58()], accounts: [ESCROW], tokenBalances: [{ account: config().terms.payee.toBase58(), mint: config().terms.mint.toBase58(), before: 0n, after: 0n }] };
   const closed = await close();
   assert.equal(((await closed.json()) as { status: string }).status, "refunded_unpaid");
-  assert.ok(events.some((e) => e.event === "session_refunded_unpaid" && e.signature === refund));
+  assert.ok(events.some((e) => e.event === "session_refunded_unpaid" && e.alert === true));
+  assert.equal(chain.signed.size, 0, "no settle was signed for a lock that is gone");
+});
+
+test("a buyer who closes the account its lock came from cannot block the settle: within the operator's daily bound the kit creates its associated account and settles", async () => {
+  const { call, close, chain, events } = setup({ file: { refundAccountSubsidy: { maxPerDay: 1 } } });
+  assert.equal((await call(1)).status, 200);
+  chain.accounts.delete(ata(buyer).toBase58());
+  const closed = await close();
+  assert.equal(((await closed.json()) as { status: string }).status, "settled");
+  const settle = chain.sent[chain.sent.length - 1];
+  assert.equal(settle.length, 2, "the settle creates the buyer's account first, at the provider's cost");
+  assert.ok(settle[0].keys[0].pubkey.equals(provider.publicKey) && settle[0].keys[1].pubkey.equals(ata(buyer)) && settle[0].keys[2].pubkey.equals(buyer));
+  assert.ok(settle[1].keys[7].pubkey.equals(ata(buyer)));
+  assert.ok(events.some((e) => e.event === "refund_account_created"));
+});
+
+test("without a subsidy left for the day, a session whose buyer closed its account waits and alerts instead of paying to create one", async () => {
+  const { call, close, chain, events } = setup();
+  assert.equal((await call(1)).status, 200);
+  chain.accounts.delete(ata(buyer).toBase58());
+  const before = settles(chain);
+  const closed = await close();
+  assert.notEqual(((await closed.json()) as { status: string }).status, "settled");
+  assert.equal(settles(chain), before, "nothing was sent");
+  assert.ok(events.some((e) => e.event === "refund_account_subsidy_spent" && e.alert === true));
+  assert.ok(events.some((e) => e.event === "session_settle_waiting" && e.alert === true));
+});
+
+test("sessions are off unless the operator turns them on", () => {
+  assert.equal(parseProviderConfig(configFile(), {}).ok && (parseProviderConfig(configFile(), {}) as { config: { sessions: { enabled: boolean } } }).config.sessions.enabled, false);
+  const on = parseProviderConfig(configFile({ sessions: { enabled: true } }), {});
+  assert.ok(on.ok && on.config.sessions.enabled);
+});
+
+test("a session settle whose outcome is unknown stays pending across a restart, and only its own signature can settle it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "rap-sessions-"));
+  const store = new FileSessionStore(join(dir, "sessions.jsonl"));
+  const chain = fakeChain();
+  const first = setup({ chain, store });
+  assert.equal((await first.call(1)).status, 200);
+  chain.failSend = true;
+  chain.statusUnknown = true;
+  const closing = await first.close();
+  assert.equal(((await closing.json()) as { status: string }).status, "pending");
+  assert.ok(first.events.some((e) => e.event === "session_settle_waiting" && e.alert === true));
+  const saved = store.load().find((s) => s.escrow === ESCROW)!;
+  assert.equal(saved.status, "closing");
+  assert.equal(saved.pendingSettle?.signature, SETTLE_SIGNATURE, "the settle was recorded before it was sent");
+
+  // An unrelated transaction closing the escrow does not count; the RPC is still down, so it stays pending.
+  const restarted = setup({ chain, store });
+  await restarted.ledger.restore();
+  assert.deepEqual((await restarted.handler.settleDueSessions()).map((e) => e.status), ["pending"]);
+  assert.equal(chain.signed.size, 1, "no second settle is signed while the first one's outcome is unknown");
+
+  // The RPC is back and the recorded settle had landed.
+  chain.failSend = false;
+  chain.statusUnknown = false;
+  chain.landed.add(SETTLE_SIGNATURE);
+  chain.sent.push(chain.signed.get(SETTLE_SIGNATURE)!);
+  assert.deepEqual((await restarted.handler.settleDueSessions()).map((e) => e.status), ["settled"]);
+  assert.equal(restarted.ledger.get(ESCROW)?.settleSignature, SETTLE_SIGNATURE);
+  assert.equal(restarted.ledger.get(ESCROW)?.pendingSettle, undefined);
+  store.close();
+});
+
+test("a recorded settle that can never land is dropped and the session settles with a new one", async () => {
+  const { call, close, chain } = setup();
+  assert.equal((await call(1)).status, 200);
+  chain.failSends = 2; // the first settle and its retry both fail and expire
+  assert.equal(((await (await close()).json()) as { status: string }).status, "pending");
+  assert.equal(((await (await close()).json()) as { status: string }).status, "settled");
+  assert.equal(chain.signed.size, 3);
+});
+
+test("a lock made again at the same address is not charged for the earlier session's calls", async () => {
+  const { call, close, chain, events } = setup();
+  assert.equal((await call(1)).status, 200);
+  // Lock A is refunded and lock B is made with the same payer and nonce, in a later slot.
+  chain.accounts.set(ESCROW, { owner: config().terms.programId, data: escrowBytes({ createdSlot: CURRENT_SLOT - 5n }), lamports: 2_000_000n, executable: false });
+  const closed = await close();
+  assert.equal(((await closed.json()) as { status: string }).status, "refunded_unpaid");
+  assert.equal(chain.signed.size, 0, "nothing was settled against lock B");
+  assert.ok(events.some((e) => e.event === "session_lock_replaced" && e.alert === true));
 });
