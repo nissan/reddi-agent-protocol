@@ -348,8 +348,9 @@ function bs58Decode(value: string): Uint8Array {
 /**
  * Provider side: `verifySessionRequest`, and also a delegation proved by the
  * memo in its lock transaction. Without `readTransaction` a lock-bound
- * delegation is refused. Run it after the lock check, so the escrow named
- * here is known to be this payer's lock.
+ * delegation is refused. It may run before or after the lock check: either
+ * way the caller must still check the lock, which is what shows the escrow
+ * named here is this payer's lock.
  *
  * An escrow address can be used again once a lock ends. Pass the escrow's
  * `created_slot` as `escrowCreatedSlot` to require that the lock transaction
