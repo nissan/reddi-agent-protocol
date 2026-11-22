@@ -178,9 +178,11 @@ jobs:
           scratch=$(mktemp -d)
           cd "$scratch"
           npm init -y >/dev/null
-          for i in 1 2 3 4 5; do
+          # A first version can take several minutes to become visible.
+          for i in $(seq 1 30); do
             npm install "@redditech/provider-kit@$kit" && break
-            echo "Waiting for the registry"; sleep 20
+            [ "$i" = 30 ] && { echo "::error::@redditech/provider-kit@$kit is still not on the registry"; exit 1; }
+            echo "Waiting for the registry"; sleep 30
           done
           npx --no-install rap-provider --help
           node --input-type=module -e "await import('@redditech/provider-kit'); await import('@redditech/agent-protocol'); console.log('imports ok')"
