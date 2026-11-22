@@ -267,8 +267,8 @@ async function verifySandboxPayment(header: string, provider: SandboxProvider, o
     // The lock's escrow, payer and nonce are public: only the payer's signature shows who is calling (#866).
     // Checked before anything is read from chain.
     const auth = await verifySingleCallAuth(record, provider, request, deps);
-    if (auth) return auth;
-    return verifyMeteredLock(record, provider, nonce, inputTokens, deps);
+    if (!auth.ok) return auth.outcome;
+    return verifyMeteredLock(record, provider, nonce, inputTokens, deps, false, auth.lockSlot);
   }
   const verifier = new SolanaReceiptVerifier({
     allowRealPayment: true,
@@ -300,16 +300,18 @@ async function verifySandboxPayment(header: string, provider: SandboxProvider, o
 /**
  * A single metered call must carry the payer's delegation to a key and that
  * key's signature, action `single`, sequence 0, over the exact body (#866),
- * as the provider kit requires. Undefined when it does.
+ * as the provider kit requires. When the delegation is proved by a lock
+ * transaction, the slot that transaction landed in comes back, so the lock
+ * check can hold it to the escrow's created slot.
  */
-async function verifySingleCallAuth(record: Record<string, unknown>, provider: SandboxProvider, request: SandboxGatewayRequest | undefined, deps: SandboxGatewayDeps): Promise<PaymentOutcome | undefined> {
+async function verifySingleCallAuth(record: Record<string, unknown>, provider: SandboxProvider, request: SandboxGatewayRequest | undefined, deps: SandboxGatewayDeps): Promise<{ ok: true; lockSlot?: bigint } | { ok: false; outcome: PaymentOutcome }> {
   let payer: PublicKey;
   let escrow: PublicKey;
   try {
     payer = new PublicKey(record.payer as string);
     escrow = new PublicKey(String(record.escrow));
   } catch {
-    return rejected("invalid_receipt", "A metered payment must name the payer and the escrow address.");
+    return { ok: false, outcome: rejected("invalid_receipt", "A metered payment must name the payer and the escrow address.") };
   }
   const s = request?.session ?? {};
   // A Solana Pay transaction request (try page, #925) proves the delegation
@@ -324,9 +326,9 @@ async function verifySingleCallAuth(record: Record<string, unknown>, provider: S
     nowMs: (deps.now ?? Date.now)(),
     ...(deps.readTransaction ? { readTransaction: deps.readTransaction } : {}),
   });
-  if (authorised.ok) return undefined;
-  if (authorised.reason === "payment_check_unavailable") return rejected("unsupported_receipt", "The devnet RPC could not be read. Nothing was accepted; present the same receipt again shortly.");
-  return sessionRejected(authorised.reason, authorised.message);
+  if (authorised.ok) return { ok: true, ...(authorised.lockSlot !== undefined ? { lockSlot: authorised.lockSlot } : {}) };
+  if (authorised.reason === "payment_check_unavailable") return { ok: false, outcome: rejected("unsupported_receipt", "The devnet RPC could not be read. Nothing was accepted; present the same receipt again shortly.") };
+  return { ok: false, outcome: sessionRejected(authorised.reason, authorised.message) };
 }
 
 /**
@@ -334,7 +336,7 @@ async function verifySingleCallAuth(record: Record<string, unknown>, provider: S
  * at the address the payer and challenge nonce give, still locked, metered,
  * payable to this provider, for exactly the challenge's maximum.
  */
-async function verifyMeteredLock(record: Record<string, unknown>, provider: SandboxProvider, nonce: string, inputTokens: number, deps: SandboxGatewayDeps, session = false): Promise<PaymentOutcome> {
+async function verifyMeteredLock(record: Record<string, unknown>, provider: SandboxProvider, nonce: string, inputTokens: number, deps: SandboxGatewayDeps, session = false, lockSlot?: bigint): Promise<PaymentOutcome> {
   if (!deps.settler?.canSettle(provider.id) || !deps.readAccount || !deps.readSlot) {
     return rejected("unsupported_receipt", `${provider.name} cannot settle a metered escrow on devnet right now. Nothing was taken; cancel the lock for a full refund, or pay with a simulated payment.`);
   }
@@ -396,6 +398,10 @@ async function verifyMeteredLock(record: Record<string, unknown>, provider: Sand
     }
     if (openedSlot === undefined || openedSlot !== escrow.createdSlot) return rejected("invalid_receipt", "This escrow is opted in to rating, but its rating account could not be read as this job's. Nothing was accepted.");
   }
+  // A delegation proved by a lock transaction holds only for the escrow that transaction created,
+  // not a later one at the same address.
+  if (lockSlot !== undefined && lockSlot !== escrow.createdSlot)
+    return sessionRejected("session_auth_invalid", "The lock transaction named by the delegation did not create this escrow. Nothing was served or taken.");
   if (!session && !(await deps.replayStore.checkAndStore(`escrow:${escrowAddress.toBase58()}`))) return rejected("duplicate_nonce", "receipt nonce has already been used", undefined, nonce);
   return { ok: true, mode: "metered-escrow", nonce, payerId: payer.toBase58(), payerAddress: payer.toBase58(), escrow: escrowAddress.toBase58(), maxLamports, rated: escrow.rated, createdSlot: escrow.createdSlot, proofRef: escrowAddress.toBase58() };
 }

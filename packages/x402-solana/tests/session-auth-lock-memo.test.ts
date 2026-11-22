@@ -46,8 +46,9 @@ async function headers(delegation = d(), key = relayKey, body = BODY) {
   return { get: (name: string) => map.get(name) ?? null };
 }
 
-const check = (h: { get(n: string): string | null }, facts: ConfirmedTransactionFacts | null | 'throw' | undefined, over: { body?: string; payerKey?: PublicKey; genesisHash?: string } = {}) =>
+const check = (h: { get(n: string): string | null }, facts: ConfirmedTransactionFacts | null | 'throw' | undefined, over: { body?: string; payerKey?: PublicKey; genesisHash?: string; escrowCreatedSlot?: bigint } = {}) =>
   verifyPaidCallRequestWithTransactions({
+    ...(over.escrowCreatedSlot !== undefined ? { escrowCreatedSlot: over.escrowCreatedSlot } : {}),
     headers: h,
     genesisHash: over.genesisHash ?? GENESIS,
     escrow,
@@ -137,16 +138,28 @@ describe('lock-bound session delegation (Solana Pay transaction requests)', () =
     const legacy = new Transaction({ feePayer: payer.publicKey, recentBlockhash: blockhash }).add(...ixs);
     const legacyMessage = legacy.compileMessage();
     for (const message of [v0.message, legacyMessage]) {
-      const read = transactionFactsReader({ getTransaction: async () => ({ meta: { err: null }, transaction: { message } }) });
+      const read = transactionFactsReader({ getTransaction: async () => ({ slot: 4242, meta: { err: null }, transaction: { message } }) });
       const facts = await read(LOCK_SIG);
       expect(facts).not.toBeNull();
       expect(facts!.signers).toEqual([payer.publicKey.toBase58()]);
       expect(facts!.accounts).toContain(escrow.toBase58());
       expect(facts!.memos).toEqual([{ text: sessionDelegationMemo(d()), accounts: [payer.publicKey.toBase58()] }]);
-      expect(await check(await headers(), facts)).toMatchObject({ ok: true });
+      expect(facts!.slot).toBe(BigInt(4242));
+      expect(await check(await headers(), facts)).toMatchObject({ ok: true, lockSlot: BigInt(4242) });
     }
     const failed = await transactionFactsReader({ getTransaction: async () => ({ meta: { err: { InstructionError: [0, 'x'] } }, transaction: { message: v0.message } }) })(LOCK_SIG);
     expect(failed!.failed).toBe(true);
     expect(await transactionFactsReader({ getTransaction: async () => null })(LOCK_SIG)).toBeNull();
+  });
+
+  test('binds the lock transaction to the escrow it created when the created slot is given', async () => {
+    const at = (slot?: bigint) => goodFacts(slot === undefined ? {} : { slot });
+    expect(await check(await headers(), at(BigInt(100)), { escrowCreatedSlot: BigInt(100) })).toEqual({ ok: true, sessionKey: relayKey.publicKey.toBase58(), expiresAt: NOW / 1000 + 600, lockSlot: BigInt(100) });
+    // An earlier lock at the same escrow address does not authorise a later escrow there.
+    expect(await check(await headers(), at(BigInt(99)), { escrowCreatedSlot: BigInt(100) })).toMatchObject({ ok: false, reason: 'session_auth_invalid' });
+    // A reader that cannot say which slot the lock landed in cannot satisfy the binding.
+    expect(await check(await headers(), at(), { escrowCreatedSlot: BigInt(100) })).toMatchObject({ ok: false, reason: 'session_auth_invalid' });
+    // Without the created slot the slot is only reported, for the caller to compare later.
+    expect(await check(await headers(), at(BigInt(99)))).toMatchObject({ ok: true, lockSlot: BigInt(99) });
   });
 });

@@ -42,14 +42,14 @@ function world() {
   const accounts: Accounts = new Map();
   const settles: SandboxSettleInput[] = [];
   const settler: SandboxSettler = { canSettle: () => true, async settle(input) { settles.push(input); return { ok: true, signature: SETTLE_SIG }; } };
-  const landed: { signature: string; tx: Transaction }[] = [];
+  const landed: { signature: string; tx: Transaction; slot: number }[] = [];
   const connection = {
     getLatestBlockhash: async () => ({ blockhash: BLOCKHASH, lastValidBlockHeight: 100 }),
     getSignaturesForAddress: async (address: PublicKey) =>
       landed.filter((l) => l.tx.compileMessage().accountKeys.some((k) => k.equals(address))).map((l) => ({ signature: l.signature, err: null })),
     getTransaction: async (signature: string) => {
       const l = landed.find((x) => x.signature === signature);
-      return l ? { meta: { err: null }, transaction: { message: l.tx.compileMessage() } } : null;
+      return l ? { slot: l.slot, meta: { err: null }, transaction: { message: l.tx.compileMessage() } } : null;
     },
   };
   let counter = 0;
@@ -64,10 +64,11 @@ function world() {
     newNonce: () => (++counter).toString(16).padStart(32, "a"),
   };
   /** The wallet signs what the transaction request returned, and the lock lands. */
-  function walletSignsAndLands(base64: string, payer: Keypair, signature = LOCK_SIG) {
+  /** `slot` is where the lock transaction landed; the escrow records CURRENT_SLOT - 10 as its created slot. */
+  function walletSignsAndLands(base64: string, payer: Keypair, signature = LOCK_SIG, slot = Number(CURRENT_SLOT - BigInt(10))) {
     const tx = Transaction.from(Buffer.from(base64, "base64"));
     tx.partialSign(payer);
-    landed.push({ signature, tx });
+    landed.push({ signature, tx, slot });
     const lockIx = tx.instructions.find((ix) => ix.programId.equals(SANDBOX_ESCROW_PROGRAM_ID))!;
     const amount = Buffer.from(lockIx.data).readBigUInt64LE(8);
     const nonce = lockIx.data.subarray(16, 32);
@@ -118,6 +119,20 @@ describe("try page: Solana Pay transaction request flow (#925)", () => {
     expect(again).toMatchObject({ state: "answered" });
     expect((again as { status: number }).status).not.toBe(200);
     expect(w.settles).toHaveLength(1);
+  });
+
+  it("refuses a lock transaction that did not create the escrow now at that address", async () => {
+    const w = world();
+    const s = await started(w);
+    const payer = Keypair.generate();
+    const built = await buildTryTransaction({ token: s.token, account: payer.publicKey.toBase58(), secret: SECRET, connection: w.connection, nowMs: NOW_MS });
+    if (!built.ok) throw new Error(built.message);
+    // The memo is right, but the transaction landed before the escrow at that address was created.
+    w.walletSignsAndLands(built.transaction, payer, LOCK_SIG, Number(CURRENT_SLOT - BigInt(500)));
+    const result = await runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS });
+    expect(result).toMatchObject({ ok: true, state: "answered" });
+    expect((result as { status: number }).status).not.toBe(200);
+    expect(w.settles).toHaveLength(0);
   });
 
   it("skips a stranger's transaction that names the public reference, then serves the real lock", async () => {

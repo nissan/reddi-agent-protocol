@@ -258,7 +258,13 @@ function transactionFactsReader(connection, commitment = 'confirmed') {
         const memos = compiled
             .filter((ix) => accounts[ix.programIdIndex] === exports.MEMO_PROGRAM_ID.toBase58())
             .map((ix) => ({ text: Buffer.from(ix.data).toString('utf8'), accounts: ix.accountKeyIndexes.map((i) => accounts[i] ?? '') }));
-        return { failed: tx.meta === null || tx.meta.err !== null, signers: statics.slice(0, message.header.numRequiredSignatures), accounts, memos };
+        return {
+            failed: tx.meta === null || tx.meta.err !== null,
+            signers: statics.slice(0, message.header.numRequiredSignatures),
+            accounts,
+            memos,
+            ...(typeof tx.slot === 'number' ? { slot: BigInt(tx.slot) } : {}),
+        };
     };
 }
 function bs58Decode(value) {
@@ -286,8 +292,14 @@ function bs58Decode(value) {
 /**
  * Provider side: `verifySessionRequest`, and also a delegation proved by the
  * memo in its lock transaction. Without `readTransaction` a lock-bound
- * delegation is refused. Run it after the lock check, so the escrow named
- * here is known to be this payer's lock.
+ * delegation is refused. It may run before or after the lock check: either
+ * way the caller must still check the lock, which is what shows the escrow
+ * named here is this payer's lock.
+ *
+ * An escrow address can be used again once a lock ends. Pass the escrow's
+ * `created_slot` as `escrowCreatedSlot` to require that the lock transaction
+ * is the one that created this escrow. When the escrow is read later, compare
+ * the returned `lockSlot` with its `created_slot` instead.
  */
 async function verifySessionRequestWithTransactions(input) {
     const parsed = parseSessionRequest(input);
@@ -318,7 +330,10 @@ async function verifySessionRequestWithTransactions(input) {
     if (!facts.memos.some((m) => m.text === memo && m.accounts.includes(payer))) {
         return invalid('The lock transaction carries no memo for this delegation signed by the payer.');
     }
-    return { ok: true, sessionKey: parsed.delegation.sessionKey, expiresAt: parsed.delegation.expiresAt };
+    if (input.escrowCreatedSlot !== undefined && facts.slot !== input.escrowCreatedSlot) {
+        return invalid('The lock transaction did not create this escrow: its slot does not match the escrow\'s created slot.');
+    }
+    return { ok: true, sessionKey: parsed.delegation.sessionKey, expiresAt: parsed.delegation.expiresAt, ...(facts.slot !== undefined ? { lockSlot: facts.slot } : {}) };
 }
 /** Provider side, single metered call: `verifySessionRequestWithTransactions` with action `single` and sequence 0. */
 function verifyPaidCallRequestWithTransactions(input) {
