@@ -20,6 +20,8 @@ import {
   SOLANA_GENESIS_HASHES,
   verifyDemoPaymentReceipt,
   verifySessionRequest,
+  verifyPaidCallRequestWithTransactions,
+  type TransactionFactsReader,
   SESSION_DELEGATION_HEADER,
   SESSION_SIGNATURE_HEADER,
   type NonceReplayStore,
@@ -118,6 +120,12 @@ export type SandboxGatewayDeps = {
    * call (provider kit, #865), so a lock header alone cannot spend the lock.
    */
   acceptMeteredSessions?: boolean;
+  /**
+   * Reads a confirmed lock transaction, for a single call whose delegation is
+   * proved by a memo in the lock (Solana Pay transaction requests, #925).
+   * Without it such a delegation is refused.
+   */
+  readTransaction?: TransactionFactsReader;
   now?: () => number;
   newNonce?: () => string;
 };
@@ -257,7 +265,7 @@ async function verifySandboxPayment(header: string, provider: SandboxProvider, o
   if (record.settlement === "metered-escrow") {
     // The lock's escrow, payer and nonce are public: only the payer's signature shows who is calling (#866).
     // Checked before anything is read from chain.
-    const auth = verifySingleCallAuth(record, provider, request, deps);
+    const auth = await verifySingleCallAuth(record, provider, request, deps);
     if (auth) return auth;
     return verifyMeteredLock(record, provider, nonce, inputTokens, deps);
   }
@@ -293,7 +301,7 @@ async function verifySandboxPayment(header: string, provider: SandboxProvider, o
  * key's signature, action `single`, sequence 0, over the exact body (#866),
  * as the provider kit requires. Undefined when it does.
  */
-function verifySingleCallAuth(record: Record<string, unknown>, provider: SandboxProvider, request: SandboxGatewayRequest | undefined, deps: SandboxGatewayDeps): PaymentOutcome | undefined {
+async function verifySingleCallAuth(record: Record<string, unknown>, provider: SandboxProvider, request: SandboxGatewayRequest | undefined, deps: SandboxGatewayDeps): Promise<PaymentOutcome | undefined> {
   let payer: PublicKey;
   let escrow: PublicKey;
   try {
@@ -303,17 +311,20 @@ function verifySingleCallAuth(record: Record<string, unknown>, provider: Sandbox
     return rejected("invalid_receipt", "A metered payment must name the payer and the escrow address.");
   }
   const s = request?.session ?? {};
-  const authorised = verifySessionRequest({
+  // A Solana Pay transaction request (try page, #925) proves the delegation
+  // with a memo in the lock transaction instead of a signed message.
+  const authorised = await verifyPaidCallRequestWithTransactions({
     headers: { get: (name: string) => (name === SESSION_DELEGATION_HEADER ? s.delegation ?? null : name === SESSION_SIGNATURE_HEADER ? s.signature ?? null : null) },
-    action: "single",
     escrow,
     payer,
     provider: new PublicKey(provider.payTo),
-    sequence: 0,
     body: request?.rawBody ?? "",
     nowMs: (deps.now ?? Date.now)(),
+    ...(deps.readTransaction ? { readTransaction: deps.readTransaction } : {}),
   });
-  return authorised.ok ? undefined : sessionRejected(authorised.reason, authorised.message);
+  if (authorised.ok) return undefined;
+  if (authorised.reason === "payment_check_unavailable") return rejected("unsupported_receipt", "The devnet RPC could not be read. Nothing was accepted; present the same receipt again shortly.");
+  return sessionRejected(authorised.reason, authorised.message);
 }
 
 /**

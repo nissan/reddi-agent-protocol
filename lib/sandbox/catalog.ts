@@ -100,7 +100,7 @@ export type SandboxScenario = {
   providerIds: readonly string[];
 };
 
-const REVIEW_PROMPT = [
+export const REVIEW_PROMPT = [
   "Review this function before I ship it:",
   "",
   "function applyDiscount(price, percent) {",

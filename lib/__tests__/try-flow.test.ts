@@ -1,0 +1,181 @@
+/**
+ * @jest-environment node
+ */
+import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import { MEMO_PROGRAM_ID, MemoryNonceReplayStore, sessionDelegationMemo, transactionFactsReader } from "@redditech/x402-solana";
+import { SANDBOX_CANCEL_WINDOW_SLOTS, SANDBOX_CLAIM_WINDOW_SLOTS, SANDBOX_ESCROW_DISCRIMINATORS, SANDBOX_ESCROW_PROGRAM_ID, escrowNonceBytes, sandboxEscrowAddress } from "@/lib/sandbox/escrow";
+import type { SandboxGatewayDeps } from "@/lib/sandbox/gateway";
+import type { SandboxSettleInput, SandboxSettler } from "@/lib/sandbox/settle-signer";
+import { buildTryTransaction, runTry, startTry } from "@/lib/try/flow";
+import { openTicket, relayKeypair, sealTicket, trySecret, TryNotConfiguredError } from "@/lib/try/ticket";
+import { TRY_TASKS } from "@/lib/try/tasks";
+import { solanaPayLink } from "@/lib/try/http";
+
+const ORIGIN = "https://app.example";
+const NOW_MS = Date.UTC(2026, 10, 22, 8, 0, 0);
+const SECRET = Buffer.alloc(32, 7);
+const CURRENT_SLOT = BigInt(1_000_000);
+const SETTLE_SIG = "3".repeat(88);
+const LOCK_SIG = "4".repeat(88);
+const BLOCKHASH = Keypair.generate().publicKey.toBase58();
+
+type Accounts = Map<string, { owner: PublicKey; data: Uint8Array }>;
+
+function escrowBytes(payer: PublicKey, payee: PublicKey, amount: bigint, nonce: Uint8Array): Uint8Array {
+  const parts: number[] = [...SANDBOX_ESCROW_DISCRIMINATORS.escrowAccount, ...payer.toBytes(), ...payee.toBytes()];
+  const a = Buffer.alloc(8);
+  a.writeBigUInt64LE(amount);
+  parts.push(...a, ...nonce, 0);
+  const time = Buffer.alloc(16);
+  time.writeBigInt64LE(BigInt(Math.floor(NOW_MS / 1000)));
+  time.writeBigUInt64LE(CURRENT_SLOT - BigInt(10), 8);
+  parts.push(...time);
+  const windows = Buffer.alloc(16);
+  windows.writeBigUInt64LE(SANDBOX_CLAIM_WINDOW_SLOTS);
+  windows.writeBigUInt64LE(SANDBOX_CANCEL_WINDOW_SLOTS, 8);
+  parts.push(...windows, 0, 0, 255, 1);
+  while (parts.length < 165) parts.push(0);
+  return Uint8Array.from(parts);
+}
+
+function world() {
+  const accounts: Accounts = new Map();
+  const settles: SandboxSettleInput[] = [];
+  const settler: SandboxSettler = { canSettle: () => true, async settle(input) { settles.push(input); return { ok: true, signature: SETTLE_SIG }; } };
+  const landed: { signature: string; tx: Transaction }[] = [];
+  const connection = {
+    getLatestBlockhash: async () => ({ blockhash: BLOCKHASH, lastValidBlockHeight: 100 }),
+    getSignaturesForAddress: async (address: PublicKey) =>
+      landed.filter((l) => l.tx.compileMessage().accountKeys.some((k) => k.equals(address))).map((l) => ({ signature: l.signature, err: null })),
+    getTransaction: async (signature: string) => {
+      const l = landed.find((x) => x.signature === signature);
+      return l ? { meta: { err: null }, transaction: { message: l.tx.compileMessage() } } : null;
+    },
+  };
+  let counter = 0;
+  const deps: SandboxGatewayDeps = {
+    connection: { getGenesisHash: async () => "", getParsedTransaction: async () => null } as unknown as SandboxGatewayDeps["connection"],
+    replayStore: new MemoryNonceReplayStore(),
+    readAccount: async (address) => accounts.get(address.toBase58()) ?? null,
+    readSlot: async () => CURRENT_SLOT,
+    settler,
+    readTransaction: transactionFactsReader(connection as never),
+    now: () => NOW_MS,
+    newNonce: () => (++counter).toString(16).padStart(32, "a"),
+  };
+  /** The wallet signs what the transaction request returned, and the lock lands. */
+  function walletSignsAndLands(base64: string, payer: Keypair, signature = LOCK_SIG) {
+    const tx = Transaction.from(Buffer.from(base64, "base64"));
+    tx.partialSign(payer);
+    landed.push({ signature, tx });
+    const lockIx = tx.instructions.find((ix) => ix.programId.equals(SANDBOX_ESCROW_PROGRAM_ID))!;
+    const amount = Buffer.from(lockIx.data).readBigUInt64LE(8);
+    const nonce = lockIx.data.subarray(16, 32);
+    accounts.set(lockIx.keys[0].pubkey.toBase58(), { owner: SANDBOX_ESCROW_PROGRAM_ID, data: escrowBytes(payer.publicKey, lockIx.keys[2].pubkey, amount, nonce) });
+    return tx;
+  }
+  return { accounts, settles, connection, deps, walletSignsAndLands, landed };
+}
+
+async function started(w: ReturnType<typeof world>, taskId = "security-check") {
+  const s = await startTry({ taskId, origin: ORIGIN, secret: SECRET, deps: w.deps, nowMs: NOW_MS });
+  if (!s.ok) throw new Error(s.message);
+  return s;
+}
+
+describe("try page: Solana Pay transaction request flow (#925)", () => {
+  it("one signature from the wallet pays for one answer, settled at actual cost", async () => {
+    const w = world();
+    const s = await started(w);
+    const payer = Keypair.generate();
+    const built = await buildTryTransaction({ token: s.token, account: payer.publicKey.toBase58(), secret: SECRET, connection: w.connection, nowMs: NOW_MS });
+    if (!built.ok) throw new Error(built.message);
+
+    const tx = Transaction.from(Buffer.from(built.transaction, "base64"));
+    expect(tx.feePayer?.equals(payer.publicKey)).toBe(true);
+    expect(tx.instructions).toHaveLength(2);
+    const [lock, memo] = tx.instructions;
+    const escrow = sandboxEscrowAddress(payer.publicKey, s.ticket.nonce);
+    expect(lock.keys[0].pubkey.equals(escrow)).toBe(true);
+    expect(lock.keys.at(-1)).toEqual({ pubkey: new PublicKey(s.ticket.reference), isSigner: false, isWritable: false });
+    expect(memo.programId.equals(MEMO_PROGRAM_ID)).toBe(true);
+    expect(memo.data.toString("utf8")).toBe(
+      sessionDelegationMemo({ escrow: escrow.toBase58(), provider: s.provider.payTo, sessionKey: relayKeypair(s.ticket.id, SECRET).publicKey.toBase58(), expiresAt: s.ticket.exp }),
+    );
+
+    expect(await runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS })).toEqual({ ok: true, state: "waiting" });
+
+    w.walletSignsAndLands(built.transaction, payer);
+    const result = await runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS });
+    expect((result as { receipt?: unknown }).receipt).toBeDefined();
+    expect(result).toMatchObject({ ok: true, state: "answered", status: 200, payer: payer.publicKey.toBase58(), escrow: escrow.toBase58(), lockSignature: LOCK_SIG });
+    expect(w.settles).toHaveLength(1);
+    expect(w.settles[0].escrow.equals(escrow)).toBe(true);
+    expect(w.settles[0].actualLamports).toBeLessThanOrEqual(BigInt(s.ticket.maxLamports));
+
+    // The same lock pays once.
+    const again = await runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS });
+    expect(again).toMatchObject({ state: "answered" });
+    expect((again as { status: number }).status).not.toBe(200);
+    expect(w.settles).toHaveLength(1);
+  });
+
+  it("refuses a lock whose memo delegates to another key", async () => {
+    const w = world();
+    const s = await started(w);
+    const payer = Keypair.generate();
+    const built = await buildTryTransaction({ token: s.token, account: payer.publicKey.toBase58(), secret: SECRET, connection: w.connection, nowMs: NOW_MS });
+    if (!built.ok) throw new Error(built.message);
+    w.walletSignsAndLands(built.transaction, payer);
+    // Another server secret derives another relay key, so its signature does not match the memo.
+    const result = await runTry({ token: sealTicket(s.ticket, Buffer.alloc(32, 9)), origin: ORIGIN, secret: Buffer.alloc(32, 9), connection: w.connection, deps: w.deps, nowMs: NOW_MS });
+    expect(result).toMatchObject({ state: "answered", status: 401 });
+    expect(w.settles).toHaveLength(0);
+  });
+
+  it("refuses a lock without the memo", async () => {
+    const w = world();
+    const s = await started(w);
+    const payer = Keypair.generate();
+    const built = await buildTryTransaction({ token: s.token, account: payer.publicKey.toBase58(), secret: SECRET, connection: w.connection, nowMs: NOW_MS });
+    if (!built.ok) throw new Error(built.message);
+    const stripped = Transaction.from(Buffer.from(built.transaction, "base64"));
+    const withoutMemo = new Transaction({ feePayer: payer.publicKey, blockhash: BLOCKHASH, lastValidBlockHeight: 100 }).add(stripped.instructions[0]);
+    w.walletSignsAndLands(withoutMemo.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64"), payer);
+    const result = await runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS });
+    expect(result).toMatchObject({ state: "answered", status: 401 });
+    expect(w.settles).toHaveLength(0);
+  });
+
+  it("refuses tampered, foreign and expired tickets, and unknown tasks", async () => {
+    const w = world();
+    const s = await started(w);
+    const [payload, tag] = s.token.split(".");
+    const forged = Buffer.from(JSON.stringify({ ...s.ticket, maxLamports: "1" })).toString("base64url");
+    expect(openTicket(`${forged}.${tag}`, SECRET, NOW_MS)).toBeUndefined();
+    expect(openTicket(`${payload}.${tag}`, Buffer.alloc(32, 1), NOW_MS)).toBeUndefined();
+    expect(openTicket(s.token, SECRET, (s.ticket.exp + 1) * 1000)).toBeUndefined();
+    expect(openTicket(s.token, SECRET, NOW_MS)).toEqual(s.ticket);
+    const built = await buildTryTransaction({ token: `${forged}.${tag}`, account: Keypair.generate().publicKey.toBase58(), secret: SECRET, connection: w.connection, nowMs: NOW_MS });
+    expect(built).toMatchObject({ ok: false, code: "ticket_invalid" });
+    expect(await buildTryTransaction({ token: s.token, account: "not-a-key", secret: SECRET, connection: w.connection, nowMs: NOW_MS })).toMatchObject({ ok: false, code: "account_invalid" });
+    expect(await startTry({ taskId: "nope", origin: ORIGIN, secret: SECRET, deps: w.deps })).toMatchObject({ ok: false, code: "unknown_task" });
+  });
+
+  it("every task has a provider and a challenge", async () => {
+    for (const task of TRY_TASKS) {
+      const s = await started(world(), task.id);
+      expect(BigInt(s.ticket.maxLamports) > BigInt(0)).toBe(true);
+      expect(escrowNonceBytes(s.ticket.nonce)).toHaveLength(16);
+    }
+  });
+
+  it("builds a Solana Pay link and needs a secret", () => {
+    const { payUrl, solanaPayUrl } = solanaPayLink(ORIGIN, "a.b");
+    expect(payUrl).toBe(`${ORIGIN}/api/try/v1/pay?t=a.b`);
+    expect(solanaPayUrl).toBe(`solana:${encodeURIComponent(payUrl)}`);
+    expect(() => trySecret({})).toThrow(TryNotConfiguredError);
+    expect(trySecret({ TRY_RELAY_SECRET: "x".repeat(32) })).toEqual(Buffer.from("x".repeat(32)));
+    expect(trySecret({ SANDBOX_PAYEE_KEYS: "k" })).toHaveLength(32);
+  });
+});

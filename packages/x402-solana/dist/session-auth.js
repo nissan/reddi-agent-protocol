@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEFAULT_DELEGATION_SECONDS = exports.MAX_SESSION_DELEGATION_SECONDS = exports.SESSION_SIGNATURE_HEADER = exports.SESSION_DELEGATION_HEADER = void 0;
+exports.SESSION_DELEGATION_MEMO_PREFIX = exports.MEMO_PROGRAM_ID = exports.DEFAULT_DELEGATION_SECONDS = exports.MAX_SESSION_DELEGATION_SECONDS = exports.SESSION_SIGNATURE_HEADER = exports.SESSION_DELEGATION_HEADER = void 0;
 exports.delegationExpiresAt = delegationExpiresAt;
 exports.sessionDelegationMessage = sessionDelegationMessage;
 exports.sessionBodyHash = sessionBodyHash;
@@ -8,6 +8,12 @@ exports.sessionRequestMessage = sessionRequestMessage;
 exports.sessionDelegationHeaderValue = sessionDelegationHeaderValue;
 exports.sessionSignatureHeaderValue = sessionSignatureHeaderValue;
 exports.verifySessionRequest = verifySessionRequest;
+exports.sessionDelegationMemo = sessionDelegationMemo;
+exports.sessionDelegationMemoInstruction = sessionDelegationMemoInstruction;
+exports.lockBoundDelegationHeaderValue = lockBoundDelegationHeaderValue;
+exports.transactionFactsReader = transactionFactsReader;
+exports.verifySessionRequestWithTransactions = verifySessionRequestWithTransactions;
+exports.verifyPaidCallRequestWithTransactions = verifyPaidCallRequestWithTransactions;
 exports.paidCallAuthHeaders = paidCallAuthHeaders;
 exports.verifyPaidCallRequest = verifyPaidCallRequest;
 /**
@@ -34,6 +40,7 @@ exports.verifyPaidCallRequest = verifyPaidCallRequest;
  * sign with a wallet adapter, a Keypair or anything else.
  */
 const crypto_1 = require("crypto");
+const web3_js_1 = require("@solana/web3.js");
 const ed25519_1 = require("./ed25519");
 exports.SESSION_DELEGATION_HEADER = 'x402-session-delegation';
 exports.SESSION_SIGNATURE_HEADER = 'x402-session-signature';
@@ -90,6 +97,22 @@ async function sessionSignatureHeaderValue(input, signWithSessionKey) {
  * request body exactly as received.
  */
 function verifySessionRequest(input) {
+    const parsed = parseSessionRequest(input);
+    if (!parsed.ok)
+        return parsed;
+    if (parsed.proof.kind !== 'signature') {
+        return { ok: false, reason: 'session_auth_invalid', message: 'This delegation is proved by a lock transaction memo, which this check cannot read. Use verifySessionRequestWithTransactions.' };
+    }
+    if (!(0, ed25519_1.ed25519Verify)(input.payer, new TextEncoder().encode(sessionDelegationMessage(parsed.delegation)), parsed.proof.signature)) {
+        return { ok: false, reason: 'session_auth_invalid', message: "The session delegation is not signed by the escrow's payer." };
+    }
+    return { ok: true, sessionKey: parsed.delegation.sessionKey, expiresAt: parsed.delegation.expiresAt };
+}
+/**
+ * Everything but the payer's consent: the delegation's shape, escrow,
+ * provider and expiry, and the session key's signature over this request.
+ */
+function parseSessionRequest(input) {
     const delegationValue = input.headers.get(exports.SESSION_DELEGATION_HEADER);
     const signatureValue = input.headers.get(exports.SESSION_SIGNATURE_HEADER);
     if (!delegationValue || !signatureValue) {
@@ -113,9 +136,19 @@ function verifySessionRequest(input) {
     const provider = (0, ed25519_1.publicKeyOf)(parsed.provider);
     const sessionKey = (0, ed25519_1.publicKeyOf)(parsed.sessionKey);
     const expiresAt = parsed.expiresAt;
-    const delegationSignature = typeof parsed.signature === 'string' ? (0, ed25519_1.decodeBase64)(parsed.signature) : undefined;
-    if (!escrow || !provider || !sessionKey || typeof expiresAt !== 'number' || !Number.isSafeInteger(expiresAt) || !delegationSignature) {
-        return invalid('The session delegation needs escrow, provider, sessionKey, a whole-second expiresAt and a signature.');
+    let proof;
+    if (parsed.signature !== undefined && parsed.lockSignature !== undefined)
+        return invalid('A session delegation carries a signature or a lockSignature, not both.');
+    if (typeof parsed.signature === 'string') {
+        const signature = (0, ed25519_1.decodeBase64)(parsed.signature);
+        if (signature)
+            proof = { kind: 'signature', signature };
+    }
+    else if (typeof parsed.lockSignature === 'string' && TX_SIGNATURE.test(parsed.lockSignature)) {
+        proof = { kind: 'lock-memo', lockSignature: parsed.lockSignature };
+    }
+    if (!escrow || !provider || !sessionKey || typeof expiresAt !== 'number' || !Number.isSafeInteger(expiresAt) || !proof) {
+        return invalid('The session delegation needs escrow, provider, sessionKey, a whole-second expiresAt and a signature (or the lockSignature of a lock that carries its memo).');
     }
     if (!escrow.equals(input.escrow))
         return invalid('The session delegation names another escrow.');
@@ -127,15 +160,132 @@ function verifySessionRequest(input) {
     if (expiresAt > nowSeconds + exports.MAX_SESSION_DELEGATION_SECONDS)
         return invalid(`A session delegation may run for at most ${exports.MAX_SESSION_DELEGATION_SECONDS} seconds.`);
     const delegation = { escrow: escrow.toBase58(), provider: provider.toBase58(), sessionKey: sessionKey.toBase58(), expiresAt };
-    if (!(0, ed25519_1.ed25519Verify)(input.payer, new TextEncoder().encode(sessionDelegationMessage(delegation)), delegationSignature)) {
-        return invalid("The session delegation is not signed by the escrow's payer.");
-    }
     const requestSignature = (0, ed25519_1.decodeBase64)(signatureValue);
     const message = sessionRequestMessage({ action: input.action, escrow: delegation.escrow, sequence: input.sequence, bodyHash: sessionBodyHash(input.body) });
     if (!requestSignature || !(0, ed25519_1.ed25519Verify)(sessionKey, new TextEncoder().encode(message), requestSignature)) {
         return invalid('The request is not signed by the session key, or was changed after signing.');
     }
-    return { ok: true, sessionKey: delegation.sessionKey, expiresAt };
+    return { ok: true, delegation, proof };
+}
+/*
+ * Transaction-bound delegation (#925, Solana Pay transaction requests).
+ *
+ * A Solana Pay transaction request lets a phone wallet sign a transaction our
+ * server builds, but it cannot sign a separate message. So the lock
+ * transaction itself carries the delegation: a Memo program instruction whose
+ * text is `reddi-session/1 delegate <sha256 hex of sessionDelegationMessage(d)>`
+ * and which names the payer as a required signer. The payer's signature on
+ * that transaction is then its consent to exactly that escrow, provider,
+ * session key and expiry, as a `signMessage` signature would be. The header
+ * carries `lockSignature` (the transaction signature) in place of `signature`.
+ *
+ * The provider checks: the transaction confirmed without error, the payer
+ * signed it, it holds that memo instruction with the payer among the memo's
+ * signers, and it touches the escrow account (so the memo travels with this
+ * lock and no other).
+ */
+/** The SPL Memo program (v2), which fails unless every account it names has signed. */
+exports.MEMO_PROGRAM_ID = new web3_js_1.PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
+exports.SESSION_DELEGATION_MEMO_PREFIX = 'reddi-session/1 delegate ';
+const TX_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
+/** The memo text that binds a delegation to the transaction that carries it. */
+function sessionDelegationMemo(d) {
+    return exports.SESSION_DELEGATION_MEMO_PREFIX + (0, crypto_1.createHash)('sha256').update(sessionDelegationMessage(d), 'utf8').digest('hex');
+}
+/** Buyer side: the memo instruction to add to the lock transaction, signed by the payer. */
+function sessionDelegationMemoInstruction(d, payer) {
+    return new web3_js_1.TransactionInstruction({
+        programId: exports.MEMO_PROGRAM_ID,
+        keys: [{ pubkey: payer, isSigner: true, isWritable: false }],
+        data: Buffer.from(sessionDelegationMemo(d), 'utf8'),
+    });
+}
+/** Buyer side: the delegation header for a delegation proved by the confirmed lock transaction `lockSignature`. */
+function lockBoundDelegationHeaderValue(d, lockSignature) {
+    if (!TX_SIGNATURE.test(lockSignature))
+        throw new Error('lockSignature must be a base58 transaction signature');
+    return Buffer.from(JSON.stringify({ ...d, lockSignature }), 'utf8').toString('base64');
+}
+/** A `TransactionFactsReader` over `Connection.getTransaction` at `confirmed`. */
+function transactionFactsReader(connection, commitment = 'confirmed') {
+    return async (signature) => {
+        const tx = (await connection.getTransaction(signature, { commitment, maxSupportedTransactionVersion: 0 }));
+        if (!tx)
+            return null;
+        const message = tx.transaction.message;
+        const statics = (message.staticAccountKeys ?? message.accountKeys ?? []).map((k) => k.toBase58());
+        const loaded = tx.meta?.loadedAddresses ? [...tx.meta.loadedAddresses.writable, ...tx.meta.loadedAddresses.readonly].map((k) => k.toBase58()) : [];
+        const accounts = [...statics, ...loaded];
+        const compiled = message.compiledInstructions
+            ?? (message.instructions ?? []).map((ix) => ({ programIdIndex: ix.programIdIndex, accountKeyIndexes: ix.accounts, data: bs58Decode(ix.data) }));
+        const memos = compiled
+            .filter((ix) => accounts[ix.programIdIndex] === exports.MEMO_PROGRAM_ID.toBase58())
+            .map((ix) => ({ text: Buffer.from(ix.data).toString('utf8'), accounts: ix.accountKeyIndexes.map((i) => accounts[i] ?? '') }));
+        return { failed: tx.meta === null || tx.meta.err !== null, signers: statics.slice(0, message.header.numRequiredSignatures), accounts, memos };
+    };
+}
+function bs58Decode(value) {
+    // Legacy messages carry instruction data as base58; PublicKey's decoder is not exported, so decode by hand.
+    const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    let n = BigInt(0);
+    for (const c of value) {
+        const i = ALPHABET.indexOf(c);
+        if (i < 0)
+            return new Uint8Array();
+        n = n * BigInt(58) + BigInt(i);
+    }
+    const bytes = [];
+    while (n > BigInt(0)) {
+        bytes.unshift(Number(n % BigInt(256)));
+        n /= BigInt(256);
+    }
+    for (const c of value) {
+        if (c !== '1')
+            break;
+        bytes.unshift(0);
+    }
+    return Uint8Array.from(bytes);
+}
+/**
+ * Provider side: `verifySessionRequest`, and also a delegation proved by the
+ * memo in its lock transaction. Without `readTransaction` a lock-bound
+ * delegation is refused. Run it after the lock check, so the escrow named
+ * here is known to be this payer's lock.
+ */
+async function verifySessionRequestWithTransactions(input) {
+    const parsed = parseSessionRequest(input);
+    if (!parsed.ok)
+        return parsed;
+    if (parsed.proof.kind === 'signature')
+        return verifySessionRequest(input);
+    const invalid = (message) => ({ ok: false, reason: 'session_auth_invalid', message });
+    if (!input.readTransaction)
+        return invalid('This provider does not take delegations proved by a lock transaction. Sign the delegation with the payer wallet.');
+    let facts;
+    try {
+        facts = await input.readTransaction(parsed.proof.lockSignature);
+    }
+    catch {
+        return { ok: false, reason: 'payment_check_unavailable', message: 'The chain could not be read. Nothing was accepted; present the same request again.' };
+    }
+    if (!facts)
+        return invalid('The lock transaction named by the delegation is not confirmed yet.');
+    if (facts.failed)
+        return invalid('The lock transaction named by the delegation failed.');
+    const payer = input.payer.toBase58();
+    if (!facts.signers.includes(payer))
+        return invalid("The lock transaction was not signed by the escrow's payer.");
+    if (!facts.accounts.includes(input.escrow.toBase58()))
+        return invalid('The lock transaction does not touch this escrow.');
+    const memo = sessionDelegationMemo(parsed.delegation);
+    if (!facts.memos.some((m) => m.text === memo && m.accounts.includes(payer))) {
+        return invalid('The lock transaction carries no memo for this delegation signed by the payer.');
+    }
+    return { ok: true, sessionKey: parsed.delegation.sessionKey, expiresAt: parsed.delegation.expiresAt };
+}
+/** Provider side, single metered call: `verifySessionRequestWithTransactions` with action `single` and sequence 0. */
+function verifyPaidCallRequestWithTransactions(input) {
+    return verifySessionRequestWithTransactions({ ...input, action: 'single', sequence: 0 });
 }
 /**
  * Buyer side, single metered call: both headers for one call on the lock

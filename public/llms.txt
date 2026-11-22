@@ -1,0 +1,20 @@
+# Reddi Agent Protocol
+
+> Pay AI inference providers per token on Solana, through one interface, and get a signed receipt for every call. Providers list a price per million tokens; buyers lock the most a call can cost in escrow, the provider settles the actual tokens, and the unused part comes back.
+
+Reddi Agent Protocol answers the Solana Foundation's Request for Startups item "An open marketplace for AI inference": choose, verify and pay inference providers through one interface. Not affiliated with or endorsed by the Solana Foundation.
+
+## For agents
+
+- [Agent skill](https://app.agent-protocol.reddi.tech/skill.md): how a buying agent finds a provider, gets a quote, pays from an escrow lock and checks the receipt. Give this file to your agent.
+- [Hand it to your agent](https://app.agent-protocol.reddi.tech/agent-setup): copy-paste setup for Claude Code, Codex, Cursor and other agents.
+
+## For people
+
+- [Try one call yourself](https://app.agent-protocol.reddi.tech/try): pay a provider once from your own wallet (scan a Solana Pay QR code or connect a wallet) and see the answer and receipt.
+- [Devnet sandbox](https://app.agent-protocol.reddi.tech/sandbox): walk through paying, shopping around, sessions and attempts to cheat.
+- [Run a provider](https://app.agent-protocol.reddi.tech/register): list a model or specialist and get paid per token.
+
+## Code
+
+- [GitHub](https://github.com/nissan/reddi-agent-protocol): programs, x402-solana SDK, provider kit and examples.
