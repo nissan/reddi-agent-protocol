@@ -1,6 +1,6 @@
 # @redditech/x402-solana
 
-HTTP 402 proof-reference primitives for Solana-oriented RAP Assurance workflows.
+x402 payments on Solana for Reddi Agent Protocol: per-token pricing, metered escrow, payment checks and receipts, for both the buyer and the provider side.
 
 > Payments prove transfer; RAP Assurance proves paid work.
 
