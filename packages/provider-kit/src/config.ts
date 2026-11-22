@@ -88,6 +88,13 @@ export interface ProviderConfigFile {
   /** For a local validator only: the genesis hash to expect instead of the public devnet one. */
   genesisHash?: string;
   /**
+   * Off unless true. Also accept a payer's delegation proved by a memo in its
+   * lock transaction (Solana Pay transaction requests, where the wallet signs a
+   * transaction but no separate message). Each such request costs one
+   * transaction read from your RPC before the lock is checked.
+   */
+  lockBoundDelegations?: boolean;
+  /**
    * Sessions: one lock pays for many calls and is settled once. Off unless
    * `enabled` is true. A session is settled after `idleSeconds` without a call
    * (default 600), when the buyer closes it, or before its refund window opens.
@@ -119,6 +126,8 @@ export interface ProviderConfig {
   systemPrompt?: string;
   rpcUrl: string;
   genesisHash?: string;
+  /** Accept delegations proved by a memo in the lock transaction. */
+  lockBoundDelegations: boolean;
   keypairPath?: string;
   replayFile: string;
   sessions: { enabled: boolean; idleMs: number; file: string };
@@ -253,6 +262,7 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
   if (!Number.isSafeInteger(idleSeconds) || idleSeconds < 30 || idleSeconds > 3_600) errors.push("sessions.idleSeconds: must be a whole number from 30 to 3600");
 
   const genesisHash = text(file.genesisHash) || undefined;
+  if (file.lockBoundDelegations !== undefined && typeof file.lockBoundDelegations !== "boolean") errors.push("lockBoundDelegations: must be true or false");
   if (genesisHash && network === "solana-mainnet-beta") errors.push("genesisHash: cannot be set on mainnet");
 
   const rpcUrl = text(env.SOLANA_RPC_URL) || text(file.rpcUrl) || (network === "solana-devnet" ? DEFAULT_DEVNET_RPC_URL : "");
@@ -310,6 +320,7 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
       ...(systemPrompt ? { systemPrompt } : {}),
       rpcUrl,
       ...(genesisHash ? { genesisHash } : {}),
+      lockBoundDelegations: file.lockBoundDelegations === true,
       ...(text(env.RAP_PROVIDER_KEYPAIR_PATH) || text(file.keypairPath) ? { keypairPath: text(env.RAP_PROVIDER_KEYPAIR_PATH) || text(file.keypairPath) } : {}),
       replayFile: text(file.replayFile) || DEFAULT_REPLAY_FILE,
       sessions: { enabled: sessionsEnabled, idleMs: idleSeconds * 1_000, file: text(sessionsRaw?.file) || DEFAULT_SESSION_FILE },

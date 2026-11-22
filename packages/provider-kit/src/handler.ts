@@ -58,7 +58,8 @@ import {
   treasuryTokenAccount,
   usageFrom,
   verifyMeteredLock,
-  verifySessionRequest,
+  verifySessionRequestWithTransactions,
+  type ConfirmedTransactionFacts,
   type SessionAction,
   type MeteredPaymentHeader,
   type MeteredSessionLedger,
@@ -366,10 +367,36 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     };
   }
 
-  /** Checks that a paid request (a session request or a single call) is signed by a key the escrow's payer delegated to (security review S-1, #866). */
-  function sessionAuth(request: { headers: Headers }, action: SessionAction, escrow: PublicKey, payer: PublicKey, sequence: number, body: string): { ok: true; sessionKey: string } | { ok: false; response: Response } {
-    const auth = verifySessionRequest({ headers: request.headers, genesisHash: signingGenesisHash, action, escrow, payer, provider: terms.payee, sequence, body, nowMs: nowMs() });
+  // Delegations proved by a memo in the lock transaction are read from the chain only when the operator opted in.
+  // A confirmed transaction never changes, so its facts are kept (bounded); a transaction not found yet is remembered briefly,
+  // so repeated requests naming the same signature cost one read.
+  const factsCache = new Map<string, { facts: ConfirmedTransactionFacts | null; until: number }>();
+  const FACTS_CACHE_SIZE = 1_000;
+  const NOT_FOUND_MS = 5_000;
+  const readTransaction = config.lockBoundDelegations && deps.chain.readTransactionFacts
+    ? async (signature: string): Promise<ConfirmedTransactionFacts | null> => {
+        const kept = factsCache.get(signature);
+        if (kept && kept.until > Date.now()) {
+          factsCache.delete(signature);
+          factsCache.set(signature, kept);
+          return kept.facts;
+        }
+        const facts = await deps.chain.readTransactionFacts!(signature);
+        factsCache.delete(signature);
+        factsCache.set(signature, { facts, until: facts ? Number.POSITIVE_INFINITY : Date.now() + NOT_FOUND_MS });
+        while (factsCache.size > FACTS_CACHE_SIZE) factsCache.delete(factsCache.keys().next().value!);
+        return facts;
+      }
+    : undefined;
+
+  /**
+   * Checks that a paid request (a session request or a single call) is signed by a key the escrow's payer delegated to (security review S-1, #866).
+   * With `lockBoundDelegations`, the payer's consent may instead be a memo it signed in the lock transaction (#925).
+   */
+  async function sessionAuth(request: { headers: Headers }, action: SessionAction, escrow: PublicKey, payer: PublicKey, sequence: number, body: string): Promise<{ ok: true; sessionKey: string } | { ok: false; response: Response }> {
+    const auth = await verifySessionRequestWithTransactions({ headers: request.headers, genesisHash: signingGenesisHash, action, escrow, payer, provider: terms.payee, sequence, body, nowMs: nowMs(), ...(readTransaction ? { readTransaction } : {}) });
     if (auth.ok) return { ok: true, sessionKey: auth.sessionKey };
+    if (auth.reason === "payment_check_unavailable") return { ok: false, response: refuse(503, auth.reason, auth.message, { charged: false }) };
     return { ok: false, response: refuse(401, auth.reason, auth.message, { charged: false }) };
   }
 
@@ -382,9 +409,9 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
   async function sessionCall(c: { header: MeteredPaymentHeader; sequence: number; close: boolean; requestText: string; headers: Headers; upstreamMessages: UpstreamMessage[]; temperature?: number; worstCase: TokenCounts; minimum: bigint }): Promise<Response> {
     const ledger = deps.sessions!;
     const escrow = c.header.escrow.toBase58();
-    // Before any chain read: the escrow, payer and nonce are public, so only a signature shows the payer is calling.
+    // Before the lock is read: the escrow, payer and nonce are public, so only a signature shows the payer is calling.
     // A call that asks to close the session is signed as such, so the close cannot be added or removed in transit.
-    const auth = sessionAuth(c, sessionCallAction(c.close), c.header.escrow, c.header.payer, c.sequence, c.requestText);
+    const auth = await sessionAuth(c, sessionCallAction(c.close), c.header.escrow, c.header.payer, c.sequence, c.requestText);
     if (!auth.ok) return auth.response;
     const mismatch = keyMismatch(escrow, auth.sessionKey);
     if (mismatch) return mismatch;
@@ -686,7 +713,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       return refuse(400, "invalid_receipt", "The escrow address is not the one this payer and nonce give.");
     }
     const escrow = header.escrow.toBase58();
-    const auth = sessionAuth(request, "close", header.escrow, header.payer, 0, await request.text().catch(() => ""));
+    const auth = await sessionAuth(request, "close", header.escrow, header.payer, 0, await request.text().catch(() => ""));
     if (!auth.ok) return auth.response;
     if (!deps.sessions.get(escrow)) return refuse(404, "session_not_found", "No session is open on this lock.");
     const mismatch = keyMismatch(escrow, auth.sessionKey);
@@ -697,7 +724,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     return json(end.status === "pending" ? 202 : 200, { ok: end.status !== "pending", status: end.status, session: state ? sessionSummary(state) : undefined }, end.receipt ? { [SESSION_RECEIPT_HEADER]: end.receipt } : {});
   }
 
-  function sessionRead(request: Request, escrowText: string): Response {
+  async function sessionRead(request: Request, escrowText: string): Promise<Response> {
     if (!deps.sessions) return refuse(404, "session_not_found", "This provider has no sessions.");
     let escrow: string;
     try {
@@ -708,7 +735,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     const state = deps.sessions.get(escrow);
     if (!state) return refuse(404, "session_not_found", "No session on that escrow.");
     // Only the payer's session key may read the totals.
-    const auth = sessionAuth(request, "read", new PublicKey(escrow), new PublicKey(state.payer), 0, "");
+    const auth = await sessionAuth(request, "read", new PublicKey(escrow), new PublicKey(state.payer), 0, "");
     if (!auth.ok) return auth.response;
     const mismatch = keyMismatch(escrow, auth.sessionKey);
     if (mismatch) return mismatch;
@@ -767,7 +794,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       return sessionCall({ header, sequence: sessionHeaders.sequence, close: sessionHeaders.close, requestText, headers: request.headers, upstreamMessages, temperature, worstCase: { inputTokens: inputEstimate, outputTokens }, minimum });
     }
     // The lock's escrow, payer and nonce are public: only the payer's signature shows who is calling (#866).
-    const auth = sessionAuth(request, "single", header.escrow, header.payer, 0, requestText);
+    const auth = await sessionAuth(request, "single", header.escrow, header.payer, 0, requestText);
     if (!auth.ok) return auth.response;
     // A call whose settle was sent but not yet known to land: the same request collects its answer.
     // One look at a held settle per lock at a time; a second retry waits for it.

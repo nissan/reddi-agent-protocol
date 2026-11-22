@@ -4,7 +4,7 @@
  * from Solana goes through this, so tests replace it whole.
  */
 import { Connection, PublicKey, Transaction, type Keypair, type TransactionInstruction } from "@solana/web3.js";
-import type { SettlementRecord } from "@redditech/x402-solana";
+import { transactionFactsReader, type ConfirmedTransactionFacts, type SettlementRecord } from "@redditech/x402-solana";
 
 export interface ProviderChain {
   readGenesisHash(): Promise<string>;
@@ -28,6 +28,8 @@ export interface ProviderChain {
   signatureState(signature: string, lastValidBlockHeight: number): Promise<"landed" | "failed" | "expired" | "unknown">;
   /** What a confirmed transaction did: the programs it called, its top-level instructions, the accounts it named and each token balance before and after. Null when it cannot be found. */
   readSettlement(signature: string): Promise<SettlementRecord | null>;
+  /** Who signed a confirmed transaction, the accounts it named and its Memo instructions. Null when it cannot be found. Needed only with `lockBoundDelegations`. */
+  readTransactionFacts?(signature: string): Promise<ConfirmedTransactionFacts | null>;
 }
 
 export interface SignedTransaction {
@@ -57,7 +59,9 @@ export function base58(bytes: Uint8Array): string {
 
 export function createProviderChain(rpcUrl: string, keypair?: Keypair): ProviderChain {
   const connection = new Connection(rpcUrl, "confirmed");
+  const readFacts = transactionFactsReader(connection as unknown as Parameters<typeof transactionFactsReader>[0]);
   return {
+    readTransactionFacts: (signature) => readFacts(signature),
     readGenesisHash: () => connection.getGenesisHash(),
     async readAccount(address) {
       const info = await connection.getAccountInfo(address, "confirmed");

@@ -546,3 +546,69 @@ test("a single paid call that the payer did not sign is refused before the lock 
   assert.equal(chain.sent.length, 0);
   assert.equal((await call(BODY, { "x402-payment": paymentHeader() })).status, 200, "the payer's own call still goes through on the same lock");
 });
+
+test("a delegation proved by a memo in the lock transaction is taken only when the operator opts in (#925)", async () => {
+  const { lockBoundDelegationHeaderValue, sessionDelegationMemo, sessionSignatureHeaderValue, SESSION_DELEGATION_HEADER, SESSION_SIGNATURE_HEADER, MEMO_PROGRAM_ID } = await import("@redditech/x402-solana");
+  const now = Date.parse("2026-12-05T00:00:00.000Z");
+  const relay = Keypair.generate();
+  const relayKey = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(relay.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
+  const delegation = { genesisHash: SOLANA_GENESIS_HASHES["solana-devnet"], escrow: escrowAddress().toBase58(), provider: provider.publicKey.toBase58(), sessionKey: relay.publicKey.toBase58(), expiresAt: now / 1000 + 600 };
+  const lockBound = async (lockSignature: string, body = BODY) => ({
+    "x402-payment": paymentHeader(),
+    "x-test-unsigned": "1",
+    [SESSION_DELEGATION_HEADER]: lockBoundDelegationHeaderValue(delegation, lockSignature),
+    [SESSION_SIGNATURE_HEADER]: await sessionSignatureHeaderValue({ genesisHash: delegation.genesisHash, action: "single", escrow: delegation.escrow, sequence: 0, body }, (m) => new Uint8Array(edSign(null, Buffer.from(m), relayKey))),
+  });
+  const facts = (memo = sessionDelegationMemo(delegation)) => ({
+    failed: false,
+    signers: [buyer.toBase58()],
+    accounts: [buyer.toBase58(), escrowAddress().toBase58(), MEMO_PROGRAM_ID.toBase58()],
+    memos: [{ text: memo, accounts: [buyer.toBase58()] }],
+  });
+  const code = async (response: Response) => ((await response.json()) as { error: { code: string } }).error.code;
+
+  // Off by default: refused, and the chain is not asked about the transaction.
+  {
+    const chain = fakeChain();
+    let reads = 0;
+    chain.readTransactionFacts = async () => { reads += 1; return facts(); };
+    const upstream = upstreamWithUsage(120, 333);
+    const { call } = setup({ chain, upstream });
+    const response = await call(BODY, await lockBound("4".repeat(88)));
+    assert.equal(response.status, 401);
+    assert.equal(await code(response), "session_auth_invalid");
+    assert.equal(reads, 0);
+    assert.equal(upstream.calls, 0);
+  }
+
+  // Opted in: a memo for another delegation, or an unreadable chain, is refused before the lock is read or the model runs.
+  {
+    const chain = fakeChain();
+    const upstream = upstreamWithUsage(120, 333);
+    let reads = 0;
+    let answer: () => Promise<ReturnType<typeof facts>> = async () => facts(sessionDelegationMemo({ ...delegation, expiresAt: delegation.expiresAt + 1 }));
+    chain.readTransactionFacts = () => { reads += 1; return answer(); };
+    const { call } = setup({ chain, upstream, file: { lockBoundDelegations: true } });
+    let response = await call(BODY, await lockBound("4".repeat(88)));
+    assert.equal(response.status, 401);
+    assert.equal(await code(response), "session_auth_invalid");
+    // The same transaction named again is not read again: a confirmed transaction never changes.
+    response = await call(BODY, await lockBound("4".repeat(88)));
+    assert.equal(response.status, 401);
+    assert.equal(reads, 1);
+    answer = async () => { throw new Error("rpc down"); };
+    response = await call(BODY, await lockBound("3".repeat(88)));
+    assert.equal(response.status, 503);
+    assert.equal(await code(response), "payment_check_unavailable");
+    assert.equal(upstream.calls, 0);
+    assert.equal(chain.sent.length, 0);
+
+    // The payer's memo for exactly this delegation: answered and settled once.
+    // An unreadable chain is not remembered: the same request read again once the chain answers.
+    answer = async () => facts();
+    response = await call(BODY, await lockBound("3".repeat(88)));
+    assert.equal(response.status, 200);
+    assert.equal(upstream.calls, 1);
+    assert.equal(chain.sent.length, 1);
+  }
+});
