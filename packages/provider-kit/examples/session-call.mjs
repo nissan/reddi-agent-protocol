@@ -19,7 +19,7 @@ import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { verifyReddiReceiptV2Session } from "@redditech/agent-protocol/receipt-v2";
 import x402 from "@redditech/x402-solana";
 
-const { buildLockTokenEscrowInstruction, directPaymentCurrency, meteredPaymentHeaderValue, SOLANA_GENESIS_HASHES, sessionDelegationHeaderValue, sessionSignatureHeaderValue, tokenEscrowAddresses, treasuryTokenAccount } = x402;
+const { buildLockTokenEscrowInstruction, directPaymentCurrency, meteredPaymentHeaderValue, SOLANA_GENESIS_HASHES, sessionCallAction, sessionDelegationHeaderValue, sessionSignatureHeaderValue, tokenEscrowAddresses, treasuryTokenAccount } = x402;
 
 const [providerUrl, callsText = "3"] = process.argv.slice(2);
 const calls = Number(callsText);
@@ -72,7 +72,7 @@ console.log(`Locked: ${lockSignature}`);
 
 const escrow = tokenEscrowAddresses({ programId, payer: buyer.publicKey, nonce }).escrow.toBase58();
 const sessionKey = Keypair.generate();
-const delegation = await sessionDelegationHeaderValue({ escrow, provider: payee.toBase58(), sessionKey: sessionKey.publicKey.toBase58(), expiresAt: Math.floor(Date.now() / 1000) + 3600 }, signer(buyer));
+const delegation = await sessionDelegationHeaderValue({ genesisHash: SOLANA_GENESIS_HASHES["solana-devnet"], escrow, provider: payee.toBase58(), sessionKey: sessionKey.publicKey.toBase58(), expiresAt: Math.floor(Date.now() / 1000) + 3600 }, signer(buyer));
 const payment = meteredPaymentHeaderValue({ payer: buyer.publicKey, nonce, programId });
 
 const receipts = [];
@@ -87,7 +87,7 @@ for (let n = 1; n <= calls; n += 1) {
       "x402-session-sequence": String(n),
       ...(n === calls ? { "x402-session": "close" } : {}),
       "x402-session-delegation": delegation,
-      "x402-session-signature": await sessionSignatureHeaderValue({ action: "call", escrow, sequence: n, body }, signer(sessionKey)),
+      "x402-session-signature": await sessionSignatureHeaderValue({ genesisHash: SOLANA_GENESIS_HASHES["solana-devnet"], action: sessionCallAction(n === calls), escrow, sequence: n, body }, signer(sessionKey)),
     },
     body,
   });

@@ -178,6 +178,8 @@ const proof = await directPaymentProofHeaders({ network, txSignature, payTo, bod
 
 A verifier that serves nothing, such as a job ledger recording calls after they are served, sets `payerProof: 'not-required'`.
 
+Session and single metered-call signatures (`session-auth`) name the network by its genesis hash, in the delegation (`genesisHash`, sent as `network`) and in each request's signature (`reddi-session/2`), so a signature made for devnet is refused on mainnet and the other way round; providers pass the genesis hash of the cluster they checked they are on (`SOLANA_GENESIS_HASHES[network]`). A session call that asks to close the session is signed as `call-close` (`sessionCallAction(close)`). Signatures in the earlier `reddi-session/1` form, without a network, are refused.
+
 Delegations (session and direct payment) may run for up to seven days, but a buyer client should use `delegationExpiresAt()`, a day, and keep the session key in memory only, never in localStorage or on disk: whoever holds the key can sign for the payer until the delegation expires.
 
 Hardware wallets such as Ledger sign Solana off-chain messages with a header prefix, which these checks do not accept yet. A payer that uses one cannot sign the delegation or the request; pay from a software wallet for now.

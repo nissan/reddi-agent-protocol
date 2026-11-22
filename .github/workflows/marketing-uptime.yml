@@ -1,7 +1,8 @@
 name: Marketing site uptime
 
-# Checks the live marketing site once an hour with apps/marketing/tests/live-check.mjs. Read only: public pages and
-# the health report, no secrets. When a run fails it opens one issue (or adds a comment to the open one); when a later
+# Checks the live marketing site (apps/marketing/tests/live-check.mjs) and the developer app with its RPC proxy
+# (scripts/app-live-check.mjs) once an hour. Read only: public pages, the health report and one read-only RPC
+# method, no secrets. When a run fails it opens one issue (or adds a comment to the open one); when a later
 # run passes it closes that issue. GitHub also emails the workflow's owner about a failed scheduled run.
 
 on:
@@ -24,30 +25,41 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       ISSUE_TITLE: "Marketing site check is failing"
+      # Change to mainnet in the pull request that switches the app to mainnet.
+      APP_EXPECTED_NETWORK: devnet
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           persist-credentials: false
-          sparse-checkout: apps/marketing/tests
+          sparse-checkout: |
+            apps/marketing/tests
+            scripts/app-live-check.mjs
+          sparse-checkout-cone-mode: false
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "24"
 
+      # shell: bash runs with -eo pipefail, so a failing check fails the step through the tee.
       - name: Check the live site
         id: check
-        run: node apps/marketing/tests/live-check.mjs 2>&1 | tee /tmp/live-check.log
+        shell: bash
+        run: |
+          status=0
+          node apps/marketing/tests/live-check.mjs 2>&1 | tee /tmp/live-check.log || status=1
+          node scripts/app-live-check.mjs 2>&1 | tee -a /tmp/live-check.log || status=1
+          exit "$status"
 
       - name: Open or update the issue
         if: failure() && steps.check.outcome == 'failure'
         run: |
-          { echo "The hourly check of https://agent-protocol.reddi.tech failed."; echo; echo '```'; tail -n 40 /tmp/live-check.log; echo '```'; echo; echo "Run: $RUN_URL"; } > /tmp/body.md
+          { echo "The hourly check of https://agent-protocol.reddi.tech or the developer app failed."; echo; echo '```'; tail -n 40 /tmp/live-check.log; echo '```'; echo; echo "Run: $RUN_URL"; } > /tmp/body.md
           number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$ISSUE_TITLE\" in:title" --json number --jq '.[0].number // empty')
           if [ -n "$number" ]; then gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body-file /tmp/body.md
-          else gh issue create --repo "$GITHUB_REPOSITORY" --title "$ISSUE_TITLE" --body-file /tmp/body.md; fi
+          else gh issue create --repo "$GITHUB_REPOSITORY" --title "$ISSUE_TITLE" --assignee "$GITHUB_REPOSITORY_OWNER" --body-file /tmp/body.md; fi
 
       - name: Close the issue once the site is back
         if: success()

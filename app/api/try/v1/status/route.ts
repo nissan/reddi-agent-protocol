@@ -1,5 +1,5 @@
 import { runTry } from "@/lib/try/flow";
-import { readJsonBody, secretOrResponse, tryError, tryJson } from "@/lib/try/http";
+import { devnetOrResponse, rateLimited, readJsonBody, secretOrResponse, tryError, tryJson } from "@/lib/try/http";
 import { sandboxDevnetConnection, sandboxGatewayDeps } from "@/lib/sandbox/runtime";
 
 export const runtime = "nodejs";
@@ -7,12 +7,17 @@ export const dynamic = "force-dynamic";
 
 /** Polled by the try page: `waiting` until the lock lands, then the provider's answer and receipt (#925). */
 export async function POST(request: Request) {
+  const limited = rateLimited(request, "call");
+  if (limited) return limited;
   const body = await readJsonBody(request);
   if (!body) return tryError(400, "invalid_request", "Send JSON with the try token.");
   const secret = secretOrResponse();
   if (!secret.ok) return secret.response;
   try {
-    const result = await runTry({ token: body.token, origin: new URL(request.url).origin, secret: secret.secret, connection: sandboxDevnetConnection(), deps: sandboxGatewayDeps() });
+    const connection = sandboxDevnetConnection();
+    const notDevnet = await devnetOrResponse(connection);
+    if (notDevnet) return notDevnet;
+    const result = await runTry({ token: body.token, origin: new URL(request.url).origin, secret: secret.secret, connection, deps: sandboxGatewayDeps() });
     if (!result.ok) return tryError(result.status, result.code, result.message);
     return tryJson(result);
   } catch {

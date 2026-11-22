@@ -1,4 +1,6 @@
 /** Server only. Shared bits of the try page's routes (#925). */
+import { createRpcRateLimiter, rpcClientKey } from "@/lib/rpc/rate-limit";
+import { isDevnetConnection } from "@/lib/sandbox/devnet-genesis";
 import { trySecret, TryNotConfiguredError } from "./ticket";
 
 export const TRY_PAY_PATH = "/api/try/v1/pay";
@@ -43,4 +45,25 @@ export async function readJsonBody(request: Request, maxBytes = 4096): Promise<R
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Per-client limits for the try routes, per server instance (defence in depth,
+ * as for /api/rpc): `calls` counts status polls and transaction requests,
+ * `scans` counts started tries.
+ */
+const limiter = createRpcRateLimiter(Date.now, { calls: 90, scans: 10, windowMs: 60_000 });
+
+export function rateLimited(request: Request, kind: "call" | "start", headers: Record<string, string> = {}): Response | undefined {
+  const taken = limiter.take(rpcClientKey(request.headers), kind === "call" ? 1 : 0, kind === "start" ? 1 : 0);
+  if (taken.ok) return undefined;
+  return tryError(429, "rate_limited", "Too many requests from this client. Try again shortly.", { ...headers, "retry-after": String(taken.retryAfterSeconds) });
+}
+
+/**
+ * The sandbox payees are well-known devnet keys, and a Solana Pay wallet shows
+ * no cluster, so nothing is built or read unless the RPC really is devnet.
+ */
+export async function devnetOrResponse(connection: { getGenesisHash(): Promise<string> }, headers: Record<string, string> = {}): Promise<Response | undefined> {
+  return (await isDevnetConnection(connection)) ? undefined : tryError(503, "not_devnet", "The try page runs on Solana devnet, and this server's RPC is not devnet. Nothing was built or signed.", headers);
 }

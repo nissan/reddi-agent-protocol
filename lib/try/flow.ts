@@ -20,8 +20,10 @@
 import { Keypair, PublicKey, Transaction, type Connection } from "@solana/web3.js";
 import {
   lockBoundDelegationHeaderValue,
+  sessionDelegationMemo,
   sessionDelegationMemoInstruction,
   sessionSignatureHeaderValue,
+  SOLANA_GENESIS_HASHES,
   transactionFactsReader,
   type SessionDelegation,
 } from "@redditech/x402-solana";
@@ -53,7 +55,7 @@ function requestText(task: TryTask, provider: SandboxProvider): string {
 }
 
 function delegationFor(ticket: TryTicket, provider: SandboxProvider, escrow: PublicKey, secret: Buffer): SessionDelegation {
-  return { escrow: escrow.toBase58(), provider: provider.payTo, sessionKey: relayKeypair(ticket.id, secret).publicKey.toBase58(), expiresAt: ticket.exp };
+  return { genesisHash: SOLANA_GENESIS_HASHES["solana-devnet"], escrow: escrow.toBase58(), provider: provider.payTo, sessionKey: relayKeypair(ticket.id, secret).publicKey.toBase58(), expiresAt: ticket.exp };
 }
 
 /** Step 1: the provider's challenge for this task, and the sealed ticket. */
@@ -145,7 +147,7 @@ export async function runTry(input: {
   const task = findTryTask(ticket.taskId);
   if (!task) return fail(400, "ticket_invalid", "This try link names a task that no longer exists.");
   const provider = tryTaskProvider(task);
-  const found = await input.connection.getSignaturesForAddress(new PublicKey(ticket.reference), { limit: 5 }, "confirmed");
+  const found = await input.connection.getSignaturesForAddress(new PublicKey(ticket.reference), { limit: 20 }, "confirmed");
   const read = transactionFactsReader(input.connection);
   for (const candidate of found) {
     if (candidate.err) continue;
@@ -154,6 +156,11 @@ export async function runTry(input: {
     const payer = new PublicKey(facts.signers[0]);
     const escrow = sandboxEscrowAddress(payer, ticket.nonce);
     if (!facts.accounts.includes(escrow.toBase58())) continue;
+    // The reference key is public, so anyone can put it in a transaction. Only a lock
+    // carrying this ticket's delegation memo, signed by its payer, is this try's.
+    const delegation = delegationFor(ticket, provider, escrow, input.secret);
+    const memo = sessionDelegationMemo(delegation);
+    if (!facts.memos.some((m) => m.text === memo && m.accounts.includes(payer.toBase58()))) continue;
     const relay = relayKeypair(ticket.id, input.secret);
     const text = requestText(task, provider);
     const challenge: SandboxChallenge = { version: "1", network: "solana-devnet", payTo: provider.payTo, amount: "0", currency: "SOL", endpoint: SANDBOX_ENDPOINT_PATH, nonce: ticket.nonce };
@@ -164,8 +171,8 @@ export async function runTry(input: {
         paymentHeader: meteredPaymentHeader(challenge, escrow.toBase58(), candidate.signature, payer.toBase58()),
         origin: input.origin,
         session: {
-          delegation: lockBoundDelegationHeaderValue(delegationFor(ticket, provider, escrow, input.secret), candidate.signature),
-          signature: await sessionSignatureHeaderValue({ action: "single", escrow: escrow.toBase58(), sequence: 0, body: text }, (m) => signWith(relay, m)),
+          delegation: lockBoundDelegationHeaderValue(delegation, candidate.signature),
+          signature: await sessionSignatureHeaderValue({ genesisHash: SOLANA_GENESIS_HASHES["solana-devnet"], action: "single", escrow: escrow.toBase58(), sequence: 0, body: text }, (m) => signWith(relay, m)),
         },
       },
       input.deps,

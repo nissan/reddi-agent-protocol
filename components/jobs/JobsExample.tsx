@@ -46,12 +46,12 @@ function ExampleTag() {
   );
 }
 
-export function JobsExample() {
+export function JobsExample({ title = "What this page shows once you have jobs" }: { title?: string } = {}) {
   return (
     <section aria-labelledby="jobs-example-heading" className="space-y-6" data-testid="jobs-example">
       <div>
         <h2 id="jobs-example-heading" className="text-2xl">
-          What this page shows once you have jobs
+          {title}
           <ExampleTag />
         </h2>
         <p className="mt-2 text-[15px] text-ink-muted">
@@ -71,7 +71,12 @@ export function JobsExample() {
         ))}
       </dl>
 
-      <div className="overflow-x-auto rounded-md border border-line bg-paper-raised">
+      <div
+        className="overflow-x-auto rounded-md border border-line bg-paper-raised focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-violet"
+        role="region"
+        aria-label="Recent jobs example, scrolls sideways"
+        tabIndex={0}
+      >
         <table className="w-full min-w-[720px] border-collapse text-[15px]">
           <caption className="px-5 py-4 text-left text-lg font-extrabold tracking-tight text-ink">
             Recent jobs

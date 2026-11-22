@@ -44,7 +44,7 @@ import {
 } from "@/lib/sandbox/client";
 import { isSandboxReceipt, responseBodyWithAnswer, type SandboxReceiptPayment, verifySandboxReceipt, type SandboxReceipt, type SandboxVerification } from "@/lib/sandbox/receipt";
 import { formatUnits, requestInputTokens, SANDBOX_DEMO_RATES_NOTE, sandboxFeeBps, triPriceFromLamports, TYPICAL_REVIEW } from "@/lib/sandbox/pricing";
-import { createSessionKey, directPaymentDelegationHeaderValue, directPaymentProofHeaders, paidCallAuthHeaders, sessionDelegationHeaderValue, type MessageSigner } from "@/lib/payments/session-auth";
+import { createSessionKey, directPaymentDelegationHeaderValue, directPaymentProofHeaders, paidCallAuthHeaders, sessionDelegationHeaderValue, SOLANA_GENESIS_HASHES, type MessageSigner } from "@/lib/payments/session-auth";
 import SandboxSessionRunner from "@/components/sandbox/SandboxSessionRunner";
 import { applySandboxReputation, initialSandboxReputation, type SandboxReputation } from "@/lib/sandbox/reputation";
 
@@ -475,15 +475,17 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
       // Before paying: the wallet signs one message delegating to a key held in this tab, which then signs
       // each request. Per lock when metered; per provider for an hour when direct. Declining pays nothing.
       const nowSeconds = Math.floor(Date.now() / 1000);
-      let auth: { escrow: string; delegation: string; sessionKey: { sign: MessageSigner } } | undefined;
+      let auth: { genesisHash: string; escrow: string; delegation: string; sessionKey: { sign: MessageSigner } } | undefined;
       let direct = lock ? undefined : directDelegations.current.get(challenge.payTo);
       if (direct && direct.expiresAt - nowSeconds < 300) direct = undefined;
       try {
         if (lock) {
           const sessionKey = await createSessionKey();
           const escrow = lock.escrow.toBase58();
-          const delegation = await sessionDelegationHeaderValue({ escrow, provider: challenge.payTo, sessionKey: sessionKey.publicKey, expiresAt: nowSeconds + DELEGATION_SECONDS }, (message) => signMessage(message));
-          auth = { escrow, delegation, sessionKey };
+          // The sandbox runs on devnet only, so the delegation names devnet.
+          const genesisHash = SOLANA_GENESIS_HASHES["solana-devnet"];
+          const delegation = await sessionDelegationHeaderValue({ genesisHash, escrow, provider: challenge.payTo, sessionKey: sessionKey.publicKey, expiresAt: nowSeconds + DELEGATION_SECONDS }, (message) => signMessage(message));
+          auth = { genesisHash, escrow, delegation, sessionKey };
         } else if (!direct) {
           const sessionKey = await createSessionKey();
           const expiresAt = nowSeconds + DELEGATION_SECONDS;

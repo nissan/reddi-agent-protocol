@@ -9,7 +9,7 @@ import type { SandboxSettleInput, SandboxSettler } from "@/lib/sandbox/settle-si
 import { buildTryTransaction, runTry, startTry } from "@/lib/try/flow";
 import { openTicket, relayKeypair, sealTicket, trySecret, TryNotConfiguredError } from "@/lib/try/ticket";
 import { TRY_TASKS } from "@/lib/try/tasks";
-import { solanaPayLink } from "@/lib/try/http";
+import { devnetOrResponse, solanaPayLink } from "@/lib/try/http";
 
 const ORIGIN = "https://app.example";
 const NOW_MS = Date.UTC(2026, 10, 22, 8, 0, 0);
@@ -100,7 +100,7 @@ describe("try page: Solana Pay transaction request flow (#925)", () => {
     expect(lock.keys.at(-1)).toEqual({ pubkey: new PublicKey(s.ticket.reference), isSigner: false, isWritable: false });
     expect(memo.programId.equals(MEMO_PROGRAM_ID)).toBe(true);
     expect(memo.data.toString("utf8")).toBe(
-      sessionDelegationMemo({ escrow: escrow.toBase58(), provider: s.provider.payTo, sessionKey: relayKeypair(s.ticket.id, SECRET).publicKey.toBase58(), expiresAt: s.ticket.exp }),
+      sessionDelegationMemo({ genesisHash: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", escrow: escrow.toBase58(), provider: s.provider.payTo, sessionKey: relayKeypair(s.ticket.id, SECRET).publicKey.toBase58(), expiresAt: s.ticket.exp }),
     );
 
     expect(await runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS })).toEqual({ ok: true, state: "waiting" });
@@ -120,7 +120,27 @@ describe("try page: Solana Pay transaction request flow (#925)", () => {
     expect(w.settles).toHaveLength(1);
   });
 
-  it("refuses a lock whose memo delegates to another key", async () => {
+  it("skips a stranger's transaction that names the public reference, then serves the real lock", async () => {
+    const w = world();
+    const s = await started(w);
+    const payer = Keypair.generate();
+    const stranger = Keypair.generate();
+    // The stranger asks for its own lock under this ticket, then lands it first.
+    const theirs = await buildTryTransaction({ token: s.token, account: stranger.publicKey.toBase58(), secret: SECRET, connection: w.connection, nowMs: NOW_MS });
+    if (!theirs.ok) throw new Error(theirs.message);
+    const tampered = Transaction.from(Buffer.from(theirs.transaction, "base64"));
+    const noMemo = new Transaction({ feePayer: stranger.publicKey, blockhash: BLOCKHASH, lastValidBlockHeight: 100 }).add(tampered.instructions[0]);
+    w.walletSignsAndLands(noMemo.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64"), stranger, "5".repeat(88));
+    expect(await runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS })).toEqual({ ok: true, state: "waiting" });
+    const mine = await buildTryTransaction({ token: s.token, account: payer.publicKey.toBase58(), secret: SECRET, connection: w.connection, nowMs: NOW_MS });
+    if (!mine.ok) throw new Error(mine.message);
+    w.walletSignsAndLands(mine.transaction, payer);
+    const result = await runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS });
+    expect(result).toMatchObject({ state: "answered", status: 200, payer: payer.publicKey.toBase58() });
+    expect(w.settles).toHaveLength(1);
+  });
+
+  it("does not serve a lock whose memo delegates to another key", async () => {
     const w = world();
     const s = await started(w);
     const payer = Keypair.generate();
@@ -129,11 +149,11 @@ describe("try page: Solana Pay transaction request flow (#925)", () => {
     w.walletSignsAndLands(built.transaction, payer);
     // Another server secret derives another relay key, so its signature does not match the memo.
     const result = await runTry({ token: sealTicket(s.ticket, Buffer.alloc(32, 9)), origin: ORIGIN, secret: Buffer.alloc(32, 9), connection: w.connection, deps: w.deps, nowMs: NOW_MS });
-    expect(result).toMatchObject({ state: "answered", status: 401 });
+    expect(result).toEqual({ ok: true, state: "waiting" });
     expect(w.settles).toHaveLength(0);
   });
 
-  it("refuses a lock without the memo", async () => {
+  it("does not serve a lock without the memo", async () => {
     const w = world();
     const s = await started(w);
     const payer = Keypair.generate();
@@ -143,7 +163,7 @@ describe("try page: Solana Pay transaction request flow (#925)", () => {
     const withoutMemo = new Transaction({ feePayer: payer.publicKey, blockhash: BLOCKHASH, lastValidBlockHeight: 100 }).add(stripped.instructions[0]);
     w.walletSignsAndLands(withoutMemo.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64"), payer);
     const result = await runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS });
-    expect(result).toMatchObject({ state: "answered", status: 401 });
+    expect(result).toEqual({ ok: true, state: "waiting" });
     expect(w.settles).toHaveLength(0);
   });
 
@@ -175,7 +195,18 @@ describe("try page: Solana Pay transaction request flow (#925)", () => {
     expect(payUrl).toBe(`${ORIGIN}/api/try/v1/pay?t=a.b`);
     expect(solanaPayUrl).toBe(`solana:${encodeURIComponent(payUrl)}`);
     expect(() => trySecret({})).toThrow(TryNotConfiguredError);
+    expect(() => trySecret({ TRY_RELAY_SECRET: "x".repeat(31) })).toThrow(TryNotConfiguredError);
+    // Never derived from the sandbox's signing keys.
+    expect(() => trySecret({ SANDBOX_DEVNET_PAYEE_KEYS: "k".repeat(64), SANDBOX_PAYEE_KEYS: "k".repeat(64) })).toThrow(TryNotConfiguredError);
     expect(trySecret({ TRY_RELAY_SECRET: "x".repeat(32) })).toEqual(Buffer.from("x".repeat(32)));
-    expect(trySecret({ SANDBOX_PAYEE_KEYS: "k" })).toHaveLength(32);
+  });
+
+  it("builds and reads nothing unless the RPC is devnet", async () => {
+    const mainnet = await devnetOrResponse({ getGenesisHash: async () => "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d" });
+    expect(mainnet?.status).toBe(503);
+    expect(await mainnet?.json()).toMatchObject({ error: { code: "not_devnet" } });
+    const down = await devnetOrResponse({ getGenesisHash: async () => { throw new Error("rpc"); } });
+    expect(down?.status).toBe(503);
+    expect(await devnetOrResponse({ getGenesisHash: async () => "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG" })).toBeUndefined();
   });
 });

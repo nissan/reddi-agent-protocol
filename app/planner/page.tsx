@@ -29,6 +29,7 @@ import {
   walletDirectPaymentEnabled,
 } from "@/lib/payments/wallet-direct-payment";
 import { planMeteredBuy } from "@/lib/payments/metered-buy";
+import { SOLANA_GENESIS_HASHES } from "@/lib/payments/session-auth";
 import {
   applySessionClose,
   applySessionOutcome,
@@ -586,7 +587,7 @@ function PlannerInner() {
     );
     let lockAuth: LockAuth;
     try {
-      lockAuth = await delegateLock({ escrow: plan.escrow, providerWallet: walletAddress, signWithPayer: (message) => signMessage(message) });
+      lockAuth = await delegateLock({ genesisHash: SOLANA_GENESIS_HASHES[network], escrow: plan.escrow, providerWallet: walletAddress, signWithPayer: (message) => signMessage(message) });
     } catch {
       setPaymentNote("You declined the message. Nothing was locked or charged.");
       return;
@@ -595,6 +596,7 @@ function PlannerInner() {
     let session: PlannerSessionHandle | undefined;
     if (plan.session) {
       session = await openPlannerSession({
+        genesisHash: lockAuth.genesisHash,
         escrow: plan.escrow,
         providerWallet: walletAddress,
         lockBaseUnits: plan.session.lockBaseUnits,

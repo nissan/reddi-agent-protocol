@@ -34,15 +34,15 @@ export type TryTicket = {
 export class TryNotConfiguredError extends Error {}
 
 /**
- * `TRY_RELAY_SECRET` (at least 32 characters) when set; otherwise derived from
- * the sandbox payee keys the server already holds, with its own label, so the
- * devnet try page works without a new setting. Refuses when neither exists.
+ * `TRY_RELAY_SECRET`: at least 32 characters of random data (for example
+ * `openssl rand -base64 48`), kept as a Sensitive environment variable. Its own
+ * secret, never derived from signing keys. Without it the try page refuses.
  */
+export const TRY_SECRET_MIN_LENGTH = 32;
+
 export function trySecret(env: Record<string, string | undefined> = process.env): Buffer {
   const own = env[TRY_SECRET_ENV]?.trim();
-  if (own && own.length >= 32) return Buffer.from(own, "utf8");
-  const payeeKeys = env.SANDBOX_PAYEE_KEYS?.trim();
-  if (payeeKeys) return createHmac("sha256", "reddi-try-secret/1").update(payeeKeys, "utf8").digest();
+  if (own && own.length >= TRY_SECRET_MIN_LENGTH) return Buffer.from(own, "utf8");
   throw new TryNotConfiguredError("The try page is not configured on this server.");
 }
 

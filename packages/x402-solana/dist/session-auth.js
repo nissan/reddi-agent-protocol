@@ -2,20 +2,21 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SESSION_DELEGATION_MEMO_PREFIX = exports.MEMO_PROGRAM_ID = exports.DEFAULT_DELEGATION_SECONDS = exports.MAX_SESSION_DELEGATION_SECONDS = exports.SESSION_SIGNATURE_HEADER = exports.SESSION_DELEGATION_HEADER = void 0;
 exports.delegationExpiresAt = delegationExpiresAt;
+exports.sessionCallAction = sessionCallAction;
 exports.sessionDelegationMessage = sessionDelegationMessage;
 exports.sessionBodyHash = sessionBodyHash;
 exports.sessionRequestMessage = sessionRequestMessage;
 exports.sessionDelegationHeaderValue = sessionDelegationHeaderValue;
 exports.sessionSignatureHeaderValue = sessionSignatureHeaderValue;
 exports.verifySessionRequest = verifySessionRequest;
+exports.paidCallAuthHeaders = paidCallAuthHeaders;
+exports.verifyPaidCallRequest = verifyPaidCallRequest;
 exports.sessionDelegationMemo = sessionDelegationMemo;
 exports.sessionDelegationMemoInstruction = sessionDelegationMemoInstruction;
 exports.lockBoundDelegationHeaderValue = lockBoundDelegationHeaderValue;
 exports.transactionFactsReader = transactionFactsReader;
 exports.verifySessionRequestWithTransactions = verifySessionRequestWithTransactions;
 exports.verifyPaidCallRequestWithTransactions = verifyPaidCallRequestWithTransactions;
-exports.paidCallAuthHeaders = paidCallAuthHeaders;
-exports.verifyPaidCallRequest = verifyPaidCallRequest;
 /**
  * Proof that a paid call comes from the buyer that locked the escrow: every
  * call of a session, and a single metered call (action `single`, #866).
@@ -30,8 +31,13 @@ exports.verifyPaidCallRequest = verifyPaidCallRequest;
  * both before it reserves a call, and the session keeps the first key it saw,
  * so a second delegation cannot take over a session already started.
  *
+ * Both messages name the cluster by its genesis hash, so a signature made for
+ * one network is refused on every other, even where the program id, escrow
+ * address and provider are the same.
+ *
  * Headers:
- * - `x402-session-delegation`: base64 of JSON `{escrow, provider, sessionKey, expiresAt, signature}`;
+ * - `x402-session-delegation`: base64 of JSON `{network, escrow, provider, sessionKey, expiresAt, signature}`;
+ *   `network` is the cluster's genesis hash;
  *   `expiresAt` is whole seconds since the epoch, `signature` base64 of the payer's signature over
  *   `sessionDelegationMessage(...)`.
  * - `x402-session-signature`: base64 of the session key's signature over `sessionRequestMessage(...)`.
@@ -60,11 +66,16 @@ function delegationExpiresAt(nowMs = Date.now(), seconds = exports.DEFAULT_DELEG
     }
     return Math.floor(nowMs / 1000) + seconds;
 }
+/** The action a session call is signed under: `call-close` when it asks to close the session. */
+function sessionCallAction(close) {
+    return close ? 'call-close' : 'call';
+}
 /** The text the payer wallet signs to hand a session to `sessionKey`. */
 function sessionDelegationMessage(d) {
     return [
         'Reddi Agent Protocol session',
         'I let this session key make paid calls on my escrow lock.',
+        `network: ${d.genesisHash}`,
         `escrow: ${d.escrow}`,
         `provider: ${d.provider}`,
         `session key: ${d.sessionKey}`,
@@ -75,25 +86,27 @@ function sessionDelegationMessage(d) {
 function sessionBodyHash(body = '') {
     return (0, crypto_1.createHash)('sha256').update(typeof body === 'string' ? Buffer.from(body, 'utf8') : Buffer.from(body)).digest('hex');
 }
-/** The bytes the session key signs for one request. `sequence` is the call number for `call`, and 0 for `close`, `read` and `single`. */
+/** The bytes the session key signs for one request. `sequence` is the call number for `call` and `call-close`, and 0 for `close`, `read` and `single`. */
 function sessionRequestMessage(input) {
-    return ['reddi-session/1', input.action, input.escrow, String(input.sequence), input.bodyHash].join('\n');
+    return ['reddi-session/2', input.genesisHash, input.action, input.escrow, String(input.sequence), input.bodyHash].join('\n');
 }
 /** Buyer side: the delegation header value, signed by the payer wallet. Use `delegationExpiresAt()` for `expiresAt`. */
 async function sessionDelegationHeaderValue(d, signWithPayer) {
     const signature = await signWithPayer(new TextEncoder().encode(sessionDelegationMessage(d)));
-    return Buffer.from(JSON.stringify({ ...d, signature: Buffer.from(signature).toString('base64') }), 'utf8').toString('base64');
+    const { genesisHash, ...rest } = d;
+    return Buffer.from(JSON.stringify({ network: genesisHash, ...rest, signature: Buffer.from(signature).toString('base64') }), 'utf8').toString('base64');
 }
 /** Buyer side: the signature header value for one request, signed by the session key. */
 async function sessionSignatureHeaderValue(input, signWithSessionKey) {
-    const message = sessionRequestMessage({ action: input.action, escrow: input.escrow, sequence: input.sequence, bodyHash: sessionBodyHash(input.body) });
+    const message = sessionRequestMessage({ genesisHash: input.genesisHash, action: input.action, escrow: input.escrow, sequence: input.sequence, bodyHash: sessionBodyHash(input.body) });
     return Buffer.from(await signWithSessionKey(new TextEncoder().encode(message))).toString('base64');
 }
 /**
  * Provider side: checks that a session request is signed by a key the payer
  * handed this session to. Returns the session key on success. `payer` and
  * `escrow` come from the payment header (the lock check then confirms them on
- * chain); `provider` is this provider's payee wallet; `body` is the raw
+ * chain); `provider` is this provider's payee wallet; `genesisHash` is the
+ * genesis hash of the cluster this provider checked it is on; `body` is the raw
  * request body exactly as received.
  */
 function verifySessionRequest(input) {
@@ -109,8 +122,8 @@ function verifySessionRequest(input) {
     return { ok: true, sessionKey: parsed.delegation.sessionKey, expiresAt: parsed.delegation.expiresAt };
 }
 /**
- * Everything but the payer's consent: the delegation's shape, escrow,
- * provider and expiry, and the session key's signature over this request.
+ * Everything but the payer's consent: the delegation's shape, network,
+ * escrow, provider and expiry, and the session key's signature over this request.
  */
 function parseSessionRequest(input) {
     const delegationValue = input.headers.get(exports.SESSION_DELEGATION_HEADER);
@@ -132,6 +145,10 @@ function parseSessionRequest(input) {
     catch {
         return invalid('The session delegation is not JSON.');
     }
+    if (typeof parsed.network !== 'string' || parsed.network.length === 0)
+        return invalid('The session delegation names no network. Sign a new one with this client version.');
+    if (parsed.network !== input.genesisHash)
+        return invalid('The session delegation was signed for another network.');
     const escrow = (0, ed25519_1.publicKeyOf)(parsed.escrow);
     const provider = (0, ed25519_1.publicKeyOf)(parsed.provider);
     const sessionKey = (0, ed25519_1.publicKeyOf)(parsed.sessionKey);
@@ -159,13 +176,31 @@ function parseSessionRequest(input) {
         return { ok: false, reason: 'session_auth_expired', message: 'The session delegation has expired. Sign a new one with the payer wallet.' };
     if (expiresAt > nowSeconds + exports.MAX_SESSION_DELEGATION_SECONDS)
         return invalid(`A session delegation may run for at most ${exports.MAX_SESSION_DELEGATION_SECONDS} seconds.`);
-    const delegation = { escrow: escrow.toBase58(), provider: provider.toBase58(), sessionKey: sessionKey.toBase58(), expiresAt };
+    const delegation = { genesisHash: input.genesisHash, escrow: escrow.toBase58(), provider: provider.toBase58(), sessionKey: sessionKey.toBase58(), expiresAt };
     const requestSignature = (0, ed25519_1.decodeBase64)(signatureValue);
-    const message = sessionRequestMessage({ action: input.action, escrow: delegation.escrow, sequence: input.sequence, bodyHash: sessionBodyHash(input.body) });
+    const message = sessionRequestMessage({ genesisHash: input.genesisHash, action: input.action, escrow: delegation.escrow, sequence: input.sequence, bodyHash: sessionBodyHash(input.body) });
     if (!requestSignature || !(0, ed25519_1.ed25519Verify)(sessionKey, new TextEncoder().encode(message), requestSignature)) {
         return invalid('The request is not signed by the session key, or was changed after signing.');
     }
     return { ok: true, delegation, proof };
+}
+/**
+ * Buyer side, single metered call: both headers for one call on the lock
+ * `escrow`. With no `sessionKey`, the payer signs the request too (fine for a
+ * server-held keypair; a browser wallet would then sign twice, so pass a
+ * fresh key there and keep it for the call).
+ */
+async function paidCallAuthHeaders(input) {
+    const key = input.sessionKey ?? { publicKey: input.payer, sign: input.signWithPayer };
+    const expiresAt = input.expiresAt ?? Math.floor((input.nowMs ?? Date.now()) / 1000) + 600;
+    return {
+        [exports.SESSION_DELEGATION_HEADER]: await sessionDelegationHeaderValue({ genesisHash: input.genesisHash, escrow: input.escrow, provider: input.provider, sessionKey: key.publicKey, expiresAt }, input.signWithPayer),
+        [exports.SESSION_SIGNATURE_HEADER]: await sessionSignatureHeaderValue({ genesisHash: input.genesisHash, action: 'single', escrow: input.escrow, sequence: 0, body: input.body }, key.sign),
+    };
+}
+/** Provider side, single metered call: `verifySessionRequest` with action `single` and sequence 0. */
+function verifyPaidCallRequest(input) {
+    return verifySessionRequest({ ...input, action: 'single', sequence: 0 });
 }
 /*
  * Transaction-bound delegation (#925, Solana Pay transaction requests).
@@ -173,7 +208,8 @@ function parseSessionRequest(input) {
  * A Solana Pay transaction request lets a phone wallet sign a transaction our
  * server builds, but it cannot sign a separate message. So the lock
  * transaction itself carries the delegation: a Memo program instruction whose
- * text is `reddi-session/1 delegate <sha256 hex of sessionDelegationMessage(d)>`
+ * text is `reddi-session/2 delegate <sha256 hex of sessionDelegationMessage(d)>`
+ * (the message names the network's genesis hash, so the memo binds it too)
  * and which names the payer as a required signer. The payer's signature on
  * that transaction is then its consent to exactly that escrow, provider,
  * session key and expiry, as a `signMessage` signature would be. The header
@@ -186,7 +222,7 @@ function parseSessionRequest(input) {
  */
 /** The SPL Memo program (v2), which fails unless every account it names has signed. */
 exports.MEMO_PROGRAM_ID = new web3_js_1.PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
-exports.SESSION_DELEGATION_MEMO_PREFIX = 'reddi-session/1 delegate ';
+exports.SESSION_DELEGATION_MEMO_PREFIX = 'reddi-session/2 delegate ';
 const TX_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
 /** The memo text that binds a delegation to the transaction that carries it. */
 function sessionDelegationMemo(d) {
@@ -204,7 +240,8 @@ function sessionDelegationMemoInstruction(d, payer) {
 function lockBoundDelegationHeaderValue(d, lockSignature) {
     if (!TX_SIGNATURE.test(lockSignature))
         throw new Error('lockSignature must be a base58 transaction signature');
-    return Buffer.from(JSON.stringify({ ...d, lockSignature }), 'utf8').toString('base64');
+    const { genesisHash, ...rest } = d;
+    return Buffer.from(JSON.stringify({ network: genesisHash, ...rest, lockSignature }), 'utf8').toString('base64');
 }
 /** A `TransactionFactsReader` over `Connection.getTransaction` at `confirmed`. */
 function transactionFactsReader(connection, commitment = 'confirmed') {
@@ -286,22 +323,4 @@ async function verifySessionRequestWithTransactions(input) {
 /** Provider side, single metered call: `verifySessionRequestWithTransactions` with action `single` and sequence 0. */
 function verifyPaidCallRequestWithTransactions(input) {
     return verifySessionRequestWithTransactions({ ...input, action: 'single', sequence: 0 });
-}
-/**
- * Buyer side, single metered call: both headers for one call on the lock
- * `escrow`. With no `sessionKey`, the payer signs the request too (fine for a
- * server-held keypair; a browser wallet would then sign twice, so pass a
- * fresh key there and keep it for the call).
- */
-async function paidCallAuthHeaders(input) {
-    const key = input.sessionKey ?? { publicKey: input.payer, sign: input.signWithPayer };
-    const expiresAt = input.expiresAt ?? Math.floor((input.nowMs ?? Date.now()) / 1000) + 600;
-    return {
-        [exports.SESSION_DELEGATION_HEADER]: await sessionDelegationHeaderValue({ escrow: input.escrow, provider: input.provider, sessionKey: key.publicKey, expiresAt }, input.signWithPayer),
-        [exports.SESSION_SIGNATURE_HEADER]: await sessionSignatureHeaderValue({ action: 'single', escrow: input.escrow, sequence: 0, body: input.body }, key.sign),
-    };
-}
-/** Provider side, single metered call: `verifySessionRequest` with action `single` and sequence 0. */
-function verifyPaidCallRequest(input) {
-    return verifySessionRequest({ ...input, action: 'single', sequence: 0 });
 }

@@ -27,7 +27,8 @@ const escrow = Keypair.generate().publicKey;
 const NOW = 1_800_000_000_000;
 const BODY = JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] });
 const LOCK_SIG = '5'.repeat(88);
-const d = (over: Partial<SessionDelegation> = {}): SessionDelegation => ({ escrow: escrow.toBase58(), provider: provider.toBase58(), sessionKey: relayKey.publicKey.toBase58(), expiresAt: NOW / 1000 + 600, ...over });
+const GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
+const d = (over: Partial<SessionDelegation> = {}): SessionDelegation => ({ genesisHash: GENESIS, escrow: escrow.toBase58(), provider: provider.toBase58(), sessionKey: relayKey.publicKey.toBase58(), expiresAt: NOW / 1000 + 600, ...over });
 
 const goodFacts = (over: Partial<ConfirmedTransactionFacts> = {}, delegation = d()): ConfirmedTransactionFacts => ({
   failed: false,
@@ -40,14 +41,15 @@ const goodFacts = (over: Partial<ConfirmedTransactionFacts> = {}, delegation = d
 async function headers(delegation = d(), key = relayKey, body = BODY) {
   const map = new Map<string, string>([
     [SESSION_DELEGATION_HEADER, lockBoundDelegationHeaderValue(delegation, LOCK_SIG)],
-    [SESSION_SIGNATURE_HEADER, await sessionSignatureHeaderValue({ action: 'single', escrow: escrow.toBase58(), sequence: 0, body }, signer(key))],
+    [SESSION_SIGNATURE_HEADER, await sessionSignatureHeaderValue({ genesisHash: GENESIS, action: 'single', escrow: escrow.toBase58(), sequence: 0, body }, signer(key))],
   ]);
   return { get: (name: string) => map.get(name) ?? null };
 }
 
-const check = (h: { get(n: string): string | null }, facts: ConfirmedTransactionFacts | null | 'throw' | undefined, over: { body?: string; payerKey?: PublicKey } = {}) =>
+const check = (h: { get(n: string): string | null }, facts: ConfirmedTransactionFacts | null | 'throw' | undefined, over: { body?: string; payerKey?: PublicKey; genesisHash?: string } = {}) =>
   verifyPaidCallRequestWithTransactions({
     headers: h,
+    genesisHash: over.genesisHash ?? GENESIS,
     escrow,
     payer: over.payerKey ?? payer.publicKey,
     provider,
@@ -64,7 +66,8 @@ describe('lock-bound session delegation (Solana Pay transaction requests)', () =
   test('the memo binds escrow, provider, key and expiry', () => {
     const memos = [d(), d({ escrow: provider.toBase58() }), d({ provider: escrow.toBase58() }), d({ sessionKey: payer.publicKey.toBase58() }), d({ expiresAt: NOW / 1000 + 601 })].map(sessionDelegationMemo);
     expect(new Set(memos).size).toBe(5);
-    expect(memos[0]).toMatch(/^reddi-session\/1 delegate [0-9a-f]{64}$/);
+    expect(memos[0]).toMatch(/^reddi-session\/2 delegate [0-9a-f]{64}$/);
+    expect(sessionDelegationMemo(d({ genesisHash: 'other' }))).not.toBe(memos[0]);
   });
 
   test('the memo instruction makes the payer a required signer of the Memo program', () => {
@@ -75,7 +78,7 @@ describe('lock-bound session delegation (Solana Pay transaction requests)', () =
   });
 
   test('the synchronous check refuses a lock-bound delegation instead of trusting it', async () => {
-    const result = verifySessionRequest({ headers: await headers(), action: 'single', escrow, payer: payer.publicKey, provider, sequence: 0, body: BODY, nowMs: NOW });
+    const result = verifySessionRequest({ headers: await headers(), genesisHash: GENESIS, action: 'single', escrow, payer: payer.publicKey, provider, sequence: 0, body: BODY, nowMs: NOW });
     expect(!result.ok && result.reason).toBe('session_auth_invalid');
   });
 
@@ -97,8 +100,9 @@ describe('lock-bound session delegation (Solana Pay transaction requests)', () =
     expect(!result.ok && result.reason).toBe('session_auth_invalid');
   });
 
-  test('refuses another payer, a changed body or another signing key', async () => {
+  test('refuses another payer, another network, a changed body or another signing key', async () => {
     for (const result of [
+      await check(await headers(), goodFacts(), { genesisHash: '4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsfY' }),
       await check(await headers(), goodFacts(), { payerKey: Keypair.generate().publicKey }),
       await check(await headers(), goodFacts(), { body: BODY + ' ' }),
       await check(await headers(d(), Keypair.generate()), goodFacts()),
@@ -120,9 +124,9 @@ describe('lock-bound session delegation (Solana Pay transaction requests)', () =
   test('wallet-signed delegations still pass through the async check', async () => {
     const map = new Map<string, string>([
       [SESSION_DELEGATION_HEADER, await sessionDelegationHeaderValue(d(), signer(payer))],
-      [SESSION_SIGNATURE_HEADER, await sessionSignatureHeaderValue({ action: 'call', escrow: escrow.toBase58(), sequence: 3, body: BODY }, signer(relayKey))],
+      [SESSION_SIGNATURE_HEADER, await sessionSignatureHeaderValue({ genesisHash: GENESIS, action: 'call', escrow: escrow.toBase58(), sequence: 3, body: BODY }, signer(relayKey))],
     ]);
-    const result = await verifySessionRequestWithTransactions({ headers: { get: (n) => map.get(n) ?? null }, action: 'call', sequence: 3, escrow, payer: payer.publicKey, provider, body: BODY, nowMs: NOW });
+    const result = await verifySessionRequestWithTransactions({ headers: { get: (n) => map.get(n) ?? null }, genesisHash: GENESIS, action: 'call', sequence: 3, escrow, payer: payer.publicKey, provider, body: BODY, nowMs: NOW });
     expect(result.ok).toBe(true);
   });
 

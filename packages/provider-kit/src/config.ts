@@ -88,8 +88,8 @@ export interface ProviderConfigFile {
   /** For a local validator only: the genesis hash to expect instead of the public devnet one. */
   genesisHash?: string;
   /**
-   * Sessions: one lock pays for many calls and is settled once. On unless
-   * `enabled` is false. A session is settled after `idleSeconds` without a call
+   * Sessions: one lock pays for many calls and is settled once. Off unless
+   * `enabled` is true. A session is settled after `idleSeconds` without a call
    * (default 600), when the buyer closes it, or before its refund window opens.
    * `file` keeps the sessions across restarts.
    */
@@ -246,7 +246,8 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
 
   const sessionsRaw = file.sessions === undefined ? {} : isRecord(file.sessions) ? file.sessions : undefined;
   if (!sessionsRaw) errors.push("sessions: must be an object");
-  const sessionsEnabled = sessionsRaw?.enabled !== false;
+  // Off by default: turn on only for a provider that watches its session alerts.
+  const sessionsEnabled = sessionsRaw?.enabled === true;
   if (sessionsRaw?.enabled !== undefined && typeof sessionsRaw.enabled !== "boolean") errors.push("sessions.enabled: must be true or false");
   const idleSeconds = sessionsRaw?.idleSeconds === undefined ? 600 : Number(sessionsRaw.idleSeconds);
   if (!Number.isSafeInteger(idleSeconds) || idleSeconds < 30 || idleSeconds > 3_600) errors.push("sessions.idleSeconds: must be a whole number from 30 to 3600");

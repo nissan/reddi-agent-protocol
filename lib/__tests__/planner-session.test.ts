@@ -19,7 +19,9 @@ jest.mock("fs", () => ({
 import { generateKeyPairSync, sign as edSign, type KeyObject } from "crypto";
 import { PublicKey } from "@solana/web3.js";
 import { canonicalizeReddiReceiptV2, signReddiReceiptV2, hashReddiReceiptV2Body, type ReddiReceiptV2, type ReddiReceiptV2Session } from "@redditech/agent-protocol/receipt-v2";
-import { verifyPaidCallRequest, verifySessionRequest } from "@redditech/x402-solana";
+import { SOLANA_GENESIS_HASHES, verifyPaidCallRequest, verifySessionRequest } from "@redditech/x402-solana";
+
+const GENESIS = SOLANA_GENESIS_HASHES["solana-devnet"];
 import { tokenCostBaseUnits } from "@redditech/x402-solana/metered";
 
 function keypair() {
@@ -149,6 +151,7 @@ function providerChain(lockBaseUnits: bigint) {
 
 async function openSession(lockBaseUnits = BigInt(100_000)): Promise<PlannerSessionHandle> {
   const handle = await openPlannerSession({
+    genesisHash: GENESIS,
     escrow: ESCROW,
     providerWallet: mockProvider.address,
     lockBaseUnits,
@@ -218,10 +221,22 @@ describe("signing a session call in the browser", () => {
     expect(plannerChatBody("summarise this")).toBe(JSON.stringify(plannerChatPayload("summarise this")));
     const headers = new Headers({ "x402-session-delegation": prepared.request.delegation, "x402-session-signature": prepared.request.signature });
     const check = (body: string, sequence = 1) =>
-      verifySessionRequest({ headers: { get: (n: string) => headers.get(n) }, action: "call", escrow: new PublicKey(ESCROW), payer: new PublicKey(payer.address), provider: new PublicKey(mockProvider.address), sequence, body, nowMs: NOW_MS });
+      verifySessionRequest({ headers: { get: (n: string) => headers.get(n) }, genesisHash: GENESIS, action: "call", escrow: new PublicKey(ESCROW), payer: new PublicKey(payer.address), provider: new PublicKey(mockProvider.address), sequence, body, nowMs: NOW_MS });
     expect(check(plannerChatBody("summarise this"))).toMatchObject({ ok: true, sessionKey: sessionKey.address });
     expect(check(plannerChatBody("something else"))).toMatchObject({ ok: false, reason: "session_auth_invalid" });
     expect(check(plannerChatBody("summarise this"), 2)).toMatchObject({ ok: false, reason: "session_auth_invalid" });
+  });
+
+  it("signs whether the call asks to settle, and the network, so neither can be changed in transit", async () => {
+    const handle = await openSession();
+    const prepared = await prepareSessionCall(handle, "summarise this", true);
+    if (!prepared.ok) throw new Error(prepared.message);
+    const headers = new Headers({ "x402-session-delegation": prepared.request.delegation, "x402-session-signature": prepared.request.signature });
+    const check = (action: "call" | "call-close", genesisHash = GENESIS) =>
+      verifySessionRequest({ headers: { get: (n: string) => headers.get(n) }, genesisHash, action, escrow: new PublicKey(ESCROW), payer: new PublicKey(payer.address), provider: new PublicKey(mockProvider.address), sequence: 1, body: plannerChatBody("summarise this"), nowMs: NOW_MS });
+    expect(check("call-close")).toMatchObject({ ok: true });
+    expect(check("call")).toMatchObject({ ok: false, reason: "session_auth_invalid" });
+    expect(check("call-close", SOLANA_GENESIS_HASHES["solana-mainnet-beta"])).toMatchObject({ ok: false, reason: "session_auth_invalid" });
   });
 
   it("refuses locally, before sending, a call that could take the session past its lock", async () => {
@@ -233,7 +248,7 @@ describe("signing a session call in the browser", () => {
   });
 
   it("refuses a lock receipt for a different escrow", async () => {
-    const handle = await openPlannerSession({ escrow: ESCROW, providerWallet: mockProvider.address, lockBaseUnits: BigInt(100), price: PRICE, maxOutputTokens: MAX_OUTPUT, signWithPayer: payer.sign, nowMs: NOW_MS });
+    const handle = await openPlannerSession({ genesisHash: GENESIS, escrow: ESCROW, providerWallet: mockProvider.address, lockBaseUnits: BigInt(100), price: PRICE, maxOutputTokens: MAX_OUTPUT, signWithPayer: payer.sign, nowMs: NOW_MS });
     expect(() => attachLockReceipt(handle, { ...lockReceipt, escrow: new PublicKey(Buffer.alloc(32, 8)).toBase58() })).toThrow(/different escrow/);
   });
 });
@@ -400,23 +415,23 @@ describe("signing a single metered call (#866)", () => {
   });
 
   async function lockAuth() {
-    return delegateLock({ escrow: ESCROW, providerWallet: mockProvider.address, signWithPayer: payer.sign, sessionKey: { publicKey: sessionKey.address, sign: sessionKey.sign }, nowMs: NOW_MS });
+    return delegateLock({ genesisHash: GENESIS, escrow: ESCROW, providerWallet: mockProvider.address, signWithPayer: payer.sign, sessionKey: { publicKey: sessionKey.address, sign: sessionKey.sign }, nowMs: NOW_MS });
   }
 
   it("signs the exact body the server sends, and the provider's verifier accepts it only for that body", async () => {
     const auth = await signSingleCall(await lockAuth(), "summarise this");
     const headers = new Headers({ "x402-session-delegation": auth.delegation, "x402-session-signature": auth.signature });
     const check = (body: string, payerKey = payer.address) =>
-      verifyPaidCallRequest({ headers: { get: (n: string) => headers.get(n) }, escrow: new PublicKey(ESCROW), payer: new PublicKey(payerKey), provider: new PublicKey(mockProvider.address), body, nowMs: NOW_MS });
+      verifyPaidCallRequest({ headers: { get: (n: string) => headers.get(n) }, genesisHash: GENESIS, escrow: new PublicKey(ESCROW), payer: new PublicKey(payerKey), provider: new PublicKey(mockProvider.address), body, nowMs: NOW_MS });
     expect(check(plannerChatBody("summarise this"))).toMatchObject({ ok: true, sessionKey: sessionKey.address });
     expect(check(plannerChatBody("something else"))).toMatchObject({ ok: false, reason: "session_auth_invalid" });
     expect(check(plannerChatBody("summarise this"), mockProvider.address)).toMatchObject({ ok: false, reason: "session_auth_invalid" });
     // A single-call signature is not a session call signature.
-    expect(verifySessionRequest({ headers: { get: (n: string) => headers.get(n) }, action: "call", escrow: new PublicKey(ESCROW), payer: new PublicKey(payer.address), provider: new PublicKey(mockProvider.address), sequence: 1, body: plannerChatBody("summarise this"), nowMs: NOW_MS })).toMatchObject({ ok: false });
+    expect(verifySessionRequest({ headers: { get: (n: string) => headers.get(n) }, genesisHash: GENESIS, action: "call", escrow: new PublicKey(ESCROW), payer: new PublicKey(payer.address), provider: new PublicKey(mockProvider.address), sequence: 1, body: plannerChatBody("summarise this"), nowMs: NOW_MS })).toMatchObject({ ok: false });
   });
 
   it("is refused when the wallet declines the message", async () => {
-    await expect(delegateLock({ escrow: ESCROW, providerWallet: mockProvider.address, signWithPayer: async () => { throw new Error("User rejected"); }, nowMs: NOW_MS })).rejects.toThrow(/User rejected/);
+    await expect(delegateLock({ genesisHash: GENESIS, escrow: ESCROW, providerWallet: mockProvider.address, signWithPayer: async () => { throw new Error("User rejected"); }, nowMs: NOW_MS })).rejects.toThrow(/User rejected/);
   });
 
   it("forwards the signature on a metered call that is not a session, and explains a provider that refuses it", async () => {
@@ -515,7 +530,7 @@ describe("a settled session is one job, and the buyer can settle now (#863 follo
     // The provider's own verifier accepts the close, and only as a close.
     const headers = new Headers(sent?.headers);
     const check = (action: "close" | "read") =>
-      verifySessionRequest({ headers: { get: (n: string) => headers.get(n) }, action, escrow: new PublicKey(ESCROW), payer: new PublicKey(payer.address), provider: new PublicKey(mockProvider.address), sequence: 0, body: "", nowMs: NOW_MS });
+      verifySessionRequest({ headers: { get: (n: string) => headers.get(n) }, genesisHash: GENESIS, action, escrow: new PublicKey(ESCROW), payer: new PublicKey(payer.address), provider: new PublicKey(mockProvider.address), sequence: 0, body: "", nowMs: NOW_MS });
     expect(check("close")).toMatchObject({ ok: true });
     expect(check("read")).toMatchObject({ ok: false });
 

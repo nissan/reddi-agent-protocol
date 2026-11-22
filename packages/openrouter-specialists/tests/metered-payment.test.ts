@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash, createPrivateKey, sign as edSign } from "node:crypto";
 import test from "node:test";
 import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { ESCROW_PROTOCOL_TREASURY, MemoryNonceReplayStore, paidCallAuthHeaders, tokenEscrowAddresses, treasuryTokenAccount } from "@redditech/x402-solana";
+import { ESCROW_PROTOCOL_TREASURY, MemoryNonceReplayStore, paidCallAuthHeaders, SOLANA_GENESIS_HASHES, tokenEscrowAddresses, treasuryTokenAccount } from "@redditech/x402-solana";
 import { MockOpenRouterClient } from "../src/openrouter.js";
 import { getProfile } from "../src/profiles/index.js";
 import { handleRuntimeRequest, PROVIDER_RECEIPT_HEADER, type ProviderReceiptStatement, type RuntimeConfig, type RuntimeDeps } from "../src/index.js";
@@ -100,6 +100,7 @@ const BODY = JSON.stringify({ messages: [{ role: "user", content: "Plan a three 
 // The payer's signature over BODY on the test lock (#866); any metered payment sends it unless `unsigned`.
 const payerKey = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(payerKeypair.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
 const SIGNED = await paidCallAuthHeaders({
+  genesisHash: SOLANA_GENESIS_HASHES["solana-devnet"],
   escrow: tokenEscrowAddresses({ programId: PROGRAM, payer, nonce: Buffer.from(NONCE, "hex") }).escrow.toBase58(),
   provider: payee.toBase58(),
   body: BODY,

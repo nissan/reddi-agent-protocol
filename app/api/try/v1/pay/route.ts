@@ -1,5 +1,5 @@
 import { buildTryTransaction } from "@/lib/try/flow";
-import { readJsonBody, secretOrResponse, SOLANA_PAY_CORS, tryError, tryJson } from "@/lib/try/http";
+import { devnetOrResponse, rateLimited, readJsonBody, secretOrResponse, SOLANA_PAY_CORS, tryError, tryJson } from "@/lib/try/http";
 import { sandboxDevnetConnection } from "@/lib/sandbox/runtime";
 
 export const runtime = "nodejs";
@@ -20,12 +20,17 @@ export async function OPTIONS() {
 }
 
 export async function POST(request: Request) {
+  const limited = rateLimited(request, "call", SOLANA_PAY_CORS);
+  if (limited) return limited;
   const body = await readJsonBody(request);
   if (!body || typeof body.account !== "string") return tryError(400, "invalid_request", "Send JSON with the wallet's account.", SOLANA_PAY_CORS);
   const secret = secretOrResponse(SOLANA_PAY_CORS);
   if (!secret.ok) return secret.response;
   try {
-    const built = await buildTryTransaction({ token: new URL(request.url).searchParams.get("t"), account: body.account, secret: secret.secret, connection: sandboxDevnetConnection() });
+    const connection = sandboxDevnetConnection();
+    const notDevnet = await devnetOrResponse(connection, SOLANA_PAY_CORS);
+    if (notDevnet) return notDevnet;
+    const built = await buildTryTransaction({ token: new URL(request.url).searchParams.get("t"), account: body.account, secret: secret.secret, connection });
     if (!built.ok) return tryError(built.status, built.code, built.message, SOLANA_PAY_CORS);
     return tryJson({ transaction: built.transaction, message: built.message }, 200, SOLANA_PAY_CORS);
   } catch {

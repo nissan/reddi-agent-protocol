@@ -7,6 +7,8 @@ import { createProviderHandler } from "./handler.js";
 import { loadProviderKey } from "./keys.js";
 import { FileReplayStore } from "./replay.js";
 import { FileSessionStore } from "./sessions.js";
+import { FilePendingSettleStore } from "./pending.js";
+import { dirname, join } from "node:path";
 import { MeteredSessionLedger } from "@redditech/x402-solana";
 import { createMockUpstream, createOpenAiCompatibleUpstream, type Upstream } from "./upstream.js";
 
@@ -56,6 +58,14 @@ export async function startProvider(config: ProviderConfig, options: { log?: (ev
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "the payment memory file could not be opened" };
   }
+  // Settles sent but not yet known to land are kept beside the payment memory, under the same lock.
+  let pendingSettles: FilePendingSettleStore;
+  try {
+    pendingSettles = new FilePendingSettleStore(join(dirname(config.replayFile), "pending-settles.jsonl"));
+  } catch (error) {
+    replayStore.close();
+    return { ok: false, message: error instanceof Error ? `pending settles: ${error.message}` : "the pending settle file could not be opened" };
+  }
   // Sessions are kept beside the payment memory, whose lock already keeps a second process out.
   let sessionStore: FileSessionStore | undefined;
   let sessions: MeteredSessionLedger | undefined;
@@ -67,31 +77,32 @@ export async function startProvider(config: ProviderConfig, options: { log?: (ev
       if (restored > 0) options.log?.({ event: "sessions_restored", count: restored });
     } catch (error) {
       sessionStore?.close();
+      pendingSettles.close();
       replayStore.close();
       return { ok: false, message: error instanceof Error ? `sessions: ${error.message}` : "the session file could not be opened" };
     }
   }
   const chain = options.chain ?? createProviderChain(config.rpcUrl, key.key.keypair);
-  const handler = createProviderHandler(config, { chain, upstream: upstreamFor(config), replayStore, ...(sessions ? { sessions } : {}), signMessage: key.key.signMessage, log: options.log });
+  const handler = createProviderHandler(config, { chain, upstream: upstreamFor(config), replayStore, pendingSettles, ...(sessions ? { sessions } : {}), signMessage: key.key.signMessage, log: options.log });
   const server = serve(handler, config.publicUrl);
-  // Settles idle sessions, closing ones, and any near its refund window, including those restored above.
+  // Settles idle sessions, closing ones, and any near its refund window, including those restored above,
+  // and looks again at single-call settles whose outcome was not known.
   let sweeping = false;
-  const sweep = sessions
-    ? setInterval(() => {
-        if (sweeping) return;
-        sweeping = true;
-        handler.settleDueSessions().catch(() => undefined).finally(() => {
-          sweeping = false;
-        });
-      }, SESSION_SWEEP_MS)
-    : undefined;
-  sweep?.unref();
+  const sweep = setInterval(() => {
+    if (sweeping) return;
+    sweeping = true;
+    handler.settleDueSessions().catch(() => undefined).finally(() => {
+      sweeping = false;
+    });
+  }, SESSION_SWEEP_MS);
+  sweep.unref();
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(config.port, options.host ?? "0.0.0.0", () => resolve());
   }).catch((error: unknown) => {
-    if (sweep) clearInterval(sweep);
+    clearInterval(sweep);
     sessionStore?.close();
+    pendingSettles.close();
     replayStore.close();
     throw error;
   });
@@ -100,9 +111,10 @@ export async function startProvider(config: ProviderConfig, options: { log?: (ev
     server,
     close: () =>
       new Promise<void>((resolve) => {
-        if (sweep) clearInterval(sweep);
+        clearInterval(sweep);
         server.close(() => {
           sessionStore?.close();
+          pendingSettles.close();
           replayStore.close();
           resolve();
         });

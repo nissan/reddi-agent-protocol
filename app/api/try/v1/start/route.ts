@@ -1,5 +1,5 @@
 import { startTry } from "@/lib/try/flow";
-import { readJsonBody, secretOrResponse, solanaPayLink, tryError, tryJson } from "@/lib/try/http";
+import { rateLimited, readJsonBody, secretOrResponse, solanaPayLink, tryError, tryJson } from "@/lib/try/http";
 import { sandboxGatewayDeps } from "@/lib/sandbox/runtime";
 
 export const runtime = "nodejs";
@@ -7,6 +7,8 @@ export const dynamic = "force-dynamic";
 
 /** Starts one paid try: the provider's challenge and a Solana Pay link for it (#925). */
 export async function POST(request: Request) {
+  const limited = rateLimited(request, "start");
+  if (limited) return limited;
   const body = await readJsonBody(request);
   if (!body) return tryError(400, "invalid_request", "Send JSON with a taskId.");
   const secret = secretOrResponse();
