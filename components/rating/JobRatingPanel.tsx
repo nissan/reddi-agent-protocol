@@ -153,12 +153,12 @@ export function JobRatingPanel({
     setNotice(result.ok ? { tone: "ok", text: thisJob ? "Backup imported. You can reveal now." : "Backup imported, but it is for a different job." } : { tone: "error", text: result.message });
   }
 
-  if (loaded.state === "loading") return <div className="h-24 animate-pulse rounded-xl bg-white/5" aria-busy="true" data-testid="job-rating-loading" />;
+  if (loaded.state === "loading") return <div className="h-24 animate-pulse rounded-xl bg-well" aria-busy="true" data-testid="job-rating-loading" />;
   if (loaded.state === "error") {
     return (
-      <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-gray-300" role="alert">
+      <div className="rounded-xl border border-line bg-paper p-4 text-sm text-ink" role="alert">
         {loaded.message}{" "}
-        <button type="button" className="text-indigo-300 hover:text-indigo-200" onClick={() => void refresh()}>
+        <button type="button" className="text-brand-violet hover:opacity-80" onClick={() => void refresh()}>
           Try again
         </button>
       </div>

@@ -24,7 +24,7 @@ export interface RateJobOptionProps {
  */
 export function RateJobOption({ checked, onCheckedChange, judge, onJudgeChange, judgeError, stance, disabled }: RateJobOptionProps) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-gray-300" data-testid="rate-job-option">
+    <div className="rounded-xl border border-line bg-well p-4 text-sm text-ink" data-testid="rate-job-option">
       <label className="flex items-start gap-3">
         <input
           type="checkbox"
@@ -35,23 +35,23 @@ export function RateJobOption({ checked, onCheckedChange, judge, onJudgeChange, 
           data-testid="rate-job-checkbox"
         />
         <span>
-          <span className="font-medium text-white">Rate this job</span>
-          <span className="mt-1 block text-xs leading-5 text-gray-400">
+          <span className="font-medium text-ink">Rate this job</span>
+          <span className="mt-1 block text-xs leading-5 text-ink-muted">
             Adds a rating to this payment. After the job is paid, you and the provider each give the other a score from 1 to 10, and both scores go on the public record.
           </span>
         </span>
       </label>
 
       {checked ? (
-        <div className="mt-3 space-y-3 border-t border-white/10 pt-3 text-xs leading-5" data-testid="rate-job-details">
-          <ul className="list-disc space-y-1 pl-5 text-gray-300">
+        <div className="mt-3 space-y-3 border-t border-line pt-3 text-xs leading-5" data-testid="rate-job-details">
+          <ul className="list-disc space-y-1 pl-5 text-ink">
             <li>
-              Your wallet also pays about <span className="font-mono text-white">{RATING_RENT_SOL} SOL</span> of rent for the rating record. You get it back when you close the rating, or if the job is refunded.
+              Your wallet also pays about <span className="font-mono text-ink">{RATING_RENT_SOL} SOL</span> of rent for the rating record. You get it back when you close the rating, or if the job is refunded.
             </li>
             <li>The provider has to agree to be rated. A provider that does not take rated jobs refuses before it does any work, and you can then refund the lock.</li>
             <li>
               You have about 7 days after payment to submit your score, then about 7 days to reveal it. Missing a step costs you reputation points.{" "}
-              <a href={RATINGS_DOC_PATH} target="_blank" rel="noopener noreferrer" className="text-indigo-300 hover:text-indigo-200">
+              <a href={RATINGS_DOC_PATH} target="_blank" rel="noopener noreferrer" className="text-brand-violet hover:opacity-80">
                 How ratings work
               </a>
             </li>
@@ -63,24 +63,24 @@ export function RateJobOption({ checked, onCheckedChange, judge, onJudgeChange, 
             </LimitNotice>
           ) : null}
           {stance === "unknown" ? (
-            <p className="rounded-lg border border-white/10 bg-black/30 p-3 text-gray-300" data-testid="rate-job-unknown">
+            <p className="rounded-lg border border-line bg-paper p-3 text-ink" data-testid="rate-job-unknown">
               This provider has not said whether it takes rated jobs. If it refuses, nothing is charged, but your maximum stays locked until the refund window opens.
             </p>
           ) : null}
           {stance === "accepts" ? (
-            <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-emerald-200" data-testid="rate-job-accepts">
+            <p className="rounded-lg border border-brand-green/40 bg-brand-green/10 p-3 text-brand-green" data-testid="rate-job-accepts">
               This provider says it takes rated jobs.
             </p>
           ) : null}
 
-          <details className="rounded-lg border border-white/10 bg-black/20 p-3">
-            <summary className="cursor-pointer text-gray-200">Advanced: name a judge (optional)</summary>
+          <details className="rounded-lg border border-line bg-paper p-3">
+            <summary className="cursor-pointer text-ink">Advanced: name a judge (optional)</summary>
             <div className="mt-2 space-y-2">
-              <p className="text-gray-400">
+              <p className="text-ink-muted">
                 A judge is a registered attestation agent that may score this job on five measures after it is paid. Only the address you name here can do so, and you confirm or dispute what it records. Leave empty for no judge.
               </p>
               <input
-                className="w-full rounded-lg border border-border bg-page px-3 py-2 font-mono text-xs text-white"
+                className="w-full rounded-lg border border-border bg-page px-3 py-2 font-mono text-xs text-ink"
                 placeholder="Judge wallet address"
                 value={judge}
                 disabled={disabled}

@@ -65,7 +65,7 @@ export function RatedJobsList() {
 
   if (!wallet) {
     return (
-      <p className="text-sm text-gray-400" data-testid="rated-jobs-connect">
+      <p className="text-sm text-ink-muted" data-testid="rated-jobs-connect">
         Connect the wallet you paid with to see the jobs you opted in to rating.
       </p>
     );
@@ -74,29 +74,29 @@ export function RatedJobsList() {
   return (
     <div className="space-y-4" data-testid="rated-jobs">
       {jobs.length === 0 ? (
-        <p className="text-sm text-gray-400" data-testid="rated-jobs-empty">
+        <p className="text-sm text-ink-muted" data-testid="rated-jobs-empty">
           No rated jobs are stored in this browser for this wallet. A job appears here when you pay with &quot;Rate this job&quot; turned on. Jobs paid without rating have nothing to rate.
         </p>
       ) : (
         <ul className="space-y-4">
           {jobs.map((job) => (
             <li key={job.escrow} className="space-y-2">
-              {job.label ? <p className="text-sm text-white">{job.label}</p> : null}
+              {job.label ? <p className="text-sm text-ink">{job.label}</p> : null}
               <JobRatingPanel escrow={job.escrow} programId={new PublicKey(job.programId)} showWhenNone />
             </li>
           ))}
         </ul>
       )}
 
-      <details className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-gray-300">
-        <summary className="cursor-pointer text-gray-200">Rated a job in another browser?</summary>
+      <details className="rounded-xl border border-line bg-well p-4 text-sm text-ink">
+        <summary className="cursor-pointer text-ink">Rated a job in another browser?</summary>
         <div className="mt-3 space-y-3">
-          <p className="text-xs leading-5 text-gray-400">
+          <p className="text-xs leading-5 text-ink-muted">
             Add the job by its escrow address to see its state. To reveal a score you submitted elsewhere you also need the salt: import the backup file you downloaded there.
           </p>
           <div className="flex flex-wrap gap-2">
             <input
-              className="min-w-0 flex-1 rounded-lg border border-border bg-page px-3 py-2 font-mono text-xs text-white"
+              className="min-w-0 flex-1 rounded-lg border border-border bg-page px-3 py-2 font-mono text-xs text-ink"
               placeholder="Escrow address"
               aria-label="Escrow address"
               value={lookup}
@@ -111,7 +111,7 @@ export function RatedJobsList() {
             <input ref={fileInput} type="file" accept="application/json,.json" className="hidden" onChange={(event) => void importBackup(event.target.files?.[0])} />
           </div>
           {note ? (
-            <p className="text-xs text-gray-300" role="status">
+            <p className="text-xs text-ink" role="status">
               {note}
             </p>
           ) : null}
