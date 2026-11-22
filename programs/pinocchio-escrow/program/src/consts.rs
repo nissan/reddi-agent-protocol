@@ -87,8 +87,8 @@ pub const SOL_FEE_CAP_LAMPORTS: u64 = 100_000_000;
 /// Protocol fee treasury: the "Reddi Agent Protocol" Squads vault.
 pub const PROTOCOL_TREASURY: Address = address!("5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe");
 
-const _: () = assert!(BPS_DENOMINATOR % LAUNCH_FEE_BPS == 0);
-const _: () = assert!(BPS_DENOMINATOR % PROTOCOL_FEE_BPS == 0);
+const _: () = assert!(BPS_DENOMINATOR.is_multiple_of(LAUNCH_FEE_BPS));
+const _: () = assert!(BPS_DENOMINATOR.is_multiple_of(PROTOCOL_FEE_BPS));
 
 /// The fee rate in basis points for a payout at cluster time `unix_timestamp`.
 pub const fn fee_bps_at(unix_timestamp: i64) -> u64 {
