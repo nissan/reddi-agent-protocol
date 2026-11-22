@@ -8,6 +8,7 @@ import {
 } from "@/lib/dogfood/constants";
 import { seedDogfoodAgents } from "@/lib/dogfood/seed";
 import { fetchSpecialistListings } from "@/lib/registry/bridge";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 export const runtime = "nodejs";
 
@@ -16,6 +17,8 @@ function sha(value: unknown) {
 }
 
 export async function POST(req: Request) {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   try {
     const body = await req.json().catch(() => ({}));
     const origin = new URL(req.url).origin;
@@ -105,6 +108,8 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   return POST(req);
 }
 

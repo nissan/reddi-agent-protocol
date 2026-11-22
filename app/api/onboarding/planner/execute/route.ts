@@ -1,10 +1,13 @@
 import { authenticateWalletRequest, bearerToken } from "@/lib/auth/wallet-session";
 import { executePlannerSpecialistCall, listPlannerRuns } from "@/lib/onboarding/planner-execution";
 import { parsePaidCallAuth, parsePlannerSessionRequest } from "@/lib/onboarding/planner-session";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 export const runtime = "nodejs";
 
 export async function GET() {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   try {
     const result = listPlannerRuns();
     return Response.json({ ok: true, result });

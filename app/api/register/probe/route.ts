@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isUnsafeHostedTarget } from "@/lib/integrations/openonion/network-policy";
+import { checkOutboundUrl, fetchOutbound, outboundAllowsHttp } from "@/lib/http/outbound";
 import { validateOpenOnionSpecialistProfile } from "@/lib/integrations/openonion/specialist/adapter";
 import { validateSourceAdapterManifest } from "@/lib/integrations/source-adapter/schema";
 
@@ -45,19 +45,23 @@ export async function POST(req: Request) {
       }
     }
 
-    if (isUnsafeHostedTarget(url.hostname)) {
+    // Public addresses only, resolved before any request; redirects are never followed (audit S2-claude-02).
+    const allowHttp = outboundAllowsHttp();
+    const checked = await checkOutboundUrl(url, { allowHttp });
+    const outbound = (target: string, init: RequestInit) => fetchOutbound(target, init, { allowHttp });
+    if (!checked.ok) {
       return NextResponse.json(
         {
           ok: false,
           status: "invalid_url",
-          error: "Localhost/private-network targets are blocked in hosted context. Use a public tunnel URL (ngrok recommended, localtunnel fallback)."
+          error: "Localhost and private-network targets are blocked, and the endpoint must be a public https URL. Use a public tunnel URL (ngrok recommended, localtunnel fallback)."
         },
         { status: 400 }
       );
     }
 
     if (integration === "openonion") {
-      const contractRes = await fetch(`${url.origin}/.well-known/reddi-adapter.json`, {
+      const contractRes = await outbound(`${url.origin}/.well-known/reddi-adapter.json`, {
         signal: AbortSignal.timeout(5000),
       }).catch(() => null);
 
@@ -86,7 +90,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const tagsRes = await fetch(`${url.origin}/api/tags`, {
+    const tagsRes = await outbound(`${url.origin}/api/tags`, {
       signal: AbortSignal.timeout(5000),
     });
 
@@ -94,7 +98,7 @@ export async function POST(req: Request) {
     let warning: string | undefined;
 
     try {
-      const challengeProbe = await fetch(`${url.origin}/v1/chat/completions`, {
+      const challengeProbe = await outbound(`${url.origin}/v1/chat/completions`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -151,7 +155,7 @@ export async function POST(req: Request) {
       });
     }
 
-    const healthRes = await fetch(`${url.origin}/healthz`, {
+    const healthRes = await outbound(`${url.origin}/healthz`, {
       signal: AbortSignal.timeout(5000),
     });
 
@@ -167,7 +171,7 @@ export async function POST(req: Request) {
       {
         ok: false,
         status: "unreachable",
-        error: error instanceof Error ? error.message : "Connection failed",
+        error: "The endpoint could not be reached.",
       },
       { status: 200 }
     );

@@ -15,6 +15,7 @@ import "server-only";
 import { resolveNetworkProfileName } from "@/lib/config/network";
 import { supabasePublicConfig } from "@/lib/supabase/config";
 import { listingNetworkForProfile, readPublicListings, recordListingHealth, type ListingStoreDeps } from "@/lib/listings/listing-store";
+import { checkOutboundUrl } from "@/lib/http/outbound";
 
 type ProbeResponse = { ok: boolean; status: number; text?: () => Promise<string> };
 type ProbeFetch = (input: string, init: { method: string; redirect: "manual"; signal?: AbortSignal }) => Promise<ProbeResponse>;
@@ -46,9 +47,15 @@ async function reportedAcceptingPayments(response: ProbeResponse): Promise<boole
  * True only for a direct 2xx answer that does not report a payment pause. A
  * redirect is not followed, so a listing cannot point the server somewhere else.
  */
-export async function probeEndpoint(endpointUrl: string, probe: ProbeFetch = fetch as unknown as ProbeFetch): Promise<boolean> {
+export async function probeEndpoint(endpointUrl: string, probe?: ProbeFetch): Promise<boolean> {
   try {
-    const response = await probe(`${endpointUrl.replace(/\/+$/, "")}/healthz`, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(5000) });
+    const target = `${endpointUrl.replace(/\/+$/, "")}/healthz`;
+    if (!probe) {
+      // The real probe reaches public addresses only (audit S2-claude-02).
+      const checked = await checkOutboundUrl(target);
+      if (!checked.ok) return false;
+    }
+    const response = await (probe ?? (fetch as unknown as ProbeFetch))(target, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(5000) });
     if (!response.ok) return false;
     return (await reportedAcceptingPayments(response)) !== false;
   } catch {

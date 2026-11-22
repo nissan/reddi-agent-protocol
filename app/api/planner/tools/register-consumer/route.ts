@@ -5,10 +5,13 @@
  * Register or update a consumer wallet profile for planner marketplace usage.
  */
 import { listConsumers, registerConsumer } from "@/lib/onboarding/consumer-registry";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   try {
     const body = await req.json();
     const result = registerConsumer({
@@ -38,6 +41,8 @@ export async function POST(req: Request) {
 }
 
 export async function GET() {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   return Response.json({
     tool: "register_consumer",
     description: "Register or update a consumer wallet profile for orchestrator usage.",

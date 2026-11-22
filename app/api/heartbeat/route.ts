@@ -15,6 +15,7 @@ import {
   updateSpecialistHealthcheck,
   type SpecialistIndexEntry,
 } from "@/lib/onboarding/specialist-index";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 export const runtime = "nodejs";
 
@@ -58,6 +59,8 @@ async function probeEndpoint(url: string): Promise<{ ok: boolean; latencyMs: num
 }
 
 export async function POST(req: Request) {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   try {
     const body = await req.json().catch(() => ({}));
     const targetWallet: string | undefined = body.wallet;
@@ -121,6 +124,8 @@ export async function POST(req: Request) {
 }
 
 export async function GET() {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   // Return current health snapshot without polling
   const records = readIndex();
   const snapshot = records.map((r) => ({

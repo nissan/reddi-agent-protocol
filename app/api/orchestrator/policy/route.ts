@@ -1,13 +1,18 @@
 import { readPolicy, updatePolicy } from "@/lib/orchestrator/policy";
 import { TASK_TYPE_IDS, PRIVACY_MODE_IDS } from "@/lib/capabilities/taxonomy";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 export const runtime = "nodejs";
 
 export async function GET() {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   return Response.json({ ok: true, policy: readPolicy() });
 }
 
 export async function POST(req: Request) {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   try {
     const body = await req.json();
 

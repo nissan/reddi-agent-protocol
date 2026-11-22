@@ -75,15 +75,21 @@ The Surfpool SDK lane supplies those ids itself against a dynamic loopback port;
 ### Mainnet (currently blocked)
 ```bash
 NETWORK_PROFILE=mainnet
-NEXT_PUBLIC_RPC_ENDPOINT=<mainnet-rpc>
-NEXT_PUBLIC_ESCROW_PROGRAM_ID=<audited-mainnet-escrow-program-id>
-NEXT_PUBLIC_REGISTRY_PROGRAM_ID=<audited-mainnet-registry-program-id>
-NEXT_PUBLIC_REPUTATION_PROGRAM_ID=<audited-mainnet-reputation-program-id>
-NEXT_PUBLIC_ATTESTATION_PROGRAM_ID=<audited-mainnet-attestation-program-id>
-NEXT_PUBLIC_PER_RPC=<mainnet-tee-endpoint>
+NEXT_PUBLIC_RPC_ENDPOINT=https://<app-host>/api/rpc   # the app's own proxy; see MAINNET-RPC.md
+SOLANA_RPC_URL=<keyed mainnet RPC, server only>
 ```
 
-All four program id variables are read by `getNetworkProfile()`, by
+Mainnet network fence (security audit round 1, S2-claude-01): on `mainnet` the program
+ids come **only** from `config/networks/mainnet.json`, the control of record. Any
+`NEXT_PUBLIC_*_PROGRAM_ID` that differs from the registered id is ignored (even with
+the unsafe-override flag) and recorded in `knownGaps`; the server-side `DEMO_*_PROGRAM_ID`
+and `DEMO_DEVNET_RPC` values are not read at all. The only RPC override taken is an
+https URL whose path is `/api/rpc` (the app's proxy, which forwards to `SOLANA_RPC_URL`),
+and `NEXT_PUBLIC_RPC_WS_ENDPOINT` is ignored in favour of the profile websocket. Demo,
+dogfood and legacy file-store API routes answer 404 on mainnet and in production builds
+(`lib/http/route-gates.ts`).
+
+On devnet and local profiles, all four program id variables are read by `getNetworkProfile()`, by
 `npm run test:mainnet:readiness`, and by `packages/demo-agents` on its devnet/local
 profiles — demo-agents refuses `NETWORK_PROFILE=mainnet` outright, so it never
 reads them in the mainnet context above.

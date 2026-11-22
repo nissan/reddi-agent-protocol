@@ -1,9 +1,12 @@
 import { listReputationCommits, revealReputationRating } from "@/lib/onboarding/reputation-signal";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 export const runtime = "nodejs";
 
 /** GET — list stored commits with revealed status */
 export async function GET() {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   try {
     const result = listReputationCommits();
     return Response.json({ ok: true, result });
@@ -17,6 +20,8 @@ export async function GET() {
 
 /** POST { runId } — reveal a previously committed reputation rating */
 export async function POST(req: Request) {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   try {
     const body = await req.json();
     const runId = String(body.runId || "").trim();

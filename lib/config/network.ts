@@ -136,6 +136,29 @@ export function isValidProgramId(value: string): boolean {
   return leadingZeroBytes + significantBytes === 32;
 }
 
+/**
+ * True when `value` is an https URL whose path is the app's RPC proxy (`/api/rpc`), with no
+ * query, fragment or user info. On mainnet this is the only RPC override the resolver accepts:
+ * the proxy forwards to the server-held SOLANA_RPC_URL, so a mistyped or devnet URL cannot
+ * point mainnet pages at another cluster.
+ */
+export function isMainnetRpcProxyUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return (
+    url.protocol === "https:" &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash &&
+    url.pathname.replace(/\/+$/, "") === "/api/rpc"
+  );
+}
+
 export function resolveNetworkProfileName(): NetworkProfileName {
   return resolveNetworkProfileNameFromEnv(readEnv());
 }
@@ -155,12 +178,24 @@ export function getNetworkProfile(): NetworkProfile {
   const requestedTarget = resolveProgramTarget();
   const quasarDevnet = quasarDeployments.quasarDeployments.devnet;
 
-  const rpcOverride = pickEnvEntry("NEXT_PUBLIC_RPC_ENDPOINT", "NEXT_PUBLIC_RPC_URL", "DEMO_DEVNET_RPC");
-  const rpcWsOverride = pickEnvEntry("NEXT_PUBLIC_RPC_WS_ENDPOINT");
-  const escrowOverride = pickEnv("NEXT_PUBLIC_ESCROW_PROGRAM_ID", "DEMO_ESCROW_PROGRAM_ID");
-  const registryOverride = pickEnv("NEXT_PUBLIC_REGISTRY_PROGRAM_ID", "DEMO_REGISTRY_PROGRAM_ID");
-  const reputationOverride = pickEnv("NEXT_PUBLIC_REPUTATION_PROGRAM_ID", "DEMO_REPUTATION_PROGRAM_ID");
-  const attestationOverride = pickEnv("NEXT_PUBLIC_ATTESTATION_PROGRAM_ID", "DEMO_ATTESTATION_PROGRAM_ID");
+  const isMainnet = name === "mainnet";
+  // Mainnet fence (audit S2-claude-01, gate S2.6): on mainnet the program ids come only from
+  // config/networks/mainnet.json, and the only RPC override taken is the app's own /api/rpc proxy
+  // (docs/MAINNET-RPC.md). Server-side DEMO_* values are never read on mainnet.
+  const rawRpcOverride = isMainnet
+    ? pickEnvEntry("NEXT_PUBLIC_RPC_ENDPOINT", "NEXT_PUBLIC_RPC_URL")
+    : pickEnvEntry("NEXT_PUBLIC_RPC_ENDPOINT", "NEXT_PUBLIC_RPC_URL", "DEMO_DEVNET_RPC");
+  const refusedMainnetRpcOverride = isMainnet && rawRpcOverride !== undefined && !isMainnetRpcProxyUrl(rawRpcOverride.value);
+  const rpcOverride = refusedMainnetRpcOverride ? undefined : rawRpcOverride;
+  const rpcWsOverride = isMainnet ? undefined : pickEnvEntry("NEXT_PUBLIC_RPC_WS_ENDPOINT");
+  const escrowOverride = isMainnet ? pickEnv("NEXT_PUBLIC_ESCROW_PROGRAM_ID") : pickEnv("NEXT_PUBLIC_ESCROW_PROGRAM_ID", "DEMO_ESCROW_PROGRAM_ID");
+  const registryOverride = isMainnet ? pickEnv("NEXT_PUBLIC_REGISTRY_PROGRAM_ID") : pickEnv("NEXT_PUBLIC_REGISTRY_PROGRAM_ID", "DEMO_REGISTRY_PROGRAM_ID");
+  const reputationOverride = isMainnet
+    ? pickEnv("NEXT_PUBLIC_REPUTATION_PROGRAM_ID")
+    : pickEnv("NEXT_PUBLIC_REPUTATION_PROGRAM_ID", "DEMO_REPUTATION_PROGRAM_ID");
+  const attestationOverride = isMainnet
+    ? pickEnv("NEXT_PUBLIC_ATTESTATION_PROGRAM_ID")
+    : pickEnv("NEXT_PUBLIC_ATTESTATION_PROGRAM_ID", "DEMO_ATTESTATION_PROGRAM_ID");
   const buildUnsafeOverride = pickEnv("NEXT_PUBLIC_BUILD_ALLOW_UNSAFE_ESCROW_OVERRIDE");
   const allowUnsafeDevnetOverride = (buildUnsafeOverride ?? pickEnv("ALLOW_UNSAFE_ESCROW_OVERRIDE")) === "true";
 
@@ -217,6 +252,11 @@ export function getNetworkProfile(): NetworkProfile {
       malformedOverrides.push(label);
       return registered;
     }
+    // Mainnet never takes a different program id, whatever the unsafe-override flag says.
+    if (name === "mainnet" && override !== registered) {
+      ignoredOverrides.push(label);
+      return registered;
+    }
     if (name === "devnet" && override !== registered && !allowUnsafeDevnetOverride) {
       ignoredOverrides.push(label);
       return registered;
@@ -261,9 +301,17 @@ export function getNetworkProfile(): NetworkProfile {
     ? [
         `The ${ignoredOverrides.join(", ")} program id override${
           ignoredOverrides.length === 1 ? " does" : "s do"
-        } not match the registered devnet program set and the build-time unsafe-override flag was not set; ${
+        } not match the registered ${name} program set${
+          name === "mainnet" ? " (mainnet takes program ids from config/networks/mainnet.json only)" : " and the build-time unsafe-override flag was not set"
+        }; ${
           ignoredOverrides.length === 1 ? "it was" : "they were"
         } ignored and the registered program id is used instead.`,
+      ]
+    : [];
+
+  const refusedRpcKnownGaps = refusedMainnetRpcOverride
+    ? [
+        `The ${rawRpcOverride!.key} override is not the app's own https /api/rpc proxy; mainnet ignores it and uses the profile RPC endpoint instead.`,
       ]
     : [];
 
@@ -360,6 +408,7 @@ export function getNetworkProfile(): NetworkProfile {
         ...(target === "quasar" && name === "devnet" ? quasarDevnet.knownGaps : []),
         ...malformedOverrideKnownGaps,
         ...ignoredOverrideKnownGaps,
+        ...refusedRpcKnownGaps,
         ...mainnetKnownGaps,
         ...localSurfpoolKnownGaps,
       ],

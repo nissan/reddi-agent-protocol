@@ -30,6 +30,8 @@ import {
   type PlannerSessionRequest,
 } from "@/lib/onboarding/planner-session";
 import { TORQUE_EVENTS } from "@/lib/torque/events";
+import { legacyRoutesEnabled } from "@/lib/http/route-gates";
+import { fetchOutbound } from "@/lib/http/outbound";
 
 export type PlannerExecuteInput = {
   prompt: string;
@@ -143,10 +145,27 @@ function writeRuns(records: PlannerRunRecord[]) {
   writeFileSync(RUNS_PATH, JSON.stringify(records, null, 2));
 }
 
+/**
+ * Best-effort local run log. It never fails a request (audit S2-claude-04): on a read-only
+ * deployment filesystem the write is skipped, and a paid caller still gets the provider's answer.
+ */
 function appendRun(run: PlannerRunRecord) {
-  const records = readRuns();
-  records.push(run);
-  writeRuns(records);
+  try {
+    const records = readRuns();
+    records.push(run);
+    writeRuns(records);
+  } catch {
+    // The database job record (when configured) is the durable history; the file log is local only.
+  }
+}
+
+/** Fetches a listed provider endpoint: public addresses only, redirects never followed (S2-claude-02). */
+function fetchEndpoint(url: string, init: RequestInit): Promise<Response> {
+  if (process.env.NODE_ENV === "development" && legacyRoutesEnabled()) {
+    // Local development talks to providers on this machine; nothing here is reachable in production.
+    return fetch(url, { ...init, redirect: "manual" });
+  }
+  return fetchOutbound(url, init);
 }
 
 function endpointPath(endpointUrl: string, path: string) {
@@ -225,10 +244,31 @@ export async function executePlannerSpecialistCall(input: PlannerExecuteInput) {
     });
   }
 
+  // The non-wallet path pays with the operator's swap client and forwards a simulated receipt.
+  // It is a local development path only (audit S2-claude-10); deployments take wallet payment.
+  if (!legacyRoutesEnabled()) {
+    const refused: PlannerRunRecord = {
+      runId,
+      createdAt,
+      selectedWallet: routed.selected.walletAddress,
+      endpointUrl,
+      policy,
+      promptSha256,
+      status: "failed",
+      challengeSeen: false,
+      paymentAttempted: false,
+      paymentSatisfied: false,
+      error: "This deployment takes wallet payment only. Send paymentMode \"wallet\".",
+      trace: [...trace, "planner:non_wallet_payment_disabled"],
+    };
+    appendRun(refused);
+    return { ok: false, result: refused, candidates: routed.candidates };
+  }
+
   trace.push(`request:start:${endpointPath(endpointUrl, "/v1/chat/completions")}`);
 
   try {
-    const first = await fetch(endpointPath(endpointUrl, "/v1/chat/completions"), {
+    const first = await fetchEndpoint(endpointPath(endpointUrl, "/v1/chat/completions"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
@@ -273,7 +313,7 @@ export async function executePlannerSpecialistCall(input: PlannerExecuteInput) {
       trace.push(...settlement.trace);
 
       // Retry with the real x402-payment receipt header
-      const second = await fetch(endpointPath(endpointUrl, "/v1/chat/completions"), {
+      const second = await fetchEndpoint(endpointPath(endpointUrl, "/v1/chat/completions"), {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -520,7 +560,7 @@ async function executeWithWalletPayment(input: PlannerExecuteInput, ctx: WalletR
   if (input.paymentReceipt === undefined) {
     ctx.trace.push(`request:start:${url}`);
     try {
-      const first = await fetch(url, {
+      const first = await fetchEndpoint(url, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(ctx.payload),
@@ -610,7 +650,7 @@ async function executeWithWalletPayment(input: PlannerExecuteInput, ctx: WalletR
   ctx.trace.push(session ? `request:session:${session.sequence}${session.close ? ":close" : ""}:${url}` : `request:paid:${url}`);
   const requestBody = JSON.stringify(ctx.payload);
   try {
-    const paid = await fetch(url, {
+    const paid = await fetchEndpoint(url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -782,7 +822,7 @@ export async function closePlannerSession(input: {
   let answer: Response;
   let text: string;
   try {
-    answer = await fetch(url, {
+    answer = await fetchEndpoint(url, {
       method: "POST",
       headers: { "x402-payment": receipt.header, ...sessionCloseRequestHeaders(input.close) },
       body: "",
