@@ -179,6 +179,8 @@ export async function verifyAndRecordMeteredCall(input: MeteredCallInput, deps: 
   const payer = parsePublicKey(receipt.payer);
   const nonce = typeof receipt.nonce === "string" ? receipt.nonce.replace(/-/g, "").toLowerCase() : "";
   if (!payer || !NONCE_HEX.test(nonce)) return refuse("invalid_receipt");
+  // A failed call is recorded only for the payer's own signed-in session (audit S5-claude-02, C5).
+  if (!input.delivered && !(input.session && input.session.wallet === payer.toBase58())) return refuse("payer_not_proven");
   const { escrow, vault } = tokenEscrowAddresses({ programId: deps.programId, payer, nonce: Uint8Array.from(Buffer.from(nonce, "hex")) });
   if (receipt.escrow !== escrow.toBase58()) return refuse("escrow_mismatch");
   const settleSignature = typeof input.settleSignature === "string" ? input.settleSignature : "";

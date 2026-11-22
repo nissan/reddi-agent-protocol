@@ -86,6 +86,10 @@ export async function verifyAndRecordPaidCall(input: PaidCallInput, deps: PaidCa
   const signature = typeof receipt.signature === "string" ? receipt.signature : typeof receipt.txSignature === "string" ? receipt.txSignature : "";
   const payer = typeof receipt.payer === "string" ? receipt.payer : "";
   if (!nonce || !signature || !payer) return { recorded: false, reason: "invalid_receipt" };
+  // A failed call is recorded only for the payer's own signed-in session. A delivered call is
+  // proven by the provider, which checks the payer's signature before serving; a failed one is
+  // not, and anyone can present a third party's public transaction (audit S5-claude-02, C5).
+  if (!input.delivered && !(input.session && input.session.wallet === payer)) return { recorded: false, reason: "payer_not_proven" };
 
   // What must have been paid, from the listing and nothing else.
   const challenge: X402Challenge = {
