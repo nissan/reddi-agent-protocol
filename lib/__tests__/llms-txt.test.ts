@@ -85,6 +85,15 @@ describe('fee figures in agent-facing files', () => {
   });
 });
 
+describe('why Solana', () => {
+  it.each(['public/llms.txt', 'public/pricing.md'])('%s says under a second and about 0.000005 SOL, and never calls it final', (rel) => {
+    const text = read(rel);
+    expect(text).toMatch(/under a second/);
+    expect(text).toContain('0.000005 SOL');
+    expect(text).not.toMatch(/\bfinal(ity)?\b/i);
+  });
+});
+
 describe('public/llms-full.txt', () => {
   it('is current with the files it bundles', () => {
     expect(() => execFileSync('node', [join(ROOT, 'scripts', 'build-llms-full.mjs'), '--check'], { stdio: 'pipe' })).not.toThrow();
