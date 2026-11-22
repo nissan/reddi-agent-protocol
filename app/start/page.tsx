@@ -1,130 +1,115 @@
 import Link from "next/link";
 
 import { OnboardingVideoCard } from "@/components/onboarding/OnboardingVideoCard";
-import { OnboardingVideoGrid } from "@/components/onboarding/OnboardingVideoGrid";
-import {
-  hasPlayableRecording,
-  onboardingVideos,
-  onboardingWalkthroughHeading,
-} from "@/lib/onboarding/video-guides";
+import { hasPlayableRecording, onboardingVideos } from "@/lib/onboarding/video-guides";
 
-const rolePaths = [
+const PATHS = [
   {
-    label: "I run agents",
-    desc: "Inspect and reproduce policy-bound specialist-call fixtures from Claude Code, OpenClaw, MCP, or custom agent systems.",
+    role: "Buyer",
+    title: "Connect your agent",
+    desc: "Give Claude Code, an MCP client or your own agent a way to find providers, set the most a call may cost, and keep a receipt for every call.",
     href: "/setup",
+    cta: "Set up your agent",
   },
   {
-    label: "I build specialists",
-    desc: "Prepare endpoint metadata and inspect the gated local/devnet registration reference path; the recorded Quasar devnet deployment is blocked.",
+    role: "Provider",
+    title: "Run a provider",
+    desc: "Describe your model, set your price per token, and register it on Solana devnet with test funds.",
     href: "/register",
+    cta: "Start setup",
+    tinted: true,
   },
   {
-    label: "I want proof",
-    desc: "Open the recorded proof paths, inspect devnet transactions, and run the verifier script.",
-    href: "/judge-replication",
+    role: "Anyone",
+    title: "Check the proof",
+    desc: "Make a test call in the sandbox and read its receipt: who answered, what they declared, and which payment covered it.",
+    href: "/sandbox",
+    cta: "Open the sandbox",
   },
 ];
 
 export default function StartPage() {
-  const heroVideo = onboardingVideos.find(hasPlayableRecording) ?? onboardingVideos[0];
-  const proofVideos = onboardingVideos.filter((video) => video !== heroVideo);
-  const playableCount = onboardingVideos.filter(hasPlayableRecording).length;
-  const withheldCount = onboardingVideos.length - playableCount;
+  const playable = onboardingVideos.filter(hasPlayableRecording);
 
   return (
-    <main className="min-h-screen bg-page text-white">
-      <section className="mx-auto max-w-6xl px-4 pb-12 pt-16 sm:px-6 lg:px-8">
-        <div className="rounded-3xl border border-brand-green/25 bg-paper-raised p-8 md:p-10">
-          <p className="section-label">Start here</p>
-          <div className="mt-3 grid gap-8 lg:grid-cols-[1fr_0.9fr] lg:items-center">
-            <div className="space-y-5">
-              <h1 className="font-display text-4xl font-bold tracking-tight md:text-6xl">
-                {onboardingWalkthroughHeading(onboardingVideos)}
-              </h1>
-              <p className="max-w-2xl text-lg leading-8 text-gray-300">
-                Inspect the bounded evidence flows yourself: replay a fixture-backed Claude Code
-                specialist call, verify a wallet-authorized devnet demo, and inspect historical
-                devnet registration evidence. These are evidence walkthroughs, not currently
-                available hiring or registration services. The recorded Quasar devnet deployment
-                is blocked. {withheldCount}{" "}
-                {withheldCount === 1 ? "recording is" : "recordings are"}{" "}
-                withheld because the
-                captures predate this build&apos;s public-claim remediation.
-              </p>
-              <div className="flex flex-wrap gap-3">
-                <Link
-                  href="/setup"
-                  className="rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-black transition hover:opacity-90"
-                >
-                  Connect your agent system
-                </Link>
-                <a
-                  href="/judge-replication"
-                  className="rounded-lg border border-white/15 px-5 py-3 text-sm font-semibold text-gray-200 transition hover:border-white/30 hover:text-white"
-                >
-                  Open verification guide
-                </a>
-              </div>
-              <p className="text-sm text-gray-400">
-                Boundary: these walkthroughs show Solana devnet proof unless explicitly stated otherwise.
-              </p>
-            </div>
-            <OnboardingVideoCard video={heroVideo} hostRoute="/start" />
-          </div>
-        </div>
+    <main className="min-h-screen bg-paper text-ink">
+      <section className="mx-auto max-w-6xl px-4 pb-12 pt-14 sm:px-6 lg:px-8 lg:pt-20">
+        <p className="section-label mb-4">Start here</p>
+        <h1 className="max-w-3xl text-5xl leading-[1.02] sm:text-6xl">
+          Pick where to start.{" "}
+          <span className="block text-brand-violet">Every path ends with a receipt.</span>
+        </h1>
+        <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-muted">
+          Reddi Agent Protocol lets agents buy inference from independent providers, priced per
+          token, with a signed receipt for every call. It runs on Solana devnet with test funds
+          today. Mainnet is coming soon.
+        </p>
       </section>
 
-      <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-6 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="section-label">Proof walkthroughs</p>
-            <h2 className="font-display text-3xl font-bold">Pick the path that matches your job</h2>
-          </div>
-          <p className="max-w-xl text-sm leading-6 text-gray-400">
-            Each card keeps the devnet boundary visible and links back to the public verification steps.
-          </p>
-        </div>
-        <OnboardingVideoGrid videos={proofVideos} hostRoute="/start" />
-      </section>
-
-      <section className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
-        <div className="grid gap-4 md:grid-cols-3">
-          {rolePaths.map((path) => (
+      <section aria-labelledby="paths" className="mx-auto max-w-6xl px-4 pb-16 sm:px-6 lg:px-8">
+        <h2 id="paths" className="sr-only">
+          Choose a path
+        </h2>
+        <div className="grid overflow-hidden rounded-md border-2 border-ink bg-paper-raised md:grid-cols-3">
+          {PATHS.map((path, index) => (
             <Link
               key={path.href}
               href={path.href}
-              className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 transition hover:border-brand-green/40 hover:bg-brand-green/10"
+              className={`group flex flex-col gap-2.5 p-7 no-underline ${path.tinted ? "bg-well" : ""} ${
+                index < PATHS.length - 1 ? "border-b border-line md:border-b-0 md:border-r" : ""
+              }`}
             >
-              <h3 className="font-display text-xl font-semibold text-white">{path.label}</h3>
-              <p className="mt-2 text-sm leading-6 text-gray-400">{path.desc}</p>
-              <p className="mt-4 text-sm font-semibold text-brand-green">Start this path →</p>
+              <span className="font-mono text-xs font-bold uppercase text-brand-violet">{path.role}</span>
+              <strong className="text-[22px] tracking-tight">{path.title}</strong>
+              <span className="text-[15px] leading-relaxed text-ink-muted">{path.desc}</span>
+              <span className="mt-auto pt-2 font-bold underline underline-offset-4 group-hover:text-brand-violet">
+                {path.cta}
+              </span>
             </Link>
           ))}
         </div>
       </section>
 
-      <section id="verify" className="mx-auto max-w-6xl px-4 pb-16 sm:px-6 lg:px-8">
-        <div className="rounded-2xl border border-brand-green/25 bg-brand-green/10 p-6">
-          <p className="section-label">Verify the demo yourself</p>
-          <div className="mt-2 grid gap-5 lg:grid-cols-[1fr_auto] lg:items-center">
-            <div>
-              <h2 className="font-display text-2xl font-bold text-white">One command checks the public proof trail</h2>
-              <p className="mt-2 text-sm leading-6 text-gray-300">
-                The verifier checks public product routes, recorded Solana devnet transactions,
-                and the registered agent PDA shown in the CLI video.
-              </p>
-              <code className="mt-4 block rounded-lg border border-white/10 bg-black/35 px-4 py-3 text-xs text-brand-green">
-                node scripts/judge-replication-check.mjs
-              </code>
-            </div>
-            <a
-              href="/judge-replication"
-              className="rounded-lg bg-white px-5 py-3 text-center text-sm font-semibold text-black transition hover:opacity-90"
-            >
-              Open replication guide
-            </a>
+      {playable.length > 0 && (
+        <section aria-labelledby="watch" className="mx-auto max-w-6xl px-4 pb-16 sm:px-6 lg:px-8">
+          <p className="section-label mb-4">Watch it work</p>
+          <h2 id="watch" className="mb-7 text-4xl">
+            See a paid call, start to finish.
+          </h2>
+          <div className={`grid gap-6 ${playable.length > 1 ? "lg:grid-cols-2" : ""}`}>
+            {playable.map((video) => (
+              <OnboardingVideoCard
+                key={video.id}
+                video={video}
+                hostRoute="/start"
+                layout={playable.length === 1 ? "horizontal" : "stacked"}
+              />
+            ))}
           </div>
+        </section>
+      )}
+
+      <section id="verify" aria-labelledby="verify-heading" className="mx-auto max-w-6xl px-4 pb-20 sm:px-6 lg:px-8">
+        <div className="grid gap-6 rounded-md border border-line bg-paper-raised p-7 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div>
+            <p className="section-label mb-3">Check it yourself</p>
+            <h2 id="verify-heading" className="text-3xl">
+              One command checks the public proof trail.
+            </h2>
+            <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-ink-muted">
+              The checker visits the public pages, the recorded Solana devnet transactions, and the
+              registered provider account shown in the walkthrough.
+            </p>
+            <code className="mt-4 block overflow-x-auto rounded border border-line bg-well px-4 py-3 font-mono text-xs">
+              node scripts/judge-replication-check.mjs
+            </code>
+          </div>
+          <Link
+            href="/judge-replication"
+            className="rounded border-2 border-ink bg-ink px-5 py-3 text-center font-bold text-paper no-underline hover:opacity-90"
+          >
+            Open the verification guide
+          </Link>
         </div>
       </section>
     </main>
