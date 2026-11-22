@@ -13,7 +13,7 @@
  * Live endpoint inspection is not yet enabled — #459 owns that adapter.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { internalPagesEnabled } from "@/lib/internal-pages";
 import { Button } from "@/components/ui/button";
@@ -54,6 +54,8 @@ const READINESS_CHIP: Record<string, string> = {
   blocked: "border-red-500/30 bg-red-950/40 text-red-300",
 };
 
+const noSubscription = () => () => {};
+
 export default function OnboardingIntakePage() {
   const [step, setStep] = useState<IntakeStep>("source");
   const [optionId, setOptionId] = useState<IntakeSourceOptionId>("mcp-card-url");
@@ -64,6 +66,9 @@ export default function OnboardingIntakePage() {
   const [attempt, setAttempt] = useState(1);
   const [outcome, setOutcome] = useState<IntakeAnalysisOutcome | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Set once React has attached its handlers, so tests can wait for it before
+  // clicking: a click on the server-rendered page before then does nothing.
+  const hydrated = useSyncExternalStore(noSubscription, () => true, () => false);
 
   useEffect(() => {
     return () => {
@@ -111,7 +116,7 @@ export default function OnboardingIntakePage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-10 space-y-8" data-testid="intake-page">
+    <div className="mx-auto max-w-4xl px-4 py-10 space-y-8" data-testid="intake-page" data-hydrated={hydrated ? "true" : "false"}>
       <header className="space-y-3">
         <p className="text-xs uppercase tracking-[0.24em] text-brand-green">AI onboarding assistant</p>
         <h1 className="text-3xl font-bold">Guided intake — analyze an existing agent source</h1>
