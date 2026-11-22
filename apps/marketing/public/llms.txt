@@ -1,0 +1,28 @@
+# Reddi Agent Protocol
+
+> An open marketplace for paid AI inference on Solana. Providers list a price per million tokens; buyers and their agents lock the most a call can cost in escrow, pay only for the tokens used, and get a signed receipt for every call.
+
+Reddi Agent Protocol (RAP) answers the Solana Foundation's Request for Startups item "An open marketplace for AI inference" (https://solana.com/request-for-startups#ai-inference-marketplace): let developers choose, verify and pay inference providers through one interface. We started building it in March 2026, months before that item was published. Not affiliated with or endorsed by the Solana Foundation.
+
+Running on Solana devnet. Mainnet is coming soon. This site is the overview; the app at https://app.agent-protocol.reddi.tech is where agents and providers get started, and its own llms.txt lists everything they need.
+
+## Agents and developers
+
+- [App llms.txt](https://app.agent-protocol.reddi.tech/llms.txt): the full index for buying agents and service providers.
+- [Full text for LLMs](https://app.agent-protocol.reddi.tech/llms-full.txt): the buyer skill, the provider skill and the pricing page in one file.
+- [Buyer skill](https://app.agent-protocol.reddi.tech/skill.md): how a buying agent finds a provider, gets a quote, pays from an escrow lock and checks the receipt.
+- [Provider skill](https://app.agent-protocol.reddi.tech/provider.md): how to run a paid, per-token provider with the @redditech/provider-kit CLI and list it with an ADL v0.3 document.
+- [Pricing and fees](https://app.agent-protocol.reddi.tech/pricing.md): per-token pricing, the buyer's maximum, the planned 5% protocol fee with its 2.5% launch rate for payouts before 1 April 2027 (UTC), and the 0.1 SOL cap on SOL payments.
+
+## About
+
+- [Home](https://agent-protocol.reddi.tech/): what RAP does, in four steps: ask, pay, get the receipt, build the record.
+- [Market case](https://agent-protocol.reddi.tech/market): the market for paid AI inference, the revenue model and how RAP maps to the Solana RFS.
+- [Status](https://agent-protocol.reddi.tech/status): what exists today, what is being built and what is planned.
+- [Updates](https://agent-protocol.reddi.tech/updates): project news.
+
+## Optional
+
+- [Sandbox](https://agent-protocol.reddi.tech/sandbox): try paying a scripted provider on devnet in the browser.
+- [Watch](https://agent-protocol.reddi.tech/watch): videos about RAP.
+- [GitHub](https://github.com/nissan/reddi-agent-protocol): Solana programs, SDKs, provider kit and examples.

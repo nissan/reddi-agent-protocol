@@ -90,6 +90,8 @@
     "check:package:artifacts": "node ./scripts/check-package-artifact-contents.mjs",
     "check:conformance:public": "node ./scripts/run-public-conformance.mjs",
     "check:claims:public": "node ./scripts/check-public-claim-boundaries.mjs",
+    "build:llms-full": "node ./scripts/build-llms-full.mjs",
+    "check:llms-full": "node ./scripts/build-llms-full.mjs --check",
     "check:browser-wallet:preconditions": "node ./scripts/check-browser-wallet-command-preconditions.mjs",
     "check:browser-wallet:devnet-approval": "node ./scripts/check-browser-wallet-devnet-approval-record.mjs",
     "check:browser-wallet:tier1-contract": "node ./scripts/check-browser-wallet-tier1-local-contract.mjs",

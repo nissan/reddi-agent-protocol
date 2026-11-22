@@ -5,7 +5,8 @@
  * Owned-text contract only. Every file scanned here is one whose literal text
  * IS the published artifact: repository prose (README/docs), package manifest
  * metadata, and the files served verbatim out of /public -- the WebVTT caption
- * tracks and every Markdown file under public/docs and public/downloads.
+ * tracks, the agent-facing llms.txt files and skill/pricing pages, and every
+ * Markdown file under public/docs and public/downloads.
  *
  * Rendered app copy is a claim only once it renders, so it is gated at the DOM
  * layer by `e2e/public-claim-boundary.spec.ts`, the only other consumer of the
@@ -91,6 +92,12 @@ const activeClaimFiles = [
   "packages/per-client/README.md",
   "packages/openrouter-specialists/README.md",
   "packages/provider-kit/README.md",
+  // Served verbatim to agents (llms.txt and the files it links).
+  "public/llms.txt",
+  "public/llms-full.txt",
+  "public/skill.md",
+  "public/provider.md",
+  "public/pricing.md",
   ...servedPublicDocs,
   ...captionTrackFiles,
 ];

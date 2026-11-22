@@ -2,19 +2,45 @@
 
 > Pay AI inference providers per token on Solana, through one interface, and get a signed receipt for every call. Providers list a price per million tokens; buyers lock the most a call can cost in escrow, the provider settles the actual tokens, and the unused part comes back.
 
-Reddi Agent Protocol answers the Solana Foundation's Request for Startups item "An open marketplace for AI inference": choose, verify and pay inference providers through one interface. Not affiliated with or endorsed by the Solana Foundation.
+Reddi Agent Protocol (RAP) answers the Solana Foundation's Request for Startups item "An open marketplace for AI inference" (https://solana.com/request-for-startups#ai-inference-marketplace): let developers choose, verify and pay inference providers through one interface. We started building it in March 2026, months before that item was published. Not affiliated with or endorsed by the Solana Foundation.
 
-## For agents
+Key facts for agents:
 
-- [Agent skill](https://app.agent-protocol.reddi.tech/skill.md): how a buying agent finds a provider, gets a quote, pays from an escrow lock and checks the receipt. Give this file to your agent.
+- Network: Solana devnet today. Mainnet is coming soon. Use devnet unless your person tells you otherwise.
+- Requests: OpenAI-style `POST <provider url>/v1/chat/completions`. An unpaid request comes back as HTTP 402 with a per-token price, an estimate and a suggested maximum (twice the estimate).
+- Payment: the buyer locks the maximum in a metered escrow; after the answer the provider settles the actual cost and the rest returns to the buyer. Payments are in SOL, USDC, AUDD, PYUSD or USDG.
+- Protocol fee (planned): 5% of the actual cost, with a 2.5% launch rate for payouts before 1 April 2027 (UTC), taken out of the provider's share, capped at 0.1 SOL on SOL payments.
+- Receipts: every paid answer carries a `reddi.receipt.v2` receipt signed by the provider, naming the settle transaction and the tokens used. Payments prove transfer; RAP Assurance proves paid work.
+- Providers describe themselves in ADL (Agent Definition Language) v0.3; a listing needs an ADL document that passes Level 3.
+- Markdown: key pages also answer at their URL plus `.md`, for example https://app.agent-protocol.reddi.tech/register.md and https://app.agent-protocol.reddi.tech/agent-setup.md.
+
+## Buying agents
+
+- [Buyer skill](https://app.agent-protocol.reddi.tech/skill.md): find a provider, get a quote, pay from an escrow lock and check the receipt. Give this file to your agent.
 - [Hand it to your agent](https://app.agent-protocol.reddi.tech/agent-setup): copy-paste setup for Claude Code, Codex, Cursor and other agents.
+- [Provider directory API](https://app.agent-protocol.reddi.tech/api/listings): JSON list of listed providers on the app's network, with per-token prices.
+- [Sandbox models API](https://app.agent-protocol.reddi.tech/api/sandbox/v1/models): scripted devnet providers for rehearsing the whole loop without a wallet.
+- [@redditech/x402-solana](https://www.npmjs.com/package/@redditech/x402-solana): build the escrow lock, the payment headers and the payer signatures.
+- [@redditech/agent-protocol](https://www.npmjs.com/package/@redditech/agent-protocol): find and rank providers, read ADL documents, apply payment policy and verify `reddi.receipt.v2` receipts.
 
-## For people
+## Service providers
 
+- [Provider skill](https://app.agent-protocol.reddi.tech/provider.md): set up, price, list and run a paid provider with the provider kit. Give this file to your agent.
+- [@redditech/provider-kit](https://www.npmjs.com/package/@redditech/provider-kit): the `rap-provider` CLI. One config file and one command put a paid, per-token endpoint in front of any OpenAI-compatible model (OpenRouter, a hosted API, Ollama or vLLM).
+- [Provider kit README](https://github.com/nissan/reddi-agent-protocol/blob/main/packages/provider-kit/README.md): full configuration reference, sessions, currency pausing and payout safety.
+- [ADL v0.3 specification](https://app.agent-protocol.reddi.tech/downloads/ADL-v0.3.md): the agent definition format every listing carries. JSON Schema at https://app.agent-protocol.reddi.tech/downloads/ADL-v0.3.schema.json.
+- [A listed provider's ADL](https://app.agent-protocol.reddi.tech/api/listings/{wallet}/adl): YAML by default, `?format=json` adds the Level 3 conformance result.
+- [Register a provider](https://app.agent-protocol.reddi.tech/register): list a model or specialist in the app and get paid per token.
+
+## Pricing and fees
+
+- [Pricing and fees](https://app.agent-protocol.reddi.tech/pricing.md): per-token pricing, the buyer's maximum, the protocol fee and its launch rate, the SOL cap, currencies, and Founding Providers, with a worked example.
+
+## Optional
+
+- [Full text for LLMs](https://app.agent-protocol.reddi.tech/llms-full.txt): this index plus the buyer skill, the provider skill and the pricing page in one file.
 - [Try one call yourself](https://app.agent-protocol.reddi.tech/try): pay a provider once from your own wallet (scan a Solana Pay QR code or connect a wallet) and see the answer and receipt.
 - [Devnet sandbox](https://app.agent-protocol.reddi.tech/sandbox): walk through paying, shopping around, sessions and attempts to cheat.
-- [Run a provider](https://app.agent-protocol.reddi.tech/register): list a model or specialist and get paid per token.
-
-## Code
-
-- [GitHub](https://github.com/nissan/reddi-agent-protocol): programs, x402-solana SDK, provider kit and examples.
+- [Market case](https://agent-protocol.reddi.tech/market): the market for paid AI inference and how RAP maps to the Solana RFS.
+- [Paid-call example](https://github.com/nissan/reddi-agent-protocol/blob/main/packages/provider-kit/examples/paid-call.mjs): one quote, one lock, one paid call, one checked receipt.
+- [GitHub](https://github.com/nissan/reddi-agent-protocol): Solana programs, SDKs, provider kit and examples.
