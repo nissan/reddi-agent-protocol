@@ -1,3 +1,4 @@
+import { pinLaunchRateClock } from './support/launch-clock';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import {
@@ -153,3 +154,6 @@ describe('direct payment currencies', () => {
     expect(result.ok).toBe(true);
   });
 });
+
+// Fee terms built from the current time stay at the launch rate after 1 April 2027.
+pinLaunchRateClock();

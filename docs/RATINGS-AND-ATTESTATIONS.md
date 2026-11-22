@@ -32,7 +32,7 @@ without seeing the other's score first.
   weight by them, but only until the buyer closes that account.
 - MagicBlock PER is not part of V1. The V1 build does not answer the PER
   instructions. PER is planned as a follow-up after the launch (issue #839).
-- The 2.5% protocol fee is planned. Source and the devnet program take it on
+- The protocol fee (5%, with a 2.5% launch rate until 31 March 2027) is planned. Source and the devnet program take it on
   every paid exit; no mainnet release collects it.
 
 ## Opting in (buyer)

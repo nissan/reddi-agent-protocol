@@ -1,3 +1,4 @@
+import { pinLaunchRateClock } from './support/launch-clock';
 import { createHash } from 'node:crypto';
 import { Keypair, PublicKey, TransactionInstruction } from '@solana/web3.js';
 import {
@@ -537,3 +538,6 @@ describe('checkProviderCluster', () => {
     expect(await checkProviderCluster(async () => { throw new Error('rpc'); }, 'solana-devnet')).toMatchObject({ ok: false, reason: 'payment_check_unavailable' });
   });
 });
+
+// Fee terms built from the current time stay at the launch rate after 1 April 2027.
+pinLaunchRateClock();

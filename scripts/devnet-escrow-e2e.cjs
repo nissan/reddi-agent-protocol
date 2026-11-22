@@ -82,7 +82,13 @@ const TREASURY_USDC = token.getAssociatedTokenAddressSync(USDC, TREASURY, true, 
 // payer may refund from the second. Short on purpose, so the finish modes can run minutes after `run`.
 const CLAIM_WINDOW_SLOTS = 750; // about 5 minutes
 const CANCEL_WINDOW_SLOTS = 1_500; // about 10 minutes
-const FEE_BPS = 250n;
+// Protocol fee: 250 bps for payouts before LAUNCH_RATE_ENDS_UNIX (2027-04-01 00:00 UTC by the cluster clock), then
+// 500 bps (programs/pinocchio-escrow/program/src/consts.rs). The cluster clock tracks wall time, so the rate in force
+// now is the rate the payout pays; a run within seconds of the switch can see either.
+const LAUNCH_FEE_BPS = 250n;
+const STANDARD_FEE_BPS = 500n;
+const LAUNCH_RATE_ENDS_UNIX = 1_806_537_600;
+const feeBpsAt = (unix = Date.now() / 1000) => (unix < LAUNCH_RATE_ENDS_UNIX ? LAUNCH_FEE_BPS : STANDARD_FEE_BPS);
 const SOL_FEE_CAP = 100_000_000n;
 const SOL_CREATED_SLOT_OFFSET = 8 + 32 + 32 + 8 + 16 + 1 + 8; // EscrowAccount.created_slot
 const TOKEN_CREATED_SLOT_OFFSET = 193; // TokenEscrowAccount.created_slot
@@ -127,7 +133,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const disc = name => createHash('sha256').update(`global:${name}`).digest().subarray(0, 8);
 const u64 = value => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(value)); return b; };
 const meta = (pubkey, isWritable = false, isSigner = false) => ({ pubkey, isWritable, isSigner });
-const fee = (paid, sol) => { const f = (paid * FEE_BPS) / 10_000n; return sol && f > SOL_FEE_CAP ? SOL_FEE_CAP : f; };
+const fee = (paid, sol, unix) => { const f = (paid * feeBpsAt(unix)) / 10_000n; return sol && f > SOL_FEE_CAP ? SOL_FEE_CAP : f; };
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 function base58(bytes) {
   let n = BigInt(`0x${Buffer.from(bytes).toString('hex') || '0'}`);

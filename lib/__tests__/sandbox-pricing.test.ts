@@ -1,3 +1,4 @@
+import { pinLaunchRateClock } from "@/lib/test-support/launch-clock";
 import { findSandboxProviderById, SANDBOX_PROVIDERS } from "@/lib/sandbox/catalog";
 import { providerPriceView, triPriceLabel } from "@/lib/sandbox/client";
 import {
@@ -84,3 +85,6 @@ describe("sandbox per-token pricing", () => {
     }
   });
 });
+
+// Fee terms built from the current time stay at the launch rate after 1 April 2027.
+pinLaunchRateClock();

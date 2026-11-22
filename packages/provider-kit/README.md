@@ -25,7 +25,7 @@ The buyer is charged only after the model has answered, and the answer is sent o
 | Your price | Per million input tokens and per million output tokens, in USDC, AUDD, PYUSD or USDG. You choose it. |
 | The buyer's maximum | What the buyer locks. Twice the estimate by default; never below the estimate. The charge can never exceed it. |
 | The charge | Tokens used times your price, rounded up to the smallest unit. |
-| Protocol fee | Planned at 2.5% of the charge, rounded down, taken out of your share. The buyer pays nothing on top. |
+| Protocol fee | Planned at 5% of the charge, with a 2.5% launch rate for payouts up to the end of 31 March 2027 (UTC), rounded down, taken out of your share. The buyer pays nothing on top. |
 | A lock is not payment | You are paid when your settle confirms. Until then the buyer's refund window is running, which is why the provider wants 10 minutes left before it starts work. See `docs/ESCROW-PAYOUT-SAFETY.md`. |
 | What you pay | The transaction fee for each settle. Nothing is created for anyone by default: a lock is refused up front if the buyer's token account, the treasury's or yours could not receive. You may opt in to paying a buyer's token account rent (about 0.002 SOL, not returned) with `refundAccountSubsidy`. |
 

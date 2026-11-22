@@ -1,3 +1,4 @@
+import { pinLaunchRateClock } from './support/launch-clock';
 import { Keypair } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { buildX402Challenge, SolanaReceiptVerifier } from '../src/payment';
@@ -154,3 +155,6 @@ describe('direct token payments are checked on net credit', () => {
     expect(result).toMatchObject({ ok: true });
   });
 });
+
+// Fee terms built from the current time stay at the launch rate after 1 April 2027.
+pinLaunchRateClock();

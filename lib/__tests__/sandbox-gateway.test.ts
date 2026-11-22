@@ -1,3 +1,4 @@
+import { pinLaunchRateClock } from "@/lib/test-support/launch-clock";
 import { Keypair } from "@solana/web3.js";
 import { directPaymentProofHeaders, keypairSigner, MemoryNonceReplayStore, SOLANA_GENESIS_HASHES } from "@redditech/x402-solana";
 import { createSessionKey, directPaymentDelegationHeaderValue, directPaymentProofHeaders as browserProofHeaders } from "@/lib/payments/session-auth";
@@ -465,3 +466,6 @@ describe("sandbox signup link", () => {
     }
   });
 });
+
+// Fee terms built from the current time stay at the launch rate after 1 April 2027.
+pinLaunchRateClock();

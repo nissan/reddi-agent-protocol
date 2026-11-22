@@ -1,3 +1,4 @@
+import { pinLaunchRateClock } from "./launch-clock.js";
 import assert from "node:assert/strict";
 import { createHash, createPrivateKey, sign as edSign } from "node:crypto";
 import { mkdtempSync } from "node:fs";
@@ -632,3 +633,6 @@ test("a delegation proved by a memo in the lock transaction is taken only when t
     assert.equal(chain.sent.length, 0);
   }
 });
+
+// Fee terms built from the current time stay at the launch rate after 1 April 2027.
+pinLaunchRateClock();

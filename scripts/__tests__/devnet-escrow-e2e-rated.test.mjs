@@ -156,12 +156,20 @@ test("amounts and windows on the locks", () => {
   assert.equal(u64(job2.dataHex, 8), lane.RATED_AMOUNTS.usdcFixed);
   assert.equal(job2.accounts[4].address, lane.USDC.toBase58());
   assert.equal(u64(step("job1.settle").instructions[0].dataHex, 8), lane.RATED_AMOUNTS.solMeteredActual);
-  // The fee the lane asserts: 2.5% of the amount paid, rounded down, capped at 0.1 SOL for SOL only.
-  assert.equal(lane.fee(8_000_000n, true), 200_000n);
-  assert.equal(lane.fee(1_000_000n, false), 25_000n);
-  assert.equal(lane.fee(39n, true), 0n);
-  assert.equal(lane.fee(10_000_000_000n, true), 100_000_000n);
-  assert.equal(lane.fee(10_000_000_000n, false), 250_000_000n);
+  // The fee the lane asserts: 2.5% of the amount paid before 2027-04-01 00:00 UTC and 5% from then on, rounded
+  // down, capped at 0.1 SOL for SOL only.
+  const launch = 1_806_537_600 - 1;
+  const standard = 1_806_537_600;
+  assert.equal(lane.fee(8_000_000n, true, launch), 200_000n);
+  assert.equal(lane.fee(1_000_000n, false, launch), 25_000n);
+  assert.equal(lane.fee(39n, true, launch), 0n);
+  assert.equal(lane.fee(10_000_000_000n, true, launch), 100_000_000n);
+  assert.equal(lane.fee(10_000_000_000n, false, launch), 250_000_000n);
+  assert.equal(lane.fee(8_000_000n, true, standard), 400_000n);
+  assert.equal(lane.fee(1_000_000n, false, standard), 50_000n);
+  assert.equal(lane.fee(19n, true, standard), 0n);
+  assert.equal(lane.fee(10_000_000_000n, true, standard), 100_000_000n);
+  assert.equal(lane.fee(10_000_000_000n, false, standard), 500_000_000n);
 });
 
 test("every instruction matches the interface vectors: selector, account count, signer and writable flags", () => {

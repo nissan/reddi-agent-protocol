@@ -1,3 +1,4 @@
+import { pinLaunchRateClock } from "@/lib/test-support/launch-clock";
 import { parseUsdPerMillion, previewEarnings } from "@/lib/onboarding/price-preview";
 
 describe("onboarding price preview", () => {
@@ -36,3 +37,6 @@ describe("onboarding price preview", () => {
     expect(parseUsdPerMillion("1e3")).toBeNull();
   });
 });
+
+// Fee terms built from the current time stay at the launch rate after 1 April 2027.
+pinLaunchRateClock();

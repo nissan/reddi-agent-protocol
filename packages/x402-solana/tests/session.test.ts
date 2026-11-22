@@ -1,3 +1,4 @@
+import { pinLaunchRateClock } from './support/launch-clock';
 import { createHash } from 'node:crypto';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import {
@@ -312,3 +313,6 @@ describe('MeteredSessionLedger', () => {
     expect(() => sessionSettlement(terms, l, { ...recorded.state, costBaseUnits: '1' })).toThrow('different amount');
   });
 });
+
+// Fee terms built from the current time stay at the launch rate after 1 April 2027.
+pinLaunchRateClock();

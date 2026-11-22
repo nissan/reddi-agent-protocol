@@ -8,7 +8,8 @@ import "server-only";
  * actual cost. The job row states what this server saw on chain in the settle
  * transaction: it succeeded, it settled the escrow the buyer's payer and nonce
  * name, the selected listing's token account received its share, and the
- * protocol treasury received 2.5% of the amount charged. The token counts
+ * protocol treasury received the fee in force at the settle's block time (2.5%
+ * launch rate before 2027-04-01 00:00 UTC, then 5%) of the amount charged. The token counts
  * behind that amount are the provider's report and are not checked here.
  */
 
