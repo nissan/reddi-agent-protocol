@@ -7,7 +7,7 @@ import { dirname, resolve } from "node:path";
 import { PublicKey } from "@solana/web3.js";
 import { checkProviderCluster, checkTokenAccount, checkTreasuryReadiness, ESCROW_PROTOCOL_TREASURY, token2022MintPosture, treasuryTokenAccount } from "@redditech/x402-solana";
 import type { ProviderChain } from "./chain.js";
-import type { ProviderConfig } from "./config.js";
+import { SOLANA_CLI_DEFAULT_KEY, type ProviderConfig } from "./config.js";
 import type { ProviderKeyResult } from "./keys.js";
 import { ADL_PATH, maxPerCall, providerAdlText } from "./adl.js";
 
@@ -146,9 +146,12 @@ export async function runDoctor(input: DoctorInput): Promise<{ ok: boolean; chec
     return done();
   }
 
+  // Say which file was read, so reading the Solana CLI's default key never comes as a surprise.
+  const keyFile = config.keypairPath?.trim();
+  const keyNote = keyFile ? ` (read ${keyFile} to compare its public key; nothing from it is printed or sent${keyFile === SOLANA_CLI_DEFAULT_KEY ? ". This is the Solana CLI's default key: set keypairPath to use a dedicated provider wallet" : ""})` : "";
   add(input.key.ok
-    ? { name: "Signing key", status: "pass", detail: "the key file belongs to the configured wallet" }
-    : { name: "Signing key", status: "fail", detail: input.key.message, fix: "Point keypairPath (or RAP_PROVIDER_KEYPAIR_PATH) at the wallet's keypair file." });
+    ? { name: "Signing key", status: "pass", detail: `the key file belongs to the configured wallet${keyNote}` }
+    : { name: "Signing key", status: "fail", detail: `${input.key.message}${keyNote}`, fix: "Point keypairPath (or RAP_PROVIDER_KEYPAIR_PATH) at the wallet's keypair file." });
 
   if (config.upstream.mock) {
     add({ name: "Model", status: config.network === "solana-mainnet-beta" ? "fail" : "warn", detail: "mock answers are on, so buyers would pay for canned text", fix: "Set upstream.mock to false and upstream.baseUrl to your model before you list." });

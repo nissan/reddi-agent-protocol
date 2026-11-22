@@ -332,6 +332,9 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
 }
 
 /** A starting config for `rap-provider init`. Mock upstream, devnet, USDC. */
+/** The Solana CLI's default keypair, which `init` points at until the operator names a dedicated provider key. */
+export const SOLANA_CLI_DEFAULT_KEY = "~/.config/solana/id.json";
+
 export function exampleConfig(wallet: string): ProviderConfigFile {
   return {
     name: "My provider",
@@ -342,6 +345,6 @@ export function exampleConfig(wallet: string): ProviderConfigFile {
     model: "openai/gpt-4o-mini",
     upstream: { baseUrl: "https://openrouter.ai/api/v1", apiKeyEnv: "UPSTREAM_API_KEY", mock: true },
     price: { currency: "USDC", inputPerMillion: "0.15", outputPerMillion: "0.60", maxOutputTokens: 1000 },
-    keypairPath: "~/.config/solana/id.json",
+    keypairPath: SOLANA_CLI_DEFAULT_KEY,
   };
 }

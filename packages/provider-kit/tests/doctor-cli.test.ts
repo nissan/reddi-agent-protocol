@@ -82,6 +82,17 @@ test("an unfunded wallet, a missing program, a bad key, a dead model and an unwr
   assert.match(result.checks.find((c) => c.name === "Model")!.fix!, /UPSTREAM_API_KEY/);
 });
 
+test("the signing key line names the file it read, and flags the Solana CLI default", async () => {
+  const own = await runDoctor({ config: config({ keypairPath: "~/keys/provider.json" }), chain: fakeChain(null), key, fetchImpl: okFetch, canWrite: () => true });
+  const ownLine = own.checks.find((c) => c.name === "Signing key")!;
+  assert.equal(ownLine.status, "pass");
+  assert.match(ownLine.detail, /read ~\/keys\/provider\.json to compare its public key; nothing from it is printed or sent\)$/);
+  const cliDefault = await runDoctor({ config: config({ keypairPath: "~/.config/solana/id.json" }), chain: fakeChain(null), key: { ok: false, message: "the key file does not belong to the wallet in the config" }, fetchImpl: okFetch, canWrite: () => true });
+  const defaultLine = cliDefault.checks.find((c) => c.name === "Signing key")!;
+  assert.equal(defaultLine.status, "fail");
+  assert.match(defaultLine.detail, /^the key file does not belong to the wallet in the config \(read ~\/\.config\/solana\/id\.json .*Solana CLI's default key/);
+});
+
 test("mock answers and a localhost address are warnings on devnet", async () => {
   const devnet = await runDoctor({ config: config(), chain: fakeChain(null), key, fetchImpl: okFetch, canWrite: () => true });
   assert.equal(devnet.ok, true);
@@ -108,6 +119,7 @@ test("init writes a config that parses, and will not overwrite one", async () =>
   const a = io();
   assert.equal(await runCli(["init", "--config", path, "--wallet", provider.publicKey.toBase58()], a.io), 0);
   assert.equal(JSON.parse(readFileSync(path, "utf8")).wallet, provider.publicKey.toBase58());
+  assert.match(a.out[0], /Solana CLI default, ~\/\.config\/solana\/id\.json/);
   const b = io();
   assert.equal(await runCli(["init", "--config", path], b.io), 1);
   assert.match(b.err[0], /already exists/);
