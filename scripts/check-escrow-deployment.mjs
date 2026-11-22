@@ -13,8 +13,12 @@
 //      `get-program-hash` print) equals the recorded executable hash;
 //   4. the upgrade authority is the recorded one (on mainnet, the Squads vault),
 //      and not any address listed under `forbiddenAuthorities`;
-//   5. with --deployer <address>, no loader buffer is left with the deployer as
-//      its authority.
+//   5. no loader buffer is left with the deployer (--deployer <address>) as its
+//      authority; without --deployer this line fails rather than being skipped.
+//
+// A mainnet record must name the Squads vault as the authority and list the
+// multisig account and the deployer as forbidden. Genesis and accounts come from
+// one RPC, so on launch day run it against two independent providers.
 //
 // It only reads accounts; it signs and sends nothing, and it prints only the RPC
 // host, never the URL, so a keyed URL stays out of logs.
@@ -35,6 +39,8 @@ export const GENESIS = {
   mainnet: '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d',
   devnet: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG',
 };
+// The mainnet upgrade authority is always the Squads vault (never the multisig account).
+export const MAINNET_VAULT = '5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe';
 const PUBLIC_RPC = {
   mainnet: 'https://api.mainnet-beta.solana.com',
   devnet: 'https://api.devnet.solana.com',
@@ -121,6 +127,12 @@ export function recordProblems(record) {
   if ((record.forbiddenAuthorities ?? []).includes(record.upgradeAuthority)) {
     problems.push('upgradeAuthority is also listed as forbidden');
   }
+  if (record.network === 'mainnet') {
+    if (record.upgradeAuthority !== MAINNET_VAULT) problems.push(`a mainnet record's upgradeAuthority must be the Squads vault ${MAINNET_VAULT}`);
+    if (!Array.isArray(record.forbiddenAuthorities) || record.forbiddenAuthorities.length < 2) {
+      problems.push('a mainnet record must list the multisig account and the deployer under forbiddenAuthorities');
+    }
+  }
   return problems;
 }
 
@@ -188,7 +200,10 @@ export function checkDeployment(record, { genesisHash, program, programData, buf
     : forbidden ? `${authority} is a forbidden authority`
       : authorityOk ? `${authority}` : `${authority}, record says ${record.upgradeAuthority}`);
 
-  if (buffers !== null) {
+  if (buffers === null) {
+    // Not checked is not passed: a launch run must name the deployer.
+    add('deployer buffers', false, 'not checked: pass --deployer <address>');
+  } else {
     add('deployer buffers', buffers.length === 0, buffers.length === 0
       ? 'no buffer left with the deployer as authority'
       : `${buffers.length} buffer(s) left: ${buffers.join(', ')} (close them and reclaim the rent)`);
@@ -262,6 +277,9 @@ async function main() {
   const problems = recordProblems(record);
   const deployer = arg('deployer');
   if (deployer !== undefined && !isAddress(deployer)) problems.push('--deployer is not an address');
+  if (deployer !== undefined && record.network === 'mainnet' && !(record.forbiddenAuthorities ?? []).includes(deployer)) {
+    problems.push('the --deployer address must be listed under forbiddenAuthorities');
+  }
   if (problems.length) {
     for (const problem of problems) console.error(`Record problem: ${problem}`);
     console.error('Nothing was checked.');

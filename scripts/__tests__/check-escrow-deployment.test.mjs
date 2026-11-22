@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,7 +29,7 @@ function record(overrides = {}) {
     sha256: sha(build),
     executableHash: trimmedHash(build),
     upgradeAuthority: VAULT,
-    forbiddenAuthorities: [SOME_MULTISIG],
+    forbiddenAuthorities: [SOME_MULTISIG, DEPLOYER],
     ...overrides,
   };
 }
@@ -131,11 +131,12 @@ test('an immutable program fails the authority check', () => {
   assert.deepEqual(failed(result), ['upgrade authority']);
 });
 
-test('leftover deployer buffers fail; skipped when not asked', () => {
+test('leftover deployer buffers fail, and an unchecked buffer line fails too', () => {
   assert.deepEqual(failed(checkDeployment(record(), chain({ buffers: [DEPLOYER] }))), ['deployer buffers']);
-  const skipped = checkDeployment(record(), chain({ buffers: null }));
-  assert.equal(skipped.items.some((i) => i.name === 'deployer buffers'), false);
-  assert.equal(skipped.ok, true);
+  const unchecked = checkDeployment(record(), chain({ buffers: null }));
+  assert.deepEqual(failed(unchecked), ['deployer buffers']);
+  assert.match(unchecked.items.find((i) => i.name === 'deployer buffers').detail, /not checked/);
+  assert.equal(unchecked.ok, false);
 });
 
 test('a missing or non-loader program fails early', () => {
@@ -151,7 +152,28 @@ test('record validation names each problem', () => {
   assert.deepEqual(recordProblems(record()), []);
   const bad = recordProblems({ network: 'testnet', programId: 'x', size: 0, sha256: 'ABC', executableHash: '', upgradeAuthority: 'nope' });
   assert.equal(bad.length, 6);
-  assert.ok(recordProblems(record({ forbiddenAuthorities: [VAULT] })).some((p) => /forbidden/.test(p)));
+  assert.ok(recordProblems(record({ forbiddenAuthorities: [VAULT, DEPLOYER] })).some((p) => /forbidden/.test(p)));
+});
+
+test('a mainnet record must name the vault and list forbidden authorities', () => {
+  assert.ok(recordProblems(record({ upgradeAuthority: SOME_MULTISIG, forbiddenAuthorities: [DEPLOYER, PROGRAM_ID] }))
+    .some((p) => /Squads vault/.test(p)));
+  assert.ok(recordProblems(record({ forbiddenAuthorities: [] })).some((p) => /multisig account and the deployer/.test(p)));
+  assert.ok(recordProblems(record({ forbiddenAuthorities: undefined })).some((p) => /multisig account and the deployer/.test(p)));
+  assert.ok(recordProblems(record({ forbiddenAuthorities: [SOME_MULTISIG] })).some((p) => /multisig account and the deployer/.test(p)));
+  // Devnet keeps the deployer as its authority, so neither rule applies there.
+  assert.deepEqual(recordProblems(record({ network: 'devnet', upgradeAuthority: DEPLOYER, forbiddenAuthorities: [] })), []);
+});
+
+test('the CLI refuses a mainnet --deployer that the record does not forbid', () => {
+  const S = path.join(root, '.tmp');
+  mkdirSync(S, { recursive: true });
+  const file = path.join(S, 'check-escrow-deployment-record.json');
+  writeFileSync(file, JSON.stringify(record()));
+  const run = spawnSync(process.execPath, [path.join(root, 'scripts/check-escrow-deployment.mjs'), '--record', file,
+    '--deployer', PROGRAM_ID, '--url', 'http://127.0.0.1:9'], { encoding: 'utf8' });
+  assert.equal(run.status, 2);
+  assert.match(run.stderr, /must be listed under forbiddenAuthorities/);
 });
 
 test('committed release records are usable', () => {

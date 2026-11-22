@@ -62,9 +62,12 @@ The owner funds it.
    It checks the cluster (mainnet genesis), the loader and ProgramData accounts,
    the length, that the bytes after the build are zero, both hashes, that the
    upgrade authority is the vault and not a forbidden address, and that no
-   deploy buffer is left under the deployer. It prints only the RPC host. Every
-   line must say `ok`; record the output and the deploy slot on #736 (#737
-   RAP-737-S2). If any line fails, stop: nothing opens to buyers.
+   deploy buffer is left under the deployer. It prints only the RPC host. The
+   genesis hash and the accounts come from the same RPC, so run it twice, once
+   with the Helius URL and once with `--url https://api.mainnet-beta.solana.com`,
+   and keep both outputs. Every line of both must say `ok`; record both outputs
+   and the deploy slot on #736 (#737 RAP-737-S2). If any line fails, stop:
+   nothing opens to buyers.
 4. Close any leftover buffer (`solana program close --buffers --url
    mainnet-beta`), then send the deployer's remaining SOL back to the owner and
    retire the deployer key. From here no single hot key can change the program.

@@ -24,8 +24,12 @@ the cluster is right; the program is executable and owned by the upgradeable
 loader; the first `size` bytes after the 45-byte ProgramData header have the
 recorded `sha256` and every byte after them is zero; the trimmed hash equals
 `executableHash`; and the upgrade authority is `upgradeAuthority` and not
-forbidden. With `--deployer <address>` it also fails if a loader buffer is left
-with the deployer as its authority.
+forbidden; and no loader buffer is left with the deployer (`--deployer`) as its
+authority. Without `--deployer` that last line fails rather than being skipped.
+A mainnet record must name the Squads vault as `upgradeAuthority` and list at
+least the multisig account and the deployer under `forbiddenAuthorities`; the
+`--deployer` address must be one of them. The genesis hash and the accounts come
+from one RPC, so on launch day run the check against two independent providers.
 
 ```bash
 node scripts/check-escrow-deployment.mjs --record config/releases/<record>.json \
