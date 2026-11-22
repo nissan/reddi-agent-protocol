@@ -246,6 +246,17 @@ describe("metered job record (#794)", () => {
     expect(await call(other.deps)).toEqual({ recorded: false, reason: "settle_not_for_this_escrow" });
   });
 
+  it("records a failed metered call only for the payer's own signed-in session (audit S5-claude-02, C5)", async () => {
+    const anonymous = deps(settleTx());
+    expect(await call(anonymous.deps, { delivered: false })).toEqual({ recorded: false, reason: "payer_not_proven" });
+    expect(anonymous.stored).toHaveLength(0);
+    const someoneElse = deps(settleTx());
+    expect(await call(someoneElse.deps, { delivered: false, session: { userId: "u", wallet: PROVIDER } })).toEqual({ recorded: false, reason: "payer_not_proven" });
+    const payer = deps(settleTx());
+    expect(await call(payer.deps, { delivered: false, session: { userId: "0b0e7c1e-7a57-4d0e-b3f0-1c2d3e4f5a6c", wallet: PAYER.toBase58() } })).toMatchObject({ recorded: true });
+    expect(payer.stored[0]).toMatchObject({ status: "failed" });
+  });
+
   it("refuses a receipt whose escrow is not the one its payer and nonce name", async () => {
     const d = deps(settleTx());
     expect(await call(d.deps, { receipt: { ...receipt, escrow: Keypair.generate().publicKey.toBase58() } })).toEqual({ recorded: false, reason: "escrow_mismatch" });
