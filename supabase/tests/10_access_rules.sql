@@ -82,6 +82,7 @@ select pg_temp.expect_denied('A writes a job', $q$
   values ('w', '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-devnet', 'm', repeat('a', 64), 1, 'mint', 'sig', 'paid') $q$);
 select pg_temp.expect_denied('A reads the replay ledger', 'select 1 from public.payment_replay');
 select pg_temp.expect_denied('A calls the replay function', $q$ select public.replay_check_and_store('k') $q$);
+select pg_temp.expect_denied('A calls the batch replay function', $q$ select public.replay_check_and_store_all(array['k']) $q$);
 select pg_temp.expect_denied('A writes a profile', $q$
   update public.profiles set wallet = '6uiQbwMor4UrWYiDtAJcgHKYW4vUaM3BUVChPgzdALse' $q$);
 select pg_temp.expect_error('A reads owner_user_id', 'select owner_user_id from public.providers');
@@ -111,6 +112,11 @@ values ('3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 1);
 do $$ begin
   if not public.replay_check_and_store('x402:tx:solana-devnet:sig-1') then raise exception 'first replay key refused'; end if;
   if public.replay_check_and_store('x402:tx:solana-devnet:sig-1') then raise exception 'replayed key accepted'; end if;
+  -- All or none: a batch with one used key records nothing.
+  if public.replay_check_and_store_all(array['x402:tx:solana-devnet:sig-1', 'x402:nonce:solana-devnet:p:n-1']) then raise exception 'batch with a used key accepted'; end if;
+  if not public.replay_check_and_store('x402:nonce:solana-devnet:p:n-1') then raise exception 'refused batch left a key recorded'; end if;
+  if not public.replay_check_and_store_all(array['x402:tx:solana-devnet:sig-2', 'x402:nonce:solana-devnet:p:n-2']) then raise exception 'new batch refused'; end if;
+  if public.replay_check_and_store('x402:nonce:solana-devnet:p:n-2') then raise exception 'batch did not record its keys'; end if;
   begin
     insert into public.jobs (buyer_wallet, provider_wallet, network, declared_model, request_hash, amount_base_units, mint, tx_signature, status)
     values ('w', '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-devnet', 'm', repeat('b', 64), 1, 'mint', 'sig-1', 'paid');

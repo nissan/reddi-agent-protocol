@@ -80,6 +80,22 @@ export class FileReplayStore implements NonceReplayStore {
     return true;
   }
 
+  /**
+   * Records every key or none, in one write: true when all were new and are now
+   * on disk, false when any was already present (nothing is written then).
+   */
+  checkAndStoreAll(keys: string[]): boolean {
+    if (this.fd === undefined) throw new Error("replay store is closed");
+    if (!Array.isArray(keys) || keys.length === 0) throw new Error("at least one replay key is required");
+    if (keys.some((key) => !KEY.test(key))) throw new Error("replay key must be printable text without spaces");
+    if (new Set(keys).size !== keys.length) throw new Error("replay keys must be distinct");
+    if (keys.some((key) => this.seen.has(key))) return false;
+    appendFileSync(this.fd, keys.map((key) => `${key}\n`).join(""));
+    fsyncSync(this.fd);
+    for (const key of keys) this.seen.add(key);
+    return true;
+  }
+
   get size(): number {
     return this.seen.size;
   }

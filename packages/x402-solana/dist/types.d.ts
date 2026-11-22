@@ -131,6 +131,13 @@ export type ReceiptVerificationResult = {
 };
 export interface NonceReplayStore {
     checkAndStore(nonce: string): boolean | Promise<boolean>;
+    /**
+     * Records every key or none: true when all of them were new and are now
+     * stored, false when any was already present (and then none is stored).
+     * Stores that can do this atomically should; a verifier that records two keys
+     * for one payment uses it so a failure between them cannot leave half a record.
+     */
+    checkAndStoreAll?(keys: string[]): boolean | Promise<boolean>;
 }
 export interface ReceiptVerifier {
     verifyReceipt(receipt: unknown, challenge: X402Challenge, replayStore?: NonceReplayStore, payerProof?: PayerProofCheck): Promise<ReceiptVerificationResult>;

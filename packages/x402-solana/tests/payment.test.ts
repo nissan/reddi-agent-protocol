@@ -32,6 +32,7 @@ import {
   DatabaseReplayStore,
 } from '../src/nonce';
 import { createX402Middleware, createX402Header } from '../src/middleware';
+import { withTokenBalances } from './support/token-balances';
 
 const validAddress = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr';
 const otherValidAddress = '6uiQbwMor4UrWYiDtAJcgHKYW4vUaM3BUVChPgzdALse';
@@ -225,7 +226,8 @@ describe('x402 Payment Module', () => {
             return {
               meta: {
                 err: null,
-                postTokenBalances: [{ accountIndex: 1, mint, owner: validAddress, uiTokenAmount: { uiAmountString: '1.03' } }],
+                preTokenBalances: [{ accountIndex: 1, mint, owner: validAddress, uiTokenAmount: { amount: '1000000', uiAmountString: '1' } }],
+                postTokenBalances: [{ accountIndex: 1, mint, owner: validAddress, uiTokenAmount: { amount: '1030000', uiAmountString: '1.03' } }],
               },
               transaction: {
                 message: {
@@ -493,7 +495,7 @@ describe('x402 Payment Module', () => {
           },
         },
       });
-      const usdcTransaction = (instruction: Record<string, unknown>, balanceMint = usdcMint) => ({
+      const usdcTransaction = (instruction: Record<string, unknown>, balanceMint = usdcMint) => withTokenBalances({
         meta: { err: null, postTokenBalances: [{ accountIndex: 1, mint: balanceMint, owner: validAddress }] },
         transaction: {
           message: {
@@ -687,7 +689,7 @@ describe('protocol fee on direct per-call payments', () => {
     parsed: { type: 'transferChecked', info: { mint, authority: buyer, destination, tokenAmount: { amount: baseUnits, decimals: 6 } } },
   });
   // Token accounts: index 1 is the provider's, index 2 the treasury's, index 3 a stranger's.
-  const usdcTx = (instructions: unknown[]) => ({
+  const usdcTx = (instructions: unknown[]) => withTokenBalances({
     meta: {
       err: null,
       postTokenBalances: [
