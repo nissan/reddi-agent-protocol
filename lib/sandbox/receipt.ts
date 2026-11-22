@@ -93,6 +93,27 @@ function subtle(): SubtleCrypto {
   return api;
 }
 
+/**
+ * Verifies an Ed25519 signature. WebCrypto first; browsers without Ed25519 in WebCrypto
+ * (Chrome before 137, including many Android phones) fall back to a pure-JS check, so a
+ * valid receipt never shows as invalid just because of the browser.
+ */
+async function verifyEd25519(rawKey: Uint8Array, signature: Uint8Array, message: Uint8Array): Promise<boolean> {
+  let key: CryptoKey | undefined;
+  try {
+    key = await subtle().importKey("raw", rawKey as BufferSource, { name: "Ed25519" }, false, ["verify"]);
+  } catch {
+    key = undefined;
+  }
+  if (key) return subtle().verify({ name: "Ed25519" }, key, signature as BufferSource, message as BufferSource);
+  const { ed25519 } = await import("@noble/curves/ed25519");
+  try {
+    return ed25519.verify(signature, message, rawKey);
+  } catch {
+    return false;
+  }
+}
+
 /** UTF-8 bytes in a plain ArrayBuffer, the form WebCrypto accepts. */
 export function utf8Bytes(text: string): Uint8Array<ArrayBuffer> {
   const encoded = new TextEncoder().encode(text);
@@ -377,8 +398,7 @@ export async function sandboxReceiptSignatureValid(value: SandboxReceipt): Promi
   const rawKey = base58Decode32(value.receipt.providerId);
   const signature = base64ToBytes(value.proof.signature);
   if (!rawKey || !signature || signature.length !== 64) return false;
-  const key = await subtle().importKey("raw", rawKey, { name: "Ed25519" }, false, ["verify"]);
-  return subtle().verify({ name: "Ed25519" }, key, signature, utf8Bytes(canonicalizeSandboxReceipt(value.receipt)));
+  return verifyEd25519(rawKey, signature, utf8Bytes(canonicalizeSandboxReceipt(value.receipt)));
 }
 
 /**
@@ -437,8 +457,7 @@ export async function verifySandboxReceipt(input: VerifySandboxReceiptInput): Pr
     const rawKey = base58Decode32(receipt.providerId);
     const signature = base64ToBytes(proof.signature);
     if (!rawKey || !signature || signature.length !== 64) throw new Error("malformed");
-    const key = await subtle().importKey("raw", rawKey, { name: "Ed25519" }, false, ["verify"]);
-    signatureValid = await subtle().verify({ name: "Ed25519" }, key, signature, utf8Bytes(canonicalizeSandboxReceipt(receipt)));
+    signatureValid = await verifyEd25519(rawKey, signature, utf8Bytes(canonicalizeSandboxReceipt(receipt)));
     if (signatureValid) signatureDetail = "Ed25519 signature covers provider, declared model, both hashes and the payment fields.";
   } catch (error) {
     signatureDetail = error instanceof Error && /Ed25519|algorithm|supported/i.test(error.message)
