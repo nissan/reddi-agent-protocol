@@ -5,10 +5,13 @@
  * Record consumer settlement decision after evaluating specialist output.
  */
 import { decidePlannerSettlement } from "@/lib/onboarding/planner-settlement";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   try {
     const body = await req.json();
 
@@ -43,6 +46,8 @@ export async function POST(req: Request) {
 }
 
 export async function GET() {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   return Response.json({
     tool: "decide_settlement",
     description: "Record release/dispute decision for a paid planner run.",

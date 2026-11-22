@@ -241,12 +241,14 @@ describe("seller-ratings cron gating (#842)", () => {
     jest.resetModules();
   });
 
-  async function call(env: Record<string, string | undefined>, authorization?: string) {
+  async function call(env: Record<string, string | undefined>, authorization?: string, devnet = true) {
     for (const [name, value] of Object.entries(env)) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
     const sweep = jest.fn(async () => []);
+    // The sweep reads the cluster's genesis hash before signing; no network in unit tests.
+    jest.doMock("@/lib/sandbox/devnet-genesis", () => ({ ...jest.requireActual("@/lib/sandbox/devnet-genesis"), isDevnetConnection: jest.fn(async () => devnet) }));
     jest.doMock("@/lib/sandbox/seller-rating", () => ({ ...jest.requireActual("@/lib/sandbox/seller-rating"), sweepSellerRatings: sweep }));
     const { GET } = await import("@/app/api/cron/seller-ratings/route");
     const response = await GET(new Request("http://localhost/api/cron/seller-ratings", { headers: authorization ? { authorization } : {} }));
@@ -285,5 +287,13 @@ describe("seller-ratings cron gating (#842)", () => {
     expect(ran.status).toBe(200);
     const keypairs = (ran.sweep.mock.calls[0] as unknown as [{ keypairs: Keypair[] }])[0].keypairs;
     expect(keypairs.map((keypair) => keypair.publicKey.toBase58())).toEqual([provider.publicKey.toBase58()]);
+  });
+
+  it("signs nothing when the sweep's RPC is not devnet (audit S2-claude-01)", async () => {
+    const provider = Keypair.generate();
+    jest.doMock("@/lib/sandbox/settle-signer", () => ({ ...jest.requireActual("@/lib/sandbox/settle-signer"), parseSandboxPayeeKeys: jest.fn(() => new Map([["atlas-review", provider]])) }));
+    const result = await call({ SANDBOX_ACCEPT_RATED_ESCROWS: "true", CRON_SECRET: "s", SANDBOX_DEVNET_PAYEE_KEYS: "configured" }, "Bearer s", false);
+    expect(result.status).toBe(503);
+    expect(result.sweep).not.toHaveBeenCalled();
   });
 });

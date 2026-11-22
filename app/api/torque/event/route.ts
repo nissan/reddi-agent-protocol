@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { emitTorqueEvent } from "@/lib/torque/client";
 import { TORQUE_EVENTS, type TorqueEventName } from "@/lib/torque/events";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 export async function POST(req: NextRequest) {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   const body = await req.json();
   const { userPubkey, eventName, fields } = body;
 

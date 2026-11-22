@@ -15,6 +15,7 @@ import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { SANDBOX_PROVIDERS } from "./catalog";
 import { buildSandboxSettle, SANDBOX_ESCROW_PROGRAM_ID } from "./escrow";
 import { advanceSellerRating, type SellerRatingConnection } from "./seller-rating";
+import { isDevnetConnection } from "@/lib/sandbox/devnet-genesis";
 
 export type SandboxSettleInput = {
   providerId: string;
@@ -76,6 +77,7 @@ export function createSandboxSettler(connection: Connection, keys: Map<string, K
     async settle(input) {
       const keypair = keys.get(input.providerId);
       if (!keypair || !keypair.publicKey.equals(input.payee)) return { ok: false, message: "This provider cannot settle on devnet right now." };
+      if (!(await isDevnetConnection(connection))) return { ok: false, message: "The sandbox settles on devnet only, and the server RPC is not devnet." };
       try {
         const latest = await connection.getLatestBlockhash("confirmed");
         const transaction = new Transaction({ feePayer: keypair.publicKey, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight }).add(

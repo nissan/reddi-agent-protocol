@@ -1,4 +1,5 @@
 import { isHaiku } from "@/lib/dogfood/haiku";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 export const runtime = "nodejs";
 
@@ -26,6 +27,8 @@ function includesPong(payload: SpecialistPayload) {
 }
 
 export async function POST(req: Request) {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   try {
     const body = await req.json().catch(() => ({}));
     const payload = (body.payload ?? {}) as SpecialistPayload;
@@ -59,6 +62,8 @@ export async function POST(req: Request) {
 }
 
 export async function GET() {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   return Response.json({
     endpoint: "/api/dogfood/testing-attestor",
     method: "POST",

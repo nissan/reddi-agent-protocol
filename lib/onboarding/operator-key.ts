@@ -47,12 +47,13 @@ export function checkOperatorKeyStatus(): OperatorKeyStatus {
       publicKey_suffix: publicKey.slice(-8),
       checkedAt: new Date().toISOString(),
     };
-  } catch (error) {
+  } catch {
     return {
       present: true,
       valid: false,
       state: "invalid",
-      error: error instanceof Error ? error.message : "Parse error",
+      // A fixed message: a JSON.parse error quotes part of the input, which is the secret (audit S2-claude-07).
+      error: "ONBOARDING_ATTEST_OPERATOR_SECRET_KEY is not a JSON array of 64 numbers.",
       checkedAt: new Date().toISOString(),
     };
   }

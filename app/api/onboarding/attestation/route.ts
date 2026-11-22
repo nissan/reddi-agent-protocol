@@ -1,9 +1,12 @@
 import { recordAttestation } from "@/lib/onboarding/attestation";
 import { submitOnchainOnboardingAttestation } from "@/lib/onboarding/onchain-attestation";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   try {
     const body = await req.json();
     const healthcheckStatus = body.healthcheckStatus;

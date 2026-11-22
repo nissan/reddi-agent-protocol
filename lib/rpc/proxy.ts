@@ -2,9 +2,12 @@
  * Browser RPC proxy rules for `/api/rpc`.
  *
  * Browsers send Solana JSON-RPC here instead of to the keyed provider URL, so
- * the key stays on the server. The proxy is not a general relay: it forwards
- * only the methods the app uses, limits body and batch size, takes calls only
- * from allowed page origins, and never echoes the upstream URL or its errors.
+ * the key stays on the server. It forwards only the methods the app uses,
+ * limits body and batch size, requires filters on getProgramAccounts (one per
+ * batch), and never echoes the upstream URL or its errors. The Origin check
+ * only keeps other web pages' browsers out: any non-browser client can send
+ * the header, so cost is bounded by the per-client limit in rate-limit.ts and,
+ * as the control of record, the Vercel firewall rule (audit S2-claude-05).
  * Subscriptions (websockets) are not proxied; the app uses the profile's public
  * websocket endpoint for those.
  */
@@ -41,8 +44,11 @@ export const ALLOWED_RPC_METHODS: ReadonlySet<string> = new Set([
   "getProgramAccounts",
 ]);
 
+/** getProgramAccounts calls allowed in one request. */
+export const MAX_PROGRAM_SCANS_PER_REQUEST = 1;
+
 export type RpcCheck =
-  | { ok: true; body: string }
+  | { ok: true; body: string; calls: number; scans: number }
   | { ok: false; status: number; code: string; message: string; id: unknown };
 
 type RpcCall = { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: unknown };
@@ -70,6 +76,7 @@ export function checkRpcBody(raw: string, programIds: ReadonlySet<string>): RpcC
   if (calls.length > MAX_RPC_BATCH) {
     return refuse(413, "rpc_batch_too_large", `RPC batches are limited to ${MAX_RPC_BATCH} calls.`);
   }
+  let scans = 0;
   for (const item of calls) {
     if (!item || typeof item !== "object" || Array.isArray(item)) {
       return refuse(400, "rpc_invalid_request", "Each call must be a JSON-RPC object.");
@@ -86,15 +93,36 @@ export function checkRpcBody(raw: string, programIds: ReadonlySet<string>): RpcC
       if (typeof programId !== "string" || !programIds.has(programId)) {
         return refuse(403, "rpc_method_not_allowed", "getProgramAccounts is limited to this app's programs.", call.id ?? null);
       }
+      if (!hasAccountFilter(Array.isArray(call.params) ? call.params[1] : undefined)) {
+        return refuse(403, "rpc_method_not_allowed", "getProgramAccounts needs a dataSize or memcmp filter.", call.id ?? null);
+      }
+      scans += 1;
+      if (scans > MAX_PROGRAM_SCANS_PER_REQUEST) {
+        return refuse(413, "rpc_batch_too_large", "Send one getProgramAccounts call per request.", call.id ?? null);
+      }
     }
   }
-  return { ok: true, body: raw };
+  return { ok: true, body: raw, calls: calls.length, scans };
+}
+
+/** True when a getProgramAccounts config carries at least one dataSize or memcmp filter. */
+function hasAccountFilter(config: unknown): boolean {
+  if (!config || typeof config !== "object") return false;
+  const filters = (config as { filters?: unknown }).filters;
+  if (!Array.isArray(filters) || filters.length === 0) return false;
+  return filters.some((filter) => {
+    if (!filter || typeof filter !== "object") return false;
+    const f = filter as { dataSize?: unknown; memcmp?: { offset?: unknown; bytes?: unknown } };
+    if (typeof f.dataSize === "number" && Number.isInteger(f.dataSize) && f.dataSize >= 0) return true;
+    return !!f.memcmp && typeof f.memcmp.offset === "number" && typeof f.memcmp.bytes === "string" && f.memcmp.bytes.length > 0;
+  });
 }
 
 /**
  * True when a browser call may use the proxy: the Origin header must be the
- * proxy's own origin or one listed in `extraOrigins`. A call with no Origin
- * (curl, another server) is refused, so the proxy is not an open relay.
+ * proxy's own origin or one listed in `extraOrigins`. A call with no Origin is
+ * refused. This stops other sites' pages, not scripts: the header is easy to set
+ * outside a browser, which is why the rate limit and firewall rule exist.
  */
 export function isAllowedOrigin(origin: string | null, requestUrl: string, extraOrigins: readonly string[]): boolean {
   if (!origin) return false;

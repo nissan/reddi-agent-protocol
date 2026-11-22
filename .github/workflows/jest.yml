@@ -40,3 +40,7 @@ jobs:
       # Offline: the hourly uptime check fails when the site does (pipefail), and alerts the owner.
       - name: Uptime workflow guard (offline)
         run: npm run test:uptime-workflow
+
+      # Offline: the deployment verifier against fixture accounts (wrong cluster, flipped byte, wrong authority).
+      - name: Escrow deployment verifier (offline)
+        run: npm run test:escrow:deployment-check

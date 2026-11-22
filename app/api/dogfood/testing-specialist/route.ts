@@ -1,4 +1,5 @@
 import { randomInt } from "crypto";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 export const runtime = "nodejs";
 
@@ -23,6 +24,8 @@ function failPayload(mode: number) {
 }
 
 export async function POST(req: Request) {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   try {
     const body = await req.json().catch(() => ({}));
     const message = String(body.message ?? "").trim().toLowerCase();
@@ -57,6 +60,8 @@ export async function POST(req: Request) {
 }
 
 export async function GET() {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   return Response.json({
     endpoint: "/api/dogfood/testing-specialist",
     method: "POST",
