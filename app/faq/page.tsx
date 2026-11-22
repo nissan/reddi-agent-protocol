@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { internalPagesEnabled } from "@/lib/internal-pages";
+import { liveHref } from "@/lib/legacy-pages";
 
 const faqs = [
   {
@@ -86,7 +87,7 @@ export default function FAQPage() {
               and keeping x402 endpoints healthy during Reddi Agent Protocol testing.
             </p>
             <div className="flex flex-wrap gap-3 pt-2">
-              <Link href="/onboarding">
+              <Link href={liveHref("/onboarding")}>
                 <Button>Start onboarding →</Button>
               </Link>
               {internalPagesEnabled() && (

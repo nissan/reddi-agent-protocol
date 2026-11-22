@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { legacyPagesEnabled } from "@/lib/legacy-pages";
 import { useWallet } from "@solana/wallet-adapter-react";
 
 import { currentAccessToken, WalletSignIn } from "@/components/auth/WalletSignIn";
@@ -87,11 +88,16 @@ export default function MyJobsPage() {
         {view.state === "not_configured" ? (
           <div className="rounded-md border border-line-strong bg-paper-raised p-5 text-[15px] text-ink" data-testid="jobs-not-configured">
             <p>
-              Saved jobs are not switched on for this deployment yet. Runs made here still appear in{" "}
-              <Link href="/runs" className="font-semibold text-ink underline underline-offset-4">
-                run history
-              </Link>
-              .
+              Saved jobs are not switched on for this deployment yet.
+              {legacyPagesEnabled() ? (
+                <>
+                  {" "}Runs made here still appear in{" "}
+                  <Link href="/runs" className="font-semibold text-ink underline underline-offset-4">
+                    run history
+                  </Link>
+                  .
+                </>
+              ) : null}
             </p>
           </div>
         ) : null}

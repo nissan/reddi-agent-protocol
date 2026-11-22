@@ -46,6 +46,7 @@ import { ESCROW_PROGRAM_ID, SUBMISSION_BLOCKED, SUBMISSION_BLOCKED_REASON } from
 import { JobRatingPanel } from "@/components/rating/JobRatingPanel";
 import { RateJobOption } from "@/components/rating/RateJobOption";
 import { SessionOption } from "@/components/payments/SessionOption";
+import { legacyPagesEnabled } from "@/lib/legacy-pages";
 import { isRatedDecline, parseJudgeAddress, ratedEscrowsEnabled, ratedJobStance, rememberRatedDecline } from "@/lib/rating/rated-pay";
 import { browserRatingStorage, rememberRatedJob } from "@/lib/rating/rating-secrets";
 import { RATING_RENT_SOL } from "@/lib/rating/rating-state";
@@ -57,6 +58,8 @@ const WALLET_PAYMENT_ENABLED = walletDirectPaymentEnabled(
 );
 // Rating needs an escrow program that has the rating instructions; the operator says so at build time.
 const RATED_ESCROWS_ENABLED = ratedEscrowsEnabled(process.env.NEXT_PUBLIC_RATED_ESCROWS);
+// Run history and the off-chain feedback note use API routes that production turns off.
+const LEGACY_PAGES = legacyPagesEnabled();
 const BUYER_MINTS = {
   USDC: process.env.NEXT_PUBLIC_X402_USDC_MINT,
   AUDD: process.env.NEXT_PUBLIC_X402_AUDD_MINT,
@@ -727,9 +730,9 @@ function PlannerInner() {
           title="Connect your agent system to RAP Assurance"
           subtitle="Use the planner/MCP flow to discover specialists, enforce budget and authority policy, bind payment-proof and evidence references, then inspect receipts before feedback."
           actions={
-            <Link href="/runs">
+            <Link href={LEGACY_PAGES ? "/runs" : "/jobs"}>
               <Button variant="outline" size="sm">
-                Run history →
+                {LEGACY_PAGES ? "Run history →" : "My jobs →"}
               </Button>
             </Link>
           }
@@ -1079,38 +1082,46 @@ function PlannerInner() {
                     <JobRatingPanel escrow={ratedEscrow} showWhenNone />
                   ) : (
                     <p className="rounded-xl border border-white/10 bg-black/30 p-3 text-xs leading-5 text-gray-400" data-testid="planner-not-rated">
-                      This job was paid without rating, so there is nothing to rate on chain. You can still leave a private note below.
+                      This job was paid without rating, so there is nothing to rate on chain.{LEGACY_PAGES ? " You can still leave a private note below." : null}
                     </p>
                   )}
-                  <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Private feedback (off-chain)</p>
-                  <div className="flex gap-1">
-                    {Array.from({ length: 5 }).map((_, index) => (
-                      <button
-                        key={index}
-                        onClick={() => setRating(index + 1)}
-                        aria-label={`${index + 1} of 5`}
-                        className={`text-3xl transition ${index < rating ? "text-indigo-400" : "text-white/20"}`}
+                  {LEGACY_PAGES ? (
+                    <>
+                      <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Private feedback (off-chain)</p>
+                      <div className="flex gap-1">
+                        {Array.from({ length: 5 }).map((_, index) => (
+                          <button
+                            key={index}
+                            onClick={() => setRating(index + 1)}
+                            aria-label={`${index + 1} of 5`}
+                            className={`text-3xl transition ${index < rating ? "text-indigo-400" : "text-white/20"}`}
+                          >
+                            ★
+                          </button>
+                        ))}
+                      </div>
+                      <Textarea
+                        className="min-h-28"
+                        placeholder="Optional feedback note"
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                      />
+                      <p className="text-xs leading-5 text-gray-400">
+                        Saved by this app only. It is not written to the chain and does not change the provider&apos;s on-chain reputation.
+                      </p>
+                      <Button
+                        className="w-full"
+                        disabled={!run?.runId || submitted}
+                        onClick={() => void submitFeedback()}
                       >
-                        ★
-                      </button>
-                    ))}
-                  </div>
-                  <Textarea
-                    className="min-h-28"
-                    placeholder="Optional feedback note"
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                  />
-                  <p className="text-xs leading-5 text-gray-400">
-                    Saved by this app only. It is not written to the chain and does not change the provider&apos;s on-chain reputation.
-                  </p>
-                  <Button
-                    className="w-full"
-                    disabled={!run?.runId || submitted}
-                    onClick={() => void submitFeedback()}
-                  >
-                    {submitted ? "Saved ✓" : "Save feedback"}
-                  </Button>
+                        {submitted ? "Saved ✓" : "Save feedback"}
+                      </Button>
+                    </>
+                  ) : (
+                    <Link href="/jobs" className="block">
+                      <Button className="w-full">Done, see my jobs →</Button>
+                    </Link>
+                  )}
                 </div>
               ) : null}
             </Card>
@@ -1127,8 +1138,8 @@ function PlannerInner() {
               Your feedback note was saved off-chain. On-chain ratings are made from your own wallet, in the job rating panel.
             </p>
             <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
-              <Link href="/runs">
-                <Button>View run history →</Button>
+              <Link href={LEGACY_PAGES ? "/runs" : "/jobs"}>
+                <Button>{LEGACY_PAGES ? "View run history →" : "See my jobs →"}</Button>
               </Link>
               <Button variant="outline" onClick={() => setCompleteOpen(false)}>
                 Close
