@@ -7,12 +7,15 @@
  * resolves its host and refuses any non-public address; `fetchOutbound` runs the check
  * and fetches with `redirect: "manual"`, so a 3xx comes back to the caller as a failure.
  *
- * Residual: the address is checked at resolve time and fetch resolves again, so a DNS
- * rebinding name with a very short TTL could still swap the address in between. Pinning
- * the connection to the checked address needs a custom dispatcher and is a follow-up.
+ * DNS rebinding: the connection is pinned to the addresses that passed the check. The
+ * request goes through an undici dispatcher whose `lookup` returns those addresses, so a
+ * name that resolves to a public address for the check and a private one a moment later
+ * cannot redirect the connection. TLS still verifies the certificate for the URL's host.
  */
 import { lookup } from "dns/promises";
+import type { LookupAddress } from "dns";
 import { BlockList, isIP } from "net";
+import { Agent, fetch as undiciFetch } from "undici";
 
 const BLOCKED = new BlockList();
 for (const [network, prefix] of [
@@ -71,7 +74,7 @@ export function isBlockedAddress(address: string): boolean {
   return true;
 }
 
-export type OutboundCheck = { ok: true; url: URL } | { ok: false; reason: string };
+export type OutboundCheck = { ok: true; url: URL; addresses: string[] } | { ok: false; reason: string };
 
 type Resolver = (hostname: string) => Promise<string[]>;
 
@@ -112,7 +115,38 @@ export async function checkOutboundUrl(raw: string | URL, options: OutboundOptio
   if (addresses.length === 0 || addresses.some(isBlockedAddress)) {
     return { ok: false, reason: "Local and private network addresses are refused." };
   }
-  return { ok: true, url };
+  return { ok: true, url, addresses: addresses.map((address) => address.replace(/^\[|\]$/g, "")) };
+}
+
+type LookupCallback = (error: NodeJS.ErrnoException | null, address: string | LookupAddress[], family?: number) => void;
+
+/** A `dns.lookup` stand-in that only ever answers with the checked addresses. */
+export function pinnedLookup(addresses: readonly string[]) {
+  const entries: LookupAddress[] = addresses.map((address) => ({ address, family: isIP(address) }));
+  return (_hostname: string, options: { all?: boolean } | undefined, callback: LookupCallback) => {
+    if (entries.length === 0) {
+      callback(Object.assign(new Error("No checked address to connect to."), { code: "ENOTFOUND" }), []);
+      return;
+    }
+    if (options?.all) callback(null, entries);
+    else callback(null, entries[0].address, entries[0].family);
+  };
+}
+
+/**
+ * Fetches `url` with the connection pinned to `addresses` (already checked). One dispatcher
+ * per request; it is closed once the request, body included, has finished.
+ */
+export async function fetchPinned(url: URL, init: RequestInit, addresses: readonly string[]): Promise<Response> {
+  const dispatcher = new Agent({ connect: { lookup: pinnedLookup(addresses) as never } });
+  try {
+    const response = await undiciFetch(url.toString(), { ...(init as Parameters<typeof undiciFetch>[1]), redirect: "manual", dispatcher });
+    void dispatcher.close().catch(() => undefined);
+    return response as unknown as Response;
+  } catch (error) {
+    void dispatcher.destroy().catch(() => undefined);
+    throw error;
+  }
 }
 
 export class OutboundRefusedError extends Error {
@@ -123,8 +157,9 @@ export class OutboundRefusedError extends Error {
 }
 
 /**
- * Checks the URL, then fetches it without following redirects. A refused URL throws
- * `OutboundRefusedError`; a 3xx answer is returned as is, never followed.
+ * Checks the URL, then fetches it without following redirects, connected only to the checked
+ * addresses. A refused URL throws `OutboundRefusedError`; a 3xx answer is returned as is.
+ * `fetchImpl` replaces the pinned transport (tests only).
  */
 export async function fetchOutbound(
   raw: string | URL,
@@ -133,7 +168,20 @@ export async function fetchOutbound(
 ): Promise<Response> {
   const checked = await checkOutboundUrl(raw, options);
   if (!checked.ok) throw new OutboundRefusedError(checked.reason);
-  return (options.fetchImpl ?? fetch)(checked.url.toString(), { ...init, redirect: "manual" });
+  if (options.fetchImpl) return options.fetchImpl(checked.url.toString(), { ...init, redirect: "manual" });
+  return outboundTransport(checked.url, init, checked.addresses);
+}
+
+type Transport = (url: URL, init: RequestInit, addresses: readonly string[]) => Promise<Response>;
+let outboundTransport: Transport = fetchPinned;
+
+/** Test seam: swap the pinned transport. Returns a function that restores the previous one. */
+export function setOutboundTransportForTests(transport: Transport): () => void {
+  const previous = outboundTransport;
+  outboundTransport = transport;
+  return () => {
+    outboundTransport = previous;
+  };
 }
 
 /** http:// is allowed for outbound calls only in local development on a non-production build. */

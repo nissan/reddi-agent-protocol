@@ -1,6 +1,12 @@
 // Endpoints are fetched through the outbound guard, which resolves the host first.
 // Test hosts resolve to a public address here; the guard itself is tested in outbound-guard.test.ts.
 jest.mock("dns/promises", () => ({ lookup: jest.fn(async () => [{ address: "93.184.215.14", family: 4 }]) }));
+// The pinned transport (undici with a fixed lookup) is tested in outbound-guard.test.ts; here it
+// hands the request to the suite's global fetch mock.
+jest.mock("undici", () => ({
+  Agent: class { close() { return Promise.resolve(); } destroy() { return Promise.resolve(); } },
+  fetch: (url: string, init: RequestInit) => globalThis.fetch(url, init),
+}));
 
 import { NextRequest } from "next/server";
 

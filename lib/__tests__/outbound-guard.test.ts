@@ -1,7 +1,17 @@
 /**
  * Outbound guard for caller-influenced URLs (security audit round 1, S2-claude-02, condition C3).
  */
-import { checkOutboundUrl, fetchOutbound, isBlockedAddress, OutboundRefusedError } from "@/lib/http/outbound";
+import { createServer, type Server } from "http";
+import type { AddressInfo } from "net";
+import {
+  checkOutboundUrl,
+  fetchOutbound,
+  fetchPinned,
+  isBlockedAddress,
+  OutboundRefusedError,
+  pinnedLookup,
+  setOutboundTransportForTests,
+} from "@/lib/http/outbound";
 
 const publicResolver = async () => ["93.184.215.14"];
 
@@ -89,5 +99,71 @@ describe("fetchOutbound", () => {
     const fetchImpl = jest.fn() as unknown as typeof fetch;
     await expect(fetchOutbound("https://10.0.0.5:8080/", {}, { resolve: publicResolver, fetchImpl })).rejects.toBeInstanceOf(OutboundRefusedError);
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe("DNS rebinding: the connection is pinned to the checked addresses", () => {
+  it("pinnedLookup answers only with the checked addresses, in both lookup forms", () => {
+    const lookup = pinnedLookup(["93.184.215.14", "2606:2800:220:1::1"]);
+    const one = jest.fn();
+    lookup("anything.example", {}, one);
+    expect(one).toHaveBeenCalledWith(null, "93.184.215.14", 4);
+    const all = jest.fn();
+    lookup("anything.example", { all: true }, all);
+    expect(all).toHaveBeenCalledWith(null, [
+      { address: "93.184.215.14", family: 4 },
+      { address: "2606:2800:220:1::1", family: 6 },
+    ]);
+    const none = jest.fn();
+    pinnedLookup([])("anything.example", {}, none);
+    expect(none.mock.calls[0][0]).toBeInstanceOf(Error);
+  });
+
+  describe("fetchPinned against a local server", () => {
+    let server: Server;
+    let port: number;
+    const seen: Array<{ host?: string; path?: string }> = [];
+    beforeAll(async () => {
+      server = createServer((req, res) => {
+        seen.push({ host: req.headers.host, path: req.url });
+        if (req.url === "/redirect") {
+          res.writeHead(302, { location: "http://127.0.0.1/elsewhere" }).end();
+          return;
+        }
+        res.writeHead(200, { "content-type": "text/plain" }).end("pinned");
+      });
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      port = (server.address() as AddressInfo).port;
+    });
+    afterAll(async () => {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    });
+
+    it("connects to the pinned address and never asks DNS, keeping the URL's host", async () => {
+      // `.invalid` never resolves (RFC 2606), so a 200 proves the connection used the pinned address.
+      const res = await fetchPinned(new URL(`http://rebind.invalid:${port}/healthz`), { method: "GET" }, ["127.0.0.1"]);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe("pinned");
+      expect(seen.at(-1)).toEqual({ host: `rebind.invalid:${port}`, path: "/healthz" });
+    });
+
+    it("does not follow a redirect", async () => {
+      const res = await fetchPinned(new URL(`http://rebind.invalid:${port}/redirect`), {}, ["127.0.0.1"]);
+      expect(res.status).toBe(302);
+      expect(seen.at(-1)?.path).toBe("/redirect");
+    });
+  });
+
+  it("fetchOutbound hands the transport exactly the addresses the check approved", async () => {
+    const transport = jest.fn(async () => new Response("ok"));
+    const restore = setOutboundTransportForTests(transport);
+    try {
+      await fetchOutbound("https://provider.example/v1", { method: "POST" }, { resolve: async () => ["93.184.215.14", "93.184.215.15"] });
+      expect(transport).toHaveBeenCalledWith(new URL("https://provider.example/v1"), { method: "POST" }, ["93.184.215.14", "93.184.215.15"]);
+      await expect(fetchOutbound("https://provider.example/v1", {}, { resolve: async () => ["93.184.215.14", "10.0.0.1"] })).rejects.toBeInstanceOf(OutboundRefusedError);
+      expect(transport).toHaveBeenCalledTimes(1);
+    } finally {
+      restore();
+    }
   });
 });
