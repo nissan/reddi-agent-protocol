@@ -14,7 +14,7 @@ test.describe("buyer dashboards", () => {
     for (const [name, href] of [
       [/My jobs/, "/jobs"],
       [/Browse providers/, "/agents"],
-      [/Start setup/, "/onboarding"],
+      [/Start setup/, "/register"],
       [/Open the sandbox/, "/sandbox"],
     ] as const) {
       await expect(places.getByRole("link", { name })).toHaveAttribute("href", href);
