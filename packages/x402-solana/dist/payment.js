@@ -733,8 +733,7 @@ function transactionHasTokenSplit(parsed, receipt, challenge, mint, tokenProgram
  * its balance before must cover `requiredUnits`, the account must belong to
  * `owner` before (when it existed) and after, and no instruction in the
  * transaction, inner instructions included, may move tokens out of it or change
- * its authority. Otherwise a payer could route the amount through a throwaway
- * account, take it back, and hand the dust to the payee.
+ * its authority.
  */
 function tokenAccountNetlyCredited(parsed, tokenAccount, mint, owner, tokenProgram, requiredUnits) {
     if (requiredUnits <= BigInt(0))
