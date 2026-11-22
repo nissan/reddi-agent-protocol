@@ -432,7 +432,7 @@ test("a settle that lands but reports failure is not sent again: the buyer gets 
   assert.deepEqual([lostBody.reddi.metered.confirmed, lostBody.reddi.metered.settleSignature], [false, SETTLE_SIGNATURE]);
 });
 
-test("when it is not known whether the settle landed, the answer is held, and the same request collects it once it has (round 1, B9)", async () => {
+test("when it is not known whether the settle landed, the answer is held, and the same request collects it once it has", async () => {
   const chain = fakeChain();
   chain.failSend = true;
   chain.statusUnknown = true;
@@ -457,7 +457,7 @@ test("when it is not known whether the settle landed, the answer is held, and th
   assert.equal(chain.signed.size, 1, "one settle was signed for the call");
 });
 
-test("an escrow closed by the buyer before the settle lands is not taken as paid: the answer is withheld (round 1, S7-03)", async () => {
+test("an escrow closed by the buyer before the settle lands is not taken as paid: the answer is withheld", async () => {
   const chain = fakeChain();
   chain.failSend = true;
   const { call } = setup({ chain });

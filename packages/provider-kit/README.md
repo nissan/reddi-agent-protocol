@@ -182,7 +182,6 @@ The worst case of a call counts four characters of input as one token. A model t
 
 - Do not run a funded provider on mainnet yet. A single paid call and a three-call session were run end to end on devnet on 21 November 2026 (mock answers, devnet USDC); the payout refusals and recovery paths above are covered by tests against a simulated chain only. The treasury's token accounts must be confirmed ready for each currency first (`rap-provider doctor` checks yours).
 - A single-call settle known not to have landed is not retried later by itself (a session's settle is retried by the sweep until the refund window). The log line `settle_failed` names the escrow; the lock stays open until its refund window, and you can settle it by hand within that time.
-- If a buyer turns on required memos for its associated token account (a Token-2022 feature, so PYUSD and USDG only), no settle with a refund leg can land. The kit logs `session_settle_waiting` with `"alert": true`.
 - No streaming responses. Requests with `stream: true` are refused.
 - Message content must be text.
 - Token currencies only. SOL-priced metered calls are not offered.

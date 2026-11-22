@@ -256,7 +256,7 @@ test("a lock the buyer refunded before the settle is recorded as unpaid, not set
   assert.equal(chain.signed.size, 0, "no settle was signed for a lock that is gone");
 });
 
-test("a buyer who closes the account its lock came from cannot block the settle: the kit creates its associated account and settles (round 1, B4)", async () => {
+test("a buyer who closes the account its lock came from cannot block the settle: the kit creates its associated account and settles", async () => {
   const { call, close, chain } = setup();
   assert.equal((await call(1)).status, 200);
   chain.accounts.delete(ata(buyer).toBase58());
@@ -274,7 +274,7 @@ test("sessions are off unless the operator turns them on", () => {
   assert.ok(on.ok && on.config.sessions.enabled);
 });
 
-test("a session settle whose outcome is unknown stays pending across a restart, and only its own signature can settle it (round 1, B9)", async () => {
+test("a session settle whose outcome is unknown stays pending across a restart, and only its own signature can settle it", async () => {
   const dir = mkdtempSync(join(tmpdir(), "rap-sessions-"));
   const store = new FileSessionStore(join(dir, "sessions.jsonl"));
   const chain = fakeChain();
@@ -315,7 +315,7 @@ test("a recorded settle that can never land is dropped and the session settles w
   assert.equal(chain.signed.size, 3);
 });
 
-test("a lock made again at the same address is not charged for the earlier session's calls (round 1, C19)", async () => {
+test("a lock made again at the same address is not charged for the earlier session's calls", async () => {
   const { call, close, chain, events } = setup();
   assert.equal((await call(1)).status, 200);
   // Lock A is refunded and lock B is made with the same payer and nonce, in a later slot.

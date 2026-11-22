@@ -246,7 +246,7 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
 
   const sessionsRaw = file.sessions === undefined ? {} : isRecord(file.sessions) ? file.sessions : undefined;
   if (!sessionsRaw) errors.push("sessions: must be an object");
-  // Off by default for V1 (security review round 1): turn on only for a provider that watches its session alerts.
+  // Off by default: turn on only for a provider that watches its session alerts.
   const sessionsEnabled = sessionsRaw?.enabled === true;
   if (sessionsRaw?.enabled !== undefined && typeof sessionsRaw.enabled !== "boolean") errors.push("sessions.enabled: must be true or false");
   const idleSeconds = sessionsRaw?.idleSeconds === undefined ? 600 : Number(sessionsRaw.idleSeconds);

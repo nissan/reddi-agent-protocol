@@ -459,11 +459,9 @@ export async function verifyMeteredLock(input: {
     }
     openedSlot = rating.openedSlot;
   }
-  // Reading a lock back to settle calls already served: if the buyer has closed
-  // the account that funded it, the unused part goes to the payer's associated
-  // token account, created by the settle at the provider's cost when it does not
-  // exist. Otherwise a buyer could make the settle impossible and refund the
-  // whole lock after being served (security review round 1, B4).
+  // Reading a lock back to settle calls already served: if the account that
+  // funded it is gone, the unused part goes to the payer's associated token
+  // account, created by the settle at the provider's cost when it does not exist.
   const payout = await checkMeteredPayout({
     terms,
     escrow,

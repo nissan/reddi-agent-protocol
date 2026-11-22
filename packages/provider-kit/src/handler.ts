@@ -187,8 +187,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
   };
 
   /**
-   * Sends the settle `build` makes and reads back what it moved (security
-   * review round 1, B9). The settle is signed first and recorded through
+   * Sends the settle `build` makes and reads back what it moved. The settle is signed first and recorded through
    * `record` before it is sent, so after a failure, a timeout or a restart the
    * only transaction that can count as this settle is that signature. The
    * outcome is:
@@ -525,7 +524,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
    * `pending` means it is not finished and will be tried again: a call is
    * running, the chain could not be read, or a settle was sent and its outcome
    * is not known yet. A session counts as settled only when its own recorded
-   * settle signature has landed (security review round 1, B9).
+   * settle signature has landed.
    */
   async function settleSession(escrow: string, requestId: string = randomUUID()): Promise<SessionEnd> {
     const ledger = deps.sessions;
@@ -585,7 +584,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
         if (lock.reason === "payment_check_unavailable") clusterConfirmed = false;
         return waiting(lock.reason);
       }
-      // The lock at this address must be the one the session was opened on, not a later one made with the same nonce (C19).
+      // The lock at this address must be the one the session was opened on, not a later one made with the same nonce.
       if (!lockMatchesSession(lock, state)) {
         log({ event: "session_lock_replaced", escrow, alert: true });
         const ended = BigInt(state.costBaseUnits) > 0n ? "refunded_unpaid" : "declined";
@@ -813,7 +812,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
    * answer when the settle did not land. A settle whose outcome is not known
    * leaves the answer waiting here: the buyer sends the same signed request
    * again, and gets it once that settle is known to have landed. It is never
-   * counted as paid by another transaction on the escrow (round 1, B9).
+   * counted as paid by another transaction on the escrow.
    */
   async function settleAndAnswer(call: PaidCall, resume?: PendingCallSettle): Promise<Response> {
     const { escrow, lock, requestId, usage, upstream } = call;
