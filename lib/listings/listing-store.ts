@@ -78,7 +78,8 @@ const LIST_COLUMNS = `${BASE_COLUMNS},adl_source`;
  */
 async function readRows(fetchImpl: FetchLike, url: (columns: string) => string, headers: Record<string, string>, columns = LISTING_COLUMNS): Promise<StoreResponse> {
   const first = await fetchImpl(url(columns), { method: "GET", headers, signal: AbortSignal.timeout(5000) });
-  if (first.ok || first.status !== 400) return first;
+  // 400: the ADL columns do not exist yet. 401/403: they exist but this role may not read them.
+  if (first.ok || ![400, 401, 403].includes(first.status)) return first;
   return fetchImpl(url(BASE_COLUMNS), { method: "GET", headers, signal: AbortSignal.timeout(5000) });
 }
 

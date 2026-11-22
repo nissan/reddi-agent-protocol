@@ -271,6 +271,18 @@ describe("listing routes (#740)", () => {
     const fallback = await (await GET()).json();
     expect(fallback.listings[0]).toMatchObject({ wallet: WALLET, adl: null, adlSource: null });
     expect(urls).toHaveLength(2);
+
+    // ADL columns present but not granted to the client role (PostgREST 401, 42501): still listed, without ADL.
+    urls.length = 0;
+    global.fetch = jest.fn(async (url: string) => {
+      urls.push(url);
+      if (url.includes("adl_source")) return { ok: false, status: 401, json: async () => ({ code: "42501" }) };
+      return { ok: true, status: 200, json: async () => [row()] };
+    }) as unknown as typeof fetch;
+    const refused = await GET();
+    expect(refused.status).toBe(200);
+    expect((await refused.json()).listings[0]).toMatchObject({ wallet: WALLET, adlSource: null });
+    expect(urls).toHaveLength(2);
   });
 
   it("serves a listed provider's ADL as YAML, or as JSON with its Level 3 report", async () => {
