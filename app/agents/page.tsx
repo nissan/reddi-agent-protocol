@@ -27,6 +27,7 @@ import {
 } from "@/lib/discovery/source-facets"
 import { onboardingVideos } from "@/lib/onboarding/video-guides"
 import type { SpecialistListing } from "@/lib/registry/bridge"
+import { SANDBOX_DEMO_RATES_NOTE } from "@/lib/sandbox/pricing"
 
 type ClassifiedListing = {
   listing: SpecialistListing
@@ -238,6 +239,15 @@ function AgentsPageContent() {
           <ReputationMeaningNote />
         </div>
 
+        <div className="mb-8 rounded-md border border-line bg-paper-raised px-4 py-3 text-sm text-ink" data-testid="agents-price-note">
+          <p className="mb-1 font-mono text-xs font-bold uppercase tracking-wide text-ink-muted">About the prices</p>
+          <p>
+            Providers set a price per million input and output tokens. Each card shows what a typical call costs and
+            the most a call may cost by default, twice the estimate. You pay only for the tokens used, and the rest of
+            the maximum comes back. {SANDBOX_DEMO_RATES_NOTE}
+          </p>
+        </div>
+
         <div className="mb-4">
           <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">Source</h2>
           <SourceFacetFilter options={sourceOptions} selected={selectedSources} onToggle={toggleSource} />
@@ -288,6 +298,8 @@ function AgentsPageContent() {
                 health={agent.health.status === "pass" ? "online" : agent.health.status === "fail" ? "offline" : "unknown"}
                 freshnessState={agent.health.freshnessState}
                 ratePerCall={Number(agent.onchain.rateLamports)}
+                inputPerMillionUsd={agent.capabilities?.inputPerMillionUsd}
+                outputPerMillionUsd={agent.capabilities?.outputPerMillionUsd}
                 progress={Math.min(100, Number(agent.onchain.jobsCompleted) * 10)}
                 tools={agent.capabilities?.manifest?.tools ?? agent.capabilities?.agent_composition?.tools ?? []}
                 skills={agent.capabilities?.manifest?.skills ?? agent.capabilities?.tags ?? []}
