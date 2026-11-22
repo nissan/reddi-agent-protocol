@@ -105,15 +105,37 @@ A payout fails if the treasury cannot receive it:
 2. Set the Vercel variables in `docs/MAINNET-RPC.md`, and the firewall rate
    limit on `/api/rpc`.
 3. Set `X402_PROTOCOL_FEE_TREASURY` for providers to the vault.
-4. Tell each provider operator to keep its SOL payee wallet rent-exempt, open
+4. Apply the Supabase migrations to the `reddi-agent-protocol` project, in
+   file-name order: `supabase/migrations/20261120000000_v1_core.sql` (#742),
+   then `20261122000000_replay_check_and_store_all.sql` (#904). Do this before
+   any service on that `x402-solana` version takes a real payment: without the
+   second one the replay store fails closed and every payment is refused. Then
+   check in the SQL editor that the function exists and only the service role
+   can run it:
+
+   ```sql
+   select p.oid::regprocedure,
+          has_function_privilege('service_role', p.oid, 'execute') as service_role,
+          has_function_privilege('anon', p.oid, 'execute') as anon,
+          has_function_privilege('authenticated', p.oid, 'execute') as authenticated
+   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'replay_check_and_store_all';
+   ```
+
+   Expect one row, `replay_check_and_store_all(text[])`, with `true`, `false`,
+   `false`. Anything else is a stop.
+5. Tell each provider operator to keep its SOL payee wallet rent-exempt, open
    and not a program account from lock to payout, or SOL payouts to it fail
    (`docs/ESCROW-PAYOUT-SAFETY.md`).
-5. Tell each provider operator how rated escrows behave. A buyer can opt an
+6. Tell each provider operator how rated escrows behave. A buyer can opt an
    escrow in to rating at lock. Providers refuse such an escrow before serving
    unless the operator sets `acceptRatedEscrows`. One that accepts them must
    pass the rating account on every exit of that escrow (settle, claim,
    decline), name the job by the rating's opened slot read with the lock, and has agreed to commit and reveal a rating of the buyer within
    about 7 days each (`docs/RATINGS-AND-ATTESTATIONS.md`).
+7. Tell each provider operator that direct per-call payments in a Token-2022
+   mint that carries a transfer fee are refused, matching the zero-fee posture
+   checked in section 4.
 
 ## 6. Verify (by 3 December)
 
