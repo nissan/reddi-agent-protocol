@@ -18,6 +18,7 @@ import {
   PAYMENT_PROOF_HEADER,
   SolanaReceiptVerifier,
   SOLANA_GENESIS_HASHES,
+  sessionCallAction,
   verifyDemoPaymentReceipt,
   verifySessionRequest,
   SESSION_DELEGATION_HEADER,
@@ -305,6 +306,7 @@ function verifySingleCallAuth(record: Record<string, unknown>, provider: Sandbox
   const s = request?.session ?? {};
   const authorised = verifySessionRequest({
     headers: { get: (name: string) => (name === SESSION_DELEGATION_HEADER ? s.delegation ?? null : name === SESSION_SIGNATURE_HEADER ? s.signature ?? null : null) },
+    genesisHash: SOLANA_GENESIS_HASHES[SANDBOX_NETWORK],
     action: "single",
     escrow,
     payer,
@@ -529,7 +531,7 @@ function sessionRefusal(code: SessionRefusalCode, message: string): SandboxGatew
 type SessionLock = { mode: "simulated" | "metered-escrow"; escrow: string; payer?: string; maxLamports: bigint; nonce: string };
 
 /** The lock a session call presents: a simulated session maximum or a metered escrow on devnet. */
-async function verifySessionLock(header: string, provider: SandboxProvider, origin: string, inputTokens: number, deps: SandboxGatewayDeps, auth: { request: SandboxGatewayRequest; sequence: number }): Promise<{ ok: true; lock: SessionLock } | { ok: false; response: SandboxGatewayResponse }> {
+async function verifySessionLock(header: string, provider: SandboxProvider, origin: string, inputTokens: number, deps: SandboxGatewayDeps, auth: { request: SandboxGatewayRequest; sequence: number; close: boolean }): Promise<{ ok: true; lock: SessionLock } | { ok: false; response: SandboxGatewayResponse }> {
   const parsed = parseX402PaymentHeader(header);
   const refuse = (code: SessionRefusalCode, message: string) => ({ ok: false as const, response: sessionRefusal(code, message) });
   if (!parsed || typeof parsed !== "object") return refuse("session_invalid", "A session is paid by a metered lock: send a JSON x402-payment with settlement \"metered-escrow\".");
@@ -562,7 +564,9 @@ async function verifySessionLock(header: string, provider: SandboxProvider, orig
   const s = auth.request.session ?? {};
   const authorised = verifySessionRequest({
     headers: { get: (name: string) => (name === SESSION_DELEGATION_HEADER ? s.delegation ?? null : name === SESSION_SIGNATURE_HEADER ? s.signature ?? null : null) },
-    action: "call",
+    genesisHash: SOLANA_GENESIS_HASHES[SANDBOX_NETWORK],
+    // Whether the call asks to settle is signed too, so it cannot be added or removed in transit.
+    action: sessionCallAction(auth.close),
     escrow: escrowKey,
     payer: payerKey,
     provider: new PublicKey(provider.payTo),
@@ -621,7 +625,7 @@ async function handleSessionCall(input: {
     previousHash = await hashSandboxReceipt(decoded.receipt);
   }
 
-  const verified = await verifySessionLock(input.header, provider, request.origin, inputTokens, deps, { request, sequence });
+  const verified = await verifySessionLock(input.header, provider, request.origin, inputTokens, deps, { request, sequence, close });
   if (!verified.ok) return verified.response;
   const lock = verified.lock;
   if (previous && (previous.escrow !== lock.escrow || previous.maxAmount !== lock.maxLamports.toString() || previous.payer !== lock.payer)) {

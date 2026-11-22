@@ -21,7 +21,7 @@ import {
 import { handleSandboxChatCompletion, sandboxModelsListing, type SandboxGatewayDeps } from "@/lib/sandbox/gateway";
 import { countTokens, maxChargeLamports, requestInputTokens, SANDBOX_FEE_TREASURY, settleSandboxCall } from "@/lib/sandbox/pricing";
 import { decodeReceiptHeader, isSandboxReceipt, PROVIDER_RECEIPT_HEADER, verifySandboxReceipt } from "@/lib/sandbox/receipt";
-import { createSessionKey, paidCallAuthHeaders, sessionDelegationHeaderValue, type MessageSigner } from "@/lib/payments/session-auth";
+import { createSessionKey, paidCallAuthHeaders, sessionDelegationHeaderValue, SOLANA_GENESIS_HASHES, type MessageSigner } from "@/lib/payments/session-auth";
 import { parseSandboxPayeeKeys, type SandboxSettleInput, type SandboxSettler } from "@/lib/sandbox/settle-signer";
 
 const ORIGIN = "https://sandbox.example";
@@ -107,8 +107,8 @@ function makeDeps(accounts: Accounts, settler: SandboxSettler | undefined): Sand
 /** The payer's delegation to a fresh key and that key's `single` signature over the body (#866). */
 async function singleCallAuth(escrow: string, body: string, signer: MessageSigner = signerFor(payerKeypair)) {
   const sessionKey = await createSessionKey();
-  const delegation = await sessionDelegationHeaderValue({ escrow, provider: swift.payTo, sessionKey: sessionKey.publicKey, expiresAt: Math.floor(NOW_MS / 1000) + 600 }, signer);
-  const headers = await paidCallAuthHeaders({ delegation, sessionKey, escrow, body });
+  const delegation = await sessionDelegationHeaderValue({ genesisHash: SOLANA_GENESIS_HASHES["solana-devnet"], escrow, provider: swift.payTo, sessionKey: sessionKey.publicKey, expiresAt: Math.floor(NOW_MS / 1000) + 600 }, signer);
+  const headers = await paidCallAuthHeaders({ genesisHash: SOLANA_GENESIS_HASHES["solana-devnet"], delegation, sessionKey, escrow, body });
   return { delegation: headers["x402-session-delegation"], signature: headers["x402-session-signature"] };
 }
 

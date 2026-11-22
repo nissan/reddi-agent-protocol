@@ -32,8 +32,10 @@ import {
 import type { SandboxSettleInput, SandboxSettler } from "@/lib/sandbox/settle-signer";
 import { scriptedSandboxAnswer } from "@/lib/sandbox/catalog";
 import { createPrivateKey, sign as edSign } from "crypto";
-import { verifySessionRequest, sessionDelegationHeaderValue as packageDelegation, sessionSignatureHeaderValue as packageSignature } from "@redditech/x402-solana";
-import { createSessionKey, sessionDelegationHeaderValue, sessionSignatureHeaderValue, type MessageSigner } from "@/lib/payments/session-auth";
+import { SOLANA_GENESIS_HASHES, verifySessionRequest, sessionDelegationHeaderValue as packageDelegation, sessionSignatureHeaderValue as packageSignature } from "@redditech/x402-solana";
+
+const GENESIS = SOLANA_GENESIS_HASHES["solana-devnet"];
+import { createSessionKey, sessionCallAction, sessionDelegationHeaderValue, sessionSignatureHeaderValue, SOLANA_GENESIS_HASHES as BROWSER_GENESIS_HASHES, type MessageSigner } from "@/lib/payments/session-auth";
 import { canonicalizeReddiReceiptV2, hashReddiReceiptV2, validateReddiReceiptV2, type ReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
 import { canonicalizeSandboxReceipt } from "@/lib/sandbox/receipt";
 import { networkFeeShare, runSandboxSession, sessionMaxLamports, SESSION_PROMPTS } from "@/lib/sandbox/session-run";
@@ -157,10 +159,10 @@ const signAsPayer: MessageSigner = (message) => {
 
 type SessionAuth = { escrow: string; sessionKey: Awaited<ReturnType<typeof createSessionKey>>; delegation: string; signFor?: (sequence: number, body: string) => Promise<string> };
 
-async function sessionAuth(escrow: string, overrides: Partial<{ provider: string; expiresAt: number; signer: MessageSigner }> = {}): Promise<SessionAuth> {
+async function sessionAuth(escrow: string, overrides: Partial<{ provider: string; expiresAt: number; signer: MessageSigner; genesisHash: string }> = {}): Promise<SessionAuth> {
   const sessionKey = await createSessionKey();
   const delegation = await sessionDelegationHeaderValue(
-    { escrow, provider: overrides.provider ?? swift.payTo, sessionKey: sessionKey.publicKey, expiresAt: overrides.expiresAt ?? Math.floor(NOW_MS / 1000) + 3600 },
+    { genesisHash: overrides.genesisHash ?? GENESIS, escrow, provider: overrides.provider ?? swift.payTo, sessionKey: sessionKey.publicKey, expiresAt: overrides.expiresAt ?? Math.floor(NOW_MS / 1000) + 3600 },
     overrides.signer ?? signAsPayer,
   );
   return { escrow, sessionKey, delegation };
@@ -172,7 +174,7 @@ async function sessionCall(deps: SandboxGatewayDeps, paymentHeader: string, sequ
   const signature = auth
     ? auth.signFor
       ? await auth.signFor(Number(sequence), rawBody)
-      : await sessionSignatureHeaderValue({ action: "call", escrow: auth.escrow, sequence: Number(sequence), body: rawBody }, auth.sessionKey.sign)
+      : await sessionSignatureHeaderValue({ genesisHash: GENESIS, action: sessionCallAction(close), escrow: auth.escrow, sequence: Number(sequence), body: rawBody }, auth.sessionKey.sign)
     : null;
   return handleSandboxChatCompletion(
     {
@@ -347,29 +349,35 @@ describe("sandbox sessions (#863)", () => {
     expect(errorCode(await sessionCall(deps, header, 1, undefined, false, await sessionAuth(escrow, { provider: Keypair.generate().publicKey.toBase58() })))).toBe("session_auth_invalid");
     expect(errorCode(await sessionCall(deps, header, 1, undefined, false, await sessionAuth(escrow, { expiresAt: Math.floor(NOW_MS / 1000) - 1 })))).toBe("session_auth_expired");
     const auth = await sessionAuth(escrow);
-    auth.signFor = (sequence) => sessionSignatureHeaderValue({ action: "call", escrow, sequence, body: "{}" }, auth.sessionKey.sign);
+    auth.signFor = (sequence) => sessionSignatureHeaderValue({ genesisHash: GENESIS, action: "call", escrow, sequence, body: "{}" }, auth.sessionKey.sign);
     expect(errorCode(await sessionCall(deps, header, 1, undefined, false, auth))).toBe("session_auth_invalid");
     // A signature for call 1 does not cover call 2.
     const good = await sessionAuth(escrow);
     const first = await sessionCall(deps, header, 1, undefined, false, good);
     expect(first.status).toBe(200);
-    good.signFor = (_sequence, body) => sessionSignatureHeaderValue({ action: "call", escrow, sequence: 1, body }, good.sessionKey.sign);
+    good.signFor = (_sequence, body) => sessionSignatureHeaderValue({ genesisHash: GENESIS, action: "call", escrow, sequence: 1, body }, good.sessionKey.sign);
     expect(errorCode(await sessionCall(deps, header, 2, callReceipt(first), false, good))).toBe("session_auth_invalid");
+    // A close added in transit to a call signed without one, and a delegation made for another network.
+    good.signFor = (sequence, body) => sessionSignatureHeaderValue({ genesisHash: GENESIS, action: "call", escrow, sequence, body }, good.sessionKey.sign);
+    expect(errorCode(await sessionCall(deps, header, 2, callReceipt(first), true, good))).toBe("session_auth_invalid");
+    expect(errorCode(await sessionCall(deps, header, 2, callReceipt(first), false, await sessionAuth(escrow, { genesisHash: SOLANA_GENESIS_HASHES["solana-mainnet-beta"] })))).toBe("session_auth_invalid");
     expect(calls).toHaveLength(0);
   });
 
   it("buyer helpers sign exactly what the provider kit verifies", async () => {
     const escrow = sandboxEscrowAddress(payer, NONCE);
     const key = await createSessionKey();
-    const d = { escrow: escrow.toBase58(), provider: swift.payTo, sessionKey: key.publicKey, expiresAt: Math.floor(NOW_MS / 1000) + 600 };
+    const d = { genesisHash: GENESIS, escrow: escrow.toBase58(), provider: swift.payTo, sessionKey: key.publicKey, expiresAt: Math.floor(NOW_MS / 1000) + 600 };
     const ours = await sessionDelegationHeaderValue(d, signAsPayer);
     expect(Buffer.from(ours, "base64").toString("utf8")).toBe(Buffer.from(await packageDelegation(d, signAsPayer), "base64").toString("utf8"));
     const body = JSON.stringify({ model: swift.model, messages });
-    const sig = await sessionSignatureHeaderValue({ action: "call", escrow: d.escrow, sequence: 7, body }, key.sign);
+    const sig = await sessionSignatureHeaderValue({ genesisHash: GENESIS, action: "call", escrow: d.escrow, sequence: 7, body }, key.sign);
     // Ed25519 signatures are deterministic, so both builders give the same bytes for the same key.
-    expect(sig).toBe(await packageSignature({ action: "call", escrow: d.escrow, sequence: 7, body }, key.sign));
+    expect(sig).toBe(await packageSignature({ genesisHash: GENESIS, action: "call", escrow: d.escrow, sequence: 7, body }, key.sign));
+    // The browser copy of the genesis hashes is the package's.
+    expect(BROWSER_GENESIS_HASHES).toEqual(SOLANA_GENESIS_HASHES);
     const headers = new Map([["x402-session-delegation", ours], ["x402-session-signature", sig]]);
-    expect(verifySessionRequest({ headers: { get: (n: string) => headers.get(n) ?? null }, action: "call", escrow, payer, provider: new PublicKey(swift.payTo), sequence: 7, body, nowMs: NOW_MS })).toMatchObject({ ok: true, sessionKey: key.publicKey });
+    expect(verifySessionRequest({ headers: { get: (n: string) => headers.get(n) ?? null }, genesisHash: GENESIS, action: "call", escrow, payer, provider: new PublicKey(swift.payTo), sequence: 7, body, nowMs: NOW_MS })).toMatchObject({ ok: true, sessionKey: key.publicKey });
   });
 
   it("does not settle when the settle fails, and says the lock stays refundable", async () => {

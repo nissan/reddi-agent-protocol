@@ -10,6 +10,7 @@ import {
   parseX402PaymentHeader,
   SolanaReceiptVerifier,
   directPaymentProofCheck,
+  SOLANA_GENESIS_HASHES,
   type NonceReplayStore,
   type ReceiptVerificationResult,
   type X402Challenge,
@@ -741,7 +742,7 @@ async function handleMeteredChatCompletion(input: {
   const header = readMeteredPaymentHeader(input.headers);
   if (!header || "error" in header) return refuse(402, "invalid_receipt", header && "error" in header ? header.error : "Unreadable metered payment.");
   // The lock's escrow, payer and nonce are public: only the payer's signature over this request shows who is calling (#866).
-  const auth = verifyPaidCallRequest({ headers: input.headers, escrow: header.escrow, payer: header.payer, provider: terms.payee, body: input.requestText, nowMs: Date.now() });
+  const auth = verifyPaidCallRequest({ headers: input.headers, genesisHash: SOLANA_GENESIS_HASHES[PAYMENT_NETWORK], escrow: header.escrow, payer: header.payer, provider: terms.payee, body: input.requestText, nowMs: Date.now() });
   if (!auth.ok) return refuse(401, auth.reason, auth.message, { charged: false });
   const messages = body.messages ?? [];
   const outputTokens = outputLimit(terms, body.max_tokens);

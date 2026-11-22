@@ -76,6 +76,7 @@ console.log(`Locked: ${lockSignature}`);
 // The lock is public on chain, so the buyer also signs this exact request: only the payer's call is served.
 const buyerKey = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(buyer.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
 const authHeaders = await paidCallAuthHeaders({
+  genesisHash: SOLANA_GENESIS_HASHES["solana-devnet"],
   escrow: tokenEscrowAddresses({ programId, payer: buyer.publicKey, nonce }).escrow.toBase58(),
   provider: payee.toBase58(),
   body,

@@ -49,8 +49,10 @@ import {
   lockMatchesSession,
   readSessionHeaders,
   recordedInstruction,
+  sessionCallAction,
   sessionPaymentHeader,
   sessionSettlement,
+  SOLANA_GENESIS_HASHES,
   tokenCostBaseUnits,
   tokenEscrowAddresses,
   treasuryTokenAccount,
@@ -151,6 +153,8 @@ export type ProviderHandler = ((request: Request) => Promise<Response>) & {
 export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps): ProviderHandler {
   const { terms } = config;
   const log = deps.log ?? (() => undefined);
+  // Payers sign for one network, named by its genesis hash: the one this provider checks its RPC is on.
+  const signingGenesisHash = config.genesisHash ?? SOLANA_GENESIS_HASHES[config.network];
   // The cluster is checked before the first lock is trusted, and again after any failure.
   let clusterConfirmed = false;
   // Buyer token accounts this provider paid to create today (UTC), against the operator's daily bound.
@@ -364,7 +368,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
 
   /** Checks that a paid request (a session request or a single call) is signed by a key the escrow's payer delegated to (security review S-1, #866). */
   function sessionAuth(request: { headers: Headers }, action: SessionAction, escrow: PublicKey, payer: PublicKey, sequence: number, body: string): { ok: true; sessionKey: string } | { ok: false; response: Response } {
-    const auth = verifySessionRequest({ headers: request.headers, action, escrow, payer, provider: terms.payee, sequence, body, nowMs: nowMs() });
+    const auth = verifySessionRequest({ headers: request.headers, genesisHash: signingGenesisHash, action, escrow, payer, provider: terms.payee, sequence, body, nowMs: nowMs() });
     if (auth.ok) return { ok: true, sessionKey: auth.sessionKey };
     return { ok: false, response: refuse(401, auth.reason, auth.message, { charged: false }) };
   }
@@ -379,7 +383,8 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     const ledger = deps.sessions!;
     const escrow = c.header.escrow.toBase58();
     // Before any chain read: the escrow, payer and nonce are public, so only a signature shows the payer is calling.
-    const auth = sessionAuth(c, "call", c.header.escrow, c.header.payer, c.sequence, c.requestText);
+    // A call that asks to close the session is signed as such, so the close cannot be added or removed in transit.
+    const auth = sessionAuth(c, sessionCallAction(c.close), c.header.escrow, c.header.payer, c.sequence, c.requestText);
     if (!auth.ok) return auth.response;
     const mismatch = keyMismatch(escrow, auth.sessionKey);
     if (mismatch) return mismatch;

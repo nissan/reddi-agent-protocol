@@ -13,9 +13,17 @@ export declare const MAX_SESSION_DELEGATION_SECONDS: number;
 export declare const DEFAULT_DELEGATION_SECONDS: number;
 /** Buyer side: the `expiresAt` for a new delegation, `seconds` (default a day) from `nowMs`. */
 export declare function delegationExpiresAt(nowMs?: number, seconds?: number): number;
-/** `call`, `close`, `read`: session requests. `single`: a single metered call, sequence 0. */
-export type SessionAction = 'call' | 'close' | 'read' | 'single';
+/**
+ * `call`: a session call. `call-close`: a session call that also asks the
+ * provider to settle the session after answering it. `close`, `read`: session
+ * requests without a call. `single`: a single metered call, sequence 0.
+ */
+export type SessionAction = 'call' | 'call-close' | 'close' | 'read' | 'single';
+/** The action a session call is signed under: `call-close` when it asks to close the session. */
+export declare function sessionCallAction(close: boolean): SessionAction;
 export interface SessionDelegation {
+    /** The genesis hash of the cluster the escrow is on (`SOLANA_GENESIS_HASHES[network]`). */
+    genesisHash: string;
     escrow: string;
     provider: string;
     sessionKey: string;
@@ -31,8 +39,9 @@ export type SessionAuthFailure = {
 export declare function sessionDelegationMessage(d: SessionDelegation): string;
 /** SHA-256 of a request body, hex. An empty body hashes as zero bytes. */
 export declare function sessionBodyHash(body?: Uint8Array | string): string;
-/** The bytes the session key signs for one request. `sequence` is the call number for `call`, and 0 for `close`, `read` and `single`. */
+/** The bytes the session key signs for one request. `sequence` is the call number for `call` and `call-close`, and 0 for `close`, `read` and `single`. */
 export declare function sessionRequestMessage(input: {
+    genesisHash: string;
     action: SessionAction;
     escrow: string;
     sequence: number;
@@ -43,6 +52,7 @@ export type Signer = (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;
 export declare function sessionDelegationHeaderValue(d: SessionDelegation, signWithPayer: Signer): Promise<string>;
 /** Buyer side: the signature header value for one request, signed by the session key. */
 export declare function sessionSignatureHeaderValue(input: {
+    genesisHash: string;
     action: SessionAction;
     escrow: string;
     sequence: number;
@@ -52,11 +62,13 @@ export declare function sessionSignatureHeaderValue(input: {
  * Provider side: checks that a session request is signed by a key the payer
  * handed this session to. Returns the session key on success. `payer` and
  * `escrow` come from the payment header (the lock check then confirms them on
- * chain); `provider` is this provider's payee wallet; `body` is the raw
+ * chain); `provider` is this provider's payee wallet; `genesisHash` is the
+ * genesis hash of the cluster this provider checked it is on; `body` is the raw
  * request body exactly as received.
  */
 export declare function verifySessionRequest(input: {
     headers: HeaderReader;
+    genesisHash: string;
     action: SessionAction;
     escrow: PublicKey;
     payer: PublicKey;
@@ -76,6 +88,8 @@ export declare function verifySessionRequest(input: {
  * fresh key there and keep it for the call).
  */
 export declare function paidCallAuthHeaders(input: {
+    /** The genesis hash of the cluster the escrow is on. */
+    genesisHash: string;
     escrow: string;
     provider: string;
     body: Uint8Array | string;
