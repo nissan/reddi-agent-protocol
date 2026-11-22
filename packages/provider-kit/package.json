@@ -1,6 +1,6 @@
 {
   "name": "@redditech/provider-kit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Run your own paid, per-token priced provider on Reddi Agent Protocol: one config file, one command, any OpenAI-compatible model.",
   "license": "MIT",
   "type": "module",

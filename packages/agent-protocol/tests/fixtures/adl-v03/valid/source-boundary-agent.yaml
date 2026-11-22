@@ -1,0 +1,119 @@
+apiVersion: reddiagent.dev/v0.3
+kind: Agent
+metadata:
+  name: source-boundary-helper
+  description: Demonstrates canonical ADL v0.3 data source boundaries.
+model:
+  capability: chat
+  providers:
+    preferred: openai
+  requirements:
+    toolCalling: false
+    structuredOutput: true
+harness:
+  instructions:
+    inline: "Use only reviewed data sources and cite approved source references."
+  dataSources:
+    - id: project_document
+      type: file
+      description: Reviewed local project document, formerly described as a document alias.
+      sourceRef: file:specs/ADL-v0.2.md
+      path: specs/ADL-v0.2.md
+      trust: approved
+      citationRequired: true
+      sourceCheck:
+        required: true
+        expectation: approved-source
+        gateRef: approved-source-output
+    - id: public_docs_url
+      type: url
+      description: Reviewed web documentation URL.
+      sourceRef: url:https://docs.reddiagent.dev/adl-v0.2
+      url: https://docs.reddiagent.dev/adl-v0.2
+      trust: approved
+      citationRequired: true
+      sourceCheck:
+        required: true
+        expectation: approved-source
+        gateRef: approved-source-output
+    - id: catalog_api
+      type: api
+      description: Reviewed read-only catalog API boundary.
+      sourceRef: api:catalog
+      api:
+        endpoint: https://api.example.test/catalog
+        method: GET
+      trust: approved
+      citationRequired: true
+      sourceCheck:
+        required: true
+        expectation: approved-source
+        gateRef: approved-source-output
+    - id: readonly_database
+      type: database
+      description: Reviewed read-only warehouse connection metadata.
+      sourceRef: database:warehouse-readonly
+      database:
+        engine: duckdb
+        connectionRef: local-fixture:warehouse-readonly
+        schemaRef: schemas/warehouse.sql
+      trust: approved
+      citationRequired: true
+      sourceCheck:
+        required: true
+        expectation: approved-source
+        gateRef: approved-source-output
+    - id: docs_vector_index
+      type: vector-index
+      description: Reviewed local documentation vector index metadata.
+      sourceRef: vector-index:docs
+      vectorIndex:
+        indexRef: indexes/docs
+        embeddingModel: text-embedding-metadata-only
+      trust: approved
+      citationRequired: true
+      sourceCheck:
+        required: true
+        expectation: approved-source
+        gateRef: approved-source-output
+    - id: docs_mcp_output
+      type: mcp
+      description: MCP-shaped source output inspected without live invocation.
+      sourceRef: mcp:approved-docs-search
+      mcp:
+        serverRef: approved-docs-search
+        toolName: search
+        outputShape: source-citable-output
+      trust: approved
+      citationRequired: true
+      sourceCheck:
+        required: true
+        expectation: approved-source
+        gateRef: approved-source-output
+  evalGates:
+    - id: approved-source-output
+      type: source-check
+      rule: "Every cited source must match the declared source boundary."
+      required: true
+      severity: error
+      appliesTo:
+        scope: source
+      evidence:
+        ref: trace:source.boundary.checked
+        schema:
+          type: object
+          required:
+            - status
+          properties:
+            status:
+              enum:
+                - pass
+                - fail
+      retryable: false
+      onFailure:
+        completion: block
+        defaultStatus: fail
+        visibility: trace-and-receipt
+  runtime:
+    target: local-python
+extensions: {}

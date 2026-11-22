@@ -1,0 +1,18 @@
+apiVersion: reddiagent.dev/v0.3
+kind: Agent
+metadata:
+  name: path-instruction-helper
+  description: References reviewed system instructions by relative path.
+model:
+  capability: chat
+  providers:
+    preferred: anthropic
+  requirements:
+    toolCalling: false
+    structuredOutput: true
+harness:
+  instructions:
+    path: ./prompts/system.md
+  runtime:
+    target: local-python
+extensions: {}

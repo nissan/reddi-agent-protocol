@@ -1,0 +1,336 @@
+apiVersion: reddiagent.dev/v0.2
+kind: Agent
+metadata:
+  name: paid-specialist-researcher
+  description: Flagship payment example. Performs a bounded paid research task on the x402-dry-run
+    rail only, with a full payment authority contract, a policy-engine-enforced spend policy,
+    receipt binding, and reputation signals. Live rails stay unsupported (paymentAccess=false).
+model:
+  capability: chat
+  providers:
+    preferred: openai
+    fallbacks:
+    - anthropic
+  requirements:
+    toolCalling: true
+    structuredOutput: true
+conformance:
+  requestedLevel: 3
+  evidenceRefs:
+  - receipt:pay-specialist
+harness:
+  instructions:
+    inline: Complete the research task within the declared budget, use approved tools only,
+      stop and request operator approval before any spend, and emit receipt metadata for every
+      payment intent.
+  tools:
+  - id: search_reviewed_docs
+    type: function
+    description: Search reviewed project documents for the paid research task.
+    permissions:
+    - tool
+    sideEffects:
+      mode: none
+      mutatesState: false
+      external: false
+    timeout:
+      seconds: 30
+      behavior: fail-closed
+    retryPolicy:
+      maxAttempts: 2
+      backoff: none
+    auditLevel: event
+    policyRefs:
+    - allow-research-tool
+  policies:
+  - id: allow-research-tool
+    capability: tool
+    subject: agent
+    resource: tool:search_reviewed_docs
+    action: invoke
+    effect: allow
+    scope:
+      type: task
+    limits:
+      maxCalls: 5
+    approval:
+      required: false
+      mode: none
+    enforcement:
+      target: runtime-adapter
+      phase: before-execution
+      targetRef: tool:search_reviewed_docs
+  - id: allow-specialist-payment
+    capability: payment
+    subject: agent
+    resource: x402:intent:pay-specialist
+    action: spend
+    effect: allow
+    scope:
+      type: task
+      value: pay-specialist
+    limits:
+      currency: USDC
+      maxAmount: '0.25'
+      requireReceipt: true
+    approval:
+      required: true
+      mode: human
+      threshold: any spend
+      approver: operator
+    enforcement:
+      target: policy-engine
+      phase: before-execution
+      targetRef: x402:intent:pay-specialist
+  - id: require-payment-approval
+    capability: human-approval
+    subject: operator
+    resource: x402:intent:pay-specialist
+    action: approve
+    effect: allow
+    scope:
+      type: task
+    limits:
+      requiredFor:
+      - payment
+    approval:
+      required: true
+      mode: human
+      threshold: any payment intent
+      approver: operator
+    enforcement:
+      target: human-review
+      phase: before-execution
+  evalGates:
+  - id: specialist-receipt-required
+    type: receipt-check
+    rule: A verifiable task receipt must be emitted before completion.
+    required: true
+    severity: critical
+    appliesTo:
+      scope: receipt
+      targetRef: extensions.receipts.refs
+    evidence:
+      ref: receipt:pay-specialist
+      schema:
+        type: object
+        required:
+        - status
+        properties:
+          status:
+            enum:
+            - pass
+            - fail
+    retryable: false
+    onFailure:
+      completion: block
+      defaultStatus: fail
+      visibility: trace-and-receipt
+  - id: specialist-budget-check
+    type: budget-check
+    rule: Total task spend must be less than or equal to 0.25 USDC.
+    required: true
+    severity: critical
+    appliesTo:
+      scope: budget
+      targetRef: x402:intent:pay-specialist
+    evidence:
+      ref: trace:payment.budget.checked
+      schema:
+        type: object
+        required:
+        - status
+        properties:
+          status:
+            enum:
+            - pass
+            - fail
+    retryable: false
+    onFailure:
+      completion: block
+      defaultStatus: fail
+      visibility: trace-and-receipt
+  runtime:
+    target: local-python
+    network:
+      access: none
+      allowlist: []
+      denyByDefault: true
+    storage:
+      mode: ephemeral
+    scheduler:
+      trigger: manual
+    activation:
+      mode: blocked
+    constraints:
+      runtimeVersion: python3.14
+      maxDurationSeconds: 120
+  deployment:
+    target: local
+    environment: local
+    rollback:
+      mode: none
+  observability:
+    events:
+    - name: trace.started
+      type: trace
+      required: true
+      evidenceRef: trace:trace.started
+      scope: task
+    - name: trace.completed
+      type: trace
+      required: true
+      evidenceRef: trace:trace.completed
+      scope: task
+    - name: task.completed
+      type: task
+      required: true
+      evidenceRef: trace:task.completed
+      scope: task
+    - name: task.failed
+      type: task
+      required: true
+      evidenceRef: trace:task.failed
+      scope: task
+    - name: model.called
+      type: model
+      required: true
+      evidenceRef: trace:model.called
+      scope: task
+    - name: policy.checked
+      type: policy
+      required: true
+      evidenceRef: trace:policy.checked
+      scope: task
+    - name: eval.checked
+      type: eval
+      required: true
+      evidenceRef: trace:eval.checked
+      scope: task
+    - name: payment.intent.created
+      type: payment
+      required: true
+      evidenceRef: trace:payment.intent.created
+      scope: task
+      receiptRef: pay-specialist-receipt
+    - name: receipt.emitted
+      type: receipt
+      required: true
+      evidenceRef: receipt:pay-specialist
+      scope: receipt
+      receiptRef: pay-specialist-receipt
+    - name: reputation.signal.emitted
+      type: reputation
+      required: true
+      evidenceRef: trace:reputation.signal.emitted
+      scope: task
+    summaries:
+    - id: payment_run_summary
+      type: run-summary
+      destinationRef: local_trace_file
+      eventRefs:
+      - trace.started
+      - trace.completed
+      - task.completed
+      - task.failed
+      - payment.intent.created
+      - receipt.emitted
+      - reputation.signal.emitted
+      humanReadable: true
+    destinations:
+    - id: local_trace_file
+      type: file
+      mode: local-only
+      ref: file://./traces/payment-agent.jsonl
+      redaction:
+        mode: payload-redacted
+        fields:
+        - prompt
+        - output
+    evidenceRefs:
+    - trace:payment.intent.created
+    - receipt:pay-specialist
+    - trace:reputation.signal.emitted
+    traceRef: trace:paid-specialist-researcher
+    retention:
+      mode: ephemeral
+      purgeOnCompletion: true
+    redaction:
+      mode: payload-redacted
+      fields:
+      - prompt
+      - output
+    receipts:
+      include: true
+      eventRefs:
+      - payment.intent.created
+      - receipt.emitted
+      requiredEvidenceRefs:
+      - receipt:pay-specialist
+    exports:
+      include: true
+      eventRefs:
+      - trace.started
+      - trace.completed
+      - payment.intent.created
+      - receipt.emitted
+      requiredEvidenceRefs:
+      - receipt:pay-specialist
+  recovery:
+    disable:
+      mode: manual
+extensions:
+  x402:
+    enabled: true
+    intents:
+    - id: pay-specialist
+      direction: spend
+      maxAmount: '0.25'
+      currency: USDC
+      rails:
+      - x402-dry-run
+      purpose: Pay a specialist for one bounded dry-run research task.
+      scope:
+        type: task
+        value: pay-specialist
+      authority:
+        principal: user:research-requester
+        spender: agent:paid-specialist-researcher
+        maxAmount: '0.25'
+        currency: USDC
+        rails:
+        - x402-dry-run
+        purpose: Pay a specialist for one bounded dry-run research task.
+        scope:
+          type: task
+          value: pay-specialist
+        expiresAt: '2026-12-31T23:59:59Z'
+        revocation:
+          mode: operator
+          path: ops://payments/pay-specialist/revoke
+        audit:
+          path: trace://payment/pay-specialist
+          evidenceRef: receipt:pay-specialist
+      requireReceipt: true
+      receiptRef: pay-specialist-receipt
+      policyRefs:
+      - allow-specialist-payment
+  receipts:
+    required: true
+    refs:
+    - id: pay-specialist-receipt
+      intentRef: pay-specialist
+      evidenceRef: receipt:pay-specialist
+      policyRefs:
+      - allow-specialist-payment
+  reputation:
+    emitSignals:
+    - taskCompleted
+    - evalPassed
+    - receiptVerified
+    basis:
+    - eval
+    - receipt
+    - policy
+    evidenceRefs:
+    - receipt:pay-specialist

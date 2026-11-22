@@ -9,6 +9,7 @@ import { checkProviderCluster, checkTokenAccount, checkTreasuryReadiness, ESCROW
 import type { ProviderChain } from "./chain.js";
 import type { ProviderConfig } from "./config.js";
 import type { ProviderKeyResult } from "./keys.js";
+import { ADL_PATH, maxPerCall, providerAdlText } from "./adl.js";
 
 export type CheckStatus = "pass" | "warn" | "fail";
 export interface DoctorCheck {
@@ -57,6 +58,13 @@ export async function runDoctor(input: DoctorInput): Promise<{ ok: boolean; chec
   const done = () => ({ ok: checks.every((c) => c.status !== "fail"), checks });
 
   add({ name: "Configuration", status: "pass", detail: `${config.name}: ${config.model}, ${terms.price.inputPerMillion} in / ${terms.price.outputPerMillion} out ${terms.price.currency} per million tokens, at most ${terms.maxOutputTokens} output tokens a call` });
+
+  const adl = providerAdlText(config).report;
+  add(
+    adl.status === "pass"
+      ? { name: "ADL", status: "pass", detail: `ADL v0.3 Level 3, served at ${ADL_PATH}; at most ${maxPerCall(config)} ${terms.price.currency} a call` }
+      : { name: "ADL", status: "fail", detail: `the ADL document does not pass Level 3 (${adl.schemaDiagnostics.length} schema problems)`, fix: "Run rap-provider adl --json to see each problem." },
+  );
 
   if (config.paused) {
     add({ name: "Payments", status: "warn", detail: `paused for ${terms.price.currency}: no new locks are taken`, fix: `Remove ${terms.price.currency} from pausedCurrencies (and RAP_PROVIDER_PAUSED_CURRENCIES) and restart to take payments again.` });

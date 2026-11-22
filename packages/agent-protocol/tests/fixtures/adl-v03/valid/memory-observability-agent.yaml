@@ -1,0 +1,92 @@
+apiVersion: reddiagent.dev/v0.3
+kind: Agent
+metadata:
+  name: memory-observability-agent
+  description: Demonstrates persistent and external memory metadata without live access.
+model:
+  capability: chat
+  providers:
+    preferred: openai
+    fallbacks:
+      - ollama
+  requirements:
+    toolCalling: true
+    structuredOutput: true
+harness:
+  instructions:
+    inline: "Use reviewed memory metadata only; do not read external stores during validation."
+  dataSources:
+    - id: project_notes_index
+      type: vector-index
+      description: Reviewed vector index metadata for project notes.
+      sourceRef: vector-index:project-notes
+      vectorIndex:
+        indexRef: vector://project-notes
+        embeddingModel: text-embedding-reviewed
+        namespace: adl-v02
+      trust: approved
+      citationRequired: true
+      sourceCheck:
+        required: true
+        expectation: approved-source
+        gateRef: approved-memory-citation
+  memory:
+    mode: external
+    retention: "30d"
+    scope: external
+    storageRef: vector://project-notes
+    privacyPolicy: "Store only approved summary facts; redact secrets and personal data."
+  policies:
+    - id: allow-reviewed-memory-read
+      capability: memory
+      subject: agent
+      resource: vector://project-notes
+      action: read
+      effect: allow
+      scope:
+        type: project
+      limits:
+        maxCalls: 3
+      enforcement:
+        target: runtime-adapter
+        phase: before-execution
+    - id: deny-memory-write
+      capability: memory
+      subject: agent
+      resource: vector://project-notes
+      action: write
+      effect: deny
+      scope:
+        type: task
+      enforcement:
+        target: static-validator
+        phase: compatibility
+  evalGates:
+    - id: approved-memory-citation
+      type: source-check
+      rule: "Every memory-derived claim must cite an approved memory source boundary."
+      required: true
+      severity: error
+      appliesTo:
+        scope: output
+      evidence:
+        ref: trace:memory.source_check
+        schema:
+          type: object
+      retryable: false
+      onFailure:
+        completion: block
+        defaultStatus: fail
+  runtime:
+    target: local-python
+    network:
+      access: none
+      allowlist: []
+      denyByDefault: true
+    storage:
+      mode: ephemeral
+    scheduler:
+      trigger: manual
+    activation:
+      mode: blocked
+extensions: {}

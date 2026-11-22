@@ -72,7 +72,8 @@ import {
 } from "@redditech/x402-solana";
 import type { ProviderChain } from "./chain.js";
 import { MemoryPendingSettleStore, type PendingCallSettle, type PendingSettleStore } from "./pending.js";
-import type { ProviderConfig } from "./config.js";
+import { MAX_BODY_BYTES, type ProviderConfig } from "./config.js";
+import { ADL_PATH, providerAdlText } from "./adl.js";
 import type { Upstream, UpstreamMessage } from "./upstream.js";
 
 export const PROVIDER_RECEIPT_HEADER = "x-reddi-provider-receipt";
@@ -81,7 +82,6 @@ export const SESSION_RECEIPT_HEADER = "x-reddi-session-receipt";
 /** On an answer that asked to close the session: settled, declined, or pending (tried again shortly). */
 export const SESSION_STATE_HEADER = "x-reddi-session-state";
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
-const MAX_BODY_BYTES = 1_000_000;
 const MAX_RECEIPT_HEADER_CHARS = 4096;
 /** How long the answer of a call whose settle outcome is not known is held for the buyer to collect. */
 const HELD_ANSWER_MS = 10 * 60_000;
@@ -127,6 +127,7 @@ export function providerMetadata(config: ProviderConfig): Record<string, unknown
   const { terms } = config;
   return {
     protocol: "reddi-agent-protocol",
+    adl: `${config.publicUrl}${ADL_PATH}`,
     name: config.name,
     description: config.description,
     walletAddress: config.wallet,
@@ -153,6 +154,8 @@ export type ProviderHandler = ((request: Request) => Promise<Response>) & {
 
 export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps): ProviderHandler {
   const { terms } = config;
+  // The provider's ADL, made once from the config it runs on.
+  const adlText = providerAdlText(config).text;
   const log = deps.log ?? (() => undefined);
   // Payers sign for one network, named by its genesis hash: the one this provider checks its RPC is on.
   const signingGenesisHash = config.genesisHash ?? SOLANA_GENESIS_HASHES[config.network];
@@ -1044,6 +1047,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     if (request.method === "GET" && url.pathname === "/healthz") return json(200, { ok: true, name: config.name, network: config.network, acceptingPayments: !config.paused });
     if (request.method === "GET" && url.pathname === "/v1/models") return json(200, { object: "list", data: [{ id: config.model, object: "model", owned_by: config.wallet }] });
     if (request.method === "GET" && url.pathname === "/.well-known/reddi-agent.json") return json(200, providerMetadata(config));
+    if (request.method === "GET" && url.pathname === ADL_PATH) return new Response(adlText, { status: 200, headers: { "content-type": "application/yaml; charset=utf-8", "cache-control": "public, max-age=300" } });
     if (request.method === "POST" && url.pathname === "/v1/chat/completions") {
       try {
         return await paidChat(request);

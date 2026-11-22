@@ -1,0 +1,263 @@
+apiVersion: reddiagent.dev/v0.3
+kind: Agent
+metadata:
+  name: tool-contract-helper
+  description: Demonstrates ADL v0.3 tool contract metadata and policy linkage.
+model:
+  capability: chat
+  providers:
+    preferred: openai
+  requirements:
+    toolCalling: true
+    structuredOutput: true
+harness:
+  instructions:
+    inline: "Use safe fixtures directly and require matching policies for risky tools."
+  tools:
+    - id: normalize_topic
+      type: function
+      description: Normalize a local fixture topic without external effects.
+      permissions:
+        - tool
+      sideEffects:
+        mode: none
+        mutatesState: false
+        external: false
+      timeout:
+        seconds: 5
+        behavior: fail-closed
+      retryPolicy:
+        maxAttempts: 0
+        backoff: none
+      auditLevel: metadata
+    - id: fetch_approved_url
+      type: http
+      capability: network
+      resource: https://docs.reddiagent.dev
+      action: fetch
+      description: Fetch an allowlisted documentation URL.
+      permissions:
+        - network
+      sideEffects:
+        mode: network
+        external: true
+        resources:
+          - https://docs.reddiagent.dev
+      timeout:
+        seconds: 10
+        behavior: retry
+      retryPolicy:
+        maxAttempts: 1
+        backoff: fixed
+        retryOn:
+          - timeout
+      auditLevel: payload-redacted
+      policyRefs:
+        - allow-doc-fetch
+    - id: append_report
+      type: native
+      capability: filesystem
+      resource: ./reports/tool-contract.md
+      action: write
+      description: Append a bounded local report artifact.
+      permissions:
+        - filesystem
+        - mutation
+      sideEffects:
+        mode: filesystem
+        mutatesState: true
+        external: false
+        resources:
+          - ./reports/tool-contract.md
+      timeout:
+        seconds: 5
+        behavior: fail-closed
+      retryPolicy:
+        maxAttempts: 0
+        backoff: none
+      auditLevel: event
+      policyRefs:
+        - allow-report-write
+    - id: run_local_check
+      type: native
+      capability: shell
+      resource: command:tests/tool-contract
+      action: execute
+      description: Run a reviewed local shell check.
+      permissions:
+        - shell
+      sideEffects:
+        mode: shell
+        external: false
+      timeout:
+        seconds: 30
+        behavior: fail-closed
+      retryPolicy:
+        maxAttempts: 0
+        backoff: none
+      auditLevel: event
+      policyRefs:
+        - allow-local-shell
+    - id: charge_dry_run
+      type: function
+      capability: payment
+      resource: payment:dry-run-review
+      action: charge
+      description: Prepare a dry-run payment charge receipt.
+      permissions:
+        - payment
+      sideEffects:
+        mode: payment
+        external: true
+      timeout:
+        seconds: 10
+        behavior: fail-closed
+      retryPolicy:
+        maxAttempts: 0
+        backoff: none
+      auditLevel: payload-redacted
+      policyRefs:
+        - allow-payment-dry-run-tool
+    - id: send_operator_note
+      type: http
+      capability: messaging
+      resource: channel:operator-review
+      action: send
+      description: Send one approved operator note.
+      permissions:
+        - messaging
+      sideEffects:
+        mode: messaging
+        external: true
+      timeout:
+        seconds: 10
+        behavior: fail-closed
+      retryPolicy:
+        maxAttempts: 0
+        backoff: none
+      auditLevel: payload-redacted
+      policyRefs:
+        - allow-operator-message
+    - id: list_mcp_fixture
+      type: mcp
+      description: Read fixture MCP catalog metadata without live invocation.
+      permissions:
+        - mcp
+      sideEffects:
+        mode: mcp
+        external: false
+      timeout:
+        seconds: 5
+        behavior: fail-closed
+      retryPolicy:
+        maxAttempts: 0
+        backoff: none
+      auditLevel: metadata
+      policyRefs:
+        - allow-mcp-fixture
+  policies:
+    - id: allow-doc-fetch
+      capability: network
+      subject: agent
+      resource: https://docs.reddiagent.dev
+      action: fetch
+      effect: allow
+      scope:
+        type: resource
+        value: docs.reddiagent.dev
+      enforcement:
+        target: runtime-adapter
+        phase: before-execution
+        targetRef: tool:fetch_approved_url
+    - id: allow-report-write
+      capability: filesystem
+      subject: agent
+      resource: ./reports/tool-contract.md
+      action: write
+      effect: allow
+      scope:
+        type: project
+      enforcement:
+        target: runtime-adapter
+        phase: before-execution
+        targetRef: tool:append_report
+    - id: allow-local-shell
+      capability: shell
+      subject: agent
+      resource: command:tests/tool-contract
+      action: execute
+      effect: allow
+      scope:
+        type: project
+      enforcement:
+        target: runtime-adapter
+        phase: before-execution
+        targetRef: tool:run_local_check
+    - id: allow-payment-dry-run-tool
+      capability: payment
+      subject: agent
+      resource: payment:dry-run-review
+      action: charge
+      effect: allow
+      scope:
+        type: task
+      limits:
+        requireReceipt: true
+      enforcement:
+        target: policy-engine
+        phase: before-execution
+        targetRef: tool:charge_dry_run
+    - id: allow-operator-message
+      capability: messaging
+      subject: agent
+      resource: channel:operator-review
+      action: send
+      effect: allow
+      scope:
+        type: task
+      limits:
+        maxMessages: 1
+      enforcement:
+        target: runtime-adapter
+        phase: before-execution
+        targetRef: tool:send_operator_note
+    - id: allow-mcp-fixture
+      capability: tool
+      subject: agent
+      resource: tool:list_mcp_fixture
+      action: invoke
+      effect: allow
+      scope:
+        type: project
+      enforcement:
+        target: static-validator
+        phase: compatibility
+        targetRef: tool:list_mcp_fixture
+  evalGates:
+    - id: tool-contract-check
+      type: tool-check
+      rule: "Risky tool metadata must carry explicit policy references."
+      required: true
+      severity: critical
+      appliesTo:
+        scope: tool
+        targetRef: harness.tools
+      evidence:
+        ref: trace:tool.contract.checked
+        schema:
+          type: object
+          required:
+            - status
+          properties:
+            status:
+              enum:
+                - pass
+                - fail
+      retryable: false
+      onFailure:
+        completion: block
+        defaultStatus: fail
+        visibility: trace-and-receipt
+  runtime:
+    target: local-python
+extensions: {}

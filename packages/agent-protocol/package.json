@@ -1,6 +1,6 @@
 {
   "name": "@redditech/agent-protocol",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Open RAP Assurance primitives for paid agent work: receipts, policy decisions, fixtures, and local conformance helpers.",
   "type": "module",
   "main": "dist/index.js",
@@ -98,6 +98,10 @@
       "types": "./dist/browser-wallet-approval.d.ts",
       "import": "./dist/browser-wallet-approval.js"
     },
+    "./adl": {
+      "types": "./dist/adl.d.ts",
+      "import": "./dist/adl.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -129,5 +133,9 @@
   "publishConfig": {
     "access": "public"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "yaml": "^2.9.1"
+  }
 }

@@ -1,0 +1,354 @@
+apiVersion: reddiagent.dev/v0.3
+kind: Agent
+metadata:
+  name: delegated-research-specialist
+  description: Paid-delegation SERVICE example (seller side). Other agents discover this specialist
+    and pay it to perform one bounded, source-backed research task. The single x402 intent
+    uses direction=charge on the Solana rail in dry-run mode only, with a full charge authority
+    contract, a policy-engine-enforced charge policy, receipt binding, and reputation signals.
+    Live rails stay unsupported (paymentAccess=false).
+model:
+  capability: chat
+  providers:
+    preferred: openai
+    fallbacks:
+    - anthropic
+  requirements:
+    toolCalling: true
+    structuredOutput: true
+conformance:
+  requestedLevel: 3
+  evidenceRefs:
+  - receipt:charge-research-task
+harness:
+  instructions:
+    inline: 'Deliver one bounded research task to the paying delegating agent: open several
+      independent angles, prefer primary sources over commentary, and return findings with
+      citations and an explicit confidence level for each claim. Report what the data shows,
+      not what would be convenient; "insufficient data" is a valid, billable answer when stated
+      honestly. Charge at most the declared fee on the Solana rail in dry-run mode, only after
+      operator approval, and emit receipt metadata for every charge.'
+  tools:
+  - id: search_reviewed_docs
+    type: function
+    description: Search reviewed project documents for the delegated research task.
+    permissions:
+    - tool
+    sideEffects:
+      mode: none
+      mutatesState: false
+      external: false
+    timeout:
+      seconds: 30
+      behavior: fail-closed
+    retryPolicy:
+      maxAttempts: 2
+      backoff: none
+    auditLevel: event
+    policyRefs:
+    - allow-research-tool
+  policies:
+  - id: allow-research-tool
+    capability: tool
+    subject: agent
+    resource: tool:search_reviewed_docs
+    action: invoke
+    effect: allow
+    scope:
+      type: task
+    limits:
+      maxCalls: 5
+    approval:
+      required: false
+      mode: none
+    enforcement:
+      target: runtime-adapter
+      phase: before-execution
+      targetRef: tool:search_reviewed_docs
+  - id: allow-research-charge
+    capability: payment
+    subject: agent
+    resource: x402:intent:charge-research-task
+    action: charge
+    effect: allow
+    scope:
+      type: task
+      value: charge-research-task
+    limits:
+      asset: USDC
+      maxAmount: '0.25'
+      requireReceipt: true
+    approval:
+      required: true
+      mode: human
+      threshold: any charge
+      approver: operator
+    enforcement:
+      target: policy-engine
+      phase: before-execution
+      targetRef: x402:intent:charge-research-task
+  - id: require-charge-approval
+    capability: human-approval
+    subject: operator
+    resource: x402:intent:charge-research-task
+    action: approve
+    effect: allow
+    scope:
+      type: task
+    limits:
+      requiredFor:
+      - payment
+    approval:
+      required: true
+      mode: human
+      threshold: any charge intent
+      approver: operator
+    enforcement:
+      target: human-review
+      phase: before-execution
+  evalGates:
+  - id: research-charge-receipt-required
+    type: receipt-check
+    rule: A verifiable charge receipt must be emitted before completion.
+    required: true
+    severity: critical
+    appliesTo:
+      scope: receipt
+      targetRef: extensions.receipts.refs
+    evidence:
+      ref: receipt:charge-research-task
+      schema:
+        type: object
+        required:
+        - status
+        properties:
+          status:
+            enum:
+            - pass
+            - fail
+    retryable: false
+    onFailure:
+      completion: block
+      defaultStatus: fail
+      visibility: trace-and-receipt
+  - id: research-charge-budget-check
+    type: budget-check
+    rule: Total task charge must be less than or equal to 0.25 USDC.
+    required: true
+    severity: critical
+    appliesTo:
+      scope: budget
+      targetRef: x402:intent:charge-research-task
+    evidence:
+      ref: trace:payment.budget.checked
+      schema:
+        type: object
+        required:
+        - status
+        properties:
+          status:
+            enum:
+            - pass
+            - fail
+    retryable: false
+    onFailure:
+      completion: block
+      defaultStatus: fail
+      visibility: trace-and-receipt
+  runtime:
+    target: local-python
+    network:
+      access: none
+      allowlist: []
+      denyByDefault: true
+    storage:
+      mode: ephemeral
+    scheduler:
+      trigger: manual
+    activation:
+      mode: blocked
+    constraints:
+      runtimeVersion: python3.14
+      maxDurationSeconds: 120
+  deployment:
+    target: local
+    environment: local
+    rollback:
+      mode: none
+  observability:
+    events:
+    - name: trace.started
+      type: trace
+      required: true
+      evidenceRef: trace:trace.started
+      scope: task
+    - name: trace.completed
+      type: trace
+      required: true
+      evidenceRef: trace:trace.completed
+      scope: task
+    - name: task.completed
+      type: task
+      required: true
+      evidenceRef: trace:task.completed
+      scope: task
+    - name: task.failed
+      type: task
+      required: true
+      evidenceRef: trace:task.failed
+      scope: task
+    - name: model.called
+      type: model
+      required: true
+      evidenceRef: trace:model.called
+      scope: task
+    - name: policy.checked
+      type: policy
+      required: true
+      evidenceRef: trace:policy.checked
+      scope: task
+    - name: eval.checked
+      type: eval
+      required: true
+      evidenceRef: trace:eval.checked
+      scope: task
+    - name: payment.intent.created
+      type: payment
+      required: true
+      evidenceRef: trace:payment.intent.created
+      scope: task
+      receiptRef: charge-research-task-receipt
+    - name: receipt.emitted
+      type: receipt
+      required: true
+      evidenceRef: receipt:charge-research-task
+      scope: receipt
+      receiptRef: charge-research-task-receipt
+    - name: reputation.signal.emitted
+      type: reputation
+      required: true
+      evidenceRef: trace:reputation.signal.emitted
+      scope: task
+    summaries:
+    - id: delegation_charge_run_summary
+      type: run-summary
+      destinationRef: local_trace_file
+      eventRefs:
+      - trace.started
+      - trace.completed
+      - task.completed
+      - task.failed
+      - payment.intent.created
+      - receipt.emitted
+      - reputation.signal.emitted
+      humanReadable: true
+    destinations:
+    - id: local_trace_file
+      type: file
+      mode: local-only
+      ref: file://./traces/delegation-research-agent.jsonl
+      redaction:
+        mode: payload-redacted
+        fields:
+        - prompt
+        - output
+    evidenceRefs:
+    - trace:payment.intent.created
+    - receipt:charge-research-task
+    - trace:reputation.signal.emitted
+    traceRef: trace:delegated-research-specialist
+    retention:
+      mode: ephemeral
+      purgeOnCompletion: true
+    redaction:
+      mode: payload-redacted
+      fields:
+      - prompt
+      - output
+    receipts:
+      include: true
+      eventRefs:
+      - payment.intent.created
+      - receipt.emitted
+      requiredEvidenceRefs:
+      - receipt:charge-research-task
+    exports:
+      include: true
+      eventRefs:
+      - trace.started
+      - trace.completed
+      - payment.intent.created
+      - receipt.emitted
+      requiredEvidenceRefs:
+      - receipt:charge-research-task
+  recovery:
+    disable:
+      mode: manual
+extensions:
+  x402:
+    enabled: true
+    mode: dry-run
+    intents:
+    - id: charge-research-task
+      direction: charge
+      asset:
+        symbol: USDC
+        network: solana-devnet
+        mint: 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+      rail: solana
+      maxAmount: '0.25'
+      purpose: Charge a delegating client agent for one bounded dry-run research task with
+        cited, confidence-graded findings.
+      scope:
+        type: task
+        value: charge-research-task
+      authority:
+        principal: user:service-operator
+        spender: agent:delegating-client
+        maxAmount: '0.25'
+        asset:
+          symbol: USDC
+          network: solana-devnet
+          mint: 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+        rail: solana
+        purpose: Charge a delegating client agent for one bounded dry-run research task with
+          cited, confidence-graded findings.
+        scope:
+          type: task
+          value: charge-research-task
+        expiresAt: '2026-12-31T23:59:59Z'
+        revocation:
+          mode: operator
+          path: ops://payments/charge-research-task/revoke
+        audit:
+          path: trace://payment/charge-research-task
+          evidenceRef: receipt:charge-research-task
+      requireReceipt: true
+      receiptRef: charge-research-task-receipt
+      policyRefs:
+      - allow-research-charge
+      price:
+        amount: '0.25'
+        per: call
+      payTo: '11111111111111111111111111111111'
+      settlement: direct
+  receipts:
+    required: true
+    refs:
+    - id: charge-research-task-receipt
+      intentRef: charge-research-task
+      format: reddi.receipt.v2
+      evidenceRef: receipt:charge-research-task
+      policyRefs:
+      - allow-research-charge
+  reputation:
+    emitSignals:
+    - taskCompleted
+    - evalPassed
+    - receiptVerified
+    basis:
+    - eval
+    - receipt
+    - policy
+    evidenceRefs:
+    - receipt:charge-research-task

@@ -1,0 +1,674 @@
+{
+  "labCommit": "8559a2c",
+  "schemaSha256": "07ef5112a2efeb7db746897fab209e91de18d78a31ed8756f534a64ac21df9e0",
+  "reports": {
+    "invalid/adl-v0.3-charge-missing-pay-to.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": -1,
+      "schemaValid": false,
+      "missingFieldsByLevel": {},
+      "forbiddenCapabilitiesByLevel": {}
+    },
+    "invalid/adl-v0.3-charge-missing-price.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": -1,
+      "schemaValid": false,
+      "missingFieldsByLevel": {},
+      "forbiddenCapabilitiesByLevel": {}
+    },
+    "invalid/adl-v0.3-dry-run-as-rail.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": -1,
+      "schemaValid": false,
+      "missingFieldsByLevel": {},
+      "forbiddenCapabilitiesByLevel": {}
+    },
+    "invalid/adl-v0.3-legacy-currency-field.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": -1,
+      "schemaValid": false,
+      "missingFieldsByLevel": {},
+      "forbiddenCapabilitiesByLevel": {}
+    },
+    "invalid/adl-v0.3-live-charge-missing-protocol-fee.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": 2,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": [],
+        "1": [],
+        "2": [],
+        "3": [
+          "extensions.x402.protocolFee is required for a live charge"
+        ]
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "1": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "2": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "3": []
+      }
+    },
+    "invalid/adl-v0.3-live-unsupported-rail.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": 2,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": [],
+        "1": [],
+        "2": [],
+        "3": [
+          "extensions.x402.protocolFee.bps must be 500",
+          "extensions.x402.intents[charge-pricing-report].rail=stripe is an unsupported live payment rail"
+        ]
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "1": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "2": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "3": []
+      }
+    },
+    "invalid/adl-v0.3-mainnet-mint-not-allowlisted.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": 2,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": [],
+        "1": [],
+        "2": [],
+        "3": [
+          "extensions.x402.protocolFee.bps must be 500",
+          "extensions.x402.intents[charge-pricing-report].asset.mint is not the allowlisted AUDD mint on solana-mainnet-beta",
+          "extensions.x402.intents[charge-pricing-report].authority.asset.mint is not the allowlisted AUDD mint on solana-mainnet-beta"
+        ]
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "1": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "2": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "3": []
+      }
+    },
+    "invalid/adl-v0.3-metered-escrow-per-call-price.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": 2,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": [],
+        "1": [],
+        "2": [],
+        "3": [
+          "extensions.x402.protocolFee.bps must be 500",
+          "extensions.x402.intents[charge-pricing-report].settlement=metered-escrow needs a per-token price"
+        ]
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "1": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "2": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "3": []
+      }
+    },
+    "invalid/adl-v0.3-missing-payment-mode.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": -1,
+      "schemaValid": false,
+      "missingFieldsByLevel": {},
+      "forbiddenCapabilitiesByLevel": {}
+    },
+    "invalid/adl-v0.3-per-token-direct-settlement.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": 2,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": [],
+        "1": [],
+        "2": [],
+        "3": [
+          "extensions.x402.protocolFee.bps must be 500",
+          "extensions.x402.intents[charge-pricing-report].settlement must be metered-escrow for a per-token price"
+        ]
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "1": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "2": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "3": []
+      }
+    },
+    "invalid/adl-v0.3-per-token-missing-max-per-call.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": -1,
+      "schemaValid": false,
+      "missingFieldsByLevel": {},
+      "forbiddenCapabilitiesByLevel": {}
+    },
+    "invalid/adl-v0.3-receipt-missing-format.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": -1,
+      "schemaValid": false,
+      "missingFieldsByLevel": {},
+      "forbiddenCapabilitiesByLevel": {}
+    },
+    "invalid/adl-v0.3-receipt-v1-format.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": -1,
+      "schemaValid": false,
+      "missingFieldsByLevel": {},
+      "forbiddenCapabilitiesByLevel": {}
+    },
+    "invalid/adl-v0.3-sol-asset-with-mint.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": -1,
+      "schemaValid": false,
+      "missingFieldsByLevel": {},
+      "forbiddenCapabilitiesByLevel": {}
+    },
+    "invalid/adl-v0.3-token-asset-missing-mint.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": -1,
+      "schemaValid": false,
+      "missingFieldsByLevel": {},
+      "forbiddenCapabilitiesByLevel": {}
+    },
+    "invalid/adl-v0.3-unknown-asset-symbol.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": -1,
+      "schemaValid": false,
+      "missingFieldsByLevel": {},
+      "forbiddenCapabilitiesByLevel": {}
+    },
+    "invalid/adl-v0.3-unknown-network.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": -1,
+      "schemaValid": false,
+      "missingFieldsByLevel": {},
+      "forbiddenCapabilitiesByLevel": {}
+    },
+    "invalid/adl-v0.3-v0.2-document.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": -1,
+      "schemaValid": false,
+      "missingFieldsByLevel": {},
+      "forbiddenCapabilitiesByLevel": {}
+    },
+    "invalid/adl-v0.3-wrong-protocol-fee-cap.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": 2,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": [],
+        "1": [],
+        "2": [],
+        "3": [
+          "extensions.x402.protocolFee.cap must be 0.1 SOL"
+        ]
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "1": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "2": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "3": []
+      }
+    },
+    "invalid/adl-v0.3-wrong-protocol-fee.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": 2,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": [],
+        "1": [],
+        "2": [],
+        "3": [
+          "extensions.x402.protocolFee.bps must be 500"
+        ]
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "1": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "2": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "3": []
+      }
+    },
+    "invalid/adl-v0.3-wrong-protocol-launch-rate.yaml": {
+      "status": "fail",
+      "requestedLevel": 3,
+      "achievedLevel": 2,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": [],
+        "1": [],
+        "2": [],
+        "3": [
+          "extensions.x402.protocolFee.launchRate must be 250 bps ending 2027-04-01T00:00:00Z"
+        ]
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "1": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "2": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "3": []
+      }
+    },
+    "valid/adapter-loss-export-agent.yaml": {
+      "status": "fail",
+      "requestedLevel": 0,
+      "achievedLevel": 0,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": []
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "production deployment descriptor requires Level 4"
+        ]
+      }
+    },
+    "valid/delegation-pricing-agent.yaml": {
+      "status": "pass",
+      "requestedLevel": 3,
+      "achievedLevel": 3,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": [],
+        "1": [],
+        "2": [],
+        "3": []
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "1": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "2": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "3": []
+      }
+    },
+    "valid/delegation-research-agent.yaml": {
+      "status": "pass",
+      "requestedLevel": 3,
+      "achievedLevel": 3,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": [],
+        "1": [],
+        "2": [],
+        "3": []
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "1": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "2": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "3": []
+      }
+    },
+    "valid/delegation-review-agent.yaml": {
+      "status": "pass",
+      "requestedLevel": 3,
+      "achievedLevel": 3,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": [],
+        "1": [],
+        "2": [],
+        "3": []
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "1": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "2": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "3": []
+      }
+    },
+    "valid/live-solana-per-token-provider-agent.yaml": {
+      "status": "pass",
+      "requestedLevel": 3,
+      "achievedLevel": 3,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": [],
+        "1": [],
+        "2": [],
+        "3": []
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "1": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "2": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "3": []
+      }
+    },
+    "valid/live-solana-provider-agent.yaml": {
+      "status": "pass",
+      "requestedLevel": 3,
+      "achievedLevel": 3,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": [],
+        "1": [],
+        "2": [],
+        "3": []
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "1": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "2": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "3": []
+      }
+    },
+    "valid/memory-observability-agent.yaml": {
+      "status": "pass",
+      "requestedLevel": 0,
+      "achievedLevel": 0,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": []
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": []
+      }
+    },
+    "valid/path-agent.yaml": {
+      "status": "pass",
+      "requestedLevel": 0,
+      "achievedLevel": 0,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": []
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": []
+      }
+    },
+    "valid/payment-agent.yaml": {
+      "status": "pass",
+      "requestedLevel": 3,
+      "achievedLevel": 3,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": [],
+        "1": [],
+        "2": [],
+        "3": []
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "1": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "2": [
+          "payment/reputation extension requires Level 3 or higher"
+        ],
+        "3": []
+      }
+    },
+    "valid/permission-policy-agent.yaml": {
+      "status": "fail",
+      "requestedLevel": 0,
+      "achievedLevel": 0,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": []
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "payment/reputation extension requires Level 3 or higher"
+        ]
+      }
+    },
+    "valid/provider-capability-agent.yaml": {
+      "status": "pass",
+      "requestedLevel": 0,
+      "achievedLevel": 0,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": []
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": []
+      }
+    },
+    "valid/runtime-hosted-container-agent.yaml": {
+      "status": "pass",
+      "requestedLevel": 4,
+      "achievedLevel": 4,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": [],
+        "1": [],
+        "2": [],
+        "3": [],
+        "4": []
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "payment/reputation extension requires Level 3 or higher",
+          "production deployment descriptor requires Level 4"
+        ],
+        "1": [
+          "payment/reputation extension requires Level 3 or higher",
+          "production deployment descriptor requires Level 4"
+        ],
+        "2": [
+          "payment/reputation extension requires Level 3 or higher",
+          "production deployment descriptor requires Level 4"
+        ],
+        "3": [
+          "production deployment descriptor requires Level 4"
+        ],
+        "4": []
+      }
+    },
+    "valid/runtime-local-python-agent.yaml": {
+      "status": "pass",
+      "requestedLevel": 1,
+      "achievedLevel": 1,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": [],
+        "1": []
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [],
+        "1": []
+      }
+    },
+    "valid/runtime-platform-native-agent.yaml": {
+      "status": "pass",
+      "requestedLevel": 4,
+      "achievedLevel": 4,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": [],
+        "1": [],
+        "2": [],
+        "3": [],
+        "4": []
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "payment/reputation extension requires Level 3 or higher",
+          "production deployment descriptor requires Level 4"
+        ],
+        "1": [
+          "payment/reputation extension requires Level 3 or higher",
+          "production deployment descriptor requires Level 4"
+        ],
+        "2": [
+          "payment/reputation extension requires Level 3 or higher",
+          "production deployment descriptor requires Level 4"
+        ],
+        "3": [
+          "production deployment descriptor requires Level 4"
+        ],
+        "4": []
+      }
+    },
+    "valid/runtime-serverless-platform-agent.yaml": {
+      "status": "pass",
+      "requestedLevel": 4,
+      "achievedLevel": 4,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": [],
+        "1": [],
+        "2": [],
+        "3": [],
+        "4": []
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": [
+          "payment/reputation extension requires Level 3 or higher",
+          "production deployment descriptor requires Level 4"
+        ],
+        "1": [
+          "payment/reputation extension requires Level 3 or higher",
+          "production deployment descriptor requires Level 4"
+        ],
+        "2": [
+          "payment/reputation extension requires Level 3 or higher",
+          "production deployment descriptor requires Level 4"
+        ],
+        "3": [
+          "production deployment descriptor requires Level 4"
+        ],
+        "4": []
+      }
+    },
+    "valid/simple-agent.yaml": {
+      "status": "pass",
+      "requestedLevel": 0,
+      "achievedLevel": 0,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": []
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": []
+      }
+    },
+    "valid/source-boundary-agent.yaml": {
+      "status": "pass",
+      "requestedLevel": 0,
+      "achievedLevel": 0,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": []
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": []
+      }
+    },
+    "valid/tool-contract-agent.yaml": {
+      "status": "pass",
+      "requestedLevel": 0,
+      "achievedLevel": 0,
+      "schemaValid": true,
+      "missingFieldsByLevel": {
+        "0": []
+      },
+      "forbiddenCapabilitiesByLevel": {
+        "0": []
+      }
+    }
+  }
+}

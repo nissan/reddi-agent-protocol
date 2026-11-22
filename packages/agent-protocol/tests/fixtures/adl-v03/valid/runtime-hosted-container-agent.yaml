@@ -1,0 +1,265 @@
+apiVersion: reddiagent.dev/v0.3
+kind: Agent
+metadata:
+  name: runtime-hosted-container-agent
+  description: Hosted-container descriptor for static compatibility review only.
+model:
+  capability: chat
+  providers:
+    preferred: openai
+  requirements:
+    toolCalling: true
+    structuredOutput: true
+conformance:
+  requestedLevel: 4
+harness:
+  instructions:
+    inline: Produce a deployment readiness summary without starting services.
+  policies:
+  - id: hosted-runtime-review
+    capability: runtime
+    subject: operator
+    resource: hosted-container
+    action: review
+    effect: allow
+    scope:
+      type: project
+    enforcement:
+      target: human-review
+      phase: compatibility
+  - id: allow-readiness-fee
+    capability: payment
+    subject: agent
+    resource: x402:intent:readiness-fee
+    action: charge
+    effect: allow
+    scope:
+      type: task
+      value: readiness-fee
+    limits:
+      asset: USDC
+      maxAmount: '0.01'
+      requireReceipt: true
+    enforcement:
+      target: policy-engine
+      phase: before-execution
+      targetRef: x402:intent:readiness-fee
+  evalGates:
+  - id: deployment-readiness
+    type: human-review
+    rule: Deployment readiness evidence must be reviewed.
+    required: true
+    severity: critical
+    appliesTo:
+      scope: task
+    evidence:
+      ref: trace:deployment.readiness
+      schema:
+        type: object
+    retryable: false
+    onFailure:
+      completion: block
+      defaultStatus: fail
+  runtime:
+    target: hosted-container
+    network:
+      access: egress
+      allowlist:
+      - https://api.example.test
+      denyByDefault: true
+    secretRefs:
+    - name: EXAMPLE_API_KEY
+      provider: vault
+      ref: vault://example/api-key
+      scope: runtime
+      required: true
+    storage:
+      mode: persistent
+      refs:
+      - volume://agent-cache
+      retention: 7d
+    scheduler:
+      trigger: manual
+    activation:
+      mode: approval-required
+    constraints:
+      image: ghcr.io/reddiagent/example-agent:sha256-demo
+      region: syd1
+      maxDurationSeconds: 300
+  deployment:
+    target: container
+    environment: preview
+    networkPolicy:
+      access: egress
+      allowlist:
+      - https://api.example.test
+      denyByDefault: true
+    rollback:
+      mode: previous-version
+      ref: deployment:previous
+      requiresApproval: true
+    healthCheck:
+      type: trace-event
+      ref: trace:deployment.health.checked
+  observability:
+    events:
+    - name: trace.started
+      type: trace
+      required: true
+      evidenceRef: trace:trace.started
+      scope: deployment
+    - name: trace.completed
+      type: trace
+      required: true
+      evidenceRef: trace:trace.completed
+      scope: deployment
+    - name: task.completed
+      type: task
+      required: true
+      evidenceRef: trace:task.completed
+      scope: task
+    - name: task.failed
+      type: task
+      required: true
+      evidenceRef: trace:task.failed
+      scope: task
+    - name: model.called
+      type: model
+      required: true
+      evidenceRef: trace:model.called
+      scope: task
+    - name: policy.checked
+      type: policy
+      required: true
+      evidenceRef: trace:policy.checked
+      scope: task
+    - name: eval.checked
+      type: eval
+      required: true
+      evidenceRef: trace:eval.checked
+      scope: task
+    - name: payment.intent.created
+      type: payment
+      required: true
+      evidenceRef: trace:payment.intent.created
+      scope: receipt
+    - name: receipt.emitted
+      type: receipt
+      required: true
+      evidenceRef: receipt:readiness-fee
+      scope: receipt
+    - name: reputation.signal.emitted
+      type: reputation
+      required: true
+      evidenceRef: trace:reputation.signal.emitted
+      scope: receipt
+    - name: deployment.health.checked
+      type: deployment
+      required: true
+      evidenceRef: trace:deployment.health.checked
+      scope: deployment
+    - name: adapter.loss.reported
+      type: adapter
+      required: true
+      evidenceRef: export:adapter-loss
+      scope: export
+    summaries:
+    - id: deployment_readiness_summary
+      type: deployment-readiness-summary
+      destinationRef: preview_trace
+      eventRefs:
+      - trace.started
+      - deployment.health.checked
+      - adapter.loss.reported
+      humanReadable: true
+    - id: adapter_loss_summary
+      type: adapter-loss-summary
+      destinationRef: preview_trace
+      eventRefs:
+      - adapter.loss.reported
+      humanReadable: true
+    destinations:
+    - id: preview_trace
+      type: openclaw-trace
+      mode: adapter-managed
+      ref: trace://runtime-preview
+      redaction:
+        mode: payload-redacted
+        fields:
+        - prompt
+        - secretRefs
+    evidenceRefs:
+    - trace:trace.started
+    - trace:deployment.health.checked
+    - export:adapter-loss
+    - receipt:readiness-fee
+    traceRef: trace:runtime-hosted-container-agent
+    retention:
+      mode: time-bound
+      maxAge: 7d
+      storageRef: trace://runtime-preview
+      purgeOnCompletion: false
+    redaction:
+      mode: payload-redacted
+      fields:
+      - prompt
+      - secretRefs
+    receipts:
+      include: true
+      eventRefs:
+      - payment.intent.created
+      - receipt.emitted
+      - reputation.signal.emitted
+      requiredEvidenceRefs:
+      - receipt:readiness-fee
+    exports:
+      include: true
+      eventRefs:
+      - adapter.loss.reported
+      - deployment.health.checked
+      requiredEvidenceRefs:
+      - export:adapter-loss
+  recovery:
+    disable:
+      mode: operator-reviewed
+      ref: runbook://disable-preview
+      requiresApproval: true
+extensions:
+  x402:
+    enabled: true
+    mode: dry-run
+    intents:
+    - id: readiness-fee
+      direction: charge
+      asset:
+        symbol: USDC
+        network: solana-devnet
+        mint: 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+      rail: solana
+      requireReceipt: true
+      policyRefs:
+      - hosted-runtime-review
+      - allow-readiness-fee
+      price:
+        amount: '0.01'
+        per: call
+      payTo: '11111111111111111111111111111111'
+      settlement: direct
+      receiptRef: readiness-fee-receipt
+  receipts:
+    required: true
+    refs:
+    - id: readiness-fee-receipt
+      intentRef: readiness-fee
+      format: reddi.receipt.v2
+      evidenceRef: receipt:readiness-fee
+      policyRefs:
+      - hosted-runtime-review
+  reputation:
+    emitSignals:
+    - policyCompliant
+    basis:
+    - receipt
+    - policy
+    evidenceRefs:
+    - receipt:readiness-fee

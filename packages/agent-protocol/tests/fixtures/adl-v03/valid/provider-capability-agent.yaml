@@ -1,0 +1,64 @@
+apiVersion: reddiagent.dev/v0.3
+kind: Agent
+metadata:
+  name: provider-capability-checker
+  description: Exercises deterministic provider fallback and model capability diagnostics.
+model:
+  capability: chat
+  providers:
+    preferred: anthropic
+    fallbacks:
+      - openai
+      - ollama
+  requirements:
+    toolCalling: true
+    structuredOutput: true
+    streaming: true
+    jsonMode: true
+    contextWindow: 64000
+    maxOutputTokens: 12000
+    modalities:
+      - text
+      - audio
+harness:
+  instructions:
+    inline: "Report provider compatibility only; do not call providers or probe local endpoints."
+  policies:
+    - id: provider-report-only
+      capability: runtime
+      subject: agent
+      resource: provider-compatibility-report
+      action: inspect
+      effect: allow
+      scope:
+        type: task
+      enforcement:
+        target: static-validator
+        phase: compatibility
+  evalGates:
+    - id: provider-capability-diagnostics
+      type: output-check
+      rule: "Report supported, unsupported, degraded, and loss metadata for model requirements."
+      required: true
+      severity: error
+      appliesTo:
+        scope: output
+      evidence:
+        ref: trace:provider.capability_diagnostics
+        schema:
+          type: object
+          required:
+            - status
+          properties:
+            status:
+              enum:
+                - pass
+                - fail
+      retryable: false
+      onFailure:
+        completion: block
+        defaultStatus: fail
+        visibility: trace
+  runtime:
+    target: local-python
+extensions: {}

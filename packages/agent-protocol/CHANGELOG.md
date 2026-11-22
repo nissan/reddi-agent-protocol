@@ -6,6 +6,8 @@ All notable changes to this package are documented here. Dates are AEST.
 
 ### Added
 
+- Agent Definition Language (ADL) v0.3, `@redditech/agent-protocol/adl`: `parseAdlDocument` (YAML or JSON, YAML 1.1 rules, at most 64 KB), `checkAdlConformance` (JSON Schema plus conformance Levels 0 to 4, the same verdict as the lab's `adl_v03_conformance.py` on every lab example), `buildProviderAdl` (the Level 3 document for a provider priced per token with metered escrow, or per call with escrow: Solana rail, the 5% protocol fee with the 2.5% launch rate to 2027-04-01 UTC and the 0.1 SOL cap, a `reddi.receipt.v2` receipt) and `providerTermsFromAdl` (a listing's terms read back from a document). The schema is a copy of nissan/reddiagent-lab `specs/ADL-v0.3.schema.json`, refreshed with `node scripts/sync-adl-v03.mjs --lab <path>`; `--check` reports a stale copy. New dependencies: `ajv`, `yaml`.
+
 - Receipt v2 `session` block for metered sessions (#863): sequence, this call's tokens, running token totals and cost, the previous receipt's hash, and `closed`. Receipts of a session carry no `payment` block until the closing one, whose metered payment must equal the running cost. `hashReddiReceiptV2` (SHA-256 of the canonical form) and `verifyReddiReceiptV2Session`, which checks a whole chain: one provider and escrow, sequence 1 to n, hash links, running sums, a cost that never goes down, and only the last receipt closed. New error codes `session_mismatch` and `session_chain_broken`.
 
 ### Removed

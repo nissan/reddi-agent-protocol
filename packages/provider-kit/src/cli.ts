@@ -7,6 +7,7 @@
  *   rap-provider start [--config provider.json]
  *   rap-provider register [--config provider.json] [--dry-run]
  *   rap-provider status [--config provider.json]
+ *   rap-provider adl [--config provider.json] [--json]
  */
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -18,6 +19,7 @@ import { AGENT_REGISTRATION_FEE_LAMPORTS, agentAddress, buildRegisterAgentInstru
 import { checkProviderCluster } from "@redditech/x402-solana";
 import { DEFAULT_CONFIG_FILE, exampleConfig, parseProviderConfig, type ProviderConfig } from "./config.js";
 import { formatDoctor, runDoctor } from "./doctor.js";
+import { ADL_PATH, providerAdlText } from "./adl.js";
 import { loadProviderKey } from "./keys.js";
 import { startProvider } from "./server.js";
 
@@ -30,12 +32,15 @@ Commands
   register Put the provider in the on-chain registry and list it in the app
            with its per-token price. Run it again to update the listing.
   status   Show the registry record and the listing.
+  adl      Print this provider's ADL v0.3 document (also served at
+           ${ADL_PATH}) and check it passes Level 3.
 
 Options
   --config <file>    Config file. Default: provider.json
   --wallet <address> With init: the provider wallet's address.
   --force            With init: overwrite an existing config.
-  --json             With doctor: print the checks as JSON.
+  --json             With doctor: print the checks as JSON. With adl: print the
+                     Level 3 report as JSON.
   --dry-run          With register: print what would be sent and send nothing.
 
 Environment
@@ -118,6 +123,15 @@ export async function runCli(args: string[], io: CliIo): Promise<number> {
     const result = await runDoctor({ config, chain: createProviderChain(config.rpcUrl), key });
     io.out(args.includes("--json") ? JSON.stringify(result, null, 2) : formatDoctor(result));
     return result.ok ? 0 : 1;
+  }
+
+  if (command === "adl") {
+    const config = loadConfig(args, io);
+    if (!config) return 1;
+    const { text, report } = providerAdlText(config);
+    io.out(args.includes("--json") ? JSON.stringify(report, null, 2) : text);
+    if (report.status !== "pass") io.err("This ADL document does not pass Level 3. Run with --json to see why.");
+    return report.status === "pass" ? 0 : 1;
   }
 
   if (command === "start") {
