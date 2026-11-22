@@ -9,6 +9,8 @@ const STATES = {
   expired: { title: "That link has expired.", body: "Confirmation links work for 48 hours. Enter your address again on the home page and we'll send a fresh one." },
   invalid: { title: "That link didn't work.", body: "The link is not valid for this address any more. If you want the newsletter, subscribe again from the home page; if you wanted to leave, you already have." },
   closed: { title: "Newsletter signup is not open.", body: C.closedStateBody },
+  weekly: { title: C.frequency.doneTitle("weekly"), body: C.frequency.doneBody("weekly") },
+  daily: { title: C.frequency.doneTitle("daily"), body: C.frequency.doneBody("daily") },
 } as const;
 
 export const dynamicParams = false;

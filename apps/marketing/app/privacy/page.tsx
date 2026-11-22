@@ -13,7 +13,7 @@ export default function Privacy() {
       <h1>Privacy</h1>
       <p className="lead">This website collects as little as it can. Reading it never needs an account, a wallet or a subscription.</p>
       <h2>If you sign up for updates</h2>
-      <p>We store the email address you enter and the times you asked, confirmed or unsubscribed. We use it only to confirm your request, to tell you when the sandbox and the guarded beta open, and to send the build updates. We do not sell it or share it for advertising.</p>
+      <p>We store the email address you enter, how often you want to hear from us (weekly or as each update is published), and the times you asked, confirmed or unsubscribed. We use it only to confirm your request, to tell you when the sandbox and the guarded beta open, and to send the build updates. We do not sell it or share it for advertising.</p>
       <p>Signup is confirmed opt-in: nothing is kept for good until you press the button in the confirmation email. An address that is never confirmed is deleted after {POLICY.pendingDays} days. Every message has a one-click unsubscribe link, which takes effect immediately.</p>
       <p>A confirmed address is kept while you are subscribed. After you unsubscribe we keep the address and the time you left, so that we never email you again by mistake and can show that your choice was honoured. You can ask us to delete it completely at any time (see Your choices below).</p>
       <p>The links in our emails carry a signed code instead of your address. Our hosting provider&apos;s request logs may record that code when you open a link.</p>

@@ -10,7 +10,7 @@ import { SIGNUP_COPY } from "./copy.ts";
 import { CATCH_UP_LABEL, catchUpLink } from "./links.ts";
 import { logStoreFailure } from "./http.ts";
 import { logProviderRefusal, type Mailer } from "./mailer.ts";
-import type { Broadcast, Contact, ContactStore, Versioned } from "./store.ts";
+import type { Broadcast, Contact, ContactStore, Frequency, Versioned } from "./store.ts";
 import { ConflictError, contactKey, normaliseEmail } from "./store.ts";
 import { issueToken, verifyToken } from "./tokens.ts";
 
@@ -95,7 +95,10 @@ async function releaseReservation(deps: Deps, key: string, createdVersion: strin
 // Returns a precise outcome for tests; the HTTP layer collapses every outcome but "invalid" to one generic reply.
 // The send-count reservation is written before the email goes out, so two concurrent requests can never both
 // pass the limit; if the provider then fails, the reservation is given back with conditional writes.
-export async function subscribe(deps: Deps, rawEmail: unknown): Promise<SubscribeOutcome> {
+export const frequencyOf = (c: Pick<Contact, "frequency">): Frequency => (c.frequency === "daily" ? "daily" : "weekly");
+export const parseFrequency = (raw: unknown): Frequency => (raw === "daily" ? "daily" : "weekly");
+
+export async function subscribe(deps: Deps, rawEmail: unknown, options: { frequency?: Frequency } = {}): Promise<SubscribeOutcome> {
   if (!validEmail(rawEmail)) return "invalid";
   const email = normaliseEmail(rawEmail);
   if (!recipientAllowed(deps.config, email)) return "not-allowed"; // no write, no send
@@ -112,7 +115,8 @@ export async function subscribe(deps: Deps, rawEmail: unknown): Promise<Subscrib
     // keeps its original time; an unflagged old record or a re-subscribe after an unsubscribe is flagged from this request.
     const keepFlag = contact.earlyAccess === true && contact.status !== "unsubscribed" && !!contact.earlyAccessAt;
     const flagged = keepFlag ? { earlyAccess: true, earlyAccessAt: contact.earlyAccessAt } : { earlyAccess: true, earlyAccessAt: new Date(now).toISOString() };
-    const reserved = { ...contact, ...flagged, sendCount: contact.sendCount + 1, lastSentAt: now };
+    // The form's choice applies to a new, pending or returning signup; a confirmed subscriber changes it from an email.
+    const reserved = { ...contact, ...flagged, frequency: parseFrequency(options.frequency), sendCount: contact.sendCount + 1, lastSentAt: now };
     const version = await deps.store.putContact(key, reserved, { version: existing?.version ?? null }); // conflict => retry from a fresh read
     if (!(await reserveGlobalConfirmSend(deps))) {
       await releaseReservation(deps, key, existing ? null : version);
@@ -152,7 +156,7 @@ export async function confirm(deps: Deps, token: string): Promise<ConfirmOutcome
     if (contact.unsubscribedAt !== null && v.payload.iat <= contact.unsubscribedAt) return "superseded";
     if (contact.status === "confirmed") return "already-confirmed";
     await deps.store.putContact(v.payload.k, { ...contact, status: "confirmed", confirmedAt: now }, { version: stored.version });
-    await sendWelcome(deps, contact.email, v.payload.k);
+    await sendWelcome(deps, contact.email, v.payload.k, frequencyOf(contact));
     return "confirmed";
   });
 }
@@ -161,8 +165,10 @@ export async function confirm(deps: Deps, token: string): Promise<ConfirmOutcome
 // above and sends nothing). It is the first message that carries the unsubscribe link and the RFC 8058 one-click
 // headers, so a subscriber can leave before any issue exists. Best effort: the confirmation has already been stored,
 // so a mailer failure is logged as a refusal and never turns a successful confirmation into an error.
-async function sendWelcome(deps: Deps, email: string, key: string): Promise<void> {
+async function sendWelcome(deps: Deps, email: string, key: string, frequency: Frequency): Promise<void> {
   const token = () => encodeURIComponent(issueToken(deps.config.signingSecret, "unsubscribe", key, deps.now()));
+  const switchTo = otherFrequency(frequency);
+  const prefs = preferencesLink(deps, key, switchTo);
   const unsub = `${deps.siteUrl}/api/newsletter/unsubscribe?t=${token()}`;
   const unsubPage = `${deps.siteUrl}/newsletter/unsubscribe?t=${token()}`;
   const catchUp = catchUpLink(deps.siteUrl);
@@ -170,8 +176,8 @@ async function sendWelcome(deps: Deps, email: string, key: string): Promise<void
     await deps.mailer.send({
       to: email,
       subject: SIGNUP_COPY.welcome.subject,
-      text: SIGNUP_COPY.welcome.text(unsubPage, catchUp),
-      html: SIGNUP_COPY.welcome.html(unsubPage, catchUp),
+      text: SIGNUP_COPY.welcome.text(unsubPage, catchUp, { frequency, switchLabel: SIGNUP_COPY.frequency.switchLabel(switchTo), switchUrl: prefs }),
+      html: SIGNUP_COPY.welcome.html(unsubPage, catchUp, { frequency, switchLabel: SIGNUP_COPY.frequency.switchLabel(switchTo), switchUrl: prefs }),
       headers: { "List-Unsubscribe": `<${unsub}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
     });
   } catch (error) {
@@ -191,6 +197,28 @@ export async function unsubscribe(deps: Deps, token: string): Promise<Unsubscrib
     if (stored.value.status === "unsubscribed") return "already-unsubscribed";
     await deps.store.putContact(v.payload.k, { ...stored.value, status: "unsubscribed", unsubscribedAt: now }, { version: stored.version });
     return "unsubscribed";
+  });
+}
+
+export const otherFrequency = (f: Frequency): Frequency => (f === "daily" ? "weekly" : "daily");
+
+// A signed link that opens the one-button page switching this subscriber to `to`. The token names the contact key only.
+export function preferencesLink(deps: Pick<Deps, "config" | "siteUrl" | "now">, key: string, to: Frequency): string {
+  return `${deps.siteUrl}/newsletter/frequency?f=${to}&t=${encodeURIComponent(issueToken(deps.config.signingSecret, "preferences", key, deps.now()))}`;
+}
+
+export type FrequencyOutcome = "daily" | "weekly" | "invalid";
+
+// Changes how often a confirmed subscriber is emailed. A link for an address that left, or was never confirmed, does nothing.
+export async function setFrequency(deps: Deps, token: string, rawFrequency: unknown): Promise<FrequencyOutcome> {
+  const v = verifyToken(deps.config.signingSecret, token, "preferences", deps.now());
+  if (!v.ok || (rawFrequency !== "daily" && rawFrequency !== "weekly")) return "invalid";
+  const frequency: Frequency = rawFrequency;
+  return withRetries(async () => {
+    const stored = await deps.store.getContact(v.payload.k);
+    if (!stored || stored.value.status !== "confirmed") return "invalid";
+    if (frequencyOf(stored.value) !== frequency) await deps.store.putContact(v.payload.k, { ...stored.value, frequency }, { version: stored.version });
+    return frequency;
   });
 }
 
@@ -392,12 +420,15 @@ export async function broadcast(deps: Deps, issue: Issue, approval: { approved: 
     const unsub = `${deps.siteUrl}/api/newsletter/unsubscribe?t=${encodeURIComponent(issueToken(deps.config.signingSecret, "unsubscribe", key, deps.now()))}`;
     const unsubPage = `${deps.siteUrl}/newsletter/unsubscribe?t=${encodeURIComponent(issueToken(deps.config.signingSecret, "unsubscribe", key, deps.now()))}`;
     const extra = issue.forRecipient?.(c, key, deps.now()) ?? null;
+    const switchTo = otherFrequency(frequencyOf(c));
+    const prefs = preferencesLink(deps, key, switchTo);
+    const switchLabel = SIGNUP_COPY.frequency.switchLabel(switchTo);
     try {
       await deps.mailer.send({
         to: c.email,
         subject: issue.title,
-        text: `${issue.text}\n\nRead on the site: ${issue.url}${issue.catchUpUrl ? `\n\n${CATCH_UP_LABEL}: ${issue.catchUpUrl}` : ""}${extra ? `\n\n${extra.text}` : ""}\n\nUnsubscribe: ${unsubPage}`,
-        html: `${issue.html}<p><a href="${issue.url}">Read on the site</a></p>${issue.catchUpUrl ? `<p><a href="${issue.catchUpUrl}">${CATCH_UP_LABEL}</a></p>` : ""}${extra ? extra.html : ""}<p><a href="${unsubPage}">Unsubscribe</a> with one click. You're receiving this because you confirmed your Reddi Agent Protocol signup.</p>`,
+        text: `${issue.text}\n\nRead on the site: ${issue.url}${issue.catchUpUrl ? `\n\n${CATCH_UP_LABEL}: ${issue.catchUpUrl}` : ""}${extra ? `\n\n${extra.text}` : ""}\n\n${switchLabel}: ${prefs}\nUnsubscribe: ${unsubPage}`,
+        html: `${issue.html}<p><a href="${issue.url}">Read on the site</a></p>${issue.catchUpUrl ? `<p><a href="${issue.catchUpUrl}">${CATCH_UP_LABEL}</a></p>` : ""}${extra ? extra.html : ""}<p><a href="${prefs}">${switchLabel}</a></p><p><a href="${unsubPage}">Unsubscribe</a> with one click. You're receiving this because you confirmed your Reddi Agent Protocol signup.</p>`,
         headers: { "List-Unsubscribe": `<${unsub}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
       });
     } catch (error) {

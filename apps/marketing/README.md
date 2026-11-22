@@ -48,10 +48,10 @@ With no environment variables the site builds and serves, the signup form render
 | `RESEND_API_KEY` | Resend API key. Set in Vercel by the owner; never in Git |
 | `NEWSLETTER_FROM`, `NEWSLETTER_REPLY_TO` | Sender on a domain verified in Resend, and the reply-to address |
 | `BLOB_STORE_ID` (or legacy `BLOB_READ_WRITE_TOKEN`) | The Vercel Blob store that holds the list (private; one JSON document per contact, keyed by a hash of the address) |
-| `NEWSLETTER_ALLOWED_RECIPIENTS` | Comma-separated addresses or `@domains` allowed while testing; required until `NEWSLETTER_PUBLIC=1` |
+| `NEWSLETTER_ALLOWED_RECIPIENTS` | Comma-separated addresses or `@domains` of the owner's own mailboxes. Required until `NEWSLETTER_PUBLIC=1` (only these may sign up); after that it marks them internal, and nothing is emailed until a confirmed subscriber who is not internal exists. Keep it set on production |
 | `NEWSLETTER_PUBLIC=1` | Lifts the allowlist: public collection |
 | `CRON_SECRET` | Lets the daily crons run: `/api/newsletter/prune` deletes unconfirmed addresses after seven days, `/api/newsletter/issues` sends due issues |
-| `NEWSLETTER_AUTOSEND=1` | Lets `/api/newsletter/issues` email updates flagged `newsletterSend: true`. Default off. Needs `NEWSLETTER_ENABLED` and `CRON_SECRET` too |
+| `NEWSLETTER_AUTOSEND=1` | Lets `/api/newsletter/issues` email updates flagged `newsletterSend: true`: a weekly digest on the Monday run (the default for subscribers) and each update on its day to subscribers who chose daily. Default off. Needs `NEWSLETTER_ENABLED` and `CRON_SECRET` too |
 | `NEXT_PUBLIC_POSTHOG_KEY` | PostHog's public project key (`phc_...`). Without it the site loads no analytics, asks no consent question and shows no privacy banner |
 | `NEXT_PUBLIC_POSTHOG_HOST` | Optional. PostHog ingestion host; defaults to `https://us.i.posthog.com` (use `https://eu.i.posthog.com` for an EU project) |
 | `SITE_PUBLIC=1` | The indexing switch: with a Vercel production build, drops `noindex` and opens `robots.txt` |
@@ -75,6 +75,13 @@ nothing is sent without `CRON_SECRET`, `NEWSLETTER_ENABLED` and `NEWSLETTER_AUTO
 only allowlisted addresses receive anything. An issue that falls due with nobody to send to is closed and is not
 emailed to people who join later. To see what the next run would do without sending, call the route with the bearer and
 `?dry-run=1`; it answers with slugs and counts only.
+
+Subscribers choose how often (owner decision, 23 November 2026). Weekly is the default: the Monday run (Sydney) sends
+one digest of the flagged updates dated in the seven days before it, keyed by that Monday so it goes once. Daily
+subscribers get each update on its day as above. Every email carries a signed link to switch (`/newsletter/frequency`,
+a one-button page like unsubscribe). Nothing is sent until the first confirmed subscriber outside
+`NEWSLETTER_ALLOWED_RECIPIENTS` exists; issues and digests that fall due before then are closed, not saved up.
+`scripts/newsletter-remove-internal.ts` (owner-run, dry run by default) removes the internal test addresses before launch.
 
 ### Health and uptime
 

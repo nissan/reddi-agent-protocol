@@ -24,7 +24,11 @@ export type Contact = {
   // treated as not flagged; no migration rewrites them.
   earlyAccess?: boolean;
   earlyAccessAt?: string | null;
+  // How often the subscriber gets issues: "weekly" (one digest on Monday, Sydney time) or "daily" (each update on the
+  // day it is published). Records written before the weekly digest lack the field and are treated as weekly.
+  frequency?: Frequency;
 };
+export type Frequency = "weekly" | "daily";
 // `delivered` holds the contact keys already sent, so an interrupted broadcast resumes instead of resending or
 // claiming completion; `complete` is set only when every intended recipient has been sent. `runningSince` (WEB-27)
 // is the lease a run holds while it sends: a resume must claim it with a conditional write, so two concurrent

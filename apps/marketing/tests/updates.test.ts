@@ -3,10 +3,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { UPDATES, findUpdate, validateUpdates, visibleUpdates, type Update } from "../lib/updates.ts";
-import { buildIssue, dueIssues, planIssues, runIssues, sydneyDay } from "../lib/newsletter/issues.ts";
+import { buildIssue, digestMonday, digestUpdates, dueIssues, isInternal, planIssues, runDigest, runIssues, runNewsletter, sydneyDay } from "../lib/newsletter/issues.ts";
 import { autosendHandler } from "../lib/newsletter/autosend.ts";
 import { updateLink } from "../lib/newsletter/links.ts";
-import { confirm, subscribe, unsubscribe, type Deps } from "../lib/newsletter/flow.ts";
+import { confirm, setFrequency, subscribe, unsubscribe, type Deps } from "../lib/newsletter/flow.ts";
 import { FakeMailer } from "../lib/newsletter/mailer.ts";
 import { MemoryStore } from "../lib/newsletter/store.ts";
 import { testDoubles } from "../lib/newsletter/runtime.ts";
@@ -22,7 +22,7 @@ function deps(): Deps & { store: MemoryStore; mailer: FakeMailer; clock: { t: nu
   return { store, mailer, clock, siteUrl: SITE, now: () => clock.t, config: { enabled: true, publicCollection: false, allowedRecipients: ["@owner-test.example"], signingSecret: SECRET, from: "RAP <news@example.test>", replyTo: undefined, resendApiKey: "re_x", blobAuth: "token" } as Deps["config"] };
 }
 const tokenFrom = (m: FakeMailer, purpose = "confirm") => decodeURIComponent(m.sent.at(-1)!.text.match(new RegExp(`/newsletter/${purpose}\\?t=([^\\s]+)`))![1]);
-async function join(d: ReturnType<typeof deps>, email: string) { await subscribe(d, email); await confirm(d, tokenFrom(d.mailer)); }
+async function join(d: ReturnType<typeof deps>, email: string, frequency: "daily" | "weekly" = "daily") { await subscribe(d, email, { frequency }); await confirm(d, tokenFrom(d.mailer)); }
 
 const base: Update = { slug: "a-first-note", date: "2026-12-05", title: "A first note for tests", summary: "A summary long enough to pass the length rule in the validator.", body: ["One paragraph."], links: [{ label: "Check", href: "https://example.com/x" }], status: "published", newsletterSend: true };
 
@@ -82,17 +82,17 @@ test("a run sends one issue, oldest first, to confirmed contacts only, with a wo
   d.mailer.sent = [];
   const set: Update[] = [{ ...base, slug: "second", date: "2026-12-04" }, { ...base, slug: "first", date: "2026-12-03" }];
   assert.deepEqual((await planIssues(d, set)).map((e) => `${e.slug}:${e.state}`), ["first:unsent", "second:unsent"]);
-  const one = await runIssues(d, set);
+  const one = await runIssues(d, set, true);
   assert.deepEqual(one, { outcome: "sent", slug: "first", due: 2, recipients: 2, delivered: 2, resumed: false });
   assert.deepEqual(d.mailer.sent.map((m) => m.to).sort(), ["a@owner-test.example", "b@owner-test.example"]);
   const mail = d.mailer.sent[0];
   assert.equal(mail.subject, base.title);
   assert.ok(mail.text.includes(`${SITE}/updates/first`) && mail.html.includes("Reddi Agent Protocol") && !/battleblocks/i.test(mail.html + mail.text));
   assert.equal(mail.headers!["List-Unsubscribe-Post"], "List-Unsubscribe=One-Click");
-  const two = await runIssues(d, set);
+  const two = await runIssues(d, set, true);
   assert.equal(two.outcome === "sent" && two.slug, "second");
   assert.equal(d.mailer.sent.length, 4);
-  assert.deepEqual(await runIssues(d, set), { outcome: "none-due", due: 2 });
+  assert.deepEqual(await runIssues(d, set, true), { outcome: "none-due", due: 2 });
   assert.equal(d.mailer.sent.length, 4);
   // the link in an issue unsubscribes
   assert.equal(await unsubscribe(d, tokenFrom(d.mailer, "unsubscribe")), "unsubscribed");
@@ -106,19 +106,19 @@ test("an interrupted run resumes with the remaining recipients; an issue with no
   const realSend = d.mailer.send.bind(d.mailer);
   let calls = 0;
   d.mailer.send = async (m) => { if (++calls === 2) throw new Error("mailer failure (test)"); return realSend(m); };
-  await assert.rejects(runIssues(d, set));
+  await assert.rejects(runIssues(d, set, true));
   assert.equal(d.mailer.sent.length, 1);
   assert.equal((await planIssues(d, set))[0].state, "partial");
   d.mailer.send = realSend;
-  const resumed = await runIssues(d, set);
+  const resumed = await runIssues(d, set, true);
   assert.ok(resumed.outcome === "sent" && resumed.resumed && resumed.delivered === 3);
   assert.equal(new Set(d.mailer.sent.map((m) => m.to)).size, 3);
   assert.equal(d.mailer.sent.length, 3);
 
   const empty = deps();
-  assert.deepEqual(await runIssues(empty, set), { outcome: "no-recipients", slug: "resumed", due: 1 });
+  assert.deepEqual(await runIssues(empty, set, true), { outcome: "no-recipients", slug: "resumed", due: 1 });
   await join(empty, "late@owner-test.example"); empty.mailer.sent = [];
-  assert.deepEqual(await runIssues(empty, set), { outcome: "none-due", due: 1 });
+  assert.deepEqual(await runIssues(empty, set, true), { outcome: "none-due", due: 1 });
   assert.equal(empty.mailer.sent.length, 0);
 });
 
@@ -138,15 +138,103 @@ test("the HTTP handler is fail-closed: no secret, wrong bearer, newsletter close
     testDoubles.store = new MemoryStore(); testDoubles.mailer = new FakeMailer();
     assert.deepEqual((await call("Bearer cron-secret-for-tests")).body, { state: "autosend-off" });
     const dry = (await call("Bearer cron-secret-for-tests", "?dry-run=1")).body;
-    assert.deepEqual(dry, { state: "dry-run", autosend: false, wouldReach: 0, issues: [{ slug: "handler-issue", date: "2020-01-01", state: "unsent" }] });
+    assert.deepEqual(dry, { state: "dry-run", autosend: false, active: false, wouldReach: 0, issues: [{ slug: "handler-issue", date: "2020-01-01", state: "unsent" }], digest: { week: dry.digest.week, updates: 0, state: "unsent" } });
     assert.equal(testDoubles.mailer.sent.length, 0);
     process.env.NEWSLETTER_AUTOSEND = "1";
     assert.equal((await call("Bearer cron-secret-for-tests", "?dry-run=1")).body.state, "dry-run");
     assert.equal((await testDoubles.store.getBroadcast("handler-issue")), null);
     const run = (await call("Bearer cron-secret-for-tests")).body;
-    assert.equal(run.state, "no-recipients");
+    assert.equal(run.state, "waiting-for-first-subscriber");
+    assert.equal(run.daily.outcome, "no-recipients");
     assert.ok(!JSON.stringify(run).includes("@"));
   } finally {
     for (const k of KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
   }
+});
+
+// Weekly default, daily option and the "first outside subscriber" start (owner decision, 23 November 2026).
+const MONDAY = Date.UTC(2026, 11, 6, 23, 10); // 23:10 UTC on Sunday 6 December is 10:10 on Monday 7 December in Sydney
+function publicDeps() {
+  const d = deps();
+  d.clock.t = MONDAY;
+  d.config = { ...d.config, publicCollection: true, allowedRecipients: ["@owner-test.example"] };
+  return d;
+}
+const week: Update[] = [
+  { ...base, slug: "monday-one", date: "2026-11-30" },
+  { ...base, slug: "friday-two", date: "2026-12-04" },
+  { ...base, slug: "last-week", date: "2026-11-29" },
+  { ...base, slug: "today-goes-next-week", date: "2026-12-07" },
+  { ...base, slug: "draft-not-sent", date: "2026-12-01", status: "draft", newsletterSend: undefined },
+];
+
+test("the digest week: the Monday run covers the seven days before it, in Sydney time", () => {
+  assert.equal(digestMonday(MONDAY), "2026-12-07");
+  assert.equal(digestMonday(NOW), "2026-11-30"); // Saturday 5 December belongs to the week that began on the 30th
+  assert.deepEqual(digestUpdates(week, "2026-12-07").map((u) => u.slug), ["monday-one", "friday-two"]);
+});
+
+test("internal addresses: matched by address or @domain from the allowlist", () => {
+  const cfg = { allowedRecipients: ["owner@team.example", "@owner-test.example"] };
+  assert.ok(isInternal(cfg, "Owner@Team.example"));
+  assert.ok(isInternal(cfg, "x@owner-test.example"));
+  assert.ok(!isInternal(cfg, "reader@elsewhere.example"));
+});
+
+test("nothing is sent until the first outside subscriber confirms; what fell due before that is closed, not saved up", async () => {
+  const d = publicDeps();
+  await join(d, "me@owner-test.example", "weekly"); await join(d, "me2@owner-test.example", "daily");
+  d.mailer.sent = [];
+  const before = await runNewsletter(d, week);
+  assert.equal(before.active, false);
+  assert.equal(before.weekly.outcome, "no-recipients");
+  assert.equal(d.mailer.sent.length, 0);
+  // the first outside subscriber: later runs send, but nothing that closed before they arrived
+  await join(d, "reader@elsewhere.example", "weekly"); d.mailer.sent = [];
+  const after = await runNewsletter(d, week);
+  assert.equal(after.active, true);
+  assert.equal(after.weekly.outcome, "already-sent");
+  assert.equal(d.mailer.sent.length, 0);
+  // the next week's digest reaches every weekly subscriber, internal ones included
+  d.clock.t = MONDAY + 7 * 86_400_000;
+  const next = await runNewsletter(d, week);
+  assert.equal(next.weekly.outcome, "sent");
+  assert.deepEqual(d.mailer.sent.map((m) => m.to).sort(), ["me@owner-test.example", "reader@elsewhere.example"]);
+});
+
+test("weekly is the default and gets one digest; daily subscribers get each issue; neither gets the other's", async () => {
+  const d = publicDeps();
+  await subscribe(d, "default@elsewhere.example"); await confirm(d, tokenFrom(d.mailer));
+  await join(d, "daily@elsewhere.example", "daily");
+  assert.equal((await d.store.listContacts()).find((c) => c.value.email === "default@elsewhere.example")!.value.frequency, "weekly");
+  d.mailer.sent = [];
+  const digest = await runDigest(d, week);
+  assert.ok(digest.outcome === "sent" && digest.updates === 2 && digest.recipients === 1);
+  const mail = d.mailer.sent[0];
+  assert.equal(mail.to, "default@elsewhere.example");
+  assert.ok(mail.text.includes(`${SITE}/updates/monday-one`) && mail.text.includes(`${SITE}/updates/friday-two`) && !mail.text.includes("last-week"));
+  assert.ok(mail.text.includes("/newsletter/frequency?f=daily&t="), "the digest offers the switch to daily");
+  assert.equal((await runDigest(d, week)).outcome, "already-sent");
+  d.mailer.sent = [];
+  const daily = await runIssues(d, week);
+  assert.ok(daily.outcome === "sent" && daily.recipients === 1);
+  assert.deepEqual(d.mailer.sent.map((m) => m.to), ["daily@elsewhere.example"]);
+  assert.ok(d.mailer.sent[0].text.includes("/newsletter/frequency?f=weekly&t="), "a daily issue offers the switch to weekly");
+});
+
+test("the switch link changes how often; it refuses other tokens, bad choices and people who are not subscribed", async () => {
+  const d = publicDeps();
+  await join(d, "switch@elsewhere.example", "weekly");
+  const welcome = d.mailer.sent.at(-1)!;
+  assert.ok(/in one digest each Monday/.test(welcome.text));
+  const t = decodeURIComponent(welcome.text.match(/\/newsletter\/frequency\?f=daily&t=([^\s]+)/)![1]);
+  assert.equal(await setFrequency(d, t, "daily"), "daily");
+  assert.equal((await d.store.listContacts())[0].value.frequency, "daily");
+  assert.equal(await setFrequency(d, t, "hourly"), "invalid");
+  assert.equal(await setFrequency(d, tokenFrom(d.mailer, "unsubscribe"), "weekly"), "invalid");
+  assert.equal(await unsubscribe(d, tokenFrom(d.mailer, "unsubscribe")), "unsubscribed");
+  assert.equal(await setFrequency(d, t, "weekly"), "invalid");
+  // a form value that is not "daily" falls back to the weekly default
+  await subscribe(d, "odd@elsewhere.example", { frequency: "yearly" as never });
+  assert.equal((await d.store.listContacts()).find((c) => c.value.email === "odd@elsewhere.example")!.value.frequency, "weekly");
 });

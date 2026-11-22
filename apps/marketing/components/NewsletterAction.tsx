@@ -9,20 +9,23 @@ import { SIGNUP_COPY as C } from "../lib/newsletter/copy";
 // One-button page behind a confirmation or unsubscribe link. The link's GET renders this page and
 // changes nothing; only the button's POST does. The token in the query string is an opaque contact key, never
 // an address. A retryable 503 from the endpoint keeps the visitor here with the button enabled.
-export default function NewsletterAction({ action }: { action: "confirm" | "unsubscribe" }) {
+export default function NewsletterAction({ action }: { action: "confirm" | "unsubscribe" | "frequency" }) {
   const params = useSearchParams();
   const router = useRouter();
   const token = params.get("t") ?? "";
+  const to = params.get("f") === "daily" ? "daily" : "weekly";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const copy = action === "confirm"
     ? { title: C.confirmTitle, body: C.confirmBody, button: C.confirmButton }
+    : action === "frequency"
+    ? { title: C.frequency.pageTitle(to), body: C.frequency.pageBody(to), button: C.frequency.pageButton(to) }
     : { title: "Leaving?", body: "Press the button and no more messages will be sent to this address: neither the build updates nor the note about the guarded beta.", button: "Unsubscribe" };
 
   async function submit() {
     setBusy(true); setError(null);
     try {
-      const res = await fetch(`/api/newsletter/${action}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ t: token }) });
+      const res = await fetch(`/api/newsletter/${action}${action === "frequency" ? `?f=${to}` : ""}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ t: token }) });
       const data = (await res.json().catch(() => ({}))) as { state?: string };
       if (res.status === 503 && data.state === "retry") { setBusy(false); setError("The newsletter service is busy right now. Please try again in a moment."); return; }
       router.replace(`/newsletter/${data.state ?? "invalid"}`);

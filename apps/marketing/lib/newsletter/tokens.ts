@@ -4,7 +4,7 @@
 // HMAC prevents forgery and the issue time lets the flow refuse confirmation links issued before an unsubscribe.
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-export type TokenPurpose = "confirm" | "unsubscribe" | "build";
+export type TokenPurpose = "confirm" | "unsubscribe" | "build" | "preferences";
 export type TokenPayload = { p: TokenPurpose; k: string; iat: number; exp: number };
 export type TokenResult = { ok: true; payload: TokenPayload } | { ok: false; reason: "malformed" | "signature" | "expired" | "purpose" };
 
@@ -38,7 +38,7 @@ export function verifyToken(secret: string, token: string, purpose: TokenPurpose
   try { payload = JSON.parse(unb64(body)); } catch { return { ok: false, reason: "malformed" }; }
   if (typeof payload !== "object" || payload === null) return { ok: false, reason: "malformed" };
   const t = payload as Record<string, unknown>;
-  if (typeof t.k !== "string" || !KEY_RE.test(t.k) || typeof t.iat !== "number" || typeof t.exp !== "number" || (t.p !== "confirm" && t.p !== "unsubscribe" && t.p !== "build")) return { ok: false, reason: "malformed" };
+  if (typeof t.k !== "string" || !KEY_RE.test(t.k) || typeof t.iat !== "number" || typeof t.exp !== "number" || (t.p !== "confirm" && t.p !== "unsubscribe" && t.p !== "build" && t.p !== "preferences")) return { ok: false, reason: "malformed" };
   if (t.p !== purpose) return { ok: false, reason: "purpose" };
   if (now > t.exp) return { ok: false, reason: "expired" };
   return { ok: true, payload: { p: t.p, k: t.k, iat: t.iat, exp: t.exp } };

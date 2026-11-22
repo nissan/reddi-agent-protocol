@@ -5,7 +5,7 @@
 // its timing nor a provider outage reveals whether an address is known. No contact data is logged. On Vercel a
 // BotID check (lib/newsletter/bot.ts) runs before the limiter and refuses bots, failing closed when it cannot run.
 import { SIGNUP_COPY } from "../../../lib/newsletter/copy.ts";
-import { subscribe, validEmail } from "../../../lib/newsletter/flow.ts";
+import { parseFrequency, subscribe, validEmail } from "../../../lib/newsletter/flow.ts";
 import { DurableLimiter, MIN_RESPONSE_MS, clientKey, holdUntil, readSmallJson, sameOrigin } from "../../../lib/newsletter/http.ts";
 import { defer, runtimeDeps } from "../../../lib/newsletter/runtime.ts";
 import { verifyHuman } from "../../../lib/newsletter/bot.ts";
@@ -32,7 +32,8 @@ export async function POST(req: Request) {
   const email = (body.value as Record<string, unknown>).email;
   if (!validEmail(email)) return Response.json({ error: "That does not look like an email address." }, { status: 400, headers: noStore });
   // accepted, already-confirmed, not-allowed, rate-limited, unsubscribed-resubscribe-sent and a provider failure all read the same to the visitor.
-  defer("subscribe", () => subscribe(rt.deps, email));
+  const frequency = parseFrequency((body.value as Record<string, unknown>).frequency); // anything but "daily" is the weekly default
+  defer("subscribe", () => subscribe(rt.deps, email, { frequency }));
   await holdUntil(started, MIN_RESPONSE_MS);
   return Response.json(GENERIC, { status: 202, headers: noStore });
 }
