@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 import localSurfpoolProfile from "./config/networks/local-surfpool.json";
 import { isLoopbackRpcUrl } from "./lib/config/loopback-endpoint";
 import { resolveNetworkProfileNameFromEnv } from "./lib/config/network-profile-name";
+import { legacyPageRedirects } from "./lib/legacy-pages";
 
 const PLAYWRIGHT_SIGNER_BUILD_REFUSAL =
   "NEXT_PUBLIC_PLAYWRIGHT_WALLET_SECRET_KEY is refused unless the build/dev profile is local-surfpool with loopback-only RPC/WS";
@@ -52,6 +53,10 @@ if (buildAllowUnsafeEscrowOverride) {
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["localhost", "127.0.0.1"],
   ...(Object.keys(buildEnv).length ? { env: buildEnv } : {}),
+  // Pages that need the legacy API routes go to their replacements where those routes are off.
+  async redirects() {
+    return legacyPageRedirects(process.env);
+  },
   async headers() {
     return [
       {

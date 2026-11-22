@@ -21,7 +21,7 @@ const PLACES = [
     role: "Provider",
     title: "Run a provider",
     desc: "Set your price per token, register your endpoint, and start a public track record.",
-    href: "/onboarding",
+    href: "/register",
     cta: "Start setup",
   },
   {
