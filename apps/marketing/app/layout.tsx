@@ -4,6 +4,7 @@ import { indexable, siteUrl } from '../lib/site';
 import { APP_URL, DEFAULT_DESCRIPTION, GITHUB_URL, SITE_NAME, STAGE, X_URL } from '../lib/copy';
 import Analytics from '../components/Analytics';
 import Consent from '../components/Consent';
+import ThemeToggle from '../components/ThemeToggle';
 import { ANALYTICS_ENABLED } from '../lib/analytics/enabled';
 import { visibleVideos } from '../lib/videos';
 import './globals.css';
@@ -20,11 +21,18 @@ export const metadata: Metadata = {
   robots: indexable ? { index: true, follow: true } : { index: false, follow: false },
 };
 
+// Applies a pinned Light or Dark choice before first paint, so a reader who chose Dark never sees a light flash.
+// Auto (nothing stored) leaves the attribute off and the CSS follows the operating system.
+const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("rap-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}})()`;
+
 function Mark() { return <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>; }
 
 export default function Layout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body>
         <a className="skip" href="#main">Skip to content</a>
         <p className="stage-strip"><span className="dot" aria-hidden="true" /> {STAGE}</p>
@@ -38,6 +46,7 @@ export default function Layout({ children }: Readonly<{ children: React.ReactNod
             <Link href="/updates">Updates</Link>
             {hasVideos && <Link href="/watch">Watch</Link>}
             <Link className="nav-cta" href="/#updates">Get updates</Link>
+            <ThemeToggle />
           </nav>
         </header>
         {children}
