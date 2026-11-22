@@ -1,0 +1,53 @@
+# Paths where a change can move funds, change what is deployed, or expose keys
+# or user data. The owner reviews every change to them. See
+# docs/security/MAIN-RULESET.md for how this works with the ruleset on main.
+
+# On-chain programs, program ids and seeds mirrored off chain
+/programs/                         @nissan
+/archive/anchor-escrow/            @nissan
+/lib/program.ts                    @nissan
+/Anchor.toml                       @nissan
+/Cargo.toml                        @nissan
+/Cargo.lock                        @nissan
+
+# CI, workflows and repository rules
+/.github/                          @nissan
+
+# Network profiles, release records, deploy and launch procedure
+/config/                           @nissan
+/DEPLOY.md                         @nissan
+/docs/MAINNET-LAUNCH-RUNBOOK.md    @nissan
+/docs/MAINNET-RPC.md               @nissan
+/docs/ESCROW-PAYOUT-SAFETY.md      @nissan
+/SECURITY.md                       @nissan
+/scripts/check-escrow-deployment.mjs @nissan
+/scripts/check-escrow-treasury.mjs @nissan
+/scripts/devnet-escrow-e2e.cjs     @nissan
+/next.config.ts                    @nissan
+/vercel.json                       @nissan
+/apps/marketing/vercel.json        @nissan
+
+# Payments: verification, settlement, fees, sessions, signing
+/packages/x402-solana/             @nissan
+/packages/provider-kit/            @nissan
+/lib/payments/                     @nissan
+/lib/sandbox/                      @nissan
+/lib/wallet/                       @nissan
+/app/api/sandbox/                  @nissan
+/app/api/cron/                     @nissan
+
+# RPC proxy (holds the provider key server-side)
+/lib/rpc/                          @nissan
+/app/api/rpc/                      @nissan
+
+# Database, auth and access rules
+/supabase/                         @nissan
+/lib/supabase/                     @nissan
+/lib/auth/                         @nissan
+/app/api/auth/                     @nissan
+
+# Dependency manifests (supply chain)
+/package.json                      @nissan
+/package-lock.json                 @nissan
+/apps/marketing/package.json       @nissan
+/apps/marketing/package-lock.json  @nissan
