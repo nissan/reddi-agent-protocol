@@ -112,8 +112,8 @@ A payout fails if the treasury cannot receive it:
    `20261122100000_providers_adl.sql` (#934). All four were applied to the hosted
    project and recorded in `supabase_migrations.schema_migrations` on 22 November
    2026, with the access-rule checks in `supabase/tests` passing there. Do this before
-   any service on that `x402-solana` version takes a real payment: without the
-   second one the replay store fails closed and every payment is refused. Then
+   any service on that `x402-solana` version takes a real payment: without
+   `20261122000001_replay_check_and_store_all.sql` the replay store fails closed and every payment is refused. Then
    check in the SQL editor that the function exists and only the service role
    can run it:
 
