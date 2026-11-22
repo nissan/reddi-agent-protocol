@@ -11,8 +11,11 @@ name: Release packages
 #   environment holds an `NPM_TOKEN` secret (for a package's first version,
 #   before a trusted publisher can be set on npm), it is used instead; it never
 #   leaves the environment.
-# - If any package's version is already on npm, the run fails before anything
-#   is published.
+# - A dispatch can name the packages to publish (the `packages` input, default
+#   all three), so a later release can ship some of them while the rest keep
+#   the version already on npm. They are always published in dependency order.
+# - If any package chosen for publishing is already on npm at its version, the
+#   run fails before anything is published.
 
 on:
   pull_request:
@@ -20,6 +23,11 @@ on:
       - ".github/workflows/release-packages.yml"
       - "scripts/release/**"
   workflow_dispatch:
+    inputs:
+      packages:
+        description: "Packages to publish, space separated (x402-solana agent-protocol provider-kit)"
+        required: false
+        default: "x402-solana agent-protocol provider-kit"
 
 permissions:
   contents: read
@@ -79,6 +87,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      # Only names from the package set are taken, in dependency order.
+      - name: Choose the packages to publish
+        env:
+          REQUESTED: ${{ inputs.packages }}
+        run: |
+          set -euo pipefail
+          set -f  # no globbing of the requested names
+          requested=" $(printf '%s' "${REQUESTED:-$PACKAGES}" | tr -s '[:space:],' ' ') "
+          for name in $requested; do
+            case " $PACKAGES " in
+              *" $name "*) ;;
+              *) echo "::error::Unknown package '$name'; choose from: $PACKAGES"; exit 1 ;;
+            esac
+          done
+          chosen=""
+          for p in $PACKAGES; do
+            case "$requested" in *" $p "*) chosen="$chosen $p" ;; esac
+          done
+          chosen="${chosen# }"
+          if [ -z "$chosen" ]; then echo "::error::No package chosen."; exit 1; fi
+          echo "Publishing: $chosen"
+          echo "PUBLISH=$chosen" >> "$GITHUB_ENV"
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -92,7 +123,7 @@ jobs:
       - name: Refuse versions already on npm
         run: |
           set -euo pipefail
-          for p in $PACKAGES; do
+          for p in $PUBLISH; do
             name=$(node -p "require('./packages/$p/package.json').name")
             version=$(node -p "require('./packages/$p/package.json').version")
             if out=$(npm view "$name@$version" version 2>&1); then
@@ -113,7 +144,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
-          for p in $PACKAGES; do
+          for p in $PUBLISH; do
             echo "::group::$p"
             (cd "packages/$p" && npm ci && npm run build)
             node scripts/release/pin-local-deps.mjs "packages/$p"
@@ -144,7 +175,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -- packages
-          for p in $PACKAGES; do
+          for p in $PUBLISH; do
             name=$(node -p "require('./packages/$p/package.json').name")
             version=$(node -p "require('./packages/$p/package.json').version")
             git tag -a "$name@$version" -m "$name $version"
