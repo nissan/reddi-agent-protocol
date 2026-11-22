@@ -6,7 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { verifyReddiReceiptV2Session, type SignedReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
 import { Keypair } from "@solana/web3.js";
-import { MemoryNonceReplayStore, MeteredSessionLedger, SESSION_DELEGATION_HEADER, SESSION_SIGNATURE_HEADER, sessionDelegationHeaderValue, sessionSignatureHeaderValue, type NonceReplayStore, type SessionAction, type SessionStore } from "@redditech/x402-solana";
+import { MemoryNonceReplayStore, MeteredSessionLedger, SOLANA_GENESIS_HASHES, SESSION_DELEGATION_HEADER, SESSION_SIGNATURE_HEADER, sessionDelegationHeaderValue, sessionSignatureHeaderValue, type NonceReplayStore, type SessionAction, type SessionStore } from "@redditech/x402-solana";
 import { createProviderHandler, PROVIDER_RECEIPT_HEADER, SESSION_RECEIPT_HEADER, SESSION_STATE_HEADER } from "../src/handler.js";
 import { FileSessionStore } from "../src/sessions.js";
 import type { Upstream } from "../src/upstream.js";
@@ -21,13 +21,14 @@ const ESCROW = escrowAddress().toBase58();
 const PKCS8 = Buffer.from("302e020100300506032b657004220420", "hex");
 const keySigner = (k: Keypair) => { const key = createPrivateKey({ key: Buffer.concat([PKCS8, Buffer.from(k.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" }); return (m: Uint8Array) => new Uint8Array(edSign(null, Buffer.from(m), key)); };
 const SESSION_KEY = Keypair.generate();
+const DEVNET = SOLANA_GENESIS_HASHES["solana-devnet"];
 
 /** The headers a buyer's session client sends: the payer's delegation to a session key, and that key's signature over the request. */
 async function signed(action: SessionAction, sequence: number, body: string, nowMs: number, opts: { payer?: Keypair; key?: Keypair } = {}): Promise<Record<string, string>> {
   const key = opts.key ?? SESSION_KEY;
   return {
-    [SESSION_DELEGATION_HEADER]: await sessionDelegationHeaderValue({ escrow: ESCROW, provider: provider.publicKey.toBase58(), sessionKey: key.publicKey.toBase58(), expiresAt: Math.floor(nowMs / 1000) + 3600 }, keySigner(opts.payer ?? buyerKeypair)),
-    [SESSION_SIGNATURE_HEADER]: await sessionSignatureHeaderValue({ action, escrow: ESCROW, sequence, body }, keySigner(key)),
+    [SESSION_DELEGATION_HEADER]: await sessionDelegationHeaderValue({ genesisHash: DEVNET, escrow: ESCROW, provider: provider.publicKey.toBase58(), sessionKey: key.publicKey.toBase58(), expiresAt: Math.floor(nowMs / 1000) + 3600 }, keySigner(opts.payer ?? buyerKeypair)),
+    [SESSION_SIGNATURE_HEADER]: await sessionSignatureHeaderValue({ genesisHash: DEVNET, action, escrow: ESCROW, sequence, body }, keySigner(key)),
   };
 }
 
@@ -64,7 +65,7 @@ function setup(options: { chain?: FakeChain; store?: SessionStore; replayStore?:
   const call = async (sequence?: number, extra: Record<string, string> = {}, as: As = {}) =>
     handler(new Request("http://localhost:8787/v1/chat/completions", {
       method: "POST",
-      headers: { "content-type": "application/json", "x402-payment": paymentHeader(), ...(sequence === undefined ? (as.unsigned ? {} : await singleCallHeaders(BODY, clock.ms)) : { "x402-session-sequence": String(sequence), ...(as.unsigned ? {} : await signed("call", sequence, BODY, clock.ms, as)) }), ...extra },
+      headers: { "content-type": "application/json", "x402-payment": paymentHeader(), ...(sequence === undefined ? (as.unsigned ? {} : await singleCallHeaders(BODY, clock.ms)) : { "x402-session-sequence": String(sequence), ...(as.unsigned ? {} : await signed(extra["x402-session"] === "close" ? "call-close" : "call", sequence, BODY, clock.ms, as)) }), ...extra },
       body: BODY,
     }));
   const close = async (as: As = {}) => handler(new Request("http://localhost:8787/v1/session/close", { method: "POST", headers: { "x402-payment": paymentHeader(), ...(as.unsigned ? {} : await signed("close", 0, "", clock.ms, as)) } }));
@@ -337,4 +338,24 @@ test("a lock made again at the same address is not charged for the earlier sessi
   assert.equal(((await closed.json()) as { status: string }).status, "refunded_unpaid");
   assert.equal(chain.signed.size, 0, "nothing was settled against lock B");
   assert.ok(events.some((e) => e.event === "session_lock_replaced" && e.alert === true));
+});
+
+test("a close added to or removed from a signed call in transit is refused, and so is a signature made for another network", async () => {
+  const { handler, clock, model } = setup();
+  const send = async (headers: Record<string, string>) =>
+    handler(new Request("http://localhost:8787/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", "x402-payment": paymentHeader(), "x402-session-sequence": "1", ...headers }, body: BODY }));
+  const added = await send({ ...(await signed("call", 1, BODY, clock.ms)), "x402-session": "close" });
+  const removed = await send(await signed("call-close", 1, BODY, clock.ms));
+  const mainnet = SOLANA_GENESIS_HASHES["solana-mainnet-beta"];
+  const otherNetwork = await send({
+    [SESSION_DELEGATION_HEADER]: await sessionDelegationHeaderValue({ genesisHash: mainnet, escrow: ESCROW, provider: provider.publicKey.toBase58(), sessionKey: SESSION_KEY.publicKey.toBase58(), expiresAt: Math.floor(clock.ms / 1000) + 3600 }, keySigner(buyerKeypair)),
+    [SESSION_SIGNATURE_HEADER]: await sessionSignatureHeaderValue({ genesisHash: mainnet, action: "call", escrow: ESCROW, sequence: 1, body: BODY }, keySigner(SESSION_KEY)),
+  });
+  for (const response of [added, removed, otherNetwork]) {
+    assert.equal(response.status, 401);
+    assert.equal(((await response.json()) as { error: { code: string } }).error.code, "session_auth_invalid");
+  }
+  assert.equal(model.calls, 0, "the model never ran");
+  // Signed as sent, the same call goes through.
+  assert.equal((await send(await signed("call", 1, BODY, clock.ms))).status, 200);
 });

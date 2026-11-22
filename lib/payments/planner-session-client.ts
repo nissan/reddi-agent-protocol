@@ -19,7 +19,7 @@ import {
   SESSION_REFUSAL_CODES,
   type BuyerSession,
 } from "@/lib/payments/metered-session";
-import { createSessionKey, paidCallAuthHeaders, SESSION_DELEGATION_HEADER, SESSION_SIGNATURE_HEADER, sessionDelegationHeaderValue, sessionSignatureHeaderValue, type MessageSigner } from "@/lib/payments/session-auth";
+import { createSessionKey, paidCallAuthHeaders, SESSION_DELEGATION_HEADER, SESSION_SIGNATURE_HEADER, sessionCallAction, sessionDelegationHeaderValue, sessionSignatureHeaderValue, type MessageSigner } from "@/lib/payments/session-auth";
 import { plannerChatBody } from "@/lib/onboarding/planner-payload";
 import type { PerTokenPrice } from "@redditech/x402-solana/metered";
 
@@ -28,6 +28,8 @@ export const SESSION_DELEGATION_SECONDS = 24 * 60 * 60;
 
 /** The payer wallet's one delegation for a lock, and the key it names. Held in memory only. */
 export interface LockAuth {
+  /** The genesis hash of the cluster the lock is on; every signature names it. */
+  genesisHash: string;
   escrow: string;
   delegation: string;
   sessionKey: { publicKey: string; sign: MessageSigner };
@@ -40,6 +42,8 @@ export interface LockAuth {
  * Throws when the wallet refuses to sign.
  */
 export async function delegateLock(input: {
+  /** The genesis hash of the cluster the lock is on (`SOLANA_GENESIS_HASHES[network]`). */
+  genesisHash: string;
   escrow: string;
   providerWallet: string;
   signWithPayer: MessageSigner;
@@ -50,19 +54,21 @@ export async function delegateLock(input: {
   const sessionKey = input.sessionKey ?? (await createSessionKey());
   const expiresAt = Math.floor((input.nowMs ?? Date.now()) / 1000) + SESSION_DELEGATION_SECONDS;
   const delegation = await sessionDelegationHeaderValue(
-    { escrow: input.escrow, provider: input.providerWallet, sessionKey: sessionKey.publicKey, expiresAt },
+    { genesisHash: input.genesisHash, escrow: input.escrow, provider: input.providerWallet, sessionKey: sessionKey.publicKey, expiresAt },
     input.signWithPayer,
   );
-  return { escrow: input.escrow, delegation, sessionKey };
+  return { genesisHash: input.genesisHash, escrow: input.escrow, delegation, sessionKey };
 }
 
 /** The auth a single metered call sends: the delegation, and the key's `single` signature over the exact body. */
 export async function signSingleCall(auth: LockAuth, prompt: string): Promise<{ delegation: string; signature: string }> {
-  const headers = await paidCallAuthHeaders({ delegation: auth.delegation, sessionKey: auth.sessionKey, escrow: auth.escrow, body: plannerChatBody(prompt) });
+  const headers = await paidCallAuthHeaders({ genesisHash: auth.genesisHash, delegation: auth.delegation, sessionKey: auth.sessionKey, escrow: auth.escrow, body: plannerChatBody(prompt) });
   return { delegation: headers[SESSION_DELEGATION_HEADER], signature: headers[SESSION_SIGNATURE_HEADER] };
 }
 
 export interface PlannerSessionHandle {
+  /** The genesis hash of the cluster the lock is on. */
+  genesisHash: string;
   ledger: BuyerSession;
   /** The lock's receipt, presented unchanged with every call. Empty until the lock is sent. */
   receipt: Record<string, unknown>;
@@ -86,6 +92,7 @@ export interface PlannerSessionOutcomeView {
  * call only. Throws when the wallet refuses to sign.
  */
 export async function openPlannerSession(input: {
+  genesisHash: string;
   escrow: string;
   providerWallet: string;
   lockBaseUnits: bigint;
@@ -98,7 +105,8 @@ export async function openPlannerSession(input: {
   /** The lock's delegation, when the wallet already signed it (`delegateLock`). */
   auth?: LockAuth;
 }): Promise<PlannerSessionHandle> {
-  const { delegation, sessionKey } = input.auth ?? (await delegateLock(input));
+  const { delegation, sessionKey, genesisHash } = input.auth ?? (await delegateLock(input));
+  if (genesisHash !== input.genesisHash) throw new Error("The lock's delegation names a different network from the session's.");
   const ledger = openBuyerSession({
     providerKey: input.providerWallet,
     escrow: input.escrow,
@@ -107,7 +115,7 @@ export async function openPlannerSession(input: {
     price: input.price,
     maxOutputTokens: input.maxOutputTokens,
   });
-  return { ledger, receipt: {}, delegation, sessionKey };
+  return { genesisHash, ledger, receipt: {}, delegation, sessionKey };
 }
 
 /** Attaches the lock's receipt once the lock transaction is sent. */
@@ -124,7 +132,7 @@ export type PreparedSessionCall =
 
 /**
  * Signs the next call with the session key, over the exact body the server
- * sends. Refused here, before anything is sent, when the session is not open
+ * sends, and over whether it asks the provider to settle afterwards. Refused here, before anything is sent, when the session is not open
  * or the call's worst case would not fit in what is left of the lock.
  */
 export async function prepareSessionCall(handle: PlannerSessionHandle, prompt: string, close: boolean): Promise<PreparedSessionCall> {
@@ -134,7 +142,7 @@ export async function prepareSessionCall(handle: PlannerSessionHandle, prompt: s
     return { ok: false, handle: { ...handle, ledger }, reason: plan.reason, message: plan.message };
   }
   const signature = await sessionSignatureHeaderValue(
-    { action: "call", escrow: handle.ledger.escrow, sequence: plan.sequence, body: plannerChatBody(prompt) },
+    { genesisHash: handle.genesisHash, action: sessionCallAction(close), escrow: handle.ledger.escrow, sequence: plan.sequence, body: plannerChatBody(prompt) },
     handle.sessionKey.sign,
   );
   return { ok: true, request: { sequence: plan.sequence, close, delegation: handle.delegation, signature } };
@@ -195,7 +203,7 @@ export function applySessionOutcome(handle: PlannerSessionHandle, ok: boolean, o
 export async function prepareSessionClose(handle: PlannerSessionHandle): Promise<{ ok: true; close: { sequence: number; delegation: string; signature: string } } | { ok: false; message: string }> {
   if (handle.ledger.state !== "open") return { ok: false, message: "This session is not open, so there is nothing to settle now." };
   if (handle.ledger.calls.length === 0) return { ok: false, message: "This session has served no call yet, so there is nothing to settle. Cancel the lock for a refund once its cancel window opens." };
-  const signature = await sessionSignatureHeaderValue({ action: "close", escrow: handle.ledger.escrow, sequence: 0, body: "" }, handle.sessionKey.sign);
+  const signature = await sessionSignatureHeaderValue({ genesisHash: handle.genesisHash, action: "close", escrow: handle.ledger.escrow, sequence: 0, body: "" }, handle.sessionKey.sign);
   return { ok: true, close: { sequence: handle.ledger.nextSequence, delegation: handle.delegation, signature } };
 }
 

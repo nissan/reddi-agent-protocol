@@ -11,10 +11,28 @@ import { PublicKey } from "@solana/web3.js";
 export const SESSION_DELEGATION_HEADER = "x402-session-delegation";
 export const SESSION_SIGNATURE_HEADER = "x402-session-signature";
 
-/** `call`, `close`, `read`: session requests. `single`: a single metered call, sequence 0 (#866). */
-export type SessionAction = "call" | "close" | "read" | "single";
+/**
+ * `call`: a session call. `call-close`: a session call that also asks the
+ * provider to settle the session after answering it. `close`, `read`: session
+ * requests without a call. `single`: a single metered call, sequence 0 (#866).
+ */
+export type SessionAction = "call" | "call-close" | "close" | "read" | "single";
+
+/** The action a session call is signed under: `call-close` when it asks to close the session. */
+export function sessionCallAction(close: boolean): SessionAction {
+  return close ? "call-close" : "call";
+}
+
+/** Genesis hashes by network, as the package's `SOLANA_GENESIS_HASHES`. Signatures name the cluster by it. */
+export const SOLANA_GENESIS_HASHES = {
+  "solana-mainnet-beta": "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",
+  "solana-devnet": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+  "solana-testnet": "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY",
+} as const;
 
 export interface SessionDelegation {
+  /** The genesis hash of the cluster the escrow is on (`SOLANA_GENESIS_HASHES[network]`). */
+  genesisHash: string;
   escrow: string;
   provider: string;
   sessionKey: string;
@@ -29,6 +47,7 @@ export function sessionDelegationMessage(d: SessionDelegation): string {
   return [
     "Reddi Agent Protocol session",
     "I let this session key make paid calls on my escrow lock.",
+    `network: ${d.genesisHash}`,
     `escrow: ${d.escrow}`,
     `provider: ${d.provider}`,
     `session key: ${d.sessionKey}`,
@@ -60,9 +79,9 @@ async function sha256Hex(body: string): Promise<string> {
   return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** The bytes the session key signs for one request: call number for `call`, 0 for `close`, `read` and `single`. */
-export async function sessionRequestMessage(input: { action: SessionAction; escrow: string; sequence: number; body?: string }): Promise<string> {
-  return ["reddi-session/1", input.action, input.escrow, String(input.sequence), await sha256Hex(input.body ?? "")].join("\n");
+/** The bytes the session key signs for one request: call number for `call` and `call-close`, 0 for `close`, `read` and `single`. */
+export async function sessionRequestMessage(input: { genesisHash: string; action: SessionAction; escrow: string; sequence: number; body?: string }): Promise<string> {
+  return ["reddi-session/2", input.genesisHash, input.action, input.escrow, String(input.sequence), await sha256Hex(input.body ?? "")].join("\n");
 }
 
 /** A fresh session key held in memory. Its private half never leaves this object. */
@@ -82,19 +101,20 @@ export async function createSessionKey(): Promise<{ publicKey: string; sign: Mes
 /** The delegation header value, signed by the payer wallet (for example a wallet adapter's `signMessage`). */
 export async function sessionDelegationHeaderValue(d: SessionDelegation, signWithPayer: MessageSigner): Promise<string> {
   const signature = await signWithPayer(new TextEncoder().encode(sessionDelegationMessage(d)));
-  return base64(new TextEncoder().encode(JSON.stringify({ ...d, signature: base64(signature) })));
+  const { genesisHash, ...rest } = d;
+  return base64(new TextEncoder().encode(JSON.stringify({ network: genesisHash, ...rest, signature: base64(signature) })));
 }
 
 /** The signature header value for one request, signed by the session key over the exact body sent. */
-export async function sessionSignatureHeaderValue(input: { action: SessionAction; escrow: string; sequence: number; body?: string }, signWithSessionKey: MessageSigner): Promise<string> {
+export async function sessionSignatureHeaderValue(input: { genesisHash: string; action: SessionAction; escrow: string; sequence: number; body?: string }, signWithSessionKey: MessageSigner): Promise<string> {
   return base64(await signWithSessionKey(new TextEncoder().encode(await sessionRequestMessage(input))));
 }
 
 /** Both auth headers for one session call: the delegation made once per session, and this call's signature. */
-export async function sessionAuthHeaders(input: { delegation: string; sessionKey: { sign: MessageSigner }; escrow: string; sequence: number; body: string }): Promise<Record<string, string>> {
+export async function sessionAuthHeaders(input: { genesisHash: string; delegation: string; sessionKey: { sign: MessageSigner }; escrow: string; sequence: number; body: string; close?: boolean }): Promise<Record<string, string>> {
   return {
     [SESSION_DELEGATION_HEADER]: input.delegation,
-    [SESSION_SIGNATURE_HEADER]: await sessionSignatureHeaderValue({ action: "call", escrow: input.escrow, sequence: input.sequence, body: input.body }, input.sessionKey.sign),
+    [SESSION_SIGNATURE_HEADER]: await sessionSignatureHeaderValue({ genesisHash: input.genesisHash, action: sessionCallAction(input.close === true), escrow: input.escrow, sequence: input.sequence, body: input.body }, input.sessionKey.sign),
   };
 }
 
@@ -103,10 +123,10 @@ export async function sessionAuthHeaders(input: { delegation: string; sessionKey
  * key's signature with action `single`, sequence 0, over the exact body sent.
  * Same headers as the package's `paidCallAuthHeaders` with a session key.
  */
-export async function paidCallAuthHeaders(input: { delegation: string; sessionKey: { sign: MessageSigner }; escrow: string; body: string }): Promise<Record<string, string>> {
+export async function paidCallAuthHeaders(input: { genesisHash: string; delegation: string; sessionKey: { sign: MessageSigner }; escrow: string; body: string }): Promise<Record<string, string>> {
   return {
     [SESSION_DELEGATION_HEADER]: input.delegation,
-    [SESSION_SIGNATURE_HEADER]: await sessionSignatureHeaderValue({ action: "single", escrow: input.escrow, sequence: 0, body: input.body }, input.sessionKey.sign),
+    [SESSION_SIGNATURE_HEADER]: await sessionSignatureHeaderValue({ genesisHash: input.genesisHash, action: "single", escrow: input.escrow, sequence: 0, body: input.body }, input.sessionKey.sign),
   };
 }
 

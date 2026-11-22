@@ -12,6 +12,8 @@ import {
   sessionDelegationMessage,
   sessionSignatureHeaderValue,
   verifySessionRequest,
+  SOLANA_GENESIS_HASHES,
+  sessionCallAction,
   type SessionDelegation,
 } from '../src';
 
@@ -24,19 +26,21 @@ const provider = Keypair.generate().publicKey;
 const escrow = Keypair.generate().publicKey;
 const NOW = 1_800_000_000_000;
 const BODY = JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] });
+const DEVNET = SOLANA_GENESIS_HASHES['solana-devnet'];
+const MAINNET = SOLANA_GENESIS_HASHES['solana-mainnet-beta'];
 
-const delegation = (over: Partial<SessionDelegation> = {}): SessionDelegation => ({ escrow: escrow.toBase58(), provider: provider.toBase58(), sessionKey: sessionKey.publicKey.toBase58(), expiresAt: NOW / 1000 + 3600, ...over });
+const delegation = (over: Partial<SessionDelegation> = {}): SessionDelegation => ({ genesisHash: DEVNET, escrow: escrow.toBase58(), provider: provider.toBase58(), sessionKey: sessionKey.publicKey.toBase58(), expiresAt: NOW / 1000 + 3600, ...over });
 
-async function headers(input: { d?: SessionDelegation; payerKey?: Keypair; key?: Keypair; action?: 'call' | 'close' | 'read'; sequence?: number; body?: string } = {}) {
+async function headers(input: { d?: SessionDelegation; payerKey?: Keypair; key?: Keypair; action?: 'call' | 'call-close' | 'close' | 'read'; sequence?: number; body?: string; genesisHash?: string } = {}) {
   const map = new Map<string, string>([
     [SESSION_DELEGATION_HEADER, await sessionDelegationHeaderValue(input.d ?? delegation(), signer(input.payerKey ?? payer))],
-    [SESSION_SIGNATURE_HEADER, await sessionSignatureHeaderValue({ action: input.action ?? 'call', escrow: escrow.toBase58(), sequence: input.sequence ?? 1, body: input.body ?? BODY }, signer(input.key ?? sessionKey))],
+    [SESSION_SIGNATURE_HEADER, await sessionSignatureHeaderValue({ genesisHash: input.genesisHash ?? DEVNET, action: input.action ?? 'call', escrow: escrow.toBase58(), sequence: input.sequence ?? 1, body: input.body ?? BODY }, signer(input.key ?? sessionKey))],
   ]);
   return { get: (name: string) => map.get(name) ?? null, map };
 }
 
-const check = (h: { get(name: string): string | null }, over: { action?: 'call' | 'close' | 'read'; sequence?: number; body?: string; nowMs?: number } = {}) =>
-  verifySessionRequest({ headers: h, action: over.action ?? 'call', escrow, payer: payer.publicKey, provider, sequence: over.sequence ?? 1, body: over.body ?? BODY, nowMs: over.nowMs ?? NOW });
+const check = (h: { get(name: string): string | null }, over: { action?: 'call' | 'call-close' | 'close' | 'read'; sequence?: number; body?: string; nowMs?: number; genesisHash?: string } = {}) =>
+  verifySessionRequest({ headers: h, genesisHash: over.genesisHash ?? DEVNET, action: over.action ?? 'call', escrow, payer: payer.publicKey, provider, sequence: over.sequence ?? 1, body: over.body ?? BODY, nowMs: over.nowMs ?? NOW });
 
 describe('session request signatures (security review S-1)', () => {
   test('accepts a call signed by a session key the payer delegated to', async () => {
@@ -89,23 +93,51 @@ describe('session request signatures (security review S-1)', () => {
   });
 });
 
+describe('signatures are bound to one network and to the close intent', () => {
+  test('refuses a delegation or request signed for another network', async () => {
+    const otherDelegation = check(await headers({ d: delegation({ genesisHash: MAINNET }) }));
+    expect(!otherDelegation.ok && otherDelegation.reason).toBe('session_auth_invalid');
+    const otherRequest = check(await headers({ genesisHash: MAINNET }));
+    expect(!otherRequest.ok && otherRequest.reason).toBe('session_auth_invalid');
+    const onMainnet = check(await headers(), { genesisHash: MAINNET });
+    expect(!onMainnet.ok && onMainnet.reason).toBe('session_auth_invalid');
+  });
+
+  test('refuses a delegation that names no network', async () => {
+    const map = new Map<string, string>((await headers()).map);
+    const decoded = JSON.parse(Buffer.from(map.get(SESSION_DELEGATION_HEADER)!, 'base64').toString('utf8'));
+    delete decoded.network;
+    map.set(SESSION_DELEGATION_HEADER, Buffer.from(JSON.stringify(decoded)).toString('base64'));
+    const result = check({ get: (name: string) => map.get(name) ?? null });
+    expect(!result.ok && result.reason).toBe('session_auth_invalid');
+  });
+
+  test('a call signed without the close intent cannot be presented as closing the session, nor the other way round', async () => {
+    expect(check(await headers({ action: 'call' }), { action: 'call-close' }).ok).toBe(false);
+    expect(check(await headers({ action: 'call-close' }), { action: 'call' }).ok).toBe(false);
+    expect(check(await headers({ action: 'call-close' }), { action: 'call-close' }).ok).toBe(true);
+    expect(sessionCallAction(true)).toBe('call-close');
+    expect(sessionCallAction(false)).toBe('call');
+  });
+});
+
 describe('single metered call signatures (#866)', () => {
   const singleCheck = (h: { get(name: string): string | null }, body = BODY) =>
-    verifyPaidCallRequest({ headers: h, escrow, payer: payer.publicKey, provider, body, nowMs: NOW });
+    verifyPaidCallRequest({ headers: h, genesisHash: DEVNET, escrow, payer: payer.publicKey, provider, body, nowMs: NOW });
   const asHeaders = (r: Record<string, string>) => ({ get: (name: string) => r[name] ?? null });
 
   test('accepts a call the payer signed directly, or through a fresh key', async () => {
-    const direct = await paidCallAuthHeaders({ escrow: escrow.toBase58(), provider: provider.toBase58(), body: BODY, payer: payer.publicKey.toBase58(), signWithPayer: signer(payer), nowMs: NOW });
+    const direct = await paidCallAuthHeaders({ genesisHash: DEVNET, escrow: escrow.toBase58(), provider: provider.toBase58(), body: BODY, payer: payer.publicKey.toBase58(), signWithPayer: signer(payer), nowMs: NOW });
     expect(singleCheck(asHeaders(direct)).ok).toBe(true);
-    const viaKey = await paidCallAuthHeaders({ escrow: escrow.toBase58(), provider: provider.toBase58(), body: BODY, payer: payer.publicKey.toBase58(), signWithPayer: signer(payer), sessionKey: { publicKey: sessionKey.publicKey.toBase58(), sign: signer(sessionKey) }, nowMs: NOW });
+    const viaKey = await paidCallAuthHeaders({ genesisHash: DEVNET, escrow: escrow.toBase58(), provider: provider.toBase58(), body: BODY, payer: payer.publicKey.toBase58(), signWithPayer: signer(payer), sessionKey: { publicKey: sessionKey.publicKey.toBase58(), sign: signer(sessionKey) }, nowMs: NOW });
     expect(singleCheck(asHeaders(viaKey)).ok).toBe(true);
   });
 
   test('refuses a stranger, a changed body, and a session call presented as a single call', async () => {
     const stranger = Keypair.generate();
-    const theirs = await paidCallAuthHeaders({ escrow: escrow.toBase58(), provider: provider.toBase58(), body: BODY, payer: stranger.publicKey.toBase58(), signWithPayer: signer(stranger), nowMs: NOW });
+    const theirs = await paidCallAuthHeaders({ genesisHash: DEVNET, escrow: escrow.toBase58(), provider: provider.toBase58(), body: BODY, payer: stranger.publicKey.toBase58(), signWithPayer: signer(stranger), nowMs: NOW });
     expect(singleCheck(asHeaders(theirs)).ok).toBe(false);
-    const mine = await paidCallAuthHeaders({ escrow: escrow.toBase58(), provider: provider.toBase58(), body: BODY, payer: payer.publicKey.toBase58(), signWithPayer: signer(payer), nowMs: NOW });
+    const mine = await paidCallAuthHeaders({ genesisHash: DEVNET, escrow: escrow.toBase58(), provider: provider.toBase58(), body: BODY, payer: payer.publicKey.toBase58(), signWithPayer: signer(payer), nowMs: NOW });
     expect(singleCheck(asHeaders(mine), BODY + ' ').ok).toBe(false);
     const sessionCall = await headers({ action: 'call', sequence: 0 });
     expect(singleCheck(sessionCall).ok).toBe(false);

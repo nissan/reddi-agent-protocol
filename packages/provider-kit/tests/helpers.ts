@@ -199,5 +199,5 @@ export async function singleCallHeaders(body: string, nowMs: number, signer: Key
   const { createPrivateKey, sign } = await import("node:crypto");
   const { paidCallAuthHeaders } = await import("@redditech/x402-solana");
   const key = createPrivateKey({ key: signer === buyerKeypair ? BUYER_PKCS8 : Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(signer.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
-  return paidCallAuthHeaders({ escrow: escrowAddress().toBase58(), provider: provider.publicKey.toBase58(), body, payer: signer.publicKey.toBase58(), signWithPayer: (m) => new Uint8Array(sign(null, Buffer.from(m), key)), nowMs });
+  return paidCallAuthHeaders({ genesisHash: SOLANA_GENESIS_HASHES["solana-devnet"], escrow: escrowAddress().toBase58(), provider: provider.publicKey.toBase58(), body, payer: signer.publicKey.toBase58(), signWithPayer: (m) => new Uint8Array(sign(null, Buffer.from(m), key)), nowMs });
 }
