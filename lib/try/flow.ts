@@ -17,7 +17,7 @@
  * Pay transaction request can ask of it. Runs on devnet against the sandbox
  * providers; the relay key never holds funds.
  */
-import { Keypair, PublicKey, Transaction, type Connection } from "@solana/web3.js";
+import { ComputeBudgetProgram, Keypair, PublicKey, Transaction, type Connection } from "@solana/web3.js";
 import {
   lockBoundDelegationHeaderValue,
   sessionDelegationMemo,
@@ -42,6 +42,9 @@ function signWith(key: Keypair, message: Uint8Array): Uint8Array {
   const pk = createPrivateKey({ key: Buffer.concat([PKCS8_PREFIX, Buffer.from(key.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
   return new Uint8Array(edSign(null, Buffer.from(message), pk));
 }
+
+export const TRY_LOCK_COMPUTE_UNITS = 80_000;
+export const TRY_LOCK_MICRO_LAMPORTS_PER_UNIT = 1_000;
 
 export type TryFailure = { ok: false; status: number; code: string; message: string };
 const fail = (status: number, code: string, message: string): TryFailure => ({ ok: false, status, code, message });
@@ -106,7 +109,11 @@ export async function buildTryTransaction(input: { token: unknown; account: unkn
   lock.instruction.keys.push({ pubkey: new PublicKey(ticket.reference), isSigner: false, isWritable: false });
   const memo = sessionDelegationMemoInstruction(delegationFor(ticket, provider, lock.escrow, input.secret), payer);
   const { blockhash, lastValidBlockHeight } = await input.connection.getLatestBlockhash("confirmed");
-  const tx = new Transaction({ feePayer: payer, blockhash, lastValidBlockHeight }).add(lock.instruction, memo);
+  // An explicit, small compute budget. Without one, wallets add their own priority fee, which
+  // was eight times the base fee on run 5 and larger than the call itself. The lock used
+  // 53,575 compute units there; at 1,000 micro-lamports a unit the priority fee is 80 lamports.
+  const budget = [ComputeBudgetProgram.setComputeUnitLimit({ units: TRY_LOCK_COMPUTE_UNITS }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: TRY_LOCK_MICRO_LAMPORTS_PER_UNIT })];
+  const tx = new Transaction({ feePayer: payer, blockhash, lastValidBlockHeight }).add(lock.instruction, memo, ...budget);
   const transaction = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
   return { ok: true, transaction, message: `Lock up to the maximum for one ${provider.name} call on devnet. Unused SOL comes back after the answer.` };
 }

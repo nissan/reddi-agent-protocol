@@ -7,6 +7,7 @@
  * wallets whose keys the sandbox server holds (`SANDBOX_DEVNET_PAYEE_KEYS`), so
  * a provider can settle a metered escrow after it answers. They hold devnet SOL only.
  */
+import { PR_REVIEW_ANSWER, PR_REVIEW_PROMPT } from "@/lib/try/pr-review";
 
 export const SANDBOX_NETWORK = "solana-devnet" as const;
 export const SANDBOX_CURRENCY = "SOL" as const;
@@ -165,6 +166,10 @@ export function findSandboxScenario(id: unknown): SandboxScenario | undefined {
  * so the same request always hashes to the same response.
  */
 export function scriptedSandboxAnswer(provider: SandboxProvider, prompt: string): string {
+  if (prompt === PR_REVIEW_PROMPT) {
+    if (provider.id === "atlas-review") return PR_REVIEW_ANSWER;
+    return "Two things before this ships: a resent status check can hit the replay guard and show a paid call as failed, and the rating path still confirms over a websocket. Store the answer by escrow and poll for confirmations.";
+  }
   const text = prompt.toLowerCase();
   const about = text.includes("applydiscount")
     ? "discount"

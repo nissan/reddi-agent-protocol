@@ -4,6 +4,7 @@
  * Browser-safe.
  */
 import { REVIEW_PROMPT, SANDBOX_PROVIDERS, type SandboxProvider } from "@/lib/sandbox/catalog";
+import { PR_REVIEW_PROMPT } from "./pr-review";
 
 export type TryTask = {
   id: string;
@@ -15,6 +16,13 @@ export type TryTask = {
 };
 
 export const TRY_TASKS: readonly TryTask[] = [
+  {
+    id: "pr-review",
+    title: "Review a real pull request",
+    blurb: "A careful reviewer reads a real change from this project, about 5,000 tokens of code and diff, and ranks what would break.",
+    prompt: PR_REVIEW_PROMPT,
+    providerId: "atlas-review",
+  },
   {
     id: "code-review",
     title: "Review a function before it ships",

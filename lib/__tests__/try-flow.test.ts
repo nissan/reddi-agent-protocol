@@ -1,12 +1,14 @@
 /**
  * @jest-environment node
  */
-import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import { ComputeBudgetProgram, Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import { SANDBOX_PROVIDERS, scriptedSandboxAnswer } from "@/lib/sandbox/catalog";
+import { countTokens, requestInputTokens, sessionCallLamports } from "@/lib/sandbox/pricing";
 import { MEMO_PROGRAM_ID, MemoryNonceReplayStore, sessionDelegationMemo, transactionFactsReader } from "@redditech/x402-solana";
 import { SANDBOX_CANCEL_WINDOW_SLOTS, SANDBOX_CLAIM_WINDOW_SLOTS, SANDBOX_ESCROW_DISCRIMINATORS, SANDBOX_ESCROW_PROGRAM_ID, escrowNonceBytes, sandboxEscrowAddress } from "@/lib/sandbox/escrow";
 import type { SandboxGatewayDeps } from "@/lib/sandbox/gateway";
 import type { SandboxSettleInput, SandboxSettler } from "@/lib/sandbox/settle-signer";
-import { buildTryTransaction, runTry, startTry } from "@/lib/try/flow";
+import { buildTryTransaction, runTry, startTry, TRY_LOCK_COMPUTE_UNITS, TRY_LOCK_MICRO_LAMPORTS_PER_UNIT } from "@/lib/try/flow";
 import { openTicket, relayKeypair, sealTicket, trySecret, TryNotConfiguredError } from "@/lib/try/ticket";
 import { TRY_TASKS } from "@/lib/try/tasks";
 import { devnetOrResponse, solanaPayLink } from "@/lib/try/http";
@@ -94,8 +96,13 @@ describe("try page: Solana Pay transaction request flow (#925)", () => {
 
     const tx = Transaction.from(Buffer.from(built.transaction, "base64"));
     expect(tx.feePayer?.equals(payer.publicKey)).toBe(true);
-    expect(tx.instructions).toHaveLength(2);
-    const [lock, memo] = tx.instructions;
+    expect(tx.instructions).toHaveLength(4);
+    const [lock, memo, limit, price] = tx.instructions;
+    // An explicit, small compute budget, so the wallet does not add a priority fee larger than the call.
+    expect(limit.programId.equals(ComputeBudgetProgram.programId) && price.programId.equals(ComputeBudgetProgram.programId)).toBe(true);
+    expect(Buffer.from(limit.data)).toEqual(Buffer.from(ComputeBudgetProgram.setComputeUnitLimit({ units: TRY_LOCK_COMPUTE_UNITS }).data));
+    expect(Buffer.from(price.data)).toEqual(Buffer.from(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: TRY_LOCK_MICRO_LAMPORTS_PER_UNIT }).data));
+    expect((TRY_LOCK_COMPUTE_UNITS * TRY_LOCK_MICRO_LAMPORTS_PER_UNIT) / 1_000_000).toBeLessThan(5_000);
     const escrow = sandboxEscrowAddress(payer.publicKey, s.ticket.nonce);
     expect(lock.keys[0].pubkey.equals(escrow)).toBe(true);
     expect(lock.keys.at(-1)).toEqual({ pubkey: new PublicKey(s.ticket.reference), isSigner: false, isWritable: false });
@@ -195,6 +202,18 @@ describe("try page: Solana Pay transaction request flow (#925)", () => {
     expect(built).toMatchObject({ ok: false, code: "ticket_invalid" });
     expect(await buildTryTransaction({ token: s.token, account: "not-a-key", secret: SECRET, connection: w.connection, nowMs: NOW_MS })).toMatchObject({ ok: false, code: "account_invalid" });
     expect(await startTry({ taskId: "nope", origin: ORIGIN, secret: SECRET, deps: w.deps })).toMatchObject({ ok: false, code: "unknown_task" });
+  });
+
+  it("the pull-request task costs far more than the lock's network fee", () => {
+    const task = TRY_TASKS.find((t) => t.id === "pr-review")!;
+    const provider = SANDBOX_PROVIDERS.find((p) => p.id === task.providerId)!;
+    const inputTokens = requestInputTokens([{ content: task.prompt }]);
+    const outputTokens = countTokens(scriptedSandboxAnswer(provider, task.prompt));
+    const cost = sessionCallLamports(provider, { inputTokens, outputTokens });
+    // Base fee 5,000 lamports plus 80 lamports of priority at the try page's compute budget.
+    const lockNetworkFee = BigInt(5_000 + (TRY_LOCK_COMPUTE_UNITS * TRY_LOCK_MICRO_LAMPORTS_PER_UNIT) / 1_000_000);
+    expect(inputTokens).toBeGreaterThan(4_000);
+    expect(cost > lockNetworkFee * BigInt(20)).toBe(true);
   });
 
   it("every task has a provider and a challenge", async () => {
