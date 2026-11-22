@@ -281,7 +281,7 @@ export default function TestersPage() {
             <li>Open <Link href="/planner" className="text-indigo-300 hover:text-indigo-200">/planner</Link> and set max spend, privacy mode, attestation requirement, and preferred specialist.</li>
             <li>Resolve a specialist and, if desired, resolve an attestor before execution.</li>
             <li>Run a paid call and capture the receipt: transaction, nonce, specialist wallet, and release/refund status.</li>
-            <li>Open <Link href="/consumer" className="text-indigo-300 hover:text-indigo-200">/consumer</Link> and <Link href="/runs" className="text-indigo-300 hover:text-indigo-200">/runs</Link> to inspect history.</li>
+            <li>Open <Link href="/jobs" className="text-indigo-300 hover:text-indigo-200">/jobs</Link> and <Link href="/runs" className="text-indigo-300 hover:text-indigo-200">/runs</Link> to inspect history.</li>
           </ol>
           <pre className="overflow-x-auto rounded-xl border border-white/10 bg-black/50 p-4 text-xs leading-5 text-gray-200"><code>{consumerRegister}</code></pre>
         </section>
