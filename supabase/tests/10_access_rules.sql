@@ -50,6 +50,21 @@ do $$ begin
   end;
   raise exception 'negative per-token price was accepted';
 end $$;
+-- A listing's ADL document is an object and always says where it came from.
+update public.providers set adl = '{"apiVersion": "reddiagent.dev/v0.3"}'::jsonb, adl_source = 'provider'
+  where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr';
+do $$ begin
+  begin
+    update public.providers set adl_source = null where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr';
+  exception when check_violation then
+    begin
+      update public.providers set adl = '[1]'::jsonb where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr';
+    exception when check_violation then return;
+    end;
+    raise exception 'an ADL that is not an object was accepted';
+  end;
+  raise exception 'an ADL without its source was accepted';
+end $$;
 -- The database moves updated_at on every edit.
 do $$ declare before timestamptz; after timestamptz; begin
   select updated_at into before from public.providers where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr';

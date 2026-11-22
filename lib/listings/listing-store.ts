@@ -11,6 +11,7 @@ import "server-only";
 
 import type { NetworkProfileName } from "@/lib/config/network-profile-name";
 import { supabaseOrigin, supabasePublicConfig, type SupabasePublicConfig } from "@/lib/supabase/config";
+import type { AdlDocument } from "@redditech/agent-protocol/adl";
 
 export type ListingNetwork = "solana-devnet" | "solana-mainnet";
 export type ListingStatus = "draft" | "listed" | "paused";
@@ -32,7 +33,20 @@ export interface ListingInput {
   status: ListingStatus;
 }
 
+/** A listing's ADL v0.3 document, checked by the server, and whether the provider sent it or the app made it from the listing. */
+export interface ListingAdlRecord {
+  adl: AdlDocument;
+  source: "provider" | "generated";
+}
+
 export interface Listing extends ListingInput {
+  /**
+   * The listing's ADL document. Null in lists, which carry only `adlSource`
+   * (GET /api/listings/{wallet}/adl serves the document), and for a listing
+   * saved before ADL was required.
+   */
+  adl: AdlDocument | null;
+  adlSource: ListingAdlRecord["source"] | null;
   wallet: string;
   network: ListingNetwork;
   healthStatus: "unknown" | "pass" | "fail";
@@ -50,8 +64,23 @@ const MAX_MODELS = 20;
 const MAX_CAPABILITIES_BYTES = 16 * 1024;
 
 /** Columns a client role may read. `owner_user_id` is never selected. */
-const LISTING_COLUMNS =
+const BASE_COLUMNS =
   "wallet,display_name,endpoint_url,declared_models,capabilities,price_per_call_base_units,price_input_per_million_base_units,price_output_per_million_base_units,price_mint,network,status,health_status,last_seen_at,updated_at";
+/** One listing, with its ADL document. */
+const LISTING_COLUMNS = `${BASE_COLUMNS},adl,adl_source`;
+/** Many listings: the documents are left out to keep the list small. */
+const LIST_COLUMNS = `${BASE_COLUMNS},adl_source`;
+
+/**
+ * Reads with the ADL columns, and once more without them when the database
+ * does not have them yet (migration 20261122100000 not applied), so listings
+ * stay readable during that window.
+ */
+async function readRows(fetchImpl: FetchLike, url: (columns: string) => string, headers: Record<string, string>, columns = LISTING_COLUMNS): Promise<StoreResponse> {
+  const first = await fetchImpl(url(columns), { method: "GET", headers, signal: AbortSignal.timeout(5000) });
+  if (first.ok || first.status !== 400) return first;
+  return fetchImpl(url(BASE_COLUMNS), { method: "GET", headers, signal: AbortSignal.timeout(5000) });
+}
 
 /** The database's name for the network this deployment serves. A local profile has none. */
 export function listingNetworkForProfile(profile: NetworkProfileName): ListingNetwork | undefined {
@@ -158,6 +187,8 @@ function fromRow(row: unknown): Listing | undefined {
     priceInputPerMillionBaseUnits: inputPrice,
     priceOutputPerMillionBaseUnits: outputPrice,
     priceMint: typeof r.price_mint === "string" ? r.price_mint : "",
+    adl: r.adl && typeof r.adl === "object" && !Array.isArray(r.adl) ? (r.adl as AdlDocument) : null,
+    adlSource: r.adl_source === "provider" || r.adl_source === "generated" ? r.adl_source : null,
     network: r.network,
     status: r.status as ListingStatus,
     healthStatus: r.health_status === "pass" || r.health_status === "fail" ? r.health_status : "unknown",
@@ -179,6 +210,7 @@ function serverCredentials(deps: ListingStoreDeps): { origin: string; serviceKey
 export async function saveOwnListing(
   owner: { userId: string; wallet: string },
   input: ListingInput,
+  adl: ListingAdlRecord,
   network: ListingNetwork,
   deps: ListingStoreDeps = {},
 ): Promise<{ ok: true; listing: Listing } | ListingRefusal> {
@@ -217,6 +249,8 @@ export async function saveOwnListing(
         price_input_per_million_base_units: input.priceInputPerMillionBaseUnits,
         price_output_per_million_base_units: input.priceOutputPerMillionBaseUnits,
         price_mint: input.priceMint,
+        adl: adl.adl,
+        adl_source: adl.source,
         network,
         status: input.status,
       }),
@@ -237,11 +271,7 @@ export async function readOwnListing(wallet: string, deps: ListingStoreDeps = {}
   if (!credentials || !WALLET.test(wallet)) return UNAVAILABLE;
   const fetchImpl = deps.fetchImpl ?? (fetch as unknown as FetchLike);
   try {
-    const response = await fetchImpl(`${credentials.origin}/rest/v1/providers?select=${LISTING_COLUMNS}&wallet=eq.${wallet}`, {
-      method: "GET",
-      headers: { apikey: credentials.serviceKey, authorization: `Bearer ${credentials.serviceKey}` },
-      signal: AbortSignal.timeout(5000),
-    });
+    const response = await readRows(fetchImpl, (columns) => `${credentials.origin}/rest/v1/providers?select=${columns}&wallet=eq.${wallet}`, { apikey: credentials.serviceKey, authorization: `Bearer ${credentials.serviceKey}` });
     if (!response.ok) return UNAVAILABLE;
     const rows = await response.json();
     return { ok: true, listing: Array.isArray(rows) && rows.length ? fromRow(rows[0]) ?? null : null };
@@ -259,9 +289,11 @@ export async function readPublicListings(network: ListingNetwork, deps: ListingS
   if (!config) return UNAVAILABLE;
   const fetchImpl = deps.fetchImpl ?? (fetch as unknown as FetchLike);
   try {
-    const response = await fetchImpl(
-      `${config.url}/rest/v1/providers?select=${LISTING_COLUMNS}&status=eq.listed&network=eq.${network}&order=updated_at.desc&limit=200`,
-      { method: "GET", headers: { apikey: config.anonKey, authorization: `Bearer ${config.anonKey}` }, signal: AbortSignal.timeout(5000) },
+    const response = await readRows(
+      fetchImpl,
+      (columns) => `${config.url}/rest/v1/providers?select=${columns}&status=eq.listed&network=eq.${network}&order=updated_at.desc&limit=200`,
+      { apikey: config.anonKey, authorization: `Bearer ${config.anonKey}` },
+      LIST_COLUMNS,
     );
     if (!response.ok) return UNAVAILABLE;
     const rows = await response.json();
@@ -289,6 +321,28 @@ export async function recordListingHealth(wallet: string, status: "pass" | "fail
       signal: AbortSignal.timeout(5000),
     });
     return response.ok ? { ok: true } : UNAVAILABLE;
+  } catch {
+    return UNAVAILABLE;
+  }
+}
+
+/** One listed provider on a network, or null. Read with the public key, like `readPublicListings`. */
+export async function readPublicListing(network: ListingNetwork, wallet: string, deps: ListingStoreDeps = {}): Promise<{ ok: true; listing: Listing | null } | ListingRefusal> {
+  if (!WALLET.test(wallet)) return { ok: true, listing: null };
+  const config = deps.publicConfig ?? supabasePublicConfig();
+  if (!config) return UNAVAILABLE;
+  const fetchImpl = deps.fetchImpl ?? (fetch as unknown as FetchLike);
+  try {
+    const response = await readRows(
+      fetchImpl,
+      (columns) => `${config.url}/rest/v1/providers?select=${columns}&status=eq.listed&network=eq.${network}&wallet=eq.${wallet}&limit=1`,
+      { apikey: config.anonKey, authorization: `Bearer ${config.anonKey}` },
+    );
+    if (!response.ok) return UNAVAILABLE;
+    const rows = await response.json();
+    if (!Array.isArray(rows)) return UNAVAILABLE;
+    const listing = rows.map(fromRow).find((l): l is Listing => l !== undefined && l.wallet === wallet && l.status === "listed" && l.network === network);
+    return { ok: true, listing: listing ?? null };
   } catch {
     return UNAVAILABLE;
   }

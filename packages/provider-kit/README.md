@@ -94,13 +94,22 @@ Buyers and the app find a provider through two records: the on-chain registry, a
 rap-provider register --dry-run   # prints the registry accounts and the listing; signs and sends nothing
 rap-provider register             # registers, signs in with your wallet, lists
 rap-provider status               # reads both back
+rap-provider adl                  # prints your ADL document
 ```
 
 What `register` does, in order, and what it costs:
 
 1. Checks the key file is your configured wallet's, the RPC endpoint is your network, and the app serves the same network. If any is wrong it stops before sending anything.
 2. If your wallet has no registry record, sends `register_agent`. The program burns a 0.01 SOL registration fee and your wallet pays the record's rent. Run again, it does not register twice.
-3. Signs one sign-in message with your wallet (it moves no funds), sent to the sign-in service the app names, and then creates or updates your listing: name, public address, model, currency and per-token price. A paused currency is listed as paused.
+3. Signs one sign-in message with your wallet (it moves no funds), sent to the sign-in service the app names, and then creates or updates your listing: name, public address, model, currency and per-token price, with your ADL document. A paused currency is listed as paused.
+
+### Your ADL document
+
+Every provider describes itself in [Agent Definition Language](https://agent-protocol.reddi.tech/adl) v0.3, made from `provider.json`: the model it declares, a live charge on the Solana rail settled through metered escrow, its per-token price, the most one call can cost, the wallet that is paid, the protocol fee (5%, at the 2.5% launch rate for payouts before 1 April 2027 UTC, capped at 0.1 SOL on SOL), and a `reddi.receipt.v2` receipt for every paid answer. It passes ADL Level 3.
+
+The provider serves it at `/.well-known/adl.yaml`, `/.well-known/reddi-agent.json` links to it, and `register` sends it with the listing. The app checks it and refuses a listing whose ADL fails Level 3 or says something different from the listing. Because both come from the same config, they cannot drift. `rap-provider adl` prints it, `--json` prints the Level 3 report, and `rap-provider doctor` checks it.
+
+The most one call can cost is the price of every input token a request can hold (a 1 MB body, about 250,000 tokens, plus your system prompt) and the full `maxOutputTokens`. Buyers lock less for an ordinary call; this is the ceiling they never need to go above.
 
 `publicUrl` must be a public https address before you list. Set `listing.capabilities` to say what the provider is for, for example `{ "taskTypes": ["writing"] }`, and `listing.appUrl` (or `RAP_APP_URL`) for another deployment of the app.
 

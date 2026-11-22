@@ -17,7 +17,7 @@ const ANON_KEY = "public-anon-key";
 function listing(overrides: Partial<Listing> = {}): Listing {
   return {
     wallet: WALLET, displayName: "Fast summaries", endpointUrl: "https://provider.example/v1", declaredModels: [], capabilities: { taskTypes: ["summarize"], privacyModes: ["public", "secret"] },
-    pricePerCallBaseUnits: "2500", priceInputPerMillionBaseUnits: "0", priceOutputPerMillionBaseUnits: "0", priceMint: DEVNET_USDC, network: "solana-devnet", status: "listed", healthStatus: "pass", lastSeenAt: new Date().toISOString(), updatedAt: "2026-11-20T00:00:00Z",
+    pricePerCallBaseUnits: "2500", priceInputPerMillionBaseUnits: "0", priceOutputPerMillionBaseUnits: "0", priceMint: DEVNET_USDC, adl: null, adlSource: null, network: "solana-devnet", status: "listed", healthStatus: "pass", lastSeenAt: new Date().toISOString(), updatedAt: "2026-11-20T00:00:00Z",
     ...overrides,
   };
 }

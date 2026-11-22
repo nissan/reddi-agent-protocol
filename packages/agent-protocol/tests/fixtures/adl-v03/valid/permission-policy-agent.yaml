@@ -1,0 +1,225 @@
+apiVersion: reddiagent.dev/v0.3
+kind: Agent
+metadata:
+  name: permission-policy-helper
+  description: Demonstrates structured capability policies for risky agent capabilities.
+model:
+  capability: chat
+  providers:
+    preferred: openai
+  requirements:
+    toolCalling: true
+    structuredOutput: true
+harness:
+  instructions:
+    inline: Use only declared capabilities and stop when approval is required.
+  tools:
+  - id: search_docs
+    type: function
+    description: Search reviewed project documents.
+    policyRefs:
+    - allow-reviewed-tool
+  - id: send_summary
+    type: http
+    capability: messaging
+    resource: channel:review-updates
+    action: send
+    description: Send a summary to an approved webhook.
+    policyRefs:
+    - allow-approved-messaging
+    - require-human-approval
+  policies:
+  - id: allow-reviewed-tool
+    capability: tool
+    subject: agent
+    resource: tool:search_docs
+    action: invoke
+    effect: allow
+    scope:
+      type: task
+    limits:
+      maxCalls: 5
+    approval:
+      required: false
+      mode: none
+    enforcement:
+      target: runtime-adapter
+      phase: before-execution
+      targetRef: tool:search_docs
+  - id: allow-doc-network
+    capability: network
+    subject: agent
+    resource: https://docs.reddiagent.dev
+    action: fetch
+    effect: allow
+    scope:
+      type: resource
+      value: docs.reddiagent.dev
+    limits:
+      allowedDomains:
+      - docs.reddiagent.dev
+    approval:
+      required: false
+      mode: none
+    enforcement:
+      target: runtime-adapter
+      phase: before-execution
+  - id: allow-workspace-read
+    capability: filesystem
+    subject: agent
+    resource: ./docs
+    action: read
+    effect: allow
+    scope:
+      type: project
+    limits:
+      access: read-only
+    approval:
+      required: false
+      mode: none
+    enforcement:
+      target: static-validator
+      phase: compatibility
+  - id: allow-payment-dry-run
+    capability: payment
+    subject: agent
+    resource: x402:intent:review-fee
+    action: spend
+    effect: allow
+    scope:
+      type: task
+    limits:
+      asset: USDC
+      maxAmount: '0.50'
+      requireReceipt: true
+    approval:
+      required: true
+      mode: human
+      threshold: any spend
+      approver: operator
+    enforcement:
+      target: policy-engine
+      phase: before-execution
+  - id: allow-approved-messaging
+    capability: messaging
+    subject: agent
+    resource: channel:review-updates
+    action: send
+    effect: allow
+    scope:
+      type: task
+    limits:
+      maxMessages: 1
+    approval:
+      required: true
+      mode: human
+      threshold: external send
+      approver: operator
+    enforcement:
+      target: runtime-adapter
+      phase: before-execution
+      targetRef: tool:send_summary
+  - id: require-human-approval
+    capability: human-approval
+    subject: operator
+    resource: external-action
+    action: approve
+    effect: allow
+    scope:
+      type: task
+    limits:
+      requiredFor:
+      - payment
+      - messaging
+    approval:
+      required: true
+      mode: human
+      threshold: payment or external message
+      approver: operator
+    enforcement:
+      target: human-review
+      phase: before-execution
+  evalGates:
+  - id: capability-policy-check
+    type: tool-check
+    rule: Every risky capability must reference a matching policy before execution.
+    required: true
+    severity: critical
+    appliesTo:
+      scope: tool
+      targetRef: harness.tools
+    evidence:
+      ref: trace:policy.capability.checked
+      schema:
+        type: object
+        required:
+        - status
+        properties:
+          status:
+            enum:
+            - pass
+            - fail
+    retryable: false
+    onFailure:
+      completion: block
+      defaultStatus: fail
+      visibility: trace-and-receipt
+  runtime:
+    target: local-python
+extensions:
+  x402:
+    enabled: true
+    mode: dry-run
+    intents:
+    - id: review-fee
+      direction: spend
+      asset:
+        symbol: USDC
+        network: solana-devnet
+        mint: 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+      rail: solana
+      maxAmount: '0.50'
+      purpose: Review fee for a bounded dry-run task.
+      scope:
+        type: task
+        value: review-fee
+      authority:
+        principal: user:review-requester
+        spender: agent:policy-review-helper
+        maxAmount: '0.50'
+        asset:
+          symbol: USDC
+          network: solana-devnet
+          mint: 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+        rail: solana
+        purpose: Review fee for a bounded dry-run task.
+        scope:
+          type: task
+          value: review-fee
+        expiresAt: '2026-12-31T23:59:59Z'
+        revocation:
+          mode: operator
+          path: ops://reviews/review-fee/revoke
+        audit:
+          path: trace://payment/review-fee
+          evidenceRef: trace:policy.capability.checked
+      requireReceipt: true
+      receiptRef: review-fee-receipt
+      policyRefs:
+      - allow-payment-dry-run
+  receipts:
+    required: true
+    refs:
+    - id: review-fee-receipt
+      intentRef: review-fee
+      format: reddi.receipt.v2
+      evidenceRef: trace:policy.capability.checked
+      policyRefs:
+      - allow-payment-dry-run
+  reputation:
+    emitSignals:
+    - policyCompliant
+    basis:
+    - policy
+    evidenceRefs:
+    - trace:policy.capability.checked

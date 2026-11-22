@@ -17,6 +17,7 @@ on:
       - "packages/sendai-x402/**"
       - "packages/per-client/**"
       - "packages/provider-kit/**"
+      - "packages/agent-protocol/**"
       - ".github/workflows/package-tests.yml"
   workflow_dispatch:
 
@@ -43,7 +44,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
-          PATTERN: '^(packages/(x402-solana|rap-mcp-bridge|openrouter-specialists|eliza-plugin-x402|sendai-x402|per-client|provider-kit)/|\.github/workflows/package-tests\.yml$)'
+          PATTERN: '^(packages/(x402-solana|rap-mcp-bridge|openrouter-specialists|eliza-plugin-x402|sendai-x402|per-client|provider-kit|agent-protocol)/|\.github/workflows/package-tests\.yml$)'
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" != "pull_request" ]; then
@@ -83,6 +84,13 @@ jobs:
         run: |
           npm ci
           npm run build
+
+      # The provider kit also loads the committed agent-protocol dist/ through a
+      # file: dependency, which needs that package's own runtime dependencies.
+      - name: Install the shared agent-protocol package's dependencies
+        if: matrix.package == 'provider-kit'
+        working-directory: packages/agent-protocol
+        run: npm ci --omit=dev
 
       - name: Install dependencies
         working-directory: packages/${{ matrix.package }}

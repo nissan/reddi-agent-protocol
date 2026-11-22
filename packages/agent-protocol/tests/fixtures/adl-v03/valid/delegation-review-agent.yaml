@@ -1,0 +1,356 @@
+apiVersion: reddiagent.dev/v0.3
+kind: Agent
+metadata:
+  name: delegated-review-gate
+  description: Paid-delegation SERVICE example (seller side). Other agents discover this review
+    gate and pay it to run one bounded, independent code review on work it did not write.
+    The single x402 intent uses direction=charge on the Solana rail in dry-run mode only,
+    with a full charge authority contract, a policy-engine-enforced charge policy, receipt
+    binding, and reputation signals. Live rails stay unsupported (paymentAccess=false).
+model:
+  capability: chat
+  providers:
+    preferred: openai
+    fallbacks:
+    - anthropic
+  requirements:
+    toolCalling: true
+    structuredOutput: true
+conformance:
+  requestedLevel: 3
+  evidenceRefs:
+  - receipt:charge-review-verdict
+harness:
+  instructions:
+    inline: 'Deliver one bounded independent review to the paying delegating agent: read the
+      change set for intent first, then review for correctness, edge cases, security, performance,
+      and readability. Grade every finding Critical, Major, Minor, or Suggestion - each one
+      citing the line, naming the problem, and giving the fix - and close with a single verdict
+      of green, yellow, or red, where Critical findings always block a green. Raise issues
+      without rewriting the code, and decline to review work this service produced itself.
+      Charge at most the declared fee on the Solana rail in dry-run mode, only after operator
+      approval, and emit receipt metadata for every charge.'
+  tools:
+  - id: read_change_set
+    type: function
+    description: Read the submitted change set under review for the delegated verdict.
+    permissions:
+    - tool
+    sideEffects:
+      mode: none
+      mutatesState: false
+      external: false
+    timeout:
+      seconds: 30
+      behavior: fail-closed
+    retryPolicy:
+      maxAttempts: 2
+      backoff: none
+    auditLevel: event
+    policyRefs:
+    - allow-review-tool
+  policies:
+  - id: allow-review-tool
+    capability: tool
+    subject: agent
+    resource: tool:read_change_set
+    action: invoke
+    effect: allow
+    scope:
+      type: task
+    limits:
+      maxCalls: 5
+    approval:
+      required: false
+      mode: none
+    enforcement:
+      target: runtime-adapter
+      phase: before-execution
+      targetRef: tool:read_change_set
+  - id: allow-review-charge
+    capability: payment
+    subject: agent
+    resource: x402:intent:charge-review-verdict
+    action: charge
+    effect: allow
+    scope:
+      type: task
+      value: charge-review-verdict
+    limits:
+      asset: USDC
+      maxAmount: '0.10'
+      requireReceipt: true
+    approval:
+      required: true
+      mode: human
+      threshold: any charge
+      approver: operator
+    enforcement:
+      target: policy-engine
+      phase: before-execution
+      targetRef: x402:intent:charge-review-verdict
+  - id: require-charge-approval
+    capability: human-approval
+    subject: operator
+    resource: x402:intent:charge-review-verdict
+    action: approve
+    effect: allow
+    scope:
+      type: task
+    limits:
+      requiredFor:
+      - payment
+    approval:
+      required: true
+      mode: human
+      threshold: any charge intent
+      approver: operator
+    enforcement:
+      target: human-review
+      phase: before-execution
+  evalGates:
+  - id: review-charge-receipt-required
+    type: receipt-check
+    rule: A verifiable charge receipt must be emitted before completion.
+    required: true
+    severity: critical
+    appliesTo:
+      scope: receipt
+      targetRef: extensions.receipts.refs
+    evidence:
+      ref: receipt:charge-review-verdict
+      schema:
+        type: object
+        required:
+        - status
+        properties:
+          status:
+            enum:
+            - pass
+            - fail
+    retryable: false
+    onFailure:
+      completion: block
+      defaultStatus: fail
+      visibility: trace-and-receipt
+  - id: review-charge-budget-check
+    type: budget-check
+    rule: Total task charge must be less than or equal to 0.10 USDC.
+    required: true
+    severity: critical
+    appliesTo:
+      scope: budget
+      targetRef: x402:intent:charge-review-verdict
+    evidence:
+      ref: trace:payment.budget.checked
+      schema:
+        type: object
+        required:
+        - status
+        properties:
+          status:
+            enum:
+            - pass
+            - fail
+    retryable: false
+    onFailure:
+      completion: block
+      defaultStatus: fail
+      visibility: trace-and-receipt
+  runtime:
+    target: local-python
+    network:
+      access: none
+      allowlist: []
+      denyByDefault: true
+    storage:
+      mode: ephemeral
+    scheduler:
+      trigger: manual
+    activation:
+      mode: blocked
+    constraints:
+      runtimeVersion: python3.14
+      maxDurationSeconds: 120
+  deployment:
+    target: local
+    environment: local
+    rollback:
+      mode: none
+  observability:
+    events:
+    - name: trace.started
+      type: trace
+      required: true
+      evidenceRef: trace:trace.started
+      scope: task
+    - name: trace.completed
+      type: trace
+      required: true
+      evidenceRef: trace:trace.completed
+      scope: task
+    - name: task.completed
+      type: task
+      required: true
+      evidenceRef: trace:task.completed
+      scope: task
+    - name: task.failed
+      type: task
+      required: true
+      evidenceRef: trace:task.failed
+      scope: task
+    - name: model.called
+      type: model
+      required: true
+      evidenceRef: trace:model.called
+      scope: task
+    - name: policy.checked
+      type: policy
+      required: true
+      evidenceRef: trace:policy.checked
+      scope: task
+    - name: eval.checked
+      type: eval
+      required: true
+      evidenceRef: trace:eval.checked
+      scope: task
+    - name: payment.intent.created
+      type: payment
+      required: true
+      evidenceRef: trace:payment.intent.created
+      scope: task
+      receiptRef: charge-review-verdict-receipt
+    - name: receipt.emitted
+      type: receipt
+      required: true
+      evidenceRef: receipt:charge-review-verdict
+      scope: receipt
+      receiptRef: charge-review-verdict-receipt
+    - name: reputation.signal.emitted
+      type: reputation
+      required: true
+      evidenceRef: trace:reputation.signal.emitted
+      scope: task
+    summaries:
+    - id: delegation_charge_run_summary
+      type: run-summary
+      destinationRef: local_trace_file
+      eventRefs:
+      - trace.started
+      - trace.completed
+      - task.completed
+      - task.failed
+      - payment.intent.created
+      - receipt.emitted
+      - reputation.signal.emitted
+      humanReadable: true
+    destinations:
+    - id: local_trace_file
+      type: file
+      mode: local-only
+      ref: file://./traces/delegation-review-agent.jsonl
+      redaction:
+        mode: payload-redacted
+        fields:
+        - prompt
+        - output
+    evidenceRefs:
+    - trace:payment.intent.created
+    - receipt:charge-review-verdict
+    - trace:reputation.signal.emitted
+    traceRef: trace:delegated-review-gate
+    retention:
+      mode: ephemeral
+      purgeOnCompletion: true
+    redaction:
+      mode: payload-redacted
+      fields:
+      - prompt
+      - output
+    receipts:
+      include: true
+      eventRefs:
+      - payment.intent.created
+      - receipt.emitted
+      requiredEvidenceRefs:
+      - receipt:charge-review-verdict
+    exports:
+      include: true
+      eventRefs:
+      - trace.started
+      - trace.completed
+      - payment.intent.created
+      - receipt.emitted
+      requiredEvidenceRefs:
+      - receipt:charge-review-verdict
+  recovery:
+    disable:
+      mode: manual
+extensions:
+  x402:
+    enabled: true
+    mode: dry-run
+    intents:
+    - id: charge-review-verdict
+      direction: charge
+      asset:
+        symbol: USDC
+        network: solana-devnet
+        mint: 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+      rail: solana
+      maxAmount: '0.10'
+      purpose: Charge a delegating client agent for one bounded dry-run code review with severity-graded
+        findings and a single verdict.
+      scope:
+        type: task
+        value: charge-review-verdict
+      authority:
+        principal: user:service-operator
+        spender: agent:delegating-client
+        maxAmount: '0.10'
+        asset:
+          symbol: USDC
+          network: solana-devnet
+          mint: 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+        rail: solana
+        purpose: Charge a delegating client agent for one bounded dry-run code review with
+          severity-graded findings and a single verdict.
+        scope:
+          type: task
+          value: charge-review-verdict
+        expiresAt: '2026-12-31T23:59:59Z'
+        revocation:
+          mode: operator
+          path: ops://payments/charge-review-verdict/revoke
+        audit:
+          path: trace://payment/charge-review-verdict
+          evidenceRef: receipt:charge-review-verdict
+      requireReceipt: true
+      receiptRef: charge-review-verdict-receipt
+      policyRefs:
+      - allow-review-charge
+      price:
+        amount: '0.10'
+        per: call
+      payTo: '11111111111111111111111111111111'
+      settlement: direct
+  receipts:
+    required: true
+    refs:
+    - id: charge-review-verdict-receipt
+      intentRef: charge-review-verdict
+      format: reddi.receipt.v2
+      evidenceRef: receipt:charge-review-verdict
+      policyRefs:
+      - allow-review-charge
+  reputation:
+    emitSignals:
+    - taskCompleted
+    - evalPassed
+    - receiptVerified
+    basis:
+    - eval
+    - receipt
+    - policy
+    evidenceRefs:
+    - receipt:charge-review-verdict

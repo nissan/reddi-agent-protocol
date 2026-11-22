@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { ReputationSummary } from "@/components/rating/ReputationSummary"
+import { AgentAdlCard } from "@/components/agents/AgentAdlCard"
 import Link from "next/link"
 import { useParams } from "next/navigation"
 
@@ -254,6 +255,8 @@ export default function SpecialistDetailPage() {
                 Direct x402 call
               </Button>
             </Card>
+
+            <AgentAdlCard wallet={wallet} />
 
             <Card className="space-y-3 p-6">
               <p className="section-label">Health status</p>

@@ -1,0 +1,258 @@
+apiVersion: reddiagent.dev/v0.3
+kind: Agent
+metadata:
+  name: runtime-serverless-platform-agent
+  description: Serverless/platform-native descriptor for event-triggered static review.
+model:
+  capability: chat
+  providers:
+    preferred: gemini
+    fallbacks:
+    - openai
+  requirements:
+    toolCalling: true
+    structuredOutput: true
+    streaming: true
+conformance:
+  requestedLevel: 4
+harness:
+  instructions:
+    inline: Prepare an event-triggered report without invoking platform runtime APIs.
+  policies:
+  - id: platform-runtime-review
+    capability: runtime
+    subject: operator
+    resource: serverless
+    action: review
+    effect: allow
+    scope:
+      type: project
+    enforcement:
+      target: human-review
+      phase: compatibility
+  - id: allow-platform-readiness-fee
+    capability: payment
+    subject: agent
+    resource: x402:intent:platform-readiness-fee
+    action: charge
+    effect: allow
+    scope:
+      type: task
+      value: platform-readiness-fee
+    limits:
+      asset: USDC
+      maxAmount: '0.01'
+      requireReceipt: true
+    enforcement:
+      target: policy-engine
+      phase: before-execution
+      targetRef: x402:intent:platform-readiness-fee
+  evalGates:
+  - id: platform-event-readiness
+    type: human-review
+    rule: Event-triggered platform readiness must be reviewed.
+    required: true
+    severity: critical
+    appliesTo:
+      scope: task
+    evidence:
+      ref: trace:platform.readiness
+      schema:
+        type: object
+    retryable: false
+    onFailure:
+      completion: block
+      defaultStatus: fail
+  runtime:
+    target: serverless
+    network:
+      access: egress
+      allowlist:
+      - https://api.example.test
+      denyByDefault: true
+    secretRefs:
+    - name: PLATFORM_TOKEN
+      provider: cloud-secret-manager
+      ref: secret://platform/token
+      scope: provider
+      required: true
+    storage:
+      mode: none
+    scheduler:
+      trigger: event
+      eventRef: event://agent.requested
+    activation:
+      mode: approval-required
+    constraints:
+      region: us-east1
+      maxDurationSeconds: 30
+      maxConcurrency: 1
+  deployment:
+    target: serverless
+    environment: staging
+    healthCheck:
+      type: trace-event
+      ref: trace:deployment.health.checked
+    rollback:
+      mode: operator-reviewed
+      requiresApproval: true
+  observability:
+    events:
+    - name: trace.started
+      type: trace
+      required: true
+      evidenceRef: trace:trace.started
+      scope: deployment
+    - name: trace.completed
+      type: trace
+      required: true
+      evidenceRef: trace:trace.completed
+      scope: deployment
+    - name: task.completed
+      type: task
+      required: true
+      evidenceRef: trace:task.completed
+      scope: task
+    - name: task.failed
+      type: task
+      required: true
+      evidenceRef: trace:task.failed
+      scope: task
+    - name: model.called
+      type: model
+      required: true
+      evidenceRef: trace:model.called
+      scope: task
+    - name: policy.checked
+      type: policy
+      required: true
+      evidenceRef: trace:policy.checked
+      scope: task
+    - name: eval.checked
+      type: eval
+      required: true
+      evidenceRef: trace:eval.checked
+      scope: task
+    - name: payment.intent.created
+      type: payment
+      required: true
+      evidenceRef: trace:payment.intent.created
+      scope: receipt
+    - name: receipt.emitted
+      type: receipt
+      required: true
+      evidenceRef: receipt:platform-readiness-fee
+      scope: receipt
+    - name: reputation.signal.emitted
+      type: reputation
+      required: true
+      evidenceRef: trace:reputation.signal.emitted
+      scope: receipt
+    - name: deployment.health.checked
+      type: deployment
+      required: true
+      evidenceRef: trace:deployment.health.checked
+      scope: deployment
+    - name: adapter.loss.reported
+      type: adapter
+      required: true
+      evidenceRef: export:adapter-loss
+      scope: export
+    summaries:
+    - id: serverless_readiness_summary
+      type: deployment-readiness-summary
+      destinationRef: serverless_trace
+      eventRefs:
+      - trace.started
+      - deployment.health.checked
+      - adapter.loss.reported
+      humanReadable: true
+    - id: adapter_loss_summary
+      type: adapter-loss-summary
+      destinationRef: serverless_trace
+      eventRefs:
+      - adapter.loss.reported
+      humanReadable: true
+    destinations:
+    - id: serverless_trace
+      type: openclaw-trace
+      mode: adapter-managed
+      ref: trace://runtime-serverless
+      redaction:
+        mode: payload-redacted
+        fields:
+        - prompt
+        - secretRefs
+    evidenceRefs:
+    - trace:trace.started
+    - trace:deployment.health.checked
+    - export:adapter-loss
+    - receipt:platform-readiness-fee
+    traceRef: trace:runtime-serverless-platform-agent
+    retention:
+      mode: time-bound
+      maxAge: 7d
+      storageRef: trace://runtime-serverless
+      purgeOnCompletion: false
+    redaction:
+      mode: payload-redacted
+      fields:
+      - prompt
+      - secretRefs
+    receipts:
+      include: true
+      eventRefs:
+      - payment.intent.created
+      - receipt.emitted
+      - reputation.signal.emitted
+      requiredEvidenceRefs:
+      - receipt:platform-readiness-fee
+    exports:
+      include: true
+      eventRefs:
+      - adapter.loss.reported
+      - deployment.health.checked
+      requiredEvidenceRefs:
+      - export:adapter-loss
+  recovery:
+    disable:
+      mode: operator-reviewed
+extensions:
+  x402:
+    enabled: true
+    mode: dry-run
+    intents:
+    - id: platform-readiness-fee
+      direction: charge
+      asset:
+        symbol: USDC
+        network: solana-devnet
+        mint: 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+      rail: solana
+      requireReceipt: true
+      policyRefs:
+      - platform-runtime-review
+      - allow-platform-readiness-fee
+      price:
+        amount: '0.01'
+        per: call
+      payTo: '11111111111111111111111111111111'
+      settlement: direct
+      receiptRef: platform-readiness-fee-receipt
+  receipts:
+    required: true
+    refs:
+    - id: platform-readiness-fee-receipt
+      intentRef: platform-readiness-fee
+      format: reddi.receipt.v2
+      evidenceRef: receipt:platform-readiness-fee
+      policyRefs:
+      - platform-runtime-review
+  reputation:
+    emitSignals:
+    - policyCompliant
+    basis:
+    - receipt
+    - policy
+    evidenceRefs:
+    - receipt:platform-readiness-fee

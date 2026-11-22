@@ -1,5 +1,6 @@
 jest.mock("server-only", () => ({}));
 
+import { buildProviderAdl, checkAdlConformance, formatAdlDocument } from "@redditech/agent-protocol/adl";
 import { listingNetworkForProfile, validateListingInput } from "@/lib/listings/listing-store";
 
 const WALLET = "7Y6oUj3vCz7xqGmJmT7Q7m4mGkq3rq9t7u7Hq3iJ1dQp";
@@ -8,7 +9,7 @@ const USER_ID = "3f2c1a7e-0b6d-4c1e-9a55-2f0f6a1d9b10";
 const TOKEN = "b".repeat(40);
 const SERVICE_KEY = "test-service-role-key";
 const ANON_KEY = "public-anon-key";
-const MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const MINT = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"; // devnet USDC
 
 const VALID = { displayName: "Fast summaries", endpointUrl: "https://provider.example/v1", declaredModels: ["meta/llama-3.3-70b"], pricePerCallBaseUnits: "2500", priceMint: MINT, status: "listed" };
 
@@ -136,13 +137,65 @@ describe("listing routes (#740)", () => {
     expect(sent).toEqual({
       wallet: WALLET, owner_user_id: USER_ID, display_name: "Fast summaries", endpoint_url: "https://provider.example/v1", declared_models: ["meta/llama-3.3-70b"],
       capabilities: {}, price_per_call_base_units: "2500", price_input_per_million_base_units: "0", price_output_per_million_base_units: "0", price_mint: MINT, network: "solana-devnet", status: "listed",
+      adl: expect.any(Object), adl_source: "generated",
     });
+    // With no ADL sent, the server describes the listing itself: a fixed price per job, paid to the signed-in wallet.
+    expect(checkAdlConformance(sent.adl).status).toBe("pass");
+    expect(sent.adl.extensions.x402.intents[0]).toMatchObject({ payTo: WALLET, price: { per: "call", amount: "0.0025" }, settlement: "escrow", asset: { symbol: "USDC", mint: MINT, network: "solana-devnet" } });
+    expect(sent.adl.extensions.identity.declaredModel).toBe("meta/llama-3.3-70b");
     expect(write.url).not.toContain(OTHER);
     expect(write.url).not.toContain("owner_user_id,");
     const body = await res.json();
     expect(body.listing).toMatchObject({ wallet: WALLET, pricePerCallBaseUnits: "2500", network: "solana-devnet" });
     expect(JSON.stringify(body)).not.toContain(SERVICE_KEY);
     expect(JSON.stringify(body)).not.toContain(USER_ID);
+  });
+
+  const PER_TOKEN = { displayName: "Scene writer", endpointUrl: "https://provider.example", declaredModels: ["anthropic/claude-sonnet-5-5"], priceInputPerMillionBaseUnits: "3000000", priceOutputPerMillionBaseUnits: "15000000", priceMint: MINT, status: "listed" };
+  const providerAdl = (overrides: Partial<Parameters<typeof buildProviderAdl>[0]> = {}) =>
+    formatAdlDocument(buildProviderAdl({ name: "Scene writer", model: "anthropic/claude-sonnet-5-5", network: "solana-devnet", currency: "USDC", mint: MINT, payTo: WALLET, price: { per: "token", inputPerMillion: "3", outputPerMillion: "15", maxPerCall: "0.7575" }, endpointUrl: "https://provider.example", ...overrides }));
+
+  it("stores a provider's own ADL when it passes Level 3 and matches the listing", async () => {
+    const calls = mockServices();
+    const res = await put({ ...PER_TOKEN, adl: providerAdl() });
+    expect(res.status).toBe(200);
+    const sent = JSON.parse(calls.find((c) => c.init.method === "POST")!.init.body!);
+    expect(sent.adl_source).toBe("provider");
+    expect(sent.adl.extensions.x402.intents[0].price).toEqual({ per: "token", inputPerMillion: "3", outputPerMillion: "15", maxPerCall: "0.7575" });
+  });
+
+  it.each([
+    ["pays another wallet", { payTo: OTHER }, /payTo must be the signed-in wallet/],
+    ["names another price", { price: { per: "token" as const, inputPerMillion: "2", outputPerMillion: "15", maxPerCall: "1" } }, /per-token price is not the listing's price/],
+    ["names another model", { model: "openai/gpt-5" }, /declared model/],
+    ["is for mainnet", { network: "solana-mainnet-beta" as const, mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" }, /this app lists solana-devnet providers/],
+    ["is a dry run", { mode: "dry-run" as const }, /mode must be live/],
+  ])("refuses a provider ADL that %s, before touching the database", async (_name, overrides, message) => {
+    const calls = mockServices();
+    const res = await put({ ...PER_TOKEN, adl: providerAdl(overrides) });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("invalid_adl");
+    expect(body.error.message).toMatch(message);
+    expect(calls.filter((c) => c.url.includes("/rest/v1/"))).toHaveLength(0);
+  });
+
+  it("refuses an ADL that fails Level 3, is not YAML, or is not text", async () => {
+    const calls = mockServices();
+    const wrongFee = providerAdl().replace("bps: 500", "bps: 50");
+    const failing = await put({ ...PER_TOKEN, adl: wrongFee });
+    expect(failing.status).toBe(400);
+    expect((await failing.json()).error.message).toMatch(/protocolFee.bps must be 500/);
+    expect((await put({ ...PER_TOKEN, adl: "a: [" })).status).toBe(400);
+    expect((await put({ ...PER_TOKEN, adl: { apiVersion: "reddiagent.dev/v0.3" } })).status).toBe(400);
+    expect(calls.filter((c) => c.url.includes("/rest/v1/"))).toHaveLength(0);
+  });
+
+  it("refuses a listing it cannot describe in ADL when none is sent", async () => {
+    mockServices();
+    const res = await put({ ...VALID, priceMint: "SOL" });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe("invalid_adl");
   });
 
   it("refuses an invalid listing before touching the database", async () => {
@@ -199,6 +252,50 @@ describe("listing routes (#740)", () => {
     expect(read.url).not.toContain("owner_user_id");
     expect(read.init.headers.apikey).toBe(ANON_KEY);
     expect(JSON.stringify(read.init.headers)).not.toContain(SERVICE_KEY);
+  });
+
+  it("lists where each ADL came from without the documents, and still reads listings while the ADL columns are missing", async () => {
+    const calls = mockServices({ listed: [row({ adl_source: "provider" })] });
+    const { GET } = await import("@/app/api/listings/route");
+    const body = await (await GET()).json();
+    expect(body.listings[0]).toMatchObject({ adl: null, adlSource: "provider" });
+    expect(calls[0].url).toContain("adl_source");
+    expect(calls[0].url).not.toContain(",adl,");
+
+    const urls: string[] = [];
+    global.fetch = jest.fn(async (url: string) => {
+      urls.push(url);
+      if (url.includes("adl_source")) return { ok: false, status: 400, json: async () => ({ code: "42703" }) };
+      return { ok: true, status: 200, json: async () => [row()] };
+    }) as unknown as typeof fetch;
+    const fallback = await (await GET()).json();
+    expect(fallback.listings[0]).toMatchObject({ wallet: WALLET, adl: null, adlSource: null });
+    expect(urls).toHaveLength(2);
+  });
+
+  it("serves a listed provider's ADL as YAML, or as JSON with its Level 3 report", async () => {
+    const adl = buildProviderAdl({ name: "Scene writer", network: "solana-devnet", currency: "USDC", mint: MINT, payTo: WALLET, price: { per: "call", amount: "0.0025" } });
+    const calls = mockServices({ listed: [row({ adl, adl_source: "generated" })] });
+    const { GET } = await import("@/app/api/listings/[wallet]/adl/route");
+    const ctx = { params: Promise.resolve({ wallet: WALLET }) };
+    const yaml = await GET(new Request(`https://app.example/api/listings/${WALLET}/adl`), ctx);
+    expect(yaml.status).toBe(200);
+    expect(yaml.headers.get("content-type")).toMatch(/^application\/yaml/);
+    expect(await yaml.text()).toBe(formatAdlDocument(adl));
+    const json = await (await GET(new Request(`https://app.example/api/listings/${WALLET}/adl?format=json`), ctx)).json();
+    expect(json).toMatchObject({ ok: true, source: "generated", level: 3, status: "pass", network: "solana-devnet" });
+    expect(calls[0].url).toContain(`wallet=eq.${WALLET}`);
+    expect(calls[0].url).toContain("status=eq.listed");
+    expect(calls[0].init.headers.apikey).toBe(ANON_KEY);
+  });
+
+  it("answers 404 for a provider with no listed ADL, and never queries a malformed wallet", async () => {
+    const calls = mockServices({ listed: [row()] });
+    const { GET } = await import("@/app/api/listings/[wallet]/adl/route");
+    expect((await GET(new Request("https://app.example/x"), { params: Promise.resolve({ wallet: WALLET }) })).status).toBe(404);
+    const before = calls.length;
+    expect((await GET(new Request("https://app.example/x"), { params: Promise.resolve({ wallet: "a&status=eq.draft" }) })).status).toBe(404);
+    expect(calls.length).toBe(before);
   });
 
   it("reports a failed public read as unavailable", async () => {

@@ -151,7 +151,7 @@ describe("metered job record (#794)", () => {
   const listing: Listing = {
     wallet: PROVIDER, displayName: "Atlas", endpointUrl: "https://provider.example/v1", declaredModels: [], capabilities: {},
     pricePerCallBaseUnits: "0", priceInputPerMillionBaseUnits: "3000000", priceOutputPerMillionBaseUnits: "15000000", priceMint: USDC,
-    network: "solana-devnet", status: "listed", healthStatus: "pass", lastSeenAt: null, updatedAt: null,
+    adl: null, adlSource: null, network: "solana-devnet", status: "listed", healthStatus: "pass", lastSeenAt: null, updatedAt: null,
   };
   const receipt = { settlement: "metered-escrow", network: "solana-devnet", currency: "USDC", payTo: PROVIDER, payer: PAYER.toBase58(), nonce: NONCE_HEX, escrow: escrow.toBase58(), lockSignature: LOCK_SIG };
 

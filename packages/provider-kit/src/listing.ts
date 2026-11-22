@@ -6,6 +6,7 @@
  */
 import { decimalToBaseUnits, directPaymentCurrency } from "@redditech/x402-solana";
 import type { ProviderConfig } from "./config.js";
+import { providerAdlText } from "./adl.js";
 
 /** The same statement the app's own wallet sign-in shows. */
 export const SIGN_IN_STATEMENT = "Sign in to Reddi Agent Protocol. This proves you own this wallet. It does not move funds or approve any transaction.";
@@ -22,6 +23,8 @@ export interface ListingBody {
   priceOutputPerMillionBaseUnits: string;
   priceMint: string;
   status: "listed" | "paused";
+  /** The provider's ADL v0.3 document as YAML. The app refuses a listing it does not match. */
+  adl: string;
 }
 
 /** What the app calls this provider's network. */
@@ -37,6 +40,8 @@ export function listingBody(config: ProviderConfig): ListingResult<{ body: Listi
   const input = decimalToBaseUnits(terms.price.inputPerMillion, decimals);
   const output = decimalToBaseUnits(terms.price.outputPerMillion, decimals);
   if (input === undefined || output === undefined || input === null || output === null) return { ok: false, message: "price: could not be expressed in base units per million tokens." };
+  const adl = providerAdlText(config);
+  if (adl.report.status !== "pass") return { ok: false, message: `The provider's ADL document does not pass Level 3: ${[...adl.report.schemaDiagnostics.map((d) => `${d.path}: ${d.message}`), ...Object.values(adl.report.missingFieldsByLevel).flat()].join("; ")}` };
   return {
     ok: true,
     body: {
@@ -48,6 +53,7 @@ export function listingBody(config: ProviderConfig): ListingResult<{ body: Listi
       priceOutputPerMillionBaseUnits: output.toString(),
       priceMint: terms.mint.toBase58(),
       status: config.paused ? "paused" : "listed",
+      adl: adl.text,
     },
   };
 }

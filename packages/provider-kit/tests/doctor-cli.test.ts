@@ -64,7 +64,7 @@ test("the wrong cluster stops the run at the RPC line", async () => {
   chain.genesis = SOLANA_GENESIS_HASHES["solana-mainnet-beta"];
   const result = await runDoctor({ config: config(), chain, key, fetchImpl: okFetch, canWrite: () => true });
   assert.equal(result.ok, false);
-  assert.deepEqual(result.checks.map((c) => c.name), ["Configuration", "RPC endpoint"]);
+  assert.deepEqual(result.checks.map((c) => c.name), ["Configuration", "ADL", "RPC endpoint"]);
 });
 
 test("an unfunded wallet, a missing program, a bad key, a dead model and an unwritable disk each fail on their own line", async () => {

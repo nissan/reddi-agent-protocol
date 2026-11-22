@@ -1,0 +1,110 @@
+apiVersion: reddiagent.dev/v0.3
+kind: Agent
+metadata:
+  name: adapter-loss-export-agent
+  description: Strict adapter-loss export metadata for static compatibility review.
+model:
+  capability: chat
+  providers:
+    preferred: openai
+  requirements:
+    toolCalling: true
+    structuredOutput: true
+harness:
+  instructions:
+    inline: "Report adapter-loss metadata only; do not call providers, deploy, or export files."
+  policies:
+    - id: adapter-loss-report-only
+      capability: runtime
+      subject: agent
+      resource: export:adapter-loss
+      action: inspect
+      effect: allow
+      scope:
+        type: task
+      enforcement:
+        target: static-validator
+        phase: compatibility
+  evalGates:
+    - id: adapter-loss-evidence-present
+      type: output-check
+      rule: "The compatibility report must preserve adapter-loss evidence refs."
+      required: true
+      severity: error
+      appliesTo:
+        scope: output
+      evidence:
+        ref: export:adapter-loss
+        schema:
+          type: object
+      retryable: false
+      onFailure:
+        completion: block
+        defaultStatus: fail
+  runtime:
+    target: hosted-container
+    network:
+      access: none
+      allowlist: []
+      denyByDefault: true
+    storage:
+      mode: ephemeral
+    scheduler:
+      trigger: manual
+    activation:
+      mode: blocked
+  deployment:
+    target: container
+    environment: preview
+    rollback:
+      mode: previous-version
+      ref: deployment:previous
+      requiresApproval: true
+    healthCheck:
+      type: trace-event
+      ref: trace:deployment.health.checked
+  observability:
+    events:
+      - name: deployment.health.checked
+        type: deployment
+        required: true
+        evidenceRef: trace:deployment.health.checked
+        scope: deployment
+      - name: adapter.loss.reported
+        type: adapter
+        required: true
+        evidenceRef: export:adapter-loss
+        scope: export
+    summaries:
+      - id: adapter_loss_summary
+        type: adapter-loss-summary
+        destinationRef: adapter_loss_report
+        eventRefs:
+          - adapter.loss.reported
+        humanReadable: true
+    destinations:
+      - id: adapter_loss_report
+        type: file
+        mode: local-only
+        ref: file://./reports/adapter-loss.json
+        redaction:
+          mode: metadata-only
+    evidenceRefs:
+      - trace:deployment.health.checked
+      - export:adapter-loss
+    traceRef: trace:adapter-loss-export-agent
+    retention:
+      mode: ephemeral
+      purgeOnCompletion: true
+    redaction:
+      mode: metadata-only
+    exports:
+      include: true
+      eventRefs:
+        - adapter.loss.reported
+      requiredEvidenceRefs:
+        - export:adapter-loss
+  recovery:
+    disable:
+      mode: manual
+extensions: {}

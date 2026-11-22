@@ -19,6 +19,8 @@ export const DEFAULT_REPLAY_FILE = ".rap-provider/accepted-escrows.log";
 export const DEFAULT_SESSION_FILE = ".rap-provider/sessions.jsonl";
 export const DEFAULT_PORT = 8787;
 export const DEFAULT_APP_URL = "https://app.agent-protocol.reddi.tech";
+/** The largest request body the provider reads. It bounds the input tokens one call can be priced on. */
+export const MAX_BODY_BYTES = 1_000_000;
 
 export interface ProviderConfigFile {
   name: string;

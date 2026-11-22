@@ -1,0 +1,140 @@
+apiVersion: reddiagent.dev/v0.3
+kind: Agent
+metadata:
+  name: runtime-local-python-agent
+  description: Local-python descriptor with no network or live activation.
+model:
+  capability: chat
+  providers:
+    preferred: ollama
+    fallbacks:
+      - openai
+  requirements:
+    toolCalling: false
+    structuredOutput: true
+conformance:
+  requestedLevel: 1
+harness:
+  instructions:
+    inline: "Answer locally using only the provided prompt."
+  policies:
+    - id: no-runtime-network
+      capability: network
+      subject: agent
+      resource: external-network
+      action: connect
+      effect: deny
+      scope:
+        type: task
+      enforcement:
+        target: static-validator
+        phase: compatibility
+  evalGates:
+    - id: local-answer
+      type: output-check
+      rule: "Local answer must be present."
+      required: true
+      severity: error
+      appliesTo:
+        scope: output
+      evidence:
+        ref: trace:output.local_answer
+        schema:
+          type: object
+      retryable: false
+      onFailure:
+        completion: block
+        defaultStatus: fail
+  runtime:
+    target: local-python
+    network:
+      access: none
+      allowlist: []
+      denyByDefault: true
+    storage:
+      mode: ephemeral
+    scheduler:
+      trigger: manual
+    activation:
+      mode: blocked
+    constraints:
+      runtimeVersion: "python3.14"
+      maxDurationSeconds: 60
+  deployment:
+    target: local
+    environment: local
+    rollback:
+      mode: none
+  observability:
+    events:
+      - name: trace.started
+        type: trace
+        required: true
+        evidenceRef: trace:trace.started
+        scope: task
+      - name: trace.completed
+        type: trace
+        required: true
+        evidenceRef: trace:trace.completed
+        scope: task
+      - name: task.completed
+        type: task
+        required: true
+        evidenceRef: trace:task.completed
+        scope: task
+      - name: task.failed
+        type: task
+        required: true
+        evidenceRef: trace:task.failed
+        scope: task
+    summaries:
+      - id: local_run_summary
+        type: run-summary
+        destinationRef: local_trace_file
+        eventRefs:
+          - trace.started
+          - trace.completed
+          - task.completed
+          - task.failed
+        humanReadable: true
+    destinations:
+      - id: local_trace_file
+        type: file
+        mode: local-only
+        ref: file://./traces/runtime-local-python-agent.jsonl
+        redaction:
+          mode: payload-redacted
+          fields:
+            - prompt
+            - output
+    evidenceRefs:
+      - trace:trace.started
+      - trace:trace.completed
+      - trace:task.completed
+      - trace:task.failed
+    traceRef: trace:runtime-local-python-agent
+    retention:
+      mode: ephemeral
+      purgeOnCompletion: true
+    redaction:
+      mode: payload-redacted
+      fields:
+        - prompt
+        - output
+    receipts:
+      include: false
+      eventRefs: []
+    exports:
+      include: true
+      eventRefs:
+        - trace.started
+        - trace.completed
+        - task.completed
+        - task.failed
+      requiredEvidenceRefs:
+        - trace:trace.started
+        - trace:trace.completed
+  recovery:
+    disable:
+      mode: manual
+extensions: {}

@@ -1,0 +1,60 @@
+apiVersion: reddiagent.dev/v0.3
+kind: Agent
+metadata:
+  name: simple-research-helper
+  description: Answers a user question using only model reasoning and a session log.
+model:
+  capability: chat
+  providers:
+    preferred: openai
+    fallbacks:
+      - anthropic
+      - gemini
+      - ollama
+  requirements:
+    toolCalling: false
+    structuredOutput: true
+harness:
+  instructions:
+    inline: "Answer clearly. Say when you are uncertain. Do not use external tools."
+  memory:
+    mode: session
+  policies:
+    - id: no-external-actions
+      capability: network
+      subject: agent
+      resource: external-network
+      action: connect
+      effect: deny
+      scope:
+        type: task
+      enforcement:
+        target: static-validator
+        phase: compatibility
+  evalGates:
+    - id: has-answer
+      type: output-check
+      rule: "Response must include an answer or a clear uncertainty statement."
+      required: true
+      severity: error
+      appliesTo:
+        scope: output
+      evidence:
+        ref: trace:output.has_answer
+        schema:
+          type: object
+          required:
+            - status
+          properties:
+            status:
+              enum:
+                - pass
+                - fail
+      retryable: false
+      onFailure:
+        completion: block
+        defaultStatus: fail
+        visibility: trace-and-receipt
+  runtime:
+    target: local-python
+extensions: {}

@@ -74,7 +74,9 @@ test("the register instruction matches the program: discriminator, accounts and 
 test("the listing carries the per-token price in base units, and a local address cannot be listed", () => {
   const body = listingBody(config(publicFile()));
   assert.ok(body.ok);
-  assert.deepEqual(body.body, {
+  const { adl, ...fields } = body.body;
+  assert.match(adl, /^apiVersion: reddiagent\.dev\/v0\.3\n/);
+  assert.deepEqual(fields, {
     displayName: "Test provider",
     endpointUrl: "https://provider.example.org",
     declaredModels: ["test/model-1"],
