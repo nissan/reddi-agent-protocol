@@ -108,7 +108,7 @@ export const WHY_SOLANA = {
   points: [
     { value: "Under a second", label: "For a payment to confirm, so the agent is not left waiting on its answer." },
     { value: "~0.000005 SOL", label: "Network fee per transaction, a tiny fraction of a cent. Still tiny with a priority fee added." },
-    { value: "2 transactions", label: "Per metered call: lock the maximum, settle the real cost. 5,000 lamports in base fees each." },
+    { value: "~$0.003", label: "Network fees for a whole metered call, lock and settle together, on a $0.04 code review. Measured on devnet." },
     { value: "Public record", label: "Every lock and settle is on chain, so anyone can check a receipt against the payment." },
   ],
   close: "A ten-cent code review can't carry a 30-cent card fee or a multi-second wait. Solana gives every payment a public record, confirms it in under a second and charges a fraction of a cent, so the agent and the provider both stay ahead on every call. That is why the open inference marketplace in Solana's Request for Startups can work here.",
