@@ -198,7 +198,7 @@ fn pay_out(accounts: &mut ReleaseTokenEscrow, paid: u64, outcome: SettlementOutc
         issuer_controlled || available >= escrow.amount,
         EscrowError::InvalidTokenAmount
     );
-    let fee = protocol_fee(paid, false);
+    let fee = protocol_fee(paid, false, Clock::get()?.unix_timestamp);
     let to_payee = paid.checked_sub(fee).ok_or(EscrowError::Overflow)?;
     let payee_part = to_payee.min(available);
     let fee_part = fee.min(available - payee_part);

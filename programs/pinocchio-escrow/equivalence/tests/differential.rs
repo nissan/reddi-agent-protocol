@@ -660,7 +660,8 @@ fn sol_escrow_matches_the_anchor_build() {
     let unfunded = key(40).pubkey();
     let floor = pair.anchor.minimum_balance_for_rent_exemption(0);
     let mut enough = floor;
-    while enough - escrow::protocol_fee(enough, true) < floor {
+    // The lock allows for a payout at the standard rate.
+    while enough - escrow::max_protocol_fee(enough, true) < floor {
         enough += 1;
     }
     pair.refused(

@@ -185,9 +185,13 @@ program has it:
 - the same error numbers: 6000+ for program errors and Anchor's framework
   numbers (2000s, 3000s) for account failures, each with a log line in the
   shape Anchor clients parse;
-- the same program id declaration and fee rules (2.5% of the amount paid,
-  rounded down, from the payee's share, capped at 0.1 SOL for SOL only, paid to
-  the Squads vault).
+- the same program id declaration and fee rules (5% of the amount paid, or the
+  2.5% launch rate for a payout before 2027-04-01 00:00 UTC by the cluster
+  clock at the payout, rounded down, from the payee's share, capped at 0.1 SOL
+  for SOL only, paid to the Squads vault). The rate is read when the escrow
+  pays out, not when it was locked, so an escrow locked inside the launch rate
+  and paid after it pays 5%. A fixed-price lock's rent check allows for the
+  5% fee.
 
 ### Every exit names its escrow
 
@@ -351,7 +355,8 @@ Things to know:
   call). Clients use a fresh nonce per job.
 - Reputation and judge accuracy are not Sybil-proof. Wallets of one owner can
   pay, rate and attest each other for the cost of transaction fees, and a job
-  of under 40 lamports pays no protocol fee at all (2.5% rounds down to 0).
+  of under 40 lamports (20 after the launch rate) pays no protocol fee at all
+  (the fee rounds down to 0).
   The paid amount and the mint are on the rating account so that rankers can
   weight by them, but only until `close_rating`: the agent record keeps no
   sum, so a ranker has to read ratings before they are closed. An attestation

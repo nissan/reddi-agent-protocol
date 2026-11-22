@@ -446,7 +446,7 @@ pub fn pay_out(
     )?;
     let record = &open.record;
 
-    let slot = now()?.0;
+    let (slot, unix_timestamp) = now()?;
     let (paid, outcome) = match actual {
         None => (
             record.amount(),
@@ -499,7 +499,7 @@ pub fn pay_out(
         open.issuer_controlled() || available >= record.amount(),
         &InvalidTokenAmount,
     )?;
-    let fee = protocol_fee(paid, false);
+    let fee = protocol_fee(paid, false, unix_timestamp);
     let payee_part = (paid - fee).min(available);
     let fee_part = fee.min(available - payee_part);
     let refund_part = available - payee_part - fee_part;

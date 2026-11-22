@@ -97,7 +97,9 @@ The `77rkRQxe…UZXmX` program id still quoted in some older `declare_id!` macro
 ## Protocol economics and claim boundaries
 
 Owner decision, 20 November 2026: listings are priced per token (input and output, per million), with an estimated
-cost and a buyer-authorised maximum. The protocol fee is 2.5% (250 bps) of the amount actually paid, rounded down, taken
+cost and a buyer-authorised maximum. The protocol fee is 5% (500 bps) of the amount actually paid, with a 2.5% (250 bps)
+launch rate for payouts before 2027-04-01 00:00 UTC (owner decision, 22 November 2026; the date is
+`LAUNCH_RATE_ENDS_UNIX` in the program and the rate is read at payout), rounded down, taken
 out of the provider's share, capped at 0.1 SOL for SOL payments only (stablecoins have no ceiling). It replaces the
 earlier 0.05% / 5 bps plan (#744). Per-token calls settle through a metered escrow: the buyer locks the maximum
 (`lock_metered_escrow` / `lock_metered_token_escrow`), and after the response the payee settles the actual cost

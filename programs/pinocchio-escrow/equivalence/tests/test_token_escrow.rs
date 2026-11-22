@@ -999,6 +999,25 @@ fn payee_settles_a_metered_token_escrow_at_actual_cost() {
     assert_eq!(f.lamports(f.payer.pubkey()), payer_before + rent_held);
 }
 
+/// From the end of the launch rate a token payout pays the standard 5%, even
+/// for an escrow locked before it.
+#[test]
+fn token_settlement_after_the_launch_rate_ends_pays_5_percent() {
+    let mut f = Fixture::new();
+    let ix = f.metered_lock_ix(400_000);
+    send(&mut f.svm, &[ix], &[&f.payer]).unwrap();
+    let mut clock = f.svm.get_sysvar::<anchor_lang::prelude::Clock>();
+    clock.unix_timestamp = escrow::LAUNCH_RATE_ENDS_UNIX;
+    f.svm.set_sysvar(&clock);
+    f.svm.expire_blockhash();
+    let payee = f.payee.insecure_clone();
+    let ix = f.settle_ix(payee.pubkey(), 123_457);
+    send(&mut f.svm, &[ix], &[&payee]).unwrap();
+    // fee = 123_457 * 500 / 10_000 = 6_172 (rounded down)
+    assert_eq!(f.balance(f.treasury_token), 6_172);
+    assert_eq!(f.triple(), (1_000_000 - 123_457, 0, 123_457 - 6_172));
+}
+
 #[test]
 fn token_settlement_stays_within_the_authorised_maximum() {
     let mut f = Fixture::new();
