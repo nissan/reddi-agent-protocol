@@ -101,7 +101,7 @@ export function ProviderPriceFields({ inputPerMillionUsd, outputPerMillionUsd, o
             <dd className="m-0 break-words">
               {preview.buyerPays.usdc} USDC · {preview.buyerPays.audd} AUDD · {preview.buyerPays.sol} SOL
             </dd>
-            <dt className="text-[#b9b6ab]">Protocol fee (planned, 2.5%)</dt>
+            <dt className="text-[#b9b6ab]">Protocol fee (planned, 2.5% launch rate, then 5%)</dt>
             <dd className="m-0">{preview.feeUsdc} USDC</dd>
             <dt className="text-[#b9b6ab]">You receive</dt>
             <dd className="m-0 font-bold text-[#14f195]">{preview.providerReceivesUsdc} USDC</dd>

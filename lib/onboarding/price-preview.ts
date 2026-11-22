@@ -1,13 +1,13 @@
 /**
  * What a provider's per-token price earns on one typical call, for the
  * onboarding price step. Same arithmetic as the sandbox (`lib/sandbox/pricing.ts`):
- * whole micro-dollars, cost rounded up, the planned 2.5% protocol fee rounded
+ * whole micro-dollars, cost rounded up, the planned protocol fee (2.5% launch rate, then 5%) rounded
  * down and taken from the provider's share. AUDD and SOL use the labelled
  * demo rates. Nothing here is charged or collected.
  */
 
 import {
-  SANDBOX_FEE_BPS,
+  sandboxFeeBps,
   TYPICAL_REVIEW,
   formatUnits,
   triPriceFromMicroUsd,
@@ -47,7 +47,7 @@ export function previewEarnings(
   if (input === null || output === null || input + output === BigInt(0)) return null;
   const total = BigInt(usage.inputTokens) * input + BigInt(usage.outputTokens) * output;
   const cost = (total + MILLION - BigInt(1)) / MILLION;
-  const fee = (cost * SANDBOX_FEE_BPS) / BigInt(10_000);
+  const fee = (cost * sandboxFeeBps()) / BigInt(10_000);
   return {
     usage,
     buyerPays: triPriceFromMicroUsd(cost),

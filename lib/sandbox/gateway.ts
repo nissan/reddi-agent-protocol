@@ -43,7 +43,7 @@ import { decimalToBaseUnits } from "@redditech/x402-solana/payment";
 import { bytesEqual, decodeSandboxEscrow, escrowNonceBytes, SANDBOX_ESCROW_PROGRAM_ID, refundSlotsLeft, SANDBOX_MIN_CANCEL_WINDOW_SLOTS, sandboxEscrowAddress, sandboxRatingAddress, sandboxRatingOpenedSlot } from "./escrow";
 import { sandboxProviderAddress, signAsSandboxProvider } from "./keys";
 import type { SandboxSettler } from "./settle-signer";
-import { countTokens, formatUnits, maxChargeLamports, requestInputTokens, SANDBOX_FEE_BPS, SANDBOX_FEE_TREASURY, sessionCallLamports, settleSandboxCall } from "./pricing";
+import { countTokens, formatUnits, maxChargeLamports, requestInputTokens, sandboxFeeBps, SANDBOX_FEE_TREASURY, sessionCallLamports, settleSandboxCall } from "./pricing";
 import {
   canonicalizeSandboxReceipt,
   decodeReceiptHeader,
@@ -705,7 +705,7 @@ async function handleSessionCall(input: {
 
   if (close) {
     // The closing receipt is its own link in the chain: no tokens of its own, the running totals, and the settle.
-    const fee = (cumulative * SANDBOX_FEE_BPS) / BigInt(10_000);
+    const fee = (cumulative * sandboxFeeBps()) / BigInt(10_000);
     const closing = await sign({
       ...base,
       payment: {

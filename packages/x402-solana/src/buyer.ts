@@ -1,6 +1,6 @@
 import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { buildDirectPaymentInstructions } from './direct-payment';
-import { decimalToBaseUnits, directPaymentCurrency, isValidSolanaPublicKey, PROTOCOL_FEE_BPS } from './payment';
+import { decimalToBaseUnits, directPaymentCurrency, isValidSolanaPublicKey, protocolFeeBpsAt } from './payment';
 import type { SolanaPaymentNetwork, X402Challenge, X402FeeTerms, X402PaymentReceipt } from './types';
 
 const NETWORKS: SolanaPaymentNetwork[] = ['solana-devnet', 'solana-mainnet-beta', 'solana-testnet'];
@@ -28,7 +28,7 @@ export interface BuyerDirectPaymentInput {
   /** Older name for `mint`, kept for USDC callers. */
   usdcMint?: PublicKey;
   payerTokenAccount?: PublicKey;
-  /** Highest fee rate the buyer accepts. Defaults to PROTOCOL_FEE_BPS. */
+  /** Highest fee rate the buyer accepts. Defaults to the rate in force now (protocolFeeBpsAt). */
   maxFeeBps?: number;
 }
 
@@ -145,7 +145,7 @@ export function planBuyerDirectPayment(input: BuyerDirectPaymentInput): BuyerDir
       payer: input.payer,
       mint: tokenMint,
       payerTokenAccount: input.payerTokenAccount,
-      maxFeeBps: input.maxFeeBps ?? PROTOCOL_FEE_BPS,
+      maxFeeBps: input.maxFeeBps ?? protocolFeeBpsAt(),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'payment instructions could not be built';

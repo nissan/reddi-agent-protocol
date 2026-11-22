@@ -154,7 +154,7 @@ describe("metered job record (#794)", () => {
   };
   const receipt = { settlement: "metered-escrow", network: "solana-devnet", currency: "USDC", payTo: PROVIDER, payer: PAYER.toBase58(), nonce: NONCE_HEX, escrow: escrow.toBase58(), lockSignature: LOCK_SIG };
 
-  function settleTx(opts: { provider?: number; fee?: number; max?: number; err?: unknown; accounts?: string[] } = {}) {
+  function settleTx(opts: { provider?: number; fee?: number; max?: number; err?: unknown; accounts?: string[]; blockTime?: number } = {}) {
     const keys = [PAYER.toBase58(), PROVIDER, escrow.toBase58(), vault.toBase58(), recipient, treasury, source, USDC, PROGRAM.toBase58(), TOKEN_PROGRAM_ID.toBase58()];
     const index = (k: string) => keys.indexOf(k);
     const bal = (k: string, amount: number) => ({ accountIndex: index(k), mint: USDC, uiTokenAmount: { amount: String(amount) } });
@@ -162,6 +162,7 @@ describe("metered job record (#794)", () => {
     const fee = opts.fee ?? 25;
     const max = opts.max ?? 30600;
     return {
+      ...(opts.blockTime !== undefined ? { blockTime: opts.blockTime } : {}),
       meta: {
         err: opts.err ?? null,
         preTokenBalances: [bal(vault.toBase58(), max), bal(recipient, 100), bal(treasury, 0)],
@@ -215,7 +216,7 @@ describe("metered job record (#794)", () => {
 
   it.each([
     ["a failed settle", { err: { InstructionError: [0, "Custom"] } }, "settle_failed_on_chain"],
-    ["a fee that is not 2.5%", { fee: 10 }, "fee_mismatch"],
+    ["a fee at neither scheduled rate", { fee: 10 }, "fee_mismatch"],
     ["a settle of another escrow", { accounts: [Keypair.generate().publicKey.toBase58(), vault.toBase58(), PROVIDER, PAYER.toBase58(), USDC, recipient, treasury, source, TOKEN_PROGRAM_ID.toBase58()] }, "settle_not_for_this_escrow"],
     ["a charge above the lock", { max: 500 }, "settle_above_maximum"],
     ["a settle that paid the provider nothing", { provider: 0, fee: 0 }, "settle_paid_nothing"],
@@ -223,6 +224,17 @@ describe("metered job record (#794)", () => {
     const d = deps(settleTx(opts));
     expect(await call(d.deps)).toEqual({ recorded: false, reason });
     expect(d.stored).toHaveLength(0);
+  });
+
+  it("checks the fee at the rate in force at the settle's block time: 2.5% until 1 April 2027, then 5%", async () => {
+    const SWITCH = 1_806_537_600; // 2027-04-01T00:00:00Z, LAUNCH_RATE_ENDS_UNIX in the escrow program
+    const day = 24 * 3600;
+    expect(await call(deps(settleTx({ blockTime: SWITCH - day })).deps)).toMatchObject({ recorded: true, paid: { fee: { amount: "25" } } });
+    expect(await call(deps(settleTx({ blockTime: SWITCH - day, provider: 950, fee: 50 })).deps)).toEqual({ recorded: false, reason: "fee_mismatch" });
+    expect(await call(deps(settleTx({ blockTime: SWITCH + day, provider: 950, fee: 50 })).deps)).toMatchObject({ recorded: true, paid: { fee: { amount: "50" } } });
+    expect(await call(deps(settleTx({ blockTime: SWITCH + day })).deps)).toEqual({ recorded: false, reason: "fee_mismatch" });
+    // Right at the switch the cluster clock and the block time may disagree, so either rate is accepted.
+    expect(await call(deps(settleTx({ blockTime: SWITCH + 60 })).deps)).toMatchObject({ recorded: true });
   });
 
   it("records a rated job: the settle carries the escrow's rating account after the usual nine (#842)", async () => {
