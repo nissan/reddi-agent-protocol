@@ -92,7 +92,16 @@ export function createSandboxSettler(connection: Connection, keys: Map<string, K
           await advanceSellerRating({ connection: connection as unknown as SellerRatingConnection, programId: SANDBOX_ESCROW_PROGRAM_ID, escrow: input.escrow, keypair, score: options.rateBuyerScore });
         }
         return { ok: true, signature };
-      } catch {
+      } catch (error) {
+        // Say why in the server log: the page's message stays generic, but a refused settle
+        // (a program error in preflight) and a busy RPC need different fixes. Public data only.
+        const logs = (error as { logs?: unknown }).logs;
+        console.error("[sandbox-settle] settle not sent", {
+          provider: input.providerId,
+          escrow: input.escrow.toBase58(),
+          error: error instanceof Error ? error.message : String(error),
+          ...(Array.isArray(logs) ? { logs: logs.slice(-8) } : {}),
+        });
         return { ok: false, message: "The settle transaction could not be sent to devnet." };
       }
     },

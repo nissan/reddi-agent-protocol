@@ -10,6 +10,7 @@ import { findSandboxProviderById, SANDBOX_PROVIDERS } from "@/lib/sandbox/catalo
 import {
   buildSandboxMeteredLock,
   buildSandboxSettle,
+  SANDBOX_PROGRAM_NAMES_UNRATED_EXITS,
   decodeSandboxEscrow,
   escrowNonceBytes,
   SANDBOX_ESCROW_DISCRIMINATORS,
@@ -189,7 +190,17 @@ describe("sandbox metered escrow: instructions and layout", () => {
       ["11111111111111111111111111111111", false, false],
     ]);
 
-    const settle = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), createdSlot: BigInt(4242) });
+    // The devnet build refuses the slot on an unrated exit (6051), so the sandbox leaves it off there.
+    expect(SANDBOX_PROGRAM_NAMES_UNRATED_EXITS).toBe(false);
+    const deployed = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), createdSlot: BigInt(4242) });
+    expect(deployed.data).toHaveLength(16);
+    expect(deployed.data.subarray(0, 8)).toEqual(IX.settle_escrow);
+    expect(deployed.data.readBigUInt64LE(8)).toBe(BigInt(207));
+    expect(buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: false, createdSlot: BigInt(4242) }).data).toEqual(deployed.data);
+
+    // A program that names every exit gets the slot on an unrated settle too.
+    const settle = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), createdSlot: BigInt(4242), namesUnratedExits: true });
+    expect(deployed.keys).toEqual(settle.keys);
     expect(settle.data.subarray(0, 8)).toEqual(IX.settle_escrow);
     expect(settle.data.readBigUInt64LE(8)).toBe(BigInt(207));
     // The escrow's lock slot follows the data: the settle names this escrow and no later one at its address.
@@ -205,7 +216,7 @@ describe("sandbox metered escrow: instructions and layout", () => {
     expect(() => escrowNonceBytes("not-hex")).toThrow();
 
     // Not rated: exactly the same instruction whether or not `rated` is stated.
-    const unrated = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: false, createdSlot: BigInt(4242) });
+    const unrated = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: false, createdSlot: BigInt(4242), namesUnratedExits: true });
     expect(unrated.data).toEqual(settle.data);
     expect(unrated.keys).toEqual(settle.keys);
     // Without the lock slot no settle is built, rated or not: the program would refuse it.
