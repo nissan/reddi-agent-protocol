@@ -15,10 +15,21 @@ address, never the multisig account address).
 ## 1. Freeze
 
 1. Record the freeze commit on `main`.
-2. Take the size and sha256 of record from the `escrow-verifiable-build.yml` run
-   on that commit (artifact `escrow-mainnet-build.json`). Record them on #736.
-3. The second review (Codex) works from that commit. A program change after the
-   freeze means a new freeze commit and hash.
+2. Take the build of record from the `escrow-verifiable-build.yml` run on that
+   commit. The workflow is path-filtered, so if the freeze commit did not touch
+   the program, start the run by hand (`workflow_dispatch`) on that commit.
+   From the `escrow-mainnet-<commit>` artifact record: the size, the `sha256sum`
+   of `pinocchio_escrow.so`, and the executable hash (the workflow's `hash`,
+   from `solana-verify get-executable-hash`, which is the sha256 with trailing
+   zero bytes removed). They are two different hashes; keep both. Record the
+   build image's digest too (`docker inspect --format '{{index .RepoDigests 0}}'
+   solanafoundation/solana-verifiable-build:4.2.2` on the machine that pulled it).
+3. Commit them as the release record `config/releases/v1-mainnet-<commit7>.json`
+   (format in `config/releases/README.md`), with `upgradeAuthority` set to the
+   vault and `forbiddenAuthorities` holding the multisig account address and the
+   deployer address. Record the same values on #736.
+4. The second review (Codex) works from that commit. A program change after the
+   freeze means a new freeze commit, record and hash.
 
 ## 2. Fund the deployer
 
@@ -33,11 +44,30 @@ The owner funds it.
 ## 3. Deploy (owner signs)
 
 1. Deploy the container-built `pinocchio_escrow.so` whose sha256 matches the
-   freeze record, with the program keypair for `DcfW3Cxt…5Ucu`.
-2. Read the program data account back and check its sha256 against the record
-   (the e2e script's `PROGRAM_LEN` / `PROGRAM_SHA256` check does this).
-3. Hand upgrade authority to the Squads vault. Read it back from chain (#737
-   RAP-737-S2).
+   release record, with the program keypair for `DcfW3Cxt…5Ucu`.
+2. Hand upgrade authority to the Squads **vault** `5CsBuT…3Hxe`, never the
+   multisig account. The vault cannot sign, so this needs
+   `solana program set-upgrade-authority DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu
+   --new-upgrade-authority 5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe
+   --skip-new-upgrade-authority-signer-check --url mainnet-beta`. Paste the
+   address from this runbook; do not type it.
+3. Run the read-only deployment check against the release record, **after** the
+   handover, so an upgrade between the deploy and the handover would show:
+
+   ```bash
+   SOLANA_RPC_URL=<mainnet rpc> node scripts/check-escrow-deployment.mjs \
+     --record config/releases/v1-mainnet-<commit7>.json --deployer <deployer address>
+   ```
+
+   It checks the cluster (mainnet genesis), the loader and ProgramData accounts,
+   the length, that the bytes after the build are zero, both hashes, that the
+   upgrade authority is the vault and not a forbidden address, and that no
+   deploy buffer is left under the deployer. It prints only the RPC host. Every
+   line must say `ok`; record the output and the deploy slot on #736 (#737
+   RAP-737-S2). If any line fails, stop: nothing opens to buyers.
+4. Close any leftover buffer (`solana program close --buffers --url
+   mainnet-beta`), then send the deployer's remaining SOL back to the owner and
+   retire the deployer key. From here no single hot key can change the program.
 
 ## 4. Prepare the treasury (before the first lock)
 
