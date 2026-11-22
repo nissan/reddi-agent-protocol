@@ -38,7 +38,6 @@ const secondaryLinks: { href: string; label: string }[] = withoutInternalLinks([
   { href: "/dashboard", label: "Dashboards" },
   { href: "/specialist", label: "Specialist" },
   { href: "/attestation", label: "Attestation" },
-  { href: "/consumer", label: "Buyer dashboard" },
   { href: "/audit", label: "Audit trail" },
   { href: "/faq", label: "FAQ" },
   { href: "/playbook", label: "Playbook" },

@@ -182,7 +182,7 @@ Delegations (session and direct payment) may run for up to seven days, but a buy
 
 Hardware wallets such as Ledger sign Solana off-chain messages with a header prefix, which these checks do not accept yet. A payer that uses one cannot sign the delegation or the request; pay from a software wallet for now.
 
-`SolanaReceiptVerifier` requires a replay store for real receipts and records the transaction signature, so one transaction satisfies one challenge; USDC needs a configured `usdcMint` and a `transferChecked` instruction. It bridges AUDD receipts to this stricter x402 v2 SVM `exact` verifier only when the verifier is configured with an explicit `auddMint`; it will not trust a receipt-supplied mint as the AUDD identity. AUDD amounts are base units, not UI decimal strings.
+`SolanaReceiptVerifier` requires a replay store for real receipts and records the transaction signature, so one transaction satisfies one challenge; USDC needs a configured `usdcMint` and a `transferChecked` instruction. A token payment counts for what stays with the payee: the payee's (and the treasury's) token account must gain at least its share between the balances before and after the transaction, belong to them before and after, and not be debited or have its authority changed by any instruction of the same transaction, inner instructions included. A Token-2022 mint that charges a transfer fee delivers less than the amount sent, so its payments fail this check; the accepted mints are expected to keep the fee at zero. The receipt nonce is 1 to 128 characters of letters, digits and `. _ : ~ -`, and is recorded under `x402:nonce:<network>:<payTo>:`, so it cannot collide with another payment's transaction or escrow key. It bridges AUDD receipts to this stricter x402 v2 SVM `exact` verifier only when the verifier is configured with an explicit `auddMint`; it will not trust a receipt-supplied mint as the AUDD identity. AUDD amounts are base units, not UI decimal strings.
 
 For a `solana-mainnet-beta` challenge the verifier also refuses a transaction older than 900 seconds (`maxTransactionAgeSeconds`) or without a block time, and requires the connection to report the public mainnet genesis hash. On other networks those two checks run only when `maxTransactionAgeSeconds` or `expectedGenesisHash` is set.
 
@@ -193,7 +193,7 @@ For a `solana-mainnet-beta` challenge the verifier also refuses a transaction ol
 const replayStore = new DatabaseReplayStore({ rpc: (fn, args) => client.rpc(fn, args) });
 ```
 
-It throws when the database is unreachable, so a payment is never accepted without being recorded.
+It throws when the database is unreachable, so a payment is never accepted without being recorded. A real payment is recorded under two keys at once through `replay_check_and_store_all` (`p_keys`, a text array; all or none), so the database needs both functions from `supabase/migrations/`. A custom store can do the same by implementing `checkAndStoreAll`.
 
 ### `sendPayment(request: X402Request): Promise<PaymentReceipt>`
 

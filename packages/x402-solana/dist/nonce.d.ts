@@ -2,6 +2,7 @@ import type { NonceReplayStore } from './types';
 export declare class MemoryNonceReplayStore implements NonceReplayStore {
     private readonly seen;
     checkAndStore(nonce: string): boolean;
+    checkAndStoreAll(keys: string[]): boolean;
     clear(): void;
     get size(): number;
 }
@@ -11,6 +12,12 @@ export declare class MemoryNonceReplayStore implements NonceReplayStore {
  */
 export declare function checkAndStoreNonce(nonce: string): boolean;
 export declare const defaultNonceReplayStore: NonceReplayStore;
+/**
+ * Records all keys for one payment. Uses the store's atomic `checkAndStoreAll`
+ * when it has one; otherwise records them one by one, in order, which can leave
+ * the earlier keys recorded if a later one is refused or fails.
+ */
+export declare function checkAndStoreReplayKeys(store: NonceReplayStore, keys: string[]): Promise<boolean>;
 /** Clear all stored nonces (for testing). */
 export declare function clearNonces(): void;
 /** Get count of stored nonces (for debugging). */
@@ -28,6 +35,11 @@ export interface DatabaseReplayStoreOptions {
     rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<ReplayRpcResult>;
     /** Defaults to `replay_check_and_store`, which takes `p_key` and returns a boolean. */
     functionName?: string;
+    /**
+     * Defaults to `replay_check_and_store_all`, which takes `p_keys` (a text array),
+     * inserts all of them or none, and returns a boolean.
+     */
+    batchFunctionName?: string;
 }
 /**
  * Durable replay store backed by an atomic database function, so a key is
@@ -38,6 +50,8 @@ export interface DatabaseReplayStoreOptions {
 export declare class DatabaseReplayStore implements NonceReplayStore {
     private readonly options;
     private readonly functionName;
+    private readonly batchFunctionName;
     constructor(options: DatabaseReplayStoreOptions);
+    checkAndStoreAll(keys: string[]): Promise<boolean>;
     checkAndStore(key: string): Promise<boolean>;
 }

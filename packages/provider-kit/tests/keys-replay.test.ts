@@ -50,6 +50,19 @@ test("accepted escrows are remembered across a restart", () => {
   assert.throws(() => second.checkAndStore("metered-escrow:ghi"), /closed/);
 });
 
+test("a batch of keys is written all together or not at all", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "rap-replay-")), "accepted.log");
+  const store = new FileReplayStore(path);
+  assert.equal(store.checkAndStore("x402:nonce:used"), true);
+  assert.equal(store.checkAndStoreAll(["x402:tx:sig-1", "x402:nonce:used"]), false);
+  assert.equal(readFileSync(path, "utf8"), "x402:nonce:used\n");
+  assert.equal(store.checkAndStoreAll(["x402:tx:sig-1", "x402:nonce:new"]), true);
+  assert.equal(readFileSync(path, "utf8"), "x402:nonce:used\nx402:tx:sig-1\nx402:nonce:new\n");
+  assert.throws(() => store.checkAndStoreAll(["a", "a"]), /distinct/);
+  assert.throws(() => store.checkAndStoreAll(["ok", "has space"]));
+  store.close();
+});
+
 test("a second process cannot share the file, and a dead owner's lock is taken over", () => {
   const path = join(mkdtempSync(join(tmpdir(), "rap-replay-")), "accepted.log");
   // pid 1 is alive on any Unix system and is never this process.

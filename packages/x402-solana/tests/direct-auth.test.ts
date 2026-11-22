@@ -10,6 +10,7 @@ import {
   PAYMENT_DELEGATION_HEADER,
   PAYMENT_PROOF_HEADER,
 } from '../src/direct-auth';
+import { withTokenBalances } from './support/token-balances';
 
 const PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
 const signer = (k: Keypair) => (m: Uint8Array) =>
@@ -101,7 +102,7 @@ describe('direct payment payer proof', () => {
 
   it('requires a token transfer to name the payer as its authority', async () => {
     const mint = Keypair.generate().publicKey.toBase58();
-    const tokenTx = (authority?: string) => ({
+    const tokenTx = (authority?: string) => withTokenBalances({
       meta: { err: null, postTokenBalances: [{ accountIndex: 1, mint, owner: provider }] },
       transaction: { message: {
         accountKeys: [{ pubkey: buyer.publicKey.toBase58(), signer: true }, { pubkey: 'provider-ta', signer: false }],
