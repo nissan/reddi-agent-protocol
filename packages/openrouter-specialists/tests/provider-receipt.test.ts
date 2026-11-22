@@ -1,3 +1,4 @@
+import { pinLaunchRateClock } from "./launch-clock.js";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
@@ -163,3 +164,6 @@ test("an unreadable request body is still handled as an empty request", async ()
   );
   assert.equal(response.status, 402);
 });
+
+// Fee terms built from the current time stay at the launch rate after 1 April 2027.
+pinLaunchRateClock();

@@ -1,3 +1,4 @@
+import { pinLaunchRateClock } from "@/lib/test-support/launch-clock";
 import { DEFAULT_OUTPUT_TOKENS, estimateTokens, METERED_BUYER_NOTICE, perTokenPriceFor, quoteMeteredBuy } from "@/lib/payments/metered-quote";
 
 const PRICES = { inputPerMillionUsd: 0.15, outputPerMillionUsd: 0.6 };
@@ -46,3 +47,6 @@ describe("metered buy quote (#794)", () => {
     expect(quoteMeteredBuy({ prices: {}, currency: "USDC", prompt: PROMPT })).toMatchObject({ ok: false, reason: "not_per_token" });
   });
 });
+
+// Fee terms built from the current time stay at the launch rate after 1 April 2027.
+pinLaunchRateClock();

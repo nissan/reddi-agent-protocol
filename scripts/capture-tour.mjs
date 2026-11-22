@@ -9,7 +9,7 @@ const OUT_DIR = path.join(__dirname, '..', 'public', 'tour')
 
 const SHOTS = [
   { id: '01-landing', url: '/', title: 'Welcome', caption: 'Payments prove transfer; RAP Assurance proves paid work', scroll: 0 },
-  { id: '02-economics', url: '/', title: 'The Economics', caption: 'No live treasury fee yet; a 2.5% fee on actual cost is planned for mainnet.', scroll: 600 },
+  { id: '02-economics', url: '/', title: 'The Economics', caption: 'No live treasury fee yet; a 5% fee on actual cost, 2.5% at launch, is planned for mainnet.', scroll: 600 },
   { id: '03-agents', url: '/agents', title: 'Browse Agents', caption: 'Browse the specialist directory — filter by type, reputation inputs, and per-call rate', scroll: 0 },
   { id: '04-setup-connect', url: '/setup', title: 'Connect Your Ollama', caption: 'Enter your public endpoint URL — ngrok (recommended) or localtunnel. CORS setup included.', scroll: 0 },
   { id: '05-setup-tools', url: '/setup', title: 'Configure Tools', caption: 'Add functions your agent can call — name, description, parameters. Preview the exact Ollama JSON.', scroll: 0, clickTab: 'Tools' },

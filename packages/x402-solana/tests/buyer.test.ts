@@ -1,3 +1,4 @@
+import { pinLaunchRateClock } from './support/launch-clock';
 import { Keypair, PublicKey, SystemProgram } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { buildX402Challenge } from '../src/payment';
@@ -110,3 +111,6 @@ describe('buyer direct payment plan', () => {
     expect(parsed && Object.keys(parsed).sort()).toEqual(['amount', 'currency', 'endpoint', 'fee', 'network', 'nonce', 'payTo', 'version']);
   });
 });
+
+// Fee terms built from the current time stay at the launch rate after 1 April 2027.
+pinLaunchRateClock();

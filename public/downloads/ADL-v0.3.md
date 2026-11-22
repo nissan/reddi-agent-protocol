@@ -118,7 +118,7 @@ required evidence output for levels `0..requestedLevel` is absent.
 | 0 | schema-valid | `apiVersion`, `kind`, `metadata.name`, `metadata.description`, `model`, `harness` | `conformance`, `extensions` | none | JSON Schema validation diagnostics |
 | 1 | local-python runnable | Level 0 plus `harness.instructions`, `harness.runtime.target`, `harness.evalGates`, and Level 1 observability events | `harness.memory`, `harness.tools`, `harness.dataSources` | payment/reputation extension; production deployment descriptor | local Level 1 trace; `completion.requiredGateStatus`; `trace.started`; `trace.completed`; `task.completed`; `task.failed` |
 | 2 | provider-adapter compatible | Level 1 plus `model.capability`, `model.providers.preferred`, `model.requirements`, `harness.policies`, `harness.evalGates`, and Level 2 observability events | `harness.tools`, `harness.dataSources`, `harness.memory` | payment/reputation extension; production deployment descriptor | provider compatibility report; unsupported-execution boundary; `model.called`; `policy.checked`; `eval.checked` |
-| 3 | payment/reputation extension compatible | Level 2 plus `extensions.x402.enabled=true`, `extensions.x402.mode`, spend/refund intents with authority, scope, receipt, audit, revocation, and policy refs, charge intents with `price`, `payTo`, `settlement`, receipt, and policy refs, `extensions.receipts.required=true`, `extensions.receipts.refs` with `format: reddi.receipt.v2`, `extensions.reputation.emitSignals`, and Level 3 observability events | `extensions.identity`; `x-*` or URI extension namespaces as strict metadata | production deployment descriptor; in `live` mode, any rail other than `solana`; a mainnet mint that is not the allowlisted one; a protocol fee other than 250 bps with a 0.1 SOL cap; a per-token price without `metered-escrow` settlement, or the reverse | receipt evidence; reputation signal evidence; payment policy evidence; `payment.intent.created`; `receipt.emitted`; `reputation.signal.emitted` |
+| 3 | payment/reputation extension compatible | Level 2 plus `extensions.x402.enabled=true`, `extensions.x402.mode`, spend/refund intents with authority, scope, receipt, audit, revocation, and policy refs, charge intents with `price`, `payTo`, `settlement`, receipt, and policy refs, `extensions.receipts.required=true`, `extensions.receipts.refs` with `format: reddi.receipt.v2`, `extensions.reputation.emitSignals`, and Level 3 observability events | `extensions.identity`; `x-*` or URI extension namespaces as strict metadata | production deployment descriptor; in `live` mode, any rail other than `solana`; a mainnet mint that is not the allowlisted one; a protocol fee other than 500 bps with a 0.1 SOL cap, or a launch rate other than 250 bps ending 2027-04-01 00:00 UTC; a per-token price without `metered-escrow` settlement, or the reverse | receipt evidence; reputation signal evidence; payment policy evidence; `payment.intent.created`; `receipt.emitted`; `reputation.signal.emitted` |
 | 4 | production deployment compatible | Level 3 plus `harness.runtime.target` of `hosted-container`, `serverless`, `platform-native`, or `openclaw`, `harness.deployment.environment`, `harness.deployment.rollback`, `harness.observability.events`, `harness.recovery.disable`, and Level 4 observability events | `harness.deployment.healthCheck`, `harness.observability.destinations` | mainnet remains separately approval-gated | deployment readiness report; observability trace config; rollback/disable evidence; `deployment.health.checked`; `adapter.loss.reported` |
 
 Conformance output must include:
@@ -332,7 +332,10 @@ with the intent.
 
 ```yaml
 protocolFee:
-  bps: 250
+  bps: 500
+  launchRate:
+    bps: 250
+    endsAt: '2027-04-01T00:00:00Z'
   rounding: down
   paidBy: provider
   cap:
@@ -341,12 +344,18 @@ protocolFee:
   base: actual-cost
 ```
 
-The fee is 2.5% (250 basis points) of the amount actually paid, rounded down
-to the asset's smallest unit, and comes out of that amount: the buyer pays it
-and the provider receives it minus the fee. For a per-call price the amount
+The fee is 5% (500 basis points) of the amount actually paid, with a launch
+rate of 2.5% (250 basis points) for payouts before 2027-04-01 00:00 UTC. The
+rate is the one in force when the payment is made (for an escrow, at payout,
+by the cluster clock), not when it was locked. The fee is rounded down to the
+asset's smallest unit and comes out of the amount paid: the buyer pays it and
+the provider receives it minus the fee. For a per-call price the amount
 paid is the price; for a per-token price it is the settled cost, never the
 locked maximum. On a SOL payment the fee is at most 0.1 SOL; stablecoin
-payments have no cap. A different `bps` or `cap` fails Level 3. `base` is
+payments have no cap. A different `bps` or `cap` fails Level 3, and so does
+a `launchRate` other than `{ bps: 250, endsAt: '2027-04-01T00:00:00Z' }`.
+`launchRate` is optional, so a document written after the launch rate ends
+may leave it out. `base` is
 optional and only states the rule. A `live` document with a charge intent
 must declare the block.
 

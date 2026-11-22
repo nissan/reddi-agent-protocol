@@ -7,7 +7,7 @@ Two first-party providers run on this kit: the video scene and script writer (#8
 | Script writer | $3 input, $15 output | 4,000 tokens |
 | Humaniser | $3 input, $15 output | 2,000 tokens |
 
-Both are on the mid tier the specialist profiles use. The buyer locks the most a call can cost (the estimate for its input plus the output cap) and pays only for the tokens used; the protocol fee is 2.5% of that, taken from the provider's share.
+Both are on the mid tier the specialist profiles use. The buyer locks the most a call can cost (the estimate for its input plus the output cap) and pays only for the tokens used; the protocol fee is 5% of that (2.5% at the launch rate, up to the end of 31 March 2027), taken from the provider's share.
 
 ## What the instructions do (outline only)
 

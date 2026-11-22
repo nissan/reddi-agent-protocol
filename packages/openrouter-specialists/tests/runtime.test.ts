@@ -1,3 +1,4 @@
+import { pinLaunchRateClock } from "./launch-clock.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -820,3 +821,6 @@ test("402 challenge states the protocol fee split only when a treasury is config
     { AUDD: "audd-mint", PYUSD: "pyusd-mint" },
   );
 });
+
+// Fee terms built from the current time stay at the launch rate after 1 April 2027.
+pinLaunchRateClock();

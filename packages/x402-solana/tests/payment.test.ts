@@ -1,3 +1,4 @@
+import { pinLaunchRateClock } from './support/launch-clock';
 import {
   buildX402Challenge,
   DemoPaymentVerifier,
@@ -1048,3 +1049,6 @@ describe('DatabaseReplayStore', () => {
     ).rejects.toThrow('replay store is unavailable');
   });
 });
+
+// Fee terms built from the current time stay at the launch rate after 1 April 2027.
+pinLaunchRateClock();

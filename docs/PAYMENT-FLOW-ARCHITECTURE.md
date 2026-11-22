@@ -52,7 +52,7 @@ RAP Assurance receipt
 - No custody or escrow-provider claim.
 - No default live payment, wallet, RPC, or paid-provider call.
 - No hosted marketplace/facilitator readiness claim.
-- No collected on-chain protocol treasury fee on mainnet. The planned fee is 2.5% (250 bps) of the actual cost of a metered call, capped at 0.1 SOL on SOL payments only; it replaces the earlier 0.05% / 5 bps plan and runs only on devnet until a mainnet release.
+- No collected on-chain protocol treasury fee on mainnet. The planned fee is 5% (500 bps) of the actual cost of a metered call, with a 2.5% (250 bps) launch rate for payouts before 2027-04-01 00:00 UTC (the rate in force at payout), capped at 0.1 SOL on SOL payments only; it replaces the earlier 0.05% / 5 bps plan and runs only on devnet until a mainnet release.
 
 ## x402 challenge/response semantics (implemented in `packages/x402-solana`)
 

@@ -1,3 +1,4 @@
+import { pinLaunchRateClock } from "@/lib/test-support/launch-clock";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { MemoryNonceReplayStore } from "@redditech/x402-solana";
 import { ratingPda } from "@redditech/x402-solana/rating";
@@ -446,3 +447,6 @@ describe("sandbox: run a session scenario (#863)", () => {
     expect(networkFeeShare(50)).toBeCloseTo(0.00225, 5);
   });
 });
+
+// Fee terms built from the current time stay at the launch rate after 1 April 2027.
+pinLaunchRateClock();
