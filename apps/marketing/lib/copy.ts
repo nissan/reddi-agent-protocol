@@ -8,10 +8,10 @@ export const X_URL = "https://x.com/reddiagent";
 export const GITHUB_URL = "https://github.com/nissan/reddi-agent-protocol";
 export const RFS_URL = "https://solana.com/request-for-startups#ai-inference-marketplace";
 export const CENTRAL_MESSAGE = "Payments prove transfer; RAP Assurance proves paid work.";
-export const DEFAULT_DESCRIPTION = "Receipted AI inference on Solana: an OpenAI-style request, an x402 payment priced per token, and a signed receipt that names the provider, the model it declared and the tokens used. In development; nothing is on mainnet yet.";
+export const DEFAULT_DESCRIPTION = "Receipted AI inference on Solana: an OpenAI-style request, an x402 payment priced per token, and a signed receipt that names the provider, the model it declared and the tokens used. Running on Solana devnet today. Mainnet is coming soon.";
 
 // The stage line shown in the header strip, the hero and the footer. One place, so it changes once.
-export const STAGE = "In development. Devnet today. Nothing is on mainnet yet.";
+export const STAGE = "Running on Solana devnet. Mainnet is coming soon.";
 
 export const STEPS = [
   { n: "01", title: "Ask", body: "Your app or agent sends an ordinary OpenAI-style chat request to a provider's endpoint. No new SDK to learn." },
@@ -31,14 +31,14 @@ export const STATUS: { exists: StatusRow[]; building: StatusRow[]; planned: Stat
   exists: [
     { item: "Open-source receipt and conformance packages", note: "Receipt envelopes, policy decisions, replay fixtures and conformance checks that run locally and offline.", where: "packages/ in the repository", href: `${GITHUB_URL}/tree/main/packages` },
     { item: "x402 payment checks for Solana", note: "Helpers that check a payment proof against the transaction, the network and the amount, and refuse a replayed one.", where: "packages/x402-solana", href: `${GITHUB_URL}/tree/main/packages/x402-solana` },
-    { item: "A devnet sandbox", note: "Four short scenarios in the browser, each ending in a receipt. Prices are per token. With a devnet wallet, a call locks your maximum in the escrow program and the provider settles the real cost, using test funds only.", where: "The devnet sandbox", href: `${resolveAppUrl(process.env.NEXT_PUBLIC_APP_URL)}/sandbox` },
-    { item: "On-chain program, on devnet", note: "Anchor source and tests for the registry and the metered escrow, deployed to Solana devnet on 21 November 2026. It has not been reviewed by an outside auditor and is not deployed to mainnet.", where: "archive/anchor-escrow and DEPLOY.md", href: `${GITHUB_URL}/blob/main/DEPLOY.md` },
+    { item: "A devnet sandbox", note: "Four short scenarios in the browser, each ending in a receipt. Prices are per token. With a devnet wallet, a call locks your maximum in the escrow program and the provider settles the real cost. A session lets several calls share one locked maximum and settle once. Test funds only.", where: "The devnet sandbox", href: `${resolveAppUrl(process.env.NEXT_PUBLIC_APP_URL)}/sandbox` },
+    { item: "On-chain program, on devnet", note: "The registry and the metered escrow, deployed to Solana devnet on 21 November 2026. The V1 program is written in Pinocchio, about a sixth of the size of the first build, and adds opt-in job ratings and judge attestations for paid jobs.", where: "programs/pinocchio-escrow", href: `${GITHUB_URL}/tree/main/programs/pinocchio-escrow` },
   ],
   building: [
     { item: "OpenAI-style interface with a model-naming receipt", note: "The request shape developers already use, answered with a receipt.", where: "Issue 739", href: `${GITHUB_URL}/issues/739` },
     { item: "Real x402 payment, priced per token", note: "Paying from the buyer's own wallet up to a maximum the buyer approves. It works in the devnet sandbox; the rest of the app is being finished.", where: "Issue 738", href: `${GITHUB_URL}/issues/738` },
     { item: "Wallet sign-in and accounts", note: "So providers and buyers can see their own receipts and history.", where: "Issue 740", href: `${GITHUB_URL}/issues/740` },
-    { item: "Focused security review", note: "A scoped review of the program and payment path before any mainnet step. This is a review in progress, not a completed audit.", where: "Issue 737", href: `${GITHUB_URL}/issues/737` },
+    { item: "Focused security review", note: "A scoped review of the program and payment path before the mainnet release. The review is under way.", where: "Issue 737", href: `${GITHUB_URL}/issues/737` },
   ],
   planned: [
     { item: "Guarded beta on Solana mainnet", note: "A small first release with SOL, USDC, AUDD, PYUSD and USDG and low per-job limits. Planned; no date is promised.", where: "Issue 736", href: `${GITHUB_URL}/issues/736` },
@@ -72,11 +72,11 @@ export const SCENARIOS = [
 ] as const;
 
 export const FAQ = [
-  { q: "Can I use it today?", a: "You can read the code, run the packages locally and try the devnet sandbox with test funds. The guarded beta is not open, and nothing runs on Solana mainnet yet. Sign up below and we will tell you when that changes." },
+  { q: "Can I use it today?", a: "Yes, on Solana devnet. Read the code, run the packages locally and try the devnet sandbox with test funds. The guarded beta on Solana mainnet is coming soon. Sign up below and we will tell you the day it opens." },
   { q: "Is this a marketplace?", a: "No. Solana's request describes an open marketplace where developers choose, verify and pay inference providers. We are building the verify part: receipts and track records that any gateway, registry or marketplace can use." },
   { q: "Does a receipt prove which model ran?", a: "Not by itself, and we will not say it does. A receipt is the provider's signed statement of which model answered, bound to the hashes of your request and the response and to the payment. Independent spot checks test those statements over time. That is evidence you can check and hold a provider to, not a mathematical proof of execution." },
   { q: "What is x402?", a: "An open payment handshake built on the web's 402 Payment Required status. A provider answers an unpaid request with its price; your client pays and retries with proof of payment. Providers are protected from unpaid calls, and buyers see the price before they pay." },
-  { q: "What is an attestor?", a: "An independent checker. An attestor samples a provider's answers and tests them against what the receipt says, such as the declared model. The results feed the provider's track record. Attestors are part of the design being built; none is running on mainnet." },
+  { q: "What is an attestor?", a: "An independent checker. An attestor samples a provider's answers and tests them against what the receipt says, such as the declared model. The results feed the provider's track record. The first mainnet release includes judge attestations: a judge the buyer names can attest a paid job on chain." },
   { q: "Who holds my money?", a: "Your wallet locks the maximum you approved in an on-chain escrow program. After the answer, the provider settles the real token cost and the program sends the rest back to you. No Reddi company account or server holds your money. The provider reports the token count, so treat the maximum as the most a call can cost you." },
   { q: "What will it cost?", a: "The code is open source. Providers set their own prices per million input and output tokens, and you approve a maximum before each call. A protocol fee of 2.5% of what a call actually cost is planned for the first mainnet release. It would come out of the provider's share, so it adds nothing to your price. No protocol fee is collected today." },
   { q: "What is RAP Assurance?", a: `It is the name of the open receipt and conformance layer inside Reddi Agent Protocol. Its one-line summary: ${CENTRAL_MESSAGE}` },

@@ -40,8 +40,8 @@ test('scenario revenue is volume times 2.5% and the scenarios are ordered', () =
 
 test('the page labels SAM, SOM and scenario volumes as estimates and says no fee is collected today', () => {
   const page = readFileSync(join(import.meta.dirname, '..', 'app', 'market', 'page.tsx'), 'utf8');
-  assert.match(page, /no protocol fee is collected today/i);
-  assert.match(page, /nothing here runs on Solana mainnet yet/i);
+  assert.match(page, /none is collected today/i);
+  assert.match(page, /runs on Solana devnet today, and mainnet is coming soon/i);
   // SAM, SOM, and the job-cost rows that are not measured.
   assert.equal((page.match(/className="tag">estimate</g) ?? []).length, 3);
   assert.match(page, /our estimates<\/b>/);

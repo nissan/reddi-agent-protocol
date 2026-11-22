@@ -44,7 +44,7 @@ export default function Market() {
       <p className="eyebrow">THE NUMBERS · AS OF {AS_OF.toUpperCase()}</p>
       <h1>Solana asked for an open inference market. <span>We were already building it.</span></h1>
       <p className="lead">On {RFS.published} the Solana Foundation published its Request for Startups. One of its eleven ideas is an open marketplace for AI inference. This page is the market case for the part we build, the verify layer, and what it could earn. Every number links to its source or is marked as our own estimate.</p>
-      <p className="notice small">Nothing here runs on Solana mainnet yet, and no protocol fee is collected today. The 2.5% fee is planned for the first mainnet release. Every other revenue line on this page is a roadmap item.</p>
+      <p className="notice small">The protocol runs on Solana devnet today, and mainnet is coming soon. The 2.5% fee is planned for the first mainnet release; none is collected today. Every other revenue line on this page is on the roadmap.</p>
 
       <h2>The prediction</h2>
       <blockquote className="rfs-quote">

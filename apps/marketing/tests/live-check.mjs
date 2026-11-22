@@ -19,14 +19,14 @@ check(report.build?.environment === "production", `/api/health: environment is $
 check(report.indexable === true, "/api/health: the site is not indexable");
 check(report.newsletter?.enabled === true && report.newsletter?.signupForm === true, "/api/health: newsletter signup is switched off");
 
-const pages = { "/": "Get the receipt", "/status": "What we do not claim", "/market": "Solana", "/sandbox": "Devnet tokens have no value", "/updates": "What has been built", "/watch": "See it explained", "/privacy": "confirmed opt-in", "/terms": "No financial or investment advice" };
+const pages = { "/": "Get the receipt", "/status": "Where things stand", "/market": "Solana", "/sandbox": "Devnet tokens have no value", "/updates": "What has been built", "/watch": "See it explained", "/privacy": "confirmed opt-in", "/terms": "No financial or investment advice" };
 for (const [path, phrase] of Object.entries(pages)) {
   const res = await get(path);
   if (!res) continue;
   const html = await res.text();
   check(res.status === 200, `${path}: status ${res.status}`);
   check(html.includes(phrase), `${path}: missing "${phrase}"`);
-  check(/nothing is on mainnet yet/i.test(html), `${path}: stage line missing`);
+  check(/mainnet is coming soon/i.test(html), `${path}: stage line missing`);
   check(!/noindex/.test(res.headers.get("x-robots-tag") ?? ""), `${path}: carries noindex`);
 }
 

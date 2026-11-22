@@ -37,9 +37,13 @@ test("the central message matches the boundary document's", () => {
   assert.equal(CENTRAL_MESSAGE, `${BOUNDARY_MESSAGE}.`);
 });
 
-test("the site says plainly that nothing is on mainnet, wherever it describes itself", () => {
-  for (const text of [STAGE, DEFAULT_DESCRIPTION, SIGNUP_COPY.confirmedBody, SIGNUP_COPY.email.text("https://x.example/c"), SIGNUP_COPY.email.html("https://x.example/c")]) assert.match(text, /nothing is on mainnet yet/i);
-  assert.match(FAQ.find((f) => f.q === "Can I use it today?")!.a, /nothing runs on Solana mainnet yet/i);
+test("the site says mainnet is coming, never that it is live, wherever it describes itself", () => {
+  const texts = [STAGE, DEFAULT_DESCRIPTION, SIGNUP_COPY.confirmedBody, SIGNUP_COPY.email.text("https://x.example/c"), SIGNUP_COPY.email.html("https://x.example/c"), FAQ.find((f) => f.q === "Can I use it today?")!.a];
+  for (const text of texts) {
+    assert.match(text, /mainnet is coming soon/i);
+    assert.doesNotMatch(text, /\b(live|running|available) on (Solana )?mainnet\b/i);
+  }
+  for (const text of [STAGE, DEFAULT_DESCRIPTION]) assert.match(text, /devnet/i);
 });
 
 test("signup copy promises a notice and never says something can be used now", () => {
