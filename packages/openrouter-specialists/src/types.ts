@@ -8,6 +8,13 @@ export interface SpecialistPrice {
   unit: "request" | "1k_tokens";
 }
 
+/** A per-token price: per million input and output tokens, in the profile's currency, and the most output tokens one call may use. */
+export interface PerTokenPrice {
+  inputPerMillion: string;
+  outputPerMillion: string;
+  maxOutputTokens?: number;
+}
+
 export interface SpecialistProfile {
   id: string;
   displayName: string;
@@ -16,7 +23,14 @@ export interface SpecialistProfile {
   endpointPath: string;
   capabilities: string[];
   roles: SpecialistRole[];
+  /** Flat price of one direct per-call payment. */
   price: SpecialistPrice;
+  /**
+   * Per-token price for metered calls, in `price.currency`. Every first-party
+   * profile has one (the mid tier unless it sets its own); the operator's
+   * `X402_INPUT_PER_MILLION` / `X402_OUTPUT_PER_MILLION` override it.
+   */
+  meteredPrice?: PerTokenPrice;
   safetyMode: SafetyMode;
   preferredAttestors: string[];
   model: string;
@@ -48,12 +62,13 @@ export interface RuntimeConfig {
    */
   protocolFeeTreasury?: string;
   /**
-   * Per-token price for metered calls, in the profile's currency, and the
-   * escrow program the buyer locks the maximum in. Both are needed, with a
+   * Per-token price for metered calls, in the profile's currency, overriding
+   * the profile's own `meteredPrice`, and the escrow program the buyer locks
+   * the maximum in. A price (from either) and the program are needed, with a
    * settle signer in `RuntimeDeps`, before metered payment is offered.
    * Operator configuration only.
    */
-  meteredPrice?: { inputPerMillion: string; outputPerMillion: string; maxOutputTokens?: number };
+  meteredPrice?: PerTokenPrice;
   escrowProgramId?: string;
   enableAgentToAgentCalls?: boolean;
   enableLiveDelegationExecutor?: boolean;

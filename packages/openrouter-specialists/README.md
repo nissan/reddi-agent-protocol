@@ -191,7 +191,7 @@ The keypair file is a secret. Mount it from the host's secret store; never commi
 
 A provider can take per-token payment through the metered token escrow (#794). It is offered only when the operator sets all of:
 
-- `X402_INPUT_PER_MILLION` and `X402_OUTPUT_PER_MILLION`: the price per million input and output tokens in the profile's currency, plus optional `X402_MAX_OUTPUT_TOKENS` (default 1,000);
+- a per-token price. Every profile carries one (`meteredPrice`; the mid tier, $3 per million input and $15 per million output tokens in USDC with at most 2,000 output tokens a call, unless the profile sets its own). `X402_INPUT_PER_MILLION` and `X402_OUTPUT_PER_MILLION`, plus optional `X402_MAX_OUTPUT_TOKENS` (default 1,000), override it;
 - `X402_ESCROW_PROGRAM_ID`: the escrow program the buyer locks in;
 - the mint for the profile's currency (`X402_USDC_MINT` or `X402_USDC_DEVNET_MINT`, and so on);
 - `ALLOW_REAL_X402_PAYMENT`, and a `settleMeteredEscrow` function in `RuntimeDeps` that signs the settle transaction (the settle alone, provider wallet as fee payer; the lock is refused up front if the provider's, the treasury's or the buyer's token account could not receive) with the provider wallet's key, sends it and returns the confirmed signature. The runtime never reads the key.

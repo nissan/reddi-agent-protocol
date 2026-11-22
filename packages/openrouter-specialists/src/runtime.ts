@@ -181,6 +181,7 @@ export function marketplaceMetadata(profile: SpecialistProfile, config: RuntimeC
     capabilities: profile.capabilities,
     roles: profile.roles,
     price: profile.price,
+    ...((config.meteredPrice ?? profile.meteredPrice) ? { meteredPrice: { currency: profile.price.currency, ...(config.meteredPrice ?? profile.meteredPrice) } } : {}),
     safetyMode: profile.safetyMode,
     preferredAttestors: profile.preferredAttestors,
     model: profile.model,

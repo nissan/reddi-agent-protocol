@@ -1,5 +1,15 @@
 import { isValidSolanaPublicKey } from "@redditech/x402-solana";
-import type { SpecialistProfile } from "../types.js";
+import type { PerTokenPrice, SpecialistProfile } from "../types.js";
+
+/**
+ * Per-token price tiers for first-party profiles, in USDC per million tokens
+ * (owner decision, 22 November 2026: first-party providers are priced per
+ * token, mid tier $3 input / $15 output). A profile without its own
+ * `meteredPrice` takes the mid tier.
+ */
+export const PER_TOKEN_TIERS = {
+  mid: { inputPerMillion: "3", outputPerMillion: "15", maxOutputTokens: 2_000 },
+} as const satisfies Record<string, PerTokenPrice>;
 
 const wallets = {
   planning: "2wYpzbExNi2vHSdK48jBusfEx3WNVjzPFEVNcbCA5cAs",
@@ -34,7 +44,7 @@ const wallets = {
   domainTransformingIntegration: "C7SyDdJnUMtJ9YRQyvsFqjYTLibuDB3vQevjpoQsTNZr",
 } as const;
 
-export const specialistProfiles: SpecialistProfile[] = [
+const profileList: SpecialistProfile[] = [
   {
     id: "planning-agent",
     displayName: "Planning Agent",
@@ -735,6 +745,11 @@ export const specialistProfiles: SpecialistProfile[] = [
   },
 ];
 
+export const specialistProfiles: SpecialistProfile[] = profileList.map((profile) => ({
+  ...profile,
+  meteredPrice: profile.meteredPrice ?? { ...PER_TOKEN_TIERS.mid },
+}));
+
 export function getProfile(id: string): SpecialistProfile | undefined {
   return specialistProfiles.find((profile) => profile.id === id);
 }
@@ -757,6 +772,14 @@ export function validateProfile(profile: SpecialistProfile): string[] {
     errors.push(`${profile.id}: must include specialist role`);
   if (!profile.price.amount || !profile.price.currency || !profile.price.unit)
     errors.push(`${profile.id}: invalid price`);
+  if (profile.meteredPrice) {
+    const { inputPerMillion, outputPerMillion, maxOutputTokens } = profile.meteredPrice;
+    const decimal = /^(?:0|[1-9]\d*)(?:\.\d+)?$/;
+    if (!decimal.test(inputPerMillion) || !decimal.test(outputPerMillion) || Number(inputPerMillion) + Number(outputPerMillion) <= 0)
+      errors.push(`${profile.id}: invalid meteredPrice`);
+    if (maxOutputTokens !== undefined && !(Number.isSafeInteger(maxOutputTokens) && maxOutputTokens > 0))
+      errors.push(`${profile.id}: invalid meteredPrice.maxOutputTokens`);
+  }
   if (!profile.model.trim()) errors.push(`${profile.id}: missing model`);
   if (!profile.systemPrompt.trim())
     errors.push(`${profile.id}: missing systemPrompt`);

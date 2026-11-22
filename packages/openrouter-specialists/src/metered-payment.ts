@@ -39,9 +39,10 @@ export interface MeteredPriceConfig {
   maxOutputTokens?: number;
 }
 
-/** The provider's metered terms, or undefined when the operator has not configured them. */
+/** The provider's metered terms, or undefined when no price, escrow program or mint is configured. */
 export function meteredTerms(profile: SpecialistProfile, config: RuntimeConfig): MeteredTerms | undefined {
-  const priced = config.meteredPrice;
+  // The operator's setting wins; otherwise the profile's own per-token price.
+  const priced = config.meteredPrice ?? profile.meteredPrice;
   if (!priced || !config.escrowProgramId) return undefined;
   if (!directPaymentCurrency(profile.price.currency)?.tokenProgram) return undefined; // SOL settles through the SOL escrow, which this runtime does not offer.
   const mint = config.paymentMints?.[profile.price.currency] ?? (profile.price.currency === "USDC" ? config.usdcDevnetMint : undefined);
