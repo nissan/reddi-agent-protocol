@@ -4,7 +4,7 @@ import Scenarios from '../components/Scenarios';
 import Signup from '../components/Signup';
 import StatusLedger from '../components/StatusLedger';
 import XFeed from '../components/XFeed';
-import { APP_URL, DEV_LINKS, FAQ, GITHUB_URL, LAUNCH_OFFER, LAYERS, RFS_URL, STAGE, STEPS } from '../lib/copy';
+import { APP_URL, DEV_LINKS, FAQ, GITHUB_URL, LAUNCH_OFFER, LAYERS, RFS_URL, STAGE, STEPS, WHY_SOLANA } from '../lib/copy';
 import { SIGNUP_COPY } from '../lib/newsletter/copy';
 import { pageMetadata } from '../lib/metadata';
 import { sandboxUrl } from '../lib/sandbox';
@@ -55,13 +55,21 @@ export default function Home() {
         </div>
       </section>
 
+      <section id="why-solana" className="section wrap">
+        <div className="section-heading"><div><p className="eyebrow">{WHY_SOLANA.eyebrow}</p><h2>{WHY_SOLANA.headline}</h2></div><p>{WHY_SOLANA.lede}</p></div>
+        <ul className="facts">
+          {WHY_SOLANA.points.map((p) => <li key={p.value}><b>{p.value}</b><span>{p.label}</span></li>)}
+        </ul>
+        <p className="why-close">{WHY_SOLANA.close} <Link className="text-link" href="/market">The fee numbers ↗</Link></p>
+      </section>
+
       <section id="how" className="section wrap">
-        <div className="section-heading"><div><p className="eyebrow">02 / HOW IT WORKS</p><h2>Four steps.<br />One of them is new.</h2></div><p>If you have called a chat completions endpoint, you already know the first step. The receipt is the part nobody hands you today.</p></div>
+        <div className="section-heading"><div><p className="eyebrow">03 / HOW IT WORKS</p><h2>Four steps.<br />One of them is new.</h2></div><p>If you have called a chat completions endpoint, you already know the first step. The receipt is the part nobody hands you today.</p></div>
         <ol className="steps">{STEPS.map((s) => <li key={s.n}><span>{s.n}</span><h3>{s.title}</h3><p>{s.body}</p></li>)}</ol>
       </section>
 
       <section id="sandbox" className="section wrap">
-        <div className="section-heading"><div><p className="eyebrow">03 / TRY IT ON DEVNET</p><h2>A sandbox with nothing to lose.</h2></div><p>Four short scenarios on Solana devnet, with test funds only. {sandboxUrl ? 'Open the sandbox and pick one.' : 'The sandbox is being built. Sign up and we will tell you the day it opens.'}</p></div>
+        <div className="section-heading"><div><p className="eyebrow">04 / TRY IT ON DEVNET</p><h2>A sandbox with nothing to lose.</h2></div><p>Four short scenarios on Solana devnet, with test funds only. {sandboxUrl ? 'Open the sandbox and pick one.' : 'The sandbox is being built. Sign up and we will tell you the day it opens.'}</p></div>
         <Scenarios />
         <p className="section-cta">{sandboxUrl ? <a className="button primary" href={sandboxUrl} rel="noopener noreferrer">Open the sandbox ↗</a> : <a className="button" href="#updates">Tell me when the sandbox opens</a>} <Link className="text-link" href="/sandbox">About the sandbox ↗</Link></p>
       </section>
@@ -75,19 +83,19 @@ export default function Home() {
 
       <section className="band">
         <div className="wrap">
-          <div className="section-heading"><div><p className="eyebrow">05 / WHERE WE ARE</p><h2>Checked, in progress, planned.</h2></div><p>We say plainly which is which. Everything in the first column is in the public repository for you to read and run.</p></div>
+          <div className="section-heading"><div><p className="eyebrow">06 / WHERE WE ARE</p><h2>Checked, in progress, planned.</h2></div><p>We say plainly which is which. Everything in the first column is in the public repository for you to read and run.</p></div>
           <StatusLedger />
           <p className="section-cta"><Link className="text-link" href="/status">Full status, with links to the evidence ↗</Link> <a className="text-link" href={GITHUB_URL} rel="noopener noreferrer">Read the code on GitHub ↗</a></p>
         </div>
       </section>
 
       <section id="developers" className="section wrap">
-        <div className="section-heading"><div><p className="eyebrow">06 / FOR DEVELOPERS</p><h2>Already building? Go deeper.</h2></div><p>The developer app has the guides, the sandbox and the reference material. It runs on devnet and opens in its own site.</p></div>
+        <div className="section-heading"><div><p className="eyebrow">07 / FOR DEVELOPERS</p><h2>Already building? Go deeper.</h2></div><p>The developer app has the guides, the sandbox and the reference material. It runs on devnet and opens in its own site.</p></div>
         <div className="devlinks">{DEV_LINKS.map((d) => <a key={d.path} href={`${APP_URL}${d.path}`} rel="noopener noreferrer"><h3>{d.title} <span aria-hidden="true">↗</span></h3><p>{d.body}</p></a>)}</div>
       </section>
 
       <section className="section wrap feed-section">
-        <div><p className="eyebrow">07 / FOLLOW THE BUILD</p><h2>Built in public.</h2><p>We post what shipped, what broke and what is next. Short demos and walkthrough videos will land here first.</p></div>
+        <div><p className="eyebrow">08 / FOLLOW THE BUILD</p><h2>Built in public.</h2><p>We post what shipped, what broke and what is next. Short demos and walkthrough videos will land here first.</p></div>
         <XFeed />
       </section>
 

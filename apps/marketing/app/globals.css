@@ -212,6 +212,7 @@ body:has(.consent-banner){padding-bottom:var(--consent-clearance,0px)}
 .facts li{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:18px;display:flex;flex-direction:column;gap:6px}
 .facts b{font-size:28px;letter-spacing:-.03em;line-height:1.1}
 .facts span{font-size:15px;line-height:1.4}
+.why-close{max-width:760px;margin:8px 0 0;color:var(--muted)}
 .facts small{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:auto}
 .table-scroll{overflow-x:auto;margin:24px 0}
 .data{border-collapse:collapse;width:100%;min-width:560px;background:var(--card);font-size:15px}

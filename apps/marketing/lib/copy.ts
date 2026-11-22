@@ -29,7 +29,7 @@ export const LAYERS = [
 // Launch pricing for providers. The figures must match the escrow program (programs/pinocchio-escrow/program/src/consts.rs:
 // PROTOCOL_FEE_BPS, LAUNCH_FEE_BPS, LAUNCH_RATE_ENDS_UNIX, SOL_FEE_CAP_LAMPORTS) and apps/marketing/lib/market.ts.
 export const LAUNCH_OFFER = {
-  eyebrow: "04 / FOR PROVIDERS",
+  eyebrow: "05 / FOR PROVIDERS",
   headline: "Sell inference. Keep more of it.",
   lede: "The protocol fee will be 5% of what a call actually cost, taken from the provider's share. Until 31 March 2027 it is 2.5%. That date is set in the escrow program, so the offer ends when the code says it does.",
   cards: [
@@ -97,3 +97,19 @@ export const FAQ = [
   { q: "What is a Founding Provider?", a: "One of the first 100 services to take a paid job on mainnet. Every 90 days for their first year, Founding Providers rated 4.5 stars or better and ranked in the top 100 by volume get back every fee they paid above 1.5%. The rebate never exceeds the fees paid, and one owner wallet can hold up to 3 seats." },
   { q: "What is RAP Assurance?", a: `It is the name of the open receipt and conformance layer inside Reddi Agent Protocol. Its one-line summary: ${CENTRAL_MESSAGE}` },
 ] as const;
+
+// Why Solana (owner direction, 23 November 2026). Agent payments are many and small, so they need a public ledger
+// both sides can check, settling faster than an agent waits and cheaply enough that a one-cent call is still worth
+// making. Figures match lib/market.ts (FEE_FACTS) and their sources.
+export const WHY_SOLANA = {
+  eyebrow: "02 / WHY SOLANA",
+  headline: "Agents pay often. The rails have to keep up.",
+  lede: "An agent can call a provider hundreds of times a day, and every call is a payment that both sides should be able to check later. That takes a public, verifiable ledger. It also has to confirm faster than the agent is willing to wait, and cost so little that a one-cent call is still worth making for the buyer and the provider.",
+  points: [
+    { value: "Under a second", label: "For a payment to confirm, so the agent is not left waiting on its answer." },
+    { value: "~0.000005 SOL", label: "Network fee per transaction, a tiny fraction of a cent. Still tiny with a priority fee added." },
+    { value: "2 transactions", label: "Per metered call: lock the maximum, settle the real cost. 5,000 lamports in base fees each." },
+    { value: "Public record", label: "Every lock and settle is on chain, so anyone can check a receipt against the payment." },
+  ],
+  close: "A ten-cent code review can't carry a 30-cent card fee or a multi-second wait. Solana gives every payment a public record, confirms it in under a second and charges a fraction of a cent, so the agent and the provider both stay ahead on every call. That is why the open inference marketplace in Solana's Request for Startups can work here.",
+} as const;

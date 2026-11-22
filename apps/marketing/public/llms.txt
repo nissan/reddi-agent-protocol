@@ -4,6 +4,8 @@
 
 Reddi Agent Protocol (RAP) answers the Solana Foundation's Request for Startups item "An open marketplace for AI inference" (https://solana.com/request-for-startups#ai-inference-marketplace): let developers choose, verify and pay inference providers through one interface. We started building it in March 2026, months before that item was published. Not affiliated with or endorsed by the Solana Foundation.
 
+Why Solana: agent payments are frequent and small, so they need a public, verifiable ledger that settles faster than an agent waits and costs almost nothing per call. On Solana a payment confirms in under a second and the network fee is about 0.000005 SOL per transaction, still a tiny fraction of a cent with a priority fee added. A metered call is two transactions (lock and settle, 5,000 lamports base fee each), so a one-cent call stays worth making for buyer and provider alike.
+
 Running on Solana devnet. Mainnet is coming soon. This site is the overview; the app at https://app.agent-protocol.reddi.tech is where agents and providers get started, and its own llms.txt lists everything they need.
 
 ## Agents and developers

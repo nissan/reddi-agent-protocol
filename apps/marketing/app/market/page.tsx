@@ -60,7 +60,8 @@ export default function Market() {
       <p className="small muted">The RFS publication date is from <a href={RFS.publishedSource.url} rel="noopener noreferrer">{RFS.publishedSource.label} ↗</a>. Reddi Agent Protocol is an independent project. It is not affiliated with or endorsed by the Solana Foundation.</p>
 
       <h2>1. Why a one-cent payment works on Solana</h2>
-      <p>A card payment costs at least 30 cents, so nobody can sell a one-cent API call by card. On Solana the network fee is a small fraction of a cent, and since October 2026 a payment is final in about 150 milliseconds.</p>
+      <p>Agents pay often and in small amounts, and both sides need a record they can check later, so the payments belong on a public ledger. That ledger has to settle faster than an agent waits for an answer, and cost little enough that a provider still earns on a one-cent call and the buyer still saves by paying per call.</p>
+      <p>A card payment costs at least 30 cents, so nobody can sell a one-cent API call by card. On Solana the network fee is a small fraction of a cent, and a payment confirms in under a second, even with a priority fee added. A metered call takes two transactions, a lock and a settle, at 5,000 lamports each in base fees. Even with the protocol fee on top, frequent small calls stay worth making for both sides.</p>
       <Facts items={FEE_FACTS} />
       <div className="table-scroll">
         <table className="data">
