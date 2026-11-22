@@ -112,8 +112,10 @@ export async function buildTryTransaction(input: { token: unknown; account: unkn
   // An explicit, small compute budget. Without one, wallets add their own priority fee, which
   // was eight times the base fee on run 5 and larger than the call itself. The lock used
   // 53,575 compute units there; at 1,000 micro-lamports a unit the priority fee is 80 lamports.
+  // The budget goes first, where wallets and their transaction checkers expect it: with it last,
+  // Solflare's security check failed and hid the amount and fee (run 6).
   const budget = [ComputeBudgetProgram.setComputeUnitLimit({ units: TRY_LOCK_COMPUTE_UNITS }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: TRY_LOCK_MICRO_LAMPORTS_PER_UNIT })];
-  const tx = new Transaction({ feePayer: payer, blockhash, lastValidBlockHeight }).add(lock.instruction, memo, ...budget);
+  const tx = new Transaction({ feePayer: payer, blockhash, lastValidBlockHeight }).add(...budget, lock.instruction, memo);
   const transaction = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
   return { ok: true, transaction, message: `Lock up to the maximum for one ${provider.name} call on devnet. Unused SOL comes back after the answer.` };
 }
