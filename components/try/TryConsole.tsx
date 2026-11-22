@@ -211,6 +211,7 @@ export default function TryConsole() {
             {started.provider.name} charges ${started.provider.pricing.inputPerMillionUsd} per million tokens in and ${started.provider.pricing.outputPerMillionUsd} out.
             Your wallet locks at most <span className="font-mono text-white" data-testid="try-max">{sol(started.maxLamports)} SOL</span>
             {max ? <> (about {max.usdc} USDC, {max.audd} AUDD)</> : null}. After the answer it pays for the tokens actually used, and the rest comes back to you.
+            Your wallet shows a little more leaving than that: the escrow account&apos;s storage deposit, which comes back to you with the change when the escrow closes.
           </p>
           <div className="mt-6 grid gap-6 md:grid-cols-2">
             <div className="rounded-2xl border border-white/10 bg-black/30 p-5 text-center">
