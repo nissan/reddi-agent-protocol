@@ -2,6 +2,7 @@ import Link from "next/link"
 
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
+import { listingPrice } from "@/lib/directory/listing-price"
 import { cn } from "@/lib/utils"
 
 interface SpecialistCardProps {
@@ -16,6 +17,9 @@ interface SpecialistCardProps {
   health?: "online" | "offline" | "unknown"
   freshnessState?: "fresh" | "warm" | "stale" | "unknown"
   ratePerCall?: number
+  /** Per-token prices in US dollars per million tokens, when the listing is priced per token (#908). */
+  inputPerMillionUsd?: number
+  outputPerMillionUsd?: number
   progress?: number
   tools?: string[]
   skills?: string[]
@@ -60,6 +64,8 @@ export function SpecialistCard({
   health = "unknown",
   freshnessState = "unknown",
   ratePerCall = 0,
+  inputPerMillionUsd,
+  outputPerMillionUsd,
   progress = 0,
   tools = [],
   skills = [],
@@ -70,6 +76,7 @@ export function SpecialistCard({
   resourceType = "specialist endpoint",
   mediaType = "http + json manifest",
 }: SpecialistCardProps) {
+  const price = listingPrice(inputPerMillionUsd, outputPerMillionUsd)
   const healthTone =
     health === "online"
       ? "bg-emerald-500 text-emerald-50"
@@ -161,9 +168,40 @@ export function SpecialistCard({
             </div>
           </div>
 
+          {price ? (
+            <div className="rounded-md border border-line bg-paper px-3 py-2 text-[11px] text-ink" data-testid="specialist-card-price">
+              <p className="m-0">
+                <span className="font-semibold">Per million tokens: </span>
+                <span className="font-mono">
+                  in ${price.inputPerMillionUsd} · out ${price.outputPerMillionUsd}
+                </span>
+              </p>
+              <dl className="mt-1.5 space-y-1">
+                <div>
+                  <dt className="text-ink-muted">
+                    Typical call ({price.usage.inputTokens.toLocaleString("en-US")} in / {price.usage.outputTokens.toLocaleString("en-US")} out)
+                  </dt>
+                  <dd className="m-0 flex flex-wrap gap-x-2 font-mono">
+                    <span>{price.typicalCall.usdc} USDC</span>
+                    <span>{price.typicalCall.audd} AUDD</span>
+                    <span>{price.typicalCall.sol} SOL</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-ink-muted">Max per call (default: twice the typical call)</dt>
+                  <dd className="m-0 flex flex-wrap gap-x-2 font-mono">
+                    <span>{price.maxPerCall.usdc} USDC</span>
+                    <span>{price.maxPerCall.audd} AUDD</span>
+                    <span>{price.maxPerCall.sol} SOL</span>
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          ) : null}
+
           <div className="flex items-center justify-between gap-2 text-xs text-gray-300">
             <span title="Score out of 100, from ratings on paid jobs">⭐ {Math.round(reputationScore / 100)}</span>
-            <span>{formatSol(ratePerCall)}</span>
+            {price ? null : <span>{formatSol(ratePerCall)}</span>}
             {attested ? (
               <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-[11px] text-emerald-300">
                 Attested
