@@ -60,6 +60,9 @@ export default function TryConsole() {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const polling = useRef(false);
+  // Cuts the wait between polls short. A phone browser pauses this page while the
+  // wallet app is in front, so the page checks at once when it is shown again.
+  const wake = useRef<(() => void) | null>(null);
   const { publicKey, signTransaction } = useWallet();
 
   const reset = useCallback(() => {
@@ -74,6 +77,20 @@ export default function TryConsole() {
 
   useEffect(() => () => {
     polling.current = false;
+  }, []);
+
+  useEffect(() => {
+    const check = () => {
+      if (document.visibilityState === "visible") wake.current?.();
+    };
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("focus", check);
+    window.addEventListener("pageshow", check);
+    return () => {
+      document.removeEventListener("visibilitychange", check);
+      window.removeEventListener("focus", check);
+      window.removeEventListener("pageshow", check);
+    };
   }, []);
 
   async function start() {
@@ -141,7 +158,15 @@ export default function TryConsole() {
       } catch {
         // A dropped poll is retried.
       }
-      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(done, POLL_MS);
+        function done() {
+          clearTimeout(timer);
+          wake.current = null;
+          resolve();
+        }
+        wake.current = done;
+      });
     }
   }
 
@@ -231,7 +256,7 @@ export default function TryConsole() {
             </div>
           </div>
           <p className="mt-5 text-sm text-gray-300" aria-live="polite" data-testid="try-waiting">
-            {phase === "waiting" ? "Payment sent. Waiting for devnet to confirm it, then asking the provider…" : "Waiting for your payment. This page updates by itself."}
+            {phase === "waiting" ? "Payment sent. Waiting for devnet to confirm it, then asking the provider…" : "Waiting for your payment. This page updates by itself. On a phone, come back to this page after you approve in your wallet."}
           </p>
         </section>
       ) : null}
