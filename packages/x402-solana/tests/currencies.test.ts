@@ -10,6 +10,7 @@ import {
 import { buildDirectPaymentInstructions } from '../src/direct-payment';
 import { planBuyerDirectPayment } from '../src/buyer';
 import { MemoryNonceReplayStore } from '../src/nonce';
+import { withTokenBalances } from './support/token-balances';
 
 const CLASSIC = TOKEN_PROGRAM_ID.toBase58();
 const TOKEN_2022 = TOKEN_2022_PROGRAM_ID.toBase58();
@@ -36,7 +37,7 @@ const leg = (programId: string, mint: string, destination: string, baseUnits: st
   program: 'spl-token', programId,
   parsed: { type: 'transferChecked', info: { mint, authority: buyer.toBase58(), destination, tokenAmount: { amount: baseUnits, decimals: 6 } } },
 });
-const tx = (mint: string, instructions: unknown[]) => ({
+const tx = (mint: string, instructions: unknown[]) => withTokenBalances({
   meta: { err: null, postTokenBalances: [{ accountIndex: 1, mint, owner: provider }, { accountIndex: 2, mint, owner: treasury }] },
   transaction: { message: { accountKeys: ['buyer-ta', 'provider-ta', 'treasury-ta'], instructions } },
 });

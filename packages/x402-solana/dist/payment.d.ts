@@ -175,6 +175,14 @@ export declare class SolanaReceiptVerifier implements ReceiptVerifier {
 }
 /** Replay key for a settled transaction; namespaced so it cannot collide with a caller-chosen nonce. */
 export declare function transactionReplayKey(network: string, signature: string): string;
+/** Longest receipt nonce accepted, so every namespaced key fits the replay ledger's 300-character limit. */
+export declare const MAX_RECEIPT_NONCE_LENGTH = 128;
+/** True for a nonce of 1 to 128 characters from letters, digits and `. _ : ~ -`. */
+export declare function isValidReceiptNonce(nonce: unknown): nonce is string;
+/** Replay key for a real payment's challenge nonce, scoped to the network and payee. */
+export declare function nonceReplayKey(network: string, payTo: string, nonce: string): string;
+/** Replay key for a demo receipt's nonce; demo keys never share a namespace with real payments. */
+export declare function demoNonceReplayKey(nonce: string): string;
 /**
  * Converts a SOL amount to lamports without floating point multiplication, which
  * can land one lamport above the exact value (0.00051 SOL becomes 510000.00000000006,

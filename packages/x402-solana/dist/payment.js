@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SolanaReceiptVerifier = exports.DEFAULT_MAX_TRANSACTION_AGE_SECONDS = exports.SOLANA_GENESIS_HASHES = exports.DemoPaymentVerifier = exports.MAINNET_STABLECOIN_MINTS = exports.DIRECT_PAYMENT_CURRENCIES = exports.SOL_PROTOCOL_FEE_CAP_LAMPORTS = exports.FEE_RATE_SWITCH_GRACE_MS = exports.LAUNCH_RATE_ENDS_AT_MS = exports.LAUNCH_PROTOCOL_FEE_BPS = exports.PROTOCOL_FEE_BPS = exports.isValidPaymentAddress = void 0;
+exports.MAX_RECEIPT_NONCE_LENGTH = exports.SolanaReceiptVerifier = exports.DEFAULT_MAX_TRANSACTION_AGE_SECONDS = exports.SOLANA_GENESIS_HASHES = exports.DemoPaymentVerifier = exports.MAINNET_STABLECOIN_MINTS = exports.DIRECT_PAYMENT_CURRENCIES = exports.SOL_PROTOCOL_FEE_CAP_LAMPORTS = exports.FEE_RATE_SWITCH_GRACE_MS = exports.LAUNCH_RATE_ENDS_AT_MS = exports.LAUNCH_PROTOCOL_FEE_BPS = exports.PROTOCOL_FEE_BPS = exports.isValidPaymentAddress = void 0;
 exports.isValidSolanaPublicKey = isValidSolanaPublicKey;
 exports.protocolFeeBpsAt = protocolFeeBpsAt;
 exports.protocolFeeBpsNear = protocolFeeBpsNear;
@@ -15,11 +15,15 @@ exports.parseX402Header = parseX402Header;
 exports.parseX402PaymentHeader = parseX402PaymentHeader;
 exports.verifyDemoPaymentReceipt = verifyDemoPaymentReceipt;
 exports.transactionReplayKey = transactionReplayKey;
+exports.isValidReceiptNonce = isValidReceiptNonce;
+exports.nonceReplayKey = nonceReplayKey;
+exports.demoNonceReplayKey = demoNonceReplayKey;
 exports.solAmountToLamports = solAmountToLamports;
 exports.sendPayment = sendPayment;
 const web3_js_1 = require("@solana/web3.js");
 const jupiter_1 = require("./jupiter");
 const spl_token_observer_1 = require("./spl-token-observer");
+const nonce_1 = require("./nonce");
 const SUPPORTED_NETWORKS = ['solana-devnet', 'solana-mainnet-beta', 'solana-testnet'];
 /**
  * Strictly validate canonical Solana public-key text.
@@ -315,7 +319,7 @@ async function verifyDemoPaymentReceipt(input) {
         return { ok: false, reason: 'invalid_nonce', message: 'receipt nonce does not match challenge', expected: expected.nonce, actual: receipt.nonce };
     }
     if (input.replayStore) {
-        const accepted = await input.replayStore.checkAndStore(receipt.nonce);
+        const accepted = await input.replayStore.checkAndStore(demoNonceReplayKey(receipt.nonce));
         if (!accepted)
             return { ok: false, reason: 'duplicate_nonce', message: 'receipt nonce has already been used', actual: receipt.nonce };
     }
@@ -454,13 +458,16 @@ class SolanaReceiptVerifier {
         }
         // Recorded only after the transaction is shown to pay this challenge, so a
         // third party cannot burn someone else's signature with a non-matching receipt.
-        const signatureAccepted = await replayStore.checkAndStore(transactionReplayKey(challenge.network, signature));
-        if (!signatureAccepted) {
-            return { ok: false, reason: 'duplicate_nonce', message: 'transaction signature has already been used for a payment', actual: signature };
+        // Both keys are recorded together or not at all. The nonce is stored under
+        // its own namespace, so a caller-chosen nonce can never equal another
+        // payment's transaction key or escrow key.
+        const accepted = await (0, nonce_1.checkAndStoreReplayKeys)(replayStore, [
+            transactionReplayKey(challenge.network, signature),
+            nonceReplayKey(challenge.network, challenge.payTo, receipt.nonce),
+        ]);
+        if (!accepted) {
+            return { ok: false, reason: 'duplicate_nonce', message: 'transaction signature or receipt nonce has already been used for a payment', actual: signature };
         }
-        const accepted = await replayStore.checkAndStore(receipt.nonce);
-        if (!accepted)
-            return { ok: false, reason: 'duplicate_nonce', message: 'receipt nonce has already been used', actual: receipt.nonce };
         return split ? { ok: true, receipt, demo: false, fee: split.terms } : { ok: true, receipt, demo: false };
     }
     /**
@@ -584,6 +591,21 @@ exports.SolanaReceiptVerifier = SolanaReceiptVerifier;
 function transactionReplayKey(network, signature) {
     return `x402:tx:${network}:${signature}`;
 }
+/** Longest receipt nonce accepted, so every namespaced key fits the replay ledger's 300-character limit. */
+exports.MAX_RECEIPT_NONCE_LENGTH = 128;
+const RECEIPT_NONCE = new RegExp(`^[A-Za-z0-9._:~-]{1,${exports.MAX_RECEIPT_NONCE_LENGTH}}$`);
+/** True for a nonce of 1 to 128 characters from letters, digits and `. _ : ~ -`. */
+function isValidReceiptNonce(nonce) {
+    return typeof nonce === 'string' && RECEIPT_NONCE.test(nonce);
+}
+/** Replay key for a real payment's challenge nonce, scoped to the network and payee. */
+function nonceReplayKey(network, payTo, nonce) {
+    return `x402:nonce:${network}:${payTo}:${nonce}`;
+}
+/** Replay key for a demo receipt's nonce; demo keys never share a namespace with real payments. */
+function demoNonceReplayKey(nonce) {
+    return `x402:demo-nonce:${nonce}`;
+}
 function unsatisfiedChallenge(message = 'transaction does not satisfy x402 challenge payment terms', expected, actual) {
     return { ok: false, reason: 'invalid_receipt', message, expected, actual };
 }
@@ -600,6 +622,8 @@ function validateReceiptShape(receipt, challenge) {
         return { ok: false, reason: 'wrong_currency', message: 'receipt currency does not match challenge', expected: challenge.currency, actual: receipt.currency };
     if (receipt.nonce !== challenge.nonce)
         return { ok: false, reason: 'invalid_nonce', message: 'receipt nonce does not match challenge', expected: challenge.nonce, actual: receipt.nonce };
+    if (!isValidReceiptNonce(receipt.nonce))
+        return { ok: false, reason: 'invalid_nonce', message: `receipt nonce must be 1 to ${exports.MAX_RECEIPT_NONCE_LENGTH} characters of letters, digits and . _ : ~ -` };
     return undefined;
 }
 /**
@@ -695,11 +719,106 @@ function transactionHasTokenSplit(parsed, receipt, challenge, mint, tokenProgram
     const providerLeg = legs.findIndex((leg) => leg !== undefined
         && leg.units === split.providerUnits
         && (!receipt.destinationTokenAccount || leg.destination === receipt.destinationTokenAccount)
-        && transactionTokenAccountOwnedBy(parsed, leg.destination, mint, challenge.payTo));
+        && transactionTokenAccountOwnedBy(parsed, leg.destination, mint, challenge.payTo)
+        && tokenAccountNetlyCredited(parsed, leg.destination, mint, challenge.payTo, tokenProgram, split.providerUnits));
     const feeLeg = legs.findIndex((leg, index) => index !== providerLeg && leg !== undefined
         && leg.units === split.feeUnits
-        && transactionTokenAccountOwnedBy(parsed, leg.destination, mint, split.terms.payTo));
+        && transactionTokenAccountOwnedBy(parsed, leg.destination, mint, split.terms.payTo)
+        && tokenAccountNetlyCredited(parsed, leg.destination, mint, split.terms.payTo, tokenProgram, split.feeUnits));
     return providerLeg !== -1 && feeLeg !== -1;
+}
+/**
+ * A matching `transferChecked` only shows that units passed through an account.
+ * Payment is what stays there: the account's balance after the transaction minus
+ * its balance before must cover `requiredUnits`, the account must belong to
+ * `owner` before (when it existed) and after, and no instruction in the
+ * transaction, inner instructions included, may move tokens out of it or change
+ * its authority. Otherwise a payer could route the amount through a throwaway
+ * account, take it back, and hand the dust to the payee.
+ */
+function tokenAccountNetlyCredited(parsed, tokenAccount, mint, owner, tokenProgram, requiredUnits) {
+    if (requiredUnits <= BigInt(0))
+        return false;
+    const meta = asRecord(parsed.meta);
+    const accountKeys = asArray(asRecord(asRecord(parsed.transaction)?.message)?.accountKeys);
+    // Both balance lists are needed to read a net change; a missing one is refused.
+    if (!meta || !accountKeys || !Array.isArray(meta.preTokenBalances) || !Array.isArray(meta.postTokenBalances))
+        return false;
+    const index = accountKeys.findIndex((key) => accountKeyText(key) === tokenAccount);
+    if (index < 0)
+        return false;
+    const post = tokenBalanceAt(meta.postTokenBalances, index, mint);
+    if (!post || post.owner !== owner)
+        return false;
+    const pre = tokenBalanceAt(meta.preTokenBalances, index, mint);
+    if (pre === null)
+        return false;
+    if (pre && pre.owner !== owner)
+        return false;
+    const before = pre ? pre.units : BigInt(0);
+    if (post.units - before < requiredUnits)
+        return false;
+    return !tokenAccountTouchedAsSource(parsed, tokenAccount, tokenProgram);
+}
+/**
+ * The balance entry for an account index and mint. `undefined` when there is no
+ * entry; `null` when an entry exists but its amount cannot be read exactly.
+ */
+function tokenBalanceAt(balances, accountIndex, mint) {
+    const list = asArray(balances);
+    if (!list)
+        return undefined;
+    const entries = list.map((item) => asRecord(item)).filter((item) => item !== undefined && item.accountIndex === accountIndex);
+    if (entries.length === 0)
+        return undefined;
+    if (entries.length > 1)
+        return null;
+    const entry = entries[0];
+    if (entry.mint !== mint)
+        return null;
+    const amount = asRecord(entry.uiTokenAmount)?.amount;
+    if (typeof amount !== 'string' || !/^\d+$/.test(amount))
+        return null;
+    return { owner: entry.owner, units: BigInt(amount) };
+}
+/** Token instruction types that take funds or control away from the account they name. */
+const TOKEN_ACCOUNT_DEBIT_FIELDS = ['source', 'account'];
+const TOKEN_ACCOUNT_SAFE_TYPES = new Set(['initializeAccount', 'initializeAccount2', 'initializeAccount3', 'getAccountDataSize', 'initializeImmutableOwner', 'syncNative', 'reallocate']);
+/**
+ * True when any parsed instruction of the token program, top level or inner,
+ * names the account as a source (transfers), or as the account it acts on
+ * (burn, close, approve, set authority, freeze, withdraw withheld fees and so on).
+ * Unparsed instructions of the token program also count, because what they do
+ * cannot be read. Instructions that only create the account are allowed.
+ */
+function tokenAccountTouchedAsSource(parsed, tokenAccount, tokenProgram) {
+    const accountKeys = asArray(asRecord(asRecord(parsed.transaction)?.message)?.accountKeys) ?? [];
+    const inner = (asArray(asRecord(parsed.meta)?.innerInstructions) ?? [])
+        .flatMap((group) => asArray(asRecord(group)?.instructions) ?? [])
+        .map((item) => asRecord(item))
+        .filter((item) => item !== undefined);
+    return [...parsedInstructions(parsed), ...inner].some((ix) => {
+        if (!instructionIsFromTokenProgram(ix, tokenProgram))
+            return false;
+        const parsedInstruction = asRecord(ix.parsed);
+        const info = asRecord(parsedInstruction?.info);
+        if (!parsedInstruction || !info) {
+            // Unparsed: refuse if the account appears among its accounts at all.
+            const accounts = asArray(ix.accounts) ?? [];
+            return accounts.some((entry) => (typeof entry === 'number' ? accountKeyText(accountKeys[entry]) : publicKeyText(entry)) === tokenAccount);
+        }
+        if (typeof parsedInstruction.type === 'string' && TOKEN_ACCOUNT_SAFE_TYPES.has(parsedInstruction.type))
+            return false;
+        return TOKEN_ACCOUNT_DEBIT_FIELDS.some((field) => info[field] === tokenAccount);
+    });
+}
+function accountKeyText(key) {
+    if (typeof key === 'string')
+        return key;
+    const record = asRecord(key);
+    if (record && 'pubkey' in record)
+        return publicKeyText(record.pubkey);
+    return publicKeyText(key);
 }
 /**
  * `mint` is the verifier's configured mint, never a value taken from the receipt.
@@ -732,6 +851,8 @@ function transactionSignedBy(parsed, key) {
 }
 function transactionHasTokenTransfer(parsed, receipt, challenge, mint, tokenProgram, strictPayer = false) {
     const expectedAmount = String(challenge.amount);
+    const decimals = directPaymentCurrency(challenge.currency)?.decimals;
+    const expectedUnits = decimals === undefined ? undefined : decimalToBaseUnits(challenge.amount, decimals);
     const instructions = parsedInstructions(parsed);
     return instructions.some((ix) => {
         const parsedInstruction = asRecord(ix.parsed);
@@ -753,7 +874,9 @@ function transactionHasTokenTransfer(parsed, receipt, challenge, mint, tokenProg
         const destination = typeof info.destination === 'string' ? info.destination : receipt.destinationTokenAccount;
         if (!destination)
             return false;
-        return transactionTokenAccountOwnedBy(parsed, destination, mint, challenge.payTo);
+        if (!transactionTokenAccountOwnedBy(parsed, destination, mint, challenge.payTo))
+            return false;
+        return expectedUnits !== undefined && tokenAccountNetlyCredited(parsed, destination, mint, challenge.payTo, tokenProgram, expectedUnits);
     });
 }
 function transactionTokenAccountOwnedBy(parsed, tokenAccount, mint, owner) {
