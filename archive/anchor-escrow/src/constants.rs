@@ -86,10 +86,16 @@ pub fn allowed_token_program(mint: &Pubkey) -> Option<Pubkey> {
     }
 }
 
-/// Protocol fee on every payout to a payee: 250 basis points (2.5%) of the
-/// amount paid out, rounded down, taken out of the payee's share. The payer never
-/// pays more than the amount it locked.
-pub const PROTOCOL_FEE_BPS: u64 = 250;
+/// Protocol fee on every payout to a payee: the standard rate is 500 basis
+/// points (5%) of the amount paid out, rounded down, taken out of the payee's
+/// share. Until the launch rate ends it is 250 basis points (2.5%). The payer
+/// never pays more than the amount it locked.
+pub const PROTOCOL_FEE_BPS: u64 = 500;
+/// Launch rate, for payouts made before `LAUNCH_RATE_ENDS_UNIX`.
+pub const LAUNCH_FEE_BPS: u64 = 250;
+/// 2027-04-01 00:00:00 UTC. A payout at or after this cluster time pays the
+/// standard rate (owner decision, 22 November 2026).
+pub const LAUNCH_RATE_ENDS_UNIX: i64 = 1_806_537_600;
 pub const BPS_DENOMINATOR: u64 = 10_000;
 /// Ceiling on the protocol fee for a SOL payout: 0.1 SOL. Token payouts have no
 /// ceiling (owner decision, 20 November 2026).
@@ -118,15 +124,32 @@ pub fn treasury_token_address(mint: &Pubkey, token_program: &Pubkey) -> Pubkey {
     .0
 }
 
-/// Protocol fee on a payout of `paid` base units. `sol` applies the SOL ceiling.
-pub const fn protocol_fee(paid: u64, sol: bool) -> u64 {
+/// The fee rate in basis points for a payout at cluster time `unix_timestamp`.
+pub const fn fee_bps_at(unix_timestamp: i64) -> u64 {
+    if unix_timestamp < LAUNCH_RATE_ENDS_UNIX {
+        LAUNCH_FEE_BPS
+    } else {
+        PROTOCOL_FEE_BPS
+    }
+}
+
+/// Protocol fee on a payout of `paid` base units at cluster time
+/// `unix_timestamp`. `sol` applies the SOL ceiling.
+pub const fn protocol_fee(paid: u64, sol: bool, unix_timestamp: i64) -> u64 {
     // u128 so a large payout cannot overflow before the division.
-    let fee = (paid as u128 * PROTOCOL_FEE_BPS as u128 / BPS_DENOMINATOR as u128) as u64;
+    let bps = fee_bps_at(unix_timestamp);
+    let fee = (paid as u128 * bps as u128 / BPS_DENOMINATOR as u128) as u64;
     if sol && fee > SOL_FEE_CAP_LAMPORTS {
         SOL_FEE_CAP_LAMPORTS
     } else {
         fee
     }
+}
+
+/// The most a payout of `paid` can ever owe: the standard rate. Used where a
+/// lock has to allow for a payout that may come after the launch rate ends.
+pub const fn max_protocol_fee(paid: u64, sol: bool) -> u64 {
+    protocol_fee(paid, sol, i64::MAX)
 }
 
 pub const AGENT_REGISTRATION_FEE: u64 = 10_000_000; // 0.01 SOL in lamports

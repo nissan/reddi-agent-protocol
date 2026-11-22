@@ -72,23 +72,55 @@ pub fn allowed_token_program(mint: &Address) -> Option<&'static Address> {
     }
 }
 
-/// Protocol fee: 250 basis points of the amount paid out, rounded down, taken
-/// out of the payee's share.
-pub const PROTOCOL_FEE_BPS: u64 = 250;
+/// Protocol fee: the standard rate is 500 basis points of the amount paid
+/// out, rounded down, taken out of the payee's share. Until the launch rate
+/// ends it is 250 basis points.
+pub const PROTOCOL_FEE_BPS: u64 = 500;
+/// Launch rate, for payouts made before `LAUNCH_RATE_ENDS_UNIX`.
+pub const LAUNCH_FEE_BPS: u64 = 250;
+/// 2027-04-01 00:00:00 UTC. A payout at or after this cluster time pays the
+/// standard rate.
+pub const LAUNCH_RATE_ENDS_UNIX: i64 = 1_806_537_600;
 pub const BPS_DENOMINATOR: u64 = 10_000;
 /// Ceiling on the fee for a SOL payout: 0.1 SOL. Token payouts have none.
 pub const SOL_FEE_CAP_LAMPORTS: u64 = 100_000_000;
 /// Protocol fee treasury: the "Reddi Agent Protocol" Squads vault.
 pub const PROTOCOL_TREASURY: Address = address!("5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe");
 
-/// Protocol fee on a payout of `paid` base units. `sol` applies the SOL ceiling.
-pub const fn protocol_fee(paid: u64, sol: bool) -> u64 {
-    let fee = (paid as u128 * PROTOCOL_FEE_BPS as u128 / BPS_DENOMINATOR as u128) as u64;
+const _: () = assert!(BPS_DENOMINATOR.is_multiple_of(LAUNCH_FEE_BPS));
+const _: () = assert!(BPS_DENOMINATOR.is_multiple_of(PROTOCOL_FEE_BPS));
+
+/// The fee rate in basis points for a payout at cluster time `unix_timestamp`.
+pub const fn fee_bps_at(unix_timestamp: i64) -> u64 {
+    if unix_timestamp < LAUNCH_RATE_ENDS_UNIX {
+        LAUNCH_FEE_BPS
+    } else {
+        PROTOCOL_FEE_BPS
+    }
+}
+
+/// Protocol fee on a payout of `paid` base units at cluster time
+/// `unix_timestamp`. `sol` applies the SOL ceiling.
+pub const fn protocol_fee(paid: u64, sol: bool, unix_timestamp: i64) -> u64 {
+    // Both rates divide 10,000 exactly, so `paid * bps / 10_000` rounded down
+    // is `paid / (10_000 / bps)` rounded down: a u64 division by a constant,
+    // with no u128 arithmetic in the program.
+    let fee = if unix_timestamp < LAUNCH_RATE_ENDS_UNIX {
+        paid / (BPS_DENOMINATOR / LAUNCH_FEE_BPS)
+    } else {
+        paid / (BPS_DENOMINATOR / PROTOCOL_FEE_BPS)
+    };
     if sol && fee > SOL_FEE_CAP_LAMPORTS {
         SOL_FEE_CAP_LAMPORTS
     } else {
         fee
     }
+}
+
+/// The most a payout of `paid` can ever owe: the standard rate. Used where a
+/// lock has to allow for a payout that may come after the launch rate ends.
+pub const fn max_protocol_fee(paid: u64, sol: bool) -> u64 {
+    protocol_fee(paid, sol, i64::MAX)
 }
 
 pub const AGENT_REGISTRATION_FEE: u64 = 10_000_000;
@@ -129,14 +161,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fee_is_2_5_percent_rounded_down_with_a_sol_ceiling() {
-        assert_eq!(protocol_fee(1_000_000, true), 25_000);
-        assert_eq!(protocol_fee(39, true), 0);
-        assert_eq!(protocol_fee(41, false), 1);
-        assert_eq!(protocol_fee(4_000_000_000, true), 100_000_000);
-        assert_eq!(protocol_fee(10_000_000_000, true), 100_000_000);
-        assert_eq!(protocol_fee(10_000_000_000, false), 250_000_000);
-        assert_eq!(protocol_fee(u64::MAX, false), u64::MAX / 40);
+    fn fee_is_2_5_percent_before_the_launch_rate_ends() {
+        let t = LAUNCH_RATE_ENDS_UNIX - 1;
+        assert_eq!(protocol_fee(1_000_000, true, t), 25_000);
+        assert_eq!(protocol_fee(39, true, t), 0);
+        assert_eq!(protocol_fee(41, false, t), 1);
+        assert_eq!(protocol_fee(4_000_000_000, true, t), 100_000_000);
+        assert_eq!(protocol_fee(10_000_000_000, true, t), 100_000_000);
+        assert_eq!(protocol_fee(10_000_000_000, false, t), 250_000_000);
+        assert_eq!(protocol_fee(u64::MAX, false, t), u64::MAX / 40);
+        assert_eq!(protocol_fee(1_000_000, false, 0), 25_000);
+        assert_eq!(protocol_fee(1_000_000, false, i64::MIN), 25_000);
+    }
+
+    #[test]
+    fn fee_is_5_percent_from_the_end_of_the_launch_rate() {
+        let t = LAUNCH_RATE_ENDS_UNIX;
+        assert_eq!(protocol_fee(1_000_000, true, t), 50_000);
+        assert_eq!(protocol_fee(19, true, t), 0);
+        assert_eq!(protocol_fee(21, false, t), 1);
+        // The 0.1 SOL ceiling now applies from 2 SOL paid out.
+        assert_eq!(protocol_fee(2_000_000_000, true, t), 100_000_000);
+        assert_eq!(protocol_fee(10_000_000_000, true, t), 100_000_000);
+        assert_eq!(protocol_fee(10_000_000_000, false, t), 500_000_000);
+        assert_eq!(protocol_fee(u64::MAX, false, i64::MAX), u64::MAX / 20);
+        assert_eq!(max_protocol_fee(1_000_000, false), 50_000);
+        assert_eq!(LAUNCH_RATE_ENDS_UNIX, 1_806_537_600, "2027-04-01T00:00:00Z");
     }
 
     #[test]

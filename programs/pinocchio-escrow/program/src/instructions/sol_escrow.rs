@@ -11,8 +11,8 @@ use {
             rent_exempt_minimum, signer, transfer, writable, Args,
         },
         consts::{
-            escrow_windows_valid, protocol_fee, ESCROW_SEED, MAX_SOL_ESCROW_LAMPORTS,
-            PROTOCOL_TREASURY, SYSTEM_PROGRAM_ID,
+            escrow_windows_valid, max_protocol_fee, protocol_fee, ESCROW_SEED,
+            MAX_SOL_ESCROW_LAMPORTS, PROTOCOL_TREASURY, SYSTEM_PROGRAM_ID,
         },
         error::{
             fail, require, AccountNotEnoughKeys, AmountAboveCap, ConstraintHasOne, ConstraintSeeds,
@@ -85,12 +85,13 @@ pub fn lock(
     // The runtime refuses a payout that leaves the payee's account holding
     // something but less than its rent-exempt minimum, which would block
     // release, claim and settle alike. A fixed-price escrow pays the amount
-    // less the fee, so that is counted. A metered escrow pays whatever the
-    // payee reports, so its payee must already hold the minimum.
+    // less the fee, so that is counted, at the standard rate because the
+    // payout may come after the launch rate ends. A metered escrow pays
+    // whatever the payee reports, so its payee must already hold the minimum.
     let certain = if metered {
         0
     } else {
-        amount - protocol_fee(amount, true)
+        amount - max_protocol_fee(amount, true)
     };
     require(
         payee.lamports().saturating_add(certain) >= rent_exempt_minimum(payee.data_len())?,
@@ -174,7 +175,7 @@ pub fn pay_out(
     writable(treasury)?;
     require(treasury.address() == &PROTOCOL_TREASURY, &InvalidTreasury)?;
 
-    let slot = now()?.0;
+    let (slot, unix_timestamp) = now()?;
     let (paid, outcome, payee_is_authority) = match actual {
         None => {
             let authority = if payer.is_signer() {
@@ -223,7 +224,7 @@ pub fn pay_out(
         None
     };
 
-    let fee = protocol_fee(paid, true);
+    let fee = protocol_fee(paid, true, unix_timestamp);
     let to_payee = paid - fee;
     debit(escrow, paid)?;
     credit(payee, to_payee)?;

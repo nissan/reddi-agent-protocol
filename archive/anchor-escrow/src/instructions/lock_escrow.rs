@@ -1,7 +1,9 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
-use crate::constants::{escrow_windows_valid, protocol_fee, ESCROW_SEED, MAX_SOL_ESCROW_LAMPORTS};
+use crate::constants::{
+    escrow_windows_valid, max_protocol_fee, ESCROW_SEED, MAX_SOL_ESCROW_LAMPORTS,
+};
 use crate::error::EscrowError;
 use crate::events::EscrowLocked;
 use crate::state::{EscrowAccount, EscrowStatus};
@@ -42,12 +44,13 @@ pub fn lock_escrow_handler(
     // The runtime refuses a payout that leaves the payee's account holding
     // something but less than its rent-exempt minimum, which would block
     // release, claim and settle alike. A fixed-price escrow pays the amount
-    // less the fee, so that is counted. A metered escrow pays whatever the
-    // payee reports, so its payee must already hold the minimum.
+    // less the fee, so that is counted, at the standard rate because the
+    // payout may come after the launch rate ends. A metered escrow pays
+    // whatever the payee reports, so its payee must already hold the minimum.
     let certain = if metered {
         0
     } else {
-        amount - protocol_fee(amount, true)
+        amount - max_protocol_fee(amount, true)
     };
     let payee = ctx.accounts.payee.to_account_info();
     require!(

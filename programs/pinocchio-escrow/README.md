@@ -185,9 +185,13 @@ program has it:
 - the same error numbers: 6000+ for program errors and Anchor's framework
   numbers (2000s, 3000s) for account failures, each with a log line in the
   shape Anchor clients parse;
-- the same program id declaration and fee rules (2.5% of the amount paid,
-  rounded down, from the payee's share, capped at 0.1 SOL for SOL only, paid to
-  the Squads vault).
+- the same program id declaration and fee rules (5% of the amount paid, or the
+  2.5% launch rate for a payout before 2027-04-01 00:00 UTC by the cluster
+  clock at the payout, rounded down, from the payee's share, capped at 0.1 SOL
+  for SOL only, paid to the Squads vault). The rate is read when the escrow
+  pays out, not when it was locked, so an escrow locked inside the launch rate
+  and paid after it pays 5%. A fixed-price lock's rent check allows for the
+  5% fee.
 
 ### Every exit names its escrow
 
@@ -351,7 +355,8 @@ Things to know:
   call). Clients use a fresh nonce per job.
 - Reputation and judge accuracy are not Sybil-proof. Wallets of one owner can
   pay, rate and attest each other for the cost of transaction fees, and a job
-  of under 40 lamports pays no protocol fee at all (2.5% rounds down to 0).
+  of under 40 lamports (20 after the launch rate) pays no protocol fee at all
+  (the fee rounds down to 0).
   The paid amount and the mint are on the rating account so that rankers can
   weight by them, but only until `close_rating`: the agent record keeps no
   sum, so a ranker has to read ratings before they are closed. An attestation
@@ -774,14 +779,15 @@ escrow and registry instructions only:
 
 | | Anchor (13 instructions) | Pinocchio (23 instructions) | Change |
 |---|---|---|---|
-| Program size | 345,152 bytes | 96,872 bytes | 72% smaller |
-| Rent at 6,960 lamports per byte | 2.4046 SOL | 0.6766 SOL | 1.7280 SOL less |
-| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.4938 SOL | 1.2613 SOL less |
-| `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 104,208 bytes | 79% smaller |
+| Program size | 345,152 bytes | 97,048 bytes | 72% smaller |
+| Rent at 6,960 lamports per byte | 2.4046 SOL | 0.6778 SOL | 1.7268 SOL less |
+| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.4947 SOL | 1.2604 SOL less |
+| `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 104,384 bytes | 79% smaller |
 
 Before ratings and attestations were added the Pinocchio build was 62,248
 bytes (0.4356 SOL at 6,960); they cost 33,992 bytes and 0.2366 SOL of rent.
-Making every exit name its escrow added 632 bytes (0.0044 SOL at 6,960).
+Making every exit name its escrow added 632 bytes (0.0044 SOL at 6,960), and
+the launch-rate fee schedule 176 bytes (0.0012 SOL).
 
 Rent is for the program account (36 bytes) plus the program data account (45
 bytes of header plus the binary), each with the 128-byte account overhead:

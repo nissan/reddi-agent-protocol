@@ -67,7 +67,7 @@ fn pay_out(accounts: &mut ReleaseEscrow, paid: u64, outcome: SettlementOutcome) 
         accounts.escrow.status == EscrowStatus::Locked,
         EscrowError::NotLocked
     );
-    let fee = protocol_fee(paid, true);
+    let fee = protocol_fee(paid, true, Clock::get()?.unix_timestamp);
     let to_payee = paid.checked_sub(fee).ok_or(EscrowError::Overflow)?;
     let refunded = accounts
         .escrow

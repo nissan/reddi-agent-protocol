@@ -34,6 +34,22 @@ use {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+/// The simulator's cluster time. It starts inside the launch rate.
+fn launch_time(svm: &LiteSVM) -> i64 {
+    let t = svm
+        .get_sysvar::<anchor_lang::prelude::Clock>()
+        .unix_timestamp;
+    assert!(t < escrow::LAUNCH_RATE_ENDS_UNIX);
+    t
+}
+
+/// Sets the simulator's cluster time.
+fn set_time(svm: &mut LiteSVM, unix_timestamp: i64) {
+    let mut clock = svm.get_sysvar::<anchor_lang::prelude::Clock>();
+    clock.unix_timestamp = unix_timestamp;
+    svm.set_sysvar(&clock);
+}
+
 fn make_svm() -> (LiteSVM, anchor_lang::prelude::Pubkey) {
     let program_id = escrow::id();
     let mut svm = LiteSVM::new();
@@ -189,8 +205,8 @@ fn test_release_escrow_success() {
         .unwrap_or(0);
     assert_eq!(
         payee_balance_after,
-        payee_balance_before + amount - escrow::protocol_fee(amount, true),
-        "Payee should have received the locked amount less the 2.5% fee"
+        payee_balance_before + amount - escrow::protocol_fee(amount, true, launch_time(&svm)),
+        "Payee should have received the locked amount less the 2.5% launch-rate fee"
     );
 }
 
@@ -862,8 +878,11 @@ fn test_payee_claim_boundary_is_exact_and_pays_the_payee() {
     );
     assert!(svm.get_account(&escrow).is_none());
     assert_eq!(lamports(&svm, &payer.pubkey()), payer_before + rent);
-    let protocol_fee = escrow::protocol_fee(amount, true);
-    assert_eq!(protocol_fee, 7_500_000, "2.5% of 0.3 SOL");
+    let protocol_fee = escrow::protocol_fee(amount, true, launch_time(&svm));
+    assert_eq!(
+        protocol_fee, 7_500_000,
+        "2.5% of 0.3 SOL at the launch rate"
+    );
     let fee = payee_before + amount - protocol_fee - lamports(&svm, &payee.pubkey());
     assert!(
         fee < 100_000,
@@ -1222,16 +1241,93 @@ fn settle_ix(
 }
 
 #[test]
-fn test_protocol_fee_is_2_5_percent_rounded_down_with_a_sol_ceiling() {
-    assert_eq!(escrow::protocol_fee(1_000_000, true), 25_000);
-    assert_eq!(escrow::protocol_fee(39, true), 0, "rounds down, no minimum");
-    assert_eq!(escrow::protocol_fee(41, false), 1);
+fn test_protocol_fee_is_2_5_percent_rounded_down_until_the_launch_rate_ends() {
+    let t = escrow::LAUNCH_RATE_ENDS_UNIX - 1;
+    assert_eq!(escrow::protocol_fee(1_000_000, true, t), 25_000);
+    assert_eq!(
+        escrow::protocol_fee(39, true, t),
+        0,
+        "rounds down, no minimum"
+    );
+    assert_eq!(escrow::protocol_fee(41, false, t), 1);
     // The 0.1 SOL ceiling binds from 4 SOL of actual cost.
-    assert_eq!(escrow::protocol_fee(4_000_000_000, true), 100_000_000);
-    assert_eq!(escrow::protocol_fee(10_000_000_000, true), 100_000_000);
+    assert_eq!(escrow::protocol_fee(4_000_000_000, true, t), 100_000_000);
+    assert_eq!(escrow::protocol_fee(10_000_000_000, true, t), 100_000_000);
     // Tokens have no ceiling.
-    assert_eq!(escrow::protocol_fee(10_000_000_000, false), 250_000_000);
-    assert_eq!(escrow::protocol_fee(u64::MAX, false), u64::MAX / 40);
+    assert_eq!(escrow::protocol_fee(10_000_000_000, false, t), 250_000_000);
+    assert_eq!(escrow::protocol_fee(u64::MAX, false, t), u64::MAX / 40);
+}
+
+#[test]
+fn test_protocol_fee_is_5_percent_from_the_end_of_the_launch_rate() {
+    // 2027-04-01T00:00:00Z.
+    assert_eq!(escrow::LAUNCH_RATE_ENDS_UNIX, 1_806_537_600);
+    let t = escrow::LAUNCH_RATE_ENDS_UNIX;
+    assert_eq!(escrow::protocol_fee(1_000_000, true, t), 50_000);
+    assert_eq!(
+        escrow::protocol_fee(19, true, t),
+        0,
+        "rounds down, no minimum"
+    );
+    assert_eq!(escrow::protocol_fee(21, false, t), 1);
+    // The 0.1 SOL ceiling now binds from 2 SOL of actual cost.
+    assert_eq!(escrow::protocol_fee(2_000_000_000, true, t), 100_000_000);
+    assert_eq!(escrow::protocol_fee(10_000_000_000, true, t), 100_000_000);
+    assert_eq!(escrow::protocol_fee(10_000_000_000, false, t), 500_000_000);
+    assert_eq!(
+        escrow::protocol_fee(u64::MAX, false, i64::MAX),
+        u64::MAX / 20
+    );
+    assert_eq!(escrow::max_protocol_fee(1_000_000, false), 50_000);
+}
+
+/// The rate is read from the cluster clock at the payout: 2.5% up to the last
+/// second of the launch rate, 5% from its end, whenever the escrow was locked.
+#[test]
+fn test_settlement_pays_the_rate_in_force_at_the_payout() {
+    let (mut svm, _) = make_svm();
+    let payer = Keypair::new();
+    let payee = Keypair::new();
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    svm.airdrop(&payee.pubkey(), 1_000_000_000).unwrap();
+    let max = 400_000_000u64;
+    let actual = 123_456_789u64;
+    for (i, (time, fee)) in [
+        (escrow::LAUNCH_RATE_ENDS_UNIX - 1, 3_086_419u64),
+        (escrow::LAUNCH_RATE_ENDS_UNIX, 6_172_839u64),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let nonce = [90 + i as u8; 16];
+        // Both escrows are locked inside the launch rate.
+        set_time(&mut svm, 0);
+        send_ok(
+            &mut svm,
+            metered_lock_ix(&payer, &payee.pubkey(), max, nonce),
+            &[&payer],
+        );
+        set_time(&mut svm, time);
+        svm.expire_blockhash();
+        let treasury_before = lamports(&svm, &escrow::PROTOCOL_TREASURY);
+        send_ok(
+            &mut svm,
+            settle_ix(
+                &payer.pubkey(),
+                &payee.pubkey(),
+                nonce,
+                actual,
+                true,
+                escrow::PROTOCOL_TREASURY,
+            ),
+            &[&payee],
+        );
+        assert_eq!(fee, escrow::protocol_fee(actual, true, time));
+        assert_eq!(
+            lamports(&svm, &escrow::PROTOCOL_TREASURY),
+            treasury_before + fee
+        );
+    }
 }
 
 /// The payee settles a metered escrow at its actual cost before any window:
@@ -1524,9 +1620,10 @@ fn test_fixed_price_lock_must_leave_the_payee_rent_exempt() {
     let payee = Keypair::new();
     svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
     let floor = svm.minimum_balance_for_rent_exemption(0);
-    // The smallest amount whose payout, less the 2.5% fee, reaches the floor.
+    // The smallest amount whose payout, less the fee at the standard rate (the
+    // payout may come after the launch rate ends), reaches the floor.
     let mut enough = floor;
-    while enough - escrow::protocol_fee(enough, true) < floor {
+    while enough - escrow::max_protocol_fee(enough, true) < floor {
         enough += 1;
     }
 
@@ -1556,7 +1653,13 @@ fn test_fixed_price_lock_must_leave_the_payee_rent_exempt() {
         release_ix(&payer.pubkey(), &payee.pubkey(), [61u8; 16]),
         &[&payer],
     );
-    assert_eq!(lamports(&svm, &payee.pubkey()), floor);
+    // Paid out inside the launch rate, so the payee clears the floor.
+    assert_eq!(
+        lamports(&svm, &payee.pubkey()),
+        enough - escrow::protocol_fee(enough, true, launch_time(&svm))
+    );
+    let held = lamports(&svm, &payee.pubkey());
+    assert!(held >= floor);
 
     // A payee that already holds the minimum can be locked any amount.
     send_ok(
@@ -1569,7 +1672,7 @@ fn test_fixed_price_lock_must_leave_the_payee_rent_exempt() {
         release_ix(&payer.pubkey(), &payee.pubkey(), [62u8; 16]),
         &[&payer],
     );
-    assert_eq!(lamports(&svm, &payee.pubkey()), floor + 1);
+    assert_eq!(lamports(&svm, &payee.pubkey()), held + 1);
 
     // What the payee holds counts towards the floor. An account short of it
     // cannot exist on chain, so the test writes one, 10 lamports short.
