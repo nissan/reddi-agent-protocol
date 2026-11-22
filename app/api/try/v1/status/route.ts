@@ -17,7 +17,10 @@ export async function POST(request: Request) {
     const connection = sandboxDevnetConnection();
     const notDevnet = await devnetOrResponse(connection);
     if (notDevnet) return notDevnet;
+    const startedMs = Date.now();
     const result = await runTry({ token: body.token, origin: new URL(request.url).origin, secret: secret.secret, connection, deps: sandboxGatewayDeps() });
+    // How long the call and settle took once the lock was found, so a slow answer can be traced. Public data only.
+    if (result.ok && result.state === "answered") console.info("[try] answered", { status: result.status, escrow: result.escrow, ms: Date.now() - startedMs });
     if (!result.ok) return tryError(result.status, result.code, result.message);
     return tryJson(result);
   } catch {

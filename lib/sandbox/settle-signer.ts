@@ -62,6 +62,38 @@ export function parseSandboxPayeeKeys(raw: string | undefined): Map<string, Keyp
   return keys;
 }
 
+export const SETTLE_CONFIRM_POLL_MS = 500;
+
+/**
+ * Waits for `confirmed` by asking for the signature's status over HTTP.
+ * `Connection.confirmTransaction` waits on a websocket subscription and checks
+ * the status only once that subscription is up; from a serverless function the
+ * devnet websocket often fails to connect, which left the answer waiting until
+ * the blockhash expired (about a minute) before giving up.
+ */
+export async function confirmByPolling(
+  connection: Pick<Connection, "getSignatureStatuses" | "getBlockHeight">,
+  signature: string,
+  lastValidBlockHeight: number,
+  options: { pollMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<"confirmed" | "failed"> {
+  const pollMs = options.pollMs ?? SETTLE_CONFIRM_POLL_MS;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  for (;;) {
+    const { value } = await connection.getSignatureStatuses([signature]);
+    const status = value[0];
+    if (status?.err) return "failed";
+    if (status?.confirmationStatus === "confirmed" || status?.confirmationStatus === "finalized") return "confirmed";
+    if ((await connection.getBlockHeight("confirmed")) > lastValidBlockHeight) {
+      // One last look: it may have landed in the final valid block.
+      const last = (await connection.getSignatureStatuses([signature], { searchTransactionHistory: true })).value[0];
+      if (last && !last.err && (last.confirmationStatus === "confirmed" || last.confirmationStatus === "finalized")) return "confirmed";
+      throw new Error("The settle transaction expired before it confirmed.");
+    }
+    await sleep(pollMs);
+  }
+}
+
 export interface SandboxSettlerOptions {
   /**
    * After settling a rated escrow, commit the provider's rating of the buyer with this score
@@ -85,8 +117,8 @@ export function createSandboxSettler(connection: Connection, keys: Map<string, K
         );
         transaction.sign(keypair);
         const signature = await connection.sendRawTransaction(transaction.serialize(), { preflightCommitment: "confirmed" });
-        const confirmation = await connection.confirmTransaction({ signature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight }, "confirmed");
-        if (confirmation.value.err) return { ok: false, message: "The settle transaction failed on devnet." };
+        const confirmation = await confirmByPolling(connection, signature, latest.lastValidBlockHeight);
+        if (confirmation === "failed") return { ok: false, message: "The settle transaction failed on devnet." };
         if (input.rated === true && options.rateBuyerScore !== undefined) {
           // The settle opened the rating. A failure here never fails the settle that already landed.
           await advanceSellerRating({ connection: connection as unknown as SellerRatingConnection, programId: SANDBOX_ESCROW_PROGRAM_ID, escrow: input.escrow, keypair, score: options.rateBuyerScore });
