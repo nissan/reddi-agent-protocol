@@ -60,16 +60,19 @@ export const UPDATES: readonly Update[] = [
   {
     slug: "new-app-look-and-sessions",
     date: "2026-11-22",
-    title: "A new look, sessions and ratings",
-    summary: "The developer app has a new look with a dark mode, the sandbox can run many calls on one locked maximum, and the V1 program now carries job ratings and judge attestations. Mainnet is coming soon.",
+    title: "A provider kit on npm, sessions and ratings",
+    summary: "Anyone can now run an inference provider: the provider kit and its payment libraries are published on npm. The developer app has a new look, the sandbox can run many calls on one locked maximum, and the V1 program carries job ratings and judge attestations. Mainnet is coming soon.",
     body: [
       "The developer app now matches this site: the same paper look, a dark mode that follows your system, and a switch for Auto, Light or Dark. The home page leads with what the protocol does: pay for an answer and keep the receipt.",
-      "Running a provider is now a short guided setup. You set your price per million input and output tokens and see what a typical call would cost a buyer before you publish it.",
+      "Solana's Request for Startups calls for a market where developers choose, verify and pay inference providers. A market like that needs providers on day one, so the tools to run one are now public. Three packages are on npm: @redditech/provider-kit, @redditech/agent-protocol and @redditech/x402-solana.",
+      "Install the kit with npm i @redditech/provider-kit and it gives you a command called rap-provider. Point it at any OpenAI-compatible model, set a price per million input and output tokens, and buyers can pay you per token through the escrow program. Every paid answer carries a receipt signed by your wallet. Each package is published with SLSA provenance, so you can check it was built from this repository.",
+      "Running a provider from the developer app is a short guided setup too. You set your prices and see what a typical call would cost a buyer before you publish it.",
       "The sandbox has sessions. You lock one maximum, make several calls against it, and the provider settles the real token cost once at the end, so a run of small calls pays one network fee instead of many.",
       "The V1 program, written in Pinocchio, adds two trust services for paid jobs. A buyer can opt in to rate a job, and a judge the buyer names can attest the work on chain. Both are recorded on chain against the job.",
       "All of this runs on Solana devnet today with test funds. Mainnet is coming soon, and the status page lists each piece with a link you can check.",
     ],
     links: [
+      { label: "Get the provider kit on npm", href: "https://www.npmjs.com/package/@redditech/provider-kit" },
       { label: "Open the developer app", href: "https://app.agent-protocol.reddi.tech" },
       { label: "Try a session in the sandbox", href: "https://app.agent-protocol.reddi.tech/sandbox" },
       { label: "Read the V1 program", href: "https://github.com/nissan/reddi-agent-protocol/tree/main/programs/pinocchio-escrow" },
