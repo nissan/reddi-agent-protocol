@@ -17,7 +17,8 @@ export default function Privacy() {
       <p>Signup is confirmed opt-in: nothing is kept for good until you press the button in the confirmation email. An address that is never confirmed is deleted after {POLICY.pendingDays} days. Every message has a one-click unsubscribe link, which takes effect immediately.</p>
       <p>A confirmed address is kept while you are subscribed. After you unsubscribe we keep the address and the time you left, so that we never email you again by mistake and can show that your choice was honoured. You can ask us to delete it completely at any time (see Your choices below).</p>
       <p>The links in our emails carry a signed code instead of your address. Our hosting provider&apos;s request logs may record that code when you open a link.</p>
-      <p>Two service providers handle this data for us: Resend sends the emails, and Vercel hosts the site and stores the list.</p>
+      <p>To keep automated signups out, the signup form uses Vercel BotID. When you press the button, a script from Vercel checks signals from your browser to confirm a person sent the request. That check does not use your email address and sets no advertising trackers.</p>
+      <p>Two service providers handle this data for us: Resend sends the emails, and Vercel hosts the site, runs the bot check and stores the list.</p>
       <h2>Posts from X</h2>
       <p>The home page can show posts from our X account. Nothing is loaded from X until you press the button that shows them. When you do, X receives your address and may set cookies under its own policy.</p>
       <h2>Analytics and cookies</h2>

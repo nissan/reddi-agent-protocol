@@ -699,3 +699,21 @@ test("S3 review: the purge reads only records written before the cutoff, in batc
   assert.equal(reads.length, 45, "records written inside the period are never read");
   assert.ok(reads.every((p) => p.includes("/old")));
 });
+
+test("bot check: skipped off Vercel, refuses bots and fails closed on Vercel", async () => {
+  const { verifyHuman } = await import("../lib/newsletter/bot.ts");
+  let called = 0;
+  const human = async () => { called++; return { isBot: false }; };
+  assert.equal(await verifyHuman({}, human), "human");
+  assert.equal(called, 0, "BotID is not called off Vercel");
+  assert.equal(await verifyHuman({ VERCEL: "1" }, human), "human");
+  assert.equal(called, 1);
+  assert.equal(await verifyHuman({ VERCEL: "1" }, async () => ({ isBot: true })), "bot");
+  const errors: string[] = [];
+  const orig = console.error;
+  console.error = (m: unknown) => { errors.push(String(m)); };
+  try {
+    assert.equal(await verifyHuman({ VERCEL: "1" }, async () => { throw new Error("no oidc"); }), "unavailable");
+  } finally { console.error = orig; }
+  assert.ok(errors.some((e) => e.includes("op=bot-check")), "the failure is logged without detail");
+});

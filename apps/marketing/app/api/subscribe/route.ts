@@ -2,11 +2,13 @@
 // the newsletter environment variables; under the partial-start contract only allow-listed owner mailboxes are
 // stored or emailed. Every request that passes the same checks gets the same 202 body after the same minimum
 // latency: the store write and the confirmation email run after the response (WEB-27-S02), so neither the reply,
-// its timing nor a provider outage reveals whether an address is known. No contact data is logged.
+// its timing nor a provider outage reveals whether an address is known. No contact data is logged. On Vercel a
+// BotID check (lib/newsletter/bot.ts) runs before the limiter and refuses bots, failing closed when it cannot run.
 import { SIGNUP_COPY } from "../../../lib/newsletter/copy.ts";
 import { subscribe, validEmail } from "../../../lib/newsletter/flow.ts";
 import { DurableLimiter, MIN_RESPONSE_MS, clientKey, holdUntil, readSmallJson, sameOrigin } from "../../../lib/newsletter/http.ts";
 import { defer, runtimeDeps } from "../../../lib/newsletter/runtime.ts";
+import { verifyHuman } from "../../../lib/newsletter/bot.ts";
 
 const noStore = { "Cache-Control": "no-store" };
 const GENERIC = { ok: true, message: SIGNUP_COPY.replyMessage };
@@ -20,6 +22,9 @@ export async function POST(req: Request) {
   const rt = runtimeDeps();
   if (!rt.ok) return Response.json({ error: "Newsletter signup is not open. This preview does not collect email addresses." }, { status: 503, headers: noStore });
   if (!sameOrigin(req, rt.deps.siteUrl)) return Response.json({ error: "Cross-origin requests are not accepted." }, { status: 403, headers: noStore });
+  const verdict = await verifyHuman();
+  if (verdict === "unavailable") return Response.json({ error: "Signup is unavailable right now. Try again in a few minutes." }, { status: 503, headers: noStore });
+  if (verdict === "bot") return Response.json({ error: "We could not check that this request came from a browser. Reload the page and try again." }, { status: 403, headers: noStore });
   const limiter = new DurableLimiter(rt.deps.store, rt.deps.config.signingSecret);
   if (!(await limiter.allow(clientKey(req), rt.deps.now(), (work) => defer("limit sweep", work)))) return Response.json({ error: "Too many requests. Try again in a minute." }, { status: 429, headers: { ...noStore, "Retry-After": "60" } });
   const body = await readSmallJson(req);

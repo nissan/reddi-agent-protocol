@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next';
+import { withBotId } from 'botid/next/config';
 import { fileURLToPath } from 'node:url';
 import { indexable } from './lib/site.ts';
 const config: NextConfig = {
@@ -15,4 +16,5 @@ const config: NextConfig = {
     ] },
   ]; },
 };
-export default config;
+// withBotId adds the rewrites that proxy BotID's client script and check through this site's own origin.
+export default withBotId(config);
