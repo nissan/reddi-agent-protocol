@@ -6,7 +6,7 @@ import { validateReddiReceiptV2, verifyReddiReceiptV2 } from "@redditech/agent-p
 import { findSandboxProviderById, SANDBOX_ENDPOINT_PATH, SANDBOX_PROVIDERS } from "@/lib/sandbox/catalog";
 import { marketingSignupUrl } from "@/lib/sandbox/client";
 import { countTokens, formatUnits, maxChargeLamports, requestInputTokens, SANDBOX_FEE_TREASURY, settleSandboxCall } from "@/lib/sandbox/pricing";
-import { handleSandboxChatCompletion, sandboxModelsListing, type SandboxGatewayDeps } from "@/lib/sandbox/gateway";
+import { handleSandboxChatCompletion, SANDBOX_MAX_PROMPT_CHARS, sandboxModelsListing, type SandboxGatewayDeps } from "@/lib/sandbox/gateway";
 import {
   canonicalizeSandboxReceipt,
   decodeReceiptHeader,
@@ -142,7 +142,7 @@ describe("sandbox gateway: challenge", () => {
     expect((await call(deps, undefined, { model: "gpt-unknown", messages })).status).toBe(404);
     expect((await call(deps, undefined, { model: swift.model, messages: [] })).status).toBe(400);
     expect((await call(deps, undefined, { model: swift.model, messages, stream: true })).status).toBe(400);
-    expect((await call(deps, undefined, { model: swift.model, messages: [{ role: "user", content: "x".repeat(9000) }] })).status).toBe(400);
+    expect((await call(deps, undefined, { model: swift.model, messages: [{ role: "user", content: "x".repeat(SANDBOX_MAX_PROMPT_CHARS + 1) }] })).status).toBe(400);
     expect((await call(deps, undefined, { model: swift.model, messages: [{ role: "user", content: 7 }] })).status).toBe(400);
     expect((await call(deps, undefined, "not an object")).status).toBe(400);
   });

@@ -67,7 +67,8 @@ import {
 } from "./receipt";
 
 export const SANDBOX_MAX_MESSAGES = 16;
-export const SANDBOX_MAX_PROMPT_CHARS = 8000;
+/** Room for a real review (the try page's pull-request task is about 20,600 characters), inside the route's 32 KiB body limit. */
+export const SANDBOX_MAX_PROMPT_CHARS = 24_000;
 export const SANDBOX_MAX_TRANSACTION_AGE_SECONDS = 900;
 const NONCE_PATTERN = /^[0-9a-f]{32}$/;
 const SIMULATED_PAYER_ID = "sandbox-visitor";

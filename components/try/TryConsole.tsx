@@ -70,6 +70,8 @@ export default function TryConsole() {
   const [qr, setQr] = useState<string | null>(null);
   const [answered, setAnswered] = useState<Answered | null>(null);
   const [verification, setVerification] = useState<SandboxVerification | null>(null);
+  // What devnet charged to include each transaction, read from the chain after the answer.
+  const [networkFees, setNetworkFees] = useState<{ lock?: number; settle?: number }>({});
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const polling = useRef(false);
@@ -88,6 +90,7 @@ export default function TryConsole() {
     setQr(null);
     setAnswered(null);
     setVerification(null);
+    setNetworkFees({});
     setMessage(null);
   }, []);
 
@@ -137,6 +140,28 @@ export default function TryConsole() {
       setBusy(false);
     }
   }
+
+  const lockSignature = answered?.lockSignature;
+  const settleSignature = answered && isSandboxReceipt(answered.receipt) ? answered.receipt.receipt.payment?.txSignature : undefined;
+  useEffect(() => {
+    if (!lockSignature) return;
+    let live = true;
+    const devnet = new Connection(DEVNET_RPC, "confirmed");
+    const feeOf = async (signature: string | undefined) => {
+      if (!signature) return undefined;
+      try {
+        return (await devnet.getTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 }))?.meta?.fee;
+      } catch {
+        return undefined;
+      }
+    };
+    void Promise.all([feeOf(lockSignature), feeOf(settleSignature)]).then(([lock, settle]) => {
+      if (live) setNetworkFees({ lock, settle });
+    });
+    return () => {
+      live = false;
+    };
+  }, [lockSignature, settleSignature]);
 
   async function poll(s: Started) {
     if (polling.current) return;
@@ -299,9 +324,15 @@ export default function TryConsole() {
           {payment ? (
             <dl className="mt-5 grid gap-2 text-sm text-gray-200 sm:grid-cols-2">
               <div><dt className="text-xs uppercase tracking-wide text-gray-400">Locked</dt><dd className="font-mono">{sol(payment.metered?.maxAmount ?? started.maxLamports)} SOL</dd></div>
-              <div><dt className="text-xs uppercase tracking-wide text-gray-400">Paid for {payment.metered ? `${payment.metered.inputTokens} in, ${payment.metered.outputTokens} out tokens` : "the answer"}</dt><dd className="font-mono" data-testid="try-charged">{sol(payment.amount ?? "0")} SOL</dd></div>
+              <div><dt className="text-xs uppercase tracking-wide text-gray-400">Paid for {payment.metered ? `${payment.metered.inputTokens} in, ${payment.metered.outputTokens} out tokens` : "the answer"}</dt><dd className="font-mono" data-testid="try-charged">{sol(payment.amount ?? "0")} SOL <span className="text-gray-400">(about ${triPriceFromLamports(BigInt(payment.amount ?? "0")).usdc})</span></dd></div>
               <div><dt className="text-xs uppercase tracking-wide text-gray-400">Protocol fee, inside that</dt><dd className="font-mono">{sol(payment.fee?.amount ?? "0")} SOL</dd></div>
               <div><dt className="text-xs uppercase tracking-wide text-gray-400">Back to your wallet</dt><dd className="font-mono">{sol(payment.metered?.refunded ?? "0")} SOL</dd></div>
+              {networkFees.lock !== undefined ? (
+                <div><dt className="text-xs uppercase tracking-wide text-gray-400">Solana network fee for your lock</dt><dd className="font-mono" data-testid="try-network-fee">{sol(BigInt(networkFees.lock))} SOL <span className="text-gray-400">(about ${triPriceFromLamports(BigInt(networkFees.lock)).usdc})</span></dd></div>
+              ) : null}
+              {networkFees.settle !== undefined ? (
+                <div><dt className="text-xs uppercase tracking-wide text-gray-400">Network fee for the settle, paid by {started.provider.name}</dt><dd className="font-mono">{sol(BigInt(networkFees.settle))} SOL</dd></div>
+              ) : null}
             </dl>
           ) : null}
           <ul className="mt-5 space-y-1 text-sm" data-testid="try-checks">
