@@ -17,7 +17,7 @@ test.describe("prosumer RAP Assurance conversion journeys", () => {
 
     await expect(
       page.getByRole("heading", {
-        name: /describe your specialist for RAP Assurance/i,
+        name: /describe your provider/i,
       }),
     ).toBeVisible();
     await expect(page.getByText("Publish capability", { exact: true })).toBeVisible();
