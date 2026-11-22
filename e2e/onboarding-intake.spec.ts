@@ -32,7 +32,8 @@ function trackExternalRequests(page: Page): string[] {
 
 async function goToIntake(page: Page) {
   await page.goto("/onboarding/intake");
-  await expect(page.getByTestId("intake-page")).toBeVisible();
+  // Wait for hydration: a click before React attaches its handlers is lost.
+  await expect(page.getByTestId("intake-page")).toHaveAttribute("data-hydrated", "true", { timeout: 15_000 });
 }
 
 async function acceptConsentAndRun(page: Page) {
