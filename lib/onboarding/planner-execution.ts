@@ -8,7 +8,7 @@ import { routePlannerPolicy, type PlannerPolicyInput } from "@/lib/onboarding/pl
 import { loadListingIndex } from "@/lib/listings/listing-index";
 import { processX402Challenge } from "@/lib/onboarding/x402-settlement";
 import { paymentNetworkForProfile, receiptHeaderForProvider } from "@/lib/payments/wallet-direct-payment";
-import { getNetworkProfile, resolveNetworkProfileName } from "@/lib/config/network";
+import { resolveNetworkProfileName } from "@/lib/config/network";
 import { readOwnListing } from "@/lib/listings/listing-store";
 import { verifyAndRecordPaidCall, type PaidCallOutcome } from "@/lib/jobs/paid-call";
 import { verifyAndRecordMeteredCall, type MeteredCallOutcome } from "@/lib/jobs/metered-call";
@@ -32,6 +32,7 @@ import {
 import { TORQUE_EVENTS } from "@/lib/torque/events";
 import { legacyRoutesEnabled } from "@/lib/http/route-gates";
 import { fetchOutbound } from "@/lib/http/outbound";
+import { serverRpcUrl } from "@/lib/rpc/server-rpc";
 
 export type PlannerExecuteInput = {
   prompt: string;
@@ -479,7 +480,7 @@ async function recordWalletPaidJob(
           delivered: outcome.delivered,
           session: input.buyerSession,
         },
-        { rpcUrl: getNetworkProfile().solana.rpcHttp, mints: buyerMints(), programId: ESCROW_PROGRAM_ID },
+        { rpcUrl: serverRpcUrl(), mints: buyerMints(), programId: ESCROW_PROGRAM_ID },
       );
     }
     return await verifyAndRecordPaidCall(
@@ -494,7 +495,7 @@ async function recordWalletPaidJob(
         session: input.buyerSession,
       },
       {
-        rpcUrl: getNetworkProfile().solana.rpcHttp,
+        rpcUrl: serverRpcUrl(),
         mints: buyerMints(),
         feeTreasury: process.env.X402_PROTOCOL_FEE_TREASURY?.trim() || undefined,
       },
