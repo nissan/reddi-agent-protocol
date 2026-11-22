@@ -61,11 +61,11 @@ describe("job records for wallet-paid calls (#740)", () => {
     return calls;
   }
 
-  async function run(options: { tx?: unknown; receipt?: unknown; listing?: Listing; session?: { userId: string; wallet: string }; profile?: "devnet" | "mainnet" | "local-surfpool"; noConnection?: boolean } = {}) {
+  async function run(options: { tx?: unknown; receipt?: unknown; listing?: Listing; session?: { userId: string; wallet: string }; profile?: "devnet" | "mainnet" | "local-surfpool"; noConnection?: boolean; delivered?: boolean } = {}) {
     const { verifyAndRecordPaidCall } = await import("@/lib/jobs/paid-call");
     const getParsedTransaction = jest.fn(async () => (options.tx === undefined ? solTransfer(BUYER, PROVIDER, LAMPORTS) : options.tx));
     const outcome = await verifyAndRecordPaidCall(
-      { receipt: options.receipt ?? receipt(), listing: options.listing ?? listing, profile: options.profile ?? "devnet", requestHash: HASH, responseHash: HASH, declaredModel: "ollama-local", delivered: true, session: options.session },
+      { receipt: options.receipt ?? receipt(), listing: options.listing ?? listing, profile: options.profile ?? "devnet", requestHash: HASH, responseHash: HASH, declaredModel: "ollama-local", delivered: options.delivered ?? true, session: options.session },
       options.noConnection ? {} : { connection: { getParsedTransaction } as never },
     );
     return { outcome, getParsedTransaction };
@@ -82,6 +82,24 @@ describe("job records for wallet-paid calls (#740)", () => {
       buyer_wallet: BUYER, buyer_user_id: USER_ID, provider_wallet: PROVIDER, network: "solana-devnet", declared_model: "ollama-local",
       request_hash: HASH, response_hash: HASH, amount_base_units: String(LAMPORTS), mint: "SOL", tx_signature: SIGNATURE, status: "delivered",
     });
+  });
+
+  it("leaves no row for a failed call on someone else's payment presented without the payer's session (audit S5-claude-02, C5)", async () => {
+    for (const session of [undefined, { userId: USER_ID, wallet: PROVIDER }]) {
+      const calls = mockStore();
+      const { outcome, getParsedTransaction } = await run({ delivered: false, session });
+      expect(outcome).toEqual({ recorded: false, reason: "payer_not_proven" });
+      expect(getParsedTransaction).not.toHaveBeenCalled();
+      expect(calls.filter((c) => c.url.includes("/rest/v1/jobs"))).toHaveLength(0);
+      jest.resetModules();
+    }
+  });
+
+  it("records a failed call for the payer's own signed-in session", async () => {
+    const calls = mockStore();
+    const { outcome } = await run({ delivered: false, session: { userId: USER_ID, wallet: BUYER } });
+    expect(outcome.recorded).toBe(true);
+    expect(JSON.parse(calls.find((c) => c.url.includes("/rest/v1/jobs"))!.init.body!)).toMatchObject({ status: "failed", buyer_user_id: USER_ID });
   });
 
   it("does not link the job to a signed-in account whose wallet is not the payer", async () => {

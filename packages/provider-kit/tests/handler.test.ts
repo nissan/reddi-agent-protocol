@@ -5,9 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { verifyReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
-import { buildSettleTokenEscrowInstruction, ESCROW_PROTOCOL_TREASURY, MemoryNonceReplayStore, SOLANA_GENESIS_HASHES, type NonceReplayStore } from "@redditech/x402-solana";
+import { buildSettleTokenEscrowInstruction, ESCROW_PROTOCOL_TREASURY, recordedInstruction, MemoryNonceReplayStore, SOLANA_GENESIS_HASHES, type NonceReplayStore } from "@redditech/x402-solana";
 import { createProviderHandler, PROVIDER_RECEIPT_HEADER } from "../src/handler.js";
 import { FileReplayStore } from "../src/replay.js";
+import { MemoryPendingSettleStore } from "../src/pending.js";
 import { createMockUpstream, type Upstream } from "../src/upstream.js";
 import type { ProviderConfigFile } from "../src/config.js";
 import { Keypair } from "@solana/web3.js";
@@ -30,13 +31,14 @@ const upstreamWithUsage = (prompt: number, completion: number): Upstream & { cal
   return u;
 };
 
-function setup(options: { chain?: FakeChain; upstream?: Upstream; replayStore?: NonceReplayStore; systemPrompt?: string; file?: Partial<ProviderConfigFile>; env?: Record<string, string> } = {}) {
+function setup(options: { chain?: FakeChain; upstream?: Upstream; replayStore?: NonceReplayStore; pendingSettles?: MemoryPendingSettleStore; systemPrompt?: string; file?: Partial<ProviderConfigFile>; env?: Record<string, string> } = {}) {
   const chain = options.chain ?? fakeChain();
   const events: Record<string, unknown>[] = [];
   const handler = createProviderHandler(config({ ...(options.systemPrompt ? { systemPrompt: options.systemPrompt } : {}), ...options.file }, options.env), {
     chain,
     upstream: options.upstream ?? upstreamWithUsage(120, 333),
     replayStore: options.replayStore ?? new MemoryNonceReplayStore(),
+    ...(options.pendingSettles ? { pendingSettles: options.pendingSettles } : {}),
     signMessage,
     now: () => new Date("2026-12-05T00:00:00.000Z"),
     log: (event) => events.push(event),
@@ -168,7 +170,7 @@ test("when the model fails, nothing is settled and the lock is declined so the b
   const body = (await response.json()) as { error: { code: string }; charged: boolean; refundSignature: string };
   assert.equal(body.error.code, "model_unavailable");
   assert.equal(body.charged, false);
-  assert.equal(body.refundSignature, SETTLE_SIGNATURE);
+  assert.equal(body.refundSignature, "decline-1");
   assert.equal(chain.sent.length, 1);
   const decline = chain.sent[0][0];
   const expected = createHash("sha256").update("global:cancel_token_escrow").digest().subarray(0, 8);
@@ -358,6 +360,10 @@ test("the receipt states what the confirmed settle moved, and tokens donated to 
       { account: ata(buyer).toBase58(), mint: USDC.toBase58(), before: 0n, after: 14_867n },
     ],
   };
+  // The record is of the transaction the kit signed, so it carries that settle instruction.
+  const custom = reduced.settlement;
+  reduced.settlement = undefined;
+  reduced.readSettlement = async (signature) => ({ ...custom!, instructions: reduced.signed.get(signature)!.map((ix) => recordedInstruction(ix)) }) as never;
   const second = await setup({ chain: reduced }).call(BODY, { "x402-payment": paymentHeader() });
   const receipt = JSON.parse(Buffer.from(second.headers.get(PROVIDER_RECEIPT_HEADER)!, "base64url").toString("utf8")).receipt;
   assert.equal(receipt.payment.amount, "5133");
@@ -411,7 +417,7 @@ test("a paused currency takes no new locks and says so in the provider's metadat
 test("a settle that lands but reports failure is not sent again: the buyer gets the answer and a receipt, never a false 'nothing was charged'", async () => {
   const chain = fakeChain();
   chain.landButReportFailure = true;
-  const { call, events } = setup({ chain });
+  const { call } = setup({ chain });
   const response = await call(BODY, { "x402-payment": paymentHeader() });
   assert.equal(response.status, 200);
   assert.equal(chain.attempts, 1, "the settle is not sent a second time");
@@ -419,32 +425,111 @@ test("a settle that lands but reports failure is not sent again: the buyer gets 
   assert.equal(body.choices[0].message.content, "hello");
   assert.deepEqual([body.reddi.metered.charged, body.reddi.metered.confirmed, body.reddi.metered.settleSignature], ["0.005355", true, SETTLE_SIGNATURE]);
   assert.ok(response.headers.get(PROVIDER_RECEIPT_HEADER));
-  assert.ok(events.some((e) => e.event === "settle_unconfirmed" && e.state === "closed"));
 
-  // The same, but the settle's signature cannot be found: the answer still returns, with no receipt and no claim about amounts being confirmed.
+  // The same, but what it moved cannot be read back: the answer still returns, with no receipt and no claim about amounts being confirmed.
   const lost = fakeChain();
   lost.landButReportFailure = true;
-  lost.hideSignatures = true;
+  lost.settlement = "unreadable";
   const second = await setup({ chain: lost }).call(BODY, { "x402-payment": paymentHeader() });
   assert.equal(second.status, 200);
   assert.equal(second.headers.get(PROVIDER_RECEIPT_HEADER), null);
   const lostBody = (await second.json()) as { reddi: { metered: Record<string, unknown> } };
-  assert.deepEqual([lostBody.reddi.metered.confirmed, "settleSignature" in lostBody.reddi.metered], [false, false]);
+  assert.deepEqual([lostBody.reddi.metered.confirmed, lostBody.reddi.metered.settleSignature], [false, SETTLE_SIGNATURE]);
 });
 
-test("when the escrow cannot be read after a failed send, the buyer is not told nothing was charged", async () => {
+test("when it is not known whether the settle landed, the answer is held, and the same request collects it once it has", async () => {
   const chain = fakeChain();
   chain.failSend = true;
-  chain.failEscrowReadsAfterSend = true;
+  chain.statusUnknown = true;
   const { call, events } = setup({ chain });
+  const first = await call(BODY, { "x402-payment": paymentHeader() });
+  assert.equal(first.status, 503);
+  const held = (await first.json()) as { error: { code: string }; charged: unknown; choices?: unknown };
+  assert.deepEqual([held.error.code, held.charged, held.choices], ["settle_pending", "unknown", undefined]);
+  assert.ok(events.some((e) => e.event === "settle_pending" && e.alert === true));
+  // Another body on the same lock does not get this answer.
+  assert.equal((await call(BODY.replace("x", "y"), { "x402-payment": paymentHeader() })).status, 409);
+  // The settle turns out to have landed.
+  chain.failSend = false;
+  chain.statusUnknown = false;
+  chain.landed.add(SETTLE_SIGNATURE);
+  const second = await call(BODY, { "x402-payment": paymentHeader() });
+  assert.equal(second.status, 200);
+  const body = (await second.json()) as { choices: { message: { content: string } }[]; reddi: { metered: Record<string, unknown> } };
+  assert.equal(body.choices[0].message.content, "hello");
+  assert.deepEqual([body.reddi.metered.settleSignature, body.reddi.metered.confirmed], [SETTLE_SIGNATURE, true]);
+  assert.ok(second.headers.get(PROVIDER_RECEIPT_HEADER));
+  assert.equal(chain.signed.size, 1, "one settle was signed for the call");
+});
+
+test("two retries of a held answer at once: one looks at the settle, the other is told to wait", async () => {
+  const chain = fakeChain();
+  chain.failSend = true;
+  chain.statusUnknown = true;
+  const { call } = setup({ chain });
+  assert.equal((await call(BODY, { "x402-payment": paymentHeader() })).status, 503);
+  chain.failSend = false;
+  chain.statusUnknown = false;
+  chain.landed.add(SETTLE_SIGNATURE);
+  let looks = 0;
+  const realRead = chain.readSettlement;
+  chain.readSettlement = async (signature) => {
+    looks += 1;
+    await new Promise((done) => setTimeout(done, 20));
+    return realRead(signature);
+  };
+  const [a, b] = await Promise.all([call(BODY, { "x402-payment": paymentHeader() }), call(BODY, { "x402-payment": paymentHeader() })]);
+  assert.deepEqual([a.status, b.status].sort(), [200, 503]);
+  assert.equal(looks, 1, "the settle was read back once");
+  assert.equal(chain.signed.size, 1);
+});
+
+test("an escrow closed by the buyer before the settle lands is not taken as paid: the answer is withheld", async () => {
+  const chain = fakeChain();
+  chain.failSend = true;
+  const { call } = setup({ chain });
+  // The buyer's refund lands while the settle is in flight.
+  const realSend = chain.sendSigned;
+  chain.sendSigned = async (signed) => {
+    chain.accounts.delete(escrowAddress().toBase58());
+    return realSend(signed);
+  };
   const response = await call(BODY, { "x402-payment": paymentHeader() });
-  const text = await response.text();
-  assert.ok(!text.includes("Nothing was charged"));
-  assert.equal(response.status, 200);
-  assert.equal(JSON.parse(text).reddi.metered.confirmed, false);
+  assert.equal(response.status, 402);
+  const body = (await response.json()) as { error: { code: string }; charged: boolean; choices?: unknown };
+  assert.deepEqual([body.error.code, body.charged, body.choices], ["escrow_closed", false, undefined]);
   assert.equal(response.headers.get(PROVIDER_RECEIPT_HEADER), null);
-  assert.equal(chain.attempts, 1);
-  assert.ok(events.some((e) => e.event === "settle_unconfirmed" && e.state === "unknown"));
+});
+
+test("a pending settle whose answer was lost in a restart: landed is reported and alerted, never landed is declined", async () => {
+  const pending = new MemoryPendingSettleStore();
+  const chain = fakeChain();
+  chain.failSend = true;
+  chain.statusUnknown = true;
+  assert.equal((await setup({ chain, pendingSettles: pending }).call(BODY, { "x402-payment": paymentHeader() })).status, 503);
+  assert.equal([...pending.records.values()][0].status, "pending");
+  // Restart: a new handler with the same records. The settle landed meanwhile.
+  chain.failSend = false;
+  chain.statusUnknown = false;
+  chain.landed.add(SETTLE_SIGNATURE);
+  const restarted = setup({ chain, pendingSettles: pending });
+  const response = await restarted.call(BODY, { "x402-payment": paymentHeader() });
+  assert.equal(response.status, 410);
+  assert.ok(restarted.events.some((e) => e.event === "paid_answer_lost" && e.alert === true));
+  assert.equal([...pending.records.values()][0].status, "landed");
+
+  // Same, but it never landed: the sweep declines the lock so the buyer gets it back.
+  const pending2 = new MemoryPendingSettleStore();
+  const chain2 = fakeChain();
+  chain2.failSend = true;
+  chain2.statusUnknown = true;
+  assert.equal((await setup({ chain: chain2, pendingSettles: pending2 }).call(BODY, { "x402-payment": paymentHeader() })).status, 503);
+  chain2.failSend = false;
+  chain2.statusUnknown = false;
+  const later = setup({ chain: chain2, pendingSettles: pending2 });
+  await later.handler.settleDueSessions();
+  assert.equal([...pending2.records.values()][0].status, "dropped");
+  assert.ok(later.events.some((e) => e.event === "pending_settle_declined"));
 });
 
 test("a single paid call that the payer did not sign is refused before the lock is read or the model runs (#866)", async () => {

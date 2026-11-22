@@ -1,0 +1,15 @@
+{
+  "network": "devnet",
+  "variant": "devnet",
+  "commit": "b71a91ee9533483d46a0ed9d7382c063b824b6e4",
+  "programId": "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu",
+  "size": 96272,
+  "sha256": "2576a9cccb15ea09aa675e1a2d415043f8d231179772e5fa23728402b10a32ac",
+  "executableHash": "10e986fe1b1e619fff02b2120fcc9c47bd373677526b8f386095360bb15b0e7b",
+  "upgradeAuthority": "hbr2Fee3ewDbm33wTDrdEF3e7byNCzNgQ57CwJWaPtt",
+  "forbiddenAuthorities": [],
+  "buildRun": "https://github.com/nissan/reddi-agent-protocol/actions/runs/44900313151",
+  "image": "solanafoundation/solana-verifiable-build:4.2.2",
+  "imageDigest": null,
+  "deployedSlot": 524707788
+}

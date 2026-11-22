@@ -400,7 +400,7 @@ export const PUBLIC_CLAIM_DOM_ROUTES: PublicClaimDomRoute[] = [
   { path: "/", readyCopy: /pay for an answer\.\s+keep the receipt\./i },
   { path: "/spec", readyCopy: /ADL/i },
   { path: "/whitepaper", readyCopy: /Reddi Agent Protocol Whitepaper/i },
-  { path: "/start", readyCopy: /proof walkthrough|walkthrough recording is currently withheld/i },
+  { path: "/start", readyCopy: /Pick where to start\./i },
   { path: "/playbook", readyCopy: /Start fast, then go deep/i },
   { path: "/dogfood", readyCopy: /Dogfood Specialist \+ Attestor Flow/i },
   { path: "/faq", readyCopy: /Common onboarding questions/i },

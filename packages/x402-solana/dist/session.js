@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.MeteredSessionLedger = exports.SESSION_HEADER = exports.SESSION_SEQUENCE_HEADER = exports.MAX_SESSION_SEQUENCE = exports.DEFAULT_SESSION_IDLE_SECONDS = void 0;
 exports.readSessionHeaders = readSessionHeaders;
+exports.lockMatchesSession = lockMatchesSession;
 exports.sessionUsage = sessionUsage;
 exports.sessionSettlement = sessionSettlement;
 exports.sessionPaymentHeader = sessionPaymentHeader;
@@ -53,6 +54,26 @@ function readSessionHeaders(headers) {
     if (!/^[1-9]\d{0,6}$/.test(text) || Number(text) > exports.MAX_SESSION_SEQUENCE)
         return { error: `${exports.SESSION_SEQUENCE_HEADER} must be a whole number from 1 to ${exports.MAX_SESSION_SEQUENCE}.` };
     return { sequence: Number(text), close: close !== null };
+}
+/**
+ * True when a lock read back is the same lock a session was opened on: same
+ * payer, maximum, creation slot and refund window, and (when the session kept
+ * them) the same funding account and claim window. A lock closed and made again
+ * at the same address is a different lock, and a session's calls are never
+ * charged to it.
+ */
+function lockMatchesSession(lock, state) {
+    if (lock.payer.toBase58() !== state.payer || lock.maxBaseUnits.toString() !== state.maxBaseUnits)
+        return false;
+    if (lock.createdSlot.toString() !== state.createdSlot)
+        return false;
+    if ((lock.terms.cancelWindowSlots ?? 0n).toString() !== state.cancelWindowSlots)
+        return false;
+    if (state.source !== undefined && lock.terms.source.toBase58() !== state.source)
+        return false;
+    if (state.claimWindowSlots !== undefined && (lock.terms.claimWindowSlots ?? 0n).toString() !== state.claimWindowSlots)
+        return false;
+    return true;
 }
 const clone = (state) => ({ ...state });
 class MeteredSessionLedger {
@@ -108,6 +129,8 @@ class MeteredSessionLedger {
                     sessionKey: input.sessionKey,
                     createdSlot: input.lock.createdSlot.toString(),
                     cancelWindowSlots: (input.lock.terms.cancelWindowSlots ?? 0n).toString(),
+                    source: input.lock.terms.source.toBase58(),
+                    claimWindowSlots: (input.lock.terms.claimWindowSlots ?? 0n).toString(),
                     sequence: 0,
                     inputTokens: 0,
                     outputTokens: 0,
@@ -127,8 +150,7 @@ class MeteredSessionLedger {
             return { ok: false, reason: 'session_key_mismatch', message: 'This session was started with another session key. Sign with the key it was started with.' };
         if (state.status !== 'open')
             return { ok: false, reason: 'session_closed', message: state.status === 'settled' ? 'This session has been settled. Lock a new escrow to go on.' : 'This session is closed and being settled. Lock a new escrow to go on.' };
-        // The lock slot tells this session's escrow from a later one locked at the same address.
-        if (state.payer !== input.lock.payer.toBase58() || state.maxBaseUnits !== input.lock.maxBaseUnits.toString() || state.createdSlot !== input.lock.createdSlot.toString()) {
+        if (!lockMatchesSession(input.lock, state)) {
             return { ok: false, reason: 'session_lock_mismatch', message: 'This lock no longer matches the session opened on it.' };
         }
         if (input.sequence !== state.sequence + 1) {
@@ -204,12 +226,27 @@ class MeteredSessionLedger {
         }
         return clone(state);
     }
+    /**
+     * Saves the settle about to be sent, or clears it (`undefined`) once it is
+     * known that it cannot land. Durable before it resolves, so a settle is never
+     * sent without a record of it.
+     */
+    async markSettling(escrow, pending) {
+        const state = this.sessions.get(escrow);
+        if (!state)
+            throw new Error('no session on that escrow');
+        const { pendingSettle: _previous, ...rest } = state;
+        const next = pending ? { ...rest, pendingSettle: pending } : rest;
+        await this.store?.save(next);
+        this.sessions.set(escrow, next);
+    }
     /** Records the settle (or, for a session with nothing to charge, the decline) that ended a session. */
     async finish(escrow, outcome) {
         const state = this.sessions.get(escrow);
         if (!state)
             return;
-        const next = { ...state, status: outcome.status, ...(outcome.signature ? { settleSignature: outcome.signature } : {}), ...(outcome.closingReceipt !== undefined ? { closingReceipt: outcome.closingReceipt } : {}) };
+        const { pendingSettle: _pending, ...rest } = state;
+        const next = { ...rest, status: outcome.status, ...(outcome.signature ? { settleSignature: outcome.signature } : {}), ...(outcome.closingReceipt !== undefined ? { closingReceipt: outcome.closingReceipt } : {}) };
         await this.store?.save(next);
         this.sessions.set(escrow, next);
     }
@@ -247,7 +284,7 @@ function sessionUsage(state) {
  * disagree, which would mean the receipts and the settle differ.
  */
 function sessionSettlement(terms, lock, state, payout) {
-    if (lock.maxBaseUnits.toString() !== state.maxBaseUnits || lock.payer.toBase58() !== state.payer || lock.createdSlot.toString() !== state.createdSlot)
+    if (!lockMatchesSession(lock, state))
         throw new Error('the lock does not match the session');
     const settled = (0, provider_1.meteredSettlement)(terms, lock, sessionUsage(state), payout);
     if (settled.settlement.chargedBaseUnits.toString() !== state.costBaseUnits)

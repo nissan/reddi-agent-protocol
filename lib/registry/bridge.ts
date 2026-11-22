@@ -19,7 +19,6 @@ import { Connection } from "@solana/web3.js";
 import { readFileSync } from "fs";
 import { join } from "path";
 import {
-  DEVNET_RPC,
   REGISTRY_PROGRAM_ID,
   ACTIVE_AGENT_ACCOUNT_DATA_SIZE,
   ACTIVE_AGENT_ACCOUNT_DISC,
@@ -33,6 +32,8 @@ import {
 import { loadListingIndex } from "@/lib/listings/listing-index";
 import { enrichCapabilityIndexWithOpenRouterProfiles } from "@/lib/registry/openrouter-enrichment";
 import type { TaskTypeId, InputModeId, OutputModeId, PrivacyModeId, RuntimeCapability, ContextRequirement } from "@/lib/capabilities/taxonomy";
+import { serverRpcUrl } from "@/lib/rpc/server-rpc";
+import { registeredRpcHttp } from "@/lib/config/network";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -197,7 +198,7 @@ export async function fetchSpecialistListings(): Promise<{
   let onchainAgents: { pda: string; agent: OnchainAgent }[] = [];
 
   try {
-    const conn = new Connection(DEVNET_RPC, "confirmed");
+    const conn = new Connection(serverRpcUrl() ?? registeredRpcHttp(), "confirmed");
     const accounts = await conn.getProgramAccounts(REGISTRY_PROGRAM_ID, {
       commitment: "confirmed",
       filters: [

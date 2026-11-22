@@ -1,0 +1,32 @@
+name: Supabase access rules
+
+# Applies supabase/migrations to a throwaway local Postgres and runs
+# supabase/tests/10_access_rules.sql (security audit round 1, S5-claude-06).
+# Touches no network service and no Supabase project.
+on:
+  push:
+    branches: [main]
+    paths: ["supabase/**", ".github/workflows/supabase-access-rules.yml"]
+  pull_request:
+    branches: [main]
+    paths: ["supabase/**", ".github/workflows/supabase-access-rules.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  access-rules:
+    name: Access-rule checks on local Postgres
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Run access-rule checks
+        run: |
+          export PG_BINDIR="$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)"
+          bash supabase/tests/run-local.sh | tee access-rules.log
+          grep -q "access rules: all checks passed" access-rules.log

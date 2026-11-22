@@ -168,6 +168,11 @@ export function isMainnetRpcProxyUrl(value: string, hosts: readonly string[] = M
   );
 }
 
+/** The RPC endpoint registered in config/networks/<profile>.json, before any override. */
+export function registeredRpcHttp(name: NetworkProfileName = resolveNetworkProfileName()): string {
+  return PROFILES[name].solana.rpcHttp;
+}
+
 export function resolveNetworkProfileName(): NetworkProfileName {
   return resolveNetworkProfileNameFromEnv(readEnv());
 }

@@ -15,10 +15,21 @@ address, never the multisig account address).
 ## 1. Freeze
 
 1. Record the freeze commit on `main`.
-2. Take the size and sha256 of record from the `escrow-verifiable-build.yml` run
-   on that commit (artifact `escrow-mainnet-build.json`). Record them on #736.
-3. The second review (Codex) works from that commit. A program change after the
-   freeze means a new freeze commit and hash.
+2. Take the build of record from the `escrow-verifiable-build.yml` run on that
+   commit. The workflow is path-filtered, so if the freeze commit did not touch
+   the program, start the run by hand (`workflow_dispatch`) on that commit.
+   From the `escrow-mainnet-<commit>` artifact record: the size, the `sha256sum`
+   of `pinocchio_escrow.so`, and the executable hash (the workflow's `hash`,
+   from `solana-verify get-executable-hash`, which is the sha256 with trailing
+   zero bytes removed). They are two different hashes; keep both. Record the
+   build image's digest too (`docker inspect --format '{{index .RepoDigests 0}}'
+   solanafoundation/solana-verifiable-build:4.2.2` on the machine that pulled it).
+3. Commit them as the release record `config/releases/v1-mainnet-<commit7>.json`
+   (format in `config/releases/README.md`), with `upgradeAuthority` set to the
+   vault and `forbiddenAuthorities` holding the multisig account address and the
+   deployer address. Record the same values on #736.
+4. The second review (Codex) works from that commit. A program change after the
+   freeze means a new freeze commit, record and hash.
 
 ## 2. Fund the deployer
 
@@ -33,11 +44,33 @@ The owner funds it.
 ## 3. Deploy (owner signs)
 
 1. Deploy the container-built `pinocchio_escrow.so` whose sha256 matches the
-   freeze record, with the program keypair for `DcfW3Cxt…5Ucu`.
-2. Read the program data account back and check its sha256 against the record
-   (the e2e script's `PROGRAM_LEN` / `PROGRAM_SHA256` check does this).
-3. Hand upgrade authority to the Squads vault. Read it back from chain (#737
-   RAP-737-S2).
+   release record, with the program keypair for `DcfW3Cxt…5Ucu`.
+2. Hand upgrade authority to the Squads **vault** `5CsBuT…3Hxe`, never the
+   multisig account. The vault cannot sign, so this needs
+   `solana program set-upgrade-authority DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu
+   --new-upgrade-authority 5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe
+   --skip-new-upgrade-authority-signer-check --url mainnet-beta`. Paste the
+   address from this runbook; do not type it.
+3. Run the read-only deployment check against the release record, **after** the
+   handover, so an upgrade between the deploy and the handover would show:
+
+   ```bash
+   SOLANA_RPC_URL=<mainnet rpc> node scripts/check-escrow-deployment.mjs \
+     --record config/releases/v1-mainnet-<commit7>.json --deployer <deployer address>
+   ```
+
+   It checks the cluster (mainnet genesis), the loader and ProgramData accounts,
+   the length, that the bytes after the build are zero, both hashes, that the
+   upgrade authority is the vault and not a forbidden address, and that no
+   deploy buffer is left under the deployer. It prints only the RPC host. The
+   genesis hash and the accounts come from the same RPC, so run it twice, once
+   with the Helius URL and once with `--url https://api.mainnet-beta.solana.com`,
+   and keep both outputs. Every line of both must say `ok`; record both outputs
+   and the deploy slot on #736 (#737 RAP-737-S2). If any line fails, stop:
+   nothing opens to buyers.
+4. Close any leftover buffer (`solana program close --buffers --url
+   mainnet-beta`), then send the deployer's remaining SOL back to the owner and
+   retire the deployer key. From here no single hot key can change the program.
 
 ## 4. Prepare the treasury (before the first lock)
 
@@ -72,15 +105,37 @@ A payout fails if the treasury cannot receive it:
 2. Set the Vercel variables in `docs/MAINNET-RPC.md`, and the firewall rate
    limit on `/api/rpc`.
 3. Set `X402_PROTOCOL_FEE_TREASURY` for providers to the vault.
-4. Tell each provider operator to keep its SOL payee wallet rent-exempt, open
+4. Apply the Supabase migrations to the `reddi-agent-protocol` project, in
+   file-name order: `supabase/migrations/20261120000000_v1_core.sql` (#742),
+   then `20261122000000_replay_check_and_store_all.sql` (#904). Do this before
+   any service on that `x402-solana` version takes a real payment: without the
+   second one the replay store fails closed and every payment is refused. Then
+   check in the SQL editor that the function exists and only the service role
+   can run it:
+
+   ```sql
+   select p.oid::regprocedure,
+          has_function_privilege('service_role', p.oid, 'execute') as service_role,
+          has_function_privilege('anon', p.oid, 'execute') as anon,
+          has_function_privilege('authenticated', p.oid, 'execute') as authenticated
+   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'replay_check_and_store_all';
+   ```
+
+   Expect one row, `replay_check_and_store_all(text[])`, with `true`, `false`,
+   `false`. Anything else is a stop.
+5. Tell each provider operator to keep its SOL payee wallet rent-exempt, open
    and not a program account from lock to payout, or SOL payouts to it fail
    (`docs/ESCROW-PAYOUT-SAFETY.md`).
-5. Tell each provider operator how rated escrows behave. A buyer can opt an
+6. Tell each provider operator how rated escrows behave. A buyer can opt an
    escrow in to rating at lock. Providers refuse such an escrow before serving
    unless the operator sets `acceptRatedEscrows`. One that accepts them must
    pass the rating account on every exit of that escrow (settle, claim,
    decline), name the job by the rating's opened slot read with the lock, and has agreed to commit and reveal a rating of the buyer within
    about 7 days each (`docs/RATINGS-AND-ATTESTATIONS.md`).
+7. Tell each provider operator that direct per-call payments in a Token-2022
+   mint that carries a transfer fee are refused, matching the zero-fee posture
+   checked in section 4.
 
 ## 6. Verify (by 3 December)
 

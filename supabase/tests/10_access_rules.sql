@@ -31,9 +31,8 @@ begin
   raise exception 'expected a permission error but statement ran: %', label;
 end $$;
 
--- A: signs in and lists a provider under A's own wallet.
-set role authenticated;
-select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+-- Server: lists a provider under A's own wallet (PUT /api/listings writes with the service role).
+set role service_role;
 insert into public.providers (wallet, owner_user_id, display_name, endpoint_url, price_per_call_base_units, price_mint, network, status)
 values ('3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', '00000000-0000-0000-0000-00000000000a', 'A', 'https://a.example.test', 10000, 'mint', 'solana-devnet', 'listed');
 
@@ -42,7 +41,7 @@ update public.providers set price_input_per_million_base_units = 150000, price_o
   where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr';
 do $$ begin
   if (select price_output_per_million_base_units from public.providers where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr') <> 600000
-    then raise exception 'owner cannot set per-token prices'; end if;
+    then raise exception 'server cannot set per-token prices'; end if;
 end $$;
 do $$ begin
   begin
@@ -51,7 +50,28 @@ do $$ begin
   end;
   raise exception 'negative per-token price was accepted';
 end $$;
+-- The database moves updated_at on every edit.
+do $$ declare before timestamptz; after timestamptz; begin
+  select updated_at into before from public.providers where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr';
+  perform pg_sleep(0.01);
+  update public.providers set display_name = 'A2' where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr';
+  select updated_at into after from public.providers where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr';
+  if after = before then raise exception 'updated_at did not change'; end if;
+end $$;
 
+-- A: signs in. Owners read their listing but never write providers directly (S5-claude-01, C7).
+reset role; set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+select pg_temp.expect_denied('A edits own listing directly', $q$
+  update public.providers set display_name = 'direct' where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr' $q$);
+select pg_temp.expect_denied('A points own listing at an internal address', $q$
+  update public.providers set endpoint_url = 'https://169.254.169.254/latest/meta-data' where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr' $q$);
+select pg_temp.expect_denied('A inserts a second listing under own wallet', $q$
+  insert into public.providers (wallet, owner_user_id, display_name, endpoint_url, price_per_call_base_units, price_mint, network, status)
+  values ('3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', '00000000-0000-0000-0000-00000000000a', 'dup', 'https://dup.example.test', 1, 'mint', 'solana-mainnet', 'listed') $q$);
+do $$ begin
+  if (select display_name from public.providers where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr') <> 'A2' then raise exception 'owner changed own listing directly'; end if;
+end $$;
 select pg_temp.expect_denied('A lists a provider under B''s wallet', $q$
   insert into public.providers (wallet, owner_user_id, display_name, endpoint_url, price_per_call_base_units, price_mint, network)
   values ('6uiQbwMor4UrWYiDtAJcgHKYW4vUaM3BUVChPgzdALse', '00000000-0000-0000-0000-00000000000a', 'x', 'https://x.example.test', 1, 'mint', 'solana-devnet') $q$);
@@ -62,20 +82,12 @@ select pg_temp.expect_denied('A writes a job', $q$
   values ('w', '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-devnet', 'm', repeat('a', 64), 1, 'mint', 'sig', 'paid') $q$);
 select pg_temp.expect_denied('A reads the replay ledger', 'select 1 from public.payment_replay');
 select pg_temp.expect_denied('A calls the replay function', $q$ select public.replay_check_and_store('k') $q$);
+select pg_temp.expect_denied('A calls the batch replay function', $q$ select public.replay_check_and_store_all(array['k']) $q$);
 select pg_temp.expect_denied('A writes a profile', $q$
   update public.profiles set wallet = '6uiQbwMor4UrWYiDtAJcgHKYW4vUaM3BUVChPgzdALse' $q$);
 select pg_temp.expect_error('A reads owner_user_id', 'select owner_user_id from public.providers');
 select pg_temp.expect_error('A sets updated_at', $q$ update public.providers set updated_at = now() $q$);
--- A edits own listing; the database moves updated_at.
-do $$ declare before timestamptz; after timestamptz; begin
-  select updated_at into before from public.providers where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr';
-  perform pg_sleep(0.01);
-  update public.providers set display_name = 'A2' where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr';
-  if not found then raise exception 'owner cannot edit own listing'; end if;
-  select updated_at into after from public.providers where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr';
-  if after = before then raise exception 'updated_at did not change'; end if;
-end $$;
-
+select pg_temp.expect_error('A calls set_updated_at', $q$ select public.set_updated_at() $q$);
 -- B: cannot edit or delete A's listing.
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
 select pg_temp.expect_denied('B edits A''s listing', $q$
@@ -100,6 +112,11 @@ values ('3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 1);
 do $$ begin
   if not public.replay_check_and_store('x402:tx:solana-devnet:sig-1') then raise exception 'first replay key refused'; end if;
   if public.replay_check_and_store('x402:tx:solana-devnet:sig-1') then raise exception 'replayed key accepted'; end if;
+  -- All or none: a batch with one used key records nothing.
+  if public.replay_check_and_store_all(array['x402:tx:solana-devnet:sig-1', 'x402:nonce:solana-devnet:p:n-1']) then raise exception 'batch with a used key accepted'; end if;
+  if not public.replay_check_and_store('x402:nonce:solana-devnet:p:n-1') then raise exception 'refused batch left a key recorded'; end if;
+  if not public.replay_check_and_store_all(array['x402:tx:solana-devnet:sig-2', 'x402:nonce:solana-devnet:p:n-2']) then raise exception 'new batch refused'; end if;
+  if public.replay_check_and_store('x402:nonce:solana-devnet:p:n-2') then raise exception 'batch did not record its keys'; end if;
   begin
     insert into public.jobs (buyer_wallet, provider_wallet, network, declared_model, request_hash, amount_base_units, mint, tx_signature, status)
     values ('w', '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr', 'solana-devnet', 'm', repeat('b', 64), 1, 'mint', 'sig-1', 'paid');
@@ -168,11 +185,60 @@ do $$ begin
      or (select count(*) from public.providers) <> 0 then
     raise exception 'anon can see data of a paused provider'; end if;
 end $$;
+-- A removal is a server decision: the owner cannot put a removed listing back (S5-claude-01).
+reset role; set role service_role;
+update public.providers set status = 'removed' where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr';
+reset role; set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+select pg_temp.expect_denied('A relists a removed listing', $q$
+  update public.providers set status = 'listed' where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr' $q$);
+reset role; set role service_role;
+do $$ begin
+  if (select status from public.providers where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr') <> 'removed' then raise exception 'owner undid a removal'; end if;
+end $$;
+update public.providers set status = 'paused' where wallet = '3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr';
+
 -- An unrelated signed-in user sees no private rows either; the owner still sees the listing.
 reset role; set role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
 do $$ begin
   if (select count(*) from public.providers) <> 1 then raise exception 'owner cannot see own paused listing'; end if;
 end $$;
+-- C: a third signed-in user with a profile sees no job, receipt or listing of A and B,
+-- and is_provider_owner answers only about C.
+reset role; set role postgres;
+insert into auth.users (id) values ('00000000-0000-0000-0000-00000000000c'), ('00000000-0000-0000-0000-00000000000d');
+insert into public.profiles (user_id, wallet) values ('00000000-0000-0000-0000-00000000000c', '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000c', false);
+do $$ begin
+  if (select count(*) from public.jobs where id = '00000000-0000-0000-0000-0000000000f1') <> 0 then raise exception 'C reads another pair''s job'; end if;
+  if (select count(*) from public.receipts where job_id = '00000000-0000-0000-0000-0000000000f1') <> 0 then raise exception 'C reads another pair''s receipt'; end if;
+  if (select count(*) from public.providers) <> 0 then raise exception 'C sees an unlisted provider'; end if;
+  if (select count(*) from public.profiles) <> 1 then raise exception 'C sees another profile'; end if;
+  if public.is_provider_owner('3mL7kbtz3eK24vJ6wftjnLvhZrf93B71UEjB2DBDAddr') then raise exception 'C is told it owns A''s provider'; end if;
+end $$;
+select pg_temp.expect_denied('C lists a provider under its own wallet', $q$
+  insert into public.providers (wallet, owner_user_id, display_name, endpoint_url, price_per_call_base_units, price_mint, network, status)
+  values ('9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin', '00000000-0000-0000-0000-00000000000c', 'C', 'https://c.example.test', 1, 'mint', 'solana-devnet', 'listed') $q$);
+-- D: signed in with no profile row sees nothing private.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000d', false);
+do $$ begin
+  if (select count(*) from public.jobs) <> 0 or (select count(*) from public.receipts) <> 0
+     or (select count(*) from public.profiles) <> 0 or (select count(*) from public.providers) <> 0 then
+    raise exception 'a user without a profile sees private rows'; end if;
+end $$;
+-- No client role holds INSERT, UPDATE or DELETE on providers at all.
 reset role;
+do $$ begin
+  if exists (
+    select 1 from information_schema.role_column_grants
+    where table_schema = 'public' and table_name = 'providers' and grantee in ('anon', 'authenticated', 'PUBLIC')
+      and privilege_type in ('INSERT', 'UPDATE')
+  ) or exists (
+    select 1 from information_schema.role_table_grants
+    where table_schema = 'public' and table_name = 'providers' and grantee in ('anon', 'authenticated', 'PUBLIC')
+      and privilege_type in ('INSERT', 'UPDATE', 'DELETE')
+  ) then raise exception 'a client role can still write providers'; end if;
+end $$;
 select 'access rules: all checks passed' as result;

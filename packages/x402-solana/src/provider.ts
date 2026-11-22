@@ -382,6 +382,13 @@ export async function verifyMeteredLock(input: {
    * other check still applies.
    */
   purpose?: 'call' | 'session-call' | 'session-settle';
+  /**
+   * `session-settle` only: when neither the account that funded the lock nor
+   * the payer's associated token account can take the unused part, let the
+   * settle create the associated account at the provider's cost. Default
+   * false, so the provider decides, and can bound, what it pays for.
+   */
+  createRefundAccount?: boolean;
 }): Promise<VerifiedLock> {
   const purpose = input.purpose ?? 'call';
   const { header, terms } = input;
@@ -461,7 +468,17 @@ export async function verifyMeteredLock(input: {
     }
     openedSlot = rating.openedSlot;
   }
-  const payout = await checkMeteredPayout({ terms, escrow, readAccount: input.readAccount, ...(input.treasury ? { treasury: input.treasury } : {}) });
+  // Reading a lock back to settle calls already served: if the account that
+  // funded it is gone, the unused part goes to the payer's associated token
+  // account, created by the settle at the provider's cost when it does not
+  // exist and the provider allowed that.
+  const payout = await checkMeteredPayout({
+    terms,
+    escrow,
+    readAccount: input.readAccount,
+    ...(input.treasury ? { treasury: input.treasury } : {}),
+    ...(purpose === 'session-settle' ? { allowPayerAssociatedAccount: true, createRefundAccount: input.createRefundAccount === true } : {}),
+  });
   if (!payout.ok) return payout;
   if (purpose === 'call' && !(await input.replayStore.checkAndStore(meteredEscrowReplayKey(header.escrow)))) {
     return { ok: false, reason: 'duplicate_nonce', message: 'This escrow has already paid for a call.' };
@@ -549,6 +566,13 @@ export interface TokenBalanceChange {
   after: bigint;
 }
 
+/** A top-level instruction as read back from the chain: its program, its accounts in order, and its data in base64. */
+export interface RecordedInstruction {
+  programId: string;
+  accounts: string[];
+  data: string;
+}
+
 /** What a confirmed transaction did, as read back from the chain. */
 export interface SettlementRecord {
   failed: boolean;
@@ -557,6 +581,33 @@ export interface SettlementRecord {
   /** Every account it named. */
   accounts: string[];
   tokenBalances: TokenBalanceChange[];
+  /** Its top-level instructions. Needed when the settle instruction itself is checked (`expected.instruction`). */
+  instructions?: RecordedInstruction[];
+}
+
+/** The form a settle instruction is recorded and compared in. */
+export function recordedInstruction(instruction: TransactionInstruction): RecordedInstruction {
+  return {
+    programId: instruction.programId.toBase58(),
+    accounts: instruction.keys.map((key) => key.pubkey.toBase58()),
+    data: Buffer.from(instruction.data).toString('base64'),
+  };
+}
+
+/**
+ * True when the transaction calls the escrow program exactly once, with
+ * exactly `expected`: the same accounts in the same order and the same data.
+ * So the credits read from its balances are this settle's, not another
+ * instruction's.
+ */
+export function transactionHasOnlyInstruction(record: SettlementRecord, expected: RecordedInstruction): boolean {
+  if (!record.instructions) return false;
+  const calls = record.instructions.filter((ix) => ix.programId === expected.programId);
+  if (calls.length !== 1) return false;
+  const [call] = calls;
+  return call.data === expected.data
+    && call.accounts.length === expected.accounts.length
+    && call.accounts.every((account, index) => account === expected.accounts[index]);
 }
 
 export type ConfirmedSettlement =
@@ -588,11 +639,12 @@ export type ConfirmedSettlement =
  */
 export function confirmMeteredSettlement(
   record: SettlementRecord | null,
-  expected: { programId: PublicKey; escrow: PublicKey; mint: PublicKey; destination: PublicKey; treasuryToken: PublicKey; refundTo: PublicKey; maxBaseUnits: bigint; rating?: PublicKey },
+  expected: { programId: PublicKey; escrow: PublicKey; mint: PublicKey; destination: PublicKey; treasuryToken: PublicKey; refundTo: PublicKey; maxBaseUnits: bigint; rating?: PublicKey; instruction?: RecordedInstruction },
 ): ConfirmedSettlement {
   if (!record) return { ok: false, reason: 'not_found' };
   if (record.failed) return { ok: false, reason: 'failed' };
   if (!record.programIds.includes(expected.programId.toBase58()) || !record.accounts.includes(expected.escrow.toBase58())) return { ok: false, reason: 'wrong_transaction' };
+  if (expected.instruction && (expected.instruction.programId !== expected.programId.toBase58() || !transactionHasOnlyInstruction(record, expected.instruction))) return { ok: false, reason: 'wrong_transaction' };
   if (expected.rating && !record.accounts.includes(expected.rating.toBase58())) return { ok: false, reason: 'wrong_transaction' };
   const mint = expected.mint.toBase58();
   const change = (account: PublicKey): bigint => {

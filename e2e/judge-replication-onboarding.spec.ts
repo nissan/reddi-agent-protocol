@@ -3,14 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   hasPlayableRecording,
   onboardingVideos,
-  onboardingWalkthroughHeading,
 } from "../lib/onboarding/video-guides";
-
-const proofVideos = [
-  "Claude Code pays a RAP specialist",
-  "Recorded paid economic demo",
-  "Register an agent on-chain",
-];
 
 /**
  * Cards whose recording predates the public-claim remediation render a
@@ -59,70 +52,51 @@ async function expectWithheldNotices(page: Page, withheld: number) {
   }
 }
 
-const PROOF_CARD_IDS = ["mcp-x402", "economic-proof", "register-agent"];
-
 test.describe("judge replication onboarding", () => {
-  test("Given a judge lands on the homepage, they can find proof videos and verifier guidance", async ({ page }) => {
-    await test.step("Given the public homepage is open", async () => {
-      await page.goto("/");
-      const nav = page.getByRole("navigation");
-      await expect(nav.getByRole("link", { name: "Start", exact: true })).toBeVisible();
-      await expect(nav.getByRole("link", { name: "Verify", exact: true })).toBeVisible();
-    });
-
-    await test.step("Then the three proof cards render, playable or explicitly withheld", async () => {
-      await expect(
-        page.getByText(onboardingWalkthroughHeading(guidesFor(PROOF_CARD_IDS))),
-      ).toBeVisible();
-      const { total, playable, withheld } = guidesOn(PROOF_CARD_IDS);
-      await expect(onboardingCards(page)).toHaveCount(total);
-      await expect(page.locator("video")).toHaveCount(playable);
-      await expectWithheldNotices(page, withheld);
-      for (const title of proofVideos) {
-        await expect(page.getByText(title).first()).toBeVisible();
-      }
-    });
-
-    await test.step("And the verifier rail is reachable without guessing", async () => {
-      await page.getByRole("navigation").getByRole("link", { name: "Verify", exact: true }).click();
-      await expect(page).toHaveURL(/#verify-demo$/);
-      await page.locator("#verify-demo").scrollIntoViewIfNeeded();
-      await expect(page.getByText(/Judge-ready replication guide/i)).toBeVisible();
-      await expect(page.getByText(/node scripts\/judge-replication-check\.mjs/i)).toBeVisible();
-    });
+  test("Given a visitor lands on the homepage, the menu links to Start", async ({ page }) => {
+    await page.goto("/");
+    // "Start here" sits in the menu's "More" list, so check the link and follow it directly.
+    const startLink = page.locator('nav a[href="/start"]').first();
+    await expect(startLink).toHaveAttribute("href", "/start");
+    await page.goto("/start");
+    await expect(page.getByRole("heading", { level: 1, name: /Pick where to start\./ })).toBeVisible();
   });
 
-  test("Given a tester opens Start, every card is either playable with captions or explicitly withheld", async ({ page }) => {
+  test("Given a visitor opens Start, they see the three paths and only recordings that play", async ({ page }) => {
     await page.goto("/start");
 
-    await expect(
-      page.getByRole("heading", { name: onboardingWalkthroughHeading(onboardingVideos) }),
-    ).toBeVisible();
-    const { total, playable, withheld } = guidesOn(["overview", ...PROOF_CARD_IDS]);
-    await expect(onboardingCards(page)).toHaveCount(total);
-    await expect(page.locator("video")).toHaveCount(playable);
-    await expect(page.locator('track[kind="captions"]')).toHaveCount(playable);
-    await expectWithheldNotices(page, withheld);
-
-    // The hero tally interpolates the count and its pluralization, and JSX drops the
-    // newline that follows an expression, so each seam needs an explicit space. Read
-    // the rendered sentence back rather than the card count so "recordings arewithheld"
-    // fails here instead of shipping.
-    const heroTally = await page.getByText(/Inspect the bounded evidence flows yourself/).first().innerText();
-    expect(heroTally).toContain(
-      `${withheld} ${withheld === 1 ? "recording is" : "recordings are"} withheld because the captures predate`,
-    );
-
-    await expect(page.getByText("Choose your protocol path")).toBeVisible();
-    for (const title of proofVideos) {
-      await expect(page.getByText(title).first()).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: /Pick where to start\./ })).toBeVisible();
+    for (const [name, href] of [
+      [/Connect your agent/, "/setup"],
+      [/Run a provider/, "/register"],
+      [/Check the proof/, "/sandbox"],
+    ] as const) {
+      await expect(page.getByRole("main").getByRole("link", { name })).toHaveAttribute("href", href);
     }
 
-    const guideLink = page.getByRole("link", { name: /Open replication guide|Open verification guide/i }).filter({ hasNotText: /txs/i }).first();
+    // Withheld captures are left off this page entirely: every card shown plays, with captions.
+    const playable = onboardingVideos.filter(hasPlayableRecording).length;
+    await expect(onboardingCards(page)).toHaveCount(playable);
+    await expect(page.locator("video")).toHaveCount(playable);
+    await expect(page.locator('track[kind="captions"]')).toHaveCount(playable);
+    await expect(page.getByTestId("withheld-recording-notice")).toHaveCount(0);
+    await expect(page.getByText(/withheld/i)).toHaveCount(0);
+
+    const guideLink = page.getByRole("link", { name: /Open the verification guide/i });
     await expect(guideLink).toHaveAttribute("href", "/judge-replication");
     await guideLink.click();
     await expect(page).toHaveURL(/\/judge-replication$/);
     await expect(page.getByRole("heading", { name: /Verify the Reddi Agent Protocol proof path/i })).toBeVisible();
+  });
+
+  test("Given a visitor opens Start on a phone, nothing scrolls sideways", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 1200 });
+    await page.goto("/start");
+    await expect(page.getByRole("heading", { level: 1, name: /Pick where to start\./ })).toBeVisible();
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow).toBe(0);
   });
 
   test("Given a judge opens the replication guide, they can verify without temporary links", async ({ page }) => {

@@ -2,11 +2,12 @@ import { Connection } from "@solana/web3.js";
 import {
   ACTIVE_AGENT_ACCOUNT_DATA_SIZE,
   decodeActiveAgentAccount,
-  DEVNET_RPC,
   REGISTRY_PROGRAM_ID,
 } from "@/lib/program";
 import { getTorqueConfig, isTorqueEnabled } from "./config";
 import type { TorqueEventPayload } from "./events";
+import { serverRpcUrl } from "@/lib/rpc/server-rpc";
+import { registeredRpcHttp } from "@/lib/config/network";
 
 export interface LeaderboardEntry {
   userPubkey: string;
@@ -23,7 +24,7 @@ export interface LeaderboardEntry {
 
 async function getOnchainDevnetLeaderboard(): Promise<LeaderboardEntry[]> {
   try {
-    const conn = new Connection(DEVNET_RPC, "confirmed");
+    const conn = new Connection(serverRpcUrl() ?? registeredRpcHttp(), "confirmed");
     const accounts = await conn.getProgramAccounts(REGISTRY_PROGRAM_ID, {
       commitment: "confirmed",
       filters: [{ dataSize: ACTIVE_AGENT_ACCOUNT_DATA_SIZE }],

@@ -1,5 +1,6 @@
 jest.mock("server-only", () => ({}));
 
+import { createHash } from "crypto";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { tokenEscrowAddresses, treasuryTokenAccount, ESCROW_PROTOCOL_TREASURY } from "@redditech/x402-solana/token-escrow";
@@ -154,26 +155,28 @@ describe("metered job record (#794)", () => {
   };
   const receipt = { settlement: "metered-escrow", network: "solana-devnet", currency: "USDC", payTo: PROVIDER, payer: PAYER.toBase58(), nonce: NONCE_HEX, escrow: escrow.toBase58(), lockSignature: LOCK_SIG };
 
-  function settleTx(opts: { provider?: number; fee?: number; max?: number; err?: unknown; accounts?: string[]; blockTime?: number } = {}) {
-    const keys = [PAYER.toBase58(), PROVIDER, escrow.toBase58(), vault.toBase58(), recipient, treasury, source, USDC, PROGRAM.toBase58(), TOKEN_PROGRAM_ID.toBase58()];
+  function settleTx(opts: { provider?: number; fee?: number; vault?: number; err?: unknown; accounts?: string[]; payout?: string; payoutOwner?: string; blockTime?: number } = {}) {
+    const payout = opts.payout ?? recipient;
+    const keys = [PAYER.toBase58(), PROVIDER, escrow.toBase58(), vault.toBase58(), payout, treasury, source, USDC, PROGRAM.toBase58(), TOKEN_PROGRAM_ID.toBase58()];
     const index = (k: string) => keys.indexOf(k);
-    const bal = (k: string, amount: number) => ({ accountIndex: index(k), mint: USDC, uiTokenAmount: { amount: String(amount) } });
+    const bal = (k: string, amount: number, owner?: string) => ({ accountIndex: index(k), mint: USDC, ...(owner ? { owner } : {}), uiTokenAmount: { amount: String(amount) } });
     const provider = opts.provider ?? 975;
     const fee = opts.fee ?? 25;
-    const max = opts.max ?? 30600;
+    const inVault = opts.vault ?? 30600;
+    const payoutOwner = opts.payoutOwner ?? PROVIDER;
     return {
       ...(opts.blockTime !== undefined ? { blockTime: opts.blockTime } : {}),
       meta: {
         err: opts.err ?? null,
-        preTokenBalances: [bal(vault.toBase58(), max), bal(recipient, 100), bal(treasury, 0)],
-        postTokenBalances: [bal(recipient, 100 + provider), bal(treasury, fee)],
+        preTokenBalances: [bal(vault.toBase58(), inVault), bal(payout, 100, payoutOwner), bal(treasury, 0)],
+        postTokenBalances: [bal(payout, 100 + provider, payoutOwner), bal(treasury, fee)],
       },
       transaction: {
         message: {
           accountKeys: keys.map((pubkey) => ({ pubkey })),
           instructions: [{
             programId: PROGRAM.toBase58(),
-            accounts: opts.accounts ?? [escrow.toBase58(), vault.toBase58(), PROVIDER, PAYER.toBase58(), USDC, recipient, treasury, source, TOKEN_PROGRAM_ID.toBase58()],
+            accounts: opts.accounts ?? [escrow.toBase58(), vault.toBase58(), PROVIDER, PAYER.toBase58(), USDC, payout, treasury, source, TOKEN_PROGRAM_ID.toBase58()],
             data: "x",
           }],
         },
@@ -181,13 +184,48 @@ describe("metered job record (#794)", () => {
     };
   }
 
-  function deps(tx: unknown) {
+  const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  function base58(bytes: Uint8Array): string {
+    let n = BigInt("0x" + (Buffer.from(bytes).toString("hex") || "0"));
+    let out = "";
+    while (n > BigInt(0)) {
+      out = B58[Number(n % BigInt(58))] + out;
+      n /= BigInt(58);
+    }
+    for (const b of bytes) {
+      if (b !== 0) break;
+      out = "1" + out;
+    }
+    return out;
+  }
+
+  /** The buyer's lock_metered_token_escrow transaction, which fixes the maximum. */
+  function lockTx(opts: { amount?: number; nonce?: Uint8Array; err?: unknown } = {}) {
+    const amount = Buffer.alloc(8);
+    amount.writeBigUInt64LE(BigInt(opts.amount ?? 30600));
+    const disc = createHash("sha256").update("global:lock_metered_token_escrow").digest().subarray(0, 8);
+    const data = Buffer.concat([disc, amount, Buffer.from(opts.nonce ?? NONCE), Buffer.alloc(16)]);
+    return {
+      meta: { err: opts.err ?? null },
+      transaction: {
+        message: {
+          instructions: [{
+            programId: PROGRAM.toBase58(),
+            accounts: [escrow.toBase58(), vault.toBase58(), PAYER.toBase58(), PROVIDER, USDC, source, recipient, TOKEN_PROGRAM_ID.toBase58(), "11111111111111111111111111111111"],
+            data: base58(data),
+          }],
+        },
+      },
+    };
+  }
+
+  function deps(tx: unknown, lock: unknown = lockTx()) {
     const stored: Array<Record<string, unknown>> = [];
     return {
       stored,
       deps: {
         programId: PROGRAM,
-        connection: { getParsedTransaction: jest.fn(async () => tx) },
+        connection: { getParsedTransaction: jest.fn(async (signature: string) => (signature === LOCK_SIG ? lock : tx)) },
         url: "https://project.supabase.example",
         serviceKey: "service",
         fetchImpl: jest.fn(async (_url: string, init: { body?: string }) => {
@@ -218,7 +256,6 @@ describe("metered job record (#794)", () => {
     ["a failed settle", { err: { InstructionError: [0, "Custom"] } }, "settle_failed_on_chain"],
     ["a fee at neither scheduled rate", { fee: 10 }, "fee_mismatch"],
     ["a settle of another escrow", { accounts: [Keypair.generate().publicKey.toBase58(), vault.toBase58(), PROVIDER, PAYER.toBase58(), USDC, recipient, treasury, source, TOKEN_PROGRAM_ID.toBase58()] }, "settle_not_for_this_escrow"],
-    ["a charge above the lock", { max: 500 }, "settle_above_maximum"],
     ["a settle that paid the provider nothing", { provider: 0, fee: 0 }, "settle_paid_nothing"],
   ])("refuses %s", async (_label, opts, reason) => {
     const d = deps(settleTx(opts));
@@ -237,6 +274,43 @@ describe("metered job record (#794)", () => {
     expect(await call(deps(settleTx({ blockTime: SWITCH + 60 })).deps)).toMatchObject({ recorded: true });
   });
 
+  it("refuses a charge above the lock, even when the vault held more", async () => {
+    const d = deps(settleTx({ vault: 30600 }), lockTx({ amount: 500 }));
+    expect(await call(d.deps)).toEqual({ recorded: false, reason: "settle_above_maximum" });
+    expect(d.stored).toHaveLength(0);
+  });
+
+  it("takes the maximum from the lock, not the vault, and reports a donation apart (audit S7-Codex-05, C20)", async () => {
+    const d = deps(settleTx({ vault: 30600 + 5000 }));
+    expect(await call(d.deps)).toMatchObject({ recorded: true, paid: { maxAmountBaseUnits: "30600", refundedBaseUnits: "29600", surplusBaseUnits: "5000" } });
+  });
+
+  it.each([
+    ["no lock transaction", null],
+    ["a failed lock", lockTx({ err: { InstructionError: [0, "Custom"] } })],
+    ["a lock for another nonce", lockTx({ nonce: new Uint8Array(16).fill(7) })],
+  ])("refuses when the receipt's lock cannot be read back: %s", async (_label, lock) => {
+    const d = deps(settleTx(), lock);
+    expect(await call(d.deps)).toEqual({ recorded: false, reason: "lock_not_verified" });
+  });
+
+  it("refuses a receipt that names no lock transaction", async () => {
+    const d = deps(settleTx());
+    expect(await call(d.deps, { receipt: { ...receipt, lockSignature: undefined } })).toEqual({ recorded: false, reason: "lock_signature_missing" });
+  });
+
+  it("records a settle to the provider's own recovery account (audit S7-Codex-05, C20)", async () => {
+    const recovery = Keypair.generate().publicKey.toBase58();
+    const d = deps(settleTx({ payout: recovery }));
+    expect(await call(d.deps)).toMatchObject({ recorded: true, paid: { amountBaseUnits: "1000" } });
+  });
+
+  it("refuses a settle to an account the provider does not own", async () => {
+    const other = Keypair.generate().publicKey.toBase58();
+    const d = deps(settleTx({ payout: Keypair.generate().publicKey.toBase58(), payoutOwner: other }));
+    expect(await call(d.deps)).toEqual({ recorded: false, reason: "settle_not_for_this_escrow" });
+  });
+
   it("records a rated job: the settle carries the escrow's rating account after the usual nine (#842)", async () => {
     const usual = [escrow.toBase58(), vault.toBase58(), PROVIDER, PAYER.toBase58(), USDC, recipient, treasury, source, TOKEN_PROGRAM_ID.toBase58()];
     const d = deps(settleTx({ accounts: [...usual, ratingPda(escrow, PROGRAM).toBase58()] }));
@@ -244,6 +318,17 @@ describe("metered job record (#794)", () => {
     // A tenth account that is not this escrow's rating account is not this job's settle.
     const other = deps(settleTx({ accounts: [...usual, Keypair.generate().publicKey.toBase58()] }));
     expect(await call(other.deps)).toEqual({ recorded: false, reason: "settle_not_for_this_escrow" });
+  });
+
+  it("records a failed metered call only for the payer's own signed-in session (audit S5-claude-02, C5)", async () => {
+    const anonymous = deps(settleTx());
+    expect(await call(anonymous.deps, { delivered: false })).toEqual({ recorded: false, reason: "payer_not_proven" });
+    expect(anonymous.stored).toHaveLength(0);
+    const someoneElse = deps(settleTx());
+    expect(await call(someoneElse.deps, { delivered: false, session: { userId: "u", wallet: PROVIDER } })).toEqual({ recorded: false, reason: "payer_not_proven" });
+    const payer = deps(settleTx());
+    expect(await call(payer.deps, { delivered: false, session: { userId: "0b0e7c1e-7a57-4d0e-b3f0-1c2d3e4f5a6c", wallet: PAYER.toBase58() } })).toMatchObject({ recorded: true });
+    expect(payer.stored[0]).toMatchObject({ status: "failed" });
   });
 
   it("refuses a receipt whose escrow is not the one its payer and nonce name", async () => {
