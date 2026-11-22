@@ -21,6 +21,9 @@ pull request touches their paths. GitHub waits forever for a required check that
 never starts, so each of those workflows runs on every pull request and ends in
 a `gate` job: it passes when the work passed, or when the pull request did not
 touch those paths, and fails otherwise. The gates are the checks to require.
+Each required check is pinned to GitHub Actions (`integration_id` 15368), so a
+status of the same name from another app cannot satisfy it; CODEOWNERS on
+`/.github/` covers a pull request that adds a same-named job.
 Other path-filtered workflows (claims boundary, Quasar guards, marketing) are not
 required; they must still be green before a merge under the standing rule that
 a failed check is a stop.

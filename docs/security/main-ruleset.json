@@ -38,19 +38,24 @@
         "do_not_enforce_on_create": false,
         "required_status_checks": [
           {
-            "context": "Jest lib/** suites"
+            "context": "Jest lib/** suites",
+            "integration_id": 15368
           },
           {
-            "context": "Signup/onboarding funnel specs"
+            "context": "Signup/onboarding funnel specs",
+            "integration_id": 15368
           },
           {
-            "context": "Program tests gate"
+            "context": "Program tests gate",
+            "integration_id": 15368
           },
           {
-            "context": "Verifiable build gate"
+            "context": "Verifiable build gate",
+            "integration_id": 15368
           },
           {
-            "context": "Package tests gate"
+            "context": "Package tests gate",
+            "integration_id": 15368
           }
         ]
       }
