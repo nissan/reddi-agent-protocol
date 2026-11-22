@@ -50,6 +50,19 @@ function errorText(body: unknown, fallback: string): string {
   return typeof error?.message === "string" ? error.message : fallback;
 }
 
+/** Waits one poll interval, or less when `wake.current` is called. */
+function pauseUnlessWoken(wake: { current: (() => void) | null }): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(done, POLL_MS);
+    function done() {
+      clearTimeout(timer);
+      wake.current = null;
+      resolve();
+    }
+    wake.current = done;
+  });
+}
+
 export default function TryConsole() {
   const [phase, setPhase] = useState<Phase>("pick");
   const [task, setTask] = useState<TryTask>(TRY_TASKS[0]);
@@ -63,6 +76,9 @@ export default function TryConsole() {
   // Cuts the wait between polls short. A phone browser pauses this page while the
   // wallet app is in front, so the page checks at once when it is shown again.
   const wake = useRef<(() => void) | null>(null);
+  // The check in flight, and whether the page was hidden while it was. Chrome on a
+  // phone can hold such a request for a minute after the page comes back.
+  const inFlight = useRef<{ controller: AbortController; spannedHidden: boolean } | null>(null);
   const { publicKey, signTransaction } = useWallet();
 
   const reset = useCallback(() => {
@@ -81,7 +97,14 @@ export default function TryConsole() {
 
   useEffect(() => {
     const check = () => {
-      if (document.visibilityState === "visible") wake.current?.();
+      if (document.visibilityState !== "visible") {
+        if (inFlight.current) inFlight.current.spannedHidden = true;
+        return;
+      }
+      // A check that was in flight while the page was hidden is dropped and sent again.
+      // It went out before the wallet approved, so the provider has not acted on it.
+      if (inFlight.current?.spannedHidden) inFlight.current.controller.abort();
+      wake.current?.();
     };
     document.addEventListener("visibilitychange", check);
     window.addEventListener("focus", check);
@@ -125,8 +148,15 @@ export default function TryConsole() {
         setMessage("This try ran out of time before a payment arrived. Nothing was taken. Start again when you're ready.");
         return;
       }
+      if (document.visibilityState === "hidden") {
+        // Nothing is sent while the wallet app is in front; the check runs when the page is back.
+        await pauseUnlessWoken(wake);
+        continue;
+      }
+      const flight = { controller: new AbortController(), spannedHidden: false };
+      inFlight.current = flight;
       try {
-        const response = await fetch("/api/try/v1/status", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: s.token }), cache: "no-store" });
+        const response = await fetch("/api/try/v1/status", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: s.token }), cache: "no-store", signal: flight.controller.signal });
         const body: unknown = await response.json();
         if (response.ok && (body as { state?: string }).state === "answered") {
           polling.current = false;
@@ -156,17 +186,12 @@ export default function TryConsole() {
           return;
         }
       } catch {
-        // A dropped poll is retried.
+        // A dropped or aborted poll is retried.
+        if (flight.controller.signal.aborted) continue;
+      } finally {
+        if (inFlight.current === flight) inFlight.current = null;
       }
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(done, POLL_MS);
-        function done() {
-          clearTimeout(timer);
-          wake.current = null;
-          resolve();
-        }
-        wake.current = done;
-      });
+      await pauseUnlessWoken(wake);
     }
   }
 
