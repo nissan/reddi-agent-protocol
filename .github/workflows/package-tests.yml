@@ -92,6 +92,15 @@ jobs:
         working-directory: packages/${{ matrix.package }}
         run: npm test
 
+      # The app imports x402-solana's source, but other packages and consumers load the
+      # committed dist/. Fail when it was not rebuilt after a source change.
+      - name: Check the committed dist matches the source
+        if: matrix.package == 'x402-solana'
+        working-directory: packages/x402-solana
+        run: |
+          npm run build
+          git diff --exit-code -- dist || { echo "::error::packages/x402-solana/dist is stale: run npm run build and commit dist/"; exit 1; }
+
   # The check to require on main: passes when the work passed, or was not needed.
   gate:
     name: Package tests gate

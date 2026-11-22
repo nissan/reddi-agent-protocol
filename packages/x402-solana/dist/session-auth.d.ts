@@ -1,4 +1,4 @@
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import type { HeaderReader } from './provider';
 export declare const SESSION_DELEGATION_HEADER = "x402-session-delegation";
 export declare const SESSION_SIGNATURE_HEADER = "x402-session-signature";
@@ -66,7 +66,12 @@ export declare function sessionSignatureHeaderValue(input: {
  * genesis hash of the cluster this provider checked it is on; `body` is the raw
  * request body exactly as received.
  */
-export declare function verifySessionRequest(input: {
+export declare function verifySessionRequest(input: SessionRequestInput): {
+    ok: true;
+    sessionKey: string;
+    expiresAt: number;
+} | SessionAuthFailure;
+export interface SessionRequestInput {
     headers: HeaderReader;
     genesisHash: string;
     action: SessionAction;
@@ -76,11 +81,7 @@ export declare function verifySessionRequest(input: {
     sequence: number;
     body?: Uint8Array | string;
     nowMs: number;
-}): {
-    ok: true;
-    sessionKey: string;
-    expiresAt: number;
-} | SessionAuthFailure;
+}
 /**
  * Buyer side, single metered call: both headers for one call on the lock
  * `escrow`. With no `sessionKey`, the payer signs the request too (fine for a
@@ -104,3 +105,54 @@ export declare function paidCallAuthHeaders(input: {
 }): Promise<Record<string, string>>;
 /** Provider side, single metered call: `verifySessionRequest` with action `single` and sequence 0. */
 export declare function verifyPaidCallRequest(input: Omit<Parameters<typeof verifySessionRequest>[0], 'action' | 'sequence'>): ReturnType<typeof verifySessionRequest>;
+/** The SPL Memo program (v2), which fails unless every account it names has signed. */
+export declare const MEMO_PROGRAM_ID: PublicKey;
+export declare const SESSION_DELEGATION_MEMO_PREFIX = "reddi-session/2 delegate ";
+/** The memo text that binds a delegation to the transaction that carries it. */
+export declare function sessionDelegationMemo(d: SessionDelegation): string;
+/** Buyer side: the memo instruction to add to the lock transaction, signed by the payer. */
+export declare function sessionDelegationMemoInstruction(d: SessionDelegation, payer: PublicKey): TransactionInstruction;
+/** Buyer side: the delegation header for a delegation proved by the confirmed lock transaction `lockSignature`. */
+export declare function lockBoundDelegationHeaderValue(d: SessionDelegation, lockSignature: string): string;
+/** What the provider needs to know about a confirmed transaction. */
+export interface ConfirmedTransactionFacts {
+    /** True when the transaction failed. */
+    failed: boolean;
+    /** Base58 addresses that signed the transaction. */
+    signers: string[];
+    /** Base58 addresses of every account the transaction names, including loaded lookup-table addresses. */
+    accounts: string[];
+    /** Each Memo program instruction: its UTF-8 text and the base58 accounts it names. */
+    memos: {
+        text: string;
+        accounts: string[];
+    }[];
+}
+/** Reads a confirmed transaction by signature, or null when the cluster does not have it (yet). Throws when the chain cannot be read. */
+export type TransactionFactsReader = (signature: string) => Promise<ConfirmedTransactionFacts | null>;
+/** A `TransactionFactsReader` over `Connection.getTransaction` at `confirmed`. */
+export declare function transactionFactsReader(connection: {
+    getTransaction: (signature: string, options: {
+        commitment: 'confirmed' | 'finalized';
+        maxSupportedTransactionVersion: number;
+    }) => Promise<unknown>;
+}, commitment?: 'confirmed' | 'finalized'): TransactionFactsReader;
+/**
+ * Provider side: `verifySessionRequest`, and also a delegation proved by the
+ * memo in its lock transaction. Without `readTransaction` a lock-bound
+ * delegation is refused. Run it after the lock check, so the escrow named
+ * here is known to be this payer's lock.
+ */
+export declare function verifySessionRequestWithTransactions(input: SessionRequestInput & {
+    readTransaction?: TransactionFactsReader;
+}): Promise<{
+    ok: true;
+    sessionKey: string;
+    expiresAt: number;
+} | SessionAuthFailure | {
+    ok: false;
+    reason: 'payment_check_unavailable';
+    message: string;
+}>;
+/** Provider side, single metered call: `verifySessionRequestWithTransactions` with action `single` and sequence 0. */
+export declare function verifyPaidCallRequestWithTransactions(input: Omit<Parameters<typeof verifySessionRequestWithTransactions>[0], 'action' | 'sequence'>): ReturnType<typeof verifySessionRequestWithTransactions>;

@@ -1,0 +1,64 @@
+---
+name: reddi-agent-protocol-buyer
+description: Pay AI inference providers on Solana through Reddi Agent Protocol. Find a provider, get a per-token quote, lock the most a call can cost in escrow, make the call, and check the signed receipt. Use when a task needs a paid model or specialist and the person has set a budget.
+---
+
+# Use Reddi Agent Protocol as a buying agent
+
+Reddi Agent Protocol (RAP) lets an agent pay an inference provider per token on Solana and get back a receipt it can check. The provider names a price per million tokens. You lock the most one call can cost in an escrow. After the answer, the provider settles what was actually used, the protocol fee comes out of the provider's share, and the rest of your lock comes back to the wallet that paid.
+
+Ask your person to try one call by hand first at https://app.agent-protocol.reddi.tech/try. It takes a minute, and afterwards you both know what a payment and a receipt look like.
+
+## Rules you always follow
+
+1. **Never spend without a budget from your person.** Ask for a per-call maximum and a total, in SOL or USDC, before your first paid call. Keep a running total and stop when it is reached.
+2. **Quote before you pay.** The first request to a provider comes back as HTTP 402 with the price. Show your person the estimate and the maximum the first time, and whenever a call would cost more than they said is fine without asking.
+3. **Devnet until told otherwise.** Use `solana-devnet` unless your person says to use mainnet. Refuse an offer whose `network` is not the one you were told.
+4. **Keys stay out of chat and out of files you write.** Read the wallet's keypair from the path your person gives you. Never print, copy or commit it.
+5. **Check every receipt.** A call is done when the receipt verifies. If it does not, tell your person and do not pay that provider again until they say so.
+
+## Set up
+
+```bash
+npm install @redditech/x402-solana @redditech/agent-protocol @solana/web3.js
+```
+
+Ask your person for:
+
+- `BUYER_KEYPAIR_PATH`: a keypair file for a wallet that holds only what you may spend.
+- `SOLANA_RPC_URL`: optional. Defaults to `https://api.devnet.solana.com`.
+- Your budget: the most per call, and the most in total.
+
+## Find a provider
+
+`GET https://app.agent-protocol.reddi.tech/api/listings` returns the listed providers on the app's network with their per-token prices. Pick by task, price and track record. Each provider takes OpenAI-style requests at `POST <provider url>/v1/chat/completions`.
+
+## Make one paid call
+
+1. **Ask for the price.** Send the request with no payment. A `402` reply carries a `metered` offer: `inputPerMillion`, `outputPerMillion`, `currency`, `estimatedCost`, `suggestedMaxCharge` (twice the estimate), `payTo`, `escrowProgramId`, `mint` and `network`.
+2. **Check it against your budget.** If `suggestedMaxCharge` is above your per-call maximum, or the network is wrong, stop and ask.
+3. **Lock the maximum.** Build the lock with `buildLockTokenEscrowInstruction({ ..., metered: true })` from `@redditech/x402-solana`, sign it with the buyer wallet and wait until it confirms.
+4. **Call again with the lock.** Send the same body with these headers:
+   - `x402-payment`: `meteredPaymentHeaderValue({ payer, nonce, programId })`
+   - the two headers from `paidCallAuthHeaders({ escrow, provider, body, payer, signWithPayer })`. They prove the call comes from the wallet that locked, and they cover the exact body bytes, so send the body exactly as you signed it.
+5. **Read the answer and the settlement.** A `200` carries the answer and `reddi.metered`: tokens used, amount charged, fee, provider share, refund and the settle transaction.
+6. **Verify the receipt.** Decode the `x-reddi-provider-receipt` header (base64url JSON) and check it with `verifyReddiReceiptV2` from `@redditech/agent-protocol/receipt-v2`, passing the SHA-256 of the request body and of the response body you received.
+
+A complete worked example lives at https://github.com/nissan/reddi-agent-protocol/blob/main/packages/provider-kit/examples/paid-call.mjs.
+
+## Many calls to one provider
+
+Lock once and make many calls as a session: the provider settles once at the end, so network fees stop eating small calls. See `examples/session-call.mjs` next to the single-call example. Each call is still held to its own maximum.
+
+## When something fails
+
+- `401 session_auth_*`: the auth headers are missing, expired, or the body changed after signing. Sign again over the exact body.
+- `402` after you locked: the lock has not confirmed yet, or it pays another provider. Wait a few seconds and send the same request again.
+- `409` or `duplicate_nonce`: that lock already paid for a call. Lock a new one.
+- The provider stops answering: nothing is taken until it settles. After the refund window opens, your wallet can take the whole lock back.
+
+## Coming soon
+
+Your person will be able to hand you a spending budget from the app, signed once in their own wallet, so they never need to give you a keypair file. Until then, use a wallet that holds only your budget.
+
+More: https://agent-protocol.reddi.tech and https://app.agent-protocol.reddi.tech/agent-setup

@@ -6,7 +6,7 @@
  * override pointed at another cluster is refused instead of trusted.
  */
 import { Connection, type PublicKey } from "@solana/web3.js";
-import type { NonceReplayStore } from "@redditech/x402-solana";
+import { transactionFactsReader, type NonceReplayStore } from "@redditech/x402-solana";
 import type { SandboxGatewayDeps } from "./gateway";
 import { createSandboxSettler, parseSandboxPayeeKeys, SANDBOX_PAYEE_KEYS_ENV } from "./settle-signer";
 import { ACCEPT_RATED_ESCROWS_ENV, acceptRatedEscrowsConfigured, SELLER_RATING_SCORE_ENV, sellerRatingScore } from "./seller-rating";
@@ -52,6 +52,8 @@ export function sandboxGatewayDeps(): SandboxGatewayDeps {
       acceptRatedEscrows,
       // Devnet escrow sessions: every call is signed by a session key the payer's wallet delegated.
       acceptMeteredSessions: true,
+      // Solana Pay try page (#925): a single call may prove its delegation with a memo in the lock.
+      readTransaction: transactionFactsReader(connection),
       settler: createSandboxSettler(
         connection,
         parseSandboxPayeeKeys(process.env[SANDBOX_PAYEE_KEYS_ENV]),
@@ -60,4 +62,9 @@ export function sandboxGatewayDeps(): SandboxGatewayDeps {
     };
   }
   return deps;
+}
+
+/** The devnet connection the sandbox gateway reads, for the try page's Solana Pay endpoints (#925). */
+export function sandboxDevnetConnection(): Connection {
+  return sandboxGatewayDeps().connection as unknown as Connection;
 }
