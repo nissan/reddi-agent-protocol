@@ -18,6 +18,8 @@ export default function Privacy() {
       <p>Two service providers handle this data for us: Resend sends the emails, and Vercel hosts the site and stores the list.</p>
       <h2>Posts from X</h2>
       <p>The home page can show posts from our X account. Nothing is loaded from X until you press the button that shows them. When you do, X receives your address and may set cookies under its own policy.</p>
+      <h2>Videos from YouTube</h2>
+      <p>The Watch page shows our videos, which are hosted on YouTube. Nothing is loaded from YouTube until you press play. When you do, the video plays from YouTube&apos;s privacy-enhanced player, YouTube receives your address and it may set cookies under its own policy.</p>
       <h2>Analytics and cookies</h2>
       {ANALYTICS_ENABLED
         ? <>
