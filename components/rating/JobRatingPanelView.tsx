@@ -54,8 +54,8 @@ const PHASE_LABEL: Record<RatingView["phase"], string> = {
 
 function Deadline({ label, slot, currentSlot, readAtMs, formatDate }: { label: string; slot: bigint; currentSlot: bigint; readAtMs: number; formatDate: (date: Date) => string }) {
   return (
-    <p className="text-xs text-gray-400" data-testid="rating-deadline">
-      {label}: <span className="text-gray-200">{formatDate(estimatedSlotDate(slot, currentSlot, readAtMs))}</span> ({timeLeftLabel(slot, currentSlot)}; estimated from slot {slot.toString()})
+    <p className="text-xs text-ink-muted" data-testid="rating-deadline">
+      {label}: <span className="text-ink">{formatDate(estimatedSlotDate(slot, currentSlot, readAtMs))}</span> ({timeLeftLabel(slot, currentSlot)}; estimated from slot {slot.toString()})
     </p>
   );
 }
@@ -63,10 +63,10 @@ function Deadline({ label, slot, currentSlot, readAtMs, formatDate }: { label: s
 function Step({ done, children }: { done: boolean; children: React.ReactNode }) {
   return (
     <li className="flex items-center gap-2">
-      <span aria-hidden className={done ? "text-emerald-300" : "text-gray-500"}>
+      <span aria-hidden className={done ? "text-brand-green" : "text-ink-muted"}>
         {done ? "●" : "○"}
       </span>
-      <span className={done ? "text-gray-200" : "text-gray-400"}>{children}</span>
+      <span className={done ? "text-ink" : "text-ink-muted"}>{children}</span>
     </li>
   );
 }
@@ -81,15 +81,15 @@ export function JobRatingPanelView(props: JobRatingPanelViewProps) {
   const otherRevealed = view.role === "seller" ? view.buyerRevealed : view.sellerRevealed;
 
   return (
-    <div className="space-y-4 rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-gray-300" data-testid="job-rating-panel" data-phase={view.phase}>
+    <div className="space-y-4 rounded-xl border border-line bg-paper p-4 text-sm text-ink" data-testid="job-rating-panel" data-phase={view.phase}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <h3 className="font-medium text-white">Job rating</h3>
-          <Badge variant="outline" className={view.phase === "revealed" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : view.phase === "expired" ? "border-amber-500/30 bg-amber-500/10 text-amber-200" : "border-white/10 bg-white/5 text-gray-200"}>
+          <h3 className="font-medium text-ink">Job rating</h3>
+          <Badge variant="outline" className={view.phase === "revealed" ? "border-brand-green/40 bg-brand-green/10 text-brand-green" : view.phase === "expired" ? "border-amber-500/30 bg-amber-500/10 text-amber-200" : "border-line bg-well text-ink"}>
             {PHASE_LABEL[view.phase]}
           </Badge>
           {you ? (
-            <Badge variant="outline" className="border-white/10 bg-white/5 text-gray-300">
+            <Badge variant="outline" className="border-line bg-well text-ink">
               You are the {you}
             </Badge>
           ) : null}
@@ -101,7 +101,7 @@ export function JobRatingPanelView(props: JobRatingPanelViewProps) {
         ) : null}
       </div>
 
-      <p className="font-mono text-xs text-gray-500">
+      <p className="font-mono text-xs text-ink-muted">
         escrow {short(props.escrow)}
         {rating ? ` · provider ${short(rating.specialist.toBase58())}` : ""}
         {rating?.judge ? ` · judge ${short(rating.judge.toBase58())}` : ""}
@@ -117,17 +117,17 @@ export function JobRatingPanelView(props: JobRatingPanelViewProps) {
         <div className="space-y-2" data-testid="rating-awaiting">
           <p>
             Provider agreed to be rated:{" "}
-            <span className={view.accepted ? "text-emerald-300" : "text-amber-200"} data-testid="rating-accepted">
+            <span className={view.accepted ? "text-brand-green" : "text-amber-200"} data-testid="rating-accepted">
               {view.accepted ? "yes" : "not yet"}
             </span>
           </p>
-          <p className="text-xs leading-5 text-gray-400">The rating opens when the job is paid. A provider that settles or claims the payment itself has agreed by doing so.</p>
+          <p className="text-xs leading-5 text-ink-muted">The rating opens when the job is paid. A provider that settles or claims the payment itself has agreed by doing so.</p>
           {!view.releaseOpensRating ? (
             <LimitNotice as="p" tone="warning" className="text-xs leading-5" role="alert" data-testid="rating-release-warning">
               If you release this payment yourself now, the provider is paid in full but the job closes without a rating, and your rent comes back. To keep the rating, wait until the provider has agreed, or leave the provider to collect the payment.
             </LimitNotice>
           ) : (
-            <p className="text-xs leading-5 text-emerald-200">The provider has agreed, so the rating opens whoever pays out the escrow.</p>
+            <p className="text-xs leading-5 text-brand-green">The provider has agreed, so the rating opens whoever pays out the escrow.</p>
           )}
         </div>
       ) : null}
@@ -142,7 +142,7 @@ export function JobRatingPanelView(props: JobRatingPanelViewProps) {
           {view.can.commit ? (
             <div className="space-y-3">
               <fieldset>
-                <legend className="text-xs text-gray-400">Your score for the {other} (1 is worst, 10 is best)</legend>
+                <legend className="text-xs text-ink-muted">Your score for the {other} (1 is worst, 10 is best)</legend>
                 <div className="mt-2 flex flex-wrap gap-1" role="radiogroup" aria-label="Score from 1 to 10">
                   {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
                     <button
@@ -152,14 +152,14 @@ export function JobRatingPanelView(props: JobRatingPanelViewProps) {
                       aria-checked={props.score === value}
                       disabled={busy !== undefined}
                       onClick={() => props.onScoreChange?.(value)}
-                      className={`h-8 w-8 rounded-lg border text-sm transition ${props.score === value ? "border-indigo-400 bg-indigo-500/30 text-white" : "border-white/10 bg-white/5 text-gray-300 hover:border-white/30"}`}
+                      className={`h-8 w-8 rounded-lg border text-sm transition ${props.score === value ? "border-brand-violet bg-brand-violet/15 text-ink" : "border-line bg-well text-ink hover:border-line-strong"}`}
                     >
                       {value}
                     </button>
                   ))}
                 </div>
               </fieldset>
-              <p className="text-xs leading-5 text-gray-400">
+              <p className="text-xs leading-5 text-ink-muted">
                 Your score stays hidden until both sides have submitted. This browser stores a secret value (the salt) that you need to reveal it later. It never leaves this browser. If it is lost you cannot reveal, and you lose {MISSED_STEP_PENALTY_POINTS} reputation points: download the backup after you submit.
               </p>
               <Button size="sm" disabled={busy !== undefined || props.score < 1} onClick={props.onCommit} data-testid="rating-commit-button">
@@ -167,7 +167,7 @@ export function JobRatingPanelView(props: JobRatingPanelViewProps) {
               </Button>
             </div>
           ) : null}
-          {view.youCommitted && !view.deadlinePassed ? <p className="text-xs leading-5 text-gray-400">Your score is in. Waiting for the {other} to submit theirs; then both of you reveal.</p> : null}
+          {view.youCommitted && !view.deadlinePassed ? <p className="text-xs leading-5 text-ink-muted">Your score is in. Waiting for the {other} to submit theirs; then both of you reveal.</p> : null}
           {view.deadlinePassed ? <p className="text-xs leading-5 text-amber-200">The deadline to submit has passed. The rating can now be expired, which gives it its final result.</p> : null}
         </div>
       ) : null}
@@ -179,6 +179,9 @@ export function JobRatingPanelView(props: JobRatingPanelViewProps) {
             <Step done={otherRevealed}>{you ? `The ${other}'s score revealed` : "Provider's score revealed"}</Step>
           </ul>
           {view.deadlineSlot !== undefined ? <Deadline label="Reveal by" slot={view.deadlineSlot} currentSlot={currentSlot} readAtMs={readAtMs} formatDate={formatDate} /> : null}
+          {view.can.reveal ? (
+            <p className="text-xs leading-5 text-ink-muted">Both scores are in and still sealed. Reveal yours so it counts; once both are revealed, each score goes on the other side&apos;s record.</p>
+          ) : null}
           {view.can.reveal ? (
             <Button size="sm" disabled={busy !== undefined} onClick={props.onReveal} data-testid="rating-reveal-button">
               {busy === "reveal" ? "Waiting for your wallet…" : "Reveal my score"}
@@ -196,20 +199,20 @@ export function JobRatingPanelView(props: JobRatingPanelViewProps) {
               ) : null}
             </div>
           ) : null}
-          {view.youRevealed && !view.deadlinePassed ? <p className="text-xs leading-5 text-gray-400">Your score is revealed. Waiting for the {other} to reveal theirs.</p> : null}
+          {view.youRevealed && !view.deadlinePassed ? <p className="text-xs leading-5 text-ink-muted">Your score is revealed. Waiting for the {other} to reveal theirs.</p> : null}
           {view.deadlinePassed ? <p className="text-xs leading-5 text-amber-200">The deadline to reveal has passed. The rating can now be expired, which gives it its final result.</p> : null}
         </div>
       ) : null}
 
       {view.phase === "revealed" ? (
         <div className="grid gap-3 sm:grid-cols-2" data-testid="rating-final">
-          <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-            <p className="text-xs text-gray-500">Buyer rated the provider</p>
-            <p className="mt-1 text-lg text-white">{view.buyerScore ?? "–"} / 10</p>
+          <div className="rounded-lg border border-line bg-well p-3">
+            <p className="text-xs text-ink-muted">Buyer rated the provider</p>
+            <p className="mt-1 text-lg text-ink">{view.buyerScore ?? "–"} / 10</p>
           </div>
-          <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-            <p className="text-xs text-gray-500">Provider rated the buyer</p>
-            <p className="mt-1 text-lg text-white">{view.sellerScore ?? "–"} / 10</p>
+          <div className="rounded-lg border border-line bg-well p-3">
+            <p className="text-xs text-ink-muted">Provider rated the buyer</p>
+            <p className="mt-1 text-lg text-ink">{view.sellerScore ?? "–"} / 10</p>
           </div>
         </div>
       ) : null}
@@ -218,7 +221,7 @@ export function JobRatingPanelView(props: JobRatingPanelViewProps) {
         <div className="space-y-2" data-testid="rating-expired">
           <p>{expiredOutcomeText(view.expiredOutcome, view.role)}</p>
           {view.buyerScore !== undefined || view.sellerScore !== undefined ? (
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-ink-muted">
               Revealed: {view.buyerScore !== undefined ? `buyer gave ${view.buyerScore} / 10` : ""}
               {view.sellerScore !== undefined ? `provider gave ${view.sellerScore} / 10` : ""}
             </p>
@@ -234,7 +237,7 @@ export function JobRatingPanelView(props: JobRatingPanelViewProps) {
 
       {view.can.close ? (
         <div className="space-y-2">
-          <p className="text-xs leading-5 text-gray-400">
+          <p className="text-xs leading-5 text-ink-muted">
             The rating is final. Reclaiming the rent closes the record and returns about {RATING_RENT_SOL} SOL to your wallet.
             {rating?.judge && !rating.attested ? " The judge you named has not attested this job, and cannot once the record is closed." : ""}
           </p>
@@ -245,7 +248,7 @@ export function JobRatingPanelView(props: JobRatingPanelViewProps) {
       ) : null}
 
       {props.backupAvailable && (view.phase === "commit" || view.phase === "reveal") ? (
-        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400" data-testid="rating-backup">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted" data-testid="rating-backup">
           <Button size="xs" variant="outline" onClick={props.onDownloadBackup}>
             Download salt backup
           </Button>
@@ -254,22 +257,22 @@ export function JobRatingPanelView(props: JobRatingPanelViewProps) {
       ) : null}
 
       {rating?.judge ? (
-        <div className="space-y-3 border-t border-white/10 pt-3" data-testid="rating-attestation">
-          <h4 className="text-xs font-medium uppercase tracking-wider text-gray-500">Judge attestation</h4>
+        <div className="space-y-3 border-t border-line pt-3" data-testid="rating-attestation">
+          <h4 className="text-xs font-medium uppercase tracking-wider text-ink-muted">Judge attestation</h4>
           {attestation ? (
             <>
               <dl className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                 {ATTESTATION_SCORE_LABELS.map((label, index) => (
-                  <div key={label} className="rounded-lg border border-white/10 bg-white/5 p-2 text-center">
-                    <dt className="text-[11px] text-gray-500">{label}</dt>
-                    <dd className="mt-1 text-base text-white">{attestation.scores[index]} / 10</dd>
+                  <div key={label} className="rounded-lg border border-line bg-well p-2 text-center">
+                    <dt className="text-[11px] text-ink-muted">{label}</dt>
+                    <dd className="mt-1 text-base text-ink">{attestation.scores[index]} / 10</dd>
                   </div>
                 ))}
               </dl>
               {attestation.resolution === "pending" ? (
                 view.role === "buyer" ? (
                   <div className="space-y-2">
-                    <p className="text-xs leading-5 text-gray-400">
+                    <p className="text-xs leading-5 text-ink-muted">
                       Do these scores match what you received? Confirming raises the judge&apos;s accuracy record; disputing lowers its reputation. Either choice is final.
                     </p>
                     <div className="flex flex-wrap gap-2">
@@ -282,16 +285,16 @@ export function JobRatingPanelView(props: JobRatingPanelViewProps) {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-xs text-gray-400">Waiting for the buyer to confirm or dispute.</p>
+                  <p className="text-xs text-ink-muted">Waiting for the buyer to confirm or dispute.</p>
                 )
               ) : (
-                <p className="text-xs text-gray-300" data-testid="attestation-resolution">
+                <p className="text-xs text-ink" data-testid="attestation-resolution">
                   The buyer {attestation.resolution} this attestation.
                 </p>
               )}
             </>
           ) : (
-            <p className="text-xs leading-5 text-gray-400">
+            <p className="text-xs leading-5 text-ink-muted">
               {rating.attested
                 ? "The judge attested this job and has since closed the record."
                 : view.phase === "awaiting_payment"
@@ -303,14 +306,14 @@ export function JobRatingPanelView(props: JobRatingPanelViewProps) {
       ) : null}
 
       {props.notice ? (
-        <p className={`rounded-lg border p-3 text-xs ${props.notice.tone === "ok" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200" : "border-red-500/30 bg-red-500/10 text-red-200"}`} role="status" data-testid="rating-notice">
+        <p className={`rounded-lg border p-3 text-xs ${props.notice.tone === "ok" ? "border-brand-green/40 bg-brand-green/10 text-brand-green" : "border-red-500/30 bg-red-500/10 text-red-200"}`} role="status" data-testid="rating-notice">
           {props.notice.text}
         </p>
       ) : null}
 
-      <p className="text-[11px] leading-4 text-gray-500">
+      <p className="text-[11px] leading-4 text-ink-muted">
         Read from the rating account on chain. Dates are estimates: deadlines are counted in slots.{" "}
-        <a href={RATINGS_DOC_PATH} target="_blank" rel="noopener noreferrer" className="text-indigo-300 hover:text-indigo-200">
+        <a href={RATINGS_DOC_PATH} target="_blank" rel="noopener noreferrer" className="text-brand-violet hover:opacity-80">
           How ratings work
         </a>
       </p>

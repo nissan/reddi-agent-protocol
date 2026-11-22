@@ -857,7 +857,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                 <p className="text-sm text-gray-300">{lastExchange.label} <span className={`ml-1 rounded px-1.5 py-0.5 font-mono text-xs ${lastExchange.response.status === 200 ? "bg-brand-green/20 text-brand-green" : "bg-amber-500/20 text-amber-200"}`}>{lastExchange.response.status}</span></p>
                 <details open>
                   <summary className="cursor-pointer text-xs uppercase tracking-wide text-gray-400">Try it from a terminal</summary>
-                  <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-black/60 p-3 text-xs leading-5 text-gray-200">{curlFor(origin, lastExchange)}</pre>
+                  <pre tabIndex={0} aria-label="Request as a curl command" className="mt-2 max-h-56 overflow-auto rounded-lg bg-black/60 p-3 text-xs leading-5 text-gray-200">{curlFor(origin, lastExchange)}</pre>
                 </details>
                 <details>
                   <summary className="cursor-pointer text-xs uppercase tracking-wide text-gray-400">Response body</summary>
