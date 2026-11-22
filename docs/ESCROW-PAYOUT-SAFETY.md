@@ -11,7 +11,7 @@ account the program controls until one of these happens:
 
 | What happens | Who can do it | When |
 |---|---|---|
-| Release: the seller is paid, less the 2.5% protocol fee | The buyer | Any time |
+| Release: the seller is paid, less the protocol fee (2.5% until 1 April 2027, then 5%) | The buyer | Any time |
 | Settle at the actual cost (metered escrow only): the seller is paid the actual cost less the fee, and the rest goes back to the buyer | The seller | Any time |
 | Decline: everything goes back to the buyer | The seller | Any time |
 | Refund: everything goes back to the buyer | The buyer | Once the escrow's refund window has passed |

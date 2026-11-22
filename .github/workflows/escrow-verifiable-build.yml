@@ -10,12 +10,6 @@ name: Escrow verifiable build
 on:
   pull_request:
     branches: [main]
-    paths:
-      - "programs/pinocchio-escrow/program/**"
-      - "programs/pinocchio-escrow/Cargo.toml"
-      - "programs/pinocchio-escrow/Cargo.lock"
-      - "rust-toolchain.toml"
-      - ".github/workflows/escrow-verifiable-build.yml"
   push:
     branches: [main]
     paths:
@@ -34,7 +28,35 @@ env:
   BASE_IMAGE: "solanafoundation/solana-verifiable-build:4.2.2"
 
 jobs:
+  # Runs on every pull request, so the gate below always reports. The work runs only
+  # when the pull request touches these paths (push and manual runs always do it).
+  changes:
+    name: Relevant changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      relevant: ${{ steps.diff.outputs.relevant }}
+    steps:
+      - id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          PATTERN: '^(programs/pinocchio-escrow/program/|programs/pinocchio-escrow/Cargo\.(toml|lock)$|rust-toolchain\.toml$|\.github/workflows/escrow-verifiable-build\.yml$)'
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          files=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" --paginate --jq '.[].filename')
+          if printf '%s\n' "$files" | grep -qE "$PATTERN"; then relevant=true; else relevant=false; fi
+          echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
+          echo "Relevant to this workflow: $relevant"
+
   build:
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     name: Verifiable build (${{ matrix.variant }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -49,6 +71,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Cache solana-verify
         id: cache-verify
@@ -107,3 +131,20 @@ jobs:
             ${{ runner.temp }}/escrow-build/escrow-${{ matrix.variant }}-build.json
           if-no-files-found: error
           retention-days: 90
+
+  # The check to require on main: passes when the work passed, or was not needed.
+  gate:
+    name: Verifiable build gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [changes, build]
+    if: always()
+    steps:
+      - env:
+          RELEVANT: ${{ needs.changes.outputs.relevant }}
+          CHANGES: ${{ needs.changes.result }}
+          RESULT: ${{ needs.build.result }}
+        run: |
+          echo "changes=$CHANGES relevant=$RELEVANT work=$RESULT"
+          if [ "$CHANGES" != "success" ]; then exit 1; fi
+          if [ "$RELEVANT" = "true" ] && [ "$RESULT" != "success" ]; then exit 1; fi

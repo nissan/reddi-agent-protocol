@@ -30,7 +30,7 @@ export interface MeteredQuote {
  * What a buyer sees before a metered call: the estimated cost and the maximum
  * it authorises. The maximum must cover the estimate.
  */
-export declare function quoteMeteredCall(price: PerTokenPrice, estimate: TokenCounts, maxCharge: string): MeteredQuote;
+export declare function quoteMeteredCall(price: PerTokenPrice, estimate: TokenCounts, maxCharge: string, atMs?: number): MeteredQuote;
 export interface MeteredSettlement {
     currency: string;
     inputTokens: number;
@@ -39,7 +39,7 @@ export interface MeteredSettlement {
     actualCost: string;
     /** What the buyer pays: the actual cost, never more than the authorised maximum. */
     charged: string;
-    /** 2.5% of `charged`, rounded down; at most 0.1 SOL for SOL. Goes to the treasury. */
+    /** The scheduled rate of `charged` (2.5% until 1 April 2027, then 5%), rounded down; at most 0.1 SOL for SOL. Goes to the treasury. */
     fee: string;
     /** `charged` less the fee. */
     provider: string;
@@ -55,4 +55,4 @@ export interface MeteredSettlement {
  * are known. This is the same split the escrow program applies on-chain when
  * the payee settles with `chargedBaseUnits`.
  */
-export declare function settleMeteredCall(price: PerTokenPrice, usage: TokenCounts, maxCharge: string): MeteredSettlement;
+export declare function settleMeteredCall(price: PerTokenPrice, usage: TokenCounts, maxCharge: string, atMs?: number): MeteredSettlement;

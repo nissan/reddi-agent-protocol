@@ -8,8 +8,25 @@ import type { NonceReplayStore, PayerProofCheck, ProtocolFeeConfig, ReceiptVerif
 export declare function isValidSolanaPublicKey(address: string): boolean;
 /** Backwards-compatible alias for older callers. */
 export declare const isValidPaymentAddress: typeof isValidSolanaPublicKey;
-/** Protocol fee rate: 250 basis points, which is 2.5% of the price paid. */
-export declare const PROTOCOL_FEE_BPS = 250;
+/** Standard protocol fee rate: 500 basis points, which is 5% of the price paid. */
+export declare const PROTOCOL_FEE_BPS = 500;
+/** Launch rate: 250 basis points (2.5%) for payments made before LAUNCH_RATE_ENDS_AT_MS. */
+export declare const LAUNCH_PROTOCOL_FEE_BPS = 250;
+/**
+ * 2027-04-01T00:00:00Z in milliseconds. The escrow program holds the same
+ * instant (LAUNCH_RATE_ENDS_UNIX, in seconds) and reads it at payout.
+ */
+export declare const LAUNCH_RATE_ENDS_AT_MS = 1806537600000;
+/** Either side of the switch, how long a payment may still be checked at the other rate (block times and clocks drift). */
+export declare const FEE_RATE_SWITCH_GRACE_MS: number;
+/** The protocol fee rate in force at `atMs` (milliseconds since the epoch). */
+export declare function protocolFeeBpsAt(atMs?: number): number;
+/**
+ * The rates a payment made around `atMs` may carry: the rate then, plus the
+ * other rate within FEE_RATE_SWITCH_GRACE_MS of the switch. With no time
+ * known, both.
+ */
+export declare function protocolFeeBpsNear(atMs?: number | null): number[];
 /** Ceiling on the protocol fee for a SOL payment: 0.1 SOL. Token payments have no ceiling. */
 export declare const SOL_PROTOCOL_FEE_CAP_LAMPORTS: bigint;
 /** A currency a direct per-call payment can be made in. `tokenProgram` is absent for native SOL. */

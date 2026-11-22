@@ -15,13 +15,6 @@ name: V1 program tests (Pinocchio)
 on:
   pull_request:
     branches: [main]
-    paths:
-      - "programs/pinocchio-escrow/**"
-      - "archive/anchor-escrow/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - ".github/workflows/pinocchio-escrow-tests.yml"
   push:
     branches: [main]
     paths:
@@ -37,13 +30,43 @@ permissions:
   contents: read
 
 jobs:
+  # Runs on every pull request, so the gate below always reports. The work runs only
+  # when the pull request touches these paths (push and manual runs always do it).
+  changes:
+    name: Relevant changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      relevant: ${{ steps.diff.outputs.relevant }}
+    steps:
+      - id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          PATTERN: '^(programs/pinocchio-escrow/|archive/anchor-escrow/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.github/workflows/pinocchio-escrow-tests\.yml$)'
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          files=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" --paginate --jq '.[].filename')
+          if printf '%s\n' "$files" | grep -qE "$PATTERN"; then relevant=true; else relevant=false; fi
+          echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
+          echo "Relevant to this workflow: $relevant"
+
   equivalence:
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     name: Equivalence with the Anchor build (LiteSVM / Mollusk)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Install Rust toolchain (matches rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
@@ -134,3 +157,20 @@ jobs:
             echo "| Pinocchio (per) | $(stat -c %s "$pinocchio") |"
           } >> "$GITHUB_STEP_SUMMARY"
           ls -l "$anchor" "$pinocchio"
+
+  # The check to require on main: passes when the work passed, or was not needed.
+  gate:
+    name: Program tests gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [changes, equivalence]
+    if: always()
+    steps:
+      - env:
+          RELEVANT: ${{ needs.changes.outputs.relevant }}
+          CHANGES: ${{ needs.changes.result }}
+          RESULT: ${{ needs.equivalence.result }}
+        run: |
+          echo "changes=$CHANGES relevant=$RELEVANT work=$RESULT"
+          if [ "$CHANGES" != "success" ]; then exit 1; fi
+          if [ "$RELEVANT" = "true" ] && [ "$RESULT" != "success" ]; then exit 1; fi

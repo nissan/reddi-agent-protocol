@@ -34,8 +34,33 @@ export function isValidSolanaPublicKey(address: string): boolean {
 /** Backwards-compatible alias for older callers. */
 export const isValidPaymentAddress = isValidSolanaPublicKey;
 
-/** Protocol fee rate: 250 basis points, which is 2.5% of the price paid. */
-export const PROTOCOL_FEE_BPS = 250;
+/** Standard protocol fee rate: 500 basis points, which is 5% of the price paid. */
+export const PROTOCOL_FEE_BPS = 500;
+/** Launch rate: 250 basis points (2.5%) for payments made before LAUNCH_RATE_ENDS_AT_MS. */
+export const LAUNCH_PROTOCOL_FEE_BPS = 250;
+/**
+ * 2027-04-01T00:00:00Z in milliseconds. The escrow program holds the same
+ * instant (LAUNCH_RATE_ENDS_UNIX, in seconds) and reads it at payout.
+ */
+export const LAUNCH_RATE_ENDS_AT_MS = 1_806_537_600_000;
+/** Either side of the switch, how long a payment may still be checked at the other rate (block times and clocks drift). */
+export const FEE_RATE_SWITCH_GRACE_MS = 10 * 60 * 1000;
+
+/** The protocol fee rate in force at `atMs` (milliseconds since the epoch). */
+export function protocolFeeBpsAt(atMs: number = Date.now()): number {
+  return atMs < LAUNCH_RATE_ENDS_AT_MS ? LAUNCH_PROTOCOL_FEE_BPS : PROTOCOL_FEE_BPS;
+}
+
+/**
+ * The rates a payment made around `atMs` may carry: the rate then, plus the
+ * other rate within FEE_RATE_SWITCH_GRACE_MS of the switch. With no time
+ * known, both.
+ */
+export function protocolFeeBpsNear(atMs?: number | null): number[] {
+  if (atMs === undefined || atMs === null || !Number.isFinite(atMs)) return [LAUNCH_PROTOCOL_FEE_BPS, PROTOCOL_FEE_BPS];
+  if (Math.abs(atMs - LAUNCH_RATE_ENDS_AT_MS) <= FEE_RATE_SWITCH_GRACE_MS) return [LAUNCH_PROTOCOL_FEE_BPS, PROTOCOL_FEE_BPS];
+  return [protocolFeeBpsAt(atMs)];
+}
 /** Ceiling on the protocol fee for a SOL payment: 0.1 SOL. Token payments have no ceiling. */
 export const SOL_PROTOCOL_FEE_CAP_LAMPORTS = BigInt(100_000_000);
 const BPS_DENOMINATOR = 10_000;
@@ -111,7 +136,7 @@ export function baseUnitsToDecimal(units: bigint, decimals: number): string {
  * Fee in base units: the price times the rate, rounded down, never above
  * `capBaseUnits` when one is given. There is no minimum fee.
  */
-export function protocolFeeBaseUnits(priceBaseUnits: bigint, bps: number = PROTOCOL_FEE_BPS, capBaseUnits?: bigint): bigint {
+export function protocolFeeBaseUnits(priceBaseUnits: bigint, bps: number = protocolFeeBpsAt(), capBaseUnits?: bigint): bigint {
   if (!Number.isInteger(bps) || bps < 0 || bps > MAX_PROTOCOL_FEE_BPS) throw new Error(`protocol fee bps must be a whole number from 0 to ${MAX_PROTOCOL_FEE_BPS}`);
   if (priceBaseUnits < BigInt(0)) throw new Error('price must not be negative');
   const fee = (priceBaseUnits * BigInt(bps)) / BigInt(BPS_DENOMINATOR);
@@ -130,12 +155,12 @@ interface FeeSplit {
   providerUnits: bigint;
 }
 
-function feeSplit(amount: string | number, currency: string, payTo: string, config: ProtocolFeeConfig): FeeSplit {
+function feeSplit(amount: string | number, currency: string, payTo: string, config: ProtocolFeeConfig, atMs: number = Date.now()): FeeSplit {
   const decimals = directPaymentCurrency(currency)?.decimals;
   if (decimals === undefined) throw new Error(`a protocol fee is not supported for currency ${currency}`);
   if (!isValidSolanaPublicKey(config.treasury)) throw new Error('protocol fee treasury must be a valid Solana public key');
   if (config.treasury === payTo) throw new Error('protocol fee treasury must differ from the payee');
-  const bps = config.bps ?? PROTOCOL_FEE_BPS;
+  const bps = config.bps ?? protocolFeeBpsAt(atMs);
   const price = decimalToBaseUnits(amount, decimals);
   if (price === undefined) throw new Error(`amount must be a positive ${currency} amount with at most ${decimals} decimal places`);
   const cap = protocolFeeCapBaseUnits(currency);
@@ -518,7 +543,14 @@ export class SolanaReceiptVerifier implements ReceiptVerifier {
     }
     let split: FeeSplit;
     try {
-      split = feeSplit(challenge.amount, challenge.currency, challenge.payTo, config);
+      const nowMs = (this.options.now ?? Date.now)();
+      split = feeSplit(challenge.amount, challenge.currency, challenge.payTo, config, nowMs);
+      // Near the switch from the launch rate, a challenge issued at the other
+      // scheduled rate is still checked at the rate it states.
+      const stated = challenge.fee?.bps;
+      if (config.bps === undefined && stated !== undefined && stated !== split.terms.bps && protocolFeeBpsNear(nowMs).includes(stated)) {
+        split = feeSplit(challenge.amount, challenge.currency, challenge.payTo, { ...config, bps: stated }, nowMs);
+      }
     } catch (error) {
       return { failure: { ok: false, reason: 'unsupported_receipt', message: error instanceof Error ? error.message : 'protocol fee cannot be computed for this challenge' } };
     }

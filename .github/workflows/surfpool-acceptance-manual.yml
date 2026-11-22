@@ -15,6 +15,9 @@ on:
           - onboarding-wrapper
           - jupiter-invoke
 
+permissions:
+  contents: read
+
 jobs:
   surfpool-acceptance:
     runs-on: ubuntu-latest
@@ -26,6 +29,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Setup Node
         uses: actions/setup-node@v4

@@ -112,7 +112,7 @@ function planBuyerDirectPayment(input) {
             payer: input.payer,
             mint: tokenMint,
             payerTokenAccount: input.payerTokenAccount,
-            maxFeeBps: input.maxFeeBps ?? payment_1.PROTOCOL_FEE_BPS,
+            maxFeeBps: input.maxFeeBps ?? (0, payment_1.protocolFeeBpsAt)(),
         });
     }
     catch (error) {

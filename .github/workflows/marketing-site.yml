@@ -47,6 +47,10 @@ jobs:
       - name: Install
         run: npm ci --ignore-scripts --no-audit --no-fund
 
+      # Fails on any high or critical advisory in the site's production dependencies.
+      - name: Dependency audit
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Build
         run: npm run build
 

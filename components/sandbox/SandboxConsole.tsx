@@ -43,7 +43,7 @@ import {
   type SandboxExchange,
 } from "@/lib/sandbox/client";
 import { isSandboxReceipt, responseBodyWithAnswer, type SandboxReceiptPayment, verifySandboxReceipt, type SandboxReceipt, type SandboxVerification } from "@/lib/sandbox/receipt";
-import { formatUnits, requestInputTokens, SANDBOX_DEMO_RATES_NOTE, SANDBOX_FEE_BPS, triPriceFromLamports, TYPICAL_REVIEW } from "@/lib/sandbox/pricing";
+import { formatUnits, requestInputTokens, SANDBOX_DEMO_RATES_NOTE, sandboxFeeBps, triPriceFromLamports, TYPICAL_REVIEW } from "@/lib/sandbox/pricing";
 import { createSessionKey, directPaymentDelegationHeaderValue, directPaymentProofHeaders, paidCallAuthHeaders, sessionDelegationHeaderValue, type MessageSigner } from "@/lib/payments/session-auth";
 import SandboxSessionRunner from "@/components/sandbox/SandboxSessionRunner";
 import { applySandboxReputation, initialSandboxReputation, type SandboxReputation } from "@/lib/sandbox/reputation";
@@ -195,7 +195,7 @@ function ReceiptPaymentFields({ payment, simulated }: { payment: SandboxReceiptP
   const amount = BigInt(payment.amount);
   const fee = BigInt(payment.fee.amount);
   const sol = (lamports: bigint) => `${triPriceLabel(triPriceFromLamports(lamports))} (${lamports.toString()} lamports)`;
-  const feePercent = `${Number(SANDBOX_FEE_BPS) / 100}%`;
+  const feePercent = `${Number(sandboxFeeBps()) / 100}%`;
   if (payment.metered) {
     const tokens = `${Number(payment.metered.inputTokens).toLocaleString("en-US")} in, ${Number(payment.metered.outputTokens).toLocaleString("en-US")} out`;
     return (
@@ -671,7 +671,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
               })}
             </div>
             <p className="text-xs leading-5 text-gray-400" data-testid="sandbox-pricing-note">
-              Providers price per token. You approve a maximum for each call, the provider settles the tokens it actually used, and the rest comes back to you. A planned protocol fee of {Number(SANDBOX_FEE_BPS) / 100}% comes out of the provider&apos;s share. This request is about {inputTokens.toLocaleString("en-US")} input tokens. The sandbox pays in devnet SOL. {SANDBOX_DEMO_RATES_NOTE}
+              Providers price per token. You approve a maximum for each call, the provider settles the tokens it actually used, and the rest comes back to you. A planned protocol fee of {Number(sandboxFeeBps()) / 100}% comes out of the provider&apos;s share. This request is about {inputTokens.toLocaleString("en-US")} input tokens. The sandbox pays in devnet SOL. {SANDBOX_DEMO_RATES_NOTE}
             </p>
             <label className="block text-sm text-gray-300">
               <span className="mb-1 block text-xs uppercase tracking-wide text-gray-400">Your request</span>
@@ -746,7 +746,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
                       <div className="space-y-3">
                         <p className="text-sm leading-6 text-gray-300">
                           {meteredProviders[provider.id] ? (
-                            <>Your wallet locks up to {String(challenge.amount)} devnet SOL in the escrow program. After it answers, the provider settles the actual tokens used, {Number(SANDBOX_FEE_BPS) / 100}% of that goes to the protocol treasury, and the rest of the maximum comes straight back to you. </>
+                            <>Your wallet locks up to {String(challenge.amount)} devnet SOL in the escrow program. After it answers, the provider settles the actual tokens used, {Number(sandboxFeeBps()) / 100}% of that goes to the protocol treasury, and the rest of the maximum comes straight back to you. </>
                           ) : (
                             <>Your wallet signs one transfer of {String(challenge.amount)} devnet SOL to the provider&apos;s devnet wallet; what you send here is not returned. </>
                           )}
