@@ -559,7 +559,8 @@ test("a delegation proved by a memo in the lock transaction is taken only when t
     [SESSION_DELEGATION_HEADER]: lockBoundDelegationHeaderValue(delegation, lockSignature),
     [SESSION_SIGNATURE_HEADER]: await sessionSignatureHeaderValue({ genesisHash: delegation.genesisHash, action: "single", escrow: delegation.escrow, sequence: 0, body }, (m) => new Uint8Array(edSign(null, Buffer.from(m), relayKey))),
   });
-  const facts = (memo = sessionDelegationMemo(delegation)) => ({
+  const facts = (memo = sessionDelegationMemo(delegation), slot: bigint | null = CURRENT_SLOT - 10n) => ({
+    ...(slot === null ? {} : { slot }),
     failed: false,
     signers: [buyer.toBase58()],
     accounts: [buyer.toBase58(), escrowAddress().toBase58(), MEMO_PROGRAM_ID.toBase58()],
@@ -604,11 +605,30 @@ test("a delegation proved by a memo in the lock transaction is taken only when t
     assert.equal(chain.sent.length, 0);
 
     // The payer's memo for exactly this delegation: answered and settled once.
+    // A reader that does not report the transaction's slot cannot bind it to this lock: refused, nothing charged.
+    answer = async () => facts(undefined, null);
+    response = await call(BODY, await lockBound("2".repeat(88)));
+    assert.equal(response.status, 503);
+    assert.equal(upstream.calls, 0);
+
     // An unreadable chain is not remembered: the same request read again once the chain answers.
     answer = async () => facts();
     response = await call(BODY, await lockBound("3".repeat(88)));
     assert.equal(response.status, 200);
     assert.equal(upstream.calls, 1);
     assert.equal(chain.sent.length, 1);
+  }
+
+  // The memo was signed in the transaction of an earlier lock at this address: refused before the model runs.
+  {
+    const chain = fakeChain();
+    const upstream = upstreamWithUsage(120, 333);
+    chain.readTransactionFacts = async () => facts(undefined, CURRENT_SLOT - 500n);
+    const { call } = setup({ chain, upstream, file: { lockBoundDelegations: true } });
+    const response = await call(BODY, await lockBound("6".repeat(88)));
+    assert.equal(response.status, 401);
+    assert.equal(await code(response), "session_auth_invalid");
+    assert.equal(upstream.calls, 0);
+    assert.equal(chain.sent.length, 0);
   }
 });
