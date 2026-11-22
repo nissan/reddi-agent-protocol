@@ -88,3 +88,6 @@ codex-session*.jsonl
 # Stageshow skill: installed locally, never committed (docs/agent-settings/STAGESHOW.md)
 .claude/skills/stageshow/
 .claude/skills/.stageshow-*/
+
+# Private provider instructions (house style rules) stay on the host.
+*.prompt.private.txt
