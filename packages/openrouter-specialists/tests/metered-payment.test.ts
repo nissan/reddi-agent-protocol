@@ -240,3 +240,25 @@ test("a metered call the payer did not sign is refused before the lock is read o
   assert.equal(client.callCount, 0);
   assert.equal(d.settled.length, 0);
 });
+
+test("every profile carries a per-token price, the mid tier by default, and the operator's setting overrides it", async () => {
+  const { specialistProfiles, PER_TOKEN_TIERS, validateProfileRegistry } = await import("../src/profiles/index.js");
+  assert.deepEqual(validateProfileRegistry(), []);
+  for (const p of specialistProfiles) assert.deepEqual(p.meteredPrice, { inputPerMillion: "3", outputPerMillion: "15", maxOutputTokens: 2000 }, p.id);
+  assert.equal(PER_TOKEN_TIERS.mid.outputPerMillion, "15");
+
+  // With no operator price, the profile's own price is offered: 7 input + 200 output (the request's limit) at $3 / $15.
+  const { meteredPrice: _unused, ...unpriced } = config;
+  const offered = await handleRuntimeRequest(request(), unpriced, new MockOpenRouterClient(), deps(null).value);
+  const body = (await offered.json()) as { metered: { price: Record<string, unknown>; minimumLockBaseUnits: string } };
+  assert.equal(body.metered.minimumLockBaseUnits, "3021");
+  // The listing states the per-token price.
+  const listing = await handleRuntimeRequest(new Request("https://planning.example.test/.well-known/reddi-agent.json"), unpriced, new MockOpenRouterClient(), {});
+  assert.deepEqual(((await listing.json()) as { meteredPrice: unknown }).meteredPrice, { currency: "USDC", inputPerMillion: "3", outputPerMillion: "15", maxOutputTokens: 2000 });
+  const overridden = await handleRuntimeRequest(new Request("https://planning.example.test/.well-known/reddi-agent.json"), config, new MockOpenRouterClient(), {});
+  assert.deepEqual(((await overridden.json()) as { meteredPrice: unknown }).meteredPrice, { currency: "USDC", ...config.meteredPrice });
+
+  const { validateProfile } = await import("../src/profiles/index.js");
+  assert.deepEqual(validateProfile({ ...specialistProfiles[0], meteredPrice: { inputPerMillion: "-1", outputPerMillion: "15" } }), [`${specialistProfiles[0].id}: invalid meteredPrice`]);
+  assert.deepEqual(validateProfile({ ...specialistProfiles[0], meteredPrice: { inputPerMillion: "3", outputPerMillion: "15", maxOutputTokens: 0 } }), [`${specialistProfiles[0].id}: invalid meteredPrice.maxOutputTokens`]);
+});
