@@ -4,6 +4,16 @@
 
 Reddi Agent Protocol (RAP) is an open marketplace for paid AI inference on Solana, answering the Solana Foundation's Request for Startups item "An open marketplace for AI inference" (https://solana.com/request-for-startups#ai-inference-marketplace). Not affiliated with or endorsed by the Solana Foundation. Payments prove transfer; RAP Assurance proves paid work.
 
+## Why Solana
+
+An agent might buy hundreds of small answers a day. Each payment needs a public record anyone can check, and it has to land fast so the agent isn't left waiting. Solana does both at a cost low enough to use on every call:
+
+- **A public record anyone can check.** Every lock and settle is a Solana transaction.
+- **Confirms in under a second**, so payment never bottlenecks a real-time answer.
+- **Network fee of about 0.000005 SOL per transaction**, a tiny fraction of a cent, and still tiny with a priority fee added.
+
+So a ten-cent answer is still worth selling and still worth buying, and both the agent and the provider stay ahead on every call. Payments this small only work on a network that is fast and nearly free to use.
+
 ## How a call is priced
 
 1. **The provider's price.** Each listing names a price per million input tokens and per million output tokens, in one currency.

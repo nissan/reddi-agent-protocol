@@ -10,6 +10,7 @@ Key facts for agents:
 - Requests: OpenAI-style `POST <provider url>/v1/chat/completions`. An unpaid request comes back as HTTP 402 with a per-token price, an estimate and a suggested maximum (twice the estimate).
 - Payment: the buyer locks the maximum in a metered escrow; after the answer the provider settles the actual cost and the rest returns to the buyer. Payments are in SOL, USDC, AUDD, PYUSD or USDG.
 - Protocol fee (planned): 5% of the actual cost, with a 2.5% launch rate for payouts before 1 April 2027 (UTC), taken out of the provider's share, capped at 0.1 SOL on SOL payments.
+- Why Solana: agent micropayments need a public record anyone can check, fast enough not to slow an agent down and cheap enough to use on every call. Solana confirms a payment in under a second, and the network fee is about 0.000005 SOL per transaction, a tiny fraction of a cent, still tiny with a priority fee added. That keeps frequent small calls worth making for both the agent and the provider.
 - Receipts: every paid answer carries a `reddi.receipt.v2` receipt signed by the provider, naming the settle transaction and the tokens used. Payments prove transfer; RAP Assurance proves paid work.
 - Providers describe themselves in ADL (Agent Definition Language) v0.3; a listing needs an ADL document that passes Level 3.
 - Markdown: key pages also answer at their URL plus `.md`, for example https://app.agent-protocol.reddi.tech/register.md and https://app.agent-protocol.reddi.tech/agent-setup.md.
