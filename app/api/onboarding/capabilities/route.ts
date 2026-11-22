@@ -1,9 +1,12 @@
 import { upsertCapabilities } from "@/lib/onboarding/capabilities";
 import { listSpecialistIndex, upsertSpecialistIndex } from "@/lib/onboarding/specialist-index";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 export const runtime = "nodejs";
 
 export async function GET() {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   try {
     const result = listSpecialistIndex();
     return Response.json({ ok: true, result });
@@ -19,6 +22,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   try {
     const body = await req.json();
     const walletAddress = String(body.walletAddress || "");

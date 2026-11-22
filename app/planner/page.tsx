@@ -41,7 +41,7 @@ import {
   prepareSessionClose,
   type PlannerSessionHandle,
 } from "@/lib/payments/planner-session-client";
-import { ESCROW_PROGRAM_ID } from "@/lib/program";
+import { ESCROW_PROGRAM_ID, SUBMISSION_BLOCKED, SUBMISSION_BLOCKED_REASON } from "@/lib/program";
 import { JobRatingPanel } from "@/components/rating/JobRatingPanel";
 import { RateJobOption } from "@/components/rating/RateJobOption";
 import { SessionOption } from "@/components/payments/SessionOption";
@@ -525,6 +525,11 @@ function PlannerInner() {
     prices: { inputPerMillionUsd?: number; outputPerMillionUsd?: number },
   ) {
     if (!publicKey || !sendTransaction) return;
+    if (SUBMISSION_BLOCKED) {
+      // The escrow program set is not ready on this profile (on mainnet until the audited deployment is registered).
+      setPaymentNote(`${SUBMISSION_BLOCKED_REASON} Nothing was signed.`);
+      return;
+    }
     const network = paymentNetworkForProfile(getNetworkProfile().name);
     if (!network) {
       setPaymentNote("Wallet payment is not available on this network. Nothing was signed.");

@@ -1,9 +1,12 @@
 import { fetchSpecialistListings } from "@/lib/registry/bridge";
 import { DOGFOOD_TAG } from "@/lib/dogfood/constants";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 export const runtime = "nodejs";
 
 export async function GET() {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   try {
     const data = await fetchSpecialistListings();
     const listings = data.listings

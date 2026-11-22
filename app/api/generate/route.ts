@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 function loadBakedTrace(): {
   trace: typeof HARDCODED_TRACE;
@@ -122,6 +123,8 @@ const DEMO_OUTPUT = `<!DOCTYPE html>
 </html>`;
 
 export async function POST(req: Request) {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   const { brief } = await req.json();
 
   // Use baked trace from a real run if available, otherwise fall back to hardcoded demo

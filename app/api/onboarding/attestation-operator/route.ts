@@ -1,11 +1,14 @@
 import { checkOperatorKeyStatus } from "@/lib/onboarding/operator-key";
 import { getOnchainAttestationOperatorStatus } from "@/lib/onboarding/onchain-attestation";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 export const runtime = "nodejs";
 
 const ENV_TEMPLATE = 'ONBOARDING_ATTEST_OPERATOR_SECRET_KEY="[12,34,...,64 bytes total]"';
 
 export async function GET() {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   const keyStatus = checkOperatorKeyStatus();
   const onchainStatus = getOnchainAttestationOperatorStatus();
 

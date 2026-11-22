@@ -8,10 +8,13 @@
 import { recordPlannerFeedback } from "@/lib/onboarding/planner-feedback";
 import { validateOpenOnionAttestorPayload } from "@/lib/integrations/openonion/attestor/schema";
 import type { QualitySignalInput, QualitySignalOutput } from "@/lib/mcp/tools";
+import { legacyRouteGate } from "@/lib/http/route-gates";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   try {
     const body: QualitySignalInput = await req.json();
 
@@ -60,6 +63,8 @@ export async function POST(req: Request) {
 }
 
 export async function GET() {
+  const gated = legacyRouteGate();
+  if (gated) return gated;
   return Response.json({
     tool: "submit_quality_signal",
     description: "Rate a completed specialist call. Triggers on-chain reputation commit for scores ≥3.",
