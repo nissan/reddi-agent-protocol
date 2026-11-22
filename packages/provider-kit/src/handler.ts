@@ -382,6 +382,8 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
           return kept.facts;
         }
         const facts = await deps.chain.readTransactionFacts!(signature);
+        // The lock's slot is what ties the memo to this escrow's lock and no earlier one at the same address: no slot, no answer.
+        if (facts && facts.slot === undefined) throw new Error("the transaction's slot was not reported");
         factsCache.delete(signature);
         factsCache.set(signature, { facts, until: facts ? Number.POSITIVE_INFINITY : Date.now() + NOT_FOUND_MS });
         while (factsCache.size > FACTS_CACHE_SIZE) factsCache.delete(factsCache.keys().next().value!);
@@ -393,9 +395,15 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
    * Checks that a paid request (a session request or a single call) is signed by a key the escrow's payer delegated to (security review S-1, #866).
    * With `lockBoundDelegations`, the payer's consent may instead be a memo it signed in the lock transaction (#925).
    */
-  async function sessionAuth(request: { headers: Headers }, action: SessionAction, escrow: PublicKey, payer: PublicKey, sequence: number, body: string): Promise<{ ok: true; sessionKey: string } | { ok: false; response: Response }> {
+  /** A delegation proved by a lock transaction counts only for the lock that transaction made: a lock made again at the same address is another lock. */
+  function lockSlotMismatch(auth: { lockSlot?: bigint }, createdSlot: bigint): Response | undefined {
+    if (auth.lockSlot === undefined || auth.lockSlot === createdSlot) return undefined;
+    return refuse(401, "session_auth_invalid", "The delegation was given in the transaction of another lock at this address. Delegate for this lock.", { charged: false });
+  }
+
+  async function sessionAuth(request: { headers: Headers }, action: SessionAction, escrow: PublicKey, payer: PublicKey, sequence: number, body: string): Promise<{ ok: true; sessionKey: string; lockSlot?: bigint } | { ok: false; response: Response }> {
     const auth = await verifySessionRequestWithTransactions({ headers: request.headers, genesisHash: signingGenesisHash, action, escrow, payer, provider: terms.payee, sequence, body, nowMs: nowMs(), ...(readTransaction ? { readTransaction } : {}) });
-    if (auth.ok) return { ok: true, sessionKey: auth.sessionKey };
+    if (auth.ok) return { ok: true, sessionKey: auth.sessionKey, ...(auth.lockSlot !== undefined ? { lockSlot: auth.lockSlot } : {}) };
     if (auth.reason === "payment_check_unavailable") return { ok: false, response: refuse(503, auth.reason, auth.message, { charged: false }) };
     return { ok: false, response: refuse(401, auth.reason, auth.message, { charged: false }) };
   }
@@ -428,6 +436,8 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       const status = lock.reason === "payment_check_unavailable" || lock.reason === "provider_not_ready" ? 503 : lock.reason === "duplicate_nonce" || lock.reason === "session_window_closing" ? 409 : 402;
       return refuse(status, lock.reason, lock.message, { charged: false });
     }
+    const otherLock = lockSlotMismatch(auth, lock.createdSlot);
+    if (otherLock) return otherLock;
     let begun: Awaited<ReturnType<MeteredSessionLedger["begin"]>>;
     try {
       begun = await ledger.begin({ lock, escrow: c.header.escrow, sequence: c.sequence, sessionKey: auth.sessionKey, worstCase: c.worstCase, replayStore: deps.replayStore, nowMs: nowMs() });
@@ -819,6 +829,8 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       if (lock.reason === "provider_not_ready") log({ event: "payout_not_ready", escrow: header.escrow.toBase58() });
       return refuse(status, lock.reason, lock.message, { metered: offer, charged: false });
     }
+    const otherLock = lockSlotMismatch(auth, lock.createdSlot);
+    if (otherLock) return otherLock;
     const escrow = header.escrow.toBase58();
     const requestId = randomUUID();
 
