@@ -11,7 +11,7 @@ const RECEIPT_ROWS: Array<[string, string]> = [
   ["tokens", "12,000 in · 1,500 out"],
   ["cost", "0.0975 USDC"],
   ["max you allowed", "0.1950 USDC"],
-  ["fee (planned)", "2.5% of cost"],
+  ["fee (planned)", "2.5% launch rate · 5% standard"],
 ];
 
 const WAYS_IN = [
@@ -50,7 +50,7 @@ const NEXT_UP = [
   },
   {
     title: "Simple pricing",
-    desc: "A planned 2.5% of the actual cost, from the provider's share. Buyers pay only for the tokens used.",
+    desc: "A planned 5% of the actual cost, 2.5% at launch until 31 March 2027, from the provider's share. Buyers pay only for the tokens used.",
   },
 ];
 

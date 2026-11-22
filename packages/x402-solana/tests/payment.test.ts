@@ -10,6 +10,11 @@ import {
   DEFAULT_MAX_TRANSACTION_AGE_SECONDS,
   solAmountToLamports,
   PROTOCOL_FEE_BPS,
+  LAUNCH_PROTOCOL_FEE_BPS,
+  LAUNCH_RATE_ENDS_AT_MS,
+  FEE_RATE_SWITCH_GRACE_MS,
+  protocolFeeBpsAt,
+  protocolFeeBpsNear,
   protocolFeeCapBaseUnits,
   protocolFeeBaseUnits,
   protocolFeeTerms,
@@ -701,13 +706,31 @@ describe('protocol fee on direct per-call payments', () => {
     connection: { async getParsedTransaction() { return tx; } },
   });
 
-  it('computes 2.5% rounded down, with no minimum, and caps SOL at 0.1 SOL', () => {
-    expect(PROTOCOL_FEE_BPS).toBe(250);
-    expect(protocolFeeBaseUnits(BigInt(1_000_000))).toBe(BigInt(25_000));
-    expect(protocolFeeBaseUnits(BigInt(40))).toBe(BigInt(1));
-    expect(protocolFeeBaseUnits(BigInt(39))).toBe(BigInt(0));
-    expect(protocolFeeBaseUnits(BigInt(79))).toBe(BigInt(1));
-    expect(protocolFeeBaseUnits(BigInt(100_000_000))).toBe(BigInt(2_500_000));
+  it('follows the program: 2.5% until 1 April 2027 00:00 UTC, 5% from then', () => {
+    expect(LAUNCH_PROTOCOL_FEE_BPS).toBe(250);
+    expect(PROTOCOL_FEE_BPS).toBe(500);
+    expect(LAUNCH_RATE_ENDS_AT_MS).toBe(Date.UTC(2027, 3, 1));
+    expect(LAUNCH_RATE_ENDS_AT_MS / 1000).toBe(1_806_537_600); // LAUNCH_RATE_ENDS_UNIX in the escrow program
+    expect(protocolFeeBpsAt(LAUNCH_RATE_ENDS_AT_MS - 1)).toBe(250);
+    expect(protocolFeeBpsAt(LAUNCH_RATE_ENDS_AT_MS)).toBe(500);
+    expect(protocolFeeBaseUnits(BigInt(1_000_000), protocolFeeBpsAt(LAUNCH_RATE_ENDS_AT_MS))).toBe(BigInt(50_000));
+    expect(protocolFeeBaseUnits(BigInt(19), 500)).toBe(BigInt(0));
+    expect(protocolFeeBaseUnits(BigInt(20), 500)).toBe(BigInt(1));
+    // At 5% the 0.1 SOL ceiling binds from 2 SOL.
+    expect(protocolFeeBaseUnits(BigInt(2_000_000_000), 500, protocolFeeCapBaseUnits('SOL'))).toBe(BigInt(100_000_000));
+    // Away from the switch only the rate then; near it, or with no time, both.
+    expect(protocolFeeBpsNear(LAUNCH_RATE_ENDS_AT_MS - FEE_RATE_SWITCH_GRACE_MS - 1)).toEqual([250]);
+    expect(protocolFeeBpsNear(LAUNCH_RATE_ENDS_AT_MS + FEE_RATE_SWITCH_GRACE_MS + 1)).toEqual([500]);
+    expect(protocolFeeBpsNear(LAUNCH_RATE_ENDS_AT_MS + 1)).toEqual([250, 500]);
+    expect(protocolFeeBpsNear(undefined)).toEqual([250, 500]);
+  });
+
+  it('computes 2.5% at the launch rate, rounded down, with no minimum, and caps SOL at 0.1 SOL', () => {
+    expect(protocolFeeBaseUnits(BigInt(1_000_000), 250)).toBe(BigInt(25_000));
+    expect(protocolFeeBaseUnits(BigInt(40), 250)).toBe(BigInt(1));
+    expect(protocolFeeBaseUnits(BigInt(39), 250)).toBe(BigInt(0));
+    expect(protocolFeeBaseUnits(BigInt(79), 250)).toBe(BigInt(1));
+    expect(protocolFeeBaseUnits(BigInt(100_000_000), 250)).toBe(BigInt(2_500_000));
     // The 0.1 SOL ceiling binds from 4 SOL; tokens have none.
     expect(protocolFeeCapBaseUnits('SOL')).toBe(BigInt(100_000_000));
     expect(protocolFeeCapBaseUnits('USDC')).toBeUndefined();
@@ -753,6 +776,25 @@ describe('protocol fee on direct per-call payments', () => {
     const result = await verifier(usdcTx([leg('provider-ta', '975000'), leg('treasury-ta', '25000')]))
       .verifyReceipt(usdcReceipt('1.000000', 'fee-s2'), usdcChallenge('1.000000', 'fee-s2'), new MemoryNonceReplayStore());
     expect(result).toMatchObject({ ok: true, demo: false, fee: { bps: 250, payTo: treasury, amount: '0.025', providerAmount: '0.975' } });
+  });
+
+  it('checks at the rate in force, and accepts a launch-rate challenge only just after the switch', async () => {
+    const at = (nowMs: number, tx: unknown) => new SolanaReceiptVerifier({ payerProof: 'not-required', allowRealPayment: true, usdcMint,
+      protocolFee: fee as never, now: () => nowMs, connection: { async getParsedTransaction() { return tx; } } });
+    const launchTx = usdcTx([leg('provider-ta', '975000'), leg('treasury-ta', '25000')]);
+    const standardTx = usdcTx([leg('provider-ta', '950000'), leg('treasury-ta', '50000')]);
+    const launchTerms = { bps: 250, payTo: treasury, amount: '0.025', providerAmount: '0.975' };
+    const challenge = (nonce: string, terms?: unknown) => ({ ...usdcChallenge('1', nonce, false), ...(terms ? { fee: terms } : {}) }) as never;
+    // After the switch the verifier asks for 5%.
+    const late = LAUNCH_RATE_ENDS_AT_MS + 24 * 3600 * 1000;
+    expect(await at(late, standardTx).verifyReceipt(usdcReceipt('1', 'sw-1'), challenge('sw-1'), new MemoryNonceReplayStore()))
+      .toMatchObject({ ok: true, fee: { bps: 500, amount: '0.05', providerAmount: '0.95' } });
+    // A day after, a challenge still stating 2.5% is refused.
+    expect(await at(late, launchTx).verifyReceipt(usdcReceipt('1', 'sw-2'), challenge('sw-2', launchTerms), new MemoryNonceReplayStore()))
+      .toMatchObject({ ok: false });
+    // A minute after, one issued at 2.5% just before the switch is checked at 2.5%.
+    expect(await at(LAUNCH_RATE_ENDS_AT_MS + 60_000, launchTx).verifyReceipt(usdcReceipt('1', 'sw-3'), challenge('sw-3', launchTerms), new MemoryNonceReplayStore()))
+      .toMatchObject({ ok: true, fee: launchTerms });
   });
 
   it('reads the amounts from uiAmountString when the raw amount is absent', async () => {
