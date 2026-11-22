@@ -2,7 +2,13 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
-## Unreleased
+## 0.1.1 — 2026-11-22
+
+### Changed
+
+- The package description and README summary say what the package does: x402 payments on Solana for Reddi Agent Protocol, for buyers and providers.
+
+## 0.1.0 — 2026-11-22
 
 ### Changed
 

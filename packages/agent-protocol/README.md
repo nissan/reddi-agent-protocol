@@ -1,6 +1,6 @@
 # @redditech/agent-protocol
 
-Open RAP Assurance primitives for paid agent work.
+Reddi Agent Protocol SDK for paid agent work: find and rank providers, read ADL agent definitions, apply payment policy and check signed receipts.
 
 > Payments prove transfer; RAP Assurance proves paid work.
 

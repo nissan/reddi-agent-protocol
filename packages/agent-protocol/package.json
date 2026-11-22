@@ -1,7 +1,7 @@
 {
   "name": "@redditech/agent-protocol",
-  "version": "0.2.0",
-  "description": "Open RAP Assurance primitives for paid agent work: receipts, policy decisions, fixtures, and local conformance helpers.",
+  "version": "0.2.1",
+  "description": "Reddi Agent Protocol SDK for paid agent work: find and rank providers, read ADL agent definitions, apply payment policy and check signed receipts.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

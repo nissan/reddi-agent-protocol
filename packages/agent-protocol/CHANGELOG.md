@@ -2,7 +2,13 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
-## Unreleased
+## 0.2.1 — 2026-11-22
+
+### Changed
+
+- The package description and README summary say what the package does, under the Reddi Agent Protocol name.
+
+## 0.2.0 — 2026-11-22
 
 ### Added
 
