@@ -552,9 +552,8 @@ test("a delegation proved by a memo in the lock transaction is taken only when t
   const now = Date.parse("2026-12-05T00:00:00.000Z");
   const relay = Keypair.generate();
   const relayKey = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(relay.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
-  const lockSignature = "4".repeat(88);
   const delegation = { genesisHash: SOLANA_GENESIS_HASHES["solana-devnet"], escrow: escrowAddress().toBase58(), provider: provider.publicKey.toBase58(), sessionKey: relay.publicKey.toBase58(), expiresAt: now / 1000 + 600 };
-  const lockBound = async (body = BODY) => ({
+  const lockBound = async (lockSignature: string, body = BODY) => ({
     "x402-payment": paymentHeader(),
     "x-test-unsigned": "1",
     [SESSION_DELEGATION_HEADER]: lockBoundDelegationHeaderValue(delegation, lockSignature),
@@ -575,7 +574,7 @@ test("a delegation proved by a memo in the lock transaction is taken only when t
     chain.readTransactionFacts = async () => { reads += 1; return facts(); };
     const upstream = upstreamWithUsage(120, 333);
     const { call } = setup({ chain, upstream });
-    const response = await call(BODY, await lockBound());
+    const response = await call(BODY, await lockBound("4".repeat(88)));
     assert.equal(response.status, 401);
     assert.equal(await code(response), "session_auth_invalid");
     assert.equal(reads, 0);
@@ -586,22 +585,28 @@ test("a delegation proved by a memo in the lock transaction is taken only when t
   {
     const chain = fakeChain();
     const upstream = upstreamWithUsage(120, 333);
+    let reads = 0;
     let answer: () => Promise<ReturnType<typeof facts>> = async () => facts(sessionDelegationMemo({ ...delegation, expiresAt: delegation.expiresAt + 1 }));
-    chain.readTransactionFacts = () => answer();
+    chain.readTransactionFacts = () => { reads += 1; return answer(); };
     const { call } = setup({ chain, upstream, file: { lockBoundDelegations: true } });
-    let response = await call(BODY, await lockBound());
+    let response = await call(BODY, await lockBound("4".repeat(88)));
     assert.equal(response.status, 401);
     assert.equal(await code(response), "session_auth_invalid");
+    // The same transaction named again is not read again: a confirmed transaction never changes.
+    response = await call(BODY, await lockBound("4".repeat(88)));
+    assert.equal(response.status, 401);
+    assert.equal(reads, 1);
     answer = async () => { throw new Error("rpc down"); };
-    response = await call(BODY, await lockBound());
+    response = await call(BODY, await lockBound("3".repeat(88)));
     assert.equal(response.status, 503);
     assert.equal(await code(response), "payment_check_unavailable");
     assert.equal(upstream.calls, 0);
     assert.equal(chain.sent.length, 0);
 
     // The payer's memo for exactly this delegation: answered and settled once.
+    // An unreadable chain is not remembered: the same request read again once the chain answers.
     answer = async () => facts();
-    response = await call(BODY, await lockBound());
+    response = await call(BODY, await lockBound("3".repeat(88)));
     assert.equal(response.status, 200);
     assert.equal(upstream.calls, 1);
     assert.equal(chain.sent.length, 1);

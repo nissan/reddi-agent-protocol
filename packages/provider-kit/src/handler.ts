@@ -59,6 +59,7 @@ import {
   usageFrom,
   verifyMeteredLock,
   verifySessionRequestWithTransactions,
+  type ConfirmedTransactionFacts,
   type SessionAction,
   type MeteredPaymentHeader,
   type MeteredSessionLedger,
@@ -367,7 +368,26 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
   }
 
   // Delegations proved by a memo in the lock transaction are read from the chain only when the operator opted in.
-  const readTransaction = config.lockBoundDelegations && deps.chain.readTransactionFacts ? (signature: string) => deps.chain.readTransactionFacts!(signature) : undefined;
+  // A confirmed transaction never changes, so its facts are kept (bounded); a transaction not found yet is remembered briefly,
+  // so repeated requests naming the same signature cost one read.
+  const factsCache = new Map<string, { facts: ConfirmedTransactionFacts | null; until: number }>();
+  const FACTS_CACHE_SIZE = 1_000;
+  const NOT_FOUND_MS = 5_000;
+  const readTransaction = config.lockBoundDelegations && deps.chain.readTransactionFacts
+    ? async (signature: string): Promise<ConfirmedTransactionFacts | null> => {
+        const kept = factsCache.get(signature);
+        if (kept && kept.until > Date.now()) {
+          factsCache.delete(signature);
+          factsCache.set(signature, kept);
+          return kept.facts;
+        }
+        const facts = await deps.chain.readTransactionFacts!(signature);
+        factsCache.delete(signature);
+        factsCache.set(signature, { facts, until: facts ? Number.POSITIVE_INFINITY : Date.now() + NOT_FOUND_MS });
+        while (factsCache.size > FACTS_CACHE_SIZE) factsCache.delete(factsCache.keys().next().value!);
+        return facts;
+      }
+    : undefined;
 
   /**
    * Checks that a paid request (a session request or a single call) is signed by a key the escrow's payer delegated to (security review S-1, #866).
