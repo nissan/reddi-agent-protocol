@@ -457,6 +457,28 @@ test("when it is not known whether the settle landed, the answer is held, and th
   assert.equal(chain.signed.size, 1, "one settle was signed for the call");
 });
 
+test("two retries of a held answer at once: one looks at the settle, the other is told to wait", async () => {
+  const chain = fakeChain();
+  chain.failSend = true;
+  chain.statusUnknown = true;
+  const { call } = setup({ chain });
+  assert.equal((await call(BODY, { "x402-payment": paymentHeader() })).status, 503);
+  chain.failSend = false;
+  chain.statusUnknown = false;
+  chain.landed.add(SETTLE_SIGNATURE);
+  let looks = 0;
+  const realRead = chain.readSettlement;
+  chain.readSettlement = async (signature) => {
+    looks += 1;
+    await new Promise((done) => setTimeout(done, 20));
+    return realRead(signature);
+  };
+  const [a, b] = await Promise.all([call(BODY, { "x402-payment": paymentHeader() }), call(BODY, { "x402-payment": paymentHeader() })]);
+  assert.deepEqual([a.status, b.status].sort(), [200, 503]);
+  assert.equal(looks, 1, "the settle was read back once");
+  assert.equal(chain.signed.size, 1);
+});
+
 test("an escrow closed by the buyer before the settle lands is not taken as paid: the answer is withheld", async () => {
   const chain = fakeChain();
   chain.failSend = true;

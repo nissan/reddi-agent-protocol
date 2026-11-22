@@ -329,13 +329,14 @@ async function verifyMeteredLock(input) {
     }
     // Reading a lock back to settle calls already served: if the account that
     // funded it is gone, the unused part goes to the payer's associated token
-    // account, created by the settle at the provider's cost when it does not exist.
+    // account, created by the settle at the provider's cost when it does not
+    // exist and the provider allowed that.
     const payout = await checkMeteredPayout({
         terms,
         escrow,
         readAccount: input.readAccount,
         ...(input.treasury ? { treasury: input.treasury } : {}),
-        ...(purpose === 'session-settle' ? { allowPayerAssociatedAccount: true, createRefundAccount: true } : {}),
+        ...(purpose === 'session-settle' ? { allowPayerAssociatedAccount: true, createRefundAccount: input.createRefundAccount === true } : {}),
     });
     if (!payout.ok)
         return payout;

@@ -159,6 +159,8 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
   const pendingSettles: PendingSettleStore = deps.pendingSettles ?? new MemoryPendingSettleStore();
   // Answers of single calls whose settle was sent but not yet known to land, by escrow.
   const waitingCalls = new Map<string, PaidCall>();
+  /** Single-call locks whose settle is being sent or looked at right now. */
+  const answering = new Set<string>();
   const subsidyLeft = () => {
     if (subsidy.day !== today()) Object.assign(subsidy, { day: today(), used: 0 });
     return config.refundAccountsPerDay - subsidy.used > 0;
@@ -568,11 +570,18 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       }
 
       let lock: VerifiedLock;
+      // Creating the buyer's account for the unused part is paid by the provider, within the operator's daily bound.
+      const reserved = subsidyLeft();
+      if (reserved) subsidy.used += 1;
       try {
-        lock = await verifyMeteredLock({ header, terms, minimum: 0n, readAccount, readSlot, replayStore: deps.replayStore, purpose: "session-settle" });
+        lock = await verifyMeteredLock({ header, terms, minimum: 0n, readAccount, readSlot, replayStore: deps.replayStore, purpose: "session-settle", createRefundAccount: reserved });
       } catch {
+        if (reserved) subsidy.used = Math.max(0, subsidy.used - 1);
         return waiting("payment_check_unavailable");
       }
+      if (reserved && !(lock.ok && lock.payout.createRefundAccount)) subsidy.used = Math.max(0, subsidy.used - 1);
+      if (lock.ok && lock.payout.createRefundAccount) log({ event: "refund_account_created", requestId, escrow, account: lock.payout.refundTo.toBase58() });
+      if (!lock.ok && lock.reason === "refund_account_unusable" && !reserved) log({ event: "refund_account_subsidy_spent", escrow, alert: true });
       if (!lock.ok) {
         // The escrow is no longer locked. No settle of this session landed (that was checked above), so the buyer refunded it.
         if ((await escrowState(header.escrow)) === "closed") {
@@ -756,18 +765,14 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     const auth = sessionAuth(request, "single", header.escrow, header.payer, 0, requestText);
     if (!auth.ok) return auth.response;
     // A call whose settle was sent but not yet known to land: the same request collects its answer.
-    const waiting = waitingCalls.get(header.escrow.toBase58());
-    if (waiting) {
-      if (sha256Hex(waiting.requestText) !== sha256Hex(requestText)) return refuse(409, "settle_pending", "This lock's settle for an earlier request is still being confirmed. Send that same request again to collect its answer.", { charged: "unknown" });
-      const recorded = (await Promise.resolve(pendingSettles.load())).find((r) => r.escrow === waiting.escrow && r.status === "pending");
-      return settleAndAnswer(waiting, recorded);
-    }
-    const orphan = (await Promise.resolve(pendingSettles.load())).find((r) => r.escrow === header.escrow.toBase58() && r.status === "pending");
-    if (orphan) {
-      const where = await reconcileOrphan(orphan);
-      if (where === "landed") return refuse(410, "answer_unavailable", "This lock was settled, but the answer it paid for was lost when the provider restarted. The provider's operator has been alerted.", { charged: true, settleSignature: orphan.signature });
-      if (where === "pending") return refuse(503, "settle_pending", "This lock's settle is still being confirmed. Try again shortly.", { charged: "unknown" }, { "retry-after": "10" });
-      return refuse(409, "duplicate_nonce", "This lock's earlier settle did not land; nothing was charged, and the lock was given back if it was still there.", { charged: false });
+    // One look at a held settle per lock at a time; a second retry waits for it.
+    if (answering.has(header.escrow.toBase58())) return refuse(503, "settle_pending", "This lock's settle is already being checked. Try again shortly.", { charged: "unknown" }, { "retry-after": "10" });
+    answering.add(header.escrow.toBase58());
+    try {
+      const held = await collectHeld(header.escrow.toBase58(), requestText);
+      if (held) return held;
+    } finally {
+      answering.delete(header.escrow.toBase58());
     }
     let lock: Awaited<ReturnType<typeof verifyMeteredLock>>;
     try {
@@ -804,7 +809,34 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     }
 
     const usage = usageFrom(upstream, inputEstimate);
-    return settleAndAnswer({ escrow, escrowAddress: header.escrow, lock, requestId, requestText, upstream, usage, createdMs: nowMs() });
+    answering.add(escrow);
+    try {
+      return await settleAndAnswer({ escrow, escrowAddress: header.escrow, lock, requestId, requestText, upstream, usage, createdMs: nowMs() });
+    } finally {
+      answering.delete(escrow);
+    }
+  }
+
+  /**
+   * A lock whose settle was sent earlier and not known to have landed: the
+   * same request collects its held answer, and a settle whose answer was lost
+   * is looked up. Undefined when the lock has neither.
+   */
+  async function collectHeld(escrow: string, requestText: string): Promise<Response | undefined> {
+    const waiting = waitingCalls.get(escrow);
+    if (waiting) {
+      if (sha256Hex(waiting.requestText) !== sha256Hex(requestText)) return refuse(409, "settle_pending", "This lock's settle for an earlier request is still being confirmed. Send that same request again to collect its answer.", { charged: "unknown" });
+      const recorded = (await Promise.resolve(pendingSettles.load())).find((r) => r.escrow === waiting.escrow && r.status === "pending");
+      return settleAndAnswer(waiting, recorded);
+    }
+    const orphan = (await Promise.resolve(pendingSettles.load())).find((r) => r.escrow === escrow && r.status === "pending");
+    if (orphan) {
+      const where = await reconcileOrphan(orphan);
+      if (where === "landed") return refuse(410, "answer_unavailable", "This lock was settled, but the answer it paid for was lost when the provider restarted. The provider's operator has been alerted.", { charged: true, settleSignature: orphan.signature });
+      if (where === "pending") return refuse(503, "settle_pending", "This lock's settle is still being confirmed. Try again shortly.", { charged: "unknown" }, { "retry-after": "10" });
+      return refuse(409, "duplicate_nonce", "This lock's earlier settle did not land; nothing was charged, and the lock was given back if it was still there.", { charged: false });
+    }
+    return undefined;
   }
 
   /**
@@ -948,8 +980,9 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       return;
     }
     for (const record of records) {
-      if (record.status !== "pending" || waitingCalls.has(record.escrow)) continue;
-      await reconcileOrphan(record).catch(() => undefined);
+      if (record.status !== "pending" || waitingCalls.has(record.escrow) || answering.has(record.escrow)) continue;
+      answering.add(record.escrow);
+      await reconcileOrphan(record).catch(() => undefined).finally(() => answering.delete(record.escrow));
     }
   }
 

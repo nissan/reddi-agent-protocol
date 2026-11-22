@@ -255,6 +255,13 @@ export declare function verifyMeteredLock(input: {
      * other check still applies.
      */
     purpose?: 'call' | 'session-call' | 'session-settle';
+    /**
+     * `session-settle` only: when neither the account that funded the lock nor
+     * the payer's associated token account can take the unused part, let the
+     * settle create the associated account at the provider's cost. Default
+     * false, so the provider decides, and can bound, what it pays for.
+     */
+    createRefundAccount?: boolean;
 }): Promise<VerifiedLock>;
 /** The replay-store key that marks an escrow as taken, by a single call or by a session's first call. */
 export declare function meteredEscrowReplayKey(escrow: PublicKey): string;

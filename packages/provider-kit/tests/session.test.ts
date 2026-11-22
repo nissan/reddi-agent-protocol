@@ -44,11 +44,11 @@ function upstream(fail = false): Upstream & { calls: number; fail: boolean } {
   return u;
 }
 
-function setup(options: { chain?: FakeChain; store?: SessionStore; replayStore?: NonceReplayStore; sessions?: boolean } = {}) {
+function setup(options: { chain?: FakeChain; store?: SessionStore; replayStore?: NonceReplayStore; sessions?: boolean; file?: Parameters<typeof config>[0] } = {}) {
   const chain = options.chain ?? fakeChain();
   const clock = { ms: Date.parse("2026-12-05T00:00:00.000Z") };
   const events: Record<string, unknown>[] = [];
-  const cfg = config();
+  const cfg = config(options.file);
   const ledger = new MeteredSessionLedger(cfg.terms, options.store);
   const model = upstream();
   const handler = createProviderHandler(cfg, {
@@ -256,8 +256,8 @@ test("a lock the buyer refunded before the settle is recorded as unpaid, not set
   assert.equal(chain.signed.size, 0, "no settle was signed for a lock that is gone");
 });
 
-test("a buyer who closes the account its lock came from cannot block the settle: the kit creates its associated account and settles", async () => {
-  const { call, close, chain } = setup();
+test("a buyer who closes the account its lock came from cannot block the settle: within the operator's daily bound the kit creates its associated account and settles", async () => {
+  const { call, close, chain, events } = setup({ file: { refundAccountSubsidy: { maxPerDay: 1 } } });
   assert.equal((await call(1)).status, 200);
   chain.accounts.delete(ata(buyer).toBase58());
   const closed = await close();
@@ -266,6 +266,19 @@ test("a buyer who closes the account its lock came from cannot block the settle:
   assert.equal(settle.length, 2, "the settle creates the buyer's account first, at the provider's cost");
   assert.ok(settle[0].keys[0].pubkey.equals(provider.publicKey) && settle[0].keys[1].pubkey.equals(ata(buyer)) && settle[0].keys[2].pubkey.equals(buyer));
   assert.ok(settle[1].keys[7].pubkey.equals(ata(buyer)));
+  assert.ok(events.some((e) => e.event === "refund_account_created"));
+});
+
+test("without a subsidy left for the day, a session whose buyer closed its account waits and alerts instead of paying to create one", async () => {
+  const { call, close, chain, events } = setup();
+  assert.equal((await call(1)).status, 200);
+  chain.accounts.delete(ata(buyer).toBase58());
+  const before = settles(chain);
+  const closed = await close();
+  assert.notEqual(((await closed.json()) as { status: string }).status, "settled");
+  assert.equal(settles(chain), before, "nothing was sent");
+  assert.ok(events.some((e) => e.event === "refund_account_subsidy_spent" && e.alert === true));
+  assert.ok(events.some((e) => e.event === "session_settle_waiting" && e.alert === true));
 });
 
 test("sessions are off unless the operator turns them on", () => {

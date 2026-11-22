@@ -382,6 +382,13 @@ export async function verifyMeteredLock(input: {
    * other check still applies.
    */
   purpose?: 'call' | 'session-call' | 'session-settle';
+  /**
+   * `session-settle` only: when neither the account that funded the lock nor
+   * the payer's associated token account can take the unused part, let the
+   * settle create the associated account at the provider's cost. Default
+   * false, so the provider decides, and can bound, what it pays for.
+   */
+  createRefundAccount?: boolean;
 }): Promise<VerifiedLock> {
   const purpose = input.purpose ?? 'call';
   const { header, terms } = input;
@@ -461,13 +468,14 @@ export async function verifyMeteredLock(input: {
   }
   // Reading a lock back to settle calls already served: if the account that
   // funded it is gone, the unused part goes to the payer's associated token
-  // account, created by the settle at the provider's cost when it does not exist.
+  // account, created by the settle at the provider's cost when it does not
+  // exist and the provider allowed that.
   const payout = await checkMeteredPayout({
     terms,
     escrow,
     readAccount: input.readAccount,
     ...(input.treasury ? { treasury: input.treasury } : {}),
-    ...(purpose === 'session-settle' ? { allowPayerAssociatedAccount: true, createRefundAccount: true } : {}),
+    ...(purpose === 'session-settle' ? { allowPayerAssociatedAccount: true, createRefundAccount: input.createRefundAccount === true } : {}),
   });
   if (!payout.ok) return payout;
   if (purpose === 'call' && !(await input.replayStore.checkAndStore(meteredEscrowReplayKey(header.escrow)))) {
