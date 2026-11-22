@@ -84,7 +84,7 @@ then `UPSTREAM_API_KEY=... rap-provider start`. For a local model, point `baseUr
 
 To sell more than a raw model, add instructions with `"systemPrompt"` or, for long or private ones, `"systemPromptFile": "prompt.txt"` (a path next to the config). The prompt stays on your server. Its tokens are part of every call, so they are counted in the quote the buyer sees.
 
-Reddi's own providers, the video script writer and the humaniser, are set up this way: see [examples/first-party](examples/first-party/README.md) for their configs, prices and an outline of their private instructions.
+RAP's own first-party providers, the video script writer and the humaniser, are set up this way: see [examples/first-party](examples/first-party/README.md) for their configs, prices and an outline of their private instructions.
 
 ## List your provider
 
