@@ -295,12 +295,18 @@ export async function readPublicListings(network: ListingNetwork, deps: ListingS
       { apikey: config.anonKey, authorization: `Bearer ${config.anonKey}` },
       LIST_COLUMNS,
     );
-    if (!response.ok) return UNAVAILABLE;
+    if (!response.ok) {
+      // Say why in the server log (status only, nothing secret): a paused project, a missing
+      // table and a refused key all look the same to the caller.
+      console.error("[listings] read failed", { status: response.status });
+      return UNAVAILABLE;
+    }
     const rows = await response.json();
     if (!Array.isArray(rows)) return UNAVAILABLE;
     const listings = rows.map(fromRow).filter((l): l is Listing => l !== undefined && l.status === "listed" && l.network === network);
     return { ok: true, listings };
-  } catch {
+  } catch (error) {
+    console.error("[listings] read failed", { error: error instanceof Error ? error.name : "unknown" });
     return UNAVAILABLE;
   }
 }

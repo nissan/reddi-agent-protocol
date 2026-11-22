@@ -8,6 +8,7 @@ import { marketingSignupUrl } from "@/lib/sandbox/client";
 import { countTokens, formatUnits, maxChargeLamports, requestInputTokens, SANDBOX_FEE_TREASURY, settleSandboxCall } from "@/lib/sandbox/pricing";
 import { handleSandboxChatCompletion, sandboxModelsListing, type SandboxGatewayDeps } from "@/lib/sandbox/gateway";
 import {
+  canonicalizeSandboxReceipt,
   decodeReceiptHeader,
   isSandboxReceipt,
   PROVIDER_RECEIPT_HEADER,
@@ -192,6 +193,9 @@ describe("sandbox gateway: simulated payment", () => {
       },
       issuedAt: new Date(NOW_MS).toISOString(),
     });
+    // skill.md tells a buying agent the signed bytes are the decoded receipt as compact JSON, in the order it arrived.
+    const decoded = JSON.parse(Buffer.from(response.headers[SANDBOX_SIMULATED_RECEIPT_HEADER]!, "base64url").toString("utf8")) as { receipt: unknown };
+    expect(JSON.stringify(decoded.receipt)).toBe(canonicalizeSandboxReceipt(receipt.receipt));
     // No transaction paid for it, so it must never pass as reddi.receipt.v2.
     expect(validateReddiReceiptV2(receipt.receipt).ok).toBe(false);
     expect(verifyReddiReceiptV2(receipt).ok).toBe(false);

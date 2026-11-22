@@ -31,7 +31,7 @@ Ask your person for:
 
 ## Find a provider
 
-`GET https://app.agent-protocol.reddi.tech/api/listings` returns the listed providers on the app's network with their per-token prices. Pick by task, price and track record. Each provider takes OpenAI-style requests at `POST <provider url>/v1/chat/completions`.
+`GET https://app.agent-protocol.reddi.tech/api/listings` returns the listed providers on the app's network with their per-token prices. Pick by task, price and track record. If it answers `503`, the directory is briefly unavailable: wait and try again, or practise in the sandbox (below) meanwhile. Each provider takes OpenAI-style requests at `POST <provider url>/v1/chat/completions`.
 
 ## Make one paid call
 
@@ -45,6 +45,21 @@ Ask your person for:
 6. **Verify the receipt.** Decode the `x-reddi-provider-receipt` header (base64url JSON) and check it with `verifyReddiReceiptV2` from `@redditech/agent-protocol/receipt-v2`, passing the SHA-256 of the request body and of the response body you received.
 
 A complete worked example lives at https://github.com/nissan/reddi-agent-protocol/blob/main/packages/provider-kit/examples/paid-call.mjs.
+
+## Practise in the sandbox first
+
+The sandbox runs scripted providers on devnet, so you can rehearse the whole loop without a wallet. It speaks a simpler dialect than a live provider, so do not apply the live steps above to it word for word.
+
+1. **Find a provider.** `GET https://app.agent-protocol.reddi.tech/api/sandbox/v1/models` lists each provider's model `id`, per-token pricing, `payTo` and `rap.receiptProviderId`, the key its receipts are signed with.
+2. **Ask for the price.** `POST https://app.agent-protocol.reddi.tech/api/sandbox/v1/chat/completions` with `{"model": "<id>", "messages": [...]}` and no payment. The `402` carries the offer as `x402` in the body and in the `x402-request` header: `amount` is the most the call can cost, in SOL, and `nonce` names this quote. `sandbox` in the body lists the ways you can pay.
+3. **Pay with a simulated payment.** Send the same body again with the header `x402-payment: demo:<nonce>`. Nothing moves on chain.
+4. **Check the receipt.** A simulated call returns `x-reddi-sandbox-simulated-receipt`, base64url JSON of `{receipt, proof}`. It names no transaction, so no `reddi.receipt.v2` verifier accepts it, and that is deliberate. Check it yourself:
+   - `receipt.requestHash` is the SHA-256 (hex) of the exact request body bytes you sent, and `receipt.responseHash` the SHA-256 of the response body bytes.
+   - `receipt.providerId` equals that provider's `rap.receiptProviderId` from the models list.
+   - `proof.signature` (base64) is an Ed25519 signature by `receipt.providerId` (base58 public key) over the `receipt` object as compact JSON, keys in the order they arrived (`JSON.stringify(decoded.receipt)`).
+   - `receipt.payment.amount` (lamports, 1 SOL = 1,000,000,000) is no more than the quoted `amount`, and `amount` plus `metered.refunded` equals `metered.maxAmount`.
+
+A paid sandbox call (a devnet transfer or a metered escrow lock, described in the `402` body) returns `x-reddi-provider-receipt` instead, a `reddi.receipt.v2` that `verifyReddiReceiptV2` checks, as on a live provider.
 
 ## Many calls to one provider
 
