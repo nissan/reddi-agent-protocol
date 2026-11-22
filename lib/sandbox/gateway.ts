@@ -39,7 +39,7 @@ import {
   type SandboxSpotCheck,
 } from "./catalog";
 import { PublicKey } from "@solana/web3.js";
-import { decimalToBaseUnits } from "@redditech/x402-solana/payment";
+import { decimalToBaseUnits, demoNonceReplayKey } from "@redditech/x402-solana/payment";
 import { bytesEqual, decodeSandboxEscrow, escrowNonceBytes, SANDBOX_ESCROW_PROGRAM_ID, refundSlotsLeft, SANDBOX_MIN_CANCEL_WINDOW_SLOTS, sandboxEscrowAddress, sandboxRatingAddress, sandboxRatingOpenedSlot } from "./escrow";
 import { sandboxProviderAddress, signAsSandboxProvider } from "./keys";
 import type { SandboxSettler } from "./settle-signer";
@@ -248,7 +248,8 @@ async function verifySandboxPayment(header: string, provider: SandboxProvider, o
     if (record.payTo !== challenge.payTo) return rejected("wrong_payee", "receipt payee does not match challenge", challenge.payTo, record.payTo);
     if (String(record.amount) !== String(challenge.amount)) return rejected("wrong_amount", "receipt amount does not match challenge", challenge.amount, record.amount);
     if (record.currency !== challenge.currency) return rejected("wrong_currency", "receipt currency does not match challenge", challenge.currency, record.currency);
-    if (!(await deps.replayStore.checkAndStore(nonce))) return rejected("duplicate_nonce", "receipt nonce has already been used", undefined, nonce);
+    // The same key a demo receipt for this nonce is recorded under, so one nonce pays once either way.
+    if (!(await deps.replayStore.checkAndStore(demoNonceReplayKey(nonce)))) return rejected("duplicate_nonce", "receipt nonce has already been used", undefined, nonce);
     return { ok: true, mode: "simulated", nonce, payerId: SIMULATED_PAYER_ID, proofRef: `simulated:${nonce}` };
   }
 
