@@ -8,6 +8,7 @@ import type { NewsletterConfig } from "./config.ts";
 import { recipientAllowed } from "./config.ts";
 import { SIGNUP_COPY } from "./copy.ts";
 import { CATCH_UP_LABEL, catchUpLink } from "./links.ts";
+import { logStoreFailure } from "./http.ts";
 import { logProviderRefusal, type Mailer } from "./mailer.ts";
 import type { Broadcast, Contact, ContactStore, Versioned } from "./store.ts";
 import { ConflictError, contactKey, normaliseEmail } from "./store.ts";
@@ -22,10 +23,45 @@ export const BROADCAST_LEASE_MS = 10 * 60 * 1000; // a run that stops without cl
 // prints the same number (lib/policy.ts, checked by tests/policy.test.ts), so the two cannot drift apart.
 export const PENDING_RETENTION_DAYS = 7;
 const DAY = 24 * 60 * 60 * 1000;
-const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
+// Plain ASCII addresses only: a dot-atom local part (no quotes, angle brackets, commas, semicolons, brackets or
+// control characters, so a display-name or list form such as `a<b@c.co>` or `a,b@c.co` is refused) and a domain of
+// letter, digit and hyphen labels ending in an alphabetic top-level label.
+const LOCAL_RE = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/;
+const DOMAIN_RE = /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/;
 
 export function validEmail(raw: unknown): raw is string {
-  return typeof raw === "string" && raw.length <= 254 && EMAIL_RE.test(raw.trim());
+  if (typeof raw !== "string" || raw.length > 254) return false;
+  const value = raw.trim();
+  const at = value.lastIndexOf("@");
+  if (at < 1 || at !== value.indexOf("@")) return false;
+  const local = value.slice(0, at);
+  const domain = value.slice(at + 1);
+  return local.length <= 64 && domain.length <= 253 && LOCAL_RE.test(local) && DOMAIN_RE.test(domain);
+}
+
+// A site-wide ceiling on confirmation emails, whoever asks for them, so the form cannot be used to mail many
+// third parties from our sender domain. The counter is one limiter document in the shared store; any failure to
+// read or write it refuses the send (fail closed), unlike the per-client burst limiter in http.ts.
+export const GLOBAL_CONFIRM_SENDS_PER_HOUR = 60;
+export const GLOBAL_CONFIRM_BUCKET = "global-confirmation-sends";
+const HOUR = 60 * 60 * 1000;
+export async function reserveGlobalConfirmSend(deps: Deps, limit = GLOBAL_CONFIRM_SENDS_PER_HOUR): Promise<boolean> {
+  const now = deps.now();
+  for (let attempt = 0; attempt < CAS_RETRIES; attempt++) {
+    try {
+      const current = await deps.store.getLimit(GLOBAL_CONFIRM_BUCKET);
+      const inWindow = current !== null && now - current.value.windowStart < HOUR;
+      const count = inWindow ? current!.value.count : 0;
+      if (count >= limit) { console.error("newsletter-confirm-ceiling reached"); return false; }
+      await deps.store.putLimit(GLOBAL_CONFIRM_BUCKET, { count: count + 1, windowStart: inWindow ? current!.value.windowStart : now }, { version: current?.version ?? null });
+      return true;
+    } catch (error) {
+      if (error instanceof ConflictError) continue;
+      logStoreFailure("confirm-ceiling", error);
+      return false;
+    }
+  }
+  return false;
 }
 
 // Runs `attempt` against a fresh read until the conditional write succeeds or the retries run out.
@@ -78,6 +114,10 @@ export async function subscribe(deps: Deps, rawEmail: unknown): Promise<Subscrib
     const flagged = keepFlag ? { earlyAccess: true, earlyAccessAt: contact.earlyAccessAt } : { earlyAccess: true, earlyAccessAt: new Date(now).toISOString() };
     const reserved = { ...contact, ...flagged, sendCount: contact.sendCount + 1, lastSentAt: now };
     const version = await deps.store.putContact(key, reserved, { version: existing?.version ?? null }); // conflict => retry from a fresh read
+    if (!(await reserveGlobalConfirmSend(deps))) {
+      await releaseReservation(deps, key, existing ? null : version);
+      return "rate-limited";
+    }
     const token = issueToken(deps.config.signingSecret, "confirm", key, now);
     const link = `${deps.siteUrl}/newsletter/confirm?t=${encodeURIComponent(token)}`;
     const catchUp = catchUpLink(deps.siteUrl);
@@ -175,7 +215,8 @@ export async function prunePending(deps: Deps, options: { days?: number; dryRun?
   const dryRun = options.dryRun ?? false;
   const cutoff = deps.now() - days * DAY;
   const report: PruneReport = { examined: 0, pending: 0, stale: 0, removed: 0, skipped: 0, dryRun, days };
-  for (const c of await deps.store.listContacts()) {
+  // Only records last written before the cutoff can be stale, so the store reads just those (WEB-31, S3 review).
+  for (const c of await deps.store.listContactsWrittenBefore(cutoff)) {
     report.examined++;
     if (c.value.status !== "pending") continue;
     report.pending++;

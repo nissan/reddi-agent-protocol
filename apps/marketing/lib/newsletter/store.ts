@@ -51,6 +51,9 @@ export interface ContactStore {
   // ConflictError if the document changed since it was read, so a rollback never removes another writer's record.
   deleteContact(key: string, condition?: WriteCondition): Promise<void>;
   listContacts(): Promise<Versioned<Contact>[]>;
+  // Contacts whose document was last written before `olderThan` (ms since epoch), for the retention purge. Callers
+  // still check each record's own times; a store that cannot tell write times returns every contact.
+  listContactsWrittenBefore(olderThan: number): Promise<Versioned<Contact>[]>;
   getBroadcast(slug: string): Promise<Versioned<Broadcast> | null>;
   putBroadcast(broadcast: Broadcast, condition: WriteCondition): Promise<string>;
   getLimit(bucket: string): Promise<Versioned<Limit> | null>;
@@ -69,6 +72,7 @@ export interface ContactStore {
 // WEB-48: the listing is walked at most this many pages (1000 entries each) before the result is marked truncated, so
 // the number of list calls is bounded as well as the number of record reads.
 export const MAX_CONTACT_LIST_PAGES = 20;
+const READ_BATCH = 20;
 
 export function normaliseEmail(raw: string): string {
   return raw.trim().toLowerCase();
@@ -99,6 +103,7 @@ export class MemoryStore implements ContactStore {
     this.contacts.delete(key);
   }
   async listContacts() { return [...this.contacts.values()].map((c) => ({ value: structuredClone(c.value), version: c.version })); }
+  async listContactsWrittenBefore(_olderThan: number) { return this.listContacts(); }
   async listRecentContacts(max: number) {
     const sorted = [...this.contacts.values()].sort((a, b) => b.value.createdAt - a.value.createdAt);
     return { contacts: sorted.slice(0, max).map((c) => ({ value: structuredClone(c.value), version: c.version })), truncated: sorted.length > max, listingCut: false };
@@ -174,7 +179,28 @@ export class BlobStore implements ContactStore {
     let cursor: string | undefined;
     do {
       const page = await list({ prefix: `${this.prefix}/contacts/`, cursor, limit: 1000 });
-      for (const b of page.blobs) { const c = await this.read<Contact>(b.pathname); if (c) out.push(c); }
+      out.push(...await this.readContacts(page.blobs.map((b) => b.pathname)));
+      cursor = page.hasMore ? page.cursor : undefined;
+    } while (cursor);
+    return out;
+  }
+  // Reads in parallel batches, so a long list costs a fraction of one sequential read per record.
+  private async readContacts(pathnames: string[]): Promise<Versioned<Contact>[]> {
+    const out: Versioned<Contact>[] = [];
+    for (let i = 0; i < pathnames.length; i += READ_BATCH) {
+      const batch = await Promise.all(pathnames.slice(i, i + READ_BATCH).map((p) => this.read<Contact>(p)));
+      for (const c of batch) if (c) out.push(c);
+    }
+    return out;
+  }
+  // The listing carries each document's upload time, so only records old enough to be stale are read.
+  async listContactsWrittenBefore(olderThan: number) {
+    const { list } = await this.sdkLoader();
+    const out: Versioned<Contact>[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await list({ prefix: `${this.prefix}/contacts/`, cursor, limit: 1000 });
+      out.push(...await this.readContacts(page.blobs.filter((b) => new Date(b.uploadedAt).getTime() < olderThan).map((b) => b.pathname)));
       cursor = page.hasMore ? page.cursor : undefined;
     } while (cursor);
     return out;

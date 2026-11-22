@@ -4,7 +4,7 @@ import { issueToken, verifyToken, CONFIRM_TTL_MS } from "../lib/newsletter/token
 import { BlobStore, ConflictError, MemoryStore, contactKey, type BlobSdk, type Contact } from "../lib/newsletter/store.ts";
 import { FakeMailer } from "../lib/newsletter/mailer.ts";
 import { readConfig, recipientAllowed } from "../lib/newsletter/config.ts";
-import { subscribe, confirm, unsubscribe, deleteContact, broadcast, prunePending, lastConfirmationSendAt, BROADCAST_LEASE_MS, MAX_CONFIRM_SENDS_PER_DAY, PENDING_RETENTION_DAYS, type Deps } from "../lib/newsletter/flow.ts";
+import { subscribe, confirm, unsubscribe, deleteContact, broadcast, prunePending, lastConfirmationSendAt, validEmail, GLOBAL_CONFIRM_BUCKET, GLOBAL_CONFIRM_SENDS_PER_HOUR, BROADCAST_LEASE_MS, MAX_CONFIRM_SENDS_PER_DAY, PENDING_RETENTION_DAYS, type Deps } from "../lib/newsletter/flow.ts";
 import { DurableLimiter, isOutage, readSmallJson, readToken, retryLater, sameOrigin } from "../lib/newsletter/http.ts";
 
 const SECRET = "0123456789abcdef0123456789abcdef";
@@ -656,4 +656,46 @@ test("welcome: one message on confirmation carries a working unsubscribe link an
   assert.equal(await status(d, "w2@owner-test.example"), "confirmed");
   assert.equal(await confirm(d, t2), "already-confirmed");
   assert.equal(d.mailer.sent.length, before);
+});
+
+test("S3 review: the email check refuses display-name, list and quoted forms and accepts ordinary addresses", () => {
+  for (const bad of ["a<victim@example.com>", "\"x\"<victim@example.com>", "x,victim@example.com", "a;b@example.com", "a(b)@example.com", "a[b]@example.com", "a\\b@example.com", "a b@example.com", "a\u0000b@example.com", "a..b@example.com", ".a@example.com", "a.@example.com", "a@b@example.com", "a@example", "a@-example.com", "a@example-.com", "a@exa_mple.com", "a@example.c0m", "ä@example.com", "a@exämple.com", "@example.com", "a@", `${"a".repeat(65)}@example.com`, 42, null]) assert.equal(validEmail(bad), false, String(bad));
+  for (const good of ["alice@example.com", "Alice.Smith+news@mail.example.co.uk", "o'neil@example.com", "a_b-c@sub-domain.example.io", "  padded@example.com  "]) assert.equal(validEmail(good), true, good);
+});
+
+test("S3 review: a site-wide hourly ceiling on confirmation emails, which fails closed", async () => {
+  const d = deps({ publicCollection: true });
+  for (let i = 0; i < GLOBAL_CONFIRM_SENDS_PER_HOUR; i++) assert.equal(await subscribe(d, `person${i}@example.com`), "accepted");
+  assert.equal(d.mailer.sent.length, GLOBAL_CONFIRM_SENDS_PER_HOUR);
+  assert.equal(await subscribe(d, "one-more@example.com"), "rate-limited");
+  assert.equal(d.mailer.sent.length, GLOBAL_CONFIRM_SENDS_PER_HOUR, "no email past the ceiling");
+  assert.equal(await d.store.getContact(K("one-more@example.com")), null, "a refused request leaves no record");
+  d.clock.t += 60 * 60 * 1000;
+  assert.equal(await subscribe(d, "next-hour@example.com"), "accepted", "a new hour opens a new window");
+  // the counter cannot be read: no email, and the per-address reservation is given back
+  const broken = deps({ publicCollection: true });
+  broken.store.getLimit = async (bucket) => { if (bucket === GLOBAL_CONFIRM_BUCKET) throw Object.assign(new Error("Vercel Blob: Service unavailable"), { name: "BlobServiceNotAvailable" }); return null; };
+  const realError = console.error; console.error = () => undefined;
+  try { assert.equal(await subscribe(broken, "outage@example.com"), "rate-limited"); } finally { console.error = realError; }
+  assert.equal(broken.mailer.sent.length, 0);
+  assert.equal(await broken.store.getContact(K("outage@example.com")), null);
+});
+
+test("S3 review: the purge reads only records written before the cutoff, in batches", async () => {
+  const DAY = 24 * 3600 * 1000; const now = Date.UTC(2026, 10, 22);
+  const docs = new Map<string, { body: string; etag: string; at: Date }>();
+  const add = (key: string, c: Contact, at: number) => docs.set(`newsletter/contacts/${key}.json`, { body: JSON.stringify(c), etag: `e-${key}`, at: new Date(at) });
+  const pending = (email: string, at: number): Contact => ({ email, status: "pending", createdAt: at, confirmedAt: null, unsubscribedAt: null, sendWindowStart: at, sendCount: 1, lastSentAt: at });
+  for (let i = 0; i < 45; i++) add(`old${i}`, pending(`old${i}@example.com`, now - 9 * DAY), now - 9 * DAY);
+  for (let i = 0; i < 30; i++) add(`new${i}`, pending(`new${i}@example.com`, now - DAY), now - DAY);
+  const reads: string[] = [];
+  const sdk = {
+    list: async ({ cursor }: { cursor?: string }) => { const all = [...docs].map(([pathname, d]) => ({ pathname, uploadedAt: d.at })); const start = cursor ? Number(cursor) : 0; const blobs = all.slice(start, start + 50); return { blobs, hasMore: start + 50 < all.length, cursor: String(start + 50) }; },
+    get: async (pathname: string) => { reads.push(pathname); const d = docs.get(pathname); return d ? { statusCode: 200, stream: new Response(d.body).body, blob: { etag: d.etag } } : null; },
+  } as unknown as BlobSdk;
+  const store = new BlobStore("newsletter", async () => sdk);
+  const found = await store.listContactsWrittenBefore(now - 7 * DAY);
+  assert.equal(found.length, 45);
+  assert.equal(reads.length, 45, "records written inside the period are never read");
+  assert.ok(reads.every((p) => p.includes("/old")));
 });
