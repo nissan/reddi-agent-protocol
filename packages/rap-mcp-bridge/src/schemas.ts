@@ -62,7 +62,7 @@ export const prepareX402SpecialistCallInputSchema = {
 
 export const executeX402SpecialistCallInputSchema = {
   endpoint: z.string().url().max(512),
-  body: z.record(z.unknown()),
+  body: z.record(z.string(), z.unknown()),
   idempotencyKey: z.string().min(1).max(128),
   maxUsdcMicroUnits: z.number().int().positive().max(1_000_000),
   expectedPayTo: z.string().max(128).optional(),
