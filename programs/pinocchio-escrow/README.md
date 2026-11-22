@@ -779,14 +779,15 @@ escrow and registry instructions only:
 
 | | Anchor (13 instructions) | Pinocchio (23 instructions) | Change |
 |---|---|---|---|
-| Program size | 345,152 bytes | 96,872 bytes | 72% smaller |
-| Rent at 6,960 lamports per byte | 2.4046 SOL | 0.6766 SOL | 1.7280 SOL less |
-| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.4938 SOL | 1.2613 SOL less |
-| `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 104,208 bytes | 79% smaller |
+| Program size | 345,152 bytes | 97,048 bytes | 72% smaller |
+| Rent at 6,960 lamports per byte | 2.4046 SOL | 0.6778 SOL | 1.7268 SOL less |
+| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.4947 SOL | 1.2604 SOL less |
+| `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 104,384 bytes | 79% smaller |
 
 Before ratings and attestations were added the Pinocchio build was 62,248
 bytes (0.4356 SOL at 6,960); they cost 33,992 bytes and 0.2366 SOL of rent.
-Making every exit name its escrow added 632 bytes (0.0044 SOL at 6,960).
+Making every exit name its escrow added 632 bytes (0.0044 SOL at 6,960), and
+the launch-rate fee schedule 176 bytes (0.0012 SOL).
 
 Rent is for the program account (36 bytes) plus the program data account (45
 bytes of header plus the binary), each with the 128-byte account overhead:
