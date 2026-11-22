@@ -3,7 +3,7 @@
 const origin = (process.env.SMOKE_ORIGIN ?? "http://127.0.0.1:3000").replace(/\/$/, "");
 const problems = [];
 const check = (ok, what) => { if (!ok) problems.push(what); };
-const pages = { "/": "Get the receipt", "/status": "What we do not claim", "/sandbox": "Devnet tokens have no value", "/privacy": "confirmed opt-in", "/terms": "No financial or investment advice", "/updates": "What has been built", "/watch": "See it explained", "/newsletter/closed": "does not collect email addresses yet", "/newsletter/confirm": "NEWSLETTER" };
+const pages = { "/": "Get the receipt", "/status": "Where things stand", "/sandbox": "Devnet tokens have no value", "/privacy": "confirmed opt-in", "/terms": "No financial or investment advice", "/updates": "What has been built", "/watch": "See it explained", "/newsletter/closed": "does not collect email addresses yet", "/newsletter/confirm": "NEWSLETTER" };
 for (const [path, phrase] of Object.entries(pages)) {
   const res = await fetch(origin + path);
   const html = await res.text();
@@ -12,7 +12,7 @@ for (const [path, phrase] of Object.entries(pages)) {
   check(/noindex/.test(res.headers.get("x-robots-tag") ?? ""), `${path}: no X-Robots-Tag noindex`);
   check(res.headers.get("x-frame-options") === "DENY", `${path}: no X-Frame-Options`);
   check(!/platform\.twitter\.com|<iframe/i.test(html), `${path}: third-party embed present before any click`);
-  check(/nothing is on mainnet yet/i.test(html), `${path}: stage line missing`);
+  check(/mainnet is coming soon/i.test(html), `${path}: stage line missing`);
 }
 const home = await (await fetch(origin + "/")).text();
 check(/<input[^>]*disabled[^>]*id="newsletter-email"|<input[^>]*id="newsletter-email"[^>]*disabled/.test(home), "/: signup input is not disabled");
