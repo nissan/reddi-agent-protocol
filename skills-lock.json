@@ -1,11 +1,25 @@
 {
-  "version": 1,
+  "version": 2,
   "skills": {
     "colosseum-copilot": {
       "source": "ColosseumOrg/colosseum-copilot",
       "sourceType": "github",
       "skillPath": "skills/colosseum-copilot/SKILL.md",
-      "computedHash": "7859139478a5276c63a6114f0c3f9899ca4a30b5e4239825d16b92e8744e9e07"
+      "computedHash": "c42cee5e3ba524294a4da87b4a7b6ba0ad87a4ef9db4f4b3b74aa66673e12fa0"
+    },
+    "frontend-design": {
+      "source": "anthropics/skills",
+      "commit": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
+      "sourceType": "github",
+      "skillPath": "skills/frontend-design/SKILL.md",
+      "computedHash": "83485963700bcf11d5bf78118facb301676b69d918fee2e45a95e7f1a2840f6c"
+    },
+    "web-design-guidelines": {
+      "source": "vercel-labs/agent-skills",
+      "commit": "5a37a6329fbad3666c3207392a6a7c0110e92efb",
+      "sourceType": "github",
+      "skillPath": "skills/web-design-guidelines/SKILL.md",
+      "computedHash": "5994e4cfd86144903d2ba750f862b9e36af15e3297aac983679e347b99f6cb71"
     }
   }
 }
