@@ -185,3 +185,31 @@ export function applySessionOutcome(handle: PlannerSessionHandle, ok: boolean, o
   }
   return { handle: next, note: `Call ${recorded.session.nextSequence - 1} of this session. No wallet prompt was needed.` };
 }
+
+/**
+ * Signs a request to settle the session now (#863 follow-up): the session
+ * key's `close` signature, sequence 0, over an empty body. `sequence` is the
+ * number the closing receipt must carry. Refused when the session is not open
+ * or has served no call.
+ */
+export async function prepareSessionClose(handle: PlannerSessionHandle): Promise<{ ok: true; close: { sequence: number; delegation: string; signature: string } } | { ok: false; message: string }> {
+  if (handle.ledger.state !== "open") return { ok: false, message: "This session is not open, so there is nothing to settle now." };
+  if (handle.ledger.calls.length === 0) return { ok: false, message: "This session has served no call yet, so there is nothing to settle. Cancel the lock for a refund once its cancel window opens." };
+  const signature = await sessionSignatureHeaderValue({ action: "close", escrow: handle.ledger.escrow, sequence: 0, body: "" }, handle.sessionKey.sign);
+  return { ok: true, close: { sequence: handle.ledger.nextSequence, delegation: handle.delegation, signature } };
+}
+
+/** Records the answer to a settle-now request. Returns the updated session and a line for the buyer. */
+export function applySessionClose(handle: PlannerSessionHandle, answer: { ok?: unknown; session?: PlannerSessionOutcomeView; error?: unknown }): { handle: PlannerSessionHandle; note: string } {
+  const outcome = answer.session;
+  if (outcome?.closing) {
+    const closed = recordSessionAnswer(handle.ledger, { receipt: outcome.closing.receipt, receiptHash: outcome.closing.receiptHash });
+    const next = { ...handle, ledger: closed.session };
+    if (!closed.ok) return { handle: next, note: `The closing receipt does not match your own count (${closed.message}).` };
+    return { handle: next, note: `Session settled: ${next.ledger.calls.length - 1} ${next.ledger.calls.length === 2 ? "call" : "calls"} for one lock and one settle. The rest of the lock came back to you.` };
+  }
+  const error = typeof answer.error === "string" ? answer.error : "The session was not settled.";
+  if (outcome?.state === "pending") return { handle: stopped(handle, "closing", "The provider is settling this session."), note: error };
+  if (outcome?.refusal === "session_not_found" || outcome?.refusal === "session_closed") return { handle: stopped(handle, "closing", "The provider has no open session on this lock."), note: error };
+  return { handle, note: error };
+}

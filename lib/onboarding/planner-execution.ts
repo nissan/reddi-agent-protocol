@@ -17,7 +17,18 @@ import { checkAndStoreProviderReceipt, PROVIDER_RECEIPT_HEADER } from "@/lib/job
 import { refreshProviderStats } from "@/lib/jobs/provider-stats";
 import { emitTorqueEvent } from "@/lib/torque/client";
 import { plannerChatPayload } from "@/lib/onboarding/planner-payload";
-import { checkSessionAnswer, paidCallAuthRequestHeaders, sessionRequestHeaders, type PlannerPaidCallAuth, type PlannerSessionOutcome, type PlannerSessionRequest } from "@/lib/onboarding/planner-session";
+import {
+  checkSessionAnswer,
+  checkSessionCloseAnswer,
+  paidCallAuthRequestHeaders,
+  sessionCloseRequestHeaders,
+  sessionRequestHeaders,
+  type CheckedSessionReceipt,
+  type PlannerPaidCallAuth,
+  type PlannerSessionCloseRequest,
+  type PlannerSessionOutcome,
+  type PlannerSessionRequest,
+} from "@/lib/onboarding/planner-session";
 import { TORQUE_EVENTS } from "@/lib/torque/events";
 
 export type PlannerExecuteInput = {
@@ -405,6 +416,8 @@ async function recordWalletPaidJob(
   input: PlannerExecuteInput,
   ctx: WalletRunContext,
   outcome: { delivered: boolean; responseText?: string },
+  /** A settled session: one job for the whole lock, named by its settle and its closing receipt. */
+  settledSession?: { settleSignature: string; closing: CheckedSessionReceipt },
 ): Promise<PaidCallOutcome | MeteredCallOutcome> {
   try {
     const listing = await readOwnListing(ctx.selectedWallet);
@@ -412,15 +425,16 @@ async function recordWalletPaidJob(
     const responseHash = outcome.responseText === undefined ? undefined : createHash("sha256").update(outcome.responseText).digest("hex");
     if ((input.paymentReceipt as { settlement?: unknown } | undefined)?.settlement === "metered-escrow") {
       // Nothing is charged until the provider settles; without a settle there is no job to record.
-      if (outcome.responseText === undefined) return { recorded: false, reason: "not_settled" };
+      if (!settledSession && outcome.responseText === undefined) return { recorded: false, reason: "not_settled" };
       return await verifyAndRecordMeteredCall(
         {
           receipt: input.paymentReceipt,
-          settleSignature: settleSignatureFromBody(outcome.responseText),
+          settleSignature: settledSession ? settledSession.settleSignature : settleSignatureFromBody(outcome.responseText ?? ""),
           listing: listing.listing,
           profile: resolveNetworkProfileName(),
-          requestHash: ctx.promptSha256,
-          responseHash,
+          // A session's job is named by its closing receipt, which chains back through every call's receipt.
+          requestHash: settledSession ? settledSession.closing.receiptHash : ctx.promptSha256,
+          responseHash: settledSession ? undefined : responseHash,
           declaredModel: ctx.model,
           delivered: outcome.delivered,
           session: input.buyerSession,
@@ -447,6 +461,21 @@ async function recordWalletPaidJob(
     );
   } catch {
     return { recorded: false, reason: "job_check_failed" };
+  }
+}
+
+/** Records a settled session as one job, when a database is configured. Adds its outcome to the run's trace. */
+async function recordSettledSessionJob(input: PlannerExecuteInput, ctx: WalletRunContext, run: PlannerRunRecord, settled: { settleSignature: string; closing: CheckedSessionReceipt }) {
+  if (ctx.listingSource !== "database") {
+    run.trace.push("job:not_recorded:no_database");
+    return;
+  }
+  const recorded = await recordWalletPaidJob(input, ctx, { delivered: true }, settled);
+  run.trace.push(recorded.recorded ? "job:recorded:session" : `job:not_recorded:${recorded.reason}`);
+  if (recorded.recorded) {
+    run.jobId = recorded.jobId;
+    const stats = await refreshProviderStats(ctx.selectedWallet).catch(() => ({ updated: false as const, reason: "refresh_failed" }));
+    run.trace.push(stats.updated ? "provider_stats:updated" : `provider_stats:not_updated:${stats.reason}`);
   }
 }
 
@@ -631,8 +660,13 @@ async function executeWithWalletPayment(input: PlannerExecuteInput, ctx: WalletR
         sessionOutcome.call ? "session:receipt_checked" : `session:receipt_not_checked:${sessionOutcome.problem ?? sessionOutcome.refusal ?? "none"}`,
         ...(sessionOutcome.closing ? ["session:closing_receipt_checked"] : []),
         ...(sessionOutcome.state ? [`session:state:${sessionOutcome.state}`] : []),
-        "job:not_recorded:session_call",
       );
+      // The calls of a session are one job: recorded once, when its settle is named in a closing receipt that checks out.
+      if (sessionOutcome.closing && settledBy) {
+        await recordSettledSessionJob(input, ctx, run, { settleSignature: settledBy, closing: sessionOutcome.closing });
+      } else {
+        run.trace.push("job:not_recorded:session_call");
+      }
       appendRun(run);
       return { ok: paid.ok, result: run, response: text, candidates: ctx.candidates, session: sessionOutcome as PlannerSessionOutcome };
     }
@@ -704,4 +738,93 @@ export function listPlannerRuns() {
     results: readRuns(),
     storagePath: RUNS_PATH,
   };
+}
+
+/**
+ * Settles a session now (#863 follow-up): forwards the session key's `close`
+ * request to the provider's `POST /v1/session/close` with the lock's receipt,
+ * checks the closing receipt, and records the session as one job. Nothing is
+ * signed here; the provider decides whether the signature is good.
+ */
+export async function closePlannerSession(input: {
+  preferredWallet: string;
+  paymentReceipt: unknown;
+  close: PlannerSessionCloseRequest;
+  buyerSession?: { userId: string; wallet: string };
+}): Promise<{ ok: boolean; session: PlannerSessionOutcome; settleTxSignature?: string; jobId?: string; error?: string; trace: string[] }> {
+  const index = await loadListingIndex();
+  const routed = routePlannerPolicy({ requiresHealthPass: true, preferredWallet: input.preferredWallet }, index.source === "database" ? index.entries : undefined);
+  const escrow = (input.paymentReceipt as { escrow?: unknown } | null)?.escrow;
+  const session: PlannerSessionOutcome = { escrow: typeof escrow === "string" ? escrow : "", sequence: input.close.sequence };
+  const refused = (error: string, trace: string) => ({ ok: false, session, error, trace: [trace] });
+  if (!routed.selected?.endpointUrl || routed.selected.walletAddress !== input.preferredWallet) return refused("That provider is not available, so nothing was sent.", "session_close:provider_not_eligible");
+  const receipt = receiptHeaderForProvider(input.paymentReceipt);
+  if (!receipt.ok) return refused(receipt.message, `session_close:receipt_refused:${receipt.reason}`);
+  const paid = input.paymentReceipt as { settlement?: unknown; payTo?: unknown };
+  if (paid.settlement !== "metered-escrow" || typeof escrow !== "string") return refused("Only a metered escrow lock has a session to settle.", "session_close:not_metered");
+  if (paid.payTo !== routed.selected.walletAddress) return refused("The lock is for a different provider from the one selected.", "session_close:wrong_provider");
+
+  const ctx: WalletRunContext = {
+    listingSource: index.source,
+    model: plannerChatPayload("settle").model,
+    runId: `run_${randomUUID()}`,
+    createdAt: new Date().toISOString(),
+    policy: { preferredWallet: input.preferredWallet },
+    promptSha256: "",
+    trace: [],
+    endpointUrl: routed.selected.endpointUrl,
+    selectedWallet: routed.selected.walletAddress,
+    payload: undefined,
+    candidates: [],
+  };
+  const url = endpointPath(ctx.endpointUrl, "/v1/session/close");
+  const trace = [`session_close:start:${url}`];
+  let answer: Response;
+  let text: string;
+  try {
+    answer = await fetch(url, {
+      method: "POST",
+      headers: { "x402-payment": receipt.header, ...sessionCloseRequestHeaders(input.close) },
+      body: "",
+      signal: AbortSignal.timeout(60000),
+    });
+    text = await answer.text();
+  } catch (error) {
+    return { ok: false, session, error: `The provider could not be reached (${error instanceof Error ? error.message : "request failed"}). Nothing changed; it still settles the session once it is idle.`, trace: [...trace, "session_close:unreachable"] };
+  }
+  const outcome = checkSessionCloseAnswer({ status: answer.status, headers: answer.headers, responseText: text, providerWallet: ctx.selectedWallet, escrow, sequence: input.close.sequence });
+  trace.push(`session_close:status:${answer.status}`, ...(outcome.state ? [`session:state:${outcome.state}`] : []), ...(outcome.problem ? [`session:receipt_not_checked:${outcome.problem}`] : []));
+  const settleTxSignature = outcome.closing?.receipt.payment?.txSignature;
+  const run: PlannerRunRecord = {
+    runId: ctx.runId,
+    createdAt: ctx.createdAt,
+    policy: ctx.policy,
+    promptSha256: "",
+    paymentMode: "wallet",
+    selectedWallet: ctx.selectedWallet,
+    endpointUrl: ctx.endpointUrl,
+    status: outcome.closing ? "completed" : "failed",
+    challengeSeen: false,
+    paymentAttempted: false,
+    paymentSatisfied: Boolean(outcome.closing),
+    responseStatus: answer.status,
+    trace,
+  };
+  if (outcome.closing && settleTxSignature) {
+    run.settleTxSignature = settleTxSignature;
+    trace.push("session:closing_receipt_checked");
+    await recordSettledSessionJob({ prompt: "", paymentMode: "wallet", paymentReceipt: input.paymentReceipt, buyerSession: input.buyerSession, preferredWallet: input.preferredWallet }, ctx, run, { settleSignature: settleTxSignature, closing: outcome.closing });
+  }
+  const error = outcome.closing
+    ? undefined
+    : outcome.state === "pending"
+      ? "The provider is settling the session now. It is not confirmed yet; check again shortly."
+      : outcome.refusal === "session_not_found"
+        ? "The provider has no open session on this lock. It may have settled already after the session went idle."
+        : outcome.refusal
+          ? `The provider refused to settle now (${outcome.refusal}). It still settles the session once it is idle, before your refund window opens.`
+          : `The provider answered without a closing receipt that checks out (${outcome.problem ?? "none"}).`;
+  if (error) run.error = error;
+  appendRun(run);
+  return { ok: Boolean(outcome.closing), session: outcome, settleTxSignature, jobId: run.jobId, error, trace: run.trace };
 }
