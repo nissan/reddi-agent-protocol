@@ -21,7 +21,7 @@ describe("checkRpcBody", () => {
   });
 
   it("limits getProgramAccounts to the app's programs", () => {
-    expect(checkRpcBody(JSON.stringify(call("getProgramAccounts", [PROGRAM])), programs).ok).toBe(true);
+    expect(checkRpcBody(JSON.stringify(call("getProgramAccounts", [PROGRAM, { filters: [{ dataSize: 200 }] }])), programs).ok).toBe(true);
     const other = checkRpcBody(JSON.stringify(call("getProgramAccounts", ["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"])), programs);
     expect(other).toMatchObject({ ok: false, status: 403 });
     expect(checkRpcBody(JSON.stringify(call("getProgramAccounts")), programs).ok).toBe(false);
