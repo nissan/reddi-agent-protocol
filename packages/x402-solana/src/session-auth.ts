@@ -289,6 +289,8 @@ export interface ConfirmedTransactionFacts {
   accounts: string[];
   /** Each Memo program instruction: its UTF-8 text and the base58 accounts it names. */
   memos: { text: string; accounts: string[] }[];
+  /** The slot the transaction landed in, when the reader knows it. */
+  slot?: bigint;
 }
 
 /** Reads a confirmed transaction by signature, or null when the cluster does not have it (yet). Throws when the chain cannot be read. */
@@ -298,6 +300,7 @@ export type TransactionFactsReader = (signature: string) => Promise<ConfirmedTra
 export function transactionFactsReader(connection: { getTransaction: (signature: string, options: { commitment: 'confirmed' | 'finalized'; maxSupportedTransactionVersion: number }) => Promise<unknown> }, commitment: 'confirmed' | 'finalized' = 'confirmed'): TransactionFactsReader {
   return async (signature) => {
     const tx = (await connection.getTransaction(signature, { commitment, maxSupportedTransactionVersion: 0 })) as {
+      slot?: number;
       meta: { err: unknown; loadedAddresses?: { writable: PublicKey[]; readonly: PublicKey[] } } | null;
       transaction: { message: { header: { numRequiredSignatures: number }; staticAccountKeys?: PublicKey[]; accountKeys?: PublicKey[]; compiledInstructions?: { programIdIndex: number; accountKeyIndexes: number[]; data: Uint8Array }[]; instructions?: { programIdIndex: number; accounts: number[]; data: string }[] } };
     } | null;
@@ -311,7 +314,13 @@ export function transactionFactsReader(connection: { getTransaction: (signature:
     const memos = compiled
       .filter((ix) => accounts[ix.programIdIndex] === MEMO_PROGRAM_ID.toBase58())
       .map((ix) => ({ text: Buffer.from(ix.data).toString('utf8'), accounts: ix.accountKeyIndexes.map((i) => accounts[i] ?? '') }));
-    return { failed: tx.meta === null || tx.meta.err !== null, signers: statics.slice(0, message.header.numRequiredSignatures), accounts, memos };
+    return {
+      failed: tx.meta === null || tx.meta.err !== null,
+      signers: statics.slice(0, message.header.numRequiredSignatures),
+      accounts,
+      memos,
+      ...(typeof tx.slot === 'number' ? { slot: BigInt(tx.slot) } : {}),
+    };
   };
 }
 
@@ -341,8 +350,13 @@ function bs58Decode(value: string): Uint8Array {
  * memo in its lock transaction. Without `readTransaction` a lock-bound
  * delegation is refused. Run it after the lock check, so the escrow named
  * here is known to be this payer's lock.
+ *
+ * An escrow address can be used again once a lock ends. Pass the escrow's
+ * `created_slot` as `escrowCreatedSlot` to require that the lock transaction
+ * is the one that created this escrow. When the escrow is read later, compare
+ * the returned `lockSlot` with its `created_slot` instead.
  */
-export async function verifySessionRequestWithTransactions(input: SessionRequestInput & { readTransaction?: TransactionFactsReader }): Promise<{ ok: true; sessionKey: string; expiresAt: number } | SessionAuthFailure | { ok: false; reason: 'payment_check_unavailable'; message: string }> {
+export async function verifySessionRequestWithTransactions(input: SessionRequestInput & { readTransaction?: TransactionFactsReader; escrowCreatedSlot?: bigint }): Promise<{ ok: true; sessionKey: string; expiresAt: number; lockSlot?: bigint } | SessionAuthFailure | { ok: false; reason: 'payment_check_unavailable'; message: string }> {
   const parsed = parseSessionRequest(input);
   if (!parsed.ok) return parsed;
   if (parsed.proof.kind === 'signature') return verifySessionRequest(input);
@@ -363,7 +377,10 @@ export async function verifySessionRequestWithTransactions(input: SessionRequest
   if (!facts.memos.some((m) => m.text === memo && m.accounts.includes(payer))) {
     return invalid('The lock transaction carries no memo for this delegation signed by the payer.');
   }
-  return { ok: true, sessionKey: parsed.delegation.sessionKey, expiresAt: parsed.delegation.expiresAt };
+  if (input.escrowCreatedSlot !== undefined && facts.slot !== input.escrowCreatedSlot) {
+    return invalid('The lock transaction did not create this escrow: its slot does not match the escrow\'s created slot.');
+  }
+  return { ok: true, sessionKey: parsed.delegation.sessionKey, expiresAt: parsed.delegation.expiresAt, ...(facts.slot !== undefined ? { lockSlot: facts.slot } : {}) };
 }
 
 /** Provider side, single metered call: `verifySessionRequestWithTransactions` with action `single` and sequence 0. */

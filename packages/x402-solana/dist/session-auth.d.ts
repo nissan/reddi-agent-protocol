@@ -127,6 +127,8 @@ export interface ConfirmedTransactionFacts {
         text: string;
         accounts: string[];
     }[];
+    /** The slot the transaction landed in, when the reader knows it. */
+    slot?: bigint;
 }
 /** Reads a confirmed transaction by signature, or null when the cluster does not have it (yet). Throws when the chain cannot be read. */
 export type TransactionFactsReader = (signature: string) => Promise<ConfirmedTransactionFacts | null>;
@@ -142,13 +144,20 @@ export declare function transactionFactsReader(connection: {
  * memo in its lock transaction. Without `readTransaction` a lock-bound
  * delegation is refused. Run it after the lock check, so the escrow named
  * here is known to be this payer's lock.
+ *
+ * An escrow address can be used again once a lock ends. Pass the escrow's
+ * `created_slot` as `escrowCreatedSlot` to require that the lock transaction
+ * is the one that created this escrow. When the escrow is read later, compare
+ * the returned `lockSlot` with its `created_slot` instead.
  */
 export declare function verifySessionRequestWithTransactions(input: SessionRequestInput & {
     readTransaction?: TransactionFactsReader;
+    escrowCreatedSlot?: bigint;
 }): Promise<{
     ok: true;
     sessionKey: string;
     expiresAt: number;
+    lockSlot?: bigint;
 } | SessionAuthFailure | {
     ok: false;
     reason: 'payment_check_unavailable';
