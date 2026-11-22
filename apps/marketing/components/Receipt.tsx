@@ -10,7 +10,7 @@ const ROWS: [string, string][] = [
   ["price", "$3.00 / $15.00 per million tokens"],
   ["max approved", "0.0336 USDC"],
   ["cost", "0.0156 USDC · 0.02418 AUDD · x402 · Solana devnet"],
-  ["protocol fee (planned)", "2.5% · 0.00039 USDC"],
+  ["protocol fee (planned)", "2.5% launch rate · 0.00039 USDC"],
   ["refunded", "0.018 USDC"],
   ["payment tx", "4xQp…sample"],
   ["provider signature", "ed25519 · 7Hn3…sample"],

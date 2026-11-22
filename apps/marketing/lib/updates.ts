@@ -76,6 +76,24 @@ export const UPDATES: readonly Update[] = [
     ],
     status: "draft",
   },
+  {
+    slug: "launch-pricing",
+    date: "2026-11-23",
+    title: "Launch pricing for providers",
+    summary: "The protocol fee will be 5% of what a call actually cost, with a launch rate of 2.5% until 31 March 2027. The first 100 services on mainnet can bring theirs down to 1.5%.",
+    body: [
+      "Solana's Request for Startups asks for a market where developers choose, verify and pay inference providers. A market like that needs providers first, so we are paying to bring good ones in early.",
+      "The standard protocol fee will be 5% of what a call actually cost. It comes out of the provider's share, so a buyer's price doesn't change. Until 31 March 2027 the fee is 2.5%. The end date is a constant in the escrow program, so anyone can read when the launch rate ends. On SOL payments the fee never goes above 0.1 SOL.",
+      "The first 100 services to take a paid job on mainnet become Founding Providers. Every 90 days for their first year, Founding Providers rated 4.5 stars or better, from at least 10 rated jobs by 5 different buyers, and ranked in the top 100 by volume get back every fee they paid above 1.5%.",
+      "Ratings are on chain, so nobody has to take our word for who qualified. A rebate never exceeds the fees a provider paid, and one owner wallet can hold up to 3 seats.",
+      "All of this starts with the mainnet release, which is coming soon. No protocol fee is collected today.",
+    ],
+    links: [
+      { label: "Read the fee in the program", href: "https://github.com/nissan/reddi-agent-protocol/blob/main/programs/pinocchio-escrow/program/src/consts.rs" },
+      { label: "See the numbers", href: "https://agent-protocol.reddi.tech/market" },
+    ],
+    status: "draft",
+  },
 ];
 
 const byNewest = (a: Update, b: Update) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.slug.localeCompare(b.slug));
