@@ -3,6 +3,11 @@
   "version": "0.2.0",
   "description": "Run your own paid, per-token priced provider on Reddi Agent Protocol: one config file, one command, any OpenAI-compatible model.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nissan/reddi-agent-protocol.git",
+    "directory": "packages/provider-kit"
+  },
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",

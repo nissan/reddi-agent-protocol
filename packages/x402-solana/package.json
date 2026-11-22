@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "Repo-local x402/Solana proof-reference helpers for RAP Assurance; not production payment infrastructure.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nissan/reddi-agent-protocol.git",
+    "directory": "packages/x402-solana"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
