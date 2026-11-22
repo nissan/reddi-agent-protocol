@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import {
   AS_OF, AVG_JOB_USD, CALL_PRICES, JOB_COSTS, MID_TIER, jobCost, FEE_FACTS, FORECASTS, OCT_2026_X402_USD, REVENUE_TARGETS, SCENARIOS, SOURCES, TAM_USD, VOLUME_TODAY,
-  BUILD_HISTORY, FEE_BPS, REVENUE_LINES, SOL_FEE_CAP, RFS, RFS_MAP, priceRow, scenarioRow, stackRow, volumeFor, type Figure,
+  BUILD_HISTORY, FEE_BPS, FOUNDING, FOUNDING_SHARE_2027, LAUNCH_FEE_BPS, LAUNCH_RATE_ENDS, REVENUE_LINES, SOL_FEE_CAP, RFS, RFS_MAP, priceRow, scenarioRow, stackRow, volumeFor, type Figure,
 } from '../../lib/market';
 import { pageMetadata } from '../../lib/metadata';
 import { siteUrl } from '../../lib/site';
@@ -44,7 +44,7 @@ export default function Market() {
       <p className="eyebrow">THE NUMBERS · AS OF {AS_OF.toUpperCase()}</p>
       <h1>Solana asked for an open inference market. <span>We were already building it.</span></h1>
       <p className="lead">On {RFS.published} the Solana Foundation published its Request for Startups. One of its eleven ideas is an open marketplace for AI inference. This page is the market case for the part we build, the verify layer, and what it could earn. Every number links to its source or is marked as our own estimate.</p>
-      <p className="notice small">The protocol runs on Solana devnet today, and mainnet is coming soon. The 2.5% fee is planned for the first mainnet release; none is collected today. Every other revenue line on this page is on the roadmap.</p>
+      <p className="notice small">The protocol runs on Solana devnet today, and mainnet is coming soon. The fee is planned for the first mainnet release: 5% standard, with a 2.5% launch rate until {LAUNCH_RATE_ENDS}. None is collected today. Every other revenue line on this page is on the roadmap.</p>
 
       <h2>The prediction</h2>
       <blockquote className="rfs-quote">
@@ -65,10 +65,10 @@ export default function Market() {
       <div className="table-scroll">
         <table className="data">
           <caption>Cost of taking one payment, as a share of the price</caption>
-          <thead><tr><th scope="col">Price of one call</th><th scope="col">Solana network fee</th><th scope="col">Card fee</th><th scope="col">Planned RAP fee at 2.5% (USDC)</th></tr></thead>
+          <thead><tr><th scope="col">Price of one call</th><th scope="col">Solana network fee</th><th scope="col">Card fee</th><th scope="col">Planned RAP fee, launch rate 2.5% (USDC)</th><th scope="col">Planned RAP fee, standard 5% (USDC)</th></tr></thead>
           <tbody>
             {CALL_PRICES.map(priceRow).map((r) => (
-              <tr key={r.price}><td>{usd(r.price, r.price < 0.01 ? 3 : 2)}</td><td>{pct(r.networkPct)}</td><td>{pct(r.cardPct)}</td><td>{r.rapFee === 0 ? '$0 (rounds down)' : usd(r.rapFee, 6)}</td></tr>
+              <tr key={r.price}><td>{usd(r.price, r.price < 0.01 ? 3 : 2)}</td><td>{pct(r.networkPct)}</td><td>{pct(r.cardPct)}</td><td>{r.launchFee === 0 ? '$0 (rounds down)' : usd(r.launchFee, 6)}</td><td>{r.rapFee === 0 ? '$0 (rounds down)' : usd(r.rapFee, 6)}</td></tr>
             ))}
           </tbody>
         </table>
@@ -86,7 +86,7 @@ export default function Market() {
           </tbody>
         </table>
       </div>
-      <p className="small muted">Our reading: paying per call is comfortable from about one cent upward. Below that the network fee takes too big a share, so a buyer locks a maximum once for a job or a session and the provider settles the real token cost in one payment. The planned fee is {FEE_BPS / 100}% of what a call actually cost, rounded down, so a USDC call under $0.00004 pays none. On SOL payments it never goes above {SOL_FEE_CAP} SOL (<a href={SOURCES.feeIssue.url} rel="noopener noreferrer">fee design ↗</a>).</p>
+      <p className="small muted">Our reading: paying per call is comfortable from about one cent upward. Below that the network fee takes too big a share, so a buyer locks a maximum once for a job or a session and the provider settles the real token cost in one payment. The planned fee is {FEE_BPS / 100}% of what a call actually cost ({LAUNCH_FEE_BPS / 100}% until {LAUNCH_RATE_ENDS}), rounded down, so a USDC call under $0.00002 pays none. On SOL payments it never goes above {SOL_FEE_CAP} SOL (<a href={SOURCES.feeIssue.url} rel="noopener noreferrer">fee design ↗</a>).</p>
 
       <h2>2. Agent payments today: many, but small</h2>
       <p>Agents have made close to 200 million payments over x402, the open HTTP payment standard. Much of that count is testing and bots. Real money is still small: about {usd(OCT_2026_X402_USD)} in October 2026, across every chain.</p>
@@ -111,16 +111,20 @@ export default function Market() {
         </table>
       </div>
 
-      <h2>5. The base fee alone: 2.5%</h2>
-      <p>Providers price their models the way AI APIs already do: per million input and output tokens. Before a call the buyer sees an estimated cost and approves a maximum, which is locked on-chain. After the response, the real token count sets the true cost. The provider is paid that, less the 2.5% fee, and the rest of the maximum goes back to the buyer.</p>
-      <p>Protocol revenue is simple: payment volume with a RAP receipt, times 2.5%. In our base case that comes to about {usd(base.revenue2027)} in 2027 and about {usd(Math.round(base.revenue2030 / 100) * 100)} in 2030. All volumes below are <b>our estimates</b>.</p>
+      <h2>5. The base fee alone: 5%</h2>
+      <p>Providers price their models the way AI APIs already do: per million input and output tokens. Before a call the buyer sees an estimated cost and approves a maximum, which is locked on-chain. After the response, the real token count sets the true cost. The provider is paid that, less the fee, and the rest of the maximum goes back to the buyer.</p>
+      <p>The standard fee is 5%, in line with what OpenRouter charges for crypto payments (<a href={SOURCES.openRouterFee.url} rel="noopener noreferrer">{SOURCES.openRouterFee.label} ↗</a>), and every call comes with a receipt. Protocol revenue is payment volume with a RAP receipt, times the fee. In our base case that comes to about {usd(base.revenue2027)} in 2027 and about {usd(Math.round(base.revenue2030 / 100) * 100)} in 2030. All volumes below are <b>our estimates</b>.</p>
+      <h3>Launch offer</h3>
+      <p>Supply comes first in any marketplace, so we pay to win it early. Every payout up to the end of {LAUNCH_RATE_ENDS} (UTC) pays a launch rate of {LAUNCH_FEE_BPS / 100}%. That date is written into the escrow program, so the offer ends when the code says it does.</p>
+      <p>The first {FOUNDING.seats} services to take a paid job on mainnet become Founding Providers. Every {FOUNDING.periodDays} days for their first {FOUNDING.months} months, those rated {FOUNDING.minStars} stars or better (from at least {FOUNDING.minRatedJobs} rated jobs by {FOUNDING.minBuyers} or more buyers) and ranked in the top {FOUNDING.rank} by volume get back every fee they paid above {FOUNDING.effectiveBps / 100}%. Ratings are on chain, so anyone can check who qualified. The rebate can never exceed the fees a provider paid, which makes faking volume a losing trade. It answers the RFS ask for reputation with money: the providers buyers rate best pay the least.</p>
+      <p>Our 2027 figures count one quarter at the launch rate and three at 5%, then take off the rebate as if Founding Providers carried {Math.round(FOUNDING_SHARE_2027 * 100)}% of the year&apos;s volume and every one of them qualified. That is <b>our estimate</b>, set high on purpose. By 2030 the offer is long over.</p>
       <div className="table-scroll">
         <table className="data">
           <caption>Planned protocol fee revenue by scenario (our estimates)</caption>
-          <thead><tr><th scope="col">Scenario</th><th scope="col">2027 volume</th><th scope="col">2027 fee revenue</th><th scope="col">2030 volume</th><th scope="col">2030 fee revenue</th><th scope="col">2030 paid jobs at {cents}</th></tr></thead>
+          <thead><tr><th scope="col">Scenario</th><th scope="col">2027 volume</th><th scope="col">2027 fee revenue</th><th scope="col">2027 after rebates</th><th scope="col">2030 volume</th><th scope="col">2030 fee revenue</th><th scope="col">2030 paid jobs at {cents}</th></tr></thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.key}><th scope="row">{NAMES[r.key]}</th><td>{big(r.volume2027)}</td><td>{usd(r.revenue2027)}</td><td>{big(r.som)}</td><td>{usd(Math.round(r.revenue2030 / 100) * 100)}</td><td>{(r.jobs2030 / 1e9).toFixed(2)} billion</td></tr>
+              <tr key={r.key}><th scope="row">{NAMES[r.key]}</th><td>{big(r.volume2027)}</td><td>{usd(r.revenue2027)}</td><td>{usd(r.net2027)}</td><td>{big(r.som)}</td><td>{usd(Math.round(r.revenue2030 / 100) * 100)}</td><td>{(r.jobs2030 / 1e9).toFixed(2)} billion</td></tr>
             ))}
           </tbody>
         </table>
@@ -134,7 +138,7 @@ export default function Market() {
           </tbody>
         </table>
       </div>
-      <p>A reality check: if every x402 payment in October 2026 had carried the fee, it would have come to about {usd((OCT_2026_X402_USD * FEE_BPS) / 10_000)} for the month. For comparison, OpenRouter charges 5.5% on card top-ups and 5% in crypto (<a href={SOURCES.openRouterFee.url} rel="noopener noreferrer">{SOURCES.openRouterFee.label} ↗</a>). The roadmap below adds to the settlement fee.</p>
+      <p>A reality check: if every x402 payment in October 2026 had carried the fee, it would have come to about {usd((OCT_2026_X402_USD * FEE_BPS) / 10_000)} for the month. The roadmap below adds to the settlement fee.</p>
 
       <h2>6. Revenue roadmap</h2>
       <p>The RFS asks for more than payment. It asks for verification, reputation and payment channels. Each of those is a service agents will pay for, and each can be priced without us ever holding anyone&apos;s funds. Fees are split inside the buyer&apos;s own payment, or held by an on-chain program under fixed rules. The treasury only receives.</p>
@@ -168,7 +172,8 @@ export default function Market() {
 
       <h2>How we built this</h2>
       <ul className="plain">
-        <li>In the first mainnet release the fee applies to every paid call and every escrow job, on the actual cost. It comes out of the provider&apos;s share, so the buyer never pays more than the cost.</li>
+        <li>In the first mainnet release the fee applies to every paid call and every escrow job, on the actual cost, at the rate in force when it pays out. It comes out of the provider&apos;s share, so the buyer never pays more than the cost.</li>
+        <li>2030 and the revenue targets use the standard 5%. 2027 blends the launch rate into its first quarter and takes off Founding Provider rebates.</li>
         <li>Volume is in US dollars at the actual cost of each call. 2027 and 2030 are point estimates, and we fit no growth curve between them.</li>
         <li>We assume an average call of {cents}, close to the Q3 2026 agent average.</li>
         <li>Forecasts we could not check against the publisher&apos;s own page are left out.</li>

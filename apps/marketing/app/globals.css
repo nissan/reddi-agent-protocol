@@ -95,6 +95,12 @@ blockquote cite{font-style:normal;font-size:14px;color:var(--night-muted)}
 .devlinks a{display:block;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:22px;text-decoration:none}
 .devlinks a:hover{border-color:var(--ink)}
 .devlinks p{font-size:15px;margin:0;color:var(--ink-soft)}
+.offer{list-style:none;margin:0 0 14px;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.offer li{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:22px}
+.offer li:first-child{border-color:var(--ink);background:var(--tint)}
+.offer b{display:block;font-family:var(--mono);font-size:34px;line-height:1;color:var(--violet);margin-bottom:14px}
+.offer h3{margin:0 0 8px}
+.offer p{font-size:15px;margin:0;color:var(--ink-soft)}
 .ledger{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
 .ledger-col{border:1px solid var(--night-line);border-radius:6px;padding:22px}
 .page .ledger-col{border-color:var(--line);background:var(--card)}
@@ -168,7 +174,7 @@ nav{gap:16px;font-size:14px;flex-wrap:wrap}
 .nav-cta{padding:8px 12px}
 .steps{grid-template-columns:1fr}.steps li{border-right:0}
 .steps span{margin-bottom:12px}
-.devlinks{grid-template-columns:1fr}
+.devlinks{grid-template-columns:1fr}.offer{grid-template-columns:1fr}
 .receipt-paper{transform:none}
 .receipt dl div{grid-template-columns:104px 1fr}
 .footer-inner{grid-template-columns:1fr}

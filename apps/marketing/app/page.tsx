@@ -4,7 +4,7 @@ import Scenarios from '../components/Scenarios';
 import Signup from '../components/Signup';
 import StatusLedger from '../components/StatusLedger';
 import XFeed from '../components/XFeed';
-import { APP_URL, DEV_LINKS, FAQ, GITHUB_URL, LAYERS, RFS_URL, STAGE, STEPS } from '../lib/copy';
+import { APP_URL, DEV_LINKS, FAQ, GITHUB_URL, LAUNCH_OFFER, LAYERS, RFS_URL, STAGE, STEPS } from '../lib/copy';
 import { SIGNUP_COPY } from '../lib/newsletter/copy';
 import { pageMetadata } from '../lib/metadata';
 import { sandboxUrl } from '../lib/sandbox';
@@ -66,21 +66,28 @@ export default function Home() {
         <p className="section-cta">{sandboxUrl ? <a className="button primary" href={sandboxUrl} rel="noopener noreferrer">Open the sandbox ↗</a> : <a className="button" href="#updates">Tell me when the sandbox opens</a>} <Link className="text-link" href="/sandbox">About the sandbox ↗</Link></p>
       </section>
 
+      <section id="providers" className="section wrap">
+        <div className="section-heading"><div><p className="eyebrow">{LAUNCH_OFFER.eyebrow}</p><h2>{LAUNCH_OFFER.headline}</h2></div><p>{LAUNCH_OFFER.lede}</p></div>
+        <ul className="offer">{LAUNCH_OFFER.cards.map((c) => <li key={c.title}><b>{c.figure}</b><h3>{c.title}</h3><p>{c.body}</p></li>)}</ul>
+        <p className="small muted">{LAUNCH_OFFER.note}</p>
+        <p className="section-cta"><a className="button primary" href="#updates">{LAUNCH_OFFER.cta}</a> <Link className="text-link" href="/market">The numbers behind it ↗</Link></p>
+      </section>
+
       <section className="band">
         <div className="wrap">
-          <div className="section-heading"><div><p className="eyebrow">04 / WHERE WE ARE</p><h2>Checked, in progress, planned.</h2></div><p>We say plainly which is which. Everything in the first column is in the public repository for you to read and run.</p></div>
+          <div className="section-heading"><div><p className="eyebrow">05 / WHERE WE ARE</p><h2>Checked, in progress, planned.</h2></div><p>We say plainly which is which. Everything in the first column is in the public repository for you to read and run.</p></div>
           <StatusLedger />
           <p className="section-cta"><Link className="text-link" href="/status">Full status, with links to the evidence ↗</Link> <a className="text-link" href={GITHUB_URL} rel="noopener noreferrer">Read the code on GitHub ↗</a></p>
         </div>
       </section>
 
       <section id="developers" className="section wrap">
-        <div className="section-heading"><div><p className="eyebrow">05 / FOR DEVELOPERS</p><h2>Already building? Go deeper.</h2></div><p>The developer app has the guides, the sandbox and the reference material. It runs on devnet and opens in its own site.</p></div>
+        <div className="section-heading"><div><p className="eyebrow">06 / FOR DEVELOPERS</p><h2>Already building? Go deeper.</h2></div><p>The developer app has the guides, the sandbox and the reference material. It runs on devnet and opens in its own site.</p></div>
         <div className="devlinks">{DEV_LINKS.map((d) => <a key={d.path} href={`${APP_URL}${d.path}`} rel="noopener noreferrer"><h3>{d.title} <span aria-hidden="true">↗</span></h3><p>{d.body}</p></a>)}</div>
       </section>
 
       <section className="section wrap feed-section">
-        <div><p className="eyebrow">06 / FOLLOW THE BUILD</p><h2>Built in public.</h2><p>We post what shipped, what broke and what is next. Short demos and walkthrough videos will land here first.</p></div>
+        <div><p className="eyebrow">07 / FOLLOW THE BUILD</p><h2>Built in public.</h2><p>We post what shipped, what broke and what is next. Short demos and walkthrough videos will land here first.</p></div>
         <XFeed />
       </section>
 

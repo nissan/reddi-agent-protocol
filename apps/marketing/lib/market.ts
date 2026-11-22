@@ -25,12 +25,27 @@ const S = {
 } satisfies Record<string, Source>;
 
 /**
- * Planned V1 fee: 250 basis points (2.5%) of a call's actual cost, rounded down to the token's smallest unit,
- * taken out of the provider's share. Capped at 0.1 SOL on SOL payments; stablecoins have no ceiling.
+ * Planned V1 fee: a standard 500 basis points (5%) of a call's actual cost, with a launch rate of 250 basis points
+ * (2.5%) on every payout before 1 April 2027 00:00 UTC. The switch date is a constant in the escrow program
+ * (LAUNCH_RATE_ENDS_UNIX in programs/pinocchio-escrow/program/src/consts.rs). Rounded down to the token's smallest
+ * unit, taken out of the provider's share. Capped at 0.1 SOL on SOL payments; stablecoins have no ceiling.
  */
-export const FEE_BPS = 250;
+export const FEE_BPS = 500;
+export const LAUNCH_FEE_BPS = 250;
+export const LAUNCH_RATE_ENDS = '31 March 2027';
 export const SOL_FEE_CAP = 0.1;
-export const feeFor = (priceBaseUnits: number) => Math.floor((priceBaseUnits * FEE_BPS) / 10_000);
+export const feeFor = (priceBaseUnits: number, bps: number = FEE_BPS) => Math.floor((priceBaseUnits * bps) / 10_000);
+
+/**
+ * Founding Providers: the first 100 services to take a paid job on mainnet. After each 90 days, for their first
+ * 12 months, those holding 4.5 stars or better and ranking in the top 100 by volume get back every fee they paid
+ * above 1.5%. Paid from the treasury; never more than the fees paid.
+ */
+export const FOUNDING = { seats: 100, effectiveBps: 150, periodDays: 90, months: 12, minStars: 4.5, minRatedJobs: 10, minBuyers: 5, rank: 100, seatsPerOwner: 3 } as const;
+/** Share of 2027 volume carried by Founding Providers that qualify for the rebate. Our estimate, set high on purpose. */
+export const FOUNDING_SHARE_2027 = 0.4;
+/** 2027 blends one quarter at the launch rate with three at the standard rate. */
+export const BLENDED_2027_BPS = (LAUNCH_FEE_BPS + 3 * FEE_BPS) / 4;
 export const USDC_DECIMALS = 6;
 
 /** Median Solana network fee in USD, 24 h p50, 20 Nov 2026 (OpenChainBench). */
@@ -52,6 +67,7 @@ export function priceRow(price: number) {
     networkPct: (SOLANA_FEE_USD / price) * 100,
     cardPct: ((CARD.pct * price + CARD.fixed) / price) * 100,
     rapFee: feeFor(base) / 10 ** USDC_DECIMALS,
+    launchFee: feeFor(base, LAUNCH_FEE_BPS) / 10 ** USDC_DECIMALS,
   };
 }
 
@@ -82,7 +98,9 @@ export const AVG_JOB_USD = 0.05;
 export function scenarioRow(s: Scenario) {
   const sam = TAM_USD * s.samShare;
   const som = sam * s.somShare;
-  return { ...s, sam, som, revenue2030: (som * FEE_BPS) / 10_000, revenue2027: (s.volume2027 * FEE_BPS) / 10_000, jobs2030: som / AVG_JOB_USD };
+  const revenue2027 = (s.volume2027 * BLENDED_2027_BPS) / 10_000;
+  const rebate2027 = (s.volume2027 * FOUNDING_SHARE_2027 * (BLENDED_2027_BPS - FOUNDING.effectiveBps)) / 10_000;
+  return { ...s, sam, som, revenue2030: (som * FEE_BPS) / 10_000, revenue2027, rebate2027, net2027: revenue2027 - rebate2027, jobs2030: som / AVG_JOB_USD };
 }
 export const REVENUE_TARGETS = [10_000, 100_000, 1_000_000, 10_000_000];
 export const volumeFor = (revenue: number) => (revenue * 10_000) / FEE_BPS;
@@ -144,7 +162,7 @@ export const RFS_MAP = [
   { rfs: 'payment channels', ours: 'The buyer locks a maximum, the provider settles the real token cost, and the rest comes back. Batched and streamed payment is on the roadmap.' },
 ];
 
-// ---- Revenue roadmap: more lines beyond the 2.5% settlement fee. All amounts are our estimates. ----
+// ---- Revenue roadmap: more lines beyond the 5% settlement fee. All amounts are our estimates. ----
 export type Stage = 'First mainnet release' | 'Planned' | 'Exploring';
 export type RevenueLine = {
   key: string; name: string; payer: string; fee: string; stage: Stage; rfs: string; nonCustodial: string;
@@ -169,9 +187,9 @@ const BENCH = {
 } satisfies Record<string, Source>;
 
 export const REVENUE_LINES: RevenueLine[] = [
-  { key: 'settle', name: 'Settlement fee', payer: 'Provider, out of every paid call and escrow job', fee: '2.5% of the actual cost, at most 0.1 SOL on SOL payments', stage: 'First mainnet release', rfs: 'pay',
+  { key: 'settle', name: 'Settlement fee', payer: 'Provider, out of every paid call and escrow job', fee: '5% of the actual cost (2.5% launch rate until 31 March 2027), at most 0.1 SOL on SOL payments', stage: 'First mainnet release', rfs: 'pay',
     nonCustodial: 'The escrow program splits the payment when the call settles. The treasury only receives.', benchmark: { text: 'OpenRouter charges 5.5% on card top-ups and 5% in crypto', source: S.openRouterFee },
-    revenue: (s) => s.som * 0.025 },
+    revenue: (s) => s.som * 0.05 },
   { key: 'verified', name: 'Verified receipts', payer: 'Buyer who wants a receipt backed by a hardware (TEE) attestation or a proof', fee: '+0.20% on that call', stage: 'Planned', rfs: 'verify',
     nonCustodial: 'Same split as the settlement fee. We check the evidence, never the funds.', benchmark: { text: 'Private TEE inference sells at the ordinary per-token price', source: BENCH.near },
     revenue: (s, a) => s.som * a.verified * 0.002 },

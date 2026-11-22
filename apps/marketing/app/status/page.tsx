@@ -19,7 +19,7 @@ export default function Status() {
         <li>A scoped security review of the program and payment path is under way before the mainnet release.</li>
         <li>A receipt is a provider&apos;s signed statement plus evidence you can check. It is not a proof of which model executed.</li>
         <li>Reddi Agent Protocol is not a custodian and it is not a marketplace. A buyer&apos;s maximum is held by an on-chain program until the provider settles, not by a Reddi account or server.</li>
-        <li>The 2.5% protocol fee starts with the mainnet release. None is collected today.</li>
+        <li>The protocol fee starts with the mainnet release: 2.5% until 31 March 2027, then 5%. None is collected today.</li>
       </ul>
       <p><a className="text-link" href={GITHUB_URL} rel="noopener noreferrer">Read the code on GitHub ↗</a> <Link className="text-link" href="/#updates">Get the build updates ↗</Link></p>
     </main>
