@@ -2,6 +2,25 @@
 // guarded beta opens and to receive the build updates until then. Every sentence is a promise to notify and never says
 // something can be used on mainnet today. The page, the form, the confirmation page and the emails import their text
 // from here, and tests/claims.test.ts checks all of it against the repository's public-claim boundary.
+type Frequency = "weekly" | "daily";
+type Prefs = { frequency: Frequency; switchLabel: string; switchUrl: string };
+
+// How often a subscriber hears from us. Weekly is the default: one digest on Monday morning (Sydney) with the week's
+// updates. Daily sends each update on the day it is published. Either can be switched from a link in every email.
+const SIGNUP_COPY_FREQUENCY = {
+  legend: "How often",
+  weekly: "Weekly digest",
+  daily: "Each update as it's published",
+  cadence: (f: Frequency) => (f === "daily" ? "as each one is published" : "in one digest each Monday"),
+  switchLabel: (to: Frequency) => (to === "daily" ? "Get each update as it's published instead" : "Get one weekly digest instead"),
+  pageTitle: (to: Frequency) => (to === "daily" ? "Switch to every update?" : "Switch to the weekly digest?"),
+  pageBody: (to: Frequency) => (to === "daily" ? "Press the button and we'll email you each build update on the day it's published." : "Press the button and we'll send one digest each Monday with that week's build updates."),
+  pageButton: (to: Frequency) => (to === "daily" ? "Send me every update" : "Send me the weekly digest"),
+  doneTitle: (f: Frequency) => (f === "daily" ? "You'll get every update." : "You'll get the weekly digest."),
+  doneBody: (f: Frequency) => (f === "daily" ? "We'll email you each build update on the day it's published. You can switch back from any email." : "We'll send one digest each Monday with that week's build updates. You can switch back from any email."),
+  digestTitle: "This week at Reddi Agent Protocol",
+} as const;
+
 export const SIGNUP_COPY = {
   eyebrow: "TELL ME WHEN THE BETA OPENS",
   headline: "Be first to hear when there is something to try.",
@@ -30,7 +49,8 @@ export const SIGNUP_COPY = {
   // Sent once, right after the confirm button is pressed. It is the first message with the unsubscribe link.
   welcome: {
     subject: "You're on the Reddi Agent Protocol list",
-    text: (unsubscribe: string, catchUp?: string) => `You're on the list. We'll email you when the guarded beta opens on Solana mainnet, and send the build updates until then. Mainnet is coming soon; the devnet sandbox is there to try in the meantime.${catchUp ? `\n\nSee what exists today: ${catchUp}` : ""}\n\nUnsubscribe: ${unsubscribe}`,
-    html: (unsubscribe: string, catchUp?: string) => `<p>You're on the list. We'll email you when the guarded beta opens on Solana mainnet, and send the build updates until then. Mainnet is coming soon; the devnet sandbox is there to try in the meantime.</p>${catchUp ? `<p><a href="${catchUp}">See what exists today</a></p>` : ""}<p><a href="${unsubscribe}">Unsubscribe</a> with one click. You're receiving this because you confirmed your Reddi Agent Protocol signup.</p>`,
+    text: (unsubscribe: string, catchUp?: string, prefs?: Prefs) => `You're on the list. We'll email you when the guarded beta opens on Solana mainnet, and send the build updates until then${prefs ? ` ${SIGNUP_COPY_FREQUENCY.cadence(prefs.frequency)}` : ""}. Mainnet is coming soon; the devnet sandbox is there to try in the meantime.${catchUp ? `\n\nSee what exists today: ${catchUp}` : ""}${prefs ? `\n\n${prefs.switchLabel}: ${prefs.switchUrl}` : ""}\n\nUnsubscribe: ${unsubscribe}`,
+    html: (unsubscribe: string, catchUp?: string, prefs?: Prefs) => `<p>You're on the list. We'll email you when the guarded beta opens on Solana mainnet, and send the build updates until then${prefs ? ` ${SIGNUP_COPY_FREQUENCY.cadence(prefs.frequency)}` : ""}. Mainnet is coming soon; the devnet sandbox is there to try in the meantime.</p>${catchUp ? `<p><a href="${catchUp}">See what exists today</a></p>` : ""}${prefs ? `<p><a href="${prefs.switchUrl}">${prefs.switchLabel}</a></p>` : ""}<p><a href="${unsubscribe}">Unsubscribe</a> with one click. You're receiving this because you confirmed your Reddi Agent Protocol signup.</p>`,
   },
+  frequency: SIGNUP_COPY_FREQUENCY,
 } as const;

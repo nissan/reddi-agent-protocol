@@ -10,6 +10,7 @@ const FORM_ENABLED = process.env.NEXT_PUBLIC_NEWSLETTER_FORM === "1";
 
 export default function Signup() {
   const [email, setEmail] = useState("");
+  const [frequency, setFrequency] = useState<"weekly" | "daily">("weekly");
   const [state, setState] = useState<{ kind: "idle" | "busy" | "done" | "error"; message?: string }>({ kind: "idle" });
 
   // signup_section_seen, once per page view, when the section is mostly in view. Observing changes no layout.
@@ -31,7 +32,7 @@ export default function Signup() {
     try { signupSubmitted(); } catch { /* analytics can never interrupt, delay or alter the request */ }
     setState({ kind: "busy" });
     try {
-      const res = await fetch("/api/subscribe", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) });
+      const res = await fetch("/api/subscribe", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, frequency }) });
       const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
       setState(res.ok ? { kind: "done", message: data.message } : { kind: "error", message: data.error ?? "Something went wrong. Please try again." });
     } catch {
@@ -60,6 +61,11 @@ export default function Signup() {
       <form className="signup-controls" onSubmit={submit} noValidate>
         <label htmlFor="newsletter-email">Email address</label>
         <input id="newsletter-email" className="signup-input" type="email" name="email" autoComplete="email" required maxLength={254} value={email} onChange={(e) => setEmail(e.target.value)} disabled={state.kind === "busy" || state.kind === "done"} aria-describedby="newsletter-status" />
+        <fieldset className="signup-frequency" disabled={state.kind === "busy" || state.kind === "done"}>
+          <legend>{C.frequency.legend}</legend>
+          <label><input type="radio" name="frequency" value="weekly" checked={frequency === "weekly"} onChange={() => setFrequency("weekly")} /> {C.frequency.weekly}</label>
+          <label><input type="radio" name="frequency" value="daily" checked={frequency === "daily"} onChange={() => setFrequency("daily")} /> {C.frequency.daily}</label>
+        </fieldset>
         <button className="signup-button" type="submit" disabled={state.kind === "busy" || state.kind === "done"}>{state.kind === "busy" ? "Sending…" : state.kind === "done" ? "Check your inbox" : C.button}</button>
         <p id="newsletter-status" className="signup-notice" role="status">{state.message ?? C.statusIdle}</p>
       </form>

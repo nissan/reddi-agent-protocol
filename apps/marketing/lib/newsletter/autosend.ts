@@ -6,7 +6,7 @@
 // nothing, whatever the switch says. The response and the single log line carry slugs and counts only: never an
 // address, a key or a token.
 import { timingSafeEqual } from "node:crypto";
-import { previewIssues, runIssues, type IssueUpdate } from "./issues.ts";
+import { previewIssues, runNewsletter, type IssueUpdate } from "./issues.ts";
 import { isOutage, retryLater } from "./http.ts";
 import { runtimeDeps } from "./runtime.ts";
 
@@ -29,9 +29,9 @@ export async function autosendHandler(req: Request, updates: readonly IssueUpdat
   try {
     if (new URL(req.url).searchParams.get("dry-run") === "1") return Response.json({ state: "dry-run", autosend: autosendOn(), ...(await previewIssues(rt.deps, updates)) }, { status: 200, headers: noStore });
     if (!autosendOn()) return Response.json({ state: "autosend-off" }, { status: 200, headers: noStore });
-    const report = await runIssues(rt.deps, updates);
+    const report = await runNewsletter(rt.deps, updates);
     console.log(`newsletter: issue ${JSON.stringify(report)}`);
-    return Response.json({ state: report.outcome, ...report }, { status: 200, headers: noStore });
+    return Response.json({ state: report.active ? "ran" : "waiting-for-first-subscriber", ...report }, { status: 200, headers: noStore });
   } catch (error) {
     // A mailer or store failure part-way: the ledger shows who was reached and the next run resumes. The log names the
     // error type only (a provider message could contain an address).
