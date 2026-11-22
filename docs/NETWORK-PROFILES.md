@@ -75,7 +75,7 @@ The Surfpool SDK lane supplies those ids itself against a dynamic loopback port;
 ### Mainnet (currently blocked)
 ```bash
 NETWORK_PROFILE=mainnet
-NEXT_PUBLIC_RPC_ENDPOINT=https://<app-host>/api/rpc   # the app's own proxy; see MAINNET-RPC.md
+X
 SOLANA_RPC_URL=<keyed mainnet RPC, server only>
 ```
 
@@ -83,8 +83,8 @@ Mainnet network fence (security audit round 1, S2-claude-01): on `mainnet` the p
 ids come **only** from `config/networks/mainnet.json`, the control of record. Any
 `NEXT_PUBLIC_*_PROGRAM_ID` that differs from the registered id is ignored (even with
 the unsafe-override flag) and recorded in `knownGaps`; the server-side `DEMO_*_PROGRAM_ID`
-and `DEMO_DEVNET_RPC` values are not read at all. The only RPC override taken is an
-https URL whose path is `/api/rpc` (the app's proxy, which forwards to `SOLANA_RPC_URL`),
+and `DEMO_DEVNET_RPC` values are not read at all. The only RPC override taken is
+`https://<host>/api/rpc` for a host in `MAINNET_RPC_PROXY_HOSTS` (the app's proxy, which forwards to `SOLANA_RPC_URL`),
 and `NEXT_PUBLIC_RPC_WS_ENDPOINT` is ignored in favour of the profile websocket. Demo,
 dogfood and legacy file-store API routes answer 404 on mainnet and in production builds
 (`lib/http/route-gates.ts`).

@@ -137,12 +137,19 @@ export function isValidProgramId(value: string): boolean {
 }
 
 /**
- * True when `value` is an https URL whose path is the app's RPC proxy (`/api/rpc`), with no
- * query, fragment or user info. On mainnet this is the only RPC override the resolver accepts:
- * the proxy forwards to the server-held SOLANA_RPC_URL, so a mistyped or devnet URL cannot
- * point mainnet pages at another cluster.
+ * Hosts whose `/api/rpc` proxy serves mainnet. Kept in code, not env, so a stray or devnet
+ * deployment's proxy URL (for example a preview or the devnet app) cannot be configured as the
+ * mainnet RPC (audit S2-claude-01, review of #910).
  */
-export function isMainnetRpcProxyUrl(value: string): boolean {
+export const MAINNET_RPC_PROXY_HOSTS: readonly string[] = ["app.agent-protocol.reddi.tech"];
+
+/**
+ * True when `value` is `https://<allowlisted mainnet app host>/api/rpc`, with no port, query,
+ * fragment or user info. On mainnet this is the only RPC override the resolver accepts: the
+ * proxy forwards to the server-held SOLANA_RPC_URL, so a mistyped or devnet URL cannot point
+ * mainnet pages at another cluster.
+ */
+export function isMainnetRpcProxyUrl(value: string, hosts: readonly string[] = MAINNET_RPC_PROXY_HOSTS): boolean {
   let url: URL;
   try {
     url = new URL(value);
@@ -151,6 +158,8 @@ export function isMainnetRpcProxyUrl(value: string): boolean {
   }
   return (
     url.protocol === "https:" &&
+    hosts.includes(url.hostname) &&
+    !url.port &&
     !url.username &&
     !url.password &&
     !url.search &&
@@ -311,7 +320,7 @@ export function getNetworkProfile(): NetworkProfile {
 
   const refusedRpcKnownGaps = refusedMainnetRpcOverride
     ? [
-        `The ${rawRpcOverride!.key} override is not the app's own https /api/rpc proxy; mainnet ignores it and uses the profile RPC endpoint instead.`,
+        `The ${rawRpcOverride!.key} override is not an allowlisted mainnet app's https /api/rpc proxy; mainnet ignores it and uses the profile RPC endpoint instead.`,
       ]
     : [];
 

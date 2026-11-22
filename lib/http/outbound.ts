@@ -38,7 +38,10 @@ for (const [network, prefix] of [
   ["::1", 128],
   ["64:ff9b::", 96],
   ["100::", 64],
+  ["2001::", 32], // Teredo
   ["2001:db8::", 32],
+  ["2002::", 16], // 6to4 embeds an IPv4 address that can be private
+  ["fec0::", 10], // deprecated site-local
   ["fc00::", 7],
   ["fe80::", 10],
   ["ff00::", 8],

@@ -98,6 +98,14 @@ describe("mainnet network fence", () => {
     expect(profile.programs.knownGaps.join(" ")).not.toContain("devnet.solana.com");
   });
 
+  it("refuses a devnet deployment's /api/rpc proxy on mainnet", async () => {
+    process.env.NETWORK_PROFILE = "mainnet";
+    process.env.NEXT_PUBLIC_RPC_ENDPOINT = "https://reddi-agent-protocol-tau.vercel.app/api/rpc";
+    const { getNetworkProfile } = await import("@/lib/config/network");
+    const registered = await registeredMainnet();
+    expect(getNetworkProfile().solana.rpcHttp).toBe(registered.solana.rpcHttp);
+  });
+
   it("accepts the app's own /api/rpc proxy on mainnet and ignores a websocket override", async () => {
     process.env.NETWORK_PROFILE = "mainnet";
     process.env.NEXT_PUBLIC_RPC_ENDPOINT = "https://app.agent-protocol.reddi.tech/api/rpc";
@@ -115,6 +123,11 @@ describe("mainnet network fence", () => {
     ["https://app.agent-protocol.reddi.tech/api/rpc/", true],
     ["https://mainnet.helius-rpc.com/?api-key=x", false],
     ["https://evil.example/api/rpc?x=1", false],
+    ["https://evil.example/api/rpc", false],
+    ["https://reddi-agent-protocol-tau.vercel.app/api/rpc", false],
+    ["https://app.agent-protocol.reddi.tech:8443/api/rpc", false],
+    ["https://app.agent-protocol.reddi.tech/other", false],
+    ["/api/rpc", false],
     ["https://user:pw@app.example/api/rpc", false],
     ["not a url", false],
   ])("isMainnetRpcProxyUrl(%s) is %s", async (value, expected) => {
