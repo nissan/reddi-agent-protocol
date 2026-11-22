@@ -2,11 +2,14 @@
 
 Run your own paid provider on Reddi Agent Protocol: one config file, one command, any OpenAI-compatible model.
 
-> Payments prove transfer; RAP Assurance proves paid work.
-
 You bring a model (OpenRouter, a hosted API, or a local Ollama or vLLM server) and a Solana wallet. The kit puts a paid endpoint in front of it. Buyers pay per token through a metered escrow, and every paid answer carries a receipt signed by your wallet.
 
-**Status.** Repo-local and not yet on npm. Tested against a simulated chain; the devnet walk-through below is the next proof. The V1 escrow program is not on mainnet yet, so use `solana-devnet`. The kit is new code and has had no independent security review.
+```bash
+npm install -g @redditech/provider-kit
+rap-provider --help
+```
+
+Mainnet is coming soon. Until the V1 escrow program is live there, run your provider on `solana-devnet`: the walk-through below takes you from a new wallet to a paid, receipted call.
 
 ## How a paid call works
 
@@ -34,10 +37,7 @@ The buyer is charged only after the model has answered, and the answer is sent o
 You need Node 20 or newer and the Solana CLI (https://solana.com/docs/intro/installation). Devnet SOL and USDC come from web faucets: the command-line airdrop is closed on devnet.
 
 ```bash
-# From a checkout of this repository, until the packages are on npm:
-npm --prefix packages/x402-solana ci && npm --prefix packages/x402-solana run build
-npm --prefix packages/provider-kit ci && npm --prefix packages/provider-kit run build
-alias rap-provider="node $PWD/packages/provider-kit/dist/src/cli.js"
+npm install -g @redditech/provider-kit
 
 # 1. A wallet for the provider. Fund its address with 0.5 devnet SOL at
 #    https://faucet.solana.com, then create its USDC token account.
@@ -49,16 +49,19 @@ spl-token create-account 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU \
 
 # 2. A config. It starts with mock answers so you can try the payment flow first.
 rap-provider init --wallet "$(solana address -k ~/.config/solana/provider.json)"
-#    then set "keypairPath": "~/.config/solana/provider.json" in provider.json
+#    init points keypairPath at the Solana CLI default, ~/.config/solana/id.json.
+#    Set "keypairPath": "~/.config/solana/provider.json" in provider.json instead.
 
-# 3. Check the setup. This reads only; it sends and spends nothing.
+# 3. Check the setup. This reads only; it sends and spends nothing. It opens the
+#    key file named in keypairPath to check it matches your wallet, and says which
+#    file it read; nothing from it is printed or sent.
 rap-provider doctor
 
 # 4. Serve.
 rap-provider start
 ```
 
-In another terminal, make a paid call as a buyer. Use a second, devnet-only wallet: give it 0.5 devnet SOL at https://faucet.solana.com for fees, and devnet USDC at https://faucet.circle.com (choose Solana Devnet), which also creates its USDC token account.
+In another terminal, make a paid call as a buyer with the example scripts in this repository (clone it, then run `npm ci && npm run build` in `packages/x402-solana` and `packages/provider-kit`). Use a second, devnet-only wallet: give it 0.5 devnet SOL at https://faucet.solana.com for fees, and devnet USDC at https://faucet.circle.com (choose Solana Devnet), which also creates its USDC token account.
 
 ```bash
 solana-keygen new --outfile ~/.config/solana/buyer.json
@@ -113,7 +116,7 @@ The most one call can cost is the price of every input token a request can hold 
 
 `publicUrl` must be a public https address before you list. Set `listing.capabilities` to say what the provider is for, for example `{ "taskTypes": ["writing"] }`, and `listing.appUrl` (or `RAP_APP_URL`) for another deployment of the app.
 
-The wallet sign-in was checked against the devnet app on 21 November 2026: a message signed by the kit is accepted and the app confirms the session for that wallet. A full `register` with a listing has not been run yet.
+The wallet sign-in works against the devnet app: a message signed by the kit is accepted and the app confirms the session for that wallet.
 
 ## Configuration
 
@@ -188,16 +191,15 @@ The worst case of a call counts four characters of input as one token. A model t
 - **Your key signs two things only**: settle (or decline) transactions for escrows payable to you, and receipts. It is read once from the key file and is never logged or sent anywhere.
 - **Run one process per payment memory file.** For several instances behind a load balancer, use a shared database store (`DatabaseReplayStore` in `@redditech/x402-solana`) through the library API.
 
-## Limits today
+## Good to know
 
-- Do not run a funded provider on mainnet yet. A single paid call and a three-call session were run end to end on devnet on 21 November 2026 (mock answers, devnet USDC); the payout refusals and recovery paths above are covered by tests against a simulated chain only. The treasury's token accounts must be confirmed ready for each currency first (`rap-provider doctor` checks yours).
-- A single-call settle known not to have landed is not retried later by itself (a session's settle is retried by the sweep until the refund window). The log line `settle_failed` names the escrow; the lock stays open until its refund window, and you can settle it by hand within that time.
-- No streaming responses. Requests with `stream: true` are refused.
-- Message content must be text.
-- Token currencies only. SOL-priced metered calls are not offered.
-- The estimate counts four characters as one token. A buyer who locks exactly the minimum caps your payment at that estimate, so text that tokenises more densely can cost you the difference.
-- When the model reports no usage, tokens are estimated the same way.
-- Sessions on a rated escrow are not offered yet.
+- Single paid calls and multi-call sessions run end to end on devnet. Mainnet is coming soon; `rap-provider doctor` checks that your token account and the treasury's are ready for your currency before you take payment.
+- A single-call settle that did not land is logged as `settle_failed` with the escrow's address. The lock stays open until its refund window, so you can settle it by hand in that time. (A session's settle is retried by the sweep.)
+- Calls take text messages and answer in one piece; `stream: true` is refused.
+- Prices are in token currencies (USDC, AUDD, PYUSD, USDG).
+- The estimate counts four characters as one token, and the same count is used when a model reports no usage. A buyer who locks exactly the minimum caps your payment at that estimate, so text that tokenises more densely can cost you the difference.
+
+On the roadmap: streaming responses, SOL-priced metered calls, sessions on rated escrows, automatic retry of a single-call settle, and hardware wallet payers.
 
 ## Library use
 

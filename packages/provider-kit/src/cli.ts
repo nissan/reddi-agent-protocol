@@ -17,7 +17,7 @@ import { createProviderChain, type ProviderChain } from "./chain.js";
 import { listingBody, publishListing, readListings, type ListingFetch } from "./listing.js";
 import { AGENT_REGISTRATION_FEE_LAMPORTS, agentAddress, buildRegisterAgentInstruction, readAgentRecord } from "./registry.js";
 import { checkProviderCluster } from "@redditech/x402-solana";
-import { DEFAULT_CONFIG_FILE, exampleConfig, parseProviderConfig, type ProviderConfig } from "./config.js";
+import { DEFAULT_CONFIG_FILE, exampleConfig, parseProviderConfig, SOLANA_CLI_DEFAULT_KEY, type ProviderConfig } from "./config.js";
 import { formatDoctor, runDoctor } from "./doctor.js";
 import { ADL_PATH, providerAdlText } from "./adl.js";
 import { loadProviderKey } from "./keys.js";
@@ -112,7 +112,7 @@ export async function runCli(args: string[], io: CliIo): Promise<number> {
       return 1;
     }
     writeFileSync(path, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 });
-    io.out(`Wrote ${path}.${wallet ? "" : " Set wallet to your provider wallet's address."}\nNext: rap-provider doctor`);
+    io.out(`Wrote ${path}.${wallet ? "" : " Set wallet to your provider wallet's address."}\nIts keypairPath is the Solana CLI default, ${SOLANA_CLI_DEFAULT_KEY}: point it at your provider wallet's key file. doctor reads that file only to check it matches the wallet.\nNext: rap-provider doctor`);
     return 0;
   }
 
