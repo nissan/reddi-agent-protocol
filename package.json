@@ -96,7 +96,8 @@
     "check:browser-wallet:copy-guard": "node ./scripts/check-browser-wallet-copy-guard.mjs",
     "test:browser-wallet:safety": "node ./scripts/test-browser-wallet-safety-checks.mjs && node --test ./scripts/__tests__/browser-wallet-cli-runtime.test.mjs ./scripts/__tests__/legacy-program-ids.test.mjs ./scripts/__tests__/playwright-wallet-adapter-boundary.test.mjs",
     "e2e:devnet:escrow": "node scripts/devnet-escrow-e2e.cjs",
-    "test:e2e:devnet:escrow-rated-plan": "node --test ./scripts/__tests__/devnet-escrow-e2e-rated.test.mjs"
+    "test:e2e:devnet:escrow-rated-plan": "node --test ./scripts/__tests__/devnet-escrow-e2e-rated.test.mjs",
+    "test:uptime-workflow": "node --test ./scripts/__tests__/uptime-workflow.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",

@@ -31,3 +31,7 @@ jobs:
       # Offline: builds the rated lane's plan and instructions; opens no connection and reads no key.
       - name: Devnet escrow e2e, rated lane plan (offline)
         run: npm run test:e2e:devnet:escrow-rated-plan
+
+      # Offline: the hourly uptime check fails when the site does (pipefail), and alerts the owner.
+      - name: Uptime workflow guard (offline)
+        run: npm run test:uptime-workflow
