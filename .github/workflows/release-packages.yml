@@ -249,7 +249,7 @@ jobs:
           while IFS= read -r tarball; do
             [ -n "$tarball" ] || continue
             echo "::group::$tarball"
-            npm publish "release/$tarball" --access public --provenance --ignore-scripts
+            npm publish "./release/$tarball" --access public --provenance --ignore-scripts
             echo "::endgroup::"
           done < release/order.txt
 
