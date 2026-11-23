@@ -28,6 +28,10 @@ recorded `sha256` and every byte after them is zero; the trimmed hash equals
 forbidden; and no loader buffer is left with the deployer (`--deployer`) as its
 authority. Without `--deployer` or a `deployer` in the record, that last line
 fails rather than being skipped.
+Every record must carry its provenance: `variant` equal to `network`, the full
+40-character `commit`, a `buildRun` URL of this repository's
+`escrow-verifiable-build.yml`, and the `image`; a mainnet record must also give
+`imageDigest` (`sha256:<64 hex>`). The check refuses a record missing any of them.
 A mainnet record must name the V1 escrow program `DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu` as `programId` and the Squads vault as `upgradeAuthority` and list at
 least the multisig account and the deployer under `forbiddenAuthorities`; the
 `--deployer` address must be one of them. The genesis hash and the accounts come
