@@ -12,8 +12,8 @@ import { FileReplayStore } from "../src/replay.js";
 import { MemoryPendingSettleStore } from "../src/pending.js";
 import { createMockUpstream, type Upstream } from "../src/upstream.js";
 import type { ProviderConfigFile } from "../src/config.js";
-import { Keypair } from "@solana/web3.js";
-import { ata, buyer, config, CURRENT_SLOT, escrowAddress, fakeChain, paymentHeader, provider, SETTLE_SIGNATURE, singleCallHeaders, tokenAccount, USDC, type FakeChain } from "./helpers.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
+import { ata, buyer, config, CURRENT_SLOT, escrowAddress, fakeChain, freshRefundAccount, paymentHeader, provider, SETTLE_SIGNATURE, singleCallHeaders, tokenAccount, USDC, type FakeChain } from "./helpers.js";
 
 const privateKey = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(provider.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
 const signMessage = (message: Uint8Array) => edSign(null, message, privateKey);
@@ -325,17 +325,19 @@ test("a buyer who closes its account after the lock is accepted is not subsidise
   assert.equal(((await held.json()) as { error: { code: string } }).error.code, "settle_failed");
   assert.equal(plain.sent.length, 0);
 
-  // Opted in for one a day: the settle carries the create, paid by the provider, owned by the buyer.
+  // Opted in for one a day: the settle creates a new account for this lock, paid by the provider, owned by the
+  // buyer, at an address the buyer cannot reach before the settle lands.
   const chain = fakeChain();
   chain.failSends = 1;
   const { call, events } = setup({ chain, upstream: closing(chain), file: { refundAccountSubsidy: { maxPerDay: 1 } } });
   const paid = await call(BODY, { "x402-payment": paymentHeader() });
   assert.equal(paid.status, 200);
   assert.equal(chain.sent.length, 1);
-  assert.equal(chain.sent[0].length, 2);
-  const [create, settle] = chain.sent[0];
-  assert.ok(create.keys[0].pubkey.equals(provider.publicKey) && create.keys[1].pubkey.equals(ata(buyer)) && create.keys[2].pubkey.equals(buyer));
-  assert.ok(settle.keys[7].pubkey.equals(ata(buyer)));
+  assert.equal(chain.sent[0].length, 3);
+  const [create, init, settle] = chain.sent[0];
+  assert.ok(create.keys[0].pubkey.equals(provider.publicKey) && create.keys[1].pubkey.equals(freshRefundAccount()));
+  assert.ok(init.keys[0].pubkey.equals(freshRefundAccount()) && new PublicKey(init.data.subarray(1, 33)).equals(buyer));
+  assert.ok(settle.keys[7].pubkey.equals(freshRefundAccount()));
   assert.ok(events.some((e) => e.event === "refund_account_created"));
   assert.ok(paid.headers.get(PROVIDER_RECEIPT_HEADER));
 });

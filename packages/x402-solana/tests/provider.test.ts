@@ -1,6 +1,6 @@
 import { pinLaunchRateClock } from './support/launch-clock';
 import { createHash } from 'node:crypto';
-import { Keypair, PublicKey, TransactionInstruction } from '@solana/web3.js';
+import { Keypair, PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, TransactionInstruction } from '@solana/web3.js';
 import {
   buildSettleTokenEscrowInstruction,
   checkMeteredPayout,
@@ -8,6 +8,7 @@ import {
   confirmMeteredSettlement,
   ESCROW_PROTOCOL_TREASURY,
   estimateInputTokens,
+  freshRefundSeed,
   inputTokenBound,
   MESSAGE_TOKEN_OVERHEAD,
   minimumLockBaseUnits,
@@ -21,6 +22,7 @@ import {
   prepareTokenPayout,
   providerMeteredTerms,
   ratingPda,
+  seedAddress,
   readMeteredPaymentHeader,
   SOLANA_GENESIS_HASHES,
   tokenEscrowAddresses,
@@ -343,6 +345,103 @@ describe('payout accounts', () => {
     accounts.delete(mint.toBase58());
     accounts.set(ata22(payer, mint).toBase58(), plain(payer));
     expect(await checkMeteredPayout({ terms: t22, escrow, readAccount })).toMatchObject({ ok: false, reason: 'provider_not_ready' });
+  });
+
+  describe('a fresh refund account for one lock', () => {
+    const instance = { escrow: header.escrow, createdSlot: OPENED_SLOT };
+    /** The Rent sysvar as the cluster has it: 3480 lamports per byte-year, a 2-year threshold. */
+    const rentSysvar = () => {
+      const data = Buffer.alloc(17);
+      data.writeBigUInt64LE(BigInt(3480), 0);
+      data.writeDoubleLE(2, 8);
+      return { owner: new PublicKey('Sysvar1111111111111111111111111111111111111'), data };
+    };
+    const seed = freshRefundSeed(instance.escrow, instance.createdSlot);
+    const fresh = seedAddress(payee, seed, TOKEN_PROGRAM);
+
+    it('derives the address web3 derives, from a seed that fits and changes with the lock', async () => {
+      expect(new TextEncoder().encode(seed).length).toBeLessThanOrEqual(32);
+      expect(fresh.equals(await PublicKey.createWithSeed(payee, seed, TOKEN_PROGRAM))).toBe(true);
+      expect(freshRefundSeed(instance.escrow, instance.createdSlot + BigInt(1))).not.toBe(seed);
+      expect(freshRefundSeed(Keypair.generate().publicKey, instance.createdSlot)).not.toBe(seed);
+      expect(() => seedAddress(payee, 'x'.repeat(33), TOKEN_PROGRAM)).toThrow('at most 32 bytes');
+    });
+
+    it('creates a new buyer-owned account when the buyer has made the funding account unusable', async () => {
+      const escrow = { payer, source: ata(payer), recipient: ata(payee) };
+      const accounts = payoutAccounts();
+      accounts.set(SYSVAR_RENT_PUBKEY.toBase58(), rentSysvar());
+      // The buyer handed the funding account to someone else after locking.
+      accounts.set(ata(payer).toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, Keypair.generate().publicKey) });
+      const readAccount = async (address: PublicKey) => accounts.get(address.toBase58()) ?? null;
+
+      // Without the lock's identity, or without the opt-in, nothing is created.
+      expect(await checkMeteredPayout({ terms, escrow, readAccount, createRefundAccount: true })).toMatchObject({ ok: false, reason: 'refund_account_unusable' });
+      expect(await checkMeteredPayout({ terms, escrow, readAccount, allowPayerAssociatedAccount: true, instance })).toMatchObject({ ok: false, reason: 'refund_account_unusable' });
+
+      const created = await checkMeteredPayout({ terms, escrow, readAccount, createRefundAccount: true, instance });
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      expect(created.payout.refundTo.equals(fresh)).toBe(true);
+      expect(created.payout.freshRefundAccount).toEqual({ seed, space: 165, lamports: BigInt(2_039_280) });
+
+      const lock = (await verify()) as Extract<VerifiedLock, { ok: true }>;
+      const { instructions, instruction } = meteredSettlement(terms, lock, { inputTokens: 120, outputTokens: 333 }, created.payout);
+      expect(instructions).toHaveLength(3); // create, initialise, settle
+      const [create, init, settle] = instructions;
+      expect(settle).toBe(instruction);
+      expect(create.programId.equals(SystemProgram.programId)).toBe(true);
+      expect(create.keys[0].pubkey.equals(payee) && create.keys[0].isSigner).toBe(true); // the provider funds it and is its base
+      expect(create.keys[1].pubkey.equals(fresh)).toBe(true);
+      expect(init.programId.equals(TOKEN_PROGRAM)).toBe(true);
+      expect(init.keys[0].pubkey.equals(fresh) && init.keys[1].pubkey.equals(USDC)).toBe(true);
+      expect(new PublicKey(init.data.subarray(1, 33)).equals(payer)).toBe(true); // the buyer owns it
+      expect(instruction.keys.some((k) => k.pubkey.equals(fresh) && k.isWritable)).toBe(true);
+      expect(instruction.keys.some((k) => k.pubkey.equals(ata(payer)))).toBe(false);
+
+      // Once it exists and is the buyer's, a retry pays into it without creating it again.
+      accounts.set(fresh.toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, payer) });
+      const again = await checkMeteredPayout({ terms, escrow, readAccount, createRefundAccount: true, instance });
+      expect(again.ok && again.payout.refundTo.equals(fresh) && again.payout.freshRefundAccount === undefined && again.payout.createRefundAccount === undefined).toBe(true);
+      // If it is not the buyer's, nothing is paid into it.
+      accounts.set(fresh.toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, payee) });
+      expect(await checkMeteredPayout({ terms, escrow, readAccount, createRefundAccount: true, instance })).toMatchObject({ ok: false, reason: 'refund_account_unusable' });
+      // An unreadable Rent sysvar is an unreadable chain.
+      accounts.delete(fresh.toBase58());
+      accounts.delete(SYSVAR_RENT_PUBKEY.toBase58());
+      expect(await checkMeteredPayout({ terms, escrow, readAccount, createRefundAccount: true, instance })).toMatchObject({ ok: false, reason: 'payment_check_unavailable' });
+    });
+
+    it('on Token-2022, sizes the new account for the mint when the buyer turned on required memos', async () => {
+      const mint = Keypair.generate().publicKey;
+      const t22 = { ...terms, mint, tokenProgram: TOKEN_2022 };
+      const escrow = { payer, source: ata22(payer, mint), recipient: ata22(payee, mint) };
+      const plain = (owner: PublicKey) => ({ owner: TOKEN_2022, data: tokenAccount(mint, owner) });
+      const mintBase = Buffer.alloc(82);
+      mintBase[45] = 1;
+      const accounts: Accounts = new Map([
+        [ata22(payee, mint).toBase58(), plain(payee)],
+        [ata22(ESCROW_PROTOCOL_TREASURY, mint).toBase58(), plain(ESCROW_PROTOCOL_TREASURY)],
+        [ata22(payer, mint).toBase58(), { owner: TOKEN_2022, data: withExtension(tokenAccount(mint, payer), 2, 8, Uint8Array.of(1)) }], // MemoTransfer on
+        [mint.toBase58(), { owner: TOKEN_2022, data: withExtension(mintBase, 1, 1, new Uint8Array(108)) }], // TransferFeeConfig
+        [SYSVAR_RENT_PUBKEY.toBase58(), rentSysvar()],
+      ]);
+      const readAccount = async (address: PublicKey) => accounts.get(address.toBase58()) ?? null;
+      const created = await checkMeteredPayout({ terms: t22, escrow, readAccount, createRefundAccount: true, instance });
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      // 165 + account type + the TransferFeeAmount extension (2 + 2 + 8).
+      expect(created.payout.freshRefundAccount).toEqual({ seed, space: 178, lamports: BigInt((128 + 178) * 3480 * 2) });
+      expect(created.payout.refundTo.equals(seedAddress(payee, seed, TOKEN_2022))).toBe(true);
+    });
+
+    it('refuses to create both the associated account and a fresh one, or a fresh one elsewhere', () => {
+      const fr = { seed, space: 165, lamports: BigInt(2_039_280) };
+      const t = { mint: USDC, tokenProgram: TOKEN_PROGRAM, payer };
+      expect(() => prepareTokenPayout(t, payee, undefined, { createRefundAccount: true, freshRefundAccount: fr })).toThrow('not both');
+      expect(() => prepareTokenPayout(t, payee, undefined, { refundTo: ata(payer), freshRefundAccount: fr })).toThrow('fresh account');
+      expect(prepareTokenPayout(t, payee, undefined, { freshRefundAccount: fr }).refundTo.equals(fresh)).toBe(true);
+    });
   });
 });
 

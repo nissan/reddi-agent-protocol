@@ -1,8 +1,9 @@
-import { PublicKey, TransactionInstruction } from '@solana/web3.js';
+import { PublicKey, SystemProgram, TransactionInstruction } from '@solana/web3.js';
 import {
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction,
+  createInitializeAccount3Instruction,
   getAssociatedTokenAddressSync,
   getExtensionTypes,
   getMemoTransfer,
@@ -14,6 +15,7 @@ import {
   unpackAccount,
   unpackMint,
 } from '@solana/spl-token';
+import { sha256 } from './rating';
 import { ESCROW_PROTOCOL_TREASURY, TokenEscrowTerms, treasuryTokenAccount } from './token-escrow';
 
 /**
@@ -70,6 +72,35 @@ export interface TokenPayoutOptions {
    * Off by default: this is a subsidy, and the caller decides when to pay it.
    */
   createRefundAccount?: boolean;
+  /**
+   * Create a new token account owned by the payer at `seedAddress(funder,
+   * seed, token program)` and return the unused part there. Only the funder can
+   * create an account at that address, so the payer cannot close, re-own or
+   * memo-lock it before the settle lands. The funder pays `lamports` (rent,
+   * not returned) and signs. Takes the place of `createRefundAccount`.
+   */
+  freshRefundAccount?: FreshRefundAccount;
+}
+
+/** A token account the settle creates for the payer's refund. */
+export interface FreshRefundAccount {
+  /** At most 32 characters. */
+  seed: string;
+  /** The account size the mint needs (165 for classic SPL Token, more for some Token-2022 mints). */
+  space: number;
+  lamports: bigint;
+}
+
+/** `PublicKey.createWithSeed`, synchronously: sha256(base || seed || owner program). */
+export function seedAddress(base: PublicKey, seed: string, program: PublicKey): PublicKey {
+  const seedBytes = new TextEncoder().encode(seed);
+  if (seedBytes.length > 32) throw new Error('a seed is at most 32 bytes');
+  return new PublicKey(sha256(Buffer.concat([base.toBuffer(), Buffer.from(seedBytes), program.toBuffer()])));
+}
+
+/** The seed of the refund account a settle creates for one lock: the escrow and its lock slot, so a later lock at the same address gets another. */
+export function freshRefundSeed(escrow: PublicKey, createdSlot: bigint): string {
+  return `rf${createdSlot.toString(36)}${escrow.toBase58()}`.slice(0, 32);
 }
 
 /**
@@ -89,12 +120,23 @@ export function prepareTokenPayout(
   }
   const treasuryToken = treasuryTokenAccount(t, treasury);
   const payerToken = getAssociatedTokenAddressSync(t.mint, t.payer, true, t.tokenProgram);
+  if (options.createRefundAccount && options.freshRefundAccount) throw new Error('create the associated account or a fresh one, not both');
   if (options.createRefundAccount && options.refundTo && !options.refundTo.equals(payerToken)) {
     throw new Error("only the payer's associated token account can be created here");
   }
   const instructions: TransactionInstruction[] = [];
   if (options.createTreasuryAccount) instructions.push(createAssociatedTokenAccountIdempotentInstruction(funder, treasuryToken, treasury, t.mint, t.tokenProgram));
   if (options.createRefundAccount) instructions.push(createAssociatedTokenAccountIdempotentInstruction(funder, payerToken, t.payer, t.mint, t.tokenProgram));
+  if (options.freshRefundAccount) {
+    const fresh = options.freshRefundAccount;
+    const account = seedAddress(funder, fresh.seed, t.tokenProgram);
+    if (options.refundTo && !options.refundTo.equals(account)) throw new Error('refundTo must be the fresh account');
+    instructions.push(
+      SystemProgram.createAccountWithSeed({ fromPubkey: funder, basePubkey: funder, seed: fresh.seed, newAccountPubkey: account, lamports: Number(fresh.lamports), space: fresh.space, programId: t.tokenProgram }),
+      createInitializeAccount3Instruction(account, t.mint, t.payer, t.tokenProgram),
+    );
+    return { treasuryToken, refundTo: account, instructions };
+  }
   return { treasuryToken, refundTo: options.refundTo ?? payerToken, instructions };
 }
 

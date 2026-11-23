@@ -3,6 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ESCROW_DEVNET_MINTS = exports.ESCROW_MAINNET_MINTS = exports.TREASURY_MIN_LAMPORTS = exports.SYSTEM_ACCOUNT_RENT_EXEMPT_LAMPORTS = void 0;
 exports.solPayoutWouldFail = solPayoutWouldFail;
 exports.minimumSolPayout = minimumSolPayout;
+exports.seedAddress = seedAddress;
+exports.freshRefundSeed = freshRefundSeed;
 exports.prepareTokenPayout = prepareTokenPayout;
 exports.checkTokenAccount = checkTokenAccount;
 exports.checkTreasuryReadiness = checkTreasuryReadiness;
@@ -10,6 +12,7 @@ exports.token2022MintPosture = token2022MintPosture;
 exports.mintPostureChanges = mintPostureChanges;
 const web3_js_1 = require("@solana/web3.js");
 const spl_token_1 = require("@solana/spl-token");
+const rating_1 = require("./rating");
 const token_escrow_1 = require("./token-escrow");
 /**
  * Launch and payout checks for the V1 escrow program. These guard against
@@ -38,6 +41,17 @@ function solPayoutWouldFail(currentLamports, incomingLamports, rentExemptLamport
 function minimumSolPayout(currentLamports, rentExemptLamports = exports.SYSTEM_ACCOUNT_RENT_EXEMPT_LAMPORTS) {
     return currentLamports >= rentExemptLamports ? 0n : rentExemptLamports - currentLamports;
 }
+/** `PublicKey.createWithSeed`, synchronously: sha256(base || seed || owner program). */
+function seedAddress(base, seed, program) {
+    const seedBytes = new TextEncoder().encode(seed);
+    if (seedBytes.length > 32)
+        throw new Error('a seed is at most 32 bytes');
+    return new web3_js_1.PublicKey((0, rating_1.sha256)(Buffer.concat([base.toBuffer(), Buffer.from(seedBytes), program.toBuffer()])));
+}
+/** The seed of the refund account a settle creates for one lock: the escrow and its lock slot, so a later lock at the same address gets another. */
+function freshRefundSeed(escrow, createdSlot) {
+    return `rf${createdSlot.toString(36)}${escrow.toBase58()}`.slice(0, 32);
+}
 /**
  * The accounts a token payout names next to the escrow's own: the treasury's
  * associated token account for the mint, and the account the unused part
@@ -50,6 +64,8 @@ function prepareTokenPayout(t, funder, treasury = token_escrow_1.ESCROW_PROTOCOL
     }
     const treasuryToken = (0, token_escrow_1.treasuryTokenAccount)(t, treasury);
     const payerToken = (0, spl_token_1.getAssociatedTokenAddressSync)(t.mint, t.payer, true, t.tokenProgram);
+    if (options.createRefundAccount && options.freshRefundAccount)
+        throw new Error('create the associated account or a fresh one, not both');
     if (options.createRefundAccount && options.refundTo && !options.refundTo.equals(payerToken)) {
         throw new Error("only the payer's associated token account can be created here");
     }
@@ -58,6 +74,14 @@ function prepareTokenPayout(t, funder, treasury = token_escrow_1.ESCROW_PROTOCOL
         instructions.push((0, spl_token_1.createAssociatedTokenAccountIdempotentInstruction)(funder, treasuryToken, treasury, t.mint, t.tokenProgram));
     if (options.createRefundAccount)
         instructions.push((0, spl_token_1.createAssociatedTokenAccountIdempotentInstruction)(funder, payerToken, t.payer, t.mint, t.tokenProgram));
+    if (options.freshRefundAccount) {
+        const fresh = options.freshRefundAccount;
+        const account = seedAddress(funder, fresh.seed, t.tokenProgram);
+        if (options.refundTo && !options.refundTo.equals(account))
+            throw new Error('refundTo must be the fresh account');
+        instructions.push(web3_js_1.SystemProgram.createAccountWithSeed({ fromPubkey: funder, basePubkey: funder, seed: fresh.seed, newAccountPubkey: account, lamports: Number(fresh.lamports), space: fresh.space, programId: t.tokenProgram }), (0, spl_token_1.createInitializeAccount3Instruction)(account, t.mint, t.payer, t.tokenProgram));
+        return { treasuryToken, refundTo: account, instructions };
+    }
     return { treasuryToken, refundTo: options.refundTo ?? payerToken, instructions };
 }
 /**

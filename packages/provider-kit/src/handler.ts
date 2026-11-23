@@ -345,7 +345,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       if (reserved) subsidy.used += 1;
       let next: typeof current | undefined;
       try {
-        const again = await checkMeteredPayout({ terms, escrow: lock.terms, readAccount: (address) => deps.chain.readAccount(address), allowPayerAssociatedAccount: true, createRefundAccount: reserved || lock.payout.createRefundAccount === true });
+        const again = await checkMeteredPayout({ terms, escrow: lock.terms, readAccount: (address) => deps.chain.readAccount(address), allowPayerAssociatedAccount: true, createRefundAccount: reserved || lock.payout.createRefundAccount === true, instance: { escrow: escrowAddress, createdSlot: lock.createdSlot } });
         if (again.ok) next = await prepare(again.payout);
         if (next?.payout?.createRefundAccount) log({ event: "refund_account_created", requestId, escrow, account: next.payout.refundTo.toBase58() });
       } catch {

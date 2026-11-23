@@ -43,7 +43,27 @@ export interface TokenPayoutOptions {
      * Off by default: this is a subsidy, and the caller decides when to pay it.
      */
     createRefundAccount?: boolean;
+    /**
+     * Create a new token account owned by the payer at `seedAddress(funder,
+     * seed, token program)` and return the unused part there. Only the funder can
+     * create an account at that address, so the payer cannot close, re-own or
+     * memo-lock it before the settle lands. The funder pays `lamports` (rent,
+     * not returned) and signs. Takes the place of `createRefundAccount`.
+     */
+    freshRefundAccount?: FreshRefundAccount;
 }
+/** A token account the settle creates for the payer's refund. */
+export interface FreshRefundAccount {
+    /** At most 32 characters. */
+    seed: string;
+    /** The account size the mint needs (165 for classic SPL Token, more for some Token-2022 mints). */
+    space: number;
+    lamports: bigint;
+}
+/** `PublicKey.createWithSeed`, synchronously: sha256(base || seed || owner program). */
+export declare function seedAddress(base: PublicKey, seed: string, program: PublicKey): PublicKey;
+/** The seed of the refund account a settle creates for one lock: the escrow and its lock slot, so a later lock at the same address gets another. */
+export declare function freshRefundSeed(escrow: PublicKey, createdSlot: bigint): string;
 /**
  * The accounts a token payout names next to the escrow's own: the treasury's
  * associated token account for the mint, and the account the unused part
