@@ -49,10 +49,11 @@ export async function readJsonBody(request: Request, maxBytes = 4096): Promise<R
 
 /**
  * Per-client limits for the try routes, per server instance (defence in depth,
- * as for /api/rpc): `calls` counts status polls and transaction requests,
+ * as for /api/rpc): `calls` counts status polls and transaction requests
+ * (the page polls every 2 s, so 60 a minute leaves room for one tab and its wallet),
  * `scans` counts started tries.
  */
-const limiter = createRpcRateLimiter(Date.now, { calls: 90, scans: 10, windowMs: 60_000 });
+const limiter = createRpcRateLimiter(Date.now, { calls: 60, scans: 10, windowMs: 60_000 });
 
 export function rateLimited(request: Request, kind: "call" | "start", headers: Record<string, string> = {}): Response | undefined {
   const taken = limiter.take(rpcClientKey(request.headers), kind === "call" ? 1 : 0, kind === "start" ? 1 : 0);

@@ -29,7 +29,7 @@ import {
 } from "@redditech/x402-solana";
 import { createPrivateKey, sign as edSign } from "crypto";
 import { SANDBOX_ENDPOINT_PATH, type SandboxProvider } from "@/lib/sandbox/catalog";
-import { buildSandboxMeteredLock, sandboxEscrowAddress } from "@/lib/sandbox/escrow";
+import { buildSandboxMeteredLock, decodeSandboxEscrow, sandboxEscrowAddress } from "@/lib/sandbox/escrow";
 import { handleSandboxChatCompletion, type SandboxGatewayDeps } from "@/lib/sandbox/gateway";
 import { maxChargeLamports, requestInputTokens } from "@/lib/sandbox/pricing";
 import { meteredPaymentHeader, type SandboxChallenge } from "@/lib/sandbox/client";
@@ -122,11 +122,13 @@ export async function buildTryTransaction(input: { token: unknown; account: unkn
 
 /** What `runTry` reads from devnet: the reference's signatures and each transaction. A `Connection` fits. */
 export type TryChainReader = Parameters<typeof transactionFactsReader>[0] & {
-  getSignaturesForAddress(address: PublicKey, options: { limit: number }, commitment: "confirmed"): Promise<readonly { signature: string; err: unknown }[]>;
+  getSignaturesForAddress(address: PublicKey, options: { limit: number; before?: string }, commitment: "confirmed"): Promise<readonly { signature: string; err: unknown }[]>;
 };
 
 export type TryRunResult =
   | { ok: true; state: "waiting" }
+  /** The lock was already finished (settled by an earlier request this server no longer holds, or refunded). Nothing more is taken. */
+  | { ok: true; state: "settled"; lockSignature: string; payer: string; escrow: string }
   | {
       ok: true;
       state: "answered";
@@ -142,6 +144,62 @@ export type TryRunResult =
       receipt?: unknown;
     };
 
+/** How many signatures naming the reference `runTry` lists, and how many it reads per poll (S2-15). */
+export const TRY_REFERENCE_SIGNATURES = 1_000;
+export const TRY_READS_PER_POLL = 4;
+const CACHE_LIMIT = 5_000;
+
+/**
+ * Per-instance memory for `runTry`, so polls stay cheap and repeatable:
+ * signatures already found not to be a ticket's lock are not read again, and a
+ * lock's answer (or the call in flight) is returned to every later poll of the
+ * same ticket instead of calling the provider again (S2-14).
+ */
+export class TryRunCache {
+  private readonly rejected = new Set<string>();
+  private readonly answers = new Map<string, Promise<TryRunResult | TryFailure>>();
+  private readonly cursors = new Map<string, string>();
+
+  /** The oldest signature naming a ticket's reference that every newer one has been ruled out down to. */
+  cursor(ticketId: string): string | undefined {
+    return this.cursors.get(ticketId);
+  }
+
+  advance(ticketId: string, signature: string): void {
+    this.cursors.set(ticketId, signature);
+    if (this.cursors.size > CACHE_LIMIT) this.cursors.delete(this.cursors.keys().next().value as string);
+  }
+
+  isRejected(key: string): boolean {
+    return this.rejected.has(key);
+  }
+
+  reject(key: string): void {
+    this.rejected.add(key);
+    if (this.rejected.size > CACHE_LIMIT) this.rejected.delete(this.rejected.values().next().value as string);
+  }
+
+  answer(key: string, run: () => Promise<TryRunResult | TryFailure>): Promise<TryRunResult | TryFailure> {
+    const known = this.answers.get(key);
+    if (known) return known;
+    const pending = run();
+    this.answers.set(key, pending);
+    if (this.answers.size > CACHE_LIMIT) this.answers.delete(this.answers.keys().next().value as string);
+    // Only a final outcome is kept: a served answer, or a lock already finished. A thrown
+    // call (devnet unreachable) or a refusal while the escrow is still locked, such as a
+    // provider 502 or 429, may pass on the next poll, so that poll calls again.
+    pending.then(
+      (result) => {
+        if (!(result.ok && (result.state === "settled" || (result.state === "answered" && result.status === 200)))) this.answers.delete(key);
+      },
+      () => this.answers.delete(key),
+    );
+    return pending;
+  }
+}
+
+const defaultCache = new TryRunCache();
+
 /** Step 3: once the lock has landed, make the call. `waiting` until it has. */
 export async function runTry(input: {
   token: unknown;
@@ -150,50 +208,109 @@ export async function runTry(input: {
   connection: TryChainReader;
   deps: SandboxGatewayDeps;
   nowMs?: number;
+  cache?: TryRunCache;
+  /** Signatures per page; tests make it small. */
+  pageSize?: number;
 }): Promise<TryRunResult | TryFailure> {
   const ticket = openTicket(input.token, input.secret, input.nowMs);
   if (!ticket) return fail(400, "ticket_invalid", "This try link has expired or is not one of ours. Start again from the try page.");
   const task = findTryTask(ticket.taskId);
   if (!task) return fail(400, "ticket_invalid", "This try link names a task that no longer exists.");
   const provider = tryTaskProvider(task);
-  const found = await input.connection.getSignaturesForAddress(new PublicKey(ticket.reference), { limit: 20 }, "confirmed");
+  const cache = input.cache ?? defaultCache;
+  const pageSize = input.pageSize ?? TRY_REFERENCE_SIGNATURES;
+  const reference = new PublicKey(ticket.reference);
+  const found = [...(await input.connection.getSignaturesForAddress(reference, { limit: pageSize }, "confirmed"))];
+  // More than a page names the reference: also walk back one older page per poll, from
+  // where earlier polls ruled everything out, so a flood cannot push the lock out of view.
+  let older: { signature: string; err: unknown }[] = [];
+  if (found.length === pageSize) {
+    const before = cache.cursor(ticket.id) ?? found[found.length - 1].signature;
+    older = [...(await input.connection.getSignaturesForAddress(reference, { limit: pageSize, before }, "confirmed"))];
+  }
   const read = transactionFactsReader(input.connection);
-  for (const candidate of found) {
+  let reads = 0;
+  // Oldest first: the reference is only public once the lock lands, so transactions
+  // that name it to crowd the lock out come after it. Each is read once per ticket,
+  // and a poll reads at most a few, so stuffing the reference cannot fan out RPC reads.
+  for (const candidate of [...found, ...older].reverse()) {
     if (candidate.err) continue;
+    const seen = `${ticket.id}:${candidate.signature}`;
+    if (cache.isRejected(seen)) continue;
+    if (reads >= TRY_READS_PER_POLL) break;
+    reads += 1;
     const facts = await read(candidate.signature);
-    if (!facts || facts.failed || facts.signers.length === 0) continue;
+    if (!facts) continue; // Not readable yet: try again on the next poll.
+    if (facts.failed || facts.signers.length === 0) {
+      cache.reject(seen);
+      continue;
+    }
     const payer = new PublicKey(facts.signers[0]);
     const escrow = sandboxEscrowAddress(payer, ticket.nonce);
-    if (!facts.accounts.includes(escrow.toBase58())) continue;
     // The reference key is public, so anyone can put it in a transaction. Only a lock
     // carrying this ticket's delegation memo, signed by its payer, is this try's.
     const delegation = delegationFor(ticket, provider, escrow, input.secret);
     const memo = sessionDelegationMemo(delegation);
-    if (!facts.memos.some((m) => m.text === memo && m.accounts.includes(payer.toBase58()))) continue;
-    const relay = relayKeypair(ticket.id, input.secret);
-    const text = requestText(task, provider);
-    const challenge: SandboxChallenge = { version: "1", network: "solana-devnet", payTo: provider.payTo, amount: "0", currency: "SOL", endpoint: SANDBOX_ENDPOINT_PATH, nonce: ticket.nonce };
-    const reply = await handleSandboxChatCompletion(
-      {
-        body: JSON.parse(text),
-        rawBody: text,
-        paymentHeader: meteredPaymentHeader(challenge, escrow.toBase58(), candidate.signature, payer.toBase58()),
-        origin: input.origin,
-        session: {
-          delegation: lockBoundDelegationHeaderValue(delegation, candidate.signature),
-          signature: await sessionSignatureHeaderValue({ genesisHash: SOLANA_GENESIS_HASHES["solana-devnet"], action: "single", escrow: escrow.toBase58(), sequence: 0, body: text }, (m) => signWith(relay, m)),
-        },
-      },
-      input.deps,
-    );
-    let body: unknown;
-    try {
-      body = JSON.parse(reply.bodyText);
-    } catch {
-      body = { error: { code: "bad_response", message: "The provider's reply is not JSON." } };
+    if (!facts.accounts.includes(escrow.toBase58()) || !facts.memos.some((m) => m.text === memo && m.accounts.includes(payer.toBase58()))) {
+      cache.reject(seen);
+      continue;
     }
-    const receipt = decodeReceiptHeader(reply.headers[PROVIDER_RECEIPT_HEADER]);
-    return { ok: true, state: "answered", lockSignature: candidate.signature, payer: payer.toBase58(), escrow: escrow.toBase58(), status: reply.status, body, requestText: text, responseText: reply.bodyText, ...(receipt !== undefined ? { receipt } : {}) };
+    return cache.answer(seen, () => callProvider({ ...input, task, provider, ticket, delegation, escrow, payer, lockSignature: candidate.signature }));
   }
+  // The older page is all ruled out: the next poll starts below it.
+  if (older.length === pageSize && older.every((c) => c.err || cache.isRejected(`${ticket.id}:${c.signature}`))) cache.advance(ticket.id, older[older.length - 1].signature);
   return { ok: true, state: "waiting" };
+}
+
+async function callProvider(input: {
+  origin: string;
+  secret: Buffer;
+  deps: SandboxGatewayDeps;
+  task: TryTask;
+  provider: SandboxProvider;
+  ticket: TryTicket;
+  delegation: SessionDelegation;
+  escrow: PublicKey;
+  payer: PublicKey;
+  lockSignature: string;
+}): Promise<TryRunResult> {
+  const { task, provider, ticket, delegation, escrow, payer, lockSignature } = input;
+  const relay = relayKeypair(ticket.id, input.secret);
+  const text = requestText(task, provider);
+  const challenge: SandboxChallenge = { version: "1", network: "solana-devnet", payTo: provider.payTo, amount: "0", currency: "SOL", endpoint: SANDBOX_ENDPOINT_PATH, nonce: ticket.nonce };
+  const reply = await handleSandboxChatCompletion(
+    {
+      body: JSON.parse(text),
+      rawBody: text,
+      paymentHeader: meteredPaymentHeader(challenge, escrow.toBase58(), lockSignature, payer.toBase58()),
+      origin: input.origin,
+      session: {
+        delegation: lockBoundDelegationHeaderValue(delegation, lockSignature),
+        signature: await sessionSignatureHeaderValue({ genesisHash: SOLANA_GENESIS_HASHES["solana-devnet"], action: "single", escrow: escrow.toBase58(), sequence: 0, body: text }, (m) => signWith(relay, m)),
+      },
+    },
+    input.deps,
+  );
+  let body: unknown;
+  try {
+    body = JSON.parse(reply.bodyText);
+  } catch {
+    body = { error: { code: "bad_response", message: "The provider's reply is not JSON." } };
+  }
+  // Another server instance may have served this lock already. The lock landed, so an
+  // escrow that is now closed or no longer locked was settled (or later refunded): the
+  // refusal reflects that, not a rejected payment, and nothing more is taken.
+  if (reply.status !== 200) {
+    if (await escrowNoLongerLocked(input.deps, escrow)) return { ok: true, state: "settled", lockSignature, payer: payer.toBase58(), escrow: escrow.toBase58() };
+  }
+  const receipt = decodeReceiptHeader(reply.headers[PROVIDER_RECEIPT_HEADER]);
+  return { ok: true, state: "answered", lockSignature, payer: payer.toBase58(), escrow: escrow.toBase58(), status: reply.status, body, requestText: text, responseText: reply.bodyText, ...(receipt !== undefined ? { receipt } : {}) };
+}
+
+async function escrowNoLongerLocked(deps: SandboxGatewayDeps, escrow: PublicKey): Promise<boolean> {
+  if (!deps.readAccount) return false;
+  const account = await deps.readAccount(escrow);
+  if (!account) return true;
+  const decoded = decodeSandboxEscrow(account.data);
+  return decoded !== undefined && decoded.status !== "locked";
 }

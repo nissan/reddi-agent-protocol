@@ -256,6 +256,13 @@ export default function TryConsole() {
           }
           return;
         }
+        if (response.ok && (body as { state?: string }).state === "settled") {
+          // The lock was already finished, by an earlier answer this server no longer holds or by a refund.
+          polling.current = false;
+          setPhase("failed");
+          setMessage("This lock was already finished, either by an answer from an earlier check or by a refund, so there is nothing more to show here and nothing more will be taken. Your wallet's history shows which.");
+          return;
+        }
         if (!response.ok && response.status !== 503) {
           polling.current = false;
           setPhase("failed");
