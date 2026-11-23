@@ -7,6 +7,8 @@ All notable changes to this package are documented here. Dates are AEST.
 ### Changed
 
 - The minimum lock for a per-token call is bounded by bytes, not by an estimate: `minimumLockBaseUnits` prices the input at one token a UTF-8 byte plus `MESSAGE_TOKEN_OVERHEAD` a message, plus the full output limit, so dense text (CJK, emoji, digits) still pays the provider's full price. `inputTokenBound` gives that count; the default maximum in `meteredOffer` is never below the minimum.
+- `meteredEscrowReplayKey(escrow, createdSlot)` names one lock instance (`metered-escrow:<escrow>:<slot>`), so a later lock at the same address is a new call. Keys stored by 0.1.1 and earlier do not match the new form.
+- `verifyMeteredLock` takes the `lockSlot` the buyer signed for and refuses a lock locked in another slot (`lock_instance_mismatch`) before the replay key is reserved.
 
 ### Added
 

@@ -15,6 +15,12 @@ All notable changes to this package are documented here. Dates are AEST.
 ### Changed
 
 - The minimum lock counts one token a UTF-8 byte of input, and the request body limit is enforced while the body streams in. Sessions are offered on devnet only.
+- A held answer is given only to the payer of its lock, checked by the escrow address the payer's wallet and nonce derive, and only for the lock instance the payer signed for. Another wallet that names the escrow is refused before any lock is read.
+- A pending settle records its payer and lock slot. The sweep declines only the lock it recorded; a record without them is dropped with an alert instead of declining a later lock at the same address.
+
+### Upgrading
+
+- The replay key now names the lock instance, so keys stored by 0.2.x do not match. Deploy 0.3.0 when the sweep shows no pending settles.
 
 ## 0.2.1 and earlier
 
