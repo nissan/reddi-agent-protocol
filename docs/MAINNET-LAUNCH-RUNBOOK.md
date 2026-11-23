@@ -105,29 +105,58 @@ A payout fails if the treasury cannot receive it:
 2. Set the Vercel variables in `docs/MAINNET-RPC.md`, and the firewall rate
    limit on `/api/rpc`.
 3. Set `X402_PROTOCOL_FEE_TREASURY` for providers to the vault.
-4. Apply the Supabase migrations to the `reddi-agent-protocol` project, in
-   file-name order: `supabase/migrations/20261120000000_v1_core.sql` (#742),
-   `20261122000000_providers_server_writes_only.sql`,
-   `20261122000001_replay_check_and_store_all.sql` (#904) and
-   `20261122100000_providers_adl.sql` (#934). All four were applied to the hosted
-   project and recorded in `supabase_migrations.schema_migrations` on 22 November
-   2026, with the access-rule checks in `supabase/tests` passing there. Do this before
-   any service on that `x402-solana` version takes a real payment: without
-   `20261122000001_replay_check_and_store_all.sql` the replay store fails closed and every payment is refused. Then
-   check in the SQL editor that the function exists and only the service role
-   can run it:
+4. Check the `reddi-agent-protocol` Supabase project before any service on that
+   `x402-solana` version takes a real payment. Record each result on #736.
+   Anything that does not match is a stop.
+   1. **Migrations.** Every file in `supabase/migrations` is applied, in
+      file-name order, and `supabase_migrations.schema_migrations` lists each
+      one's version. On 23 November 2026 there are five:
+      `20261120000000_v1_core.sql` (#742),
+      `20261122000000_providers_server_writes_only.sql`,
+      `20261122000001_replay_check_and_store_all.sql` (#904),
+      `20261122100000_providers_adl.sql` (#934) and
+      `20261123000000_providers_adl_public_read.sql` (#947). A file added after
+      that date counts too. Without the replay migration the replay store fails
+      closed and every payment is refused. Without #947 public listing reads are
+      refused and `GET /api/listings` answers 503. List what is recorded with:
 
-   ```sql
-   select p.oid::regprocedure,
-          has_function_privilege('service_role', p.oid, 'execute') as service_role,
-          has_function_privilege('anon', p.oid, 'execute') as anon,
-          has_function_privilege('authenticated', p.oid, 'execute') as authenticated
-   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname = 'public' and p.proname = 'replay_check_and_store_all';
-   ```
+      ```sql
+      select version, name from supabase_migrations.schema_migrations order by version;
+      ```
 
-   Expect one row, `replay_check_and_store_all(text[])`, with `true`, `false`,
-   `false`. Anything else is a stop.
+   2. **Schema diff.** Run `supabase db diff --linked` (or `supabase db diff
+      --db-url <hosted connection string>`) from the repository root. It must
+      report no difference between the hosted schema and the migrations.
+   3. **Replay function.** In the SQL editor, check that it exists and only the
+      service role can run it:
+
+      ```sql
+      select p.oid::regprocedure,
+             has_function_privilege('service_role', p.oid, 'execute') as service_role,
+             has_function_privilege('anon', p.oid, 'execute') as anon,
+             has_function_privilege('authenticated', p.oid, 'execute') as authenticated
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'replay_check_and_store_all';
+      ```
+
+      Expect one row, `replay_check_and_store_all(text[])`, with `true`, `false`,
+      `false`.
+   4. **Access rules on the hosted project.** Run `supabase/tests/10_access_rules.sql`
+      against the hosted database inside one transaction that ends in `rollback`,
+      so its test rows are not kept. Run that file only: never
+      `00_supabase_stub.sql` or `run-local.sh`, which create roles and schemas
+      for a throwaway local database. Every check must pass. The run of 22
+      November 2026 does not count for launch day.
+   5. **Backups.** In the Supabase dashboard (Database, Backups), daily backups
+      are on and the latest one is less than a day old. Point-in-time recovery is
+      on, or the owner has decided in writing to launch without it. Write down
+      which.
+   6. **Auth settings.** In Authentication: only the sign-in providers the app
+      uses are enabled; the Site URL is `https://app.agent-protocol.reddi.tech`;
+      the redirect allow list holds only the app's own origins (no `localhost`,
+      no preview wildcard); and sign-ups match what the app expects. These
+      settings are not in the repository (`supabase/config.toml` does not
+      exist), so the record on #736 is their only review.
 5. Tell each provider operator to keep its SOL payee wallet rent-exempt, open
    and not a program account from lock to payout, or SOL payouts to it fail
    (`docs/ESCROW-PAYOUT-SAFETY.md`).
