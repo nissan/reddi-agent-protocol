@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 import pg from "pg";
 import { Keypair } from "@solana/web3.js";
-import { createServerlessProvider, type ServerlessProviderOptions } from "../src/serverless.js";
+import { createServerlessProvider, redactLogEvent, type ServerlessProviderOptions } from "../src/serverless.js";
 import type { PgPool } from "../src/postgres.js";
 import type { Upstream } from "../src/upstream.js";
 import { configFile, fakeChain, paymentHeader, provider, singleCallHeaders } from "./helpers.js";
@@ -113,6 +113,14 @@ test("the sweep reads nothing from a chain on another cluster", async () => {
   assert.ok(result.ok);
   await result.provider.sweep();
   assert.ok(events.some((e) => e.event === "cluster_check_failed" && e.alert === true));
+});
+
+test("log events never carry a URL, so an RPC key in one cannot reach the host's logs", () => {
+  const event = { event: "sweep_failed", error: "fetch failed: https://mainnet.helius-rpc.com/?api-key=SECRET (reason)", nested: { at: ["wss://x.example/k?token=T"] }, n: 3 };
+  const out = JSON.stringify(redactLogEvent(event));
+  assert.ok(!out.includes("SECRET") && !out.includes("helius") && !out.includes("token=T"));
+  assert.match(out, /https:\/\/\[redacted\] \(reason\)/);
+  assert.equal((redactLogEvent(event) as { n: number }).n, 3);
 });
 
 const url = process.env.RAP_TEST_DATABASE_URL;

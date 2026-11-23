@@ -53,6 +53,22 @@ export interface ServerlessProvider {
 export type ServerlessProviderResult = { ok: true; provider: ServerlessProvider } | { ok: false; message: string };
 
 const BASE_PATH = /^\/[a-z0-9][a-z0-9-]{0,62}$/;
+const URL_TEXT = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+/gi;
+
+/**
+ * A log event with every URL in its text replaced by its scheme, so an error
+ * that quotes an endpoint (an RPC URL carries its API key) never reaches the
+ * host's logs.
+ */
+export function redactLogEvent(event: Record<string, unknown>): Record<string, unknown> {
+  const redact = (value: unknown): unknown => {
+    if (typeof value === "string") return value.replace(URL_TEXT, (url) => `${url.slice(0, url.indexOf(":"))}://[redacted]`);
+    if (Array.isArray(value)) return value.map(redact);
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redact(item)]));
+    return value;
+  };
+  return redact(event) as Record<string, unknown>;
+}
 
 export function createServerlessProvider(options: ServerlessProviderOptions): ServerlessProviderResult {
   const { systemPromptFile: _ignored, ...file } = options.file as ProviderConfigFile & { systemPromptFile?: string };
@@ -76,6 +92,8 @@ export function createServerlessProvider(options: ServerlessProviderOptions): Se
     return { ok: false, message: `publicUrl must end with ${basePath}, where the provider is mounted, so buyers are sent to the right address` };
   }
 
+  const hostLog = options.log;
+  const log = hostLog ? (event: Record<string, unknown>) => hostLog(redactLogEvent(event)) : undefined;
   const key = loadProviderKeyFromEnv({ env: options.env, name: options.keyEnv, wallet: config.wallet });
   if (!key.ok) return { ok: false, message: key.message };
   const stores = postgresProviderStores(options.pool, options.providerId ?? config.wallet);
@@ -89,7 +107,7 @@ export function createServerlessProvider(options: ServerlessProviderOptions): Se
     heldAnswers: stores.heldAnswers,
     capacity: new Capacity(config.capacity, stores.capacityStore),
     signMessage: key.key.signMessage,
-    ...(options.log ? { log: options.log } : {}),
+    ...(log ? { log } : {}),
   });
 
   const handle = async (request: Request): Promise<Response> => {
@@ -111,7 +129,7 @@ export function createServerlessProvider(options: ServerlessProviderOptions): Se
     // The sweep reads the chain; it never trusts one on another cluster.
     const cluster = await checkProviderCluster(() => chain.readGenesisHash(), config.network, config.genesisHash);
     if (!cluster.ok) {
-      options.log?.({ event: "cluster_check_failed", reason: cluster.reason, alert: true });
+      log?.({ event: "cluster_check_failed", reason: cluster.reason, alert: true });
       return;
     }
     await handler.settleDueSessions();

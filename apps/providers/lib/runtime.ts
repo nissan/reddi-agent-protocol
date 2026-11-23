@@ -4,7 +4,7 @@
  * setting takes effect without a redeploy of the code.
  */
 import pg from "pg";
-import type { PgPool } from "@redditech/provider-kit";
+import { redactLogEvent, type PgPool } from "@redditech/provider-kit";
 import { loadProvider, type Loaded, type ProviderName } from "./providers.ts";
 
 let pool: PgPool | undefined;
@@ -18,7 +18,8 @@ function sharedPool(): PgPool | undefined {
   return pool;
 }
 
-export const log = (event: Record<string, unknown>) => console.log(JSON.stringify({ source: "rap-provider", ...event }));
+/** One JSON line per event, with any URL in it redacted (an RPC URL carries its key). */
+export const log = (event: Record<string, unknown>) => console.log(JSON.stringify(redactLogEvent({ source: "rap-provider", ...event })));
 
 export function provider(name: ProviderName): Loaded {
   const cached = built.get(name);

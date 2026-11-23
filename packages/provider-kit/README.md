@@ -236,7 +236,7 @@ if (!created.ok) throw new Error(created.message);
 export const { handle, sweep } = created.provider;
 ```
 
-- Apply the `provider_kit` migration (`supabase/migrations/20261123120000_provider_kit_state.sql` in this repository) first. No client role can read it; connect with a server-side connection string kept in your host's sensitive settings.
+- Apply the `provider_kit` migration (`supabase/migrations/20261123120000_provider_kit_state.sql` in this repository) first. It creates a `provider_kit_app` role that can use these tables and nothing else; give it a login yourself and connect as it (through your database's pooler), never as the database owner. No client role can read the tables.
 - Call `sweep()` every minute or so (a cron job behind a secret). It looks again at settles whose outcome was not known.
 - An answer waiting for its settle to land is kept in the database for up to ten minutes, for the buyer to collect with the same request.
 - Sessions and the refund-account subsidy are not offered on a serverless host yet; the provider refuses to start with them on.

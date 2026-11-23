@@ -125,10 +125,11 @@ const MAX_RECEIPT_HEADER_CHARS = 4096;
 const HELD_ANSWER_MS = 10 * 60_000;
 /**
  * How long one request may hold a lock's lease while it settles or collects.
- * Longer than any settle takes, so a live request never loses it; short enough
- * that a lease left by a crashed instance clears on its own.
+ * Longer than a request may run on a serverless host (300 s), so a live
+ * request never loses it; short enough that a lease left by a crashed instance
+ * clears on its own.
  */
-const LOCK_LEASE_MS = 120_000;
+const LOCK_LEASE_MS = 330_000;
 
 export interface ProviderDeps {
   chain: ProviderChain;

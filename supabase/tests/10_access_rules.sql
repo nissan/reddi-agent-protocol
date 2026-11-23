@@ -284,4 +284,30 @@ do $$ begin
   then raise exception 'a client role holds a privilege in provider_kit'; end if;
 end $$;
 
+-- The providers' own role uses its five tables and nothing else.
+set role provider_kit_app;
+insert into provider_kit.replay (provider, key) values ('p', 'k');
+do $$ begin
+  if (select count(*) from provider_kit.replay) <> 1 then raise exception 'provider_kit_app cannot read its own rows'; end if;
+end $$;
+delete from provider_kit.replay;
+do $$ declare t text; begin
+  foreach t in array array['profiles', 'providers', 'jobs', 'receipts', 'payment_replay', 'attestations', 'provider_stats'] loop
+    perform pg_temp.expect_error('provider_kit_app reads public.' || t, format('select 1 from public.%I', t));
+    perform pg_temp.expect_error('provider_kit_app writes public.' || t, format('delete from public.%I', t));
+  end loop;
+  perform pg_temp.expect_error('provider_kit_app truncates its replay table', 'truncate provider_kit.replay');
+end $$;
+reset role;
+do $$ begin
+  if exists (select 1 from pg_roles where rolname = 'provider_kit_app' and (rolsuper or rolbypassrls or rolcreaterole or rolcreatedb or rolcanlogin))
+  then raise exception 'provider_kit_app has more than table access'; end if;
+  if exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and has_function_privilege('provider_kit_app', p.oid, 'execute')
+      -- Extension functions (pgcrypto's hashes and ciphers) touch no table.
+      and not exists (select 1 from pg_depend d where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
+  ) then raise exception 'provider_kit_app can run one of the project''s public functions'; end if;
+end $$;
+
 select 'access rules: all checks passed' as result;

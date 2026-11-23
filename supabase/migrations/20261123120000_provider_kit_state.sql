@@ -6,8 +6,12 @@
 -- outcome was not known, and the model's limits count all calls.
 --
 -- Server only: the schema is not exposed through the API, and no client role
--- has any privilege on it. The providers connect with a server-side database
--- connection string kept in the host's sensitive environment variables.
+-- has any privilege on it. The providers connect as provider_kit_app, a role
+-- that can use these five tables and nothing else: no public table, no
+-- function, no BYPASSRLS. It is created without LOGIN; the owner gives it a
+-- login and password by hand (apps/providers/README.md), so no credential is
+-- in a file, and its connection string is kept in the host's sensitive
+-- environment variables.
 
 create schema provider_kit;
 revoke all on schema provider_kit from public;
@@ -68,3 +72,18 @@ alter table provider_kit.pending_settles enable row level security;
 alter table provider_kit.capacity enable row level security;
 
 revoke all on all tables in schema provider_kit from public, anon, authenticated;
+
+do $$ begin
+  if not exists (select 1 from pg_roles where rolname = 'provider_kit_app') then
+    create role provider_kit_app nologin nosuperuser nocreatedb nocreaterole noinherit nobypassrls;
+  end if;
+end $$;
+grant usage on schema provider_kit to provider_kit_app;
+grant select, insert, update, delete on
+  provider_kit.replay, provider_kit.leases, provider_kit.held_answers, provider_kit.pending_settles, provider_kit.capacity
+  to provider_kit_app;
+create policy provider_kit_app_all on provider_kit.replay for all to provider_kit_app using (true) with check (true);
+create policy provider_kit_app_all on provider_kit.leases for all to provider_kit_app using (true) with check (true);
+create policy provider_kit_app_all on provider_kit.held_answers for all to provider_kit_app using (true) with check (true);
+create policy provider_kit_app_all on provider_kit.pending_settles for all to provider_kit_app using (true) with check (true);
+create policy provider_kit_app_all on provider_kit.capacity for all to provider_kit_app using (true) with check (true);

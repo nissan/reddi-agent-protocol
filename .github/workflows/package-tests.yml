@@ -114,11 +114,13 @@ jobs:
           for f in supabase/tests/00_supabase_stub.sql supabase/migrations/*.sql; do
             docker exec -i rap-pg psql -X -q -v ON_ERROR_STOP=1 -U postgres < "$f"
           done
+          # The tests connect as the providers' own role, so its grants are what is tested.
+          docker exec rap-pg psql -X -q -v ON_ERROR_STOP=1 -U postgres -c "alter role provider_kit_app login"
 
       - name: Run the package's tests
         working-directory: packages/${{ matrix.package }}
         env:
-          RAP_TEST_DATABASE_URL: ${{ matrix.package == 'provider-kit' && 'postgres://postgres@127.0.0.1:55432/postgres' || '' }}
+          RAP_TEST_DATABASE_URL: ${{ matrix.package == 'provider-kit' && 'postgres://provider_kit_app@127.0.0.1:55432/postgres' || '' }}
         run: npm test
 
       # The app imports x402-solana's source, but other packages and consumers load the
