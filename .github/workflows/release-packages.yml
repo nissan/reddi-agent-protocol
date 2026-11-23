@@ -62,8 +62,28 @@ jobs:
         with:
           node-version: "24"
 
+      # The provider kit's Postgres store tests need a real database, as in
+      # package-tests.yml. Local only: nothing leaves the runner.
+      - name: Start Postgres with the migrations
+        run: |
+          set -euo pipefail
+          docker run -d --name rap-pg -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:55432:5432 postgres:16.10
+          # The image starts a temporary server while it initialises: wait for the real one.
+          for i in $(seq 1 60); do
+            docker logs rap-pg 2>&1 | grep -q "PostgreSQL init process complete" && docker exec rap-pg pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && break
+            sleep 1
+          done
+          docker exec rap-pg pg_isready -h 127.0.0.1 -U postgres
+          for f in supabase/tests/00_supabase_stub.sql supabase/migrations/*.sql; do
+            docker exec -i rap-pg psql -X -q -v ON_ERROR_STOP=1 -U postgres < "$f"
+          done
+          # The tests connect as the providers' own role, so its grants are what is tested.
+          docker exec rap-pg psql -X -q -v ON_ERROR_STOP=1 -U postgres -c "alter role provider_kit_app login"
+
       # Install scripts stay off here, as in the build job, so this proves the release builds without them.
       - name: Install, test and pack each package
+        env:
+          RAP_TEST_DATABASE_URL: postgres://provider_kit_app@127.0.0.1:55432/postgres
         run: |
           set -euo pipefail
           for p in $PACKAGES; do
