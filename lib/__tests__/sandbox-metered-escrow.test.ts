@@ -164,6 +164,7 @@ describe("sandbox metered escrow: instructions and layout", () => {
   it("uses the discriminators lib/program.ts derives and the devnet program from the network profile", () => {
     expect(Buffer.from(SANDBOX_ESCROW_DISCRIMINATORS.lockMeteredEscrow)).toEqual(IX.lock_metered_escrow);
     expect(Buffer.from(SANDBOX_ESCROW_DISCRIMINATORS.settleEscrow)).toEqual(IX.settle_escrow);
+    expect(Buffer.from(SANDBOX_ESCROW_DISCRIMINATORS.cancelEscrow)).toEqual(IX.cancel_escrow);
     expect(Buffer.from(SANDBOX_ESCROW_DISCRIMINATORS.escrowAccount)).toEqual(ACCOUNT_DISC.EscrowAccount);
     expect(SANDBOX_ESCROW_PROGRAM_ID.toBase58()).toBe(devnetProfile.programs.escrowProgramId);
   });

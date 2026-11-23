@@ -79,6 +79,8 @@ export default function TryConsole() {
   const [preview, setPreview] = useState<{ challenge: SandboxChallenge; maxLamports: bigint } | null>(null);
   const [previewResult, setPreviewResult] = useState<SandboxCallResult | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // A failed call leaves the lock in its escrow: a Solana Pay link for the wallet to take it back.
+  const [refund, setRefund] = useState<{ url: string; qr: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const polling = useRef(false);
   // Cuts the wait between polls short. A phone browser pauses this page while the
@@ -99,6 +101,7 @@ export default function TryConsole() {
     setNetworkFees({});
     setPreview(null);
     setPreviewResult(null);
+    setRefund(null);
     setMessage(null);
   }, []);
 
@@ -247,7 +250,9 @@ export default function TryConsole() {
             );
           } else {
             setPhase("failed");
-            setMessage(errorText(a.body, "The provider did not accept this payment.") + " Your SOL stays in the escrow, and your wallet can take it back once the refund window opens.");
+            setMessage(errorText(a.body, "The provider did not accept this payment.") + " Your SOL stays in the escrow, and your wallet can take it back once the refund window opens, about 30 minutes after the lock.");
+            const url = `solana:${encodeURIComponent(`${window.location.origin}/api/try/v1/refund?escrow=${encodeURIComponent(a.escrow)}`)}`;
+            setRefund({ url, qr: await QRCode.toDataURL(url, { margin: 1, width: 240, errorCorrectionLevel: "M" }) });
           }
           return;
         }
@@ -451,6 +456,18 @@ export default function TryConsole() {
             </p>
           ) : null}
           <button type="button" onClick={reset} className="mt-5 rounded-xl border border-white/15 px-4 py-2 text-sm text-gray-200 hover:border-white/30">Try another</button>
+        </section>
+      ) : null}
+
+      {phase === "failed" && refund ? (
+        <section className="rounded-3xl border border-white/10 bg-black/20 p-6 text-center md:text-left" data-testid="try-refund">
+          <h2 className="font-display text-xl font-bold text-white">Take your SOL back</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-300">
+            Scan with the wallet that paid, or open the link on your phone. It returns everything in the escrow, with no fee, once the refund window is open.
+          </p>
+          {/* eslint-disable-next-line @next/next/no-img-element -- a data: URL drawn in the browser */}
+          <img src={refund.qr} alt="Solana Pay QR code for the refund" className="mx-auto mt-4 rounded-xl bg-white p-2 md:mx-0" width={200} height={200} />
+          <a href={refund.url} className="mt-3 inline-block text-sm text-brand-green underline" data-testid="try-refund-link">Open the refund in my wallet app</a>
         </section>
       ) : null}
 
