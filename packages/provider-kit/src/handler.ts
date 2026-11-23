@@ -466,9 +466,10 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
    * With `lockBoundDelegations`, the payer's consent may instead be a memo it signed in the lock transaction (#925).
    */
   /** A delegation proved by a lock transaction counts only for the lock that transaction made: a lock made again at the same address is another lock. */
+  const otherLockRefusal = () => refuse(401, "session_auth_invalid", "The delegation was given in the transaction of another lock at this address. Delegate for this lock.", { charged: false });
   function lockSlotMismatch(auth: { lockSlot?: bigint }, createdSlot: bigint): Response | undefined {
     if (auth.lockSlot === undefined || auth.lockSlot === createdSlot) return undefined;
-    return refuse(401, "session_auth_invalid", "The delegation was given in the transaction of another lock at this address. Delegate for this lock.", { charged: false });
+    return otherLockRefusal();
   }
 
   async function sessionAuth(request: { headers: Headers }, action: SessionAction, escrow: PublicKey, payer: PublicKey, sequence: number, body: string): Promise<{ ok: true; sessionKey: string; lockSlot?: bigint } | { ok: false; response: Response }> {
@@ -495,11 +496,12 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     if (mismatch) return mismatch;
     let lock: VerifiedLock;
     try {
-      lock = await verifyMeteredLock({ header: c.header, terms, minimum: c.minimum, readAccount, readSlot, replayStore: deps.replayStore, purpose: "session-call" });
+      lock = await verifyMeteredLock({ header: c.header, terms, minimum: c.minimum, readAccount, readSlot, replayStore: deps.replayStore, purpose: "session-call", ...(auth.lockSlot !== undefined ? { lockSlot: auth.lockSlot } : {}) });
     } catch {
       return refuse(503, "payment_check_unavailable", "The lock could not be checked. Nothing was charged for this call; send it again.", { charged: false });
     }
     if (!lock.ok) {
+      if (lock.reason === "lock_instance_mismatch") return otherLockRefusal();
       if (lock.reason === "payment_check_unavailable") clusterConfirmed = false;
       // No more calls fit before the refund window opens: settle what was served while there is time.
       if (lock.reason === "session_window_closing" && ledger.get(escrow)) void settleSession(escrow).catch(() => undefined);
@@ -884,6 +886,10 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       if (!deps.sessions) return refuse(400, "sessions_not_offered", "This provider settles each call on its own. Send the call without x402-session-sequence.", { charged: false });
       return sessionCall({ header, sequence: sessionHeaders.sequence, close: sessionHeaders.close, requestText, headers: request.headers, upstreamMessages, temperature, worstCase: { inputTokens: inputBound, outputTokens }, minimum });
     }
+    // The escrow must be the one this payer and nonce lock, so a payer's signature speaks only for its own escrow.
+    if (!tokenEscrowAddresses({ programId: terms.programId, payer: header.payer, nonce: header.nonce }).escrow.equals(header.escrow)) {
+      return refuse(402, "invalid_receipt", "The escrow is not the one this payer and nonce lock.", { charged: false });
+    }
     // The lock's escrow, payer and nonce are public: only the payer's signature shows who is calling (#866).
     const auth = await sessionAuth(request, "single", header.escrow, header.payer, 0, requestText);
     if (!auth.ok) return auth.response;
@@ -898,7 +904,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     }
     if (!claimed) return checking;
     try {
-      const held = await collectHeld(header.escrow.toBase58(), requestText);
+      const held = await collectHeld(header.escrow.toBase58(), requestText, { payer: header.payer, ...(auth.lockSlot !== undefined ? { lockSlot: auth.lockSlot } : {}) });
       if (held) return held;
     } finally {
       await lease.release(header.escrow.toBase58()).catch(() => undefined);
@@ -908,12 +914,14 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     if (!free.ok) return busy(free, `Nothing was accepted and your lock is untouched; send the same request again in ${free.retryAfterSeconds} seconds.`);
     let lock: Awaited<ReturnType<typeof verifyMeteredLock>>;
     try {
-      lock = await verifyMeteredLock({ header, terms, minimum, readAccount: (address) => deps.chain.readAccount(address), readSlot: () => deps.chain.readSlot(), replayStore: deps.replayStore });
+      // A proof for another lock at this address is refused before this lock is remembered.
+      lock = await verifyMeteredLock({ header, terms, minimum, readAccount: (address) => deps.chain.readAccount(address), readSlot: () => deps.chain.readSlot(), replayStore: deps.replayStore, ...(auth.lockSlot !== undefined ? { lockSlot: auth.lockSlot } : {}) });
     } catch {
       // The replay store could not record the escrow, so it cannot be accepted.
       return refuse(503, "payment_check_unavailable", "The payment could not be recorded. Nothing was accepted; present the same lock again.", { charged: false });
     }
     if (!lock.ok) {
+      if (lock.reason === "lock_instance_mismatch") return otherLockRefusal();
       if (lock.reason === "payment_check_unavailable") clusterConfirmed = false;
       const status = lock.reason === "payment_check_unavailable" || lock.reason === "provider_not_ready" ? 503 : lock.reason === "duplicate_nonce" ? 409 : 402;
       if (lock.reason === "provider_not_ready") log({ event: "payout_not_ready", escrow: header.escrow.toBase58() });
@@ -975,14 +983,19 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     return (await Promise.resolve(pendingSettles.load())).find((r) => r.escrow === escrow && r.status === "pending");
   }
 
-  async function collectHeld(escrow: string, requestText: string): Promise<Response | undefined> {
+  async function collectHeld(escrow: string, requestText: string, caller: { payer: PublicKey; lockSlot?: bigint }): Promise<Response | undefined> {
     const waiting = await heldAnswers.get(escrow);
+    // Only the payer of the lock that paid may collect its answer or learn of its settle. To anyone else
+    // there is nothing held here, and the lock check that follows refuses them.
+    if (waiting && (!waiting.lock.payer.equals(caller.payer) || (caller.lockSlot !== undefined && caller.lockSlot !== waiting.lock.createdSlot))) return undefined;
     if (waiting) {
       if (waiting.requestHash !== sha256Hex(requestText)) return refuse(409, "settle_pending", "This lock's settle for an earlier request is still being confirmed. Send that same request again to collect its answer.", { charged: "unknown" });
       const recorded = await findPending(waiting.escrow);
       return settleAndAnswer(waiting, recorded);
     }
     const orphan = await findPending(escrow);
+    // A record from before the payer was kept names no payer: nobody collects through it, and the sweep still settles it.
+    if (orphan && (orphan.payer !== caller.payer.toBase58() || (caller.lockSlot !== undefined && orphan.createdSlot !== caller.lockSlot.toString()))) return undefined;
     if (orphan) {
       const where = await reconcileOrphan(orphan);
       if (where === "landed") return refuse(410, "answer_unavailable", "This lock was settled, but the answer it paid for was lost when the provider restarted. The provider's operator has been alerted.", { charged: true, settleSignature: orphan.signature });
@@ -1005,7 +1018,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     let last: PendingCallSettle | undefined = resume;
     const record = async (pending: PendingSettle | undefined) => {
       if (pending) {
-        last = { ...pending, escrow, requestHash, status: "pending" };
+        last = { ...pending, escrow, requestHash, payer: lock.payer.toBase58(), createdSlot: lock.createdSlot.toString(), status: "pending" };
         await pendingSettles.save(last);
       } else if (last) {
         last = { ...last, status: "dropped" };
@@ -1101,14 +1114,19 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       return "landed";
     }
     await Promise.resolve(pendingSettles.save({ ...record, status: "dropped" })).catch(() => undefined);
-    // Nothing was charged by it. Give the lock back if it is still there.
+    // Nothing was charged by it. Give the lock back if it is still there, and only that lock: another lock now
+    // at the same address (a later job) is not this settle's to decline.
     const header = { escrow: new PublicKey(record.escrow) };
+    if (record.payer === undefined || record.createdSlot === undefined) {
+      log({ event: "pending_settle_unbound", escrow: record.escrow, alert: true });
+      return "dropped";
+    }
     if ((await escrowState(header.escrow)) === "locked") {
       try {
         const account = await deps.chain.readAccount(header.escrow);
         const decoded = account ? decodeTokenEscrowAccount(Buffer.from(account.data)) : undefined;
-        if (decoded) {
-          const lock = await verifyMeteredLock({ header: { escrow: header.escrow, payer: decoded.payer, nonce: Uint8Array.from(decoded.nonce) }, terms, minimum: 0n, readAccount, readSlot, replayStore: deps.replayStore, purpose: "session-settle", acceptRatedEscrows: true });
+        if (decoded && decoded.payer.toBase58() === record.payer && decoded.createdSlot.toString() === record.createdSlot) {
+          const lock = await verifyMeteredLock({ header: { escrow: header.escrow, payer: decoded.payer, nonce: Uint8Array.from(decoded.nonce) }, terms, minimum: 0n, readAccount, readSlot, replayStore: deps.replayStore, purpose: "session-settle", acceptRatedEscrows: true, lockSlot: BigInt(record.createdSlot) });
           if (lock.ok) {
             const signature = await deps.chain.sendInstructions([meteredDecline(terms, lock)]);
             log({ event: "pending_settle_declined", escrow: record.escrow, signature });
