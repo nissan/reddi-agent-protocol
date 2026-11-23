@@ -5,12 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { verifyReddiReceiptV2Session, type SignedReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import { MemoryNonceReplayStore, MeteredSessionLedger, SOLANA_GENESIS_HASHES, SESSION_DELEGATION_HEADER, SESSION_SIGNATURE_HEADER, sessionDelegationHeaderValue, sessionSignatureHeaderValue, type NonceReplayStore, type SessionAction, type SessionStore } from "@redditech/x402-solana";
 import { createProviderHandler, PROVIDER_RECEIPT_HEADER, SESSION_RECEIPT_HEADER, SESSION_STATE_HEADER } from "../src/handler.js";
 import { FileSessionStore } from "../src/sessions.js";
 import type { Upstream } from "../src/upstream.js";
-import { ata, buyer, buyerKeypair, configFile, CURRENT_SLOT, escrowBytes, singleCallHeaders, config, escrowAddress, fakeChain, paymentHeader, provider, SETTLE_SIGNATURE, type FakeChain } from "./helpers.js";
+import { ata, buyer, buyerKeypair, configFile, CURRENT_SLOT, escrowBytes, singleCallHeaders, config, escrowAddress, fakeChain, freshRefundAccount, paymentHeader, tokenAccount, provider, SETTLE_SIGNATURE, type FakeChain } from "./helpers.js";
 import { parseProviderConfig } from "../src/config.js";
 
 const privateKey = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(provider.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
@@ -258,16 +258,24 @@ test("a lock the buyer refunded before the settle is recorded as unpaid, not set
   assert.equal(chain.signed.size, 0, "no settle was signed for a lock that is gone");
 });
 
-test("a buyer who closes the account its lock came from cannot block the settle: within the operator's daily bound the kit creates its associated account and settles", async () => {
+for (const [what, spoil] of [
+  ["closes the account its lock came from", (chain: ReturnType<typeof fakeChain>) => chain.accounts.delete(ata(buyer).toBase58())],
+  ["closes the account its lock came from and sends lamports to the new account's address first", (chain: ReturnType<typeof fakeChain>) => {
+    chain.accounts.delete(ata(buyer).toBase58());
+    chain.accounts.set(freshRefundAccount().toBase58(), { owner: PublicKey.default, data: new Uint8Array(0), lamports: 1_000_000n, executable: false });
+  }],
+  ["hands the account its lock came from to someone else", (chain: ReturnType<typeof fakeChain>) => chain.accounts.set(ata(buyer).toBase58(), tokenAccount(Keypair.generate().publicKey))],
+] as const) test(`a buyer who ${what} cannot block the settle: within the operator's daily bound the kit creates a new account for this lock and settles`, async () => {
   const { call, close, chain, events } = setup({ file: { refundAccountSubsidy: { maxPerDay: 1 } } });
   assert.equal((await call(1)).status, 200);
-  chain.accounts.delete(ata(buyer).toBase58());
+  spoil(chain);
   const closed = await close();
   assert.equal(((await closed.json()) as { status: string }).status, "settled");
   const settle = chain.sent[chain.sent.length - 1];
-  assert.equal(settle.length, 2, "the settle creates the buyer's account first, at the provider's cost");
-  assert.ok(settle[0].keys[0].pubkey.equals(provider.publicKey) && settle[0].keys[1].pubkey.equals(ata(buyer)) && settle[0].keys[2].pubkey.equals(buyer));
-  assert.ok(settle[1].keys[7].pubkey.equals(ata(buyer)));
+  assert.equal(settle.length, 5, "the settle funds, allocates, assigns and initialises the buyer's new account first, at the provider's cost");
+  assert.ok(settle[0].keys[0].pubkey.equals(provider.publicKey) && settle[0].keys[1].pubkey.equals(freshRefundAccount()));
+  assert.ok(settle[3].keys[0].pubkey.equals(freshRefundAccount()) && new PublicKey(settle[3].data.subarray(1, 33)).equals(buyer));
+  assert.ok(settle[4].keys[7].pubkey.equals(freshRefundAccount()));
   assert.ok(events.some((e) => e.event === "refund_account_created"));
 });
 

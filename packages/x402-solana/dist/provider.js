@@ -176,6 +176,13 @@ async function checkProviderCluster(readGenesisHash, network, expectedGenesisHas
     const expected = expectedGenesisHash ?? publicHash;
     return actual === expected ? { ok: true } : { ok: false, reason: 'wrong_cluster', message: `The RPC endpoint is not ${network}.` };
 }
+/** Rent-exempt minimum for `space` bytes, from the Rent sysvar's data. */
+function rentExemptLamports(rent, space) {
+    const view = new DataView(rent.buffer, rent.byteOffset, rent.byteLength);
+    const perByteYear = view.getBigUint64(0, true);
+    const threshold = view.getFloat64(8, true);
+    return BigInt(Math.floor(Number(BigInt(128 + space) * perByteYear) * threshold));
+}
 /**
  * Reads every account a settle of this escrow would pay into and says whether
  * the payout can land: the provider's token account (or its recovery
@@ -185,8 +192,11 @@ async function checkProviderCluster(readGenesisHash, network, expectedGenesisHas
  *
  * Nothing is created by default. `allowPayerAssociatedAccount` lets the
  * unused part go to the payer's associated token account when the recorded
- * source no longer works; `createRefundAccount` lets the provider pay to
- * create that account when it does not exist at all.
+ * source no longer works. `createRefundAccount` lets the provider pay to
+ * create an account for it: with `instance` (the escrow and its lock slot), a
+ * new account owned by the payer at an address only the provider can create,
+ * which the payer cannot close, re-own or memo-lock first; without it, the
+ * payer's associated token account when that does not exist at all.
  */
 async function checkMeteredPayout(input) {
     const { terms, escrow } = input;
@@ -207,12 +217,15 @@ async function checkMeteredPayout(input) {
             return notReady(`The protocol treasury cannot receive ${terms.price.currency} right now, so this provider is not taking payment in it. Nothing was accepted; your lock is untouched.`);
         }
         let harvestWithheldFees = false;
+        let accountSpace = spl_token_1.ACCOUNT_SIZE;
         if (terms.tokenProgram.equals(spl_token_1.TOKEN_2022_PROGRAM_ID)) {
             const mint = await input.readAccount(terms.mint);
             if (!mint || !mint.owner.equals(spl_token_1.TOKEN_2022_PROGRAM_ID))
                 return notReady(`The ${terms.price.currency} mint could not be read. Nothing was accepted; your lock is untouched.`);
             try {
-                harvestWithheldFees = (0, spl_token_1.getTransferFeeConfig)((0, spl_token_1.unpackMint)(terms.mint, { data: Buffer.from(mint.data), owner: mint.owner, lamports: 0, executable: false }, spl_token_1.TOKEN_2022_PROGRAM_ID)) !== null;
+                const unpacked = (0, spl_token_1.unpackMint)(terms.mint, { data: Buffer.from(mint.data), owner: mint.owner, lamports: 0, executable: false }, spl_token_1.TOKEN_2022_PROGRAM_ID);
+                harvestWithheldFees = (0, spl_token_1.getTransferFeeConfig)(unpacked) !== null;
+                accountSpace = (0, spl_token_1.getAccountLenForMint)(unpacked);
             }
             catch {
                 return notReady(`The ${terms.price.currency} mint could not be read. Nothing was accepted; your lock is untouched.`);
@@ -228,9 +241,26 @@ async function checkMeteredPayout(input) {
             const held = associated.equals(escrow.source) ? source : await input.readAccount(associated);
             if ((0, escrow_readiness_1.checkTokenAccount)(associated, held, refundTarget).ok)
                 return { ok: true, payout: { ...base, refundTo: associated } };
-            // Only an account that does not exist can be created. A frozen or memo-requiring one stays as it is.
-            if (input.createRefundAccount && held === null)
+            if (input.createRefundAccount && input.instance) {
+                // A new account at an address seeded by the provider: the payer cannot touch it before the settle lands.
+                const seed = (0, escrow_readiness_1.freshRefundSeed)(input.instance.escrow, input.instance.createdSlot);
+                const fresh = (0, escrow_readiness_1.seedAddress)(terms.payee, seed, terms.tokenProgram);
+                const existing = await input.readAccount(fresh);
+                // Lamports anyone sent to the address leave it a system account with no data; it is still built there.
+                if (existing === null || (existing.owner.equals(web3_js_1.SystemProgram.programId) && existing.data.length === 0)) {
+                    const rent = await input.readAccount(web3_js_1.SYSVAR_RENT_PUBKEY);
+                    if (!rent)
+                        return { ok: false, reason: 'payment_check_unavailable', message: 'The chain could not be read. Nothing was accepted; present the same receipt again.' };
+                    const freshRefundAccount = { seed, space: accountSpace, lamports: rentExemptLamports(rent.data, accountSpace) };
+                    return { ok: true, payout: { ...base, refundTo: fresh, createRefundAccount: true, freshRefundAccount } };
+                }
+                if ((0, escrow_readiness_1.checkTokenAccount)(fresh, existing, refundTarget).ok)
+                    return { ok: true, payout: { ...base, refundTo: fresh } };
+            }
+            else if (input.createRefundAccount && held === null) {
+                // Only an account that does not exist can be created. A frozen or memo-requiring one stays as it is.
                 return { ok: true, payout: { ...base, refundTo: associated, createRefundAccount: true } };
+            }
         }
         return {
             ok: false,
@@ -357,7 +387,7 @@ async function verifyMeteredLock(input) {
         escrow,
         readAccount: input.readAccount,
         ...(input.treasury ? { treasury: input.treasury } : {}),
-        ...(purpose === 'session-settle' ? { allowPayerAssociatedAccount: true, createRefundAccount: input.createRefundAccount === true } : {}),
+        ...(purpose === 'session-settle' ? { allowPayerAssociatedAccount: true, createRefundAccount: input.createRefundAccount === true, instance: { escrow: header.escrow, createdSlot: escrow.createdSlot } } : {}),
     });
     if (!payout.ok)
         return payout;
@@ -418,7 +448,9 @@ function meteredSettlement(terms, lock, usage, payout = lock.payout) {
     const settlement = (0, metered_1.settleMeteredCall)(terms.price, usage, (0, payment_1.baseUnitsToDecimal)(lock.maxBaseUnits, decimals));
     if (settlement.chargedBaseUnits <= BigInt(0))
         throw new Error('nothing to settle');
-    const prep = (0, escrow_readiness_1.prepareTokenPayout)(lock.terms, terms.payee, undefined, { refundTo: payout.refundTo, createRefundAccount: payout.createRefundAccount === true });
+    const prep = (0, escrow_readiness_1.prepareTokenPayout)(lock.terms, terms.payee, undefined, payout.freshRefundAccount
+        ? { refundTo: payout.refundTo, freshRefundAccount: payout.freshRefundAccount }
+        : { refundTo: payout.refundTo, createRefundAccount: payout.createRefundAccount === true });
     const instruction = (0, rating_1.withRatingAccount)((0, token_escrow_1.buildSettleTokenEscrowInstruction)(lock.terms, false, terms.payee, {
         actual: settlement.chargedBaseUnits,
         treasuryToken: payout.treasuryToken,

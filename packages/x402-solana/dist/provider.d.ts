@@ -11,6 +11,7 @@
  * instructions; the operator signs and sends them.
  */
 import { PublicKey, type TransactionInstruction } from '@solana/web3.js';
+import { type FreshRefundAccount } from './escrow-readiness';
 import { type MeteredSettlement, type PerTokenPrice, type TokenCounts } from './metered';
 import { type TokenEscrowTerms } from './token-escrow';
 import type { NonceReplayStore, SolanaPaymentNetwork } from './types';
@@ -168,8 +169,14 @@ export interface PayoutAccounts {
     refundTo: PublicKey;
     /** Pass the mint writable, so fees withheld on a Token-2022 vault are moved out and the vault can close. */
     harvestWithheldFees: boolean;
-    /** The settle first creates `refundTo`, the payer's associated token account, at the provider's cost. */
+    /**
+     * The settle first creates `refundTo` at the provider's cost: a fresh
+     * account (`freshRefundAccount`) when the lock was named, else the payer's
+     * associated token account.
+     */
     createRefundAccount?: boolean;
+    /** Set when `refundTo` is a new account the settle creates for the payer at a provider-seeded address. */
+    freshRefundAccount?: FreshRefundAccount;
 }
 export type PayoutCheck = {
     ok: true;
@@ -188,8 +195,11 @@ export type PayoutCheck = {
  *
  * Nothing is created by default. `allowPayerAssociatedAccount` lets the
  * unused part go to the payer's associated token account when the recorded
- * source no longer works; `createRefundAccount` lets the provider pay to
- * create that account when it does not exist at all.
+ * source no longer works. `createRefundAccount` lets the provider pay to
+ * create an account for it: with `instance` (the escrow and its lock slot), a
+ * new account owned by the payer at an address only the provider can create,
+ * which the payer cannot close, re-own or memo-lock first; without it, the
+ * payer's associated token account when that does not exist at all.
  */
 export declare function checkMeteredPayout(input: {
     terms: MeteredTerms;
@@ -198,6 +208,10 @@ export declare function checkMeteredPayout(input: {
     treasury?: PublicKey;
     allowPayerAssociatedAccount?: boolean;
     createRefundAccount?: boolean;
+    instance?: {
+        escrow: PublicKey;
+        createdSlot: bigint;
+    };
 }): Promise<PayoutCheck>;
 export type VerifiedLock = {
     ok: true;
