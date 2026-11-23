@@ -490,7 +490,8 @@ describe("sandbox metered escrow: gateway", () => {
     for (const row of rows) {
       const provider = SANDBOX_PROVIDERS.find((entry) => entry.id === row.rap.providerId)!;
       // Rated escrows are declined unless the operator turned them on (#842).
-      expect(row.rap.meteredEscrow).toEqual({ available: provider.behaviour !== "offline", programId: SANDBOX_ESCROW_PROGRAM_ID.toBase58(), acceptsRatedEscrows: false });
+      // Studios take simulated payments only, so they never offer an escrow.
+      expect(row.rap.meteredEscrow).toEqual({ available: provider.behaviour !== "offline" && !provider.simulatedOnly, programId: SANDBOX_ESCROW_PROGRAM_ID.toBase58(), acceptsRatedEscrows: false });
     }
     const rated = (await sandboxModelsListing(fakeSettler(true).settler, true)).data as { rap: { meteredEscrow: { acceptsRatedEscrows: boolean } } }[];
     expect(rated.every((row) => row.rap.meteredEscrow.acceptsRatedEscrows === true)).toBe(true);

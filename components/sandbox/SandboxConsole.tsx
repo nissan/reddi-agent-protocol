@@ -46,6 +46,7 @@ import { isSandboxReceipt, responseBodyWithAnswer, type SandboxReceiptPayment, v
 import { formatUnits, requestInputTokens, SANDBOX_DEMO_RATES_NOTE, sandboxFeeBps, triPriceFromLamports, TYPICAL_REVIEW } from "@/lib/sandbox/pricing";
 import { createSessionKey, directPaymentDelegationHeaderValue, directPaymentProofHeaders, paidCallAuthHeaders, sessionDelegationHeaderValue, SOLANA_GENESIS_HASHES, type MessageSigner } from "@/lib/payments/session-auth";
 import SandboxSessionRunner from "@/components/sandbox/SandboxSessionRunner";
+import SandboxPipelineRunner from "@/components/sandbox/SandboxPipelineRunner";
 import { applySandboxReputation, initialSandboxReputation, type SandboxReputation } from "@/lib/sandbox/reputation";
 
 const WalletMultiButton = dynamic(
@@ -623,7 +624,7 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
     <div className="space-y-10" data-testid="sandbox-console" data-ready={ready ? "true" : "false"}>
       <section aria-labelledby="sandbox-scenarios">
         <h2 id="sandbox-scenarios" className="font-display text-2xl font-bold text-white">Pick a scenario</h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {SANDBOX_SCENARIOS.map((entry) => (
             <button
               key={entry.id}
@@ -645,6 +646,17 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
         {scenario.id === "run-a-session" ? (
           <div className="min-w-0 space-y-5">
             <SandboxSessionRunner provider={provider} providerReceiptId={providerKeys[provider.id]} onExchange={(list) => setExchanges((current) => [...current, ...list])} onSettled={(list) => setReceipts((current) => [...current, ...list])} />
+            <p className="rounded-xl border border-[#9945FF]/30 bg-[#9945FF]/10 p-4 text-sm leading-6 text-gray-200" data-testid="sandbox-takeaway">{scenario.takeaway}</p>
+          </div>
+        ) : scenario.id === "make-a-video" ? (
+          <div className="min-w-0 space-y-5">
+            <SandboxPipelineRunner
+              providerReceiptIds={providerKeys}
+              reputation={reputation}
+              onRated={setReputation}
+              onExchange={(list) => setExchanges((current) => [...current, ...list])}
+              onReceipts={(list) => setReceipts((current) => [...current, ...list])}
+            />
             <p className="rounded-xl border border-[#9945FF]/30 bg-[#9945FF]/10 p-4 text-sm leading-6 text-gray-200" data-testid="sandbox-takeaway">{scenario.takeaway}</p>
           </div>
         ) : (
