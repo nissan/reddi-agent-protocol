@@ -15,6 +15,7 @@ claim about mainnet, live models, or settlement.
 | Challenge and payment checks | Real code from `packages/x402-solana`: `buildX402Challenge`, `verifyDemoPaymentReceipt`, and `SolanaReceiptVerifier` with the devnet genesis-hash check and a 900 second age limit. |
 | Simulated payment | No transaction. The call returns a sandbox simulated receipt (`reddi.sandbox.simulated-receipt.v1`) in the `x-reddi-sandbox-simulated-receipt` header: the v2 field layout without `payment.txSignature`, signed over its own version string. Every `reddi.receipt.v2` validator refuses it, and the page says it is not a v2 receipt. |
 | Wallet payment | Metered escrow when the server holds the provider's devnet key: the visitor's wallet locks the challenge's maximum with `lock_metered_escrow` on the devnet escrow program (`config/networks/devnet.json`), nonce = the challenge nonce, and presents `{ settlement: "metered-escrow", payer, escrow, nonce }`. The server reads the escrow back (owner, payer, payee, amount, metered, locked, nonce), answers, and settles the actual tokens with `settle_escrow`, signed by the provider's devnet-only key (`lib/sandbox/settle-signer.ts`, env `SANDBOX_DEVNET_PAYEE_KEYS`). The program pays 2.5% to the protocol treasury, the rest to the provider, and returns the unused maximum and the account rent to the visitor. If the settle fails the server does not answer, and the visitor can cancel the lock for a full refund from day 3. Without the key, a direct devnet SOL transfer of the maximum to the provider, read back from devnet. |
+| Studio providers | The five `make-a-video` studios are `simulatedOnly`: the gateway refuses a devnet transfer or a metered escrow for them before reading the chain, their challenge offers no devnet route, and `/models` lists them with `simulatedPaymentsOnly: true`. Their payee addresses are placeholders nobody settles from. |
 | Provider answers | Scripted in `lib/sandbox/catalog.ts`. No model runs, so every model id starts with `sandbox/` and each receipt carries `scripted: true`. |
 | Receipt | A call paid with a devnet transfer returns a signed `reddi.receipt.v2` receipt in the `x-reddi-provider-receipt` header (base64url JSON), the header and format a V1 provider uses. It names the provider address, the declared model, the SHA-256 of the request and response body bytes, and the payment. For a direct transfer: transaction, SOL, the maximum in lamports, a zero fee, the payer and `direct`. For a metered escrow: the settle transaction, the actual cost, the 2.5% fee and treasury, the payer, `metered-escrow` and the token counts, maximum and refund. `verifyReddiReceiptV2` from `packages/agent-protocol` accepts it; the gateway tests hold the browser check and the package verifier together. |
 | Provider signing keys | Public test keys derived from a fixed label (`lib/sandbox/keys.ts`). Anyone can recompute them. They hold no funds and control nothing. A receipt's `providerId` is the base58 address of that test key, listed as `receiptProviderId` by `/models`; it is not the wallet that is paid. A real provider signs with its own wallet key. |
@@ -51,6 +52,8 @@ Deep links: `/sandbox?scenario=<id>`.
 |---|---|
 | `buy-a-review` | The basic paid call and its receipt. |
 | `shop-around` | Three providers at three prices; the cheapest fails the simulated spot check and its score drops. |
+| `run-a-session` | Ten small calls on one simulated lock, each receipt chained and checked, one settle. |
+| `make-a-video` | A director agent hires five independent studios (animation, music, guide voice, voice pass, final stitch) in turn. Each quote, simulated payment and receipt is checked, with the 2.5% fee, before the next studio is hired; the visitor rates each studio at the end. The studios are made-up independent providers who tuned their own models: the page shows what a buyer sees (listing, price, output, receipt) and what stays on their machines (weights, data, prompts). |
 | `try-to-cheat` | Underpaying, paying the wrong wallet, reusing a payment, and editing the answer are each caught. |
 | `provider-offline` | A listed provider that is not answering: no challenge, no payment, no receipt. |
 
@@ -72,7 +75,8 @@ curl -s  -X POST $BASE/chat/completions -H 'content-type: application/json' \
   stubbed RPC, and receipt verification including forged and edited receipts. The devnet-transfer
   receipt is held to `verifyReddiReceiptV2` from `packages/agent-protocol`, with every tampered form
   refused by both checks; the simulated receipt is shown to fail every v2 validator.
-- `e2e/sandbox.spec.ts`: the four scenarios through the simulated lane, with the public-claim
+- `lib/__tests__/sandbox-pipeline.test.ts`: the `make-a-video` pipeline against the gateway, a tampered or wrongly signed receipt stopping it, and studios refusing devnet payments.
+- `e2e/sandbox.spec.ts`: the scenarios through the simulated lane, with the public-claim
   pattern list applied to the rendered copy at each stage.
 
 The wallet lane needs a browser wallet on devnet and is checked by hand.

@@ -34,6 +34,30 @@ export type SandboxProvider = {
   behaviour: SandboxProviderBehaviour;
   /** Starting sandbox reputation, shown before the visitor's own calls. */
   reputation: { score: number; receipts: number };
+  /**
+   * Takes simulated payments only. The gateway refuses a devnet transfer or a
+   * metered escrow for it before reading the chain, so no devnet SOL is ever
+   * sent to its listed address. The studio providers are like this.
+   */
+  simulatedOnly?: boolean;
+  /** An independent studio in the "Make a video" pipeline (#video-studio). */
+  studio?: SandboxStudioListing;
+};
+
+/**
+ * What an independent provider shows the market and what it keeps to itself.
+ * The public side is what an ADL listing, a price and a receipt carry; the
+ * private side never leaves the provider's own machines.
+ */
+export type SandboxStudioListing = {
+  /** The pipeline step this provider does. */
+  role: string;
+  /** Who runs it, in a line. */
+  who: string;
+  /** What buyers see. */
+  shows: string;
+  /** What stays on the provider's machines. */
+  keeps: string;
 };
 
 export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
@@ -77,6 +101,94 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
     behaviour: "offline",
     reputation: { score: 4.4, receipts: 96 },
   },
+  // The "Make a video" pipeline: independent people and small teams who bought
+  // their own GPUs and tuned their own models, selling results through one
+  // listing each. Simulated payments only; see `simulatedOnly`.
+  {
+    id: "frame-foundry",
+    model: "sandbox/frame-foundry-motion",
+    name: "Frame Foundry",
+    tagline: "Animation from a shot list, in a hand-drawn style.",
+    pricing: { inputPerMillionUsd: "10", outputPerMillionUsd: "120", maxOutputTokens: 4000 },
+    payTo: "B33rmWhYZ899EjnTXZmF4Pv1TqPjyCF2GHCJjCV9BiKs",
+    behaviour: "honest",
+    reputation: { score: 4.7, receipts: 64 },
+    simulatedOnly: true,
+    studio: {
+      role: "Animation",
+      who: "Two animators with four GPUs in a spare room and a motion model tuned on their own keyframes.",
+      shows: "Its listing, its price per token, the clips it returns and every receipt.",
+      keeps: "The model weights, the keyframes it learned from, and its prompts.",
+    },
+  },
+  {
+    id: "tidepool-audio",
+    model: "sandbox/tidepool-score",
+    name: "Tidepool Audio",
+    tagline: "A music bed cut to your timings.",
+    pricing: { inputPerMillionUsd: "4", outputPerMillionUsd: "40", maxOutputTokens: 3000 },
+    payTo: "CiSkk42GnPLJgWcW16hRkQbZoBtm2815Tgxm9mDtHLDF",
+    behaviour: "honest",
+    reputation: { score: 4.6, receipts: 41 },
+    simulatedOnly: true,
+    studio: {
+      role: "Music",
+      who: "One producer with one GPU tower and a music model tuned on twenty years of their own stems.",
+      shows: "Its listing, its price per token, the track it returns and every receipt.",
+      keeps: "The model, the stems it learned from, and how it was tuned.",
+    },
+  },
+  {
+    id: "kettle-voice",
+    model: "sandbox/kettle-guide-voice",
+    name: "Kettle Voice",
+    tagline: "A guide voice paced for you to record over.",
+    pricing: { inputPerMillionUsd: "0.5", outputPerMillionUsd: "2", maxOutputTokens: 2000 },
+    payTo: "CM71QZkajX2Am9Z35tBUphYufyBdhK3QrQyLpv9ufAs9",
+    behaviour: "honest",
+    reputation: { score: 4.5, receipts: 128 },
+    simulatedOnly: true,
+    studio: {
+      role: "Guide voice",
+      who: "A developer running a speech model on one desktop GPU, tuned to read scripts at a recordable pace.",
+      shows: "Its listing, its price per token, the guide track and every receipt.",
+      keeps: "The voice model, its tuning data, and its pacing rules.",
+    },
+  },
+  {
+    id: "booth-match",
+    model: "sandbox/booth-match-align",
+    name: "Booth Match",
+    tagline: "Lines your own voice take up with the guide.",
+    pricing: { inputPerMillionUsd: "1", outputPerMillionUsd: "6", maxOutputTokens: 2000 },
+    payTo: "7HXsXx1i4JZTVyxjhkZ9Uj3tfUXFoqd1o3QTGtEQSj7z",
+    behaviour: "honest",
+    reputation: { score: 4.8, receipts: 37 },
+    simulatedOnly: true,
+    studio: {
+      role: "Voice pass",
+      who: "A sound engineer who built an alignment and clean-up model for their own podcast work.",
+      shows: "Its listing, its price per token, the cleaned take and every receipt.",
+      keeps: "The alignment model and the room profiles it learned.",
+    },
+  },
+  {
+    id: "splice-line",
+    model: "sandbox/splice-line-stitch",
+    name: "Splice Line",
+    tagline: "Stitches picture, music and voice into one cut.",
+    pricing: { inputPerMillionUsd: "0.2", outputPerMillionUsd: "0.8", maxOutputTokens: 1000 },
+    payTo: "BmjF6v93F4DyDVbNvcrwdoNnyWBJjTqdqoRchPBD5Cz6",
+    behaviour: "honest",
+    reputation: { score: 4.4, receipts: 302 },
+    simulatedOnly: true,
+    studio: {
+      role: "Final stitch",
+      who: "A small team running render nodes, priced for volume.",
+      shows: "Its listing, its price per token, the finished file and every receipt.",
+      keeps: "Its render presets and loudness chain.",
+    },
+  },
 ];
 
 export function findSandboxProviderByModel(model: unknown): SandboxProvider | undefined {
@@ -87,7 +199,7 @@ export function findSandboxProviderById(id: unknown): SandboxProvider | undefine
   return typeof id === "string" ? SANDBOX_PROVIDERS.find((provider) => provider.id === id) : undefined;
 }
 
-export type SandboxScenarioId = "buy-a-review" | "shop-around" | "run-a-session" | "try-to-cheat" | "provider-offline";
+export type SandboxScenarioId = "buy-a-review" | "shop-around" | "run-a-session" | "make-a-video" | "try-to-cheat" | "provider-offline";
 
 export type SandboxScenario = {
   id: SandboxScenarioId;
@@ -108,6 +220,36 @@ export const REVIEW_PROMPT = [
   "  return price - price * percent / 100;",
   "}",
 ].join("\n");
+
+/** The director agent's brief for the "Make a video" scenario. */
+export const STUDIO_BRIEF = "A 30-second launch video for a payments protocol. Friendly, hand-drawn look. Three shots: a buyer agent asks, a provider answers, a receipt prints. Upbeat, warm music. One narrator.";
+
+/**
+ * The pipeline the director agent runs, in order: which studio it hires and
+ * what it asks for. Each request carries the brief plus the step's own ask, so
+ * every step's receipt hashes a different request.
+ */
+export const STUDIO_PIPELINE: readonly { providerId: string; ask: string }[] = [
+  { providerId: "frame-foundry", ask: "Animate three shots from this brief, 10 seconds each, 1080p." },
+  { providerId: "tidepool-audio", ask: "Score a 30-second music bed with a lift at 10 and 20 seconds." },
+  { providerId: "kettle-voice", ask: "Read this narration as a guide track, 30 seconds: 'Your agent asks. A provider answers. A receipt proves it.'" },
+  { providerId: "booth-match", ask: "Align the human narration take to the guide track timing and remove room noise." },
+  { providerId: "splice-line", ask: "Stitch the three shots, the music bed and the aligned narration into one 30-second file, mixed for social video." },
+];
+
+/** The full prompt one pipeline step sends: the brief, then the step's ask. */
+export function studioStepPrompt(ask: string): string {
+  return `Brief: ${STUDIO_BRIEF}\n\nYour part: ${ask}`;
+}
+
+/** Scripted studio deliverables. Asset names are made up; nothing is rendered. */
+const STUDIO_ANSWERS: Record<string, string> = {
+  "frame-foundry": "Delivered: shots/01-ask.mp4, shots/02-answer.mp4, shots/03-receipt.mp4. 3 shots, 10 s each, 1080p, 24 fps, hand-drawn line style. Shot 3 holds 1 s on the printed receipt so the cut can land on it.",
+  "tidepool-audio": "Delivered: music/bed-30s.wav. 30 s, 104 bpm, warm keys and soft drums, lifts at 0:10 and 0:20, ends on a clean button at 0:30.",
+  "kettle-voice": "Delivered: voice/guide-30s.wav. 30 s guide read at 140 words a minute, with 2 s gaps before each shot change so a human take can match it.",
+  "booth-match": "Delivered: voice/narration-aligned.wav. Your take aligned to the guide within 40 ms on every line, room noise down 18 dB, breaths kept.",
+  "splice-line": "Delivered: final/launch-30s.mp4. 30 s, 1080p, shots cut on the music lifts, narration over the bed at -14 LUFS, captions burned in.",
+};
 
 export const SANDBOX_SCENARIOS: readonly SandboxScenario[] = [
   {
@@ -138,6 +280,15 @@ export const SANDBOX_SCENARIOS: readonly SandboxScenario[] = [
     providerIds: ["swift-infer"],
   },
   {
+    id: "make-a-video",
+    title: "Make a video",
+    persona: "Your director agent is making a 30-second launch video. It hires five independent studios, each running models they tuned on their own GPUs.",
+    hook: "Five studios, five payments, five receipts. Their secrets stay theirs.",
+    takeaway: "Each studio sold a result without showing how it made it: weights, training data and prompts stayed on its own machines. Your agent got a price before each call, a signed receipt after it, and rated every studio at the end.",
+    prompt: STUDIO_BRIEF,
+    providerIds: ["frame-foundry", "tidepool-audio", "kettle-voice", "booth-match", "splice-line"],
+  },
+  {
     id: "try-to-cheat",
     title: "Try to cheat",
     persona: "You are the adversary. Reuse a payment, underpay, pay the wrong wallet, or edit the answer after the fact.",
@@ -166,6 +317,7 @@ export function findSandboxScenario(id: unknown): SandboxScenario | undefined {
  * so the same request always hashes to the same response.
  */
 export function scriptedSandboxAnswer(provider: SandboxProvider, prompt: string): string {
+  if (provider.studio) return STUDIO_ANSWERS[provider.id] ?? "";
   if (prompt === PR_REVIEW_PROMPT) {
     if (provider.id === "atlas-review") return PR_REVIEW_ANSWER;
     return "Two things before this ships: a resent status check can hit the replay guard and show a paid call as failed, and the rating path still confirms over a websocket. Store the answer by escrow and poll for confirmations.";

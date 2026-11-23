@@ -263,6 +263,11 @@ async function verifySandboxPayment(header: string, provider: SandboxProvider, o
     return { ok: true, mode: "simulated", nonce, payerId: SIMULATED_PAYER_ID, proofRef: `simulated:${nonce}` };
   }
 
+  if (provider.simulatedOnly) {
+    // Checked before anything is read from chain, so no devnet SOL goes to an address nobody settles from.
+    return rejected("unsupported_receipt", `${provider.name} takes simulated payments only in the sandbox. Nothing was taken; pay with a simulated payment.`);
+  }
+
   if (typeof record.payer !== "string" || record.payer.length === 0) return rejected("invalid_receipt", "A devnet payment receipt must name the paying wallet in payer.");
   if (record.settlement === "metered-escrow") {
     // The lock's escrow, payer and nonce are public: only the payer's signature shows who is calling (#866).
@@ -481,8 +486,10 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
         x402: challenge,
         sandbox: {
           simulatedPayment: `Resend with header x402-payment: demo:${challenge.nonce}`,
-          devnetPayment: "Or transfer the amount in devnet SOL to payTo from your own wallet and resend with a JSON x402-payment receipt naming txSignature and payer.",
-          ...(deps.settler?.canSettle(provider.id)
+          ...(provider.simulatedOnly
+            ? { simulatedOnly: `${provider.name} takes simulated payments only in the sandbox. A devnet transfer or escrow to it is refused before anything is read.` }
+            : { devnetPayment: "Or transfer the amount in devnet SOL to payTo from your own wallet and resend with a JSON x402-payment receipt naming txSignature and payer." }),
+          ...(!provider.simulatedOnly && deps.settler?.canSettle(provider.id)
             ? {
                 meteredPayment: `Or lock the amount with lock_metered_escrow on ${SANDBOX_ESCROW_PROGRAM_ID.toBase58()} (payee payTo, nonce the challenge nonce as 16 bytes) and resend with a JSON x402-payment naming settlement "metered-escrow", payer, escrow and nonce. The provider settles the actual tokens and the rest comes back to you.`,
               }
@@ -566,6 +573,7 @@ async function verifySessionLock(header: string, provider: SandboxProvider, orig
     if (lamports === undefined || lamports <= BigInt(0)) return refuse("session_invalid", "The simulated session lock needs an amount in SOL.");
     return { ok: true, lock: { mode: "simulated", escrow: `simulated:${nonce}`, maxLamports: lamports, nonce } };
   }
+  if (provider.simulatedOnly) return refuse("session_invalid", `${provider.name} takes simulated payments only in the sandbox.`);
   if (deps.acceptMeteredSessions !== true) return refuse("session_invalid", "This sandbox runs sessions with a simulated lock only.");
   if (typeof record.payer !== "string" || record.payer.length === 0) return refuse("session_invalid", "A session lock must name the paying wallet in payer.");
   // The lock's escrow, payer and nonce are public, so they cannot show who is calling: the payer's
@@ -769,6 +777,8 @@ export async function sandboxModelsListing(settler?: SandboxSettler, acceptRated
         declaredModel: provider.model,
         scripted: true,
         available: provider.behaviour !== "offline",
+        ...(provider.simulatedOnly ? { simulatedPaymentsOnly: true } : {}),
+        ...(provider.studio ? { studio: provider.studio } : {}),
         pricing: {
           currency: "USD",
           inputPerMillion: provider.pricing.inputPerMillionUsd,
@@ -779,7 +789,7 @@ export async function sandboxModelsListing(settler?: SandboxSettler, acceptRated
         payTo: provider.payTo,
         // Whether a wallet can lock a metered escrow for this provider, which the server then settles.
         // acceptsRatedEscrows: whether an escrow the visitor opted in to rating is served, or declined before serving.
-        meteredEscrow: { available: provider.behaviour !== "offline" && (settler?.canSettle(provider.id) ?? false), programId: SANDBOX_ESCROW_PROGRAM_ID.toBase58(), acceptsRatedEscrows: acceptRatedEscrows === true },
+        meteredEscrow: { available: provider.behaviour !== "offline" && !provider.simulatedOnly && (settler?.canSettle(provider.id) ?? false), programId: SANDBOX_ESCROW_PROGRAM_ID.toBase58(), acceptsRatedEscrows: acceptRatedEscrows === true },
         // The base58 address receipts from this provider name as providerId. A published test key, not a wallet.
         receiptProviderId: await sandboxProviderAddress(provider.id),
       },

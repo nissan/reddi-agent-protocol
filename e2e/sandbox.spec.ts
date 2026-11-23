@@ -188,6 +188,26 @@ test.describe("/sandbox", () => {
     await expectCopyInsideClaimBoundary(page);
   });
 
+  test("make a video: five independent studios, each paid and receipted, then rated", async ({ page }) => {
+    await page.goto("/sandbox?scenario=make-a-video");
+    await expect(page.getByTestId("sandbox-console")).toHaveAttribute("data-ready", "true", { timeout: 60_000 });
+    await expect(page.locator("[data-testid^=sandbox-studio-max-]")).toHaveCount(5);
+    await expect(page.getByTestId("sandbox-studio-frame-foundry")).toContainText("Stays private");
+    await expect(page.getByTestId("sandbox-studio-max-frame-foundry")).toContainText(/USDC · .* AUDD · .* SOL/);
+    await page.getByTestId("sandbox-pipeline-run").click();
+    await expect(page.getByTestId("sandbox-pipeline-done")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("[data-testid^=sandbox-pipeline-step-]")).toHaveCount(5);
+    await expect(page.getByTestId("sandbox-pipeline-step-5")).toContainText("fee checks");
+    await expect(page.getByTestId("sandbox-pipeline-fee")).toContainText("2.5%");
+    await expect(page.getByTestId("sandbox-pipeline-error")).toHaveCount(0);
+    await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("5");
+    await page.getByTestId("sandbox-pipeline-star-tidepool-audio-3").click();
+    await page.getByTestId("sandbox-pipeline-rate").click();
+    await expect(page.getByTestId("sandbox-pipeline-rated-frame-foundry")).toContainText("★ 4.70 → ★ 4.70");
+    await expect(page.getByTestId("sandbox-pipeline-rated-tidepool-audio")).toContainText("★ 4.60 → ★ 4.56");
+    await expectCopyInsideClaimBoundary(page);
+  });
+
   test("provider goes dark: no challenge, no payment, no receipt", async ({ page }) => {
     await open(page, "provider-offline");
     await page.getByTestId("sandbox-send").click();

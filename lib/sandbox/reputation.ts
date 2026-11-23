@@ -25,8 +25,14 @@ export function sandboxRatingFor(event: SandboxReputationEvent): number {
 
 /** Folds one rated call into the running average, rounded to two decimals. */
 export function applySandboxReputation(current: SandboxReputation, event: SandboxReputationEvent): SandboxReputation {
+  return applySandboxRating(current, sandboxRatingFor(event));
+}
+
+/** Folds a buyer's own 1 to 5 star rating of one receipted call into the running average. */
+export function applySandboxRating(current: SandboxReputation, stars: number): SandboxReputation {
+  const clamped = Math.min(SANDBOX_RATING_GOOD, Math.max(SANDBOX_RATING_BAD, Math.round(stars)));
   const receipts = current.receipts + 1;
-  const score = (current.score * current.receipts + sandboxRatingFor(event)) / receipts;
+  const score = (current.score * current.receipts + clamped) / receipts;
   return { score: Math.round(score * 100) / 100, receipts };
 }
 
