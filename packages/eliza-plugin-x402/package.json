@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@redditech/x402-solana": "file:../x402-solana",
-    "@elizaos/core": "^0.1.0",
+    "@elizaos/core": "^2.0.5",
     "@solana/web3.js": "^1.95.8",
     "tweetnacl": "^1.0.3"
   },
