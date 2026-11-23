@@ -5,10 +5,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Connection, Transaction } from "@solana/web3.js";
-import { explorerAddressUrl, explorerTxUrl, shortAddress } from "@/lib/sandbox/client";
+import { explorerAddressUrl, explorerTxUrl, shortAddress, type SandboxCallResult, type SandboxChallenge } from "@/lib/sandbox/client";
 import { formatUnits, triPriceFromLamports } from "@/lib/sandbox/pricing";
 import { isSandboxReceipt, verifySandboxReceipt, type SandboxVerification } from "@/lib/sandbox/receipt";
-import { TRY_TASKS, type TryTask } from "@/lib/try/tasks";
+import { PREVIEW_LOCK_NETWORK_FEE_LAMPORTS, PREVIEW_SETTLE_NETWORK_FEE_LAMPORTS, previewAnswer, previewQuote } from "@/lib/try/preview";
+import { TRY_TASKS, tryTaskProvider, type TryTask } from "@/lib/try/tasks";
 import AgentHandoff from "./AgentHandoff";
 
 const WalletMultiButton = dynamic(async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton, { ssr: false });
@@ -40,6 +41,8 @@ type Answered = {
 };
 
 type Phase = "pick" | "pay" | "waiting" | "answered" | "failed";
+/** Devnet: a real wallet pays a real lock. Preview: the same call with a simulated payment, no wallet and no chain. */
+type Mode = "devnet" | "preview";
 
 function sol(lamports: string | bigint): string {
   return formatUnits(BigInt(lamports), 9);
@@ -64,6 +67,7 @@ function pauseUnlessWoken(wake: { current: (() => void) | null }): Promise<void>
 }
 
 export default function TryConsole() {
+  const [mode, setMode] = useState<Mode>("devnet");
   const [phase, setPhase] = useState<Phase>("pick");
   const [task, setTask] = useState<TryTask>(TRY_TASKS[0]);
   const [started, setStarted] = useState<Started | null>(null);
@@ -72,6 +76,8 @@ export default function TryConsole() {
   const [verification, setVerification] = useState<SandboxVerification | null>(null);
   // What devnet charged to include each transaction, read from the chain after the answer.
   const [networkFees, setNetworkFees] = useState<{ lock?: number; settle?: number }>({});
+  const [preview, setPreview] = useState<{ challenge: SandboxChallenge; maxLamports: bigint } | null>(null);
+  const [previewResult, setPreviewResult] = useState<SandboxCallResult | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const polling = useRef(false);
@@ -91,6 +97,8 @@ export default function TryConsole() {
     setAnswered(null);
     setVerification(null);
     setNetworkFees({});
+    setPreview(null);
+    setPreviewResult(null);
     setMessage(null);
   }, []);
 
@@ -119,7 +127,46 @@ export default function TryConsole() {
     };
   }, []);
 
+  async function startPreview() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const quote = await previewQuote(task);
+      if (!quote.ok) {
+        setMessage(quote.message);
+        return;
+      }
+      setPreview({ challenge: quote.challenge, maxLamports: quote.maxLamports });
+      setPhase("pay");
+    } catch {
+      setMessage("The preview could not start. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function payPreview() {
+    if (!preview) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const reply = await previewAnswer(task, preview.challenge);
+      if (!reply.ok) {
+        setMessage(reply.message);
+        return;
+      }
+      setPreviewResult(reply.result);
+      setVerification(reply.verification);
+      setPhase("answered");
+    } catch {
+      setMessage("The preview could not reach the provider. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function start() {
+    if (mode === "preview") return startPreview();
     setBusy(true);
     setMessage(null);
     try {
@@ -249,12 +296,44 @@ export default function TryConsole() {
   }
 
   const max = started ? triPriceFromLamports(BigInt(started.maxLamports)) : null;
-  const answer = answered ? ((answered.body.choices as { message?: { content?: string } }[] | undefined)?.[0]?.message?.content ?? "") : "";
-  const payment = answered && isSandboxReceipt(answered.receipt) ? answered.receipt.receipt.payment : undefined;
+  const provider = tryTaskProvider(task);
+  const replyBody = answered?.body ?? previewResult?.body;
+  const answer = replyBody ? ((replyBody.choices as { message?: { content?: string } }[] | undefined)?.[0]?.message?.content ?? "") : "";
+  const receiptValue = answered?.receipt ?? previewResult?.receipt;
+  const payment = isSandboxReceipt(receiptValue) ? receiptValue.receipt.payment : undefined;
+  // A preview shows the fees a devnet try pays at this page's compute budget; a devnet try shows what the chain charged.
+  const lockNetworkFee = mode === "preview" ? PREVIEW_LOCK_NETWORK_FEE_LAMPORTS : networkFees.lock !== undefined ? BigInt(networkFees.lock) : undefined;
+  const settleNetworkFee = mode === "preview" ? PREVIEW_SETTLE_NETWORK_FEE_LAMPORTS : networkFees.settle !== undefined ? BigInt(networkFees.settle) : undefined;
+  const typical = mode === "preview" ? "Typical " : "";
 
   return (
-    <div className="space-y-8" data-testid="try-console" data-phase={phase}>
+    <div className="space-y-8" data-testid="try-console" data-phase={phase} data-mode={mode}>
       <section aria-labelledby="try-step-1">
+        <div className="mb-6 inline-flex rounded-xl border border-white/10 bg-black/25 p-1" role="radiogroup" aria-label="How to try it" data-testid="try-mode">
+          {([
+            ["devnet", "Pay on devnet with a wallet"],
+            ["preview", "Preview without a wallet"],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={mode === value}
+              disabled={phase !== "pick"}
+              onClick={() => setMode(value)}
+              className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${mode === value ? "bg-brand-green text-black" : "text-gray-200 hover:text-white"} disabled:cursor-default`}
+              data-testid={`try-mode-${value}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {mode === "preview" ? (
+          <p className="-mt-2 mb-5 max-w-3xl text-sm leading-6 text-gray-300" data-testid="try-preview-intro">
+            Walk through the whole call with nothing to install. The provider quotes, answers and signs a receipt, and you see the payment it would settle,
+            with no wallet and nothing on chain. When you&apos;re ready, switch to devnet and pay for real.
+          </p>
+        ) : null}
         <h2 id="try-step-1" className="font-display text-2xl font-bold text-white">1. Pick something to ask</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           {TRY_TASKS.map((t) => (
@@ -311,27 +390,42 @@ export default function TryConsole() {
         </section>
       ) : null}
 
+      {preview && phase === "pay" && mode === "preview" ? (
+        <section aria-labelledby="try-step-2-preview" className="rounded-3xl border border-white/10 bg-black/20 p-6" data-testid="try-preview-pay">
+          <h2 id="try-step-2-preview" className="font-display text-2xl font-bold text-white">2. Pay {provider.name}, in preview</h2>
+          <p className="mt-3 max-w-3xl leading-7 text-gray-300">
+            {provider.name} charges ${provider.pricing.inputPerMillionUsd} per million tokens in and ${provider.pricing.outputPerMillionUsd} out.
+            On devnet your wallet would lock at most <span className="font-mono text-white" data-testid="try-preview-max">{sol(preview.maxLamports)} SOL</span>
+            {" "}(about {triPriceFromLamports(preview.maxLamports).usdc} USDC, {triPriceFromLamports(preview.maxLamports).audd} AUDD), then pay for the tokens actually used and get the rest back.
+            Here the provider accepts a simulated payment for that amount instead.
+          </p>
+          <button type="button" onClick={payPreview} disabled={busy} className="mt-5 rounded-xl bg-brand-green px-5 py-3 font-semibold text-black hover:opacity-90 disabled:opacity-50" data-testid="try-preview-pay-button">
+            {busy ? "Asking the provider…" : "Send the preview payment"}
+          </button>
+        </section>
+      ) : null}
+
       {message ? (
         <p className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-4 text-sm leading-6 text-amber-100" role="status" data-testid="try-message">
           {message}
         </p>
       ) : null}
 
-      {phase === "answered" && answered && started ? (
+      {phase === "answered" && (answered || previewResult) ? (
         <section aria-labelledby="try-step-3" className="rounded-3xl border border-brand-green/25 bg-black/20 p-6" data-testid="try-answer">
           <h2 id="try-step-3" className="font-display text-2xl font-bold text-white">3. Your answer, and the receipt</h2>
           <pre className="mt-4 whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-black/40 p-4 font-mono text-sm leading-6 text-gray-100">{answer}</pre>
           {payment ? (
             <dl className="mt-5 grid gap-2 text-sm text-gray-200 sm:grid-cols-2">
-              <div><dt className="text-xs uppercase tracking-wide text-gray-400">Locked</dt><dd className="font-mono">{sol(payment.metered?.maxAmount ?? started.maxLamports)} SOL</dd></div>
+              <div><dt className="text-xs uppercase tracking-wide text-gray-400">{mode === "preview" ? "Maximum authorised" : "Locked"}</dt><dd className="font-mono">{sol(payment.metered?.maxAmount ?? started?.maxLamports ?? "0")} SOL</dd></div>
               <div><dt className="text-xs uppercase tracking-wide text-gray-400">Paid for {payment.metered ? `${payment.metered.inputTokens} in, ${payment.metered.outputTokens} out tokens` : "the answer"}</dt><dd className="font-mono" data-testid="try-charged">{sol(payment.amount ?? "0")} SOL <span className="text-gray-400">(about ${triPriceFromLamports(BigInt(payment.amount ?? "0")).usdc})</span></dd></div>
               <div><dt className="text-xs uppercase tracking-wide text-gray-400">Protocol fee, inside that</dt><dd className="font-mono">{sol(payment.fee?.amount ?? "0")} SOL</dd></div>
               <div><dt className="text-xs uppercase tracking-wide text-gray-400">Back to your wallet</dt><dd className="font-mono">{sol(payment.metered?.refunded ?? "0")} SOL</dd></div>
-              {networkFees.lock !== undefined ? (
-                <div><dt className="text-xs uppercase tracking-wide text-gray-400">Solana network fee for your lock</dt><dd className="font-mono" data-testid="try-network-fee">{sol(BigInt(networkFees.lock))} SOL <span className="text-gray-400">(about ${triPriceFromLamports(BigInt(networkFees.lock)).usdc})</span></dd></div>
+              {lockNetworkFee !== undefined ? (
+                <div><dt className="text-xs uppercase tracking-wide text-gray-400">{typical}Solana network fee for {mode === "preview" ? "the" : "your"} lock</dt><dd className="font-mono" data-testid="try-network-fee">{sol(lockNetworkFee)} SOL <span className="text-gray-400">(about ${triPriceFromLamports(lockNetworkFee).usdc})</span></dd></div>
               ) : null}
-              {networkFees.settle !== undefined ? (
-                <div><dt className="text-xs uppercase tracking-wide text-gray-400">Network fee for the settle, paid by {started.provider.name}</dt><dd className="font-mono">{sol(BigInt(networkFees.settle))} SOL</dd></div>
+              {settleNetworkFee !== undefined ? (
+                <div><dt className="text-xs uppercase tracking-wide text-gray-400">{typical}Network fee for the settle, paid by {provider.name}</dt><dd className="font-mono">{sol(settleNetworkFee)} SOL</dd></div>
               ) : null}
             </dl>
           ) : null}
@@ -342,11 +436,20 @@ export default function TryConsole() {
               </li>
             ))}
           </ul>
-          <p className="mt-4 text-sm text-gray-400">
-            Lock <a className="underline hover:text-white" href={explorerTxUrl(answered.lockSignature)} target="_blank" rel="noreferrer">{shortAddress(answered.lockSignature)}</a>
-            {payment?.txSignature ? <> · Settle <a className="underline hover:text-white" href={explorerTxUrl(payment.txSignature)} target="_blank" rel="noreferrer">{shortAddress(payment.txSignature)}</a></> : null}
-            {" · "}Escrow <a className="underline hover:text-white" href={explorerAddressUrl(answered.escrow)} target="_blank" rel="noreferrer">{shortAddress(answered.escrow)}</a>
-          </p>
+          {mode === "preview" ? (
+            <p className="mt-4 max-w-3xl text-sm leading-6 text-gray-300" data-testid="try-preview-note">
+              That&apos;s the whole call: price, answer and a receipt the provider signed, checked in your browser. On devnet the same steps run with your
+              wallet, and the lock and settle land on chain.{" "}
+              <button type="button" onClick={() => { reset(); setMode("devnet"); }} className="text-brand-green underline" data-testid="try-switch-devnet">Pay on devnet next</button>
+            </p>
+          ) : null}
+          {answered ? (
+            <p className="mt-4 text-sm text-gray-400">
+              Lock <a className="underline hover:text-white" href={explorerTxUrl(answered.lockSignature)} target="_blank" rel="noreferrer">{shortAddress(answered.lockSignature)}</a>
+              {payment?.txSignature ? <> · Settle <a className="underline hover:text-white" href={explorerTxUrl(payment.txSignature)} target="_blank" rel="noreferrer">{shortAddress(payment.txSignature)}</a></> : null}
+              {" · "}Escrow <a className="underline hover:text-white" href={explorerAddressUrl(answered.escrow)} target="_blank" rel="noreferrer">{shortAddress(answered.escrow)}</a>
+            </p>
+          ) : null}
           <button type="button" onClick={reset} className="mt-5 rounded-xl border border-white/15 px-4 py-2 text-sm text-gray-200 hover:border-white/30">Try another</button>
         </section>
       ) : null}

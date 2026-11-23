@@ -17,7 +17,7 @@ export default function TryPage() {
           <p className="mt-5 max-w-3xl text-lg leading-8 text-gray-300">
             Agents paying agents is new. Paying from your own wallet isn&apos;t. Pick a question, scan the Solana Pay code or use the wallet in this
             browser, and get the answer back with a receipt you can check. It&apos;s the same payment your agent will make for you later, so you know
-            exactly what it leads to.
+            exactly what it leads to. No wallet yet? Choose &ldquo;Preview without a wallet&rdquo; and walk through the same call first.
           </p>
           <ul className="mt-6 grid gap-3 text-sm leading-6 text-gray-200 sm:grid-cols-3" data-testid="try-boundary">
             <li className="rounded-xl border border-white/10 bg-black/25 p-3"><span className="font-semibold text-white">Solana devnet.</span> Test SOL has no monetary value. Mainnet is coming soon.</li>

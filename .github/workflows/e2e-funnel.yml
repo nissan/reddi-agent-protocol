@@ -64,11 +64,11 @@ jobs:
       # trigger a Fast Refresh reload of an open page, which drops that state
       # mid-test. Running the spec on its own, with one worker, means nothing
       # else compiles while it runs.
-      - name: Run sandbox spec
+      - name: Run sandbox and try preview specs
         env:
           PLAYWRIGHT_SCREENSHOT: off
           PLAYWRIGHT_VIDEO: off
-        run: npx playwright test e2e/sandbox.spec.ts --workers=1
+        run: npx playwright test e2e/sandbox.spec.ts e2e/try-preview.spec.ts --workers=1
 
       - name: Upload traces on failure
         if: failure()
