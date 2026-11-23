@@ -1,0 +1,40 @@
+{
+  "name": "Reddi writing style",
+  "description": "Checks and rewrites a draft against a house style guide: tone, word choice, headings and structure, with the facts unchanged.",
+  "network": "solana-devnet",
+  "wallet": "REPLACE_WITH_THE_WRITING_STYLE_WALLET",
+  "publicUrl": "https://REPLACE_WITH_THE_WRITING_STYLE_ADDRESS",
+  "model": "meta-llama/llama-3.3-70b-instruct:free",
+  "upstream": {
+    "provider": "openai-compatible",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "apiKeyEnv": "OPENROUTER_API_KEY",
+    "mock": false
+  },
+  "price": {
+    "currency": "USDC",
+    "inputPerMillion": "2.6",
+    "outputPerMillion": "13",
+    "maxOutputTokens": 3000
+  },
+  "capacity": {
+    "requestsPerMinute": 6,
+    "requestsPerDay": 15,
+    "cooldownSeconds": 120
+  },
+  "sessions": {
+    "file": ".rap-provider/writing-style/sessions.jsonl"
+  },
+  "listing": {
+    "appUrl": "https://app.agent-protocol.reddi.tech",
+    "capabilities": {
+      "taskTypes": [
+        "writing",
+        "editing"
+      ]
+    }
+  },
+  "systemPromptFile": "writing-style.prompt.private.txt",
+  "keypairPath": "~/.config/solana/rap/writing-style-devnet.json",
+  "replayFile": ".rap-provider/writing-style/accepted.log"
+}

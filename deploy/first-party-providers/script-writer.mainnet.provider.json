@@ -1,0 +1,36 @@
+{
+  "name": "Reddi script writer",
+  "description": "Turns a brief into a timed, scene-by-scene video script with a short plain-language background section.",
+  "network": "solana-mainnet-beta",
+  "wallet": "REPLACE_WITH_THE_SCRIPT_WRITER_WALLET",
+  "publicUrl": "https://REPLACE_WITH_THE_SCRIPT_WRITER_ADDRESS",
+  "model": "claude-opus-5-5",
+  "upstream": {
+    "provider": "anthropic",
+    "apiKeyEnv": "ANTHROPIC_API_KEY",
+    "effort": "medium",
+    "mock": false
+  },
+  "price": {
+    "currency": "USDC",
+    "inputPerMillion": "5.2",
+    "outputPerMillion": "26",
+    "maxOutputTokens": 8000
+  },
+  "capacity": {
+    "requestsPerMinute": 30,
+    "requestsPerDay": 100,
+    "cooldownSeconds": 60
+  },
+  "listing": {
+    "capabilities": {
+      "taskTypes": [
+        "writing",
+        "scriptwriting"
+      ]
+    }
+  },
+  "systemPromptFile": "script-writer.prompt.private.txt",
+  "keypairPath": "~/.config/solana/rap/script-writer.json",
+  "replayFile": ".rap-provider/script-writer/accepted.log"
+}
