@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  GENESIS, UPGRADEABLE_LOADER, base58Decode, base58Encode, checkDeployment, recordProblems, trimmedHash,
+  GENESIS, MAINNET_PROGRAM_ID, UPGRADEABLE_LOADER, base58Decode, base58Encode, checkDeployment, recordProblems, trimmedHash,
 } from '../check-escrow-deployment.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -163,6 +163,14 @@ test('a mainnet record must name the vault and list forbidden authorities', () =
   assert.ok(recordProblems(record({ forbiddenAuthorities: [SOME_MULTISIG] })).some((p) => /multisig account and the deployer/.test(p)));
   // Devnet keeps the deployer as its authority, so neither rule applies there.
   assert.deepEqual(recordProblems(record({ network: 'devnet', upgradeAuthority: DEPLOYER, forbiddenAuthorities: [] })), []);
+});
+
+test('a mainnet record must name the V1 escrow program, so another program cannot pass as it', () => {
+  assert.equal(MAINNET_PROGRAM_ID, PROGRAM_ID);
+  assert.deepEqual(recordProblems(record({ programId: SOME_MULTISIG })),
+    [`a mainnet record's programId must be the V1 escrow program ${PROGRAM_ID}`]);
+  // A devnet record may name another program (a test deployment).
+  assert.deepEqual(recordProblems(record({ network: 'devnet', programId: SOME_MULTISIG, upgradeAuthority: DEPLOYER, forbiddenAuthorities: [] })), []);
 });
 
 test('the CLI refuses a mainnet --deployer that the record does not forbid', () => {
