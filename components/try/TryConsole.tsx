@@ -257,10 +257,10 @@ export default function TryConsole() {
           return;
         }
         if (response.ok && (body as { state?: string }).state === "settled") {
-          // An earlier poll's answer was served and paid, but this server no longer holds it.
+          // The lock was already finished, by an earlier answer this server no longer holds or by a refund.
           polling.current = false;
           setPhase("failed");
-          setMessage("Your call was already answered and paid from an earlier check, so its answer can't be shown again here. Nothing more was taken: the unused part of your maximum went back to your wallet when it settled.");
+          setMessage("This lock was already finished, either by an answer from an earlier check or by a refund, so there is nothing more to show here and nothing more will be taken. Your wallet's history shows which.");
           return;
         }
         if (!response.ok && response.status !== 503) {

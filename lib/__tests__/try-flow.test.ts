@@ -47,8 +47,12 @@ function world() {
   const landed: { signature: string; tx: Transaction; slot: number }[] = [];
   const connection = {
     getLatestBlockhash: async () => ({ blockhash: BLOCKHASH, lastValidBlockHeight: 100 }),
-    getSignaturesForAddress: async (address: PublicKey) =>
-      landed.filter((l) => l.tx.compileMessage().accountKeys.some((k) => k.equals(address))).map((l) => ({ signature: l.signature, err: null })),
+    // Newest first, like RPC: `landed` is kept newest first.
+    getSignaturesForAddress: async (address: PublicKey, options?: { limit?: number; before?: string }) => {
+      const all = landed.filter((l) => l.tx.compileMessage().accountKeys.some((k) => k.equals(address))).map((l) => ({ signature: l.signature, err: null }));
+      const from = options?.before ? all.findIndex((x) => x.signature === options.before) + 1 : 0;
+      return all.slice(from, from + (options?.limit ?? 1_000));
+    },
     getTransaction: async (signature: string) => {
       const l = landed.find((x) => x.signature === signature);
       return l ? { slot: l.slot, meta: { err: null }, transaction: { message: l.tx.compileMessage() } } : null;
@@ -147,6 +151,57 @@ describe("try page: Solana Pay transaction request flow (#925)", () => {
     w.accounts.delete(escrow);
     expect(await poll(new TryRunCache())).toEqual({ ok: true, state: "settled", lockSignature: LOCK_SIG, payer: payer.publicKey.toBase58(), escrow });
     expect(w.settles).toHaveLength(1);
+  });
+
+  it("calls again after a refusal while the escrow is still locked, instead of keeping it (S2-14)", async () => {
+    const w = world();
+    const s = await started(w);
+    const payer = Keypair.generate();
+    const built = await buildTryTransaction({ token: s.token, account: payer.publicKey.toBase58(), secret: SECRET, connection: w.connection, nowMs: NOW_MS });
+    if (!built.ok) throw new Error(built.message);
+    w.walletSignsAndLands(built.transaction, payer);
+    const cache = new TryRunCache();
+    const poll = () => runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS, cache });
+    // Devnet reads fail once: the provider refuses without taking anything and asks for the same receipt again.
+    const readAccount = w.deps.readAccount!;
+    let failReads = 1;
+    w.deps.readAccount = async (address) => {
+      if (failReads > 0) {
+        failReads -= 1;
+        throw new Error("devnet unreachable");
+      }
+      return readAccount(address);
+    };
+    expect(await poll()).toMatchObject({ state: "answered", status: 402 });
+    expect(w.settles).toHaveLength(0);
+    expect(await poll()).toMatchObject({ state: "answered", status: 200 });
+    expect(w.settles).toHaveLength(1);
+  });
+
+  it("walks back past a full page of later transactions to find the lock (S2-15)", async () => {
+    const w = world();
+    const s = await started(w);
+    const payer = Keypair.generate();
+    const built = await buildTryTransaction({ token: s.token, account: payer.publicKey.toBase58(), secret: SECRET, connection: w.connection, nowMs: NOW_MS });
+    if (!built.ok) throw new Error(built.message);
+    w.walletSignsAndLands(built.transaction, payer);
+    const reference = new PublicKey(s.ticket.reference);
+    // Page size 3: 12 decoys after the lock fill four pages, newest first.
+    for (let i = 0; i < 12; i++) {
+      const decoy = Keypair.generate();
+      const tx = new Transaction({ feePayer: decoy.publicKey, blockhash: BLOCKHASH, lastValidBlockHeight: 100 }).add({ programId: MEMO_PROGRAM_ID, keys: [{ pubkey: reference, isSigner: false, isWritable: false }], data: Buffer.from(`decoy ${i}`) });
+      tx.partialSign(decoy);
+      w.landed.unshift({ signature: `${i + 10}`.padStart(88, "7"), tx, slot: Number(CURRENT_SLOT) });
+    }
+    const cache = new TryRunCache();
+    let result: Awaited<ReturnType<typeof runTry>> = { ok: true, state: "waiting" };
+    let polls = 0;
+    while (polls < 10 && result.ok && result.state === "waiting") {
+      result = await runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS, cache, pageSize: 3 });
+      polls += 1;
+    }
+    expect(result).toMatchObject({ state: "answered", status: 200, lockSignature: LOCK_SIG });
+    expect(polls).toBeLessThanOrEqual(5);
   });
 
   it("finds the lock behind 25 transactions that name the reference, reading a few per poll (S2-15)", async () => {

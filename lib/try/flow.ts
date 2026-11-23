@@ -122,12 +122,12 @@ export async function buildTryTransaction(input: { token: unknown; account: unkn
 
 /** What `runTry` reads from devnet: the reference's signatures and each transaction. A `Connection` fits. */
 export type TryChainReader = Parameters<typeof transactionFactsReader>[0] & {
-  getSignaturesForAddress(address: PublicKey, options: { limit: number }, commitment: "confirmed"): Promise<readonly { signature: string; err: unknown }[]>;
+  getSignaturesForAddress(address: PublicKey, options: { limit: number; before?: string }, commitment: "confirmed"): Promise<readonly { signature: string; err: unknown }[]>;
 };
 
 export type TryRunResult =
   | { ok: true; state: "waiting" }
-  /** The lock was already settled or closed by an earlier request this server no longer has the answer for. Nothing more is taken. */
+  /** The lock was already finished (settled by an earlier request this server no longer holds, or refunded). Nothing more is taken. */
   | { ok: true; state: "settled"; lockSignature: string; payer: string; escrow: string }
   | {
       ok: true;
@@ -158,6 +158,17 @@ const CACHE_LIMIT = 5_000;
 export class TryRunCache {
   private readonly rejected = new Set<string>();
   private readonly answers = new Map<string, Promise<TryRunResult | TryFailure>>();
+  private readonly cursors = new Map<string, string>();
+
+  /** The oldest signature naming a ticket's reference that every newer one has been ruled out down to. */
+  cursor(ticketId: string): string | undefined {
+    return this.cursors.get(ticketId);
+  }
+
+  advance(ticketId: string, signature: string): void {
+    this.cursors.set(ticketId, signature);
+    if (this.cursors.size > CACHE_LIMIT) this.cursors.delete(this.cursors.keys().next().value as string);
+  }
 
   isRejected(key: string): boolean {
     return this.rejected.has(key);
@@ -174,8 +185,15 @@ export class TryRunCache {
     const pending = run();
     this.answers.set(key, pending);
     if (this.answers.size > CACHE_LIMIT) this.answers.delete(this.answers.keys().next().value as string);
-    // A thrown call (devnet unreachable) is not an answer: the next poll tries again.
-    pending.catch(() => this.answers.delete(key));
+    // Only a final outcome is kept: a served answer, or a lock already finished. A thrown
+    // call (devnet unreachable) or a refusal while the escrow is still locked, such as a
+    // provider 502 or 429, may pass on the next poll, so that poll calls again.
+    pending.then(
+      (result) => {
+        if (!(result.ok && (result.state === "settled" || (result.state === "answered" && result.status === 200)))) this.answers.delete(key);
+      },
+      () => this.answers.delete(key),
+    );
     return pending;
   }
 }
@@ -191,6 +209,8 @@ export async function runTry(input: {
   deps: SandboxGatewayDeps;
   nowMs?: number;
   cache?: TryRunCache;
+  /** Signatures per page; tests make it small. */
+  pageSize?: number;
 }): Promise<TryRunResult | TryFailure> {
   const ticket = openTicket(input.token, input.secret, input.nowMs);
   if (!ticket) return fail(400, "ticket_invalid", "This try link has expired or is not one of ours. Start again from the try page.");
@@ -198,13 +218,22 @@ export async function runTry(input: {
   if (!task) return fail(400, "ticket_invalid", "This try link names a task that no longer exists.");
   const provider = tryTaskProvider(task);
   const cache = input.cache ?? defaultCache;
-  const found = await input.connection.getSignaturesForAddress(new PublicKey(ticket.reference), { limit: TRY_REFERENCE_SIGNATURES }, "confirmed");
+  const pageSize = input.pageSize ?? TRY_REFERENCE_SIGNATURES;
+  const reference = new PublicKey(ticket.reference);
+  const found = [...(await input.connection.getSignaturesForAddress(reference, { limit: pageSize }, "confirmed"))];
+  // More than a page names the reference: also walk back one older page per poll, from
+  // where earlier polls ruled everything out, so a flood cannot push the lock out of view.
+  let older: { signature: string; err: unknown }[] = [];
+  if (found.length === pageSize) {
+    const before = cache.cursor(ticket.id) ?? found[found.length - 1].signature;
+    older = [...(await input.connection.getSignaturesForAddress(reference, { limit: pageSize, before }, "confirmed"))];
+  }
   const read = transactionFactsReader(input.connection);
   let reads = 0;
   // Oldest first: the reference is only public once the lock lands, so transactions
   // that name it to crowd the lock out come after it. Each is read once per ticket,
   // and a poll reads at most a few, so stuffing the reference cannot fan out RPC reads.
-  for (const candidate of [...found].reverse()) {
+  for (const candidate of [...found, ...older].reverse()) {
     if (candidate.err) continue;
     const seen = `${ticket.id}:${candidate.signature}`;
     if (cache.isRejected(seen)) continue;
@@ -228,6 +257,8 @@ export async function runTry(input: {
     }
     return cache.answer(seen, () => callProvider({ ...input, task, provider, ticket, delegation, escrow, payer, lockSignature: candidate.signature }));
   }
+  // The older page is all ruled out: the next poll starts below it.
+  if (older.length === pageSize && older.every((c) => c.err || cache.isRejected(`${ticket.id}:${c.signature}`))) cache.advance(ticket.id, older[older.length - 1].signature);
   return { ok: true, state: "waiting" };
 }
 
