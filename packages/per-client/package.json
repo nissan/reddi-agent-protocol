@@ -10,7 +10,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@magicblock-labs/ephemeral-rollups-sdk": ">=0.8.0",
+    "@magicblock-labs/ephemeral-rollups-sdk": "~0.10.5",
     "@redditech/x402-solana": "file:../x402-solana",
     "@solana/web3.js": "^1.95.8"
   },
@@ -20,5 +20,6 @@
     "jest": "^29",
     "ts-jest": "^29",
     "typescript": "^5"
-  }
+  },
+  "private": true
 }
