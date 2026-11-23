@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  tokenEscrowAddresses,
   treasuryTokenAccount,
   buildX402Challenge,
   decimalToBaseUnits,
@@ -768,6 +769,11 @@ async function handleMeteredChatCompletion(input: {
   // The lock's escrow, payer and nonce are public: only the payer's signature over this request shows who is calling (#866).
   const auth = verifyPaidCallRequest({ headers: input.headers, genesisHash: SOLANA_GENESIS_HASHES[PAYMENT_NETWORK], escrow: header.escrow, payer: header.payer, provider: terms.payee, body: input.requestText, nowMs: Date.now() });
   if (!auth.ok) return refuse(401, auth.reason, auth.message, { charged: false });
+  // The signer must own the escrow it names: the escrow is the PDA of [token-escrow, payer, nonce].
+  // Otherwise another wallet could sign with its own key, name someone else's escrow and collect what is held for it.
+  if (!tokenEscrowAddresses({ programId: terms.programId, payer: header.payer, nonce: header.nonce }).escrow.equals(header.escrow)) {
+    return refuse(402, "invalid_receipt", "The escrow is not the lock of this payer and nonce.", { charged: false });
+  }
   const messages = body.messages ?? [];
   const outputTokens = outputLimit(terms, body.max_tokens);
   const inputEstimate = estimateInputTokens(messages);
@@ -790,7 +796,9 @@ async function handleMeteredChatCompletion(input: {
   // The payer's retry of a call whose settle's outcome was unknown: answered from what was held, once
   // the settle is found on chain (audit S7-Codex-R2-04). The payer's signature over this exact request
   // was checked above, so only the payer collects it.
-  const waiting = await held.get(heldKey);
+  const stored = await held.get(heldKey);
+  // A hold belongs to the payer who locked it; anyone else sees nothing held.
+  const waiting = stored && stored.settlement.payer === header.payer.toBase58() ? stored : undefined;
   if (waiting) {
     return collectHeldAnswer({ waiting, heldKey, held, deps, profile, terms, requestText: input.requestText, readSettle, expected: expectedSettle(BigInt(waiting.chargedBaseUnits), BigInt(waiting.createdSlot)), listEscrowSignatures: deps.listEscrowSignatures ?? (async (escrow) => (await connection.getSignaturesForAddress(escrow, { limit: 20 }, "confirmed")).map((entry) => entry.signature)), escrow: header.escrow });
   }

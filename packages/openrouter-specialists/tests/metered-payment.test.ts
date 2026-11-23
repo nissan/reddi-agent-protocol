@@ -401,3 +401,89 @@ test("a settle that names another escrow instance is not this job's settle", asy
   assert.equal(response.status, 502);
   assert.equal(((await response.json()) as { charged: unknown }).charged, false);
 });
+
+test("another wallet that signs correctly but names the payer's escrow learns nothing of a held answer, and the payer still collects", async () => {
+  const PENDING = "6".repeat(88);
+  const chain = chainOf();
+  let sentIx: TransactionInstruction | undefined;
+  const d = deps({ data: tokenEscrowBytes({ amount: BigInt(6000) }) }, async (ixs, context) => {
+    sentIx = ixs[ixs.length - 1];
+    context?.onSigned?.(PENDING);
+    throw new Error("timeout");
+  }, undefined, chain);
+  const client = new MockOpenRouterClient();
+  assert.equal((await handleRuntimeRequest(request(meteredPayment()), config, client, d.value)).status, 202);
+  chain.landed.set(PENDING, sentIx!);
+
+  // The other wallet signs this exact request with its own key and names the payer's escrow and nonce.
+  const other = Keypair.generate();
+  const otherKey = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(other.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
+  const otherSigned = await paidCallAuthHeaders({
+    genesisHash: SOLANA_GENESIS_HASHES["solana-devnet"],
+    escrow: escrow.toBase58(),
+    provider: payee.toBase58(),
+    body: BODY,
+    payer: other.publicKey.toBase58(),
+    signWithPayer: (m) => new Uint8Array(edSign(null, Buffer.from(m), otherKey)),
+  });
+  const intruding = await handleRuntimeRequest(
+    new Request("https://planning.example.test/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x402-payment": JSON.stringify(meteredPayment({ payer: other.publicKey.toBase58() })), ...otherSigned },
+      body: BODY,
+    }),
+    config,
+    client,
+    d.value,
+  );
+  assert.equal(intruding.status, 402);
+  const text = await intruding.text();
+  assert.ok(!text.includes(PENDING), "no settle signature");
+  assert.ok(!text.includes("settle_pending"), "no settle state");
+  assert.ok(!text.includes("choices"), "no answer");
+
+  // The payer's own retry still collects the held answer.
+  assert.equal((await handleRuntimeRequest(request(meteredPayment()), config, client, d.value)).status, 200);
+});
+
+test("a hold is never handed to a wallet other than the payer who locked it", async () => {
+  // A store entry keyed to a different wallet's escrow but recorded for the payer: the caller sees nothing held.
+  const other = Keypair.generate();
+  const otherNonce = "ffeeddccbbaa99887766554433221100";
+  const otherEscrow = tokenEscrowAddresses({ programId: PROGRAM, payer: other.publicKey, nonce: Buffer.from(otherNonce, "hex") }).escrow;
+  const store = new MemoryHeldAnswerStore();
+  const { heldAnswerKey } = await import("../src/index.js");
+  await store.put(heldAnswerKey(otherEscrow, BODY), {
+    upstreamJson: "{\"choices\":[]}",
+    reddiJson: "{}",
+    chargedBaseUnits: "18",
+    createdSlot: "1",
+    settleSignature: "5".repeat(88),
+    settlement: { currency: "USDC", inputTokens: 1, outputTokens: 1, charged: "0.000018", capped: false, maxBaseUnits: "6000", payer: payer.toBase58() },
+  });
+  const otherKey = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(other.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
+  const otherSigned = await paidCallAuthHeaders({
+    genesisHash: SOLANA_GENESIS_HASHES["solana-devnet"],
+    escrow: otherEscrow.toBase58(),
+    provider: payee.toBase58(),
+    body: BODY,
+    payer: other.publicKey.toBase58(),
+    signWithPayer: (m) => new Uint8Array(edSign(null, Buffer.from(m), otherKey)),
+  });
+  const d = deps(null);
+  d.value.heldAnswers = store;
+  const response = await handleRuntimeRequest(
+    new Request("https://planning.example.test/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x402-payment": JSON.stringify(meteredPayment({ payer: other.publicKey.toBase58(), escrow: otherEscrow.toBase58(), nonce: otherNonce })), ...otherSigned },
+      body: BODY,
+    }),
+    config,
+    new MockOpenRouterClient(),
+    d.value,
+  );
+  const text = await response.text();
+  assert.notEqual(response.status, 202);
+  assert.notEqual(response.status, 200);
+  assert.ok(!text.includes("5".repeat(88)));
+});
