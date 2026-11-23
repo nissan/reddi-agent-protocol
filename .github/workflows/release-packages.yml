@@ -7,10 +7,17 @@ name: Release packages
 # - A manual dispatch runs the dry run, then the publish job, which waits in the
 #   `npm-release` environment until the owner approves it. Nothing is published
 #   without that approval.
-# - Publishing uses npm trusted publishing (OIDC) with provenance. If the
-#   environment holds an `NPM_TOKEN` secret (for a package's first version,
-#   before a trusted publisher can be set on npm), it is used instead; it never
-#   leaves the environment.
+# - The release runs as four jobs, so no job that runs dependency code can
+#   publish or push:
+#   1. build: no secrets, read-only token, `npm ci --ignore-scripts`; packs each
+#      package and uploads the tarballs.
+#   2. publish: in the `npm-release` environment, checks out nothing, installs
+#      nothing, and runs only `npm publish <tarball> --provenance`. It uses npm
+#      trusted publishing (OIDC). Until each package has a trusted publisher on
+#      npm, an `NPM_TOKEN` secret in the environment is used for that one step.
+#   3. smoke: installs the published kit from npm with no token and no rights.
+#   4. tag: pushes one tag per package; it runs git only.
+# - Actions are pinned by commit.
 # - A dispatch can name the packages to publish (the `packages` input, default
 #   all three), so a later release can ship some of them while the rest keep
 #   the version already on npm. They are always published in dependency order.
@@ -46,21 +53,22 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "24"
 
+      # Install scripts stay off here, as in the build job, so this proves the release builds without them.
       - name: Install, test and pack each package
         run: |
           set -euo pipefail
           for p in $PACKAGES; do
             echo "::group::$p"
-            (cd "packages/$p" && npm ci && npm run release:dry-run)
+            (cd "packages/$p" && npm ci --ignore-scripts && npm run release:dry-run)
             echo "::endgroup::"
           done
 
@@ -90,22 +98,26 @@ jobs:
             ' "packages/$p" "$GITHUB_REPOSITORY"
           done
 
-  publish:
-    name: Publish to npm
+  build:
+    name: Build release tarballs
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     needs: dry-run
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: npm-release
+    timeout-minutes: 20
     permissions:
-      contents: write
-      id-token: write
+      contents: read
+    outputs:
+      publish: ${{ steps.choose.outputs.publish }}
+      kit: ${{ steps.pack.outputs.kit }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
       # Only names from the package set are taken, in dependency order.
       - name: Choose the packages to publish
+        id: choose
         env:
           REQUESTED: ${{ inputs.packages }}
         run: |
@@ -126,16 +138,12 @@ jobs:
           if [ -z "$chosen" ]; then echo "::error::No package chosen."; exit 1; fi
           echo "Publishing: $chosen"
           echo "PUBLISH=$chosen" >> "$GITHUB_ENV"
+          echo "publish=$chosen" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "24"
-          registry-url: "https://registry.npmjs.org"
-
-      # Trusted publishing needs npm 11.5.1 or later.
-      - name: Update npm
-        run: npm install -g npm@11.6.2 && npm --version
 
       - name: Refuse versions already on npm
         run: |
@@ -156,45 +164,127 @@ jobs:
             echo "$name@$version is not on npm yet"
           done
 
-      - name: Build and publish in dependency order
+      - name: Build and pack in dependency order
+        id: pack
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          for p in $PUBLISH; do
+            echo "::group::$p"
+            (cd "packages/$p" && npm ci --ignore-scripts && npm run build)
+            # A tarball publish skips lifecycle scripts, so a package's own pre-publish checks run here.
+            if node -e "process.exit(require('./packages/$p/package.json').scripts?.prepublishOnly ? 0 : 1)"; then
+              (cd "packages/$p" && npm run prepublishOnly)
+            fi
+            node scripts/release/pin-local-deps.mjs "packages/$p"
+            node scripts/release/pin-local-deps.mjs --check "packages/$p"
+            node scripts/check-package-artifact-contents.mjs --dir "packages/$p"
+            tarball=$(cd "packages/$p" && npm pack --ignore-scripts --pack-destination "$GITHUB_WORKSPACE/release" | tail -n 1)
+            echo "$tarball" >> release/order.txt
+            echo "::endgroup::"
+          done
+          echo "kit=$(node -p "require('./packages/provider-kit/package.json').version")" >> "$GITHUB_OUTPUT"
+          cat release/order.txt
+          (cd release && sha256sum *.tgz)
+
+      - name: Upload the tarballs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-tarballs
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish to npm
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: npm-release
+    permissions:
+      id-token: write
+    steps:
+      - name: Download the tarballs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-tarballs
+          path: release
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      # Trusted publishing needs npm 11.5.1 or later.
+      - name: Update npm
+        run: npm install -g --ignore-scripts npm@11.6.2 && npm --version
+
+      # Nothing is checked out or installed in this job: it publishes the packed tarballs only.
+      - name: Publish in dependency order
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
-          for p in $PUBLISH; do
-            echo "::group::$p"
-            (cd "packages/$p" && npm ci && npm run build)
-            node scripts/release/pin-local-deps.mjs "packages/$p"
-            node scripts/release/pin-local-deps.mjs --check "packages/$p"
-            node scripts/check-package-artifact-contents.mjs --dir "packages/$p"
-            (cd "packages/$p" && npm publish --access public --provenance)
+          while IFS= read -r tarball; do
+            [ -n "$tarball" ] || continue
+            echo "::group::$tarball"
+            npm publish "release/$tarball" --access public --provenance --ignore-scripts
             echo "::endgroup::"
-          done
+          done < release/order.txt
 
-      - name: Install from npm and run the no-spend quickstart
+  smoke:
+    name: Install from npm and run the no-spend quickstart
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions: {}
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+
+      - name: Install the published kit and run it
+        env:
+          KIT: ${{ needs.build.outputs.kit }}
         run: |
           set -euo pipefail
-          kit=$(node -p "require('./packages/provider-kit/package.json').version")
           scratch=$(mktemp -d)
           cd "$scratch"
           npm init -y >/dev/null
           # A first version can take several minutes to become visible.
           for i in $(seq 1 30); do
-            npm install "@redditech/provider-kit@$kit" && break
-            [ "$i" = 30 ] && { echo "::error::@redditech/provider-kit@$kit is still not on the registry"; exit 1; }
+            npm install "@redditech/provider-kit@$KIT" && break
+            [ "$i" = 30 ] && { echo "::error::@redditech/provider-kit@$KIT is still not on the registry"; exit 1; }
             echo "Waiting for the registry"; sleep 30
           done
           npx --no-install rap-provider --help
           node --input-type=module -e "await import('@redditech/provider-kit'); await import('@redditech/agent-protocol'); console.log('imports ok')"
           node -e "require('@redditech/x402-solana'); console.log('x402 require ok')"
 
-      - name: Tag the released commit
+  tag:
+    name: Tag the released commit
+    needs: [build, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      # This job runs git only; it needs the token to push the tags.
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Push one tag per package
+        env:
+          PUBLISH: ${{ needs.build.outputs.publish }}
         run: |
           set -euo pipefail
+          set -f
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -- packages
           for p in $PUBLISH; do
+            case " $PACKAGES " in *" $p "*) ;; *) echo "::error::Unknown package '$p'"; exit 1 ;; esac
             name=$(node -p "require('./packages/$p/package.json').name")
             version=$(node -p "require('./packages/$p/package.json').version")
             git tag -a "$name@$version" -m "$name $version"
