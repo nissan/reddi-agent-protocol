@@ -36,7 +36,7 @@ jobs:
       MAINNET_RECORD: config/releases/v1-mainnet-45e9547.json
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -45,7 +45,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "24"
 
@@ -78,9 +78,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           OWNER: ${{ github.repository_owner }}
+          MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL }}
         run: |
           gh label create deployment-watch --repo "$GITHUB_REPOSITORY" --color B60205 --description "Mainnet escrow program is not the build of record, or could not be checked" 2>/dev/null || true
-          { echo "The weekly check of the mainnet escrow program against \`$MAINNET_RECORD\` failed or could not decide."; echo; echo '```'; tail -n 30 /tmp/watch.log 2>/dev/null || echo "(no output)"; echo '```'; echo; echo "Run: $RUN_URL"; echo; echo "Follow docs/MAINNET-LAUNCH-RUNBOOK.md §6. A FAIL on the hash or authority lines is an incident; exit 2 means the RPC or record could not be used."; } > /tmp/body.md
+          # The issue is public and GitHub does not mask secrets in it, so it carries only the check's verdict lines,
+          # with the RPC URL and any api-key value scrubbed as well. Errors (which could echo a URL) stay in the run log.
+          lines=$(grep -E '^(ok  |FAIL) ' /tmp/watch.log 2>/dev/null || true)
+          if [ -n "${MAINNET_RPC_URL:-}" ]; then lines=${lines//"$MAINNET_RPC_URL"/<rpc>}; fi
+          lines=$(printf '%s\n' "$lines" | sed -E 's/(api[-_]?key=)[^&[:space:]]+/\1<redacted>/Ig')
+          [ -n "$lines" ] || lines="No verdict lines: the check could not decide (record or RPC unusable). See the run log."
+          { echo "The weekly check of the mainnet escrow program against \`$MAINNET_RECORD\` failed or could not decide."; echo; echo '```'; printf '%s\n' "$lines"; echo '```'; echo; echo "Run: $RUN_URL"; echo; echo "Follow docs/MAINNET-LAUNCH-RUNBOOK.md §6. A FAIL on the hash or authority lines is an incident; no verdict lines means the RPC or record could not be used."; } > /tmp/body.md
           open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label deployment-watch --state open --json number --jq '.[0].number // empty')
           if [ -n "$open" ]; then gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body-file /tmp/body.md
           else gh issue create --repo "$GITHUB_REPOSITORY" --title "Mainnet escrow deployment watch failed" --label deployment-watch --assignee "$OWNER" --body-file /tmp/body.md; fi
