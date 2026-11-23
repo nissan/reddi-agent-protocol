@@ -246,7 +246,8 @@ async function checkMeteredPayout(input) {
                 const seed = (0, escrow_readiness_1.freshRefundSeed)(input.instance.escrow, input.instance.createdSlot);
                 const fresh = (0, escrow_readiness_1.seedAddress)(terms.payee, seed, terms.tokenProgram);
                 const existing = await input.readAccount(fresh);
-                if (existing === null) {
+                // Lamports anyone sent to the address leave it a system account with no data; it is still built there.
+                if (existing === null || (existing.owner.equals(web3_js_1.SystemProgram.programId) && existing.data.length === 0)) {
                     const rent = await input.readAccount(web3_js_1.SYSVAR_RENT_PUBKEY);
                     if (!rent)
                         return { ok: false, reason: 'payment_check_unavailable', message: 'The chain could not be read. Nothing was accepted; present the same receipt again.' };

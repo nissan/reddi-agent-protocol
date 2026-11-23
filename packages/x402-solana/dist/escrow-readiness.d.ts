@@ -46,9 +46,9 @@ export interface TokenPayoutOptions {
     /**
      * Create a new token account owned by the payer at `seedAddress(funder,
      * seed, token program)` and return the unused part there. Only the funder can
-     * create an account at that address, so the payer cannot close, re-own or
-     * memo-lock it before the settle lands. The funder pays `lamports` (rent,
-     * not returned) and signs. Takes the place of `createRefundAccount`.
+     * allocate and assign an account at that address, so the payer cannot close,
+     * re-own or memo-lock it before the settle lands; lamports sent there first
+     * do not stop it. The funder pays `lamports` (rent, not returned) and signs. Takes the place of `createRefundAccount`.
      */
     freshRefundAccount?: FreshRefundAccount;
 }

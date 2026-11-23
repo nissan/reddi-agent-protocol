@@ -260,6 +260,10 @@ test("a lock the buyer refunded before the settle is recorded as unpaid, not set
 
 for (const [what, spoil] of [
   ["closes the account its lock came from", (chain: ReturnType<typeof fakeChain>) => chain.accounts.delete(ata(buyer).toBase58())],
+  ["closes the account its lock came from and sends lamports to the new account's address first", (chain: ReturnType<typeof fakeChain>) => {
+    chain.accounts.delete(ata(buyer).toBase58());
+    chain.accounts.set(freshRefundAccount().toBase58(), { owner: PublicKey.default, data: new Uint8Array(0), lamports: 1_000_000n, executable: false });
+  }],
   ["hands the account its lock came from to someone else", (chain: ReturnType<typeof fakeChain>) => chain.accounts.set(ata(buyer).toBase58(), tokenAccount(Keypair.generate().publicKey))],
 ] as const) test(`a buyer who ${what} cannot block the settle: within the operator's daily bound the kit creates a new account for this lock and settles`, async () => {
   const { call, close, chain, events } = setup({ file: { refundAccountSubsidy: { maxPerDay: 1 } } });
@@ -268,10 +272,10 @@ for (const [what, spoil] of [
   const closed = await close();
   assert.equal(((await closed.json()) as { status: string }).status, "settled");
   const settle = chain.sent[chain.sent.length - 1];
-  assert.equal(settle.length, 3, "the settle creates and initialises the buyer's new account first, at the provider's cost");
+  assert.equal(settle.length, 5, "the settle funds, allocates, assigns and initialises the buyer's new account first, at the provider's cost");
   assert.ok(settle[0].keys[0].pubkey.equals(provider.publicKey) && settle[0].keys[1].pubkey.equals(freshRefundAccount()));
-  assert.ok(settle[1].keys[0].pubkey.equals(freshRefundAccount()) && new PublicKey(settle[1].data.subarray(1, 33)).equals(buyer));
-  assert.ok(settle[2].keys[7].pubkey.equals(freshRefundAccount()));
+  assert.ok(settle[3].keys[0].pubkey.equals(freshRefundAccount()) && new PublicKey(settle[3].data.subarray(1, 33)).equals(buyer));
+  assert.ok(settle[4].keys[7].pubkey.equals(freshRefundAccount()));
   assert.ok(events.some((e) => e.event === "refund_account_created"));
 });
 

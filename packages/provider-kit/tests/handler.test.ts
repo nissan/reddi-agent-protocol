@@ -333,9 +333,10 @@ test("a buyer who closes its account after the lock is accepted is not subsidise
   const paid = await call(BODY, { "x402-payment": paymentHeader() });
   assert.equal(paid.status, 200);
   assert.equal(chain.sent.length, 1);
-  assert.equal(chain.sent[0].length, 3);
-  const [create, init, settle] = chain.sent[0];
-  assert.ok(create.keys[0].pubkey.equals(provider.publicKey) && create.keys[1].pubkey.equals(freshRefundAccount()));
+  assert.equal(chain.sent[0].length, 5);
+  const [fund, allocate, , init, settle] = chain.sent[0];
+  assert.ok(fund.keys[0].pubkey.equals(provider.publicKey) && fund.keys[1].pubkey.equals(freshRefundAccount()));
+  assert.ok(allocate.keys[0].pubkey.equals(freshRefundAccount()) && allocate.keys[1].pubkey.equals(provider.publicKey) && allocate.keys[1].isSigner);
   assert.ok(init.keys[0].pubkey.equals(freshRefundAccount()) && new PublicKey(init.data.subarray(1, 33)).equals(buyer));
   assert.ok(settle.keys[7].pubkey.equals(freshRefundAccount()));
   assert.ok(events.some((e) => e.event === "refund_account_created"));

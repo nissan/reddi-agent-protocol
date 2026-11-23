@@ -10,7 +10,7 @@
  * Nothing here reads a key or sends a transaction. `meteredSettlement` returns
  * instructions; the operator signs and sends them.
  */
-import { PublicKey, SYSVAR_RENT_PUBKEY, type TransactionInstruction } from '@solana/web3.js';
+import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, type TransactionInstruction } from '@solana/web3.js';
 import { ACCOUNT_SIZE, TOKEN_2022_PROGRAM_ID, getAccountLenForMint, getAssociatedTokenAddressSync, getTransferFeeConfig, unpackMint } from '@solana/spl-token';
 import { checkTokenAccount, freshRefundSeed, prepareTokenPayout, seedAddress, type FreshRefundAccount } from './escrow-readiness';
 import { quoteMeteredCall, settleMeteredCall, tokenCostBaseUnits, type MeteredSettlement, type PerTokenPrice, type TokenCounts } from './metered';
@@ -346,7 +346,8 @@ export async function checkMeteredPayout(input: {
         const seed = freshRefundSeed(input.instance.escrow, input.instance.createdSlot);
         const fresh = seedAddress(terms.payee, seed, terms.tokenProgram);
         const existing = await input.readAccount(fresh);
-        if (existing === null) {
+        // Lamports anyone sent to the address leave it a system account with no data; it is still built there.
+        if (existing === null || (existing.owner.equals(SystemProgram.programId) && existing.data.length === 0)) {
           const rent = await input.readAccount(SYSVAR_RENT_PUBKEY);
           if (!rent) return { ok: false, reason: 'payment_check_unavailable', message: 'The chain could not be read. Nothing was accepted; present the same receipt again.' };
           const freshRefundAccount = { seed, space: accountSpace, lamports: rentExemptLamports(rent.data, accountSpace) };

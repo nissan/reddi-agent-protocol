@@ -79,7 +79,9 @@ function prepareTokenPayout(t, funder, treasury = token_escrow_1.ESCROW_PROTOCOL
         const account = seedAddress(funder, fresh.seed, t.tokenProgram);
         if (options.refundTo && !options.refundTo.equals(account))
             throw new Error('refundTo must be the fresh account');
-        instructions.push(web3_js_1.SystemProgram.createAccountWithSeed({ fromPubkey: funder, basePubkey: funder, seed: fresh.seed, newAccountPubkey: account, lamports: Number(fresh.lamports), space: fresh.space, programId: t.tokenProgram }), (0, spl_token_1.createInitializeAccount3Instruction)(account, t.mint, t.payer, t.tokenProgram));
+        // Transfer, then allocate and assign with the seed, rather than createAccountWithSeed: anyone can send
+        // lamports to the address first, which makes a create fail, while these succeed either way.
+        instructions.push(web3_js_1.SystemProgram.transfer({ fromPubkey: funder, toPubkey: account, lamports: fresh.lamports }), web3_js_1.SystemProgram.allocate({ accountPubkey: account, basePubkey: funder, seed: fresh.seed, space: fresh.space, programId: t.tokenProgram }), web3_js_1.SystemProgram.assign({ accountPubkey: account, basePubkey: funder, seed: fresh.seed, programId: t.tokenProgram }), (0, spl_token_1.createInitializeAccount3Instruction)(account, t.mint, t.payer, t.tokenProgram));
         return { treasuryToken, refundTo: account, instructions };
     }
     return { treasuryToken, refundTo: options.refundTo ?? payerToken, instructions };

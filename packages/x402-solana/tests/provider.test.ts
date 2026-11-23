@@ -1,6 +1,6 @@
 import { pinLaunchRateClock } from './support/launch-clock';
 import { createHash } from 'node:crypto';
-import { Keypair, PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, TransactionInstruction } from '@solana/web3.js';
+import { Keypair, PublicKey, SystemInstruction, SystemProgram, SYSVAR_RENT_PUBKEY, TransactionInstruction } from '@solana/web3.js';
 import {
   buildSettleTokenEscrowInstruction,
   checkMeteredPayout,
@@ -387,17 +387,32 @@ describe('payout accounts', () => {
 
       const lock = (await verify()) as Extract<VerifiedLock, { ok: true }>;
       const { instructions, instruction } = meteredSettlement(terms, lock, { inputTokens: 120, outputTokens: 333 }, created.payout);
-      expect(instructions).toHaveLength(3); // create, initialise, settle
-      const [create, init, settle] = instructions;
+      expect(instructions).toHaveLength(5); // fund, allocate, assign, initialise, settle
+      const [fund, allocate, assign, init, settle] = instructions;
       expect(settle).toBe(instruction);
-      expect(create.programId.equals(SystemProgram.programId)).toBe(true);
-      expect(create.keys[0].pubkey.equals(payee) && create.keys[0].isSigner).toBe(true); // the provider funds it and is its base
-      expect(create.keys[1].pubkey.equals(fresh)).toBe(true);
+      expect([fund, allocate, assign].every((i) => i.programId.equals(SystemProgram.programId))).toBe(true);
+      expect(SystemInstruction.decodeInstructionType(fund)).toBe('Transfer');
+      expect(SystemInstruction.decodeTransfer(fund)).toEqual({ fromPubkey: payee, toPubkey: fresh, lamports: BigInt(2_039_280) }); // the provider funds it
+      expect(SystemInstruction.decodeInstructionType(allocate)).toBe('AllocateWithSeed');
+      expect(SystemInstruction.decodeAllocateWithSeed(allocate)).toMatchObject({ accountPubkey: fresh, basePubkey: payee, seed, space: 165 });
+      expect(SystemInstruction.decodeAllocateWithSeed(allocate).programId.equals(TOKEN_PROGRAM)).toBe(true);
+      expect(SystemInstruction.decodeInstructionType(assign)).toBe('AssignWithSeed');
+      expect(SystemInstruction.decodeAssignWithSeed(assign)).toMatchObject({ accountPubkey: fresh, basePubkey: payee, seed });
+      expect(SystemInstruction.decodeAssignWithSeed(assign).programId.equals(TOKEN_PROGRAM)).toBe(true);
+      expect(allocate.keys.some((k) => k.pubkey.equals(payee) && k.isSigner)).toBe(true); // only the provider can build it
       expect(init.programId.equals(TOKEN_PROGRAM)).toBe(true);
       expect(init.keys[0].pubkey.equals(fresh) && init.keys[1].pubkey.equals(USDC)).toBe(true);
       expect(new PublicKey(init.data.subarray(1, 33)).equals(payer)).toBe(true); // the buyer owns it
       expect(instruction.keys.some((k) => k.pubkey.equals(fresh) && k.isWritable)).toBe(true);
       expect(instruction.keys.some((k) => k.pubkey.equals(ata(payer)))).toBe(false);
+
+      // Lamports sent to the address first (by anyone) do not stop it: it is still built there.
+      accounts.set(fresh.toBase58(), { owner: SystemProgram.programId, data: new Uint8Array(0) });
+      const prefunded = await checkMeteredPayout({ terms, escrow, readAccount, createRefundAccount: true, instance });
+      expect(prefunded.ok && prefunded.payout.refundTo.equals(fresh) && prefunded.payout.freshRefundAccount?.lamports === BigInt(2_039_280)).toBe(true);
+      // A system account with data is not one the settle can build on.
+      accounts.set(fresh.toBase58(), { owner: SystemProgram.programId, data: new Uint8Array(8) });
+      expect(await checkMeteredPayout({ terms, escrow, readAccount, createRefundAccount: true, instance })).toMatchObject({ ok: false, reason: 'refund_account_unusable' });
 
       // Once it exists and is the buyer's, a retry pays into it without creating it again.
       accounts.set(fresh.toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(USDC, payer) });

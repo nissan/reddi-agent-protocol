@@ -75,9 +75,9 @@ export interface TokenPayoutOptions {
   /**
    * Create a new token account owned by the payer at `seedAddress(funder,
    * seed, token program)` and return the unused part there. Only the funder can
-   * create an account at that address, so the payer cannot close, re-own or
-   * memo-lock it before the settle lands. The funder pays `lamports` (rent,
-   * not returned) and signs. Takes the place of `createRefundAccount`.
+   * allocate and assign an account at that address, so the payer cannot close,
+   * re-own or memo-lock it before the settle lands; lamports sent there first
+   * do not stop it. The funder pays `lamports` (rent, not returned) and signs. Takes the place of `createRefundAccount`.
    */
   freshRefundAccount?: FreshRefundAccount;
 }
@@ -131,8 +131,12 @@ export function prepareTokenPayout(
     const fresh = options.freshRefundAccount;
     const account = seedAddress(funder, fresh.seed, t.tokenProgram);
     if (options.refundTo && !options.refundTo.equals(account)) throw new Error('refundTo must be the fresh account');
+    // Transfer, then allocate and assign with the seed, rather than createAccountWithSeed: anyone can send
+    // lamports to the address first, which makes a create fail, while these succeed either way.
     instructions.push(
-      SystemProgram.createAccountWithSeed({ fromPubkey: funder, basePubkey: funder, seed: fresh.seed, newAccountPubkey: account, lamports: Number(fresh.lamports), space: fresh.space, programId: t.tokenProgram }),
+      SystemProgram.transfer({ fromPubkey: funder, toPubkey: account, lamports: fresh.lamports }),
+      SystemProgram.allocate({ accountPubkey: account, basePubkey: funder, seed: fresh.seed, space: fresh.space, programId: t.tokenProgram }),
+      SystemProgram.assign({ accountPubkey: account, basePubkey: funder, seed: fresh.seed, programId: t.tokenProgram }),
       createInitializeAccount3Instruction(account, t.mint, t.payer, t.tokenProgram),
     );
     return { treasuryToken, refundTo: account, instructions };
