@@ -10,9 +10,9 @@
  * Nothing here reads a key or sends a transaction. `meteredSettlement` returns
  * instructions; the operator signs and sends them.
  */
-import { PublicKey, type TransactionInstruction } from '@solana/web3.js';
-import { TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync, getTransferFeeConfig, unpackMint } from '@solana/spl-token';
-import { checkTokenAccount, prepareTokenPayout } from './escrow-readiness';
+import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, type TransactionInstruction } from '@solana/web3.js';
+import { ACCOUNT_SIZE, TOKEN_2022_PROGRAM_ID, getAccountLenForMint, getAssociatedTokenAddressSync, getTransferFeeConfig, unpackMint } from '@solana/spl-token';
+import { checkTokenAccount, freshRefundSeed, prepareTokenPayout, seedAddress, type FreshRefundAccount } from './escrow-readiness';
 import { quoteMeteredCall, settleMeteredCall, tokenCostBaseUnits, type MeteredSettlement, type PerTokenPrice, type TokenCounts } from './metered';
 import { baseUnitsToDecimal, directPaymentCurrency, parseX402PaymentHeader, SOLANA_GENESIS_HASHES } from './payment';
 import { decodeRatingAccount, ratingPda, withRatingAccount } from './rating';
@@ -257,8 +257,22 @@ export interface PayoutAccounts {
   refundTo: PublicKey;
   /** Pass the mint writable, so fees withheld on a Token-2022 vault are moved out and the vault can close. */
   harvestWithheldFees: boolean;
-  /** The settle first creates `refundTo`, the payer's associated token account, at the provider's cost. */
+  /**
+   * The settle first creates `refundTo` at the provider's cost: a fresh
+   * account (`freshRefundAccount`) when the lock was named, else the payer's
+   * associated token account.
+   */
   createRefundAccount?: boolean;
+  /** Set when `refundTo` is a new account the settle creates for the payer at a provider-seeded address. */
+  freshRefundAccount?: FreshRefundAccount;
+}
+
+/** Rent-exempt minimum for `space` bytes, from the Rent sysvar's data. */
+function rentExemptLamports(rent: Uint8Array, space: number): bigint {
+  const view = new DataView(rent.buffer, rent.byteOffset, rent.byteLength);
+  const perByteYear = view.getBigUint64(0, true);
+  const threshold = view.getFloat64(8, true);
+  return BigInt(Math.floor(Number(BigInt(128 + space) * perByteYear) * threshold));
 }
 
 export type PayoutCheck =
@@ -274,8 +288,11 @@ export type PayoutCheck =
  *
  * Nothing is created by default. `allowPayerAssociatedAccount` lets the
  * unused part go to the payer's associated token account when the recorded
- * source no longer works; `createRefundAccount` lets the provider pay to
- * create that account when it does not exist at all.
+ * source no longer works. `createRefundAccount` lets the provider pay to
+ * create an account for it: with `instance` (the escrow and its lock slot), a
+ * new account owned by the payer at an address only the provider can create,
+ * which the payer cannot close, re-own or memo-lock first; without it, the
+ * payer's associated token account when that does not exist at all.
  */
 export async function checkMeteredPayout(input: {
   terms: MeteredTerms;
@@ -284,6 +301,7 @@ export async function checkMeteredPayout(input: {
   treasury?: PublicKey;
   allowPayerAssociatedAccount?: boolean;
   createRefundAccount?: boolean;
+  instance?: { escrow: PublicKey; createdSlot: bigint };
 }): Promise<PayoutCheck> {
   const { terms, escrow } = input;
   const token = { mint: terms.mint, tokenProgram: terms.tokenProgram };
@@ -303,11 +321,14 @@ export async function checkMeteredPayout(input: {
       return notReady(`The protocol treasury cannot receive ${terms.price.currency} right now, so this provider is not taking payment in it. Nothing was accepted; your lock is untouched.`);
     }
     let harvestWithheldFees = false;
+    let accountSpace = ACCOUNT_SIZE;
     if (terms.tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
       const mint = await input.readAccount(terms.mint);
       if (!mint || !mint.owner.equals(TOKEN_2022_PROGRAM_ID)) return notReady(`The ${terms.price.currency} mint could not be read. Nothing was accepted; your lock is untouched.`);
       try {
-        harvestWithheldFees = getTransferFeeConfig(unpackMint(terms.mint, { data: Buffer.from(mint.data), owner: mint.owner, lamports: 0, executable: false }, TOKEN_2022_PROGRAM_ID)) !== null;
+        const unpacked = unpackMint(terms.mint, { data: Buffer.from(mint.data), owner: mint.owner, lamports: 0, executable: false }, TOKEN_2022_PROGRAM_ID);
+        harvestWithheldFees = getTransferFeeConfig(unpacked) !== null;
+        accountSpace = getAccountLenForMint(unpacked);
       } catch {
         return notReady(`The ${terms.price.currency} mint could not be read. Nothing was accepted; your lock is untouched.`);
       }
@@ -320,8 +341,23 @@ export async function checkMeteredPayout(input: {
       const associated = getAssociatedTokenAddressSync(terms.mint, escrow.payer, true, terms.tokenProgram);
       const held = associated.equals(escrow.source) ? source : await input.readAccount(associated);
       if (checkTokenAccount(associated, held, refundTarget).ok) return { ok: true, payout: { ...base, refundTo: associated } };
-      // Only an account that does not exist can be created. A frozen or memo-requiring one stays as it is.
-      if (input.createRefundAccount && held === null) return { ok: true, payout: { ...base, refundTo: associated, createRefundAccount: true } };
+      if (input.createRefundAccount && input.instance) {
+        // A new account at an address seeded by the provider: the payer cannot touch it before the settle lands.
+        const seed = freshRefundSeed(input.instance.escrow, input.instance.createdSlot);
+        const fresh = seedAddress(terms.payee, seed, terms.tokenProgram);
+        const existing = await input.readAccount(fresh);
+        // Lamports anyone sent to the address leave it a system account with no data; it is still built there.
+        if (existing === null || (existing.owner.equals(SystemProgram.programId) && existing.data.length === 0)) {
+          const rent = await input.readAccount(SYSVAR_RENT_PUBKEY);
+          if (!rent) return { ok: false, reason: 'payment_check_unavailable', message: 'The chain could not be read. Nothing was accepted; present the same receipt again.' };
+          const freshRefundAccount = { seed, space: accountSpace, lamports: rentExemptLamports(rent.data, accountSpace) };
+          return { ok: true, payout: { ...base, refundTo: fresh, createRefundAccount: true, freshRefundAccount } };
+        }
+        if (checkTokenAccount(fresh, existing, refundTarget).ok) return { ok: true, payout: { ...base, refundTo: fresh } };
+      } else if (input.createRefundAccount && held === null) {
+        // Only an account that does not exist can be created. A frozen or memo-requiring one stays as it is.
+        return { ok: true, payout: { ...base, refundTo: associated, createRefundAccount: true } };
+      }
     }
     return {
       ok: false,
@@ -498,7 +534,7 @@ export async function verifyMeteredLock(input: {
     escrow,
     readAccount: input.readAccount,
     ...(input.treasury ? { treasury: input.treasury } : {}),
-    ...(purpose === 'session-settle' ? { allowPayerAssociatedAccount: true, createRefundAccount: input.createRefundAccount === true } : {}),
+    ...(purpose === 'session-settle' ? { allowPayerAssociatedAccount: true, createRefundAccount: input.createRefundAccount === true, instance: { escrow: header.escrow, createdSlot: escrow.createdSlot } } : {}),
   });
   if (!payout.ok) return payout;
   if (purpose === 'call' && !(await input.replayStore.checkAndStore(meteredEscrowReplayKey(header.escrow)))) {
@@ -564,7 +600,9 @@ export function meteredSettlement(
   const decimals = directPaymentCurrency(terms.price.currency)!.decimals;
   const settlement = settleMeteredCall(terms.price, usage, baseUnitsToDecimal(lock.maxBaseUnits, decimals));
   if (settlement.chargedBaseUnits <= BigInt(0)) throw new Error('nothing to settle');
-  const prep = prepareTokenPayout(lock.terms, terms.payee, undefined, { refundTo: payout.refundTo, createRefundAccount: payout.createRefundAccount === true });
+  const prep = prepareTokenPayout(lock.terms, terms.payee, undefined, payout.freshRefundAccount
+    ? { refundTo: payout.refundTo, freshRefundAccount: payout.freshRefundAccount }
+    : { refundTo: payout.refundTo, createRefundAccount: payout.createRefundAccount === true });
   const instruction = withRatingAccount(
     buildSettleTokenEscrowInstruction(lock.terms, false, terms.payee, {
       actual: settlement.chargedBaseUnits,
