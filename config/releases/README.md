@@ -39,6 +39,14 @@ node scripts/check-escrow-deployment.mjs --record config/releases/<record>.json 
 It prints only the RPC host. Exit 0: verified. Exit 1: a check failed. Exit 2:
 the record or the RPC could not be used, so nothing was decided.
 
-`v1-devnet-b71a91e.json` is the devnet upgrade of 21 November 2026. The mainnet
-record is added at the freeze, from that commit's workflow run, and the check
-must pass against it after the upgrade authority moves to the vault.
+`v1-devnet-b71a91e.json` is the devnet upgrade of 21 November 2026.
+
+The program was frozen at `45e9547` on 23 November 2026 (run 45124021410, both
+variants; the program tree last changed in `4c2d343`). `v1-devnet-45e9547.json`
+is the devnet build of the freeze; its `deployedSlot` is filled in at the devnet
+upgrade. `v1-mainnet-45e9547.json` is the mainnet build of record. It lists the
+devnet deployer as forbidden, and is refused by the check until the Squads
+multisig account and the mainnet deployer are added at deploy; the check must
+pass against it after the upgrade authority moves to the vault. File sizes and
+`sha256` were read from the run's artifacts; the executable hashes also appear in
+the run's job logs.

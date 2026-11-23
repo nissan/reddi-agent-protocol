@@ -182,6 +182,22 @@ test('committed release records are usable', () => {
   assert.equal(devnet.network, 'devnet');
 });
 
+test('the freeze records at 45e9547 agree with each other and the mainnet one fails closed until deploy', () => {
+  const read = (name) => JSON.parse(readFileSync(path.join(root, 'config/releases', name), 'utf8'));
+  const devnet = read('v1-devnet-45e9547.json');
+  const mainnet = read('v1-mainnet-45e9547.json');
+  assert.deepEqual(recordProblems(devnet), []);
+  for (const record of [devnet, mainnet]) {
+    assert.equal(record.commit, '45e9547846037b9faedb077970afd9f27db828aa');
+    assert.equal(record.buildRun, 'https://github.com/nissan/reddi-agent-protocol/actions/runs/45124021410');
+    assert.equal(record.network, record.variant);
+  }
+  assert.notEqual(devnet.executableHash, mainnet.executableHash);
+  assert.equal(mainnet.upgradeAuthority, VAULT);
+  assert.ok(mainnet.forbiddenAuthorities.includes(DEPLOYER), 'the devnet deployer must never control mainnet');
+  assert.deepEqual(recordProblems(mainnet), ['a mainnet record must list the multisig account and the deployer under forbiddenAuthorities']);
+});
+
 test('the CLI refuses an unusable record without touching the network', () => {
   const run = spawnSync(process.execPath, [path.join(root, 'scripts/check-escrow-deployment.mjs'), '--record', path.join(root, 'package.json'), '--url', 'http://127.0.0.1:9'], { encoding: 'utf8' });
   assert.equal(run.status, 2);
