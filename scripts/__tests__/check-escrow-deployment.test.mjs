@@ -24,6 +24,11 @@ const sha = (bytes) => createHash('sha256').update(bytes).digest('hex');
 function record(overrides = {}) {
   return {
     network: 'mainnet',
+    variant: 'mainnet',
+    commit: '45e9547846037b9faedb077970afd9f27db828aa',
+    buildRun: 'https://github.com/nissan/reddi-agent-protocol/actions/runs/45124021410',
+    image: 'solanafoundation/solana-verifiable-build:4.2.2',
+    imageDigest: 'sha256:16053d845922e798ab1852d3fe222faf5a23eeb1db3a13d30b70d6b6e82184ae',
     programId: PROGRAM_ID,
     size: build.length,
     sha256: sha(build),
@@ -151,8 +156,34 @@ test('a missing or non-loader program fails early', () => {
 test('record validation names each problem', () => {
   assert.deepEqual(recordProblems(record()), []);
   const bad = recordProblems({ network: 'testnet', programId: 'x', size: 0, sha256: 'ABC', executableHash: '', upgradeAuthority: 'nope' });
-  assert.equal(bad.length, 6);
+  assert.equal(bad.length, 10);
   assert.ok(recordProblems(record({ forbiddenAuthorities: [VAULT, DEPLOYER] })).some((p) => /forbidden/.test(p)));
+});
+
+test('S1-R2-01: a mainnet record that keeps the devnet variant is refused', () => {
+  assert.deepEqual(recordProblems(record({ variant: 'devnet' })), ['variant must equal network (the build matrix entry for that cluster)']);
+  assert.ok(recordProblems(record({ variant: undefined })).some((p) => /variant must equal network/.test(p)));
+});
+
+test('S1-R2-01: a mainnet record naming another valid program id is refused', () => {
+  assert.deepEqual(recordProblems(record({ programId: PROGRAM_DATA })),
+    [`a mainnet record's programId must be the V1 escrow program ${PROGRAM_ID}`]);
+});
+
+test('S1-R2-01: a record without its provenance is refused', () => {
+  const bare = record({ commit: undefined, variant: undefined, image: undefined, imageDigest: undefined, buildRun: undefined });
+  const problems = recordProblems(bare);
+  for (const field of [/variant/, /commit/, /buildRun/, /^image must/, /imageDigest/]) {
+    assert.ok(problems.some((p) => field.test(p)), `missing ${field} is named`);
+  }
+  assert.ok(recordProblems(record({ commit: '45e9547' })).some((p) => /40-character/.test(p)), 'a short commit is refused');
+  assert.ok(recordProblems(record({ buildRun: 'https://github.com/someone-else/fork/actions/runs/1' })).some((p) => /buildRun/.test(p)));
+  assert.ok(recordProblems(record({ imageDigest: null })).some((p) => /imageDigest/.test(p)));
+  // Size and both hashes were already required.
+  assert.ok(recordProblems(record({ size: undefined, sha256: undefined, executableHash: undefined })).length >= 3);
+  // A devnet record may lack the digest (the b71a91e record predates it) but not the rest.
+  assert.deepEqual(recordProblems(record({ network: 'devnet', variant: 'devnet', imageDigest: null, upgradeAuthority: DEPLOYER, forbiddenAuthorities: [] })), []);
+  assert.ok(recordProblems(record({ network: 'devnet', variant: 'devnet', commit: undefined, upgradeAuthority: DEPLOYER, forbiddenAuthorities: [] })).some((p) => /commit/.test(p)));
 });
 
 test('a mainnet record must name the vault and list forbidden authorities', () => {
@@ -162,7 +193,7 @@ test('a mainnet record must name the vault and list forbidden authorities', () =
   assert.ok(recordProblems(record({ forbiddenAuthorities: undefined })).some((p) => /multisig account and the deployer/.test(p)));
   assert.ok(recordProblems(record({ forbiddenAuthorities: [SOME_MULTISIG] })).some((p) => /multisig account and the deployer/.test(p)));
   // Devnet keeps the deployer as its authority, so neither rule applies there.
-  assert.deepEqual(recordProblems(record({ network: 'devnet', upgradeAuthority: DEPLOYER, forbiddenAuthorities: [] })), []);
+  assert.deepEqual(recordProblems(record({ network: 'devnet', variant: 'devnet', upgradeAuthority: DEPLOYER, forbiddenAuthorities: [] })), []);
 });
 
 test('a mainnet record must name the V1 escrow program, so another program cannot pass as it', () => {
@@ -170,7 +201,7 @@ test('a mainnet record must name the V1 escrow program, so another program canno
   assert.deepEqual(recordProblems(record({ programId: SOME_MULTISIG })),
     [`a mainnet record's programId must be the V1 escrow program ${PROGRAM_ID}`]);
   // A devnet record may name another program (a test deployment).
-  assert.deepEqual(recordProblems(record({ network: 'devnet', programId: SOME_MULTISIG, upgradeAuthority: DEPLOYER, forbiddenAuthorities: [] })), []);
+  assert.deepEqual(recordProblems(record({ network: 'devnet', variant: 'devnet', programId: SOME_MULTISIG, upgradeAuthority: DEPLOYER, forbiddenAuthorities: [] })), []);
 });
 
 test('the CLI refuses a mainnet --deployer that the record does not forbid', () => {
@@ -182,6 +213,38 @@ test('the CLI refuses a mainnet --deployer that the record does not forbid', () 
     '--deployer', PROGRAM_ID, '--url', 'http://127.0.0.1:9'], { encoding: 'utf8' });
   assert.equal(run.status, 2);
   assert.match(run.stderr, /must be listed under forbiddenAuthorities/);
+});
+
+test('a record may name its deployer, which must be forbidden, and the CLI then checks its buffers', () => {
+  assert.deepEqual(recordProblems(record({ deployer: DEPLOYER })), []);
+  assert.deepEqual(recordProblems(record({ deployer: 'not-an-address' })), ['deployer is not an address']);
+  assert.deepEqual(recordProblems(record({ deployer: VAULT, forbiddenAuthorities: [SOME_MULTISIG, DEPLOYER] })),
+    ['deployer must also be listed under forbiddenAuthorities']);
+  // With the deployer in the record and no --deployer, the CLI gets as far as the RPC (exit 2 here, nothing decided).
+  const S = path.join(root, '.tmp');
+  mkdirSync(S, { recursive: true });
+  const file = path.join(S, 'check-escrow-deployment-record-deployer.json');
+  writeFileSync(file, JSON.stringify(record({ deployer: DEPLOYER })));
+  const run = spawnSync(process.execPath, [path.join(root, 'scripts/check-escrow-deployment.mjs'), '--record', file,
+    '--url', 'http://127.0.0.1:9'], { encoding: 'utf8' });
+  assert.equal(run.status, 2);
+  assert.doesNotMatch(run.stderr, /Record problem/);
+  assert.match(run.stderr, /Could not read from 127\.0\.0\.1:9/);
+});
+
+test('the weekly watch points at a committed mainnet record of the V1 program', () => {
+  const workflow = readFileSync(path.join(root, '.github/workflows/escrow-deployment-watch.yml'), 'utf8');
+  const match = workflow.match(/^\s*MAINNET_RECORD:\s*(\S+)\s*$/m);
+  assert.ok(match, 'MAINNET_RECORD is set in the workflow');
+  const watched = JSON.parse(readFileSync(path.join(root, match[1]), 'utf8'));
+  assert.equal(watched.network, 'mainnet');
+  assert.equal(watched.programId, MAINNET_PROGRAM_ID);
+  assert.match(workflow, /cron: "\d+ \d+ \* \* \d"/, 'it runs weekly');
+  assert.match(workflow, /--assignee "\$OWNER"/, 'a failure is assigned to the owner');
+  // It reads a secret and can write issues: actions pinned by commit, and the public issue gets verdict lines only.
+  for (const line of workflow.match(/uses: \S+/g)) assert.match(line, /@[0-9a-f]{40}$/, `${line} is pinned to a commit`);
+  assert.doesNotMatch(workflow, /tail -n/, 'the raw log never goes into the issue');
+  assert.match(workflow, /MAINNET_RPC_URL"\/<rpc>/, 'the RPC URL is scrubbed from the issue body');
 });
 
 test('committed release records are usable', () => {

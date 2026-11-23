@@ -12,12 +12,12 @@ import assert from "node:assert/strict";
 import { createPrivateKey, randomUUID, sign as edSign } from "node:crypto";
 import test from "node:test";
 import pg from "pg";
-import { PublicKey } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import { createProviderHandler, PROVIDER_RECEIPT_HEADER } from "../src/handler.js";
 import { Capacity } from "../src/capacity.js";
 import { postgresProviderStores, PostgresCapacityStore, PostgresHeldAnswerStore, PostgresLockLease, PostgresPendingSettleStore, PostgresReplayStore, type PgPool } from "../src/postgres.js";
 import type { Upstream } from "../src/upstream.js";
-import { config, escrowAddress, fakeChain, paymentHeader, provider, SETTLE_SIGNATURE, singleCallHeaders, type FakeChain } from "./helpers.js";
+import { config, CURRENT_SLOT, escrowAddress, escrowBytes, fakeChain, NONCE, paymentHeader, PROGRAM, provider, SETTLE_SIGNATURE, singleCallHeaders, type FakeChain } from "./helpers.js";
 
 pinLaunchRateClock();
 
@@ -131,8 +131,10 @@ function instance(chain: FakeChain, providerId: string, upstream: Upstream) {
     now: () => new Date(NOW),
     log: (event) => events.push(event),
   });
+  // Another wallet, signing with its own key, naming the victim's escrow and repeating the victim's request.
+  const callAs = async (signer: Keypair) => handler(new Request("http://localhost/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", "x402-payment": JSON.stringify({ settlement: "metered-escrow", escrow: escrowAddress().toBase58(), payer: signer.publicKey.toBase58(), nonce: NONCE }), ...(await singleCallHeaders(BODY, Date.parse(NOW), signer)) }, body: BODY }));
   const call = async () => handler(new Request("http://localhost/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", "x402-payment": paymentHeader(), ...(await singleCallHeaders(BODY, Date.parse(NOW))) }, body: BODY }));
-  return { handler, call, events };
+  return { handler, call, callAs, events };
 }
 
 const countingUpstream = (): Upstream & { calls: number } => {
@@ -244,4 +246,67 @@ test("a database that cannot be reached accepts nothing", { skip }, async () => 
   const body = (await response.json()) as { charged?: unknown };
   assert.equal(body.charged, false);
   assert.equal(upstream.calls, 0);
+});
+
+test("another wallet naming the escrow cannot collect, use up or learn about a held answer; the payer still collects it", { skip }, async () => {
+  const providerId = id();
+  const chain = fakeChain();
+  chain.failSend = true;
+  chain.statusUnknown = true;
+  const upstream = countingUpstream();
+  const a = instance(chain, providerId, upstream);
+  const b = instance(chain, providerId, upstream);
+  assert.equal((await a.call()).status, 503);
+  chain.failSend = false;
+  chain.statusUnknown = false;
+  chain.landed.add(SETTLE_SIGNATURE);
+  const thief = Keypair.generate();
+  for (const attempt of [await b.callAs(thief), await a.callAs(thief)]) {
+    assert.equal(attempt.status, 402);
+    const text = await attempt.text();
+    assert.ok(!text.includes("hello") && !text.includes(SETTLE_SIGNATURE) && !text.includes("settle_pending"), text);
+  }
+  assert.ok(await new PostgresHeldAnswerStore(db(), providerId).get(escrowAddress().toBase58()), "the held answer is still there");
+  const collected = await b.call();
+  assert.equal(collected.status, 200);
+  assert.equal(((await collected.json()) as { choices: { message: { content: string } }[] }).choices[0]!.message.content, "hello");
+  assert.equal(upstream.calls, 1);
+});
+
+test("another wallet cannot learn the state of a settle whose answer is no longer held", { skip }, async () => {
+  const providerId = id();
+  const chain = fakeChain();
+  chain.failSend = true;
+  chain.statusUnknown = true;
+  const upstream = countingUpstream();
+  const a = instance(chain, providerId, upstream);
+  assert.equal((await a.call()).status, 503);
+  await new PostgresHeldAnswerStore(db(), providerId).drop(escrowAddress().toBase58());
+  chain.statusUnknown = false;
+  chain.landed.add(SETTLE_SIGNATURE);
+  const probe = await instance(chain, providerId, upstream).callAs(Keypair.generate());
+  assert.equal(probe.status, 402);
+  assert.ok(!(await probe.text()).includes(SETTLE_SIGNATURE));
+  // The settle is still pending: the probe did not look at it or close it.
+  assert.equal((await new PostgresPendingSettleStore(db(), providerId).load()).length, 1);
+});
+
+test("the sweep gives back only the lock its settle was for, not a later lock at the same address", { skip }, async () => {
+  const providerId = id();
+  const chain = fakeChain();
+  chain.failSend = true;
+  chain.statusUnknown = true;
+  const upstream = countingUpstream();
+  const a = instance(chain, providerId, upstream);
+  assert.equal((await a.call()).status, 503);
+  await new PostgresHeldAnswerStore(db(), providerId).drop(escrowAddress().toBase58());
+  chain.failSend = false;
+  chain.statusUnknown = false;
+  // The first lock was refunded and the address locked again in a later slot: another job.
+  chain.accounts.set(escrowAddress().toBase58(), { owner: PROGRAM, data: escrowBytes({ createdSlot: CURRENT_SLOT - 3n }), lamports: 2_000_000n, executable: false });
+  const b = instance(chain, providerId, upstream);
+  await b.handler.settleDueSessions();
+  assert.equal(chain.sent.length, 0, "the later lock was not declined");
+  assert.ok(!b.events.some((e) => e.event === "pending_settle_declined"));
+  assert.deepEqual(await new PostgresPendingSettleStore(db(), providerId).load(), []);
 });

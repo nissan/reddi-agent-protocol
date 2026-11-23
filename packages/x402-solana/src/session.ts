@@ -193,7 +193,7 @@ export class MeteredSessionLedger {
       if (input.sequence !== 1) return { ok: false, reason: 'session_sequence_invalid', message: 'No session is open on this lock. Start at call 1.' };
       this.inFlight.add(key);
       try {
-        if (!(await input.replayStore.checkAndStore(meteredEscrowReplayKey(input.escrow)))) {
+        if (!(await input.replayStore.checkAndStore(meteredEscrowReplayKey(input.escrow, input.lock.createdSlot)))) {
           return { ok: false, reason: 'duplicate_nonce', message: 'This escrow has already paid for a call. A session needs a lock of its own.' };
         }
         state = {

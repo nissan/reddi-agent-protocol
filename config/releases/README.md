@@ -18,6 +18,7 @@ a cluster is the build of record and that the right key controls it.
 | `buildRun` | The `escrow-verifiable-build.yml` run whose artifact is the build. |
 | `image`, `imageDigest` | The build image by tag and by digest. |
 | `deployedSlot` | The slot of the deploy or upgrade, once known. |
+| `deployer` | Optional. The deployer address; the check scans its loader buffers when `--deployer` is not given. It must also be listed under `forbiddenAuthorities`. Set it on mainnet at deploy, so the weekly watch checks buffers too. |
 
 The check reads the program and its ProgramData account and passes only if:
 the cluster is right; the program is executable and owned by the upgradeable
@@ -25,7 +26,12 @@ loader; the first `size` bytes after the 45-byte ProgramData header have the
 recorded `sha256` and every byte after them is zero; the trimmed hash equals
 `executableHash`; and the upgrade authority is `upgradeAuthority` and not
 forbidden; and no loader buffer is left with the deployer (`--deployer`) as its
-authority. Without `--deployer` that last line fails rather than being skipped.
+authority. Without `--deployer` or a `deployer` in the record, that last line
+fails rather than being skipped.
+Every record must carry its provenance: `variant` equal to `network`, the full
+40-character `commit`, a `buildRun` URL of this repository's
+`escrow-verifiable-build.yml`, and the `image`; a mainnet record must also give
+`imageDigest` (`sha256:<64 hex>`). The check refuses a record missing any of them.
 A mainnet record must name the V1 escrow program `DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu` as `programId` and the Squads vault as `upgradeAuthority` and list at
 least the multisig account and the deployer under `forbiddenAuthorities`; the
 `--deployer` address must be one of them. The genesis hash and the accounts come
@@ -50,3 +56,8 @@ multisig account and the mainnet deployer are added at deploy; the check must
 pass against it after the upgrade authority moves to the vault. File sizes and
 `sha256` were read from the run's artifacts; the executable hashes also appear in
 the run's job logs.
+
+`.github/workflows/escrow-deployment-watch.yml` runs the check weekly against the
+mainnet record named in its `MAINNET_RECORD`, once that record has a
+`deployedSlot`, and alerts the owner through a `deployment-watch` issue. Point it
+at the new record in the pull request that records an upgrade.
