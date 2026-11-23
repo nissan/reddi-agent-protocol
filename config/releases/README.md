@@ -53,6 +53,14 @@ pass against it after the upgrade authority moves to the vault. File sizes and
 `sha256` were read from the run's artifacts; the executable hashes also appear in
 the run's job logs.
 
+The devnet sandbox and the try page read the devnet records too
+(`lib/sandbox/deployment.ts`): the latest record with a `deployedSlot` is the
+build they settle against, and they take a paid call only while the program's
+ProgramData says it was last deployed in that slot. The build's exit encoding
+is looked up by `executableHash` there, so a new devnet record needs a line in
+that file as well. Filling in `deployedSlot` after a devnet upgrade is what
+moves the sandbox to the new build; until then paid calls are paused.
+
 `.github/workflows/escrow-deployment-watch.yml` runs the check weekly against the
 mainnet record named in its `MAINNET_RECORD`, once that record has a
 `deployedSlot`, and alerts the owner through a `deployment-watch` issue. Point it
