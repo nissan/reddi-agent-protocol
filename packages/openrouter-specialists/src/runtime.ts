@@ -21,6 +21,7 @@ import {
   meteredOffer,
   meteredSettlement,
   meteredTerms,
+  minimumLockBaseUnits,
   outputLimit,
   readMeteredPaymentHeader,
   usageFrom,
@@ -747,7 +748,8 @@ async function handleMeteredChatCompletion(input: {
   const messages = body.messages ?? [];
   const outputTokens = outputLimit(terms, body.max_tokens);
   const inputEstimate = estimateInputTokens(messages);
-  const minimum = tokenCostBaseUnits(terms.price, { inputTokens: inputEstimate, outputTokens });
+  // The floor on payment counts one token a UTF-8 byte, as the 402 offer does.
+  const minimum = minimumLockBaseUnits(terms, messages, body.max_tokens);
   const connection = new Connection(config.solanaRpcUrl ?? "https://api.devnet.solana.com", "confirmed");
   const readAccount: AccountReader =
     deps.readAccount ??

@@ -360,3 +360,10 @@ test("a close added to or removed from a signed call in transit is refused, and 
   // Signed as sent, the same call goes through.
   assert.equal((await send(await signed("call", 1, BODY, clock.ms))).status, 200);
 });
+
+test("a handler built in code refuses a session ledger on mainnet", () => {
+  const mainnet = config({ network: "solana-mainnet-beta", publicUrl: "https://provider.example", upstream: { baseUrl: "https://model.example/v1" } }, { SOLANA_RPC_URL: "https://rpc.example" });
+  const deps = { chain: fakeChain(), upstream: upstream(), replayStore: new MemoryNonceReplayStore(), signMessage };
+  assert.throws(() => createProviderHandler(mainnet, { ...deps, sessions: new MeteredSessionLedger(mainnet.terms) }), /sessions are not offered on mainnet/);
+  assert.doesNotThrow(() => createProviderHandler(mainnet, deps));
+});
