@@ -17,6 +17,6 @@
   "devDependencies": {
     "@types/node": "^20",
     "ts-node": "^10",
-    "typescript": "^5"
+    "typescript": "^7"
   }
 }
