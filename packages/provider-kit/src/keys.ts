@@ -44,16 +44,41 @@ export function loadProviderKey(input: { keypairPath: string | undefined; wallet
     // The error is not echoed: it could carry file contents.
     return { ok: false, message: "the key file could not be read" };
   }
+  return keyFromBytes(bytes, input.wallet, "the key file");
+}
+
+/**
+ * The key from an environment variable holding the same JSON array a keypair
+ * file holds, for hosts with no private disk (a serverless host's sensitive
+ * environment variables). The variable's value is never echoed.
+ */
+export function loadProviderKeyFromEnv(input: { env: Record<string, string | undefined>; name: string; wallet: string }): ProviderKeyResult {
+  const raw = input.env[input.name]?.trim();
+  if (!raw) return { ok: false, message: `no key is set: put the provider wallet's keypair (a JSON array of 64 numbers) in ${input.name}` };
+  let bytes: number[];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length !== 64 || !parsed.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
+      return { ok: false, message: `${input.name} is not a 64-byte Solana keypair` };
+    }
+    bytes = parsed as number[];
+  } catch {
+    return { ok: false, message: `${input.name} could not be read as a keypair` };
+  }
+  return keyFromBytes(bytes, input.wallet, input.name);
+}
+
+function keyFromBytes(bytes: number[], wallet: string, source: string): ProviderKeyResult {
   let keypair: Keypair;
   try {
-    // Refuses a file whose public half does not belong to its secret half.
+    // Refuses a key whose public half does not belong to its secret half.
     keypair = Keypair.fromSecretKey(Uint8Array.from(bytes));
   } catch {
-    return { ok: false, message: "the key file is not a valid Solana keypair" };
+    return { ok: false, message: `${source} is not a valid Solana keypair` };
   } finally {
     bytes.fill(0);
   }
-  if (keypair.publicKey.toBase58() !== input.wallet) return { ok: false, message: "the key file does not belong to the wallet in the config" };
+  if (keypair.publicKey.toBase58() !== wallet) return { ok: false, message: `${source} does not belong to the wallet in the config` };
   const privateKey: KeyObject = createPrivateKey({ key: Buffer.concat([PKCS8_ED25519_PREFIX, Buffer.from(keypair.secretKey.subarray(0, 32))]), format: "der", type: "pkcs8" });
   return { ok: true, key: { keypair, signMessage: (message) => edSign(null, message, privateKey) } };
 }

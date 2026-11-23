@@ -263,4 +263,25 @@ do $$ begin
       and privilege_type in ('INSERT', 'UPDATE', 'DELETE')
   ) then raise exception 'a client role can still write providers'; end if;
 end $$;
+-- The provider kit's state (payment replay, settle records, held answers) is
+-- for the providers' own server connection only: no client role may touch it.
+do $$ declare r text; t text; begin
+  foreach r in array array['anon', 'authenticated'] loop
+    execute format('set role %I', r);
+    foreach t in array array['replay', 'leases', 'held_answers', 'pending_settles', 'capacity'] loop
+      perform pg_temp.expect_error(r || ' reads provider_kit.' || t, format('select 1 from provider_kit.%I', t));
+      perform pg_temp.expect_error(r || ' truncates provider_kit.' || t, format('truncate provider_kit.%I', t));
+    end loop;
+    perform pg_temp.expect_error(r || ' writes provider_kit.replay', $q$ insert into provider_kit.replay (provider, key) values ('p', 'k') $q$);
+    reset role;
+  end loop;
+end $$;
+do $$ begin
+  if exists (
+    select 1 from information_schema.role_table_grants
+    where table_schema = 'provider_kit' and grantee in ('anon', 'authenticated', 'PUBLIC')
+  ) or has_schema_privilege('anon', 'provider_kit', 'usage') or has_schema_privilege('authenticated', 'provider_kit', 'usage')
+  then raise exception 'a client role holds a privilege in provider_kit'; end if;
+end $$;
+
 select 'access rules: all checks passed' as result;

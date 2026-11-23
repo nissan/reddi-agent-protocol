@@ -78,6 +78,7 @@ import { MAX_BODY_BYTES, type ProviderConfig } from "./config.js";
 import { ADL_PATH, providerAdlText } from "./adl.js";
 import { UpstreamError, type Upstream, type UpstreamMessage } from "./upstream.js";
 import { BUSY_MESSAGES, Capacity, type CapacityCheck } from "./capacity.js";
+import { MemoryHeldAnswerStore, MemoryLockLease, type HeldAnswerStore, type HeldCall, type LockLease } from "./state.js";
 
 export const PROVIDER_RECEIPT_HEADER = "x-reddi-provider-receipt";
 
@@ -122,6 +123,12 @@ const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const MAX_RECEIPT_HEADER_CHARS = 4096;
 /** How long the answer of a call whose settle outcome is not known is held for the buyer to collect. */
 const HELD_ANSWER_MS = 10 * 60_000;
+/**
+ * How long one request may hold a lock's lease while it settles or collects.
+ * Longer than any settle takes, so a live request never loses it; short enough
+ * that a lease left by a crashed instance clears on its own.
+ */
+const LOCK_LEASE_MS = 120_000;
 
 export interface ProviderDeps {
   chain: ProviderChain;
@@ -133,6 +140,10 @@ export interface ProviderDeps {
   pendingSettles?: PendingSettleStore;
   /** How many calls the model takes. In memory, from the config's limits, when not given. */
   capacity?: Capacity;
+  /** One request at a time per lock. In memory when not given; shared by every instance when several serve one provider. */
+  lease?: LockLease;
+  /** Answers waiting for their settle. In memory when not given; shared by every instance when several serve one provider. */
+  heldAnswers?: HeldAnswerStore;
   /** Ed25519 signature by the provider wallet, for receipts. */
   signMessage: (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;
   now?: () => Date;
@@ -207,9 +218,9 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
   const today = () => (deps.now?.() ?? new Date()).toISOString().slice(0, 10);
   const pendingSettles: PendingSettleStore = deps.pendingSettles ?? new MemoryPendingSettleStore();
   // Answers of single calls whose settle was sent but not yet known to land, by escrow.
-  const waitingCalls = new Map<string, PaidCall>();
+  const heldAnswers: HeldAnswerStore = deps.heldAnswers ?? new MemoryHeldAnswerStore();
   /** Single-call locks whose settle is being sent or looked at right now. */
-  const answering = new Set<string>();
+  const lease: LockLease = deps.lease ?? new MemoryLockLease();
   const subsidyLeft = () => {
     if (subsidy.day !== today()) Object.assign(subsidy, { day: today(), used: 0 });
     return config.refundAccountsPerDay - subsidy.used > 0;
@@ -223,7 +234,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     | { ok: "closed" }
     | { ok: "pending"; signature: string };
   type Lock = Extract<VerifiedLock, { ok: true }>;
-  type PaidCall = { escrow: string; escrowAddress: PublicKey; lock: Lock; requestId: string; requestText: string; upstream: Record<string, unknown>; usage: TokenCounts; createdMs: number };
+  type PaidCall = HeldCall;
 
   // "locked": the buyer's maximum is still in escrow. "closed": a settle landed. "unknown": the chain could not say.
   const escrowState = async (address: PublicKey): Promise<"locked" | "closed" | "unknown"> => {
@@ -877,13 +888,19 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     if (!auth.ok) return auth.response;
     // A call whose settle was sent but not yet known to land: the same request collects its answer.
     // One look at a held settle per lock at a time; a second retry waits for it.
-    if (answering.has(header.escrow.toBase58())) return refuse(503, "settle_pending", "This lock's settle is already being checked. Try again shortly.", { charged: "unknown" }, { "retry-after": "10" });
-    answering.add(header.escrow.toBase58());
+    const checking = refuse(503, "settle_pending", "This lock's settle is already being checked. Try again shortly.", { charged: "unknown" }, { "retry-after": "10" });
+    let claimed: boolean;
+    try {
+      claimed = await lease.claim(header.escrow.toBase58(), LOCK_LEASE_MS, nowMs());
+    } catch {
+      return refuse(503, "payment_check_unavailable", "The payment could not be checked. Nothing was accepted; present the same lock again.", { charged: false });
+    }
+    if (!claimed) return checking;
     try {
       const held = await collectHeld(header.escrow.toBase58(), requestText);
       if (held) return held;
     } finally {
-      answering.delete(header.escrow.toBase58());
+      await lease.release(header.escrow.toBase58()).catch(() => undefined);
     }
     // Busy: the lock is not read or used, so the same request works once the provider has room.
     const free = await capacity.check(nowMs());
@@ -937,11 +954,13 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     }
 
     const usage = usageFrom(upstream, estimateInputTokens(upstreamMessages));
-    answering.add(escrow);
+    // This request alone accepted the lock (the replay store saw to that), so the lease only keeps a retry from looking at it mid-settle.
+    // Not getting it is no reason to stop: the settle goes ahead.
+    const leased = await lease.claim(escrow, LOCK_LEASE_MS, nowMs()).catch(() => false);
     try {
-      return await settleAndAnswer({ escrow, escrowAddress: header.escrow, lock, requestId, requestText, upstream, usage, createdMs: nowMs() });
+      return await settleAndAnswer({ escrow, lock, requestId, requestHash: sha256Hex(requestText), upstream, usage, createdMs: nowMs() });
     } finally {
-      answering.delete(escrow);
+      if (leased) await lease.release(escrow).catch(() => undefined);
     }
   }
 
@@ -950,14 +969,19 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
    * same request collects its held answer, and a settle whose answer was lost
    * is looked up. Undefined when the lock has neither.
    */
+  async function findPending(escrow: string): Promise<PendingCallSettle | undefined> {
+    if (pendingSettles.findPending) return pendingSettles.findPending(escrow);
+    return (await Promise.resolve(pendingSettles.load())).find((r) => r.escrow === escrow && r.status === "pending");
+  }
+
   async function collectHeld(escrow: string, requestText: string): Promise<Response | undefined> {
-    const waiting = waitingCalls.get(escrow);
+    const waiting = await heldAnswers.get(escrow);
     if (waiting) {
-      if (sha256Hex(waiting.requestText) !== sha256Hex(requestText)) return refuse(409, "settle_pending", "This lock's settle for an earlier request is still being confirmed. Send that same request again to collect its answer.", { charged: "unknown" });
-      const recorded = (await Promise.resolve(pendingSettles.load())).find((r) => r.escrow === waiting.escrow && r.status === "pending");
+      if (waiting.requestHash !== sha256Hex(requestText)) return refuse(409, "settle_pending", "This lock's settle for an earlier request is still being confirmed. Send that same request again to collect its answer.", { charged: "unknown" });
+      const recorded = await findPending(waiting.escrow);
       return settleAndAnswer(waiting, recorded);
     }
-    const orphan = (await Promise.resolve(pendingSettles.load())).find((r) => r.escrow === escrow && r.status === "pending");
+    const orphan = await findPending(escrow);
     if (orphan) {
       const where = await reconcileOrphan(orphan);
       if (where === "landed") return refuse(410, "answer_unavailable", "This lock was settled, but the answer it paid for was lost when the provider restarted. The provider's operator has been alerted.", { charged: true, settleSignature: orphan.signature });
@@ -975,8 +999,8 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
    * counted as paid by another transaction on the escrow.
    */
   async function settleAndAnswer(call: PaidCall, resume?: PendingCallSettle): Promise<Response> {
-    const { escrow, lock, requestId, usage, upstream } = call;
-    const requestHash = sha256Hex(call.requestText);
+    const { escrow, lock, requestId, usage, upstream, requestHash } = call;
+    const escrowAddress = new PublicKey(escrow);
     let last: PendingCallSettle | undefined = resume;
     const record = async (pending: PendingSettle | undefined) => {
       if (pending) {
@@ -987,12 +1011,13 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
         await pendingSettles.save(last);
       }
     };
-    const outcome = await settleLock(lock, call.escrowAddress, requestId, (payout) => meteredSettlement(terms, lock, usage, payout), record, resume);
+    const outcome = await settleLock(lock, escrowAddress, requestId, (payout) => meteredSettlement(terms, lock, usage, payout), record, resume);
     if (outcome.ok === "pending") {
-      waitingCalls.set(escrow, call);
+      // Held for the same request to collect. If it cannot be held, the sweep still finds the recorded settle.
+      await heldAnswers.hold(call).catch(() => log({ event: "answer_not_held", requestId, escrow, alert: true }));
       return refuse(503, "settle_pending", "The payment's settle was sent but whether it landed is not known yet, so the answer is held. Send the same request again shortly to get it; you are not charged twice.", { charged: "unknown", escrow, settleSignature: outcome.signature }, { "retry-after": "10" });
     }
-    waitingCalls.delete(escrow);
+    await heldAnswers.drop(escrow).catch(() => undefined);
     if (outcome.ok === "closed") {
       return refuse(402, "escrow_closed", `The escrow ${escrow} was closed before the settle landed, so nothing was charged and the answer is withheld.`, { charged: false, escrow });
     }
@@ -1098,9 +1123,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
   /** Looks again at single-call settles whose outcome was not known and whose answer is no longer held. */
   async function reconcilePendingCalls(): Promise<void> {
     const now = nowMs();
-    for (const [escrow, call] of waitingCalls) {
-      if (now - call.createdMs > HELD_ANSWER_MS) waitingCalls.delete(escrow);
-    }
+    await heldAnswers.expire(now - HELD_ANSWER_MS);
     let records: PendingCallSettle[];
     try {
       records = await Promise.resolve(pendingSettles.load());
@@ -1108,9 +1131,9 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       return;
     }
     for (const record of records) {
-      if (record.status !== "pending" || waitingCalls.has(record.escrow) || answering.has(record.escrow)) continue;
-      answering.add(record.escrow);
-      await reconcileOrphan(record).catch(() => undefined).finally(() => answering.delete(record.escrow));
+      if (record.status !== "pending" || (await heldAnswers.get(record.escrow))) continue;
+      if (!(await lease.claim(record.escrow, LOCK_LEASE_MS, nowMs()))) continue;
+      await reconcileOrphan(record).catch(() => undefined).finally(() => lease.release(record.escrow).catch(() => undefined));
     }
   }
 
