@@ -5,7 +5,8 @@ import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js
 import { ESCROW_PROTOCOL_TREASURY, MemoryNonceReplayStore, paidCallAuthHeaders, SOLANA_GENESIS_HASHES, tokenEscrowAddresses, treasuryTokenAccount } from "@redditech/x402-solana";
 import { MockOpenRouterClient } from "../src/openrouter.js";
 import { getProfile } from "../src/profiles/index.js";
-import { handleRuntimeRequest, PROVIDER_RECEIPT_HEADER, type ProviderReceiptStatement, type RuntimeConfig, type RuntimeDeps } from "../src/index.js";
+import bs58 from "bs58";
+import { handleRuntimeRequest, MemoryHeldAnswerStore, PROVIDER_RECEIPT_HEADER, SettleNotSentError, type ProviderReceiptStatement, type RuntimeConfig, type RuntimeDeps, type SpecialistSettleSigner } from "../src/index.js";
 
 const PROGRAM = new PublicKey("DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu");
 const USDC = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
@@ -60,12 +61,41 @@ function tokenEscrowBytes(fields: { amount: bigint; payee?: PublicKey; mint?: Pu
 
 const escrow = tokenEscrowAddresses({ programId: PROGRAM, payer, nonce: Buffer.from(NONCE, "hex") }).escrow;
 
-function deps(account: { owner?: PublicKey; data: Uint8Array } | null, settle?: (ixs: TransactionInstruction[]) => Promise<string>, readSlot: () => Promise<bigint> = async () => CURRENT_SLOT) {
+const TREASURY_TOKEN = treasuryTokenAccount({ mint: USDC, tokenProgram: TOKEN_PROGRAM });
+
+/**
+ * The fake chain's record of sent settles, as getParsedTransaction returns them: the settle
+ * instruction, and the treasury token account credited `fee(actual)` (2.5% by default).
+ */
+function chainOf(fee: (actual: bigint) => bigint = (actual) => (actual * BigInt(250)) / BigInt(10_000)) {
+  const landed = new Map<string, TransactionInstruction>();
+  return {
+    landed,
+    read: (async (signature: string) => {
+      const ix = landed.get(signature);
+      if (!ix) return null;
+      const actual = ix.data.readBigUInt64LE(8);
+      const keys = [...new Set(ix.keys.map((k) => k.pubkey.toBase58()))];
+      const index = keys.indexOf(TREASURY_TOKEN.toBase58());
+      const balance = (amount: bigint) => [{ accountIndex: index, mint: USDC.toBase58(), uiTokenAmount: { amount: amount.toString() } }];
+      return {
+        meta: { err: null, preTokenBalances: balance(BigInt(100)), postTokenBalances: balance(BigInt(100) + fee(actual)) },
+        transaction: { message: { accountKeys: keys.map((pubkey) => ({ pubkey })), instructions: [{ programId: ix.programId.toBase58(), accounts: ix.keys.map((k) => k.pubkey.toBase58()), data: bs58.encode(ix.data) }] } },
+      };
+    }) as (signature: string) => Promise<unknown>,
+  };
+}
+
+function deps(account: { owner?: PublicKey; data: Uint8Array } | null, settle?: SpecialistSettleSigner, readSlot: () => Promise<bigint> = async () => CURRENT_SLOT, chain = chainOf()) {
   // The settle instruction of each transaction, and each whole transaction's instructions.
   const settled: TransactionInstruction[] = [];
   const transactions: TransactionInstruction[][] = [];
   const statements: ProviderReceiptStatement[] = [];
   const value: RuntimeDeps = {
+    readSettleTransaction: chain.read,
+    listEscrowSignatures: async () => [...chain.landed.keys()].reverse(),
+    heldAnswers: new MemoryHeldAnswerStore(),
+    settleReadSleep: async () => {},
     replayStore: new MemoryNonceReplayStore(),
     readAccount: async (address) => {
       if (address.equals(escrow)) return account ? { owner: account.owner ?? PROGRAM, data: account.data } : null;
@@ -84,6 +114,7 @@ function deps(account: { owner?: PublicKey; data: Uint8Array } | null, settle?: 
       (async (ixs) => {
         transactions.push(ixs);
         settled.push(ixs[ixs.length - 1]);
+        chain.landed.set(SETTLE_SIG, ixs[ixs.length - 1]);
         return SETTLE_SIG;
       }),
     signProviderReceipt: (statement) => {
@@ -92,7 +123,7 @@ function deps(account: { owner?: PublicKey; data: Uint8Array } | null, settle?: 
     },
     now: () => new Date("2026-11-21T02:00:00Z"),
   };
-  return { value, settled, transactions, statements };
+  return { value, settled, transactions, statements, chain };
 }
 
 const BODY = JSON.stringify({ messages: [{ role: "user", content: "Plan a three step rollout." }], max_tokens: 200 });
@@ -216,9 +247,9 @@ test("accepts a lock with exactly the seller's minimum left, and accepts nothing
   assert.equal(retry.status, 200);
 });
 
-test("does not answer when the settle fails, and refuses metered payment without a signer", async () => {
+test("does not answer when the settle was not sent, and refuses metered payment without a signer", async () => {
   const failing = deps({ data: tokenEscrowBytes({ amount: BigInt(6000) }) }, async () => {
-    throw new Error("rpc down");
+    throw new SettleNotSentError("rpc down before send");
   });
   const response = await handleRuntimeRequest(request(meteredPayment()), config, new MockOpenRouterClient(), failing.value);
   assert.equal(response.status, 502);
@@ -262,4 +293,111 @@ test("every profile carries a per-token price, the mid tier by default, and the 
   const { validateProfile } = await import("../src/profiles/index.js");
   assert.deepEqual(validateProfile({ ...specialistProfiles[0], meteredPrice: { inputPerMillion: "-1", outputPerMillion: "15" } }), [`${specialistProfiles[0].id}: invalid meteredPrice`]);
   assert.deepEqual(validateProfile({ ...specialistProfiles[0], meteredPrice: { inputPerMillion: "3", outputPerMillion: "15", maxOutputTokens: 0 } }), [`${specialistProfiles[0].id}: invalid meteredPrice.maxOutputTokens`]);
+});
+
+test("an unknown settle outcome is never reported as uncharged, and the payer collects the answer once it lands (audit S7-Codex-R2-04)", async () => {
+  const PENDING = "6".repeat(88);
+  const chain = chainOf();
+  let sentIx: TransactionInstruction | undefined;
+  const d = deps({ data: tokenEscrowBytes({ amount: BigInt(6000) }) }, async (ixs, context) => {
+    sentIx = ixs[ixs.length - 1];
+    context?.onSigned?.(PENDING);
+    throw new Error("socket hang up after send");
+  }, undefined, chain);
+  const client = new MockOpenRouterClient();
+  const first = await handleRuntimeRequest(request(meteredPayment()), config, client, d.value);
+  assert.equal(first.status, 202);
+  const body = (await first.json()) as Record<string, unknown>;
+  assert.equal(body.charged, "unknown");
+  assert.equal(body.settleSignature, PENDING);
+  assert.equal(body.choices, undefined);
+  assert.doesNotMatch(JSON.stringify(body), /nothing was charged/i);
+
+  // Not on chain yet: still pending, the model is not called again.
+  const early = await handleRuntimeRequest(request(meteredPayment()), config, client, d.value);
+  assert.equal(early.status, 202);
+  // It landed: the payer's retry of the same request gets the answer, with the fee the chain took.
+  chain.landed.set(PENDING, sentIx!);
+  const collected = await handleRuntimeRequest(request(meteredPayment()), config, client, d.value);
+  assert.equal(collected.status, 200);
+  assert.equal(client.callCount, 1);
+  const answer = (await collected.clone().json()) as { choices: unknown[]; reddi: { metered: Record<string, unknown> } };
+  assert.ok(answer.choices.length > 0);
+  assert.equal(answer.reddi.metered.settleSignature, PENDING);
+  assert.equal(d.statements.at(-1)!.payment.txSignature, PENDING);
+  // Collected once.
+  assert.equal((await handleRuntimeRequest(request(meteredPayment()), config, client, d.value)).status, 409);
+});
+
+test("a held answer goes only to the payer's signed retry, and a settle that did not land is reported as such", async () => {
+  const PENDING = "7".repeat(88);
+  const chain = chainOf();
+  const d = deps({ data: tokenEscrowBytes({ amount: BigInt(6000) }) }, async (_ixs, context) => {
+    context?.onSigned?.(PENDING);
+    throw new Error("timeout");
+  }, undefined, chain);
+  const client = new MockOpenRouterClient();
+  assert.equal((await handleRuntimeRequest(request(meteredPayment()), config, client, d.value)).status, 202);
+  // Unsigned: refused before anything held is read.
+  assert.equal((await handleRuntimeRequest(request(meteredPayment(), true), config, client, d.value)).status, 401);
+  // The signature is on chain but failed: nothing charged by it, and the hold is dropped.
+  chain.read = async () => ({ meta: { err: { InstructionError: [0, { Custom: 6053 }] } }, transaction: { message: { accountKeys: [], instructions: [] } } });
+  d.value.readSettleTransaction = chain.read;
+  const failed = await handleRuntimeRequest(request(meteredPayment()), config, client, d.value);
+  assert.equal(failed.status, 502);
+  assert.equal(((await failed.json()) as { charged: unknown }).charged, false);
+});
+
+test("a held answer whose signature the signer never gave is found among the escrow's transactions", async () => {
+  const chain = chainOf();
+  let sentIx: TransactionInstruction | undefined;
+  const d = deps({ data: tokenEscrowBytes({ amount: BigInt(6000) }) }, async (ixs) => {
+    sentIx = ixs[ixs.length - 1];
+    throw new Error("timeout");
+  }, undefined, chain);
+  const client = new MockOpenRouterClient();
+  const first = await handleRuntimeRequest(request(meteredPayment()), config, client, d.value);
+  assert.equal(first.status, 202);
+  assert.equal(((await first.json()) as { settleSignature?: string }).settleSignature, undefined);
+  chain.landed.set("8".repeat(88), sentIx!);
+  assert.equal((await handleRuntimeRequest(request(meteredPayment()), config, client, d.value)).status, 200);
+});
+
+test("the receipt's fee is what the treasury received in the settle, not the server clock's rate (audit S7-Codex-R2-05)", async () => {
+  // The server clock says launch rate (2.5%); the settle landed at 5% and the chain shows 9 units for a fake 18-unit charge.
+  const chain = chainOf(() => BigInt(9));
+  const d = deps({ data: tokenEscrowBytes({ amount: BigInt(6000) }) }, undefined, undefined, chain);
+  const response = await handleRuntimeRequest(request(meteredPayment()), config, new MockOpenRouterClient(), d.value);
+  assert.equal(response.status, 200);
+  assert.deepEqual(d.statements[0].payment.fee, { amount: "9", treasury: ESCROW_PROTOCOL_TREASURY.toBase58() });
+  const body = (await response.json()) as { reddi: { metered: Record<string, unknown> } };
+  assert.equal(body.reddi.metered.fee, "0.000009");
+  assert.equal(body.reddi.metered.provider, "0.000009");
+});
+
+test("answers without a receipt when the confirmed settle cannot be read back, rather than guess the fee", async () => {
+  const d = deps({ data: tokenEscrowBytes({ amount: BigInt(6000) }) });
+  d.value.readSettleTransaction = async () => null;
+  const response = await handleRuntimeRequest(request(meteredPayment()), config, new MockOpenRouterClient(), d.value);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get(PROVIDER_RECEIPT_HEADER), null);
+  assert.equal(d.statements.length, 0);
+  assert.equal(((await response.json()) as { reddi: { metered: { fee: unknown } } }).reddi.metered.fee, null);
+});
+
+test("a settle that names another escrow instance is not this job's settle", async () => {
+  const chain = chainOf();
+  const d = deps({ data: tokenEscrowBytes({ amount: BigInt(6000) }) }, undefined, undefined, chain);
+  const read = chain.read;
+  d.value.readSettleTransaction = async (signature) => {
+    const tx = (await read(signature)) as { transaction: { message: { instructions: { data: string }[] } } } | null;
+    if (!tx) return tx;
+    const data = Buffer.from(bs58.decode(tx.transaction.message.instructions[0].data));
+    data.writeBigUInt64LE(data.readBigUInt64LE(16) + BigInt(1), 16);
+    tx.transaction.message.instructions[0].data = bs58.encode(data);
+    return tx;
+  };
+  const response = await handleRuntimeRequest(request(meteredPayment()), config, new MockOpenRouterClient(), d.value);
+  assert.equal(response.status, 502);
+  assert.equal(((await response.json()) as { charged: unknown }).charged, false);
 });

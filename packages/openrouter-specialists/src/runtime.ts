@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  treasuryTokenAccount,
   buildX402Challenge,
   decimalToBaseUnits,
   defaultNonceReplayStore,
@@ -29,8 +30,18 @@ import {
   verifyPaidCallRequest,
   type AccountReader,
   type SlotReader,
-  type MeteredSettleSigner,
 } from "./metered-payment.js";
+import {
+  heldAnswerKey,
+  MemoryHeldAnswerStore,
+  readSettleFacts,
+  SettleNotSentError,
+  type ExpectedSettle,
+  type HeldAnswer,
+  type HeldAnswerStore,
+  type SettleTransactionReader,
+  type SpecialistSettleSigner,
+} from "./metered-settle-outcome.js";
 import { buildAgentDependencyManifestDisclosure, buildAgenticWorkflowManifestDisclosure, buildDownstreamDisclosureLedger, buildNoDownstreamDisclosureLedger } from "./agentic-workflow-disclosure.js";
 import { buildAttestationPromptEnvelope, evaluateAttestation, normalizeAttestationRequest } from "./attestation.js";
 import { buildLiveDelegationAuditEnvelope } from "./delegation-audit.js";
@@ -567,11 +578,23 @@ export interface RuntimeDeps {
    */
   signProviderReceipt?: (statement: ProviderReceiptStatement) => Promise<unknown> | unknown;
   /**
-   * Signs a metered escrow's settle transaction (see `MeteredSettleSigner`)
+   * Signs a metered escrow's settle transaction (see `SpecialistSettleSigner`)
    * with the provider wallet's key, sends it and returns the confirmed signature. The key stays with the
-   * operator. When absent, metered payment is not offered.
+   * operator. When absent, metered payment is not offered. Throw `SettleNotSentError` when nothing
+   * was sent; any other failure is taken as "may have landed" (audit S7-Codex-R2-04).
    */
-  settleMeteredEscrow?: MeteredSettleSigner;
+  settleMeteredEscrow?: SpecialistSettleSigner;
+  /** Reads a settle transaction back (`getParsedTransaction` at confirmed). Defaults to the configured RPC. */
+  readSettleTransaction?: SettleTransactionReader;
+  /** Lists recent transaction signatures of an escrow, newest first, to find a settle whose signature is unknown. Defaults to the configured RPC. */
+  listEscrowSignatures?: (escrow: PublicKey) => Promise<string[]>;
+  /**
+   * Answers whose settle's outcome was unknown, held for the payer's retry of the same request.
+   * Defaults to a store in this process; give a durable one when several instances serve one wallet.
+   */
+  heldAnswers?: HeldAnswerStore;
+  /** Waits between reads of a settle just confirmed (tests make it instant). */
+  settleReadSleep?: (ms: number) => Promise<void>;
   /** Reads chain accounts for a metered lock. Defaults to the configured RPC. */
   readAccount?: AccountReader;
   /** Reads the current slot for a metered lock. Defaults to the configured RPC. */
@@ -758,6 +781,20 @@ async function handleMeteredChatCompletion(input: {
       return info ? { owner: info.owner, data: new Uint8Array(info.data) } : null;
     });
   const readSlot: SlotReader = deps.readSlot ?? (() => connection.getSlot("confirmed"));
+  const readSettle: SettleTransactionReader = deps.readSettleTransaction ?? ((signature) => connection.getParsedTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 }));
+  const held = deps.heldAnswers ?? defaultHeldAnswers;
+  const heldKey = heldAnswerKey(header.escrow, input.requestText);
+  const treasuryToken = treasuryTokenAccount({ mint: terms.mint, tokenProgram: terms.tokenProgram });
+  const expectedSettle = (actualBaseUnits: bigint, createdSlot: bigint): ExpectedSettle => ({ programId: terms.programId, escrow: header.escrow, payee: terms.payee, treasuryToken, mint: terms.mint, actualBaseUnits, createdSlot });
+
+  // The payer's retry of a call whose settle's outcome was unknown: answered from what was held, once
+  // the settle is found on chain (audit S7-Codex-R2-04). The payer's signature over this exact request
+  // was checked above, so only the payer collects it.
+  const waiting = await held.get(heldKey);
+  if (waiting) {
+    return collectHeldAnswer({ waiting, heldKey, held, deps, profile, terms, requestText: input.requestText, readSettle, expected: expectedSettle(BigInt(waiting.chargedBaseUnits), BigInt(waiting.createdSlot)), listEscrowSignatures: deps.listEscrowSignatures ?? (async (escrow) => (await connection.getSignaturesForAddress(escrow, { limit: 20 }, "confirmed")).map((entry) => entry.signature)), escrow: header.escrow });
+  }
+
   const lock = await verifyMeteredLock({ header, terms, minimum, readAccount, readSlot, replayStore: input.replayStore });
   if (!lock.ok) {
     return refuse(lock.reason === "payment_check_unavailable" ? 503 : lock.reason === "duplicate_nonce" ? 409 : 402, lock.reason, lock.message, { metered: specialistMeteredOffer(terms, messages, body.max_tokens) });
@@ -777,23 +814,95 @@ async function handleMeteredChatCompletion(input: {
   const upstream = await input.client.createChatCompletion({ model: profile.model, messages: guardedMessages, temperature: body.temperature, max_tokens: outputTokens, metadata: reddi });
   const usage = usageFrom(upstream, inputEstimate);
   let settled: ReturnType<typeof meteredSettlement>;
-  let settleSignature: string;
   try {
     settled = meteredSettlement(terms, lock, usage);
-    settleSignature = await deps.settleMeteredEscrow(settled.instructions);
   } catch {
-    return refuse(502, "settle_failed", `The settle could not be sent. Nothing was charged; your maximum stays locked in escrow ${header.escrow.toBase58()} and can be cancelled for a full refund once the cancel window opens.`, { charged: false, escrow: header.escrow.toBase58() });
+    return refuse(502, "settle_failed", `The settle could not be built. Nothing was charged; your maximum stays locked in escrow ${header.escrow.toBase58()} and can be cancelled for a full refund once the cancel window opens.`, { charged: false, escrow: header.escrow.toBase58() });
   }
   const s = settled.settlement;
-  reddi.metered = { inputTokens: s.inputTokens, outputTokens: s.outputTokens, currency: s.currency, charged: s.charged, fee: s.fee, provider: s.provider, refund: s.refund, capped: s.capped, settleSignature };
-  const responseText = JSON.stringify({ ...upstream, reddi });
+  let signedAs: string | undefined;
+  let settleSignature: string;
+  try {
+    settleSignature = await deps.settleMeteredEscrow(settled.instructions, { onSigned: (signature) => { signedAs = signature; } });
+  } catch (error) {
+    if (error instanceof SettleNotSentError) {
+      return refuse(502, "settle_failed", `The settle could not be sent. Nothing was charged; your maximum stays locked in escrow ${header.escrow.toBase58()} and can be cancelled for a full refund once the cancel window opens.`, { charged: false, escrow: header.escrow.toBase58() });
+    }
+    // It may have landed: hold the answer for the payer and say the outcome is not known.
+    await held.put(heldKey, {
+      upstreamJson: JSON.stringify(upstream),
+      reddiJson: JSON.stringify(reddi),
+      chargedBaseUnits: s.chargedBaseUnits.toString(),
+      createdSlot: lock.createdSlot.toString(),
+      ...(signedAs ? { settleSignature: signedAs } : {}),
+      settlement: { currency: s.currency, inputTokens: s.inputTokens, outputTokens: s.outputTokens, charged: s.charged, capped: s.capped, maxBaseUnits: lock.maxBaseUnits.toString(), payer: lock.payer.toBase58() },
+    });
+    return settlePendingResponse(header.escrow.toBase58(), signedAs);
+  }
+  // The signer reported the settle confirmed: read what it paid the treasury (audit S7-Codex-R2-05).
+  const facts = await readSettleFacts(readSettle, settleSignature, expectedSettle(s.chargedBaseUnits, lock.createdSlot), { sleep: deps.settleReadSleep });
+  if (facts.state === "failed") {
+    return refuse(502, "settle_failed", `The settle transaction ${settleSignature} did not settle this escrow. Nothing was charged by it; your maximum stays locked in escrow ${header.escrow.toBase58()} and can be cancelled for a full refund once the cancel window opens.`, { charged: false, escrow: header.escrow.toBase58() });
+  }
+  const answer = {
+    upstreamJson: JSON.stringify(upstream),
+    reddiJson: JSON.stringify(reddi),
+    chargedBaseUnits: s.chargedBaseUnits.toString(),
+    createdSlot: lock.createdSlot.toString(),
+    settleSignature,
+    settlement: { currency: s.currency, inputTokens: s.inputTokens, outputTokens: s.outputTokens, charged: s.charged, capped: s.capped, maxBaseUnits: lock.maxBaseUnits.toString(), payer: lock.payer.toBase58() },
+  } satisfies HeldAnswer;
+  return answerPaidCall({ answer, settleSignature, feeBaseUnits: facts.state === "settled" ? facts.feeBaseUnits : undefined, deps, profile, terms, requestText: input.requestText });
+}
+
+const defaultHeldAnswers = new MemoryHeldAnswerStore();
+
+/** The settle may have landed: the payer is told the outcome is unknown, never that nothing was charged. */
+function settlePendingResponse(escrow: string, settleSignature: string | undefined): Response {
+  const named = settleSignature ? ` (transaction ${settleSignature})` : "";
+  return toResponse({
+    status: 202,
+    headers: JSON_HEADERS,
+    body: {
+      error: {
+        code: "settle_pending",
+        message: `The settle${named} may have landed, but this provider could not confirm it. You may have been charged, so do not cancel escrow ${escrow} yet. Send the same signed request again to collect the answer once the settle is found on chain; if it did not land, that retry says so and the escrow stays refundable.`,
+      },
+      charged: "unknown",
+      escrow,
+      ...(settleSignature ? { settleSignature } : {}),
+    },
+  });
+}
+
+/**
+ * The answer to a paid call and its receipt. The receipt states the fee the treasury received in the
+ * confirmed settle; when that could not be read, the answer goes without a receipt rather than with a guessed fee.
+ */
+async function answerPaidCall(input: { answer: HeldAnswer; settleSignature: string; feeBaseUnits: bigint | undefined; deps: RuntimeDeps; profile: SpecialistProfile; terms: NonNullable<ReturnType<typeof meteredTerms>>; requestText: string }): Promise<Response> {
+  const { answer, settleSignature, feeBaseUnits, deps, profile, terms } = input;
+  const s = answer.settlement;
+  const decimals = directPaymentCurrency(s.currency)!.decimals;
+  const charged = BigInt(answer.chargedBaseUnits);
+  const refunded = BigInt(s.maxBaseUnits) - charged;
+  const reddi = JSON.parse(answer.reddiJson) as Record<string, unknown>;
+  reddi.metered = {
+    inputTokens: s.inputTokens,
+    outputTokens: s.outputTokens,
+    currency: s.currency,
+    charged: s.charged,
+    // Read from the confirmed settle; null when it could not be read.
+    fee: feeBaseUnits === undefined ? null : formatBaseUnits(feeBaseUnits, decimals),
+    provider: feeBaseUnits === undefined ? null : formatBaseUnits(charged - feeBaseUnits, decimals),
+    refund: formatBaseUnits(refunded, decimals),
+    capped: s.capped,
+    settleSignature,
+  };
+  const responseText = JSON.stringify({ ...(JSON.parse(answer.upstreamJson) as Record<string, unknown>), reddi });
 
   let receiptHeader: string | undefined;
-  if (deps.signProviderReceipt) {
+  if (deps.signProviderReceipt && feeBaseUnits !== undefined) {
     try {
-      const decimals = directPaymentCurrency(s.currency)!.decimals;
-      const fee = decimalToBaseUnits(s.fee, decimals) ?? BigInt(0);
-      const refunded = decimalToBaseUnits(s.refund, decimals) ?? BigInt(0);
       const signed = await deps.signProviderReceipt({
         schemaVersion: REDDI_RECEIPT_V2_VERSION,
         providerId: profile.walletAddress,
@@ -805,11 +914,11 @@ async function handleMeteredChatCompletion(input: {
           txSignature: settleSignature,
           currency: s.currency,
           mint: terms.mint.toBase58(),
-          amount: s.chargedBaseUnits.toString(),
-          fee: fee > BigInt(0) ? { amount: fee.toString(), treasury: ESCROW_PROTOCOL_TREASURY.toBase58() } : { amount: "0" },
-          payer: lock.payer.toBase58(),
+          amount: charged.toString(),
+          fee: feeBaseUnits > BigInt(0) ? { amount: feeBaseUnits.toString(), treasury: ESCROW_PROTOCOL_TREASURY.toBase58() } : { amount: "0" },
+          payer: s.payer,
           settlement: "metered-escrow",
-          metered: { inputTokens: String(s.inputTokens), outputTokens: String(s.outputTokens), maxAmount: lock.maxBaseUnits.toString(), refunded: refunded.toString() },
+          metered: { inputTokens: String(s.inputTokens), outputTokens: String(s.outputTokens), maxAmount: s.maxBaseUnits, refunded: refunded.toString() },
         },
         issuedAt: (deps.now?.() ?? new Date()).toISOString(),
       });
@@ -822,6 +931,60 @@ async function handleMeteredChatCompletion(input: {
     }
   }
   return new Response(responseText, { status: 200, headers: receiptHeader ? { ...JSON_HEADERS, [PROVIDER_RECEIPT_HEADER]: receiptHeader } : JSON_HEADERS });
+}
+
+/**
+ * A held answer, collected by the payer's retry: answered once its settle is found on chain, by the
+ * signature the signer gave or among the escrow's recent transactions; refused (and dropped) when
+ * that signature is confirmed as not this settle; still pending otherwise.
+ */
+async function collectHeldAnswer(input: {
+  waiting: HeldAnswer;
+  heldKey: string;
+  held: HeldAnswerStore;
+  deps: RuntimeDeps;
+  profile: SpecialistProfile;
+  terms: NonNullable<ReturnType<typeof meteredTerms>>;
+  requestText: string;
+  readSettle: SettleTransactionReader;
+  listEscrowSignatures: (escrow: PublicKey) => Promise<string[]>;
+  expected: ExpectedSettle;
+  escrow: PublicKey;
+}): Promise<Response> {
+  const { waiting, expected } = input;
+  const sleep = input.deps.settleReadSleep;
+  let candidates: string[];
+  if (waiting.settleSignature) candidates = [waiting.settleSignature];
+  else {
+    try {
+      candidates = await input.listEscrowSignatures(input.escrow);
+    } catch {
+      return settlePendingResponse(input.escrow.toBase58(), undefined);
+    }
+  }
+  for (const signature of candidates) {
+    const facts = await readSettleFacts(input.readSettle, signature, expected, { attempts: 1, sleep });
+    if (facts.state === "settled") {
+      await input.held.delete(input.heldKey);
+      return answerPaidCall({ answer: waiting, settleSignature: signature, feeBaseUnits: facts.feeBaseUnits, deps: input.deps, profile: input.profile, terms: input.terms, requestText: input.requestText });
+    }
+    if (facts.state === "failed" && waiting.settleSignature) {
+      await input.held.delete(input.heldKey);
+      return toResponse({
+        status: 502,
+        headers: JSON_HEADERS,
+        body: { error: { code: "settle_failed", message: `The settle transaction ${signature} did not land. Nothing was charged by it; escrow ${input.escrow.toBase58()} stays refundable once its cancel window opens.` }, charged: false, escrow: input.escrow.toBase58() },
+      });
+    }
+  }
+  return settlePendingResponse(input.escrow.toBase58(), waiting.settleSignature);
+}
+
+function formatBaseUnits(units: bigint, decimals: number): string {
+  const scale = BigInt(10) ** BigInt(decimals);
+  const whole = units / scale;
+  const fraction = (units % scale).toString().padStart(decimals, "0").replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole.toString();
 }
 
 export function toResponse(runtimeResponse: RuntimeResponse): Response {
