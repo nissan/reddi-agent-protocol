@@ -94,6 +94,10 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    # PER is out of V1 (post-launch). Hold the MagicBlock SDK at 0.10.x until PER is back in scope (R2-12).
+    ignore:
+      - dependency-name: "@magicblock-labs/ephemeral-rollups-sdk"
+        versions: [">=0.11.0"]
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
