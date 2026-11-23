@@ -134,7 +134,7 @@
     "@solana/surfpool": "1.5.0",
     "@tailwindcss/postcss": "^4",
     "@types/jest": "^30.0.0",
-    "@types/node": "^20",
+    "@types/node": "^26",
     "@types/qrcode": "^1.5.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
