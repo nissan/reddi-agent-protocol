@@ -195,7 +195,7 @@ The worst case of a call counts every UTF-8 byte of input as one token, which no
 - **A settle counts only under its own signature.** The kit signs the settle and records it (`pending-settles.jsonl` beside the payment memory) before sending it. If sending reports a failure, the kit looks up that signature: landed means the buyer paid and gets the answer; failed or expired means nothing was charged by it, and the kit tries once more while the escrow is still locked. An escrow closed by anything else is never taken as paid: the answer is withheld (`escrow_closed`). If the chain cannot say, the answer is held for ten minutes (`503 settle_pending`): the buyer sends the same signed request again and gets it once the settle is known to have landed. A pending settle whose answer is no longer held is looked up by the sweep: if it landed the log says `paid_answer_lost` with `"alert": true` so you can make it right; if it cannot land the lock is declined so the buyer gets it all back.
 - **Receipts state what the chain shows.** After the settle confirms, the kit reads the transaction back and signs a receipt for what actually moved: your credit plus the treasury's fee as the amount, and the model's token counts separately. If the transaction cannot be read back, or the amounts do not add up, the buyer still gets the answer it paid for, the response says `"confirmed": false`, and no receipt is signed.
 - **Your key signs two things only**: settle (or decline) transactions for escrows payable to you, and receipts. It is read once from the key file and is never logged or sent anywhere.
-- **Run one process per payment memory file.** For several instances behind a load balancer, use a shared database store (`DatabaseReplayStore` in `@redditech/x402-solana`) through the library API.
+- **Run one process per payment memory file.** For several instances at once, such as a serverless host, use the Postgres stores below: every instance then shares one record of what has been paid for and settled.
 
 ## Good to know
 
@@ -214,6 +214,33 @@ import { createProviderHandler, parseProviderConfig, createProviderChain, FileRe
 ```
 
 `createProviderHandler(config, deps)` returns a `(Request) => Promise<Response>` you can mount in any server. The seller-side payment logic on its own is in `@redditech/x402-solana/provider`.
+
+## Serverless hosts (Vercel and similar)
+
+A serverless host runs many short-lived copies of your provider at once, with no disk and no long-running timer. `createServerlessProvider` keeps everything the provider remembers in Postgres, so a lock pays for one call across every copy, one request at a time settles a lock, and the model's limits count calls on all of them.
+
+```ts
+import pg from "pg";
+import { createServerlessProvider } from "@redditech/provider-kit";
+import file from "./humaniser.provider.json" with { type: "json" };
+
+const created = createServerlessProvider({
+  file,
+  env: process.env,
+  pool: new pg.Pool({ connectionString: process.env.PROVIDER_KIT_DATABASE_URL }),
+  keyEnv: "HUMANISER_KEYPAIR", // the wallet keypair, a JSON array of 64 numbers
+  promptEnv: "HUMANISER_PROMPT", // the private system prompt, never published
+  basePath: "/humaniser", // publicUrl must end with it
+});
+if (!created.ok) throw new Error(created.message);
+export const { handle, sweep } = created.provider;
+```
+
+- Apply the `provider_kit` migration (`supabase/migrations/20261123120000_provider_kit_state.sql` in this repository) first. It creates a `provider_kit_app` role that can use these tables and nothing else; give it a login yourself and connect as it (through your database's pooler), never as the database owner. No client role can read the tables.
+- Call `sweep()` every minute or so (a cron job behind a secret). It looks again at settles whose outcome was not known.
+- An answer waiting for its settle to land is kept in the database for up to ten minutes, for the buyer to collect with the same request.
+- Sessions and the refund-account subsidy are not offered on a serverless host yet; the provider refuses to start with them on.
+- `postgresProviderStores(pool, providerId)` gives you the stores on their own, for any other host.
 
 ## License
 

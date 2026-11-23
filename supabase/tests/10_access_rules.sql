@@ -263,4 +263,51 @@ do $$ begin
       and privilege_type in ('INSERT', 'UPDATE', 'DELETE')
   ) then raise exception 'a client role can still write providers'; end if;
 end $$;
+-- The provider kit's state (payment replay, settle records, held answers) is
+-- for the providers' own server connection only: no client role may touch it.
+do $$ declare r text; t text; begin
+  foreach r in array array['anon', 'authenticated'] loop
+    execute format('set role %I', r);
+    foreach t in array array['replay', 'leases', 'held_answers', 'pending_settles', 'capacity'] loop
+      perform pg_temp.expect_error(r || ' reads provider_kit.' || t, format('select 1 from provider_kit.%I', t));
+      perform pg_temp.expect_error(r || ' truncates provider_kit.' || t, format('truncate provider_kit.%I', t));
+    end loop;
+    perform pg_temp.expect_error(r || ' writes provider_kit.replay', $q$ insert into provider_kit.replay (provider, key) values ('p', 'k') $q$);
+    reset role;
+  end loop;
+end $$;
+do $$ begin
+  if exists (
+    select 1 from information_schema.role_table_grants
+    where table_schema = 'provider_kit' and grantee in ('anon', 'authenticated', 'PUBLIC')
+  ) or has_schema_privilege('anon', 'provider_kit', 'usage') or has_schema_privilege('authenticated', 'provider_kit', 'usage')
+  then raise exception 'a client role holds a privilege in provider_kit'; end if;
+end $$;
+
+-- The providers' own role uses its five tables and nothing else.
+set role provider_kit_app;
+insert into provider_kit.replay (provider, key) values ('p', 'k');
+do $$ begin
+  if (select count(*) from provider_kit.replay) <> 1 then raise exception 'provider_kit_app cannot read its own rows'; end if;
+end $$;
+delete from provider_kit.replay;
+do $$ declare t text; begin
+  foreach t in array array['profiles', 'providers', 'jobs', 'receipts', 'payment_replay', 'attestations', 'provider_stats'] loop
+    perform pg_temp.expect_error('provider_kit_app reads public.' || t, format('select 1 from public.%I', t));
+    perform pg_temp.expect_error('provider_kit_app writes public.' || t, format('delete from public.%I', t));
+  end loop;
+  perform pg_temp.expect_error('provider_kit_app truncates its replay table', 'truncate provider_kit.replay');
+end $$;
+reset role;
+do $$ begin
+  if exists (select 1 from pg_roles where rolname = 'provider_kit_app' and (rolsuper or rolbypassrls or rolcreaterole or rolcreatedb or rolcanlogin))
+  then raise exception 'provider_kit_app has more than table access'; end if;
+  if exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and has_function_privilege('provider_kit_app', p.oid, 'execute')
+      -- Extension functions (pgcrypto's hashes and ciphers) touch no table.
+      and not exists (select 1 from pg_depend d where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
+  ) then raise exception 'provider_kit_app can run one of the project''s public functions'; end if;
+end $$;
+
 select 'access rules: all checks passed' as result;

@@ -17,9 +17,12 @@ export interface PendingCallSettle extends PendingSettle {
 }
 
 export interface PendingSettleStore {
-  load(): PendingCallSettle[];
-  /** Durable before it returns. */
-  save(record: PendingCallSettle): void;
+  /** Every record, or at least every one still `pending`. */
+  load(): PendingCallSettle[] | Promise<PendingCallSettle[]>;
+  /** Durable before it returns (or before its promise resolves). */
+  save(record: PendingCallSettle): void | Promise<void>;
+  /** The `pending` record of one escrow, when the store can look one up without loading them all. */
+  findPending?(escrow: string): Promise<PendingCallSettle | undefined>;
 }
 
 const isRecord = (value: unknown): value is PendingCallSettle => {
