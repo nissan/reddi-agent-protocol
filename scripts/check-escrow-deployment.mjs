@@ -41,6 +41,8 @@ export const GENESIS = {
 };
 // The mainnet upgrade authority is always the Squads vault (never the multisig account).
 export const MAINNET_VAULT = '5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe';
+// The V1 escrow program address (program keypair made 21 November 2026; same id on devnet).
+export const MAINNET_PROGRAM_ID = 'DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu';
 const PUBLIC_RPC = {
   mainnet: 'https://api.mainnet-beta.solana.com',
   devnet: 'https://api.devnet.solana.com',
@@ -128,6 +130,7 @@ export function recordProblems(record) {
     problems.push('upgradeAuthority is also listed as forbidden');
   }
   if (record.network === 'mainnet') {
+    if (record.programId !== MAINNET_PROGRAM_ID) problems.push(`a mainnet record's programId must be the V1 escrow program ${MAINNET_PROGRAM_ID}`);
     if (record.upgradeAuthority !== MAINNET_VAULT) problems.push(`a mainnet record's upgradeAuthority must be the Squads vault ${MAINNET_VAULT}`);
     if (!Array.isArray(record.forbiddenAuthorities) || record.forbiddenAuthorities.length < 2) {
       problems.push('a mainnet record must list the multisig account and the deployer under forbiddenAuthorities');

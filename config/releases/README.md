@@ -26,7 +26,7 @@ recorded `sha256` and every byte after them is zero; the trimmed hash equals
 `executableHash`; and the upgrade authority is `upgradeAuthority` and not
 forbidden; and no loader buffer is left with the deployer (`--deployer`) as its
 authority. Without `--deployer` that last line fails rather than being skipped.
-A mainnet record must name the Squads vault as `upgradeAuthority` and list at
+A mainnet record must name the V1 escrow program `DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu` as `programId` and the Squads vault as `upgradeAuthority` and list at
 least the multisig account and the deployer under `forbiddenAuthorities`; the
 `--deployer` address must be one of them. The genesis hash and the accounts come
 from one RPC, so on launch day run the check against two independent providers.

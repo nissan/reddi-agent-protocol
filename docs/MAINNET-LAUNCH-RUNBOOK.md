@@ -154,7 +154,12 @@ A payout fails if the treasury cannot receive it:
    `scripts/devnet-escrow-e2e.cjs` (`docs/DEVNET-ESCROW-E2E.md`); its expiry
    step needs 7 days, so it is not a launch-day check.
 3. Record the signatures on #736 and #738.
-4. Public copy changes from "planned" to "collected" for the fee only after
+4. Keep the treasury usable: an empty vault or a closed treasury token account
+   makes paid exits in that currency fail. Write into the Squads notes that the
+   vault never goes to zero lamports and its four token accounts are never
+   closed, and run `node scripts/check-escrow-treasury.mjs --network mainnet` on a
+   schedule that alerts the owner, before raising any cap.
+5. Public copy changes from "planned" to "collected" for the fee only after
    this step (`docs/PUBLIC-CLAIM-BOUNDARY.md`).
 
 See `docs/ESCROW-PAYOUT-SAFETY.md` for what a lock means to buyers and sellers,
