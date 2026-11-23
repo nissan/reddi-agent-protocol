@@ -125,7 +125,7 @@
   },
   "devDependencies": {
     "@types/node": "^20",
-    "typescript": "^5"
+    "typescript": "^7"
   },
   "engines": {
     "node": ">=20"
