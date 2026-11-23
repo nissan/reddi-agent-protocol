@@ -85,11 +85,11 @@ export const PROVIDER_RECEIPT_HEADER = "x-reddi-provider-receipt";
  * a chunked body states no length, so the count is kept while reading and the
  * rest is never buffered.
  */
-export async function readBodyText(request: Request, limit: number = MAX_BODY_BYTES): Promise<{ ok: true; text: string } | { ok: false }> {
+export async function readBodyText(request: Request, limit: number = MAX_BODY_BYTES): Promise<{ ok: true; text: string } | { ok: false; reason: "too_large" | "unreadable" }> {
   const stated = Number(request.headers.get("content-length") ?? "0");
   if (stated > limit) {
     await request.body?.cancel().catch(() => undefined);
-    return { ok: false };
+    return { ok: false, reason: "too_large" };
   }
   if (!request.body) return { ok: true, text: "" };
   const reader = request.body.getReader();
@@ -102,12 +102,13 @@ export async function readBodyText(request: Request, limit: number = MAX_BODY_BY
       size += value.byteLength;
       if (size > limit) {
         await reader.cancel().catch(() => undefined);
-        return { ok: false };
+        return { ok: false, reason: "too_large" };
       }
       chunks.push(value);
     }
   } catch {
-    return { ok: true, text: "" };
+    // A body that broke off is never treated as an empty request.
+    return { ok: false, reason: "unreadable" };
   }
   return { ok: true, text: Buffer.concat(chunks).toString("utf8") };
 }
@@ -189,6 +190,8 @@ export type ProviderHandler = ((request: Request) => Promise<Response>) & {
 
 export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps): ProviderHandler {
   const { terms } = config;
+  // Same rule as parseProviderConfig, for callers that build the handler themselves.
+  if (deps.sessions && config.network === "solana-mainnet-beta") throw new Error("sessions are not offered on mainnet yet: build the handler without a session ledger");
   // The provider's ADL, made once from the config it runs on.
   const adlText = providerAdlText(config).text;
   const log = deps.log ?? (() => undefined);
@@ -762,7 +765,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     }
     const escrow = header.escrow.toBase58();
     const read = await readBodyText(request);
-    if (!read.ok) return refuse(413, "request_too_large", "The request body is too large.");
+    if (!read.ok) return read.reason === "too_large" ? refuse(413, "request_too_large", "The request body is too large.") : refuse(400, "invalid_request", "The request body could not be read.");
     const auth = await sessionAuth(request, "close", header.escrow, header.payer, 0, read.text);
     if (!auth.ok) return auth.response;
     if (!deps.sessions.get(escrow)) return refuse(404, "session_not_found", "No session is open on this lock.");
@@ -798,7 +801,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       return refuse(503, "currency_paused", `This provider is not taking new payments in ${terms.price.currency} for now. Nothing was accepted; a lock you already made can be refunded once its refund window opens.`, { charged: false });
     }
     const read = await readBodyText(request);
-    if (!read.ok) return refuse(413, "request_too_large", "The request body is too large.");
+    if (!read.ok) return read.reason === "too_large" ? refuse(413, "request_too_large", "The request body is too large.") : refuse(400, "invalid_request", "The request body could not be read.");
     const requestText = read.text;
     let body: Record<string, unknown>;
     try {

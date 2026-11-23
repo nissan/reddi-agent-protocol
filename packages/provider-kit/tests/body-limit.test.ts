@@ -22,7 +22,7 @@ test("a body with no stated length is refused once it passes the limit, without 
   const { stream, state } = endless();
   const request = new Request("http://localhost/v1/chat/completions", { method: "POST", body: stream, duplex: "half" } as RequestInit);
   const read = await readBodyText(request);
-  assert.equal(read.ok, false);
+  assert.deepEqual(read, { ok: false, reason: "too_large" });
   assert.ok(state.pulled <= MAX_BODY_BYTES + 2 * 64 * 1024, `pulled ${state.pulled}`);
 });
 
@@ -31,6 +31,19 @@ test("a stated length over the limit is refused before any of the body is read",
   const request = new Request("http://localhost/x", { method: "POST", body: stream, headers: { "content-length": String(MAX_BODY_BYTES + 1) }, duplex: "half" } as RequestInit);
   assert.equal((await readBodyText(request)).ok, false);
   assert.ok(state.pulled <= 2 * 64 * 1024, `pulled ${state.pulled}`);
+});
+
+test("a body that breaks off is refused, never read as an empty request", async () => {
+  let sent = false;
+  const broken = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (sent) return controller.error(new Error("connection reset"));
+      sent = true;
+      controller.enqueue(new TextEncoder().encode('{"messages":'));
+    },
+  });
+  const request = new Request("http://localhost/x", { method: "POST", body: broken, duplex: "half" } as RequestInit);
+  assert.deepEqual(await readBodyText(request), { ok: false, reason: "unreadable" });
 });
 
 test("a body within the limit is read whole", async () => {

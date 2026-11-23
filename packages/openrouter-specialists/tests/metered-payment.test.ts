@@ -124,8 +124,8 @@ test("a 402 offers metered terms when the operator configured a price, a program
   const body = (await response.json()) as { metered: Record<string, unknown> };
   assert.equal(body.metered.escrowProgramId, PROGRAM.toBase58());
   assert.equal(body.metered.payTo, profile.walletAddress);
-  // The floor counts the input's 26 bytes as 26 tokens, plus 200 output, at $3 / $15 per million, rounded up.
-  assert.equal(body.metered.minimumLockBaseUnits, "3078");
+  // The floor counts the input as 26 bytes plus 8 for its one message (34 tokens), plus 200 output, at $3 / $15 per million, rounded up.
+  assert.equal(body.metered.minimumLockBaseUnits, "3102");
 
   const none = await handleRuntimeRequest(request(), config, new MockOpenRouterClient(), {});
   assert.equal(((await none.json()) as { metered?: unknown }).metered, undefined);
@@ -248,11 +248,11 @@ test("every profile carries a per-token price, the mid tier by default, and the 
   for (const p of specialistProfiles) assert.deepEqual(p.meteredPrice, { inputPerMillion: "3", outputPerMillion: "15", maxOutputTokens: 2000 }, p.id);
   assert.equal(PER_TOKEN_TIERS.mid.outputPerMillion, "15");
 
-  // With no operator price, the profile's own price is offered: 26 input bytes + 200 output (the request's limit) at $3 / $15.
+  // With no operator price, the profile's own price is offered: 34 bounded input tokens + 200 output (the request's limit) at $3 / $15.
   const { meteredPrice: _unused, ...unpriced } = config;
   const offered = await handleRuntimeRequest(request(), unpriced, new MockOpenRouterClient(), deps(null).value);
   const body = (await offered.json()) as { metered: { price: Record<string, unknown>; minimumLockBaseUnits: string } };
-  assert.equal(body.metered.minimumLockBaseUnits, "3078");
+  assert.equal(body.metered.minimumLockBaseUnits, "3102");
   // The listing states the per-token price.
   const listing = await handleRuntimeRequest(new Request("https://planning.example.test/.well-known/reddi-agent.json"), unpriced, new MockOpenRouterClient(), {});
   assert.deepEqual(((await listing.json()) as { meteredPrice: unknown }).meteredPrice, { currency: "USDC", inputPerMillion: "3", outputPerMillion: "15", maxOutputTokens: 2000 });

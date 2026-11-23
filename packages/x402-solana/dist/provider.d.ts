@@ -78,10 +78,13 @@ export declare function providerMeteredTerms(input: MeteredTermsInput): MeteredT
 export declare function estimateInputTokens(messages: readonly {
     content: string;
 }[]): number;
+/** Tokens a chat template may add around each message (role and separators), counted in the bound. */
+export declare const MESSAGE_TOKEN_OVERHEAD = 8;
 /**
- * The most input tokens the messages can be billed as: one a UTF-8 byte. A
- * byte-level tokenizer never makes more tokens than bytes, so a lock priced on
- * this covers dense text (CJK, emoji, digits) as well as English.
+ * The most input tokens the messages can be billed as: one a UTF-8 byte, plus
+ * `MESSAGE_TOKEN_OVERHEAD` a message for the chat template. A byte-level
+ * tokenizer never makes more tokens than bytes, so a lock priced on this
+ * covers dense text (CJK, emoji, digits) as well as English.
  */
 export declare function inputTokenBound(messages: readonly {
     content: string;

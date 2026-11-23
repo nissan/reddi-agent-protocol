@@ -107,13 +107,17 @@ export function estimateInputTokens(messages: readonly { content: string }[]): n
 
 const utf8 = new TextEncoder();
 
+/** Tokens a chat template may add around each message (role and separators), counted in the bound. */
+export const MESSAGE_TOKEN_OVERHEAD = 8;
+
 /**
- * The most input tokens the messages can be billed as: one a UTF-8 byte. A
- * byte-level tokenizer never makes more tokens than bytes, so a lock priced on
- * this covers dense text (CJK, emoji, digits) as well as English.
+ * The most input tokens the messages can be billed as: one a UTF-8 byte, plus
+ * `MESSAGE_TOKEN_OVERHEAD` a message for the chat template. A byte-level
+ * tokenizer never makes more tokens than bytes, so a lock priced on this
+ * covers dense text (CJK, emoji, digits) as well as English.
  */
 export function inputTokenBound(messages: readonly { content: string }[]): number {
-  return messages.reduce((total, message) => total + utf8.encode(typeof message.content === 'string' ? message.content : '').length, 0);
+  return messages.reduce((total, message) => total + MESSAGE_TOKEN_OVERHEAD + utf8.encode(typeof message.content === 'string' ? message.content : '').length, 0);
 }
 
 /** The least a lock for this call may hold: the cost of the bounded input plus the full output limit. */

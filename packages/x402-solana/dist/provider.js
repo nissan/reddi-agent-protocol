@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEFAULT_MAX_CHARGE_MULTIPLE = exports.DEFAULT_MAX_OUTPUT_TOKENS = void 0;
+exports.MESSAGE_TOKEN_OVERHEAD = exports.DEFAULT_MAX_CHARGE_MULTIPLE = exports.DEFAULT_MAX_OUTPUT_TOKENS = void 0;
 exports.providerMeteredTerms = providerMeteredTerms;
 exports.estimateInputTokens = estimateInputTokens;
 exports.inputTokenBound = inputTokenBound;
@@ -76,13 +76,16 @@ function estimateInputTokens(messages) {
     return messages.reduce((total, message) => total + Math.ceil((typeof message.content === 'string' ? message.content : '').length / 4), 0);
 }
 const utf8 = new TextEncoder();
+/** Tokens a chat template may add around each message (role and separators), counted in the bound. */
+exports.MESSAGE_TOKEN_OVERHEAD = 8;
 /**
- * The most input tokens the messages can be billed as: one a UTF-8 byte. A
- * byte-level tokenizer never makes more tokens than bytes, so a lock priced on
- * this covers dense text (CJK, emoji, digits) as well as English.
+ * The most input tokens the messages can be billed as: one a UTF-8 byte, plus
+ * `MESSAGE_TOKEN_OVERHEAD` a message for the chat template. A byte-level
+ * tokenizer never makes more tokens than bytes, so a lock priced on this
+ * covers dense text (CJK, emoji, digits) as well as English.
  */
 function inputTokenBound(messages) {
-    return messages.reduce((total, message) => total + utf8.encode(typeof message.content === 'string' ? message.content : '').length, 0);
+    return messages.reduce((total, message) => total + exports.MESSAGE_TOKEN_OVERHEAD + utf8.encode(typeof message.content === 'string' ? message.content : '').length, 0);
 }
 /** The least a lock for this call may hold: the cost of the bounded input plus the full output limit. */
 function minimumLockBaseUnits(terms, messages, requestedMaxTokens) {
