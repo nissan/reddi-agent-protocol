@@ -13,8 +13,9 @@
 //      `get-program-hash` print) equals the recorded executable hash;
 //   4. the upgrade authority is the recorded one (on mainnet, the Squads vault),
 //      and not any address listed under `forbiddenAuthorities`;
-//   5. no loader buffer is left with the deployer (--deployer <address>) as its
-//      authority; without --deployer this line fails rather than being skipped.
+//   5. no loader buffer is left with the deployer (--deployer <address>, else the
+//      record's `deployer`) as its authority; without either, this line fails
+//      rather than being skipped.
 //
 // A mainnet record must name the Squads vault as the authority and list the
 // multisig account and the deployer as forbidden. Genesis and accounts come from
@@ -128,6 +129,10 @@ export function recordProblems(record) {
   }
   if ((record.forbiddenAuthorities ?? []).includes(record.upgradeAuthority)) {
     problems.push('upgradeAuthority is also listed as forbidden');
+  }
+  if (record.deployer !== undefined && record.deployer !== null) {
+    if (!isAddress(record.deployer)) problems.push('deployer is not an address');
+    else if (!(record.forbiddenAuthorities ?? []).includes(record.deployer)) problems.push('deployer must also be listed under forbiddenAuthorities');
   }
   if (record.network === 'mainnet') {
     if (record.programId !== MAINNET_PROGRAM_ID) problems.push(`a mainnet record's programId must be the V1 escrow program ${MAINNET_PROGRAM_ID}`);
@@ -278,7 +283,8 @@ async function main() {
     return 2;
   }
   const problems = recordProblems(record);
-  const deployer = arg('deployer');
+  // --deployer wins; otherwise the record's own deployer, so a scheduled run checks buffers too.
+  const deployer = arg('deployer') ?? record.deployer ?? undefined;
   if (deployer !== undefined && !isAddress(deployer)) problems.push('--deployer is not an address');
   if (deployer !== undefined && record.network === 'mainnet' && !(record.forbiddenAuthorities ?? []).includes(deployer)) {
     problems.push('the --deployer address must be listed under forbiddenAuthorities');
