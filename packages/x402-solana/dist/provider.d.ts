@@ -74,10 +74,22 @@ export interface MeteredTermsInput {
  * currency, a price does not parse, or an address is malformed.
  */
 export declare function providerMeteredTerms(input: MeteredTermsInput): MeteredTerms;
-/** About four characters a token, over every message. */
+/** About four characters a token, over every message. A typical count, for quotes; never a floor on payment. */
 export declare function estimateInputTokens(messages: readonly {
     content: string;
 }[]): number;
+/**
+ * The most input tokens the messages can be billed as: one a UTF-8 byte. A
+ * byte-level tokenizer never makes more tokens than bytes, so a lock priced on
+ * this covers dense text (CJK, emoji, digits) as well as English.
+ */
+export declare function inputTokenBound(messages: readonly {
+    content: string;
+}[]): number;
+/** The least a lock for this call may hold: the cost of the bounded input plus the full output limit. */
+export declare function minimumLockBaseUnits(terms: MeteredTerms, messages: readonly {
+    content: string;
+}[], requestedMaxTokens?: number): bigint;
 /** Output limit for this call: the request's own, held to the provider's. */
 export declare function outputLimit(terms: MeteredTerms, requested?: number): number;
 /** The estimate a call is quoted on: the input estimate plus the full output limit. */
@@ -95,12 +107,12 @@ export interface MeteredOffer {
     estimate: TokenCounts;
     /** Cost of the estimate, as a decimal amount of `currency`. */
     estimatedCost: string;
-    /** The maximum a buyer locks by default: twice the estimate. A buyer may lock more, never less than the estimate. */
+    /** The maximum a buyer locks by default: twice the estimate's cost, and never below `minimumLockBaseUnits`. */
     suggestedMaxCharge: string;
     suggestedMaxChargeBaseUnits: string;
     /** Protocol fee if the estimate holds, at the scheduled rate (2.5% until 1 April 2027, then 5%), taken out of the provider's share. */
     estimatedFee: string;
-    /** The least a lock may hold, in base units: the cost of the estimate. */
+    /** The least a lock may hold, in base units: the cost of the input at one token a UTF-8 byte plus the full output limit. */
     minimumLockBaseUnits: string;
     escrowProgramId: string;
     mint: string;

@@ -260,6 +260,9 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
   // Off by default: turn on only for a provider that watches its session alerts.
   const sessionsEnabled = sessionsRaw?.enabled === true;
   if (sessionsRaw?.enabled !== undefined && typeof sessionsRaw.enabled !== "boolean") errors.push("sessions.enabled: must be true or false");
+  // A buyer can leave a session unpaid by making its refund accounts unusable after it has been served
+  // (closing them, re-owning them, or requiring memos), so sessions are not offered on mainnet yet.
+  if (sessionsEnabled && network === "solana-mainnet-beta") errors.push("sessions.enabled: sessions are not offered on mainnet yet; leave this off");
   const idleSeconds = sessionsRaw?.idleSeconds === undefined ? 600 : Number(sessionsRaw.idleSeconds);
   if (!Number.isSafeInteger(idleSeconds) || idleSeconds < 30 || idleSeconds > 3_600) errors.push("sessions.idleSeconds: must be a whole number from 30 to 3600");
 

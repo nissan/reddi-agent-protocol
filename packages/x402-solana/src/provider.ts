@@ -100,9 +100,25 @@ export function providerMeteredTerms(input: MeteredTermsInput): MeteredTerms {
   };
 }
 
-/** About four characters a token, over every message. */
+/** About four characters a token, over every message. A typical count, for quotes; never a floor on payment. */
 export function estimateInputTokens(messages: readonly { content: string }[]): number {
   return messages.reduce((total, message) => total + Math.ceil((typeof message.content === 'string' ? message.content : '').length / 4), 0);
+}
+
+const utf8 = new TextEncoder();
+
+/**
+ * The most input tokens the messages can be billed as: one a UTF-8 byte. A
+ * byte-level tokenizer never makes more tokens than bytes, so a lock priced on
+ * this covers dense text (CJK, emoji, digits) as well as English.
+ */
+export function inputTokenBound(messages: readonly { content: string }[]): number {
+  return messages.reduce((total, message) => total + utf8.encode(typeof message.content === 'string' ? message.content : '').length, 0);
+}
+
+/** The least a lock for this call may hold: the cost of the bounded input plus the full output limit. */
+export function minimumLockBaseUnits(terms: MeteredTerms, messages: readonly { content: string }[], requestedMaxTokens?: number): bigint {
+  return tokenCostBaseUnits(terms.price, { inputTokens: inputTokenBound(messages), outputTokens: outputLimit(terms, requestedMaxTokens) });
 }
 
 /** Output limit for this call: the request's own, held to the provider's. */
@@ -126,12 +142,12 @@ export interface MeteredOffer {
   estimate: TokenCounts;
   /** Cost of the estimate, as a decimal amount of `currency`. */
   estimatedCost: string;
-  /** The maximum a buyer locks by default: twice the estimate. A buyer may lock more, never less than the estimate. */
+  /** The maximum a buyer locks by default: twice the estimate's cost, and never below `minimumLockBaseUnits`. */
   suggestedMaxCharge: string;
   suggestedMaxChargeBaseUnits: string;
   /** Protocol fee if the estimate holds, at the scheduled rate (2.5% until 1 April 2027, then 5%), taken out of the provider's share. */
   estimatedFee: string;
-  /** The least a lock may hold, in base units: the cost of the estimate. */
+  /** The least a lock may hold, in base units: the cost of the input at one token a UTF-8 byte plus the full output limit. */
   minimumLockBaseUnits: string;
   escrowProgramId: string;
   mint: string;
@@ -144,8 +160,9 @@ export interface MeteredOffer {
 export function meteredOffer(terms: MeteredTerms, messages: readonly { content: string }[], requestedMaxTokens?: number, network?: SolanaPaymentNetwork): MeteredOffer {
   const estimate = meteredEstimate(terms, messages, requestedMaxTokens);
   const decimals = directPaymentCurrency(terms.price.currency)!.decimals;
-  const minimum = tokenCostBaseUnits(terms.price, estimate);
-  const suggested = minimum * BigInt(DEFAULT_MAX_CHARGE_MULTIPLE);
+  const minimum = minimumLockBaseUnits(terms, messages, requestedMaxTokens);
+  const twice = tokenCostBaseUnits(terms.price, estimate) * BigInt(DEFAULT_MAX_CHARGE_MULTIPLE);
+  const suggested = twice > minimum ? twice : minimum;
   const quote = suggested > BigInt(0) ? quoteMeteredCall(terms.price, estimate, baseUnitsToDecimal(suggested, decimals)) : undefined;
   return {
     settlement: 'metered-escrow',

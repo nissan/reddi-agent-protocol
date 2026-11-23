@@ -41,9 +41,11 @@ import {
   directPaymentCurrency,
   ESCROW_PROTOCOL_TREASURY,
   estimateInputTokens,
+  inputTokenBound,
   meteredDecline,
   meteredOffer,
   meteredSettlement,
+  minimumLockBaseUnits,
   outputLimit,
   readMeteredPaymentHeader,
   lockMatchesSession,
@@ -77,6 +79,39 @@ import { ADL_PATH, providerAdlText } from "./adl.js";
 import type { Upstream, UpstreamMessage } from "./upstream.js";
 
 export const PROVIDER_RECEIPT_HEADER = "x-reddi-provider-receipt";
+
+/**
+ * Reads a request body as text, stopping as soon as it passes MAX_BODY_BYTES:
+ * a chunked body states no length, so the count is kept while reading and the
+ * rest is never buffered.
+ */
+export async function readBodyText(request: Request, limit: number = MAX_BODY_BYTES): Promise<{ ok: true; text: string } | { ok: false }> {
+  const stated = Number(request.headers.get("content-length") ?? "0");
+  if (stated > limit) {
+    await request.body?.cancel().catch(() => undefined);
+    return { ok: false };
+  }
+  if (!request.body) return { ok: true, text: "" };
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > limit) {
+        await reader.cancel().catch(() => undefined);
+        return { ok: false };
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return { ok: true, text: "" };
+  }
+  return { ok: true, text: Buffer.concat(chunks).toString("utf8") };
+}
+
 /** The closing receipt of a session, on the answer that settled it. */
 export const SESSION_RECEIPT_HEADER = "x-reddi-session-receipt";
 /** On an answer that asked to close the session: settled, declined, or pending (tried again shortly). */
@@ -462,7 +497,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       return refuse(502, "model_unavailable", `The model did not answer. Nothing was charged for this call; the session stays open and call ${c.sequence} can be sent again.`, { charged: false, escrow });
     }
 
-    const usage = usageFrom(upstream, c.worstCase.inputTokens);
+    const usage = usageFrom(upstream, estimateInputTokens(c.upstreamMessages));
     const next = ledger.preview(reservation, usage);
     const reddi = {
       requestId,
@@ -726,7 +761,9 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       return refuse(400, "invalid_receipt", "The escrow address is not the one this payer and nonce give.");
     }
     const escrow = header.escrow.toBase58();
-    const auth = await sessionAuth(request, "close", header.escrow, header.payer, 0, await request.text().catch(() => ""));
+    const read = await readBodyText(request);
+    if (!read.ok) return refuse(413, "request_too_large", "The request body is too large.");
+    const auth = await sessionAuth(request, "close", header.escrow, header.payer, 0, read.text);
     if (!auth.ok) return auth.response;
     if (!deps.sessions.get(escrow)) return refuse(404, "session_not_found", "No session is open on this lock.");
     const mismatch = keyMismatch(escrow, auth.sessionKey);
@@ -760,10 +797,9 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     if (config.paused) {
       return refuse(503, "currency_paused", `This provider is not taking new payments in ${terms.price.currency} for now. Nothing was accepted; a lock you already made can be refunded once its refund window opens.`, { charged: false });
     }
-    const lengthHeader = Number(request.headers.get("content-length") ?? "0");
-    if (lengthHeader > MAX_BODY_BYTES) return refuse(413, "request_too_large", "The request body is too large.");
-    const requestText = await request.text().catch(() => "");
-    if (Buffer.byteLength(requestText, "utf8") > MAX_BODY_BYTES) return refuse(413, "request_too_large", "The request body is too large.");
+    const read = await readBodyText(request);
+    if (!read.ok) return refuse(413, "request_too_large", "The request body is too large.");
+    const requestText = read.text;
     let body: Record<string, unknown>;
     try {
       const parsed: unknown = JSON.parse(requestText);
@@ -797,14 +833,15 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       clusterConfirmed = true;
     }
 
+    // The floor on payment counts one token a UTF-8 byte, so dense text cannot buy a call below list price.
     const outputTokens = outputLimit(terms, requestedMax);
-    const inputEstimate = estimateInputTokens(upstreamMessages);
-    const minimum = tokenCostBaseUnits(terms.price, { inputTokens: inputEstimate, outputTokens });
+    const inputBound = inputTokenBound(upstreamMessages);
+    const minimum = minimumLockBaseUnits(terms, upstreamMessages, requestedMax);
     const sessionHeaders = readSessionHeaders(request.headers);
     if (sessionHeaders !== undefined) {
       if ("error" in sessionHeaders) return refuse(400, "session_invalid", sessionHeaders.error, { charged: false });
       if (!deps.sessions) return refuse(400, "sessions_not_offered", "This provider settles each call on its own. Send the call without x402-session-sequence.", { charged: false });
-      return sessionCall({ header, sequence: sessionHeaders.sequence, close: sessionHeaders.close, requestText, headers: request.headers, upstreamMessages, temperature, worstCase: { inputTokens: inputEstimate, outputTokens }, minimum });
+      return sessionCall({ header, sequence: sessionHeaders.sequence, close: sessionHeaders.close, requestText, headers: request.headers, upstreamMessages, temperature, worstCase: { inputTokens: inputBound, outputTokens }, minimum });
     }
     // The lock's escrow, payer and nonce are public: only the payer's signature shows who is calling (#866).
     const auth = await sessionAuth(request, "single", header.escrow, header.payer, 0, requestText);
@@ -855,7 +892,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
         { charged: false, escrow, ...(declineSignature ? { refundSignature: declineSignature } : {}) });
     }
 
-    const usage = usageFrom(upstream, inputEstimate);
+    const usage = usageFrom(upstream, estimateInputTokens(upstreamMessages));
     answering.add(escrow);
     try {
       return await settleAndAnswer({ escrow, escrowAddress: header.escrow, lock, requestId, requestText, upstream, usage, createdMs: nowMs() });

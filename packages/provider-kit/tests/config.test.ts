@@ -28,6 +28,9 @@ test("mainnet fixes the mint and the program, and needs an RPC endpoint", () => 
   assert.match(errorsOf({ ...mainnet, mint: USDC.toBase58() }, env).join("\n"), /cannot be changed/);
   assert.match(errorsOf({ ...mainnet, programId: provider.publicKey.toBase58() }, env).join("\n"), /programId: cannot be changed on mainnet/);
   assert.match(errorsOf({ ...mainnet, genesisHash: "abc" }, env).join("\n"), /genesisHash/);
+  assert.match(errorsOf({ ...mainnet, sessions: { enabled: true } }, env).join("\n"), /sessions\.enabled: sessions are not offered on mainnet/);
+  assert.ok(parseProviderConfig({ ...mainnet, sessions: { enabled: false } }, env).ok);
+  assert.ok(parseProviderConfig(configFile({ sessions: { enabled: true } }), {}).ok, "devnet may still offer sessions");
   const audd = parseProviderConfig({ ...mainnet, price: { currency: "AUDD", inputPerMillion: "1", outputPerMillion: "2" } }, env);
   assert.ok(audd.ok);
   assert.equal(audd.config.terms.mint.toBase58(), "AUDDttiEpCydTm7joUMbYddm72jAWXZnCpPZtDoxqBSw");

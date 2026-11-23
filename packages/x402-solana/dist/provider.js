@@ -3,6 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.DEFAULT_MAX_CHARGE_MULTIPLE = exports.DEFAULT_MAX_OUTPUT_TOKENS = void 0;
 exports.providerMeteredTerms = providerMeteredTerms;
 exports.estimateInputTokens = estimateInputTokens;
+exports.inputTokenBound = inputTokenBound;
+exports.minimumLockBaseUnits = minimumLockBaseUnits;
 exports.outputLimit = outputLimit;
 exports.meteredEstimate = meteredEstimate;
 exports.meteredOffer = meteredOffer;
@@ -69,9 +71,22 @@ function providerMeteredTerms(input) {
         ...(input.payoutAccount ? { payoutAccount: new web3_js_1.PublicKey(input.payoutAccount) } : {}),
     };
 }
-/** About four characters a token, over every message. */
+/** About four characters a token, over every message. A typical count, for quotes; never a floor on payment. */
 function estimateInputTokens(messages) {
     return messages.reduce((total, message) => total + Math.ceil((typeof message.content === 'string' ? message.content : '').length / 4), 0);
+}
+const utf8 = new TextEncoder();
+/**
+ * The most input tokens the messages can be billed as: one a UTF-8 byte. A
+ * byte-level tokenizer never makes more tokens than bytes, so a lock priced on
+ * this covers dense text (CJK, emoji, digits) as well as English.
+ */
+function inputTokenBound(messages) {
+    return messages.reduce((total, message) => total + utf8.encode(typeof message.content === 'string' ? message.content : '').length, 0);
+}
+/** The least a lock for this call may hold: the cost of the bounded input plus the full output limit. */
+function minimumLockBaseUnits(terms, messages, requestedMaxTokens) {
+    return (0, metered_1.tokenCostBaseUnits)(terms.price, { inputTokens: inputTokenBound(messages), outputTokens: outputLimit(terms, requestedMaxTokens) });
 }
 /** Output limit for this call: the request's own, held to the provider's. */
 function outputLimit(terms, requested) {
@@ -85,8 +100,9 @@ function meteredEstimate(terms, messages, requestedMaxTokens) {
 function meteredOffer(terms, messages, requestedMaxTokens, network) {
     const estimate = meteredEstimate(terms, messages, requestedMaxTokens);
     const decimals = (0, payment_1.directPaymentCurrency)(terms.price.currency).decimals;
-    const minimum = (0, metered_1.tokenCostBaseUnits)(terms.price, estimate);
-    const suggested = minimum * BigInt(exports.DEFAULT_MAX_CHARGE_MULTIPLE);
+    const minimum = minimumLockBaseUnits(terms, messages, requestedMaxTokens);
+    const twice = (0, metered_1.tokenCostBaseUnits)(terms.price, estimate) * BigInt(exports.DEFAULT_MAX_CHARGE_MULTIPLE);
+    const suggested = twice > minimum ? twice : minimum;
     const quote = suggested > BigInt(0) ? (0, metered_1.quoteMeteredCall)(terms.price, estimate, (0, payment_1.baseUnitsToDecimal)(suggested, decimals)) : undefined;
     return {
         settlement: 'metered-escrow',

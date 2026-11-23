@@ -6,7 +6,7 @@
  * Level 3 or does not match it.
  */
 import { ADL_V03_LAUNCH_RATE, ADL_V03_PROTOCOL_FEE_BPS, buildProviderAdl, checkAdlConformance, formatAdlDocument, type AdlConformanceReport, type AdlDocument } from "@redditech/agent-protocol/adl";
-import { baseUnitsToDecimal, directPaymentCurrency, estimateInputTokens, LAUNCH_PROTOCOL_FEE_BPS, LAUNCH_RATE_ENDS_AT_MS, PROTOCOL_FEE_BPS, tokenCostBaseUnits } from "@redditech/x402-solana";
+import { baseUnitsToDecimal, directPaymentCurrency, inputTokenBound, LAUNCH_PROTOCOL_FEE_BPS, LAUNCH_RATE_ENDS_AT_MS, PROTOCOL_FEE_BPS, tokenCostBaseUnits } from "@redditech/x402-solana";
 import { MAX_BODY_BYTES, type ProviderConfig } from "./config.js";
 
 /** Where the provider serves its ADL document. */
@@ -18,14 +18,14 @@ if (ADL_V03_PROTOCOL_FEE_BPS !== PROTOCOL_FEE_BPS || ADL_V03_LAUNCH_RATE.bps !==
 }
 
 /**
- * The most one call can cost: every input token a request body can hold (the
- * provider prices about four characters a token, plus its system prompt) and
+ * The most one call can cost: every input token a request body can hold (at
+ * most one a UTF-8 byte, the bound the minimum lock uses, plus its system prompt) and
  * the full output limit, at the listed price. A buyer never needs to
  * authorise more for a single call.
  */
 export function maxPerCall(config: ProviderConfig): string {
   const { terms } = config;
-  const inputTokens = estimateInputTokens([{ content: "x".repeat(MAX_BODY_BYTES) }]) + (config.systemPrompt ? estimateInputTokens([{ content: config.systemPrompt }]) : 0);
+  const inputTokens = MAX_BODY_BYTES + (config.systemPrompt ? inputTokenBound([{ content: config.systemPrompt }]) : 0);
   const units = tokenCostBaseUnits(terms.price, { inputTokens, outputTokens: terms.maxOutputTokens });
   return baseUnitsToDecimal(units, directPaymentCurrency(terms.price.currency)!.decimals);
 }

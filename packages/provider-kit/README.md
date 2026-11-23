@@ -112,7 +112,7 @@ Every provider describes itself in [Agent Definition Language](https://agent-pro
 
 The provider serves it at `/.well-known/adl.yaml`, `/.well-known/reddi-agent.json` links to it, and `register` sends it with the listing. The app checks it and refuses a listing whose ADL fails Level 3 or says something different from the listing. Because both come from the same config, they cannot drift. `rap-provider adl` prints it, `--json` prints the Level 3 report, and `rap-provider doctor` checks it.
 
-The most one call can cost is the price of every input token a request can hold (a 1 MB body, about 250,000 tokens, plus your system prompt) and the full `maxOutputTokens`. Buyers lock less for an ordinary call; this is the ceiling they never need to go above.
+The most one call can cost is the price of every input token a request can hold (a 1 MB body, at most 1,000,000 tokens at one a byte, plus your system prompt) and the full `maxOutputTokens`. Buyers lock less for an ordinary call; this is the ceiling they never need to go above.
 
 `publicUrl` must be a public https address before you list. Set `listing.capabilities` to say what the provider is for, for example `{ "taskTypes": ["writing"] }`, and `listing.appUrl` (or `RAP_APP_URL`) for another deployment of the app.
 
@@ -144,7 +144,7 @@ The wallet sign-in works against the devnet app: a message signed by the kit is 
 | `payoutAccount` | Recovery only: another token account of the currency that your wallet owns. Payouts go there when your usual token account is closed or frozen. |
 | `refundAccountSubsidy.maxPerDay` | Off unless set. How many buyer token accounts you will pay to create in a UTC day, when a buyer closed its own after you accepted its lock. |
 | `lockBoundDelegations` | Off unless `true`. Also accepts a payer's consent given as a memo it signed in the lock transaction, which is how a phone wallet pays through a Solana Pay QR code (it signs a transaction but no separate message). Each new delegation costs one transaction read from your RPC before the lock is checked, and anyone can make the kit try one, so this spends RPC credits; the kit keeps what it read for the same transaction (up to 1,000) and remembers one not found for 5 seconds. The memo counts only for the lock its transaction made: a lock made again at the same address needs a new delegation. If the read fails the call is refused with `payment_check_unavailable` and nothing is charged. |
-| `sessions.enabled` | `false` by default: session calls are refused with `sessions_not_offered` and single calls are unchanged. Set `true` to offer sessions, and watch for log lines with `"alert": true` (`session_settle_waiting`, `session_refunded_unpaid`). |
+| `sessions.enabled` | Devnet only for now; refused on mainnet. `false` by default: session calls are refused with `sessions_not_offered` and single calls are unchanged. Set `true` to offer sessions, and watch for log lines with `"alert": true` (`session_settle_waiting`, `session_refunded_unpaid`). |
 | `sessions.idleSeconds` | How long a session may sit without a call before the kit settles it. 30 to 3600, default 600. |
 | `sessions.file` | Where open sessions are remembered. Default `.rap-provider/sessions.jsonl`. Keep it on a disk that survives restarts. |
 
@@ -176,7 +176,7 @@ A call number that is out of order or used before is refused with `session_seque
 
 The settle is signed and written to `sessions.file` before it is sent, and only that signature can count as the session's settle. If the kit cannot tell whether it landed (an RPC outage, a restart), the session stays pending and the same signed transaction is looked up and sent again on the next sweep; it is never marked settled on a guess. If the buyer has closed the account that funded the lock, the settle returns the unused part to the buyer's associated token account. When that account does not exist either, the settle creates it at your cost (about 0.002 SOL) only within `refundAccountSubsidy.maxPerDay`; once the day's bound is spent the session waits, logged as `refund_account_subsidy_spent` and `session_settle_waiting` with `"alert": true`, so you can raise the bound or settle it by hand. If the escrow is gone and no settle of yours landed (the buyer refunded once the refund window opened), the session is recorded as `refunded_unpaid` and logged as `session_refunded_unpaid` with `"alert": true`, because the calls served were not paid. A lock made again at the same address with the same nonce is a different lock and is never charged for an earlier session's calls. The kit settles ahead of the refund window to avoid all this.
 
-The worst case of a call counts four characters of input as one token. A model that bills more input than that can take a session's total past the lock; the charge is capped at the lock, so you absorb the difference and the buyer never pays more than it locked.
+The worst case of a call counts every UTF-8 byte of input as one token, which no byte-level tokenizer exceeds, so a session's total stays under its lock.
 
 ## What the kit does to protect you and your buyers
 
@@ -197,7 +197,7 @@ The worst case of a call counts four characters of input as one token. A model t
 - A single-call settle that did not land is logged as `settle_failed` with the escrow's address. The lock stays open until its refund window, so you can settle it by hand in that time. (A session's settle is retried by the sweep.)
 - Calls take text messages and answer in one piece; `stream: true` is refused.
 - Prices are in token currencies (USDC, AUDD, PYUSD, USDG).
-- The estimate counts four characters as one token, and the same count is used when a model reports no usage. A buyer who locks exactly the minimum caps your payment at that estimate, so text that tokenises more densely can cost you the difference.
+- The quoted estimate counts four characters as one token, and the same count is used when a model reports no usage. The minimum lock counts one token a UTF-8 byte, so dense text (CJK, emoji, digits) still pays your full price.
 
 On the roadmap: streaming responses, SOL-priced metered calls, sessions on rated escrows, automatic retry of a single-call settle, and hardware wallet payers.
 

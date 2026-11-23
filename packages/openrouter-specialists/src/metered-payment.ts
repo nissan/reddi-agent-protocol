@@ -18,6 +18,7 @@ export {
   estimateInputTokens,
   meteredOffer,
   meteredSettlement,
+  minimumLockBaseUnits,
   outputLimit,
   readMeteredPaymentHeader,
   usageFrom,

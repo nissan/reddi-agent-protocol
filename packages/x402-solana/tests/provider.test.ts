@@ -7,6 +7,10 @@ import {
   checkProviderCluster,
   confirmMeteredSettlement,
   ESCROW_PROTOCOL_TREASURY,
+  estimateInputTokens,
+  inputTokenBound,
+  minimumLockBaseUnits,
+  tokenCostBaseUnits,
   MemoryNonceReplayStore,
   meteredDecline,
   meteredOffer,
@@ -138,11 +142,25 @@ describe('provider terms and offer', () => {
       suggestedMaxCharge: '0.0156',
       suggestedMaxChargeBaseUnits: '15600',
       estimatedFee: '0.000195',
-      minimumLockBaseUnits: '7800',
+      // The floor counts one token a byte: 400 bytes of input, not the 100-token estimate.
+      minimumLockBaseUnits: '8700',
       escrowProgramId: PROGRAM.toBase58(),
       mint: USDC.toBase58(),
       payTo: payee.toBase58(),
     });
+  });
+
+  it('prices the minimum lock on one token a UTF-8 byte, so dense text cannot lock below list price', () => {
+    const cjk = [{ content: '\u6f22'.repeat(20_000) }];
+    expect(estimateInputTokens(cjk)).toBe(5_000);
+    expect(inputTokenBound(cjk)).toBe(60_000);
+    const offer = meteredOffer(terms, cjk, 1, 'solana-devnet');
+    // A model that bills a token a character charges for 20,000 input tokens: a lock at the minimum covers it.
+    const billed = tokenCostBaseUnits(terms.price, { inputTokens: 20_000, outputTokens: 1 });
+    expect(BigInt(offer.minimumLockBaseUnits)).toBeGreaterThanOrEqual(billed);
+    expect(offer.minimumLockBaseUnits).toBe(tokenCostBaseUnits(terms.price, { inputTokens: 60_000, outputTokens: 1 }).toString());
+    expect(BigInt(offer.suggestedMaxChargeBaseUnits)).toBeGreaterThanOrEqual(BigInt(offer.minimumLockBaseUnits));
+    expect(minimumLockBaseUnits(terms, cjk, 1).toString()).toBe(offer.minimumLockBaseUnits);
   });
 
   it("holds a request's own output limit to the provider's", () => {

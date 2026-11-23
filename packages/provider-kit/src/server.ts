@@ -17,9 +17,13 @@ export const SESSION_SWEEP_MS = 30_000;
 
 export type StartResult = { ok: true; server: Server; close: () => Promise<void> } | { ok: false; message: string };
 
+/** How long a client may take to send its headers, and its whole request. */
+export const HEADERS_TIMEOUT_MS = 15_000;
+export const REQUEST_TIMEOUT_MS = 60_000;
+
 /** Serves a fetch-style handler on a Node HTTP server. */
 export function serve(handler: (request: Request) => Promise<Response>, origin: string): Server {
-  return createServer(async (req, res) => {
+  const server = createServer(async (req, res) => {
     try {
       const request = new Request(new URL(req.url ?? "/", origin), {
         method: req.method,
@@ -28,13 +32,20 @@ export function serve(handler: (request: Request) => Promise<Response>, origin: 
         duplex: "half",
       } as RequestInit);
       const response = await handler(request);
-      res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
-      res.end(await response.text());
+      // A body the handler stopped reading (too large) is not drained: the connection is closed instead.
+      const unread = !req.complete;
+      res.writeHead(response.status, { ...Object.fromEntries(response.headers.entries()), ...(unread ? { connection: "close" } : {}) });
+      res.end(await response.text(), () => {
+        if (unread) req.destroy();
+      });
     } catch {
       res.writeHead(500, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: { code: "internal_error", message: "The provider hit an unexpected error." } }));
     }
   });
+  server.headersTimeout = HEADERS_TIMEOUT_MS;
+  server.requestTimeout = REQUEST_TIMEOUT_MS;
+  return server;
 }
 
 export function upstreamFor(config: ProviderConfig): Upstream {

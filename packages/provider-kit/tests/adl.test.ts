@@ -30,10 +30,10 @@ test("the provider's ADL passes Level 3 and says what the config says", () => {
 });
 
 test("the most a call can cost covers a full request body, the system prompt and the output limit", () => {
-  // 1,000,000 characters is 250,000 input tokens at $3/M, plus 500 output tokens at $15/M.
-  assert.equal(maxPerCall(config()), "0.7575");
-  // A 4,000-character system prompt adds 1,000 input tokens.
-  assert.equal(maxPerCall(config({ systemPrompt: "x".repeat(4_000) })), "0.7605");
+  // A 1,000,000-byte body is at most 1,000,000 input tokens at $3/M, plus 500 output tokens at $15/M.
+  assert.equal(maxPerCall(config()), "3.0075");
+  // A 4,000-byte system prompt adds at most 4,000 input tokens.
+  assert.equal(maxPerCall(config({ systemPrompt: "x".repeat(4_000) })), "3.0195");
 });
 
 test("a mainnet provider's ADL names the allowlisted mint", () => {
