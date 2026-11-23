@@ -8,7 +8,7 @@ import { MEMO_PROGRAM_ID, MemoryNonceReplayStore, sessionDelegationMemo, transac
 import { SANDBOX_CANCEL_WINDOW_SLOTS, SANDBOX_CLAIM_WINDOW_SLOTS, SANDBOX_ESCROW_DISCRIMINATORS, SANDBOX_ESCROW_PROGRAM_ID, escrowNonceBytes, sandboxEscrowAddress } from "@/lib/sandbox/escrow";
 import type { SandboxGatewayDeps } from "@/lib/sandbox/gateway";
 import type { SandboxSettleInput, SandboxSettler } from "@/lib/sandbox/settle-signer";
-import { buildTryTransaction, runTry, startTry, TRY_LOCK_COMPUTE_UNITS, TRY_LOCK_MICRO_LAMPORTS_PER_UNIT } from "@/lib/try/flow";
+import { buildTryTransaction, runTry, startTry, TRY_LOCK_COMPUTE_UNITS, TRY_LOCK_MICRO_LAMPORTS_PER_UNIT, TRY_READS_PER_POLL, TryRunCache } from "@/lib/try/flow";
 import { openTicket, relayKeypair, sealTicket, trySecret, TryNotConfiguredError } from "@/lib/try/ticket";
 import { TRY_TASKS } from "@/lib/try/tasks";
 import { devnetOrResponse, solanaPayLink } from "@/lib/try/http";
@@ -122,11 +122,70 @@ describe("try page: Solana Pay transaction request flow (#925)", () => {
     expect(w.settles[0].escrow.equals(escrow)).toBe(true);
     expect(w.settles[0].actualLamports).toBeLessThanOrEqual(BigInt(s.ticket.maxLamports));
 
-    // The same lock pays once.
+    // The same lock pays once, and a repeat poll gets the same answer back (S2-14).
     const again = await runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS });
-    expect(again).toMatchObject({ state: "answered" });
-    expect((again as { status: number }).status).not.toBe(200);
+    expect(again).toEqual(result);
     expect(w.settles).toHaveLength(1);
+  });
+
+  it("answers polls that overlap or repeat with the one call, and says settled where the answer is not held (S2-14)", async () => {
+    const w = world();
+    const s = await started(w);
+    const payer = Keypair.generate();
+    const built = await buildTryTransaction({ token: s.token, account: payer.publicKey.toBase58(), secret: SECRET, connection: w.connection, nowMs: NOW_MS });
+    if (!built.ok) throw new Error(built.message);
+    w.walletSignsAndLands(built.transaction, payer);
+    const cache = new TryRunCache();
+    const poll = (c = cache) => runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS, cache: c });
+    // The page resends while the first poll is still being served.
+    const [first, second] = await Promise.all([poll(), poll()]);
+    expect(first).toMatchObject({ state: "answered", status: 200 });
+    expect(second).toEqual(first);
+    expect(w.settles).toHaveLength(1);
+    // The settle lands; another server instance, without the answer, now sees a closed escrow.
+    const escrow = sandboxEscrowAddress(payer.publicKey, s.ticket.nonce).toBase58();
+    w.accounts.delete(escrow);
+    expect(await poll(new TryRunCache())).toEqual({ ok: true, state: "settled", lockSignature: LOCK_SIG, payer: payer.publicKey.toBase58(), escrow });
+    expect(w.settles).toHaveLength(1);
+  });
+
+  it("finds the lock behind 25 transactions that name the reference, reading a few per poll (S2-15)", async () => {
+    const w = world();
+    const s = await started(w);
+    const payer = Keypair.generate();
+    const built = await buildTryTransaction({ token: s.token, account: payer.publicKey.toBase58(), secret: SECRET, connection: w.connection, nowMs: NOW_MS });
+    if (!built.ok) throw new Error(built.message);
+    w.walletSignsAndLands(built.transaction, payer);
+    const reference = new PublicKey(s.ticket.reference);
+    for (let i = 0; i < 25; i++) {
+      const decoy = Keypair.generate();
+      const tx = new Transaction({ feePayer: decoy.publicKey, blockhash: BLOCKHASH, lastValidBlockHeight: 100 }).add({ programId: MEMO_PROGRAM_ID, keys: [{ pubkey: reference, isSigner: false, isWritable: false }], data: Buffer.from(`decoy ${i}`) });
+      tx.partialSign(decoy);
+      // Newest first, as RPC lists them: decoys land after the lock.
+      w.landed.unshift({ signature: `${i + 10}`.padStart(88, "7"), tx, slot: Number(CURRENT_SLOT) });
+    }
+    let reads = 0;
+    const counted = { ...w.connection, getTransaction: async (sig: string) => { reads += 1; return w.connection.getTransaction(sig); } };
+    const result = await runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: counted, deps: w.deps, nowMs: NOW_MS, cache: new TryRunCache() });
+    expect(result).toMatchObject({ state: "answered", status: 200 });
+    expect(reads).toBeLessThanOrEqual(TRY_READS_PER_POLL);
+  });
+
+  it("reads each decoy once per ticket, so stuffing cannot fan out RPC reads (S2-15)", async () => {
+    const w = world();
+    const s = await started(w);
+    const reference = new PublicKey(s.ticket.reference);
+    for (let i = 0; i < 10; i++) {
+      const decoy = Keypair.generate();
+      const tx = new Transaction({ feePayer: decoy.publicKey, blockhash: BLOCKHASH, lastValidBlockHeight: 100 }).add({ programId: MEMO_PROGRAM_ID, keys: [{ pubkey: reference, isSigner: false, isWritable: false }], data: Buffer.from(`decoy ${i}`) });
+      tx.partialSign(decoy);
+      w.landed.unshift({ signature: `${i + 10}`.padStart(88, "7"), tx, slot: Number(CURRENT_SLOT) });
+    }
+    let reads = 0;
+    const counted = { ...w.connection, getTransaction: async (sig: string) => { reads += 1; return w.connection.getTransaction(sig); } };
+    const cache = new TryRunCache();
+    for (let i = 0; i < 6; i++) expect(await runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: counted, deps: w.deps, nowMs: NOW_MS, cache })).toEqual({ ok: true, state: "waiting" });
+    expect(reads).toBe(10);
   });
 
   it("refuses a lock transaction that did not create the escrow now at that address", async () => {

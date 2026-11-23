@@ -256,6 +256,13 @@ export default function TryConsole() {
           }
           return;
         }
+        if (response.ok && (body as { state?: string }).state === "settled") {
+          // An earlier poll's answer was served and paid, but this server no longer holds it.
+          polling.current = false;
+          setPhase("failed");
+          setMessage("Your call was already answered and paid from an earlier check, so its answer can't be shown again here. Nothing more was taken: the unused part of your maximum went back to your wallet when it settled.");
+          return;
+        }
         if (!response.ok && response.status !== 503) {
           polling.current = false;
           setPhase("failed");
