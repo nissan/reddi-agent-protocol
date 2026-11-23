@@ -1,6 +1,6 @@
 # @redditech/provider-kit
 
-Run your own paid provider on Reddi Agent Protocol: one config file, one command, any OpenAI-compatible model.
+Run your own paid provider on Reddi Agent Protocol: one config file, one command, any OpenAI-compatible model or Claude.
 
 You bring a model (OpenRouter, a hosted API, or a local Ollama or vLLM server) and a Solana wallet. The kit puts a paid endpoint in front of it. Buyers pay per token through a metered escrow, and every paid answer carries a receipt signed by your wallet.
 
@@ -127,7 +127,10 @@ The wallet sign-in works against the devnet app: a message signed by the kit is 
 | `wallet` | Your provider wallet's address. Payouts go to its token account for the currency. |
 | `publicUrl` | Where buyers reach you. Must be `https` unless it is localhost. |
 | `model` | The model you declare. Receipts name it. It is a declaration, not proof of which model ran. |
-| `upstream.baseUrl` | An OpenAI-compatible base URL. |
+| `upstream.provider` | `openai-compatible` (the default) or `anthropic` for Claude through the Anthropic API. |
+| `upstream.baseUrl` | An OpenAI-compatible base URL. Not used with `anthropic`. |
+| `upstream.effort` | Claude only: `low`, `medium`, `high`, `xhigh` or `max`. Lower effort means fewer thinking tokens, so a lower bill for the buyer. |
+| `upstream.thinking` | Claude only: `off` turns thinking off where the model allows it. Claude Opus 5.5 always thinks; lower `effort` instead. |
 | `upstream.model` | The name to send upstream, when it differs from `model`. |
 | `upstream.apiKeyEnv` | Name of the environment variable holding the API key. Default `UPSTREAM_API_KEY`. The key itself never goes in the file. |
 | `upstream.mock` | `true` answers with canned text. Refused on mainnet. |
@@ -143,6 +146,9 @@ The wallet sign-in works against the devnet app: a message signed by the kit is 
 | `pausedCurrencies` | Currencies you have stopped taking new locks in, for example `["PYUSD"]`. Also `RAP_PROVIDER_PAUSED_CURRENCIES=PYUSD,USDG`. See "Pausing a currency". |
 | `payoutAccount` | Recovery only: another token account of the currency that your wallet owns. Payouts go there when your usual token account is closed or frozen. |
 | `refundAccountSubsidy.maxPerDay` | Off unless set. How many buyer token accounts you will pay to create in a UTC day, when a buyer closed, froze or handed over its own after you accepted its lock. |
+| `capacity.requestsPerMinute` | Off unless set. Calls your model takes in any 60 seconds. Past it the provider answers `503 provider_busy` with `retry-after` before a buyer locks anything. Set it to a free model's rate limit. |
+| `capacity.requestsPerDay` | Off unless set. Calls your model takes in a UTC day, a cap on your model bill. Past it the provider is offline until midnight UTC. |
+| `capacity.cooldownSeconds` | Default 60. How long the provider stays busy after the model answers 429. The call that hit the 429 is refunded in full. |
 | `lockBoundDelegations` | Off unless `true`. Also accepts a payer's consent given as a memo it signed in the lock transaction, which is how a phone wallet pays through a Solana Pay QR code (it signs a transaction but no separate message). Each new delegation costs one transaction read from your RPC before the lock is checked, and anyone can make the kit try one, so this spends RPC credits; the kit keeps what it read for the same transaction (up to 1,000) and remembers one not found for 5 seconds. The memo counts only for the lock its transaction made: a lock made again at the same address needs a new delegation. If the read fails the call is refused with `payment_check_unavailable` and nothing is charged. |
 | `sessions.enabled` | Devnet only for now; refused on mainnet. `false` by default: session calls are refused with `sessions_not_offered` and single calls are unchanged. Set `true` to offer sessions, and watch for log lines with `"alert": true` (`session_settle_waiting`, `session_refunded_unpaid`). |
 | `sessions.idleSeconds` | How long a session may sit without a call before the kit settles it. 30 to 3600, default 600. |

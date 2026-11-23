@@ -8,6 +8,10 @@
  */
 import { PublicKey } from "@solana/web3.js";
 import { directPaymentCurrency, ESCROW_DEVNET_MINTS, ESCROW_MAINNET_MINTS, providerMeteredTerms, type MeteredTerms } from "@redditech/x402-solana";
+import type { ClaudeEffort, ClaudeThinking } from "./upstream.js";
+import type { CapacityLimits } from "./capacity.js";
+
+const CLAUDE_EFFORTS: readonly ClaudeEffort[] = ["low", "medium", "high", "xhigh", "max"];
 
 export type ProviderNetwork = "solana-devnet" | "solana-mainnet-beta";
 
@@ -33,8 +37,14 @@ export interface ProviderConfigFile {
   /** The model this provider declares it serves. Receipts name it. */
   model: string;
   upstream: {
+    /** "openai-compatible" (the default) calls `baseUrl`; "anthropic" calls Claude through the Anthropic API. */
+    provider?: string;
     /** An OpenAI-compatible base URL, for example https://openrouter.ai/api/v1 or http://localhost:11434/v1. */
     baseUrl?: string;
+    /** Claude only: how much effort the model puts into an answer (low, medium, high, xhigh, max). */
+    effort?: string;
+    /** Claude only: "off" turns thinking off where the model allows it; "adaptive" (the default) leaves it on. */
+    thinking?: string;
     /** The model name to send upstream when it differs from `model`. */
     model?: string;
     /** Name of the environment variable holding the upstream API key. Defaults to UPSTREAM_API_KEY. */
@@ -85,6 +95,8 @@ export interface ProviderConfigFile {
    * bounds how many it pays for in a UTC day.
    */
   refundAccountSubsidy?: { maxPerDay: number };
+  /** How many calls the model takes. While full, the provider answers busy before any lock is taken. */
+  capacity?: { requestsPerMinute?: number; requestsPerDay?: number; cooldownSeconds?: number };
   /** For `rap-provider register`: the app to list in (default: the Reddi Agent Protocol app) and what the listing says this provider can do. */
   listing?: { appUrl?: string; capabilities?: Record<string, unknown> };
   /** For a local validator only: the genesis hash to expect instead of the public devnet one. */
@@ -115,13 +127,14 @@ export interface ProviderConfig {
   wallet: string;
   publicUrl: string;
   model: string;
-  upstream: { baseUrl?: string; model: string; apiKey?: string; apiKeyEnv: string; mock: boolean; timeoutMs: number };
+  upstream: { provider: "openai-compatible" | "anthropic"; baseUrl?: string; model: string; apiKey?: string; apiKeyEnv: string; mock: boolean; timeoutMs: number; effort?: ClaudeEffort; thinking?: ClaudeThinking };
   terms: MeteredTerms;
   /** True while the price currency is in the paused list: no new locks are taken. */
   paused: boolean;
   pausedCurrencies: string[];
   /** Buyer token accounts the provider will pay to create in a UTC day. 0: never. */
   refundAccountsPerDay: number;
+  capacity: CapacityLimits;
   /** The app `register` lists in. An https origin. */
   appUrl: string;
   listingCapabilities: Record<string, unknown>;
@@ -197,9 +210,16 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
 
   const upstreamRaw = isRecord(file.upstream) ? file.upstream : {};
   const mock = upstreamRaw.mock === true;
-  const baseUrl = text(upstreamRaw.baseUrl).replace(/\/+$/, "");
+  const upstreamProvider = text(upstreamRaw.provider) || "openai-compatible";
+  if (upstreamProvider !== "openai-compatible" && upstreamProvider !== "anthropic") errors.push('upstream.provider: must be "openai-compatible" or "anthropic"');
+  const claude = upstreamProvider === "anthropic";
+  const baseUrl = claude ? "" : text(upstreamRaw.baseUrl).replace(/\/+$/, "");
+  const effort = text(upstreamRaw.effort);
+  if (effort && (!claude || !CLAUDE_EFFORTS.includes(effort as ClaudeEffort))) errors.push(`upstream.effort: only for the anthropic provider, one of ${CLAUDE_EFFORTS.join(", ")}`);
+  const thinking = text(upstreamRaw.thinking);
+  if (thinking && (!claude || (thinking !== "adaptive" && thinking !== "off"))) errors.push('upstream.thinking: only for the anthropic provider, "adaptive" or "off"');
   // A model on the operator's own network may be plain http; the key is then the operator's concern.
-  if (!mock && !serviceUrl(baseUrl, { allowHttpAnywhere: true })) errors.push('upstream.baseUrl: must be an OpenAI-compatible base URL such as "https://openrouter.ai/api/v1", or set upstream.mock to true');
+  if (!mock && !claude && !serviceUrl(baseUrl, { allowHttpAnywhere: true })) errors.push('upstream.baseUrl: must be an OpenAI-compatible base URL such as "https://openrouter.ai/api/v1", or set upstream.mock to true');
   const apiKeyEnv = text(upstreamRaw.apiKeyEnv) || "UPSTREAM_API_KEY";
   if (!/^[A-Z_][A-Z0-9_]*$/.test(apiKeyEnv)) errors.push("upstream.apiKeyEnv: must be the name of an environment variable");
   const timeoutMs = upstreamRaw.timeoutMs === undefined ? 120_000 : Number(upstreamRaw.timeoutMs);
@@ -240,6 +260,22 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
 
   const payoutAccount = text(file.payoutAccount);
   if (payoutAccount && !isAddress(payoutAccount)) errors.push("payoutAccount: must be the address of a token account the provider wallet owns");
+
+  const capacityRaw = isRecord(file.capacity) ? file.capacity : {};
+  if (file.capacity !== undefined && !isRecord(file.capacity)) errors.push("capacity: must be an object");
+  const limit = (name: string, value: unknown, max: number): number | undefined => {
+    if (value === undefined) return undefined;
+    const n = Number(value);
+    if (!Number.isSafeInteger(n) || n < 1 || n > max) {
+      errors.push(`capacity.${name}: must be a whole number from 1 to ${max}`);
+      return undefined;
+    }
+    return n;
+  };
+  const requestsPerMinute = limit("requestsPerMinute", capacityRaw.requestsPerMinute, 100_000);
+  const requestsPerDay = limit("requestsPerDay", capacityRaw.requestsPerDay, 10_000_000);
+  const cooldownSeconds = limit("cooldownSeconds", capacityRaw.cooldownSeconds, 86_400) ?? 60;
+  const capacity: CapacityLimits = { ...(requestsPerMinute ? { requestsPerMinute } : {}), ...(requestsPerDay ? { requestsPerDay } : {}), cooldownSeconds };
 
   let refundAccountsPerDay = 0;
   if (file.refundAccountSubsidy !== undefined) {
@@ -315,11 +351,22 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
       wallet,
       publicUrl,
       model,
-      upstream: { ...(baseUrl ? { baseUrl } : {}), model: text(upstreamRaw.model) || model, ...(apiKey ? { apiKey } : {}), apiKeyEnv, mock, timeoutMs },
+      upstream: {
+        provider: claude ? "anthropic" : "openai-compatible",
+        ...(baseUrl ? { baseUrl } : {}),
+        model: text(upstreamRaw.model) || model,
+        ...(apiKey ? { apiKey } : {}),
+        apiKeyEnv,
+        mock,
+        timeoutMs,
+        ...(effort ? { effort: effort as ClaudeEffort } : {}),
+        ...(thinking ? { thinking: thinking as ClaudeThinking } : {}),
+      },
       terms,
       paused: pausedCurrencies.includes(currency),
       pausedCurrencies,
       refundAccountsPerDay,
+      capacity,
       appUrl: appUrl ?? DEFAULT_APP_URL,
       listingCapabilities,
       ...(systemPrompt ? { systemPrompt } : {}),

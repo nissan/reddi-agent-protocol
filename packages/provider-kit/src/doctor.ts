@@ -4,6 +4,7 @@
  */
 import { accessSync, constants, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import Anthropic from "@anthropic-ai/sdk";
 import { PublicKey } from "@solana/web3.js";
 import { checkProviderCluster, checkTokenAccount, checkTreasuryReadiness, ESCROW_PROTOCOL_TREASURY, token2022MintPosture, treasuryTokenAccount } from "@redditech/x402-solana";
 import type { ProviderChain } from "./chain.js";
@@ -31,6 +32,8 @@ export interface DoctorInput {
   chain: ProviderChain;
   key: ProviderKeyResult;
   fetchImpl?: FetchLike;
+  /** Stands in for the network under the Anthropic client, for tests. */
+  anthropicFetch?: typeof fetch;
   /** True when the directory can be written. Defaults to a real check. */
   canWrite?: (directory: string) => boolean;
 }
@@ -155,6 +158,20 @@ export async function runDoctor(input: DoctorInput): Promise<{ ok: boolean; chec
 
   if (config.upstream.mock) {
     add({ name: "Model", status: config.network === "solana-mainnet-beta" ? "fail" : "warn", detail: "mock answers are on, so buyers would pay for canned text", fix: "Set upstream.mock to false and upstream.baseUrl to your model before you list." });
+  } else if (config.upstream.provider === "anthropic") {
+    const model = config.upstream.model;
+    if (!config.upstream.apiKey) {
+      add({ name: "Model", status: "fail", detail: `${config.upstream.apiKeyEnv} is not set, so Claude cannot be called`, fix: `Set ${config.upstream.apiKeyEnv} to an Anthropic API key in the environment.` });
+    } else try {
+      const client = new Anthropic({ apiKey: config.upstream.apiKey, maxRetries: 0, timeout: 10_000, ...(input.anthropicFetch ? { fetch: input.anthropicFetch } : {}) });
+      await client.models.retrieve(model);
+      add({ name: "Model", status: "pass", detail: `the Anthropic API serves ${model}` });
+    } catch (error) {
+      const status = error instanceof Anthropic.APIError ? error.status : undefined;
+      add(typeof status === "number"
+        ? { name: "Model", status: "fail", detail: `the Anthropic API answered ${model} with status ${status}`, fix: status === 401 || status === 403 ? `Set ${config.upstream.apiKeyEnv} to a valid Anthropic API key.` : "Check upstream.model is a current Claude model id." }
+        : { name: "Model", status: "fail", detail: "the Anthropic API could not be reached", fix: `Check the network can reach api.anthropic.com and that ${config.upstream.apiKeyEnv} is set.` });
+    }
   } else {
     try {
       const response = await fetchImpl(`${config.upstream.baseUrl}/models`, { method: "GET", headers: config.upstream.apiKey ? { authorization: `Bearer ${config.upstream.apiKey}` } : {}, signal: AbortSignal.timeout(10_000) });

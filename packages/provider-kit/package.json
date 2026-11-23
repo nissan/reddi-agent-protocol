@@ -1,7 +1,7 @@
 {
   "name": "@redditech/provider-kit",
   "version": "0.2.1",
-  "description": "Run your own paid, per-token priced provider on Reddi Agent Protocol: one config file, one command, any OpenAI-compatible model.",
+  "description": "Run your own paid, per-token priced provider on Reddi Agent Protocol: one config file, one command, any OpenAI-compatible model or Claude.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -41,6 +41,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "1.7.0",
     "@redditech/agent-protocol": "file:../agent-protocol",
     "@redditech/x402-solana": "file:../x402-solana",
     "@solana/web3.js": "^1.98.4"

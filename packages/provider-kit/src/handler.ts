@@ -76,7 +76,8 @@ import type { ProviderChain } from "./chain.js";
 import { MemoryPendingSettleStore, type PendingCallSettle, type PendingSettleStore } from "./pending.js";
 import { MAX_BODY_BYTES, type ProviderConfig } from "./config.js";
 import { ADL_PATH, providerAdlText } from "./adl.js";
-import type { Upstream, UpstreamMessage } from "./upstream.js";
+import { UpstreamError, type Upstream, type UpstreamMessage } from "./upstream.js";
+import { BUSY_MESSAGES, Capacity, type CapacityCheck } from "./capacity.js";
 
 export const PROVIDER_RECEIPT_HEADER = "x-reddi-provider-receipt";
 
@@ -130,6 +131,8 @@ export interface ProviderDeps {
   sessions?: MeteredSessionLedger;
   /** Where single-call settles are recorded before they are sent. In memory when not given. */
   pendingSettles?: PendingSettleStore;
+  /** How many calls the model takes. In memory, from the config's limits, when not given. */
+  capacity?: Capacity;
   /** Ed25519 signature by the provider wallet, for receipts. */
   signMessage: (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;
   now?: () => Date;
@@ -361,6 +364,20 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
 
 
   const nowMs = () => (deps.now?.() ?? new Date()).getTime();
+  const limits = deps.capacity ?? new Capacity(config.capacity);
+  // A capacity store that cannot be read counts as busy for a moment: fail closed, nothing is taken.
+  const unknownCapacity: CapacityCheck = { ok: false, reason: "cooling_down", retryAfterSeconds: 10 };
+  const capacity = {
+    check: (at: number) => limits.check(at).catch(() => unknownCapacity),
+    take: (at: number) => limits.take(at).catch(() => unknownCapacity),
+    coolDown: (at: number) => limits.coolDown(at),
+  };
+  const busy = (v: Exclude<CapacityCheck, { ok: true }>, message: string, extra: Record<string, unknown> = {}) =>
+    refuse(503, "provider_busy", `${BUSY_MESSAGES[v.reason]} ${message}`, { charged: false, busy: { reason: v.reason, retryAfterSeconds: v.retryAfterSeconds }, ...extra }, { "retry-after": String(v.retryAfterSeconds) });
+  /** A 429 from the model means it is rate limited: stop offering calls for the cooldown. */
+  const noteUpstreamFailure = async (error: unknown) => {
+    if (error instanceof UpstreamError && error.status === 429) await capacity.coolDown(nowMs()).catch(() => undefined);
+  };
   const issuedAt = () => (deps.now?.() ?? new Date()).toISOString();
   const decimals = directPaymentCurrency(terms.price.currency)!.decimals;
   const readAccount = (address: PublicKey) => deps.chain.readAccount(address);
@@ -491,10 +508,16 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     }
     const reservation = begun.reservation;
     const requestId = randomUUID();
+    const slot = await capacity.take(nowMs());
+    if (!slot.ok) {
+      ledger.release(reservation);
+      return busy(slot, `Nothing was charged for this call; the session stays open and call ${c.sequence} can be sent again in ${slot.retryAfterSeconds} seconds.`, { escrow });
+    }
     let upstream: Record<string, unknown>;
     try {
       upstream = await deps.upstream.createChatCompletion({ model: config.upstream.model, messages: c.upstreamMessages, ...(c.temperature === undefined ? {} : { temperature: c.temperature }), max_tokens: c.worstCase.outputTokens });
     } catch (error) {
+      await noteUpstreamFailure(error);
       ledger.release(reservation);
       log({ event: "upstream_failed", requestId, escrow, sequence: c.sequence, detail: error instanceof Error ? error.message : "unknown" });
       return refuse(502, "model_unavailable", `The model did not answer. Nothing was charged for this call; the session stays open and call ${c.sequence} can be sent again.`, { charged: false, escrow });
@@ -823,6 +846,9 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     const offer = meteredOffer(terms, upstreamMessages, requestedMax, config.network);
     const header = readMeteredPaymentHeader(request.headers);
     if (header === undefined) {
+      // A busy provider says so before the buyer locks anything.
+      const free = await capacity.check(nowMs());
+      if (!free.ok) return busy(free, `Nothing was asked of you; try again in ${free.retryAfterSeconds} seconds.`);
       return refuse(402, "payment_required", "Lock at least the minimum in a metered escrow payable to this provider, then repeat the request with the lock in x402-payment.", { metered: offer }, { "x402-request": JSON.stringify(offer) });
     }
     if ("error" in header) return refuse(402, "invalid_receipt", header.error, { metered: offer });
@@ -859,6 +885,9 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     } finally {
       answering.delete(header.escrow.toBase58());
     }
+    // Busy: the lock is not read or used, so the same request works once the provider has room.
+    const free = await capacity.check(nowMs());
+    if (!free.ok) return busy(free, `Nothing was accepted and your lock is untouched; send the same request again in ${free.retryAfterSeconds} seconds.`);
     let lock: Awaited<ReturnType<typeof verifyMeteredLock>>;
     try {
       lock = await verifyMeteredLock({ header, terms, minimum, readAccount: (address) => deps.chain.readAccount(address), readSlot: () => deps.chain.readSlot(), replayStore: deps.replayStore });
@@ -876,18 +905,30 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     if (otherLock) return otherLock;
     const escrow = header.escrow.toBase58();
     const requestId = randomUUID();
+    const giveBack = async (): Promise<string | undefined> => {
+      try {
+        return await deps.chain.sendInstructions([meteredDecline(terms, lock)]);
+      } catch {
+        return undefined;
+      }
+    };
+
+    // Counted only once the lock is good, so requests without a valid lock cannot use up the limits.
+    const slot = await capacity.take(nowMs());
+    if (!slot.ok) {
+      // Filled up between the check and now: the lock is given back whole.
+      const declineSignature = await giveBack();
+      log({ event: "provider_busy", requestId, escrow, reason: slot.reason, declined: declineSignature !== undefined });
+      return busy(slot, declineSignature ? "Nothing was charged and your lock was refunded in full." : `Nothing was charged; your maximum stays locked in escrow ${escrow} and you can refund it once its refund window opens.`, { escrow, ...(declineSignature ? { refundSignature: declineSignature } : {}) });
+    }
 
     let upstream: Record<string, unknown>;
     try {
       upstream = await deps.upstream.createChatCompletion({ model: config.upstream.model, messages: upstreamMessages, ...(temperature === undefined ? {} : { temperature }), max_tokens: outputTokens });
     } catch (error) {
+      await noteUpstreamFailure(error);
       // No work was delivered, so the provider gives the whole lock back.
-      let declineSignature: string | undefined;
-      try {
-        declineSignature = await deps.chain.sendInstructions([meteredDecline(terms, lock)]);
-      } catch {
-        declineSignature = undefined;
-      }
+      const declineSignature = await giveBack();
       log({ event: "upstream_failed", requestId, escrow, declined: declineSignature !== undefined, detail: error instanceof Error ? error.message : "unknown" });
       return refuse(502, "model_unavailable", declineSignature
         ? "The model did not answer. Nothing was charged and your lock was refunded in full."
@@ -1084,7 +1125,10 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       }
     }
     if (request.method === "GET" && url.pathname.startsWith("/v1/session/")) return sessionRead(request, decodeURIComponent(url.pathname.slice("/v1/session/".length)));
-    if (request.method === "GET" && url.pathname === "/healthz") return json(200, { ok: true, name: config.name, network: config.network, acceptingPayments: !config.paused });
+    if (request.method === "GET" && url.pathname === "/healthz") {
+      const free = await capacity.check(nowMs());
+      return json(200, { ok: true, name: config.name, network: config.network, acceptingPayments: !config.paused, available: free.ok, ...(free.ok ? {} : { busy: { reason: free.reason, retryAfterSeconds: free.retryAfterSeconds } }) });
+    }
     if (request.method === "GET" && url.pathname === "/v1/models") return json(200, { object: "list", data: [{ id: config.model, object: "model", owned_by: config.wallet }] });
     if (request.method === "GET" && url.pathname === "/.well-known/reddi-agent.json") return json(200, providerMetadata(config));
     if (request.method === "GET" && url.pathname === ADL_PATH) return new Response(adlText, { status: 200, headers: { "content-type": "application/yaml; charset=utf-8", "cache-control": "public, max-age=300" } });

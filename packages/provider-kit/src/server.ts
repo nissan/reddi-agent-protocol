@@ -10,7 +10,7 @@ import { FileSessionStore } from "./sessions.js";
 import { FilePendingSettleStore } from "./pending.js";
 import { dirname, join } from "node:path";
 import { MeteredSessionLedger } from "@redditech/x402-solana";
-import { createMockUpstream, createOpenAiCompatibleUpstream, type Upstream } from "./upstream.js";
+import { createAnthropicUpstream, createMockUpstream, createOpenAiCompatibleUpstream, type Upstream } from "./upstream.js";
 
 /** How often sessions are checked for an idle timeout or a refund window that is about to open. */
 export const SESSION_SWEEP_MS = 30_000;
@@ -49,9 +49,10 @@ export function serve(handler: (request: Request) => Promise<Response>, origin: 
 }
 
 export function upstreamFor(config: ProviderConfig): Upstream {
-  return config.upstream.mock || !config.upstream.baseUrl
-    ? createMockUpstream()
-    : createOpenAiCompatibleUpstream({ baseUrl: config.upstream.baseUrl, apiKey: config.upstream.apiKey, timeoutMs: config.upstream.timeoutMs });
+  const u = config.upstream;
+  if (u.mock) return createMockUpstream();
+  if (u.provider === "anthropic") return createAnthropicUpstream({ apiKey: u.apiKey, timeoutMs: u.timeoutMs, ...(u.effort ? { effort: u.effort } : {}), ...(u.thinking ? { thinking: u.thinking } : {}) });
+  return u.baseUrl ? createOpenAiCompatibleUpstream({ baseUrl: u.baseUrl, apiKey: u.apiKey, timeoutMs: u.timeoutMs }) : createMockUpstream();
 }
 
 /**
