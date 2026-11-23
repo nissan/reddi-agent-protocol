@@ -152,7 +152,16 @@ export type SandboxGatewayRequest = {
   session?: { sequence?: string | null; close?: string | null; previousReceipt?: string | null; delegation?: string | null; signature?: string | null };
   /** The payer's proof for a direct payment (#882): x402-payment-proof and, optionally, x402-payment-delegation. */
   paymentProof?: { proof?: string | null; delegation?: string | null };
+  /**
+   * A metered call's retry after `settle_pending`: the settle transaction that answer named
+   * (`SETTLE_SIGNATURE_HEADER`). The call is served again only when that settle of this escrow, for
+   * this exact request, is confirmed, and the request carries the payer's signature as before.
+   */
+  settleSignature?: string | null;
 };
+
+/** Request header of a retry after `settle_pending`: the settle transaction the earlier answer named. */
+export const SETTLE_SIGNATURE_HEADER = "x-reddi-settle-signature";
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 
@@ -425,6 +434,8 @@ async function writeReceipt(input: {
   issuedAt: string;
   /** The settle transaction, for a metered escrow. */
   settleSignature?: string;
+  /** What the treasury received in that settle, read from the confirmed transaction. */
+  settledFeeLamports?: bigint;
 }): Promise<SandboxReceipt> {
   const { provider, payment } = input;
   const maxAmount = maxChargeLamports(provider, input.inputTokens);
@@ -434,7 +445,10 @@ async function writeReceipt(input: {
   // states that, with no fee and no refund, because nothing else happened on
   // chain. A metered escrow settled the actual tokens on devnet, and a
   // simulated call shows the same arithmetic with no transaction.
-  const settled = settleSandboxCall(provider, { inputTokens: input.inputTokens, outputTokens: countTokens(input.answer) }, maxAmount);
+  const computed = settleSandboxCall(provider, { inputTokens: input.inputTokens, outputTokens: countTokens(input.answer) }, maxAmount);
+  // A settled escrow's fee is the one the chain took at payout (audit S7-Codex-R2-05), never the server clock's rate.
+  if (payment.mode === "metered-escrow" && input.settledFeeLamports === undefined) throw new Error("a metered receipt needs the fee read from its settle");
+  const settled = payment.mode === "metered-escrow" ? { ...computed, fee: input.settledFeeLamports!, provider: computed.amount - input.settledFeeLamports! } : computed;
   const receipt: SandboxReceiptBody = {
     schemaVersion: paid ? REDDI_RECEIPT_V2_VERSION : SANDBOX_SIMULATED_RECEIPT_VERSION,
     providerId: await sandboxProviderAddress(provider.id),
@@ -511,6 +525,9 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
     return handleSessionCall({ request, deps, provider, messages, model, inputTokens, header });
   }
 
+  const retryOf = request.settleSignature?.trim();
+  if (retryOf) return recoverSettledCall({ request, deps, provider, messages, model, inputTokens, header, settleSignature: retryOf });
+
   const payment = await verifySandboxPayment(header, provider, request.origin, inputTokens, deps, request);
   if (!payment.ok) {
     if (payment.sessionCode?.startsWith("session_auth_")) return sessionRefusal(payment.sessionCode, payment.result.message);
@@ -525,6 +542,7 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
   const prompt = [...messages].reverse().find((message) => message.role === "user")?.content ?? messages[messages.length - 1].content;
   const answer = scriptedSandboxAnswer(provider, prompt);
   let settleSignature: string | undefined;
+  let settledFeeLamports: bigint | undefined;
   if (payment.mode === "metered-escrow") {
     // The provider settles the actual tokens before it answers, so the answer
     // and its receipt name a settle transaction that already happened.
@@ -532,10 +550,12 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
     const result = deps.settler
       ? await deps.settler.settle({ providerId: provider.id, escrow: new PublicKey(payment.escrow), payer: new PublicKey(payment.payerAddress), payee: new PublicKey(provider.payTo), actualLamports: settled.amount, rated: payment.rated, createdSlot: payment.createdSlot })
       : { ok: false as const, message: "No settler is configured." };
+    if (!result.ok && result.pending) return settlePending(result.signature, result.message, payment.escrow, true);
     if (!result.ok) {
       return failure(502, "settle_failed", `${result.message} Your maximum stays locked in escrow ${payment.escrow}; nothing was charged, and you can cancel it for a full refund once its refund window has elapsed, about 30 minutes after the lock.`, { charged: false, escrow: payment.escrow });
     }
     settleSignature = result.signature;
+    settledFeeLamports = result.feeLamports;
   }
   const nowMs = (deps.now ?? Date.now)();
   const spotCheck: SandboxSpotCheck = simulatedSpotCheck(provider);
@@ -548,8 +568,74 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
     rap_sandbox: { scripted: true, paymentMode: payment.mode, spotCheck },
   });
   // The receipt travels in a header, as in V1, because it commits to the hash of the whole response body.
-  const receipt = await writeReceipt({ provider, requestBody: request.rawBody, responseBody: response.bodyText, payment, inputTokens, answer, issuedAt: new Date(nowMs).toISOString(), settleSignature });
+  const receipt = await writeReceipt({ provider, requestBody: request.rawBody, responseBody: response.bodyText, payment, inputTokens, answer, issuedAt: new Date(nowMs).toISOString(), settleSignature, settledFeeLamports });
   response.headers[payment.mode !== "simulated" ? PROVIDER_RECEIPT_HEADER : SANDBOX_SIMULATED_RECEIPT_HEADER] = encodeReceiptHeader(receipt);
+  return response;
+}
+
+/**
+ * The settle was signed and may have landed, but its outcome is not known (audit S7-Codex-R2-04).
+ * The escrow may already be paid out, so the payer is not told nothing was charged nor pointed at a
+ * refund. A single call's answer is kept for the payer: the same signed request, sent again with
+ * `SETTLE_SIGNATURE_HEADER`, is answered once that settle is confirmed.
+ */
+function settlePending(signature: string, reason: string, escrow: string, retrievable: boolean): SandboxGatewayResponse {
+  const next = retrievable
+    ? `Send the same request again with header ${SETTLE_SIGNATURE_HEADER}: ${signature} to collect the answer once it has landed. If it did not land, that retry says so and the escrow stays locked for a full refund after its refund window.`
+    : `Look up ${signature} on devnet before you cancel: if it landed, the session was settled; if not, the escrow stays locked for a full refund after its refund window.`;
+  return failure(202, "settle_pending", `${reason} You may have been charged, so do not cancel the escrow yet. ${next}`, { charged: "unknown", escrow, settleSignature: signature });
+}
+
+/**
+ * A single metered call's retry after `settle_pending`: answers when the named settle is confirmed
+ * and is the settle of this payer's escrow for exactly this request. The payer's signature over the
+ * request is checked as on the first call, so only the payer collects the answer. The sandbox's
+ * answers are scripted, so the answer is the one the settle paid for.
+ */
+async function recoverSettledCall(input: { request: SandboxGatewayRequest; deps: SandboxGatewayDeps; provider: SandboxProvider; messages: SandboxChatMessage[]; model: string; inputTokens: number; header: string; settleSignature: string }): Promise<SandboxGatewayResponse> {
+  const { request, deps, provider, inputTokens, settleSignature } = input;
+  const refuse = (message: string) => failure(402, "payment_rejected", message, { reason: "invalid_receipt" });
+  if (!/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(settleSignature)) return refuse(`${SETTLE_SIGNATURE_HEADER} must be a transaction signature.`);
+  if (!deps.settler) return refuse("No settler is configured.");
+  const parsed = parseX402PaymentHeader(input.header);
+  const record = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : undefined;
+  const nonce = typeof record?.nonce === "string" ? record.nonce : "";
+  if (!record || record.settlement !== "metered-escrow" || !NONCE_PATTERN.test(nonce)) return refuse("A retry after settle_pending carries the same metered x402-payment as the first call.");
+  let payer: PublicKey;
+  let escrow: PublicKey;
+  try {
+    payer = new PublicKey(record.payer as string);
+    escrow = new PublicKey(String(record.escrow));
+  } catch {
+    return refuse("A metered payment must name the payer and the escrow address.");
+  }
+  if (!escrow.equals(sandboxEscrowAddress(payer, nonce))) return refuse("The escrow address is not the one this payer and challenge nonce give.");
+  const auth = await verifySingleCallAuth(record, provider, request, deps);
+  if (!auth.ok) {
+    if (!auth.outcome.ok && auth.outcome.sessionCode?.startsWith("session_auth_")) return sessionRefusal(auth.outcome.sessionCode, auth.outcome.result.message);
+    return refuse(auth.outcome.ok ? "The call is not authorised." : auth.outcome.result.message);
+  }
+  const maxLamports = maxChargeLamports(provider, inputTokens);
+  const prompt = [...input.messages].reverse().find((message) => message.role === "user")?.content ?? input.messages[input.messages.length - 1].content;
+  const answer = scriptedSandboxAnswer(provider, prompt);
+  const settled = settleSandboxCall(provider, { inputTokens, outputTokens: countTokens(answer) }, maxLamports);
+  const found = await deps.settler.lookup(settleSignature, { escrow, payer, payee: new PublicKey(provider.payTo), actualLamports: settled.amount });
+  if (found.state === "unknown") return settlePending(settleSignature, `Devnet has not confirmed the settle transaction ${settleSignature} yet.`, escrow.toBase58(), true);
+  if (found.state === "failed") {
+    return failure(502, "settle_failed", `The settle transaction ${settleSignature} is not a landed settle of this call, so this call was not charged by it. If escrow ${escrow.toBase58()} is still locked, send the call without ${SETTLE_SIGNATURE_HEADER}, or cancel it for a full refund once its refund window has elapsed.`, { charged: false, escrow: escrow.toBase58() });
+  }
+  const nowMs = (deps.now ?? Date.now)();
+  const response = respond(200, {
+    id: `chatcmpl-sandbox-${nonce}`,
+    object: "chat.completion",
+    created: Math.floor(nowMs / 1000),
+    model: input.model,
+    choices: [{ index: 0, message: { role: "assistant", content: answer }, finish_reason: "stop" }],
+    rap_sandbox: { scripted: true, paymentMode: "metered-escrow", spotCheck: simulatedSpotCheck(provider), recoveredFromSettle: true },
+  });
+  const payment: Extract<PaymentOutcome, { ok: true }> = { ok: true, mode: "metered-escrow", nonce, payerId: payer.toBase58(), payerAddress: payer.toBase58(), escrow: escrow.toBase58(), maxLamports, rated: false, createdSlot: BigInt(0), proofRef: escrow.toBase58() };
+  const receipt = await writeReceipt({ provider, requestBody: request.rawBody, responseBody: response.bodyText, payment, inputTokens, answer, issuedAt: new Date(nowMs).toISOString(), settleSignature, settledFeeLamports: found.feeLamports });
+  response.headers[PROVIDER_RECEIPT_HEADER] = encodeReceiptHeader(receipt);
   return response;
 }
 
@@ -681,14 +767,17 @@ async function handleSessionCall(input: {
   };
 
   let settleSignature: string | undefined;
+  let sessionFeeLamports: bigint | undefined;
   if (close && lock.mode === "metered-escrow") {
     const result = deps.settler
       ? await deps.settler.settle({ providerId: provider.id, escrow: new PublicKey(lock.escrow), payer: new PublicKey(lock.payer!), payee: new PublicKey(provider.payTo), actualLamports: cumulative, rated: false, createdSlot: lock.createdSlot! })
       : { ok: false as const, message: "No settler is configured." };
+    if (!result.ok && result.pending) return settlePending(result.signature, result.message, lock.escrow, false);
     if (!result.ok) {
       return failure(502, "settle_failed", `${result.message} The session's maximum stays locked in escrow ${lock.escrow}; nothing was charged, and you can cancel it for a full refund once its refund window has elapsed.`, { charged: false, escrow: lock.escrow });
     }
     settleSignature = result.signature;
+    sessionFeeLamports = result.feeLamports;
   }
 
   const nowMs = (deps.now ?? Date.now)();
@@ -741,7 +830,9 @@ async function handleSessionCall(input: {
 
   if (close) {
     // The closing receipt is its own link in the chain: no tokens of its own, the running totals, and the settle.
-    const fee = (cumulative * sandboxFeeBps()) / BigInt(10_000);
+    // A settled session's fee is what the treasury received in its settle (audit S7-Codex-R2-05); a
+    // simulated session shows the arithmetic at today's rate, with no transaction.
+    const fee = sessionFeeLamports ?? (cumulative * sandboxFeeBps()) / BigInt(10_000);
     const closing = await sign({
       ...base,
       payment: {

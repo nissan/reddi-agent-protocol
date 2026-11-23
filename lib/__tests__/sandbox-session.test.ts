@@ -19,7 +19,7 @@ import {
   type SandboxGatewayDeps,
   type SandboxGatewayResponse,
 } from "@/lib/sandbox/gateway";
-import { countTokens, formatUnits, maxChargeLamports, requestInputTokens, SANDBOX_FEE_TREASURY, sessionCallLamports } from "@/lib/sandbox/pricing";
+import { countTokens, formatUnits, maxChargeLamports, requestInputTokens, SANDBOX_FEE_TREASURY, sandboxFeeBps, sessionCallLamports } from "@/lib/sandbox/pricing";
 import {
   decodeReceiptHeader,
   encodeReceiptHeader,
@@ -30,7 +30,7 @@ import {
   verifySandboxReceipt,
   type SandboxReceipt,
 } from "@/lib/sandbox/receipt";
-import type { SandboxSettleInput, SandboxSettler } from "@/lib/sandbox/settle-signer";
+import type { SandboxSettleExpectation, SandboxSettleInput, SandboxSettleLookup, SandboxSettler } from "@/lib/sandbox/settle-signer";
 import { sandboxBuildOfRecord, type SandboxDeploymentCheck } from "@/lib/sandbox/deployment";
 import { scriptedSandboxAnswer } from "@/lib/sandbox/catalog";
 import { createPrivateKey, sign as edSign } from "crypto";
@@ -97,17 +97,28 @@ type Accounts = Map<string, { owner: PublicKey; data: Uint8Array }>;
 
 const DEPLOYMENT_OF_RECORD: SandboxDeploymentCheck = { ok: true, build: sandboxBuildOfRecord()! };
 
-function fakeSettler(available = true, result: { ok: true; signature: string } | { ok: false; message: string } = { ok: true, signature: SETTLE_SIG }, deployment: SandboxDeploymentCheck = DEPLOYMENT_OF_RECORD) {
+type FakeSettleResult = { ok: true; signature: string; feeLamports?: bigint } | { ok: false; message: string } | { ok: false; pending: true; signature: string; message: string };
+
+/** The fee the treasury would receive at today's rate. A fake settle reports it as read from the chain unless told otherwise. */
+const feeAtTodaysRate = (actual: bigint) => (actual * sandboxFeeBps()) / BigInt(10_000);
+
+function fakeSettler(available = true, result: FakeSettleResult = { ok: true, signature: SETTLE_SIG }, deployment: SandboxDeploymentCheck = DEPLOYMENT_OF_RECORD, lookupResult: SandboxSettleLookup = { state: "unknown" }) {
   const calls: SandboxSettleInput[] = [];
+  const lookups: { signature: string; expected: SandboxSettleExpectation }[] = [];
   const settler: SandboxSettler = {
     canSettle: () => available,
     deployment: async () => deployment,
     async settle(input) {
       calls.push(input);
+      if (result.ok) return { ...result, feeLamports: result.feeLamports ?? feeAtTodaysRate(input.actualLamports) };
       return result;
     },
+    async lookup(signature, expected) {
+      lookups.push({ signature, expected });
+      return lookupResult;
+    },
   };
-  return { settler, calls };
+  return { settler, calls, lookups };
 }
 
 function makeDeps(accounts: Accounts, settler: SandboxSettler | undefined): SandboxGatewayDeps {
@@ -392,6 +403,24 @@ describe("sandbox sessions (#863)", () => {
     const response = await sessionCall(deps, meteredHeader(NONCE, escrow), 1, undefined, true, await sessionAuth(escrow));
     expect(response.status).toBe(502);
     expect(response.body).toMatchObject({ charged: false, escrow });
+  });
+
+  it("never says nothing was charged when the closing settle's outcome is unknown (audit S7-Codex-R2-04)", async () => {
+    const accounts: Accounts = new Map();
+    const escrow = lockFor(accounts, NONCE, { amount: SESSION_MAX });
+    const deps = makeDeps(accounts, fakeSettler(true, { ok: false, pending: true, signature: "7".repeat(88), message: "Sent, not confirmed." }).settler);
+    const response = await sessionCall(deps, meteredHeader(NONCE, escrow), 1, undefined, true, await sessionAuth(escrow));
+    expect(response.status).toBe(202);
+    expect(response.body).toMatchObject({ charged: "unknown", escrow, settleSignature: "7".repeat(88) });
+    expect(response.bodyText).not.toMatch(/nothing was charged/i);
+  });
+
+  it("signs the closing receipt with the fee the settle paid the treasury (audit S7-Codex-R2-05)", async () => {
+    const accounts: Accounts = new Map();
+    const escrow = lockFor(accounts, NONCE, { amount: SESSION_MAX });
+    const deps = makeDeps(accounts, fakeSettler(true, { ok: true, signature: SETTLE_SIG, feeLamports: BigInt(11) }).settler);
+    const { last } = await runSession(deps, meteredHeader(NONCE, escrow), 2, await sessionAuth(escrow));
+    expect(closingReceipt(last).receipt.payment).toMatchObject({ fee: { amount: "11", treasury: SANDBOX_FEE_TREASURY } });
   });
 });
 

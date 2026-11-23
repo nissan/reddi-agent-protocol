@@ -134,6 +134,11 @@ export type TryChainReader = Parameters<typeof transactionFactsReader>[0] & {
 
 export type TryRunResult =
   | { ok: true; state: "waiting" }
+  /**
+   * The provider sent its settle but devnet has not confirmed whether it landed (audit S7-Codex-R2-04).
+   * The payer may have been charged: polls go on and collect the answer once it has landed.
+   */
+  | { ok: true; state: "settling"; lockSignature: string; payer: string; escrow: string; settleSignature: string }
   /** The lock was already finished (settled by an earlier request this server no longer holds, or refunded). Nothing more is taken. */
   | { ok: true; state: "settled"; lockSignature: string; payer: string; escrow: string }
   | {
@@ -166,6 +171,18 @@ export class TryRunCache {
   private readonly rejected = new Set<string>();
   private readonly answers = new Map<string, Promise<TryRunResult | TryFailure>>();
   private readonly cursors = new Map<string, string>();
+  private readonly pendingSettles = new Map<string, string>();
+
+  /** A settle the provider sent for a ticket whose outcome it could not confirm (audit S7-Codex-R2-04). */
+  pendingSettle(ticketId: string): string | undefined {
+    return this.pendingSettles.get(ticketId);
+  }
+
+  setPendingSettle(ticketId: string, signature: string | undefined): void {
+    if (signature === undefined) this.pendingSettles.delete(ticketId);
+    else this.pendingSettles.set(ticketId, signature);
+    if (this.pendingSettles.size > CACHE_LIMIT) this.pendingSettles.delete(this.pendingSettles.keys().next().value as string);
+  }
 
   /** The oldest signature naming a ticket's reference that every newer one has been ruled out down to. */
   cursor(ticketId: string): string | undefined {
@@ -262,7 +279,7 @@ export async function runTry(input: {
       cache.reject(seen);
       continue;
     }
-    return cache.answer(seen, () => callProvider({ ...input, task, provider, ticket, delegation, escrow, payer, lockSignature: candidate.signature }));
+    return cache.answer(seen, () => callProvider({ ...input, cache, task, provider, ticket, delegation, escrow, payer, lockSignature: candidate.signature }));
   }
   // The older page is all ruled out: the next poll starts below it.
   if (older.length === pageSize && older.every((c) => c.err || cache.isRejected(`${ticket.id}:${c.signature}`))) cache.advance(ticket.id, older[older.length - 1].signature);
@@ -273,6 +290,7 @@ async function callProvider(input: {
   origin: string;
   secret: Buffer;
   deps: SandboxGatewayDeps;
+  cache: TryRunCache;
   task: TryTask;
   provider: SandboxProvider;
   ticket: TryTicket;
@@ -285,19 +303,34 @@ async function callProvider(input: {
   const relay = relayKeypair(ticket.id, input.secret);
   const text = requestText(task, provider);
   const challenge: SandboxChallenge = { version: "1", network: "solana-devnet", payTo: provider.payTo, amount: "0", currency: "SOL", endpoint: SANDBOX_ENDPOINT_PATH, nonce: ticket.nonce };
-  const reply = await handleSandboxChatCompletion(
-    {
-      body: JSON.parse(text),
-      rawBody: text,
-      paymentHeader: meteredPaymentHeader(challenge, escrow.toBase58(), lockSignature, payer.toBase58()),
-      origin: input.origin,
-      session: {
-        delegation: lockBoundDelegationHeaderValue(delegation, lockSignature),
-        signature: await sessionSignatureHeaderValue({ genesisHash: SOLANA_GENESIS_HASHES["solana-devnet"], action: "single", escrow: escrow.toBase58(), sequence: 0, body: text }, (m) => signWith(relay, m)),
+  const send = async (settleSignature?: string) =>
+    handleSandboxChatCompletion(
+      {
+        body: JSON.parse(text),
+        rawBody: text,
+        paymentHeader: meteredPaymentHeader(challenge, escrow.toBase58(), lockSignature, payer.toBase58()),
+        origin: input.origin,
+        session: {
+          delegation: lockBoundDelegationHeaderValue(delegation, lockSignature),
+          signature: await sessionSignatureHeaderValue({ genesisHash: SOLANA_GENESIS_HASHES["solana-devnet"], action: "single", escrow: escrow.toBase58(), sequence: 0, body: text }, (m) => signWith(relay, m)),
+        },
+        ...(settleSignature ? { settleSignature } : {}),
       },
-    },
-    input.deps,
-  );
+      input.deps,
+    );
+  // A settle sent on an earlier poll whose outcome was not known: ask for the answer it paid for,
+  // never for a second settle (audit S7-Codex-R2-04).
+  const pending = input.cache.pendingSettle(ticket.id);
+  const reply = await send(pending);
+  // That settle did not land: nothing was charged, and the page offers the refund once its window opens.
+  if (pending && reply.status === 502) input.cache.setPendingSettle(ticket.id, undefined);
+  if (reply.status === 202) {
+    const signature = (reply.body as { settleSignature?: unknown }).settleSignature;
+    if (typeof signature !== "string") return { ok: true, state: "waiting" };
+    input.cache.setPendingSettle(ticket.id, signature);
+    return { ok: true, state: "settling", lockSignature, payer: payer.toBase58(), escrow: escrow.toBase58(), settleSignature: signature };
+  }
+  if (reply.status === 200) input.cache.setPendingSettle(ticket.id, undefined);
   let body: unknown;
   try {
     body = JSON.parse(reply.bodyText);
