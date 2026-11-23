@@ -23,6 +23,8 @@ Each path is a full provider: `/<name>/v1/chat/completions`, `/<name>/.well-know
 
 A provider missing any of these answers 503 and charges nothing; the log line `provider_not_configured` names the missing setting, never a value.
 
+Alert email (optional, recommended on mainnet): with `PROVIDER_ALERT_RESEND_API_KEY` (Sensitive), `PROVIDER_ALERT_EMAIL_TO` and `PROVIDER_ALERT_EMAIL_FROM` (a sender on a domain verified in Resend) all set, every log event marked `alert: true` (a failed sweep, a settle whose outcome is unknown, a lost paid answer, a provider not set up) is also emailed, sent after the response. Each instance sends at most one email per event name every 15 minutes and counts the ones it held back. With only some of the three set, it logs `alert_email_not_configured` with the missing names and sends nothing; a refused send logs `alert_email_failed` with the status only. See `lib/alerts.ts`.
+
 ## Database setup (owner, once)
 
 1. Apply `supabase/migrations/20261123120000_provider_kit_state.sql`. It creates `provider_kit_app` without a login: it can use the five `provider_kit` tables and nothing else.
