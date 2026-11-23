@@ -13,8 +13,8 @@ name: Release packages
 #      package and uploads the tarballs.
 #   2. publish: in the `npm-release` environment, checks out nothing, installs
 #      nothing, and runs only `npm publish <tarball> --provenance`. It uses npm
-#      trusted publishing (OIDC). Until each package has a trusted publisher on
-#      npm, an `NPM_TOKEN` secret in the environment is used for that one step.
+#      trusted publishing (OIDC) only: no npm token is stored, so each package
+#      needs a trusted publisher on npm for this repository and workflow.
 #   3. smoke: installs the published kit from npm with no token and no rights.
 #   4. tag: pushes one tag per package; it runs git only.
 # - Actions are pinned by commit.
@@ -234,7 +234,6 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "24"
-          registry-url: "https://registry.npmjs.org"
 
       # Trusted publishing needs npm 11.5.1 or later.
       - name: Update npm
@@ -242,8 +241,6 @@ jobs:
 
       # Nothing is checked out or installed in this job: it publishes the packed tarballs only.
       - name: Publish in dependency order
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
           while IFS= read -r tarball; do
