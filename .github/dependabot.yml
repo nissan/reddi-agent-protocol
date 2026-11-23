@@ -35,6 +35,14 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # Exact pins set on purpose. Change them by hand, not through Dependabot.
+      # undici: fetchOutbound pins outbound connections through an undici Agent
+      # lookup (SSRF / DNS-rebinding fix, #938). Re-run the outbound tests first.
+      - dependency-name: "undici"
+      # surfpool: exact pin; 1.7 fails surfpool-quasar-critical-sdk.
+      - dependency-name: "@solana/surfpool"
+      # per-client held at ~0.10.5 (round 2 finding R2-12); PER is out of V1.
+      - dependency-name: "@magicblock-labs/ephemeral-rollups-sdk"
     groups:
       payments-and-signing:
         patterns:
