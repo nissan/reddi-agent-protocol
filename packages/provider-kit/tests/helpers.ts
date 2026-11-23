@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { recordedInstruction, SOLANA_GENESIS_HASHES, tokenEscrowAddresses, treasuryTokenAccount, ESCROW_PROTOCOL_TREASURY, type SettlementRecord } from "@redditech/x402-solana";
+import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY, type TransactionInstruction } from "@solana/web3.js";
+import { freshRefundSeed, recordedInstruction, seedAddress, SOLANA_GENESIS_HASHES, tokenEscrowAddresses, treasuryTokenAccount, ESCROW_PROTOCOL_TREASURY, type SettlementRecord } from "@redditech/x402-solana";
 import type { ProviderChain } from "../src/chain.js";
 import { parseProviderConfig, type ProviderConfig, type ProviderConfigFile } from "../src/config.js";
 
@@ -37,6 +37,15 @@ export function config(overrides: Partial<ProviderConfigFile> = {}, env: Record<
 const disc = createHash("sha256").update("account:TokenEscrowAccount").digest().subarray(0, 8);
 export const ata = (owner: PublicKey, mint: PublicKey = USDC): PublicKey => treasuryTokenAccount({ mint, tokenProgram: TOKEN_PROGRAM }, owner);
 export const escrowAddress = (payer: PublicKey = buyer): PublicKey => tokenEscrowAddresses({ programId: PROGRAM, payer, nonce: Buffer.from(NONCE, "hex") }).escrow;
+/** The buyer-owned account a settle creates for this lock when the buyer made its own unusable. */
+export const freshRefundAccount = (createdSlot: bigint = CURRENT_SLOT - 10n): PublicKey => seedAddress(provider.publicKey, freshRefundSeed(escrowAddress(), createdSlot), TOKEN_PROGRAM);
+/** The Rent sysvar: 3480 lamports per byte-year, a 2-year threshold. */
+function rentSysvar() {
+  const data = Buffer.alloc(17);
+  data.writeBigUInt64LE(3480n, 0);
+  data.writeDoubleLE(2, 8);
+  return { owner: new PublicKey("Sysvar1111111111111111111111111111111111111"), data, lamports: 1_009_200n, executable: false };
+}
 
 export interface EscrowFields { amount?: bigint; payee?: PublicKey; metered?: boolean; status?: number; createdSlot?: bigint }
 export function escrowBytes(f: EscrowFields = {}): Uint8Array {
@@ -120,6 +129,7 @@ export function fakeChain(escrow: EscrowFields | null = {}): FakeChain {
   accounts.set(ata(buyer).toBase58(), tokenAccount(buyer));
   accounts.set(ESCROW_PROTOCOL_TREASURY.toBase58(), { owner: system, data: new Uint8Array(0), lamports: 2_000_000n, executable: false });
   accounts.set(ata(ESCROW_PROTOCOL_TREASURY).toBase58(), tokenAccount(ESCROW_PROTOCOL_TREASURY));
+  accounts.set(SYSVAR_RENT_PUBKEY.toBase58(), rentSysvar());
   if (escrow) accounts.set(escrowAddress().toBase58(), { owner: PROGRAM, data: escrowBytes(escrow), lamports: 2_000_000n, executable: false });
   const chain: FakeChain = {
     accounts,
