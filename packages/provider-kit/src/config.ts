@@ -8,6 +8,9 @@
  */
 import { PublicKey } from "@solana/web3.js";
 import { directPaymentCurrency, ESCROW_DEVNET_MINTS, ESCROW_MAINNET_MINTS, providerMeteredTerms, type MeteredTerms } from "@redditech/x402-solana";
+import type { ClaudeEffort, ClaudeThinking } from "./upstream.js";
+
+const CLAUDE_EFFORTS: readonly ClaudeEffort[] = ["low", "medium", "high", "xhigh", "max"];
 
 export type ProviderNetwork = "solana-devnet" | "solana-mainnet-beta";
 
@@ -33,8 +36,14 @@ export interface ProviderConfigFile {
   /** The model this provider declares it serves. Receipts name it. */
   model: string;
   upstream: {
+    /** "openai-compatible" (the default) calls `baseUrl`; "anthropic" calls Claude through the Anthropic API. */
+    provider?: string;
     /** An OpenAI-compatible base URL, for example https://openrouter.ai/api/v1 or http://localhost:11434/v1. */
     baseUrl?: string;
+    /** Claude only: how much effort the model puts into an answer (low, medium, high, xhigh, max). */
+    effort?: string;
+    /** Claude only: "off" turns thinking off where the model allows it; "adaptive" (the default) leaves it on. */
+    thinking?: string;
     /** The model name to send upstream when it differs from `model`. */
     model?: string;
     /** Name of the environment variable holding the upstream API key. Defaults to UPSTREAM_API_KEY. */
@@ -115,7 +124,7 @@ export interface ProviderConfig {
   wallet: string;
   publicUrl: string;
   model: string;
-  upstream: { baseUrl?: string; model: string; apiKey?: string; apiKeyEnv: string; mock: boolean; timeoutMs: number };
+  upstream: { provider: "openai-compatible" | "anthropic"; baseUrl?: string; model: string; apiKey?: string; apiKeyEnv: string; mock: boolean; timeoutMs: number; effort?: ClaudeEffort; thinking?: ClaudeThinking };
   terms: MeteredTerms;
   /** True while the price currency is in the paused list: no new locks are taken. */
   paused: boolean;
@@ -197,9 +206,16 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
 
   const upstreamRaw = isRecord(file.upstream) ? file.upstream : {};
   const mock = upstreamRaw.mock === true;
-  const baseUrl = text(upstreamRaw.baseUrl).replace(/\/+$/, "");
+  const upstreamProvider = text(upstreamRaw.provider) || "openai-compatible";
+  if (upstreamProvider !== "openai-compatible" && upstreamProvider !== "anthropic") errors.push('upstream.provider: must be "openai-compatible" or "anthropic"');
+  const claude = upstreamProvider === "anthropic";
+  const baseUrl = claude ? "" : text(upstreamRaw.baseUrl).replace(/\/+$/, "");
+  const effort = text(upstreamRaw.effort);
+  if (effort && (!claude || !CLAUDE_EFFORTS.includes(effort as ClaudeEffort))) errors.push(`upstream.effort: only for the anthropic provider, one of ${CLAUDE_EFFORTS.join(", ")}`);
+  const thinking = text(upstreamRaw.thinking);
+  if (thinking && (!claude || (thinking !== "adaptive" && thinking !== "off"))) errors.push('upstream.thinking: only for the anthropic provider, "adaptive" or "off"');
   // A model on the operator's own network may be plain http; the key is then the operator's concern.
-  if (!mock && !serviceUrl(baseUrl, { allowHttpAnywhere: true })) errors.push('upstream.baseUrl: must be an OpenAI-compatible base URL such as "https://openrouter.ai/api/v1", or set upstream.mock to true');
+  if (!mock && !claude && !serviceUrl(baseUrl, { allowHttpAnywhere: true })) errors.push('upstream.baseUrl: must be an OpenAI-compatible base URL such as "https://openrouter.ai/api/v1", or set upstream.mock to true');
   const apiKeyEnv = text(upstreamRaw.apiKeyEnv) || "UPSTREAM_API_KEY";
   if (!/^[A-Z_][A-Z0-9_]*$/.test(apiKeyEnv)) errors.push("upstream.apiKeyEnv: must be the name of an environment variable");
   const timeoutMs = upstreamRaw.timeoutMs === undefined ? 120_000 : Number(upstreamRaw.timeoutMs);
@@ -315,7 +331,17 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
       wallet,
       publicUrl,
       model,
-      upstream: { ...(baseUrl ? { baseUrl } : {}), model: text(upstreamRaw.model) || model, ...(apiKey ? { apiKey } : {}), apiKeyEnv, mock, timeoutMs },
+      upstream: {
+        provider: claude ? "anthropic" : "openai-compatible",
+        ...(baseUrl ? { baseUrl } : {}),
+        model: text(upstreamRaw.model) || model,
+        ...(apiKey ? { apiKey } : {}),
+        apiKeyEnv,
+        mock,
+        timeoutMs,
+        ...(effort ? { effort: effort as ClaudeEffort } : {}),
+        ...(thinking ? { thinking: thinking as ClaudeThinking } : {}),
+      },
       terms,
       paused: pausedCurrencies.includes(currency),
       pausedCurrencies,

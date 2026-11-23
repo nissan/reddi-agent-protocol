@@ -1,6 +1,6 @@
 # @redditech/provider-kit
 
-Run your own paid provider on Reddi Agent Protocol: one config file, one command, any OpenAI-compatible model.
+Run your own paid provider on Reddi Agent Protocol: one config file, one command, any OpenAI-compatible model or Claude.
 
 You bring a model (OpenRouter, a hosted API, or a local Ollama or vLLM server) and a Solana wallet. The kit puts a paid endpoint in front of it. Buyers pay per token through a metered escrow, and every paid answer carries a receipt signed by your wallet.
 
@@ -127,7 +127,10 @@ The wallet sign-in works against the devnet app: a message signed by the kit is 
 | `wallet` | Your provider wallet's address. Payouts go to its token account for the currency. |
 | `publicUrl` | Where buyers reach you. Must be `https` unless it is localhost. |
 | `model` | The model you declare. Receipts name it. It is a declaration, not proof of which model ran. |
-| `upstream.baseUrl` | An OpenAI-compatible base URL. |
+| `upstream.provider` | `openai-compatible` (the default) or `anthropic` for Claude through the Anthropic API. |
+| `upstream.baseUrl` | An OpenAI-compatible base URL. Not used with `anthropic`. |
+| `upstream.effort` | Claude only: `low`, `medium`, `high`, `xhigh` or `max`. Lower effort means fewer thinking tokens, so a lower bill for the buyer. |
+| `upstream.thinking` | Claude only: `off` turns thinking off where the model allows it. Claude Opus 5.5 always thinks; lower `effort` instead. |
 | `upstream.model` | The name to send upstream, when it differs from `model`. |
 | `upstream.apiKeyEnv` | Name of the environment variable holding the API key. Default `UPSTREAM_API_KEY`. The key itself never goes in the file. |
 | `upstream.mock` | `true` answers with canned text. Refused on mainnet. |
