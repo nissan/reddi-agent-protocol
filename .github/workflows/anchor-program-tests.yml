@@ -73,7 +73,7 @@ jobs:
       # both the key and the restore prefix — a bare lane prefix would restore
       # the previous toolchain's target/ anyway.
       - name: Cache Cargo registry and workspace target
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry

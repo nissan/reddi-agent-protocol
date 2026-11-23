@@ -76,7 +76,7 @@ jobs:
 
       - name: Cache solana-verify
         id: cache-verify
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/solana-verify
           key: solana-verify-${{ env.SOLANA_VERIFY_VERSION }}-${{ runner.os }}
