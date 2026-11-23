@@ -143,7 +143,9 @@ A payout fails if the treasury cannot receive it:
       `false`.
    4. **Access rules on the hosted project.** Run `supabase/tests/10_access_rules.sql`
       against the hosted database inside one transaction that ends in `rollback`,
-      so its test rows are not kept. Every check must pass. The run of 22
+      so its test rows are not kept. Run that file only: never
+      `00_supabase_stub.sql` or `run-local.sh`, which create roles and schemas
+      for a throwaway local database. Every check must pass. The run of 22
       November 2026 does not count for launch day.
    5. **Backups.** In the Supabase dashboard (Database, Backups), daily backups
       are on and the latest one is less than a day old. Point-in-time recovery is
