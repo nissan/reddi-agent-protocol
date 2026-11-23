@@ -14,7 +14,7 @@
     "@coral-xyz/anchor": "^0.32.0",
     "@solana/web3.js": "^1.95.8",
     "bs58": "^5.0.0",
-    "dotenv": "^16.0.0",
+    "dotenv": "^18.0.10",
     "sha2": "^1.0.0"
   },
   "devDependencies": {
