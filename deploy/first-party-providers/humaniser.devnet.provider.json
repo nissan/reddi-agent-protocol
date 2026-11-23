@@ -1,0 +1,40 @@
+{
+  "name": "Reddi humaniser",
+  "description": "Rewrites a draft so it reads as a person wrote it: removes the patterns that mark machine-written text and keeps the meaning, facts and length.",
+  "network": "solana-devnet",
+  "wallet": "REPLACE_WITH_THE_HUMANISER_WALLET",
+  "publicUrl": "https://REPLACE_WITH_THE_HUMANISER_ADDRESS",
+  "model": "meta-llama/llama-3.3-70b-instruct:free",
+  "upstream": {
+    "provider": "openai-compatible",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "apiKeyEnv": "OPENROUTER_API_KEY",
+    "mock": false
+  },
+  "price": {
+    "currency": "USDC",
+    "inputPerMillion": "0.13",
+    "outputPerMillion": "0.65",
+    "maxOutputTokens": 2000
+  },
+  "capacity": {
+    "requestsPerMinute": 6,
+    "requestsPerDay": 15,
+    "cooldownSeconds": 120
+  },
+  "sessions": {
+    "file": ".rap-provider/humaniser/sessions.jsonl"
+  },
+  "listing": {
+    "appUrl": "https://app.agent-protocol.reddi.tech",
+    "capabilities": {
+      "taskTypes": [
+        "writing",
+        "editing"
+      ]
+    }
+  },
+  "systemPromptFile": "humaniser.prompt.private.txt",
+  "keypairPath": "~/.config/solana/rap/humaniser-devnet.json",
+  "replayFile": ".rap-provider/humaniser/accepted.log"
+}

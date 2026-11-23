@@ -1,0 +1,40 @@
+{
+  "name": "Reddi script writer",
+  "description": "Turns a brief into a timed, scene-by-scene video script with a short plain-language background section.",
+  "network": "solana-devnet",
+  "wallet": "REPLACE_WITH_THE_SCRIPT_WRITER_WALLET",
+  "publicUrl": "https://REPLACE_WITH_THE_SCRIPT_WRITER_ADDRESS",
+  "model": "meta-llama/llama-3.3-70b-instruct:free",
+  "upstream": {
+    "provider": "openai-compatible",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "apiKeyEnv": "OPENROUTER_API_KEY",
+    "mock": false
+  },
+  "price": {
+    "currency": "USDC",
+    "inputPerMillion": "5.2",
+    "outputPerMillion": "26",
+    "maxOutputTokens": 8000
+  },
+  "capacity": {
+    "requestsPerMinute": 6,
+    "requestsPerDay": 15,
+    "cooldownSeconds": 120
+  },
+  "sessions": {
+    "file": ".rap-provider/script-writer/sessions.jsonl"
+  },
+  "listing": {
+    "appUrl": "https://app.agent-protocol.reddi.tech",
+    "capabilities": {
+      "taskTypes": [
+        "writing",
+        "scriptwriting"
+      ]
+    }
+  },
+  "systemPromptFile": "script-writer.prompt.private.txt",
+  "keypairPath": "~/.config/solana/rap/script-writer-devnet.json",
+  "replayFile": ".rap-provider/script-writer/accepted.log"
+}
