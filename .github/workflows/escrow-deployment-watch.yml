@@ -1,0 +1,102 @@
+name: Escrow deployment watch
+
+# Once a week, checks that the V1 escrow program on mainnet is still the build of record under the recorded
+# authority (scripts/check-escrow-deployment.mjs against the release record below). Read only: it signs and sends
+# nothing. The RPC is the MAINNET_RPC_URL secret when it is set, else the public mainnet RPC; the script prints only
+# the RPC host. Until the record has a deployedSlot (filled in by the pull request that records the mainnet deploy)
+# the run says so and checks nothing. A failed scheduled or manual run, including one that could not decide (exit 2),
+# opens (or comments on) one issue labelled deployment-watch, assigned to the repository owner; a later pass closes it.
+# docs/MAINNET-LAUNCH-RUNBOOK.md §6 says what to do.
+#
+# When the program is upgraded, point MAINNET_RECORD at the new release record in the same pull request.
+
+on:
+  schedule:
+    - cron: "23 22 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/escrow-deployment-watch.yml"
+      - "scripts/check-escrow-deployment.mjs"
+      - "config/releases/**"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: escrow-deployment-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MAINNET_RECORD: config/releases/v1-mainnet-45e9547.json
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/check-escrow-deployment.mjs
+            config/releases
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+
+      - name: Is the record deployed?
+        id: gate
+        run: |
+          slot=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if (r.network!=="mainnet") { console.error("MAINNET_RECORD is not a mainnet record"); process.exit(2); } process.stdout.write(Number.isInteger(r.deployedSlot)&&r.deployedSlot>0?String(r.deployedSlot):"")' "$MAINNET_RECORD")
+          if [ -z "$slot" ]; then
+            echo "::notice::$MAINNET_RECORD has no deployedSlot yet, so mainnet is not checked."
+            echo "deployed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Checking $MAINNET_RECORD (deployed at slot $slot)."
+            echo "deployed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Pull requests only check the gate above; they never read mainnet.
+      - name: Check the deployed program
+        id: check
+        if: steps.gate.outputs.deployed == 'true' && github.event_name != 'pull_request'
+        shell: bash
+        env:
+          SOLANA_RPC_URL: ${{ secrets.MAINNET_RPC_URL }}
+        run: |
+          [ -n "$SOLANA_RPC_URL" ] || unset SOLANA_RPC_URL
+          node scripts/check-escrow-deployment.mjs --record "$MAINNET_RECORD" 2>&1 | tee /tmp/watch.log
+
+      - name: Alert the repository owner
+        if: failure() && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OWNER: ${{ github.repository_owner }}
+          MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL }}
+        run: |
+          gh label create deployment-watch --repo "$GITHUB_REPOSITORY" --color B60205 --description "Mainnet escrow program is not the build of record, or could not be checked" 2>/dev/null || true
+          # The issue is public and GitHub does not mask secrets in it, so it carries only the check's verdict lines,
+          # with the RPC URL and any api-key value scrubbed as well. Errors (which could echo a URL) stay in the run log.
+          lines=$(grep -E '^(ok  |FAIL) ' /tmp/watch.log 2>/dev/null || true)
+          if [ -n "${MAINNET_RPC_URL:-}" ]; then lines=${lines//"$MAINNET_RPC_URL"/<rpc>}; fi
+          lines=$(printf '%s\n' "$lines" | sed -E 's/(api[-_]?key=)[^&[:space:]]+/\1<redacted>/Ig')
+          [ -n "$lines" ] || lines="No verdict lines: the check could not decide (record or RPC unusable). See the run log."
+          { echo "The weekly check of the mainnet escrow program against \`$MAINNET_RECORD\` failed or could not decide."; echo; echo '```'; printf '%s\n' "$lines"; echo '```'; echo; echo "Run: $RUN_URL"; echo; echo "Follow docs/MAINNET-LAUNCH-RUNBOOK.md §6. A FAIL on the hash or authority lines is an incident; no verdict lines means the RPC or record could not be used."; } > /tmp/body.md
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label deployment-watch --state open --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body-file /tmp/body.md
+          else gh issue create --repo "$GITHUB_REPOSITORY" --title "Mainnet escrow deployment watch failed" --label deployment-watch --assignee "$OWNER" --body-file /tmp/body.md; fi
+
+      - name: Close the issue once the check passes
+        if: success() && steps.check.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label deployment-watch --state open --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then gh issue close "$open" --repo "$GITHUB_REPOSITORY" --comment "The check passed again. Run: $RUN_URL"; fi

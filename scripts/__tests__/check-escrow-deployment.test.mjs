@@ -184,6 +184,38 @@ test('the CLI refuses a mainnet --deployer that the record does not forbid', () 
   assert.match(run.stderr, /must be listed under forbiddenAuthorities/);
 });
 
+test('a record may name its deployer, which must be forbidden, and the CLI then checks its buffers', () => {
+  assert.deepEqual(recordProblems(record({ deployer: DEPLOYER })), []);
+  assert.deepEqual(recordProblems(record({ deployer: 'not-an-address' })), ['deployer is not an address']);
+  assert.deepEqual(recordProblems(record({ deployer: VAULT, forbiddenAuthorities: [SOME_MULTISIG, DEPLOYER] })),
+    ['deployer must also be listed under forbiddenAuthorities']);
+  // With the deployer in the record and no --deployer, the CLI gets as far as the RPC (exit 2 here, nothing decided).
+  const S = path.join(root, '.tmp');
+  mkdirSync(S, { recursive: true });
+  const file = path.join(S, 'check-escrow-deployment-record-deployer.json');
+  writeFileSync(file, JSON.stringify(record({ deployer: DEPLOYER })));
+  const run = spawnSync(process.execPath, [path.join(root, 'scripts/check-escrow-deployment.mjs'), '--record', file,
+    '--url', 'http://127.0.0.1:9'], { encoding: 'utf8' });
+  assert.equal(run.status, 2);
+  assert.doesNotMatch(run.stderr, /Record problem/);
+  assert.match(run.stderr, /Could not read from 127\.0\.0\.1:9/);
+});
+
+test('the weekly watch points at a committed mainnet record of the V1 program', () => {
+  const workflow = readFileSync(path.join(root, '.github/workflows/escrow-deployment-watch.yml'), 'utf8');
+  const match = workflow.match(/^\s*MAINNET_RECORD:\s*(\S+)\s*$/m);
+  assert.ok(match, 'MAINNET_RECORD is set in the workflow');
+  const watched = JSON.parse(readFileSync(path.join(root, match[1]), 'utf8'));
+  assert.equal(watched.network, 'mainnet');
+  assert.equal(watched.programId, MAINNET_PROGRAM_ID);
+  assert.match(workflow, /cron: "\d+ \d+ \* \* \d"/, 'it runs weekly');
+  assert.match(workflow, /--assignee "\$OWNER"/, 'a failure is assigned to the owner');
+  // It reads a secret and can write issues: actions pinned by commit, and the public issue gets verdict lines only.
+  for (const line of workflow.match(/uses: \S+/g)) assert.match(line, /@[0-9a-f]{40}$/, `${line} is pinned to a commit`);
+  assert.doesNotMatch(workflow, /tail -n/, 'the raw log never goes into the issue');
+  assert.match(workflow, /MAINNET_RPC_URL"\/<rpc>/, 'the RPC URL is scrubbed from the issue body');
+});
+
 test('committed release records are usable', () => {
   const devnet = JSON.parse(readFileSync(path.join(root, 'config/releases/v1-devnet-b71a91e.json'), 'utf8'));
   assert.deepEqual(recordProblems(devnet), []);

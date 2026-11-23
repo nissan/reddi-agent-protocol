@@ -188,7 +188,19 @@ A payout fails if the treasury cannot receive it:
    vault never goes to zero lamports and its four token accounts are never
    closed, and run `node scripts/check-escrow-treasury.mjs --network mainnet` on a
    schedule that alerts the owner, before raising any cap.
-5. Public copy changes from "planned" to "collected" for the fee only after
+5. Turn on the weekly deployment watch: in the pull request that records the
+   deploy, fill in `deployedSlot` and `deployer` in the mainnet release record
+   (the deployer must also be under `forbiddenAuthorities`), and make sure
+   `MAINNET_RECORD` in `.github/workflows/escrow-deployment-watch.yml` names that
+   record. The owner adds a `MAINNET_RPC_URL` Actions secret (a keyed Helius URL;
+   without it the public RPC is used, which may refuse the buffer scan and so
+   alert as "could not decide"). Then run the workflow by hand once and see it
+   pass. From then on it runs every Tuesday 09:23 Sydney time (Monday 22:23 UTC)
+   and opens a `deployment-watch` issue assigned to the owner when the program is
+   not the build of record under the vault, or when the check cannot decide. A
+   FAIL on a hash or authority line is an incident: stop new locks and follow the
+   incident runbook.
+6. Public copy changes from "planned" to "collected" for the fee only after
    this step (`docs/PUBLIC-CLAIM-BOUNDARY.md`).
 
 See `docs/ESCROW-PAYOUT-SAFETY.md` for what a lock means to buyers and sellers,
