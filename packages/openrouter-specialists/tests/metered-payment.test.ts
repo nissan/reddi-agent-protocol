@@ -5,7 +5,27 @@ import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js
 import { ESCROW_PROTOCOL_TREASURY, MemoryNonceReplayStore, paidCallAuthHeaders, SOLANA_GENESIS_HASHES, tokenEscrowAddresses, treasuryTokenAccount } from "@redditech/x402-solana";
 import { MockOpenRouterClient } from "../src/openrouter.js";
 import { getProfile } from "../src/profiles/index.js";
-import bs58 from "bs58";
+
+// Base58 for the fake chain's instruction data (the package has no typed base58 dependency).
+const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const bs58 = {
+  encode(bytes: Uint8Array): string {
+    let n = BigInt("0x" + (Buffer.from(bytes).toString("hex") || "0"));
+    let out = "";
+    while (n > BigInt(0)) { out = B58[Number(n % BigInt(58))] + out; n /= BigInt(58); }
+    for (const b of bytes) { if (b !== 0) break; out = "1" + out; }
+    return out;
+  },
+  decode(text: string): Uint8Array {
+    let n = BigInt(0);
+    for (const c of text) n = n * BigInt(58) + BigInt(B58.indexOf(c));
+    const hex = n === BigInt(0) ? "" : n.toString(16);
+    const body = Buffer.from(hex.length % 2 ? "0" + hex : hex, "hex");
+    let zeros = 0;
+    for (const c of text) { if (c !== "1") break; zeros++; }
+    return Uint8Array.from(Buffer.concat([Buffer.alloc(zeros), body]));
+  },
+};
 import { handleRuntimeRequest, MemoryHeldAnswerStore, PROVIDER_RECEIPT_HEADER, SettleNotSentError, type ProviderReceiptStatement, type RuntimeConfig, type RuntimeDeps, type SpecialistSettleSigner } from "../src/index.js";
 
 const PROGRAM = new PublicKey("DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu");
