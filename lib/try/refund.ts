@@ -6,6 +6,7 @@
  */
 import { ComputeBudgetProgram, PublicKey, Transaction } from "@solana/web3.js";
 import { buildSandboxRefund, decodeSandboxEscrow, SANDBOX_ESCROW_PROGRAM_ID } from "@/lib/sandbox/escrow";
+import { checkSandboxDeployment } from "@/lib/sandbox/deployment";
 
 /** A refund is four accounts and no transfer to anyone else: a small budget keeps wallets from adding a priority fee. */
 export const TRY_REFUND_COMPUTE_UNITS = 20_000;
@@ -52,11 +53,14 @@ export async function buildTryRefundTransaction(input: { escrow: unknown; accoun
     const minutes = Math.max(1, Math.ceil((Number(opensAt - slot) * MS_PER_SLOT) / 60_000));
     return fail(409, "refund_not_open", `The refund opens in about ${minutes} minute${minutes === 1 ? "" : "s"}, so the provider has time to settle first. Try again then.`);
   }
+  // The refund's encoding depends on the program build devnet runs (audit S7-Codex-R2-06).
+  const deployment = await checkSandboxDeployment((address) => input.connection.getAccountInfo(address, "confirmed"));
+  if (!deployment.ok) return fail(503, "refund_paused", "Refunds from this page are paused for a moment while the devnet program is checked. Your SOL stays safe in the escrow; try again shortly.");
   const { blockhash, lastValidBlockHeight } = await input.connection.getLatestBlockhash("confirmed");
   const tx = new Transaction({ feePayer: payer, blockhash, lastValidBlockHeight }).add(
     ComputeBudgetProgram.setComputeUnitLimit({ units: TRY_REFUND_COMPUTE_UNITS }),
     ComputeBudgetProgram.setComputeUnitPrice({ microLamports: TRY_REFUND_MICRO_LAMPORTS_PER_UNIT }),
-    buildSandboxRefund({ escrow, payer, rated: decoded.rated, createdSlot: decoded.createdSlot }),
+    buildSandboxRefund({ escrow, payer, rated: decoded.rated, createdSlot: decoded.createdSlot, namesUnratedExits: deployment.build.namesUnratedExits }),
   );
   const transaction = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
   return { ok: true, transaction, message: "Take back everything locked in this devnet escrow. No fee; the escrow closes and its storage deposit comes back too." };

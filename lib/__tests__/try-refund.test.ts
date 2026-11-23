@@ -1,6 +1,7 @@
 import { ComputeBudgetProgram, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { SANDBOX_ESCROW_DISCRIMINATORS, SANDBOX_ESCROW_PROGRAM_ID } from "@/lib/sandbox/escrow";
 import { buildTryRefundTransaction, type TryRefundConnection } from "@/lib/try/refund";
+import { sandboxBuildOfRecord, UPGRADEABLE_LOADER_ID } from "@/lib/sandbox/deployment";
 
 const BLOCKHASH = "11111111111111111111111111111111";
 const CREATED_SLOT = BigInt(1_000);
@@ -26,9 +27,26 @@ function escrowData(fields: { payer: PublicKey; payee: PublicKey; status?: numbe
   return out;
 }
 
-function connection(data: Uint8Array | null, slot: bigint, owner = SANDBOX_ESCROW_PROGRAM_ID): TryRefundConnection {
+const PROGRAM_DATA = Keypair.generate().publicKey;
+
+/** The program account and its ProgramData, last deployed in `deployedSlot`. */
+function programAccounts(deployedSlot: bigint) {
+  const program = Buffer.alloc(36);
+  program.writeUInt32LE(2, 0);
+  PROGRAM_DATA.toBuffer().copy(program, 4);
+  const programData = Buffer.alloc(45);
+  programData.writeUInt32LE(3, 0);
+  programData.writeBigUInt64LE(deployedSlot, 4);
+  return new Map([
+    [SANDBOX_ESCROW_PROGRAM_ID.toBase58(), { owner: UPGRADEABLE_LOADER_ID, data: new Uint8Array(program), lamports: 1 }],
+    [PROGRAM_DATA.toBase58(), { owner: UPGRADEABLE_LOADER_ID, data: new Uint8Array(programData), lamports: 1 }],
+  ]);
+}
+
+function connection(data: Uint8Array | null, slot: bigint, owner = SANDBOX_ESCROW_PROGRAM_ID, deployedSlot = sandboxBuildOfRecord()!.deployedSlot): TryRefundConnection {
+  const program = programAccounts(deployedSlot);
   return {
-    getAccountInfo: async () => (data ? { owner, data, lamports: 1_493_794 } : null),
+    getAccountInfo: async (address: PublicKey) => program.get(address.toBase58()) ?? (data ? { owner, data, lamports: 1_493_794 } : null),
     getSlot: async () => Number(slot),
     getLatestBlockhash: async () => ({ blockhash: BLOCKHASH, lastValidBlockHeight: 100 }),
   };
@@ -64,6 +82,17 @@ describe("try refund (Solana Pay transaction request)", () => {
     const refund = Transaction.from(Buffer.from(built.transaction, "base64")).instructions[2];
     expect(refund.keys).toHaveLength(5);
     expect(Buffer.from(refund.data).subarray(8).readBigUInt64LE(0)).toBe(CREATED_SLOT);
+  });
+
+  it("encodes the refund for the build devnet runs, and refuses when that build is not the one of record (audit S7-Codex-R2-06)", async () => {
+    const built = await buildTryRefundTransaction({ escrow, account: payer.toBase58(), connection: connection(escrowData({ payer, payee }), open) });
+    if (!built.ok) throw new Error(built.message);
+    const refund = Transaction.from(Buffer.from(built.transaction, "base64")).instructions[2];
+    // The build of record before the freeze takes no slot on an unrated exit.
+    expect(sandboxBuildOfRecord()!.namesUnratedExits).toBe(false);
+    expect(refund.data).toHaveLength(8);
+    const unknown = await buildTryRefundTransaction({ escrow, account: payer.toBase58(), connection: connection(escrowData({ payer, payee }), open, SANDBOX_ESCROW_PROGRAM_ID, BigInt(1)) });
+    expect(unknown).toMatchObject({ ok: false, code: "refund_paused" });
   });
 
   it("refuses before the window, for another wallet, for a closed or foreign escrow", async () => {

@@ -16,6 +16,7 @@ import { SANDBOX_PROVIDERS } from "./catalog";
 import { buildSandboxSettle, SANDBOX_ESCROW_PROGRAM_ID } from "./escrow";
 import { advanceSellerRating, type SellerRatingConnection } from "./seller-rating";
 import { isDevnetConnection } from "@/lib/sandbox/devnet-genesis";
+import { cachedSandboxDeploymentCheck, type SandboxDeploymentCheck } from "./deployment";
 
 export type SandboxSettleInput = {
   providerId: string;
@@ -33,6 +34,11 @@ export type SandboxSettleResult = { ok: true; signature: string } | { ok: false;
 export interface SandboxSettler {
   /** True when the server holds this provider's devnet key. */
   canSettle(providerId: string): boolean;
+  /**
+   * Whether devnet runs the escrow build of record, and how that build encodes an exit (deployment.ts).
+   * A paid call is offered and served only when it passes.
+   */
+  deployment(): Promise<SandboxDeploymentCheck>;
   settle(input: SandboxSettleInput): Promise<SandboxSettleResult>;
 }
 
@@ -101,19 +107,31 @@ export interface SandboxSettlerOptions {
    * effort here: the scheduled sweep commits what this missed, and reveals later.
    */
   rateBuyerScore?: number;
+  /** Replaces the cached check of the devnet program build (tests). */
+  deployment?: () => Promise<SandboxDeploymentCheck>;
 }
 
 export function createSandboxSettler(connection: Connection, keys: Map<string, Keypair>, options: SandboxSettlerOptions = {}): SandboxSettler {
+  const deployment =
+    options.deployment ??
+    cachedSandboxDeploymentCheck(async (address) => {
+      const info = await connection.getAccountInfo(address, "confirmed");
+      return info ? { owner: info.owner, data: new Uint8Array(info.data) } : null;
+    });
   return {
     canSettle: (providerId) => keys.has(providerId),
+    deployment,
     async settle(input) {
       const keypair = keys.get(input.providerId);
       if (!keypair || !keypair.publicKey.equals(input.payee)) return { ok: false, message: "This provider cannot settle on devnet right now." };
       if (!(await isDevnetConnection(connection))) return { ok: false, message: "The sandbox settles on devnet only, and the server RPC is not devnet." };
+      // The exit's encoding depends on the build devnet runs (audit S7-Codex-R2-06): checked before anything is signed.
+      const build = await deployment();
+      if (!build.ok) return { ok: false, message: build.message };
       try {
         const latest = await connection.getLatestBlockhash("confirmed");
         const transaction = new Transaction({ feePayer: keypair.publicKey, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight }).add(
-          buildSandboxSettle({ escrow: input.escrow, payer: input.payer, payee: input.payee, actualLamports: input.actualLamports, rated: input.rated === true, createdSlot: input.createdSlot }),
+          buildSandboxSettle({ escrow: input.escrow, payer: input.payer, payee: input.payee, actualLamports: input.actualLamports, rated: input.rated === true, createdSlot: input.createdSlot, namesUnratedExits: build.build.namesUnratedExits }),
         );
         transaction.sign(keypair);
         const signature = await connection.sendRawTransaction(transaction.serialize(), { preflightCommitment: "confirmed" });

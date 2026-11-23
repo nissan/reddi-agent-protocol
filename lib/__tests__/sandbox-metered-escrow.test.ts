@@ -10,7 +10,6 @@ import { findSandboxProviderById, SANDBOX_PROVIDERS } from "@/lib/sandbox/catalo
 import {
   buildSandboxMeteredLock,
   buildSandboxSettle,
-  SANDBOX_PROGRAM_NAMES_UNRATED_EXITS,
   decodeSandboxEscrow,
   escrowNonceBytes,
   SANDBOX_ESCROW_DISCRIMINATORS,
@@ -24,6 +23,7 @@ import { countTokens, maxChargeLamports, requestInputTokens, SANDBOX_FEE_TREASUR
 import { decodeReceiptHeader, isSandboxReceipt, PROVIDER_RECEIPT_HEADER, verifySandboxReceipt } from "@/lib/sandbox/receipt";
 import { createSessionKey, paidCallAuthHeaders, sessionDelegationHeaderValue, SOLANA_GENESIS_HASHES, type MessageSigner } from "@/lib/payments/session-auth";
 import { parseSandboxPayeeKeys, type SandboxSettleInput, type SandboxSettler } from "@/lib/sandbox/settle-signer";
+import { sandboxBuildOfRecord, type SandboxDeploymentCheck } from "@/lib/sandbox/deployment";
 
 const ORIGIN = "https://sandbox.example";
 const NOW_MS = Date.UTC(2026, 10, 21, 2, 0, 0);
@@ -80,10 +80,13 @@ function escrowBytes(fields: {
 
 type Accounts = Map<string, { owner: PublicKey; data: Uint8Array }>;
 
-function fakeSettler(available = true, result: { ok: true; signature: string } | { ok: false; message: string } = { ok: true, signature: SETTLE_SIG }) {
+const DEPLOYMENT_OF_RECORD: SandboxDeploymentCheck = { ok: true, build: sandboxBuildOfRecord()! };
+
+function fakeSettler(available = true, result: { ok: true; signature: string } | { ok: false; message: string } = { ok: true, signature: SETTLE_SIG }, deployment: SandboxDeploymentCheck = DEPLOYMENT_OF_RECORD) {
   const calls: SandboxSettleInput[] = [];
   const settler: SandboxSettler = {
     canSettle: () => available,
+    deployment: async () => deployment,
     async settle(input) {
       calls.push(input);
       return result;
@@ -191,13 +194,14 @@ describe("sandbox metered escrow: instructions and layout", () => {
       ["11111111111111111111111111111111", false, false],
     ]);
 
-    // The devnet build refuses the slot on an unrated exit (6051), so the sandbox leaves it off there.
-    expect(SANDBOX_PROGRAM_NAMES_UNRATED_EXITS).toBe(false);
-    const deployed = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), createdSlot: BigInt(4242) });
+    // A build before the freeze refuses the slot on an unrated exit (6051), so the sandbox leaves it off there.
+    const deployed = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), createdSlot: BigInt(4242), namesUnratedExits: false });
     expect(deployed.data).toHaveLength(16);
     expect(deployed.data.subarray(0, 8)).toEqual(IX.settle_escrow);
     expect(deployed.data.readBigUInt64LE(8)).toBe(BigInt(207));
-    expect(buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: false, createdSlot: BigInt(4242) }).data).toEqual(deployed.data);
+    expect(buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: false, createdSlot: BigInt(4242), namesUnratedExits: false }).data).toEqual(deployed.data);
+    // No encoding chosen, no settle: a caller must check which build is deployed first.
+    expect(() => buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), createdSlot: BigInt(4242) } as unknown as Parameters<typeof buildSandboxSettle>[0])).toThrow("namesUnratedExits");
 
     // A program that names every exit gets the slot on an unrated settle too.
     const settle = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), createdSlot: BigInt(4242), namesUnratedExits: true });
@@ -222,10 +226,10 @@ describe("sandbox metered escrow: instructions and layout", () => {
     expect(unrated.keys).toEqual(settle.keys);
     // Without the lock slot no settle is built, rated or not: the program would refuse it.
     for (const rated of [false, true]) {
-      expect(() => buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated, createdSlot: undefined as unknown as bigint })).toThrow("createdSlot");
+      expect(() => buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated, createdSlot: undefined as unknown as bigint, namesUnratedExits: true })).toThrow("createdSlot");
     }
     // Rated: the escrow's rating account follows the five usual accounts, writable; the data is the same.
-    const rated = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: true, createdSlot: BigInt(4242) });
+    const rated = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: true, createdSlot: BigInt(4242), namesUnratedExits: false });
     expect(rated.data).toEqual(settle.data);
     expect(rated.keys.slice(0, 5)).toEqual(settle.keys);
     expect(rated.keys.slice(5).map((key) => [key.pubkey.toBase58(), key.isSigner, key.isWritable])).toEqual([[ratingPda(escrow, SANDBOX_ESCROW_PROGRAM_ID).toBase58(), false, true]]);
@@ -235,7 +239,7 @@ describe("sandbox metered escrow: instructions and layout", () => {
     const vector = vectors.instructions.find((entry) => entry.name === "settle_escrow")!;
     const at = (name: string) => new PublicKey(vector.accounts.find((meta) => meta.name === name)!.address);
     expect(at("treasury").toBase58()).toBe(SANDBOX_FEE_TREASURY);
-    const settle = buildSandboxSettle({ escrow: at("escrow"), payer: at("payer"), payee: at("payee"), actualLamports: BigInt(600_000), rated: true, createdSlot: BigInt(1000), programId: new PublicKey(vectors.program_id) });
+    const settle = buildSandboxSettle({ escrow: at("escrow"), payer: at("payer"), payee: at("payee"), actualLamports: BigInt(600_000), rated: true, createdSlot: BigInt(1000), programId: new PublicKey(vectors.program_id), namesUnratedExits: true });
     expect(settle.data.toString("hex")).toBe(vector.data_hex);
     expect(settle.keys.map((key) => ({ address: key.pubkey.toBase58(), signer: key.isSigner, writable: key.isWritable }))).toEqual(
       vector.accounts.map(({ address, signer, writable }) => ({ address, signer, writable })),
@@ -470,6 +474,24 @@ describe("sandbox metered escrow: gateway", () => {
     const response = await call(deps, meteredHeader(nonce, lockFor(accounts, nonce)));
     expect(response.status).toBe(402);
     expect(response.body.reason).toBe("unsupported_receipt");
+  });
+
+  it("offers and serves a metered escrow only while devnet runs the program build of record (audit S7-Codex-R2-06)", async () => {
+    const accounts: Accounts = new Map();
+    const paused = fakeSettler(true, undefined, { ok: false, message: "The devnet escrow program is not a build the sandbox knows how to settle with, so paid calls are paused." });
+    const deps = makeDeps(accounts, paused.settler);
+    const challenge = await call(deps);
+    expect((challenge.body.sandbox as Record<string, unknown>).meteredPayment).toBeUndefined();
+    const nonce = nonceOf(challenge);
+    const escrow = lockFor(accounts, nonce);
+    const response = await call(deps, meteredHeader(nonce, escrow));
+    expect(response.status).toBe(402);
+    expect(response.body.reason).toBe("unsupported_receipt");
+    expect(String((response.body.error as { message: string }).message)).toContain("paused");
+    expect(response.body.choices).toBeUndefined();
+    expect(paused.calls).toHaveLength(0);
+    const rows = (await sandboxModelsListing(paused.settler)).data as { rap: { meteredEscrow: { available: boolean } } }[];
+    expect(rows.every((row) => row.rap.meteredEscrow.available === false)).toBe(true);
   });
 
   it("does not answer when the settle fails, and says the lock can be cancelled", async () => {

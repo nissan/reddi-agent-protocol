@@ -346,6 +346,9 @@ async function verifyMeteredLock(record: Record<string, unknown>, provider: Sand
   if (!deps.settler?.canSettle(provider.id) || !deps.readAccount || !deps.readSlot) {
     return rejected("unsupported_receipt", `${provider.name} cannot settle a metered escrow on devnet right now. Nothing was taken; cancel the lock for a full refund, or pay with a simulated payment.`);
   }
+  // A settle encoded for another build of the program would be refused after the answer (audit S7-Codex-R2-06).
+  const deployment = await deps.settler.deployment();
+  if (!deployment.ok) return rejected("unsupported_receipt", `${deployment.message} Nothing was taken; cancel the lock for a full refund once its refund window opens, or pay with a simulated payment.`);
   let payer: PublicKey;
   let escrowAddress: PublicKey;
   try {
@@ -478,6 +481,8 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
   const inputTokens = requestInputTokens(messages);
   const header = request.paymentHeader?.trim();
   if (!header) {
+    // A metered escrow is offered only when this provider can settle and devnet runs a build the sandbox can settle with.
+    const meteredOffered = !provider.simulatedOnly && deps.settler?.canSettle(provider.id) === true && (await deps.settler.deployment()).ok;
     const challenge = sandboxChallenge(provider, request.origin, (deps.newNonce ?? randomNonce)(), inputTokens);
     return respond(
       402,
@@ -489,7 +494,7 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
           ...(provider.simulatedOnly
             ? { simulatedOnly: `${provider.name} takes simulated payments only in the sandbox. A devnet transfer or escrow to it is refused before anything is read.` }
             : { devnetPayment: "Or transfer the amount in devnet SOL to payTo from your own wallet and resend with a JSON x402-payment receipt naming txSignature and payer." }),
-          ...(!provider.simulatedOnly && deps.settler?.canSettle(provider.id)
+          ...(meteredOffered
             ? {
                 meteredPayment: `Or lock the amount with lock_metered_escrow on ${SANDBOX_ESCROW_PROGRAM_ID.toBase58()} (payee payTo, nonce the challenge nonce as 16 bytes) and resend with a JSON x402-payment naming settlement "metered-escrow", payer, escrow and nonce. The provider settles the actual tokens and the rest comes back to you.`,
               }
@@ -763,6 +768,7 @@ async function handleSessionCall(input: {
 }
 
 export async function sandboxModelsListing(settler?: SandboxSettler, acceptRatedEscrows = false): Promise<Record<string, unknown>> {
+  const deploymentOk = settler ? (await settler.deployment()).ok : false;
   return {
     object: "list",
     sandbox: true,
@@ -789,7 +795,7 @@ export async function sandboxModelsListing(settler?: SandboxSettler, acceptRated
         payTo: provider.payTo,
         // Whether a wallet can lock a metered escrow for this provider, which the server then settles.
         // acceptsRatedEscrows: whether an escrow the visitor opted in to rating is served, or declined before serving.
-        meteredEscrow: { available: provider.behaviour !== "offline" && !provider.simulatedOnly && (settler?.canSettle(provider.id) ?? false), programId: SANDBOX_ESCROW_PROGRAM_ID.toBase58(), acceptsRatedEscrows: acceptRatedEscrows === true },
+        meteredEscrow: { available: provider.behaviour !== "offline" && !provider.simulatedOnly && (settler?.canSettle(provider.id) ?? false) && deploymentOk, programId: SANDBOX_ESCROW_PROGRAM_ID.toBase58(), acceptsRatedEscrows: acceptRatedEscrows === true },
         // The base58 address receipts from this provider name as providerId. A published test key, not a wallet.
         receiptProviderId: await sandboxProviderAddress(provider.id),
       },

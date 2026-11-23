@@ -31,6 +31,7 @@ import {
   type SandboxReceipt,
 } from "@/lib/sandbox/receipt";
 import type { SandboxSettleInput, SandboxSettler } from "@/lib/sandbox/settle-signer";
+import { sandboxBuildOfRecord, type SandboxDeploymentCheck } from "@/lib/sandbox/deployment";
 import { scriptedSandboxAnswer } from "@/lib/sandbox/catalog";
 import { createPrivateKey, sign as edSign } from "crypto";
 import { SOLANA_GENESIS_HASHES, verifySessionRequest, sessionDelegationHeaderValue as packageDelegation, sessionSignatureHeaderValue as packageSignature } from "@redditech/x402-solana";
@@ -94,10 +95,13 @@ function escrowBytes(fields: {
 
 type Accounts = Map<string, { owner: PublicKey; data: Uint8Array }>;
 
-function fakeSettler(available = true, result: { ok: true; signature: string } | { ok: false; message: string } = { ok: true, signature: SETTLE_SIG }) {
+const DEPLOYMENT_OF_RECORD: SandboxDeploymentCheck = { ok: true, build: sandboxBuildOfRecord()! };
+
+function fakeSettler(available = true, result: { ok: true; signature: string } | { ok: false; message: string } = { ok: true, signature: SETTLE_SIG }, deployment: SandboxDeploymentCheck = DEPLOYMENT_OF_RECORD) {
   const calls: SandboxSettleInput[] = [];
   const settler: SandboxSettler = {
     canSettle: () => available,
+    deployment: async () => deployment,
     async settle(input) {
       calls.push(input);
       return result;

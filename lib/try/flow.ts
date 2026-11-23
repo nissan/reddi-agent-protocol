@@ -69,14 +69,21 @@ export async function startTry(input: { taskId: unknown; origin: string; secret:
   const text = requestText(task, provider);
   const reply = await handleSandboxChatCompletion({ body: JSON.parse(text), rawBody: text, paymentHeader: null, origin: input.origin }, input.deps);
   let challenge: SandboxChallenge | undefined;
+  let meteredOffered = false;
   try {
-    const body = JSON.parse(reply.bodyText) as { x402?: SandboxChallenge };
+    const body = JSON.parse(reply.bodyText) as { x402?: SandboxChallenge; sandbox?: { meteredPayment?: unknown } };
     challenge = reply.status === 402 ? body.x402 : undefined;
+    meteredOffered = typeof body.sandbox?.meteredPayment === "string";
   } catch {
     challenge = undefined;
   }
   if (!challenge || typeof challenge.nonce !== "string" || challenge.payTo !== provider.payTo) {
     return fail(503, "provider_unavailable", `${provider.name} is not taking calls right now. Nothing was asked of your wallet.`);
+  }
+  // The try locks a metered escrow, so it starts only when the provider offers one: it can settle, and
+  // devnet runs a program build the sandbox can settle with (audit S7-Codex-R2-06).
+  if (!meteredOffered) {
+    return fail(503, "paid_try_paused", `Paid calls to ${provider.name} are paused for now. Nothing was asked of your wallet; the preview without a wallet still works.`);
   }
   const maxLamports = maxChargeLamports(provider, requestInputTokens(messagesFor(task)));
   const nowMs = input.nowMs ?? Date.now();

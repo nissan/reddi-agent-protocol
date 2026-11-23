@@ -8,6 +8,7 @@ import { MEMO_PROGRAM_ID, MemoryNonceReplayStore, sessionDelegationMemo, transac
 import { SANDBOX_CANCEL_WINDOW_SLOTS, SANDBOX_CLAIM_WINDOW_SLOTS, SANDBOX_ESCROW_DISCRIMINATORS, SANDBOX_ESCROW_PROGRAM_ID, escrowNonceBytes, sandboxEscrowAddress } from "@/lib/sandbox/escrow";
 import type { SandboxGatewayDeps } from "@/lib/sandbox/gateway";
 import type { SandboxSettleInput, SandboxSettler } from "@/lib/sandbox/settle-signer";
+import { sandboxBuildOfRecord, type SandboxDeploymentCheck } from "@/lib/sandbox/deployment";
 import { buildTryTransaction, runTry, startTry, TRY_LOCK_COMPUTE_UNITS, TRY_LOCK_MICRO_LAMPORTS_PER_UNIT, TRY_READS_PER_POLL, TryRunCache } from "@/lib/try/flow";
 import { openTicket, relayKeypair, sealTicket, trySecret, TryNotConfiguredError } from "@/lib/try/ticket";
 import { TRY_TASKS } from "@/lib/try/tasks";
@@ -43,7 +44,8 @@ function escrowBytes(payer: PublicKey, payee: PublicKey, amount: bigint, nonce: 
 function world() {
   const accounts: Accounts = new Map();
   const settles: SandboxSettleInput[] = [];
-  const settler: SandboxSettler = { canSettle: () => true, async settle(input) { settles.push(input); return { ok: true, signature: SETTLE_SIG }; } };
+  const deployment: { check: SandboxDeploymentCheck } = { check: { ok: true, build: sandboxBuildOfRecord()! } };
+  const settler: SandboxSettler = { canSettle: () => true, deployment: async () => deployment.check, async settle(input) { settles.push(input); return { ok: true, signature: SETTLE_SIG }; } };
   const landed: { signature: string; tx: Transaction; slot: number }[] = [];
   const connection = {
     getLatestBlockhash: async () => ({ blockhash: BLOCKHASH, lastValidBlockHeight: 100 }),
@@ -81,7 +83,7 @@ function world() {
     accounts.set(lockIx.keys[0].pubkey.toBase58(), { owner: SANDBOX_ESCROW_PROGRAM_ID, data: escrowBytes(payer.publicKey, lockIx.keys[2].pubkey, amount, nonce) });
     return tx;
   }
-  return { accounts, settles, connection, deps, walletSignsAndLands, landed };
+  return { accounts, settles, connection, deps, walletSignsAndLands, landed, deployment };
 }
 
 async function started(w: ReturnType<typeof world>, taskId = "security-check") {
@@ -302,6 +304,13 @@ describe("try page: Solana Pay transaction request flow (#925)", () => {
     const result = await runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS });
     expect(result).toEqual({ ok: true, state: "waiting" });
     expect(w.settles).toHaveLength(0);
+  });
+
+  it("does not start a paid try while devnet runs a program build the sandbox cannot settle with (audit S7-Codex-R2-06)", async () => {
+    const w = world();
+    w.deployment.check = { ok: false, message: "paused" };
+    const s = await startTry({ taskId: "security-check", origin: ORIGIN, secret: SECRET, deps: w.deps, nowMs: NOW_MS });
+    expect(s).toMatchObject({ ok: false, status: 503, code: "paid_try_paused" });
   });
 
   it("refuses tampered, foreign and expired tickets, and unknown tasks", async () => {

@@ -120,26 +120,17 @@ export function buildSandboxMeteredLock(input: {
 }
 
 /**
- * Whether the escrow program the sandbox settles against takes the lock slot on an exit of an
- * escrow that is not rated. The devnet build deployed on 21 November 2026 (commit 8c21aee)
- * predates "every exit names its escrow": it reads trailing slot bytes on an unrated exit as a
- * rating of another job and refuses the exit (`RatingJobMismatch`, 6051), so every unrated
- * sandbox settle failed. Until devnet runs a build that names every exit, an unrated settle
- * carries no slot; a rated one keeps its opened slot, which that build checks. Set this to
- * true in the change that upgrades the devnet program.
- */
-export const SANDBOX_PROGRAM_NAMES_UNRATED_EXITS = false;
-
-/**
  * The provider's step: settle the actual cost. The payee signs; the payer and treasury are written to.
  * The escrow's `createdSlot` (read with the lock) follows the data, naming this escrow, as the
  * program requires of every exit: a settle signed for one escrow cannot end a later one at the same
  * address. For an escrow the visitor opted in to rating (`rated`), the escrow's rating account
  * follows the usual accounts; its rating opened in the lock slot, so the slot names the job too.
- * An unrated settle leaves the slot off while the deployed program refuses it there
- * (`SANDBOX_PROGRAM_NAMES_UNRATED_EXITS`).
+ *
+ * `namesUnratedExits` is the deployed build's encoding, from `checkSandboxDeployment` (deployment.ts):
+ * builds before the freeze refuse the slot on an unrated exit (6051), the freeze build requires it
+ * (6053). There is no default, so a caller cannot settle without having checked which build it faces.
  */
-export function buildSandboxSettle(input: { escrow: PublicKey; payer: PublicKey; payee: PublicKey; actualLamports: bigint; programId?: PublicKey; rated?: boolean; createdSlot: bigint; namesUnratedExits?: boolean }): TransactionInstruction {
+export function buildSandboxSettle(input: { escrow: PublicKey; payer: PublicKey; payee: PublicKey; actualLamports: bigint; programId?: PublicKey; rated?: boolean; createdSlot: bigint; namesUnratedExits: boolean }): TransactionInstruction {
   const settle = new TransactionInstruction({
     programId: input.programId ?? SANDBOX_ESCROW_PROGRAM_ID,
     keys: [
@@ -152,17 +143,18 @@ export function buildSandboxSettle(input: { escrow: PublicKey; payer: PublicKey;
     data: concat(SANDBOX_ESCROW_DISCRIMINATORS.settleEscrow, u64le(input.actualLamports)),
   });
   const named = withRatingAccount(settle, input.rated === true, input.createdSlot);
-  if (input.rated === true || (input.namesUnratedExits ?? SANDBOX_PROGRAM_NAMES_UNRATED_EXITS)) return named;
+  if (typeof input.namesUnratedExits !== "boolean") throw new Error("namesUnratedExits: check which program build is deployed first");
+  if (input.rated === true || input.namesUnratedExits) return named;
   return new TransactionInstruction({ programId: named.programId, keys: named.keys, data: named.data.subarray(0, settle.data.length) });
 }
 
 /**
  * The visitor's refund: after the escrow's refund window, the payer takes back the whole locked amount,
  * with no fee, and the escrow closes. Same account rules as the settle: a rated escrow passes its rating
- * account and names its slot; an unrated one leaves the slot off while the deployed program refuses it
- * there (`SANDBOX_PROGRAM_NAMES_UNRATED_EXITS`).
+ * account and names its slot; an unrated one names its slot when the deployed build takes it there
+ * (`namesUnratedExits`, as for the settle).
  */
-export function buildSandboxRefund(input: { escrow: PublicKey; payer: PublicKey; programId?: PublicKey; rated?: boolean; createdSlot: bigint; namesUnratedExits?: boolean }): TransactionInstruction {
+export function buildSandboxRefund(input: { escrow: PublicKey; payer: PublicKey; programId?: PublicKey; rated?: boolean; createdSlot: bigint; namesUnratedExits: boolean }): TransactionInstruction {
   const refund = new TransactionInstruction({
     programId: input.programId ?? SANDBOX_ESCROW_PROGRAM_ID,
     keys: [
@@ -174,7 +166,8 @@ export function buildSandboxRefund(input: { escrow: PublicKey; payer: PublicKey;
     data: Buffer.from(SANDBOX_ESCROW_DISCRIMINATORS.cancelEscrow),
   });
   const named = withRatingAccount(refund, input.rated === true, input.createdSlot);
-  if (input.rated === true || (input.namesUnratedExits ?? SANDBOX_PROGRAM_NAMES_UNRATED_EXITS)) return named;
+  if (typeof input.namesUnratedExits !== "boolean") throw new Error("namesUnratedExits: check which program build is deployed first");
+  if (input.rated === true || input.namesUnratedExits) return named;
   return new TransactionInstruction({ programId: named.programId, keys: named.keys, data: named.data.subarray(0, refund.data.length) });
 }
 
