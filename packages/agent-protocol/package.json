@@ -124,7 +124,7 @@
     "release:dry-run": "npm run clean && npm run build && npm test && node scripts/check-package-exports.mjs && npm run check:artifacts && npm pack --dry-run"
   },
   "devDependencies": {
-    "@types/node": "^20",
+    "@types/node": "^26",
     "typescript": "^5"
   },
   "engines": {
