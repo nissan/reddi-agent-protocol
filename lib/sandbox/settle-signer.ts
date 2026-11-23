@@ -11,9 +11,11 @@
  * catalog's payTo for that provider is ignored, so a misconfigured key can
  * never settle to a wallet the page did not show.
  */
-import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey, SendTransactionError, Transaction } from "@solana/web3.js";
+import bs58 from "bs58";
 import { SANDBOX_PROVIDERS } from "./catalog";
-import { buildSandboxSettle, SANDBOX_ESCROW_PROGRAM_ID } from "./escrow";
+import { buildSandboxSettle, SANDBOX_ESCROW_DISCRIMINATORS, SANDBOX_ESCROW_PROGRAM_ID } from "./escrow";
+import { SANDBOX_FEE_TREASURY } from "./pricing";
 import { advanceSellerRating, type SellerRatingConnection } from "./seller-rating";
 import { isDevnetConnection } from "@/lib/sandbox/devnet-genesis";
 import { cachedSandboxDeploymentCheck, type SandboxDeploymentCheck } from "./deployment";
@@ -29,7 +31,25 @@ export type SandboxSettleInput = {
   /** The escrow's lock slot, read with the lock: the settle names this escrow by it (a rated job's opened slot is the same slot). */
   createdSlot: bigint;
 };
-export type SandboxSettleResult = { ok: true; signature: string } | { ok: false; message: string };
+/**
+ * What happened to a settle, as far as the chain shows (audit S7-Codex-R2-04 and R2-05):
+ * - `ok: true`: it confirmed, and `feeLamports` is what the treasury received in it, read from the
+ *   confirmed transaction (the program takes the fee rate in force at payout, so the server's clock
+ *   is not used);
+ * - `ok: false` without `pending`: nothing was charged, because it was never sent or it failed on chain;
+ * - `ok: false, pending: true`: it was signed and may have been sent, but whether it landed is not
+ *   known. The escrow may already be paid out: never tell the payer nothing was charged.
+ */
+export type SandboxSettleResult =
+  | { ok: true; signature: string; feeLamports: bigint }
+  | { ok: false; message: string; pending?: undefined }
+  | { ok: false; pending: true; signature: string; message: string };
+
+/** What the chain shows for a settle the server sent earlier. */
+export type SandboxSettleLookup = { state: "settled"; feeLamports: bigint } | { state: "failed" } | { state: "unknown" };
+
+/** The settle a payer's retry names: the escrow, its payer and payee, and the amount it must settle. */
+export type SandboxSettleExpectation = { escrow: PublicKey; payer: PublicKey; payee: PublicKey; actualLamports: bigint };
 
 export interface SandboxSettler {
   /** True when the server holds this provider's devnet key. */
@@ -40,6 +60,11 @@ export interface SandboxSettler {
    */
   deployment(): Promise<SandboxDeploymentCheck>;
   settle(input: SandboxSettleInput): Promise<SandboxSettleResult>;
+  /**
+   * Reads back a settle this server sent: `settled` only when the confirmed transaction is a
+   * successful settle of exactly this escrow, payer, payee and amount, signed by the payee.
+   */
+  lookup(signature: string, expected: SandboxSettleExpectation): Promise<SandboxSettleLookup>;
 }
 
 export const SANDBOX_PAYEE_KEYS_ENV = "SANDBOX_DEVNET_PAYEE_KEYS";
@@ -109,6 +134,74 @@ export interface SandboxSettlerOptions {
   rateBuyerScore?: number;
   /** Replaces the cached check of the devnet program build (tests). */
   deployment?: () => Promise<SandboxDeploymentCheck>;
+  /** Replaces the read-back of a sent settle (tests). */
+  lookup?: (signature: string, expected: SandboxSettleExpectation) => Promise<SandboxSettleLookup>;
+}
+
+function pending(signature: string): SandboxSettleResult {
+  return { ok: false, pending: true, signature, message: `The settle transaction ${signature} was sent, but devnet did not confirm whether it landed.` };
+}
+
+function logNotSent(input: SandboxSettleInput, error: unknown) {
+  // Say why in the server log: the page's message stays generic, but a refused settle
+  // (a program error in preflight) and a busy RPC need different fixes. Public data only.
+  const logs = (error as { logs?: unknown }).logs;
+  console.error("[sandbox-settle] settle not sent", {
+    provider: input.providerId,
+    escrow: input.escrow.toBase58(),
+    error: error instanceof Error ? error.message : String(error),
+    ...(Array.isArray(logs) ? { logs: logs.slice(-8) } : {}),
+  });
+}
+
+type SettleTransactionReader = { getTransaction: Connection["getTransaction"] };
+
+/** Reads `getTransaction` a few times: a transaction just confirmed is not always readable at once. */
+async function readConfirmedTransaction(connection: SettleTransactionReader, signature: string, attempts = 3, sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const tx = await connection.getTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+      if (tx) return tx;
+    } catch {
+      // Read again.
+    }
+    if (attempt + 1 < attempts) await sleep(400);
+  }
+  return undefined;
+}
+
+/**
+ * The chain's account of a settle: `settled` with the treasury's credit when the confirmed transaction
+ * succeeded and holds a settle_escrow of this escrow, payer and payee (the payee signing) for exactly
+ * `actualLamports`; `failed` when it is confirmed and failed or settles something else; `unknown`
+ * when it cannot be read (not landed, not landed yet, or the RPC is down).
+ */
+export async function lookupSandboxSettle(connection: SettleTransactionReader, signature: string, expected: SandboxSettleExpectation, options: { attempts?: number; sleep?: (ms: number) => Promise<void> } = {}): Promise<SandboxSettleLookup> {
+  const tx = await readConfirmedTransaction(connection, signature, options.attempts, options.sleep);
+  if (!tx || !tx.meta) return { state: "unknown" };
+  if (tx.meta.err) return { state: "failed" };
+  const message = tx.transaction.message;
+  const keys = message.getAccountKeys({ accountKeysFromLookups: tx.meta.loadedAddresses }).keySegments().flat();
+  const at = (index: number) => keys[index]?.toBase58();
+  const program = SANDBOX_ESCROW_PROGRAM_ID.toBase58();
+  const settles = message.compiledInstructions.filter((ix) => {
+    if (at(ix.programIdIndex) !== program) return false;
+    const data = Buffer.from(ix.data);
+    if (data.length < 16 || !data.subarray(0, 8).equals(Buffer.from(SANDBOX_ESCROW_DISCRIMINATORS.settleEscrow))) return false;
+    return (
+      data.readBigUInt64LE(8) === expected.actualLamports &&
+      at(ix.accountKeyIndexes[0]) === expected.escrow.toBase58() &&
+      at(ix.accountKeyIndexes[1]) === expected.payer.toBase58() &&
+      at(ix.accountKeyIndexes[2]) === expected.payee.toBase58() &&
+      message.isAccountSigner(ix.accountKeyIndexes[2]) &&
+      at(ix.accountKeyIndexes[3]) === SANDBOX_FEE_TREASURY
+    );
+  });
+  if (settles.length !== 1) return { state: "failed" };
+  const treasury = keys.findIndex((key) => key.toBase58() === SANDBOX_FEE_TREASURY);
+  const fee = BigInt(tx.meta.postBalances[treasury] ?? 0) - BigInt(tx.meta.preBalances[treasury] ?? 0);
+  if (treasury < 0 || fee < BigInt(0) || fee > expected.actualLamports) return { state: "unknown" };
+  return { state: "settled", feeLamports: fee };
 }
 
 export function createSandboxSettler(connection: Connection, keys: Map<string, Keypair>, options: SandboxSettlerOptions = {}): SandboxSettler {
@@ -118,6 +211,7 @@ export function createSandboxSettler(connection: Connection, keys: Map<string, K
       const info = await connection.getAccountInfo(address, "confirmed");
       return info ? { owner: info.owner, data: new Uint8Array(info.data) } : null;
     });
+  const lookup = options.lookup ?? ((signature: string, expected: SandboxSettleExpectation) => lookupSandboxSettle(connection, signature, expected));
   return {
     canSettle: (providerId) => keys.has(providerId),
     deployment,
@@ -128,32 +222,53 @@ export function createSandboxSettler(connection: Connection, keys: Map<string, K
       // The exit's encoding depends on the build devnet runs (audit S7-Codex-R2-06): checked before anything is signed.
       const build = await deployment();
       if (!build.ok) return { ok: false, message: build.message };
+      let signature: string | undefined;
+      let lastValidBlockHeight: number;
+      let raw: Buffer;
       try {
         const latest = await connection.getLatestBlockhash("confirmed");
+        lastValidBlockHeight = latest.lastValidBlockHeight;
         const transaction = new Transaction({ feePayer: keypair.publicKey, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight }).add(
           buildSandboxSettle({ escrow: input.escrow, payer: input.payer, payee: input.payee, actualLamports: input.actualLamports, rated: input.rated === true, createdSlot: input.createdSlot, namesUnratedExits: build.build.namesUnratedExits }),
         );
         transaction.sign(keypair);
-        const signature = await connection.sendRawTransaction(transaction.serialize(), { preflightCommitment: "confirmed" });
-        const confirmation = await confirmByPolling(connection, signature, latest.lastValidBlockHeight);
-        if (confirmation === "failed") return { ok: false, message: "The settle transaction failed on devnet." };
-        if (input.rated === true && options.rateBuyerScore !== undefined) {
-          // The settle opened the rating. A failure here never fails the settle that already landed.
-          await advanceSellerRating({ connection: connection as unknown as SellerRatingConnection, programId: SANDBOX_ESCROW_PROGRAM_ID, escrow: input.escrow, keypair, score: options.rateBuyerScore });
-        }
-        return { ok: true, signature };
+        raw = transaction.serialize();
+        // Known before anything is sent, so every later outcome can name it.
+        signature = bs58.encode(transaction.signature!);
       } catch (error) {
-        // Say why in the server log: the page's message stays generic, but a refused settle
-        // (a program error in preflight) and a busy RPC need different fixes. Public data only.
-        const logs = (error as { logs?: unknown }).logs;
-        console.error("[sandbox-settle] settle not sent", {
-          provider: input.providerId,
-          escrow: input.escrow.toBase58(),
-          error: error instanceof Error ? error.message : String(error),
-          ...(Array.isArray(logs) ? { logs: logs.slice(-8) } : {}),
-        });
-        return { ok: false, message: "The settle transaction could not be sent to devnet." };
+        logNotSent(input, error);
+        return { ok: false, message: "The settle transaction could not be built." };
       }
+      try {
+        await connection.sendRawTransaction(raw, { preflightCommitment: "confirmed" });
+      } catch (error) {
+        logNotSent(input, error);
+        // A refused preflight (a program error in simulation) means the cluster never took it.
+        // Any other failure (a timeout, a dropped connection) may come after the cluster took it.
+        if (error instanceof SendTransactionError) return { ok: false, message: "The settle transaction could not be sent to devnet." };
+        return pending(signature);
+      }
+      let confirmation: "confirmed" | "failed";
+      try {
+        confirmation = await confirmByPolling(connection, signature, lastValidBlockHeight);
+      } catch (error) {
+        console.error("[sandbox-settle] settle outcome unknown", { provider: input.providerId, escrow: input.escrow.toBase58(), signature, error: error instanceof Error ? error.message : String(error) });
+        return pending(signature);
+      }
+      if (confirmation === "failed") return { ok: false, message: "The settle transaction failed on devnet." };
+      // The fee is what the treasury received in the confirmed settle (audit S7-Codex-R2-05).
+      const facts = await lookup(signature, { escrow: input.escrow, payer: input.payer, payee: input.payee, actualLamports: input.actualLamports });
+      if (facts.state !== "settled") return pending(signature);
+      if (input.rated === true && options.rateBuyerScore !== undefined) {
+        // The settle opened the rating. A failure here never fails the settle that already landed.
+        try {
+          await advanceSellerRating({ connection: connection as unknown as SellerRatingConnection, programId: SANDBOX_ESCROW_PROGRAM_ID, escrow: input.escrow, keypair, score: options.rateBuyerScore });
+        } catch {
+          // The scheduled sweep commits what this missed.
+        }
+      }
+      return { ok: true, signature, feeLamports: facts.feeLamports };
     },
+    lookup,
   };
 }

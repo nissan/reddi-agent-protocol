@@ -120,7 +120,7 @@ describe("sandbox: make a video with independent studios", () => {
     expect(sandbox.devnetPayment).toBeUndefined();
     expect(sandbox.meteredPayment).toBeUndefined();
     expect(sandbox.simulatedOnly).toMatch(/simulated payments only/);
-    const listing = (await sandboxModelsListing({ canSettle: () => true, deployment: async () => ({ ok: true, build: sandboxBuildOfRecord()! }), settle: async () => ({ ok: false, message: "" }) })) as { data: { rap: { providerId: string; simulatedPaymentsOnly?: boolean; meteredEscrow: { available: boolean } } }[] };
+    const listing = (await sandboxModelsListing({ canSettle: () => true, deployment: async () => ({ ok: true, build: sandboxBuildOfRecord()! }), settle: async () => ({ ok: false, message: "" }), lookup: async () => ({ state: "unknown" }) })) as { data: { rap: { providerId: string; simulatedPaymentsOnly?: boolean; meteredEscrow: { available: boolean } } }[] };
     const entry = listing.data.find((item) => item.rap.providerId === studio.id)!;
     expect(entry.rap.simulatedPaymentsOnly).toBe(true);
     expect(entry.rap.meteredEscrow.available).toBe(false);

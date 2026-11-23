@@ -1,4 +1,4 @@
-import { handleSandboxChatCompletion, SESSION_CLOSE_HEADER, SESSION_PREVIOUS_RECEIPT_HEADER, SESSION_SEQUENCE_HEADER } from "@/lib/sandbox/gateway";
+import { handleSandboxChatCompletion, SESSION_CLOSE_HEADER, SESSION_PREVIOUS_RECEIPT_HEADER, SESSION_SEQUENCE_HEADER, SETTLE_SIGNATURE_HEADER } from "@/lib/sandbox/gateway";
 import { sandboxGatewayDeps } from "@/lib/sandbox/runtime";
 
 export const runtime = "nodejs";
@@ -37,6 +37,7 @@ export async function POST(request: Request) {
           proof: request.headers.get("x402-payment-proof"),
           delegation: request.headers.get("x402-payment-delegation"),
         },
+        settleSignature: request.headers.get(SETTLE_SIGNATURE_HEADER),
       },
       sandboxGatewayDeps(),
     );
