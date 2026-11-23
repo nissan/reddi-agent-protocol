@@ -25,9 +25,12 @@ export interface Upstream {
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
 export class UpstreamError extends Error {
-  constructor(message: string) {
+  /** The model's HTTP status, when it answered with one. 429 means it is rate limited. */
+  readonly status?: number;
+  constructor(message: string, status?: number) {
     super(message);
     this.name = "UpstreamError";
+    if (status !== undefined) this.status = status;
   }
 }
 
@@ -47,7 +50,7 @@ export function createOpenAiCompatibleUpstream(options: { baseUrl: string; apiKe
         // The cause is not passed on: it can carry the request, key included.
         throw new UpstreamError("the model could not be reached");
       }
-      if (!response.ok) throw new UpstreamError(`the model answered with status ${response.status}`);
+      if (!response.ok) throw new UpstreamError(`the model answered with status ${response.status}`, response.status);
       let body: unknown;
       try {
         body = await response.json();
@@ -118,7 +121,7 @@ export function createAnthropicUpstream(options: { apiKey?: string; timeoutMs?: 
         );
       } catch (error) {
         // Only the status is passed on: the error can carry the request, key included.
-        if (error instanceof Anthropic.APIError && typeof error.status === "number") throw new UpstreamError(`the model answered with status ${error.status}`);
+        if (error instanceof Anthropic.APIError && typeof error.status === "number") throw new UpstreamError(`the model answered with status ${error.status}`, error.status);
         throw new UpstreamError("the model could not be reached");
       }
       if (message.stop_reason === "refusal") throw new UpstreamError("the model declined to answer");

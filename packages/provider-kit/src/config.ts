@@ -9,6 +9,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { directPaymentCurrency, ESCROW_DEVNET_MINTS, ESCROW_MAINNET_MINTS, providerMeteredTerms, type MeteredTerms } from "@redditech/x402-solana";
 import type { ClaudeEffort, ClaudeThinking } from "./upstream.js";
+import type { CapacityLimits } from "./capacity.js";
 
 const CLAUDE_EFFORTS: readonly ClaudeEffort[] = ["low", "medium", "high", "xhigh", "max"];
 
@@ -94,6 +95,8 @@ export interface ProviderConfigFile {
    * bounds how many it pays for in a UTC day.
    */
   refundAccountSubsidy?: { maxPerDay: number };
+  /** How many calls the model takes. While full, the provider answers busy before any lock is taken. */
+  capacity?: { requestsPerMinute?: number; requestsPerDay?: number; cooldownSeconds?: number };
   /** For `rap-provider register`: the app to list in (default: the Reddi Agent Protocol app) and what the listing says this provider can do. */
   listing?: { appUrl?: string; capabilities?: Record<string, unknown> };
   /** For a local validator only: the genesis hash to expect instead of the public devnet one. */
@@ -131,6 +134,7 @@ export interface ProviderConfig {
   pausedCurrencies: string[];
   /** Buyer token accounts the provider will pay to create in a UTC day. 0: never. */
   refundAccountsPerDay: number;
+  capacity: CapacityLimits;
   /** The app `register` lists in. An https origin. */
   appUrl: string;
   listingCapabilities: Record<string, unknown>;
@@ -257,6 +261,22 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
   const payoutAccount = text(file.payoutAccount);
   if (payoutAccount && !isAddress(payoutAccount)) errors.push("payoutAccount: must be the address of a token account the provider wallet owns");
 
+  const capacityRaw = isRecord(file.capacity) ? file.capacity : {};
+  if (file.capacity !== undefined && !isRecord(file.capacity)) errors.push("capacity: must be an object");
+  const limit = (name: string, value: unknown, max: number): number | undefined => {
+    if (value === undefined) return undefined;
+    const n = Number(value);
+    if (!Number.isSafeInteger(n) || n < 1 || n > max) {
+      errors.push(`capacity.${name}: must be a whole number from 1 to ${max}`);
+      return undefined;
+    }
+    return n;
+  };
+  const requestsPerMinute = limit("requestsPerMinute", capacityRaw.requestsPerMinute, 100_000);
+  const requestsPerDay = limit("requestsPerDay", capacityRaw.requestsPerDay, 10_000_000);
+  const cooldownSeconds = limit("cooldownSeconds", capacityRaw.cooldownSeconds, 86_400) ?? 60;
+  const capacity: CapacityLimits = { ...(requestsPerMinute ? { requestsPerMinute } : {}), ...(requestsPerDay ? { requestsPerDay } : {}), cooldownSeconds };
+
   let refundAccountsPerDay = 0;
   if (file.refundAccountSubsidy !== undefined) {
     const maxPerDay = isRecord(file.refundAccountSubsidy) ? Number(file.refundAccountSubsidy.maxPerDay) : NaN;
@@ -346,6 +366,7 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
       paused: pausedCurrencies.includes(currency),
       pausedCurrencies,
       refundAccountsPerDay,
+      capacity,
       appUrl: appUrl ?? DEFAULT_APP_URL,
       listingCapabilities,
       ...(systemPrompt ? { systemPrompt } : {}),

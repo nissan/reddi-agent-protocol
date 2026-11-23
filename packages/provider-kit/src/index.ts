@@ -8,3 +8,4 @@ export * from "./handler.js";
 export * from "./doctor.js";
 export * from "./server.js";
 export * from "./adl.js";
+export * from "./capacity.js";
