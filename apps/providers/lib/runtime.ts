@@ -4,7 +4,9 @@
  * setting takes effect without a redeploy of the code.
  */
 import pg from "pg";
+import { after } from "next/server";
 import { redactLogEvent, type PgPool } from "@redditech/provider-kit";
+import { createAlerter } from "./alerts.ts";
 import { loadProvider, type Loaded, type ProviderName } from "./providers.ts";
 
 let pool: PgPool | undefined;
@@ -18,8 +20,15 @@ function sharedPool(): PgPool | undefined {
   return pool;
 }
 
+// Events marked `alert: true` are also emailed to the operator (lib/alerts.ts), sent after the response.
+const alerter = createAlerter({ env: process.env, schedule: (task) => after(task) });
+
 /** One JSON line per event, with any URL in it redacted (an RPC URL carries its key). */
-export const log = (event: Record<string, unknown>) => console.log(JSON.stringify(redactLogEvent({ source: "rap-provider", ...event })));
+export const log = (event: Record<string, unknown>) => {
+  const redacted = redactLogEvent({ source: "rap-provider", ...event });
+  console.log(JSON.stringify(redacted));
+  alerter.notify(redacted);
+};
 
 export function provider(name: ProviderName): Loaded {
   const cached = built.get(name);

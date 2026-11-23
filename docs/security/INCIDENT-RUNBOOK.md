@@ -130,8 +130,8 @@ publish the advisory.
 | Token-2022 mint watch (`token2022-mint-watch.yml`) | Daily | Issue assigned to the repository owner |
 | Marketing and app uptime (`marketing-uptime.yml`, `app-live-check.mjs`) | Hourly | Issue and email to the owner |
 | Treasury check (`check-escrow-treasury.mjs --network mainnet`) | To be scheduled after deploy (launch runbook §6) | Owner |
-| Program deployment check (`check-escrow-deployment.mjs`) | At every release, and weekly after launch | Owner |
-| Providers' `alert: true` log events (sweep failures, answers not held, cluster check) | Continuous, Vercel logs | Owner (log drain or alert rule to be set) |
+| Program deployment check (`check-escrow-deployment.mjs`; weekly by `escrow-deployment-watch.yml` against its `MAINNET_RECORD`) | At every release; weekly (Monday 22:23 UTC) once the record has a `deployedSlot` | `deployment-watch` issue assigned to the repository owner; verdict lines only, RPC URL scrubbed |
+| Providers' `alert: true` log events (sweep failures, answers not held, cluster check) | Continuous: Vercel logs, plus an email per event (`apps/providers/lib/alerts.ts`), at most one per event name per 15 minutes per instance | Owner by email, once `PROVIDER_ALERT_RESEND_API_KEY`, `PROVIDER_ALERT_EMAIL_TO` and `PROVIDER_ALERT_EMAIL_FROM` are set in the providers project |
 
 ## 5. After an incident
 

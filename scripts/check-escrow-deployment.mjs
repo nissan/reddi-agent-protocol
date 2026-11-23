@@ -113,6 +113,9 @@ export function trimmedHash(bytes) {
 }
 
 const HEX64 = /^[0-9a-f]{64}$/;
+const COMMIT = /^[0-9a-f]{40}$/;
+const IMAGE_DIGEST = /^sha256:[0-9a-f]{64}$/;
+const BUILD_RUN = /^https:\/\/github\.com\/nissan\/reddi-agent-protocol\/actions\/runs\/[0-9]+$/;
 
 // Validates a release record and returns the problems found (empty when usable).
 export function recordProblems(record) {
@@ -124,6 +127,13 @@ export function recordProblems(record) {
   if (!HEX64.test(record.sha256 ?? '')) problems.push('sha256 must be 64 lowercase hex characters (sha256 of the .so file)');
   if (!HEX64.test(record.executableHash ?? '')) problems.push('executableHash must be 64 lowercase hex characters (solana-verify get-executable-hash)');
   if (!isAddress(record.upgradeAuthority)) problems.push('upgradeAuthority is not an address');
+  // Provenance: which build this is, so a record cannot pass for a build it does not name.
+  if (record.variant !== record.network) problems.push('variant must equal network (the build matrix entry for that cluster)');
+  if (!COMMIT.test(record.commit ?? '')) problems.push('commit must be a full 40-character commit hash');
+  if (!BUILD_RUN.test(record.buildRun ?? '')) problems.push('buildRun must be an escrow-verifiable-build.yml run URL in this repository');
+  if (typeof record.image !== 'string' || !record.image.startsWith('solanafoundation/solana-verifiable-build:')) {
+    problems.push('image must be the solanafoundation/solana-verifiable-build image the run used');
+  }
   for (const address of record.forbiddenAuthorities ?? []) {
     if (!isAddress(address)) problems.push(`forbiddenAuthorities entry ${address} is not an address`);
   }
@@ -136,6 +146,7 @@ export function recordProblems(record) {
   }
   if (record.network === 'mainnet') {
     if (record.programId !== MAINNET_PROGRAM_ID) problems.push(`a mainnet record's programId must be the V1 escrow program ${MAINNET_PROGRAM_ID}`);
+    if (!IMAGE_DIGEST.test(record.imageDigest ?? '')) problems.push('a mainnet record must give imageDigest as sha256:<64 hex>');
     if (record.upgradeAuthority !== MAINNET_VAULT) problems.push(`a mainnet record's upgradeAuthority must be the Squads vault ${MAINNET_VAULT}`);
     if (!Array.isArray(record.forbiddenAuthorities) || record.forbiddenAuthorities.length < 2) {
       problems.push('a mainnet record must list the multisig account and the deployer under forbiddenAuthorities');

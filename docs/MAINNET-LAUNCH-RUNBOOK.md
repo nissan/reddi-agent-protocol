@@ -28,7 +28,15 @@ address, never the multisig account address).
    (format in `config/releases/README.md`), with `upgradeAuthority` set to the
    vault and `forbiddenAuthorities` holding the multisig account address and the
    deployer address. Record the same values on #736.
-4. The second review (Codex) works from that commit. A program change after the
+4. Countersign before deploy: a person other than whoever wrote the record (the
+   owner, if a Claude session wrote it) downloads the `escrow-mainnet-<commit>`
+   artifact from the `buildRun` named in the record, runs `stat -c %s`,
+   `sha256sum` and `solana-verify get-executable-hash` on `pinocchio_escrow.so`,
+   and confirms all three equal the record's `size`, `sha256` and
+   `executableHash`, and that the run's image digest equals `imageDigest`. Post
+   the three outputs and "countersigned" on #736. The check script only compares
+   the chain with the record; this step is what ties the record to the build.
+5. The second review (Codex) works from that commit. A program change after the
    freeze means a new freeze commit, record and hash.
 
 ## 2. Fund the deployer

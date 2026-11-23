@@ -342,6 +342,9 @@ async function verifyMeteredLock(input) {
     }
     if (!escrow.payer.equals(header.payer))
         return { ok: false, reason: 'invalid_receipt', message: 'The escrow was locked by a different wallet.' };
+    if (input.lockSlot !== undefined && input.lockSlot !== escrow.createdSlot) {
+        return { ok: false, reason: 'lock_instance_mismatch', message: 'The proof was given for another lock at this address. Nothing was accepted; sign for this lock.' };
+    }
     if (!escrow.payee.equals(terms.payee))
         return { ok: false, reason: 'wrong_payee', message: 'The escrow pays a different provider.' };
     if (!escrow.mint.equals(terms.mint))
@@ -391,7 +394,7 @@ async function verifyMeteredLock(input) {
     });
     if (!payout.ok)
         return payout;
-    if (purpose === 'call' && !(await input.replayStore.checkAndStore(meteredEscrowReplayKey(header.escrow)))) {
+    if (purpose === 'call' && !(await input.replayStore.checkAndStore(meteredEscrowReplayKey(header.escrow, escrow.createdSlot)))) {
         return { ok: false, reason: 'duplicate_nonce', message: 'This escrow has already paid for a call.' };
     }
     return {
@@ -419,9 +422,9 @@ async function verifyMeteredLock(input) {
         },
     };
 }
-/** The replay-store key that marks an escrow as taken, by a single call or by a session's first call. */
-function meteredEscrowReplayKey(escrow) {
-    return `metered-escrow:${escrow.toBase58()}`;
+/** The replay-store key that marks one lock as taken, by a single call or by a session's first call: the escrow and its lock slot, so a later lock at the same address is a new key. */
+function meteredEscrowReplayKey(escrow, createdSlot) {
+    return `metered-escrow:${escrow.toBase58()}:${createdSlot.toString()}`;
 }
 /** Token counts from an OpenAI-style usage report, or the estimate from the text when it reports none. */
 function usageFrom(upstream, inputEstimate) {
