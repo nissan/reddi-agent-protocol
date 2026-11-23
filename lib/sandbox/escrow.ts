@@ -23,6 +23,7 @@ const ESCROW_SEED = new TextEncoder().encode("escrow");
 export const SANDBOX_ESCROW_DISCRIMINATORS = {
   lockMeteredEscrow: Uint8Array.from([134, 129, 217, 67, 19, 31, 150, 94]),
   settleEscrow: Uint8Array.from([22, 135, 160, 194, 23, 186, 124, 110]),
+  cancelEscrow: Uint8Array.from([156, 203, 54, 179, 38, 72, 33, 21]),
   escrowAccount: Uint8Array.from([36, 69, 48, 18, 128, 225, 125, 135]),
 } as const;
 
@@ -153,6 +154,28 @@ export function buildSandboxSettle(input: { escrow: PublicKey; payer: PublicKey;
   const named = withRatingAccount(settle, input.rated === true, input.createdSlot);
   if (input.rated === true || (input.namesUnratedExits ?? SANDBOX_PROGRAM_NAMES_UNRATED_EXITS)) return named;
   return new TransactionInstruction({ programId: named.programId, keys: named.keys, data: named.data.subarray(0, settle.data.length) });
+}
+
+/**
+ * The visitor's refund: after the escrow's refund window, the payer takes back the whole locked amount,
+ * with no fee, and the escrow closes. Same account rules as the settle: a rated escrow passes its rating
+ * account and names its slot; an unrated one leaves the slot off while the deployed program refuses it
+ * there (`SANDBOX_PROGRAM_NAMES_UNRATED_EXITS`).
+ */
+export function buildSandboxRefund(input: { escrow: PublicKey; payer: PublicKey; programId?: PublicKey; rated?: boolean; createdSlot: bigint; namesUnratedExits?: boolean }): TransactionInstruction {
+  const refund = new TransactionInstruction({
+    programId: input.programId ?? SANDBOX_ESCROW_PROGRAM_ID,
+    keys: [
+      { pubkey: input.escrow, isSigner: false, isWritable: true },
+      { pubkey: input.payer, isSigner: true, isWritable: true },
+      { pubkey: input.payer, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(SANDBOX_ESCROW_DISCRIMINATORS.cancelEscrow),
+  });
+  const named = withRatingAccount(refund, input.rated === true, input.createdSlot);
+  if (input.rated === true || (input.namesUnratedExits ?? SANDBOX_PROGRAM_NAMES_UNRATED_EXITS)) return named;
+  return new TransactionInstruction({ programId: named.programId, keys: named.keys, data: named.data.subarray(0, refund.data.length) });
 }
 
 /**
