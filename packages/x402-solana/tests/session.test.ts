@@ -63,8 +63,9 @@ function tokenAccount(owner: PublicKey): Uint8Array {
 }
 const accounts = new Map([payee, ESCROW_PROTOCOL_TREASURY, payer].map((o) => [ata(o).toBase58(), { owner: TOKEN_PROGRAM, data: tokenAccount(o) }]));
 
-function verify(purpose: 'call' | 'session-call' | 'session-settle', f: Parameters<typeof escrowBytes>[0] = {}, slot = CURRENT_SLOT, replayStore = new MemoryNonceReplayStore()) {
+function verify(purpose: 'call' | 'session-call' | 'session-settle', f: Parameters<typeof escrowBytes>[0] = {}, slot = CURRENT_SLOT, replayStore = new MemoryNonceReplayStore(), lockSlot?: bigint) {
   return verifyMeteredLock({
+    ...(lockSlot !== undefined ? { lockSlot } : {}),
     header,
     terms,
     minimum: tokenCostBaseUnits(terms.price, CALL),
@@ -115,9 +116,19 @@ describe('verifyMeteredLock purposes', () => {
     expect(await verify('session-call', {}, late)).toMatchObject({ ok: false, reason: 'session_window_closing' });
     expect(await verify('call', {}, late)).toMatchObject({ ok: false, reason: 'invalid_receipt' });
   });
+  test('a call is remembered by its lock instance, and a proof for another instance is refused before the lock is used', async () => {
+    const store = new MemoryNonceReplayStore();
+    // A proof naming another lock slot: refused, and the lock is still free for its own proof.
+    expect(await verify('call', {}, CURRENT_SLOT, store, CURRENT_SLOT - 11n)).toMatchObject({ ok: false, reason: 'lock_instance_mismatch' });
+    expect((await verify('call', {}, CURRENT_SLOT, store, CURRENT_SLOT - 10n)).ok).toBe(true);
+    expect(await verify('call', {}, CURRENT_SLOT, store)).toMatchObject({ ok: false, reason: 'duplicate_nonce' });
+    expect(await store.checkAndStore(meteredEscrowReplayKey(escrow, CURRENT_SLOT - 10n))).toBe(false);
+    // A later lock at the same address is a new instance.
+    expect((await verify('call', { createdSlot: CURRENT_SLOT - 5n }, CURRENT_SLOT, store)).ok).toBe(true);
+  });
   test('a session settle skips the window and the replay store, but not the lock checks', async () => {
     const store = new MemoryNonceReplayStore();
-    await store.checkAndStore(meteredEscrowReplayKey(escrow));
+    await store.checkAndStore(meteredEscrowReplayKey(escrow, CURRENT_SLOT - 10n));
     expect((await verify('session-settle', {}, CURRENT_SLOT + 20_000n, store)).ok).toBe(true);
     expect(await verify('session-settle', { status: 1 })).toMatchObject({ ok: false, reason: 'duplicate_nonce' });
     const verified = await verify('session-settle');

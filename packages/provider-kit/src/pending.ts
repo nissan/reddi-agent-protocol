@@ -12,6 +12,9 @@ export interface PendingCallSettle extends PendingSettle {
   escrow: string;
   /** SHA-256 of the request body the settle pays for: only the same request may collect the answer. */
   requestHash: string;
+  /** The lock this settle ends: its payer, and its lock slot as a decimal string. Only that payer may ask after it, and only that lock is ever declined in its place. */
+  payer?: string;
+  createdSlot?: string;
   /** `pending`: outcome not known. `landed`: it landed. `dropped`: it cannot land, and nothing was charged by it. */
   status: "pending" | "landed" | "dropped";
 }

@@ -285,6 +285,13 @@ export declare function verifyMeteredLock(input: {
      */
     purpose?: 'call' | 'session-call' | 'session-settle';
     /**
+     * The lock slot the buyer's proof names, when it names one (a delegation
+     * signed in the lock's own transaction). A lock at this address made in
+     * another slot is refused before the escrow is remembered, so a stale proof
+     * cannot use up a later lock (`lock_instance_mismatch`).
+     */
+    lockSlot?: bigint;
+    /**
      * `session-settle` only: when neither the account that funded the lock nor
      * the payer's associated token account can take the unused part, let the
      * settle create the associated account at the provider's cost. Default
@@ -292,8 +299,8 @@ export declare function verifyMeteredLock(input: {
      */
     createRefundAccount?: boolean;
 }): Promise<VerifiedLock>;
-/** The replay-store key that marks an escrow as taken, by a single call or by a session's first call. */
-export declare function meteredEscrowReplayKey(escrow: PublicKey): string;
+/** The replay-store key that marks one lock as taken, by a single call or by a session's first call: the escrow and its lock slot, so a later lock at the same address is a new key. */
+export declare function meteredEscrowReplayKey(escrow: PublicKey, createdSlot: bigint): string;
 /** Token counts from an OpenAI-style usage report, or the estimate from the text when it reports none. */
 export declare function usageFrom(upstream: Record<string, unknown>, inputEstimate: number): TokenCounts;
 /**
