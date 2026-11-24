@@ -2,6 +2,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import vectors from "@/programs/pinocchio-escrow/interface/vectors.json";
 import devnetPreFreeze from "@/config/releases/v1-devnet-b71a91e.json";
 import devnetFreeze from "@/config/releases/v1-devnet-45e9547.json";
+import devnetDeliveryCheck from "@/config/releases/v1-devnet-63d4719.json";
 import { IX } from "@/lib/program";
 import { buildSandboxRefund, buildSandboxSettle, SANDBOX_ESCROW_PROGRAM_ID } from "@/lib/sandbox/escrow";
 import {
@@ -45,6 +46,9 @@ describe("sandbox program build of record (audit S7-Codex-R2-06)", () => {
     expect(NAMES_UNRATED_EXITS_BY_EXECUTABLE_HASH[devnetPreFreeze.executableHash]).toBe(false);
     expect(NAMES_UNRATED_EXITS_BY_EXECUTABLE_HASH[devnetFreeze.executableHash]).toBe(true);
     expect(devnetFreeze.commit.startsWith("45e9547")).toBe(true);
+    // The delivery-check build encodes an unrated exit like the freeze build.
+    expect(NAMES_UNRATED_EXITS_BY_EXECUTABLE_HASH[devnetDeliveryCheck.executableHash]).toBe(true);
+    expect(devnetDeliveryCheck.commit.startsWith("63d4719")).toBe(true);
   });
 
   it("takes the latest deployed devnet record of the sandbox program", () => {
@@ -53,6 +57,10 @@ describe("sandbox program build of record (audit S7-Codex-R2-06)", () => {
     // Today: devnet runs the freeze build (upgraded in slot 525663342), so its encoding is chosen.
     expect(freezeSlot).toBe(BigInt(525_663_342));
     expect(sandboxBuildOfRecord()).toMatchObject({ commit: devnetFreeze.commit, deployedSlot: freezeSlot, namesUnratedExits: true });
+    // The delivery-check build is recorded but not deployed, so it is not chosen until its deployedSlot is filled in.
+    expect(devnetDeliveryCheck.deployedSlot).toBeNull();
+    const upgraded: SandboxReleaseRecord[] = [devnetPreFreeze, devnetFreeze, { ...devnetDeliveryCheck, deployedSlot: 530_000_000 }];
+    expect(sandboxBuildOfRecord(upgraded)).toMatchObject({ commit: devnetDeliveryCheck.commit, deployedSlot: BigInt(530_000_000), namesUnratedExits: true });
   });
 
   it("chooses no build when the latest record is unknown, ambiguous, or for another program", () => {

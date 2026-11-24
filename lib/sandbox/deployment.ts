@@ -4,7 +4,9 @@
  * Builds before the freeze (21 November 2026, `v1-devnet-b71a91e.json`) read trailing slot bytes on
  * an exit of an unrated escrow as a rating of another job and refuse the exit (6051). The freeze
  * build (`v1-devnet-45e9547.json`) requires those bytes on every exit and refuses an exit without
- * them (6053). An exit encoded for the wrong build leaves the visitor's lock unsettled, so the
+ * them (6053). The delivery-check build (`v1-devnet-63d4719.json`) encodes those exits the same way;
+ * it only adds a trailing account to escrows that opt into the delivery check, which the sandbox
+ * never locks. An exit encoded for the wrong build leaves the visitor's lock unsettled, so the
  * sandbox reads the encoding from the release record of the build devnet runs, and serves a paid
  * call only once it has checked that the program on devnet is that build: its ProgramData account
  * says it was last deployed in the record's `deployedSlot`.
@@ -16,6 +18,7 @@
 import { PublicKey } from "@solana/web3.js";
 import devnetPreFreeze from "@/config/releases/v1-devnet-b71a91e.json";
 import devnetFreeze from "@/config/releases/v1-devnet-45e9547.json";
+import devnetDeliveryCheck from "@/config/releases/v1-devnet-63d4719.json";
 import { SANDBOX_ESCROW_PROGRAM_ID } from "./escrow";
 
 export type SandboxReleaseRecord = {
@@ -27,7 +30,7 @@ export type SandboxReleaseRecord = {
 };
 
 /** The devnet release records the sandbox knows. Add a record here in the change that adds it to config/releases. */
-export const SANDBOX_DEVNET_RELEASES: readonly SandboxReleaseRecord[] = [devnetPreFreeze, devnetFreeze];
+export const SANDBOX_DEVNET_RELEASES: readonly SandboxReleaseRecord[] = [devnetPreFreeze, devnetFreeze, devnetDeliveryCheck];
 
 /**
  * Whether a build takes the escrow's created_slot after the data of an exit of an unrated escrow,
@@ -36,6 +39,7 @@ export const SANDBOX_DEVNET_RELEASES: readonly SandboxReleaseRecord[] = [devnetP
 export const NAMES_UNRATED_EXITS_BY_EXECUTABLE_HASH: Readonly<Record<string, boolean>> = {
   [devnetPreFreeze.executableHash]: false,
   [devnetFreeze.executableHash]: true,
+  [devnetDeliveryCheck.executableHash]: true,
 };
 
 export type SandboxProgramBuild = {

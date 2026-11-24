@@ -1,15 +1,17 @@
 {
   "network": "mainnet",
   "variant": "mainnet",
-  "commit": "45e9547846037b9faedb077970afd9f27db828aa",
+  "commit": "63d471927175754abf5c34a493cea67a514b346c",
   "programId": "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu",
-  "size": 97048,
-  "sha256": "1480d94e601c6f6021562e96145e3b1683a439c13f9359eca65ce336bbf6e551",
-  "executableHash": "764c3d2a3779242b208a88f8ede380c2b83b4057ba826adafd335f298ea9415c",
+  "size": 125424,
+  "sha256": "6bb5ffad2bb4748789741ebf2293ce68ac1eefbcd887955c06a3c1dbe190f393",
+  "executableHash": "c5675831e535e5c84acc0f767c09d9c46055963a29c02b55f809b4427fbf8c32",
   "upgradeAuthority": "5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe",
-  "forbiddenAuthorities": ["hbr2Fee3ewDbm33wTDrdEF3e7byNCzNgQ57CwJWaPtt"],
+  "forbiddenAuthorities": [
+    "hbr2Fee3ewDbm33wTDrdEF3e7byNCzNgQ57CwJWaPtt"
+  ],
   "forbiddenAuthoritiesNote": "Incomplete until deploy: add the Squads multisig account (not the vault) and the mainnet deployer. The check refuses this record until both are listed.",
-  "buildRun": "https://github.com/nissan/reddi-agent-protocol/actions/runs/45124021410",
+  "buildRun": "https://github.com/nissan/reddi-agent-protocol/actions/runs/45329015381",
   "image": "solanafoundation/solana-verifiable-build:4.2.2",
   "imageDigest": "sha256:16053d845922e798ab1852d3fe222faf5a23eeb1db3a13d30b70d6b6e82184ae",
   "deployedSlot": null
