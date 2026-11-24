@@ -3,7 +3,7 @@ import vectors from "@/programs/pinocchio-escrow/interface/vectors.json";
 import devnetPreFreeze from "@/config/releases/v1-devnet-b71a91e.json";
 import devnetFreeze from "@/config/releases/v1-devnet-45e9547.json";
 import devnetDeliveryCheck from "@/config/releases/v1-devnet-9c34fac.json";
-import devnetBudget from "@/config/releases/v1-devnet-64543ff.json";
+import devnetBudget from "@/config/releases/v1-devnet-339ac70.json";
 import { IX } from "@/lib/program";
 import { buildSandboxRefund, buildSandboxSettle, SANDBOX_ESCROW_PROGRAM_ID } from "@/lib/sandbox/escrow";
 import {
@@ -54,7 +54,7 @@ describe("sandbox program build of record (audit S7-Codex-R2-06)", () => {
     expect(devnetDeliveryCheck.commit.startsWith("9c34fac")).toBe(true);
     // The pooled-Budget build only adds instructions: an unrated exit is encoded the same way.
     expect(NAMES_UNRATED_EXITS_BY_EXECUTABLE_HASH[devnetBudget.executableHash]).toBe(true);
-    expect(devnetBudget.commit.startsWith("64543ff")).toBe(true);
+    expect(devnetBudget.commit.startsWith("339ac70")).toBe(true);
   });
 
   it("takes the latest deployed devnet record of the sandbox program", () => {
