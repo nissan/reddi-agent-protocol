@@ -3,6 +3,7 @@ import vectors from "@/programs/pinocchio-escrow/interface/vectors.json";
 import devnetPreFreeze from "@/config/releases/v1-devnet-b71a91e.json";
 import devnetFreeze from "@/config/releases/v1-devnet-45e9547.json";
 import devnetDeliveryCheck from "@/config/releases/v1-devnet-9c34fac.json";
+import devnetBudget from "@/config/releases/v1-devnet-64543ff.json";
 import { IX } from "@/lib/program";
 import { buildSandboxRefund, buildSandboxSettle, SANDBOX_ESCROW_PROGRAM_ID } from "@/lib/sandbox/escrow";
 import {
@@ -51,6 +52,9 @@ describe("sandbox program build of record (audit S7-Codex-R2-06)", () => {
     // The delivery-check build encodes an unrated exit like the freeze build.
     expect(NAMES_UNRATED_EXITS_BY_EXECUTABLE_HASH[devnetDeliveryCheck.executableHash]).toBe(true);
     expect(devnetDeliveryCheck.commit.startsWith("9c34fac")).toBe(true);
+    // The pooled-Budget build only adds instructions: an unrated exit is encoded the same way.
+    expect(NAMES_UNRATED_EXITS_BY_EXECUTABLE_HASH[devnetBudget.executableHash]).toBe(true);
+    expect(devnetBudget.commit.startsWith("64543ff")).toBe(true);
   });
 
   it("takes the latest deployed devnet record of the sandbox program", () => {
@@ -62,6 +66,8 @@ describe("sandbox program build of record (audit S7-Codex-R2-06)", () => {
     // Today: devnet runs the delivery-check build (upgraded in slot 525720300), which encodes unrated exits the same way.
     expect(deliverySlot).toBe(BigInt(525_720_300));
     expect(sandboxBuildOfRecord()).toMatchObject({ commit: devnetDeliveryCheck.commit, deployedSlot: deliverySlot, namesUnratedExits: true });
+    // The pooled-Budget build is recorded but not deployed on devnet yet, so it is never chosen.
+    expect(devnetBudget.deployedSlot).toBeNull();
   });
 
   it("chooses no build when the latest record is unknown, ambiguous, or for another program", () => {

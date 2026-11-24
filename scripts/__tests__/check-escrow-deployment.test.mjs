@@ -263,21 +263,33 @@ test('the 45e9547 devnet record is the deployed freeze build, and its mainnet re
   assert.equal(existsSync(path.join(root, 'config/releases/v1-mainnet-45e9547.json')), false);
 });
 
-test('the delivery-check records at 9c34fac agree with each other and the mainnet one fails closed until deploy', () => {
+test('the 9c34fac devnet record is the deployed delivery-check build, and its mainnet record is withdrawn', () => {
   const read = (name) => JSON.parse(readFileSync(path.join(root, 'config/releases', name), 'utf8'));
   const devnet = read('v1-devnet-9c34fac.json');
-  const mainnet = read('v1-mainnet-9c34fac.json');
+  assert.deepEqual(recordProblems(devnet), []);
+  assert.equal(devnet.commit, '9c34fac879bcde4519824eabaaea3ddf886e51f1');
+  // Devnet was upgraded to this build in slot 525720300 (24 November 2026).
+  assert.equal(devnet.deployedSlot, 525720300);
   // The first delivery-check cut (63d4719) was replaced unused by the refund-timing fix.
   for (const name of ['v1-devnet-63d4719.json', 'v1-mainnet-63d4719.json']) assert.equal(existsSync(path.join(root, 'config/releases', name)), false);
+  // The pooled Budget reopened the program: nothing may be deployed to mainnet from 9c34fac.
+  assert.equal(existsSync(path.join(root, 'config/releases/v1-mainnet-9c34fac.json')), false);
+});
+
+test('the pooled-Budget records at 64543ff agree with each other and the mainnet one fails closed until deploy', () => {
+  const read = (name) => JSON.parse(readFileSync(path.join(root, 'config/releases', name), 'utf8'));
+  const devnet = read('v1-devnet-64543ff.json');
+  const mainnet = read('v1-mainnet-64543ff.json');
   assert.deepEqual(recordProblems(devnet), []);
   for (const record of [devnet, mainnet]) {
-    assert.equal(record.commit, '9c34fac879bcde4519824eabaaea3ddf886e51f1');
-    assert.equal(record.buildRun, 'https://github.com/nissan/reddi-agent-protocol/actions/runs/45336688889');
+    assert.equal(record.commit, '64543ff03e98022c8bc2cacd65f0ece9c7954dc1');
+    assert.equal(record.buildRun, 'https://github.com/nissan/reddi-agent-protocol/actions/runs/45379413394');
     assert.equal(record.network, record.variant);
+    // Neither is deployed yet.
+    assert.equal(record.deployedSlot, null);
   }
-  // Devnet was upgraded to this build in slot 525720300 (24 November 2026); mainnet is not deployed.
-  assert.equal(devnet.deployedSlot, 525720300);
-  assert.equal(mainnet.deployedSlot, null);
+  assert.equal(devnet.size, 188520);
+  assert.equal(mainnet.size, 188488);
   // Sellers on x402-solana 0.1.2 / provider-kit 0.3.0 do not know the delivery flag, so these builds need newer packages.
   const minimum = { '@redditech/x402-solana': '0.1.3', '@redditech/provider-kit': '0.3.1' };
   const atLeast = (have, want) => { const [a, b] = [have, want].map((v) => v.split('.').map(Number)); for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i]; return true; };
