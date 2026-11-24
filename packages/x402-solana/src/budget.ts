@@ -578,7 +578,8 @@ export interface P256Approved {
 }
 
 function isP256(authority: PublicKey | P256Approved): authority is P256Approved {
-  return !(authority instanceof PublicKey);
+  // Structural, not instanceof: a caller may hold a PublicKey from another copy of web3.js.
+  return typeof authority === 'object' && authority !== null && 'p256ExpiresSlot' in authority;
 }
 
 function authority(who: PublicKey | P256Approved): AccountMeta {

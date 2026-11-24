@@ -450,7 +450,8 @@ exports.BUDGET_APPROVAL_LEN = 175;
 /** What an approval allows. */
 exports.BUDGET_APPROVAL_ACTIONS = { reserve: 1, waive: 2, close: 3 };
 function isP256(authority) {
-    return !(authority instanceof web3_js_1.PublicKey);
+    // Structural, not instanceof: a caller may hold a PublicKey from another copy of web3.js.
+    return typeof authority === 'object' && authority !== null && 'p256ExpiresSlot' in authority;
 }
 function authority(who) {
     return isP256(who) ? meta(web3_js_1.SYSVAR_INSTRUCTIONS_PUBKEY) : meta(who, false, true);
