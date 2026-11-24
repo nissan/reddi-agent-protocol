@@ -714,7 +714,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       let encoded: string | undefined;
       let receiptHash: string | undefined;
       try {
-        // Until receipt v2 has its own budget block, a budget call is stated as a session of the provider's slice.
+        // A budget call is metered as a session of the provider's slice (escrow = the reservation), and its budget block names the Budget and which opening of it.
         const signed = await signReddiReceiptV2({
           schemaVersion: "reddi.receipt.v2",
           providerId: config.wallet,
@@ -737,6 +737,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
             ...(slice.lastReceiptHash ? { previousReceiptHash: slice.lastReceiptHash } : {}),
             closed: false,
           },
+          budget: { address: slice.budget, createdSlot: String(slice.createdSlot), reservation },
           ...(bonus ? { bonus } : {}),
           issuedAt: issuedAt(),
         } as ReddiReceiptV2, deps.signMessage);

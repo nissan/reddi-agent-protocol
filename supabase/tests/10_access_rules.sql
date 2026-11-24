@@ -311,4 +311,37 @@ do $$ begin
   ) then raise exception 'provider_kit_app can run one of the project''s public functions'; end if;
 end $$;
 
+
+-- Budget custody (sealed spender keys, their use log, alerts, the pause switch):
+-- the server's service role only. No client role may read or write them, and
+-- the use log and alerts cannot be rewritten even by the server.
+reset role;
+do $$ declare r text; t text; begin
+  foreach r in array array['anon', 'authenticated'] loop
+    execute format('set role %I', r);
+    foreach t in array array['budget_spenders', 'budget_spender_uses', 'budget_alerts', 'budget_controls'] loop
+      perform pg_temp.expect_error(r || ' reads public.' || t, format('select 1 from public.%I', t));
+      perform pg_temp.expect_error(r || ' truncates public.' || t, format('truncate public.%I', t));
+    end loop;
+    perform pg_temp.expect_error(r || ' pauses budgets', 'update public.budget_controls set paused = false');
+    reset role;
+  end loop;
+end $$;
+set role service_role;
+insert into public.budget_spenders (id, spender, payer, network, status, sealed, key_id, record, version)
+  values ('0123456789abcdef0123456789abcdef', 'S', 'P', 'solana-devnet', 'pending', 'v1.k.a.b.c', 'k', '{}', 1);
+insert into public.budget_spender_uses (spender_id, purpose, message_sha256)
+  values ('0123456789abcdef0123456789abcdef', 'reserve', repeat('a', 64));
+select pg_temp.expect_error('server rewrites the spender use log', 'update public.budget_spender_uses set purpose = ''close''');
+select pg_temp.expect_error('server deletes the spender use log', 'delete from public.budget_spender_uses');
+do $$ begin
+  begin
+    update public.budget_spenders set status = 'closed' where id = '0123456789abcdef0123456789abcdef';
+  exception when check_violation then return;
+  end;
+  raise exception 'a closed budget kept its sealed key';
+end $$;
+update public.budget_controls set paused = true, reason = 'test';
+reset role;
+
 select 'access rules: all checks passed' as result;

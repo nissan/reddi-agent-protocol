@@ -126,6 +126,22 @@ export type ReddiReceiptV2Session = {
     /** True only on the receipt of the settle, which also carries `payment`. */
     closed: boolean;
 };
+/**
+ * A call paid from a provider's slice of a pooled Budget. It travels with the
+ * `session` block, whose `escrow` is the slice's reservation account and whose
+ * totals are metered against the slice. It names the Budget and which opening
+ * of it (`createdSlot`), since Budgets at one address can be opened again.
+ * Like a session receipt before the settle, it states what the slice owes, not
+ * a transfer: the Budget pays the slice on chain later (`BudgetPaid`).
+ */
+export type ReddiReceiptV2Budget = {
+    /** The Budget account (base58). */
+    address: string;
+    /** The Budget's `created_slot`, as a decimal string. */
+    createdSlot: string;
+    /** The provider's reservation (slice) account of that Budget (base58). Equals `session.escrow`. */
+    reservation: string;
+};
 export type ReddiReceiptV2 = {
     schemaVersion: typeof REDDI_RECEIPT_V2_VERSION;
     /** The provider's Solana wallet address (base58). The signature must verify against it. */
@@ -140,6 +156,8 @@ export type ReddiReceiptV2 = {
     payment?: ReddiReceiptV2Payment;
     /** Present on every call of a session. */
     session?: ReddiReceiptV2Session;
+    /** Present on every call paid from a pooled Budget slice, always with `session`. */
+    budget?: ReddiReceiptV2Budget;
     /** The file delivered, for a provider that returns one. */
     delivery?: ReddiReceiptV2Delivery;
     /** The job this call was recorded as, when the provider knows it. */
@@ -155,7 +173,7 @@ export type SignedReddiReceiptV2 = {
         signature: string;
     };
 };
-export type ReddiReceiptV2ErrorCode = 'malformed_receipt' | 'unsupported_version' | 'malformed_proof' | 'signature_invalid' | 'provider_mismatch' | 'declared_model_mismatch' | 'request_hash_mismatch' | 'response_hash_mismatch' | 'payment_mismatch' | 'session_mismatch' | 'session_chain_broken' | 'delivery_mismatch';
+export type ReddiReceiptV2ErrorCode = 'malformed_receipt' | 'unsupported_version' | 'malformed_proof' | 'signature_invalid' | 'provider_mismatch' | 'declared_model_mismatch' | 'request_hash_mismatch' | 'response_hash_mismatch' | 'payment_mismatch' | 'session_mismatch' | 'session_chain_broken' | 'delivery_mismatch' | 'budget_mismatch';
 export type ReddiReceiptV2Error = {
     code: ReddiReceiptV2ErrorCode;
     path: string;
@@ -188,6 +206,8 @@ export type ReddiReceiptV2Expectation = {
     session?: Partial<ReddiReceiptV2Session>;
     /** Each field given must equal the signed delivery block, for example the SHA-256 of the file you downloaded. A receipt without one fails. */
     delivery?: Partial<ReddiReceiptV2Delivery>;
+    /** Each field given must equal the signed budget block. A receipt without one fails. */
+    budget?: Partial<ReddiReceiptV2Budget>;
 };
 /** Signs the canonical bytes with the provider's key and returns the 64-byte signature. The key never enters this module. */
 export type ReddiReceiptV2Signer = (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;
