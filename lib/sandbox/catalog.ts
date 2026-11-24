@@ -42,8 +42,40 @@ export type SandboxProvider = {
   simulatedOnly?: boolean;
   /** An independent studio in the "Make a video" pipeline (#video-studio). */
   studio?: SandboxStudioListing;
+  /**
+   * A provider that returns a file is priced by what it makes (seconds of
+   * video or audio), not by tokens, and its quote includes hosting the file
+   * for the buyer to collect. Its token prices are zero: sending the brief is free.
+   */
+  media?: SandboxMediaPricing;
 };
 
+/**
+ * Per-unit pricing for a provider that returns a file. The quote is
+ * units x price per unit, plus hosting the file for `hostingDays` at
+ * `hostingPerGbUsd` per gigabyte. The maximum is the same sum at `maxUnits`.
+ * Settlement is the metered escrow as for tokens: lock the maximum, settle
+ * what was delivered, and the rest goes back.
+ */
+export type SandboxMediaPricing = {
+  /** The unit billed, singular, for receipts: "second". */
+  unit: "second";
+  /** What one unit is, for people: "second of 1080p video". */
+  unitLabel: string;
+  /** US dollars per unit, as an exact decimal string. */
+  perUnitUsd: string;
+  /** The most units one call can deliver; sets the maximum the buyer locks. */
+  maxUnits: number;
+  /** File size per unit, in bytes, for the hosting charge. */
+  bytesPerUnit: number;
+  mediaType: string;
+  /** Days the provider keeps the file for the buyer to collect. */
+  hostingDays: number;
+  /** US dollars per gigabyte for those days of hosting, storage and download together. */
+  hostingPerGbUsd: string;
+  /** What the scripted provider delivers in the sandbox. */
+  delivered: { name: string; units: number };
+};
 /**
  * What an independent provider shows the market and what it keeps to itself.
  * The public side is what an ADL listing, a price and a receipt carry; the
@@ -109,15 +141,16 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
     model: "sandbox/frame-foundry-motion",
     name: "Frame Foundry",
     tagline: "Animation from a shot list, in a hand-drawn style.",
-    pricing: { inputPerMillionUsd: "10", outputPerMillionUsd: "120", maxOutputTokens: 4000 },
+    pricing: { inputPerMillionUsd: "0", outputPerMillionUsd: "0", maxOutputTokens: 1000 },
     payTo: "B33rmWhYZ899EjnTXZmF4Pv1TqPjyCF2GHCJjCV9BiKs",
     behaviour: "honest",
     reputation: { score: 4.7, receipts: 64 },
     simulatedOnly: true,
+    media: { unit: "second", unitLabel: "second of 1080p video", perUnitUsd: "0.05", maxUnits: 40, bytesPerUnit: 1250000, mediaType: "video/mp4", hostingDays: 7, hostingPerGbUsd: "0.05", delivered: { name: "shots/launch-3-shots.mp4", units: 30 } },
     studio: {
       role: "Animation",
       who: "Two animators with four GPUs in a spare room and a motion model tuned on their own keyframes.",
-      shows: "Its listing, its price per token, the clips it returns and every receipt.",
+      shows: "Its listing, its price per second, the clips it returns and every receipt.",
       keeps: "The model weights, the keyframes it learned from, and its prompts.",
     },
   },
@@ -126,15 +159,16 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
     model: "sandbox/tidepool-score",
     name: "Tidepool Audio",
     tagline: "A music bed cut to your timings.",
-    pricing: { inputPerMillionUsd: "4", outputPerMillionUsd: "40", maxOutputTokens: 3000 },
+    pricing: { inputPerMillionUsd: "0", outputPerMillionUsd: "0", maxOutputTokens: 1000 },
     payTo: "CiSkk42GnPLJgWcW16hRkQbZoBtm2815Tgxm9mDtHLDF",
     behaviour: "honest",
     reputation: { score: 4.6, receipts: 41 },
     simulatedOnly: true,
+    media: { unit: "second", unitLabel: "second of studio-quality audio", perUnitUsd: "0.01", maxUnits: 45, bytesPerUnit: 176400, mediaType: "audio/wav", hostingDays: 7, hostingPerGbUsd: "0.05", delivered: { name: "music/bed-30s.wav", units: 30 } },
     studio: {
       role: "Music",
       who: "One producer with one GPU tower and a music model tuned on twenty years of their own stems.",
-      shows: "Its listing, its price per token, the track it returns and every receipt.",
+      shows: "Its listing, its price per second, the track it returns and every receipt.",
       keeps: "The model, the stems it learned from, and how it was tuned.",
     },
   },
@@ -143,15 +177,16 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
     model: "sandbox/kettle-guide-voice",
     name: "Kettle Voice",
     tagline: "A guide voice paced for you to record over.",
-    pricing: { inputPerMillionUsd: "0.5", outputPerMillionUsd: "2", maxOutputTokens: 2000 },
+    pricing: { inputPerMillionUsd: "0", outputPerMillionUsd: "0", maxOutputTokens: 1000 },
     payTo: "CM71QZkajX2Am9Z35tBUphYufyBdhK3QrQyLpv9ufAs9",
     behaviour: "honest",
     reputation: { score: 4.5, receipts: 128 },
     simulatedOnly: true,
+    media: { unit: "second", unitLabel: "second of guide narration", perUnitUsd: "0.002", maxUnits: 45, bytesPerUnit: 96000, mediaType: "audio/wav", hostingDays: 7, hostingPerGbUsd: "0.05", delivered: { name: "voice/guide-30s.wav", units: 30 } },
     studio: {
       role: "Guide voice",
       who: "A developer running a speech model on one desktop GPU, tuned to read scripts at a recordable pace.",
-      shows: "Its listing, its price per token, the guide track and every receipt.",
+      shows: "Its listing, its price per second, the guide track and every receipt.",
       keeps: "The voice model, its tuning data, and its pacing rules.",
     },
   },
@@ -160,15 +195,16 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
     model: "sandbox/booth-match-align",
     name: "Booth Match",
     tagline: "Lines your own voice take up with the guide.",
-    pricing: { inputPerMillionUsd: "1", outputPerMillionUsd: "6", maxOutputTokens: 2000 },
+    pricing: { inputPerMillionUsd: "0", outputPerMillionUsd: "0", maxOutputTokens: 1000 },
     payTo: "7HXsXx1i4JZTVyxjhkZ9Uj3tfUXFoqd1o3QTGtEQSj7z",
     behaviour: "honest",
     reputation: { score: 4.8, receipts: 37 },
     simulatedOnly: true,
+    media: { unit: "second", unitLabel: "second of audio aligned and cleaned", perUnitUsd: "0.004", maxUnits: 45, bytesPerUnit: 96000, mediaType: "audio/wav", hostingDays: 7, hostingPerGbUsd: "0.05", delivered: { name: "voice/narration-aligned.wav", units: 30 } },
     studio: {
       role: "Voice pass",
       who: "A sound engineer who built an alignment and clean-up model for their own podcast work.",
-      shows: "Its listing, its price per token, the cleaned take and every receipt.",
+      shows: "Its listing, its price per second, the cleaned take and every receipt.",
       keeps: "The alignment model and the room profiles it learned.",
     },
   },
@@ -177,15 +213,16 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
     model: "sandbox/splice-line-stitch",
     name: "Splice Line",
     tagline: "Stitches picture, music and voice into one cut.",
-    pricing: { inputPerMillionUsd: "0.2", outputPerMillionUsd: "0.8", maxOutputTokens: 1000 },
+    pricing: { inputPerMillionUsd: "0", outputPerMillionUsd: "0", maxOutputTokens: 1000 },
     payTo: "BmjF6v93F4DyDVbNvcrwdoNnyWBJjTqdqoRchPBD5Cz6",
     behaviour: "honest",
     reputation: { score: 4.4, receipts: 302 },
     simulatedOnly: true,
+    media: { unit: "second", unitLabel: "second of finished 1080p video", perUnitUsd: "0.003", maxUnits: 40, bytesPerUnit: 1250000, mediaType: "video/mp4", hostingDays: 7, hostingPerGbUsd: "0.05", delivered: { name: "final/launch-30s.mp4", units: 30 } },
     studio: {
       role: "Final stitch",
       who: "A small team running render nodes, priced for volume.",
-      shows: "Its listing, its price per token, the finished file and every receipt.",
+      shows: "Its listing, its price per second, the finished file and every receipt.",
       keeps: "Its render presets and loudness chain.",
     },
   },
@@ -242,9 +279,19 @@ export function studioStepPrompt(ask: string): string {
   return `Brief: ${STUDIO_BRIEF}\n\nYour part: ${ask}`;
 }
 
+/**
+ * The bytes a scripted media provider's file stands in for. Nothing is
+ * rendered in the sandbox, so the receipt's file hash is the SHA-256 of this
+ * text; a real provider hashes the file it hosts.
+ */
+export function sandboxFileStandIn(provider: SandboxProvider): string | undefined {
+  const media = provider.media;
+  return media ? `reddi sandbox stand-in file: ${provider.id}/${media.delivered.name}, ${media.delivered.units} ${media.unit}s, ${media.mediaType}` : undefined;
+}
+
 /** Scripted studio deliverables. Asset names are made up; nothing is rendered. */
 const STUDIO_ANSWERS: Record<string, string> = {
-  "frame-foundry": "Delivered: shots/01-ask.mp4, shots/02-answer.mp4, shots/03-receipt.mp4. 3 shots, 10 s each, 1080p, 24 fps, hand-drawn line style. Shot 3 holds 1 s on the printed receipt so the cut can land on it.",
+  "frame-foundry": "Delivered: shots/launch-3-shots.mp4. 3 shots, 10 s each, 1080p, 24 fps, hand-drawn line style. Shot 3 holds 1 s on the printed receipt so the cut can land on it.",
   "tidepool-audio": "Delivered: music/bed-30s.wav. 30 s, 104 bpm, warm keys and soft drums, lifts at 0:10 and 0:20, ends on a clean button at 0:30.",
   "kettle-voice": "Delivered: voice/guide-30s.wav. 30 s guide read at 140 words a minute, with 2 s gaps before each shot change so a human take can match it.",
   "booth-match": "Delivered: voice/narration-aligned.wav. Your take aligned to the guide within 40 ms on every line, room noise down 18 dB, breaths kept.",

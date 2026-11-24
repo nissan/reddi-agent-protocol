@@ -36,6 +36,7 @@ import {
   SANDBOX_ENDPOINT_PATH,
   SANDBOX_NETWORK,
   SANDBOX_PROVIDERS,
+  sandboxFileStandIn,
   scriptedSandboxAnswer,
   simulatedSpotCheck,
   type SandboxProvider,
@@ -449,6 +450,9 @@ async function writeReceipt(input: {
   // A settled escrow's fee is the one the chain took at payout (audit S7-Codex-R2-05), never the server clock's rate.
   if (payment.mode === "metered-escrow" && input.settledFeeLamports === undefined) throw new Error("a metered receipt needs the fee read from its settle");
   const settled = payment.mode === "metered-escrow" ? { ...computed, fee: input.settledFeeLamports!, provider: computed.amount - input.settledFeeLamports! } : computed;
+  // A media provider's receipt also names the unit, the units delivered and the file. Simulated payments only for now:
+  // reddi.receipt.v2 has no field for them yet, so a paid receipt never carries them.
+  const media = !paid && settled.delivery ? provider.media : undefined;
   const receipt: SandboxReceiptBody = {
     schemaVersion: paid ? REDDI_RECEIPT_V2_VERSION : SANDBOX_SIMULATED_RECEIPT_VERSION,
     providerId: await sandboxProviderAddress(provider.id),
@@ -472,9 +476,21 @@ async function writeReceipt(input: {
               outputTokens: String(settled.usage.outputTokens),
               maxAmount: settled.maxAmount.toString(),
               refunded: settled.refunded.toString(),
+              ...(media ? { unit: media.unit, units: String(settled.delivery!.units) } : {}),
             },
           }),
     },
+    ...(media
+      ? {
+          delivery: {
+            name: media.delivered.name,
+            mediaType: media.mediaType,
+            bytes: String(settled.delivery!.bytes),
+            sha256: await sha256Hex(sandboxFileStandIn(provider)!),
+            expiresAt: new Date(Date.parse(input.issuedAt) + media.hostingDays * 24 * 3600 * 1000).toISOString(),
+          },
+        }
+      : {}),
     issuedAt: input.issuedAt,
   };
   const signed = await signAsSandboxProvider(provider.id, canonicalizeSandboxReceipt(receipt));
@@ -514,7 +530,9 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
               }
             : {}),
           sessionPayment: `Or pay many calls from one lock: lock a session maximum (at least the amount above, up to ${SANDBOX_MAX_SESSION_CALLS} calls), send the same x402-payment with ${SESSION_SEQUENCE_HEADER}: 1, 2, 3 …, pass each previous call's receipt back in ${SESSION_PREVIOUS_RECEIPT_HEADER}, and send ${SESSION_CLOSE_HEADER}: close on the last call. The provider settles the running total once.`,
-          pricing: `The amount is the most this call can cost: ${inputTokens} input tokens plus ${provider.pricing.maxOutputTokens} output tokens at ${provider.pricing.inputPerMillionUsd} and ${provider.pricing.outputPerMillionUsd} USD per million, paid in devnet SOL at a demo rate.`,
+          pricing: provider.media
+            ? `The amount is the most this call can cost: up to ${provider.media.maxUnits} ${provider.media.unitLabel}s at ${provider.media.perUnitUsd} USD each, plus hosting the file for ${provider.media.hostingDays} days at ${provider.media.hostingPerGbUsd} USD per GB, paid in devnet SOL at a demo rate. The provider settles what it delivered and the rest comes back.`
+            : `The amount is the most this call can cost: ${inputTokens} input tokens plus ${provider.pricing.maxOutputTokens} output tokens at ${provider.pricing.inputPerMillionUsd} and ${provider.pricing.outputPerMillionUsd} USD per million, paid in devnet SOL at a demo rate.`,
         },
       },
       { "x402-request": JSON.stringify(challenge) },
@@ -522,6 +540,7 @@ export async function handleSandboxChatCompletion(request: SandboxGatewayRequest
   }
 
   if (request.session?.sequence != null && request.session.sequence.trim() !== "") {
+    if (provider.media) return sessionRefusal("session_invalid", `${provider.name} bills per file delivered, one job per call, so it does not take session calls.`);
     return handleSessionCall({ request, deps, provider, messages, model, inputTokens, header });
   }
 
@@ -876,6 +895,9 @@ export async function sandboxModelsListing(settler?: SandboxSettler, acceptRated
         available: provider.behaviour !== "offline",
         ...(provider.simulatedOnly ? { simulatedPaymentsOnly: true } : {}),
         ...(provider.studio ? { studio: provider.studio } : {}),
+        ...(provider.media
+          ? { mediaPricing: { unit: provider.media.unit, unitLabel: provider.media.unitLabel, perUnitUsd: provider.media.perUnitUsd, maxUnits: provider.media.maxUnits, mediaType: provider.media.mediaType, hostingDays: provider.media.hostingDays, hostingPerGbUsd: provider.media.hostingPerGbUsd } }
+          : {}),
         pricing: {
           currency: "USD",
           inputPerMillion: provider.pricing.inputPerMillionUsd,
