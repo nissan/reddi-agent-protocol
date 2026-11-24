@@ -1,21 +1,22 @@
 /**
  * Server only. Where the relay keeps what it holds for pooled Budgets
- * (audit round 4, R4-M3): one record per Budget it holds a spender key for,
- * the log of every use of that key, the alerts it sent, and the pause switch.
- * Tables: `supabase/migrations/20261125090000_budget_custody.sql`.
+ * (audit round 4, R4-M3): one record per Budget it spends from,
+ * the log of every approval, the alerts it sent, and the pause switch.
+ * Tables: `supabase/migrations/20261125090000_budget_custody.sql`, changed by
+ * `20261125110000_budget_custody_kms.sql`.
  *
- * The spender key itself is only ever here sealed (see `./keys`), and the
- * sealed copy is erased when the Budget is closed.
+ * No key material is stored: the spender key is in Vercel KMS (`./kms`), and
+ * a record holds only its public key.
  */
 
 export type BudgetNetwork = "solana-devnet" | "solana-mainnet-beta";
 
 /**
- * pending: the key exists, the payer has not opened the Budget yet.
- * open: the Budget is open on chain; the key may sign.
- * frozen: something looked wrong; the key signs nothing but the close.
- * closing: the relay closed it (or asked to); the key signs nothing but the close.
- * closed: the Budget is closed on chain and every slice is settled; the key is erased.
+ * pending: the record exists, the payer has not opened the Budget yet.
+ * open: the Budget is open on chain; the relay may approve reserves.
+ * frozen: something looked wrong; the relay approves nothing but the close.
+ * closing: the relay closed it (or asked to); it approves nothing but the close.
+ * closed: the Budget is closed on chain and every slice is settled.
  */
 export type SpenderStatus = "pending" | "open" | "frozen" | "closing" | "closed";
 
@@ -44,8 +45,10 @@ export type BudgetContact = {
 export type SpenderRecord = {
   /** Random id, 32 hex characters. */
   id: string;
-  /** The spender's public key (base58). */
+  /** The Budget's spender (base58): the SHA-256 of `spenderKey`, the same for every Budget opened under one KMS key. */
   spender: string;
+  /** The KMS public key the Budget was opened with: 33-byte compressed P-256, hex. */
+  spenderKey: string;
   /** The wallet that opens (and owns) the Budget. */
   payer: string;
   network: BudgetNetwork;
@@ -55,8 +58,6 @@ export type SpenderRecord = {
   createdSlot?: string;
   /** The Budget's mint, absent for SOL. */
   mint?: string;
-  /** The sealed secret key (`./keys`); absent once closed. */
-  sealed?: string;
   contact: BudgetContact;
   /**
    * Providers (base58 wallets) the payer expects this Budget to pay. When not
@@ -109,7 +110,7 @@ export interface BudgetCustodyStore {
   /** How many uses of this key were logged at or after `since` (ISO time). */
   usesSince(spenderId: string, since: string): Promise<number>;
   /**
-   * In one atomic step: checks the record still holds its key and, for a
+   * In one atomic step: checks the record exists and, for a
    * reserve or waive, that it is open, nothing is paused and the key was used
    * fewer than `maxUses` times in the last ten minutes; then logs the use.
    */
@@ -149,7 +150,7 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
   async update(next: SpenderRecord): Promise<Write<SpenderRecord>> {
     const current = this.records.get(next.id);
     if (!current || current.version !== next.version - 1) return { ok: false, code: "conflict" };
-    if ((next.status === "closed") !== (next.sealed === undefined)) throw new Error("a closed record holds no key, and only a closed one");
+    if (!/^0[23][0-9a-f]{64}$/.test(next.spenderKey)) throw new Error("a record names its compressed P-256 public key");
     this.records.set(next.id, structuredClone(next));
     return { ok: true, value: structuredClone(next) };
   }
@@ -165,7 +166,7 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
   async claimUse(use: SpenderUse, maxUses: number): Promise<ClaimResult> {
     if (this.failLogs) return "store_unavailable";
     const record = this.records.get(use.spenderId);
-    if (!record || !record.sealed) return "unknown";
+    if (!record) return "unknown";
     if (use.purpose === "close") {
       if (record.status === "closed") return "closed";
     } else {
@@ -207,26 +208,22 @@ const HEX32 = /^[0-9a-f]{32}$/;
 const PAGE = 500;
 const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
-type Row = { id: string; spender: string; payer: string; budget: string | null; network: BudgetNetwork; status: SpenderStatus; sealed: string | null; key_id: string | null; record: Omit<SpenderRecord, "sealed">; version: number };
+type Row = { id: string; spender: string; spender_key: string; payer: string; budget: string | null; network: BudgetNetwork; status: SpenderStatus; record: SpenderRecord; version: number };
 
 function fromRow(row: Row): SpenderRecord {
-  const { sealed: _ignored, ...record } = row.record as SpenderRecord;
-  void _ignored;
-  return { ...record, id: row.id, spender: row.spender, payer: row.payer, network: row.network, status: row.status, version: row.version, ...(row.budget ? { budget: row.budget } : {}), ...(row.sealed ? { sealed: row.sealed } : {}) };
+  return { ...row.record, id: row.id, spender: row.spender, spenderKey: row.spender_key, payer: row.payer, network: row.network, status: row.status, version: row.version, ...(row.budget ? { budget: row.budget } : {}) };
 }
 
 function toRow(record: SpenderRecord) {
-  const { sealed, ...rest } = record;
   return {
     id: record.id,
     spender: record.spender,
+    spender_key: record.spenderKey,
     payer: record.payer,
     budget: record.budget ?? null,
     network: record.network,
     status: record.status,
-    sealed: sealed ?? null,
-    key_id: sealed ? sealed.split(".")[1] : null,
-    record: rest,
+    record,
     version: record.version,
     updated_at: new Date().toISOString(),
   };
@@ -251,7 +248,7 @@ export class SupabaseBudgetCustodyStore implements BudgetCustodyStore {
     }
   }
   private async rows(filter: string): Promise<SpenderRecord[]> {
-    const response = await this.fetch(`budget_spenders?${filter}&select=id,spender,payer,budget,network,status,sealed,key_id,record,version`, { method: "GET", headers: this.headers() });
+    const response = await this.fetch(`budget_spenders?${filter}&select=id,spender,spender_key,payer,budget,network,status,record,version`, { method: "GET", headers: this.headers() });
     if (!response.ok) throw new Error(`budget custody store: ${response.status}`);
     return ((await response.json()) as Row[]).map(fromRow);
   }

@@ -1,36 +1,40 @@
 /**
  * Server only. The incident step for pooled Budgets (audit round 4,
- * S7-claude-03): when a spender key, the key-encryption key or the relay may
- * be compromised, the operator
+ * S7-claude-03): when the relay or its KMS access may be compromised, the
+ * operator
  *
- * 1. pauses every spender signature at once (`pauseBudgets`), then
- * 2. closes every open Budget on chain with its own spender key
- *    (`closeAllBudgets`). A close stops new slices for good and returns what
- *    was never reserved to the payer at once; slices already posted keep
- *    their dispute window, so the payer can still dispute them. On a Budget
- *    without an allowlist the program starts that window no earlier than the
- *    end of the open period when anyone but the payer closes, so closing
- *    early never shortens the payer's time to dispute.
+ * 1. pauses every spender approval at once (`pauseBudgets`), then
+ * 2. closes every open Budget on chain with a KMS approval
+ *    (`closeAllBudgets`), and
+ * 3. if the relay itself may be compromised, removes the KMS issuer's project
+ *    grant (or revokes the key), so nothing can have KMS sign any more.
+ *
+ * A close stops new slices for good and returns what was never reserved to
+ * the payer at once; slices already posted keep their dispute window, so the
+ * payer can still dispute them. On a Budget without an allowlist the program
+ * starts that window no earlier than the end of the open period when anyone
+ * but the payer closes, so closing early never shortens the payer's time to
+ * dispute.
  *
  * Each payer is told their Budget was closed and why. The close transactions
  * are paid by an operator fee key (`BUDGET_OPS_FEE_PAYER`), which holds no
  * Budget money. Closes run several at once within a deadline below the
  * route's time limit, so the operator always gets the summary, with every
  * Budget either closed, already closed, failed or listed as not reached; a
- * second run picks up what is left. Keys not yet opened are frozen and their
- * payers told not to open; a frozen key the payer opened anyway is found by
- * its spender address and closed.
+ * second run picks up what is left. Records not yet opened are frozen and
+ * their payers told not to open; a Budget the payer opened anyway is found by
+ * its spender and payer and closed.
  *
  * What close does not stop: on a Budget that lets the spender waive (it has
- * an allowlist and flag 0x01), whoever holds a copy of the key can still
+ * an allowlist and flag 0x01), whoever can still get the KMS key to sign can
  * waive slices already posted, until they settle. The payer is told so.
  */
 
 import { Keypair, PublicKey, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
-import { closeBudgetInstruction, decodeBudget, type BudgetAccount } from "@redditech/x402-solana/budget";
+import { decodeBudget, type BudgetAccount } from "@redditech/x402-solana/budget";
 import { sendBudgetAlert } from "./alerts";
-import { signAsSpender, type CustodyDeps } from "./custody";
+import { approveAsSpender, type CustodyDeps } from "./custody";
 import type { SpenderRecord } from "./store";
 
 export interface IncidentChain {
@@ -38,6 +42,8 @@ export interface IncidentChain {
   /** Every Budget account that names `spender` as its spender. */
   budgetsBySpender(spender: PublicKey): Promise<{ address: PublicKey; data: Uint8Array }[]>;
   latestBlockhash(): Promise<string>;
+  /** The current slot, for the approval's expiry. */
+  slot(): Promise<bigint>;
   /** Sends a fully signed transaction and waits for it to confirm. Returns its signature. */
   sendAndConfirm(tx: Transaction): Promise<string>;
 }
@@ -55,11 +61,11 @@ export function readOpsFeePayer(env: Record<string, string | undefined> = proces
   }
 }
 
-/** Stops every spender signature but the close, at once, and tells the operator. */
+/** Stops every spender approval but the close, at once, and tells the operator. */
 export async function pauseBudgets(reason: string, deps: CustodyDeps): Promise<boolean> {
   const paused = await deps.store.setPaused(true, reason);
   await sendBudgetAlert(
-    { audience: "operator", kind: "incident", subject: paused ? "Budget spending paused" : "FAILED to pause Budget spending", text: `Reason: ${reason}\n${paused ? "No spender key signs anything but a close until this is lifted. Signatures already given expire with their blockhash (about a minute): only a close stops a stolen copy of a key." : "The pause switch could not be written. Set BUDGET_SPENDING_PAUSED=true and redeploy."}`, detail: { reason, paused } },
+    { audience: "operator", kind: "incident", subject: paused ? "Budget spending paused" : "FAILED to pause Budget spending", text: `Reason: ${reason}\n${paused ? "The relay approves nothing but a close until this is lifted. Approvals already given expire within about a minute. If the relay itself may be compromised, also remove the KMS issuer's project grant." : "The pause switch could not be written. Set BUDGET_SPENDING_PAUSED=true and redeploy."}`, detail: { reason, paused } },
     undefined,
     deps,
   );
@@ -90,7 +96,7 @@ async function noteResult(record: SpenderRecord, reason: string, result: CloseRe
   })).catch(() => undefined);
 }
 
-/** Builds, has the spender sign, fee-pays and sends the close of one Budget. Skips one already closed on chain. */
+/** Builds, has KMS approve, fee-pays and sends the close of one Budget. Skips one already closed on chain. */
 export async function closeBudgetNow(
   record: SpenderRecord,
   input: { reason: string; feePayer: Keypair; programId: PublicKey; chain: IncidentChain },
@@ -115,7 +121,7 @@ export async function closeBudgetNow(
   if (!marked) return { budget, ok: false, error: "store_conflict" };
   const payer = new PublicKey(record.payer);
   const instructions: TransactionInstruction[] = [];
-  let token;
+  let token: { mint: PublicKey; refund: PublicKey; tokenProgram: PublicKey } | undefined;
   if (record.mint) {
     const mint = new PublicKey(record.mint);
     const mintAccount = await input.chain.readAccount(mint);
@@ -125,29 +131,19 @@ export async function closeBudgetNow(
     instructions.push(createAssociatedTokenAccountIdempotentInstruction(input.feePayer.publicKey, refund, payer, mint, tokenProgram));
     token = { mint, refund, tokenProgram };
   }
-  instructions.push(
-    closeBudgetInstruction({
-      programId: input.programId,
-      budget: new PublicKey(budget),
-      createdSlot: BigInt(record.createdSlot),
-      signer: new PublicKey(record.spender),
-      payer,
-      ...(token ? { token } : {}),
-    }),
-  );
   let signature: string;
   try {
+    const approved = await approveAsSpender({ id: record.id, request: { purpose: "close", ...(token ? { token } : {}) }, programId: input.programId, currentSlot: await input.chain.slot() }, deps);
+    if (!approved.ok) return { budget, ok: false, error: approved.code };
     const tx = new Transaction({ feePayer: input.feePayer.publicKey, recentBlockhash: await input.chain.latestBlockhash() });
-    tx.add(...instructions);
-    const signed = await signAsSpender({ id: record.id, transaction: tx, programId: input.programId }, deps);
-    if (!signed.ok) return { budget, ok: false, error: signed.code };
-    signed.transaction.partialSign(input.feePayer);
-    signature = await input.chain.sendAndConfirm(signed.transaction);
+    tx.add(...instructions, ...approved.instructions);
+    tx.sign(input.feePayer);
+    signature = await input.chain.sendAndConfirm(tx);
   } catch (error) {
     return { budget, ok: false, error: error instanceof Error ? error.message.slice(0, 200) : "send_failed" };
   }
   const waiveNote = onChain?.spenderMayWaive
-    ? "\nThis Budget lets its spender waive: until each posted slice settles, whoever holds a copy of the old key could still waive it, so check every post alert and dispute what you do not recognise at once."
+    ? "\nThis Budget lets its spender waive: until each posted slice settles, a compromised relay could still waive it, so check every post alert and dispute what you do not recognise at once."
     : "";
   await sendBudgetAlert(
     {
@@ -164,7 +160,7 @@ export async function closeBudgetNow(
   return { budget, ok: true, signature };
 }
 
-/** Freezes a key the payer has not opened yet, and tells the payer not to open it. */
+/** Freezes a record the payer has not opened yet, and tells the payer not to open it. */
 async function freezePending(record: SpenderRecord, reason: string, deps: CustodyDeps): Promise<CloseResult> {
   const next = await update(record, deps, (r) => (r.status !== "pending" ? undefined : { ...r, status: "frozen", frozenReason: `incident: ${reason}` }));
   if (!next || next.status !== "frozen") return { budget: record.id, ok: false, error: "store_conflict" };
@@ -173,7 +169,7 @@ async function freezePending(record: SpenderRecord, reason: string, deps: Custod
       audience: "payer",
       kind: "do_not_open",
       subject: "Do not open the Budget RAP prepared for you",
-      text: `RAP stopped the spender key ${record.spender} it made for your Budget: ${reason}\nIf you still hold the transaction that opens that Budget, do not sign it. If you already did, RAP will find the Budget and close it.`,
+      text: `RAP stopped the Budget it prepared for you (spender ${record.spender}): ${reason}\nIf you still hold the transaction that opens that Budget, do not sign it. If you already did, RAP will find the Budget and close it.`,
       detail: { spender: record.spender, reason },
       spenderId: record.id,
     },
@@ -183,9 +179,9 @@ async function freezePending(record: SpenderRecord, reason: string, deps: Custod
   return { budget: record.id, ok: true, note: "frozen_before_open" };
 }
 
-/** A frozen key with no Budget on record: the Budget the payer opened with it anyway, if any. */
+/** A frozen record with no Budget on record: the Budget the payer opened anyway, if any (one no other record holds). */
 async function attachOpened(record: SpenderRecord, chain: IncidentChain, deps: CustodyDeps): Promise<SpenderRecord | undefined> {
-  const found = (await chain.budgetsBySpender(new PublicKey(record.spender)))
+  const candidates = (await chain.budgetsBySpender(new PublicKey(record.spender)))
     .map((x) => {
       try {
         return { address: x.address.toBase58(), budget: decodeBudget(x.data) };
@@ -193,7 +189,14 @@ async function attachOpened(record: SpenderRecord, chain: IncidentChain, deps: C
         return undefined;
       }
     })
-    .find((x) => x !== undefined && x.budget.payer.toBase58() === record.payer);
+    .filter((x): x is { address: string; budget: BudgetAccount } => x !== undefined && x.budget.payer.toBase58() === record.payer);
+  let found: { address: string; budget: BudgetAccount } | undefined;
+  for (const candidate of candidates) {
+    if (!(await deps.store.byBudget(candidate.address))) {
+      found = candidate;
+      break;
+    }
+  }
   if (!found) return undefined;
   return update(record, deps, (r) => ({ ...r, budget: found.address, createdSlot: found.budget.createdSlot.toString(), ...(found.budget.mint ? { mint: found.budget.mint.toBase58() } : {}) }));
 }
@@ -201,8 +204,8 @@ async function attachOpened(record: SpenderRecord, chain: IncidentChain, deps: C
 export type IncidentOutcome = { paused: boolean; results: CloseResult[]; unreached: string[] };
 
 /**
- * The whole incident: pause, then close every Budget the relay holds a key
- * for that is still open on chain. Without a fee payer it pauses and reports
+ * The whole incident: pause, then close every Budget the relay spends from
+ * that is still open on chain. Without a fee payer it pauses and reports
  * which Budgets still need closing.
  */
 export async function closeAllBudgets(

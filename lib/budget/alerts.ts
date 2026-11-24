@@ -6,7 +6,7 @@
  * - the payer, on every new or raised slice, every post and re-post, every
  *   dispute and every payout of their Budget, with how long they have to
  *   dispute and a link that builds the dispute transaction for them;
- * - the operator, on anything that looks like a stolen spender key: a slice
+ * - the operator, on anything that looks like a compromised spender: a slice
  *   for a provider the payer did not expect, a key used too often, a sign
  *   request the relay refused, and every incident step.
  *
@@ -42,7 +42,7 @@ export type BudgetAlert = {
     | "budget_frozen"
     | "alerts_undelivered"
     | "budget_unreadable"
-    | "kek_missing"
+    | "key_rotated"
     | "watcher_stalled"
     | "incident";
   /** One line a person can act on. */
