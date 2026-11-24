@@ -29,7 +29,7 @@
  */
 import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
+import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import { ESCROW_PROTOCOL_TREASURY, treasuryTokenAccount } from "@redditech/x402-solana";
 import { closeBudgetInstruction, decodeBudget, decodeReservation, disputeEnds, judgeEnds, minReservation, payoutInstruction, postFinalInstruction, reservationAddress, type BudgetAccount, type ReservationAccount } from "@redditech/x402-solana/budget";
 import { BUDGET_PAYMENT_HEADER, BUDGET_RESERVE_HEADER, BUDGET_SIGNATURE_HEADER, checkPooledBudgetForProvider, checkReserveTransaction, readBudgetPaymentHeader, verifyPooledBudgetRequest, type PooledBudgetOffer } from "@redditech/x402-solana/budget-provider";
@@ -144,10 +144,30 @@ export class PostgresBudgetSliceStore implements BudgetSliceStore {
   }
 }
 
-/** A provider's associated token account for a mint. */
+const ATA_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+
+/** An owner's associated token account for a mint. */
 function associatedTokenAccount(owner: PublicKey, mint: PublicKey, tokenProgram: PublicKey): PublicKey {
-  const ATA_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
   return PublicKey.findProgramAddressSync([owner.toBuffer(), tokenProgram.toBuffer(), mint.toBuffer()], ATA_PROGRAM)[0];
+}
+
+/**
+ * Creates `owner`'s associated token account for a mint if it is missing, with `funder` paying the rent;
+ * does nothing (and costs no rent) when it already exists. The associated token program's CreateIdempotent.
+ */
+export function createAssociatedTokenAccountIdempotent(funder: PublicKey, owner: PublicKey, mint: PublicKey, tokenProgram: PublicKey): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: ATA_PROGRAM,
+    keys: [
+      { pubkey: funder, isSigner: true, isWritable: true },
+      { pubkey: associatedTokenAccount(owner, mint, tokenProgram), isSigner: false, isWritable: true },
+      { pubkey: owner, isSigner: false, isWritable: false },
+      { pubkey: mint, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: tokenProgram, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from([1]),
+  });
 }
 
 export type BudgetRead =
@@ -170,6 +190,13 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
   const { terms } = config;
   const payee = terms.payee;
   const payoutAccount = associatedTokenAccount(payee, terms.mint, terms.tokenProgram);
+  // A payout or close fails if the provider's or the payer's token account is missing (the payer may
+  // have closed theirs since locking), so each one first creates them if needed: the provider pays
+  // the rent, and only for an account that does not exist yet.
+  const ensureAccounts = (payer: PublicKey): TransactionInstruction[] => [
+    createAssociatedTokenAccountIdempotent(payee, payee, terms.mint, terms.tokenProgram),
+    createAssociatedTokenAccountIdempotent(payee, payer, terms.mint, terms.tokenProgram),
+  ];
 
   /** The budget offer in a 402, for a call whose most it can cost is `maxCall`. `currentReserved` is the slice already held. */
   function offer(maxCall: bigint, currentReserved: bigint = 0n, budgetTotal?: bigint): PooledBudgetOffer {
@@ -364,7 +391,7 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
 
   /** Closes this provider's paid reservation, returning its rent; nothing else moves. `payer` is its budget's payer. */
   async function closePaid(budgetKey: PublicKey, reservation: ReservationAccount, payer: PublicKey): Promise<string> {
-    const signature = await deps.chain.sendInstructions([payoutInstruction({ programId: terms.programId, budget: budgetKey, createdSlot: reservation.budgetCreatedSlot, payee, payer, treasury: ESCROW_PROTOCOL_TREASURY, token: { mint: terms.mint, payoutAccount, treasuryToken: treasuryTokenAccount(terms), refund: associatedTokenAccount(payer, terms.mint, terms.tokenProgram), tokenProgram: terms.tokenProgram } })]);
+    const signature = await deps.chain.sendInstructions([...ensureAccounts(payer), payoutInstruction({ programId: terms.programId, budget: budgetKey, createdSlot: reservation.budgetCreatedSlot, payee, payer, treasury: ESCROW_PROTOCOL_TREASURY, token: { mint: terms.mint, payoutAccount, treasuryToken: treasuryTokenAccount(terms), refund: associatedTokenAccount(payer, terms.mint, terms.tokenProgram), tokenProgram: terms.tokenProgram } })]);
     deps.log({ event: "budget_reservation_closed", budget: budgetKey.toBase58(), createdSlot: reservation.budgetCreatedSlot.toString(), signature });
     return signature;
   }
@@ -407,7 +434,7 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
       if (slot < budget.openEnds) return r.waived && r.state === "posted" ? await payout(slice, budget, budgetKey, createdSlot) : "posted";
       // The open period is over and nobody closed it: anyone may, and the dispute window starts then.
       const refund = associatedTokenAccount(budget.payer, terms.mint, terms.tokenProgram);
-      await send([closeBudgetInstruction({ programId: terms.programId, budget: budgetKey, createdSlot, signer: payee, payer: budget.payer, token: { mint: terms.mint, refund, tokenProgram: terms.tokenProgram } })]);
+      await send([createAssociatedTokenAccountIdempotent(payee, budget.payer, terms.mint, terms.tokenProgram), closeBudgetInstruction({ programId: terms.programId, budget: budgetKey, createdSlot, signer: payee, payer: budget.payer, token: { mint: terms.mint, refund, tokenProgram: terms.tokenProgram } })]);
       deps.log({ event: "budget_closed", budget: slice.budget });
       return "posted";
     }
@@ -424,7 +451,7 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
 
   async function payout(slice: BudgetSlice, budget: BudgetAccount, budgetKey: PublicKey, createdSlot: bigint): Promise<string> {
     const refund = associatedTokenAccount(budget.payer, terms.mint, terms.tokenProgram);
-    const signature = await deps.chain.sendInstructions([payoutInstruction({
+    const signature = await deps.chain.sendInstructions([...ensureAccounts(budget.payer), payoutInstruction({
       programId: terms.programId,
       budget: budgetKey,
       createdSlot,
