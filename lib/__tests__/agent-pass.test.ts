@@ -226,7 +226,9 @@ describe("agent pass (#1048)", () => {
     expect(w.settles[0].actualLamports).toBeGreaterThan(BigInt(second.receipt.receipt.session!.cumulativeCost));
     const view = passView(closed.pass);
     expect(view.providers.every((p) => p.closed && p.settleSignature === SETTLE_SIG)).toBe(true);
-    expect(view.providers[0].calls).toBe(3);
+    // The relay's closing call is not counted as one of the agent's.
+    expect(view.providers[0].calls).toBe(2);
+    expect(view.providers[1].calls).toBe(0);
 
     expect(await call(w, s.key, ask(ATLAS.model))).toMatchObject({ ok: false, code: "pass_closed" });
   });
