@@ -72,7 +72,11 @@ export interface EscrowFlags {
     metered: boolean;
     rated: boolean;
     deliveryChecked: boolean;
+    /** Bits this version does not know: anything but metered, rated and delivery-checked. Nonzero means a later program set them; refuse the escrow. */
+    unknownBits: number;
 }
+/** Every flag bit this version knows. */
+export declare const KNOWN_ESCROW_FLAGS: number;
 /** Reads the flag byte. Test the bits: a rated metered escrow stores 3, so comparing the byte with 1 is wrong. */
 export declare function escrowFlags(flagByte: number): EscrowFlags;
 /**
@@ -480,7 +484,7 @@ export type EscrowRatingStatus = {
  */
 export declare function readEscrowRatingStatus(connection: EscrowAccountReader, escrow: PublicKey, programId: PublicKey, commitment?: 'confirmed' | 'finalized'): Promise<EscrowRatingStatus>;
 /** Why `buildSellerAcceptRating` refused to build `accept_rating`. */
-export type SellerAcceptRatingRefusal = 'escrow_not_found' | 'escrow_wrong_owner' | 'not_an_escrow' | 'escrow_not_locked' | 'escrow_not_rated' | 'not_the_payee' | 'rating_not_found' | 'rating_wrong_owner' | 'rating_mismatch' | 'rating_not_awaiting_settlement' | 'already_accepted' | 'opened_slot_mismatch' | 'judge_mismatch' | 'amount_mismatch' | 'mint_mismatch';
+export type SellerAcceptRatingRefusal = 'escrow_not_found' | 'escrow_wrong_owner' | 'not_an_escrow' | 'escrow_not_locked' | 'escrow_not_rated' | 'not_the_payee' | 'rating_not_found' | 'rating_wrong_owner' | 'rating_mismatch' | 'rating_not_awaiting_settlement' | 'already_accepted' | 'opened_slot_mismatch' | 'judge_mismatch' | 'amount_mismatch' | 'mint_mismatch' | 'unknown_escrow_flags';
 export declare class SellerAcceptRatingError extends Error {
     readonly reason: SellerAcceptRatingRefusal;
     constructor(reason: SellerAcceptRatingRefusal, message: string);

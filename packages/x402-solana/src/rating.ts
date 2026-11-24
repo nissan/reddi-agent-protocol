@@ -114,11 +114,16 @@ export interface EscrowFlags {
   metered: boolean;
   rated: boolean;
   deliveryChecked: boolean;
+  /** Bits this version does not know: anything but metered, rated and delivery-checked. Nonzero means a later program set them; refuse the escrow. */
+  unknownBits: number;
 }
+
+/** Every flag bit this version knows. */
+export const KNOWN_ESCROW_FLAGS = ESCROW_FLAG_METERED | ESCROW_FLAG_RATED | ESCROW_FLAG_DELIVERY;
 
 /** Reads the flag byte. Test the bits: a rated metered escrow stores 3, so comparing the byte with 1 is wrong. */
 export function escrowFlags(flagByte: number): EscrowFlags {
-  return { metered: (flagByte & ESCROW_FLAG_METERED) !== 0, rated: (flagByte & ESCROW_FLAG_RATED) !== 0, deliveryChecked: (flagByte & ESCROW_FLAG_DELIVERY) !== 0 };
+  return { metered: (flagByte & ESCROW_FLAG_METERED) !== 0, rated: (flagByte & ESCROW_FLAG_RATED) !== 0, deliveryChecked: (flagByte & ESCROW_FLAG_DELIVERY) !== 0, unknownBits: flagByte & ~KNOWN_ESCROW_FLAGS & 0xff };
 }
 
 const startsWith = (data: Uint8Array, prefix: Buffer) => data.length >= prefix.length && prefix.every((byte, i) => data[i] === byte);
@@ -901,7 +906,8 @@ export type SellerAcceptRatingRefusal =
   | 'opened_slot_mismatch'
   | 'judge_mismatch'
   | 'amount_mismatch'
-  | 'mint_mismatch';
+  | 'mint_mismatch'
+  | 'unknown_escrow_flags';
 
 export class SellerAcceptRatingError extends Error {
   constructor(readonly reason: SellerAcceptRatingRefusal, message: string) {
@@ -966,6 +972,7 @@ export function sellerAcceptRatingFromAccounts(input: {
 }): SellerAcceptRating {
   const flags = escrowAccountFlags(input.escrowData);
   if (!flags) return refuse('not_an_escrow', 'the escrow account is not an escrow of this program');
+  if (flags.unknownBits !== 0) return refuse('unknown_escrow_flags', 'the escrow carries options this version does not know, so its exits may need accounts this version never sends');
   const data = Buffer.from(input.escrowData.buffer, input.escrowData.byteOffset, input.escrowData.byteLength);
   let payer: PublicKey, payee: PublicKey, amount: bigint, status: number, mint: PublicKey | undefined;
   if (flags.kind === 'token') {

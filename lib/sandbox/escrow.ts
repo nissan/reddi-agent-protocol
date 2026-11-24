@@ -210,6 +210,8 @@ export type DecodedSandboxEscrow = {
   rated: boolean;
   /** The payer opted this job in to the delivery check: every exit must pass its delivery account, and the payee is paid only after a checked delivery. */
   deliveryChecked: boolean;
+  /** Flag bits this version does not know (any but 0x01, 0x02, 0x04). A later program may add a rule to the escrow's exits behind one; the gateway refuses such an escrow. */
+  unknownFlagBits: number;
   /** Slots after the lock from which the payee may claim. */
   claimWindowSlots: bigint;
   /** Slots after the lock from which the payer may refund. */
@@ -254,7 +256,8 @@ export function decodeSandboxEscrow(data: Uint8Array): DecodedSandboxEscrow | un
   const metered = (data[offset] & 0x01) !== 0;
   const rated = (data[offset] & 0x02) !== 0;
   const deliveryChecked = (data[offset] & 0x04) !== 0;
-  return { payer, payee, amount, nonce, status, createdAt, createdSlot, delegatedToPer, metered, rated, deliveryChecked, claimWindowSlots, cancelWindowSlots };
+  const unknownFlagBits = data[offset] & ~0x07 & 0xff;
+  return { payer, payee, amount, nonce, status, createdAt, createdSlot, delegatedToPer, metered, rated, deliveryChecked, unknownFlagBits, claimWindowSlots, cancelWindowSlots };
 }
 
 export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {

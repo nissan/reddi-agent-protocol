@@ -2,6 +2,18 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
+## 0.1.3 — 2026-11-24
+
+### Changed
+
+- Escrow flag readers report bits they do not know: `decodeTokenEscrowAccount(...).unknownFlagBits` and `escrowFlags(...).unknownBits` (any bit but 0x01 metered, 0x02 rated and 0x04 delivery-checked; `KNOWN_ESCROW_FLAGS`). A later program may add a rule to an escrow's exits behind a new bit, so an escrow with one is refused before anything is served: `verifyMeteredLock` answers `unknown_escrow_flags`, `verifyEscrowLock` throws, and `buildSellerAcceptRating` refuses with `unknown_escrow_flags`.
+- Escrows opted in to the delivery check (bit 0x04) are refused by `verifyMeteredLock` (`delivery_escrow_declined`) and `verifyEscrowLock`, whatever else the provider accepts: their settle needs a recorded delivery this package does not yet run for a provider.
+- Token-2022 settles pass the SPL Memo program, so a payer cannot block a settle by turning on required memos after the lock.
+
+### Added
+
+- `@redditech/x402-solana/delivery`: builders, decoder and address for the delivery check (`open_delivery`, `record_delivery`, `accept_delivery`, `dispute_delivery`, `resolve_delivery`, `resolve_token_delivery`).
+
 ## 0.1.2 — 2026-11-23
 
 ### Changed

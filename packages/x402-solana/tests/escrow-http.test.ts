@@ -220,6 +220,12 @@ describe('rated escrows (flag byte bit 0x02)', () => {
     await expect(verifyEscrowLock(f.rpc as unknown as Connection, f.c, f.proof, { acceptRatedEscrows: true })).rejects.toThrow('delivery-checked escrow declined');
   });
 
+  test.each([[8], [9], [0x81], [0xff]] as const)('flag byte %i (bits this version does not know): declined before serving', async (flag) => {
+    const f = fixture(); f.state[202] = flag;
+    expect(decodeTokenEscrowAccount(f.state).unknownFlagBits).toBe(flag & 0xf8);
+    await expect(verifyEscrowLock(f.rpc as unknown as Connection, f.c, f.proof, { acceptRatedEscrows: true })).rejects.toThrow('options this seller does not know');
+  });
+
   test.each([[2], [3]] as const)('flag byte %i: accepted when the seller takes rated escrows, and the receipt says so', async (flag) => {
     const f = fixture(); f.state[202] = flag;
     const receipt = await verifyEscrowLock(f.rpc as unknown as Connection, f.c, f.proof, { acceptRatedEscrows: true });

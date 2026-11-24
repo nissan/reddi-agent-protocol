@@ -50,7 +50,7 @@ const MINIMUM = BigInt(7800);
 const disc = createHash('sha256').update('account:TokenEscrowAccount').digest().subarray(0, 8);
 const ata = (owner: PublicKey, mint = USDC) => treasuryTokenAccount({ mint, tokenProgram: TOKEN_PROGRAM }, owner);
 
-interface Fields { amount?: bigint; payee?: PublicKey; mint?: PublicKey; recipient?: PublicKey; status?: number; metered?: boolean; rated?: boolean; deliveryChecked?: boolean; payer?: PublicKey; windows?: { claim: bigint; cancel: bigint } | null; createdSlot?: bigint }
+interface Fields { extraFlags?: number; amount?: bigint; payee?: PublicKey; mint?: PublicKey; recipient?: PublicKey; status?: number; metered?: boolean; rated?: boolean; deliveryChecked?: boolean; payer?: PublicKey; windows?: { claim: bigint; cancel: bigint } | null; createdSlot?: bigint }
 function escrowBytes(f: Fields = {}): Uint8Array {
   const mint = f.mint ?? USDC;
   const owner = f.payee ?? payee;
@@ -66,7 +66,7 @@ function escrowBytes(f: Fields = {}): Uint8Array {
   data[192] = f.status ?? 0;
   data.writeBigUInt64LE(f.createdSlot ?? CURRENT_SLOT - BigInt(10), 193);
   data[201] = 254;
-  data[202] = (f.metered === false ? 0 : 1) | (f.rated ? 2 : 0) | (f.deliveryChecked ? 4 : 0);
+  data[202] = (f.metered === false ? 0 : 1) | (f.rated ? 2 : 0) | (f.deliveryChecked ? 4 : 0) | (f.extraFlags ?? 0);
   if (f.windows !== null) {
     data.writeBigUInt64LE(f.windows?.claim ?? BigInt(1_500), 203);
     data.writeBigUInt64LE(f.windows?.cancel ?? BigInt(4_500), 211);
@@ -534,6 +534,14 @@ describe('rated escrows', () => {
       }
     }
     // Not remembered: the same address without the bit is still accepted.
+    expect(await verify({}, { replayStore })).toMatchObject({ ok: true });
+  });
+
+  test.each([0x08, 0x10, 0x80, 0xf8])('declines an escrow with flag bits it does not know (%i) before serving, whatever else it accepts, and does not remember it', async (bit) => {
+    const replayStore = new MemoryNonceReplayStore();
+    for (const rated of [false, true]) {
+      expect(await verify({ extraFlags: bit, rated }, { replayStore, acceptRatedEscrows: true })).toMatchObject({ ok: false, reason: 'unknown_escrow_flags' });
+    }
     expect(await verify({}, { replayStore })).toMatchObject({ ok: true });
   });
 

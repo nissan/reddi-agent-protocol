@@ -339,19 +339,21 @@ describe('escrow flag byte', () => {
     expect({ metered: ESCROW_FLAG_METERED, rated: ESCROW_FLAG_RATED, delivery_checked: ESCROW_FLAG_DELIVERY, sol_escrow_offset: SOL_ESCROW_FLAG_OFFSET, token_escrow_offset: TOKEN_ESCROW_FLAG_OFFSET }).toEqual(vectors.escrow_flag_byte);
     expect([0, 1, 2, 3].map(escrowFlags)).toEqual([
       { metered: false, rated: false }, { metered: true, rated: false }, { metered: false, rated: true }, { metered: true, rated: true },
-    ].map((flags) => ({ ...flags, deliveryChecked: false })));
-    expect(escrowFlags(7)).toEqual({ metered: true, rated: true, deliveryChecked: true });
+    ].map((flags) => ({ ...flags, deliveryChecked: false, unknownBits: 0 })));
+    expect(escrowFlags(7)).toEqual({ metered: true, rated: true, deliveryChecked: true, unknownBits: 0 });
+    expect(escrowFlags(0x09)).toEqual({ metered: true, rated: false, deliveryChecked: false, unknownBits: 0x08 });
+    expect(escrowFlags(0xff).unknownBits).toBe(0xf8);
   });
 
   it('reads a rated metered SOL escrow, which stores 3', () => {
     expect(sol[SOL_ESCROW_FLAG_OFFSET]).toBe(3);
-    expect(escrowAccountFlags(sol)).toEqual({ kind: 'sol', metered: true, rated: true, deliveryChecked: false });
+    expect(escrowAccountFlags(sol)).toEqual({ kind: 'sol', metered: true, rated: true, deliveryChecked: false, unknownBits: 0 });
     expect(isRatedEscrow(sol)).toBe(true);
   });
 
   it('reads a rated fixed-price token escrow, and the token decoder agrees', () => {
     expect(token[TOKEN_ESCROW_FLAG_OFFSET]).toBe(2);
-    expect(escrowAccountFlags(token)).toEqual({ kind: 'token', metered: false, rated: true, deliveryChecked: false });
+    expect(escrowAccountFlags(token)).toEqual({ kind: 'token', metered: false, rated: true, deliveryChecked: false, unknownBits: 0 });
     expect(decodeTokenEscrowAccount(token)).toMatchObject({ metered: false, rated: true, payer, payee, amount: 1_000_000n });
   });
 
@@ -363,23 +365,23 @@ describe('escrow flag byte', () => {
     expect(isRatedEscrow(data)).toBe(rated);
     const solData = Buffer.from(sol);
     solData[SOL_ESCROW_FLAG_OFFSET] = byte;
-    expect(escrowAccountFlags(solData)).toEqual({ kind: 'sol', metered, rated, deliveryChecked: false });
+    expect(escrowAccountFlags(solData)).toEqual({ kind: 'sol', metered, rated, deliveryChecked: false, unknownBits: 0 });
   });
 
   it('reads the flags of an escrow written before windows were stored, and of a SOL escrow with a session key', () => {
     // Earlier SOL layout: 16 bytes shorter, the windows left out after created_slot.
     const legacySol = Buffer.concat([sol.subarray(0, 113), sol.subarray(129)]);
     expect(legacySol).toHaveLength(149);
-    expect(escrowAccountFlags(legacySol)).toEqual({ kind: 'sol', metered: true, rated: true, deliveryChecked: false });
+    expect(escrowAccountFlags(legacySol)).toEqual({ kind: 'sol', metered: true, rated: true, deliveryChecked: false, unknownBits: 0 });
     const legacyToken = token.subarray(0, 203);
-    expect(escrowAccountFlags(legacyToken)).toEqual({ kind: 'token', metered: false, rated: true, deliveryChecked: false });
+    expect(escrowAccountFlags(legacyToken)).toEqual({ kind: 'token', metered: false, rated: true, deliveryChecked: false, unknownBits: 0 });
     // With a session key (PER builds only) the flag byte sits 32 bytes later.
     const withSession = Buffer.from(sol);
     withSession[130] = 1;
     withSession.fill(9, 131, 163);
     withSession[163] = 255;
     withSession[164] = 1;
-    expect(escrowAccountFlags(withSession)).toEqual({ kind: 'sol', metered: true, rated: false, deliveryChecked: false });
+    expect(escrowAccountFlags(withSession)).toEqual({ kind: 'sol', metered: true, rated: false, deliveryChecked: false, unknownBits: 0 });
   });
 
   it('answers undefined, and not rated, for bytes that are not an escrow', () => {
@@ -458,7 +460,7 @@ describe('exits of a rated and an unrated escrow', () => {
 
     it(`decodes rated ${rated} from both escrow kinds`, () => {
       expect(decodeTokenEscrowAccount(tokenData)).toMatchObject({ rated, metered: (flag & 1) === 1 });
-      expect(escrowAccountFlags(solData)).toEqual({ kind: 'sol', rated, metered: (flag & 1) === 1, deliveryChecked: false });
+      expect(escrowAccountFlags(solData)).toEqual({ kind: 'sol', rated, metered: (flag & 1) === 1, deliveryChecked: false, unknownBits: 0 });
     });
 
     it.each([
@@ -652,7 +654,7 @@ describe('seller helper', () => {
   it('reads the escrow at confirmed commitment and reports a rated escrow with its rating address', async () => {
     const connection = reader({ owner: programId, data: hex(account('sol_escrow_rated_metered').data_hex) });
     await expect(readEscrowRatingStatus(connection, escrow, programId)).resolves.toEqual({
-      ok: true, kind: 'sol', metered: true, rated: true, deliveryChecked: false, rating: key(instruction('open_rating').accounts[0].address),
+      ok: true, kind: 'sol', metered: true, rated: true, deliveryChecked: false, unknownBits: 0, rating: key(instruction('open_rating').accounts[0].address),
     });
     expect(connection.calls).toEqual([[escrow, 'confirmed']]);
   });
@@ -757,6 +759,7 @@ describe('seller: accepting a rating', () => {
     expect(await build(hex(account('rating_open').data_hex), ratingData())).toBe('not_an_escrow');
     expect(await build(withByte(192, 1), ratingData())).toBe('escrow_not_locked');
     expect(await build(withByte(TOKEN_ESCROW_FLAG_OFFSET, 1), ratingData())).toBe('escrow_not_rated');
+    expect(await build(withByte(TOKEN_ESCROW_FLAG_OFFSET, 0x0b), ratingData())).toBe('unknown_escrow_flags');
     expect(await build(escrowData(), ratingData(), judge)).toBe('not_the_payee');
     expect(await build(escrowData(), null)).toBe('rating_not_found');
     expect(await build(escrowData(), hex(account('rating_awaiting_settlement_accepted').data_hex))).toBe('rating_mismatch');

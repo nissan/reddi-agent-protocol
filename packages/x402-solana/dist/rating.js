@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SellerAcceptRatingError = exports.ATTESTATION_RESOLUTIONS = exports.RATING_STATES = exports.RATING_PROGRAM_ERRORS = exports.SOL_ESCROW_FLAG_OFFSET = exports.TOKEN_ESCROW_FLAG_OFFSET = exports.ESCROW_FLAG_DELIVERY = exports.ESCROW_FLAG_RATED = exports.ESCROW_FLAG_METERED = exports.ATTESTATION_ACCOUNT_LEN = exports.RATING_ACCOUNT_LEN = exports.ATTESTATION_RESOLUTION_SLOTS = exports.RATING_REVEAL_SLOTS = exports.RATING_COMMIT_SLOTS = exports.RATING_DISCRIMINATORS = void 0;
+exports.SellerAcceptRatingError = exports.ATTESTATION_RESOLUTIONS = exports.RATING_STATES = exports.RATING_PROGRAM_ERRORS = exports.KNOWN_ESCROW_FLAGS = exports.SOL_ESCROW_FLAG_OFFSET = exports.TOKEN_ESCROW_FLAG_OFFSET = exports.ESCROW_FLAG_DELIVERY = exports.ESCROW_FLAG_RATED = exports.ESCROW_FLAG_METERED = exports.ATTESTATION_ACCOUNT_LEN = exports.RATING_ACCOUNT_LEN = exports.ATTESTATION_RESOLUTION_SLOTS = exports.RATING_REVEAL_SLOTS = exports.RATING_COMMIT_SLOTS = exports.RATING_DISCRIMINATORS = void 0;
 exports.escrowFlags = escrowFlags;
 exports.escrowAccountFlags = escrowAccountFlags;
 exports.isRatedEscrow = isRatedEscrow;
@@ -132,9 +132,11 @@ exports.ESCROW_FLAG_DELIVERY = 0x04;
 exports.TOKEN_ESCROW_FLAG_OFFSET = 202;
 /** Offset of the flag byte in a SOL escrow account that stores windows and no PER session key. */
 exports.SOL_ESCROW_FLAG_OFFSET = 132;
+/** Every flag bit this version knows. */
+exports.KNOWN_ESCROW_FLAGS = exports.ESCROW_FLAG_METERED | exports.ESCROW_FLAG_RATED | exports.ESCROW_FLAG_DELIVERY;
 /** Reads the flag byte. Test the bits: a rated metered escrow stores 3, so comparing the byte with 1 is wrong. */
 function escrowFlags(flagByte) {
-    return { metered: (flagByte & exports.ESCROW_FLAG_METERED) !== 0, rated: (flagByte & exports.ESCROW_FLAG_RATED) !== 0, deliveryChecked: (flagByte & exports.ESCROW_FLAG_DELIVERY) !== 0 };
+    return { metered: (flagByte & exports.ESCROW_FLAG_METERED) !== 0, rated: (flagByte & exports.ESCROW_FLAG_RATED) !== 0, deliveryChecked: (flagByte & exports.ESCROW_FLAG_DELIVERY) !== 0, unknownBits: flagByte & ~exports.KNOWN_ESCROW_FLAGS & 0xff };
 }
 const startsWith = (data, prefix) => data.length >= prefix.length && prefix.every((byte, i) => data[i] === byte);
 /**
@@ -752,6 +754,8 @@ function sellerAcceptRatingFromAccounts(input) {
     const flags = escrowAccountFlags(input.escrowData);
     if (!flags)
         return refuse('not_an_escrow', 'the escrow account is not an escrow of this program');
+    if (flags.unknownBits !== 0)
+        return refuse('unknown_escrow_flags', 'the escrow carries options this version does not know, so its exits may need accounts this version never sends');
     const data = Buffer.from(input.escrowData.buffer, input.escrowData.byteOffset, input.escrowData.byteLength);
     let payer, payee, amount, status, mint;
     if (flags.kind === 'token') {
