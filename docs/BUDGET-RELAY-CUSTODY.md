@@ -1,7 +1,7 @@
 # Budget spending by the relay: the spender key in Vercel KMS
 
 Audit round 4 (S7-claude-03, -06) asked for the pooled Budget's off-chain pieces before a Budget is offered to anyone;
-audit round 5 (on 3102743) tightened who may ask for an approval and what one may allow.
+audit rounds 5 and 5b (on 3102743 and 5b062a9) tightened who may ask for an approval and what one may allow.
 This file says what they are, how to set them up and what to do in an incident. Code: `lib/budget/`,
 `lib/jobs/budget-call.ts`, `app/api/budget/v1/`, `app/api/cron/budget-watch/`.
 
@@ -24,19 +24,32 @@ relay holds no key material at all:
   key, contacts, the payer's signed authorization, the SHA-256 of the agent secret and what the watcher saw. Nothing
   that can approve on its own.
 - Every approval is logged to `budget_spender_uses` before KMS is asked, by one database function
-  (`budget_spender_use`) that in the same step checks the pause switch, the record's status, the per-Budget limit and
-  the global ceiling, so concurrent requests cannot slip past them. The log keeps what was signed: the approval message
+  (`budget_spender_use`) that in the same step checks the pause switch, the record's status and the limits below, so
+  concurrent requests cannot slip past them. It runs only at READ COMMITTED (under REPEATABLE READ its counts would
+  come from a stale snapshot, so it refuses) and refuses a missing limit. The log keeps what was signed: the approval message
   in hex, its expiry, the Budget's `created_slot`, the amount and payout account, and who asked (the agent, or the
   incident step). If the log write fails, the relay signs nothing. That holds for the relay's own path only: any code
   deployed to the project the KMS issuer is granted to could ask KMS directly, which is why the grant matters (below).
 - Before it signs, the relay reads the cluster's genesis hash from its own RPC and refuses (`wrong_cluster`, operator
   told) when it is not the record's network. The slot for the expiry comes from that RPC too, never from the caller.
-- More than `BUDGET_SPENDER_MAX_USES_PER_10_MIN` approvals (default 30) for one Budget in ten minutes freezes it and
-  tells the operator. More than `BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN` (default 300) across all relay Budgets in ten
-  minutes pauses every Budget and tells the operator: a stolen agent secret per Budget is bounded by the first limit,
-  a compromised relay by the second.
+- Limits, each over the last ten minutes, counting every approval the agent asked for, its closes included:
+  - `BUDGET_SPENDER_MAX_USES_PER_10_MIN` (default 30) for one Budget. Past it the Budget is frozen and the operator
+    told. This bounds a stolen agent secret.
+  - `BUDGET_SPENDER_MAX_PER_PAYER_PER_10_MIN` (default 60) for all of one payer's Budgets. Past it that payer is
+    refused until the count drops, and the operator told.
+  - `BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN` (default 300) for all relay Budgets on one network (devnet and mainnet
+    count apart). Past it every request is refused until the count drops; the operator is told once per ten minutes.
+    It does not pause, so requests alone cannot stop every relay Budget for longer than the window; to pause, the
+    operator uses the switch below. With the per-payer limit, reaching it takes at least five payers with open relay
+    Budgets.
+  These bound what the relay's own approval path can sign. They do not bound a compromised deployment: code running
+  in the project the KMS issuer is granted to can ask KMS directly, without the log or the limits (see the grant
+  below).
+- The incident step's close is the only approval not counted and not paused. It is logged (`by_operator`) like the
+  rest.
 - `BUDGET_SPENDING_PAUSED` (any value but empty, `false`, `0`, `no` or `off`), or the switch in `budget_controls`,
-  stops every reserve and waive. A close is still approved, so the incident step works while paused. A pause does not
+  stops every approval the agent asks for, its closes included. The incident step's close is still approved, so it
+  works while paused. A pause does not
   revoke an approval already given; it expires within about a minute. Removing the KMS project grant stops all
   signing at once.
 - There is no nonce: replay is stopped by the Budget's state (a reserve must raise the slice, a waive or close happens
@@ -46,18 +59,24 @@ relay holds no key material at all:
 
 - A record is made only on the payer's own Ed25519 signature over a plain-text authorization that starts
   "Reddi Agent Protocol: let the RAP relay spend from my Budget" and names the network, the payer, the Budget address, the providers
-  (one to four), the most one reserve may hold, the alert contact and when it was signed. It must be under ten minutes
-  old. The Budget address must be the payer's own PDA for the nonce given (`["budget", payer, nonce]`), so nobody can
+  (one to four), the most one reserve may hold (`max reserve`, in the Budget mint's base units: lamports for SOL, the
+  token's smallest unit otherwise), the alert contact and when it was signed. It must be under ten minutes old. The
+  alert email and webhook may hold no control, format, line-separator or private-use characters, so they cannot add a
+  line to the text the wallet shows. The Budget address must be the payer's own PDA for the nonce given (`["budget", payer, nonce]`), so nobody can
   make a record for a Budget the payer did not sign for, and the record is pinned to that one Budget: a second record
   for it is refused (`budget_taken`).
 - Making the record returns an agent secret (`rap_budget_…`) once. The relay keeps only its SHA-256. Every reserve and
   waive needs it; the incident step may only close.
-- The record turns open only when the Budget on chain names the payer, the KMS spender with flag `0x08`, and an
+- The record turns open only within an hour of the payer's signature (after that the payer signs again with a new
+  nonce), read through the relay's own RPC after its genesis hash shows it serves the record's network, and only when
+  the Budget on chain names the payer, the KMS spender with flag `0x08`, and an
   allowlist equal to the providers signed for. A relay Budget therefore always has an allowlist, and the program
   itself refuses a slice for anyone else.
 - A reserve is approved only for a provider on that list and only up to the signed maximum.
 - A waive is approved only for a slice of this opening that has posted and is not waived, for exactly its posted
   amount, and expires 50 slots ahead (about 20 seconds) instead of 150.
+- The routes that will call `createSpender`, `activateSpender` and `approveAsSpender` do not exist yet. They must take
+  the program id and the RPC from the server's configuration, never from the request, and need a review when written.
 - Residual: whoever first submits a payer's signed authorization gets the agent secret. That holder can still only
   reserve for the payer's own providers, up to the payer's maximum, within the limits above, and the payer is alerted
   of every slice. The payer's app should submit the authorization itself, straight after signing.
@@ -77,8 +96,10 @@ every payout or settled slice. A slice for a provider the payer did not name als
 never approves one: treat that as a compromised relay or KMS access and run the incident step.
 
 - A slice's alert counts as sent only when a payer channel took it; otherwise it is sent again every pass, and after
-  three passes the operator is told. An operator alert no channel took is kept on the record (up to 20) and sent again
-  every pass; until it goes through, the pass counts as failed.
+  three passes the operator is told (counted as told only once a channel took it).
+- Every operator alert no channel took, wherever it was raised (a freeze, the ceiling, a refused approval, a stalled
+  or wrong-cluster watcher, a frozen Budget found open), is kept in `budget_controls.operator_pending` (one of each,
+  the newest 50) and sent again at the end of every pass. Until they all go through, the pass counts as failed.
 - Budgets are watched several at once, least recently watched first, each alert channel with a 5 second timeout, so one
   payer's slow webhook cannot hold up the rest. There is no row cap.
 - The route answers 503 when any Budget could not be watched or the pass ran out of time, so the workflow run fails.
@@ -91,7 +112,8 @@ never approves one: treat that as a compromised relay or KMS access and run the 
 - A frozen record the relay never saw open is looked up at its pinned Budget address, so a Budget the payer opened
   anyway is watched and can be closed.
 - A live record whose public key is not `BUDGET_SPENDER_P256_PUBLIC_KEY` (the KMS key was rotated, or the setting is
-  missing) is a warning, not a failed pass: the operator is told at most once a day, because the relay cannot approve
+  missing) is a warning, not a failed pass: the operator is told at most once a day (counted only once delivered),
+  because the relay cannot approve
   anything for it, the close included.
 - Dispute links use `BUDGET_LINK_ORIGIN` (default `https://app.agent-protocol.reddi.tech`), never the request's host.
 
@@ -121,20 +143,22 @@ Values go in 1Password first, then Vercel (project `reddi-agent-protocol`) or Gi
 | `BUDGET_INCIDENT_SECRET` | Vercel | Bearer secret of `/api/budget/v1/incident`. |
 | `BUDGET_OPS_FEE_PAYER` | Vercel, Production only | JSON array of the 64 secret-key bytes of a fee key that holds only SOL for fees, never Budget money. |
 | `BUDGET_SPENDER_MAX_USES_PER_10_MIN` | Vercel, optional | Overuse limit per Budget, default 30. |
-| `BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN` | Vercel, optional | Ceiling across all relay Budgets, default 300; past it every Budget is paused. |
+| `BUDGET_SPENDER_MAX_PER_PAYER_PER_10_MIN` | Vercel, optional | Limit for all of one payer's Budgets, default 60. |
+| `BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN` | Vercel, optional | Ceiling across all relay Budgets on one network, default 300; past it approvals are refused until the count drops. |
 | `BUDGET_LINK_ORIGIN` | Vercel, optional | Origin of dispute links, default the production app. |
 
 Grant the issuer to Production only, never Preview: any deployment it is granted to can approve for every relay
 Budget. Audit round 5 (R5-M2) asks for the issuer to be granted to a small project that does nothing but sign, with
 one issuer per cluster, so that the large app project and its dependencies cannot ask KMS at all; that move waits on
-an owner decision. Until then the app's production deployment holds the grant, the limits above bound what the relay
-path can approve, and Vercel's KMS audit log is the record to compare against `budget_spender_uses` (any signature
+an owner decision. Until then the app's production deployment holds the grant. The limits above bound only what the
+relay's own path approves, not what a compromised deployment could ask KMS for, and Vercel's KMS audit log is the record to compare against `budget_spender_uses` (any signature
 there without a logged use means something other than the relay path asked). `BUDGET_SPENDER_KEKS` is no longer read; delete it from Vercel and 1Password once this is deployed.
 
-Apply `supabase/migrations/20261125090000_budget_custody.sql`, `20261125100000_budget_custody_hardening.sql` and
-`20261125110000_budget_custody_kms.sql` and `20261125120000_budget_custody_round5.sql` before the first Budget record
-is made. The last one drops the sealed-key
-columns; it fails if any record exists, so a record from the earlier design is never silently kept without a key.
+Apply `supabase/migrations/20261125090000_budget_custody.sql`, `20261125100000_budget_custody_hardening.sql`,
+`20261125110000_budget_custody_kms.sql`, `20261125120000_budget_custody_round5.sql` and
+`20261125130000_budget_custody_round5b.sql`, in that order, before the first Budget record is made. The KMS one drops
+the sealed-key columns and fails if any record exists, so a record from the earlier design is never silently kept
+without a key. `supabase/tests/10_access_rules.sql` runs against all of them in CI (`supabase-access-rules.yml`).
 
 ### Rotating the KMS key
 

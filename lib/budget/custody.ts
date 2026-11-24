@@ -28,12 +28,14 @@
  *   concurrent requests cannot slip past them; an approval that cannot be
  *   logged is not signed;
  * - a Budget approved more than `BUDGET_SPENDER_MAX_USES_PER_10_MIN` times in
- *   ten minutes is frozen and the operator alerted; all relay Budgets together
- *   approved more than `BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN` times pause
- *   Budget spending altogether (R5-M2);
+ *   ten minutes is frozen and the operator alerted; one payer's Budgets past
+ *   `BUDGET_SPENDER_MAX_PER_PAYER_PER_10_MIN`, or all relay Budgets on the
+ *   network past `BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN`, are refused until the
+ *   count drops, and the operator told (R5-M2, round 5b); the agent's closes
+ *   count too;
  * - nothing is approved while Budgets are paused (`BUDGET_SPENDING_PAUSED` set
  *   to anything but `false`/`0`/`no`/`off`, or the pause switch in the
- *   database), except the close;
+ *   database), except the incident step's close;
  * - every signature KMS returns is checked against the key the Budget names
  *   before it is handed out.
  */
@@ -62,6 +64,10 @@ import { GENESIS_HASH, type BudgetContact, type BudgetCustodyStore, type BudgetN
 export const DEFAULT_MAX_USES_PER_10_MIN = 30;
 /** All relay Budgets together, in ten minutes: past this, Budget spending is paused (R5-M2). */
 export const DEFAULT_MAX_GLOBAL_PER_10_MIN = 300;
+/** All of one payer's relay Budgets, in ten minutes: so one payer cannot use up the shared ceiling (round 5b). */
+export const DEFAULT_MAX_PER_PAYER_PER_10_MIN = 60;
+/** A pending record activates only this long after the payer signed (round 5b). */
+export const PENDING_MAX_AGE_SECONDS = 60 * 60;
 const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const U64_MAX = BigInt("18446744073709551615");
 /** How old (or how far ahead) a payer's authorization may be when the record is made. */
@@ -231,15 +237,27 @@ const sameSet = (a: string[], b: string[]) => a.length === b.length && [...a].so
  * open. Only an open record approves a reserve.
  */
 export async function activateSpender(
-  input: { id: string; programId: PublicKey; readAccount: (address: PublicKey) => Promise<{ owner: PublicKey; data: Uint8Array } | null> },
+  input: { id: string; programId: PublicKey },
   deps: CustodyDeps,
 ): Promise<{ ok: true; record: SpenderRecord } | CustodyFailure> {
+  const chain = deps.chain;
+  if (!chain) return refuse("chain_unavailable", "The relay has no RPC to read the Budget from.");
   const record = await deps.store.byId(input.id);
   if (!record) return refuse("unknown_budget_key", "No Budget record with that id.");
   // Only a pending record activates: a frozen one (an incident froze it before the payer opened) stays frozen.
   if (record.status !== "pending") return refuse("not_pending", `This Budget record is ${record.status}.`);
   if (!record.budget || !record.authorization) return refuse("not_authorized", "This record has no payer authorization (made before audit round 5): make a new one.");
-  const account = await input.readAccount(new PublicKey(record.budget));
+  if (Math.floor((deps.nowMs ?? Date.now()) / 1000) > record.authorization.issuedAt + PENDING_MAX_AGE_SECONDS) {
+    return refuse("authorization_expired", "The payer signed for this Budget over an hour ago and it was not opened in time: sign a new authorization with a new nonce.");
+  }
+  // Read through the relay's own RPC, and only once it is known to serve the record's cluster (round 5b).
+  let account;
+  try {
+    if ((await chain.genesisHash()) !== GENESIS_HASH[record.network]) return refuse("wrong_cluster", "The relay's RPC does not serve this Budget's network.");
+    account = await chain.readAccount(new PublicKey(record.budget), "finalized");
+  } catch {
+    return refuse("chain_unavailable", "The relay could not read the chain; try again.");
+  }
   if (!account || !account.owner.equals(input.programId)) return refuse("budget_not_found", "The Budget is not open on chain yet.");
   let budget;
   try {
@@ -373,8 +391,10 @@ export async function approveAsSpender(
     return refuse("invalid_payout_account", "The payout account is not a Solana address.");
   }
 
+  const byOperator = "operator" in input.auth;
+  // Only the incident step's close goes through a pause; the agent's close is paused and counted like the rest (round 5b).
+  if (!byOperator && pausedByEnv(env.BUDGET_SPENDING_PAUSED)) return refuse("budgets_paused", "Budget spending is paused by the operator.");
   if (purpose !== "close") {
-    if (pausedByEnv(env.BUDGET_SPENDING_PAUSED)) return refuse("budgets_paused", "Budget spending is paused by the operator.");
     if (record.status !== "open") return refuse("budget_not_open", `This Budget is ${record.status}: it approves only the close.`);
     if (!record.expectedPayees.includes(payee!)) {
       await operator(`Refused a ${purpose} for a provider the payer did not name`, { code: "unexpected_payee", payee: payee ?? null });
@@ -440,26 +460,36 @@ export async function approveAsSpender(
     ...(request.purpose !== "close" ? { amount: request.amount.toString() } : {}),
     ...(payoutAccount ? { payoutAccount } : {}),
   };
-  const limits = { perBudget: limitFrom(env.BUDGET_SPENDER_MAX_USES_PER_10_MIN, DEFAULT_MAX_USES_PER_10_MIN), global: limitFrom(env.BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN, DEFAULT_MAX_GLOBAL_PER_10_MIN) };
-  const claim = await deps.store.claimUse({ spenderId: record.id, purpose, ...(payee ? { payee } : {}), messageSha256: sha256Hex(message), at: new Date(nowMs).toISOString(), detail }, limits);
+  const limits = {
+    perBudget: limitFrom(env.BUDGET_SPENDER_MAX_USES_PER_10_MIN, DEFAULT_MAX_USES_PER_10_MIN),
+    perPayer: limitFrom(env.BUDGET_SPENDER_MAX_PER_PAYER_PER_10_MIN, DEFAULT_MAX_PER_PAYER_PER_10_MIN),
+    global: limitFrom(env.BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN, DEFAULT_MAX_GLOBAL_PER_10_MIN),
+  };
+  const claim = await deps.store.claimUse({ spenderId: record.id, purpose, ...(payee ? { payee } : {}), messageSha256: sha256Hex(message), at: new Date(nowMs).toISOString(), detail, ...(byOperator ? { byOperator: true } : {}) }, limits);
   if (claim === "overuse") {
     await freezeSpender(record, `approved more than ${limits.perBudget} times in ten minutes`, deps);
     return refuse("key_overuse", "This Budget was approved too often and is frozen. The operator was alerted.");
   }
-  if (claim === "global_overuse") {
-    const paused = await deps.store.setPaused(true, `relay approved more than ${limits.global} times in ten minutes across all Budgets`).catch(() => false);
-    await sendBudgetAlert(
-      {
-        audience: "operator",
-        kind: "key_overuse",
-        subject: paused ? "Budget spending paused: the relay hit its global approval ceiling" : "The relay hit its global approval ceiling and could NOT pause",
-        text: `All relay Budgets together were approved ${limits.global} times in ten minutes (BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN). ${paused ? "Spending is paused: only closes are approved." : "Set BUDGET_SPENDING_PAUSED=true and redeploy."} Check the approval log for what was signed, and lift the pause once it is explained.`,
-        detail: { limit: limits.global, paused },
-      },
-      undefined,
-      deps,
-    );
-    return refuse("budgets_paused", "Budget spending is paused: the relay hit its approval ceiling.");
+  if (claim === "payer_overuse") {
+    await operator(`Refused: payer ${record.payer} asked for more than ${limits.perPayer} approvals in ten minutes`, { code: "payer_overuse", limit: limits.perPayer });
+    return refuse("payer_overuse", "This payer's Budgets were approved too often in the last ten minutes; try again later.");
+  }
+  if (claim === "global_overuse" || claim === "global_overuse_new") {
+    // A ceiling, not a pause (round 5b): it lifts by itself, so requests alone cannot stop every relay Budget for long.
+    if (claim === "global_overuse_new") {
+      await sendBudgetAlert(
+        {
+          audience: "operator",
+          kind: "key_overuse",
+          subject: "The relay hit its approval ceiling across all Budgets",
+          text: `All relay Budgets on ${record.network} together asked for ${limits.global} approvals in ten minutes (BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN). Further approvals are refused until the count drops; closes by the incident step still go through. Check the approval log for who asked. If the relay or its KMS access may be compromised, run the incident step.`,
+          detail: { limit: limits.global, network: record.network },
+        },
+        undefined,
+        deps,
+      );
+    }
+    return refuse("global_overuse", "The relay is at its approval ceiling; try again in a few minutes.");
   }
   if (claim === "paused") return refuse("budgets_paused", "Budget spending is paused by the operator.");
   if (claim === "not_open") return refuse("budget_not_open", "This Budget is no longer open: it approves only the close.");
