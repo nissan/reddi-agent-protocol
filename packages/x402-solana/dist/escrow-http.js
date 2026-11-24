@@ -70,6 +70,8 @@ async function verifyEscrowLock(connection, c, proof, options = {}) {
         if (!decoded[field].equals(t[field]))
             throw new Error(`wrong escrow ${field}`);
     }
+    if (decoded.unknownFlagBits !== 0)
+        throw new Error('escrow declined: it carries options this seller does not know');
     if (decoded.deliveryChecked)
         throw new Error('delivery-checked escrow declined: this seller does not take escrows opted in to the delivery check');
     if (decoded.rated && options.acceptRatedEscrows !== true)

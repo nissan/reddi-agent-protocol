@@ -4,17 +4,15 @@ All notable changes to this package are documented here. Dates are AEST.
 
 ## 0.1.3 — 2026-11-24
 
-Needed with the escrow program build `63d4719` and later: sellers on 0.1.2 and earlier do not know the delivery check and would serve an escrow that cannot pay them.
+### Changed
+
+- Escrow flag readers report bits they do not know: `decodeTokenEscrowAccount(...).unknownFlagBits` and `escrowFlags(...).unknownBits` (any bit but 0x01 metered, 0x02 rated and 0x04 delivery-checked; `KNOWN_ESCROW_FLAGS`). A later program may add a rule to an escrow's exits behind a new bit, so an escrow with one is refused before anything is served: `verifyMeteredLock` answers `unknown_escrow_flags`, `verifyEscrowLock` throws, and `buildSellerAcceptRating` refuses with `unknown_escrow_flags`.
+- Escrows opted in to the delivery check (bit 0x04) are refused by `verifyMeteredLock` (`delivery_escrow_declined`) and `verifyEscrowLock`, whatever else the provider accepts: their settle needs a recorded delivery this package does not yet run for a provider.
+- Token-2022 settles pass the SPL Memo program, so a payer cannot block a settle by turning on required memos after the lock.
 
 ### Added
 
-- `@redditech/x402-solana/delivery`: builders and decoders for the escrow program's delivery check (`open_delivery`, `record_delivery`, `accept_delivery`, `dispute_delivery`, `resolve_delivery`, `resolve_token_delivery`), the delivery account, and `withDeliveryAccount` for the exits of a delivery-checked escrow. Held to `programs/pinocchio-escrow/interface/vectors.json` byte for byte.
-- `ESCROW_FLAG_DELIVERY` (bit `0x04`), and `deliveryChecked` on `escrowFlags` and on `decodeTokenEscrowAccount`.
-
-### Changed
-
-- `verifyMeteredLock` refuses an escrow opted in to the delivery check (`delivery_escrow_declined`), and `verifyEscrowLock` throws for one, before anything is served or remembered.
-- A Token-2022 metered settle carries the SPL Memo program as its last account, so a refund account that requires memos cannot make the settle fail.
+- `@redditech/x402-solana/delivery`: builders, decoder and address for the delivery check (`open_delivery`, `record_delivery`, `accept_delivery`, `dispute_delivery`, `resolve_delivery`, `resolve_token_delivery`).
 
 ## 0.1.2 — 2026-11-23
 
