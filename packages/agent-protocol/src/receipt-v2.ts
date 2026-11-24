@@ -78,11 +78,13 @@ export type ReddiReceiptV2Delivery = {
 /**
  * A launch or promotional bonus the provider applied to this call: a discount
  * on its own price, not a transfer. `amount` is in the payment's smallest
- * units and currency. The call's listed cost is `payment.amount` plus
- * `bonus.amount`; the protocol fee is worked out on `payment.amount` alone,
- * because only that moved on chain. `offer` names the offer, such as
- * `rap-launch-2026`. Only on a receipt that states a payment, and never more
- * than the payment itself.
+ * units and currency. The call's listed cost is what the buyer paid
+ * (`payment.amount`, or this call's share of a Budget session's
+ * `cumulativeCost`) plus `bonus.amount`; the protocol fee is worked out on the
+ * paid part alone, because only that moved on chain. `offer` names the offer,
+ * such as `rap-launch-2026`. Only on a receipt that states a payment or a
+ * Budget call (`budget` with `session`), and never more than `payment.amount`
+ * or the session's `cumulativeCost`.
  */
 export type ReddiReceiptV2Bonus = {
   offer: string;
@@ -147,6 +149,23 @@ export type ReddiReceiptV2Session = {
   closed: boolean;
 };
 
+/**
+ * A call paid from a provider's slice of a pooled Budget. It travels with the
+ * `session` block, whose `escrow` is the slice's reservation account and whose
+ * totals are metered against the slice. It names the Budget and which opening
+ * of it (`createdSlot`), since Budgets at one address can be opened again.
+ * Like a session receipt before the settle, it states what the slice owes, not
+ * a transfer: the Budget pays the slice on chain later (`BudgetPaid`).
+ */
+export type ReddiReceiptV2Budget = {
+  /** The Budget account (base58). */
+  address: string;
+  /** The Budget's `created_slot`, as a decimal string. */
+  createdSlot: string;
+  /** The provider's reservation (slice) account of that Budget (base58). Equals `session.escrow`. */
+  reservation: string;
+};
+
 export type ReddiReceiptV2 = {
   schemaVersion: typeof REDDI_RECEIPT_V2_VERSION;
   /** The provider's Solana wallet address (base58). The signature must verify against it. */
@@ -161,6 +180,8 @@ export type ReddiReceiptV2 = {
   payment?: ReddiReceiptV2Payment;
   /** Present on every call of a session. */
   session?: ReddiReceiptV2Session;
+  /** Present on every call paid from a pooled Budget slice, always with `session`. */
+  budget?: ReddiReceiptV2Budget;
   /** The file delivered, for a provider that returns one. */
   delivery?: ReddiReceiptV2Delivery;
   /** A discount the provider applied on top of the payment, such as the launch Budget bonus. */
@@ -193,6 +214,7 @@ export type ReddiReceiptV2ErrorCode =
   | 'session_mismatch'
   | 'session_chain_broken'
   | 'delivery_mismatch'
+  | 'budget_mismatch'
   | 'bonus_mismatch';
 
 export type ReddiReceiptV2Error = { code: ReddiReceiptV2ErrorCode; path: string; message: string };
@@ -213,6 +235,8 @@ export type ReddiReceiptV2Expectation = {
   session?: Partial<ReddiReceiptV2Session>;
   /** Each field given must equal the signed delivery block, for example the SHA-256 of the file you downloaded. A receipt without one fails. */
   delivery?: Partial<ReddiReceiptV2Delivery>;
+  /** Each field given must equal the signed budget block. A receipt without one fails. */
+  budget?: Partial<ReddiReceiptV2Budget>;
   /** Each field given must equal the signed bonus block. A receipt without one fails. */
   bonus?: Partial<ReddiReceiptV2Bonus>;
 };
@@ -225,7 +249,8 @@ const HASH = /^[0-9a-f]{64}$/;
 const TX_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
-const RECEIPT_KEYS = ['schemaVersion', 'providerId', 'declaredModel', 'requestHash', 'responseHash', 'payment', 'session', 'delivery', 'bonus', 'jobId', 'issuedAt'];
+const RECEIPT_KEYS = ['schemaVersion', 'providerId', 'declaredModel', 'requestHash', 'responseHash', 'payment', 'session', 'budget', 'delivery', 'bonus', 'jobId', 'issuedAt'];
+const BUDGET_KEYS = ['address', 'createdSlot', 'reservation'];
 const BONUS_KEYS = ['offer', 'amount'];
 const BONUS_OFFER = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DELIVERY_KEYS = ['name', 'mediaType', 'bytes', 'sha256', 'expiresAt'];
@@ -343,7 +368,8 @@ export function validateReddiReceiptV2(input: unknown): ReddiReceiptV2Verificati
     if (payment.network !== 'solana-devnet' && payment.network !== 'solana-mainnet-beta') errors.push(err('malformed_receipt', '$.payment.network', 'network must be solana-devnet or solana-mainnet-beta'));
     if (typeof payment.txSignature !== 'string' || !TX_SIGNATURE.test(payment.txSignature)) errors.push(err('malformed_receipt', '$.payment.txSignature', 'txSignature must be a base58 transaction signature'));
   }
-  if (input.bonus !== undefined) validateBonus(input.bonus, payment, errors);
+  if (input.budget !== undefined) validateBudget(input.budget, session, errors);
+  if (input.bonus !== undefined) validateBonus(input.bonus, payment, input.budget !== undefined ? session : undefined, errors);
   if (input.delivery !== undefined) validateDelivery(input.delivery, input.issuedAt, session !== undefined, errors);
   if (input.jobId !== undefined && (typeof input.jobId !== 'string' || !JOB_ID.test(input.jobId))) errors.push(err('malformed_receipt', '$.jobId', 'jobId must be 1 to 120 characters of letters, digits, dot, underscore, colon or hyphen'));
   if (typeof input.issuedAt !== 'string' || !ISO_UTC.test(input.issuedAt) || Number.isNaN(Date.parse(input.issuedAt))) {
@@ -352,7 +378,19 @@ export function validateReddiReceiptV2(input: unknown): ReddiReceiptV2Verificati
   return errors.length > 0 ? { ok: false, errors } : { ok: true, receipt: input as ReddiReceiptV2 };
 }
 
-function validateBonus(bonus: unknown, payment: unknown, errors: ReddiReceiptV2Error[]): void {
+function validateBudget(budget: unknown, session: unknown, errors: ReddiReceiptV2Error[]): void {
+  if (!isRecord(budget) || !onlyKeys(budget, BUDGET_KEYS)) {
+    errors.push(err('malformed_receipt', '$.budget', 'budget must be { address, createdSlot, reservation }'));
+    return;
+  }
+  if (!publicKeyBytes(budget.address)) errors.push(err('malformed_receipt', '$.budget.address', 'address must be a base58 address'));
+  if (!publicKeyBytes(budget.reservation)) errors.push(err('malformed_receipt', '$.budget.reservation', 'reservation must be a base58 address'));
+  if (typeof budget.createdSlot !== 'string' || !BASE_UNITS.test(budget.createdSlot) || budget.createdSlot === '0') errors.push(err('malformed_receipt', '$.budget.createdSlot', 'createdSlot must be a positive whole number, as a string'));
+  if (!isRecord(session)) errors.push(err('malformed_receipt', '$.budget', 'a budget call also carries its session block'));
+  else if (session.escrow !== budget.reservation) errors.push(err('malformed_receipt', '$.budget.reservation', "the session's escrow must be the budget's reservation"));
+}
+
+function validateBonus(bonus: unknown, payment: unknown, budgetSession: unknown, errors: ReddiReceiptV2Error[]): void {
   if (!isRecord(bonus) || !onlyKeys(bonus, BONUS_KEYS)) {
     errors.push(err('malformed_receipt', '$.bonus', 'bonus must be { offer, amount }'));
     return;
@@ -362,13 +400,16 @@ function validateBonus(bonus: unknown, payment: unknown, errors: ReddiReceiptV2E
     errors.push(err('malformed_receipt', '$.bonus.amount', 'amount must be a positive whole number of smallest units, as a string'));
     return;
   }
-  // A bonus rides on a payment: a session call before its settle has none yet.
-  if (!isRecord(payment)) {
-    errors.push(err('malformed_receipt', '$.bonus', 'a bonus is stated only on a receipt that states a payment'));
+  // A bonus rides on what the buyer paid: a payment, or a Budget call (its session's
+  // cumulativeCost includes this call's paid part). A plain session call before its
+  // settle has paid nothing yet.
+  const paid = isRecord(payment) ? payment.amount : isRecord(budgetSession) ? budgetSession.cumulativeCost : undefined;
+  if (!isRecord(payment) && !isRecord(budgetSession)) {
+    errors.push(err('malformed_receipt', '$.bonus', 'a bonus is stated only on a receipt that states a payment or a budget call'));
     return;
   }
-  if (typeof payment.amount === 'string' && BASE_UNITS.test(payment.amount) && BigInt(bonus.amount) > BigInt(payment.amount)) {
-    errors.push(err('malformed_receipt', '$.bonus.amount', 'a bonus cannot be more than the payment it rides on'));
+  if (typeof paid === 'string' && BASE_UNITS.test(paid) && BigInt(bonus.amount) > BigInt(paid)) {
+    errors.push(err('malformed_receipt', '$.bonus.amount', 'a bonus cannot be more than what the buyer paid'));
   }
 }
 
@@ -470,6 +511,7 @@ export function canonicalizeReddiReceiptV2(receipt: ReddiReceiptV2): string {
         : {}),
     } } : {}),
     ...(receipt.session !== undefined ? { session: canonicalSession(receipt.session) } : {}),
+    ...(receipt.budget !== undefined ? { budget: { address: receipt.budget.address, createdSlot: receipt.budget.createdSlot, reservation: receipt.budget.reservation } } : {}),
     ...(receipt.delivery !== undefined
       ? { delivery: { name: receipt.delivery.name, mediaType: receipt.delivery.mediaType, bytes: receipt.delivery.bytes, sha256: receipt.delivery.sha256, expiresAt: receipt.delivery.expiresAt } }
       : {}),
@@ -558,6 +600,10 @@ export function verifyReddiReceiptV2(input: unknown, expected: ReddiReceiptV2Exp
     const got = receipt.session as Record<string, unknown> | undefined;
     if (!got || Object.entries(expected.session).some(([key, value]) => value !== undefined && got[key] !== value)) errors.push(err('session_mismatch', '$.receipt.session', 'session differs from the session expected'));
   }
+  if (expected.budget !== undefined) {
+    const got = receipt.budget as Record<string, unknown> | undefined;
+    if (!got || Object.entries(expected.budget).some(([key, value]) => value !== undefined && got[key] !== value)) errors.push(err('budget_mismatch', '$.receipt.budget', 'budget differs from the budget expected'));
+  }
   if (expected.delivery !== undefined) {
     const got = receipt.delivery as Record<string, unknown> | undefined;
     if (!got || Object.entries(expected.delivery).some(([key, value]) => value !== undefined && got[key] !== value)) errors.push(err('delivery_mismatch', '$.receipt.delivery', 'delivered file differs from the file expected'));
@@ -600,7 +646,7 @@ export function verifyReddiReceiptV2Session(chain: readonly unknown[], expected:
   if (chain.length === 0) return { ok: false, errors: [err('session_chain_broken', '$', 'no receipts')] };
   const receipts: ReddiReceiptV2[] = [];
   for (const [index, item] of chain.entries()) {
-    const one = verifyReddiReceiptV2(item, { ...(expected.providerId !== undefined ? { providerId: expected.providerId } : {}), ...(expected.declaredModel !== undefined ? { declaredModel: expected.declaredModel } : {}), ...(expected.session !== undefined ? { session: expected.session } : {}) });
+    const one = verifyReddiReceiptV2(item, { ...(expected.providerId !== undefined ? { providerId: expected.providerId } : {}), ...(expected.declaredModel !== undefined ? { declaredModel: expected.declaredModel } : {}), ...(expected.session !== undefined ? { session: expected.session } : {}), ...(expected.budget !== undefined ? { budget: expected.budget } : {}) });
     if (!one.ok) return { ok: false, errors: one.errors.map((e) => ({ ...e, path: `$[${index}]${e.path.slice(1)}` })) };
     if (!one.receipt.session) return { ok: false, errors: [err('session_chain_broken', `$[${index}].receipt.session`, 'not a session receipt')] };
     receipts.push(one.receipt);

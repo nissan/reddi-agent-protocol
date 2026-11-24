@@ -34,7 +34,8 @@ const HASH = /^[0-9a-f]{64}$/;
 const TX_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
-const RECEIPT_KEYS = ['schemaVersion', 'providerId', 'declaredModel', 'requestHash', 'responseHash', 'payment', 'session', 'delivery', 'bonus', 'jobId', 'issuedAt'];
+const RECEIPT_KEYS = ['schemaVersion', 'providerId', 'declaredModel', 'requestHash', 'responseHash', 'payment', 'session', 'budget', 'delivery', 'bonus', 'jobId', 'issuedAt'];
+const BUDGET_KEYS = ['address', 'createdSlot', 'reservation'];
 const BONUS_KEYS = ['offer', 'amount'];
 const BONUS_OFFER = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DELIVERY_KEYS = ['name', 'mediaType', 'bytes', 'sha256', 'expiresAt'];
@@ -173,8 +174,10 @@ export function validateReddiReceiptV2(input) {
         if (typeof payment.txSignature !== 'string' || !TX_SIGNATURE.test(payment.txSignature))
             errors.push(err('malformed_receipt', '$.payment.txSignature', 'txSignature must be a base58 transaction signature'));
     }
+    if (input.budget !== undefined)
+        validateBudget(input.budget, session, errors);
     if (input.bonus !== undefined)
-        validateBonus(input.bonus, payment, errors);
+        validateBonus(input.bonus, payment, input.budget !== undefined ? session : undefined, errors);
     if (input.delivery !== undefined)
         validateDelivery(input.delivery, input.issuedAt, session !== undefined, errors);
     if (input.jobId !== undefined && (typeof input.jobId !== 'string' || !JOB_ID.test(input.jobId)))
@@ -184,7 +187,23 @@ export function validateReddiReceiptV2(input) {
     }
     return errors.length > 0 ? { ok: false, errors } : { ok: true, receipt: input };
 }
-function validateBonus(bonus, payment, errors) {
+function validateBudget(budget, session, errors) {
+    if (!isRecord(budget) || !onlyKeys(budget, BUDGET_KEYS)) {
+        errors.push(err('malformed_receipt', '$.budget', 'budget must be { address, createdSlot, reservation }'));
+        return;
+    }
+    if (!publicKeyBytes(budget.address))
+        errors.push(err('malformed_receipt', '$.budget.address', 'address must be a base58 address'));
+    if (!publicKeyBytes(budget.reservation))
+        errors.push(err('malformed_receipt', '$.budget.reservation', 'reservation must be a base58 address'));
+    if (typeof budget.createdSlot !== 'string' || !BASE_UNITS.test(budget.createdSlot) || budget.createdSlot === '0')
+        errors.push(err('malformed_receipt', '$.budget.createdSlot', 'createdSlot must be a positive whole number, as a string'));
+    if (!isRecord(session))
+        errors.push(err('malformed_receipt', '$.budget', 'a budget call also carries its session block'));
+    else if (session.escrow !== budget.reservation)
+        errors.push(err('malformed_receipt', '$.budget.reservation', "the session's escrow must be the budget's reservation"));
+}
+function validateBonus(bonus, payment, budgetSession, errors) {
     if (!isRecord(bonus) || !onlyKeys(bonus, BONUS_KEYS)) {
         errors.push(err('malformed_receipt', '$.bonus', 'bonus must be { offer, amount }'));
         return;
@@ -195,13 +214,16 @@ function validateBonus(bonus, payment, errors) {
         errors.push(err('malformed_receipt', '$.bonus.amount', 'amount must be a positive whole number of smallest units, as a string'));
         return;
     }
-    // A bonus rides on a payment: a session call before its settle has none yet.
-    if (!isRecord(payment)) {
-        errors.push(err('malformed_receipt', '$.bonus', 'a bonus is stated only on a receipt that states a payment'));
+    // A bonus rides on what the buyer paid: a payment, or a Budget call (its session's
+    // cumulativeCost includes this call's paid part). A plain session call before its
+    // settle has paid nothing yet.
+    const paid = isRecord(payment) ? payment.amount : isRecord(budgetSession) ? budgetSession.cumulativeCost : undefined;
+    if (!isRecord(payment) && !isRecord(budgetSession)) {
+        errors.push(err('malformed_receipt', '$.bonus', 'a bonus is stated only on a receipt that states a payment or a budget call'));
         return;
     }
-    if (typeof payment.amount === 'string' && BASE_UNITS.test(payment.amount) && BigInt(bonus.amount) > BigInt(payment.amount)) {
-        errors.push(err('malformed_receipt', '$.bonus.amount', 'a bonus cannot be more than the payment it rides on'));
+    if (typeof paid === 'string' && BASE_UNITS.test(paid) && BigInt(bonus.amount) > BigInt(paid)) {
+        errors.push(err('malformed_receipt', '$.bonus.amount', 'a bonus cannot be more than what the buyer paid'));
     }
 }
 function validateDelivery(delivery, issuedAt, inSession, errors) {
@@ -322,6 +344,7 @@ export function canonicalizeReddiReceiptV2(receipt) {
                     : {}),
             } } : {}),
         ...(receipt.session !== undefined ? { session: canonicalSession(receipt.session) } : {}),
+        ...(receipt.budget !== undefined ? { budget: { address: receipt.budget.address, createdSlot: receipt.budget.createdSlot, reservation: receipt.budget.reservation } } : {}),
         ...(receipt.delivery !== undefined
             ? { delivery: { name: receipt.delivery.name, mediaType: receipt.delivery.mediaType, bytes: receipt.delivery.bytes, sha256: receipt.delivery.sha256, expiresAt: receipt.delivery.expiresAt } }
             : {}),
@@ -415,6 +438,11 @@ export function verifyReddiReceiptV2(input, expected = {}) {
         if (!got || Object.entries(expected.session).some(([key, value]) => value !== undefined && got[key] !== value))
             errors.push(err('session_mismatch', '$.receipt.session', 'session differs from the session expected'));
     }
+    if (expected.budget !== undefined) {
+        const got = receipt.budget;
+        if (!got || Object.entries(expected.budget).some(([key, value]) => value !== undefined && got[key] !== value))
+            errors.push(err('budget_mismatch', '$.receipt.budget', 'budget differs from the budget expected'));
+    }
     if (expected.delivery !== undefined) {
         const got = receipt.delivery;
         if (!got || Object.entries(expected.delivery).some(([key, value]) => value !== undefined && got[key] !== value))
@@ -460,7 +488,7 @@ export function verifyReddiReceiptV2Session(chain, expected = {}) {
         return { ok: false, errors: [err('session_chain_broken', '$', 'no receipts')] };
     const receipts = [];
     for (const [index, item] of chain.entries()) {
-        const one = verifyReddiReceiptV2(item, { ...(expected.providerId !== undefined ? { providerId: expected.providerId } : {}), ...(expected.declaredModel !== undefined ? { declaredModel: expected.declaredModel } : {}), ...(expected.session !== undefined ? { session: expected.session } : {}) });
+        const one = verifyReddiReceiptV2(item, { ...(expected.providerId !== undefined ? { providerId: expected.providerId } : {}), ...(expected.declaredModel !== undefined ? { declaredModel: expected.declaredModel } : {}), ...(expected.session !== undefined ? { session: expected.session } : {}), ...(expected.budget !== undefined ? { budget: expected.budget } : {}) });
         if (!one.ok)
             return { ok: false, errors: one.errors.map((e) => ({ ...e, path: `$[${index}]${e.path.slice(1)}` })) };
         if (!one.receipt.session)
