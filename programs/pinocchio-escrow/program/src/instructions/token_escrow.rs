@@ -686,7 +686,18 @@ pub fn cancel(
     let checked = if record.delivery_checked() {
         let (account, terms) =
             delivery::for_exit(program_id, &escrow_key, record.created_slot(), rest)?;
-        delivery::check_refund(&terms, outcome == Outcome::RefundedAfterWindow, slot)?;
+        delivery::check_refund(
+            &terms,
+            outcome == Outcome::RefundedAfterWindow,
+            slot,
+            if record.metered() {
+                0
+            } else {
+                record
+                    .created_slot()
+                    .saturating_add(record.claim_window_slots())
+            },
+        )?;
         Some(account)
     } else {
         None

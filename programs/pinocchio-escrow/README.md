@@ -729,7 +729,7 @@ An escrow without the bit behaves exactly as before.
 | Payee claim | The same, and after the claim window as usual |
 | Payer release | Unchanged: the payer can always pay in full |
 | Payee decline | Unchanged: everything back to the payer |
-| Payer refund | Nothing recorded: after the cancel window, as usual. Recorded or accepted: also not before the verify window plus `DELIVERY_COLLECT_SLOTS` (216,000, about a day for the payee to collect). Disputed: not before the judge's resolve window has ended |
+| Payer refund | Nothing recorded: after the cancel window, as usual. Recorded or accepted: also not before the payee can first collect (the end of the verify window, or the end of the claim window if later on a fixed-price escrow) plus `DELIVERY_COLLECT_SLOTS` (216,000, about a day for the payee to collect). Disputed: not before the judge's resolve window has ended |
 | Judge resolve | Disputed only, before the resolve window ends; the judge names what the payee is paid |
 
 Bounds, so nobody's money is stuck: the payee must record before the
@@ -746,6 +746,11 @@ attestation agent (`agent_type` 1 or 2) and neither party. It can only split
 the locked amount between the two parties; it cannot pay itself. A payer and
 judge acting together against a payee remain possible, so a seller should
 serve delivery-checked escrows only when it accepts the named judge.
+
+A token resolve pays the payee's part into the recipient recorded at lock.
+If that account is frozen or closed while the dispute is open, a split that
+pays the payee anything fails and the judge can only award 0, so a payee
+should keep its recorded recipient open and usable until the escrow ends.
 
 ### `open_delivery`
 
@@ -955,10 +960,10 @@ escrow and registry instructions only:
 
 | | Anchor (13 instructions) | Pinocchio (29 instructions) | Change |
 |---|---|---|---|
-| Program size | 345,152 bytes | 125,424 bytes | 64% smaller |
-| Rent at 6,960 lamports per byte | 2.4046 SOL | 0.8753 SOL | 1.5293 SOL less |
-| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.6389 SOL | 1.1162 SOL less |
-| `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 132,848 bytes | 73% smaller |
+| Program size | 345,152 bytes | 125,672 bytes | 64% smaller |
+| Rent at 6,960 lamports per byte | 2.4046 SOL | 0.8770 SOL | 1.5276 SOL less |
+| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.6401 SOL | 1.1150 SOL less |
+| `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 133,096 bytes | 73% smaller |
 
 Before ratings and attestations were added the Pinocchio build was 62,248
 bytes (0.4356 SOL at 6,960); they cost 33,992 bytes and 0.2366 SOL of rent.
