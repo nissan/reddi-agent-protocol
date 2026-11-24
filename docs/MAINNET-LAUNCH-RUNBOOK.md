@@ -53,6 +53,11 @@ The owner funds it.
 
 ## 3. Deploy (owner signs)
 
+0. Confirm the secp256r1 precompile is active on mainnet: `solana feature
+   status --url mainnet-beta` must list the secp256r1 precompile feature as
+   active. The Budget's P-256 spender approval checks its signature through
+   that precompile (`Secp256r1SigVerify1111111111111111111111111`); if it is not
+   active, stop.
 1. Deploy the container-built `pinocchio_escrow.so` whose sha256 matches the
    release record, with the program keypair for `DcfW3Cxt…5Ucu`.
 2. Hand upgrade authority to the Squads **vault** `5CsBuT…3Hxe`, never the

@@ -66,21 +66,26 @@ upgrade; read back and checked with `check-escrow-deployment.mjs`, every line ok
 record was withdrawn unused on 24 November 2026 when the pooled Budget was
 added to V1; nothing was deployed to mainnet from `9c34fac`.
 
-The pooled-Budget build of record is `64543ff` (#1111 and the review fixes in
-#1116, merged 24 November 2026; run 45379413394, both variants, same image
-digest; the binary-of-record job passed). `v1-devnet-64543ff.json` is its devnet
-build, not deployed yet (`deployedSlot` null; devnet still runs `9c34fac`).
-`v1-mainnet-64543ff.json` is the mainnet build of record: it lists the devnet
-deployer as forbidden, and is refused by the check until the Squads multisig
-account and the mainnet deployer are added at deploy; the check must pass
-against it after the upgrade authority moves to the vault. Sizes, `sha256` and
-executable hashes were read from the run's job logs; the countersign step in
-docs/MAINNET-LAUNCH-RUNBOOK.md §1 re-reads them from the artifacts. If a later
-program change lands before the deploy, these records are replaced by a new
-pair. Budgets stay off on mainnet until the relay spender-key custody and payer
-alert review is done (#1119).
+The pooled Budget was first cut at `64543ff` (#1111, #1116, run 45379413394).
+Its records were replaced unused on 24 November 2026 when the Budget spender
+could approve with a P-256 key (#1125); nothing was deployed from `64543ff`.
 
-The 9c34fac and 64543ff records carry `minimumPackages`: `@redditech/x402-solana` 0.1.3 and
+The pooled-Budget build of record is `339ac70` (#1125, merged 24 November 2026;
+unchanged at `3102743`; run 45392652948, both variants, same image digest; the
+binary-of-record job passed, and a container rebuild on the owner's Mac
+matched). `v1-devnet-339ac70.json` is its devnet build, not deployed yet
+(`deployedSlot` null; devnet still runs `9c34fac`). `v1-mainnet-339ac70.json`
+is the mainnet build of record: it lists the devnet deployer as forbidden, and
+is refused by the check until the Squads multisig account and the mainnet
+deployer are added at deploy; the check must pass against it after the upgrade
+authority moves to the vault. Sizes, `sha256` and executable hashes were read
+from the run's job logs; the countersign step in docs/MAINNET-LAUNCH-RUNBOOK.md
+§1 re-reads them from the artifacts. If a later program change lands before the
+deploy, these records are replaced by a new pair. Budgets stay off on mainnet
+until the relay spender conditions from review are met, and the secp256r1
+precompile must be active on mainnet before the deploy (runbook §3).
+
+The 9c34fac and 339ac70 records carry `minimumPackages`: `@redditech/x402-solana` 0.1.3 and
 `@redditech/provider-kit` 0.3.1, the first versions that refuse a
 delivery-checked escrow (flag bit `0x04`). A seller on an older version would
 serve one and not be paid, so those versions are published, and named in the

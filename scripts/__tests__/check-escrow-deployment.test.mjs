@@ -276,20 +276,22 @@ test('the 9c34fac devnet record is the deployed delivery-check build, and its ma
   assert.equal(existsSync(path.join(root, 'config/releases/v1-mainnet-9c34fac.json')), false);
 });
 
-test('the pooled-Budget records at 64543ff agree with each other and the mainnet one fails closed until deploy', () => {
+test('the pooled-Budget records at 339ac70 agree with each other and the mainnet one fails closed until deploy', () => {
   const read = (name) => JSON.parse(readFileSync(path.join(root, 'config/releases', name), 'utf8'));
-  const devnet = read('v1-devnet-64543ff.json');
-  const mainnet = read('v1-mainnet-64543ff.json');
+  const devnet = read('v1-devnet-339ac70.json');
+  const mainnet = read('v1-mainnet-339ac70.json');
   assert.deepEqual(recordProblems(devnet), []);
   for (const record of [devnet, mainnet]) {
-    assert.equal(record.commit, '64543ff03e98022c8bc2cacd65f0ece9c7954dc1');
-    assert.equal(record.buildRun, 'https://github.com/nissan/reddi-agent-protocol/actions/runs/45379413394');
+    assert.equal(record.commit, '339ac70a5821cd9b69d2fb8639474971b0fca5b9');
+    assert.equal(record.buildRun, 'https://github.com/nissan/reddi-agent-protocol/actions/runs/45392652948');
     assert.equal(record.network, record.variant);
     // Neither is deployed yet.
     assert.equal(record.deployedSlot, null);
   }
-  assert.equal(devnet.size, 188520);
-  assert.equal(mainnet.size, 188488);
+  assert.equal(devnet.size, 195704);
+  assert.equal(mainnet.size, 195672);
+  // The first pooled-Budget cut (64543ff) was replaced unused by the P-256 spender change.
+  for (const name of ['v1-devnet-64543ff.json', 'v1-mainnet-64543ff.json']) assert.equal(existsSync(path.join(root, 'config/releases', name)), false);
   // Sellers on x402-solana 0.1.2 / provider-kit 0.3.0 do not know the delivery flag, so these builds need newer packages.
   const minimum = { '@redditech/x402-solana': '0.1.3', '@redditech/provider-kit': '0.3.1' };
   const atLeast = (have, want) => { const [a, b] = [have, want].map((v) => v.split('.').map(Number)); for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i]; return true; };
