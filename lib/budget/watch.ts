@@ -27,18 +27,25 @@
  * tells the operator.
  *
  * A frozen record whose Budget the relay never saw open (an incident froze it
- * before the payer opened) is looked up by its spender address and payer, so
- * a Budget the payer opened anyway is still watched and can be closed.
+ * before the payer opened) is looked up at the Budget address the payer
+ * signed for, so a Budget the payer opened anyway is still watched and can be
+ * closed.
  *
  * A live record whose public key is not the one in
  * `BUDGET_SPENDER_P256_PUBLIC_KEY` (the KMS key was rotated, or the setting
- * is missing) alerts the operator: KMS no longer signs for it, so the relay
- * cannot close it, and the payer must.
+ * is missing) alerts the operator, at most once a day per Budget: KMS no
+ * longer signs for it, so the relay cannot close it, and the payer must. It
+ * does not fail the pass, so it cannot hide a stalled watcher (audit round 5,
+ * S6-claude-06).
+ *
+ * Operator alerts that no channel took are kept on the record and sent again
+ * every pass (S6-claude-04). A pass first checks its RPC serves each record's
+ * cluster (by genesis hash), so an RPC on the wrong cluster changes nothing
+ * (S6-claude-06).
  */
 
 import { PublicKey } from "@solana/web3.js";
 import {
-  BUDGET_ACCOUNT_LEN,
   BUDGET_DISCRIMINATORS,
   RESERVATION_ACCOUNT_LEN,
   decodeBudget,
@@ -49,7 +56,7 @@ import {
 } from "@redditech/x402-solana/budget";
 import { sendBudgetAlert, type AlertSender, type BudgetAlert } from "./alerts";
 import { parseP256PublicKey } from "./kms";
-import type { BudgetCustodyStore, SeenSlice, SpenderRecord } from "./store";
+import { GENESIS_HASH, type BudgetCustodyStore, type SeenSlice, type SpenderRecord } from "./store";
 
 const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 /** Base58 of a few bytes (the 8-byte discriminator), for an RPC memcmp filter. */
@@ -74,15 +81,16 @@ export interface BudgetChainReader {
   readAccount(address: PublicKey, commitment?: "confirmed" | "finalized"): Promise<{ owner: PublicKey; data: Uint8Array } | null>;
   /** Every reservation account of `budget` (any opening). */
   reservations(budget: PublicKey): Promise<{ address: PublicKey; data: Uint8Array }[]>;
-  /** Every Budget account that names `spender` as its spender. */
-  budgetsBySpender(spender: PublicKey): Promise<{ address: PublicKey; data: Uint8Array }[]>;
   slot(): Promise<bigint>;
+  /** The cluster's genesis hash (base58). */
+  genesisHash(): Promise<string>;
 }
 
 type ConnectionLike = {
   getAccountInfo(address: PublicKey, commitment?: "confirmed" | "finalized"): Promise<{ owner: PublicKey; data: Buffer } | null>;
   getProgramAccounts(programId: PublicKey, config: { filters: unknown[] }): Promise<readonly { pubkey: PublicKey; account: { data: Buffer } }[]>;
   getSlot(): Promise<number>;
+  getGenesisHash(): Promise<string>;
 };
 
 /** Reads through an RPC connection. Reservations are found by size, discriminator and budget address (offset 8). */
@@ -102,18 +110,11 @@ export function budgetChainReader(connection: ConnectionLike, programId: PublicK
       });
       return found.map((x) => ({ address: x.pubkey, data: Uint8Array.from(x.account.data) }));
     },
-    async budgetsBySpender(spender) {
-      const found = await connection.getProgramAccounts(programId, {
-        filters: [
-          { dataSize: BUDGET_ACCOUNT_LEN },
-          { memcmp: { offset: 0, bytes: base58(Uint8Array.from(BUDGET_DISCRIMINATORS["account:Budget"])) } },
-          { memcmp: { offset: 40, bytes: spender.toBase58() } },
-        ],
-      });
-      return found.map((x) => ({ address: x.pubkey, data: Uint8Array.from(x.account.data) }));
-    },
     async slot() {
       return BigInt(await connection.getSlot());
+    },
+    async genesisHash() {
+      return connection.getGenesisHash();
     },
   };
 }
@@ -134,7 +135,7 @@ export type WatchDeps = {
   alertTimeoutMs?: number;
 };
 
-export type WatchReport = { budget: string; alerts: string[]; status: string; error?: string };
+export type WatchReport = { budget: string; alerts: string[]; status: string; error?: string; warning?: string; closedAsGone?: boolean };
 
 /** The canonical origin for dispute links: `BUDGET_LINK_ORIGIN` when it is an https origin, else the production app. */
 export function budgetLinkOrigin(env: Record<string, string | undefined> = process.env): string {
@@ -156,6 +157,10 @@ export const UNDELIVERED_PASSES_BEFORE_OPERATOR = 3;
 export const GONE_CONFIRM_MS = 4 * 60 * 1000;
 /** A watcher pass older than this means the watcher stalled. */
 export const WATCH_STALE_MS = 15 * 60 * 1000;
+/** How often the operator is told again that a Budget names a rotated key. */
+export const KEY_ROTATED_REPEAT_MS = 24 * 60 * 60 * 1000;
+/** At most this many undelivered operator alerts are kept per Budget; the oldest go first. */
+const OPERATOR_PENDING_MAX = 20;
 
 async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
@@ -304,30 +309,16 @@ async function readBudget(deps: WatchDeps, address: PublicKey, commitment: "conf
   }
 }
 
-/** A frozen key the relay never saw open: finds a Budget the payer opened with it anyway. */
+/** A frozen record the relay never saw open: the Budget the payer signed for, if the payer opened it anyway. */
 async function findOpenedBudget(record: SpenderRecord, deps: WatchDeps, report: WatchReport): Promise<SpenderRecord | undefined> {
-  const found = (await deps.chain.budgetsBySpender(new PublicKey(record.spender)))
-    .map((x) => {
-      try {
-        return { address: x.address.toBase58(), budget: decodeBudget(x.data) };
-      } catch {
-        return undefined;
-      }
-    })
-    .filter((x): x is { address: string; budget: BudgetAccount } => x !== undefined && x.budget.payer.toBase58() === record.payer);
-  // Every relay Budget names the same spender: skip one that is already another record's.
-  let pick: { address: string; budget: BudgetAccount } | undefined;
-  for (const candidate of found) {
-    if (!(await deps.store.byBudget(candidate.address))) {
-      pick = candidate;
-      break;
-    }
-  }
-  if (!pick) return undefined;
-  const { address, budget } = pick;
-  const saved = await save(deps.store, record, (r) => ({ ...r, budget: address, createdSlot: budget.createdSlot.toString(), ...(budget.mint ? { mint: budget.mint.toBase58() } : {}) }));
+  if (!record.budget) return undefined;
+  const read = await readBudget(deps, new PublicKey(record.budget), "confirmed");
+  if (read.kind !== "budget" || read.budget.payer.toBase58() !== record.payer || read.budget.spender.toBase58() !== record.spender) return undefined;
+  const address = record.budget;
+  const budget = read.budget;
+  const saved = await save(deps.store, record, (r) => ({ ...r, createdSlot: budget.createdSlot.toString(), ...(budget.mint ? { mint: budget.mint.toBase58() } : {}) }));
   const text = `Budget ${address} of payer ${record.payer} was opened from a record the relay had frozen (${record.frozenReason ?? "frozen"}). The relay now watches it; close it with the incident step.`;
-  await sendBudgetAlert({ audience: "operator", kind: "budget_found", subject: `Frozen Budget key ${record.id} was opened on chain`, text, detail: { budget: address, payer: record.payer }, spenderId: record.id }, undefined, deps);
+  await sendBudgetAlert({ audience: "operator", kind: "budget_found", subject: `Frozen Budget record ${record.id} was opened on chain`, text, detail: { budget: address, payer: record.payer }, spenderId: record.id }, undefined, deps);
   report.alerts.push("operator:budget_found");
   return saved;
 }
@@ -343,10 +334,13 @@ async function watchOne(input: SpenderRecord, slot: bigint, deps: WatchDeps): Pr
     report.alerts.push(`operator:${kind}`);
   };
   try {
-    // A record under a key KMS no longer signs with cannot be closed by the relay.
+    // A record under a key KMS no longer signs with cannot be closed by the relay: a warning, once a day.
     if (!currentKey || Buffer.from(currentKey).toString("hex") !== record.spenderKey) {
-      await operator("key_rotated", `Budget ${record.budget ?? record.id} names a KMS key the relay no longer signs with`, `The record's key is ${record.spenderKey}; BUDGET_SPENDER_P256_PUBLIC_KEY is ${currentKey ? Buffer.from(currentKey).toString("hex") : "not set"}. The relay cannot approve anything for this Budget, the close included: restore the key, or ask the payer to close it (it also ends at its expiry).`, { spenderKey: record.spenderKey });
-      report.error = "key_rotated";
+      report.warning = "key_rotated";
+      if (!record.keyRotatedAlertAt || nowMs - Date.parse(record.keyRotatedAlertAt) >= KEY_ROTATED_REPEAT_MS) {
+        await operator("key_rotated", `Budget ${record.budget ?? record.id} names a KMS key the relay no longer signs with`, `The record's key is ${record.spenderKey}; BUDGET_SPENDER_P256_PUBLIC_KEY is ${currentKey ? Buffer.from(currentKey).toString("hex") : "not set"}. The relay cannot approve anything for this Budget, the close included: restore the key, or ask the payer to close it (it also ends at its expiry).`, { spenderKey: record.spenderKey });
+        record = (await save(deps.store, record, (r) => ({ ...r, keyRotatedAlertAt: now }))) ?? record;
+      }
     }
     if (!record.budget || !record.createdSlot) {
       if (record.status === "frozen") {
@@ -389,7 +383,8 @@ async function watchOne(input: SpenderRecord, slot: bigint, deps: WatchDeps): Pr
         }
         const done = await save(deps.store, record, erase);
         report.status = done ? "closed" : record.status;
-        if (!done) report.error = "store_conflict";
+        if (done) report.closedAsGone = true;
+        else report.error = "store_conflict";
         return report;
       }
       if (!record.goneSince) {
@@ -408,10 +403,21 @@ async function watchOne(input: SpenderRecord, slot: bigint, deps: WatchDeps): Pr
       .filter((x): x is { address: string; reservation: ReservationAccount } => x.reservation !== undefined && x.reservation.budgetCreatedSlot === budget.createdSlot);
     const seen: Record<string, SeenSlice> = { ...record.seen };
     let undelivered = 0;
+    // Operator alerts no channel took are kept and sent again every pass; the payer's are retried per slice.
+    const operatorPending: NonNullable<SpenderRecord["operatorPending"]> = [];
+    for (const kept of record.operatorPending ?? []) {
+      const ok = await sendBudgetAlert({ audience: "operator", kind: kept.kind as BudgetAlert["kind"], subject: kept.subject, text: kept.text, detail: kept.detail, spenderId: record.id }, undefined, deps);
+      report.alerts.push(`operator:${kept.kind}`);
+      if (!ok) operatorPending.push(kept);
+    }
     const deliver = async (alert: BudgetAlert): Promise<boolean> => {
       const ok = await sendBudgetAlert(alert, alert.audience === "payer" ? record.contact : undefined, deps);
       report.alerts.push(`${alert.audience}:${alert.kind}`);
-      return ok || alert.audience === "operator";
+      if (alert.audience === "operator") {
+        if (!ok) operatorPending.push({ kind: alert.kind, subject: alert.subject, text: alert.text, detail: alert.detail });
+        return true;
+      }
+      return ok;
     };
     for (const slice of slices) {
       const alerts = sliceAlerts(record, budget, slice.reservation, record.seen[slice.address], { slot, origin: deps.origin });
@@ -437,12 +443,15 @@ async function watchOne(input: SpenderRecord, slot: bigint, deps: WatchDeps): Pr
     } else {
       pending = undefined;
     }
+    if (operatorPending.length > 0) report.error ??= "operator_alerts_undelivered";
+    const keptForOperator = operatorPending.slice(-OPERATOR_PENDING_MAX);
     const closing = budget.closed && record.status === "open";
     const saved = await save(deps.store, record, (r) => {
-      const { undelivered: _u, goneSince: _g, ...rest } = r;
+      const { undelivered: _u, goneSince: _g, operatorPending: _o, ...rest } = r;
       void _u;
       void _g;
-      return { ...rest, seen, watchedAt: now, ...(pending ? { undelivered: pending } : {}), ...(closing ? { status: "closing" as const } : {}) };
+      void _o;
+      return { ...rest, seen, watchedAt: now, ...(pending ? { undelivered: pending } : {}), ...(keptForOperator.length ? { operatorPending: keptForOperator } : {}), ...(closing ? { status: "closing" as const } : {}) };
     });
     if (saved) report.status = saved.status;
     else report.error = "store_conflict";
@@ -462,10 +471,16 @@ export async function watchBudgets(deps: WatchDeps): Promise<WatchReport[] & { c
   const nowMs = deps.nowMs ?? Date.now();
   const records = (await deps.store.withStatus(["open", "frozen", "closing"])).sort((a, b) => (a.watchedAt ?? "").localeCompare(b.watchedAt ?? ""));
   let slot: bigint;
+  let genesis: string;
   try {
-    slot = await deps.chain.slot();
+    [slot, genesis] = await Promise.all([deps.chain.slot(), deps.chain.genesisHash()]);
   } catch {
     return Object.assign(records.map((r) => ({ budget: r.budget ?? r.id, alerts: [], status: r.status, error: "rpc_unavailable" })), { complete: false });
+  }
+  // An RPC on another cluster would read every Budget as missing and close the records: watch none of them.
+  const wrongCluster = records.filter((r) => GENESIS_HASH[r.network] !== genesis);
+  if (wrongCluster.length > 0) {
+    await sendBudgetAlert({ audience: "operator", kind: "budget_unreadable", subject: "The Budget watcher's RPC is on the wrong cluster", text: `The RPC's genesis hash is ${genesis}, which is not the cluster of ${wrongCluster.length} Budget record(s). Those were not watched and nothing about them changed. Fix the watcher's RPC endpoint.`, detail: { genesis, records: wrongCluster.length } }, undefined, deps);
   }
   const last = await deps.store.watchedAt().catch(() => undefined);
   if (last && nowMs - Date.parse(last) > WATCH_STALE_MS) {
@@ -478,8 +493,13 @@ export async function watchBudgets(deps: WatchDeps): Promise<WatchReport[] & { c
       complete = false;
       return { budget: record.budget ?? record.id, alerts: [], status: record.status, error: "not_reached" };
     }
+    if (GENESIS_HASH[record.network] !== genesis) return { budget: record.budget ?? record.id, alerts: [], status: record.status, error: "wrong_cluster" };
     return watchOne(record, slot, deps);
   });
+  const gone = reports.filter((r) => r.closedAsGone);
+  if (gone.length > 1) {
+    await sendBudgetAlert({ audience: "operator", kind: "budget_unreadable", subject: `${gone.length} Budget records were closed in one pass because their accounts are gone`, text: `The watcher marked ${gone.length} Budgets closed this pass because their accounts were missing on two finalized reads: ${gone.map((r) => r.budget).join(", ")}. If they were not really closed, the RPC is misreading the chain: check it, then reopen the records by hand.`, detail: { budgets: gone.map((r) => r.budget) } }, undefined, deps);
+  }
   if (complete && reports.every((r) => !r.error)) await deps.store.markWatched(new Date(nowMs).toISOString());
   return Object.assign(reports, { complete });
 }
