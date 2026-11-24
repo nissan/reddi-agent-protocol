@@ -273,7 +273,7 @@ export function findSandboxProviderById(id: unknown): SandboxProvider | undefine
   return typeof id === "string" ? SANDBOX_PROVIDERS.find((provider) => provider.id === id) : undefined;
 }
 
-export type SandboxScenarioId = "buy-a-review" | "shop-around" | "run-a-session" | "make-a-video" | "write-better" | "try-to-cheat" | "provider-offline";
+export type SandboxScenarioId = "budget" | "buy-a-review" | "shop-around" | "run-a-session" | "make-a-video" | "write-better" | "try-to-cheat" | "provider-offline";
 
 export type SandboxScenario = {
   id: SandboxScenarioId;
@@ -336,6 +336,15 @@ const STUDIO_ANSWERS: Record<string, string> = {
 };
 
 export const SANDBOX_SCENARIOS: readonly SandboxScenario[] = [
+  {
+    id: "budget",
+    title: "Set a budget",
+    persona: "You want your agent to get a job done without handing it your wallet. You set a budget once and give the agent a key.",
+    hook: "Lock $5 for 72 hours, give your agent a key, get back what it didn't spend.",
+    takeaway: "One Budget paid three providers. Each took only what its receipts added up to, the protocol fee came out of their share, and everything else came back to you without you asking.",
+    prompt: STUDIO_BRIEF,
+    providerIds: ["frame-foundry", "tidepool-audio", "kettle-voice", "splice-line"],
+  },
   {
     id: "buy-a-review",
     title: "Buy a code review",
