@@ -350,31 +350,43 @@ reset role;
 do $$ declare r text; begin
   foreach r in array array['anon', 'authenticated'] loop
     execute format('set role %I', r);
-    perform pg_temp.expect_error(r || ' logs a spender use', 'select public.budget_spender_use(''0123456789abcdef0123456789abcdef'', ''close'', null, repeat(''a'', 64), 3)');
+    perform pg_temp.expect_error(r || ' logs a spender use', 'select public.budget_spender_use(''0123456789abcdef0123456789abcdef'', ''close'', null, repeat(''a'', 64), ''{}''::jsonb, 3, 1000)');
     reset role;
   end loop;
 end $$;
 set role service_role;
 do $$ declare got text; id text := '0123456789abcdef0123456789abcdef'; begin
-  got := public.budget_spender_use(id, 'reserve', null, repeat('b', 64), 5);
+  got := public.budget_spender_use(id, 'reserve', null, repeat('b', 64), '{}'::jsonb, 5, 1000);
   if got <> 'not_open' then raise exception 'a pending key logged a reserve: %', got; end if;
   update public.budget_spenders set status = 'open' where budget_spenders.id = '0123456789abcdef0123456789abcdef';
-  got := public.budget_spender_use(id, 'reserve', 'X', repeat('b', 64), 2);
+  got := public.budget_spender_use(id, 'reserve', 'X', repeat('b', 64), '{}'::jsonb, 2, 1000);
   if got <> 'ok' then raise exception 'an open key under its limit was refused: %', got; end if;
-  got := public.budget_spender_use(id, 'reserve', 'X', repeat('c', 64), 2);
+  got := public.budget_spender_use(id, 'reserve', 'X', repeat('c', 64), '{}'::jsonb, 2, 1000);
   if got <> 'overuse' then raise exception 'the use limit did not hold: %', got; end if;
   update public.budget_controls set paused = true where budget_controls.id = 1;
-  got := public.budget_spender_use(id, 'waive', null, repeat('d', 64), 100);
+  got := public.budget_spender_use(id, 'waive', null, repeat('d', 64), '{}'::jsonb, 100, 1000);
   if got <> 'paused' then raise exception 'a paused waive was logged: %', got; end if;
-  got := public.budget_spender_use(id, 'close', null, repeat('e', 64), 1);
+  got := public.budget_spender_use(id, 'close', null, repeat('e', 64), '{}'::jsonb, 1, 1000);
   if got <> 'ok' then raise exception 'a close was refused: %', got; end if;
   update public.budget_controls set paused = false, watched_at = now() where budget_controls.id = 1;
+  -- Round 5 (R5-M2): all relay Budgets together stop at the global ceiling;
+  -- a close is not counted and still goes through. The detail is kept.
+  -- Two non-close uses are logged so far (the direct insert and the first reserve).
+  got := public.budget_spender_use(id, 'reserve', 'X', repeat('1', 64), '{"amount":"5"}'::jsonb, 100, 2);
+  if got <> 'global_overuse' then raise exception 'the global ceiling did not hold: %', got; end if;
+  got := public.budget_spender_use(id, 'reserve', 'X', repeat('1', 64), '{"amount":"5"}'::jsonb, 100, 3);
+  if got <> 'ok' then raise exception 'a reserve under the global ceiling was refused: %', got; end if;
+  if (select detail->>'amount' from public.budget_spender_uses where message_sha256 = repeat('1', 64)) is distinct from '5' then
+    raise exception 'the approval detail was not logged';
+  end if;
+  got := public.budget_spender_use(id, 'close', null, repeat('2', 64), null, 100, 0);
+  if got <> 'ok' then raise exception 'a close over the global ceiling was refused: %', got; end if;
 end $$;
 do $$ declare got text; sid text := '0123456789abcdef0123456789abcdef'; begin
   update public.budget_spenders set status = 'closed' where budget_spenders.id = sid;
-  got := public.budget_spender_use(sid, 'close', null, repeat('f', 64), 100);
+  got := public.budget_spender_use(sid, 'close', null, repeat('f', 64), '{}'::jsonb, 100, 1000);
   if got <> 'closed' then raise exception 'a closed budget logged another close: %', got; end if;
-  got := public.budget_spender_use('ffffffffffffffffffffffffffffffff', 'close', null, repeat('f', 64), 100);
+  got := public.budget_spender_use('ffffffffffffffffffffffffffffffff', 'close', null, repeat('f', 64), '{}'::jsonb, 100, 1000);
   if got <> 'unknown' then raise exception 'a missing record logged a use: %', got; end if;
 end $$;
 update public.budget_controls set paused = true, reason = 'test';

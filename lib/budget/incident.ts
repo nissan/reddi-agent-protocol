@@ -22,8 +22,8 @@
  * route's time limit, so the operator always gets the summary, with every
  * Budget either closed, already closed, failed or listed as not reached; a
  * second run picks up what is left. Records not yet opened are frozen and
- * their payers told not to open; a Budget the payer opened anyway is found by
- * its spender and payer and closed.
+ * their payers told not to open; a Budget the payer opened anyway is found at
+ * the address the payer signed for, and closed.
  *
  * What close does not stop: on a Budget that lets the spender waive (it has
  * an allowlist and flag 0x01), whoever can still get the KMS key to sign can
@@ -35,15 +35,15 @@ import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAd
 import { decodeBudget, type BudgetAccount } from "@redditech/x402-solana/budget";
 import { sendBudgetAlert } from "./alerts";
 import { approveAsSpender, type CustodyDeps } from "./custody";
-import type { SpenderRecord } from "./store";
+import { GENESIS_HASH, type SpenderRecord } from "./store";
 
 export interface IncidentChain {
   readAccount(address: PublicKey, commitment?: "confirmed" | "finalized"): Promise<{ owner: PublicKey; data: Uint8Array } | null>;
-  /** Every Budget account that names `spender` as its spender. */
-  budgetsBySpender(spender: PublicKey): Promise<{ address: PublicKey; data: Uint8Array }[]>;
   latestBlockhash(): Promise<string>;
   /** The current slot, for the approval's expiry. */
   slot(): Promise<bigint>;
+  /** The cluster's genesis hash, to refuse an RPC on the wrong cluster. */
+  genesisHash(): Promise<string>;
   /** Sends a fully signed transaction and waits for it to confirm. Returns its signature. */
   sendAndConfirm(tx: Transaction): Promise<string>;
 }
@@ -133,7 +133,7 @@ export async function closeBudgetNow(
   }
   let signature: string;
   try {
-    const approved = await approveAsSpender({ id: record.id, request: { purpose: "close", ...(token ? { token } : {}) }, programId: input.programId, currentSlot: await input.chain.slot() }, deps);
+    const approved = await approveAsSpender({ id: record.id, auth: { operator: "incident" }, request: { purpose: "close", ...(token ? { token } : {}) }, programId: input.programId, caller: "incident" }, { ...deps, chain: input.chain });
     if (!approved.ok) return { budget, ok: false, error: approved.code };
     const tx = new Transaction({ feePayer: input.feePayer.publicKey, recentBlockhash: await input.chain.latestBlockhash() });
     tx.add(...instructions, ...approved.instructions);
@@ -169,8 +169,8 @@ async function freezePending(record: SpenderRecord, reason: string, deps: Custod
       audience: "payer",
       kind: "do_not_open",
       subject: "Do not open the Budget RAP prepared for you",
-      text: `RAP stopped the Budget it prepared for you (spender ${record.spender}): ${reason}\nIf you still hold the transaction that opens that Budget, do not sign it. If you already did, RAP will find the Budget and close it.`,
-      detail: { spender: record.spender, reason },
+      text: `RAP stopped the Budget it prepared for you (${record.budget ?? `spender ${record.spender}`}): ${reason}\nIf you still hold the transaction that opens that Budget, do not sign it. If you already did, RAP will find the Budget and close it.`,
+      detail: { budget: record.budget ?? null, spender: record.spender, reason },
       spenderId: record.id,
     },
     record.contact,
@@ -179,26 +179,19 @@ async function freezePending(record: SpenderRecord, reason: string, deps: Custod
   return { budget: record.id, ok: true, note: "frozen_before_open" };
 }
 
-/** A frozen record with no Budget on record: the Budget the payer opened anyway, if any (one no other record holds). */
-async function attachOpened(record: SpenderRecord, chain: IncidentChain, deps: CustodyDeps): Promise<SpenderRecord | undefined> {
-  const candidates = (await chain.budgetsBySpender(new PublicKey(record.spender)))
-    .map((x) => {
-      try {
-        return { address: x.address.toBase58(), budget: decodeBudget(x.data) };
-      } catch {
-        return undefined;
-      }
-    })
-    .filter((x): x is { address: string; budget: BudgetAccount } => x !== undefined && x.budget.payer.toBase58() === record.payer);
-  let found: { address: string; budget: BudgetAccount } | undefined;
-  for (const candidate of candidates) {
-    if (!(await deps.store.byBudget(candidate.address))) {
-      found = candidate;
-      break;
-    }
+/** A frozen record the relay never saw open: the Budget the payer signed for, if the payer opened it anyway. */
+async function attachOpened(record: SpenderRecord, chain: IncidentChain, programId: PublicKey, deps: CustodyDeps): Promise<SpenderRecord | undefined> {
+  if (!record.budget) return undefined;
+  const account = await chain.readAccount(new PublicKey(record.budget));
+  if (!account || !account.owner.equals(programId)) return undefined;
+  let budget: BudgetAccount;
+  try {
+    budget = decodeBudget(account.data);
+  } catch {
+    return undefined;
   }
-  if (!found) return undefined;
-  return update(record, deps, (r) => ({ ...r, budget: found.address, createdSlot: found.budget.createdSlot.toString(), ...(found.budget.mint ? { mint: found.budget.mint.toBase58() } : {}) }));
+  if (budget.payer.toBase58() !== record.payer || budget.spender.toBase58() !== record.spender) return undefined;
+  return update(record, deps, (r) => ({ ...r, createdSlot: budget.createdSlot.toString(), ...(budget.mint ? { mint: budget.mint.toBase58() } : {}) }));
 }
 
 export type IncidentOutcome = { paused: boolean; results: CloseResult[]; unreached: string[] };
@@ -216,6 +209,8 @@ export async function closeAllBudgets(
   const deadline = input.deadlineMs ?? startedMs + 240_000;
   const paused = await pauseBudgets(input.reason, deps);
   const records = await deps.store.withStatus(["pending", "open", "frozen", "closing"]);
+  // An RPC on another cluster would read every Budget as missing, so "already closed": close none through it.
+  const genesis = await input.chain.genesisHash().catch(() => undefined);
   const results: CloseResult[] = [];
   const unreached: string[] = [];
   const queue = [...records];
@@ -229,10 +224,12 @@ export async function closeAllBudgets(
       try {
         if (record.status === "pending") {
           result = await freezePending(record, input.reason, deps);
+        } else if (GENESIS_HASH[record.network] !== genesis) {
+          result = { budget: record.budget ?? record.id, ok: false, error: genesis ? "wrong_cluster" : "rpc_unavailable" };
         } else {
           let current: SpenderRecord | undefined = record;
-          if (!current.budget) current = await attachOpened(current, input.chain, deps);
-          if (!current?.budget) {
+          if (!current.createdSlot) current = await attachOpened(current, input.chain, input.programId, deps);
+          if (!current?.budget || !current.createdSlot) {
             result = { budget: record.id, ok: true, note: "never_opened" };
           } else if (!input.feePayer) {
             result = { budget: current.budget, ok: false, error: "no_fee_payer" };

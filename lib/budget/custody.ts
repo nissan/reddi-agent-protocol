@@ -11,14 +11,26 @@
  *   close of *its own* Budget (named by address and `created_slot`), with a
  *   short expiry (`APPROVAL_SLOTS`, about a minute), so a pause or freeze
  *   stops everything after it;
- * - a reserve, or a waive, only for a provider the payer expects, when they
- *   named any;
+ * - a record is the payer's only by the payer's own signature (audit round
+ *   5, R5-M1): the payer's wallet signs `relayAuthorizationMessage`, naming
+ *   the Budget, the providers (its on-chain allowlist), the most one reserve
+ *   may take and where alerts go; the record is pinned to that Budget when it
+ *   is made, and one Budget has one record;
+ * - reserve and waive approvals go only to whoever holds the agent secret
+ *   handed out once with the record;
+ * - a reserve only for a provider the payer named, up to the payer's
+ *   maximum; a waive only for a slice that has posted the amount the agent
+ *   names, read on chain (audit round 5, R5-L1);
+ * - the slot an approval's expiry counts from is read from the relay's own
+ *   RPC, after checking that RPC serves the record's cluster;
  * - every approval is logged before KMS is asked, in one database step that
  *   also checks the pause, the record's status and the overuse limit, so
  *   concurrent requests cannot slip past them; an approval that cannot be
  *   logged is not signed;
  * - a Budget approved more than `BUDGET_SPENDER_MAX_USES_PER_10_MIN` times in
- *   ten minutes is frozen and the operator alerted;
+ *   ten minutes is frozen and the operator alerted; all relay Budgets together
+ *   approved more than `BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN` times pause
+ *   Budget spending altogether (R5-M2);
  * - nothing is approved while Budgets are paused (`BUDGET_SPENDING_PAUSED` set
  *   to anything but `false`/`0`/`no`/`off`, or the pause switch in the
  *   database), except the close;
@@ -26,30 +38,50 @@
  *   before it is handed out.
  */
 
-import { createHash, randomBytes } from "crypto";
+import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import {
+  BUDGET_ALLOWLIST_LEN,
+  budgetAddress,
   budgetApprovalMessage,
   closeBudgetInstruction,
   decodeBudget,
+  decodeReservation,
   p256SpenderAddress,
+  reservationAddress,
   reserveInstruction,
   secp256r1ApprovalInstruction,
   waiveInstruction,
   type BudgetTokenClose,
 } from "@redditech/x402-solana/budget";
+import { ed25519Verify } from "@redditech/x402-solana/ed25519";
 import { signApproval, type SpenderSigner } from "./kms";
 import { alertConfigProblem, contactProblem, sendBudgetAlert, type AlertSender } from "./alerts";
-import type { BudgetContact, BudgetCustodyStore, BudgetNetwork, SpenderRecord } from "./store";
+import { GENESIS_HASH, type BudgetContact, type BudgetCustodyStore, type BudgetNetwork, type SpenderRecord } from "./store";
 
 export const DEFAULT_MAX_USES_PER_10_MIN = 30;
+/** All relay Budgets together, in ten minutes: past this, Budget spending is paused (R5-M2). */
+export const DEFAULT_MAX_GLOBAL_PER_10_MIN = 300;
 const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const U64_MAX = BigInt("18446744073709551615");
+/** How old (or how far ahead) a payer's authorization may be when the record is made. */
+export const AUTHORIZATION_MAX_AGE_SECONDS = 600;
+const AUTHORIZATION_MAX_AHEAD_SECONDS = 120;
+
+/** What the relay reads from its own RPC: never from a request (audit round 5, S6-claude-03). */
+export interface CustodyChain {
+  slot(): Promise<bigint>;
+  genesisHash(): Promise<string>;
+  readAccount(address: PublicKey, commitment?: "confirmed" | "finalized"): Promise<{ owner: PublicKey; data: Uint8Array } | null>;
+}
 
 export type CustodyDeps = {
   store: BudgetCustodyStore;
   /** The KMS key new Budgets name and that approves (`./kms`). Undefined: nothing is made or approved. */
   signer: SpenderSigner | undefined;
   sender: AlertSender;
+  /** The relay's own RPC. Undefined: nothing is approved. */
+  chain?: CustodyChain;
   env?: Record<string, string | undefined>;
   nowMs?: number;
 };
@@ -58,30 +90,112 @@ export type CustodyFailure = { ok: false; code: string; message: string };
 const refuse = (code: string, message: string): CustodyFailure => ({ ok: false, code, message });
 
 /**
- * How long an approval stays usable: 150 slots, about a minute. There is no
- * nonce; replay is stopped by the Budget's own state (a reserve must raise the
- * slice, a waive or close happens once) and by this expiry.
+ * How long a reserve or close approval stays usable: 150 slots, about a
+ * minute. There is no nonce; replay is stopped by the Budget's own state (a
+ * reserve must raise the slice, a waive or close happens once) and by this
+ * expiry.
  */
 export const APPROVAL_SLOTS = BigInt(150);
+/** A waive does not name the amount on chain, so its approval lives shorter: about 20 seconds (R5-L1). */
+export const WAIVE_APPROVAL_SLOTS = BigInt(50);
+
+export type RelayAuthorization = {
+  network: BudgetNetwork;
+  payer: string;
+  budget: string;
+  /** The providers, as the Budget's allowlist will name them. */
+  providers: string[];
+  /** The most one reserve approval may name, in base units. */
+  maxReserve: bigint;
+  contact: Pick<BudgetContact, "email" | "webhook">;
+  /** Unix seconds. */
+  issuedAt: number;
+};
 
 /**
- * Records a Budget the payer is about to open. The payer opens it with flag
- * 0x08 and `spender` (the SHA-256 of the relay's KMS public key) as its
- * spender. Every Budget the relay spends from names the same key; a record
- * becomes one Budget's at `activateSpender`.
+ * The text the payer's wallet signs (Ed25519, as `signMessage` does) to let
+ * the relay spend from one Budget. Providers are sorted, so the order the
+ * payer picked them in does not matter.
+ */
+export function relayAuthorizationMessage(a: RelayAuthorization): Uint8Array {
+  return new TextEncoder().encode(
+    [
+      "Reddi Agent Protocol: let the RAP relay spend from my Budget",
+      `network: ${a.network}`,
+      `payer: ${a.payer}`,
+      `budget: ${a.budget}`,
+      `providers: ${[...new Set(a.providers)].sort().join(",")}`,
+      `max reserve: ${a.maxReserve.toString()}`,
+      `alerts email: ${a.contact.email ?? "-"}`,
+      `alerts webhook: ${a.contact.webhook ?? "-"}`,
+      `issued at: ${a.issuedAt}`,
+    ].join("\n"),
+  );
+}
+
+function decodeSignature(value: string): Uint8Array | undefined {
+  const bytes = /^[0-9a-fA-F]{128}$/.test(value) ? Buffer.from(value, "hex") : Buffer.from(value, "base64");
+  return bytes.length === 64 ? Uint8Array.from(bytes) : undefined;
+}
+
+const sha256Hex = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
+
+/**
+ * Records a Budget the payer is about to open, on the payer's signed
+ * authorization (R5-M1). The payer then opens that Budget with flag 0x08,
+ * `spender` (the SHA-256 of the relay's KMS public key) as its spender and
+ * `providers` as its allowlist. Every Budget the relay spends from names the
+ * same key, so the record is pinned to its Budget here, and a Budget has one
+ * record. `agentSecret` is returned once: the agent presents it to have a
+ * reserve or waive approved.
  */
 export async function createSpender(
-  input: { payer: string; network: BudgetNetwork; contact: BudgetContact; expectedPayees?: string[] },
+  input: RelayAuthorization & {
+    signature: string;
+    /** The Budget's 16-byte nonce (hex): the Budget must be the payer's own address for it, so nobody can claim another payer's Budget first. */
+    nonce: string;
+    programId: PublicKey;
+  },
   deps: CustodyDeps,
-): Promise<{ ok: true; record: SpenderRecord } | CustodyFailure> {
+): Promise<{ ok: true; record: SpenderRecord; agentSecret: string } | CustodyFailure> {
   if (!deps.signer) return refuse("custody_not_configured", "Budget spending is not set up: BUDGET_SPENDER_KMS_ISSUER_ID or BUDGET_SPENDER_P256_PUBLIC_KEY is missing.");
   if (!BASE58.test(input.payer)) return refuse("invalid_payer", "The payer is not a Solana address.");
+  if (!BASE58.test(input.budget)) return refuse("invalid_budget", "The Budget is not a Solana address.");
+  if (input.network !== "solana-devnet" && input.network !== "solana-mainnet-beta") return refuse("invalid_network", "Unknown network.");
+  const ownBudget = (() => {
+    try {
+      return typeof input.nonce === "string" && /^[0-9a-f]{32}$/.test(input.nonce) && budgetAddress(new PublicKey(input.payer), Buffer.from(input.nonce, "hex"), input.programId).toBase58() === input.budget;
+    } catch {
+      return false;
+    }
+  })();
+  if (!ownBudget) return refuse("budget_mismatch", "The Budget is not the payer's Budget for that nonce.");
   const problem = contactProblem(input.contact);
   if (problem) return refuse("contact_required", problem);
   const unreachable = alertConfigProblem(input.contact, deps.env ?? process.env);
   if (unreachable) return refuse("alerts_not_configured", unreachable);
-  const expected = [...new Set(input.expectedPayees ?? [])];
-  if (expected.some((p) => !BASE58.test(p))) return refuse("invalid_payee", "An expected provider is not a Solana address.");
+  const providers = [...new Set(input.providers ?? [])].sort();
+  if (providers.length === 0) return refuse("providers_required", "Name the providers this Budget may pay: a relay Budget needs an allowlist.");
+  if (providers.length > BUDGET_ALLOWLIST_LEN) return refuse("too_many_providers", `A Budget's allowlist holds at most ${BUDGET_ALLOWLIST_LEN} providers.`);
+  if (providers.some((p) => !BASE58.test(p))) return refuse("invalid_payee", "A provider is not a Solana address.");
+  if (typeof input.maxReserve !== "bigint" || input.maxReserve <= BigInt(0) || input.maxReserve > U64_MAX) return refuse("invalid_amount", "The maximum reserve is not a positive u64.");
+  const nowS = Math.floor((deps.nowMs ?? Date.now()) / 1000);
+  if (!Number.isInteger(input.issuedAt) || input.issuedAt < nowS - AUTHORIZATION_MAX_AGE_SECONDS || input.issuedAt > nowS + AUTHORIZATION_MAX_AHEAD_SECONDS) {
+    return refuse("authorization_expired", "The payer's authorization is too old (or dated ahead): sign it again.");
+  }
+  const signature = decodeSignature(input.signature ?? "");
+  const contact = { ...(input.contact.email ? { email: input.contact.email } : {}), ...(input.contact.webhook ? { webhook: input.contact.webhook } : {}) };
+  const message = relayAuthorizationMessage({ ...input, providers, contact });
+  let signedByPayer = false;
+  try {
+    signedByPayer = signature !== undefined && ed25519Verify(new PublicKey(input.payer), message, signature);
+  } catch {
+    signedByPayer = false;
+  }
+  if (!signedByPayer || !signature) {
+    return refuse("not_the_payer", "The authorization is not signed by the payer's wallet.");
+  }
+  const agentSecret = `rap_budget_${randomBytes(32).toString("base64url")}`;
   const record: SpenderRecord = {
     id: randomBytes(16).toString("hex"),
     spender: (await p256SpenderAddress(deps.signer.publicKey)).toBase58(),
@@ -89,33 +203,43 @@ export async function createSpender(
     payer: input.payer,
     network: input.network,
     status: "pending",
-    contact: { ...(input.contact.email ? { email: input.contact.email } : {}), ...(input.contact.webhook ? { webhook: input.contact.webhook, webhookSecret: randomBytes(32).toString("base64url") } : {}) },
-    expectedPayees: expected,
+    budget: input.budget,
+    contact: { ...contact, ...(contact.webhook ? { webhookSecret: randomBytes(32).toString("base64url") } : {}) },
+    expectedPayees: providers,
+    maxReserve: input.maxReserve.toString(),
+    authorization: { issuedAt: input.issuedAt, signature: Buffer.from(signature).toString("base64") },
+    agentSecretSha256: sha256Hex(agentSecret),
     seen: {},
     version: 1,
     createdAt: new Date(deps.nowMs ?? Date.now()).toISOString(),
   };
   const created = await deps.store.create(record);
-  if (!created.ok) return refuse("store_unavailable", "The Budget record could not be stored. Nothing was made; try again.");
-  return { ok: true, record };
+  if (!created.ok) {
+    return created.code === "budget_taken"
+      ? refuse("budget_taken", "The relay already holds a record for that Budget.")
+      : refuse("store_unavailable", "The Budget record could not be stored. Nothing was made; try again.");
+  }
+  return { ok: true, record, agentSecret };
 }
 
+const sameSet = (a: string[], b: string[]) => a.length === b.length && [...a].sort().join(",") === [...b].sort().join(",");
+
 /**
- * Once the payer's open landed: checks the Budget on chain is a P-256-spender
- * Budget that names this record's payer and spender and is not already
- * another record's, then marks it open. Only an open record approves a
- * reserve.
+ * Once the payer's open landed: checks the record's Budget on chain is a
+ * P-256-spender Budget that names this record's payer and spender, with an
+ * allowlist of exactly the providers the payer signed for, then marks it
+ * open. Only an open record approves a reserve.
  */
 export async function activateSpender(
-  input: { id: string; budget: string; programId: PublicKey; readAccount: (address: PublicKey) => Promise<{ owner: PublicKey; data: Uint8Array } | null> },
+  input: { id: string; programId: PublicKey; readAccount: (address: PublicKey) => Promise<{ owner: PublicKey; data: Uint8Array } | null> },
   deps: CustodyDeps,
 ): Promise<{ ok: true; record: SpenderRecord } | CustodyFailure> {
   const record = await deps.store.byId(input.id);
   if (!record) return refuse("unknown_budget_key", "No Budget record with that id.");
   // Only a pending record activates: a frozen one (an incident froze it before the payer opened) stays frozen.
   if (record.status !== "pending") return refuse("not_pending", `This Budget record is ${record.status}.`);
-  if (!BASE58.test(input.budget)) return refuse("invalid_budget", "The Budget is not a Solana address.");
-  const account = await input.readAccount(new PublicKey(input.budget));
+  if (!record.budget || !record.authorization) return refuse("not_authorized", "This record has no payer authorization (made before audit round 5): make a new one.");
+  const account = await input.readAccount(new PublicKey(record.budget));
   if (!account || !account.owner.equals(input.programId)) return refuse("budget_not_found", "The Budget is not open on chain yet.");
   let budget;
   try {
@@ -128,13 +252,12 @@ export async function activateSpender(
   }
   if (!budget.p256Spender) return refuse("budget_not_p256", "That Budget was not opened with a P-256 spender (flag 0x08).");
   if (budget.closed) return refuse("budget_closed", "That Budget is already closed.");
-  // Every relay Budget names the same spender, so a Budget may be claimed by one record only.
-  const holder = await deps.store.byBudget(input.budget);
-  if (holder && holder.id !== record.id) return refuse("budget_taken", "That Budget belongs to another record.");
+  if (!sameSet(budget.allowlist.map((k) => k.toBase58()), record.expectedPayees)) {
+    return refuse("allowlist_mismatch", "That Budget's allowlist is not the providers the payer named.");
+  }
   const next: SpenderRecord = {
     ...record,
     status: "open",
-    budget: input.budget,
     createdSlot: budget.createdSlot.toString(),
     ...(budget.mint ? { mint: budget.mint.toBase58() } : {}),
     version: record.version + 1,
@@ -148,8 +271,15 @@ type Purpose = "reserve" | "waive" | "close";
 /** What the caller wants approved. The relay builds the approval and the call from it. */
 export type ApprovalRequest =
   | { purpose: "reserve"; payee: string; amount: bigint; payoutAccount?: string }
-  | { purpose: "waive"; payee: string }
+  /** `amount`: what the agent accepts the provider posted. The relay checks it on chain. */
+  | { purpose: "waive"; payee: string; amount: bigint }
   | { purpose: "close"; token?: BudgetTokenClose };
+
+/**
+ * Who is asking. The agent presents the secret it got with the record; the
+ * operator's incident step may only close.
+ */
+export type ApprovalAuth = { agentSecret: string } | { operator: "incident" };
 
 export type Approved = {
   ok: true;
@@ -159,9 +289,9 @@ export type Approved = {
   instructions: [TransactionInstruction, TransactionInstruction];
 };
 
-function maxUses(env: Record<string, string | undefined>): number {
-  const n = Number(env.BUDGET_SPENDER_MAX_USES_PER_10_MIN);
-  return Number.isInteger(n) && n > 0 ? n : DEFAULT_MAX_USES_PER_10_MIN;
+function limitFrom(value: string | undefined, fallback: number): number {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : fallback;
 }
 
 /** `BUDGET_SPENDING_PAUSED`: any value but empty, `false`, `0`, `no` or `off` pauses. */
@@ -197,69 +327,139 @@ export async function freezeSpender(record: SpenderRecord, reason: string, deps:
   return undefined;
 }
 
+function secretMatches(record: SpenderRecord, secret: string): boolean {
+  if (!record.agentSecretSha256 || typeof secret !== "string" || secret.length === 0) return false;
+  const a = Buffer.from(sha256Hex(secret), "hex");
+  const b = Buffer.from(record.agentSecretSha256, "hex");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 /**
  * Approves one call as the spender of Budget record `id`, after every check
  * above. The caller sends both instructions, in order, in a transaction it
  * pays for; the provider signs a reserve as the payee. Pausing or freezing
  * does not revoke an approval already given, but it expires after
- * `APPROVAL_SLOTS`. `currentSlot` sets that expiry: pass the slot the relay
- * read from the chain, never one a request supplied.
+ * `APPROVAL_SLOTS` (`WAIVE_APPROVAL_SLOTS` for a waive), counted from the
+ * slot the relay reads from its own RPC.
  */
 export async function approveAsSpender(
-  input: { id: string; request: ApprovalRequest; programId: PublicKey; currentSlot: bigint },
+  input: { id: string; auth: ApprovalAuth; request: ApprovalRequest; programId: PublicKey; caller?: string },
   deps: CustodyDeps,
 ): Promise<Approved | CustodyFailure> {
   const env = deps.env ?? process.env;
   const nowMs = deps.nowMs ?? Date.now();
   const signer = deps.signer;
   if (!signer) return refuse("custody_not_configured", "Budget spending is not set up: BUDGET_SPENDER_KMS_ISSUER_ID or BUDGET_SPENDER_P256_PUBLIC_KEY is missing.");
+  const chain = deps.chain;
+  if (!chain) return refuse("chain_unavailable", "The relay has no RPC to read the slot from.");
   const record = await deps.store.byId(input.id);
   if (!record || !record.spenderKey) return refuse("unknown_budget_key", "No usable Budget record with that id.");
+  const request = input.request;
+  const { purpose } = request;
+  if ("operator" in input.auth) {
+    if (input.auth.operator !== "incident" || purpose !== "close") return refuse("not_authorized", "The operator path approves only a close.");
+  } else if (!secretMatches(record, input.auth.agentSecret)) {
+    return refuse("not_authorized", "That is not this Budget's agent secret.");
+  }
   if (!record.budget || !record.createdSlot) return refuse("budget_not_open", "This Budget record has no open Budget.");
   const operator = async (subject: string, detail: Record<string, unknown>) =>
     sendBudgetAlert({ audience: "operator", kind: "sign_refused", subject, text: `${subject}\nBudget ${record.budget ?? record.id}, payer ${record.payer}.`, detail: { budget: record.budget ?? null, ...detail }, spenderId: record.id }, undefined, deps);
-  const request = input.request;
-  const { purpose } = request;
   const payee = request.purpose === "close" ? undefined : request.payee;
   if (payee !== undefined && !BASE58.test(payee)) return refuse("invalid_payee", "The provider is not a Solana address.");
-  if (request.purpose === "reserve") {
-    if (typeof request.amount !== "bigint" || request.amount <= BigInt(0) || request.amount > BigInt("18446744073709551615")) return refuse("invalid_amount", "The amount is not a positive u64.");
-    if (request.payoutAccount !== undefined && !BASE58.test(request.payoutAccount)) return refuse("invalid_payout_account", "The payout account is not a Solana address.");
+  if (request.purpose !== "close" && (typeof request.amount !== "bigint" || request.amount <= BigInt(0) || request.amount > U64_MAX)) {
+    return refuse("invalid_amount", "The amount is not a positive u64.");
+  }
+  if (request.purpose === "reserve" && request.payoutAccount !== undefined && !BASE58.test(request.payoutAccount)) {
+    return refuse("invalid_payout_account", "The payout account is not a Solana address.");
   }
 
   if (purpose !== "close") {
     if (pausedByEnv(env.BUDGET_SPENDING_PAUSED)) return refuse("budgets_paused", "Budget spending is paused by the operator.");
     if (record.status !== "open") return refuse("budget_not_open", `This Budget is ${record.status}: it approves only the close.`);
-    if (record.expectedPayees.length > 0 && !record.expectedPayees.includes(payee!)) {
+    if (!record.expectedPayees.includes(payee!)) {
       await operator(`Refused a ${purpose} for a provider the payer did not name`, { code: "unexpected_payee", payee: payee ?? null });
       return refuse("unexpected_payee", "The payer did not name this provider for this Budget.");
+    }
+    if (request.purpose === "reserve" && (!record.maxReserve || request.amount > BigInt(record.maxReserve))) {
+      return refuse("above_max_reserve", `The payer allows at most ${record.maxReserve ?? 0} per reserve.`);
     }
   } else if (record.status === "closed") {
     return refuse("budget_closed", "This Budget is closed.");
   }
 
+  // The slot comes from the relay's own RPC, and only once it is known to serve the record's cluster.
+  let currentSlot: bigint;
+  try {
+    if ((await chain.genesisHash()) !== GENESIS_HASH[record.network]) {
+      await operator("The relay's RPC is not on this Budget's cluster", { code: "wrong_cluster", network: record.network });
+      return refuse("wrong_cluster", "The relay's RPC does not serve this Budget's network.");
+    }
+    currentSlot = await chain.slot();
+  } catch {
+    return refuse("chain_unavailable", "The relay could not read the chain; try again.");
+  }
+
   const budget = new PublicKey(record.budget);
   const createdSlot = BigInt(record.createdSlot);
-  const expiresSlot = input.currentSlot + APPROVAL_SLOTS;
+  if (request.purpose === "waive") {
+    // A waive approval does not name the amount on chain, so the relay checks the slice itself (R5-L1).
+    let slice;
+    let onChain;
+    try {
+      const [budgetAccount, sliceAccount] = await Promise.all([chain.readAccount(budget), chain.readAccount(reservationAddress(budget, new PublicKey(request.payee), input.programId))]);
+      onChain = budgetAccount && budgetAccount.owner.equals(input.programId) ? decodeBudget(budgetAccount.data) : undefined;
+      slice = sliceAccount && sliceAccount.owner.equals(input.programId) ? decodeReservation(sliceAccount.data) : undefined;
+    } catch {
+      return refuse("chain_unavailable", "The relay could not read the slice; try again.");
+    }
+    if (!onChain || onChain.createdSlot !== createdSlot || onChain.closed) return refuse("budget_not_open", "This Budget is not open on chain.");
+    if (!slice || slice.budgetCreatedSlot !== createdSlot || !slice.payee.equals(new PublicKey(request.payee))) return refuse("slice_not_found", "That provider has no slice of this Budget.");
+    if (slice.state !== "posted" || slice.waived) return refuse("slice_not_posted", "Only a posted slice that was not waived can be waived.");
+    if (slice.finalAmount !== request.amount) return refuse("amount_mismatch", `The provider posted ${slice.finalAmount}, not ${request.amount}.`);
+  }
+
+  const expiresSlot = currentSlot + (purpose === "waive" ? WAIVE_APPROVAL_SLOTS : APPROVAL_SLOTS);
   const approved = { p256ExpiresSlot: expiresSlot };
+  const payoutAccount = request.purpose === "reserve" ? request.payoutAccount : undefined;
   const message = budgetApprovalMessage({
     programId: input.programId,
     budget,
     createdSlot,
     action: purpose,
     ...(payee ? { payee: new PublicKey(payee) } : {}),
-    ...(request.purpose === "reserve" ? { amount: request.amount, ...(request.payoutAccount ? { payoutAccount: new PublicKey(request.payoutAccount) } : {}) } : {}),
+    ...(request.purpose === "reserve" ? { amount: request.amount, ...(payoutAccount ? { payoutAccount: new PublicKey(payoutAccount) } : {}) } : {}),
     expiresSlot,
     cluster: record.network === "solana-mainnet-beta" ? "mainnet" : "devnet",
   });
 
-  const claim = await deps.store.claimUse(
-    { spenderId: record.id, purpose, ...(payee ? { payee } : {}), messageSha256: createHash("sha256").update(message).digest("hex"), at: new Date(nowMs).toISOString() },
-    maxUses(env),
-  );
+  const detail: Record<string, string> = {
+    message: Buffer.from(message).toString("hex"),
+    expiresSlot: expiresSlot.toString(),
+    createdSlot: record.createdSlot,
+    caller: (input.caller ?? ("operator" in input.auth ? `operator:${input.auth.operator}` : "agent")).slice(0, 120),
+    ...(request.purpose !== "close" ? { amount: request.amount.toString() } : {}),
+    ...(payoutAccount ? { payoutAccount } : {}),
+  };
+  const limits = { perBudget: limitFrom(env.BUDGET_SPENDER_MAX_USES_PER_10_MIN, DEFAULT_MAX_USES_PER_10_MIN), global: limitFrom(env.BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN, DEFAULT_MAX_GLOBAL_PER_10_MIN) };
+  const claim = await deps.store.claimUse({ spenderId: record.id, purpose, ...(payee ? { payee } : {}), messageSha256: sha256Hex(message), at: new Date(nowMs).toISOString(), detail }, limits);
   if (claim === "overuse") {
-    await freezeSpender(record, `approved more than ${maxUses(env)} times in ten minutes`, deps);
+    await freezeSpender(record, `approved more than ${limits.perBudget} times in ten minutes`, deps);
     return refuse("key_overuse", "This Budget was approved too often and is frozen. The operator was alerted.");
+  }
+  if (claim === "global_overuse") {
+    const paused = await deps.store.setPaused(true, `relay approved more than ${limits.global} times in ten minutes across all Budgets`).catch(() => false);
+    await sendBudgetAlert(
+      {
+        audience: "operator",
+        kind: "key_overuse",
+        subject: paused ? "Budget spending paused: the relay hit its global approval ceiling" : "The relay hit its global approval ceiling and could NOT pause",
+        text: `All relay Budgets together were approved ${limits.global} times in ten minutes (BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN). ${paused ? "Spending is paused: only closes are approved." : "Set BUDGET_SPENDING_PAUSED=true and redeploy."} Check the approval log for what was signed, and lift the pause once it is explained.`,
+        detail: { limit: limits.global, paused },
+      },
+      undefined,
+      deps,
+    );
+    return refuse("budgets_paused", "Budget spending is paused: the relay hit its approval ceiling.");
   }
   if (claim === "paused") return refuse("budgets_paused", "Budget spending is paused by the operator.");
   if (claim === "not_open") return refuse("budget_not_open", "This Budget is no longer open: it approves only the close.");
@@ -276,7 +476,7 @@ export async function approveAsSpender(
   const precompile = secp256r1ApprovalInstruction({ publicKey, signature: signed.signature, message });
   let call: TransactionInstruction;
   if (request.purpose === "reserve") {
-    call = reserveInstruction({ programId: input.programId, budget, createdSlot, spender: approved, payee: new PublicKey(request.payee), amount: request.amount, ...(request.payoutAccount ? { payoutAccount: new PublicKey(request.payoutAccount) } : {}) });
+    call = reserveInstruction({ programId: input.programId, budget, createdSlot, spender: approved, payee: new PublicKey(request.payee), amount: request.amount, ...(payoutAccount ? { payoutAccount: new PublicKey(payoutAccount) } : {}) });
   } else if (request.purpose === "waive") {
     call = waiveInstruction({ programId: input.programId, budget, createdSlot, payee: new PublicKey(request.payee), signer: approved });
   } else {

@@ -3,7 +3,7 @@
  * (audit round 4, R4-M3): one record per Budget it spends from,
  * the log of every approval, the alerts it sent, and the pause switch.
  * Tables: `supabase/migrations/20261125090000_budget_custody.sql`, changed by
- * `20261125110000_budget_custody_kms.sql`.
+ * `20261125110000_budget_custody_kms.sql` and `20261125120000_budget_custody_round5.sql`.
  *
  * No key material is stored: the spender key is in Vercel KMS (`./kms`), and
  * a record holds only its public key.
@@ -11,8 +11,14 @@
 
 export type BudgetNetwork = "solana-devnet" | "solana-mainnet-beta";
 
+/** The genesis hash of each network, to tell an RPC on the wrong cluster (audit round 5, S6-claude-06). */
+export const GENESIS_HASH: Record<BudgetNetwork, string> = {
+  "solana-devnet": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+  "solana-mainnet-beta": "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",
+};
+
 /**
- * pending: the record exists, the payer has not opened the Budget yet.
+ * pending: the record exists and names its Budget, which the payer has not opened yet.
  * open: the Budget is open on chain; the relay may approve reserves.
  * frozen: something looked wrong; the relay approves nothing but the close.
  * closing: the relay closed it (or asked to); it approves nothing but the close.
@@ -53,18 +59,42 @@ export type SpenderRecord = {
   payer: string;
   network: BudgetNetwork;
   status: SpenderStatus;
-  /** Once opened: the Budget's address and its `created_slot`, as a decimal string. */
+  /**
+   * The Budget's address, named by the payer's signed authorization when the
+   * record is made (audit round 5, R5-M1): one record per Budget. Absent only
+   * on records made before round 5.
+   */
   budget?: string;
+  /** Once opened: the Budget's `created_slot`, as a decimal string. */
   createdSlot?: string;
   /** The Budget's mint, absent for SOL. */
   mint?: string;
   contact: BudgetContact;
   /**
-   * Providers (base58 wallets) the payer expects this Budget to pay. When not
-   * empty the relay signs no reserve for anyone else, and the watcher tells
-   * the operator about a slice for anyone else.
+   * Providers (base58 wallets) the payer expects this Budget to pay. Never
+   * empty on a record made since round 5, and equal to the Budget's on-chain
+   * allowlist: the relay signs no reserve for anyone else, the program refuses
+   * anyone else, and the watcher tells the operator about a slice for anyone
+   * else.
    */
   expectedPayees: string[];
+  /** The most one reserve approval may name, in base units, as the payer signed it. */
+  maxReserve?: string;
+  /**
+   * The payer's proof (audit round 5, R5-M1): an Ed25519 signature by the
+   * payer's wallet over `relayAuthorizationMessage` of this record's network,
+   * budget, providers, maximum and contact, made at `issuedAt` (unix seconds).
+   */
+  authorization?: { issuedAt: number; signature: string };
+  /**
+   * SHA-256 (hex) of the agent secret handed out once when the record was
+   * made. Every reserve or waive approval must present the secret.
+   */
+  agentSecretSha256?: string;
+  /** Operator alerts the watcher could not deliver: sent again every pass (audit round 5, S6-claude-04). */
+  operatorPending?: { kind: string; subject: string; text: string; detail: Record<string, unknown> }[];
+  /** When the operator was last told this record names a key KMS no longer signs with. */
+  keyRotatedAlertAt?: string;
   /** The watcher's last view of the Budget's slices, by reservation address. */
   seen: Record<string, SeenSlice>;
   /** Why it was frozen, when it was. */
@@ -81,7 +111,12 @@ export type SpenderRecord = {
   createdAt: string;
 };
 
-export type SpenderUse = { spenderId: string; purpose: "reserve" | "waive" | "close"; payee?: string; messageSha256: string; at: string };
+/**
+ * One logged approval. `detail` says what it allowed (audit round 5,
+ * S6-claude-05): the approval message itself (hex, public data), the amount
+ * and payout account of a reserve or waive, its expiry and who asked.
+ */
+export type SpenderUse = { spenderId: string; purpose: "reserve" | "waive" | "close"; payee?: string; messageSha256: string; at: string; detail?: Record<string, string> };
 
 export type BudgetAlertRow = {
   spenderId?: string;
@@ -93,12 +128,16 @@ export type BudgetAlertRow = {
 };
 
 /** What `claimUse` decided. Only `ok` means the use was logged and may be signed. */
-export type ClaimResult = "ok" | "unknown" | "closed" | "paused" | "not_open" | "overuse" | "store_unavailable";
+export type ClaimResult = "ok" | "unknown" | "closed" | "paused" | "not_open" | "overuse" | "global_overuse" | "store_unavailable";
+
+/** How many approvals a claim may make: per Budget, and across every relay Budget, in ten minutes. */
+export type UseLimits = { perBudget: number; global: number };
 
 export type Write<T> = { ok: true; value: T } | { ok: false; code: "conflict" | "store_unavailable" };
 
 export interface BudgetCustodyStore {
-  create(record: SpenderRecord): Promise<{ ok: true } | { ok: false; code: "store_unavailable" }>;
+  /** Refuses (`budget_taken`) a record for a Budget another record already names. */
+  create(record: SpenderRecord): Promise<{ ok: true } | { ok: false; code: "store_unavailable" | "budget_taken" }>;
   byId(id: string): Promise<SpenderRecord | undefined>;
   byBudget(budget: string): Promise<SpenderRecord | undefined>;
   /** Every record in these statuses (no cap), oldest first. */
@@ -110,11 +149,12 @@ export interface BudgetCustodyStore {
   /** How many uses of this key were logged at or after `since` (ISO time). */
   usesSince(spenderId: string, since: string): Promise<number>;
   /**
-   * In one atomic step: checks the record exists and, for a
-   * reserve or waive, that it is open, nothing is paused and the key was used
-   * fewer than `maxUses` times in the last ten minutes; then logs the use.
+   * In one atomic step: checks the record exists and, for a reserve or
+   * waive, that it is open, nothing is paused, this Budget was approved fewer
+   * than `limits.perBudget` times and all relay Budgets together fewer than
+   * `limits.global` times in the last ten minutes; then logs the use.
    */
-  claimUse(use: SpenderUse, maxUses: number): Promise<ClaimResult>;
+  claimUse(use: SpenderUse, limits: UseLimits): Promise<ClaimResult>;
   /** When the watcher last finished a whole pass. */
   watchedAt(): Promise<string | undefined>;
   markWatched(at: string): Promise<boolean>;
@@ -133,6 +173,8 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
   failLogs = false;
 
   async create(record: SpenderRecord) {
+    if (this.failLogs) return { ok: false as const, code: "store_unavailable" as const };
+    if (record.budget && [...this.records.values()].some((r) => r.budget === record.budget)) return { ok: false as const, code: "budget_taken" as const };
     this.records.set(record.id, structuredClone(record));
     return { ok: true as const };
   }
@@ -163,7 +205,7 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
     return this.uses.filter((u) => u.spenderId === spenderId && u.at >= since).length;
   }
   /** Synchronous body, so atomic within the one process this store serves. `use.at` is the clock. */
-  async claimUse(use: SpenderUse, maxUses: number): Promise<ClaimResult> {
+  async claimUse(use: SpenderUse, limits: UseLimits): Promise<ClaimResult> {
     if (this.failLogs) return "store_unavailable";
     const record = this.records.get(use.spenderId);
     if (!record) return "unknown";
@@ -173,7 +215,8 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
       if (this.control.paused) return "paused";
       if (record.status !== "open") return "not_open";
       const since = new Date(Date.parse(use.at) - 10 * 60 * 1000).toISOString();
-      if (this.uses.filter((u) => u.spenderId === use.spenderId && u.at >= since).length >= maxUses) return "overuse";
+      if (this.uses.filter((u) => u.spenderId === use.spenderId && u.at >= since).length >= limits.perBudget) return "overuse";
+      if (this.uses.filter((u) => u.purpose !== "close" && u.at >= since).length >= limits.global) return "global_overuse";
     }
     this.uses.push({ ...use });
     return "ok";
@@ -254,7 +297,14 @@ export class SupabaseBudgetCustodyStore implements BudgetCustodyStore {
   }
 
   async create(record: SpenderRecord) {
-    return (await this.insert("budget_spenders", toRow(record))) ? { ok: true as const } : { ok: false as const, code: "store_unavailable" as const };
+    try {
+      const response = await this.fetch("budget_spenders", { method: "POST", headers: this.headers({ prefer: "return=minimal" }), body: JSON.stringify(toRow(record)) });
+      if (response.ok) return { ok: true as const };
+      // 409: the unique `budget` column already names this Budget.
+      return { ok: false as const, code: response.status === 409 ? ("budget_taken" as const) : ("store_unavailable" as const) };
+    } catch {
+      return { ok: false as const, code: "store_unavailable" as const };
+    }
   }
   async byId(id: string) {
     return HEX32.test(id) ? (await this.rows(`id=eq.${id}&limit=1`))[0] : undefined;
@@ -286,7 +336,7 @@ export class SupabaseBudgetCustodyStore implements BudgetCustodyStore {
     }
   }
   async logUse(use: SpenderUse) {
-    return this.insert("budget_spender_uses", { spender_id: use.spenderId, purpose: use.purpose, payee: use.payee ?? null, message_sha256: use.messageSha256, at: use.at });
+    return this.insert("budget_spender_uses", { spender_id: use.spenderId, purpose: use.purpose, payee: use.payee ?? null, message_sha256: use.messageSha256, detail: use.detail ?? {}, at: use.at });
   }
   async usesSince(spenderId: string, since: string) {
     if (!HEX32.test(spenderId)) return 0;
@@ -295,17 +345,17 @@ export class SupabaseBudgetCustodyStore implements BudgetCustodyStore {
     if (!response.ok) throw new Error(`budget custody store: ${response.status}`);
     return ((await response.json()) as unknown[]).length;
   }
-  async claimUse(use: SpenderUse, maxUses: number): Promise<ClaimResult> {
+  async claimUse(use: SpenderUse, limits: UseLimits): Promise<ClaimResult> {
     if (!HEX32.test(use.spenderId)) return "unknown";
     try {
       const response = await this.fetch("rpc/budget_spender_use", {
         method: "POST",
         headers: this.headers(),
-        body: JSON.stringify({ p_spender_id: use.spenderId, p_purpose: use.purpose, p_payee: use.payee ?? null, p_message_sha256: use.messageSha256, p_max_uses: maxUses }),
+        body: JSON.stringify({ p_spender_id: use.spenderId, p_purpose: use.purpose, p_payee: use.payee ?? null, p_message_sha256: use.messageSha256, p_detail: use.detail ?? {}, p_max_uses: limits.perBudget, p_max_global: limits.global }),
       });
       if (!response.ok) return "store_unavailable";
       const answer = await response.json();
-      return (["ok", "unknown", "closed", "paused", "not_open", "overuse"] as const).find((v) => v === answer) ?? "store_unavailable";
+      return (["ok", "unknown", "closed", "paused", "not_open", "overuse", "global_overuse"] as const).find((v) => v === answer) ?? "store_unavailable";
     } catch {
       return "store_unavailable";
     }

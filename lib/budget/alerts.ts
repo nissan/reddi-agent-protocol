@@ -78,6 +78,7 @@ export function signWebhookBody(body: string, secret: string, nowMs: number = Da
 export function alertConfigProblem(contact: BudgetContact, env: Record<string, string | undefined>): string | undefined {
   const emailReady = Boolean(env.RESEND_API_KEY?.trim() && env.BUDGET_ALERT_FROM?.trim());
   if (!env.BUDGET_OPS_EMAIL?.trim() && !env.BUDGET_OPS_WEBHOOK?.trim()) return "Budget keys are not made while no operator alert channel (BUDGET_OPS_EMAIL or BUDGET_OPS_WEBHOOK) is set.";
+  if (env.BUDGET_OPS_WEBHOOK?.trim() && !env.BUDGET_OPS_WEBHOOK_SECRET?.trim()) return "Operator webhook alerts must be signed: set BUDGET_OPS_WEBHOOK_SECRET with BUDGET_OPS_WEBHOOK.";
   if (!contact.webhook && contact.email && !emailReady) return "Alert email is not set up on this server (RESEND_API_KEY and BUDGET_ALERT_FROM): give a webhook for Budget alerts.";
   if (env.BUDGET_OPS_EMAIL?.trim() && !env.BUDGET_OPS_WEBHOOK?.trim() && !emailReady) return "Operator alerts go by email, but alert email is not set up (RESEND_API_KEY and BUDGET_ALERT_FROM).";
   return undefined;
@@ -160,7 +161,8 @@ export async function sendBudgetAlert(alert: BudgetAlert, contact: BudgetContact
     const opsWebhook = env.BUDGET_OPS_WEBHOOK?.trim();
     const opsSecret = env.BUDGET_OPS_WEBHOOK_SECRET?.trim() || undefined;
     if (opsEmail) channels.push(["email", () => deps.sender.email(opsEmail, `[RAP Budget ops] ${alert.subject}`, alert.text)]);
-    if (opsWebhook) channels.push(["webhook", () => deps.sender.webhook(opsWebhook, body, opsSecret)]);
+    // Never unsigned (audit round 5, S6-claude-04): without its secret the operator webhook counts as not set up.
+    if (opsWebhook) channels.push(["webhook", () => (opsSecret ? deps.sender.webhook(opsWebhook, body, opsSecret) : Promise.resolve("not_configured" as const))]);
   }
   if (channels.length === 0) delivered.none = "not_configured";
   const answers = await Promise.all(channels.map(([, send]) => withTimeout(Promise.resolve().then(send), ms)));
