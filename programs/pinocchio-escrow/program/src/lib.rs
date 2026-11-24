@@ -1,6 +1,6 @@
 //! Reddi Agent Protocol escrow and agent registry, built with Pinocchio.
 //!
-//! One program, twenty-nine instructions in the default (V1) build:
+//! One program, forty-two instructions in the default (V1) build:
 //!
 //! - SOL escrow: `lock_escrow`, `lock_metered_escrow`, `release_escrow`,
 //!   `settle_escrow`, `cancel_escrow`
@@ -15,6 +15,10 @@
 //! - delivery-checked escrow: `open_delivery`, `record_delivery`,
 //!   `accept_delivery`, `dispute_delivery`, `resolve_delivery`,
 //!   `resolve_token_delivery`
+//! - pooled budgets: `open_budget`, `open_token_budget`, `reserve`,
+//!   `set_payout_account`, `post_final`, `waive`, `dispute`, `close_budget`,
+//!   `close_token_budget`, `payout_budget`, `payout_token_budget`,
+//!   `resolve_budget`, `resolve_token_budget`
 //!
 //! The `per` feature adds two more that are not part of V1 and are never
 //! built for mainnet: `delegate_escrow` and `release_escrow_per`, which track

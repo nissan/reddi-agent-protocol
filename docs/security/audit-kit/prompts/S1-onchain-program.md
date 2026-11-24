@@ -29,7 +29,7 @@ default program twice and compare sha256. Delete any keypair file
 
 ## What to look hardest at
 
-1. **Every instruction's account list.** For all 29 instructions, tabulate each
+1. **Every instruction's account list.** For all 42 instructions, tabulate each
    account: expected owner, signer, writable, address or seeds, and where the
    check happens. Look for any account whose identity is trusted without a check,
    and for duplicates that should be refused.

@@ -99,7 +99,8 @@ export type BudgetAccount = {
   perProviderCap: bigint;
   allowlist: readonly string[];
   closedSlot: number;
-  openReservations: number;
+  /** Every reservation ever made, as the program counts them (at most 8, paid ones included). */
+  reservations: number;
   closed: boolean;
 };
 
@@ -113,7 +114,8 @@ export type ReservationAccount = {
   finalAmount: bigint;
   state: ReservationState;
   waived: boolean;
-  lastPostSlot: number;
+  /** The first post's slot: a re-post may only lower the amount and keeps it. */
+  postedSlot: number;
 };
 
 /** A provider's signed-receipt stand-in for one call paid from its reservation. */
@@ -217,8 +219,8 @@ export function budgetCallCost(provider: SandboxProvider, units: number, token: 
 }
 
 /** B3: the end of one reservation's dispute window. */
-export function budgetDisputeEnds(budget: Pick<BudgetAccount, "closedSlot" | "disputeSlots">, reservation: Pick<ReservationAccount, "lastPostSlot">): number {
-  return Math.max(budget.closedSlot + budget.disputeSlots, reservation.lastPostSlot + BUDGET_DEFAULTS.minReviewSlots);
+export function budgetDisputeEnds(budget: Pick<BudgetAccount, "closedSlot" | "disputeSlots">, reservation: Pick<ReservationAccount, "postedSlot">): number {
+  return Math.max(budget.closedSlot + budget.disputeSlots, reservation.postedSlot + BUDGET_DEFAULTS.minReviewSlots);
 }
 
 type ReserveRefusal = "budget_closed" | "budget_expired" | "too_many_reservations" | "over_provider_cap" | "over_unreserved" | "below_minimum" | "token_not_accepted";
@@ -228,7 +230,7 @@ export function checkReserve(budget: BudgetAccount, amount: bigint, slot: number
   if (budget.closed) return "budget_closed";
   if (slot >= budget.createdSlot + budget.openSlots) return "budget_expired";
   if (!accepts.includes(budget.mint)) return "token_not_accepted";
-  if (budget.openReservations >= BUDGET_DEFAULTS.maxReservations) return "too_many_reservations";
+  if (budget.reservations >= BUDGET_DEFAULTS.maxReservations) return "too_many_reservations";
   const minimum = budget.total / BigInt(100) > BigInt(1) ? budget.total / BigInt(100) : BigInt(1);
   if (amount < minimum) return "below_minimum";
   if (amount > budget.perProviderCap) return "over_provider_cap";
@@ -276,7 +278,7 @@ export async function runSandboxBudget(input: {
     perProviderCap: (total * BUDGET_DEFAULTS.perProviderCapBps) / BigInt(10_000),
     allowlist: [],
     closedSlot: 0,
-    openReservations: 0,
+    reservations: 0,
     closed: false,
   };
 
@@ -317,8 +319,8 @@ export async function runSandboxBudget(input: {
       continue;
     }
     budget.unreserved -= amount;
-    budget.openReservations += 1;
-    reservations.set(provider.id, { payee: provider.payTo, payoutAccount: `${provider.name} ${token} account`, reserved: amount, finalAmount: BigInt(0), state: "open", waived: false, lastPostSlot: 0, used: BigInt(0), rows: [] });
+    budget.reservations += 1;
+    reservations.set(provider.id, { payee: provider.payTo, payoutAccount: `${provider.name} ${token} account`, reserved: amount, finalAmount: BigInt(0), state: "open", waived: false, postedSlot: 0, used: BigInt(0), rows: [] });
     joined.push({ providerId: provider.id, providerName: provider.name, reserved: amount });
     const capped = amount < estimate * BUDGET_DEFAULTS.reserveMultiplier ? " (twice the estimate would pass the cap, so the cap applies)" : "";
     log("reserve", `${provider.name} joins. Your agent reserves ${fmt(amount)} for it${capped}, against an estimate of ${fmt(estimate)}.`);
@@ -381,7 +383,7 @@ export async function runSandboxBudget(input: {
     slot += 75; // half a minute apart
     reservation.finalAmount = reservation.used;
     reservation.state = "posted";
-    reservation.lastPostSlot = slot;
+    if (reservation.postedSlot === 0) reservation.postedSlot = slot;
     const name = findSandboxProviderById(providerId)?.name ?? providerId;
     log("post", `${name} posts its final amount: ${fmt(reservation.finalAmount)}, the sum of its receipts.`);
   }
@@ -402,7 +404,6 @@ export async function runSandboxBudget(input: {
     paidOut += paid;
     refunded += back;
     reservation.state = "paid";
-    budget.openReservations -= 1;
     payouts.push({ providerId, providerName: name, reserved: reservation.reserved, used: reservation.used, finalAmount: reservation.finalAmount, fee, toProvider: paid - fee, returned: back, calls: reservation.rows.length, disputeEndsSlot: budgetDisputeEnds(budget, reservation) });
     log("payout", `${name} is paid ${fmt(paid - fee)}, the protocol fee is ${fmt(fee)}, and ${fmt(back)} of its reservation comes back to you.`);
   }

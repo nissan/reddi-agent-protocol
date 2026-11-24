@@ -1096,6 +1096,10 @@ impl Delivery {
 /// Budget flag: closed. No new reservations; the dispute window runs from
 /// `closed_slot`.
 const BUDGET_FLAG_CLOSED: u8 = 0x02;
+/// Set when someone other than the payer closed a budget without an
+/// allowlist: the payer's review then never starts before the open period
+/// ends, so a stolen spender key cannot start the clock early (B1).
+const BUDGET_FLAG_REVIEW_FROM_OPEN_END: u8 = 0x04;
 
 /// One pooled budget: a single lock a payer's spender key reserves slices of
 /// for registered providers while the budget is open. PDA seeds:
@@ -1239,9 +1243,34 @@ impl Budget {
         self.flags & BUDGET_FLAG_CLOSED != 0
     }
 
-    pub fn close_at(&mut self, slot: u64) {
+    /// Close at `slot`. `by_payer` is false when the spender (or anyone,
+    /// after the open period) closed it; on a budget without an allowlist the
+    /// dispute window then runs from the end of the open period at the
+    /// earliest.
+    pub fn close_at(&mut self, slot: u64, by_payer: bool) {
         self.flags |= BUDGET_FLAG_CLOSED;
+        if !by_payer
+            && self
+                .allowlist
+                .iter()
+                .all(|entry| entry == &Address::new_from_array([0; 32]))
+        {
+            self.flags |= BUDGET_FLAG_REVIEW_FROM_OPEN_END;
+        }
         self.closed_slot = slot.to_le_bytes();
+    }
+
+    /// The slot the dispute window runs from: the close, or, when someone
+    /// other than the payer closed a budget without an allowlist, not before
+    /// the open period ends, so a spender's early close cannot shorten the
+    /// payer's review.
+    pub fn review_from(&self) -> u64 {
+        let closed = self.closed_slot();
+        if self.flags & BUDGET_FLAG_REVIEW_FROM_OPEN_END != 0 {
+            closed.max(self.open_ends())
+        } else {
+            closed
+        }
     }
 
     pub fn sol(&self) -> bool {
@@ -1382,10 +1411,11 @@ impl Reservation {
     }
 
     /// The first slot at which the payer can no longer dispute this
-    /// reservation of a closed `budget`: the budget's dispute window, and
-    /// never less than `MIN_REVIEW_SLOTS` after the first post.
+    /// reservation of a closed `budget`: the budget's dispute window (from
+    /// `Budget::review_from`), and never less than `MIN_REVIEW_SLOTS` after
+    /// the first post.
     pub fn dispute_ends(&self, budget: &Budget) -> u64 {
-        let window = budget.closed_slot().saturating_add(budget.dispute_slots());
+        let window = budget.review_from().saturating_add(budget.dispute_slots());
         let review = self.posted_slot().saturating_add(MIN_REVIEW_SLOTS);
         if review > window {
             review

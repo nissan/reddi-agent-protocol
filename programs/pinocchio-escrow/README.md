@@ -898,15 +898,25 @@ not accept it cannot join.
 
 Every payout takes the protocol fee from the provider's part and sends the
 unused part of the slice back to the payer. The money can only go to the
-provider's recorded account, the treasury and the payer.
+provider's recorded account (or its associated token account), the treasury
+and the payer.
 
 Rules from the threat model (`B` items in the design spec):
 
-- A budget needs a judge or a provider allowlist (up to 4 entries), so a
-  stolen spender key cannot pay a provider it registered itself (B1). Letting
-  the spender waive needs an allowlist (B2).
-- The dispute window runs from the close, and never ends earlier than
-  `MIN_REVIEW_SLOTS` (9,000, about an hour) after the provider's first post
+- A budget needs a judge or a provider allowlist (up to 4 entries) (B1). With
+  an allowlist, a stolen spender key cannot pay a provider it registered
+  itself. With only a judge, it can reserve up to the per-provider cap for such
+  a provider and post it; the payer keeps the whole dispute window to dispute
+  that slice, because on a budget without an allowlist a close by the
+  spender does not start the window before the open period ends (the payer
+  can still waive to pay a slice sooner). A payer that does not watch its budget, or a cap left
+  at the total, leaves that slice exposed; the client sets the cap to half the
+  total unless told otherwise. Letting the spender waive needs an allowlist
+  (B2).
+- The dispute window runs from the close (from the end of the open period at
+  the earliest when anyone but the payer closed a budget without an
+  allowlist; the budget records this as flag `0x04`), and never ends earlier
+  than `MIN_REVIEW_SLOTS` (9,000, about an hour) after the provider's first post
   (B3). A re-post may only lower the amount and keeps the first post's slot,
   so re-posting cannot hold the payer's refund back. An unposted slice cannot
   be disputed and pays nothing.
@@ -926,7 +936,17 @@ Rules from the threat model (`B` items in the design spec):
 - At most 8 slices per budget; a slice is at least 1% of the total (at least
   one base unit); an optional per-provider cap.
 - The provider can re-point its token payout account while its slice is open
-  or posted (`set_payout_account`, B12).
+  or posted (`set_payout_account`, B12). A payout pays the recorded account or
+  the provider's associated token account for the mint (anyone can create
+  it), so a recorded account that was closed, frozen or handed to another
+  owner cannot keep the provider from its money, and an account that receives
+  nothing (a refund, a judge's ruling of 0, a timeout, an unposted slice) is
+  not read at all, so it cannot hold back the payer's refund.
+- On a SOL budget, a refund that would leave the payer's wallet below the
+  rent-exempt minimum (an emptied wallet and a refund under about 0.00089 SOL)
+  stays in the budget account and reaches the payer with the budget's rent
+  when the budget closes, so an empty payer wallet cannot block anyone's
+  payout.
 
 Windows: the open period and the dispute window are 9,000 to 1,512,000 slots
 (about an hour to 7 days); the judge's window is 1,500 to 3,024,000 slots
@@ -950,7 +970,7 @@ escrow: 0.5 SOL, or 100 units of a token.
 | `close_token_budget` | `created_slot` | `budget` w, `vault` w, `signer` s, `payer` w, `mint`, `refund` w, `token_program`, then optionally the SPL Memo program |
 | `payout_budget` | `created_slot` | `budget` w, `reservation` w, `payee` w, `payer` w, `treasury` w |
 | `resolve_budget` | `created_slot`, `payout` (at most the posted amount) | as `payout_budget`, then `judge` s |
-| `payout_token_budget` | `created_slot` | `budget` w, `vault` w, `reservation` w, `payee` w, `payer` w, `mint`, `payout_account` w (the recorded one), `treasury_token` w, `refund` w (the payer's), `token_program`, then optionally the SPL Memo program |
+| `payout_token_budget` | `created_slot` | `budget` w, `vault` w, `reservation` w, `payee` w, `payer` w, `mint`, `payout_account` w (the recorded one, or the payee's associated token account), `treasury_token` w, `refund` w (the payer's), `token_program`, then optionally the SPL Memo program |
 | `resolve_token_budget` | `created_slot`, `payout` | as `payout_token_budget`, then `judge` s, then optionally the SPL Memo program |
 
 Seeds: budget `["budget", payer, nonce]`, vault `["budget-vault", budget]`,
@@ -980,8 +1000,9 @@ New error numbers, 6073 to 6097: `InvalidBudgetTerms`,
 `open_slots` (160), `dispute_slots` (168), `judge_slots` (176), `total`
 (184), `unreserved` (192), `per_provider_cap` (200), `allowlist` 4 × 32
 (208), `closed_slot` (336), `reservations` u8 (344), `unsettled` u8 (345),
-`flags` u8 (346: 0x01 spender may waive, 0x02 closed), `bump` (347),
-`vault_bump` (348). A SOL budget holds its lamports on top of its rent.
+`flags` u8 (346: 0x01 spender may waive, 0x02 closed, 0x04 review from the
+open period's end), `bump` (347), `vault_bump` (348). A SOL budget holds its
+lamports on top of its rent, and any refund kept for an empty payer wallet.
 
 `account:Reservation`, 147 bytes: discriminator (0), `budget` (8),
 `budget_created_slot` (40), `payee` (48), `payout_account` (80), `reserved`
@@ -1088,7 +1109,7 @@ escrow and registry instructions only:
 
 | | Anchor (13 instructions) | Pinocchio (42 instructions) | Change |
 |---|---|---|---|
-| Program size | 345,152 bytes | 186,048 bytes | 46% smaller |
+| Program size | 345,152 bytes | 187,840 bytes | 46% smaller |
 | Rent at 6,960 lamports per byte | 2.4046 SOL | 1.2972 SOL | 1.1074 SOL less |
 | Rent at 5,080 lamports per byte | 1.7551 SOL | 0.9468 SOL | 0.8083 SOL less |
 | `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 133,096 bytes (measured before the pooled budget) | 73% smaller |

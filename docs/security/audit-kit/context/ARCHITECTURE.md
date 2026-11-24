@@ -49,12 +49,13 @@ USDG (Token-2022).
   `programs/pinocchio-escrow/README.md` and `interface/vectors.json`.
 - One V1 build (default features). The `devnet`, `extended` and `per` features
   are not part of the mainnet build; `per` is never built for mainnet.
-- 29 instructions: the 13 escrow and registry instructions that keep the
+- 42 instructions: the 13 escrow and registry instructions that keep the
   archived Anchor wire contract (`archive/anchor-escrow/`, IDL source), plus 10
   rating and attestation instructions and 6 delivery-check instructions
   (`open_delivery`, `record_delivery`, `accept_delivery`, `dispute_delivery`,
-  `resolve_delivery`, `resolve_token_delivery`), documented only in the
-  program README.
+  `resolve_delivery`, `resolve_token_delivery`) and 13 pooled budget
+  instructions (`open_budget` to `resolve_token_budget`), documented only in
+  the program README.
 - Delivery-checked escrow (opt-in, bit `0x04` of the `metered` byte): the payee
   records a delivery, the payer accepts or disputes it inside a verify window,
   and a judge named at open splits a disputed escrow inside a resolve window.

@@ -30,7 +30,7 @@ const BLOCKHASH = Keypair.generate().publicKey.toBase58();
 const budget = (over: Partial<BudgetAccount> = {}): BudgetAccount => ({
   payer: Keypair.generate().publicKey, spender: spender.publicKey, judge, mint, nonce: new Uint8Array(16), createdSlot: CREATED,
   openSlots: 648_000n, disputeSlots: 216_000n, judgeSlots: 648_000n, total: 50_000_000n, unreserved: 40_000_000n, perProviderCap: 0n,
-  allowlist: [], closedSlot: 0n, reservations: 1, unsettled: 1, spenderMayWaive: false, closed: false, openEnds: CREATED + 648_000n, ...over,
+  allowlist: [], closedSlot: 0n, reservations: 1, unsettled: 1, spenderMayWaive: false, closed: false, reviewFromOpenEnd: false, openEnds: CREATED + 648_000n, ...over,
 });
 
 const check = (over: Partial<BudgetAccount> = {}, extra: Partial<Parameters<typeof checkPooledBudgetForProvider>[0]> = {}) => checkPooledBudgetForProvider({
