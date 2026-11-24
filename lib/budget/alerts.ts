@@ -21,7 +21,7 @@
 
 import { createHmac } from "crypto";
 import { fetchOutbound } from "@/lib/http/outbound";
-import type { BudgetAlertRow, BudgetContact, BudgetCustodyStore } from "./store";
+import type { BudgetAlertRow, BudgetContact, BudgetCustodyStore, PendingOperatorAlert } from "./store";
 
 export type BudgetAlert = {
   audience: "payer" | "operator";
@@ -51,6 +51,12 @@ export type BudgetAlert = {
   text: string;
   detail: Record<string, unknown>;
   spenderId?: string;
+  /**
+   * An operator alert no channel took is kept and sent again by the watcher
+   * (audit round 5b). False for an alert the caller repeats itself until it is
+   * delivered, so it is not sent twice.
+   */
+  retry?: boolean;
 };
 
 export type AlertChannelResult = "sent" | "not_configured" | "failed";
@@ -92,11 +98,19 @@ function withTimeout(work: Promise<AlertChannelResult>, ms: number): Promise<Ale
   return Promise.race([work.catch(() => "failed" as const), timeout]).finally(() => clearTimeout(timer));
 }
 
+/** Control, format (bidi and zero-width included), line and paragraph separator, and private-use characters. */
+export const UNPRINTABLE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cs}]/u;
+
 const EMAIL = /^[^\s@<>]{1,64}@[^\s@<>]{1,253}\.[A-Za-z]{2,}$/;
 
 /** Is this a contact the relay can use: an email address and/or an https webhook. */
 export function contactProblem(contact: BudgetContact): string | undefined {
-  if (!contact.email && !contact.webhook) return "Give an email address or a webhook for Budget alerts: the payer must hear about every reserve and post.";
+  if (!contact || (!contact.email && !contact.webhook)) return "Give an email address or a webhook for Budget alerts: the payer must hear about every reserve and post.";
+  // Both are shown in the text the payer's wallet signs: a line break or other control or format character could
+  // fake a line of it (audit round 5b). `new URL` would silently drop tabs and newlines, so check the raw value.
+  for (const value of [contact.email, contact.webhook]) {
+    if (value !== undefined && (typeof value !== "string" || UNPRINTABLE.test(value) || value.length > 512)) return "The alert contact has characters that are not allowed.";
+  }
   if (contact.email !== undefined && !EMAIL.test(contact.email)) return "The alert email address is not valid.";
   if (contact.webhook !== undefined) {
     try {
@@ -145,7 +159,9 @@ export type AlertDeps = { store: BudgetCustodyStore; sender: AlertSender; env?: 
 /**
  * Sends one alert on every channel its audience has and logs it. Returns
  * whether at least one channel took it. An operator alert with no operator
- * channel configured is still logged, and reported as not delivered.
+ * channel configured is still logged, and reported as not delivered. An
+ * operator alert no channel took is kept for the watcher to send again,
+ * unless `alert.retry` is false.
  */
 export async function sendBudgetAlert(alert: BudgetAlert, contact: BudgetContact | undefined, deps: AlertDeps): Promise<boolean> {
   const env = deps.env ?? process.env;
@@ -178,5 +194,27 @@ export async function sendBudgetAlert(alert: BudgetAlert, contact: BudgetContact
     at: new Date(deps.nowMs ?? Date.now()).toISOString(),
   };
   await deps.store.logAlert(row).catch(() => false);
-  return Object.values(delivered).includes("sent");
+  const sent = Object.values(delivered).includes("sent");
+  if (!sent && alert.audience === "operator" && alert.retry !== false) {
+    const kept: PendingOperatorAlert = { kind: alert.kind, subject: alert.subject, text: alert.text, detail: alert.detail, ...(alert.spenderId ? { spenderId: alert.spenderId } : {}), firstAt: row.at, tries: 1 };
+    await deps.store.queueOperatorAlert(kept).catch(() => false);
+  }
+  return sent;
+}
+
+/**
+ * Sends every kept operator alert again (the watcher does this each pass).
+ * Returns how many are still undelivered; those are kept again.
+ */
+export async function resendOperatorAlerts(deps: AlertDeps): Promise<number> {
+  const kept = await deps.store.takeOperatorAlerts();
+  let left = 0;
+  for (const alert of kept) {
+    const ok = await sendBudgetAlert({ audience: "operator", kind: alert.kind as BudgetAlert["kind"], subject: alert.subject, text: alert.text, detail: { ...alert.detail, firstAt: alert.firstAt, tries: alert.tries + 1 }, ...(alert.spenderId ? { spenderId: alert.spenderId } : {}), retry: false }, undefined, deps);
+    if (!ok) {
+      left += 1;
+      await deps.store.queueOperatorAlert({ ...alert, tries: alert.tries + 1 }).catch(() => false);
+    }
+  }
+  return left;
 }

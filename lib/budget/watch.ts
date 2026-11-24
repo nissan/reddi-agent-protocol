@@ -54,7 +54,7 @@ import {
   type BudgetAccount,
   type ReservationAccount,
 } from "@redditech/x402-solana/budget";
-import { sendBudgetAlert, type AlertSender, type BudgetAlert } from "./alerts";
+import { resendOperatorAlerts, sendBudgetAlert, type AlertSender, type BudgetAlert } from "./alerts";
 import { parseP256PublicKey } from "./kms";
 import { GENESIS_HASH, type BudgetCustodyStore, type SeenSlice, type SpenderRecord } from "./store";
 
@@ -159,8 +159,6 @@ export const GONE_CONFIRM_MS = 4 * 60 * 1000;
 export const WATCH_STALE_MS = 15 * 60 * 1000;
 /** How often the operator is told again that a Budget names a rotated key. */
 export const KEY_ROTATED_REPEAT_MS = 24 * 60 * 60 * 1000;
-/** At most this many undelivered operator alerts are kept per Budget; the oldest go first. */
-const OPERATOR_PENDING_MAX = 20;
 
 async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
@@ -329,17 +327,20 @@ async function watchOne(input: SpenderRecord, slot: bigint, deps: WatchDeps): Pr
   const nowMs = deps.nowMs ?? Date.now();
   const now = new Date(nowMs).toISOString();
   const currentKey = parseP256PublicKey((deps.env ?? process.env).BUDGET_SPENDER_P256_PUBLIC_KEY);
-  const operator = async (kind: BudgetAlert["kind"], subject: string, text: string, detail: Record<string, unknown> = {}) => {
-    await sendBudgetAlert({ audience: "operator", kind, subject, text, detail: { budget: record.budget ?? null, payer: record.payer, ...detail }, spenderId: record.id }, undefined, deps);
+  /** `retry: false` for an alert this code repeats itself until delivered. Answers whether a channel took it. */
+  const operator = async (kind: BudgetAlert["kind"], subject: string, text: string, detail: Record<string, unknown> = {}, retry = true) => {
+    const ok = await sendBudgetAlert({ audience: "operator", kind, subject, text, detail: { budget: record.budget ?? null, payer: record.payer, ...detail }, spenderId: record.id, retry }, undefined, deps);
     report.alerts.push(`operator:${kind}`);
+    return ok;
   };
   try {
     // A record under a key KMS no longer signs with cannot be closed by the relay: a warning, once a day.
     if (!currentKey || Buffer.from(currentKey).toString("hex") !== record.spenderKey) {
       report.warning = "key_rotated";
       if (!record.keyRotatedAlertAt || nowMs - Date.parse(record.keyRotatedAlertAt) >= KEY_ROTATED_REPEAT_MS) {
-        await operator("key_rotated", `Budget ${record.budget ?? record.id} names a KMS key the relay no longer signs with`, `The record's key is ${record.spenderKey}; BUDGET_SPENDER_P256_PUBLIC_KEY is ${currentKey ? Buffer.from(currentKey).toString("hex") : "not set"}. The relay cannot approve anything for this Budget, the close included: restore the key, or ask the payer to close it (it also ends at its expiry).`, { spenderKey: record.spenderKey });
-        record = (await save(deps.store, record, (r) => ({ ...r, keyRotatedAlertAt: now }))) ?? record;
+        const told = await operator("key_rotated", `Budget ${record.budget ?? record.id} names a KMS key the relay no longer signs with`, `The record's key is ${record.spenderKey}; BUDGET_SPENDER_P256_PUBLIC_KEY is ${currentKey ? Buffer.from(currentKey).toString("hex") : "not set"}. The relay cannot approve anything for this Budget, the close included: restore the key, or ask the payer to close it (it also ends at its expiry).`, { spenderKey: record.spenderKey }, false);
+        // Marked as told only once a channel took it, so a failed alert is tried again next pass (round 5b).
+        if (told) record = (await save(deps.store, record, (r) => ({ ...r, keyRotatedAlertAt: now }))) ?? record;
       }
     }
     if (!record.budget || !record.createdSlot) {
@@ -403,21 +404,11 @@ async function watchOne(input: SpenderRecord, slot: bigint, deps: WatchDeps): Pr
       .filter((x): x is { address: string; reservation: ReservationAccount } => x.reservation !== undefined && x.reservation.budgetCreatedSlot === budget.createdSlot);
     const seen: Record<string, SeenSlice> = { ...record.seen };
     let undelivered = 0;
-    // Operator alerts no channel took are kept and sent again every pass; the payer's are retried per slice.
-    const operatorPending: NonNullable<SpenderRecord["operatorPending"]> = [];
-    for (const kept of record.operatorPending ?? []) {
-      const ok = await sendBudgetAlert({ audience: "operator", kind: kept.kind as BudgetAlert["kind"], subject: kept.subject, text: kept.text, detail: kept.detail, spenderId: record.id }, undefined, deps);
-      report.alerts.push(`operator:${kept.kind}`);
-      if (!ok) operatorPending.push(kept);
-    }
+    // Payer alerts are retried per slice; operator alerts no channel took are kept by `sendBudgetAlert` and sent again each pass.
     const deliver = async (alert: BudgetAlert): Promise<boolean> => {
       const ok = await sendBudgetAlert(alert, alert.audience === "payer" ? record.contact : undefined, deps);
       report.alerts.push(`${alert.audience}:${alert.kind}`);
-      if (alert.audience === "operator") {
-        if (!ok) operatorPending.push({ kind: alert.kind, subject: alert.subject, text: alert.text, detail: alert.detail });
-        return true;
-      }
-      return ok;
+      return alert.audience === "operator" ? true : ok;
     };
     for (const slice of slices) {
       const alerts = sliceAlerts(record, budget, slice.reservation, record.seen[slice.address], { slot, origin: deps.origin });
@@ -436,22 +427,19 @@ async function watchOne(input: SpenderRecord, slot: bigint, deps: WatchDeps): Pr
     if (undelivered > 0) {
       pending = { since: pending?.since ?? now, passes: (pending?.passes ?? 0) + 1, ...(pending?.operatorTold ? { operatorTold: true } : {}) };
       if (pending.passes >= UNDELIVERED_PASSES_BEFORE_OPERATOR && !pending.operatorTold) {
-        await operator("alerts_undelivered", `Payer alerts for Budget ${record.budget} are not getting through`, `No payer channel has taken this Budget's alerts since ${pending.since} (${pending.passes} passes). The payer may be missing posts they could dispute. Check the payer's contact and the alert email setup.`, { since: pending.since, passes: pending.passes });
-        pending = { ...pending, operatorTold: true };
+        const told = await operator("alerts_undelivered", `Payer alerts for Budget ${record.budget} are not getting through`, `No payer channel has taken this Budget's alerts since ${pending.since} (${pending.passes} passes). The payer may be missing posts they could dispute. Check the payer's contact and the alert email setup.`, { since: pending.since, passes: pending.passes }, false);
+        if (told) pending = { ...pending, operatorTold: true };
       }
       report.error = "alerts_undelivered";
     } else {
       pending = undefined;
     }
-    if (operatorPending.length > 0) report.error ??= "operator_alerts_undelivered";
-    const keptForOperator = operatorPending.slice(-OPERATOR_PENDING_MAX);
     const closing = budget.closed && record.status === "open";
     const saved = await save(deps.store, record, (r) => {
-      const { undelivered: _u, goneSince: _g, operatorPending: _o, ...rest } = r;
+      const { undelivered: _u, goneSince: _g, ...rest } = r;
       void _u;
       void _g;
-      void _o;
-      return { ...rest, seen, watchedAt: now, ...(pending ? { undelivered: pending } : {}), ...(keptForOperator.length ? { operatorPending: keptForOperator } : {}), ...(closing ? { status: "closing" as const } : {}) };
+      return { ...rest, seen, watchedAt: now, ...(pending ? { undelivered: pending } : {}), ...(closing ? { status: "closing" as const } : {}) };
     });
     if (saved) report.status = saved.status;
     else report.error = "store_conflict";
@@ -467,7 +455,7 @@ async function watchOne(input: SpenderRecord, slot: bigint, deps: WatchDeps): Pr
  * pass that watched every Budget without an error is recorded as the last
  * good pass, and the operator is told when the one before it is stale.
  */
-export async function watchBudgets(deps: WatchDeps): Promise<WatchReport[] & { complete?: boolean }> {
+export async function watchBudgets(deps: WatchDeps): Promise<WatchReport[] & { complete?: boolean; operatorAlertsUndelivered?: boolean }> {
   const nowMs = deps.nowMs ?? Date.now();
   const records = (await deps.store.withStatus(["open", "frozen", "closing"])).sort((a, b) => (a.watchedAt ?? "").localeCompare(b.watchedAt ?? ""));
   let slot: bigint;
@@ -500,6 +488,10 @@ export async function watchBudgets(deps: WatchDeps): Promise<WatchReport[] & { c
   if (gone.length > 1) {
     await sendBudgetAlert({ audience: "operator", kind: "budget_unreadable", subject: `${gone.length} Budget records were closed in one pass because their accounts are gone`, text: `The watcher marked ${gone.length} Budgets closed this pass because their accounts were missing on two finalized reads: ${gone.map((r) => r.budget).join(", ")}. If they were not really closed, the RPC is misreading the chain: check it, then reopen the records by hand.`, detail: { budgets: gone.map((r) => r.budget) } }, undefined, deps);
   }
-  if (complete && reports.every((r) => !r.error)) await deps.store.markWatched(new Date(nowMs).toISOString());
-  return Object.assign(reports, { complete });
+  // Operator alerts no channel took, from anywhere in the relay (freeze, ceiling, refused signs, this pass's own...),
+  // go again last. A pass is good only when they all got through.
+  const operatorLeft = await resendOperatorAlerts(deps).catch(() => -1);
+  const operatorAlertsUndelivered = operatorLeft !== 0;
+  if (complete && !operatorAlertsUndelivered && reports.every((r) => !r.error)) await deps.store.markWatched(new Date(nowMs).toISOString());
+  return Object.assign(reports, { complete, operatorAlertsUndelivered });
 }

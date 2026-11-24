@@ -195,7 +195,7 @@ async function openBudget(deps: CustodyDeps, accounts: Accounts, opts: AuthOpts 
   if (!made.ok) throw new Error(made.message);
   const budget = new PublicKey(input.budget);
   accounts.set(budget.toBase58(), { owner: PROGRAM, data: budgetBytes({ payer: payer.publicKey, spender: new PublicKey(made.record.spender), judge: opts.judge, mint: opts.mint, allowlist: input.providers }) });
-  const active = await activateSpender({ id: made.record.id, programId: PROGRAM, readAccount: async (a) => accounts.get(a.toBase58()) ?? null }, deps);
+  const active = await activateSpender({ id: made.record.id, programId: PROGRAM }, deps);
   if (!active.ok) throw new Error(active.message);
   return { payer: payer.publicKey, budget, record: active.record, spender: new PublicKey(made.record.spender), secret: made.agentSecret, providers: input.providers.map((p) => new PublicKey(p)) };
 }
@@ -235,7 +235,6 @@ describe("Budget spender approvals through Vercel KMS (audit rounds 4 and 5)", (
 
   it("R5-M1: makes a record only on the payer's own signature, pinned to the payer's Budget, one record per Budget", async () => {
     const { deps, accounts } = setup();
-    const read = async (a: PublicKey) => accounts.get(a.toBase58()) ?? null;
     // Someone else's signature, or a field changed after signing.
     expect(await createSpender(authorization({ signer: Keypair.generate() }).input, deps)).toMatchObject({ ok: false, code: "not_the_payer" });
     expect(await createSpender(authorization({ tamper: (i) => (i.contact = { email: "attacker@example.com" }) }).input, deps)).toMatchObject({ ok: false, code: "not_the_payer" });
@@ -260,15 +259,15 @@ describe("Budget spender approvals through Vercel KMS (audit rounds 4 and 5)", (
     const spender = new PublicKey(made.record.spender);
     const budget = victim.input.budget;
     accounts.set(budget, { owner: PROGRAM, data: budgetBytes({ payer: WALLET(), spender, allowlist: victim.input.providers }) });
-    expect(await activateSpender({ id: made.record.id, programId: PROGRAM, readAccount: read }, deps)).toMatchObject({ ok: false, code: "budget_mismatch" });
+    expect(await activateSpender({ id: made.record.id, programId: PROGRAM }, deps)).toMatchObject({ ok: false, code: "budget_mismatch" });
     accounts.set(budget, { owner: PROGRAM, data: budgetBytes({ payer: victim.payer.publicKey, spender, ed25519Spender: true, allowlist: victim.input.providers }) });
-    expect(await activateSpender({ id: made.record.id, programId: PROGRAM, readAccount: read }, deps)).toMatchObject({ ok: false, code: "budget_not_p256" });
+    expect(await activateSpender({ id: made.record.id, programId: PROGRAM }, deps)).toMatchObject({ ok: false, code: "budget_not_p256" });
     accounts.set(budget, { owner: PROGRAM, data: budgetBytes({ payer: victim.payer.publicKey, spender }) });
-    expect(await activateSpender({ id: made.record.id, programId: PROGRAM, readAccount: read }, deps)).toMatchObject({ ok: false, code: "allowlist_mismatch" });
+    expect(await activateSpender({ id: made.record.id, programId: PROGRAM }, deps)).toMatchObject({ ok: false, code: "allowlist_mismatch" });
     accounts.set(budget, { owner: PROGRAM, data: budgetBytes({ payer: victim.payer.publicKey, spender, allowlist: [...victim.input.providers, WALLET().toBase58()] }) });
-    expect(await activateSpender({ id: made.record.id, programId: PROGRAM, readAccount: read }, deps)).toMatchObject({ ok: false, code: "allowlist_mismatch" });
+    expect(await activateSpender({ id: made.record.id, programId: PROGRAM }, deps)).toMatchObject({ ok: false, code: "allowlist_mismatch" });
     accounts.set(budget, { owner: PROGRAM, data: budgetBytes({ payer: victim.payer.publicKey, spender, allowlist: victim.input.providers }) });
-    expect(await activateSpender({ id: made.record.id, programId: PROGRAM, readAccount: read }, deps)).toMatchObject({ ok: true });
+    expect(await activateSpender({ id: made.record.id, programId: PROGRAM }, deps)).toMatchObject({ ok: true });
   });
 
   it("approves a reserve for a provider the payer named, up to the payer's maximum, only with the agent's secret, logged with what it allowed", async () => {
@@ -367,7 +366,7 @@ describe("Budget spender approvals through Vercel KMS (audit rounds 4 and 5)", (
     expect(KMS.calls).toBe(calls);
   });
 
-  it("approves nothing while paused or when the use cannot be logged, freezes an overused Budget, and pauses at the global ceiling", async () => {
+  it("approves nothing while paused or when the use cannot be logged, and freezes an overused Budget", async () => {
     const { store, sent, deps, accounts } = setup({ BUDGET_SPENDER_MAX_USES_PER_10_MIN: "3" });
     const opened = await openBudget(deps, accounts, { providers: [WALLET(), WALLET(), WALLET(), WALLET()].map((w) => w.toBase58()) });
     const p = opened.providers;
@@ -384,22 +383,57 @@ describe("Budget spender approvals through Vercel KMS (audit rounds 4 and 5)", (
     expect(await approve(deps, opened, reserve(p[3]))).toMatchObject({ ok: false, code: "key_overuse" });
     expect((await store.byId(opened.record.id))!.status).toBe("frozen");
     expect(sent.some((s) => s.to === "ops@example.com" && /frozen/.test(s.subject))).toBe(true);
-    // Frozen: no reserve, but the close is still approved.
+    // Frozen: no reserve. The agent's own close counts too, so it is over the limit (round 5b); the incident step's is not counted.
     expect(await approve({ ...deps, nowMs: NOW_MS + 3_600_000 }, opened, reserve(p[3]))).toMatchObject({ ok: false, code: "budget_not_open" });
-    const close = await approve(deps, opened, { purpose: "close" });
+    expect(await approve(deps, opened, { purpose: "close" })).toMatchObject({ ok: false, code: "key_overuse" });
+    const close = await approveAsSpender({ id: opened.record.id, auth: { operator: "incident" }, request: { purpose: "close" }, programId: PROGRAM }, deps);
     expect(close).toMatchObject({ ok: true, purpose: "close" });
     if (close.ok) expect(Buffer.from(close.instructions[1].data.subarray(0, 8))).toEqual(Buffer.from(BUDGET_DISCRIMINATORS["global:close_budget"]));
+    expect(store.uses.at(-1)).toMatchObject({ purpose: "close", byOperator: true });
+  });
 
-    // Across all relay Budgets (R5-M2): past the ceiling, spending pauses for everyone and the operator is told.
-    const g = setup({ BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN: "2" });
-    const a = await openBudget(g.deps, g.accounts);
-    const b = await openBudget(g.deps, g.accounts);
+  it("round 5b: the agent's close is paused and counted; only the incident step's close is not", async () => {
+    const { store, deps, accounts } = setup();
+    const opened = await openBudget(deps, accounts);
+    await store.setPaused(true, "drill");
+    expect(await approve(deps, opened, { purpose: "close" })).toMatchObject({ ok: false, code: "budgets_paused" });
+    expect(await approve({ ...deps, env: { ...deps.env, BUDGET_SPENDING_PAUSED: "1" } }, opened, { purpose: "close" })).toMatchObject({ ok: false, code: "budgets_paused" });
+    const incident = { id: opened.record.id, auth: { operator: "incident" as const }, request: { purpose: "close" as const }, programId: PROGRAM };
+    expect(await approveAsSpender(incident, { ...deps, env: { ...deps.env, BUDGET_SPENDING_PAUSED: "1" } })).toMatchObject({ ok: true });
+    await store.setPaused(false, "drill over");
+    const limited = { ...deps, env: { ...deps.env, BUDGET_SPENDER_MAX_USES_PER_10_MIN: "2" } };
+    expect(await approve(limited, opened, { purpose: "close" })).toMatchObject({ ok: true });
+    expect(await approve(limited, opened, { purpose: "close" })).toMatchObject({ ok: true });
+    expect(await approve(limited, opened, { purpose: "close" })).toMatchObject({ ok: false, code: "key_overuse" });
+    // The incident step's closes are logged but never counted.
+    for (let i = 0; i < 3; i += 1) expect(await approveAsSpender(incident, limited)).toMatchObject({ ok: true });
+    expect(store.uses.filter((u) => u.byOperator)).toHaveLength(4);
+  });
+
+  it("round 5b: one payer cannot use up the shared ceiling, the ceiling refuses without pausing, and each network counts apart", async () => {
+    const g = setup({ BUDGET_SPENDER_MAX_PER_PAYER_PER_10_MIN: "2", BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN: "3" });
+    const greedy = Keypair.generate();
+    const a = await openBudget(g.deps, g.accounts, { payer: greedy });
+    const b = await openBudget(g.deps, g.accounts, { payer: greedy });
     expect(await approve(g.deps, a, reserve(a.providers[0]))).toMatchObject({ ok: true });
     expect(await approve(g.deps, b, reserve(b.providers[0]))).toMatchObject({ ok: true });
-    expect(await approve(g.deps, b, reserve(b.providers[0], BigInt(2_000_000)))).toMatchObject({ ok: false, code: "budgets_paused" });
-    expect((await g.store.paused()).paused).toBe(true);
-    expect(g.sent.some((s) => s.to === "ops@example.com" && /global approval ceiling/.test(s.subject))).toBe(true);
-    expect(await approve(g.deps, a, { purpose: "close" })).toMatchObject({ ok: true });
+    expect(await approve(g.deps, b, reserve(b.providers[0], BigInt(2_000_000)))).toMatchObject({ ok: false, code: "payer_overuse" });
+    expect(g.sent.some((s) => s.to === "ops@example.com" && /more than 2 approvals/.test(s.subject))).toBe(true);
+    // Another payer still gets through, up to the shared ceiling, which refuses and tells the operator once.
+    const c = await openBudget(g.deps, g.accounts);
+    const d = await openBudget(g.deps, g.accounts);
+    expect(await approve(g.deps, c, reserve(c.providers[0]))).toMatchObject({ ok: true });
+    expect(await approve(g.deps, d, reserve(d.providers[0]))).toMatchObject({ ok: false, code: "global_overuse" });
+    expect(await approve(g.deps, d, reserve(d.providers[0], BigInt(3)))).toMatchObject({ ok: false, code: "global_overuse" });
+    expect(g.sent.filter((s) => s.to === "ops@example.com" && /approval ceiling/.test(s.subject))).toHaveLength(1);
+    expect((await g.store.paused()).paused).toBe(false);
+    // Ten minutes on, the count has dropped and approvals go through again.
+    expect(await approve({ ...g.deps, nowMs: NOW_MS + 11 * 60_000 }, d, reserve(d.providers[0]))).toMatchObject({ ok: true });
+    // A mainnet record counts apart from the devnet ones.
+    const m = g.store.records.get(c.record.id)!;
+    g.store.records.set("f".repeat(32), { ...structuredClone(m), id: "f".repeat(32), network: "solana-mainnet-beta", payer: WALLET().toBase58() });
+    const at = new Date(NOW_MS).toISOString();
+    expect(await g.store.claimUse({ spenderId: "f".repeat(32), purpose: "reserve", messageSha256: "a".repeat(64), at }, { perBudget: 10, perPayer: 10, global: 3 })).toBe("ok");
   });
 
   it("hands out no approval KMS signed with another key, or when KMS fails, and tells the operator", async () => {
@@ -469,24 +503,30 @@ describe("Budget watcher: the payer hears of every reserve and post", () => {
     expect((await store.byId(record.id))!.status).toBe("closed");
   });
 
-  it("S6-claude-02: keeps an operator alert no channel took and sends it again every pass", async () => {
-    const { store, sent, deps, accounts, chain, behaviour } = setup();
-    const { record, budget } = await openBudget(deps, accounts);
+  it("round 5b: keeps every operator alert no channel took, from anywhere in the relay, and sends it again each pass", async () => {
+    const { store, sent, deps, accounts, chain, behaviour } = setup({ BUDGET_SPENDER_MAX_USES_PER_10_MIN: "1" });
+    const opened = await openBudget(deps, accounts);
+    const { budget } = opened;
     const stranger = WALLET();
     accounts.set(reservationAddress(budget, stranger, PROGRAM).toBase58(), { owner: PROGRAM, data: sliceBytes({ budget, payee: stranger, reserved: BigInt(10) }) });
     behaviour.set("ops@example.com", "failed");
+    // Outside the watcher: a freeze for overuse, with the operator unreachable.
+    expect(await approve(deps, opened, reserve(opened.providers[0]))).toMatchObject({ ok: true });
+    expect(await approve(deps, opened, reserve(opened.providers[0]))).toMatchObject({ ok: false, code: "key_overuse" });
+    expect(store.operatorPending.map((a) => a.kind)).toEqual(["budget_frozen"]);
     const first = await watchBudgets(watchDeps(deps, chain));
-    expect(first[0]).toMatchObject({ error: "operator_alerts_undelivered" });
-    expect((await store.byId(record.id))!.operatorPending).toEqual([expect.objectContaining({ kind: "unexpected_payee" })]);
+    expect(first.operatorAlertsUndelivered).toBe(true);
+    expect(store.operatorPending.map((a) => a.kind).sort()).toEqual(["budget_frozen", "unexpected_payee"]);
     expect(await store.watchedAt()).toBeUndefined();
-    const second = await watchBudgets(watchDeps(deps, chain));
-    expect(second[0]).toMatchObject({ error: "operator_alerts_undelivered" });
+    await watchBudgets(watchDeps(deps, chain));
+    // Kept once each, however often they are queued.
+    expect(store.operatorPending).toHaveLength(2);
     behaviour.set("ops@example.com", "sent");
     const third = await watchBudgets(watchDeps(deps, chain));
-    expect(third[0].error).toBeUndefined();
-    expect(third[0].alerts).toEqual(["operator:unexpected_payee"]);
-    expect((await store.byId(record.id))!.operatorPending).toBeUndefined();
-    expect(sent.filter((s) => s.to === "ops@example.com" && /did not name/.test(s.subject))).toHaveLength(3);
+    expect(third.operatorAlertsUndelivered).toBe(false);
+    expect(store.operatorPending).toEqual([]);
+    expect(sent.filter((s) => s.to === "ops@example.com" && /frozen/.test(s.subject)).length).toBeGreaterThanOrEqual(3);
+    expect(sent.filter((s) => s.to === "ops@example.com" && /did not name/.test(s.subject)).at(-1)).toBeDefined();
     expect(await store.watchedAt()).toBe(new Date(NOW_MS).toISOString());
   });
 
@@ -571,7 +611,7 @@ describe("Budget incident step", () => {
     // The payer opens it anyway; a frozen key cannot be activated, but the next run finds and closes it.
     const pinned = pending.record.budget!;
     accounts.set(pinned, { owner: PROGRAM, data: budgetBytes({ payer: new PublicKey(pending.record.payer), spender: new PublicKey(pending.record.spender), allowlist: pending.record.expectedPayees }) });
-    expect(await activateSpender({ id: pending.record.id, programId: PROGRAM, readAccount: async (a) => accounts.get(a.toBase58()) ?? null }, deps)).toMatchObject({ ok: false, code: "not_pending" });
+    expect(await activateSpender({ id: pending.record.id, programId: PROGRAM }, deps)).toMatchObject({ ok: false, code: "not_pending" });
     const closedAlready = await openBudget(deps, accounts);
     accounts.set(closedAlready.budget.toBase58(), { owner: PROGRAM, data: budgetBytes({ payer: closedAlready.payer, spender: closedAlready.spender, closed: true, closedSlot: CREATED + BigInt(9) }) });
     const second = await closeAllBudgets({ reason: "second", feePayer, programId: PROGRAM, chain }, deps);
@@ -696,6 +736,64 @@ describe("Budget custody review S6 fixes", () => {
     expect(rotatedAlerts()).toHaveLength(1);
     await watchBudgets(watchDeps(unset, chain, later + KEY_ROTATED_REPEAT_MS));
     expect(rotatedAlerts()).toHaveLength(2);
+  });
+});
+
+describe("Budget custody review round 5b fixes", () => {
+  it("refuses line breaks and other unprintable characters in what the payer's wallet shows", async () => {
+    const { deps } = setup();
+    for (const contact of [
+      { webhook: "https://hooks.example/a\nproviders: attacker" },
+      { webhook: "https://hooks.example/a\r" },
+      { webhook: "https://hooks.example/\u202ea" },
+      { webhook: "https://hooks.example/a\u2028b" },
+      { email: "a\u200b@b.co" },
+      { email: "a@b.co", webhook: "https://hooks.example/\ta" },
+    ]) {
+      expect(await createSpender(authorization({ contact }).input, deps)).toMatchObject({ ok: false, code: "contact_required" });
+    }
+    expect(await createSpender(authorization({ contact: { webhook: "https://hooks.example/a?b=c" } }).input, deps)).toMatchObject({ ok: true });
+  });
+
+  it("activates only through the relay's own RPC on the record's cluster, and only within an hour of the payer's signature", async () => {
+    const { deps, accounts, setGenesis } = setup();
+    const { input, payer } = authorization();
+    const made = await createSpender(input, deps);
+    if (!made.ok) throw new Error(made.message);
+    accounts.set(input.budget, { owner: PROGRAM, data: budgetBytes({ payer: payer.publicKey, spender: new PublicKey(made.record.spender), allowlist: input.providers }) });
+    expect(await activateSpender({ id: made.record.id, programId: PROGRAM }, { ...deps, chain: undefined })).toMatchObject({ ok: false, code: "chain_unavailable" });
+    setGenesis(GENESIS_HASH["solana-mainnet-beta"]);
+    expect(await activateSpender({ id: made.record.id, programId: PROGRAM }, deps)).toMatchObject({ ok: false, code: "wrong_cluster" });
+    setGenesis(DEVNET);
+    expect(await activateSpender({ id: made.record.id, programId: PROGRAM }, { ...deps, nowMs: NOW_MS + 3_601_000 })).toMatchObject({ ok: false, code: "authorization_expired" });
+    expect(await activateSpender({ id: made.record.id, programId: PROGRAM }, deps)).toMatchObject({ ok: true });
+  });
+
+  it("marks key_rotated and undelivered payer alerts as told only once the operator got them", async () => {
+    const { store, sent, deps, accounts, chain, behaviour } = setup();
+    const opened = await openBudget(deps, accounts);
+    behaviour.set("ops@example.com", "failed");
+    const rotated = { ...deps, env: { ...deps.env, BUDGET_SPENDER_P256_PUBLIC_KEY: kmsKey().hex } };
+    await watchBudgets(watchDeps(rotated, chain));
+    expect((await store.byId(opened.record.id))!.keyRotatedAlertAt).toBeUndefined();
+    // Not queued as well: the watcher repeats it itself.
+    expect(store.operatorPending.filter((a) => a.kind === "key_rotated")).toEqual([]);
+    behaviour.set("ops@example.com", "sent");
+    await watchBudgets(watchDeps(rotated, chain, NOW_MS + 60_000));
+    expect((await store.byId(opened.record.id))!.keyRotatedAlertAt).toBe(new Date(NOW_MS + 60_000).toISOString());
+    expect(sent.filter((s) => s.to === "ops@example.com" && /no longer signs with/.test(s.subject))).toHaveLength(2);
+
+    const p = opened.providers[0];
+    accounts.set(reservationAddress(opened.budget, p, PROGRAM).toBase58(), { owner: PROGRAM, data: sliceBytes({ budget: opened.budget, payee: p, reserved: BigInt(5) }) });
+    behaviour.set("payer@example.com", "failed");
+    behaviour.set("ops@example.com", "failed");
+    for (let i = 0; i < 3; i += 1) await watchBudgets(watchDeps(deps, chain));
+    expect((await store.byId(opened.record.id))!.undelivered).toMatchObject({ passes: 3 });
+    expect((await store.byId(opened.record.id))!.undelivered?.operatorTold).toBeUndefined();
+    behaviour.set("ops@example.com", "sent");
+    await watchBudgets(watchDeps(deps, chain));
+    expect((await store.byId(opened.record.id))!.undelivered).toMatchObject({ passes: 4, operatorTold: true });
+    expect(sent.filter((s) => s.to === "ops@example.com" && /not getting through/.test(s.subject))).toHaveLength(2);
   });
 });
 

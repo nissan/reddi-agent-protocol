@@ -3,7 +3,8 @@
  * (audit round 4, R4-M3): one record per Budget it spends from,
  * the log of every approval, the alerts it sent, and the pause switch.
  * Tables: `supabase/migrations/20261125090000_budget_custody.sql`, changed by
- * `20261125110000_budget_custody_kms.sql` and `20261125120000_budget_custody_round5.sql`.
+ * `20261125110000_budget_custody_kms.sql`, `20261125120000_budget_custody_round5.sql` and
+ * `20261125130000_budget_custody_round5b.sql`.
  *
  * No key material is stored: the spender key is in Vercel KMS (`./kms`), and
  * a record holds only its public key.
@@ -91,8 +92,6 @@ export type SpenderRecord = {
    * made. Every reserve or waive approval must present the secret.
    */
   agentSecretSha256?: string;
-  /** Operator alerts the watcher could not deliver: sent again every pass (audit round 5, S6-claude-04). */
-  operatorPending?: { kind: string; subject: string; text: string; detail: Record<string, unknown> }[];
   /** When the operator was last told this record names a key KMS no longer signs with. */
   keyRotatedAlertAt?: string;
   /** The watcher's last view of the Budget's slices, by reservation address. */
@@ -116,7 +115,19 @@ export type SpenderRecord = {
  * S6-claude-05): the approval message itself (hex, public data), the amount
  * and payout account of a reserve or waive, its expiry and who asked.
  */
-export type SpenderUse = { spenderId: string; purpose: "reserve" | "waive" | "close"; payee?: string; messageSha256: string; at: string; detail?: Record<string, string> };
+export type SpenderUse = {
+  spenderId: string;
+  purpose: "reserve" | "waive" | "close";
+  payee?: string;
+  messageSha256: string;
+  at: string;
+  detail?: Record<string, string>;
+  /** A close the incident step asked for: the only approval not counted, limited or paused (round 5b). */
+  byOperator?: boolean;
+};
+
+/** An operator alert no channel took, kept to be sent again (round 5b). */
+export type PendingOperatorAlert = { kind: string; subject: string; text: string; detail: Record<string, unknown>; spenderId?: string; firstAt: string; tries: number };
 
 export type BudgetAlertRow = {
   spenderId?: string;
@@ -128,10 +139,14 @@ export type BudgetAlertRow = {
 };
 
 /** What `claimUse` decided. Only `ok` means the use was logged and may be signed. */
-export type ClaimResult = "ok" | "unknown" | "closed" | "paused" | "not_open" | "overuse" | "global_overuse" | "store_unavailable";
+export type ClaimResult = "ok" | "unknown" | "closed" | "paused" | "not_open" | "overuse" | "payer_overuse" | "global_overuse" | "global_overuse_new" | "store_unavailable";
 
-/** How many approvals a claim may make: per Budget, and across every relay Budget, in ten minutes. */
-export type UseLimits = { perBudget: number; global: number };
+/**
+ * How many approvals a claim may make in ten minutes: for one Budget, for all
+ * of one payer's Budgets, and for every relay Budget on the network. Closes
+ * the agent asks for count; the incident step's do not.
+ */
+export type UseLimits = { perBudget: number; perPayer: number; global: number };
 
 export type Write<T> = { ok: true; value: T } | { ok: false; code: "conflict" | "store_unavailable" };
 
@@ -149,12 +164,15 @@ export interface BudgetCustodyStore {
   /** How many uses of this key were logged at or after `since` (ISO time). */
   usesSince(spenderId: string, since: string): Promise<number>;
   /**
-   * In one atomic step: checks the record exists and, for a reserve or
-   * waive, that it is open, nothing is paused, this Budget was approved fewer
-   * than `limits.perBudget` times and all relay Budgets together fewer than
-   * `limits.global` times in the last ten minutes; then logs the use.
+   * In one atomic step: checks the record exists and, unless the incident
+   * step asks for a close, that nothing is paused, that a reserve or waive is
+   * for an open record, and that the limits hold; then logs the use.
    */
   claimUse(use: SpenderUse, limits: UseLimits): Promise<ClaimResult>;
+  /** Keeps an operator alert no channel took (the newest 50). */
+  queueOperatorAlert(alert: PendingOperatorAlert): Promise<boolean>;
+  /** Hands over every kept operator alert and empties the queue, in one step. */
+  takeOperatorAlerts(): Promise<PendingOperatorAlert[]>;
   /** When the watcher last finished a whole pass. */
   watchedAt(): Promise<string | undefined>;
   markWatched(at: string): Promise<boolean>;
@@ -168,7 +186,8 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
   readonly records = new Map<string, SpenderRecord>();
   readonly uses: SpenderUse[] = [];
   readonly alerts: BudgetAlertRow[] = [];
-  control: { paused: boolean; reason?: string; watchedAt?: string } = { paused: false };
+  control: { paused: boolean; reason?: string; watchedAt?: string; ceilingAlertedAt?: string } = { paused: false };
+  operatorPending: PendingOperatorAlert[] = [];
   /** Tests set this to make the log refuse writes. */
   failLogs = false;
 
@@ -209,14 +228,22 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
     if (this.failLogs) return "store_unavailable";
     const record = this.records.get(use.spenderId);
     if (!record) return "unknown";
-    if (use.purpose === "close") {
-      if (record.status === "closed") return "closed";
-    } else {
+    if (use.byOperator && use.purpose !== "close") throw new Error("the operator path approves only a close");
+    if (use.purpose === "close" && record.status === "closed") return "closed";
+    if (!use.byOperator) {
       if (this.control.paused) return "paused";
-      if (record.status !== "open") return "not_open";
+      if (use.purpose !== "close" && record.status !== "open") return "not_open";
       const since = new Date(Date.parse(use.at) - 10 * 60 * 1000).toISOString();
-      if (this.uses.filter((u) => u.spenderId === use.spenderId && u.at >= since).length >= limits.perBudget) return "overuse";
-      if (this.uses.filter((u) => u.purpose !== "close" && u.at >= since).length >= limits.global) return "global_overuse";
+      const counted = this.uses.filter((u) => !u.byOperator && u.at >= since).map((u) => ({ u, r: this.records.get(u.spenderId) }));
+      if (counted.filter(({ u }) => u.spenderId === use.spenderId).length >= limits.perBudget) return "overuse";
+      if (counted.filter(({ r }) => r?.payer === record.payer && r?.network === record.network).length >= limits.perPayer) return "payer_overuse";
+      if (counted.filter(({ r }) => r?.network === record.network).length >= limits.global) {
+        if (!this.control.ceilingAlertedAt || this.control.ceilingAlertedAt < since) {
+          this.control = { ...this.control, ceilingAlertedAt: use.at };
+          return "global_overuse_new";
+        }
+        return "global_overuse";
+      }
     }
     this.uses.push({ ...use });
     return "ok";
@@ -239,6 +266,18 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
   async setPaused(paused: boolean, reason: string) {
     this.control = { ...this.control, paused, reason };
     return true;
+  }
+  async queueOperatorAlert(alert: PendingOperatorAlert) {
+    if (this.failLogs) return false;
+    // One of each: the same alert queued again (the watcher repeats some every pass) is not kept twice.
+    if (this.operatorPending.some((a) => a.kind === alert.kind && a.subject === alert.subject && (a.spenderId ?? "") === (alert.spenderId ?? ""))) return true;
+    this.operatorPending = [...this.operatorPending, structuredClone(alert)].slice(-50);
+    return true;
+  }
+  async takeOperatorAlerts() {
+    const taken = this.operatorPending;
+    this.operatorPending = [];
+    return taken;
   }
 }
 
@@ -336,7 +375,7 @@ export class SupabaseBudgetCustodyStore implements BudgetCustodyStore {
     }
   }
   async logUse(use: SpenderUse) {
-    return this.insert("budget_spender_uses", { spender_id: use.spenderId, purpose: use.purpose, payee: use.payee ?? null, message_sha256: use.messageSha256, detail: use.detail ?? {}, at: use.at });
+    return this.insert("budget_spender_uses", { spender_id: use.spenderId, purpose: use.purpose, payee: use.payee ?? null, message_sha256: use.messageSha256, detail: use.detail ?? {}, by_operator: use.byOperator === true, at: use.at });
   }
   async usesSince(spenderId: string, since: string) {
     if (!HEX32.test(spenderId)) return 0;
@@ -351,11 +390,21 @@ export class SupabaseBudgetCustodyStore implements BudgetCustodyStore {
       const response = await this.fetch("rpc/budget_spender_use", {
         method: "POST",
         headers: this.headers(),
-        body: JSON.stringify({ p_spender_id: use.spenderId, p_purpose: use.purpose, p_payee: use.payee ?? null, p_message_sha256: use.messageSha256, p_detail: use.detail ?? {}, p_max_uses: limits.perBudget, p_max_global: limits.global }),
+        body: JSON.stringify({
+          p_spender_id: use.spenderId,
+          p_purpose: use.purpose,
+          p_payee: use.payee ?? null,
+          p_message_sha256: use.messageSha256,
+          p_detail: use.detail ?? {},
+          p_by_operator: use.byOperator === true,
+          p_max_uses: limits.perBudget,
+          p_max_payer: limits.perPayer,
+          p_max_global: limits.global,
+        }),
       });
       if (!response.ok) return "store_unavailable";
       const answer = await response.json();
-      return (["ok", "unknown", "closed", "paused", "not_open", "overuse", "global_overuse"] as const).find((v) => v === answer) ?? "store_unavailable";
+      return (["ok", "unknown", "closed", "paused", "not_open", "overuse", "payer_overuse", "global_overuse", "global_overuse_new"] as const).find((v) => v === answer) ?? "store_unavailable";
     } catch {
       return "store_unavailable";
     }
@@ -391,6 +440,20 @@ export class SupabaseBudgetCustodyStore implements BudgetCustodyStore {
     } catch {
       return false;
     }
+  }
+  async queueOperatorAlert(alert: PendingOperatorAlert) {
+    try {
+      const response = await this.fetch("rpc/budget_operator_alert_queue", { method: "POST", headers: this.headers(), body: JSON.stringify({ p_alert: alert }) });
+      return response.ok && (await response.json()) === true;
+    } catch {
+      return false;
+    }
+  }
+  async takeOperatorAlerts() {
+    const response = await this.fetch("rpc/budget_operator_alert_take", { method: "POST", headers: this.headers(), body: "{}" });
+    if (!response.ok) throw new Error(`budget custody store: ${response.status}`);
+    const taken = await response.json();
+    return Array.isArray(taken) ? (taken as PendingOperatorAlert[]) : [];
   }
 }
 

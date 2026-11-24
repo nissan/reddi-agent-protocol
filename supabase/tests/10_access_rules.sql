@@ -343,50 +343,95 @@ insert into public.budget_spender_uses (spender_id, purpose, message_sha256)
   values ('0123456789abcdef0123456789abcdef', 'reserve', repeat('a', 64));
 select pg_temp.expect_error('server rewrites the spender use log', 'update public.budget_spender_uses set purpose = ''close''');
 select pg_temp.expect_error('server deletes the spender use log', 'delete from public.budget_spender_uses');
--- The one way a use is logged (review S6): clients cannot call it; for the
--- server it checks the pause, the status and the ten-minute limit atomically,
--- and a close goes through even while paused or over the limit.
+-- The one way a use is logged (review S6, rounds 5 and 5b): clients cannot
+-- call it; for the server it checks the pause, the status and the limits
+-- atomically. Only a close the incident step asks for skips the pause and
+-- the limits; the agent's close is paused and counted.
 reset role;
 do $$ declare r text; begin
   foreach r in array array['anon', 'authenticated'] loop
     execute format('set role %I', r);
-    perform pg_temp.expect_error(r || ' logs a spender use', 'select public.budget_spender_use(''0123456789abcdef0123456789abcdef'', ''close'', null, repeat(''a'', 64), ''{}''::jsonb, 3, 1000)');
+    perform pg_temp.expect_error(r || ' logs a spender use', 'select public.budget_spender_use(''0123456789abcdef0123456789abcdef'', ''close'', null, repeat(''a'', 64), ''{}''::jsonb, true, 3, 100, 1000)');
+    perform pg_temp.expect_error(r || ' queues an operator alert', 'select public.budget_operator_alert_queue(''{"kind":"x","subject":"y"}''::jsonb)');
+    perform pg_temp.expect_error(r || ' takes the operator alerts', 'select public.budget_operator_alert_take()');
     reset role;
   end loop;
 end $$;
 set role service_role;
-do $$ declare got text; id text := '0123456789abcdef0123456789abcdef'; begin
-  got := public.budget_spender_use(id, 'reserve', null, repeat('b', 64), '{}'::jsonb, 5, 1000);
+do $$ declare got text; ok boolean; id text := '0123456789abcdef0123456789abcdef'; begin
+  got := public.budget_spender_use(id, 'reserve', null, repeat('b', 64), '{}'::jsonb, false, 5, 100, 1000);
   if got <> 'not_open' then raise exception 'a pending key logged a reserve: %', got; end if;
   update public.budget_spenders set status = 'open' where budget_spenders.id = '0123456789abcdef0123456789abcdef';
-  got := public.budget_spender_use(id, 'reserve', 'X', repeat('b', 64), '{}'::jsonb, 2, 1000);
+  got := public.budget_spender_use(id, 'reserve', 'X', repeat('b', 64), '{}'::jsonb, false, 2, 100, 1000);
   if got <> 'ok' then raise exception 'an open key under its limit was refused: %', got; end if;
-  got := public.budget_spender_use(id, 'reserve', 'X', repeat('c', 64), '{}'::jsonb, 2, 1000);
+  got := public.budget_spender_use(id, 'reserve', 'X', repeat('c', 64), '{}'::jsonb, false, 2, 100, 1000);
   if got <> 'overuse' then raise exception 'the use limit did not hold: %', got; end if;
+  got := public.budget_spender_use(id, 'close', null, repeat('c', 64), '{}'::jsonb, false, 2, 100, 1000);
+  if got <> 'overuse' then raise exception 'the agent''s close was not counted: %', got; end if;
   update public.budget_controls set paused = true where budget_controls.id = 1;
-  got := public.budget_spender_use(id, 'waive', null, repeat('d', 64), '{}'::jsonb, 100, 1000);
+  got := public.budget_spender_use(id, 'waive', null, repeat('d', 64), '{}'::jsonb, false, 100, 100, 1000);
   if got <> 'paused' then raise exception 'a paused waive was logged: %', got; end if;
-  got := public.budget_spender_use(id, 'close', null, repeat('e', 64), '{}'::jsonb, 1, 1000);
-  if got <> 'ok' then raise exception 'a close was refused: %', got; end if;
+  got := public.budget_spender_use(id, 'close', null, repeat('d', 64), '{}'::jsonb, false, 100, 100, 1000);
+  if got <> 'paused' then raise exception 'the agent''s close went through a pause: %', got; end if;
+  got := public.budget_spender_use(id, 'close', null, repeat('e', 64), '{}'::jsonb, true, 1, 1, 1);
+  if got <> 'ok' then raise exception 'the incident step''s close was refused: %', got; end if;
+  begin
+    perform public.budget_spender_use(id, 'reserve', 'X', repeat('e', 64), '{}'::jsonb, true, 100, 100, 1000);
+    ok := true;
+  exception when others then ok := false;
+  end;
+  if ok then raise exception 'the operator path logged a reserve'; end if;
   update public.budget_controls set paused = false, watched_at = now() where budget_controls.id = 1;
-  -- Round 5 (R5-M2): all relay Budgets together stop at the global ceiling;
-  -- a close is not counted and still goes through. The detail is kept.
-  -- Two non-close uses are logged so far (the direct insert and the first reserve).
-  got := public.budget_spender_use(id, 'reserve', 'X', repeat('1', 64), '{"amount":"5"}'::jsonb, 100, 2);
-  if got <> 'global_overuse' then raise exception 'the global ceiling did not hold: %', got; end if;
-  got := public.budget_spender_use(id, 'reserve', 'X', repeat('1', 64), '{"amount":"5"}'::jsonb, 100, 3);
-  if got <> 'ok' then raise exception 'a reserve under the global ceiling was refused: %', got; end if;
+  -- Limits are required.
+  foreach got in array array['null', '0'] loop
+    begin
+      execute format('select public.budget_spender_use(%L, ''reserve'', ''X'', repeat(''9'', 64), ''{}''::jsonb, false, 100, %s, 1000)', id, got);
+      ok := true;
+    exception when others then ok := false;
+    end;
+    if ok then raise exception 'a claim with limit % was accepted', got; end if;
+  end loop;
+  -- Two counted uses so far (the direct insert and the first reserve); the
+  -- incident step's close is not counted. Past the ceiling: refused, and the
+  -- first refusal in ten minutes says so once.
+  got := public.budget_spender_use(id, 'reserve', 'X', repeat('1', 64), '{"amount":"5"}'::jsonb, false, 100, 100, 2);
+  if got <> 'global_overuse_new' then raise exception 'the global ceiling did not hold: %', got; end if;
+  got := public.budget_spender_use(id, 'reserve', 'X', repeat('1', 64), '{"amount":"5"}'::jsonb, false, 100, 100, 2);
+  if got <> 'global_overuse' then raise exception 'the ceiling told the operator twice: %', got; end if;
+  if (select paused from public.budget_controls where budget_controls.id = 1) then raise exception 'the ceiling paused everything'; end if;
+  got := public.budget_spender_use(id, 'reserve', 'X', repeat('1', 64), '{"amount":"5"}'::jsonb, false, 100, 2, 100);
+  if got <> 'payer_overuse' then raise exception 'the per-payer limit did not hold: %', got; end if;
+  got := public.budget_spender_use(id, 'reserve', 'X', repeat('1', 64), '{"amount":"5"}'::jsonb, false, 100, 100, 3);
+  if got <> 'ok' then raise exception 'a reserve under every limit was refused: %', got; end if;
   if (select detail->>'amount' from public.budget_spender_uses where message_sha256 = repeat('1', 64)) is distinct from '5' then
     raise exception 'the approval detail was not logged';
   end if;
-  got := public.budget_spender_use(id, 'close', null, repeat('2', 64), null, 100, 0);
-  if got <> 'ok' then raise exception 'a close over the global ceiling was refused: %', got; end if;
+  -- Another payer's Budget on mainnet counts apart from devnet's three.
+  insert into public.budget_spenders (id, spender, payer, network, status, spender_key, record, version)
+    values ('fedcba9876543210fedcba9876543210', 'S', 'Q', 'solana-mainnet-beta', 'open', '02' || repeat('cd', 32), '{}', 1);
+  got := public.budget_spender_use('fedcba9876543210fedcba9876543210', 'reserve', 'X', repeat('3', 64), '{}'::jsonb, false, 100, 100, 1);
+  if got <> 'ok' then raise exception 'mainnet was counted with devnet: %', got; end if;
+  -- Operator alerts: kept once each, handed over and emptied in one step.
+  perform public.budget_operator_alert_queue('{"kind":"budget_frozen","subject":"s","spenderId":"a"}'::jsonb);
+  perform public.budget_operator_alert_queue('{"kind":"budget_frozen","subject":"s","spenderId":"a"}'::jsonb);
+  perform public.budget_operator_alert_queue('{"kind":"watcher_stalled","subject":"t"}'::jsonb);
+  if jsonb_array_length(public.budget_operator_alert_take()) <> 2 then raise exception 'operator alerts were not kept once each'; end if;
+  if jsonb_array_length(public.budget_operator_alert_take()) <> 0 then raise exception 'taking the operator alerts did not empty the queue'; end if;
 end $$;
+-- Under REPEATABLE READ the counts would come from a stale snapshot: refused.
+begin transaction isolation level repeatable read;
+do $$ begin
+  perform public.budget_spender_use('0123456789abcdef0123456789abcdef', 'reserve', 'X', repeat('4', 64), '{}'::jsonb, false, 100, 100, 1000);
+  raise exception 'ran under repeatable read';
+exception when others then
+  if sqlerrm = 'ran under repeatable read' then raise; end if;
+end $$;
+commit;
 do $$ declare got text; sid text := '0123456789abcdef0123456789abcdef'; begin
   update public.budget_spenders set status = 'closed' where budget_spenders.id = sid;
-  got := public.budget_spender_use(sid, 'close', null, repeat('f', 64), '{}'::jsonb, 100, 1000);
+  got := public.budget_spender_use(sid, 'close', null, repeat('f', 64), '{}'::jsonb, false, 100, 100, 1000);
   if got <> 'closed' then raise exception 'a closed budget logged another close: %', got; end if;
-  got := public.budget_spender_use('ffffffffffffffffffffffffffffffff', 'close', null, repeat('f', 64), '{}'::jsonb, 100, 1000);
+  got := public.budget_spender_use('ffffffffffffffffffffffffffffffff', 'close', null, repeat('f', 64), '{}'::jsonb, false, 100, 100, 1000);
   if got <> 'unknown' then raise exception 'a missing record logged a use: %', got; end if;
 end $$;
 update public.budget_controls set paused = true, reason = 'test';

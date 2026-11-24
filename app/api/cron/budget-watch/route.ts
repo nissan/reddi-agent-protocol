@@ -23,9 +23,9 @@ export async function GET(req: Request) {
   if (!deps) return NextResponse.json({ ok: false, error: "budget_custody_not_configured" }, { status: 503 });
   const reports = await watchBudgets({ ...deps, chain: budgetChain(), programId: BUDGET_PROGRAM_ID, origin: budgetLinkOrigin() });
   const errors = reports.filter((r) => r.error);
-  const ok = reports.complete !== false && errors.length === 0;
+  const ok = reports.complete !== false && errors.length === 0 && !reports.operatorAlertsUndelivered;
   return NextResponse.json(
-    { ok, complete: reports.complete !== false, budgets: reports.length, errors: errors.length, alerts: reports.reduce((n, r) => n + r.alerts.length, 0), reports },
+    { ok, complete: reports.complete !== false, operatorAlertsUndelivered: reports.operatorAlertsUndelivered === true, budgets: reports.length, errors: errors.length, alerts: reports.reduce((n, r) => n + r.alerts.length, 0), reports },
     { status: ok ? 200 : 503 },
   );
 }
