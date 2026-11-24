@@ -51,8 +51,58 @@ export const BUDGET_DEFAULTS = {
 /** The SOL fee cap: 0.1 SOL. Stablecoins have none. */
 const SOL_FEE_CAP_LAMPORTS = BigInt(100_000_000);
 
-/** One paid call an agent plans with a provider: what it asks and how many seconds it gets back. */
-export type BudgetCallPlan = { ask: string; units: number; file: string };
+/**
+ * One paid call an agent plans with a provider: what it asks and what comes
+ * back. A call priced per second bills `units` seconds; a call with a flat
+ * price (one render) bills that price once.
+ */
+export type BudgetCallPlan = { ask: string; units: number; file: string; flatMicroUsd?: bigint };
+
+/**
+ * A real product the scenario features, priced from what its makers publish.
+ * It is not a RAP provider: it appears to show what joining a Budget would
+ * look like for it, and its payee is a label, never an address.
+ */
+export type BudgetFeaturedListing = {
+  url: string;
+  /** Where its prices come from, and when they were read. */
+  pricingSource: { url: string; readOn: string; summary: string };
+};
+
+const CREDIT_MICRO_USD = BigInt(10_000); // 100 credits = $1 on Splice's Starter pack
+
+/**
+ * Splice by film.fun: an AI filmmaking studio that already sells to agents
+ * (credits topped up with USDC, SOL or AUDD through Solana Pay). Prices from
+ * its published agent skills, read on 24 Nov 2026: 6 credits a second for
+ * 768p video on its default video model, a flat 5 credits a motion-graphics
+ * render, 100 credits = $1. Its live prices are dynamic.
+ */
+export const SPLICE_FILM_FUN: SandboxProvider & { featured: BudgetFeaturedListing } = {
+  id: "splice-film-fun",
+  model: "sandbox/splice-film-fun",
+  name: "Splice by film.fun",
+  tagline: "AI filmmaking studio: generate shots, edit them on a timeline, render motion graphics.",
+  pricing: { inputPerMillionUsd: "0", outputPerMillionUsd: "0", maxOutputTokens: 1000 },
+  payTo: "Splice payout account (set when it joins)",
+  behaviour: "honest",
+  reputation: { score: 0, receipts: 0 },
+  simulatedOnly: true,
+  media: { unit: "second", unitLabel: "second of 768p video", perUnitUsd: "0.06", maxUnits: 15, bytesPerUnit: 0, mediaType: "video/mp4", hostingDays: 0, hostingPerGbUsd: "0", delivered: { name: "shots/shot.mp4", units: 10 } },
+  featured: {
+    url: "https://www.film.fun/splice",
+    pricingSource: {
+      url: "https://github.com/Rogues-Lab/splice-agent-skills",
+      readOn: "24 November 2026",
+      summary: "6 credits a second for 768p video on its default model, 5 credits a motion-graphics render, 100 credits = $1",
+    },
+  },
+};
+
+/** A provider in the Budget scenario: the featured listing, or a sandbox studio. */
+export function budgetProvider(id: string): (SandboxProvider & { featured?: BudgetFeaturedListing }) | undefined {
+  return id === SPLICE_FILM_FUN.id ? SPLICE_FILM_FUN : findSandboxProviderById(id);
+}
 
 /**
  * The providers the agent asks to join, the tokens each takes, and the calls
@@ -61,12 +111,13 @@ export type BudgetCallPlan = { ask: string; units: number; file: string };
  */
 export const BUDGET_PROVIDERS: readonly { providerId: string; accepts: readonly BudgetToken[]; calls: readonly BudgetCallPlan[] }[] = [
   {
-    providerId: "frame-foundry",
-    accepts: ["USDC", "SOL"],
+    providerId: SPLICE_FILM_FUN.id,
+    accepts: ["USDC", "SOL", "AUDD"],
     calls: [
-      { ask: "Shot 1: a buyer agent asks, 10 seconds.", units: 10, file: "shots/shot-1.mp4" },
-      { ask: "Shot 2: a provider answers, 10 seconds.", units: 10, file: "shots/shot-2.mp4" },
-      { ask: "Shot 3: a receipt prints, 10 seconds.", units: 10, file: "shots/shot-3.mp4" },
+      { ask: "Shot 1: a buyer agent asks, 10 seconds, 768p.", units: 10, file: "shots/shot-1.mp4" },
+      { ask: "Shot 2: a provider answers, 10 seconds, 768p.", units: 10, file: "shots/shot-2.mp4" },
+      { ask: "Shot 3: a receipt prints, 10 seconds, 768p.", units: 10, file: "shots/shot-3.mp4" },
+      { ask: "An end card with the title, as a motion-graphics render.", units: 0, file: "motion/end-card.mp4", flatMicroUsd: BigInt(5) * CREDIT_MICRO_USD },
     ],
   },
   {
@@ -80,9 +131,9 @@ export const BUDGET_PROVIDERS: readonly { providerId: string; accepts: readonly 
     calls: [{ ask: "A 30-second guide read of the narration.", units: 30, file: "voice/guide-30s.wav" }],
   },
   {
-    providerId: "splice-line",
+    providerId: "booth-match",
     accepts: ["SOL"],
-    calls: [{ ask: "Stitch shots, music and voice into one 30-second cut.", units: 30, file: "final/launch-30s.mp4" }],
+    calls: [{ ask: "Align the narration take to the guide and clean it up.", units: 30, file: "voice/narration-aligned.wav" }],
   },
 ];
 
@@ -134,7 +185,7 @@ export type BudgetCallReceipt = {
   sequence: number;
   ask: string;
   file: string;
-  unit: "second";
+  unit: "second" | "render";
   units: number;
   /** In the Budget token's base units. */
   amount: string;
@@ -223,6 +274,11 @@ export function budgetProtocolFee(paid: bigint, token: BudgetToken, bps: bigint)
 /** One call's price in the Budget token: seconds delivered at the listed rate plus hosting, rounded up once. */
 export function budgetCallCost(provider: SandboxProvider, units: number, token: BudgetToken): bigint {
   return BUDGET_TOKENS[token].fromMicroUsd(mediaCostMicroUsd(provider, mediaDelivery(provider, units)));
+}
+
+/** A planned call's price in the Budget token: its flat price if it has one, else per second. */
+export function budgetPlanCost(provider: SandboxProvider, plan: BudgetCallPlan, token: BudgetToken): bigint {
+  return plan.flatMicroUsd !== undefined ? BUDGET_TOKENS[token].fromMicroUsd(plan.flatMicroUsd) : budgetCallCost(provider, plan.units, token);
 }
 
 /** Where the dispute window starts: the close, or the end of the open period when the spender closed early (flag 0x04). */
@@ -324,10 +380,10 @@ export async function runSandboxBudget(input: {
   const joined: BudgetRunResult["joined"] = [];
   const refused: BudgetRunResult["refused"] = [];
   for (const entry of BUDGET_PROVIDERS) {
-    const provider = findSandboxProviderById(entry.providerId);
+    const provider = budgetProvider(entry.providerId);
     if (!provider) continue;
     slot += HOUR_SLOTS / 60; // a minute per reserve
-    const estimate = entry.calls.reduce((sum, call) => sum + budgetCallCost(provider, call.units, token), BigInt(0));
+    const estimate = entry.calls.reduce((sum, call) => sum + budgetPlanCost(provider, call, token), BigInt(0));
     let amount = estimate * BUDGET_DEFAULTS.reserveMultiplier;
     if (amount > budget.perProviderCap) amount = budget.perProviderCap;
     if (amount > budget.unreserved) amount = budget.unreserved;
@@ -353,12 +409,12 @@ export async function runSandboxBudget(input: {
   const calls: BudgetCallRow[] = [];
   for (const entry of BUDGET_PROVIDERS) {
     const reservation = reservations.get(entry.providerId);
-    const provider = findSandboxProviderById(entry.providerId);
+    const provider = budgetProvider(entry.providerId);
     if (!reservation || !provider) continue;
     let previous: string | null = null;
     for (const [index, plan] of entry.calls.entries()) {
       slot += slotsPerCall;
-      const cost = budgetCallCost(provider, plan.units, token);
+      const cost = budgetPlanCost(provider, plan, token);
       if (reservation.used + cost > reservation.reserved) {
         log("call", `${provider.name} stops: the next call would pass its reservation of ${fmt(reservation.reserved)}.`);
         break;
@@ -372,7 +428,7 @@ export async function runSandboxBudget(input: {
         sequence: index + 1,
         ask: plan.ask,
         file: plan.file,
-        unit: "second",
+        unit: plan.flatMicroUsd !== undefined ? "render" : "second",
         units: plan.units,
         amount: cost.toString(),
         cumulative: reservation.used.toString(),
@@ -382,13 +438,13 @@ export async function runSandboxBudget(input: {
       };
       const hash = await sha256Hex(JSON.stringify(receipt));
       // The agent's own count: its price for what came back, the running total, the order and the chain.
-      const ownTotal = reservation.rows.reduce((sum, row) => sum + BigInt(row.receipt.amount), BigInt(0)) + budgetCallCost(provider, plan.units, token);
-      const checked = receipt.amount === budgetCallCost(provider, plan.units, token).toString() && receipt.cumulative === ownTotal.toString() && receipt.sequence === reservation.rows.length + 1 && receipt.previousReceiptHash === (reservation.rows[reservation.rows.length - 1]?.hash ?? null);
+      const ownTotal = reservation.rows.reduce((sum, row) => sum + BigInt(row.receipt.amount), BigInt(0)) + budgetPlanCost(provider, plan, token);
+      const checked = receipt.amount === budgetPlanCost(provider, plan, token).toString() && receipt.cumulative === ownTotal.toString() && receipt.sequence === reservation.rows.length + 1 && receipt.previousReceiptHash === (reservation.rows[reservation.rows.length - 1]?.hash ?? null);
       const row: BudgetCallRow = { providerId: provider.id, providerName: provider.name, receipt, hash, checked };
       reservation.rows.push(row);
       calls.push(row);
       previous = hash;
-      log("call", `${provider.name} delivers ${plan.file} (${plan.units} s) for ${fmt(cost)}. Running total ${fmt(reservation.used)} of ${fmt(reservation.reserved)} reserved.`);
+      log("call", `${provider.name} delivers ${plan.file}${plan.flatMicroUsd !== undefined ? " (one render)" : ` (${plan.units} s)`} for ${fmt(cost)}. Running total ${fmt(reservation.used)} of ${fmt(reservation.reserved)} reserved.`);
     }
   }
 
@@ -407,7 +463,7 @@ export async function runSandboxBudget(input: {
     reservation.finalAmount = reservation.used;
     reservation.state = "posted";
     if (reservation.postedSlot === 0) reservation.postedSlot = slot;
-    const name = findSandboxProviderById(providerId)?.name ?? providerId;
+    const name = budgetProvider(providerId)?.name ?? providerId;
     log("post", `${name} posts its final amount: ${fmt(reservation.finalAmount)}, the sum of its receipts.`);
   }
 
@@ -420,7 +476,7 @@ export async function runSandboxBudget(input: {
   const feeBps = sandboxFeeBps(payoutMs);
   const payouts: BudgetPayoutRow[] = [];
   for (const [providerId, reservation] of reservations) {
-    const name = findSandboxProviderById(providerId)?.name ?? providerId;
+    const name = budgetProvider(providerId)?.name ?? providerId;
     // A waived slice is paid at once; a posted one once its window has ended undisputed.
     const paid = reservation.state === "posted" ? reservation.finalAmount : BigInt(0);
     const fee = budgetProtocolFee(paid, token, feeBps);

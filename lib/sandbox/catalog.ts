@@ -343,7 +343,7 @@ export const SANDBOX_SCENARIOS: readonly SandboxScenario[] = [
     hook: "Lock $5 for 72 hours, give your agent a key, get back what it didn't spend.",
     takeaway: "One Budget paid three providers. Each took only what its receipts added up to, the protocol fee came out of their share, and everything else came back to you without you asking.",
     prompt: STUDIO_BRIEF,
-    providerIds: ["frame-foundry", "tidepool-audio", "kettle-voice", "splice-line"],
+    providerIds: ["tidepool-audio", "kettle-voice", "booth-match"],
   },
   {
     id: "buy-a-review",
