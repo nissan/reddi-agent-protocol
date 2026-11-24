@@ -6,7 +6,10 @@
  * only sealed with AES-256-GCM under a key-encryption key (KEK) that lives in
  * the server's environment, never in the database. The sealed form names the
  * KEK by id, so KEKs can be rotated: add the new one first in
- * `BUDGET_SPENDER_KEKS`, re-seal with `resealSpenderKey`, then drop the old.
+ * `BUDGET_SPENDER_KEKS`, re-seal every key (the incident route's `reseal` action), then drop the old
+ * once no key is sealed under it. A KEK that may be exposed is not fixed by
+ * resealing: the spender keys it opened are the same keys, so close those
+ * Budgets.
  * The additional data binds a sealed key to its record and public key, so a
  * sealed value copied onto another record does not open.
  *
@@ -54,8 +57,18 @@ export function sealSpenderKey(keypair: Keypair, recordId: string, keks: Kek[]):
   return ["v1", kek.id, iv.toString("base64url"), body.toString("base64url"), cipher.getAuthTag().toString("base64url")].join(".");
 }
 
-/** Opens a sealed key. Throws if the KEK is unknown, the value was altered, or it belongs to another record or key. */
-export function openSpenderKey(sealed: string, recordId: string, spender: string, keks: Kek[]): Keypair {
+/** The id of the KEK a sealed key is under, or undefined when it is not a sealed key. */
+export function sealedKid(sealed: string): string | undefined {
+  const [version, kid] = sealed.split(".");
+  return version === "v1" && kid && KID.test(kid) ? kid : undefined;
+}
+
+/**
+ * Opens a sealed key to its 32-byte seed, in a Buffer the caller owns and
+ * must wipe (`fill(0)`) when done. Throws if the KEK is unknown, the value was
+ * altered, or it belongs to another record or key.
+ */
+export function openSpenderSeed(sealed: string, recordId: string, spender: string, keks: Kek[]): Buffer {
   const [version, kid, iv, body, tag, extra] = sealed.split(".");
   if (version !== "v1" || extra !== undefined || !kid || !iv || !body || !tag) throw new Error("sealed spender key: bad format");
   const kek = keks.find((k) => k.id === kid);
@@ -64,22 +77,19 @@ export function openSpenderKey(sealed: string, recordId: string, spender: string
   decipher.setAAD(aad(recordId, spender));
   decipher.setAuthTag(Buffer.from(tag, "base64url"));
   const seed = Buffer.concat([decipher.update(Buffer.from(body, "base64url")), decipher.final()]);
-  try {
-    if (seed.length !== 32) throw new Error("sealed spender key: bad length");
-    const keypair = Keypair.fromSeed(seed);
-    if (keypair.publicKey.toBase58() !== spender) throw new Error("sealed spender key: does not match its public key");
-    return keypair;
-  } finally {
+  if (seed.length !== 32 || Keypair.fromSeed(seed).publicKey.toBase58() !== spender) {
     seed.fill(0);
+    throw new Error("sealed spender key: does not match its public key");
   }
+  return seed;
 }
 
 /** Seals `sealed` again under the first (current) KEK. For KEK rotation. */
 export function resealSpenderKey(sealed: string, recordId: string, spender: string, keks: Kek[]): string {
-  const keypair = openSpenderKey(sealed, recordId, spender, keks);
+  const seed = openSpenderSeed(sealed, recordId, spender, keks);
   try {
-    return sealSpenderKey(keypair, recordId, keks);
+    return sealSpenderKey(Keypair.fromSeed(seed), recordId, keks);
   } finally {
-    keypair.secretKey.fill(0);
+    seed.fill(0);
   }
 }

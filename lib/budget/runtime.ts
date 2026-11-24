@@ -34,7 +34,7 @@ export function budgetChain(): BudgetChainReader & IncidentChain {
     },
     async sendAndConfirm(tx) {
       const signature = await connection.sendRawTransaction(tx.serialize(), { preflightCommitment: "confirmed" });
-      for (let i = 0; i < 60; i += 1) {
+      for (let i = 0; i < 40; i += 1) {
         const status = (await connection.getSignatureStatuses([signature])).value[0];
         if (status?.err) throw new Error(`close failed on chain: ${JSON.stringify(status.err)}`);
         if (status?.confirmationStatus === "confirmed" || status?.confirmationStatus === "finalized") return signature;
