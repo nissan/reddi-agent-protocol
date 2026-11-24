@@ -14,5 +14,9 @@
   "buildRun": "https://github.com/nissan/reddi-agent-protocol/actions/runs/45329015381",
   "image": "solanafoundation/solana-verifiable-build:4.2.2",
   "imageDigest": "sha256:16053d845922e798ab1852d3fe222faf5a23eeb1db3a13d30b70d6b6e82184ae",
+  "minimumPackages": {
+    "@redditech/x402-solana": "0.1.3",
+    "@redditech/provider-kit": "0.3.1"
+  },
   "deployedSlot": null
 }
