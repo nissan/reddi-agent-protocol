@@ -5,6 +5,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { tokenEscrowAddresses, treasuryTokenAccount, ESCROW_PROTOCOL_TREASURY } from "@redditech/x402-solana/token-escrow";
 import { RATING_DISCRIMINATORS, ratingPda } from "@redditech/x402-solana/rating";
+import { deliveryPda } from "@redditech/x402-solana/delivery";
 import { planMeteredBuy } from "@/lib/payments/metered-buy";
 import { receiptHeaderForProvider } from "@/lib/payments/wallet-direct-payment";
 import { verifyAndRecordMeteredCall } from "@/lib/jobs/metered-call";
@@ -373,6 +374,17 @@ describe("metered job record (#794)", () => {
     // A tenth account that is not this escrow's rating account is not this job's settle.
     const other = deps(settleTx({ accounts: [...usual, Keypair.generate().publicKey.toBase58()] }));
     expect(await call(other.deps)).toEqual({ recorded: false, reason: "settle_not_for_this_escrow" });
+  });
+
+  it("does not record an exit of a delivery-checked escrow or a judge's resolve, and says why (audit D11)", async () => {
+    const usual = [escrow.toBase58(), vault.toBase58(), PROVIDER, PAYER.toBase58(), USDC, recipient, treasury, source, TOKEN_PROGRAM_ID.toBase58()];
+    const settle = deps(settleTx({ accounts: [...usual, deliveryPda(escrow, PROGRAM).toBase58()] }));
+    expect(await call(settle.deps)).toEqual({ recorded: false, reason: "delivery_check_not_supported" });
+    expect(settle.stored).toHaveLength(0);
+    const resolve = base58(Buffer.concat([discOf("resolve_token_delivery"), u64(1000), u64(LOCK_SLOT)]));
+    const judged = deps(settleTx({ data: resolve }));
+    expect(await call(judged.deps)).toEqual({ recorded: false, reason: "delivery_check_not_supported" });
+    expect(judged.stored).toHaveLength(0);
   });
 
   it("records a failed metered call only for the payer's own signed-in session (audit S5-claude-02, C5)", async () => {

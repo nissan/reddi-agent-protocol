@@ -50,7 +50,7 @@ const MINIMUM = BigInt(7800);
 const disc = createHash('sha256').update('account:TokenEscrowAccount').digest().subarray(0, 8);
 const ata = (owner: PublicKey, mint = USDC) => treasuryTokenAccount({ mint, tokenProgram: TOKEN_PROGRAM }, owner);
 
-interface Fields { amount?: bigint; payee?: PublicKey; mint?: PublicKey; recipient?: PublicKey; status?: number; metered?: boolean; rated?: boolean; payer?: PublicKey; windows?: { claim: bigint; cancel: bigint } | null; createdSlot?: bigint }
+interface Fields { amount?: bigint; payee?: PublicKey; mint?: PublicKey; recipient?: PublicKey; status?: number; metered?: boolean; rated?: boolean; deliveryChecked?: boolean; payer?: PublicKey; windows?: { claim: bigint; cancel: bigint } | null; createdSlot?: bigint }
 function escrowBytes(f: Fields = {}): Uint8Array {
   const mint = f.mint ?? USDC;
   const owner = f.payee ?? payee;
@@ -66,7 +66,7 @@ function escrowBytes(f: Fields = {}): Uint8Array {
   data[192] = f.status ?? 0;
   data.writeBigUInt64LE(f.createdSlot ?? CURRENT_SLOT - BigInt(10), 193);
   data[201] = 254;
-  data[202] = (f.metered === false ? 0 : 1) | (f.rated ? 2 : 0);
+  data[202] = (f.metered === false ? 0 : 1) | (f.rated ? 2 : 0) | (f.deliveryChecked ? 4 : 0);
   if (f.windows !== null) {
     data.writeBigUInt64LE(f.windows?.claim ?? BigInt(1_500), 203);
     data.writeBigUInt64LE(f.windows?.cancel ?? BigInt(4_500), 211);
@@ -268,6 +268,18 @@ describe('payout accounts', () => {
     expect(await verify({}, { accounts, replayStore })).toMatchObject({ ok: false, reason });
     // Once the account is back, the same lock is accepted.
     expect((await verify({}, { replayStore })).ok).toBe(true);
+  });
+
+  it('passes the SPL Memo program last on a Token-2022 settle, so a refund account switched to required memos cannot block it, and not on classic SPL Token', async () => {
+    const lock = (await verify({})) as Extract<VerifiedLock, { ok: true }>;
+    expect(lock.ok).toBe(true);
+    const memo = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
+    const classic = meteredSettlement(terms, lock, { inputTokens: 120, outputTokens: 333 }).instruction;
+    expect(classic.keys.map((meta) => meta.pubkey.toBase58())).not.toContain(memo);
+    const t22Lock = { ...lock, terms: { ...lock.terms, tokenProgram: new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb') } };
+    const t22 = meteredSettlement(terms, t22Lock, { inputTokens: 120, outputTokens: 333 }).instruction;
+    expect(t22.keys.slice(0, -1).map((meta) => meta.pubkey.toBase58())).toEqual(classic.keys.map((meta) => (meta.pubkey.toBase58() === TOKEN_PROGRAM.toBase58() ? 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb' : meta.pubkey.toBase58())));
+    expect(t22.keys.at(-1)).toEqual({ pubkey: new PublicKey(memo), isSigner: false, isWritable: false });
   });
 
   it('pays the provider at its recovery account when its usual account is frozen', async () => {
@@ -512,6 +524,17 @@ describe('rated escrows', () => {
     }
     // Not remembered: the same escrow is still accepted by a provider that takes rated jobs.
     expect(await verify({ rated: true }, { replayStore, acceptRatedEscrows: true })).toMatchObject({ ok: true, rated: true });
+  });
+
+  it('declines a delivery-checked escrow before serving, rated or not, whatever the provider accepts, and does not remember it', async () => {
+    const replayStore = new MemoryNonceReplayStore();
+    for (const rated of [false, true]) {
+      for (const acceptRatedEscrows of [undefined, true]) {
+        expect(await verify({ deliveryChecked: true, rated }, { replayStore, ...(acceptRatedEscrows === undefined ? {} : { acceptRatedEscrows }) })).toMatchObject({ ok: false, reason: 'delivery_escrow_declined' });
+      }
+    }
+    // Not remembered: the same address without the bit is still accepted.
+    expect(await verify({}, { replayStore })).toMatchObject({ ok: true });
   });
 
   it('reads the flag byte by its bits: a rated metered escrow stores 3 and is metered; a rated fixed-price one stores 2 and is not', async () => {

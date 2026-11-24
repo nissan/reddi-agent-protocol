@@ -103,6 +103,8 @@ export const ATTESTATION_ACCOUNT_LEN = 127;
 /** Bits of an escrow's flag byte, the byte that has always held `metered`. */
 export const ESCROW_FLAG_METERED = 0x01;
 export const ESCROW_FLAG_RATED = 0x02;
+/** Set by `open_delivery` (see `./delivery`): every exit takes the delivery account, and the payee is paid only after a checked delivery. */
+export const ESCROW_FLAG_DELIVERY = 0x04;
 /** Offset of the flag byte in a token escrow account. */
 export const TOKEN_ESCROW_FLAG_OFFSET = 202;
 /** Offset of the flag byte in a SOL escrow account that stores windows and no PER session key. */
@@ -111,11 +113,12 @@ export const SOL_ESCROW_FLAG_OFFSET = 132;
 export interface EscrowFlags {
   metered: boolean;
   rated: boolean;
+  deliveryChecked: boolean;
 }
 
 /** Reads the flag byte. Test the bits: a rated metered escrow stores 3, so comparing the byte with 1 is wrong. */
 export function escrowFlags(flagByte: number): EscrowFlags {
-  return { metered: (flagByte & ESCROW_FLAG_METERED) !== 0, rated: (flagByte & ESCROW_FLAG_RATED) !== 0 };
+  return { metered: (flagByte & ESCROW_FLAG_METERED) !== 0, rated: (flagByte & ESCROW_FLAG_RATED) !== 0, deliveryChecked: (flagByte & ESCROW_FLAG_DELIVERY) !== 0 };
 }
 
 const startsWith = (data: Uint8Array, prefix: Buffer) => data.length >= prefix.length && prefix.every((byte, i) => data[i] === byte);

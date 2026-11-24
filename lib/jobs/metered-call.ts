@@ -20,6 +20,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { protocolFeeBpsNear, directPaymentCurrency, protocolFeeBaseUnits, protocolFeeCapBaseUnits, type ParsedTransactionConnection } from "@redditech/x402-solana/payment";
 import { ratingPda } from "@redditech/x402-solana/rating";
+import { deliveryPda } from "@redditech/x402-solana/delivery";
 import { ESCROW_PROTOCOL_TREASURY, tokenEscrowAddresses, treasuryTokenAccount } from "@redditech/x402-solana/token-escrow";
 import type { NetworkProfileName } from "@/lib/config/network-profile-name";
 import { buyerMintFor, paymentNetworkForProfile } from "@/lib/payments/wallet-direct-payment";
@@ -121,6 +122,8 @@ function decodeBase58(value: string): Uint8Array | undefined {
 const LOCK_METERED_DISCRIMINATOR = createHash("sha256").update("global:lock_metered_token_escrow").digest().subarray(0, 8);
 /** settle_token_escrow: discriminator, actual (u64 LE), then the escrow's created_slot (u64 LE). */
 const SETTLE_DISCRIMINATOR = createHash("sha256").update("global:settle_token_escrow").digest().subarray(0, 8);
+/** resolve_token_delivery: a judge's split of a disputed delivery-checked escrow. Not recorded (see below). */
+const RESOLVE_DISCRIMINATOR = createHash("sha256").update("global:resolve_token_delivery").digest().subarray(0, 8);
 /** release_token_escrow: discriminator, then the escrow's created_slot (u64 LE). */
 const RELEASE_DISCRIMINATOR = createHash("sha256").update("global:release_token_escrow").digest().subarray(0, 8);
 
@@ -241,6 +244,19 @@ export async function verifyAndRecordMeteredCall(input: MeteredCallInput, deps: 
   // read from the settle transaction's own token balances (audit S7-Codex-05, condition C20).
   const isProviderPayout = (account: string) =>
     account === associatedRecipient || tokenAccountOwnedBy(balances, accountKeys, account, expectedMint, input.listing.wallet);
+
+  // A delivery-checked escrow (bit 0x04) is not a per-token call: its exits carry the delivery
+  // account and it can end in a judge's split. This recorder does not take those yet, so it says
+  // so rather than recording, or refusing as another escrow's settle (audit D11).
+  const delivery = deliveryPda(escrow, deps.programId).toBase58();
+  const deliveryChecked = (parsed.transaction.message.instructions ?? []).some((ix) => {
+    const instruction = ix as { programId?: unknown; accounts?: unknown[]; data?: unknown };
+    if (key(instruction.programId) !== programId) return false;
+    if (Array.isArray(instruction.accounts) && instruction.accounts.map(key).includes(delivery)) return true;
+    const data = typeof instruction.data === "string" ? decodeBase58(instruction.data) : undefined;
+    return data !== undefined && Buffer.from(data).subarray(0, 8).equals(RESOLVE_DISCRIMINATOR);
+  });
+  if (deliveryChecked) return refuse("delivery_check_not_supported");
 
   // The settle (or a full release) of this escrow, paying this listing's token account and the treasury.
   const settles = (parsed.transaction.message.instructions ?? []).filter((ix) => {

@@ -13,18 +13,21 @@ use {
         },
         consts::{
             allowed_token_program, escrow_windows_valid, protocol_fee, ALLOWED_MINT_DECIMALS,
-            ASSOCIATED_TOKEN_PROGRAM_ID, MAX_TOKEN_ESCROW_BASE_UNITS, PROTOCOL_TREASURY,
-            SYSTEM_PROGRAM_ID, TOKEN_2022_ID, TOKEN_ESCROW_SEED, TOKEN_VAULT_SEED,
+            ASSOCIATED_TOKEN_PROGRAM_ID, MAX_TOKEN_ESCROW_BASE_UNITS, MEMO_PROGRAM_ID,
+            PROTOCOL_TREASURY, SYSTEM_PROGRAM_ID, TOKEN_2022_ID, TOKEN_ESCROW_SEED,
+            TOKEN_VAULT_SEED,
         },
         error::{
             fail, require, AccountNotEnoughKeys, AmountAboveCap, ConstraintDuplicateMutableAccount,
-            ConstraintHasOne, ConstraintSeeds, InvalidPayee, InvalidProgramId, InvalidSettleAmount,
+            ConstraintHasOne, ConstraintSeeds, DeliveryNotDisputed, InvalidDeliveryAccount,
+            InvalidPayee, InvalidProgramId, InvalidResolution, InvalidSettleAmount,
             InvalidTokenAccount, InvalidTokenAmount, InvalidTreasury, InvalidWindows,
-            MintNotAllowed, NotLocked, NotMetered, UnauthorisedSigner, ZeroAmount,
+            MintNotAllowed, NotLocked, NotMetered, ResolveWindowClosed, UnauthorisedSigner,
+            ZeroAmount,
         },
-        events::{Locked, Outcome, Settled},
-        instructions::rating,
-        state::{Record, TokenEscrow, STATUS_LOCKED},
+        events::{DeliveryResolved, Locked, Outcome, Settled},
+        instructions::{delivery, rating},
+        state::{Record, TokenEscrow, DELIVERY_DISPUTED, STATUS_LOCKED},
         token::{self, is_token_program, mint_decimals, vault_len, TokenAccount},
     },
     pinocchio::{
@@ -207,6 +210,10 @@ struct Open<'a> {
     decimals: u8,
     /// Balance of the vault before anything moves.
     available: u64,
+    /// The SPL Memo program, when the caller passed it among the trailing
+    /// accounts: then a transfer into an account that requires incoming
+    /// memos is preceded by one (see `with_memo`).
+    memo: Option<AccountView>,
 }
 
 impl<'a> Open<'a> {
@@ -324,7 +331,22 @@ impl<'a> Open<'a> {
             token_program,
             decimals,
             available: vault_account.amount,
+            memo: None,
         })
+    }
+
+    /// Find the SPL Memo program among an exit's trailing accounts (after
+    /// the rating and delivery accounts, in any place). With it, the owner of
+    /// a receiving Token-2022 account cannot block the exit by switching on
+    /// required incoming memos after the lock: the escrow writes a memo right
+    /// before each transfer into such an account. Without it such a transfer
+    /// fails as before.
+    fn with_memo(mut self, trailing: &[AccountView]) -> Self {
+        self.memo = trailing
+            .iter()
+            .find(|account| account.address() == &MEMO_PROGRAM_ID)
+            .cloned();
+        self
     }
 
     fn issuer_controlled(&self) -> bool {
@@ -363,6 +385,11 @@ impl<'a> Open<'a> {
         };
         for (to, _, units) in sends {
             if units > 0 {
+                if let Some(memo) = &self.memo {
+                    if TokenAccount::read(to)?.requires_memo {
+                        token::memo(memo)?;
+                    }
+                }
                 transfer(to).send(units, &signers)?;
             }
         }
@@ -444,6 +471,7 @@ pub fn pay_out(
         [destination, treasury_token, refund],
         Some(1),
     )?;
+    let open = open.with_memo(trailing);
     let record = &open.record;
 
     let (slot, unix_timestamp) = now()?;
@@ -517,11 +545,12 @@ pub fn pay_out(
     let (payer_key, payee_key, mint_key, nonce) =
         (record.payer, record.payee, record.mint, record.nonce);
     let escrow_key = *open.escrow.address();
+    let (rating_place, rest) = delivery::split_trailing(trailing, record.rated());
     let rated = if record.rated() {
         Some(rating::for_exit(
             program_id,
             &escrow_key,
-            trailing,
+            rating_place,
             slot,
             job,
         )?)
@@ -529,11 +558,22 @@ pub fn pay_out(
         rating::for_unrated_exit(record.created_slot(), slot, job)?;
         None
     };
+    let checked = if record.delivery_checked() {
+        let (account, terms) =
+            delivery::for_exit(program_id, &escrow_key, record.created_slot(), rest)?;
+        delivery::check_payout(&terms, authority.address() == &payee_key, slot)?;
+        Some(account)
+    } else {
+        None
+    };
     let received = open.drain([
         (destination, destination_account.amount, payee_part),
         (treasury_token, treasury_account.amount, fee_part),
         (refund, refund_account.amount, refund_part),
     ])?;
+    if let Some(account) = checked {
+        close(account, payer)?;
+    }
     if let Some((account, job)) = rated {
         // What left the vault for the payee and the treasury. Under
         // Token-2022 that can be less than the amount named, when the issuer
@@ -601,6 +641,7 @@ pub fn cancel(
         [destination],
         None,
     )?;
+    let open = open.with_memo(trailing);
     let record = &open.record;
 
     let slot = now()?.0;
@@ -635,14 +676,26 @@ pub fn cancel(
     let (payer_key, payee_key, mint_key, nonce) =
         (record.payer, record.payee, record.mint, record.nonce);
     let escrow_key = *open.escrow.address();
+    let (rating_place, rest) = delivery::split_trailing(trailing, record.rated());
     let rated = if record.rated() {
-        Some(rating::for_exit(program_id, &escrow_key, trailing, slot, job)?.0)
+        Some(rating::for_exit(program_id, &escrow_key, rating_place, slot, job)?.0)
     } else {
         rating::for_unrated_exit(record.created_slot(), slot, job)?;
         None
     };
+    let checked = if record.delivery_checked() {
+        let (account, terms) =
+            delivery::for_exit(program_id, &escrow_key, record.created_slot(), rest)?;
+        delivery::check_refund(&terms, outcome == Outcome::RefundedAfterWindow, slot)?;
+        Some(account)
+    } else {
+        None
+    };
     let [received] = open.drain([(destination, destination_account.amount, available)])?;
     if let Some(account) = rated {
+        close(account, payer)?;
+    }
+    if let Some(account) = checked {
         close(account, payer)?;
     }
     Settled {
@@ -656,6 +709,140 @@ pub fn cancel(
         slot,
         fee: 0,
         refunded: 0,
+    }
+    .emit();
+    Ok(())
+}
+
+/// `resolve_token_delivery`: the judge of a disputed token escrow decides it.
+///
+/// Accounts: `[w] escrow`, `[w] vault`, `[s] judge`, `[w] payer`, `[] mint`,
+/// `[w] destination` (the recipient recorded at lock), `[w] treasury_token`,
+/// `[w] refund` (a token account of the mint the payer owns), `[]
+/// token_program`, then for a rated escrow `[w] rating`, then `[w] delivery`.
+/// Data: `payout: u64`, `opened_slot: u64`, as for `resolve_delivery`.
+///
+/// The vault is split as a settle of `payout` would split it: the payee's
+/// share less the fee first, then the fee, then everything else back to the
+/// payer. Under Token-2022 the issuer can shrink the vault, so each part is
+/// what is left, and the event reports what each account received. The
+/// judge cannot redirect the payee's share: it goes to the recorded
+/// recipient.
+pub fn resolve(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+    let mut args = Args(data);
+    let payout = args.u64()?;
+    let opened_slot = args.u64()?;
+    let [escrow, vault, judge, payer, mint, destination, treasury_token, refund, token_program, trailing @ ..] =
+        accounts
+    else {
+        return Err(fail(&AccountNotEnoughKeys));
+    };
+    let (open, [destination_account, treasury_account, refund_account]) = Open::check(
+        program_id,
+        escrow,
+        vault,
+        judge,
+        payer,
+        mint,
+        token_program,
+        [destination, treasury_token, refund],
+        Some(1),
+    )?;
+    let open = open.with_memo(trailing);
+    let record = &open.record;
+    require(record.delivery_checked(), &InvalidDeliveryAccount)?;
+    require(payout <= record.amount(), &InvalidResolution)?;
+    let (slot, unix_timestamp) = now()?;
+
+    let (treasury_address, _) = derive(
+        &[
+            PROTOCOL_TREASURY.as_ref(),
+            token_program.address().as_ref(),
+            record.mint.as_ref(),
+        ],
+        &ASSOCIATED_TOKEN_PROGRAM_ID,
+    );
+    require(
+        treasury_token.address() == &treasury_address,
+        &InvalidTreasury,
+    )?;
+    let available = open.available;
+    require(
+        open.issuer_controlled() || available >= record.amount(),
+        &InvalidTokenAmount,
+    )?;
+    let fee = protocol_fee(payout, false, unix_timestamp);
+    let payee_part = (payout - fee).min(available);
+    let fee_part = fee.min(available - payee_part);
+    let refund_part = available - payee_part - fee_part;
+    require(
+        payee_part == 0
+            || (destination.address() == &record.recipient
+                && destination_account.owner == record.payee),
+        &InvalidTokenAccount,
+    )?;
+    require(
+        refund_part == 0 || refund_account.owner == record.payer,
+        &InvalidTokenAccount,
+    )?;
+
+    let (payer_key, payee_key, mint_key, nonce) =
+        (record.payer, record.payee, record.mint, record.nonce);
+    let escrow_key = *open.escrow.address();
+    let (rating_place, rest) = delivery::split_trailing(trailing, record.rated());
+    let rated = if record.rated() {
+        Some(rating::for_exit(
+            program_id,
+            &escrow_key,
+            rating_place,
+            slot,
+            Some(opened_slot),
+        )?)
+    } else {
+        rating::for_unrated_exit(record.created_slot(), slot, Some(opened_slot))?;
+        None
+    };
+    let (account, terms) =
+        delivery::for_exit(program_id, &escrow_key, record.created_slot(), rest)?;
+    require(terms.state == DELIVERY_DISPUTED, &DeliveryNotDisputed)?;
+    require(judge.address() == &terms.judge, &UnauthorisedSigner)?;
+    require(slot < terms.resolve_ends(), &ResolveWindowClosed)?;
+
+    let received = open.drain([
+        (destination, destination_account.amount, payee_part),
+        (treasury_token, treasury_account.amount, fee_part),
+        (refund, refund_account.amount, refund_part),
+    ])?;
+    close(account, payer)?;
+    if let Some((account, job)) = rated {
+        rating::settle_exit(
+            account,
+            job,
+            false,
+            payee_part + fee_part,
+            Some(&mint_key),
+            slot,
+            payer,
+        )?;
+    }
+    DeliveryResolved {
+        escrow: &escrow_key,
+        judge: judge.address(),
+        payout,
+        slot,
+    }
+    .emit();
+    Settled {
+        escrow: &escrow_key,
+        payer: &payer_key,
+        payee: &payee_key,
+        mint: Some(&mint_key),
+        amount: received[0],
+        nonce: &nonce,
+        outcome: Outcome::ResolvedByJudge,
+        slot,
+        fee: received[1],
+        refunded: received[2],
     }
     .emit();
     Ok(())

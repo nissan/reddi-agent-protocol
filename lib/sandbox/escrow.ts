@@ -208,6 +208,8 @@ export type DecodedSandboxEscrow = {
   metered: boolean;
   /** The payer opted this job in to rating: every exit of the escrow must pass its rating account. */
   rated: boolean;
+  /** The payer opted this job in to the delivery check: every exit must pass its delivery account, and the payee is paid only after a checked delivery. */
+  deliveryChecked: boolean;
   /** Slots after the lock from which the payee may claim. */
   claimWindowSlots: bigint;
   /** Slots after the lock from which the payer may refund. */
@@ -248,10 +250,11 @@ export function decodeSandboxEscrow(data: Uint8Array): DecodedSandboxEscrow | un
   else if (sessionTag !== 0) return undefined;
   if (data.length < offset + 2) return undefined;
   offset += 1; // bump
-  // One flag byte: bit 0x01 metered, bit 0x02 rated. A rated metered escrow stores 3.
+  // One flag byte: bit 0x01 metered, bit 0x02 rated, bit 0x04 delivery-checked. A rated metered escrow stores 3.
   const metered = (data[offset] & 0x01) !== 0;
   const rated = (data[offset] & 0x02) !== 0;
-  return { payer, payee, amount, nonce, status, createdAt, createdSlot, delegatedToPer, metered, rated, claimWindowSlots, cancelWindowSlots };
+  const deliveryChecked = (data[offset] & 0x04) !== 0;
+  return { payer, payee, amount, nonce, status, createdAt, createdSlot, delegatedToPer, metered, rated, deliveryChecked, claimWindowSlots, cancelWindowSlots };
 }
 
 export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {

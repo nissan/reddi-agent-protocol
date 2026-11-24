@@ -16,8 +16,8 @@ use {
         consts::SYSTEM_PROGRAM_ID,
         error::{
             fail, require, AccountNotEnoughKeys, AlreadyDelegated, ConstraintHasOne,
-            ConstraintSeeds, NotDelegatedToPer, NotLocked, PerSessionKeyMismatch,
-            RatedEscrowNotDelegable,
+            ConstraintSeeds, DeliveryEscrowNotDelegable, NotDelegatedToPer, NotLocked,
+            PerSessionKeyMismatch, RatedEscrowNotDelegable,
         },
         log::Line,
         state::{SolEscrow, STATUS_LOCKED},
@@ -47,6 +47,7 @@ pub fn delegate(program_id: &Address, accounts: &mut [AccountView], data: &[u8])
     // The exits of a rated escrow settle its rating account; this path does
     // not, so the two are kept apart.
     require(!record.rated(), &RatedEscrowNotDelegable)?;
+    require(!record.delivery_checked(), &DeliveryEscrowNotDelegable)?;
     record.delegate(escrow, &session_key)?;
     Line::new()
         .text("Escrow delegated to PER: escrow=")

@@ -716,5 +716,109 @@ fn pyusd_and_usdg_metered_escrow_settles_actual_cost_with_the_fee() {
     }
 }
 
+/// SPL Memo v3, which LiteSVM loads with its default programs.
+fn memo_program() -> Pubkey {
+    "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
+        .parse()
+        .unwrap()
+}
+const EXT_MEMO_TRANSFER: u16 = 8;
+
+/// The owner of `account` makes room for the MemoTransfer extension and
+/// switches on required incoming memos, as a payer could after its lock.
+fn require_incoming_memos(f: &mut Fixture, account: Pubkey, owner: &Keypair) {
+    let mut reallocate = vec![29u8];
+    reallocate.extend_from_slice(&EXT_MEMO_TRANSFER.to_le_bytes());
+    let reallocate = Instruction::new_with_bytes(
+        TOKEN_2022_ID,
+        &reallocate,
+        vec![
+            anchor_lang::prelude::AccountMeta::new(account, false),
+            anchor_lang::prelude::AccountMeta::new(owner.pubkey(), true),
+            anchor_lang::prelude::AccountMeta::new_readonly(system_program::id(), false),
+            anchor_lang::prelude::AccountMeta::new_readonly(owner.pubkey(), true),
+        ],
+    );
+    let enable = Instruction::new_with_bytes(
+        TOKEN_2022_ID,
+        &[30, 0],
+        vec![
+            anchor_lang::prelude::AccountMeta::new(account, false),
+            anchor_lang::prelude::AccountMeta::new_readonly(owner.pubkey(), true),
+        ],
+    );
+    send(&mut f.svm, &[reallocate, enable], &[owner]).unwrap();
+    let data = f.svm.get_account(&account).unwrap().data;
+    assert_eq!(data[extension(&data, EXT_MEMO_TRANSFER)], [1]);
+}
+
+#[test]
+fn a_refund_account_with_required_memos_cannot_block_the_payees_settle() {
+    for mint in [PYUSD_MAINNET_MINT, USDG_MAINNET_MINT] {
+        let mut f = Fixture::new(mint);
+        let mut ix = f.lock_ix(400_000);
+        ix.data = instruction::LockMeteredTokenEscrow {
+            amount: 400_000,
+            nonce: f.nonce,
+            claim_window_slots: CLAIM_WINDOW_SLOTS,
+            cancel_window_slots: CANCEL_WINDOW_SLOTS,
+        }
+        .data();
+        let payer = f.payer.insecure_clone();
+        send(&mut f.svm, &[ix], &[&payer]).unwrap();
+        // After the lock the payer switches on required memos on the account
+        // the unused part returns to.
+        let source = f.source;
+        require_incoming_memos(&mut f, source, &payer);
+        let payee = f.payee.insecure_clone();
+
+        // Without the memo program the refund leg fails, so the settle does,
+        // and nothing moves.
+        let settle = f.settle_ix(payee.pubkey(), 100_000);
+        let err = send(&mut f.svm, &[settle], &[&payee]).unwrap_err();
+        assert!(err.contains("Custom(36)"), "{err}"); // Token-2022 NoMemo (0x24)
+        assert!(!f.closed(f.escrow));
+
+        // With it among the trailing accounts, the escrow writes a memo before
+        // the refund transfer and the settle pays as usual.
+        let mut settle = f.settle_ix(payee.pubkey(), 100_000);
+        settle
+            .accounts
+            .push(anchor_lang::prelude::AccountMeta::new_readonly(
+                memo_program(),
+                false,
+            ));
+        send(&mut f.svm, &[settle], &[&payee]).unwrap();
+        assert_eq!(f.triple(), (900_000, 0, 97_500));
+        assert_eq!(f.balance(f.treasury_token), 2_500);
+        assert!(f.closed(f.escrow) && f.closed(f.vault));
+    }
+}
+
+#[test]
+fn a_memo_program_on_an_exit_changes_nothing_when_no_account_requires_memos() {
+    let mut f = Fixture::new(PYUSD_MAINNET_MINT);
+    let mut ix = f.lock_ix(400_000);
+    ix.data = instruction::LockMeteredTokenEscrow {
+        amount: 400_000,
+        nonce: f.nonce,
+        claim_window_slots: CLAIM_WINDOW_SLOTS,
+        cancel_window_slots: CANCEL_WINDOW_SLOTS,
+    }
+    .data();
+    let payer = f.payer.insecure_clone();
+    send(&mut f.svm, &[ix], &[&payer]).unwrap();
+    let payee = f.payee.insecure_clone();
+    let mut settle = f.settle_ix(payee.pubkey(), 100_000);
+    settle
+        .accounts
+        .push(anchor_lang::prelude::AccountMeta::new_readonly(
+            memo_program(),
+            false,
+        ));
+    send(&mut f.svm, &[settle], &[&payee]).unwrap();
+    assert_eq!(f.triple(), (900_000, 0, 97_500));
+}
+
 #[path = "common/instance.rs"]
 mod instance;

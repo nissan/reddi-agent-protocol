@@ -49,6 +49,9 @@ pub const USDG_MAINNET_MINT: Address = address!("2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdi
 pub const SYSTEM_PROGRAM_ID: Address = address!("11111111111111111111111111111111");
 pub const TOKEN_PROGRAM_ID: Address = address!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 pub const TOKEN_2022_ID: Address = address!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+/// SPL Memo (v3). A Token-2022 account with required incoming memos takes a
+/// transfer only right after a memo instruction; see `token::Transfer::send`.
+pub const MEMO_PROGRAM_ID: Address = address!("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
 pub const ASSOCIATED_TOKEN_PROGRAM_ID: Address =
     address!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 
@@ -156,6 +159,29 @@ pub const ATTESTATION_CONFIRM_WEIGHT: u16 = 1000;
 /// Reputation and accuracy scores run from 0 to this (100.00).
 pub const SCORE_MAX: u16 = 10_000;
 
+// ── Delivery check ──────────────────────────────────────────────────────────
+
+pub const DELIVERY_SEED: &[u8] = b"delivery";
+/// Shortest time the payer may give itself to check a delivery: about 1 minute.
+pub const MIN_VERIFY_WINDOW_SLOTS: u64 = 60 * 1000 / NOMINAL_SLOT_MS;
+/// Longest: about 7 days.
+pub const MAX_VERIFY_WINDOW_SLOTS: u64 = 7 * 24 * 60 * 60 * 1000 / NOMINAL_SLOT_MS;
+/// Shortest time a judge may be given to rule on a dispute: about 10 minutes.
+pub const MIN_RESOLVE_WINDOW_SLOTS: u64 = 10 * 60 * 1000 / NOMINAL_SLOT_MS;
+/// Longest: about 14 days.
+pub const MAX_RESOLVE_WINDOW_SLOTS: u64 = 14 * 24 * 60 * 60 * 1000 / NOMINAL_SLOT_MS;
+/// After the verify window of an undisputed delivery, the payee has this long
+/// to collect before the payer may take the money back: about 1 day.
+pub const DELIVERY_COLLECT_SLOTS: u64 = 24 * 60 * 60 * 1000 / NOMINAL_SLOT_MS;
+
+/// Whether delivery-check terms are in range.
+pub const fn delivery_windows_valid(verify_window_slots: u64, resolve_window_slots: u64) -> bool {
+    verify_window_slots >= MIN_VERIFY_WINDOW_SLOTS
+        && verify_window_slots <= MAX_VERIFY_WINDOW_SLOTS
+        && resolve_window_slots >= MIN_RESOLVE_WINDOW_SLOTS
+        && resolve_window_slots <= MAX_RESOLVE_WINDOW_SLOTS
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,5 +231,15 @@ mod tests {
     fn rating_deadlines_are_seven_days_of_slots() {
         assert_eq!(RATING_COMMIT_SLOTS, 1_512_000);
         assert_eq!(RATING_REVEAL_SLOTS, 1_512_000);
+        assert_eq!(MIN_VERIFY_WINDOW_SLOTS, 150);
+        assert_eq!(MAX_VERIFY_WINDOW_SLOTS, 1_512_000);
+        assert_eq!(MIN_RESOLVE_WINDOW_SLOTS, 1_500);
+        assert_eq!(MAX_RESOLVE_WINDOW_SLOTS, 3_024_000);
+        assert_eq!(DELIVERY_COLLECT_SLOTS, 216_000);
+        assert!(delivery_windows_valid(150, 1_500));
+        assert!(!delivery_windows_valid(149, 1_500));
+        assert!(!delivery_windows_valid(150, 1_499));
+        assert!(!delivery_windows_valid(1_512_001, 1_500));
+        assert!(!delivery_windows_valid(150, 3_024_001));
     }
 }

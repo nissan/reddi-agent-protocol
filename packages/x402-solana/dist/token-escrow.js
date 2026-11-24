@@ -155,9 +155,11 @@ function decodeTokenEscrowAccount(data) {
         mint: new web3_js_1.PublicKey(data.subarray(72, 104)), source: new web3_js_1.PublicKey(data.subarray(104, 136)),
         recipient: new web3_js_1.PublicKey(data.subarray(136, 168)), amount: data.readBigUInt64LE(168),
         nonce: data.subarray(176, 192), status: data[192], createdSlot: data.readBigUInt64LE(193), bump: data[201],
-        // One flag byte: bit 0x01 metered, bit 0x02 rated. A rated metered escrow stores 3.
+        // One flag byte: bit 0x01 metered, bit 0x02 rated, bit 0x04 delivery-checked. A rated metered escrow stores 3.
         metered: (data[202] & 0x01) !== 0,
         /** The buyer opted this job in to rating: every exit must pass the rating account (`withRatingAccount`). */
         rated: (data[202] & 0x02) !== 0,
+        /** The buyer opted this job in to the delivery check (bit 0x04): every exit must pass the delivery account (`./delivery`). */
+        deliveryChecked: (data[202] & 0x04) !== 0,
     };
 }
