@@ -334,6 +334,33 @@ insert into public.budget_spender_uses (spender_id, purpose, message_sha256)
   values ('0123456789abcdef0123456789abcdef', 'reserve', repeat('a', 64));
 select pg_temp.expect_error('server rewrites the spender use log', 'update public.budget_spender_uses set purpose = ''close''');
 select pg_temp.expect_error('server deletes the spender use log', 'delete from public.budget_spender_uses');
+-- The one way a use is logged (review S6): clients cannot call it; for the
+-- server it checks the pause, the status and the ten-minute limit atomically,
+-- and a close goes through even while paused or over the limit.
+reset role;
+do $$ declare r text; begin
+  foreach r in array array['anon', 'authenticated'] loop
+    execute format('set role %I', r);
+    perform pg_temp.expect_error(r || ' logs a spender use', 'select public.budget_spender_use(''0123456789abcdef0123456789abcdef'', ''close'', null, repeat(''a'', 64), 3)');
+    reset role;
+  end loop;
+end $$;
+set role service_role;
+do $$ declare got text; id text := '0123456789abcdef0123456789abcdef'; begin
+  got := public.budget_spender_use(id, 'reserve', null, repeat('b', 64), 5);
+  if got <> 'not_open' then raise exception 'a pending key logged a reserve: %', got; end if;
+  update public.budget_spenders set status = 'open' where budget_spenders.id = '0123456789abcdef0123456789abcdef';
+  got := public.budget_spender_use(id, 'reserve', 'X', repeat('b', 64), 2);
+  if got <> 'ok' then raise exception 'an open key under its limit was refused: %', got; end if;
+  got := public.budget_spender_use(id, 'reserve', 'X', repeat('c', 64), 2);
+  if got <> 'overuse' then raise exception 'the use limit did not hold: %', got; end if;
+  update public.budget_controls set paused = true where budget_controls.id = 1;
+  got := public.budget_spender_use(id, 'waive', null, repeat('d', 64), 100);
+  if got <> 'paused' then raise exception 'a paused waive was logged: %', got; end if;
+  got := public.budget_spender_use(id, 'close', null, repeat('e', 64), 1);
+  if got <> 'ok' then raise exception 'a close was refused: %', got; end if;
+  update public.budget_controls set paused = false, watched_at = now() where budget_controls.id = 1;
+end $$;
 do $$ begin
   begin
     update public.budget_spenders set status = 'closed' where id = '0123456789abcdef0123456789abcdef';

@@ -33,6 +33,12 @@ export type BudgetContact = {
   email?: string;
   /** An https URL that gets each alert as JSON. */
   webhook?: string;
+  /**
+   * The secret each webhook alert is signed with (HMAC-SHA256, header
+   * `x-rap-signature: t=<unix seconds>,v1=<hex>` over `<t>.<body>`). Made when
+   * the key is, and given to the payer once.
+   */
+  webhookSecret?: string;
 };
 
 export type SpenderRecord = {
@@ -62,6 +68,14 @@ export type SpenderRecord = {
   seen: Record<string, SeenSlice>;
   /** Why it was frozen, when it was. */
   frozenReason?: string;
+  /** When the watcher last finished this record: the least recently watched go first. */
+  watchedAt?: string;
+  /** Payer alerts the watcher could not deliver: they are sent again every pass until one channel takes them. */
+  undelivered?: { since: string; passes: number; operatorTold?: boolean };
+  /** When the watcher first found the Budget account missing at the finalized commitment. */
+  goneSince?: string;
+  /** The last incident close tried on this Budget. */
+  incident?: { reason: string; ok: boolean; at: string; signature?: string; error?: string };
   version: number;
   createdAt: string;
 };
@@ -77,13 +91,16 @@ export type BudgetAlertRow = {
   at: string;
 };
 
+/** What `claimUse` decided. Only `ok` means the use was logged and may be signed. */
+export type ClaimResult = "ok" | "unknown" | "closed" | "paused" | "not_open" | "overuse" | "store_unavailable";
+
 export type Write<T> = { ok: true; value: T } | { ok: false; code: "conflict" | "store_unavailable" };
 
 export interface BudgetCustodyStore {
   create(record: SpenderRecord): Promise<{ ok: true } | { ok: false; code: "store_unavailable" }>;
   byId(id: string): Promise<SpenderRecord | undefined>;
   byBudget(budget: string): Promise<SpenderRecord | undefined>;
-  /** Records in these statuses, oldest first. */
+  /** Every record in these statuses (no cap), oldest first. */
   withStatus(statuses: SpenderStatus[]): Promise<SpenderRecord[]>;
   /** Writes `next` only if the stored record is still at `next.version - 1`. */
   update(next: SpenderRecord): Promise<Write<SpenderRecord>>;
@@ -91,6 +108,15 @@ export interface BudgetCustodyStore {
   logUse(use: SpenderUse): Promise<boolean>;
   /** How many uses of this key were logged at or after `since` (ISO time). */
   usesSince(spenderId: string, since: string): Promise<number>;
+  /**
+   * In one atomic step: checks the record still holds its key and, for a
+   * reserve or waive, that it is open, nothing is paused and the key was used
+   * fewer than `maxUses` times in the last ten minutes; then logs the use.
+   */
+  claimUse(use: SpenderUse, maxUses: number): Promise<ClaimResult>;
+  /** When the watcher last finished a whole pass. */
+  watchedAt(): Promise<string | undefined>;
+  markWatched(at: string): Promise<boolean>;
   logAlert(alert: BudgetAlertRow): Promise<boolean>;
   paused(): Promise<{ paused: boolean; reason?: string }>;
   setPaused(paused: boolean, reason: string): Promise<boolean>;
@@ -101,7 +127,7 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
   readonly records = new Map<string, SpenderRecord>();
   readonly uses: SpenderUse[] = [];
   readonly alerts: BudgetAlertRow[] = [];
-  control: { paused: boolean; reason?: string } = { paused: false };
+  control: { paused: boolean; reason?: string; watchedAt?: string } = { paused: false };
   /** Tests set this to make the log refuse writes. */
   failLogs = false;
 
@@ -135,16 +161,39 @@ export class MemoryBudgetCustodyStore implements BudgetCustodyStore {
   async usesSince(spenderId: string, since: string) {
     return this.uses.filter((u) => u.spenderId === spenderId && u.at >= since).length;
   }
+  /** Synchronous body, so atomic within the one process this store serves. `use.at` is the clock. */
+  async claimUse(use: SpenderUse, maxUses: number): Promise<ClaimResult> {
+    if (this.failLogs) return "store_unavailable";
+    const record = this.records.get(use.spenderId);
+    if (!record || !record.sealed) return "unknown";
+    if (use.purpose === "close") {
+      if (record.status === "closed") return "closed";
+    } else {
+      if (this.control.paused) return "paused";
+      if (record.status !== "open") return "not_open";
+      const since = new Date(Date.parse(use.at) - 10 * 60 * 1000).toISOString();
+      if (this.uses.filter((u) => u.spenderId === use.spenderId && u.at >= since).length >= maxUses) return "overuse";
+    }
+    this.uses.push({ ...use });
+    return "ok";
+  }
+  async watchedAt() {
+    return this.control.watchedAt;
+  }
+  async markWatched(at: string) {
+    this.control = { ...this.control, watchedAt: at };
+    return true;
+  }
   async logAlert(alert: BudgetAlertRow) {
     if (this.failLogs) return false;
     this.alerts.push(structuredClone(alert));
     return true;
   }
   async paused() {
-    return { ...this.control };
+    return { paused: this.control.paused, ...(this.control.reason ? { reason: this.control.reason } : {}) };
   }
   async setPaused(paused: boolean, reason: string) {
-    this.control = { paused, reason };
+    this.control = { ...this.control, paused, reason };
     return true;
   }
 }
@@ -155,6 +204,7 @@ type StoreResponse = { ok: boolean; status: number; json(): Promise<unknown> };
 type FetchLike = (input: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<StoreResponse>;
 
 const HEX32 = /^[0-9a-f]{32}$/;
+const PAGE = 500;
 const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 type Row = { id: string; spender: string; payer: string; budget: string | null; network: BudgetNetwork; status: SpenderStatus; sealed: string | null; key_id: string | null; record: Omit<SpenderRecord, "sealed">; version: number };
@@ -216,7 +266,12 @@ export class SupabaseBudgetCustodyStore implements BudgetCustodyStore {
     return BASE58.test(budget) ? (await this.rows(`budget=eq.${budget}&limit=1`))[0] : undefined;
   }
   async withStatus(statuses: SpenderStatus[]) {
-    return this.rows(`status=in.(${statuses.join(",")})&order=created_at.asc&limit=500`);
+    const all: SpenderRecord[] = [];
+    for (let offset = 0; ; offset += PAGE) {
+      const page = await this.rows(`status=in.(${statuses.join(",")})&order=created_at.asc,id.asc&limit=${PAGE}&offset=${offset}`);
+      all.push(...page);
+      if (page.length < PAGE) return all;
+    }
   }
   async update(next: SpenderRecord): Promise<Write<SpenderRecord>> {
     if (!HEX32.test(next.id)) return { ok: false, code: "conflict" };
@@ -242,6 +297,34 @@ export class SupabaseBudgetCustodyStore implements BudgetCustodyStore {
     const response = await this.fetch(`budget_spender_uses?spender_id=eq.${spenderId}&at=gte.${encodeURIComponent(since)}&select=id&limit=1000`, { method: "GET", headers: this.headers() });
     if (!response.ok) throw new Error(`budget custody store: ${response.status}`);
     return ((await response.json()) as unknown[]).length;
+  }
+  async claimUse(use: SpenderUse, maxUses: number): Promise<ClaimResult> {
+    if (!HEX32.test(use.spenderId)) return "unknown";
+    try {
+      const response = await this.fetch("rpc/budget_spender_use", {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify({ p_spender_id: use.spenderId, p_purpose: use.purpose, p_payee: use.payee ?? null, p_message_sha256: use.messageSha256, p_max_uses: maxUses }),
+      });
+      if (!response.ok) return "store_unavailable";
+      const answer = await response.json();
+      return (["ok", "unknown", "closed", "paused", "not_open", "overuse"] as const).find((v) => v === answer) ?? "store_unavailable";
+    } catch {
+      return "store_unavailable";
+    }
+  }
+  async watchedAt() {
+    const response = await this.fetch("budget_controls?id=eq.1&select=watched_at", { method: "GET", headers: this.headers() });
+    if (!response.ok) throw new Error(`budget custody store: ${response.status}`);
+    return ((await response.json()) as { watched_at: string | null }[])[0]?.watched_at ?? undefined;
+  }
+  async markWatched(at: string) {
+    try {
+      const response = await this.fetch("budget_controls?id=eq.1", { method: "PATCH", headers: this.headers({ prefer: "return=minimal" }), body: JSON.stringify({ watched_at: at }) });
+      return response.ok;
+    } catch {
+      return false;
+    }
   }
   async logAlert(alert: BudgetAlertRow) {
     return this.insert("budget_alerts", { spender_id: alert.spenderId ?? null, audience: alert.audience, kind: alert.kind, detail: alert.detail, delivered: alert.delivered, at: alert.at });

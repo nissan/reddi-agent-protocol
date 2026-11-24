@@ -14,18 +14,29 @@
  *
  * Each payer is told their Budget was closed and why. The close transactions
  * are paid by an operator fee key (`BUDGET_OPS_FEE_PAYER`), which holds no
- * Budget money.
+ * Budget money. Closes run several at once within a deadline below the
+ * route's time limit, so the operator always gets the summary, with every
+ * Budget either closed, already closed, failed or listed as not reached; a
+ * second run picks up what is left. Keys not yet opened are frozen and their
+ * payers told not to open; a frozen key the payer opened anyway is found by
+ * its spender address and closed.
+ *
+ * What close does not stop: on a Budget that lets the spender waive (it has
+ * an allowlist and flag 0x01), whoever holds a copy of the key can still
+ * waive slices already posted, until they settle. The payer is told so.
  */
 
 import { Keypair, PublicKey, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
-import { closeBudgetInstruction } from "@redditech/x402-solana/budget";
+import { closeBudgetInstruction, decodeBudget, type BudgetAccount } from "@redditech/x402-solana/budget";
 import { sendBudgetAlert } from "./alerts";
 import { signAsSpender, type CustodyDeps } from "./custody";
 import type { SpenderRecord } from "./store";
 
 export interface IncidentChain {
-  readAccount(address: PublicKey): Promise<{ owner: PublicKey; data: Uint8Array } | null>;
+  readAccount(address: PublicKey, commitment?: "confirmed" | "finalized"): Promise<{ owner: PublicKey; data: Uint8Array } | null>;
+  /** Every Budget account that names `spender` as its spender. */
+  budgetsBySpender(spender: PublicKey): Promise<{ address: PublicKey; data: Uint8Array }[]>;
   latestBlockhash(): Promise<string>;
   /** Sends a fully signed transaction and waits for it to confirm. Returns its signature. */
   sendAndConfirm(tx: Transaction): Promise<string>;
@@ -48,27 +59,38 @@ export function readOpsFeePayer(env: Record<string, string | undefined> = proces
 export async function pauseBudgets(reason: string, deps: CustodyDeps): Promise<boolean> {
   const paused = await deps.store.setPaused(true, reason);
   await sendBudgetAlert(
-    { audience: "operator", kind: "incident", subject: paused ? "Budget spending paused" : "FAILED to pause Budget spending", text: `Reason: ${reason}\n${paused ? "No spender key signs anything but a close until this is lifted." : "The pause switch could not be written. Set BUDGET_SPENDING_PAUSED=true and redeploy."}`, detail: { reason, paused } },
+    { audience: "operator", kind: "incident", subject: paused ? "Budget spending paused" : "FAILED to pause Budget spending", text: `Reason: ${reason}\n${paused ? "No spender key signs anything but a close until this is lifted. Signatures already given expire with their blockhash (about a minute): only a close stops a stolen copy of a key." : "The pause switch could not be written. Set BUDGET_SPENDING_PAUSED=true and redeploy."}`, detail: { reason, paused } },
     undefined,
     deps,
   );
   return paused;
 }
 
-export type CloseResult = { budget: string; ok: boolean; signature?: string; error?: string };
+export type CloseResult = { budget: string; ok: boolean; signature?: string; error?: string; note?: string };
 
-async function markClosing(record: SpenderRecord, deps: CustodyDeps): Promise<SpenderRecord | undefined> {
+async function update(record: SpenderRecord, deps: CustodyDeps, change: (r: SpenderRecord) => SpenderRecord | undefined): Promise<SpenderRecord | undefined> {
   let current: SpenderRecord | undefined = record;
   for (let attempt = 0; attempt < 5 && current; attempt += 1) {
-    if (current.status === "closing" || current.status === "closed") return current;
-    const next: SpenderRecord = { ...current, status: "closing", version: current.version + 1 };
+    const changed = change(current);
+    if (!changed) return current;
+    const next: SpenderRecord = { ...changed, version: current.version + 1 };
     if ((await deps.store.update(next)).ok) return next;
     current = await deps.store.byId(record.id);
   }
   return undefined;
 }
 
-/** Builds, has the spender sign, fee-pays and sends the close of one Budget. */
+const markClosing = (record: SpenderRecord, deps: CustodyDeps) =>
+  update(record, deps, (r) => (r.status === "closing" || r.status === "closed" ? undefined : { ...r, status: "closing" }));
+
+async function noteResult(record: SpenderRecord, reason: string, result: CloseResult, deps: CustodyDeps, nowMs: number): Promise<void> {
+  await update(record, deps, (r) => ({
+    ...r,
+    incident: { reason, ok: result.ok, at: new Date(nowMs).toISOString(), ...(result.signature ? { signature: result.signature } : {}), ...(result.error ? { error: result.error } : {}) },
+  })).catch(() => undefined);
+}
+
+/** Builds, has the spender sign, fee-pays and sends the close of one Budget. Skips one already closed on chain. */
 export async function closeBudgetNow(
   record: SpenderRecord,
   input: { reason: string; feePayer: Keypair; programId: PublicKey; chain: IncidentChain },
@@ -76,6 +98,19 @@ export async function closeBudgetNow(
 ): Promise<CloseResult> {
   const budget = record.budget;
   if (!budget || !record.createdSlot) return { budget: record.id, ok: false, error: "not_open_on_chain" };
+  let onChain: BudgetAccount | undefined;
+  try {
+    const account = await input.chain.readAccount(new PublicKey(budget));
+    if (!account) return { budget, ok: true, note: "already_closed" };
+    if (account.owner.equals(input.programId)) onChain = decodeBudget(account.data);
+  } catch {
+    onChain = undefined;
+  }
+  if (onChain && onChain.createdSlot.toString() !== record.createdSlot) return { budget, ok: true, note: "already_closed" };
+  if (onChain?.closed) {
+    await markClosing(record, deps);
+    return { budget, ok: true, note: "already_closed" };
+  }
   const marked = await markClosing(record, deps);
   if (!marked) return { budget, ok: false, error: "store_conflict" };
   const payer = new PublicKey(record.payer);
@@ -100,24 +135,27 @@ export async function closeBudgetNow(
       ...(token ? { token } : {}),
     }),
   );
-  const tx = new Transaction({ feePayer: input.feePayer.publicKey, recentBlockhash: await input.chain.latestBlockhash() });
-  tx.add(...instructions);
-  const signed = await signAsSpender({ id: record.id, transaction: tx, programId: input.programId }, deps);
-  if (!signed.ok) return { budget, ok: false, error: signed.code };
-  signed.transaction.partialSign(input.feePayer);
   let signature: string;
   try {
+    const tx = new Transaction({ feePayer: input.feePayer.publicKey, recentBlockhash: await input.chain.latestBlockhash() });
+    tx.add(...instructions);
+    const signed = await signAsSpender({ id: record.id, transaction: tx, programId: input.programId }, deps);
+    if (!signed.ok) return { budget, ok: false, error: signed.code };
+    signed.transaction.partialSign(input.feePayer);
     signature = await input.chain.sendAndConfirm(signed.transaction);
   } catch (error) {
     return { budget, ok: false, error: error instanceof Error ? error.message.slice(0, 200) : "send_failed" };
   }
+  const waiveNote = onChain?.spenderMayWaive
+    ? "\nThis Budget lets its spender waive: until each posted slice settles, whoever holds a copy of the old key could still waive it, so check every post alert and dispute what you do not recognise at once."
+    : "";
   await sendBudgetAlert(
     {
       audience: "payer",
       kind: "incident",
       subject: "Your Budget was closed early by the operator",
-      text: `RAP closed your Budget ${budget} to protect it: ${input.reason}\nNo new provider can reserve from it. What was never reserved is back in your wallet. Any slice a provider already posted can still be disputed until its window ends; you will get a separate alert for each.\nClose transaction: ${signature}`,
-      detail: { budget, signature, reason: input.reason },
+      text: `RAP closed your Budget ${budget} to protect it: ${input.reason}\nNo new provider can reserve from it. What was never reserved is back in your wallet. Any slice a provider already posted can still be disputed until its window ends; you will get a separate alert for each.${waiveNote}\nClose transaction: ${signature}`,
+      detail: { budget, signature, reason: input.reason, spenderMayWaive: onChain?.spenderMayWaive ?? null },
       spenderId: record.id,
     },
     record.contact,
@@ -126,43 +164,105 @@ export async function closeBudgetNow(
   return { budget, ok: true, signature };
 }
 
+/** Freezes a key the payer has not opened yet, and tells the payer not to open it. */
+async function freezePending(record: SpenderRecord, reason: string, deps: CustodyDeps): Promise<CloseResult> {
+  const next = await update(record, deps, (r) => (r.status !== "pending" ? undefined : { ...r, status: "frozen", frozenReason: `incident: ${reason}` }));
+  if (!next || next.status !== "frozen") return { budget: record.id, ok: false, error: "store_conflict" };
+  await sendBudgetAlert(
+    {
+      audience: "payer",
+      kind: "do_not_open",
+      subject: "Do not open the Budget RAP prepared for you",
+      text: `RAP stopped the spender key ${record.spender} it made for your Budget: ${reason}\nIf you still hold the transaction that opens that Budget, do not sign it. If you already did, RAP will find the Budget and close it.`,
+      detail: { spender: record.spender, reason },
+      spenderId: record.id,
+    },
+    record.contact,
+    deps,
+  );
+  return { budget: record.id, ok: true, note: "frozen_before_open" };
+}
+
+/** A frozen key with no Budget on record: the Budget the payer opened with it anyway, if any. */
+async function attachOpened(record: SpenderRecord, chain: IncidentChain, deps: CustodyDeps): Promise<SpenderRecord | undefined> {
+  const found = (await chain.budgetsBySpender(new PublicKey(record.spender)))
+    .map((x) => {
+      try {
+        return { address: x.address.toBase58(), budget: decodeBudget(x.data) };
+      } catch {
+        return undefined;
+      }
+    })
+    .find((x) => x !== undefined && x.budget.payer.toBase58() === record.payer);
+  if (!found) return undefined;
+  return update(record, deps, (r) => ({ ...r, budget: found.address, createdSlot: found.budget.createdSlot.toString(), ...(found.budget.mint ? { mint: found.budget.mint.toBase58() } : {}) }));
+}
+
+export type IncidentOutcome = { paused: boolean; results: CloseResult[]; unreached: string[] };
+
 /**
  * The whole incident: pause, then close every Budget the relay holds a key
  * for that is still open on chain. Without a fee payer it pauses and reports
  * which Budgets still need closing.
  */
 export async function closeAllBudgets(
-  input: { reason: string; feePayer: Keypair | undefined; programId: PublicKey; chain: IncidentChain },
+  input: { reason: string; feePayer: Keypair | undefined; programId: PublicKey; chain: IncidentChain; concurrency?: number; deadlineMs?: number },
   deps: CustodyDeps,
-): Promise<{ paused: boolean; results: CloseResult[] }> {
+): Promise<IncidentOutcome> {
+  const startedMs = Date.now();
+  const deadline = input.deadlineMs ?? startedMs + 240_000;
   const paused = await pauseBudgets(input.reason, deps);
   const records = await deps.store.withStatus(["pending", "open", "frozen", "closing"]);
   const results: CloseResult[] = [];
-  for (const record of records) {
-    if (record.status === "pending") {
-      // Not opened yet: its key must never sign. The open transaction the payer may still hold names a spender nobody will use.
-      const next: SpenderRecord = { ...record, status: "frozen", frozenReason: `incident: ${input.reason}`, version: record.version + 1 };
-      const ok = (await deps.store.update(next)).ok;
-      results.push({ budget: record.id, ok, ...(ok ? {} : { error: "store_conflict" }) });
-      continue;
+  const unreached: string[] = [];
+  const queue = [...records];
+  const worker = async () => {
+    for (let record = queue.shift(); record; record = queue.shift()) {
+      if (Date.now() > deadline) {
+        unreached.push(record.budget ?? record.id);
+        continue;
+      }
+      let result: CloseResult;
+      try {
+        if (record.status === "pending") {
+          result = await freezePending(record, input.reason, deps);
+        } else {
+          let current: SpenderRecord | undefined = record;
+          if (!current.budget) current = await attachOpened(current, input.chain, deps);
+          if (!current?.budget) {
+            result = { budget: record.id, ok: true, note: "never_opened" };
+          } else if (!input.feePayer) {
+            result = { budget: current.budget, ok: false, error: "no_fee_payer" };
+          } else {
+            result = await closeBudgetNow(current, { ...input, feePayer: input.feePayer }, deps);
+            await noteResult(current, input.reason, result, deps, Date.now());
+          }
+        }
+      } catch (error) {
+        result = { budget: record.budget ?? record.id, ok: false, error: error instanceof Error ? error.message.slice(0, 200) : "unknown" };
+      }
+      results.push(result);
     }
-    if (!input.feePayer) {
-      results.push({ budget: record.budget ?? record.id, ok: false, error: "no_fee_payer" });
-      continue;
-    }
-    results.push(await closeBudgetNow(record, { ...input, feePayer: input.feePayer }, deps));
-  }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(input.concurrency ?? 6, records.length)) }, worker));
   const failed = results.filter((r) => !r.ok);
+  const lines = [
+    ...results.map((r) => `${r.budget}: ${r.ok ? `done${r.signature ? ` ${r.signature}` : r.note ? ` (${r.note})` : ""}` : `FAILED ${r.error}`}`),
+    ...unreached.map((b) => `${b}: NOT REACHED (run the incident close again)`),
+  ];
   await sendBudgetAlert(
     {
       audience: "operator",
       kind: "incident",
-      subject: failed.length === 0 ? `Incident: ${results.length} Budget(s) closed or frozen` : `Incident: ${failed.length} of ${results.length} Budget(s) NOT closed`,
-      text: results.map((r) => `${r.budget}: ${r.ok ? `done${r.signature ? ` ${r.signature}` : ""}` : `FAILED ${r.error}`}`).join("\n") || "No Budget was open.",
-      detail: { reason: input.reason, results },
+      subject:
+        failed.length === 0 && unreached.length === 0
+          ? `Incident: ${results.length} Budget(s) closed or frozen`
+          : `Incident: ${failed.length + unreached.length} of ${records.length} Budget(s) NOT closed`,
+      text: lines.join("\n") || "No Budget was open.",
+      detail: { reason: input.reason, results, unreached },
     },
     undefined,
     deps,
   );
-  return { paused, results };
+  return { paused, results, unreached };
 }

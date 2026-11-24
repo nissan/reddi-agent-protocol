@@ -14,8 +14,12 @@
  * and an https webhook (the payer's own, or `BUDGET_OPS_WEBHOOK` for the
  * operator; `BUDGET_OPS_EMAIL` for operator email). Every alert is logged with
  * what each channel answered, so an alert that reached nobody is visible.
+ * Channels are tried at once, each with a hard timeout, so one slow receiver
+ * cannot hold up other Budgets' alerts. Webhook bodies are signed (see
+ * `signWebhookBody`) so a receiver can tell RAP's alerts from forged ones.
  */
 
+import { createHmac } from "crypto";
 import { fetchOutbound } from "@/lib/http/outbound";
 import type { BudgetAlertRow, BudgetContact, BudgetCustodyStore } from "./store";
 
@@ -28,10 +32,18 @@ export type BudgetAlert = {
     | "slice_reposted"
     | "slice_disputed"
     | "slice_paid"
+    | "slice_settled"
+    | "budget_settled"
+    | "budget_found"
+    | "do_not_open"
     | "unexpected_payee"
     | "key_overuse"
     | "sign_refused"
     | "budget_frozen"
+    | "alerts_undelivered"
+    | "budget_unreadable"
+    | "kek_missing"
+    | "watcher_stalled"
     | "incident";
   /** One line a person can act on. */
   subject: string;
@@ -45,7 +57,38 @@ export type AlertChannelResult = "sent" | "not_configured" | "failed";
 
 export interface AlertSender {
   email(to: string, subject: string, text: string): Promise<AlertChannelResult>;
-  webhook(url: string, body: Record<string, unknown>): Promise<AlertChannelResult>;
+  /** `secret`, when given, signs the body (`x-rap-signature`). */
+  webhook(url: string, body: Record<string, unknown>, secret?: string): Promise<AlertChannelResult>;
+}
+
+/** How long one channel may take before it counts as failed. */
+export const ALERT_CHANNEL_TIMEOUT_MS = 5_000;
+
+/**
+ * The `x-rap-signature` header for a webhook body: `t=<unix seconds>,v1=<hex
+ * HMAC-SHA256(secret, "<t>.<body>")>`. A receiver recomputes it with its
+ * secret and refuses a stale `t`.
+ */
+export function signWebhookBody(body: string, secret: string, nowMs: number = Date.now()): string {
+  const t = Math.floor(nowMs / 1000);
+  return `t=${t},v1=${createHmac("sha256", secret).update(`${t}.${body}`).digest("hex")}`;
+}
+
+/** Why alerts could not reach this contact with the server's configuration, if they could not. */
+export function alertConfigProblem(contact: BudgetContact, env: Record<string, string | undefined>): string | undefined {
+  const emailReady = Boolean(env.RESEND_API_KEY?.trim() && env.BUDGET_ALERT_FROM?.trim());
+  if (!env.BUDGET_OPS_EMAIL?.trim() && !env.BUDGET_OPS_WEBHOOK?.trim()) return "Budget keys are not made while no operator alert channel (BUDGET_OPS_EMAIL or BUDGET_OPS_WEBHOOK) is set.";
+  if (!contact.webhook && contact.email && !emailReady) return "Alert email is not set up on this server (RESEND_API_KEY and BUDGET_ALERT_FROM): give a webhook for Budget alerts.";
+  if (env.BUDGET_OPS_EMAIL?.trim() && !env.BUDGET_OPS_WEBHOOK?.trim() && !emailReady) return "Operator alerts go by email, but alert email is not set up (RESEND_API_KEY and BUDGET_ALERT_FROM).";
+  return undefined;
+}
+
+function withTimeout(work: Promise<AlertChannelResult>, ms: number): Promise<AlertChannelResult> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<AlertChannelResult>((resolve) => {
+    timer = setTimeout(() => resolve("failed"), ms);
+  });
+  return Promise.race([work.catch(() => "failed" as const), timeout]).finally(() => clearTimeout(timer));
 }
 
 const EMAIL = /^[^\s@<>]{1,64}@[^\s@<>]{1,253}\.[A-Za-z]{2,}$/;
@@ -76,15 +119,18 @@ export function defaultAlertSender(env: Record<string, string | undefined> = pro
           method: "POST",
           headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
           body: JSON.stringify({ from, to: [to], subject, text }),
+          signal: AbortSignal.timeout(ALERT_CHANNEL_TIMEOUT_MS),
         });
         return response.ok ? "sent" : "failed";
       } catch {
         return "failed";
       }
     },
-    async webhook(url, body) {
+    async webhook(url, body, secret) {
       try {
-        const response = await fetchOutbound(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, fetchImpl ? { fetchImpl } : {});
+        const text = JSON.stringify(body);
+        const headers: Record<string, string> = { "content-type": "application/json", ...(secret ? { "x-rap-signature": signWebhookBody(text, secret) } : {}) };
+        const response = await fetchOutbound(url, { method: "POST", headers, body: text, signal: AbortSignal.timeout(ALERT_CHANNEL_TIMEOUT_MS) }, fetchImpl ? { fetchImpl } : {});
         return response.ok ? "sent" : "failed";
       } catch {
         return "failed";
@@ -93,7 +139,7 @@ export function defaultAlertSender(env: Record<string, string | undefined> = pro
   };
 }
 
-export type AlertDeps = { store: BudgetCustodyStore; sender: AlertSender; env?: Record<string, string | undefined>; nowMs?: number };
+export type AlertDeps = { store: BudgetCustodyStore; sender: AlertSender; env?: Record<string, string | undefined>; nowMs?: number; alertTimeoutMs?: number };
 
 /**
  * Sends one alert on every channel its audience has and logs it. Returns
@@ -102,18 +148,25 @@ export type AlertDeps = { store: BudgetCustodyStore; sender: AlertSender; env?: 
  */
 export async function sendBudgetAlert(alert: BudgetAlert, contact: BudgetContact | undefined, deps: AlertDeps): Promise<boolean> {
   const env = deps.env ?? process.env;
+  const ms = deps.alertTimeoutMs ?? ALERT_CHANNEL_TIMEOUT_MS + 1_000;
   const delivered: Record<string, AlertChannelResult> = {};
   const body = { type: `rap.budget.${alert.kind}`, subject: alert.subject, text: alert.text, ...alert.detail };
+  const channels: [string, () => Promise<AlertChannelResult>][] = [];
   if (alert.audience === "payer") {
-    if (contact?.email) delivered.email = await deps.sender.email(contact.email, alert.subject, alert.text);
-    if (contact?.webhook) delivered.webhook = await deps.sender.webhook(contact.webhook, body);
+    if (contact?.email) channels.push(["email", () => deps.sender.email(contact.email!, alert.subject, alert.text)]);
+    if (contact?.webhook) channels.push(["webhook", () => deps.sender.webhook(contact.webhook!, body, contact.webhookSecret)]);
   } else {
     const opsEmail = env.BUDGET_OPS_EMAIL?.trim();
     const opsWebhook = env.BUDGET_OPS_WEBHOOK?.trim();
-    if (opsEmail) delivered.email = await deps.sender.email(opsEmail, `[RAP Budget ops] ${alert.subject}`, alert.text);
-    if (opsWebhook) delivered.webhook = await deps.sender.webhook(opsWebhook, body);
-    if (!opsEmail && !opsWebhook) delivered.none = "not_configured";
+    const opsSecret = env.BUDGET_OPS_WEBHOOK_SECRET?.trim() || undefined;
+    if (opsEmail) channels.push(["email", () => deps.sender.email(opsEmail, `[RAP Budget ops] ${alert.subject}`, alert.text)]);
+    if (opsWebhook) channels.push(["webhook", () => deps.sender.webhook(opsWebhook, body, opsSecret)]);
   }
+  if (channels.length === 0) delivered.none = "not_configured";
+  const answers = await Promise.all(channels.map(([, send]) => withTimeout(Promise.resolve().then(send), ms)));
+  channels.forEach(([name], i) => {
+    delivered[name] = answers[i];
+  });
   const row: BudgetAlertRow = {
     ...(alert.spenderId ? { spenderId: alert.spenderId } : {}),
     audience: alert.audience,
@@ -122,6 +175,6 @@ export async function sendBudgetAlert(alert: BudgetAlert, contact: BudgetContact
     delivered,
     at: new Date(deps.nowMs ?? Date.now()).toISOString(),
   };
-  await deps.store.logAlert(row);
+  await deps.store.logAlert(row).catch(() => false);
   return Object.values(delivered).includes("sent");
 }

@@ -1,17 +1,18 @@
 /**
  * @jest-environment node
  */
-import { createHash } from "crypto";
+import { createHash, createHmac } from "crypto";
 import { ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { BUDGET_DISCRIMINATORS, closeBudgetInstruction, reserveInstruction, reservationAddress, waiveInstruction } from "@redditech/x402-solana/budget";
 import { signReddiReceiptV2, type ReddiReceiptV2 } from "@redditech/agent-protocol";
-import type { AlertSender } from "@/lib/budget/alerts";
-import { activateSpender, createSpender, inspectSpenderTransaction, signAsSpender, type CustodyDeps } from "@/lib/budget/custody";
+import { signWebhookBody, type AlertSender } from "@/lib/budget/alerts";
+import { activateSpender, createSpender, inspectSpenderTransaction, pausedByEnv, signAsSpender, type CustodyDeps } from "@/lib/budget/custody";
 import { buildDisputeTransaction } from "@/lib/budget/dispute";
 import { closeAllBudgets } from "@/lib/budget/incident";
-import { openSpenderKey, readKeks, resealSpenderKey, sealSpenderKey } from "@/lib/budget/keys";
+import { openSpenderSeed, readKeks, resealSpenderKey, sealSpenderKey } from "@/lib/budget/keys";
+import { resealAll } from "@/lib/budget/reseal";
 import { MemoryBudgetCustodyStore, type SpenderRecord } from "@/lib/budget/store";
-import { base58, watchBudgets, type BudgetChainReader } from "@/lib/budget/watch";
+import { base58, GONE_CONFIRM_MS, watchBudgets, type BudgetChainReader } from "@/lib/budget/watch";
 import { BUDGET_PAID_EVENT, decodeBudgetPaid, programDataLogs, verifyAndRecordBudgetCall } from "@/lib/jobs/budget-call";
 
 const PROGRAM = Keypair.generate().publicKey;
@@ -21,26 +22,35 @@ const CREATED = BigInt(5_000_000);
 const ORIGIN = "https://app.example";
 const BLOCKHASH = Keypair.generate().publicKey.toBase58();
 
+type Outcome = "sent" | "failed" | "hang";
 function sender() {
-  const sent: { channel: string; to: string; subject: string; body?: Record<string, unknown> }[] = [];
+  const sent: { channel: string; to: string; subject: string; body?: Record<string, unknown>; secret?: string }[] = [];
+  /** Per recipient: what its channel does. */
+  const behaviour = new Map<string, Outcome>();
+  const answer = (to: string) => {
+    const b = behaviour.get(to) ?? "sent";
+    return b === "hang" ? new Promise<never>(() => undefined) : Promise.resolve(b);
+  };
   const s: AlertSender = {
     async email(to, subject) {
       sent.push({ channel: "email", to, subject });
-      return "sent";
+      return answer(to);
     },
-    async webhook(url, body) {
-      sent.push({ channel: "webhook", to: url, subject: String(body.subject), body });
-      return "sent";
+    async webhook(url, body, secret) {
+      sent.push({ channel: "webhook", to: url, subject: String(body.subject), body, ...(secret ? { secret } : {}) });
+      return answer(url);
     },
   };
-  return { sent, sender: s };
+  return { sent, sender: s, behaviour };
 }
+
+const ALERT_ENV = { BUDGET_OPS_EMAIL: "ops@example.com", RESEND_API_KEY: "re_test", BUDGET_ALERT_FROM: "RAP <alerts@example.com>" };
 
 function setup(env: Record<string, string | undefined> = {}) {
   const store = new MemoryBudgetCustodyStore();
-  const { sent, sender: s } = sender();
-  const deps: CustodyDeps = { store, keks: KEKS, sender: s, env: { BUDGET_OPS_EMAIL: "ops@example.com", ...env }, nowMs: NOW_MS };
-  return { store, sent, deps };
+  const { sent, sender: s, behaviour } = sender();
+  const deps: CustodyDeps & { alertTimeoutMs: number } = { store, keks: KEKS, sender: s, env: { ...ALERT_ENV, BUDGET_SPENDER_KEKS: `k2:${Buffer.alloc(32, 2).toString("base64")},k1:${Buffer.alloc(32, 1).toString("base64")}`, ...env }, nowMs: NOW_MS, alertTimeoutMs: 50 };
+  return { store, sent, deps, behaviour };
 }
 
 type BudgetBytes = { payer: PublicKey; spender: PublicKey; judge?: PublicKey; mint?: PublicKey; total?: bigint; unreserved?: bigint; closed?: boolean; closedSlot?: bigint; createdSlot?: bigint };
@@ -85,6 +95,11 @@ function fakeChain() {
   const chain: BudgetChainReader & { latestBlockhash(): Promise<string>; sendAndConfirm(tx: Transaction): Promise<string> } = {
     async readAccount(a) {
       return accounts.get(a.toBase58()) ?? null;
+    },
+    async budgetsBySpender(spender) {
+      return [...accounts.entries()]
+        .filter(([, v]) => v.data.length === 349 && new PublicKey(v.data.subarray(40, 72)).equals(spender))
+        .map(([address, v]) => ({ address: new PublicKey(address), data: v.data }));
     },
     async reservations(budget) {
       return [...accounts.entries()]
@@ -133,13 +148,13 @@ describe("Budget spender keys (audit round 4, S7-claude-03)", () => {
     const sealed = sealSpenderKey(kp, "a".repeat(32), KEKS);
     expect(sealed.startsWith("v1.k2.")).toBe(true);
     expect(sealed).not.toContain(Buffer.from(kp.secretKey.subarray(0, 32)).toString("base64url"));
-    expect(openSpenderKey(sealed, "a".repeat(32), kp.publicKey.toBase58(), KEKS).publicKey.equals(kp.publicKey)).toBe(true);
+    expect(Keypair.fromSeed(openSpenderSeed(sealed, "a".repeat(32), kp.publicKey.toBase58(), KEKS)).publicKey.equals(kp.publicKey)).toBe(true);
     // Copied onto another record, or altered, or without its KEK: does not open.
-    expect(() => openSpenderKey(sealed, "b".repeat(32), kp.publicKey.toBase58(), KEKS)).toThrow();
+    expect(() => openSpenderSeed(sealed, "b".repeat(32), kp.publicKey.toBase58(), KEKS)).toThrow();
     const parts = sealed.split(".");
     parts[3] = Buffer.from(Buffer.from(parts[3], "base64url").map((b, i) => (i === 0 ? b ^ 1 : b))).toString("base64url");
-    expect(() => openSpenderKey(parts.join("."), "a".repeat(32), kp.publicKey.toBase58(), KEKS)).toThrow();
-    expect(() => openSpenderKey(sealed, "a".repeat(32), kp.publicKey.toBase58(), [KEKS[1]])).toThrow(/KEK k2 is not configured/);
+    expect(() => openSpenderSeed(parts.join("."), "a".repeat(32), kp.publicKey.toBase58(), KEKS)).toThrow();
+    expect(() => openSpenderSeed(sealed, "a".repeat(32), kp.publicKey.toBase58(), [KEKS[1]])).toThrow(/KEK k2 is not configured/);
     // Rotation: a key sealed under k1 is resealed under k2 (first listed).
     const old = sealSpenderKey(kp, "a".repeat(32), [KEKS[1]]);
     expect(resealSpenderKey(old, "a".repeat(32), kp.publicKey.toBase58(), KEKS).startsWith("v1.k2.")).toBe(true);
@@ -185,11 +200,11 @@ describe("Budget spender keys (audit round 4, S7-claude-03)", () => {
     // Someone the payer did not name: refused, and the operator is told.
     const stranger = WALLET();
     expect(await signAsSpender({ id: record.id, transaction: reserveTx(record, stranger), programId: PROGRAM }, deps)).toMatchObject({ ok: false, code: "unexpected_payee" });
-    expect(sent.some((s) => s.to === "ops@example.com" && /unexpected provider/.test(s.subject))).toBe(true);
+    expect(sent.some((s) => s.to === "ops@example.com" && /did not name/.test(s.subject))).toBe(true);
 
     // The spender key in any other instruction, another opening, another Budget, two Budget instructions, the spender paying fees.
     const drain = SystemProgram.transfer({ fromPubkey: spender, toPubkey: stranger, lamports: 1 });
-    expect(await signAsSpender({ id: record.id, transaction: reserveTx(record, named, [drain]), programId: PROGRAM }, deps)).toMatchObject({ ok: false, code: "spender_in_other_instruction" });
+    expect(await signAsSpender({ id: record.id, transaction: reserveTx(record, named, [drain]), programId: PROGRAM }, deps)).toMatchObject({ ok: false, code: "instruction_not_allowed" });
     expect(inspectSpenderTransaction(reserveTx({ ...record, createdSlot: "1" }, named), record, PROGRAM)).toMatchObject({ ok: false, code: "budget_instance_mismatch" });
     expect(inspectSpenderTransaction(reserveTx({ ...record, budget: WALLET().toBase58() }, named), record, PROGRAM)).toMatchObject({ ok: false, code: "budget_mismatch" });
     const twice = reserveTx(record, named);
@@ -198,9 +213,10 @@ describe("Budget spender keys (audit round 4, S7-claude-03)", () => {
     const feePaid = reserveTx(record, named);
     feePaid.feePayer = spender;
     expect(inspectSpenderTransaction(feePaid, record, PROGRAM)).toMatchObject({ ok: false, code: "spender_pays_fee" });
-    // A waive of its own Budget is allowed.
-    const waive = new Transaction({ feePayer: named, recentBlockhash: BLOCKHASH }).add(waiveInstruction({ programId: PROGRAM, budget: new PublicKey(record.budget!), createdSlot: CREATED, payee: named, signer: spender }));
-    expect(inspectSpenderTransaction(waive, record, PROGRAM)).toMatchObject({ ok: true, purpose: "waive" });
+    // A waive of its own Budget is allowed, for a named provider's slice only.
+    const waiveFor = (payee: PublicKey) => new Transaction({ feePayer: named, recentBlockhash: BLOCKHASH }).add(waiveInstruction({ programId: PROGRAM, budget: new PublicKey(record.budget!), createdSlot: CREATED, payee, signer: spender }));
+    expect(inspectSpenderTransaction(waiveFor(named), record, PROGRAM)).toMatchObject({ ok: true, purpose: "waive" });
+    expect(await signAsSpender({ id: record.id, transaction: waiveFor(stranger), programId: PROGRAM }, deps)).toMatchObject({ ok: false, code: "unexpected_payee" });
     expect(store.uses).toHaveLength(1);
   });
 
@@ -234,7 +250,8 @@ describe("Budget watcher: the payer hears of every reserve and post", () => {
     const named = WALLET();
     const judge = WALLET();
     const { record, budget, payer, spender } = await openBudget(deps, accounts, { expected: [named.toBase58()], judge });
-    const watch = () => watchBudgets({ ...deps, chain, programId: PROGRAM, origin: ORIGIN });
+    let now = NOW_MS;
+    const watch = async () => [...(await watchBudgets({ ...deps, nowMs: now, chain, programId: PROGRAM, origin: ORIGIN }))];
     const stranger = WALLET();
     accounts.set(reservationAddress(budget, named, PROGRAM).toBase58(), { owner: PROGRAM, data: sliceBytes({ budget, payee: named, reserved: BigInt(1_000_000) }) });
     accounts.set(reservationAddress(budget, stranger, PROGRAM).toBase58(), { owner: PROGRAM, data: sliceBytes({ budget, payee: stranger, reserved: BigInt(2_000_000) }) });
@@ -270,6 +287,10 @@ describe("Budget watcher: the payer hears of every reserve and post", () => {
     accounts.set(budget.toBase58(), { owner: PROGRAM, data: budgetBytes({ payer, spender, judge, closed: true, closedSlot: CREATED + BigInt(60) }) });
     expect((await watch())[0].status).toBe("closing");
     accounts.delete(budget.toBase58());
+    // One missing read keeps the key; missing again four minutes later is proof it is over.
+    expect((await watch())[0].status).toBe("closing");
+    expect((await store.byId(record.id))!.sealed).toBeDefined();
+    now += GONE_CONFIRM_MS;
     expect((await watch())[0].status).toBe("closed");
     const done = (await store.byId(record.id))!;
     expect(done.status).toBe("closed");
@@ -310,6 +331,152 @@ describe("Budget incident step", () => {
     const result = await closeAllBudgets({ reason: "drill", feePayer: undefined, programId: PROGRAM, chain }, deps);
     expect(result.paused).toBe(true);
     expect(result.results).toEqual([expect.objectContaining({ ok: false, error: "no_fee_payer" })]);
+  });
+});
+
+describe("Budget custody review S6 fixes", () => {
+  it("signs only the compiled message: no durable nonce, an explicit fee payer, no other program", async () => {
+    const { deps } = setup();
+    const { accounts } = fakeChain();
+    const named = WALLET();
+    const { record, spender } = await openBudget(deps, accounts);
+    const nonced = reserveTx(record, named);
+    nonced.nonceInfo = { nonce: BLOCKHASH, nonceInstruction: SystemProgram.nonceAdvance({ noncePubkey: WALLET(), authorizedPubkey: named }) };
+    expect(inspectSpenderTransaction(nonced, record, PROGRAM)).toMatchObject({ ok: false, code: "durable_nonce" });
+    const advance = reserveTx(record, named, [SystemProgram.nonceAdvance({ noncePubkey: WALLET(), authorizedPubkey: named })]);
+    expect(inspectSpenderTransaction(advance, record, PROGRAM)).toMatchObject({ ok: false, code: "instruction_not_allowed" });
+    const noFeePayer = reserveTx(record, named);
+    noFeePayer.feePayer = undefined;
+    noFeePayer.signatures = [{ publicKey: spender, signature: null }];
+    expect(inspectSpenderTransaction(noFeePayer, record, PROGRAM)).toMatchObject({ ok: false, code: "fee_payer_required" });
+    // What is signed verifies against the message the provider then signs.
+    const signed = await signAsSpender({ id: record.id, transaction: reserveTx(record, named), programId: PROGRAM }, deps);
+    expect(signed.ok).toBe(true);
+    if (signed.ok) expect(signed.transaction.verifySignatures(false)).toBe(true);
+  });
+
+  it("lets only the allowed number of concurrent signs through, and reads the pause switch leniently", async () => {
+    const { store, deps } = setup({ BUDGET_SPENDER_MAX_USES_PER_10_MIN: "3" });
+    const { accounts } = fakeChain();
+    const { record } = await openBudget(deps, accounts);
+    const all = await Promise.all(Array.from({ length: 12 }, () => signAsSpender({ id: record.id, transaction: reserveTx(record, WALLET()), programId: PROGRAM }, deps)));
+    expect(all.filter((r) => r.ok)).toHaveLength(3);
+    expect(store.uses).toHaveLength(3);
+    for (const v of ["true", "TRUE", "1", "yes", " on "]) expect(pausedByEnv(v)).toBe(true);
+    for (const v of [undefined, "", "false", "0", "no", "off", "False"]) expect(pausedByEnv(v)).toBe(false);
+  });
+
+  it("makes no key unless the payer and the operator can actually be alerted, and signs webhook alerts", async () => {
+    const payer = WALLET().toBase58();
+    const { deps } = setup({ RESEND_API_KEY: undefined });
+    expect(await createSpender({ payer, network: "solana-devnet", contact: { email: "a@b.co" } }, deps)).toMatchObject({ ok: false, code: "alerts_not_configured" });
+    const hook = await createSpender({ payer, network: "solana-devnet", contact: { webhook: "https://hooks.example/a" } }, { ...deps, env: { ...deps.env, BUDGET_OPS_EMAIL: undefined, BUDGET_OPS_WEBHOOK: "https://ops.example/hook" } });
+    expect(hook.ok).toBe(true);
+    if (hook.ok) expect(hook.record.contact.webhookSecret).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const noOps = setup({ BUDGET_OPS_EMAIL: undefined });
+    expect(await createSpender({ payer, network: "solana-devnet", contact: { webhook: "https://hooks.example/a" } }, noOps.deps)).toMatchObject({ ok: false, code: "alerts_not_configured" });
+    const header = signWebhookBody('{"a":1}', "secret", 1_700_000_000_000);
+    expect(header).toBe(`t=1700000000,v1=${createHmac("sha256", "secret").update('1700000000.{"a":1}').digest("hex")}`);
+  });
+
+  it("sends an undelivered alert again every pass, tells the operator after three, and a hanging payer does not block others", async () => {
+    const { sent, deps, behaviour } = setup();
+    const { accounts, chain } = fakeChain();
+    const slow = await openBudget(deps, accounts);
+    const other = await openBudget(deps, accounts);
+    behaviour.set("payer@example.com", "failed");
+    const p1 = WALLET();
+    accounts.set(reservationAddress(slow.budget, p1, PROGRAM).toBase58(), { owner: PROGRAM, data: sliceBytes({ budget: slow.budget, payee: p1, reserved: BigInt(1_000) }) });
+    let pass = await watchBudgets({ ...deps, chain, programId: PROGRAM, origin: ORIGIN });
+    expect(pass.find((r) => r.budget === slow.budget.toBase58())).toMatchObject({ error: "alerts_undelivered" });
+    await watchBudgets({ ...deps, chain, programId: PROGRAM, origin: ORIGIN });
+    await watchBudgets({ ...deps, chain, programId: PROGRAM, origin: ORIGIN });
+    expect(sent.filter((s) => s.to === "payer@example.com" && /reserved/.test(s.subject))).toHaveLength(3);
+    expect(sent.filter((s) => s.to === "ops@example.com" && /not getting through/.test(s.subject))).toHaveLength(1);
+    behaviour.set("payer@example.com", "sent");
+    pass = await watchBudgets({ ...deps, chain, programId: PROGRAM, origin: ORIGIN });
+    expect(pass.every((r) => !r.error)).toBe(true);
+    expect(sent.filter((s) => s.to === "payer@example.com" && /reserved/.test(s.subject))).toHaveLength(4);
+
+    // A payer whose webhook never answers: the other Budget's payer still hears, within the timeout.
+    const hanging = await createSpender({ payer: WALLET().toBase58(), network: "solana-devnet", contact: { webhook: "https://hang.example/hook" } }, deps);
+    if (!hanging.ok) throw new Error();
+    const hb = WALLET();
+    accounts.set(hb.toBase58(), { owner: PROGRAM, data: budgetBytes({ payer: new PublicKey(hanging.record.payer), spender: new PublicKey(hanging.record.spender) }) });
+    await activateSpender({ id: hanging.record.id, budget: hb.toBase58(), programId: PROGRAM, readAccount: async (a) => accounts.get(a.toBase58()) ?? null }, deps);
+    behaviour.set("https://hang.example/hook", "hang");
+    const p2 = WALLET();
+    accounts.set(reservationAddress(hb, p2, PROGRAM).toBase58(), { owner: PROGRAM, data: sliceBytes({ budget: hb, payee: p2, reserved: BigInt(5) }) });
+    accounts.set(reservationAddress(other.budget, p2, PROGRAM).toBase58(), { owner: PROGRAM, data: sliceBytes({ budget: other.budget, payee: p2, reserved: BigInt(7) }) });
+    const started = Date.now();
+    pass = await watchBudgets({ ...deps, chain, programId: PROGRAM, origin: ORIGIN });
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(pass.find((r) => r.budget === other.budget.toBase58())?.alerts).toEqual(["payer:slice_reserved"]);
+    expect(pass.find((r) => r.budget === hb.toBase58())).toMatchObject({ error: "alerts_undelivered" });
+  });
+
+  it("keeps the key on an unreadable Budget, tells the payer of a settled slice, and reports a stalled watcher", async () => {
+    const { store, sent, deps } = setup();
+    const { accounts, chain } = fakeChain();
+    const { record, budget, payer, spender } = await openBudget(deps, accounts);
+    const p = WALLET();
+    const slice = reservationAddress(budget, p, PROGRAM).toBase58();
+    accounts.set(slice, { owner: PROGRAM, data: sliceBytes({ budget, payee: p, reserved: BigInt(10), state: 1, finalAmount: BigInt(5), postedSlot: CREATED + BigInt(1) }) });
+    expect((await watchBudgets({ ...deps, chain, programId: PROGRAM, origin: ORIGIN })).every((r) => !r.error)).toBe(true);
+    expect(await store.watchedAt()).toBe(new Date(NOW_MS).toISOString());
+
+    accounts.set(budget.toBase58(), { owner: WALLET(), data: budgetBytes({ payer, spender }) });
+    const odd = await watchBudgets({ ...deps, chain, programId: PROGRAM, origin: ORIGIN });
+    expect(odd[0]).toMatchObject({ error: "budget_unreadable", status: "open" });
+    expect((await store.byId(record.id))!.sealed).toBeDefined();
+
+    accounts.set(budget.toBase58(), { owner: PROGRAM, data: budgetBytes({ payer, spender }) });
+    accounts.delete(slice);
+    const later = NOW_MS + 60 * 60 * 1000;
+    const settled = await watchBudgets({ ...deps, nowMs: later, chain, programId: PROGRAM, origin: ORIGIN });
+    expect(settled[0].alerts).toEqual(["payer:slice_settled"]);
+    expect(sent.some((s) => s.to === "ops@example.com" && /stalled/.test(s.subject))).toBe(true);
+    expect((await store.byId(record.id))!.seen).toEqual({});
+  });
+
+  it("alerts the operator when a live key is sealed under a KEK the server no longer has, and reseals on request", async () => {
+    const { store, sent, deps } = setup();
+    const { accounts, chain } = fakeChain();
+    const { record } = await openBudget(deps, accounts);
+    const old = { ...(await store.byId(record.id))!, sealed: sealSpenderKey(Keypair.fromSeed(openSpenderSeed(record.sealed!, record.id, record.spender, KEKS)), record.id, [KEKS[1]]) };
+    store.records.set(record.id, { ...old });
+    const onlyNew = { ...deps, env: { ...deps.env, BUDGET_SPENDER_KEKS: `k2:${Buffer.alloc(32, 2).toString("base64")}` } };
+    expect((await watchBudgets({ ...onlyNew, chain, programId: PROGRAM, origin: ORIGIN }))[0]).toMatchObject({ error: "kek_missing" });
+    expect(sent.some((s) => s.to === "ops@example.com" && /KEK k1/.test(s.subject))).toBe(true);
+    expect(await resealAll(store, KEKS, false)).toMatchObject({ byKek: { k1: 1 }, resealed: 0 });
+    expect(await resealAll(store, KEKS, true)).toMatchObject({ byKek: { k1: 1 }, resealed: 1, failed: [] });
+    expect((await store.byId(record.id))!.sealed!.startsWith("v1.k2.")).toBe(true);
+  });
+
+  it("incident: finds a frozen key the payer opened anyway, skips Budgets already closed, and lists what it did not reach", async () => {
+    const { store, sent, deps } = setup();
+    const { accounts, chain, sentTxs } = fakeChain();
+    const feePayer = Keypair.generate();
+    const pending = await createSpender({ payer: WALLET().toBase58(), network: "solana-devnet", contact: { email: "late@example.com" } }, deps);
+    if (!pending.ok) throw new Error();
+    await closeAllBudgets({ reason: "first", feePayer, programId: PROGRAM, chain }, deps);
+    expect(sent.some((s) => s.to === "late@example.com" && /Do not open/.test(s.subject))).toBe(true);
+    // The payer opens it anyway; a frozen key cannot be activated, but the next run finds and closes it.
+    const opened = WALLET();
+    accounts.set(opened.toBase58(), { owner: PROGRAM, data: budgetBytes({ payer: new PublicKey(pending.record.payer), spender: new PublicKey(pending.record.spender) }) });
+    expect(await activateSpender({ id: pending.record.id, budget: opened.toBase58(), programId: PROGRAM, readAccount: async (a) => accounts.get(a.toBase58()) ?? null }, deps)).toMatchObject({ ok: false, code: "not_pending" });
+    const closedAlready = await openBudget(deps, accounts);
+    accounts.set(closedAlready.budget.toBase58(), { owner: PROGRAM, data: budgetBytes({ payer: closedAlready.payer, spender: closedAlready.spender, closed: true, closedSlot: CREATED + BigInt(9) }) });
+    const second = await closeAllBudgets({ reason: "second", feePayer, programId: PROGRAM, chain }, deps);
+    expect(second.unreached).toEqual([]);
+    expect(second.results).toEqual(expect.arrayContaining([expect.objectContaining({ budget: opened.toBase58(), ok: true }), expect.objectContaining({ budget: closedAlready.budget.toBase58(), ok: true, note: "already_closed" })]));
+    expect(sentTxs).toHaveLength(1);
+    expect((await store.byId(pending.record.id))!.incident).toMatchObject({ reason: "second", ok: true });
+
+    const late = await openBudget(deps, accounts);
+    const third = await closeAllBudgets({ reason: "third", feePayer, programId: PROGRAM, chain, deadlineMs: Date.now() - 1 }, deps);
+    expect(third.unreached).toContain(late.budget.toBase58());
+    expect(sent.some((s) => s.to === "ops@example.com" && /NOT closed/.test(s.subject))).toBe(true);
   });
 });
 

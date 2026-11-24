@@ -1,7 +1,10 @@
 # Runs the pooled Budget watcher every 5 minutes (the Vercel plan runs crons
 # daily only). The watcher alerts each payer on every reserve and post on a
 # Budget the relay holds a key for. Needs the repository secret
-# BUDGET_WATCH_CRON_SECRET (the app's CRON_SECRET); without it the job skips.
+# BUDGET_WATCH_CRON_SECRET (the app's CRON_SECRET): without it the run fails,
+# as it does when any Budget could not be watched. GitHub schedules are best
+# effort, so an uptime monitor on /api/cron/budget-watch/health is the real
+# stall alarm (docs/BUDGET-RELAY-CUSTODY.md). The log shows only counts.
 name: Budget watcher
 
 on:
@@ -18,14 +21,15 @@ concurrency:
 jobs:
   watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 6
     steps:
       - name: Run the watcher
         env:
           CRON_SECRET: ${{ secrets.BUDGET_WATCH_CRON_SECRET }}
           APP_ORIGIN: https://app.agent-protocol.reddi.tech
         run: |
-          if [ -z "$CRON_SECRET" ]; then echo "BUDGET_WATCH_CRON_SECRET is not set; skipping."; exit 0; fi
-          status=$(curl -sS -o /tmp/watch.json -w '%{http_code}' -H "authorization: Bearer $CRON_SECRET" "$APP_ORIGIN/api/cron/budget-watch")
-          head -c 4000 /tmp/watch.json; echo
+          if [ -z "$CRON_SECRET" ]; then echo "BUDGET_WATCH_CRON_SECRET is not set: the watcher cannot run."; exit 1; fi
+          status=$(curl -sS -m 320 -o /tmp/watch.json -w '%{http_code}' -H "authorization: Bearer $CRON_SECRET" "$APP_ORIGIN/api/cron/budget-watch")
+          echo "HTTP $status"
+          jq -c '{ok, complete, budgets, errors, alerts}' /tmp/watch.json 2>/dev/null || echo "(no JSON summary)"
           test "$status" = 200
