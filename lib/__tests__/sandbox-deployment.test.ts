@@ -39,7 +39,9 @@ function chain(deployedSlot: bigint | null, overrides: { programOwner?: PublicKe
 
 const preFreezeSlot = BigInt(devnetPreFreeze.deployedSlot as number);
 const freezeSlot = BigInt(devnetFreeze.deployedSlot as number);
+const deliverySlot = BigInt(devnetDeliveryCheck.deployedSlot as number);
 const beforeUpgrade: SandboxReleaseRecord[] = [devnetPreFreeze, { ...devnetFreeze, deployedSlot: null }];
+const beforeDeliveryUpgrade: SandboxReleaseRecord[] = [devnetPreFreeze, devnetFreeze, { ...devnetDeliveryCheck, deployedSlot: null }];
 
 describe("sandbox program build of record (audit S7-Codex-R2-06)", () => {
   it("knows the encoding of every devnet release record, by executable hash", () => {
@@ -54,13 +56,12 @@ describe("sandbox program build of record (audit S7-Codex-R2-06)", () => {
   it("takes the latest deployed devnet record of the sandbox program", () => {
     // Before the upgrade was recorded, the pre-freeze build was chosen.
     expect(sandboxBuildOfRecord(beforeUpgrade)).toMatchObject({ commit: devnetPreFreeze.commit, deployedSlot: preFreezeSlot, namesUnratedExits: false });
-    // Today: devnet runs the freeze build (upgraded in slot 525663342), so its encoding is chosen.
+    // Then devnet ran the freeze build (upgraded in slot 525663342) until the delivery-check upgrade was recorded.
     expect(freezeSlot).toBe(BigInt(525_663_342));
-    expect(sandboxBuildOfRecord()).toMatchObject({ commit: devnetFreeze.commit, deployedSlot: freezeSlot, namesUnratedExits: true });
-    // The delivery-check build is recorded but not deployed, so it is not chosen until its deployedSlot is filled in.
-    expect(devnetDeliveryCheck.deployedSlot).toBeNull();
-    const upgraded: SandboxReleaseRecord[] = [devnetPreFreeze, devnetFreeze, { ...devnetDeliveryCheck, deployedSlot: 530_000_000 }];
-    expect(sandboxBuildOfRecord(upgraded)).toMatchObject({ commit: devnetDeliveryCheck.commit, deployedSlot: BigInt(530_000_000), namesUnratedExits: true });
+    expect(sandboxBuildOfRecord(beforeDeliveryUpgrade)).toMatchObject({ commit: devnetFreeze.commit, deployedSlot: freezeSlot, namesUnratedExits: true });
+    // Today: devnet runs the delivery-check build (upgraded in slot 525720300), which encodes unrated exits the same way.
+    expect(deliverySlot).toBe(BigInt(525_720_300));
+    expect(sandboxBuildOfRecord()).toMatchObject({ commit: devnetDeliveryCheck.commit, deployedSlot: deliverySlot, namesUnratedExits: true });
   });
 
   it("chooses no build when the latest record is unknown, ambiguous, or for another program", () => {
@@ -72,23 +73,27 @@ describe("sandbox program build of record (audit S7-Codex-R2-06)", () => {
   });
 
   it("passes only when the program on devnet was last deployed in the record's slot", async () => {
-    expect(await checkSandboxDeployment(chain(freezeSlot).readAccount)).toMatchObject({ ok: true, build: { namesUnratedExits: true } });
-    // The old build's slot, or devnet upgraded to another build not yet recorded: refused, whatever it is.
+    expect(await checkSandboxDeployment(chain(deliverySlot).readAccount)).toMatchObject({ ok: true, build: { namesUnratedExits: true } });
+    // An older build's slot, or devnet upgraded to another build not yet recorded: refused, whatever it is.
     expect(await checkSandboxDeployment(chain(preFreezeSlot).readAccount)).toMatchObject({ ok: false });
-    expect(await checkSandboxDeployment(chain(freezeSlot + BigInt(1)).readAccount)).toMatchObject({ ok: false });
+    expect(await checkSandboxDeployment(chain(freezeSlot).readAccount)).toMatchObject({ ok: false });
+    expect(await checkSandboxDeployment(chain(deliverySlot + BigInt(1)).readAccount)).toMatchObject({ ok: false });
     expect(await checkSandboxDeployment(chain(null).readAccount)).toMatchObject({ ok: false });
-    expect(await checkSandboxDeployment(chain(freezeSlot, { programOwner: Keypair.generate().publicKey }).readAccount)).toMatchObject({ ok: false });
-    expect(await checkSandboxDeployment(chain(freezeSlot, { programTag: 3 }).readAccount)).toMatchObject({ ok: false });
-    expect(await checkSandboxDeployment(chain(freezeSlot, { dataTag: 2 }).readAccount)).toMatchObject({ ok: false });
+    expect(await checkSandboxDeployment(chain(deliverySlot, { programOwner: Keypair.generate().publicKey }).readAccount)).toMatchObject({ ok: false });
+    expect(await checkSandboxDeployment(chain(deliverySlot, { programTag: 3 }).readAccount)).toMatchObject({ ok: false });
+    expect(await checkSandboxDeployment(chain(deliverySlot, { dataTag: 2 }).readAccount)).toMatchObject({ ok: false });
     expect(await checkSandboxDeployment(async () => { throw new Error("rpc down"); })).toMatchObject({ ok: false });
     // Before the upgrade was recorded, the pre-freeze build passed and the freeze slot did not.
     expect(await checkSandboxDeployment(chain(preFreezeSlot).readAccount, { records: beforeUpgrade })).toMatchObject({ ok: true, build: { namesUnratedExits: false } });
     expect(await checkSandboxDeployment(chain(freezeSlot).readAccount, { records: beforeUpgrade })).toMatchObject({ ok: false });
+    // Before the delivery-check upgrade was recorded, the freeze slot passed and the new slot did not.
+    expect(await checkSandboxDeployment(chain(freezeSlot).readAccount, { records: beforeDeliveryUpgrade })).toMatchObject({ ok: true, build: { namesUnratedExits: true } });
+    expect(await checkSandboxDeployment(chain(deliverySlot).readAccount, { records: beforeDeliveryUpgrade })).toMatchObject({ ok: false });
   });
 
   it("remembers a pass for a minute, and never a failure", async () => {
     let now = 0;
-    const passing = chain(freezeSlot);
+    const passing = chain(deliverySlot);
     const check = cachedSandboxDeploymentCheck(passing.readAccount, { now: () => now });
     await check();
     await check();

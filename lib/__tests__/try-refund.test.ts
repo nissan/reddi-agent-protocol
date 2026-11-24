@@ -66,7 +66,7 @@ describe("try refund (Solana Pay transaction request)", () => {
     const [limit, price, refund] = tx.instructions;
     expect(limit.programId.equals(ComputeBudgetProgram.programId) && price.programId.equals(ComputeBudgetProgram.programId)).toBe(true);
     expect(refund.programId.equals(SANDBOX_ESCROW_PROGRAM_ID)).toBe(true);
-    // The freeze build (on devnet since slot 525663342) names the escrow's created slot on every exit.
+    // The devnet build (freeze 45e9547, and since slot 525720300 the delivery-check build 9c34fac) names the escrow's created slot on every exit.
     expect(Buffer.from(refund.data).subarray(0, 8)).toEqual(Buffer.from(SANDBOX_ESCROW_DISCRIMINATORS.cancelEscrow));
     expect(Buffer.from(refund.data).subarray(8).readBigUInt64LE(0)).toBe(CREATED_SLOT);
     expect(refund.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable])).toEqual([
