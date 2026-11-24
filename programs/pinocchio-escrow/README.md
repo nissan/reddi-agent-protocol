@@ -941,13 +941,16 @@ Rules from the threat model (`B` items in the design spec):
   it), so a recorded account that was closed, frozen or handed to another
   owner cannot keep the provider from its money, and an account that receives
   nothing (a refund, a judge's ruling of 0, a timeout, an unposted slice) is
-  not read at all, so it cannot hold back the payer's refund.
+  not read at all, so it cannot hold back the payer's refund. The same holds
+  for the treasury account when the fee is 0 and for the payer's refund
+  account when nothing is refunded.
 - On a SOL budget, a refund that would leave the payer's wallet below the
   rent-exempt minimum (an emptied wallet and a refund under about 0.00089 SOL)
   stays in the budget account and reaches the payer with the budget's rent
   when the budget closes, so an empty payer wallet cannot block anyone's
   payout. `BudgetPaid.refunded` and `BudgetClosed.refunded` give the refund
-  owed either way; a recorder reads what reached the payer from the close.
+  owed, whether it was sent at once or kept for the close; an indexer reads
+  what reached the payer's wallet from the balance change of the close.
 - What the program cannot route around: a token issuer that freezes both the
   provider's recorded payout account and its associated account leaves a
   posted slice payable only by the judge's ruling of 0 or a timeout; a
@@ -1116,7 +1119,7 @@ escrow and registry instructions only:
 
 | | Anchor (13 instructions) | Pinocchio (42 instructions) | Change |
 |---|---|---|---|
-| Program size | 345,152 bytes | 187,840 bytes | 46% smaller |
+| Program size | 345,152 bytes | 188,488 bytes | 45% smaller |
 | Rent at 6,960 lamports per byte | 2.4046 SOL | 1.2972 SOL | 1.1074 SOL less |
 | Rent at 5,080 lamports per byte | 1.7551 SOL | 0.9468 SOL | 0.8083 SOL less |
 | `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 133,096 bytes (measured before the pooled budget) | 73% smaller |

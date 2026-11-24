@@ -2165,3 +2165,77 @@ fn a_spender_close_of_an_allowlisted_budget_starts_the_window_at_once() {
     );
     assert_eq!(read_budget(&t.world, &budget).flags & 0x04, 0x04);
 }
+
+/// Round 4b (N2): a payout that refunds nothing does not read the payer's
+/// refund account, so a closed one cannot block it; one that refunds still
+/// needs a usable payer-owned account (its associated account will do).
+#[test]
+fn a_payout_that_refunds_nothing_ignores_the_refund_account() {
+    for (program, mint) in [
+        (spl_token_id(), USDC_MAINNET_MINT),
+        (TOKEN_2022_ID, PYUSD_MAINNET_MINT),
+    ] {
+        let mut f = TokenFixture::new(program, mint);
+        let payer = f.t.payer.pubkey();
+        let a = f.t.a.pubkey();
+        let a_kp = f.t.a.insecure_clone();
+        let payer_kp = f.t.payer.insecure_clone();
+        let stranger = f.t.stranger.insecure_clone();
+        let terms = Terms {
+            total: TOKEN_TOTAL,
+            ..f.t.terms(1)
+        };
+        let (budget, created) = f.open(&terms);
+        f.reserve(&budget, created, 6_000_000);
+        f.t.post(&budget, created, &a_kp, 6_000_000);
+        f.t.hold("waive", &budget, created, &a);
+        f.t.world.ok(
+            "close_token_budget",
+            token_close_ix(&f.tokens, &budget, created, &payer),
+            &[&payer_kp],
+        );
+        let source = f.tokens.source;
+        close_token_account(&mut f, source);
+        f.t.world.ok(
+            "payout refunding nothing, refund account closed",
+            token_payout_ix(&f.tokens, &budget, created, &a, &f.tokens.recipient),
+            &[&stranger],
+        );
+        assert!(!f.t.world.exists(&budget));
+
+        // A payout that refunds needs a usable refund account.
+        put_token_account(&mut f, source, &payer);
+        shrink_vault(&mut f.t.world, &source, TOKEN_TOTAL);
+        let terms = Terms {
+            nonce: nonce(2),
+            ..terms
+        };
+        let (budget, created) = f.open(&terms);
+        f.reserve(&budget, created, 6_000_000);
+        f.t.post(&budget, created, &a_kp, 4_000_000);
+        f.t.hold("waive", &budget, created, &a);
+        f.t.world.ok(
+            "close_token_budget",
+            token_close_ix(&f.tokens, &budget, created, &payer),
+            &[&payer_kp],
+        );
+        close_token_account(&mut f, source);
+        f.t.world.refused(
+            "payout refunding into a closed account",
+            token_payout_ix(&f.tokens, &budget, created, &a, &f.tokens.recipient),
+            &[&stranger],
+            ACCOUNT_NOT_INITIALIZED,
+        );
+        let associated = associated_token_address(&payer, &program, &mint);
+        put_token_account(&mut f, associated, &payer);
+        let mut ix = token_payout_ix(&f.tokens, &budget, created, &a, &f.tokens.recipient);
+        ix.accounts[8].pubkey = associated;
+        f.t.world.ok(
+            "payout refunding into the payer's associated account",
+            ix,
+            &[&stranger],
+        );
+        assert_eq!(f.balance(&associated), 2_000_000);
+        assert!(!f.t.world.exists(&budget));
+    }
+}

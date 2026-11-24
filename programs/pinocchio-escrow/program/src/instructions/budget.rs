@@ -1191,8 +1191,19 @@ fn settle_token(
             &InvalidTokenAccount,
         )?;
     }
+    // The payer's refund account is read only when it receives something:
+    // this refund, or what the vault still holds when this payout finishes
+    // the budget.
+    let finishes = record.closed() && record.unsettled <= 1;
+    let leftover = TokenAccount::read(vault)?
+        .amount
+        .saturating_sub(to_payee.saturating_add(fee).saturating_add(refunded));
+    let pays_refund = refunded != 0 || (finishes && leftover != 0);
     let mut targets: [&AccountView; 3] = [&*refund; 3];
-    let mut count = 1;
+    let mut count = 0;
+    if pays_refund {
+        count += 1;
+    }
     if to_payee != 0 {
         targets[count] = &*payout_account;
         count += 1;
@@ -1224,10 +1235,12 @@ fn settle_token(
             &InvalidTreasury,
         )?;
     }
-    require(
-        &TokenAccount::read(refund)?.owner == payer.address(),
-        &InvalidTokenAccount,
-    )?;
+    if pays_refund {
+        require(
+            &TokenAccount::read(refund)?.owner == payer.address(),
+            &InvalidTokenAccount,
+        )?;
+    }
     // Payee first, then the fee, then the refund (D6).
     let [paid, fee_received, refund_received] = funds.send(
         budget,
