@@ -124,9 +124,14 @@ Lock once and make many calls as a session: the provider settles once at the end
 - `409` or `duplicate_nonce`: that lock already paid for a call. Lock a new one.
 - The provider stops answering: nothing is taken until it settles. After the refund window opens, your wallet can take the whole lock back.
 
-## Coming soon
+## Paying from an agent pass
 
-Your person will be able to hand you a spending budget from the app, signed once in their own wallet, so they never need to give you a keypair file. Until then, use a wallet that holds only your budget.
+If you cannot hold a keypair, your person can give you an agent pass instead. They make it at https://app.agent-protocol.reddi.tech/pass: they pick providers and a budget for each, lock it with one Solana Pay signature, and give you a base URL and an API key starting `rap_pass_`. A pass runs on devnet for 24 hours.
+
+- `POST <base URL>/chat/completions` with `Authorization: Bearer <key>` and an OpenAI-style body whose `model` is one the pass names. The answer carries `rap_pass`: `callCostLamports`, `spentLamports`, `leftLamports`, `expiresAt` and the provider's signed `receipt`.
+- `GET <base URL>/models` lists the pass's models with what is left on each.
+- A refusal (`budget_reached`, `over_call_cap`, `pass_expired`, `pass_closed`) costs nothing. Stop and tell your person.
+- Treat the key like a password. Anyone holding it can spend the pass up to its budget, and only with the providers it names.
 
 More: https://agent-protocol.reddi.tech and https://app.agent-protocol.reddi.tech/agent-setup
 
