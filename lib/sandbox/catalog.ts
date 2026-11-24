@@ -8,6 +8,7 @@
  * a provider can settle a metered escrow after it answers. They hold devnet SOL only.
  */
 import { PR_REVIEW_ANSWER, PR_REVIEW_PROMPT } from "@/lib/try/pr-review";
+import { scriptedWritingAnswer, WRITING_SAMPLE } from "@/lib/sandbox/writing-skill";
 
 export const SANDBOX_NETWORK = "solana-devnet" as const;
 export const SANDBOX_CURRENCY = "SOL" as const;
@@ -48,6 +49,16 @@ export type SandboxProvider = {
    * for the buyer to collect. Its token prices are zero: sending the brief is free.
    */
   media?: SandboxMediaPricing;
+  /** A first-party writing provider in the "Help us write better" scenario. */
+  writing?: SandboxWritingListing;
+};
+
+/** What a first-party writing provider does in the "Help us write better" scenario. */
+export type SandboxWritingListing = {
+  /** The step it does. */
+  role: string;
+  /** What it does for the visitor, in a line. */
+  does: string;
 };
 
 /**
@@ -226,6 +237,32 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
       keeps: "Its render presets and loudness chain.",
     },
   },
+  // "Help us write better": Reddi's own writing providers, listed like anyone
+  // else's, at the per-token prices they charge. Simulated payments only here.
+  {
+    id: "reddi-writing-style",
+    model: "sandbox/reddi-writing-style",
+    name: "Reddi Writing Style",
+    tagline: "Turns how you like to write into a skill your agent can follow.",
+    pricing: { inputPerMillionUsd: "2.6", outputPerMillionUsd: "13", maxOutputTokens: 2000 },
+    payTo: "GpNDNRqekfWDSCRnWHcpcycu6VVxC4uWzE1ekS3yYAS8",
+    behaviour: "honest",
+    reputation: { score: 4.8, receipts: 143 },
+    simulatedOnly: true,
+    writing: { role: "Build the skill", does: "Turns your voice, length and jargon settings into a skill file any agent can read." },
+  },
+  {
+    id: "reddi-humaniser",
+    model: "sandbox/reddi-humaniser",
+    name: "Reddi Humaniser",
+    tagline: "Takes out the tells that make text read as machine-written.",
+    pricing: { inputPerMillionUsd: "0.13", outputPerMillionUsd: "0.65", maxOutputTokens: 1000 },
+    payTo: "HmQZhzCctgUhUMios73y4VuSsBsZye9dBdL6ji3SE8Dq",
+    behaviour: "honest",
+    reputation: { score: 4.7, receipts: 389 },
+    simulatedOnly: true,
+    writing: { role: "Try it and humanise", does: "Rewrites a sample with your skill so you can see it work, then adds its rules for sounding like a person." },
+  },
 ];
 
 export function findSandboxProviderByModel(model: unknown): SandboxProvider | undefined {
@@ -236,7 +273,7 @@ export function findSandboxProviderById(id: unknown): SandboxProvider | undefine
   return typeof id === "string" ? SANDBOX_PROVIDERS.find((provider) => provider.id === id) : undefined;
 }
 
-export type SandboxScenarioId = "buy-a-review" | "shop-around" | "run-a-session" | "make-a-video" | "try-to-cheat" | "provider-offline";
+export type SandboxScenarioId = "buy-a-review" | "shop-around" | "run-a-session" | "make-a-video" | "write-better" | "try-to-cheat" | "provider-offline";
 
 export type SandboxScenario = {
   id: SandboxScenarioId;
@@ -336,6 +373,15 @@ export const SANDBOX_SCENARIOS: readonly SandboxScenario[] = [
     providerIds: ["frame-foundry", "tidepool-audio", "kettle-voice", "booth-match", "splice-line"],
   },
   {
+    id: "write-better",
+    title: "Help us write better",
+    persona: "You use AI assistants every day and run a few agents of your own. You want what they write to sound like you, at the length you want, with as much jargon as your readers can take.",
+    hook: "Pick a voice, a length and a jargon level. Get a writing skill your agent can use.",
+    takeaway: "Two paid calls built a skill file you keep: one set the rules, one tried them on real text and added the rules for sounding like a person. Each came back with a price per token up front and a signed receipt after. Your agent can make the same calls itself.",
+    prompt: WRITING_SAMPLE,
+    providerIds: ["reddi-writing-style", "reddi-humaniser"],
+  },
+  {
     id: "try-to-cheat",
     title: "Try to cheat",
     persona: "You are the adversary. Reuse a payment, underpay, pay the wrong wallet, or edit the answer after the fact.",
@@ -365,6 +411,7 @@ export function findSandboxScenario(id: unknown): SandboxScenario | undefined {
  */
 export function scriptedSandboxAnswer(provider: SandboxProvider, prompt: string): string {
   if (provider.studio) return STUDIO_ANSWERS[provider.id] ?? "";
+  if (provider.writing) return scriptedWritingAnswer(provider.id, prompt);
   if (prompt === PR_REVIEW_PROMPT) {
     if (provider.id === "atlas-review") return PR_REVIEW_ANSWER;
     return "Two things before this ships: a resent status check can hit the replay guard and show a paid call as failed, and the rating path still confirms over a websocket. Store the answer by escrow and poll for confirmations.";

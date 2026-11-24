@@ -895,6 +895,7 @@ export async function sandboxModelsListing(settler?: SandboxSettler, acceptRated
         available: provider.behaviour !== "offline",
         ...(provider.simulatedOnly ? { simulatedPaymentsOnly: true } : {}),
         ...(provider.studio ? { studio: provider.studio } : {}),
+        ...(provider.writing ? { writing: provider.writing } : {}),
         ...(provider.media
           ? { mediaPricing: { unit: provider.media.unit, unitLabel: provider.media.unitLabel, perUnitUsd: provider.media.perUnitUsd, maxUnits: provider.media.maxUnits, mediaType: provider.media.mediaType, hostingDays: provider.media.hostingDays, hostingPerGbUsd: provider.media.hostingPerGbUsd } }
           : {}),
