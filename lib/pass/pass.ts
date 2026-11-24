@@ -331,13 +331,31 @@ export type PassCallResult =
   | { ok: true; status: 200; body: Record<string, unknown>; receipt: SandboxReceipt; closingReceipt?: SandboxReceipt; pass: AgentPass }
   | PassFailure;
 
-async function withSession(store: AgentPassStore, pass: AgentPass, index: number, change: (session: PassSession) => PassSession): Promise<AgentPass | undefined> {
-  const next: AgentPass = { ...pass, sessions: pass.sessions.map((session, i) => (i === index ? change(session) : session)), version: pass.version + 1 };
-  const written = await store.update(next);
-  return written.ok ? next : undefined;
+/**
+ * Write one session of the pass. The pass row has one version for all its
+ * sessions, so a call to another provider can land in between: on a version
+ * conflict, read the pass again and apply `change` to the latest copy of
+ * this session, leaving the others as they now are. `change` returns
+ * undefined when the latest copy no longer allows the write.
+ */
+const SESSION_WRITE_ATTEMPTS = 8;
+async function withSession(store: AgentPassStore, pass: AgentPass, index: number, change: (session: PassSession) => PassSession | undefined): Promise<AgentPass | undefined> {
+  let current = pass;
+  for (let attempt = 0; attempt < SESSION_WRITE_ATTEMPTS; attempt += 1) {
+    const changed = change(current.sessions[index]);
+    if (!changed) return undefined;
+    const next: AgentPass = { ...current, sessions: current.sessions.map((session, i) => (i === index ? changed : session)), version: current.version + 1 };
+    const written = await store.update(next);
+    if (written.ok) return next;
+    const latest = await store.byId(pass.id);
+    if (!latest) return undefined;
+    current = latest;
+  }
+  return undefined;
 }
 
-type HeldSession = PassSession & { heldUntil?: number };
+/** A session while a call holds it: until when, and which call (so only that call's write-back releases it). */
+type HeldSession = PassSession & { heldUntil?: number; holdId?: string };
 
 /**
  * Step 4: one call from the agent. The body is an OpenAI-style chat request
@@ -393,12 +411,20 @@ async function callWithPass(input: RelayInput & { pass: AgentPass; body: unknown
   if (session.heldUntil !== undefined && session.heldUntil > nowMs) return fail(409, "pass_busy", `Another call to ${provider.name} is in progress. Retry in a moment.`);
 
   // Hold the session so a second call cannot take the same sequence.
-  const held = await withSession(input.store, pass, index, (s) => ({ ...s, heldUntil: nowMs + PASS_CALL_HOLD_MS }) as HeldSession);
+  // Only if the latest copy of this session is still the one checked above (same sequence, open, not held).
+  const holdId = randomBytes(8).toString("hex");
+  const held = await withSession(input.store, pass, index, (s) => {
+    const latest = s as HeldSession;
+    if (latest.closed || latest.sequence !== session.sequence || (latest.heldUntil !== undefined && latest.heldUntil > nowMs)) return undefined;
+    return { ...latest, heldUntil: nowMs + PASS_CALL_HOLD_MS, holdId } as HeldSession;
+  });
   if (!held) return fail(409, "pass_busy", `Another call to ${provider.name} is in progress. Retry in a moment.`);
   const release = async (current: AgentPass, change: (s: PassSession) => PassSession = (s) => s) =>
     withSession(input.store, current, index, (s) => {
-      const { heldUntil: _released, ...rest } = change(s) as HeldSession;
+      if ((s as HeldSession).holdId !== holdId) return undefined;
+      const { heldUntil: _released, holdId: _id, ...rest } = change(s) as HeldSession;
       void _released;
+      void _id;
       return rest;
     });
 
