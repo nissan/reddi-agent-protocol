@@ -242,7 +242,7 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
   {
     id: "reddi-writing-style",
     model: "sandbox/reddi-writing-style",
-    name: "Reddi Writing Style",
+    name: "RAP Writing Style",
     tagline: "Turns how you like to write into a skill your agent can follow.",
     pricing: { inputPerMillionUsd: "2.6", outputPerMillionUsd: "13", maxOutputTokens: 2000 },
     payTo: "GpNDNRqekfWDSCRnWHcpcycu6VVxC4uWzE1ekS3yYAS8",
@@ -254,7 +254,7 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
   {
     id: "reddi-humaniser",
     model: "sandbox/reddi-humaniser",
-    name: "Reddi Humaniser",
+    name: "RAP Humaniser",
     tagline: "Takes out the tells that make text read as machine-written.",
     pricing: { inputPerMillionUsd: "0.13", outputPerMillionUsd: "0.65", maxOutputTokens: 1000 },
     payTo: "HmQZhzCctgUhUMios73y4VuSsBsZye9dBdL6ji3SE8Dq",

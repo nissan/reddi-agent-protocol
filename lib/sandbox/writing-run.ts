@@ -1,7 +1,7 @@
 /**
  * The sandbox "Help us write better" scenario, run end to end: the visitor's
- * agent asks Reddi Writing Style to build a skill from their settings, then
- * asks Reddi Humaniser to try it on a sample and add its own rules. Each step
+ * agent asks RAP Writing Style to build a skill from their settings, then
+ * asks RAP Humaniser to try it on a sample and add its own rules. Each step
  * is its own paid call through the sandbox gateway: an unpaid request gets a
  * 402 challenge with the most the call can cost, a simulated payment meets it,
  * and the provider answers with a signed receipt the agent checks against what
