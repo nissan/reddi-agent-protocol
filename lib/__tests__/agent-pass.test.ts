@@ -277,6 +277,40 @@ describe("agent pass (#1048)", () => {
     expect(await call(w, s.key, ask(ATLAS.model), NOW_MS + 61_000)).toMatchObject({ ok: true });
   });
 
+  it("keeps a call's record when a call to another provider lands while it is in flight", async () => {
+    const w = world();
+    const s = await active(w);
+    const atlasEscrow = s.pass.sessions[0].escrow!;
+    // Hold Atlas's call inside the gateway until a whole Swift call has been served and written.
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => (open = resolve));
+    let waited = false;
+    const readAccount = w.deps.readAccount!;
+    w.deps.readAccount = async (address) => {
+      if (!waited && address.toBase58() === atlasEscrow) {
+        waited = true;
+        await gate;
+      }
+      return readAccount(address);
+    };
+    const atlas = call(w, s.key, ask(ATLAS.model));
+    while (!waited) await new Promise((r) => setImmediate(r));
+    const swift = await call(w, s.key, ask(SWIFT.model));
+    expect(swift).toMatchObject({ ok: true });
+    open();
+    const served = await atlas;
+    if (!served.ok) throw new Error(served.message);
+
+    const stored = (await w.store.byId(s.pass.id))!;
+    expect(stored.sessions[0]).toMatchObject({ sequence: 1, cumulativeLamports: served.receipt.receipt.session!.cumulativeCost });
+    expect(stored.sessions[1]).toMatchObject({ sequence: 1 });
+    expect(stored.sessions.every((x) => (x as { heldUntil?: number }).heldUntil === undefined)).toBe(true);
+    expect(await call(w, s.key, ask(ATLAS.model, "Next"))).toMatchObject({ ok: true });
+    const closed = await closePass({ key: s.key, origin: ORIGIN, secret: SECRET, deps: w.deps, store: w.store, nowMs: NOW_MS });
+    expect(closed).toMatchObject({ ok: true, failures: [] });
+    if (closed.ok) expect(closed.pass.status).toBe("closed");
+  });
+
   it("near the end of its 24 hours a pass takes no more calls and closes itself", async () => {
     const w = world();
     const s = await active(w);
