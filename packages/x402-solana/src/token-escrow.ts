@@ -193,5 +193,7 @@ export function decodeTokenEscrowAccount(data: Buffer) {
     rated: (data[202] & 0x02) !== 0,
     /** The buyer opted this job in to the delivery check (bit 0x04): every exit must pass the delivery account (`./delivery`). */
     deliveryChecked: (data[202] & 0x04) !== 0,
+    /** Flag bits this version does not know (any bit but 0x01, 0x02 and 0x04). A later program may set them; refuse such an escrow rather than serve it. */
+    unknownFlagBits: data[202] & ~0x07 & 0xff,
   };
 }

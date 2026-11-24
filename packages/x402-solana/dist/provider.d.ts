@@ -250,6 +250,9 @@ export type VerifiedLock = {
  * any work is done rather than left unpaid after it.
  * The escrow is then remembered, so one lock pays for one call.
  *
+ * An escrow with a flag bit this version does not know is always refused
+ * (`unknown_escrow_flags`), since its exits may need accounts this version
+ * never sends.
  * An escrow the buyer opted in to the delivery check is always refused
  * (`delivery_escrow_declined`): no provider takes one until the kit runs the
  * delivery flow and lets a provider name the judges it accepts.

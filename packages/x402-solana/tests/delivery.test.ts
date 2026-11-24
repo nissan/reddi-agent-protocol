@@ -73,7 +73,7 @@ describe('delivery-checked escrow client', () => {
     expect(isDeliveryCheckedFlag(5)).toBe(true);
     expect(isDeliveryCheckedFlag(3)).toBe(false);
     const sol = account('sol_escrow_delivery_checked_metered');
-    expect(escrowAccountFlags(sol)).toEqual({ kind: 'sol', metered: true, rated: false, deliveryChecked: true });
+    expect(escrowAccountFlags(sol)).toEqual({ kind: 'sol', metered: true, rated: false, deliveryChecked: true, unknownBits: 0 });
   });
 
   it('builds open, record, accept and dispute byte for byte', () => {

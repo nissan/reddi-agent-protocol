@@ -405,6 +405,9 @@ export type VerifiedLock =
  * any work is done rather than left unpaid after it.
  * The escrow is then remembered, so one lock pays for one call.
  *
+ * An escrow with a flag bit this version does not know is always refused
+ * (`unknown_escrow_flags`), since its exits may need accounts this version
+ * never sends.
  * An escrow the buyer opted in to the delivery check is always refused
  * (`delivery_escrow_declined`): no provider takes one until the kit runs the
  * delivery flow and lets a provider name the judges it accepts.
@@ -477,6 +480,11 @@ export async function verifyMeteredLock(input: {
   }
   if (escrow.status !== 0) return { ok: false, reason: 'duplicate_nonce', message: 'This escrow has already been settled or cancelled.' };
   if (!escrow.metered) return { ok: false, reason: 'invalid_receipt', message: 'This escrow was not locked as a metered escrow.' };
+  // A flag bit this version does not know means a later program added a rule to this escrow's exits
+  // (as 0x04 did). Its settle may need accounts this version never sends, so it is refused, not served.
+  if (escrow.unknownFlagBits !== 0) {
+    return { ok: false, reason: 'unknown_escrow_flags', message: 'This escrow carries options this provider does not know. Nothing was accepted or served. Lock a new escrow without them, and refund this one once its refund window opens.' };
+  }
   // A delivery-checked escrow (bit 0x04) pays the provider only after it records a delivery and
   // the buyer's verify window ends, its settle has to carry the delivery account, and a dispute is
   // ruled on by the judge the buyer named. This kit does not run that flow yet, and serving one
