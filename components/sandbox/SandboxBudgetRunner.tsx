@@ -9,6 +9,7 @@ import {
   maskAgentKey,
   newSandboxAgentKey,
   runSandboxBudget,
+  SPLICE_FILM_FUN,
   type BudgetEvent,
   type BudgetRunResult,
   type BudgetToken,
@@ -92,6 +93,14 @@ export default function SandboxBudgetRunner() {
         <p className="mt-2 text-sm leading-6 text-gray-300">
           Your agent is making a 30-second launch video. You lock one Budget for it in one token. The agent reserves a slice with each provider that takes that token, pays for each call from its slice with a receipt. When the job is done you close the Budget. After a 24-hour window to dispute, each provider is paid what its receipts add up to, and the rest comes back to you.
         </p>
+        <div className="mt-3 rounded-xl border border-[#9945FF]/30 bg-[#9945FF]/10 p-4 text-sm leading-6 text-gray-200" data-testid="sandbox-budget-featured">
+          <p className="font-semibold text-white">
+            Featured: <a href={SPLICE_FILM_FUN.featured.url} className="underline" target="_blank" rel="noreferrer">Splice by film.fun</a>
+          </p>
+          <p className="mt-1">
+            A real AI filmmaking studio: it generates shots, edits them on a timeline and renders motion graphics. Its prices here are the ones it publishes for agents ({SPLICE_FILM_FUN.featured.pricingSource.summary}; read {SPLICE_FILM_FUN.featured.pricingSource.readOn}). Splice already sells to agents, which top up credits with USDC, SOL or AUDD through Solana Pay. It is not a RAP provider yet. On RAP, each call would be paid from your agent&apos;s Budget as it happens, with a receipt.
+          </p>
+        </div>
         <p className="mt-2 text-xs leading-5 text-gray-400">This scenario is a simulation of the Budget design: nothing is locked or paid on devnet, and the receipts are unsigned stand-ins. Every figure is worked out from the calls in this run.</p>
       </div>
 
@@ -179,7 +188,7 @@ export default function SandboxBudgetRunner() {
                     <tr key={`${row.providerId}-${row.receipt.sequence}`} className="border-t border-white/10">
                       <th scope="row" className="py-1.5 pr-3 font-normal">{row.providerName}</th>
                       <td className="py-1.5 pr-3">{row.receipt.sequence}</td>
-                      <td className="py-1.5 pr-3">{row.receipt.file} · {row.receipt.units} s</td>
+                      <td className="py-1.5 pr-3">{row.receipt.file} · {row.receipt.unit === "render" ? "1 render" : `${row.receipt.units} s`}</td>
                       <td className="py-1.5 pr-3">{fmt(BigInt(row.receipt.amount))}</td>
                       <td className="py-1.5 pr-3">{fmt(BigInt(row.receipt.cumulative))} / {fmt(BigInt(row.receipt.reserved))}</td>
                       <td className={`py-1.5 ${row.checked ? "text-[#14F195]" : "text-red-300"}`} title={row.hash}>{row.checked ? `✓ ${row.hash.slice(0, 8)}` : "does not match"}</td>

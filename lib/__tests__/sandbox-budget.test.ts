@@ -1,6 +1,7 @@
 import { LAUNCH_RATE_ENDS_AT_MS } from "@redditech/x402-solana/payment";
-import { findSandboxProviderById, findSandboxScenario } from "@/lib/sandbox/catalog";
+import { findSandboxScenario } from "@/lib/sandbox/catalog";
 import {
+  SPLICE_FILM_FUN,
   BUDGET_DEFAULTS,
   budgetCallCost,
   budgetDisputeEnds,
@@ -25,15 +26,17 @@ describe("sandbox Budget scenario", () => {
     const run = await runSandboxBudget({ token: "USDC", agentKey: KEY, startMs: START });
     expect(run.budget.total).toBe(BigInt(5_000_000));
     expect(run.budget.perProviderCap).toBe(BigInt(2_500_000));
-    expect(run.joined.map((j) => j.providerId)).toEqual(["frame-foundry", "tidepool-audio", "kettle-voice"]);
-    expect(run.refused.map((r) => r.providerId)).toEqual(["splice-line"]);
+    expect(run.joined.map((j) => j.providerId)).toEqual(["splice-film-fun", "tidepool-audio", "kettle-voice"]);
+    expect(run.refused.map((r) => r.providerId)).toEqual(["booth-match"]);
 
-    // Frame Foundry: three 10 s shots at $0.05/s plus 12.5 MB hosted 7 days at $0.05/GB.
-    const shot = budgetCallCost(findSandboxProviderById("frame-foundry")!, 10, "USDC");
-    expect(shot).toBe(BigInt(500_625));
+    // Splice by film.fun, at its published prices: 6 credits a second at 768p, 5 credits a render, 100 credits = $1.
+    const shot = budgetCallCost(SPLICE_FILM_FUN, 10, "USDC");
+    expect(shot).toBe(BigInt(600_000));
+    const splice = run.calls.filter((c) => c.providerId === "splice-film-fun");
+    expect(splice.map((c) => [c.receipt.unit, c.receipt.amount])).toEqual([["second", "600000"], ["second", "600000"], ["second", "600000"], ["render", "50000"]]);
     // Twice the estimate passes the 50% cap, so the cap applies.
     expect(run.joined[0].reserved).toBe(BigInt(2_500_000));
-    expect(run.calls.filter((c) => c.providerId === "frame-foundry")).toHaveLength(3);
+    expect(splice).toHaveLength(4);
     expect(run.calls.every((c) => c.checked)).toBe(true);
 
     // Unreserved comes back at close; posted amounts are what the receipts add up to.
@@ -55,11 +58,11 @@ describe("sandbox Budget scenario", () => {
 
   it("chains each provider's receipts", async () => {
     const run = await runSandboxBudget({ token: "USDC", agentKey: KEY, startMs: START });
-    const shots = run.calls.filter((c) => c.providerId === "frame-foundry");
+    const shots = run.calls.filter((c) => c.providerId === "splice-film-fun");
     expect(shots[0].receipt.previousReceiptHash).toBeNull();
     expect(shots[1].receipt.previousReceiptHash).toBe(shots[0].hash);
     expect(shots[2].receipt.previousReceiptHash).toBe(shots[1].hash);
-    expect(shots.map((s) => s.receipt.sequence)).toEqual([1, 2, 3]);
+    expect(shots.map((s) => s.receipt.sequence)).toEqual([1, 2, 3, 4]);
   });
 
   it("times the dispute window at 24 hours after close and reads the fee at payout", async () => {
@@ -72,10 +75,10 @@ describe("sandbox Budget scenario", () => {
 
   it("lets only providers that take the Budget's token join", async () => {
     const audd = await runSandboxBudget({ token: "AUDD", agentKey: KEY, startMs: START });
-    expect(audd.joined.map((j) => j.providerId)).toEqual(["tidepool-audio", "kettle-voice"]);
-    expect(audd.refused.map((r) => r.providerId)).toEqual(["frame-foundry", "splice-line"]);
+    expect(audd.joined.map((j) => j.providerId)).toEqual(["splice-film-fun", "tidepool-audio", "kettle-voice"]);
+    expect(audd.refused.map((r) => r.providerId)).toEqual(["booth-match"]);
     const sol = await runSandboxBudget({ token: "SOL", agentKey: KEY, startMs: START });
-    expect(sol.joined.map((j) => j.providerId)).toEqual(["frame-foundry", "tidepool-audio", "splice-line"]);
+    expect(sol.joined.map((j) => j.providerId)).toEqual(["splice-film-fun", "tidepool-audio", "booth-match"]);
     expect(sol.budget.total).toBe(BigInt(33_333_334)); // $5 at the 150 USD/SOL demo rate, rounded up
     for (const run of [audd, sol]) {
       expect(run.totals.spent + run.totals.returned).toBe(run.budget.total);
@@ -113,7 +116,7 @@ describe("sandbox Budget scenario", () => {
     closeSandboxBudget(byAgent, 1_000, false);
     expect(byAgent.reviewFromOpenEnd).toBe(true);
     expect(budgetDisputeEnds(byAgent, { postedSlot: 1_100 })).toBe(openEnd + byAgent.disputeSlots);
-    const allowlisted = { ...run.budget, closed: false, reviewFromOpenEnd: false, allowlist: ["Frame Foundry"] };
+    const allowlisted = { ...run.budget, closed: false, reviewFromOpenEnd: false, allowlist: ["Splice by film.fun"] };
     closeSandboxBudget(allowlisted, 1_000, false);
     expect(allowlisted.reviewFromOpenEnd).toBe(false);
     expect(budgetDisputeEnds(allowlisted, { postedSlot: 1_100 })).toBe(1_000 + allowlisted.disputeSlots);
@@ -126,5 +129,13 @@ describe("sandbox Budget scenario", () => {
     const key = newSandboxAgentKey();
     expect(key).toMatch(/^rap_pass_[A-Za-z0-9]{24}$/);
     expect(maskAgentKey(KEY)).toBe("rap_pass_test…1234");
+  });
+  it("features Splice by film.fun at its published prices, in every token, without a payout address", async () => {
+    expect(SPLICE_FILM_FUN.featured.pricingSource.url).toBe("https://github.com/Rogues-Lab/splice-agent-skills");
+    expect(SPLICE_FILM_FUN.payTo).not.toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
+    for (const token of ["USDC", "AUDD", "SOL"] as const) {
+      const run = await runSandboxBudget({ token, agentKey: KEY, startMs: START });
+      expect(run.joined[0].providerName).toBe("Splice by film.fun");
+    }
   });
 });
