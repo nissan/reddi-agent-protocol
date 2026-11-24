@@ -224,7 +224,10 @@ interface OfBudget {
  * the reservation's rent). `amount` is the slice's new total: a raise sends
  * the higher total. `payoutAccount` is where the payee is paid: the payee
  * itself for SOL (the default), a token account of the budget's mint it owns
- * for tokens.
+ * for tokens. If the payee still has a reservation paid early in an earlier
+ * budget at the same address, put a `payoutInstruction` for it first in the
+ * same transaction: it closes that reservation, which otherwise refuses the
+ * reserve (6087).
  */
 export function reserveInstruction(
   input: OfBudget & { spender: PublicKey; payee: PublicKey; amount: bigint; payoutAccount?: PublicKey },
@@ -466,7 +469,7 @@ export interface ReservationAccount {
   payoutAccount: PublicKey;
   reserved: bigint;
   finalAmount: bigint;
-  lastPostSlot: bigint;
+  postedSlot: bigint;
   disputedSlot: bigint;
   state: ReservationState;
   waived: boolean;
@@ -485,7 +488,7 @@ export function decodeReservation(accountData: Uint8Array): ReservationAccount {
     payoutAccount: new PublicKey(data.subarray(80, 112)),
     reserved: data.readBigUInt64LE(112),
     finalAmount: data.readBigUInt64LE(120),
-    lastPostSlot: data.readBigUInt64LE(128),
+    postedSlot: data.readBigUInt64LE(128),
     disputedSlot: data.readBigUInt64LE(136),
     state,
     waived: data[145] !== 0,
@@ -495,13 +498,13 @@ export function decodeReservation(accountData: Uint8Array): ReservationAccount {
 /**
  * The first slot at which the payer can no longer dispute `reservation`, and
  * at which an undisputed one may be paid: the budget's dispute window from
- * its close, never earlier than `MIN_REVIEW_SLOTS` after the last post. Null
+ * its close, never earlier than `MIN_REVIEW_SLOTS` after the first post. Null
  * while the budget is open (the window has not started).
  */
 export function disputeEnds(budget: BudgetAccount, reservation: ReservationAccount): bigint | null {
   if (!budget.closed) return null;
   const window = budget.closedSlot + budget.disputeSlots;
-  const review = reservation.lastPostSlot + MIN_REVIEW_SLOTS;
+  const review = reservation.postedSlot + MIN_REVIEW_SLOTS;
   return review > window ? review : window;
 }
 

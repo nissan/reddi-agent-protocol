@@ -906,16 +906,23 @@ Rules from the threat model (`B` items in the design spec):
   stolen spender key cannot pay a provider it registered itself (B1). Letting
   the spender waive needs an allowlist (B2).
 - The dispute window runs from the close, and never ends earlier than
-  `MIN_REVIEW_SLOTS` (9,000, about an hour) after the provider's last post
-  (B3). An unposted slice cannot be disputed and pays nothing.
+  `MIN_REVIEW_SLOTS` (9,000, about an hour) after the provider's first post
+  (B3). A re-post may only lower the amount and keeps the first post's slot,
+  so re-posting cannot hold the payer's refund back. An unposted slice cannot
+  be disputed and pays nothing.
 - A slice paid early while the budget is open stays on record as paid, so the
   same provider cannot reserve again in that budget (B4). Its account closes,
   rent to the provider, by a payout call once the budget is closed or gone.
+  Until that call, it also blocks the same provider from reserving in a later
+  budget at the same address (`InvalidReservation`, 6087); anyone can send
+  the payout first, in the same transaction as the reserve.
 - Every instruction after the open names the budget by its `created_slot`
   and is refused in the slot it was opened in (B7).
 - Token transfers are measured: an open that leaves less than the total in
   the vault is refused, and a payout pays the provider first, then the fee,
-  then the refund (B8).
+  then the refund, each capped at what the vault still holds, so a
+  Token-2022 transfer fee switched on later or an issuer taking vault tokens
+  never strands a budget (B8).
 - At most 8 slices per budget; a slice is at least 1% of the total (at least
   one base unit); an optional per-provider cap.
 - The provider can re-point its token payout account while its slice is open
@@ -978,7 +985,7 @@ New error numbers, 6073 to 6097: `InvalidBudgetTerms`,
 
 `account:Reservation`, 147 bytes: discriminator (0), `budget` (8),
 `budget_created_slot` (40), `payee` (48), `payout_account` (80), `reserved`
-(112), `final_amount` (120), `last_post_slot` (128), `disputed_slot` (136),
+(112), `final_amount` (120), `posted_slot` (128), `disputed_slot` (136),
 `state` u8 (144: 0 open, 1 posted, 2 disputed, 3 paid), `waived` u8 (145),
 `bump` (146).
 
@@ -1081,9 +1088,9 @@ escrow and registry instructions only:
 
 | | Anchor (13 instructions) | Pinocchio (42 instructions) | Change |
 |---|---|---|---|
-| Program size | 345,152 bytes | 186,024 bytes | 46% smaller |
-| Rent at 6,960 lamports per byte | 2.4046 SOL | 1.2971 SOL | 1.1075 SOL less |
-| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.9467 SOL | 0.8084 SOL less |
+| Program size | 345,152 bytes | 186,048 bytes | 46% smaller |
+| Rent at 6,960 lamports per byte | 2.4046 SOL | 1.2972 SOL | 1.1074 SOL less |
+| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.9468 SOL | 0.8083 SOL less |
 | `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 133,096 bytes (measured before the pooled budget) | 73% smaller |
 
 Before ratings and attestations were added the Pinocchio build was 62,248
@@ -1092,7 +1099,7 @@ Making every exit name its escrow added 632 bytes (0.0044 SOL at 6,960), and
 the launch-rate fee schedule 176 bytes (0.0012 SOL). The delivery check
 added 27,464 bytes (0.1911 SOL at 6,960, 0.1395 SOL at 5,080), and the
 memo before a transfer into a memo-requiring account 912 bytes (0.0063 SOL).
-The pooled budget added 60,352 bytes (0.4200 SOL at 6,960, 0.3066 SOL at
+The pooled budget added 60,376 bytes (0.4202 SOL at 6,960, 0.3067 SOL at
 5,080).
 
 Rent is for the program account (36 bytes) plus the program data account (45

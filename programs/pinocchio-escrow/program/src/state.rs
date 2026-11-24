@@ -1281,7 +1281,7 @@ pub struct Reservation {
     pub payout_account: Address,
     reserved: [u8; 8],
     final_amount: [u8; 8],
-    last_post_slot: [u8; 8],
+    posted_slot: [u8; 8],
     disputed_slot: [u8; 8],
     pub state: u8,
     pub waived: u8,
@@ -1312,7 +1312,7 @@ impl Reservation {
             payout_account: *payout_account,
             reserved: reserved.to_le_bytes(),
             final_amount: [0; 8],
-            last_post_slot: [0; 8],
+            posted_slot: [0; 8],
             disputed_slot: [0; 8],
             state: RESERVATION_OPEN,
             waived: 0,
@@ -1356,8 +1356,8 @@ impl Reservation {
         u64::from_le_bytes(self.final_amount)
     }
 
-    pub fn last_post_slot(&self) -> u64 {
-        u64::from_le_bytes(self.last_post_slot)
+    pub fn posted_slot(&self) -> u64 {
+        u64::from_le_bytes(self.posted_slot)
     }
 
     pub fn disputed_slot(&self) -> u64 {
@@ -1366,8 +1366,14 @@ impl Reservation {
 
     pub fn post(&mut self, amount: u64, slot: u64) {
         self.final_amount = amount.to_le_bytes();
-        self.last_post_slot = slot.to_le_bytes();
+        self.posted_slot = slot.to_le_bytes();
         self.state = RESERVATION_POSTED;
+    }
+
+    /// A lower amount on a posted reservation. The first post's slot stays,
+    /// so a re-post never extends the payer's review time.
+    pub fn repost(&mut self, amount: u64) {
+        self.final_amount = amount.to_le_bytes();
     }
 
     pub fn dispute(&mut self, slot: u64) {
@@ -1377,10 +1383,10 @@ impl Reservation {
 
     /// The first slot at which the payer can no longer dispute this
     /// reservation of a closed `budget`: the budget's dispute window, and
-    /// never less than `MIN_REVIEW_SLOTS` after the last post.
+    /// never less than `MIN_REVIEW_SLOTS` after the first post.
     pub fn dispute_ends(&self, budget: &Budget) -> u64 {
         let window = budget.closed_slot().saturating_add(budget.dispute_slots());
-        let review = self.last_post_slot().saturating_add(MIN_REVIEW_SLOTS);
+        let review = self.posted_slot().saturating_add(MIN_REVIEW_SLOTS);
         if review > window {
             review
         } else {

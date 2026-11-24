@@ -14,7 +14,7 @@
 //! or the spender says so, or by anyone once the open period has ended; what
 //! was never reserved goes back to the payer at once. The payer may dispute a
 //! posted reservation until the dispute window ends, which is never earlier
-//! than `MIN_REVIEW_SLOTS` after the last post. A reservation is paid out
+//! than `MIN_REVIEW_SLOTS` after the first post. A reservation is paid out
 //! (`payout_budget`, `payout_token_budget`, by anyone) when both sides
 //! waived (the provider by posting, the payer by `waive`), or when the
 //! dispute window ends undisputed. A disputed one is split by the judge
@@ -639,7 +639,8 @@ pub fn set_payout_account(
 ///
 /// At most the reservation, and a re-post may only lower the amount (B3).
 /// Refused once disputed or waived, and after the dispute window of a closed
-/// budget. Each post gives the payer at least `MIN_REVIEW_SLOTS` to dispute.
+/// budget. The first post gives the payer at least `MIN_REVIEW_SLOTS` to
+/// dispute; a re-post (always lower) keeps the first post's slot.
 pub fn post_final(
     program_id: &Address,
     accounts: &mut [AccountView],
@@ -674,7 +675,14 @@ pub fn post_final(
             &BudgetDisputeWindowClosed,
         )?;
     }
-    slice.post(amount, slot);
+    if slice.state == RESERVATION_OPEN {
+        slice.post(amount, slot);
+    } else {
+        // A re-post only lowers the amount, which needs no new review time:
+        // keeping the first post's slot stops a payee from holding the
+        // payer's refund by re-posting the same amount again and again.
+        slice.repost(amount);
+    }
     slice.store(reservation)
 }
 

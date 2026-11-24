@@ -512,7 +512,7 @@ fn build() -> Value {
         },
         "budget_layout": {
             "budget": "349 bytes: discriminator sha256(\"account:Budget\")[..8] (0), payer (8), spender (40), judge (72), mint (104, zero for SOL), nonce (136), created_slot u64 (152), open_slots (160), dispute_slots (168), judge_slots (176), total (184), unreserved (192), per_provider_cap (200), allowlist [address;4] (208), closed_slot (336), reservations u8 (344), unsettled u8 (345), flags u8 (346: 0x01 spender may waive, 0x02 closed), bump (347), vault_bump (348)",
-            "reservation": "147 bytes: discriminator sha256(\"account:Reservation\")[..8] (0), budget (8), budget_created_slot u64 (40), payee (48), payout_account (80), reserved u64 (112), final_amount u64 (120), last_post_slot u64 (128), disputed_slot u64 (136), state u8 (144: 0 open, 1 posted, 2 disputed, 3 paid), waived u8 (145), bump (146)",
+            "reservation": "147 bytes: discriminator sha256(\"account:Reservation\")[..8] (0), budget (8), budget_created_slot u64 (40), payee (48), payout_account (80), reserved u64 (112), final_amount u64 (120), posted_slot u64 (128), disputed_slot u64 (136), state u8 (144: 0 open, 1 posted, 2 disputed, 3 paid), waived u8 (145), bump (146)",
         },
         "delivery_states": DELIVERY_STATES,
         "delivery_exits": "Every exit of a delivery-checked escrow (release, settle, cancel; SOL and token) takes the delivery account after its usual accounts and after the rating account if the escrow is rated. Its data is unchanged: an unrated escrow's exit names the lock slot, a rated one names the rating's opened slot, which is the same slot.",

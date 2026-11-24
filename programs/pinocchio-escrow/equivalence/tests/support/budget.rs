@@ -63,7 +63,7 @@ pub struct ReservationView {
     pub payout_account: Pubkey,
     pub reserved: u64,
     pub final_amount: u64,
-    pub last_post: u64,
+    pub posted: u64,
     pub state: u8,
     pub waived: u8,
 }
@@ -77,7 +77,7 @@ pub fn read_reservation(world: &World, reservation: &Pubkey) -> ReservationView 
         payout_account: Pubkey::new_from_array(data[80..112].try_into().unwrap()),
         reserved: u64_at(&data, 112),
         final_amount: u64_at(&data, 120),
-        last_post: u64_at(&data, 128),
+        posted: u64_at(&data, 128),
         state: data[144],
         waived: data[145],
     }

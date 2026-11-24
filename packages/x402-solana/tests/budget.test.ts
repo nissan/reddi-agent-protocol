@@ -286,9 +286,9 @@ describe('pooled budget client', () => {
     const closed = decodeBudget(account('budget_closed'));
     const posted = decodeReservation(account('reservation_posted'));
     expect(disputeEnds(decodeBudget(account('budget_open')), posted)).toBeNull();
-    expect(disputeEnds(closed, { ...posted, lastPostSlot: 0n })).toBe(closed.closedSlot + closed.disputeSlots);
+    expect(disputeEnds(closed, { ...posted, postedSlot: 0n })).toBe(closed.closedSlot + closed.disputeSlots);
     const late = closed.closedSlot + closed.disputeSlots - 1n;
-    expect(disputeEnds(closed, { ...posted, lastPostSlot: late })).toBe(late + MIN_REVIEW_SLOTS);
+    expect(disputeEnds(closed, { ...posted, postedSlot: late })).toBe(late + MIN_REVIEW_SLOTS);
   });
 
   it('refuses terms the program would refuse', () => {

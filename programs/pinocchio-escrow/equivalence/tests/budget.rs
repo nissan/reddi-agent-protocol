@@ -566,10 +566,14 @@ fn a_reservation_is_checked_against_the_budget_and_the_payee() {
         RESERVATION_LOCKED,
     );
 
-    // No new reservation after the open period.
-    t.world.warp(created + OPEN_SLOTS);
+    // The last slot of the open period still takes a reservation (B10).
     let c = t.world.wallet(7);
     t.world.register(&c, AgentType::Primary);
+    t.world.warp(created + OPEN_SLOTS - 1);
+    t.reserve(&budget, created, &d, 5_000_000);
+    assert_eq!(read_budget(&t.world, &budget).unreserved, 0);
+    // No new reservation after the open period.
+    t.world.warp(created + OPEN_SLOTS);
     t.world.refused(
         "after the open period",
         res(&c.pubkey(), 5_000_000),
@@ -705,9 +709,13 @@ fn a_late_post_gets_its_review_time_and_a_repost_only_goes_down() {
     let b_kp = t.b.insecure_clone();
     let payer_kp = t.payer.insecure_clone();
     let stranger = t.stranger.insecure_clone();
+    let c_kp = t.world.wallet(7);
+    t.world.register(&c_kp, AgentType::Primary);
+    let c = c_kp.pubkey();
     let (budget, created) = t.open(&t.terms(1));
     t.reserve(&budget, created, &a_kp, 40_000_000);
     t.reserve(&budget, created, &b_kp, 30_000_000);
+    t.reserve(&budget, created, &c_kp, 20_000_000);
 
     t.world.refused(
         "post above the reservation",
@@ -721,6 +729,7 @@ fn a_late_post_gets_its_review_time_and_a_repost_only_goes_down() {
         &[&b_kp],
         UNAUTHORISED_SIGNER,
     );
+    let first_post = t.world.slot();
     t.post(&budget, created, &a_kp, 30_000_000);
     // B3: a re-post may only lower the amount.
     t.world.refused(
@@ -729,6 +738,7 @@ fn a_late_post_gets_its_review_time_and_a_repost_only_goes_down() {
         &[&a_kp],
         INVALID_FINAL_AMOUNT,
     );
+    t.world.next_slot();
     t.post(&budget, created, &a_kp, 20_000_000);
     t.world.refused(
         "dispute an unposted reservation (B15)",
@@ -744,19 +754,35 @@ fn a_late_post_gets_its_review_time_and_a_repost_only_goes_down() {
     );
     let closed = read_budget(&t.world, &budget).closed_slot;
 
-    // A re-posts at the last slot of the dispute window: the payer still
-    // gets MIN_REVIEW to look at it (B3).
+    // At the last slot of the dispute window A re-posts lower and C posts
+    // for the first time.
     t.world.warp(closed + DISPUTE_SLOTS - 1);
     t.post(&budget, created, &a_kp, 10_000_000);
+    t.post(&budget, created, &c_kp, 15_000_000);
+    // A re-post keeps the first post's slot, so re-posting cannot keep
+    // pushing the payout back (review L1).
     let ra = read_reservation(&t.world, &reservation_address(&budget, &a));
     assert_eq!(
-        (ra.final_amount, ra.last_post, ra.state),
-        (10_000_000, closed + DISPUTE_SLOTS - 1, R_POSTED)
+        (ra.final_amount, ra.posted, ra.state),
+        (10_000_000, first_post, R_POSTED)
     );
+    // A first post still gives the payer MIN_REVIEW to look at it (B3).
+    let rc = read_reservation(&t.world, &reservation_address(&budget, &c));
+    assert_eq!(rc.posted, closed + DISPUTE_SLOTS - 1);
+
     t.world.warp(closed + DISPUTE_SLOTS);
+    let a_before = t.lamports(&a);
+    let payer_before = t.lamports(&payer);
+    t.payout(&budget, created, &a);
+    assert_eq!(
+        t.lamports(&a),
+        a_before + 10_000_000 - fee(10_000_000) + rent(&t.world, RESERVATION_LEN),
+        "A's re-post did not move its dispute window"
+    );
+    assert_eq!(t.lamports(&payer), payer_before + 30_000_000);
     t.world.refused(
-        "payout before the review time after the last post",
-        payout_ix(&budget, created, &a, &payer),
+        "payout before the review time after a late first post",
+        payout_ix(&budget, created, &c, &payer),
         &[&stranger],
         PAYOUT_NOT_OPEN,
     );
@@ -777,11 +803,11 @@ fn a_late_post_gets_its_review_time_and_a_repost_only_goes_down() {
     );
     assert_eq!(t.lamports(&b), b_before + rent(&t.world, RESERVATION_LEN));
 
-    // The payer disputes inside the review time; the judge window runs.
+    // The payer disputes C inside its review time.
     t.world.warp(closed + DISPUTE_SLOTS - 1 + MIN_REVIEW - 1);
-    t.hold("dispute", &budget, created, &a);
-    let ra = read_reservation(&t.world, &reservation_address(&budget, &a));
-    assert_eq!(ra.state, R_DISPUTED);
+    t.hold("dispute", &budget, created, &c);
+    let rc = read_reservation(&t.world, &reservation_address(&budget, &c));
+    assert_eq!(rc.state, R_DISPUTED);
 }
 
 #[test]
@@ -844,6 +870,7 @@ fn the_judge_splits_a_disputed_reservation_or_it_refunds() {
         UNAUTHORISED_SIGNER,
     );
     t.hold("dispute", &budget, created, &a);
+    let a_disputed = t.world.slot();
     for (label, ix, signers, code) in [
         (
             "dispute twice",
@@ -884,6 +911,8 @@ fn the_judge_splits_a_disputed_reservation_or_it_refunds() {
     ] {
         t.world.refused(label, ix, &signers, code);
     }
+    // The judge may still rule in the last slot of its window (B10).
+    t.world.warp(a_disputed + JUDGE_SLOTS - 1);
     let a_before = t.lamports(&a);
     let payer_before = t.lamports(&payer);
     t.world.ok(
@@ -1348,4 +1377,193 @@ fn compute_units_of_the_largest_budget_calls() {
     for (label, units) in &t.world.compute {
         assert!(*units < 60_000, "{label} used {units} compute units");
     }
+}
+
+// ── Token-2022 issuer controls (B8) ─────────────────────────────────────────
+
+/// Sets the PYUSD fixture mint's transfer fee, as the issuer could, effective
+/// at once. The TransferFeeConfig record sits at byte 242 of the fixture:
+/// two authorities (64) and the withheld amount (8), then two fee records of
+/// epoch u64, maximum fee u64, basis points u16.
+fn set_transfer_fee(world: &mut World, mint: &Pubkey, bps: u16) {
+    let mut account = world.svm.get_account(mint).unwrap();
+    assert_eq!(
+        &account.data[238..240],
+        &1u16.to_le_bytes(),
+        "TransferFeeConfig"
+    );
+    for record in [242 + 72, 242 + 90] {
+        account.data[record..record + 8].copy_from_slice(&0u64.to_le_bytes());
+        account.data[record + 8..record + 16].copy_from_slice(&u64::MAX.to_le_bytes());
+        account.data[record + 16..record + 18].copy_from_slice(&bps.to_le_bytes());
+    }
+    world.set(*mint, account);
+}
+
+/// Stands in for the issuer's permanent delegate taking tokens out of the
+/// vault: the vault's balance drops to `amount`.
+fn shrink_vault(world: &mut World, vault: &Pubkey, amount: u64) {
+    let mut account = world.svm.get_account(vault).unwrap();
+    account.data[64..72].copy_from_slice(&amount.to_le_bytes());
+    world.set(*vault, account);
+}
+
+/// What a 1% Token-2022 transfer fee leaves the receiver (rounded up fee).
+fn after_fee(sent: u64) -> u64 {
+    sent - sent.div_ceil(100)
+}
+
+#[test]
+fn a_transfer_fee_at_open_refuses_the_open() {
+    let mut f = TokenFixture::new(TOKEN_2022_ID, PYUSD_MAINNET_MINT);
+    let payer_kp = f.t.payer.insecure_clone();
+    set_transfer_fee(&mut f.t.world, &PYUSD_MAINNET_MINT, 100);
+    let terms = Terms {
+        total: TOKEN_TOTAL,
+        ..f.t.terms(1)
+    };
+    let error =
+        f.t.world
+            .send(&[terms.open_token_ix(&f.tokens)], &[&payer_kp])
+            .err()
+            .expect("refused");
+    assert!(error.contains("Custom(6024)"), "{error}");
+}
+
+#[test]
+fn a_transfer_fee_switched_on_later_does_not_strand_a_budget() {
+    let mut f = TokenFixture::new(TOKEN_2022_ID, PYUSD_MAINNET_MINT);
+    let payer = f.t.payer.pubkey();
+    let a = f.t.a.pubkey();
+    let a_kp = f.t.a.insecure_clone();
+    let payer_kp = f.t.payer.insecure_clone();
+    let stranger = f.t.stranger.insecure_clone();
+    let judge = f.t.judge.insecure_clone();
+    let terms = Terms {
+        total: TOKEN_TOTAL,
+        ..f.t.terms(1)
+    };
+    let (budget, created) = f.open(&terms);
+    let vault = vault_address(&budget);
+    f.reserve(&budget, created, 6_000_000);
+    f.t.post(&budget, created, &a_kp, 4_000_000);
+    f.t.hold("waive", &budget, created, &a);
+    set_transfer_fee(&mut f.t.world, &PYUSD_MAINNET_MINT, 100);
+
+    // Payout: every leg arrives less the issuer's fee, and nothing fails.
+    let source_before = f.balance(&f.tokens.source);
+    f.t.world.ok(
+        "payout_token_budget (transfer fee on)",
+        token_payout_ix(&f.tokens, &budget, created, &a, &f.tokens.recipient),
+        &[&stranger],
+    );
+    let paid = 4_000_000 - fee(4_000_000);
+    assert_eq!(f.balance(&f.tokens.recipient), after_fee(paid));
+    assert_eq!(
+        f.balance(&f.tokens.treasury_token),
+        after_fee(fee(4_000_000))
+    );
+    assert_eq!(
+        f.balance(&f.tokens.source),
+        source_before + after_fee(2_000_000)
+    );
+    assert_eq!(
+        f.balance(&vault),
+        TOKEN_TOTAL - 6_000_000,
+        "the vault sent exactly the slice"
+    );
+
+    // Close: the unreserved part comes back less the fee; vault and budget close.
+    let source_before = f.balance(&f.tokens.source);
+    f.t.world.ok(
+        "close_token_budget (transfer fee on)",
+        token_close_ix(&f.tokens, &budget, created, &payer),
+        &[&payer_kp],
+    );
+    assert_eq!(
+        f.balance(&f.tokens.source),
+        source_before + after_fee(4_000_000)
+    );
+    assert!(!f.t.world.exists(&budget));
+    assert!(!f.t.world.exists(&vault));
+
+    // Resolve with the fee on: a second budget opened while the fee was 0.
+    set_transfer_fee(&mut f.t.world, &PYUSD_MAINNET_MINT, 0);
+    let terms = Terms {
+        nonce: nonce(2),
+        ..terms
+    };
+    let (budget, created) = f.open(&terms);
+    f.reserve(&budget, created, 6_000_000);
+    f.t.post(&budget, created, &a_kp, 6_000_000);
+    f.t.hold("dispute", &budget, created, &a);
+    f.t.world.ok(
+        "close_token_budget (disputed)",
+        token_close_ix(&f.tokens, &budget, created, &payer),
+        &[&payer_kp],
+    );
+    set_transfer_fee(&mut f.t.world, &PYUSD_MAINNET_MINT, 100);
+    let recipient_before = f.balance(&f.tokens.recipient);
+    f.t.world.ok(
+        "resolve_token_budget (transfer fee on)",
+        token_resolve_ix(
+            &f.tokens,
+            &budget,
+            created,
+            &a,
+            &f.tokens.recipient,
+            &judge.pubkey(),
+            3_000_000,
+        ),
+        &[&judge],
+    );
+    assert_eq!(
+        f.balance(&f.tokens.recipient),
+        recipient_before + after_fee(3_000_000 - fee(3_000_000))
+    );
+    assert!(!f.t.world.exists(&budget));
+    assert!(!f.t.world.exists(&vault_address(&budget)));
+}
+
+#[test]
+fn an_issuer_taking_vault_tokens_does_not_strand_a_budget() {
+    let mut f = TokenFixture::new(TOKEN_2022_ID, PYUSD_MAINNET_MINT);
+    let payer = f.t.payer.pubkey();
+    let a = f.t.a.pubkey();
+    let a_kp = f.t.a.insecure_clone();
+    let payer_kp = f.t.payer.insecure_clone();
+    let stranger = f.t.stranger.insecure_clone();
+    let terms = Terms {
+        total: TOKEN_TOTAL,
+        ..f.t.terms(1)
+    };
+    let (budget, created) = f.open(&terms);
+    let vault = vault_address(&budget);
+    f.reserve(&budget, created, 6_000_000);
+    f.t.post(&budget, created, &a_kp, 6_000_000);
+    f.t.hold("waive", &budget, created, &a);
+    shrink_vault(&mut f.t.world, &vault, 3_000_000);
+
+    // The payee is paid first from what is left; nothing remains for the fee
+    // or the refund.
+    let source_before = f.balance(&f.tokens.source);
+    f.t.world.ok(
+        "payout_token_budget (vault shrunk)",
+        token_payout_ix(&f.tokens, &budget, created, &a, &f.tokens.recipient),
+        &[&stranger],
+    );
+    assert_eq!(f.balance(&f.tokens.recipient), 3_000_000);
+    assert_eq!(f.balance(&f.tokens.treasury_token), 0);
+    assert_eq!(f.balance(&f.tokens.source), source_before);
+    assert_eq!(f.balance(&vault), 0);
+
+    // The close refunds what is there (nothing) and both accounts close.
+    f.t.world.ok(
+        "close_token_budget (vault empty)",
+        token_close_ix(&f.tokens, &budget, created, &payer),
+        &[&payer_kp],
+    );
+    assert_eq!(f.balance(&f.tokens.source), source_before);
+    assert!(!f.t.world.exists(&budget));
+    assert!(!f.t.world.exists(&vault));
 }
