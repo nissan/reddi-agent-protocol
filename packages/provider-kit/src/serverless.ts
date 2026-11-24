@@ -40,6 +40,8 @@ export interface ServerlessProviderOptions {
   log?: (event: Record<string, unknown>) => void;
   /** Prices each budget-paid call, for a bonus or a discount; see `ProviderDeps.budgetCallPricing`. */
   budgetCallPricing?: ProviderDeps["budgetCallPricing"];
+  budgetCallPricingVoided?: ProviderDeps["budgetCallPricingVoided"];
+  onBudgetDone?: ProviderDeps["onBudgetDone"];
   /** For tests. */
   chain?: ProviderChain;
   upstream?: Upstream;
@@ -110,6 +112,8 @@ export function createServerlessProvider(options: ServerlessProviderOptions): Se
     capacity: new Capacity(config.capacity, stores.capacityStore),
     budgetSlices: stores.budgetSlices,
     ...(options.budgetCallPricing ? { budgetCallPricing: options.budgetCallPricing } : {}),
+    ...(options.budgetCallPricingVoided ? { budgetCallPricingVoided: options.budgetCallPricingVoided } : {}),
+    ...(options.onBudgetDone ? { onBudgetDone: options.onBudgetDone } : {}),
     signMessage: key.key.signMessage,
     ...(log ? { log } : {}),
   });

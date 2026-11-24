@@ -66,7 +66,7 @@ const setBudget = (chain: FakeChain, f: BudgetFields = {}) => chain.accounts.set
 const setReservation = (chain: FakeChain, f: ReservationFields) => chain.accounts.set(reservationKey.toBase58(), { owner: PROGRAM, data: reservationBytes(f), lamports: 1_500_000n, executable: false });
 
 type Chain = FakeChain & { cosigned: Transaction[]; failCosign?: boolean };
-function setup(options: { budgets?: Record<string, unknown>; upstream?: Upstream; budgetCallPricing?: ProviderDeps["budgetCallPricing"] } = {}) {
+function setup(options: { budgets?: Record<string, unknown>; upstream?: Upstream; budgetCallPricing?: ProviderDeps["budgetCallPricing"]; extra?: Partial<ProviderDeps>; store?: MemoryBudgetSliceStore } = {}) {
   const chain = fakeChain(null) as Chain;
   chain.cosigned = [];
   chain.cosignAndSend = async (tx) => {
@@ -80,10 +80,10 @@ function setup(options: { budgets?: Record<string, unknown>; upstream?: Upstream
   };
   const upstreamCalls = { n: 0 };
   const upstream: Upstream = options.upstream ?? { async createChatCompletion() { upstreamCalls.n += 1; return { id: "c", choices: [{ message: { role: "assistant", content: "hi" } }], usage: { prompt_tokens: 120, completion_tokens: 333 } }; } };
-  const store = new MemoryBudgetSliceStore();
+  const store = options.store ?? new MemoryBudgetSliceStore();
   const events: Record<string, unknown>[] = [];
   const handler = createProviderHandler(config({ budgets: { enabled: true, acceptedJudges: [judge.toBase58()], ...options.budgets } } as never), {
-    chain, upstream, replayStore: new MemoryNonceReplayStore(), budgetSlices: store, ...(options.budgetCallPricing ? { budgetCallPricing: options.budgetCallPricing } : {}),
+    chain, upstream, replayStore: new MemoryNonceReplayStore(), budgetSlices: store, ...(options.budgetCallPricing ? { budgetCallPricing: options.budgetCallPricing } : {}), ...options.extra,
     signMessage: (m) => edSign(null, m, pkcs8(provider)), now: () => new Date("2026-12-05T00:00:00.000Z"), log: (e) => events.push(e),
   });
   const call = async (sequence: number, extra: Record<string, string> = {}, signWith: Keypair = spender, body = BODY) => {
@@ -330,4 +330,32 @@ test("a pricing hook that fails or answers out of range refuses the call, and no
     assert.equal(((await refused.json()) as { error: { code: string } }).error.code, "budget_pricing_failed");
     assert.equal(await store.get(budgetKey.toBase58()), undefined);
   }
+});
+
+test("a priced call that is then refused is reported, so what its pricing set aside can be given back", async () => {
+  class FailingStore extends MemoryBudgetSliceStore { override async save(): Promise<void> { throw new Error("disk full"); } }
+  const voided: { budget: string; requestId: string }[] = [];
+  const ids: string[] = [];
+  const { chain, call } = setup({ store: new FailingStore(), budgetCallPricing: async (input) => { ids.push(input.requestId); return { paid: input.cost }; }, extra: { budgetCallPricingVoided: async (v) => { voided.push(v); } } });
+  setBudget(chain);
+  setReservation(chain, { reserved: 1_000_000n });
+  const refused = await call(1);
+  assert.equal(refused.status, 503);
+  assert.deepEqual(voided, [{ budget: budgetKey.toBase58(), requestId: ids[0] }]);
+});
+
+test("the sweep reports a budget slice that is done, and keeps it until the report goes through", async () => {
+  const done: { budget: string; createdSlot: string }[] = [];
+  let fail = true;
+  const { chain, call, handler, store } = setup({ extra: { onBudgetDone: async (d) => { if (fail) throw new Error("pool down"); done.push(d); } } });
+  setBudget(chain);
+  setReservation(chain, { reserved: 1_000_000n });
+  assert.equal((await call(1)).status, 200);
+  chain.accounts.delete(reservationKey.toBase58());
+  chain.accounts.delete(budgetKey.toBase58());
+  await handler.settleDueBudgets().catch(() => undefined);
+  assert.equal((await store.get(budgetKey.toBase58()))?.status, "open");
+  fail = false;
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "done" }]);
+  assert.deepEqual(done, [{ budget: budgetKey.toBase58(), createdSlot: CREATED.toString() }]);
 });

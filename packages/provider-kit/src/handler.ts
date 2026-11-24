@@ -172,6 +172,14 @@ export interface ProviderDeps {
    * range, the call is refused and nothing is recorded or charged.
    */
   budgetCallPricing?: (input: BudgetCallPricingInput) => Promise<{ paid: bigint; bonus?: Record<string, unknown> }>;
+  /**
+   * Called when a budget-paid call that `budgetCallPricing` priced is then
+   * refused (its receipt could not be signed or its slice not recorded), so
+   * whatever the pricing set aside can be given back. Errors are logged.
+   */
+  budgetCallPricingVoided?: (voided: { budget: string; requestId: string }) => Promise<void>;
+  /** Called by the sweep once a budget slice is settled and gone; see `BudgetDeskDeps.onBudgetDone`. */
+  onBudgetDone?: (done: { budget: string; createdSlot: string }) => Promise<void>;
   /** Ed25519 signature by the provider wallet, for receipts. */
   signMessage: (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;
   now?: () => Date;
@@ -408,7 +416,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
   const nowMs = () => (deps.now?.() ?? new Date()).getTime();
   // Pooled budgets: only with `budgets.enabled`, and only for the token this provider is priced in.
   const budgetDesk = config.budgets?.enabled
-    ? createBudgetDesk(config, { chain: deps.chain, store: deps.budgetSlices ?? new MemoryBudgetSliceStore(), genesisHash: signingGenesisHash, nowMs, log })
+    ? createBudgetDesk(config, { chain: deps.chain, store: deps.budgetSlices ?? new MemoryBudgetSliceStore(), genesisHash: signingGenesisHash, nowMs, log, ...(deps.onBudgetDone ? { onBudgetDone: deps.onBudgetDone } : {}) })
     : undefined;
   const limits = deps.capacity ?? new Capacity(config.capacity);
   // A capacity store that cannot be read counts as busy for a moment: fail closed, nothing is taken.
@@ -683,6 +691,11 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
           return refuse(503, "budget_pricing_failed", `This call could not be priced, so its answer is withheld. Nothing was charged; call ${sequence} can be sent again.`, { charged: false });
         }
       }
+      const priced = deps.budgetCallPricing !== undefined;
+      const voidPricing = async () => {
+        if (!priced || !deps.budgetCallPricingVoided) return;
+        await deps.budgetCallPricingVoided({ budget: slice.budget, requestId }).catch((error: unknown) => log({ event: "budget_pricing_void_failed", alert: true, requestId, budget: slice.budget, detail: error instanceof Error ? error.message : "unknown" }));
+      };
       const left = BigInt(slice.reserved) - BigInt(slice.spent);
       const charged = cost > left ? left : cost;
       const total = BigInt(slice.spent) + charged;
@@ -734,12 +747,14 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       }
       if (!encoded || !receiptHash) {
         log({ event: "receipt_failed", requestId, budget: slice.budget, sequence });
+        await voidPricing();
         return refuse(500, "receipt_failed", `This call's receipt could not be signed, so its answer is withheld. Nothing was charged; call ${sequence} can be sent again.`, { charged: false });
       }
       try {
         await desk.record(slice, cost, usage, receiptHash);
       } catch {
         log({ event: "budget_record_failed", requestId, budget: slice.budget, sequence });
+        await voidPricing();
         return refuse(503, "budget_record_failed", `This call could not be recorded, so its answer is withheld. Nothing was charged; call ${sequence} can be sent again.`, { charged: false });
       }
       log({ event: "budget_call", requestId, budget: slice.budget, sequence, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, cumulativeCost: total.toString() });

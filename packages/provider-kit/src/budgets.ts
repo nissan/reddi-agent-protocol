@@ -161,6 +161,8 @@ export interface BudgetDeskDeps {
   genesisHash: string;
   nowMs: () => number;
   log: (event: Record<string, unknown>) => void;
+  /** Called once a slice is settled and gone, before it is marked done; if it throws, the sweep tries again next time. */
+  onBudgetDone?: (done: { budget: string; createdSlot: string }) => Promise<void>;
 }
 
 /** The provider's side of budgets, built once per handler. */
@@ -380,6 +382,7 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
       // address: its payout closes it.
       const leftover = found.ok ? found.reservation : await readOwnReservation(budgetKey);
       if (leftover && leftover.budgetCreatedSlot === createdSlot && leftover.state === "paid") await closePaid(budgetKey, leftover, new PublicKey(slice.payer));
+      if (deps.onBudgetDone) await deps.onBudgetDone({ budget: slice.budget, createdSlot: slice.createdSlot });
       await deps.store.save({ ...slice, status: "done" });
       return "done";
     }
