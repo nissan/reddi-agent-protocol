@@ -4,6 +4,7 @@ import {
   BUDGET_DEFAULTS,
   budgetCallCost,
   budgetDisputeEnds,
+  closeSandboxBudget,
   budgetProtocolFee,
   checkReserve,
   maskAgentKey,
@@ -96,11 +97,29 @@ describe("sandbox Budget scenario", () => {
   });
 
   it("keeps a late post under review for at least an hour (B3) and caps the SOL fee", () => {
-    expect(budgetDisputeEnds({ closedSlot: 100, disputeSlots: 216_000 }, { postedSlot: 300_000 })).toBe(309_000);
-    expect(budgetDisputeEnds({ closedSlot: 100, disputeSlots: 216_000 }, { postedSlot: 200 })).toBe(216_100);
+    const closedByPayer = { closedSlot: 100, disputeSlots: 216_000, reviewFromOpenEnd: false, createdSlot: 0, openSlots: 648_000 };
+    expect(budgetDisputeEnds(closedByPayer, { postedSlot: 300_000 })).toBe(309_000);
+    expect(budgetDisputeEnds(closedByPayer, { postedSlot: 200 })).toBe(216_100);
     expect(budgetProtocolFee(BigInt(10_000_000_000), "SOL", BigInt(500))).toBe(BigInt(100_000_000));
     expect(budgetProtocolFee(BigInt(10_000_000_000), "USDC", BigInt(500))).toBe(BigInt(500_000_000));
     expect(budgetProtocolFee(BigInt(39), "USDC", BigInt(250))).toBe(BigInt(0));
+  });
+
+  it("starts the window at the end of the open period when the agent closes early with no allowlist", async () => {
+    const run = await runSandboxBudget({ token: "USDC", agentKey: KEY, startMs: START });
+    expect(run.budget.reviewFromOpenEnd).toBe(false);
+    const openEnd = run.budget.createdSlot + run.budget.openSlots;
+    const byAgent = { ...run.budget, closed: false, reviewFromOpenEnd: false };
+    closeSandboxBudget(byAgent, 1_000, false);
+    expect(byAgent.reviewFromOpenEnd).toBe(true);
+    expect(budgetDisputeEnds(byAgent, { postedSlot: 1_100 })).toBe(openEnd + byAgent.disputeSlots);
+    const allowlisted = { ...run.budget, closed: false, reviewFromOpenEnd: false, allowlist: ["Frame Foundry"] };
+    closeSandboxBudget(allowlisted, 1_000, false);
+    expect(allowlisted.reviewFromOpenEnd).toBe(false);
+    expect(budgetDisputeEnds(allowlisted, { postedSlot: 1_100 })).toBe(1_000 + allowlisted.disputeSlots);
+    const byPayer = { ...run.budget, closed: false, reviewFromOpenEnd: false };
+    closeSandboxBudget(byPayer, 1_000, true);
+    expect(byPayer.reviewFromOpenEnd).toBe(false);
   });
 
   it("makes rap_pass_ keys and masks them", () => {
