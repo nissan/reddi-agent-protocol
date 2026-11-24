@@ -237,7 +237,7 @@ export const SANDBOX_PROVIDERS: readonly SandboxProvider[] = [
       keeps: "Its render presets and loudness chain.",
     },
   },
-  // "Help us write better": Reddi's own writing providers, listed like anyone
+  // "Help us write better": RAP's own writing providers, listed like anyone
   // else's, at the per-token prices they charge. Simulated payments only here.
   {
     id: "reddi-writing-style",
