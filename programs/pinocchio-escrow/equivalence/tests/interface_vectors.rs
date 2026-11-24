@@ -511,7 +511,7 @@ fn build() -> Value {
             "reservation": ["\"reservation\"", "budget address", "payee address"],
         },
         "budget_layout": {
-            "budget": "349 bytes: discriminator sha256(\"account:Budget\")[..8] (0), payer (8), spender (40), judge (72), mint (104, zero for SOL), nonce (136), created_slot u64 (152), open_slots (160), dispute_slots (168), judge_slots (176), total (184), unreserved (192), per_provider_cap (200), allowlist [address;4] (208), closed_slot (336), reservations u8 (344), unsettled u8 (345), flags u8 (346: 0x01 spender may waive, 0x02 closed, 0x04 review from the open period's end), bump (347), vault_bump (348)",
+            "budget": "349 bytes: discriminator sha256(\"account:Budget\")[..8] (0), payer (8), spender (40), judge (72), mint (104, zero for SOL), nonce (136), created_slot u64 (152), open_slots (160), dispute_slots (168), judge_slots (176), total (184), unreserved (192), per_provider_cap (200), allowlist [address;4] (208), closed_slot (336), reservations u8 (344), unsettled u8 (345), flags u8 (346: 0x01 spender may waive, 0x02 closed, 0x04 review from the open period's end, 0x08 P-256 spender), bump (347), vault_bump (348)",
             "reservation": "147 bytes: discriminator sha256(\"account:Reservation\")[..8] (0), budget (8), budget_created_slot u64 (40), payee (48), payout_account (80), reserved u64 (112), final_amount u64 (120), posted_slot u64 (128), disputed_slot u64 (136), state u8 (144: 0 open, 1 posted, 2 disputed, 3 paid), waived u8 (145), bump (146)",
         },
         "delivery_states": DELIVERY_STATES,
@@ -543,8 +543,158 @@ fn build() -> Value {
             ),
             "sha256_hex": hex(&consumer_commitment),
         },
+        "budget_p256_spender": p256_vectors(),
         "instructions": instructions,
         "accounts": accounts,
+    })
+}
+
+/// A budget with a P-256 spender (flag 0x08): one approval for each action,
+/// with the message, the precompile instruction and the call, each sent
+/// against the built program.
+fn p256_vectors() -> Value {
+    use support::budget::*;
+    let mut world = World::new();
+    let (payer, a, judge, relay) = (
+        world.wallet(1),
+        world.wallet(2),
+        world.wallet(4),
+        world.wallet(3),
+    );
+    world.register(&a, AgentType::Primary);
+    world.register(&judge, AgentType::Attestation);
+    world.warp(3_000);
+    let key = P256::new(7);
+    let p = payer.pubkey();
+    let terms = Terms {
+        nonce: nonce(11),
+        spender: key.spender(),
+        judge: ZERO,
+        open: 9_000,
+        dispute: 9_000,
+        judge_slots: 1_500,
+        total: 100_000_000,
+        cap: 0,
+        flags: 0x08 | 0x01,
+        allowlist: [a.pubkey(), ZERO, ZERO, ZERO],
+    };
+    world.ok("open_budget", terms.open_ix(&p), &[&payer]);
+    let budget = budget_address(&p, terms.nonce);
+    let created = world.slot();
+    world.next_slot();
+    let expires = world.slot() + 150;
+    let mut examples = Vec::new();
+    let mut approve = |world: &mut World,
+                       name: &str,
+                       approval: Approval,
+                       ix: Instruction,
+                       accounts: &[&str],
+                       signers: &[&solana_keypair::Keypair]| {
+        let message = approval.message();
+        let pre = precompile_ix(&key.public(), &key.sign(&message), &message, u16::MAX);
+        examples.push(json!({
+            "action": name,
+            "message_hex": hex(&message),
+            "precompile_data_hex": hex(&pre.data),
+            "call": instruction(name, "", &ix, accounts),
+        }));
+        world
+            .send(&[pre, ix], signers)
+            .unwrap_or_else(|error| panic!("{name} by approval: {error}"));
+    };
+    let reserve = Approval {
+        budget,
+        created,
+        action: RESERVE,
+        target: a.pubkey(),
+        payout_account: a.pubkey(),
+        amount: 40_000_000,
+        expires,
+    };
+    let ix = by_approval(
+        reserve_ix(
+            &budget,
+            created,
+            &ZERO,
+            &a.pubkey(),
+            &a.pubkey(),
+            40_000_000,
+        ),
+        2,
+        expires,
+    );
+    approve(
+        &mut world,
+        "reserve",
+        reserve,
+        ix,
+        &[
+            "budget",
+            "reservation",
+            "instructions_sysvar",
+            "payee",
+            "payee_agent",
+            "payout_account",
+            "system_program",
+        ],
+        &[&a],
+    );
+    world.ok(
+        "post_final",
+        post_ix(&budget, created, &a.pubkey(), 25_000_000),
+        &[&a],
+    );
+    let reservation = reservation_address(&budget, &a.pubkey());
+    let waive = Approval {
+        budget,
+        created,
+        action: WAIVE,
+        target: reservation,
+        payout_account: ZERO,
+        amount: 0,
+        expires,
+    };
+    let ix = by_approval(
+        hold_ix("waive", &budget, created, &a.pubkey(), &ZERO),
+        2,
+        expires,
+    );
+    approve(
+        &mut world,
+        "waive",
+        waive,
+        ix,
+        &["budget", "reservation", "instructions_sysvar"],
+        &[&relay],
+    );
+    let close = Approval {
+        budget,
+        created,
+        action: CLOSE,
+        target: ZERO,
+        payout_account: ZERO,
+        amount: 0,
+        expires,
+    };
+    let ix = by_approval(close_ix(&budget, created, &ZERO, &p), 1, expires);
+    approve(
+        &mut world,
+        "close_budget",
+        close,
+        ix,
+        &["budget", "instructions_sysvar", "payer"],
+        &[&relay],
+    );
+    json!({
+        "about": "A budget whose spender is a P-256 key (flag 0x08). Its spender field is sha256 of the 33-byte compressed public key. The spender never signs a transaction: reserve, waive and the closes take the Instructions sysvar in the spender or signer position, append expires_slot u64 to their data, and come just after a secp256r1 precompile instruction (Secp256r1SigVerify1111111111111111111111111) with exactly one signature whose key, signature and message all lie in that instruction (instruction indexes u16::MAX). The signature is ES256 (ECDSA over SHA-256 of the message) with a low S. The call is refused once the current slot is past expires_slot.",
+        "message_layout": "\"RAP-BUDGET-SPENDER-V1\" (21 bytes) || cluster u8 (0 mainnet build, 1 devnet build) || program id (32) || budget (32) || created_slot u64 LE || action u8 (1 reserve, 2 waive, 3 close) || target (32: payee for reserve, reservation for waive, zero for close) || payout_account (32: reserve only, else zero) || amount u64 LE (reserve only, else 0) || expires_slot u64 LE",
+        "precompile_layout": "num_signatures u8 = 1 || padding u8 || signature_offset u16 = 49 || signature_ix u16 = 0xffff || public_key_offset u16 = 16 || public_key_ix u16 = 0xffff || message_offset u16 = 113 || message_size u16 || message_ix u16 = 0xffff || public key (33) || signature r||s (64) || message",
+        "public_key_hex": hex(&key.public()),
+        "spender": key.spender().to_string(),
+        "budget": budget.to_string(),
+        "created_slot": created,
+        "expires_slot": expires,
+        "examples": examples,
     })
 }
 
@@ -605,7 +755,7 @@ fn budget_vectors() -> (Vec<Value>, Vec<Value>) {
     send(
         &mut world,
         "open_budget",
-        "data: nonce [u8;16], spender, judge (all zero for none), open_slots u64, dispute_slots u64, judge_slots u64, total u64, per_provider_cap u64 (0 for the total), flags u8 (0x01 spender may waive), allowlist [address;4] (all-zero entries empty); the judge's agent record follows only when a judge is named",
+        "data: nonce [u8;16], spender, judge (all zero for none), open_slots u64, dispute_slots u64, judge_slots u64, total u64, per_provider_cap u64 (0 for the total), flags u8 (0x01 spender may waive, 0x08 P-256 spender: see budget_p256_spender), allowlist [address;4] (all-zero entries empty); the judge's agent record follows only when a judge is named",
         terms.open_ix(&p),
         &["budget", "payer", "system_program", "judge_agent"],
         &[&payer],

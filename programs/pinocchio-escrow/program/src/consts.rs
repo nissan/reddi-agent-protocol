@@ -201,6 +201,23 @@ pub const MAX_BUDGET_RESERVATIONS: u8 = 8;
 pub const BUDGET_ALLOWLIST_LEN: usize = 4;
 /// Budget flag: the spender may waive disputes for the payer.
 pub const BUDGET_FLAG_SPENDER_WAIVES: u8 = 0x01;
+/// Budget flag: the spender is a P-256 key (Vercel KMS, passkeys). The
+/// budget's `spender` field then holds sha256 of the key's 33-byte
+/// compressed form, and the spender approves by a signed message checked
+/// through the secp256r1 precompile instead of by signing the transaction.
+pub const BUDGET_FLAG_P256_SPENDER: u8 = 0x08;
+/// The flags a payer may set at open.
+pub const BUDGET_OPEN_FLAGS: u8 = BUDGET_FLAG_SPENDER_WAIVES | BUDGET_FLAG_P256_SPENDER;
+/// The secp256r1 signature verification precompile
+/// (`Secp256r1SigVerify1111111111111111111111111`).
+pub const SECP256R1_PROGRAM_ID: Address = address!("Secp256r1SigVerify1111111111111111111111111");
+/// First bytes of every P-256 spender approval, with its version.
+pub const BUDGET_APPROVAL_DOMAIN: &[u8; 21] = b"RAP-BUDGET-SPENDER-V1";
+/// The cluster an approval is for: 0 on mainnet builds, 1 on devnet builds.
+#[cfg(not(feature = "devnet"))]
+pub const BUDGET_APPROVAL_CLUSTER: u8 = 0;
+#[cfg(feature = "devnet")]
+pub const BUDGET_APPROVAL_CLUSTER: u8 = 1;
 
 /// Whether a budget's three windows are in range.
 pub const fn budget_windows_valid(open_slots: u64, dispute_slots: u64, judge_slots: u64) -> bool {

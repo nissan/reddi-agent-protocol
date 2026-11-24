@@ -958,6 +958,44 @@ Rules from the threat model (`B` items in the design spec):
   names another token account the payer owns (its associated account, which
   anyone can create).
 
+### P-256 spender (flag `0x08`)
+
+A budget opened with flag `0x08` names a P-256 key as its spender, so the
+key can live in a cloud KMS that cannot make Ed25519 signatures (the
+Reddi Agent Protocol relay uses Vercel KMS, ES256). Its `spender` field holds
+sha256 of the key's 33-byte compressed form, fixed at open. The spender
+never signs a transaction. To reserve, waive (with flag `0x01`) or close, it
+signs an approval of exactly that call, and the call:
+
+- takes the Instructions sysvar in the spender (reserve) or signer (waive,
+  closes) position;
+- appends `expires_slot u64` to its data, and is refused once the current
+  slot is past it (`SpenderApprovalExpired`, 6099);
+- comes just after a secp256r1 precompile instruction
+  (`Secp256r1SigVerify1111111111111111111111111`, live on mainnet since epoch
+  800), or is refused (`SpenderApprovalMissing`, 6098). That instruction must
+  carry exactly one signature, with its key, signature and message all inside
+  itself (instruction indexes `u16::MAX`). Its key must hash to `spender`, and
+  its message must be the approval the program rebuilds for this call, or the
+  call is refused (`SpenderApprovalMismatch`, 6100).
+
+The approval message is `"RAP-BUDGET-SPENDER-V1"` (21 bytes), the cluster
+(1 byte: 0 on a mainnet build, 1 on a devnet build), the program id, the
+budget, its `created_slot`, the action (1 reserve, 2 waive, 3 close), the
+target (the payee for a reserve, the reservation for a waive, zero for a
+close), the payout account (a reserve's, otherwise zero), the amount (a
+reserve's new total, otherwise 0) and `expires_slot`: 175 bytes. The
+precompile checks the ES256 signature (ECDSA over SHA-256 of the message)
+and refuses a high S before the call runs, so a signature cannot be altered
+and reused. A replay within the expiry cannot do anything new: a reserve
+names the new total and must raise the slice, and a waive or a close happens
+once. On a budget without the flag the sysvar is never the spender, and on a
+budget with it an ordinary signer never is. The payer still waives, disputes
+and closes by signing, and anyone may still close once the open period ends.
+A close by approval counts as not the payer's (flag `0x04` without an
+allowlist). `interface/vectors.json` (`budget_p256_spender`) has a signed
+example of each action.
+
 Windows: the open period and the dispute window are 9,000 to 1,512,000 slots
 (about an hour to 7 days); the judge's window is 1,500 to 3,024,000 slots
 (about 10 minutes to 14 days). The judge must be a registered, active
@@ -970,14 +1008,14 @@ escrow: 0.5 SOL, or 100 units of a token.
 
 | Instruction | Data after the selector | Accounts |
 |---|---|---|
-| `open_budget` | `nonce [u8;16]`, `spender`, `judge` (zero for none), `open_slots`, `dispute_slots`, `judge_slots`, `total`, `per_provider_cap` (0 for the total), `flags u8` (0x01 spender may waive), `allowlist [address;4]` | `budget` w, `payer` w s, `system_program`, then `judge_agent` when a judge is named |
+| `open_budget` | `nonce [u8;16]`, `spender`, `judge` (zero for none), `open_slots`, `dispute_slots`, `judge_slots`, `total`, `per_provider_cap` (0 for the total), `flags u8` (0x01 spender may waive, 0x08 P-256 spender), `allowlist [address;4]` | `budget` w, `payer` w s, `system_program`, then `judge_agent` when a judge is named |
 | `open_token_budget` | as `open_budget` | `budget` w, `vault` w, `payer` w s, `mint`, `source` w, `token_program`, `system_program`, then `judge_agent` |
-| `reserve` | `created_slot`, `amount` (the slice's new total) | `budget` w, `reservation` w, `spender` s, `payee` w s (pays the reservation's rent), `payee_agent`, `payout_account` (SOL: the payee), `system_program` |
+| `reserve` | `created_slot`, `amount` (the slice's new total), then `expires_slot` for a P-256 spender | `budget` w, `reservation` w, `spender` s (the Instructions sysvar for a P-256 spender), `payee` w s (pays the reservation's rent), `payee_agent`, `payout_account` (SOL: the payee), `system_program` |
 | `set_payout_account` | `created_slot` | `budget`, `reservation` w, `payee` s, `payout_account` |
 | `post_final` | `created_slot`, `amount` | `budget`, `reservation` w, `payee` s |
-| `waive`, `dispute` | `created_slot` | `budget`, `reservation` w, `signer` s |
-| `close_budget` | `created_slot` | `budget` w, `signer` s, `payer` w |
-| `close_token_budget` | `created_slot` | `budget` w, `vault` w, `signer` s, `payer` w, `mint`, `refund` w, `token_program`, then optionally the SPL Memo program |
+| `waive`, `dispute` | `created_slot`, then `expires_slot` for a P-256 spender's waive | `budget`, `reservation` w, `signer` s (the Instructions sysvar for a P-256 spender's waive) |
+| `close_budget` | `created_slot`, then `expires_slot` for a P-256 spender | `budget` w, `signer` s (or the Instructions sysvar), `payer` w |
+| `close_token_budget` | as `close_budget` | `budget` w, `vault` w, `signer` s (or the Instructions sysvar), `payer` w, `mint`, `refund` w, `token_program`, then optionally the SPL Memo program |
 | `payout_budget` | `created_slot` | `budget` w, `reservation` w, `payee` w, `payer` w, `treasury` w |
 | `resolve_budget` | `created_slot`, `payout` (at most the posted amount) | as `payout_budget`, then `judge` s |
 | `payout_token_budget` | `created_slot` | `budget` w, `vault` w, `reservation` w, `payee` w, `payer` w, `mint`, `payout_account` w (the recorded one, or the payee's associated token account), `treasury_token` w, `refund` w (the payer's), `token_program`, then optionally the SPL Memo program |
@@ -989,7 +1027,7 @@ little-endian. Events: `BudgetOpened`, `BudgetReserved`, `BudgetClosed`,
 `BudgetPaid` (with outcome 0 waived, 1 window ended, 2 resolved, 3 judge timed
 out).
 
-New error numbers, 6073 to 6097: `InvalidBudgetTerms`,
+New error numbers, 6073 to 6100: `InvalidBudgetTerms`,
 `BudgetNeedsJudgeOrAllowlist`, `SpenderWaiveNeedsAllowlist`,
 `BudgetInstanceMismatch`, `BudgetJustOpened`, `BudgetNotOpen`,
 `BudgetNotClosed`, `BudgetAlreadyClosed`, `BudgetBalanceTooLow`,
@@ -998,7 +1036,8 @@ New error numbers, 6073 to 6097: `InvalidBudgetTerms`,
 `ReservationLocked`, `ReservationNotPosted`, `InvalidFinalAmount`,
 `ReservationDisputed`, `ReservationWaived`, `BudgetDisputeWindowClosed`,
 `ReservationNotDisputed`, `BudgetHasNoJudge`, `PayoutNotOpen`,
-`BudgetJudgeWindowClosed`. Each instruction also uses the shared checks
+`BudgetJudgeWindowClosed`, `SpenderApprovalMissing`, `SpenderApprovalExpired`,
+`SpenderApprovalMismatch`. Each instruction also uses the shared checks
 (`UnauthorisedSigner` 6000, `InvalidPayee` 6007, `InvalidJudge` 6038,
 `NotAttestationAgent` 6016, `JudgeNotActive` 6049, `AmountAboveCap` 6025,
 `InvalidTokenAccount` 6023, `InvalidResolution` 6071).
@@ -1011,7 +1050,7 @@ New error numbers, 6073 to 6097: `InvalidBudgetTerms`,
 (184), `unreserved` (192), `per_provider_cap` (200), `allowlist` 4 × 32
 (208), `closed_slot` (336), `reservations` u8 (344), `unsettled` u8 (345),
 `flags` u8 (346: 0x01 spender may waive, 0x02 closed, 0x04 review from the
-open period's end), `bump` (347), `vault_bump` (348). A SOL budget holds its
+open period's end, 0x08 P-256 spender), `bump` (347), `vault_bump` (348). A SOL budget holds its
 lamports on top of its rent, and any refund kept for an empty payer wallet.
 
 `account:Reservation`, 147 bytes: discriminator (0), `budget` (8),
@@ -1020,10 +1059,12 @@ lamports on top of its rent, and any refund kept for an empty payer wallet.
 `state` u8 (144: 0 open, 1 posted, 2 disputed, 3 paid), `waived` u8 (145),
 `bump` (146).
 
-Compute units (from `budget.rs`): open 7,546 (SOL) and 21,352 to 24,352
-(tokens), reserve 20,236 (SOL, creating) and up to 23,503 (tokens), post and
-waive about 4,200, SOL payout 5,063, token payout up to 27,904 (the last
-payout of a budget, closing the vault).
+Compute units (from `budget.rs`): open 7,547 (SOL) and 21,353 to 24,353
+(tokens), reserve 20,473 (SOL, creating) and up to 23,740 (tokens), post and
+waive about 4,200 to 4,400, SOL payout 5,228, token payout up to 28,890 (the
+last payout of a budget, closing the vault, with memos). A P-256 spender's
+approval adds the secp256r1 precompile instruction, charged as one more
+signature (5,000 lamports), not compute units.
 
 ## Evidence
 
@@ -1119,9 +1160,9 @@ escrow and registry instructions only:
 
 | | Anchor (13 instructions) | Pinocchio (42 instructions) | Change |
 |---|---|---|---|
-| Program size | 345,152 bytes | 188,488 bytes | 45% smaller |
-| Rent at 6,960 lamports per byte | 2.4046 SOL | 1.2972 SOL | 1.1074 SOL less |
-| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.9468 SOL | 0.8083 SOL less |
+| Program size | 345,152 bytes | 195,672 bytes | 43% smaller |
+| Rent at 6,960 lamports per byte | 2.4046 SOL | 1.3642 SOL | 1.0404 SOL less |
+| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.9957 SOL | 0.7594 SOL less |
 | `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 133,096 bytes (measured before the pooled budget) | 73% smaller |
 
 Before ratings and attestations were added the Pinocchio build was 62,248
@@ -1131,6 +1172,7 @@ the launch-rate fee schedule 176 bytes (0.0012 SOL). The delivery check
 added 27,464 bytes (0.1911 SOL at 6,960, 0.1395 SOL at 5,080), and the
 memo before a transfer into a memo-requiring account 912 bytes (0.0063 SOL).
 The pooled budget added 60,376 bytes (0.4202 SOL at 6,960, 0.3067 SOL at
+5,080), and its P-256 spender 7,184 bytes (0.0500 SOL at 6,960, 0.0365 SOL at
 5,080).
 
 Rent is for the program account (36 bytes) plus the program data account (45
