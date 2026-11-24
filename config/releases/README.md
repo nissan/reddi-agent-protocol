@@ -73,8 +73,9 @@ could approve with a P-256 key (#1125); nothing was deployed from `64543ff`.
 The pooled-Budget build of record is `339ac70` (#1125, merged 24 November 2026;
 unchanged at `3102743`; run 45392652948, both variants, same image digest; the
 binary-of-record job passed, and a container rebuild on the owner's Mac
-matched). `v1-devnet-339ac70.json` is its devnet build, not deployed yet
-(`deployedSlot` null; devnet still runs `9c34fac`). `v1-mainnet-339ac70.json`
+matched). `v1-devnet-339ac70.json` is its devnet build, deployed in slot 525941760 on
+24 November 2026 (the devnet upgrade; read back and checked with
+`check-escrow-deployment.mjs`, every line ok). `v1-mainnet-339ac70.json`
 is the mainnet build of record: it lists the devnet deployer as forbidden, and
 is refused by the check until the Squads multisig account and the mainnet
 deployer are added at deploy; the check must pass against it after the upgrade
