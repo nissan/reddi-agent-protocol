@@ -40,6 +40,32 @@ export type ReddiReceiptV2Metered = {
     outputTokens: string;
     maxAmount: string;
     refunded: string;
+    /**
+     * For a provider priced by what it makes rather than by tokens (video, audio,
+     * images): the unit it bills and how many it delivered. Both or neither.
+     */
+    unit?: ReddiReceiptV2Unit;
+    units?: string;
+};
+/** Units a provider can bill by, besides tokens. */
+export declare const REDDI_RECEIPT_V2_UNITS: readonly ["second", "image", "character", "page"];
+export type ReddiReceiptV2Unit = (typeof REDDI_RECEIPT_V2_UNITS)[number];
+/**
+ * A file the provider delivered and hosts for the buyer to collect. `sha256`
+ * ties the file to the receipt as `responseHash` ties a text answer: a buyer
+ * who hashes the file it downloaded can check it is the one it paid for.
+ * `expiresAt` is when the provider stops hosting it. Not on a session call.
+ */
+export type ReddiReceiptV2Delivery = {
+    name: string;
+    /** IANA media type, for example video/mp4. */
+    mediaType: string;
+    /** File size in bytes, as a decimal string. */
+    bytes: string;
+    /** SHA-256 of the file bytes, lowercase hex. */
+    sha256: string;
+    /** ISO 8601 UTC time the provider stops hosting the file. After `issuedAt`. */
+    expiresAt: string;
 };
 export type ReddiReceiptV2Payment = {
     network: ReddiReceiptV2Network;
@@ -114,6 +140,8 @@ export type ReddiReceiptV2 = {
     payment?: ReddiReceiptV2Payment;
     /** Present on every call of a session. */
     session?: ReddiReceiptV2Session;
+    /** The file delivered, for a provider that returns one. */
+    delivery?: ReddiReceiptV2Delivery;
     /** The job this call was recorded as, when the provider knows it. */
     jobId?: string;
     /** ISO 8601 UTC time the provider issued this receipt. */
@@ -127,7 +155,7 @@ export type SignedReddiReceiptV2 = {
         signature: string;
     };
 };
-export type ReddiReceiptV2ErrorCode = 'malformed_receipt' | 'unsupported_version' | 'malformed_proof' | 'signature_invalid' | 'provider_mismatch' | 'declared_model_mismatch' | 'request_hash_mismatch' | 'response_hash_mismatch' | 'payment_mismatch' | 'session_mismatch' | 'session_chain_broken';
+export type ReddiReceiptV2ErrorCode = 'malformed_receipt' | 'unsupported_version' | 'malformed_proof' | 'signature_invalid' | 'provider_mismatch' | 'declared_model_mismatch' | 'request_hash_mismatch' | 'response_hash_mismatch' | 'payment_mismatch' | 'session_mismatch' | 'session_chain_broken' | 'delivery_mismatch';
 export type ReddiReceiptV2Error = {
     code: ReddiReceiptV2ErrorCode;
     path: string;
@@ -158,6 +186,8 @@ export type ReddiReceiptV2Expectation = {
     };
     /** Each field given must equal the signed session block. A receipt without one fails. */
     session?: Partial<ReddiReceiptV2Session>;
+    /** Each field given must equal the signed delivery block, for example the SHA-256 of the file you downloaded. A receipt without one fails. */
+    delivery?: Partial<ReddiReceiptV2Delivery>;
 };
 /** Signs the canonical bytes with the provider's key and returns the 64-byte signature. The key never enters this module. */
 export type ReddiReceiptV2Signer = (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;
