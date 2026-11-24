@@ -12,6 +12,7 @@ import type { PgPool } from "@redditech/provider-kit";
 import {
   applyLaunchBonus,
   bonusForBudget,
+  launchBonusHooks,
   launchBonusSettings,
   LAUNCH_BONUS_OFFER,
   PostgresLaunchBonusStore,
@@ -46,7 +47,7 @@ function settings(env: Record<string, string> = {}): LaunchBonusConfig {
 }
 
 function budget(overrides: Partial<BudgetFacts> = {}): BudgetFacts {
-  return { budget: address(), payer: address(), mint: USDC_MINT.mainnet, total: 5n * USDC, openedAtMs: START_MS + DAY, ...overrides };
+  return { budget: address(), createdSlot: 525_720_300n, payer: address(), mint: USDC_MINT.mainnet, total: 5n * USDC, openedAtMs: START_MS + DAY, ...overrides };
 }
 
 test("the offer is off until a start time is set, and refuses malformed settings", () => {
@@ -119,6 +120,7 @@ test("with the offer off, or a Budget that does not qualify, the Budget pays the
   const store = {
     grant: async () => assert.fail("no grant"),
     apply: async () => assert.fail("no apply"),
+    void: async () => assert.fail("no void"),
     release: async () => assert.fail("no release"),
   };
   const call = { id: "call-1", provider: "humaniser", cost: 30_000n };
@@ -181,11 +183,11 @@ test("the pool cap ends the offer, and lapsed bonus from a closed Budget goes ba
   const grants = await Promise.all(Array.from({ length: 6 }, () => store.grant(config, budget(), 2_500_000n)));
   assert.equal(grants.reduce((sum, g) => sum + g.amount, 0n), 10n * USDC);
   const earner = grants.find((g) => g.amount > 0n)!;
-  await store.apply(config, earner.budget, "call-1", "writing-style", 300_000n);
+  await store.apply(config, earner, "call-1", "writing-style", 300_000n);
   // The Budget closed with 2.40 unspent: it lapses and frees room in the pool.
-  assert.equal(await store.release(earner.budget), 2_400_000n);
-  assert.equal(await store.release(earner.budget), 0n);
-  assert.deepEqual(await store.apply(config, earner.budget, "call-2", "writing-style", 300_000n), { bonus: 0n, paid: 300_000n });
+  assert.equal(await store.release(earner), 2_400_000n);
+  assert.equal(await store.release(earner), 0n);
+  assert.deepEqual(await store.apply(config, earner, "call-2", "writing-style", 300_000n), { bonus: 0n, paid: 300_000n });
   assert.equal((await store.grant(config, budget(), 2_500_000n)).amount, 2_400_000n);
 });
 
@@ -194,11 +196,54 @@ test("racing calls on one Budget never spend more bonus than it was granted", { 
   const config = settings();
   const facts = budget({ total: USDC }); // $0.50 of bonus
   await new PostgresLaunchBonusStore(db(), id).grant(config, facts, 500_000n);
-  const splits = await Promise.all(Array.from({ length: 40 }, (_, i) => new PostgresLaunchBonusStore(db(), id).apply(config, facts.budget, `call-${i}`, "script-writer", 60_000n)));
+  const splits = await Promise.all(Array.from({ length: 40 }, (_, i) => new PostgresLaunchBonusStore(db(), id).apply(config, facts, `call-${i}`, "script-writer", 60_000n)));
   const spent = splits.reduce((sum, s) => sum + s.bonus, 0n);
   assert.equal(spent, 500_000n);
   const row = await pool!.query("select remaining from provider_kit.launch_bonus_grants where offer = $1 and budget = $2", [id, facts.budget]);
   assert.equal(BigInt(row.rows[0].remaining), 0n);
+});
+
+test("a call refused after pricing gives its bonus back, once, and lapses with a closed Budget", { skip }, async () => {
+  const store = new PostgresLaunchBonusStore(db(), offer());
+  const config = settings();
+  const facts = budget();
+  await store.grant(config, facts, 2_500_000n);
+  assert.deepEqual(await store.apply(config, facts, "req-1", "humaniser", 30_000n), { bonus: 10_000n, paid: 20_000n });
+  assert.equal(await store.void(facts, "req-1"), 10_000n);
+  assert.equal(await store.void(facts, "req-1"), 0n);
+  assert.equal((await store.grant(config, facts, 2_500_000n)).remaining, 2_500_000n);
+  await assert.rejects(store.apply(config, facts, "req-1", "humaniser", 30_000n), /voided/);
+  // After close, a late void lapses to the pool instead of the closed Budget.
+  await store.apply(config, facts, "req-2", "humaniser", 30_000n);
+  assert.equal(await store.release(facts), 2_490_000n);
+  assert.equal(await store.void(facts, "req-2"), 10_000n);
+  assert.equal((await store.grant(config, facts, 2_500_000n)).remaining, 0n);
+});
+
+test("a new Budget at a reused address gets its own grant", { skip }, async () => {
+  const store = new PostgresLaunchBonusStore(db(), offer());
+  const config = settings();
+  const first = budget();
+  await store.grant(config, first, 2_500_000n);
+  await store.release(first);
+  const again = { ...first, createdSlot: first.createdSlot + 1000n };
+  assert.equal((await store.grant(config, again, 2_500_000n)).amount, 2_500_000n);
+});
+
+test("the kit hooks read the open time from the Budget's slot and refuse when it has none", { skip }, async () => {
+  const store = new PostgresLaunchBonusStore(db(), offer());
+  const facts = budget();
+  const input = { budget: facts.budget, payer: facts.payer, mint: facts.mint, total: facts.total, createdSlot: facts.createdSlot, provider: "humaniser", requestId: "req-1", cost: 30_000n };
+  const live = () => launchBonusSettings({ PROVIDERS_NETWORK: "mainnet", LAUNCH_BONUS_STARTS_AT: START });
+  const hooks = launchBonusHooks({ settings: live, store, blockTimeMs: async () => START_MS + DAY });
+  assert.deepEqual(await hooks.budgetCallPricing(input), { paid: 20_000n, bonus: { offer: LAUNCH_BONUS_OFFER, amount: "10000" } });
+  const early = launchBonusHooks({ settings: live, store, blockTimeMs: async () => START_MS - DAY });
+  assert.deepEqual(await early.budgetCallPricing({ ...input, budget: address(), requestId: "req-2" }), { paid: 30_000n });
+  const none = launchBonusHooks({ settings: live, store, blockTimeMs: async () => { throw new Error("slot has no block time"); } });
+  await assert.rejects(none.budgetCallPricing({ ...input, requestId: "req-3" }), /block time/);
+  await hooks.budgetCallPricingVoided({ budget: facts.budget, createdSlot: facts.createdSlot, requestId: "req-1" });
+  await hooks.onBudgetDone({ budget: facts.budget, createdSlot: facts.createdSlot });
+  assert.equal((await store.grant(settings(), facts, 0n)).remaining, 0n);
 });
 
 test("the providers' role cannot delete ledger rows", { skip }, async () => {

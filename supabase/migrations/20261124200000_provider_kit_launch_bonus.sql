@@ -14,34 +14,40 @@ create table provider_kit.launch_bonus_pool (
   granted numeric(30, 0) not null check (granted >= 0)
 );
 
--- One grant per Budget, keyed by the Budget address. A Budget that earns
--- nothing (wallet or pool cap reached) has a zero grant, so it is not
--- reconsidered. `released` is unspent bonus that lapsed when the Budget closed.
+-- One grant per Budget, keyed by its address and created_slot (one address
+-- can hold several Budgets over time). A Budget that earns nothing (wallet or
+-- pool cap reached) has a zero grant, so it is not reconsidered. `released` is
+-- bonus that lapsed when the Budget closed; `closed` is set then.
 create table provider_kit.launch_bonus_grants (
   offer text not null references provider_kit.launch_bonus_pool (offer),
   budget text not null check (budget ~ '^[1-9A-HJ-NP-Za-km-z]{32,44}$'),
+  created_slot numeric(20, 0) not null check (created_slot >= 0),
   payer text not null check (payer ~ '^[1-9A-HJ-NP-Za-km-z]{32,44}$'),
   amount numeric(30, 0) not null check (amount >= 0),
   remaining numeric(30, 0) not null check (remaining >= 0),
   released numeric(30, 0) not null check (released >= 0),
+  closed boolean not null default false,
   created_at timestamptz not null default now(),
-  primary key (offer, budget),
+  primary key (offer, budget, created_slot),
   check (remaining + released <= amount)
 );
 create index launch_bonus_grants_payer on provider_kit.launch_bonus_grants (offer, payer);
 
--- Each call spends bonus once: a retry of the same call finds its row.
+-- Each call spends bonus once: a repeat of the same call id finds its row. A
+-- call priced and then refused is voided and its bonus given back.
 create table provider_kit.launch_bonus_uses (
   offer text not null,
   budget text not null,
+  created_slot numeric(20, 0) not null,
   call text not null check (call ~ '^[\x21-\x7e]{1,200}$'),
   provider text not null,
   cost numeric(30, 0) not null check (cost > 0),
   bonus numeric(30, 0) not null check (bonus > 0),
   paid numeric(30, 0) not null check (paid > 0),
+  voided boolean not null default false,
   created_at timestamptz not null default now(),
-  primary key (offer, budget, call),
-  foreign key (offer, budget) references provider_kit.launch_bonus_grants (offer, budget),
+  primary key (offer, budget, created_slot, call),
+  foreign key (offer, budget, created_slot) references provider_kit.launch_bonus_grants (offer, budget, created_slot),
   check (bonus + paid = cost and bonus <= paid)
 );
 

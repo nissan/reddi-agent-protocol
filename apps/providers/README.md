@@ -39,7 +39,7 @@ For 30 days after mainnet launch, a USDC Budget earns a bonus of 50% of what it 
 | `LAUNCH_BONUS_MIN_BUDGET_USDC` | 1 | Smallest Budget that earns |
 | `LAUNCH_BONUS_EXCLUDED_PAYERS` | none | Extra payer addresses that never earn (the treasury and the provider wallets never do) |
 
-A malformed setting turns the offer off (the caller logs its message); it never falls back to a guessed value. The kit calls `applyLaunchBonus` with the Budget facts it verified on chain once Budget support lands, and `release` when a Budget closes.
+A malformed setting turns the offer off (the caller logs its message); it never falls back to a guessed value. `launchBonusHooks` gives the provider kit its three Budget hooks (PR #1114): `budgetCallPricing` per call, `budgetCallPricingVoided` when a priced call is refused (its bonus goes back), and `onBudgetDone` after the Budget closes (unspent bonus lapses). Grants are keyed by Budget address and created_slot, so a new Budget at a reused address gets its own.
 
 ## Database setup (owner, once)
 

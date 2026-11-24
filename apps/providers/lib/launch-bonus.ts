@@ -120,6 +120,8 @@ export function launchBonusSettings(env: Env): LaunchBonusSettings {
 /** What the caller read from the Budget account on chain. */
 export type BudgetFacts = {
   budget: string;
+  /** The Budget's created_slot. One address can hold several Budgets over time; this names which. */
+  createdSlot: bigint;
   payer: string;
   /** null for a SOL Budget. */
   mint: string | null;
@@ -153,17 +155,21 @@ export function splitCall(cost: bigint, remaining: bigint, matchBps: bigint): { 
   return { bonus, paid: cost - bonus };
 }
 
-export type GrantRow = { budget: string; payer: string; amount: bigint; remaining: bigint };
+export type GrantRow = { budget: string; createdSlot: bigint; payer: string; amount: bigint; remaining: bigint };
+/** One Budget: its address and its created_slot. */
+export type BudgetRef = { budget: string; createdSlot: bigint };
 export type CallSplit = { bonus: bigint; paid: bigint };
 
 /** The ledger. Every method is one transaction; every failure throws. */
 export interface LaunchBonusStore {
   /** The Budget's grant, created once within the wallet and pool caps. A Budget that earns nothing gets a zero grant. */
   grant(config: LaunchBonusConfig, facts: BudgetFacts, amount: bigint): Promise<GrantRow>;
-  /** Spends bonus on one call, once per (budget, call): a retry returns the first split. */
-  apply(config: LaunchBonusConfig, budget: string, call: string, provider: string, cost: bigint): Promise<CallSplit>;
+  /** Spends bonus on one call, once per (Budget, call): a repeat of the same call id returns the first split. */
+  apply(config: LaunchBonusConfig, ref: BudgetRef, call: string, provider: string, cost: bigint): Promise<CallSplit>;
+  /** A priced call that was then refused (its receipt or slice record failed): its bonus goes back to the Budget. Returns what came back. */
+  void(ref: BudgetRef, call: string): Promise<bigint>;
   /** When the Budget has closed: unspent bonus lapses and goes back to the pool and the wallet. */
-  release(budget: string): Promise<bigint>;
+  release(ref: BudgetRef): Promise<bigint>;
 }
 
 const CALL_ID = /^[\x21-\x7e]{1,200}$/;
@@ -204,10 +210,13 @@ export class PostgresLaunchBonusStore implements LaunchBonusStore {
     return inTransaction(this.pool, async (client) => {
       await client.query("insert into provider_kit.launch_bonus_pool (offer, granted) values ($1, 0) on conflict do nothing", [this.offer]);
       const pool = await client.query("select granted from provider_kit.launch_bonus_pool where offer = $1 for update", [this.offer]);
-      const existing = await client.query("select payer, amount, remaining from provider_kit.launch_bonus_grants where offer = $1 and budget = $2", [this.offer, facts.budget]);
+      const existing = await client.query(
+        "select payer, amount, remaining from provider_kit.launch_bonus_grants where offer = $1 and budget = $2 and created_slot = $3",
+        [this.offer, facts.budget, facts.createdSlot.toString()],
+      );
       if (existing.rows[0]) {
         const row = existing.rows[0];
-        return { budget: facts.budget, payer: String(row.payer), amount: big(row.amount), remaining: big(row.remaining) };
+        return { budget: facts.budget, createdSlot: facts.createdSlot, payer: String(row.payer), amount: big(row.amount), remaining: big(row.remaining) };
       }
       const wallet = await client.query(
         "select coalesce(sum(amount - released), 0) as held from provider_kit.launch_bonus_grants where offer = $1 and payer = $2",
@@ -220,41 +229,68 @@ export class PostgresLaunchBonusStore implements LaunchBonusStore {
       if (poolRoom < granted) granted = poolRoom;
       if (granted < 0n) granted = 0n;
       await client.query(
-        "insert into provider_kit.launch_bonus_grants (offer, budget, payer, amount, remaining, released) values ($1, $2, $3, $4, $4, 0)",
-        [this.offer, facts.budget, facts.payer, granted.toString()],
+        "insert into provider_kit.launch_bonus_grants (offer, budget, created_slot, payer, amount, remaining, released) values ($1, $2, $3, $4, $5, $5, 0)",
+        [this.offer, facts.budget, facts.createdSlot.toString(), facts.payer, granted.toString()],
       );
       if (granted > 0n) await client.query("update provider_kit.launch_bonus_pool set granted = granted + $2 where offer = $1", [this.offer, granted.toString()]);
-      return { budget: facts.budget, payer: facts.payer, amount: granted, remaining: granted };
+      return { budget: facts.budget, createdSlot: facts.createdSlot, payer: facts.payer, amount: granted, remaining: granted };
     });
   }
 
-  async apply(config: LaunchBonusConfig, budget: string, call: string, provider: string, cost: bigint): Promise<CallSplit> {
+  async apply(config: LaunchBonusConfig, ref: BudgetRef, call: string, provider: string, cost: bigint): Promise<CallSplit> {
     if (!CALL_ID.test(call)) throw new Error("call id must be 1-200 printable characters without spaces");
+    const key = [this.offer, ref.budget, ref.createdSlot.toString()];
     return inTransaction(this.pool, async (client) => {
-      const grant = await client.query("select remaining from provider_kit.launch_bonus_grants where offer = $1 and budget = $2 for update", [this.offer, budget]);
-      const used = await client.query("select bonus, paid from provider_kit.launch_bonus_uses where offer = $1 and budget = $2 and call = $3", [this.offer, budget, call]);
-      if (used.rows[0]) return { bonus: big(used.rows[0].bonus), paid: big(used.rows[0].paid) };
+      const grant = await client.query("select remaining from provider_kit.launch_bonus_grants where offer = $1 and budget = $2 and created_slot = $3 for update", key);
+      const used = await client.query("select bonus, paid, voided from provider_kit.launch_bonus_uses where offer = $1 and budget = $2 and created_slot = $3 and call = $4", [...key, call]);
+      if (used.rows[0]) {
+        if (used.rows[0].voided) throw new Error("this call was voided and cannot be priced again");
+        return { bonus: big(used.rows[0].bonus), paid: big(used.rows[0].paid) };
+      }
       const remaining = grant.rows[0] ? big(grant.rows[0].remaining) : 0n;
       const split = splitCall(cost, remaining, config.matchBps);
       if (split.bonus > 0n) {
-        await client.query("update provider_kit.launch_bonus_grants set remaining = remaining - $3 where offer = $1 and budget = $2", [this.offer, budget, split.bonus.toString()]);
+        await client.query("update provider_kit.launch_bonus_grants set remaining = remaining - $4 where offer = $1 and budget = $2 and created_slot = $3", [...key, split.bonus.toString()]);
         await client.query(
-          "insert into provider_kit.launch_bonus_uses (offer, budget, call, provider, cost, bonus, paid) values ($1, $2, $3, $4, $5, $6, $7)",
-          [this.offer, budget, call, provider, cost.toString(), split.bonus.toString(), split.paid.toString()],
+          "insert into provider_kit.launch_bonus_uses (offer, budget, created_slot, call, provider, cost, bonus, paid, voided) values ($1, $2, $3, $4, $5, $6, $7, $8, false)",
+          [...key, call, provider, cost.toString(), split.bonus.toString(), split.paid.toString()],
         );
       }
       return split;
     });
   }
 
-  async release(budget: string): Promise<bigint> {
+  async void(ref: BudgetRef, call: string): Promise<bigint> {
+    const key = [this.offer, ref.budget, ref.createdSlot.toString()];
+    return inTransaction(this.pool, async (client) => {
+      // Same lock order as grant and release: the pool row, then the grant.
+      await client.query("select granted from provider_kit.launch_bonus_pool where offer = $1 for update", [this.offer]);
+      const grant = await client.query("select closed from provider_kit.launch_bonus_grants where offer = $1 and budget = $2 and created_slot = $3 for update", key);
+      const used = await client.query("select bonus, voided from provider_kit.launch_bonus_uses where offer = $1 and budget = $2 and created_slot = $3 and call = $4", [...key, call]);
+      const row = used.rows[0];
+      if (!grant.rows[0] || !row || row.voided) return 0n;
+      const bonus = big(row.bonus);
+      await client.query("update provider_kit.launch_bonus_uses set voided = true where offer = $1 and budget = $2 and created_slot = $3 and call = $4", [...key, call]);
+      // Once the Budget's bonus has lapsed, a voided call's share lapses with it.
+      if (grant.rows[0].closed) {
+        await client.query("update provider_kit.launch_bonus_pool set granted = granted - $2 where offer = $1", [this.offer, bonus.toString()]);
+        await client.query("update provider_kit.launch_bonus_grants set released = released + $4 where offer = $1 and budget = $2 and created_slot = $3", [...key, bonus.toString()]);
+      } else {
+        await client.query("update provider_kit.launch_bonus_grants set remaining = remaining + $4 where offer = $1 and budget = $2 and created_slot = $3", [...key, bonus.toString()]);
+      }
+      return bonus;
+    });
+  }
+
+  async release(ref: BudgetRef): Promise<bigint> {
+    const key = [this.offer, ref.budget, ref.createdSlot.toString()];
     return inTransaction(this.pool, async (client) => {
       await client.query("select granted from provider_kit.launch_bonus_pool where offer = $1 for update", [this.offer]);
-      const row = await client.query("select remaining from provider_kit.launch_bonus_grants where offer = $1 and budget = $2 for update", [this.offer, budget]);
-      const left = row.rows[0] ? big(row.rows[0].remaining) : 0n;
-      if (left === 0n) return 0n;
-      await client.query("update provider_kit.launch_bonus_grants set remaining = 0, released = released + $3 where offer = $1 and budget = $2", [this.offer, budget, left.toString()]);
-      await client.query("update provider_kit.launch_bonus_pool set granted = granted - $2 where offer = $1", [this.offer, left.toString()]);
+      const row = await client.query("select remaining from provider_kit.launch_bonus_grants where offer = $1 and budget = $2 and created_slot = $3 for update", key);
+      if (!row.rows[0]) return 0n;
+      const left = big(row.rows[0].remaining);
+      await client.query("update provider_kit.launch_bonus_grants set remaining = 0, released = released + $4, closed = true where offer = $1 and budget = $2 and created_slot = $3", [...key, left.toString()]);
+      if (left > 0n) await client.query("update provider_kit.launch_bonus_pool set granted = granted - $2 where offer = $1", [this.offer, left.toString()]);
       return left;
     });
   }
@@ -282,6 +318,47 @@ export async function applyLaunchBonus(
   if (!earned.eligible) return { paid: call.cost };
   const grant = await store.grant(config, facts, earned.amount);
   if (grant.amount === 0n) return { paid: call.cost };
-  const split = await store.apply(config, facts.budget, call.id, call.provider, call.cost);
+  const split = await store.apply(config, facts, call.id, call.provider, call.cost);
   return split.bonus > 0n ? { paid: split.paid, bonus: { offer: LAUNCH_BONUS_OFFER, amount: split.bonus.toString() } } : { paid: split.paid };
+}
+
+/** What the provider kit passes for a budget-paid call (PR #1114), all read from the verified Budget account. */
+export type BudgetCallPricingInput = {
+  budget: string;
+  payer: string;
+  mint: string | null;
+  total: bigint;
+  createdSlot: bigint;
+  provider: string;
+  requestId: string;
+  cost: bigint;
+};
+
+/**
+ * The provider kit's three Budget hooks, backed by the bonus ledger.
+ * `blockTimeMs` turns the Budget's created_slot into its open time (the RPC's
+ * getBlockTime, in ms); it throws when the slot has no time, and the call is
+ * refused rather than priced on a guessed date.
+ */
+export function launchBonusHooks(deps: {
+  settings: () => LaunchBonusSettings;
+  store: LaunchBonusStore;
+  blockTimeMs: (slot: bigint) => Promise<number>;
+}) {
+  return {
+    async budgetCallPricing(input: BudgetCallPricingInput): Promise<BonusOutcome> {
+      const settings = deps.settings();
+      if (!settings.ok) return { paid: input.cost };
+      const openedAtMs = await deps.blockTimeMs(input.createdSlot);
+      const facts: BudgetFacts = { budget: input.budget, createdSlot: input.createdSlot, payer: input.payer, mint: input.mint, total: input.total, openedAtMs };
+      return applyLaunchBonus(settings, deps.store, facts, { id: input.requestId, provider: input.provider, cost: input.cost });
+    },
+    async budgetCallPricingVoided(input: { budget: string; createdSlot: bigint; requestId: string }): Promise<void> {
+      await deps.store.void({ budget: input.budget, createdSlot: input.createdSlot }, input.requestId);
+    },
+    /** Only once the Budget is closed: its unspent bonus lapses. */
+    async onBudgetDone(input: { budget: string; createdSlot: bigint }): Promise<void> {
+      await deps.store.release(input);
+    },
+  };
 }
