@@ -67,6 +67,21 @@ export type ReddiReceiptV2Delivery = {
     /** ISO 8601 UTC time the provider stops hosting the file. After `issuedAt`. */
     expiresAt: string;
 };
+/**
+ * A launch or promotional bonus the provider applied to this call: a discount
+ * on its own price, not a transfer. `amount` is in the payment's smallest
+ * units and currency. The call's listed cost is what the buyer paid
+ * (`payment.amount`, or this call's share of a Budget session's
+ * `cumulativeCost`) plus `bonus.amount`; the protocol fee is worked out on the
+ * paid part alone, because only that moved on chain. `offer` names the offer,
+ * such as `rap-launch-2026`. Only on a receipt that states a payment or a
+ * Budget call (`budget` with `session`), and never more than `payment.amount`
+ * or the session's `cumulativeCost`.
+ */
+export type ReddiReceiptV2Bonus = {
+    offer: string;
+    amount: string;
+};
 export type ReddiReceiptV2Payment = {
     network: ReddiReceiptV2Network;
     /** Signature of the transaction that paid for this call (base58). */
@@ -160,6 +175,8 @@ export type ReddiReceiptV2 = {
     budget?: ReddiReceiptV2Budget;
     /** The file delivered, for a provider that returns one. */
     delivery?: ReddiReceiptV2Delivery;
+    /** A discount the provider applied on top of the payment, such as the launch Budget bonus. */
+    bonus?: ReddiReceiptV2Bonus;
     /** The job this call was recorded as, when the provider knows it. */
     jobId?: string;
     /** ISO 8601 UTC time the provider issued this receipt. */
@@ -173,7 +190,7 @@ export type SignedReddiReceiptV2 = {
         signature: string;
     };
 };
-export type ReddiReceiptV2ErrorCode = 'malformed_receipt' | 'unsupported_version' | 'malformed_proof' | 'signature_invalid' | 'provider_mismatch' | 'declared_model_mismatch' | 'request_hash_mismatch' | 'response_hash_mismatch' | 'payment_mismatch' | 'session_mismatch' | 'session_chain_broken' | 'delivery_mismatch' | 'budget_mismatch';
+export type ReddiReceiptV2ErrorCode = 'malformed_receipt' | 'unsupported_version' | 'malformed_proof' | 'signature_invalid' | 'provider_mismatch' | 'declared_model_mismatch' | 'request_hash_mismatch' | 'response_hash_mismatch' | 'payment_mismatch' | 'session_mismatch' | 'session_chain_broken' | 'delivery_mismatch' | 'budget_mismatch' | 'bonus_mismatch';
 export type ReddiReceiptV2Error = {
     code: ReddiReceiptV2ErrorCode;
     path: string;
@@ -208,6 +225,8 @@ export type ReddiReceiptV2Expectation = {
     delivery?: Partial<ReddiReceiptV2Delivery>;
     /** Each field given must equal the signed budget block. A receipt without one fails. */
     budget?: Partial<ReddiReceiptV2Budget>;
+    /** Each field given must equal the signed bonus block. A receipt without one fails. */
+    bonus?: Partial<ReddiReceiptV2Bonus>;
 };
 /** Signs the canonical bytes with the provider's key and returns the 64-byte signature. The key never enters this module. */
 export type ReddiReceiptV2Signer = (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;

@@ -25,6 +25,22 @@ A provider missing any of these answers 503 and charges nothing; the log line `p
 
 Alert email (optional, recommended on mainnet): with `PROVIDER_ALERT_RESEND_API_KEY` (Sensitive), `PROVIDER_ALERT_EMAIL_TO` (one address) and `PROVIDER_ALERT_EMAIL_FROM` (a sender on a domain verified in Resend) all set, every log event marked `alert: true` (a failed sweep, a settle whose outcome is unknown, a lost paid answer, a provider not set up) is also emailed, sent after the response. Each instance sends at most one email per event name every 15 minutes and counts the ones it held back. With only some of the three set, it logs `alert_email_not_configured` with the missing names and sends nothing; a refused send logs `alert_email_failed` with the status only. See `lib/alerts.ts`.
 
+## Launch Budget bonus
+
+For 30 days after mainnet launch, a USDC Budget earns a bonus of 50% of what it locks, spent only with these providers (`lib/launch-bonus.ts`). The bonus is a discount on their own price, recorded in `provider_kit.launch_bonus_*` (migration `20261124200000_provider_kit_launch_bonus.sql`): no funds move and RAP holds nothing. On each call it covers one third of the cost and the Budget pays the rest; the receipt states it as a signed `bonus` block.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `LAUNCH_BONUS_STARTS_AT` | unset (offer off) | ISO 8601 UTC time the offer starts: the actual mainnet launch |
+| `LAUNCH_BONUS_DAYS` | 30 | Budgets opened in this many days earn |
+| `LAUNCH_BONUS_MATCH_BPS` | 5000 | Bonus as basis points of the Budget (5000 = 50%) |
+| `LAUNCH_BONUS_WALLET_CAP_USDC` | 10 | Most bonus one payer earns across its Budgets |
+| `LAUNCH_BONUS_POOL_CAP_USDC` | 1000 | Most bonus granted and not lapsed, for the whole offer |
+| `LAUNCH_BONUS_MIN_BUDGET_USDC` | 1 | Smallest Budget that earns |
+| `LAUNCH_BONUS_EXCLUDED_PAYERS` | none | Extra payer addresses that never earn (the treasury and the provider wallets never do) |
+
+A malformed setting turns the offer off (the caller logs its message); it never falls back to a guessed value. `launchBonusHooks` gives the provider kit its three Budget hooks (PR #1114): `budgetCallPricing` per call, `budgetCallPricingVoided` when a priced call is refused (its bonus goes back), and `onBudgetDone` after the Budget closes (unspent bonus lapses). Grants are keyed by Budget address and created_slot, so a new Budget at a reused address gets its own.
+
 ## Database setup (owner, once)
 
 1. Apply `supabase/migrations/20261123120000_provider_kit_state.sql`. It creates `provider_kit_app` without a login: it can use the five `provider_kit` tables and nothing else.

@@ -1,7 +1,8 @@
 name: Providers app
 
 # Builds and tests apps/providers, which serves RAP's first-party providers on
-# Vercel through the provider kit. Offline: no secrets, no database, no RPC.
+# Vercel through the provider kit. Offline: no secrets and no RPC. The launch
+# bonus ledger is tested against a local Postgres with every migration applied.
 
 on:
   pull_request:
@@ -11,6 +12,7 @@ on:
       - "packages/x402-solana/**"
       - "packages/agent-protocol/**"
       - "deploy/first-party-providers/**"
+      - "supabase/migrations/*provider_kit*.sql"
       - ".github/workflows/providers-app.yml"
   push:
     branches: [main]
@@ -20,6 +22,7 @@ on:
       - "packages/x402-solana/**"
       - "packages/agent-protocol/**"
       - "deploy/first-party-providers/**"
+      - "supabase/migrations/*provider_kit*.sql"
       - ".github/workflows/providers-app.yml"
   workflow_dispatch:
 
@@ -67,5 +70,24 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      # Local only: nothing leaves the runner. The tests connect as the
+      # providers' own role, so its grants are what is tested.
+      - name: Start Postgres with the migrations
+        working-directory: .
+        run: |
+          set -euo pipefail
+          docker run -d --name rap-pg -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:55432:5432 postgres:16.10
+          for i in $(seq 1 60); do
+            docker logs rap-pg 2>&1 | grep -q "PostgreSQL init process complete" && docker exec rap-pg pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && break
+            sleep 1
+          done
+          docker exec rap-pg pg_isready -h 127.0.0.1 -U postgres
+          for f in supabase/tests/00_supabase_stub.sql supabase/migrations/*.sql; do
+            docker exec -i rap-pg psql -X -q -v ON_ERROR_STOP=1 -U postgres < "$f"
+          done
+          docker exec rap-pg psql -X -q -v ON_ERROR_STOP=1 -U postgres -c "alter role provider_kit_app login"
+
       - name: Tests
+        env:
+          RAP_TEST_DATABASE_URL: postgres://provider_kit_app@127.0.0.1:55432/postgres
         run: npm test

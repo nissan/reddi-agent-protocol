@@ -8,6 +8,7 @@ import { reservationAddress, MIN_REVIEW_SLOTS } from "@redditech/x402-solana/bud
 import { budgetRequestHeaders, spenderSignedReserve, BUDGET_RESERVE_HEADER, type PooledBudgetOffer } from "@redditech/x402-solana/budget-provider";
 import { createProviderHandler, PROVIDER_RECEIPT_HEADER, type BudgetCallPricingInput, type ProviderDeps } from "../src/handler.js";
 import { MemoryBudgetSliceStore } from "../src/budgets.js";
+import { verifyReddiReceiptV2, type SignedReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
 import type { Upstream } from "../src/upstream.js";
 import { ata, config, CURRENT_SLOT, fakeChain, PROGRAM, provider, USDC, type FakeChain } from "./helpers.js";
 
@@ -339,6 +340,19 @@ test("an operator's pricing hook sets what the budget pays for a call, from the 
   assert.equal(seen[0].createdSlot, CREATED);
   assert.ok(seen[0].cost > 0n);
   assert.equal((await store.get(budgetKey.toBase58()))?.spent, (seen[0].cost / 2n).toString());
+});
+
+test("a pricing hook's bonus is signed into the Budget call's receipt and verifies", async () => {
+  let bonus = 0n;
+  const { chain, call } = setup({ budgetCallPricing: async (input) => { bonus = input.cost / 3n; return { paid: input.cost - bonus, bonus: { offer: "rap-launch-2026", amount: bonus.toString() } }; } });
+  setBudget(chain);
+  setReservation(chain, { reserved: 1_000_000n });
+  const served = await call(1);
+  assert.equal(served.status, 200, await served.clone().text());
+  assert.ok(bonus > 0n);
+  const signed = JSON.parse(Buffer.from(served.headers.get(PROVIDER_RECEIPT_HEADER)!, "base64url").toString("utf8")) as SignedReddiReceiptV2;
+  const verified = verifyReddiReceiptV2(signed, { providerId: provider.publicKey.toBase58(), budget: { address: budgetKey.toBase58() }, bonus: { offer: "rap-launch-2026", amount: bonus.toString() } });
+  assert.equal(verified.ok, true, JSON.stringify(verified));
 });
 
 test("a pricing hook that fails or answers out of range refuses the call, and nothing is recorded", async () => {

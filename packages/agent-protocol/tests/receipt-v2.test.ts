@@ -309,6 +309,29 @@ describe('reddi.receipt.v2', () => {
     assert.equal(bad({ delivery: { ...delivery, url: 'https://example.com/x' } as unknown as ReddiReceiptV2['delivery'] }), false);
   });
 
+  it('states a launch bonus as a signed discount next to the payment', async () => {
+    const provider = testProvider();
+    // The call listed at 1.5 USDC: the Budget paid 1.0, the launch bonus covered 0.5.
+    const bonus = { offer: 'rap-launch-2026', amount: '500000' };
+    const signed = await signReddiReceiptV2(receiptFor(provider.address, { bonus }), provider.signer);
+    assert.match(canonicalizeReddiReceiptV2(signed.receipt), /"settlement":"direct"\},"bonus":\{"offer":"rap-launch-2026","amount":"500000"\},"issuedAt"/);
+    assert.equal(verifyReddiReceiptV2(signed, { bonus: { offer: 'rap-launch-2026', amount: '500000' } }).ok, true);
+    assert.deepEqual(codes(verifyReddiReceiptV2(signed, { bonus: { amount: '1' } })), ['bonus_mismatch']);
+    // Changing the bonus after signing breaks the signature.
+    assert.deepEqual(codes(verifyReddiReceiptV2({ ...signed, receipt: { ...signed.receipt, bonus: { ...bonus, amount: '900000' } } })), ['signature_invalid']);
+    // A receipt without a bonus does not meet an expected one.
+    const plain = await signReddiReceiptV2(receiptFor(provider.address), provider.signer);
+    assert.deepEqual(codes(verifyReddiReceiptV2(plain, { bonus: { offer: 'rap-launch-2026' } })), ['bonus_mismatch']);
+
+    const ok = (overrides: Partial<ReddiReceiptV2>) => validateReddiReceiptV2(receiptFor(provider.address, overrides)).ok;
+    assert.equal(ok({ bonus: { offer: 'rap-launch-2026', amount: PAYMENT.amount } }), true);
+    assert.equal(ok({ bonus: { offer: 'rap-launch-2026', amount: '1000001' } }), false);
+    assert.equal(ok({ bonus: { offer: 'rap-launch-2026', amount: '0' } }), false);
+    assert.equal(ok({ bonus: { offer: 'RAP Launch', amount: '1' } }), false);
+    assert.equal(ok({ bonus: { offer: 'rap-launch-2026', amount: '1', cash: 'yes' } as unknown as ReddiReceiptV2['bonus'] }), false);
+    assert.equal(ok({ payment: undefined, bonus }), false);
+  });
+
   it('refuses to sign an invalid receipt', async () => {
     const provider = testProvider();
     await assert.rejects(signReddiReceiptV2(receiptFor(provider.address, { declaredModel: '' }), provider.signer), /invalid_reddi_receipt_v2/);

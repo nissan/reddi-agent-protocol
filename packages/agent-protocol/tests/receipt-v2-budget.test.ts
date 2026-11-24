@@ -94,4 +94,25 @@ describe('reddi.receipt.v2 budget block', () => {
     const result = verifyReddiReceiptV2(signed, { budget: { address: BUDGET } });
     assert.equal(result.ok, false);
   });
+
+  it('a Budget call can state a launch bonus, signed with it and never more than the session has paid', async () => {
+    const provider = testProvider();
+    const call = { ...budgetCall(provider.address, 1), bonus: { offer: 'rap-launch-2026', amount: '500' } };
+    assert.equal(validateReddiReceiptV2(call).ok, true);
+    const signed = await signReddiReceiptV2(call, provider.signer);
+    assert.equal(verifyReddiReceiptV2(signed, { budget: { address: BUDGET }, bonus: { offer: 'rap-launch-2026', amount: '500' } }).ok, true);
+    const altered = structuredClone(signed);
+    altered.receipt.bonus!.amount = '1000';
+    assert.equal(verifyReddiReceiptV2(altered).ok, false);
+    // cumulativeCost of call 1 is 1000: a bigger bonus is refused.
+    const tooBig = validateReddiReceiptV2({ ...call, bonus: { offer: 'rap-launch-2026', amount: '1001' } });
+    assert.equal(tooBig.ok, false);
+    if (!tooBig.ok) assert.ok(tooBig.errors.some((e) => e.path === '$.bonus.amount'));
+    // A plain session call (no payment, no budget block) has paid nothing yet.
+    const { budget: _b, ...plain } = call;
+    void _b;
+    const sessionOnly = validateReddiReceiptV2(plain);
+    assert.equal(sessionOnly.ok, false);
+    if (!sessionOnly.ok) assert.ok(sessionOnly.errors.some((e) => e.path === '$.bonus'));
+  });
 });

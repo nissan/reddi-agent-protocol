@@ -17,8 +17,12 @@
  *
  * A provider that is not fully set up refuses calls with 503 and logs why; it
  * never starts with a placeholder or a missing secret.
+ *
+ * Budget-paid calls go through the launch Budget bonus (lib/launch-bonus.ts),
+ * which stays off until LAUNCH_BONUS_STARTS_AT is set.
  */
 import { createServerlessProvider, type PgPool, type ProviderConfigFile, type ServerlessProvider } from "@redditech/provider-kit";
+import { launchBonusHooks, launchBonusSettings, PostgresLaunchBonusStore } from "./launch-bonus.ts";
 import humaniserDevnet from "../../../deploy/first-party-providers/humaniser.devnet.provider.json" with { type: "json" };
 import humaniserMainnet from "../../../deploy/first-party-providers/humaniser.mainnet.provider.json" with { type: "json" };
 import writingStyleDevnet from "../../../deploy/first-party-providers/writing-style.devnet.provider.json" with { type: "json" };
@@ -35,6 +39,24 @@ export const PROVIDERS = {
 export type ProviderName = keyof typeof PROVIDERS;
 export type Loaded = { ok: true; provider: ServerlessProvider } | { ok: false; message: string };
 type Env = Record<string, string | undefined>;
+
+const DEVNET_RPC_URL = "https://api.devnet.solana.com";
+
+/** A slot's block time in ms, from the RPC. Throws when the slot has none, so the call is refused rather than priced on a guess. */
+export function rpcBlockTime(rpcUrl: string, fetchImpl: typeof fetch = fetch) {
+  return async (slot: bigint): Promise<number> => {
+    const response = await fetchImpl(rpcUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getBlockTime", params: [Number(slot)] }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) throw new Error(`getBlockTime failed: HTTP ${response.status}`);
+    const body = (await response.json()) as { result?: unknown };
+    if (typeof body.result !== "number" || !Number.isSafeInteger(body.result) || body.result <= 0) throw new Error("slot has no block time");
+    return body.result * 1000;
+  };
+}
 
 export const isProviderName = (name: string): name is ProviderName => Object.hasOwn(PROVIDERS, name);
 
@@ -70,10 +92,20 @@ export function loadProvider(name: ProviderName, env: Env, pool: () => PgPool | 
   // prompt and the records come from the environment and the database.
   const { keypairPath: _k, replayFile: _r, systemPromptFile: _s, ...reviewed } = entry[net] as ProviderConfigFile & Record<string, unknown>;
   const file = { ...reviewed, wallet, publicUrl: `${base}/${name}` } as ProviderConfigFile;
+  const bonusSettings = launchBonusSettings(env);
+  if (!bonusSettings.ok && !bonusSettings.off) log?.({ event: "launch_bonus_settings_invalid", provider: name, reason: bonusSettings.message, alert: true });
+  const bonus = launchBonusHooks({
+    settings: () => bonusSettings,
+    store: new PostgresLaunchBonusStore(db),
+    blockTimeMs: rpcBlockTime(env.SOLANA_RPC_URL?.trim() || DEVNET_RPC_URL),
+  });
   return createServerlessProvider({
     file,
     env,
     pool: db,
+    budgetCallPricing: bonus.budgetCallPricing,
+    budgetCallPricingVoided: bonus.budgetCallPricingVoided,
+    onBudgetDone: bonus.onBudgetDone,
     keyEnv: `${entry.prefix}_KEYPAIR`,
     promptEnv: `${entry.prefix}_PROMPT`,
     basePath: `/${name}`,
