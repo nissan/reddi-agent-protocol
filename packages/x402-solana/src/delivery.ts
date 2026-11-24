@@ -31,8 +31,8 @@
  *
  * A seller decides before doing any work whether it accepts the judge and
  * windows it reads on the delivery account: recording a delivery is its
- * agreement to them. The provider kit refuses delivery-checked escrows unless
- * the provider names the judges it accepts.
+ * agreement to them. For now `verifyMeteredLock`, `verifyEscrowLock` and the
+ * provider kit refuse every delivery-checked escrow.
  */
 import { PublicKey, SystemProgram, TransactionInstruction, type AccountMeta } from '@solana/web3.js';
 
