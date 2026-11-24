@@ -307,7 +307,7 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
       }
       try {
         const signature = await deps.chain.cosignAndSend(checked.transaction);
-        deps.log({ event: "budget_reserved", budget: key, amount: checked.amount.toString(), signature });
+        deps.log({ event: "budget_reserved", budget: key, amount: checked.amount.toString(), maxFeeLamports: checked.maxFeeLamports.toString(), signature });
       } catch (error) {
         deps.log({ event: "budget_reserve_failed", budget: key, detail: error instanceof Error ? error.message : "unknown" });
         return { ok: false, status: 503, code: "budget_reserve_failed", message: "The reserve did not land. Nothing was charged; send the call again with a fresh reserve." };

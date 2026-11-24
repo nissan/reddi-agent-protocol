@@ -25,7 +25,7 @@ const CREATED = CURRENT_SLOT - 1_000n;
 const GENESIS = SOLANA_GENESIS_HASHES["solana-devnet"];
 const BODY = JSON.stringify({ messages: [{ role: "user", content: "x".repeat(400) }] });
 
-interface BudgetFields { mint?: PublicKey; judge?: PublicKey | null; total?: bigint; unreserved?: bigint; closed?: boolean; closedSlot?: bigint; createdSlot?: bigint; openSlots?: bigint; disputeSlots?: bigint; reservations?: number }
+interface BudgetFields { mint?: PublicKey; judge?: PublicKey | null; total?: bigint; unreserved?: bigint; closed?: boolean; closedSlot?: bigint; createdSlot?: bigint; openSlots?: bigint; disputeSlots?: bigint; reservations?: number; reviewFromOpenEnd?: boolean }
 function budgetBytes(f: BudgetFields = {}): Uint8Array {
   const data = Buffer.alloc(349);
   disc("account:Budget").copy(data, 0);
@@ -41,7 +41,7 @@ function budgetBytes(f: BudgetFields = {}): Uint8Array {
   data.writeBigUInt64LE(f.unreserved ?? 50_000_000n, 192);
   data.writeBigUInt64LE(f.closedSlot ?? 0n, 336);
   data[344] = f.reservations ?? 0;
-  data[346] = f.closed ? 0x02 : 0;
+  data[346] = (f.closed ? 0x02 : 0) | (f.reviewFromOpenEnd ? 0x04 : 0);
   return data;
 }
 
@@ -407,4 +407,20 @@ test("closing an expired budget first creates the payer's token account if it is
   assert.equal(chain.sent.length, 1);
   assert.ok(chain.sent[0].at(-1)!.data.subarray(0, 8).equals(disc("global:close_token_budget")));
   assertCreatesAccounts(chain.sent[0], [payer]);
+});
+
+test("after an early close by the spender, the payout waits for the end of the open period", async () => {
+  for (const reviewFromOpenEnd of [false, true]) {
+    const { chain, call, handler, store } = setup();
+    setBudget(chain);
+    setReservation(chain, { reserved: 1_000_000n });
+    assert.equal((await call(1)).status, 200);
+    await store.save({ ...(await store.get(budgetKey.toBase58()))!, status: "posted" });
+    // Closed early, long before the open period ends; the dispute window alone has passed.
+    setBudget(chain, { closed: true, closedSlot: CREATED + 10n, disputeSlots: 100n, reviewFromOpenEnd });
+    setReservation(chain, { reserved: 1_000_000n, state: 1, finalAmount: 1n, postedSlot: CURRENT_SLOT - MIN_REVIEW_SLOTS });
+    const expected = reviewFromOpenEnd ? "posted" : "paid";
+    assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: expected }], `reviewFromOpenEnd=${reviewFromOpenEnd}`);
+    assert.equal(chain.sent.length, reviewFromOpenEnd ? 0 : 1);
+  }
 });
