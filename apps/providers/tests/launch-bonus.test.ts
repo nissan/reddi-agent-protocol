@@ -252,3 +252,16 @@ test("the kit hooks read the open time from the Budget's slot and refuse when it
 test("the providers' role cannot delete ledger rows", { skip }, async () => {
   await assert.rejects(pool!.query("delete from provider_kit.launch_bonus_grants where offer = 'none'"), /permission denied/);
 });
+
+test("the block time comes from the RPC's getBlockTime, and a slot without one is refused", async () => {
+  const { rpcBlockTime } = await import("../lib/providers.ts");
+  const calls: unknown[] = [];
+  const reply = (result: unknown, status = 200) => (async (_url: unknown, init?: RequestInit) => {
+    calls.push(JSON.parse(String(init?.body)));
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status });
+  }) as typeof fetch;
+  assert.equal(await rpcBlockTime("https://rpc.example", reply(1_765_000_000))(525_720_300n), 1_765_000_000_000);
+  assert.deepEqual((calls[0] as { method: string; params: unknown[] }).params, [525_720_300]);
+  await assert.rejects(rpcBlockTime("https://rpc.example", reply(null))(1n), /no block time/);
+  await assert.rejects(rpcBlockTime("https://rpc.example", reply(1, 500))(1n), /HTTP 500/);
+});
