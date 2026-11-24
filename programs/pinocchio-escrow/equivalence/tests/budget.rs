@@ -292,7 +292,28 @@ fn a_sol_budget_is_split_between_providers_and_the_rest_refunded() {
         &[&stranger],
         PAYOUT_NOT_OPEN,
     );
+    // The spender closed early, so the payer's review runs from the end of
+    // the open period, not from the close (B1).
+    let review_from = closed.max(created + OPEN_SLOTS);
+    assert!(
+        review_from > closed,
+        "the close came before the open period ended"
+    );
     t.world.warp(closed + DISPUTE_SLOTS);
+    t.world.refused(
+        "payout one dispute window after a spender's early close",
+        payout_ix(&budget, created, &b, &payer),
+        &[&stranger],
+        PAYOUT_NOT_OPEN,
+    );
+    t.world.warp(review_from + DISPUTE_SLOTS - 1);
+    t.world.refused(
+        "payout one slot before the review ends",
+        payout_ix(&budget, created, &b, &payer),
+        &[&stranger],
+        PAYOUT_NOT_OPEN,
+    );
+    t.world.warp(review_from + DISPUTE_SLOTS);
     let b_before = t.lamports(&b);
     t.payout(&budget, created, &b);
     assert_eq!(
@@ -1566,4 +1587,655 @@ fn an_issuer_taking_vault_tokens_does_not_strand_a_budget() {
     assert_eq!(f.balance(&f.tokens.source), source_before);
     assert!(!f.t.world.exists(&budget));
     assert!(!f.t.world.exists(&vault));
+}
+
+// ── A payout account the provider closed or that was frozen (round 4) ──────
+
+const ACCOUNT_NOT_INITIALIZED: u32 = 3012;
+
+/// Install (or re-install) an empty token account of the fixture's mint.
+fn put_token_account(f: &mut TokenFixture, address: Pubkey, owner: &Pubkey) {
+    let data = token_account_data(&f.tokens.program, &f.tokens.mint, owner, 0);
+    f.t.world.set(
+        address,
+        Account {
+            lamports: 10_000_000,
+            data,
+            owner: f.tokens.program,
+            ..Account::default()
+        },
+    );
+}
+
+/// What `CloseAccount` leaves behind: no data, no lamports.
+fn close_token_account(f: &mut TokenFixture, address: Pubkey) {
+    f.t.world.set(address, Account::default());
+}
+
+/// What a freeze by the mint's freeze authority leaves: state Frozen.
+fn freeze_token_account(f: &mut TokenFixture, address: Pubkey) {
+    let mut account = f.t.world.svm.get_account(&address).unwrap();
+    account.data[108] = 2;
+    f.t.world.set(address, account);
+}
+
+fn associated_token_address(owner: &Pubkey, program: &Pubkey, mint: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(
+        &[owner.as_ref(), program.as_ref(), mint.as_ref()],
+        &escrow::ASSOCIATED_TOKEN_PROGRAM_ID,
+    )
+    .0
+}
+
+fn a_closed_or_frozen_payout_account_cannot_freeze_a_slice(program: Pubkey, mint: Pubkey) {
+    let mut f = TokenFixture::new(program, mint);
+    let payer = f.t.payer.pubkey();
+    let a = f.t.a.pubkey();
+    let a_kp = f.t.a.insecure_clone();
+    let payer_kp = f.t.payer.insecure_clone();
+    let stranger = f.t.stranger.insecure_clone();
+    let judge = f.t.judge.insecure_clone();
+    let recipient = f.tokens.recipient;
+    let associated = associated_token_address(&a, &program, &mint);
+    let other = Pubkey::new_from_array([103; 32]);
+    let base = Terms {
+        total: TOKEN_TOTAL,
+        ..f.t.terms(1)
+    };
+
+    // 1. Disputed, then the provider closes its payout account: the judge's
+    //    resolve(0) refunds the slice, and the budget closes.
+    let (budget, created) = f.open(&base);
+    f.reserve(&budget, created, 6_000_000);
+    f.t.post(&budget, created, &a_kp, 4_000_000);
+    f.t.hold("dispute", &budget, created, &a);
+    close_token_account(&mut f, recipient);
+    f.t.world.refused(
+        "re-point while disputed",
+        set_payout_ix(&budget, created, &a, &associated),
+        &[&a_kp],
+        RESERVATION_LOCKED,
+    );
+    f.t.world.ok(
+        "close_token_budget",
+        token_close_ix(&f.tokens, &budget, created, &payer),
+        &[&payer_kp],
+    );
+    let source_before = f.balance(&f.tokens.source);
+    f.t.world.ok(
+        "resolve(0) with the payout account closed",
+        token_resolve_ix(
+            &f.tokens,
+            &budget,
+            created,
+            &a,
+            &recipient,
+            &judge.pubkey(),
+            0,
+        ),
+        &[&judge],
+    );
+    assert_eq!(f.balance(&f.tokens.source), source_before + 6_000_000);
+    assert!(!f.t.world.exists(&budget));
+    assert!(!f.t.world.exists(&vault_address(&budget)));
+
+    // 2. Disputed, payout account closed, the judge never rules: the
+    //    timeout refund goes through.
+    put_token_account(&mut f, recipient, &a);
+    let terms = Terms {
+        nonce: nonce(2),
+        ..base
+    };
+    let (budget, created) = f.open(&terms);
+    f.reserve(&budget, created, 6_000_000);
+    f.t.post(&budget, created, &a_kp, 4_000_000);
+    f.t.hold("dispute", &budget, created, &a);
+    close_token_account(&mut f, recipient);
+    f.t.world.ok(
+        "close_token_budget",
+        token_close_ix(&f.tokens, &budget, created, &payer),
+        &[&payer_kp],
+    );
+    let disputed = u64_at(&f.t.world.data(&reservation_address(&budget, &a)), 136);
+    f.t.world.warp(disputed + JUDGE_SLOTS);
+    let source_before = f.balance(&f.tokens.source);
+    f.t.world.ok(
+        "judge-timeout refund with the payout account closed",
+        token_payout_ix(&f.tokens, &budget, created, &a, &recipient),
+        &[&stranger],
+    );
+    assert_eq!(f.balance(&f.tokens.source), source_before + 6_000_000);
+    assert!(!f.t.world.exists(&budget));
+
+    // 3. Never posted, payout account closed: the refund goes through.
+    put_token_account(&mut f, recipient, &a);
+    let terms = Terms {
+        nonce: nonce(3),
+        ..base
+    };
+    let (budget, created) = f.open(&terms);
+    f.reserve(&budget, created, 6_000_000);
+    close_token_account(&mut f, recipient);
+    f.t.world.ok(
+        "close_token_budget",
+        token_close_ix(&f.tokens, &budget, created, &payer),
+        &[&payer_kp],
+    );
+    let closed = read_budget(&f.t.world, &budget).closed_slot;
+    f.t.world.warp(closed + DISPUTE_SLOTS);
+    let source_before = f.balance(&f.tokens.source);
+    f.t.world.ok(
+        "refund of an unposted slice with the payout account closed",
+        token_payout_ix(&f.tokens, &budget, created, &a, &recipient),
+        &[&stranger],
+    );
+    assert_eq!(f.balance(&f.tokens.source), source_before + 6_000_000);
+    assert!(!f.t.world.exists(&budget));
+
+    // 4. Posted, payout account closed, window ended: the closed account
+    //    cannot be paid, the provider's associated account can (anyone may
+    //    create it), and no other account is accepted.
+    put_token_account(&mut f, recipient, &a);
+    let terms = Terms {
+        nonce: nonce(4),
+        ..base
+    };
+    let (budget, created) = f.open(&terms);
+    f.reserve(&budget, created, 6_000_000);
+    f.t.post(&budget, created, &a_kp, 4_000_000);
+    close_token_account(&mut f, recipient);
+    f.t.world.ok(
+        "close_token_budget",
+        token_close_ix(&f.tokens, &budget, created, &payer),
+        &[&payer_kp],
+    );
+    let slice = read_reservation(&f.t.world, &reservation_address(&budget, &a));
+    let closed = read_budget(&f.t.world, &budget).closed_slot;
+    f.t.world
+        .warp((closed + DISPUTE_SLOTS).max(slice.posted + MIN_REVIEW));
+    f.t.world.refused(
+        "pay into the closed payout account",
+        token_payout_ix(&f.tokens, &budget, created, &a, &recipient),
+        &[&stranger],
+        ACCOUNT_NOT_INITIALIZED,
+    );
+    put_token_account(&mut f, other, &a);
+    f.t.world.refused(
+        "pay into an account the payee owns that is neither recorded nor associated",
+        token_payout_ix(&f.tokens, &budget, created, &a, &other),
+        &[&stranger],
+        INVALID_TOKEN_ACCOUNT,
+    );
+    put_token_account(&mut f, associated, &payer);
+    f.t.world.refused(
+        "pay into the associated address holding someone else's account",
+        token_payout_ix(&f.tokens, &budget, created, &a, &associated),
+        &[&stranger],
+        INVALID_TOKEN_ACCOUNT,
+    );
+    put_token_account(&mut f, associated, &a);
+    let source_before = f.balance(&f.tokens.source);
+    f.t.world.ok(
+        "pay into the provider's associated account",
+        token_payout_ix(&f.tokens, &budget, created, &a, &associated),
+        &[&stranger],
+    );
+    assert_eq!(f.balance(&associated), 4_000_000 - fee(4_000_000));
+    assert_eq!(f.balance(&f.tokens.source), source_before + 2_000_000);
+    assert!(!f.t.world.exists(&budget));
+
+    // 5. Disputed, then the payout account is frozen: resolve(0) refunds;
+    //    a split pays the provider's associated account.
+    put_token_account(&mut f, recipient, &a);
+    put_token_account(&mut f, associated, &a);
+    let terms = Terms {
+        nonce: nonce(5),
+        ..base
+    };
+    let (budget, created) = f.open(&terms);
+    let spender = f.t.spender.insecure_clone();
+    f.reserve(&budget, created, 3_000_000);
+    let b_kp = f.t.b.insecure_clone();
+    let b = b_kp.pubkey();
+    let b_account = Pubkey::new_from_array([104; 32]);
+    put_token_account(&mut f, b_account, &b);
+    f.t.world.ok(
+        "reserve (token, B)",
+        reserve_ix(
+            &budget,
+            created,
+            &spender.pubkey(),
+            &b,
+            &b_account,
+            3_000_000,
+        ),
+        &[&b_kp, &spender],
+    );
+    f.t.post(&budget, created, &a_kp, 3_000_000);
+    f.t.post(&budget, created, &b_kp, 3_000_000);
+    f.t.hold("dispute", &budget, created, &a);
+    f.t.hold("dispute", &budget, created, &b);
+    freeze_token_account(&mut f, recipient);
+    freeze_token_account(&mut f, b_account);
+    f.t.world.ok(
+        "close_token_budget",
+        token_close_ix(&f.tokens, &budget, created, &payer),
+        &[&payer_kp],
+    );
+    let source_before = f.balance(&f.tokens.source);
+    f.t.world.ok(
+        "resolve(0) with the payout account frozen",
+        token_resolve_ix(
+            &f.tokens,
+            &budget,
+            created,
+            &b,
+            &b_account,
+            &judge.pubkey(),
+            0,
+        ),
+        &[&judge],
+    );
+    assert_eq!(f.balance(&f.tokens.source), source_before + 3_000_000);
+    f.t.world.refused(
+        "a split into the frozen account",
+        token_resolve_ix(
+            &f.tokens,
+            &budget,
+            created,
+            &a,
+            &recipient,
+            &judge.pubkey(),
+            2_000_000,
+        ),
+        &[&judge],
+        INVALID_TOKEN_ACCOUNT,
+    );
+    let source_before = f.balance(&f.tokens.source);
+    f.t.world.ok(
+        "a split into the provider's associated account",
+        token_resolve_ix(
+            &f.tokens,
+            &budget,
+            created,
+            &a,
+            &associated,
+            &judge.pubkey(),
+            2_000_000,
+        ),
+        &[&judge],
+    );
+    assert_eq!(f.balance(&associated), 2_000_000 - fee(2_000_000));
+    assert_eq!(f.balance(&f.tokens.source), source_before + 1_000_000);
+    assert!(!f.t.world.exists(&budget));
+}
+
+#[test]
+fn a_closed_or_frozen_usdc_payout_account_cannot_freeze_a_slice() {
+    a_closed_or_frozen_payout_account_cannot_freeze_a_slice(spl_token_id(), USDC_MAINNET_MINT);
+}
+
+#[test]
+fn a_closed_or_frozen_pyusd_payout_account_cannot_freeze_a_slice() {
+    a_closed_or_frozen_payout_account_cannot_freeze_a_slice(TOKEN_2022_ID, PYUSD_MAINNET_MINT);
+}
+
+/// Round 4: a payer that emptied its wallet cannot hold back a payout whose
+/// refund to it is below the rent-exempt minimum; such refunds stay in the
+/// budget and reach the payer with the budget's rent at its close.
+#[test]
+fn an_empty_payer_wallet_does_not_block_small_refunds() {
+    let mut t = Fixture::new();
+    let payer = t.payer.pubkey();
+    let a_kp = t.a.insecure_clone();
+    let b_kp = t.b.insecure_clone();
+    let a = a_kp.pubkey();
+    let b = b_kp.pubkey();
+    let spender = t.spender.insecure_clone();
+    let budget_rent = rent(&t.world, BUDGET_LEN);
+    let empty = |t: &mut Fixture| {
+        t.world.set(payer, Account::default());
+        assert_eq!(t.lamports(&payer), 0);
+    };
+
+    // Two slices, each refunding 400,000 lamports; the payer then empties
+    // its wallet. The first payout keeps its refund in the budget, the last
+    // closes the budget and pays both refunds with the rent.
+    let terms = Terms {
+        total: 2_000_000,
+        ..t.terms(1)
+    };
+    let (budget, created) = t.open(&terms);
+    t.reserve(&budget, created, &a_kp, 1_000_000);
+    t.reserve(&budget, created, &b_kp, 1_000_000);
+    t.post(&budget, created, &a_kp, 600_000);
+    t.post(&budget, created, &b_kp, 600_000);
+    empty(&mut t);
+    t.world.ok(
+        "close_budget by the spender",
+        close_ix(&budget, created, &spender.pubkey(), &payer),
+        &[&spender],
+    );
+    let closed = read_budget(&t.world, &budget).closed_slot;
+    t.world
+        .warp(closed.max(created + OPEN_SLOTS) + DISPUTE_SLOTS);
+    t.payout(&budget, created, &a);
+    assert_eq!(
+        t.lamports(&payer),
+        0,
+        "the first refund waits in the budget"
+    );
+    assert_eq!(
+        t.lamports(&budget),
+        budget_rent + 1_000_000 + 400_000,
+        "B's slice and A's refund"
+    );
+    t.payout(&budget, created, &b);
+    assert!(!t.world.exists(&budget));
+    assert_eq!(t.lamports(&payer), 800_000 + budget_rent);
+
+    // A close whose unreserved part is below the minimum: kept, then paid
+    // with the rent when the last slice settles.
+    let terms = Terms {
+        nonce: nonce(2),
+        total: 2_000_000,
+        ..t.terms(1)
+    };
+    t.world.fund(&t.payer.insecure_clone(), 1_000_000_000);
+    let (budget, created) = t.open(&terms);
+    t.reserve(&budget, created, &a_kp, 1_500_000);
+    t.post(&budget, created, &a_kp, 1_500_000);
+    empty(&mut t);
+    t.world.ok(
+        "close_budget by the spender, payer empty",
+        close_ix(&budget, created, &spender.pubkey(), &payer),
+        &[&spender],
+    );
+    assert_eq!(t.lamports(&payer), 0);
+    assert_eq!(read_budget(&t.world, &budget).unreserved, 0);
+    let closed = read_budget(&t.world, &budget).closed_slot;
+    t.world
+        .warp(closed.max(created + OPEN_SLOTS) + DISPUTE_SLOTS);
+    t.payout(&budget, created, &a);
+    assert!(!t.world.exists(&budget));
+    assert_eq!(t.lamports(&payer), 500_000 + budget_rent);
+
+    // A refund at or above the minimum is paid at once, as before.
+    let terms = Terms {
+        nonce: nonce(3),
+        total: 4_000_000,
+        ..t.terms(1)
+    };
+    t.world.fund(&t.payer.insecure_clone(), 1_000_000_000);
+    let (budget, created) = t.open(&terms);
+    t.reserve(&budget, created, &a_kp, 2_000_000);
+    t.reserve(&budget, created, &b_kp, 2_000_000);
+    t.post(&budget, created, &a_kp, 1_000_000);
+    t.post(&budget, created, &b_kp, 1_000_000);
+    empty(&mut t);
+    t.world.ok(
+        "close_budget by the spender",
+        close_ix(&budget, created, &spender.pubkey(), &payer),
+        &[&spender],
+    );
+    let closed = read_budget(&t.world, &budget).closed_slot;
+    t.world
+        .warp(closed.max(created + OPEN_SLOTS) + DISPUTE_SLOTS);
+    t.payout(&budget, created, &a);
+    assert_eq!(t.lamports(&payer), 1_000_000, "paid at once");
+    t.payout(&budget, created, &b);
+    assert_eq!(t.lamports(&payer), 2_000_000 + budget_rent);
+}
+
+/// SPL Memo v3, which LiteSVM loads with its default programs.
+fn memo_program() -> Pubkey {
+    "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
+        .parse()
+        .unwrap()
+}
+
+/// The owner of a Token-2022 `account` adds the MemoTransfer extension and
+/// switches on required incoming memos.
+fn require_incoming_memos(world: &mut World, account: Pubkey, owner: &Keypair) {
+    let mut reallocate = vec![29u8];
+    reallocate.extend_from_slice(&8u16.to_le_bytes());
+    let reallocate = anchor_lang::solana_program::instruction::Instruction::new_with_bytes(
+        TOKEN_2022_ID,
+        &reallocate,
+        vec![
+            anchor_lang::solana_program::instruction::AccountMeta::new(account, false),
+            anchor_lang::solana_program::instruction::AccountMeta::new(owner.pubkey(), true),
+            anchor_lang::solana_program::instruction::AccountMeta::new_readonly(
+                Pubkey::default(),
+                false,
+            ),
+            anchor_lang::solana_program::instruction::AccountMeta::new_readonly(
+                owner.pubkey(),
+                true,
+            ),
+        ],
+    );
+    let enable = anchor_lang::solana_program::instruction::Instruction::new_with_bytes(
+        TOKEN_2022_ID,
+        &[30, 0],
+        vec![
+            anchor_lang::solana_program::instruction::AccountMeta::new(account, false),
+            anchor_lang::solana_program::instruction::AccountMeta::new_readonly(
+                owner.pubkey(),
+                true,
+            ),
+        ],
+    );
+    world
+        .send(&[reallocate, enable], &[owner])
+        .expect("require incoming memos");
+}
+
+fn with_memo(
+    mut ix: anchor_lang::solana_program::instruction::Instruction,
+) -> anchor_lang::solana_program::instruction::Instruction {
+    ix.accounts.push(
+        anchor_lang::solana_program::instruction::AccountMeta::new_readonly(memo_program(), false),
+    );
+    ix
+}
+
+/// Round 4: Budget exits to Token-2022 accounts that require incoming memos
+/// work when the Memo program is passed, and their compute is recorded.
+#[test]
+fn token_budget_exits_to_accounts_requiring_memos() {
+    let mut f = TokenFixture::new(TOKEN_2022_ID, PYUSD_MAINNET_MINT);
+    let payer = f.t.payer.pubkey();
+    let a = f.t.a.pubkey();
+    let a_kp = f.t.a.insecure_clone();
+    let payer_kp = f.t.payer.insecure_clone();
+    let stranger = f.t.stranger.insecure_clone();
+    let judge = f.t.judge.insecure_clone();
+    let terms = Terms {
+        total: TOKEN_TOTAL,
+        ..f.t.terms(1)
+    };
+    let (budget, created) = f.open(&terms);
+    f.reserve(&budget, created, 6_000_000);
+    f.t.post(&budget, created, &a_kp, 4_000_000);
+    f.t.hold("waive", &budget, created, &a);
+    let (recipient, source) = (f.tokens.recipient, f.tokens.source);
+    require_incoming_memos(&mut f.t.world, recipient, &a_kp);
+    require_incoming_memos(&mut f.t.world, source, &payer_kp);
+
+    // Without the Memo program the payee's leg fails; with it, all pay.
+    f.t.world.refused(
+        "payout to memo-requiring accounts without the Memo program",
+        token_payout_ix(&f.tokens, &budget, created, &a, &recipient),
+        &[&stranger],
+        36,
+    );
+    f.t.world.ok(
+        "payout_token_budget (memos required)",
+        with_memo(token_payout_ix(&f.tokens, &budget, created, &a, &recipient)),
+        &[&stranger],
+    );
+    assert_eq!(f.balance(&recipient), 4_000_000 - fee(4_000_000));
+    f.t.world.ok(
+        "close_token_budget (memos required)",
+        with_memo(token_close_ix(&f.tokens, &budget, created, &payer)),
+        &[&payer_kp],
+    );
+    assert!(!f.t.world.exists(&budget));
+
+    // A judge's split into memo-requiring accounts.
+    let terms = Terms {
+        nonce: nonce(2),
+        ..terms
+    };
+    let (budget, created) = f.open(&terms);
+    f.reserve(&budget, created, 6_000_000);
+    f.t.post(&budget, created, &a_kp, 6_000_000);
+    f.t.hold("dispute", &budget, created, &a);
+    f.t.world.ok(
+        "close_token_budget (disputed, memos required)",
+        with_memo(token_close_ix(&f.tokens, &budget, created, &payer)),
+        &[&payer_kp],
+    );
+    f.t.world.ok(
+        "resolve_token_budget (memos required)",
+        with_memo(token_resolve_ix(
+            &f.tokens,
+            &budget,
+            created,
+            &a,
+            &recipient,
+            &judge.pubkey(),
+            3_000_000,
+        )),
+        &[&judge],
+    );
+    assert!(!f.t.world.exists(&budget));
+
+    f.t.world
+        .report("budget compute units (Token-2022, memos required)");
+    for (label, units) in &f.t.world.compute {
+        assert!(*units < 120_000, "{label} used {units} compute units");
+    }
+}
+
+/// Round 4 (B1): with an allowlist a spender's close starts the dispute
+/// window at once, since the spender can only pay listed providers; the
+/// budget records which rule applies (flag 0x04 only without an allowlist).
+#[test]
+fn a_spender_close_of_an_allowlisted_budget_starts_the_window_at_once() {
+    let mut t = Fixture::new();
+    let a_kp = t.a.insecure_clone();
+    let a = a_kp.pubkey();
+    let payer = t.payer.pubkey();
+    let spender = t.spender.insecure_clone();
+    let terms = Terms {
+        allowlist: [a, ZERO, ZERO, ZERO],
+        ..t.terms(1)
+    };
+    let (budget, created) = t.open(&terms);
+    t.reserve(&budget, created, &a_kp, 10_000_000);
+    t.post(&budget, created, &a_kp, 10_000_000);
+    let posted = read_reservation(&t.world, &reservation_address(&budget, &a)).posted;
+    t.world.ok(
+        "close_budget by the spender",
+        close_ix(&budget, created, &spender.pubkey(), &payer),
+        &[&spender],
+    );
+    let view = read_budget(&t.world, &budget);
+    assert_eq!(view.flags & 0x04, 0, "no open-end rule with an allowlist");
+    let ends = (view.closed_slot + DISPUTE_SLOTS).max(posted + MIN_REVIEW);
+    assert!(ends < created + OPEN_SLOTS + DISPUTE_SLOTS);
+    t.world.warp(ends);
+    let a_before = t.lamports(&a);
+    t.payout(&budget, created, &a);
+    assert!(t.lamports(&a) > a_before);
+
+    // Without an allowlist the same close sets the flag.
+    let terms = Terms {
+        nonce: nonce(2),
+        ..t.terms(1)
+    };
+    let (budget, created) = t.open(&terms);
+    t.reserve(&budget, created, &a_kp, 10_000_000);
+    t.world.ok(
+        "close_budget by the spender",
+        close_ix(&budget, created, &spender.pubkey(), &payer),
+        &[&spender],
+    );
+    assert_eq!(read_budget(&t.world, &budget).flags & 0x04, 0x04);
+}
+
+/// Round 4b (N2): a payout that refunds nothing does not read the payer's
+/// refund account, so a closed one cannot block it; one that refunds still
+/// needs a usable payer-owned account (its associated account will do).
+#[test]
+fn a_payout_that_refunds_nothing_ignores_the_refund_account() {
+    for (program, mint) in [
+        (spl_token_id(), USDC_MAINNET_MINT),
+        (TOKEN_2022_ID, PYUSD_MAINNET_MINT),
+    ] {
+        let mut f = TokenFixture::new(program, mint);
+        let payer = f.t.payer.pubkey();
+        let a = f.t.a.pubkey();
+        let a_kp = f.t.a.insecure_clone();
+        let payer_kp = f.t.payer.insecure_clone();
+        let stranger = f.t.stranger.insecure_clone();
+        let terms = Terms {
+            total: TOKEN_TOTAL,
+            ..f.t.terms(1)
+        };
+        let (budget, created) = f.open(&terms);
+        f.reserve(&budget, created, 6_000_000);
+        f.t.post(&budget, created, &a_kp, 6_000_000);
+        f.t.hold("waive", &budget, created, &a);
+        f.t.world.ok(
+            "close_token_budget",
+            token_close_ix(&f.tokens, &budget, created, &payer),
+            &[&payer_kp],
+        );
+        let source = f.tokens.source;
+        close_token_account(&mut f, source);
+        f.t.world.ok(
+            "payout refunding nothing, refund account closed",
+            token_payout_ix(&f.tokens, &budget, created, &a, &f.tokens.recipient),
+            &[&stranger],
+        );
+        assert!(!f.t.world.exists(&budget));
+
+        // A payout that refunds needs a usable refund account.
+        put_token_account(&mut f, source, &payer);
+        shrink_vault(&mut f.t.world, &source, TOKEN_TOTAL);
+        let terms = Terms {
+            nonce: nonce(2),
+            ..terms
+        };
+        let (budget, created) = f.open(&terms);
+        f.reserve(&budget, created, 6_000_000);
+        f.t.post(&budget, created, &a_kp, 4_000_000);
+        f.t.hold("waive", &budget, created, &a);
+        f.t.world.ok(
+            "close_token_budget",
+            token_close_ix(&f.tokens, &budget, created, &payer),
+            &[&payer_kp],
+        );
+        close_token_account(&mut f, source);
+        f.t.world.refused(
+            "payout refunding into a closed account",
+            token_payout_ix(&f.tokens, &budget, created, &a, &f.tokens.recipient),
+            &[&stranger],
+            ACCOUNT_NOT_INITIALIZED,
+        );
+        let associated = associated_token_address(&payer, &program, &mint);
+        put_token_account(&mut f, associated, &payer);
+        let mut ix = token_payout_ix(&f.tokens, &budget, created, &a, &f.tokens.recipient);
+        ix.accounts[8].pubkey = associated;
+        f.t.world.ok(
+            "payout refunding into the payer's associated account",
+            ix,
+            &[&stranger],
+        );
+        assert_eq!(f.balance(&associated), 2_000_000);
+        assert!(!f.t.world.exists(&budget));
+    }
 }

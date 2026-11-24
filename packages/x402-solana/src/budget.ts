@@ -76,6 +76,8 @@ export const BUDGET_ALLOWLIST_LEN = 4;
 export const BUDGET_FLAG_SPENDER_WAIVES = 0x01;
 /** Budget flag set by a close. */
 export const BUDGET_FLAG_CLOSED = 0x02;
+/** Budget flag set when someone other than the payer closed a budget without an allowlist: the dispute window then runs from the end of the open period at the earliest. */
+export const BUDGET_FLAG_REVIEW_FROM_OPEN_END = 0x04;
 export const BUDGET_ACCOUNT_LEN = 349;
 export const RESERVATION_ACCOUNT_LEN = 147;
 /** Caps the program applies to one budget, as for one escrow. */
@@ -155,7 +157,11 @@ export interface OpenBudgetInput {
   judgeSlots: bigint;
   /** Lamports, or base units of the mint. */
   total: bigint;
-  /** Most one provider's slice may reach; omitted or 0 means the total. */
+  /**
+   * Most one provider's slice may reach. Omitted: half the total, so one
+   * provider (or a stolen spender key paying one) cannot take it all. 0 means
+   * the total.
+   */
   perProviderCap?: bigint;
   /** Up to 4 providers; when given, only they may join. */
   allowlist?: PublicKey[];
@@ -165,6 +171,11 @@ export interface OpenBudgetInput {
   token?: BudgetTokenOpen;
 }
 
+/** Half the total (0, meaning the total, when that rounds to nothing). */
+export function defaultPerProviderCap(total: bigint): bigint {
+  return total / 2n;
+}
+
 /**
  * `open_budget` or, with `token`, `open_token_budget`, by the payer. Checks
  * what the program checks about the terms, so a refused open fails here
@@ -172,7 +183,7 @@ export interface OpenBudgetInput {
  */
 export function openBudgetInstruction(input: OpenBudgetInput): TransactionInstruction {
   const allowlist = input.allowlist ?? [];
-  const cap = input.perProviderCap ?? 0n;
+  const cap = input.perProviderCap ?? defaultPerProviderCap(input.total);
   if (allowlist.length > BUDGET_ALLOWLIST_LEN) throw new Error(`at most ${BUDGET_ALLOWLIST_LEN} allowlisted providers`);
   if (!budgetWindowsValid(input.openSlots, input.disputeSlots, input.judgeSlots)) throw new Error('budget windows out of range');
   if (input.total <= 0n) throw new Error('total must be positive');
@@ -331,7 +342,11 @@ export function closeBudgetInstruction(
 /** The token side of a token budget's payout or resolve. */
 export interface BudgetTokenPayout {
   mint: PublicKey;
-  /** The payout account recorded on the reservation. */
+  /**
+   * The payout account recorded on the reservation, or the payee's
+   * associated token account for the mint (accepted when the recorded one was
+   * closed or frozen). Not read when the payee is paid nothing.
+   */
   payoutAccount: PublicKey;
   /** The protocol treasury's token account for the mint. */
   treasuryToken: PublicKey;
@@ -421,6 +436,8 @@ export interface BudgetAccount {
   unsettled: number;
   spenderMayWaive: boolean;
   closed: boolean;
+  /** Closed by someone other than the payer, without an allowlist: the dispute window runs from `openEnds` at the earliest. */
+  reviewFromOpenEnd: boolean;
   /** The first slot at which reservations are refused and anyone may close. */
   openEnds: bigint;
 }
@@ -457,6 +474,7 @@ export function decodeBudget(accountData: Uint8Array): BudgetAccount {
     unsettled: data[345],
     spenderMayWaive: (data[346] & BUDGET_FLAG_SPENDER_WAIVES) !== 0,
     closed: (data[346] & BUDGET_FLAG_CLOSED) !== 0,
+    reviewFromOpenEnd: (data[346] & BUDGET_FLAG_REVIEW_FROM_OPEN_END) !== 0,
     openEnds: createdSlot + openSlots,
   };
 }
@@ -498,12 +516,14 @@ export function decodeReservation(accountData: Uint8Array): ReservationAccount {
 /**
  * The first slot at which the payer can no longer dispute `reservation`, and
  * at which an undisputed one may be paid: the budget's dispute window from
- * its close, never earlier than `MIN_REVIEW_SLOTS` after the first post. Null
- * while the budget is open (the window has not started).
+ * its close (from the end of the open period at the earliest when the
+ * spender closed a budget without an allowlist), never earlier than `MIN_REVIEW_SLOTS` after the first
+ * post. Null while the budget is open (the window has not started).
  */
 export function disputeEnds(budget: BudgetAccount, reservation: ReservationAccount): bigint | null {
   if (!budget.closed) return null;
-  const window = budget.closedSlot + budget.disputeSlots;
+  const from = budget.reviewFromOpenEnd && budget.openEnds > budget.closedSlot ? budget.openEnds : budget.closedSlot;
+  const window = from + budget.disputeSlots;
   const review = reservation.postedSlot + MIN_REVIEW_SLOTS;
   return review > window ? review : window;
 }

@@ -1,11 +1,12 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.RESERVATION_STATES = exports.MAX_TOKEN_BUDGET_BASE_UNITS = exports.MAX_SOL_BUDGET_LAMPORTS = exports.RESERVATION_ACCOUNT_LEN = exports.BUDGET_ACCOUNT_LEN = exports.BUDGET_FLAG_CLOSED = exports.BUDGET_FLAG_SPENDER_WAIVES = exports.BUDGET_ALLOWLIST_LEN = exports.MAX_BUDGET_RESERVATIONS = exports.MIN_REVIEW_SLOTS = exports.MAX_BUDGET_JUDGE_SLOTS = exports.MIN_BUDGET_JUDGE_SLOTS = exports.MAX_BUDGET_WINDOW_SLOTS = exports.MIN_BUDGET_WINDOW_SLOTS = exports.BUDGET_DISCRIMINATORS = void 0;
+exports.RESERVATION_STATES = exports.MAX_TOKEN_BUDGET_BASE_UNITS = exports.MAX_SOL_BUDGET_LAMPORTS = exports.RESERVATION_ACCOUNT_LEN = exports.BUDGET_ACCOUNT_LEN = exports.BUDGET_FLAG_REVIEW_FROM_OPEN_END = exports.BUDGET_FLAG_CLOSED = exports.BUDGET_FLAG_SPENDER_WAIVES = exports.BUDGET_ALLOWLIST_LEN = exports.MAX_BUDGET_RESERVATIONS = exports.MIN_REVIEW_SLOTS = exports.MAX_BUDGET_JUDGE_SLOTS = exports.MIN_BUDGET_JUDGE_SLOTS = exports.MAX_BUDGET_WINDOW_SLOTS = exports.MIN_BUDGET_WINDOW_SLOTS = exports.BUDGET_DISCRIMINATORS = void 0;
 exports.budgetAddress = budgetAddress;
 exports.budgetVaultAddress = budgetVaultAddress;
 exports.reservationAddress = reservationAddress;
 exports.minReservation = minReservation;
 exports.budgetWindowsValid = budgetWindowsValid;
+exports.defaultPerProviderCap = defaultPerProviderCap;
 exports.openBudgetInstruction = openBudgetInstruction;
 exports.reserveInstruction = reserveInstruction;
 exports.setPayoutAccountInstruction = setPayoutAccountInstruction;
@@ -95,6 +96,8 @@ exports.BUDGET_ALLOWLIST_LEN = 4;
 exports.BUDGET_FLAG_SPENDER_WAIVES = 0x01;
 /** Budget flag set by a close. */
 exports.BUDGET_FLAG_CLOSED = 0x02;
+/** Budget flag set when someone other than the payer closed a budget without an allowlist: the dispute window then runs from the end of the open period at the earliest. */
+exports.BUDGET_FLAG_REVIEW_FROM_OPEN_END = 0x04;
 exports.BUDGET_ACCOUNT_LEN = 349;
 exports.RESERVATION_ACCOUNT_LEN = 147;
 /** Caps the program applies to one budget, as for one escrow. */
@@ -142,6 +145,10 @@ function u64(value, what) {
     return out;
 }
 const meta = (pubkey, isWritable = false, isSigner = false) => ({ pubkey, isSigner, isWritable });
+/** Half the total (0, meaning the total, when that rounds to nothing). */
+function defaultPerProviderCap(total) {
+    return total / 2n;
+}
 /**
  * `open_budget` or, with `token`, `open_token_budget`, by the payer. Checks
  * what the program checks about the terms, so a refused open fails here
@@ -149,7 +156,7 @@ const meta = (pubkey, isWritable = false, isSigner = false) => ({ pubkey, isSign
  */
 function openBudgetInstruction(input) {
     const allowlist = input.allowlist ?? [];
-    const cap = input.perProviderCap ?? 0n;
+    const cap = input.perProviderCap ?? defaultPerProviderCap(input.total);
     if (allowlist.length > exports.BUDGET_ALLOWLIST_LEN)
         throw new Error(`at most ${exports.BUDGET_ALLOWLIST_LEN} allowlisted providers`);
     if (!budgetWindowsValid(input.openSlots, input.disputeSlots, input.judgeSlots))
@@ -366,6 +373,7 @@ function decodeBudget(accountData) {
         unsettled: data[345],
         spenderMayWaive: (data[346] & exports.BUDGET_FLAG_SPENDER_WAIVES) !== 0,
         closed: (data[346] & exports.BUDGET_FLAG_CLOSED) !== 0,
+        reviewFromOpenEnd: (data[346] & exports.BUDGET_FLAG_REVIEW_FROM_OPEN_END) !== 0,
         openEnds: createdSlot + openSlots,
     };
 }
@@ -393,13 +401,15 @@ function decodeReservation(accountData) {
 /**
  * The first slot at which the payer can no longer dispute `reservation`, and
  * at which an undisputed one may be paid: the budget's dispute window from
- * its close, never earlier than `MIN_REVIEW_SLOTS` after the first post. Null
- * while the budget is open (the window has not started).
+ * its close (from the end of the open period at the earliest when the
+ * spender closed a budget without an allowlist), never earlier than `MIN_REVIEW_SLOTS` after the first
+ * post. Null while the budget is open (the window has not started).
  */
 function disputeEnds(budget, reservation) {
     if (!budget.closed)
         return null;
-    const window = budget.closedSlot + budget.disputeSlots;
+    const from = budget.reviewFromOpenEnd && budget.openEnds > budget.closedSlot ? budget.openEnds : budget.closedSlot;
+    const window = from + budget.disputeSlots;
     const review = reservation.postedSlot + exports.MIN_REVIEW_SLOTS;
     return review > window ? review : window;
 }

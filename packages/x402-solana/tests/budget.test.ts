@@ -10,6 +10,7 @@ import {
   budgetWindowsValid,
   closeBudgetInstruction,
   decodeBudget,
+  defaultPerProviderCap,
   decodeReservation,
   disputeEnds,
   disputeInstruction,
@@ -286,9 +287,26 @@ describe('pooled budget client', () => {
     const closed = decodeBudget(account('budget_closed'));
     const posted = decodeReservation(account('reservation_posted'));
     expect(disputeEnds(decodeBudget(account('budget_open')), posted)).toBeNull();
-    expect(disputeEnds(closed, { ...posted, postedSlot: 0n })).toBe(closed.closedSlot + closed.disputeSlots);
-    const late = closed.closedSlot + closed.disputeSlots - 1n;
+    // The vector was closed early by the spender without an allowlist: the
+    // window runs from the end of the open period.
+    expect(closed.reviewFromOpenEnd).toBe(true);
+    expect(closed.openEnds).toBeGreaterThan(closed.closedSlot);
+    expect(disputeEnds(closed, { ...posted, postedSlot: 0n })).toBe(closed.openEnds + closed.disputeSlots);
+    const late = closed.openEnds + closed.disputeSlots - 1n;
     expect(disputeEnds(closed, { ...posted, postedSlot: late })).toBe(late + MIN_REVIEW_SLOTS);
+    // Closed by the payer (or with an allowlist): from the close.
+    const byPayer = { ...closed, reviewFromOpenEnd: false };
+    expect(disputeEnds(byPayer, { ...posted, postedSlot: 0n })).toBe(closed.closedSlot + closed.disputeSlots);
+  });
+
+  it('caps one provider at half the total unless told otherwise', () => {
+    const vector = instruction('open_budget');
+    const base = { ...terms(vector), programId, payer: at(vector, 'payer') };
+    const { perProviderCap: _, ...noCap } = base;
+    const capAt = (ix: { data: Buffer }) => ix.data.readBigUInt64LE(120);
+    expect(capAt(openBudgetInstruction(noCap))).toBe(base.total / 2n);
+    expect(capAt(openBudgetInstruction({ ...noCap, perProviderCap: 0n }))).toBe(0n);
+    expect(defaultPerProviderCap(1n)).toBe(0n);
   });
 
   it('refuses terms the program would refuse', () => {

@@ -262,7 +262,9 @@ impl BudgetReserved<'_> {
     }
 }
 
-/// A budget closed to new reservations; `refunded` went back to the payer.
+/// A budget closed to new reservations; `refunded` is what was never reserved,
+/// owed back to the payer (on a SOL budget, kept for the final close when
+/// sending it would leave the payer's wallet below the rent-exempt minimum).
 pub struct BudgetClosed<'a> {
     pub budget: &'a Address,
     pub refunded: u64,
@@ -296,7 +298,9 @@ pub enum BudgetOutcome {
 }
 
 /// A reservation was paid out: `paid` to the provider after `fee`, and
-/// `refunded` back to the payer.
+/// `refunded` owed back to the payer (on a SOL budget, kept for the final
+/// close when sending it would leave the payer's wallet below the
+/// rent-exempt minimum).
 pub struct BudgetPaid<'a> {
     pub budget: &'a Address,
     pub payee: &'a Address,

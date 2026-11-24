@@ -33,10 +33,10 @@ use {
         },
         consts::{
             allowed_token_program, budget_windows_valid, min_reservation, protocol_fee, AGENT_SEED,
-            ALLOWED_MINT_DECIMALS, BUDGET_ALLOWLIST_LEN, BUDGET_FLAG_SPENDER_WAIVES, BUDGET_SEED,
-            BUDGET_VAULT_SEED, MAX_BUDGET_RESERVATIONS, MAX_SOL_ESCROW_LAMPORTS,
-            MAX_TOKEN_ESCROW_BASE_UNITS, MEMO_PROGRAM_ID, PROTOCOL_TREASURY, RESERVATION_SEED,
-            SYSTEM_PROGRAM_ID, TOKEN_2022_ID,
+            ALLOWED_MINT_DECIMALS, ASSOCIATED_TOKEN_PROGRAM_ID, BUDGET_ALLOWLIST_LEN,
+            BUDGET_FLAG_SPENDER_WAIVES, BUDGET_SEED, BUDGET_VAULT_SEED, MAX_BUDGET_RESERVATIONS,
+            MAX_SOL_ESCROW_LAMPORTS, MAX_TOKEN_ESCROW_BASE_UNITS, MEMO_PROGRAM_ID,
+            PROTOCOL_TREASURY, RESERVATION_SEED, SYSTEM_PROGRAM_ID, TOKEN_2022_ID,
         },
         error::{
             fail, require, AboveProviderCap, AccountNotEnoughKeys, AmountAboveCap,
@@ -905,10 +905,10 @@ fn settle_sol(
     let fee = protocol_fee(split.paid, true, unix_timestamp);
     let to_payee = split.paid - fee;
     let refunded = split.reserved - split.paid;
-    debit(budget, split.reserved)?;
+    debit(budget, split.paid)?;
     credit(payee, to_payee)?;
     credit(treasury, fee)?;
-    credit(payer, refunded)?;
+    refund_sol(budget, payer, refunded)?;
     let finished = settle_reservation(&mut record, &mut slice, reservation, payee)?;
     if finished {
         close(budget, payer)?;
@@ -1157,30 +1157,6 @@ fn settle_token(
     writable(payer)?;
     require(payee.address() == &slice.payee, &ConstraintHasOne)?;
     require(payer.address() == &record.payer, &ConstraintHasOne)?;
-    // Fixed destinations: the recorded payout account, the treasury and the
-    // payer (B9).
-    require(
-        payout_account.address() == &slice.payout_account,
-        &InvalidTokenAccount,
-    )?;
-    let funds = Vault::check(
-        program_id,
-        budget.address(),
-        &record,
-        vault,
-        mint,
-        token_program,
-        &[payout_account, treasury_token, refund],
-        rest,
-    )?;
-    require(
-        TokenAccount::read(treasury_token)?.owner == PROTOCOL_TREASURY,
-        &InvalidTreasury,
-    )?;
-    require(
-        &TokenAccount::read(refund)?.owner == payer.address(),
-        &InvalidTokenAccount,
-    )?;
     let split = match resolve {
         Some(payout) => {
             let Some(judge) = rest.first() else {
@@ -1190,10 +1166,81 @@ fn settle_token(
         }
         None => payout_split(&record, &slice, slot)?,
     };
-
     let fee = protocol_fee(split.paid, false, unix_timestamp);
     let to_payee = split.paid - fee;
     let refunded = split.reserved - split.paid;
+
+    // Fixed destinations: the provider's recorded payout account or its
+    // associated token account, the treasury and the payer (B9). An account
+    // that receives nothing is not read, so a payout account the provider
+    // closed or that was frozen cannot hold back a refund, and the provider
+    // can still be paid into its associated account (B12).
+    if payout_account.address() != &slice.payout_account {
+        let token_program_id =
+            allowed_token_program(&record.mint).ok_or_else(|| fail(&MintNotAllowed))?;
+        let (associated, _) = derive(
+            &[
+                slice.payee.as_ref(),
+                token_program_id.as_ref(),
+                record.mint.as_ref(),
+            ],
+            &ASSOCIATED_TOKEN_PROGRAM_ID,
+        );
+        require(
+            payout_account.address() == &associated,
+            &InvalidTokenAccount,
+        )?;
+    }
+    // The payer's refund account is read only when it receives something:
+    // this refund, or what the vault still holds when this payout finishes
+    // the budget.
+    let finishes = record.closed() && record.unsettled <= 1;
+    let leftover = TokenAccount::read(vault)?
+        .amount
+        .saturating_sub(to_payee.saturating_add(fee).saturating_add(refunded));
+    let pays_refund = refunded != 0 || (finishes && leftover != 0);
+    let mut targets: [&AccountView; 3] = [&*refund; 3];
+    let mut count = 0;
+    if pays_refund {
+        count += 1;
+    }
+    if to_payee != 0 {
+        targets[count] = &*payout_account;
+        count += 1;
+    }
+    if fee != 0 {
+        targets[count] = &*treasury_token;
+        count += 1;
+    }
+    let funds = Vault::check(
+        program_id,
+        budget.address(),
+        &record,
+        vault,
+        mint,
+        token_program,
+        &targets[..count],
+        rest,
+    )?;
+    if to_payee != 0 {
+        let account = TokenAccount::read(payout_account)?;
+        require(
+            account.owner == slice.payee && !account.frozen,
+            &InvalidTokenAccount,
+        )?;
+    }
+    if fee != 0 {
+        require(
+            TokenAccount::read(treasury_token)?.owner == PROTOCOL_TREASURY,
+            &InvalidTreasury,
+        )?;
+    }
+    if pays_refund {
+        require(
+            &TokenAccount::read(refund)?.owner == payer.address(),
+            &InvalidTokenAccount,
+        )?;
+    }
     // Payee first, then the fee, then the refund (D6).
     let [paid, fee_received, refund_received] = funds.send(
         budget,
@@ -1270,8 +1317,23 @@ fn begin_close(
             || slot >= record.open_ends(),
         &UnauthorisedSigner,
     )?;
-    record.close_at(slot);
+    record.close_at(slot, authority.address() == &record.payer);
     Ok(record)
+}
+
+/// Send a refund out of a SOL budget to the payer, unless that would leave
+/// the payer's wallet below the rent-exempt minimum (an emptied wallet and a
+/// refund under about 0.00089 SOL): then it stays in the budget account and
+/// reaches the payer with the budget's rent when the budget closes, so an
+/// empty payer wallet cannot hold back another party's payout.
+fn refund_sol(budget: &mut AccountView, payer: &mut AccountView, lamports: u64) -> ProgramResult {
+    if lamports == 0
+        || payer.lamports().saturating_add(lamports) < rent_exempt_minimum(payer.data_len())?
+    {
+        return Ok(());
+    }
+    debit(budget, lamports)?;
+    credit(payer, lamports)
 }
 
 /// `close_budget`: stop new reservations on a SOL budget and refund what was
@@ -1292,8 +1354,7 @@ pub fn close_budget(
     let mut record = begin_close(program_id, budget, authority, payer, created_slot, slot)?;
     require(record.sol(), &MintNotAllowed)?;
     let refunded = record.unreserved();
-    debit(budget, refunded)?;
-    credit(payer, refunded)?;
+    refund_sol(budget, payer, refunded)?;
     record.set_unreserved(0);
     if record.unsettled == 0 {
         close(budget, payer)?;

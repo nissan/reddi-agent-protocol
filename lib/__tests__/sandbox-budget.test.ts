@@ -49,7 +49,7 @@ describe("sandbox Budget scenario", () => {
     expect(run.totals.toProviders + run.totals.fee).toBe(run.totals.spent);
     expect(run.invariantHeldThroughout).toBe(true);
     expect(run.events.every((e) => e.invariantHolds)).toBe(true);
-    expect(run.budget.openReservations).toBe(0);
+    expect(run.budget.reservations).toBe(run.joined.length);
   });
 
   it("chains each provider's receipts", async () => {
@@ -84,20 +84,20 @@ describe("sandbox Budget scenario", () => {
 
   it("applies the spec's reserve checks", async () => {
     const run = await runSandboxBudget({ token: "USDC", agentKey: KEY, startMs: START });
-    const open = { ...run.budget, closed: false, unreserved: BigInt(1_000_000), openReservations: 0 };
+    const open = { ...run.budget, closed: false, unreserved: BigInt(1_000_000), reservations: 0 };
     expect(checkReserve(open, BigInt(50_000), 1, ["USDC"])).toBeNull();
     expect(checkReserve(open, BigInt(50_000), 1, ["SOL"])).toBe("token_not_accepted");
     expect(checkReserve(open, BigInt(49_999), 1, ["USDC"])).toBe("below_minimum");
     expect(checkReserve(open, BigInt(2_500_001), 1, ["USDC"])).toBe("over_provider_cap");
     expect(checkReserve(open, BigInt(1_000_001), 1, ["USDC"])).toBe("over_unreserved");
-    expect(checkReserve({ ...open, openReservations: 8 }, BigInt(100_000), 1, ["USDC"])).toBe("too_many_reservations");
+    expect(checkReserve({ ...open, reservations: 8 }, BigInt(100_000), 1, ["USDC"])).toBe("too_many_reservations");
     expect(checkReserve(open, BigInt(100_000), open.createdSlot + open.openSlots, ["USDC"])).toBe("budget_expired");
     expect(checkReserve({ ...open, closed: true }, BigInt(100_000), 1, ["USDC"])).toBe("budget_closed");
   });
 
   it("keeps a late post under review for at least an hour (B3) and caps the SOL fee", () => {
-    expect(budgetDisputeEnds({ closedSlot: 100, disputeSlots: 216_000 }, { lastPostSlot: 300_000 })).toBe(309_000);
-    expect(budgetDisputeEnds({ closedSlot: 100, disputeSlots: 216_000 }, { lastPostSlot: 200 })).toBe(216_100);
+    expect(budgetDisputeEnds({ closedSlot: 100, disputeSlots: 216_000 }, { postedSlot: 300_000 })).toBe(309_000);
+    expect(budgetDisputeEnds({ closedSlot: 100, disputeSlots: 216_000 }, { postedSlot: 200 })).toBe(216_100);
     expect(budgetProtocolFee(BigInt(10_000_000_000), "SOL", BigInt(500))).toBe(BigInt(100_000_000));
     expect(budgetProtocolFee(BigInt(10_000_000_000), "USDC", BigInt(500))).toBe(BigInt(500_000_000));
     expect(budgetProtocolFee(BigInt(39), "USDC", BigInt(250))).toBe(BigInt(0));

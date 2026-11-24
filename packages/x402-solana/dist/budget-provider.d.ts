@@ -86,10 +86,15 @@ export declare function checkPooledBudgetForProvider(input: {
     currentSlot: bigint;
     minOpenSlotsLeft: bigint;
 }): PooledBudgetCheck;
+/** Highest compute-unit limit a reserve may ask the provider to pay for (a reserve measures about 24,000 units). */
+export declare const MAX_RESERVE_COMPUTE_UNITS = 60000;
+/** Default highest compute-unit price, in micro-lamports, a provider pays on a reserve it co-signs. */
+export declare const DEFAULT_MAX_RESERVE_MICRO_LAMPORTS_PER_CU = 10000n;
 export type ReserveTransactionCheck = {
     ok: true;
     amount: bigint;
-    transaction: Transaction;
+    transaction: Transaction; /** The most this transaction can cost the provider in fees, in lamports. */
+    maxFeeLamports: bigint;
 } | {
     ok: false;
     reason: 'invalid_reserve';
@@ -100,8 +105,12 @@ export type ReserveTransactionCheck = {
  * payer is the provider, its only instructions are compute-budget ones and
  * one `reserve` that is exactly the one this provider would build for this
  * budget, payee and payout account, with an amount from `minAmount` to
- * `maxAmount`, and the spender's signature over it is valid. A provider that
- * signs only what passes here pays fees and rent for nothing else.
+ * `maxAmount`, and the spender's signature over it is valid. Compute-budget
+ * instructions are limited to at most one `SetComputeUnitLimit` (at most
+ * `MAX_RESERVE_COMPUTE_UNITS`) and at most one `SetComputeUnitPrice` (at most
+ * `maxMicroLamportsPerComputeUnit`), so the provider, as fee payer, cannot be
+ * charged more than `maxFeeLamports`. A provider that signs only what passes
+ * here pays fees and rent for nothing else.
  */
 export declare function checkReserveTransaction(input: {
     transactionBase64: string;
@@ -113,6 +122,8 @@ export declare function checkReserveTransaction(input: {
     payoutAccount: PublicKey;
     minAmount: bigint;
     maxAmount: bigint;
+    /** Highest compute-unit price the provider will pay; default `DEFAULT_MAX_RESERVE_MICRO_LAMPORTS_PER_CU`. */
+    maxMicroLamportsPerComputeUnit?: bigint;
 }): ReserveTransactionCheck;
 /** The buyer side of step 2: a reserve signed by the spender, for the provider to check, sign and send. */
 export declare function spenderSignedReserve(input: {
