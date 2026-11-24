@@ -61,7 +61,8 @@ delivered fixed-price escrow changed (#1074); nothing was deployed from `63d4719
 
 The delivery-check build of record is `9c34fac` (#1074, merged 24 November 2026;
 run 45336688889, both variants, same image digest). `v1-devnet-9c34fac.json` is
-its devnet build, not yet deployed. `v1-mainnet-9c34fac.json` is the mainnet build
+its devnet build, deployed in slot 525720300 on 24 November 2026 (the devnet
+upgrade; read back and checked with `check-escrow-deployment.mjs`, every line ok). `v1-mainnet-9c34fac.json` is the mainnet build
 of record: it lists the devnet deployer as forbidden, and is refused by the check
 until the Squads multisig account and the mainnet deployer are added at deploy;
 the check must pass against it after the upgrade authority moves to the vault.

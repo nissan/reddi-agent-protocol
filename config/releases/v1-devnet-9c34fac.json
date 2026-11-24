@@ -15,5 +15,5 @@
     "@redditech/x402-solana": "0.1.3",
     "@redditech/provider-kit": "0.3.1"
   },
-  "deployedSlot": null
+  "deployedSlot": 525720300
 }

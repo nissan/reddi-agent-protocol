@@ -274,8 +274,10 @@ test('the delivery-check records at 9c34fac agree with each other and the mainne
     assert.equal(record.commit, '9c34fac879bcde4519824eabaaea3ddf886e51f1');
     assert.equal(record.buildRun, 'https://github.com/nissan/reddi-agent-protocol/actions/runs/45336688889');
     assert.equal(record.network, record.variant);
-    assert.equal(record.deployedSlot, null);
   }
+  // Devnet was upgraded to this build in slot 525720300 (24 November 2026); mainnet is not deployed.
+  assert.equal(devnet.deployedSlot, 525720300);
+  assert.equal(mainnet.deployedSlot, null);
   // Sellers on x402-solana 0.1.2 / provider-kit 0.3.0 do not know the delivery flag, so these builds need newer packages.
   const minimum = { '@redditech/x402-solana': '0.1.3', '@redditech/provider-kit': '0.3.1' };
   const atLeast = (have, want) => { const [a, b] = [have, want].map((v) => v.split('.').map(Number)); for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i]; return true; };
