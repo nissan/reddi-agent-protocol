@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -253,15 +253,26 @@ test('committed release records are usable', () => {
   assert.equal(devnet.network, 'devnet');
 });
 
-test('the freeze records at 45e9547 agree with each other and the mainnet one fails closed until deploy', () => {
+test('the 45e9547 devnet record is the deployed freeze build, and its mainnet record is withdrawn', () => {
   const read = (name) => JSON.parse(readFileSync(path.join(root, 'config/releases', name), 'utf8'));
   const devnet = read('v1-devnet-45e9547.json');
-  const mainnet = read('v1-mainnet-45e9547.json');
+  assert.deepEqual(recordProblems(devnet), []);
+  assert.equal(devnet.commit, '45e9547846037b9faedb077970afd9f27db828aa');
+  assert.equal(devnet.deployedSlot, 525663342);
+  // The program was reopened for the delivery check: nothing may be deployed to mainnet from 45e9547.
+  assert.equal(existsSync(path.join(root, 'config/releases/v1-mainnet-45e9547.json')), false);
+});
+
+test('the delivery-check records at 63d4719 agree with each other and the mainnet one fails closed until deploy', () => {
+  const read = (name) => JSON.parse(readFileSync(path.join(root, 'config/releases', name), 'utf8'));
+  const devnet = read('v1-devnet-63d4719.json');
+  const mainnet = read('v1-mainnet-63d4719.json');
   assert.deepEqual(recordProblems(devnet), []);
   for (const record of [devnet, mainnet]) {
-    assert.equal(record.commit, '45e9547846037b9faedb077970afd9f27db828aa');
-    assert.equal(record.buildRun, 'https://github.com/nissan/reddi-agent-protocol/actions/runs/45124021410');
+    assert.equal(record.commit, '63d471927175754abf5c34a493cea67a514b346c');
+    assert.equal(record.buildRun, 'https://github.com/nissan/reddi-agent-protocol/actions/runs/45329015381');
     assert.equal(record.network, record.variant);
+    assert.equal(record.deployedSlot, null);
   }
   assert.notEqual(devnet.executableHash, mainnet.executableHash);
   assert.equal(mainnet.upgradeAuthority, VAULT);

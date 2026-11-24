@@ -50,12 +50,22 @@ the record or the RPC could not be used, so nothing was decided.
 The program was frozen at `45e9547` on 23 November 2026 (run 45124021410, both
 variants; the program tree last changed in `4c2d343`). `v1-devnet-45e9547.json`
 is the devnet build of the freeze, deployed in slot 525663342 on 24 November 2026 (the devnet
-upgrade). `v1-mainnet-45e9547.json` is the mainnet build of record. It lists the
-devnet deployer as forbidden, and is refused by the check until the Squads
-multisig account and the mainnet deployer are added at deploy; the check must
-pass against it after the upgrade authority moves to the vault. File sizes and
-`sha256` were read from the run's artifacts; the executable hashes also appear in
-the run's job logs.
+upgrade). Its mainnet record was withdrawn on 24 November 2026, unused: the
+program was reopened for the delivery check and must not be deployed to mainnet
+from `45e9547`. File sizes and `sha256` were read from the run's artifacts; the
+executable hashes also appear in the run's job logs.
+
+The delivery-check build is `63d4719` (#1049, merged 24 November 2026; run
+45329015381, both variants, same image digest). `v1-devnet-63d4719.json` is its
+devnet build, not yet deployed. `v1-mainnet-63d4719.json` is the mainnet build of
+record: it lists the devnet deployer as forbidden, and is refused by the check
+until the Squads multisig account and the mainnet deployer are added at deploy;
+the check must pass against it after the upgrade authority moves to the vault.
+Sizes, `sha256` and executable hashes were read from the run's job logs (the
+same job hashes the file it uploads, and the binary-of-record job matched the
+mainnet executable hash); the countersign step in docs/MAINNET-LAUNCH-RUNBOOK.md
+§1 re-reads them from the artifacts. If the audit round on this build leads to a
+program change, these records are replaced by a new pair.
 
 The devnet sandbox and the try page read the devnet records too
 (`lib/sandbox/deployment.ts`): the latest record with a `deployedSlot` is the
