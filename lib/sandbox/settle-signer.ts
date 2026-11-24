@@ -113,8 +113,11 @@ export async function confirmByPolling(
   for (;;) {
     const { value } = await connection.getSignatureStatuses([signature]);
     const status = value[0];
-    if (status?.err) return "failed";
-    if (status?.confirmationStatus === "confirmed" || status?.confirmationStatus === "finalized") return "confirmed";
+    const voted = status?.confirmationStatus === "confirmed" || status?.confirmationStatus === "finalized";
+    // An error seen only at `processed` may be from a fork the cluster drops while the same
+    // transaction lands on the confirmed one, so it is final only once confirmed.
+    if (status?.err && voted) return "failed";
+    if (!status?.err && voted) return "confirmed";
     if ((await connection.getBlockHeight("confirmed")) > lastValidBlockHeight) {
       // One last look: it may have landed in the final valid block.
       const last = (await connection.getSignatureStatuses([signature], { searchTransactionHistory: true })).value[0];

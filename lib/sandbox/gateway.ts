@@ -618,7 +618,7 @@ function settlePending(signature: string, reason: string, escrow: string, retrie
  * A single metered call's retry after `settle_pending`: answers when the named settle is confirmed
  * and is the settle of this payer's escrow for exactly this request. The payer's signature over the
  * request is checked as on the first call, so only the payer collects the answer. The sandbox's
- * answers are scripted, so the answer is the one the settle paid for.
+ * answers are scripted, so the answer is the one the settle paid for. A settle is collected once.
  */
 async function recoverSettledCall(input: { request: SandboxGatewayRequest; deps: SandboxGatewayDeps; provider: SandboxProvider; messages: SandboxChatMessage[]; model: string; inputTokens: number; header: string; settleSignature: string }): Promise<SandboxGatewayResponse> {
   const { request, deps, provider, inputTokens, settleSignature } = input;
@@ -651,6 +651,11 @@ async function recoverSettledCall(input: { request: SandboxGatewayRequest; deps:
   if (found.state === "unknown") return settlePending(settleSignature, `Devnet has not confirmed the settle transaction ${settleSignature} yet.`, escrow.toBase58(), true);
   if (found.state === "failed") {
     return failure(502, "settle_failed", `The settle transaction ${settleSignature} is not a landed settle of this call, so this call was not charged by it. If escrow ${escrow.toBase58()} is still locked, send the call without ${SETTLE_SIGNATURE_HEADER}, or cancel it for a full refund once its refund window has elapsed.`, { charged: false, escrow: escrow.toBase58() });
+  }
+  // One landed settle pays for one answer: the first retry that finds it confirmed collects it, and
+  // any later retry naming it, with this body or another the payer signed, is refused.
+  if (!(await deps.replayStore.checkAndStore(`settle-recovered:${settleSignature}`))) {
+    return failure(409, "payment_already_used", `The answer paid for by ${settleSignature} has already been collected.`, { reason: "duplicate_nonce" });
   }
   const nowMs = (deps.now ?? Date.now)();
   const response = respond(200, {

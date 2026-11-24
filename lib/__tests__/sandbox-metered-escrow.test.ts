@@ -654,6 +654,26 @@ describe("sandbox metered escrow: a settle whose outcome is unknown (audit S7-Co
     const stranger = await call(deps, meteredHeader(nonce, escrow), signerFor(Keypair.generate()), PENDING_SIG);
     expect(stranger.status).toBe(401);
     expect(stranger.body.choices).toBeUndefined();
+    // One settle pays for one answer: the payer cannot collect it again (audit S7-claude2-04).
+    const again = await call(deps, meteredHeader(nonce, escrow), "payer", PENDING_SIG);
+    expect(again.status).toBe(409);
+    expect(again.body).toMatchObject({ error: { code: "payment_already_used" } });
+    expect(again.body.choices).toBeUndefined();
+    expect(again.headers[PROVIDER_RECEIPT_HEADER]).toBeUndefined();
+  });
+
+  it("does not use up the settle on a retry that finds it unconfirmed", async () => {
+    const accounts: Accounts = new Map();
+    const chain: { lookup: { state: "unknown" } | { state: "settled"; feeLamports: bigint } } = { lookup: { state: "unknown" } };
+    const { settler } = fakeSettler(true, { ok: false, pending: true, signature: PENDING_SIG, message: "unknown" }, DEPLOYMENT_OF_RECORD, { state: "unknown" });
+    settler.lookup = async () => chain.lookup;
+    const deps = makeDeps(accounts, settler);
+    const nonce = nonceOf(await call(deps));
+    const escrow = lockFor(accounts, nonce);
+    await call(deps, meteredHeader(nonce, escrow));
+    expect((await call(deps, meteredHeader(nonce, escrow), "payer", PENDING_SIG)).status).toBe(202);
+    chain.lookup = { state: "settled", feeLamports: BigInt(1) };
+    expect((await call(deps, meteredHeader(nonce, escrow), "payer", PENDING_SIG)).status).toBe(200);
   });
 
   it("keeps the retry pending while devnet has not confirmed, and says so when the settle did not land", async () => {
