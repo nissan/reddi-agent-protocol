@@ -75,8 +75,15 @@ relay holds no key material at all:
 - A reserve is approved only for a provider on that list and only up to the signed maximum.
 - A waive is approved only for a slice of this opening that has posted and is not waived, for exactly its posted
   amount, and expires 50 slots ahead (about 20 seconds) instead of 150.
-- The routes that will call `createSpender`, `activateSpender` and `approveAsSpender` do not exist yet. They must take
-  the program id and the RPC from the server's configuration, never from the request, and need a review when written.
+- The routes that will call `createSpender`, `activateSpender` and `approveAsSpender` do not exist yet. They need a
+  review before relay Budgets go to mainnet, and must:
+  - take the program id and the RPC from the server's configuration, never from the request;
+  - build `auth` on the server: the agent path passes only `{ agentSecret }` from the request, and `{ operator:
+    "incident" }` is set only by the incident route behind `BUDGET_INCIDENT_SECRET`. `approveAsSpender` picks the
+    operator path by the presence of `operator` in `auth`, so request data must never reach that object as a whole.
+- Residual (availability only): the ceiling counts approvals when they are asked for, not when they land, so a few
+  payer wallets at the per-payer limit can have other payers' approvals refused for up to ten minutes. Counting on
+  landing would remove it.
 - Residual: whoever first submits a payer's signed authorization gets the agent secret. That holder can still only
   reserve for the payer's own providers, up to the payer's maximum, within the limits above, and the payer is alerted
   of every slice. The payer's app should submit the authorization itself, straight after signing.
