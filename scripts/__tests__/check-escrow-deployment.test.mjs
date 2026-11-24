@@ -263,14 +263,16 @@ test('the 45e9547 devnet record is the deployed freeze build, and its mainnet re
   assert.equal(existsSync(path.join(root, 'config/releases/v1-mainnet-45e9547.json')), false);
 });
 
-test('the delivery-check records at 63d4719 agree with each other and the mainnet one fails closed until deploy', () => {
+test('the delivery-check records at 9c34fac agree with each other and the mainnet one fails closed until deploy', () => {
   const read = (name) => JSON.parse(readFileSync(path.join(root, 'config/releases', name), 'utf8'));
-  const devnet = read('v1-devnet-63d4719.json');
-  const mainnet = read('v1-mainnet-63d4719.json');
+  const devnet = read('v1-devnet-9c34fac.json');
+  const mainnet = read('v1-mainnet-9c34fac.json');
+  // The first delivery-check cut (63d4719) was replaced unused by the refund-timing fix.
+  for (const name of ['v1-devnet-63d4719.json', 'v1-mainnet-63d4719.json']) assert.equal(existsSync(path.join(root, 'config/releases', name)), false);
   assert.deepEqual(recordProblems(devnet), []);
   for (const record of [devnet, mainnet]) {
-    assert.equal(record.commit, '63d471927175754abf5c34a493cea67a514b346c');
-    assert.equal(record.buildRun, 'https://github.com/nissan/reddi-agent-protocol/actions/runs/45329015381');
+    assert.equal(record.commit, '9c34fac879bcde4519824eabaaea3ddf886e51f1');
+    assert.equal(record.buildRun, 'https://github.com/nissan/reddi-agent-protocol/actions/runs/45336688889');
     assert.equal(record.network, record.variant);
     assert.equal(record.deployedSlot, null);
   }

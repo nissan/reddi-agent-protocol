@@ -4,7 +4,7 @@
  * Builds before the freeze (21 November 2026, `v1-devnet-b71a91e.json`) read trailing slot bytes on
  * an exit of an unrated escrow as a rating of another job and refuse the exit (6051). The freeze
  * build (`v1-devnet-45e9547.json`) requires those bytes on every exit and refuses an exit without
- * them (6053). The delivery-check build (`v1-devnet-63d4719.json`) encodes those exits the same way;
+ * them (6053). The delivery-check build (`v1-devnet-9c34fac.json`) encodes those exits the same way;
  * it only adds a trailing account to escrows that opt into the delivery check, which the sandbox
  * never locks. An exit encoded for the wrong build leaves the visitor's lock unsettled, so the
  * sandbox reads the encoding from the release record of the build devnet runs, and serves a paid
@@ -18,7 +18,7 @@
 import { PublicKey } from "@solana/web3.js";
 import devnetPreFreeze from "@/config/releases/v1-devnet-b71a91e.json";
 import devnetFreeze from "@/config/releases/v1-devnet-45e9547.json";
-import devnetDeliveryCheck from "@/config/releases/v1-devnet-63d4719.json";
+import devnetDeliveryCheck from "@/config/releases/v1-devnet-9c34fac.json";
 import { SANDBOX_ESCROW_PROGRAM_ID } from "./escrow";
 
 export type SandboxReleaseRecord = {
