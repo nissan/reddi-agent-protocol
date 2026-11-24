@@ -1,7 +1,7 @@
 /** What the pass page gives the person to paste into their assistant (#1048). Safe for the browser. */
 export function passAgentSnippet(input: { baseUrl: string; key: string; models: string[] }): string {
   return [
-    "You have a Reddi agent pass: a budget your person locked for you on Solana devnet.",
+    "You have a Reddi Agent Protocol agent pass: a budget your person locked for you on Solana devnet.",
     "Use it to call these paid models through an OpenAI-style API:",
     "",
     `Base URL: ${input.baseUrl}`,

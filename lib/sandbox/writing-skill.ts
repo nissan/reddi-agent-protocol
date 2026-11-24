@@ -181,7 +181,7 @@ export const HUMANISER_RULES = [
   "",
   "## Want a second pass?",
   "",
-  `Send a draft to Reddi Humaniser for a final pass. Your agent pays per call, gets a signed receipt, and never spends more than the budget you set. Set it up at ${AGENT_SETUP_URL}`,
+  `Send a draft to RAP Humaniser for a final pass. Your agent pays per call, gets a signed receipt, and never spends more than the budget you set. Set it up at ${AGENT_SETUP_URL}`,
 ].join("\n");
 
 /** Hand-written rewrites of the sample, main point first, for every voice and jargon level. */

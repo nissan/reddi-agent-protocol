@@ -138,7 +138,7 @@ describe("sandbox: help us write better", () => {
     expect(result.ok).toBe(false);
     expect(result.rows).toHaveLength(1);
     expect(result.exchanges).toHaveLength(2);
-    expect(!result.ok && result.message).toMatch(/^Reddi Writing Style:/);
+    expect(!result.ok && result.message).toMatch(/^RAP Writing Style:/);
   });
 
   it("refuses a receipt signed by a key other than the listed one", async () => {
