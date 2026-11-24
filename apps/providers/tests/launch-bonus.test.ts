@@ -241,8 +241,11 @@ test("the kit hooks read the open time from the Budget's slot and refuse when it
   assert.deepEqual(await early.budgetCallPricing({ ...input, budget: address(), requestId: "req-2" }), { paid: 30_000n });
   const none = launchBonusHooks({ settings: live, store, blockTimeMs: async () => { throw new Error("slot has no block time"); } });
   await assert.rejects(none.budgetCallPricing({ ...input, requestId: "req-3" }), /block time/);
-  await hooks.budgetCallPricingVoided({ budget: facts.budget, createdSlot: facts.createdSlot, requestId: "req-1" });
-  await hooks.onBudgetDone({ budget: facts.budget, createdSlot: facts.createdSlot });
+  await hooks.budgetCallPricingVoided({ budget: facts.budget, createdSlot: facts.createdSlot.toString(), requestId: "req-1" });
+  assert.equal((await store.grant(settings(), facts, 0n)).remaining, 2_500_000n);
+  await assert.rejects(hooks.onBudgetDone({ budget: facts.budget, createdSlot: "12x" }), /whole number/);
+  await hooks.onBudgetDone({ budget: facts.budget, createdSlot: facts.createdSlot.toString() });
+  await hooks.onBudgetDone({ budget: facts.budget, createdSlot: facts.createdSlot.toString() });
   assert.equal((await store.grant(settings(), facts, 0n)).remaining, 0n);
 });
 

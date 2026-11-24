@@ -322,6 +322,12 @@ export async function applyLaunchBonus(
   return split.bonus > 0n ? { paid: split.paid, bonus: { offer: LAUNCH_BONUS_OFFER, amount: split.bonus.toString() } } : { paid: split.paid };
 }
 
+function slot(value: bigint | string): bigint {
+  if (typeof value === "bigint") return value;
+  if (!/^(0|[1-9]\d{0,19})$/.test(value)) throw new Error("createdSlot must be a whole number");
+  return BigInt(value);
+}
+
 /** What the provider kit passes for a budget-paid call (PR #1114), all read from the verified Budget account. */
 export type BudgetCallPricingInput = {
   budget: string;
@@ -353,12 +359,13 @@ export function launchBonusHooks(deps: {
       const facts: BudgetFacts = { budget: input.budget, createdSlot: input.createdSlot, payer: input.payer, mint: input.mint, total: input.total, openedAtMs };
       return applyLaunchBonus(settings, deps.store, facts, { id: input.requestId, provider: input.provider, cost: input.cost });
     },
-    async budgetCallPricingVoided(input: { budget: string; createdSlot: bigint; requestId: string }): Promise<void> {
-      await deps.store.void({ budget: input.budget, createdSlot: input.createdSlot }, input.requestId);
+    /** The kit passes createdSlot as a decimal string here. */
+    async budgetCallPricingVoided(input: { budget: string; createdSlot: bigint | string; requestId: string }): Promise<void> {
+      await deps.store.void({ budget: input.budget, createdSlot: slot(input.createdSlot) }, input.requestId);
     },
-    /** Only once the Budget is closed: its unspent bonus lapses. */
-    async onBudgetDone(input: { budget: string; createdSlot: bigint }): Promise<void> {
-      await deps.store.release(input);
+    /** Only once the Budget is closed: its unspent bonus lapses. Repeats (one per slice) are harmless. */
+    async onBudgetDone(input: { budget: string; createdSlot: bigint | string }): Promise<void> {
+      await deps.store.release({ budget: input.budget, createdSlot: slot(input.createdSlot) });
     },
   };
 }
