@@ -14,7 +14,10 @@ use {
         prelude::Pubkey,
         solana_program::{instruction::Instruction, system_program},
     },
-    escrow::{state::AgentType, PROTOCOL_TREASURY, USDC_MAINNET_MINT},
+    escrow::{
+        state::AgentType, token_accounts::TOKEN_2022_ID, PROTOCOL_TREASURY, PYUSD_MAINNET_MINT,
+        USDC_MAINNET_MINT,
+    },
     solana_account::Account,
     solana_keypair::Keypair,
     solana_signer::Signer,
@@ -1226,4 +1229,68 @@ fn compute_units_of_the_largest_exits() {
     );
     assert!(sent.compute_units < 200_000);
     t.world.report("delivery-checked SOL escrow");
+}
+
+#[test]
+fn a_rated_checked_token_exit_takes_the_memo_program_as_its_twelfth_account() {
+    // Nine accounts, the rating and delivery accounts, then the SPL Memo
+    // program: the most a token exit carries. The payer switches on required
+    // memos on its refund account after the lock.
+    let mut world = World::new();
+    let (payer, payee, judge) = (world.wallet(1), world.wallet(2), world.wallet(4));
+    world.register(&judge, AgentType::Attestation);
+    let t = Tokens::install(&mut world, TOKEN_2022_ID, PYUSD_MAINNET_MINT, payer, payee);
+    let (a, b) = (t.payer.pubkey(), t.payee.pubkey());
+    let escrow = t.escrow(nonce(1));
+    world
+        .send(
+            &[
+                t.lock(AMOUNT, nonce(1), true),
+                open_rating(&escrow, &a, None),
+                open_delivery(&escrow, &a, &judge.pubkey()),
+            ],
+            &[&t.payer],
+        )
+        .unwrap();
+    let created = token_created(&world, &escrow);
+    world.next_slot();
+    world.ok(
+        "record",
+        record_delivery(&escrow, &b, created, 30, 1),
+        &[&t.payee],
+    );
+    world.ok(
+        "accept",
+        answer("accept_delivery", &escrow, &a, created),
+        &[&t.payer],
+    );
+    // MemoTransfer extension (type 8, length 1), require_incoming_memo on.
+    let mut data = world.data(&t.source);
+    data.extend_from_slice(&[8, 0, 1, 0, 1]);
+    world.set(
+        t.source,
+        Account {
+            lamports: world.lamports(&t.source),
+            data,
+            owner: TOKEN_2022_ID,
+            ..Account::default()
+        },
+    );
+    let settle = with_delivery(
+        with_rating(t.payout(nonce(1), &b, Some(400_000)), &escrow),
+        &escrow,
+    );
+    assert_eq!(settle.accounts.len(), 11);
+    // Token-2022 NoMemo (0x24): without the memo program the refund leg fails.
+    world.refused("settle without memo", settle.clone(), &[&t.payee], 36);
+    let memo: Pubkey = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
+        .parse()
+        .unwrap();
+    let settle = with_account(settle, memo, false);
+    assert_eq!(settle.accounts.len(), 12);
+    world.ok("rated checked PYUSD settle with memo", settle, &[&t.payee]);
+    assert_eq!(t.balance(&world, &t.recipient), 400_000 - 10_000);
+    assert!(!world.exists(&escrow));
+    assert!(!world.exists(&delivery_address(&escrow)));
+    world.report("rated, delivery-checked PYUSD escrow");
 }

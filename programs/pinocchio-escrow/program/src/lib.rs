@@ -53,10 +53,11 @@ use {
 
 solana_address::declare_id!("DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu");
 
-// The largest instruction takes eleven accounts (a token payout or judge's
+// The largest instruction takes twelve accounts (a token payout or judge's
 // resolve of a rated, delivery-checked escrow: its nine, then the rating and
-// delivery accounts); anything past that is ignored.
-program_entrypoint!(process_instruction, 11);
+// delivery accounts, then the SPL Memo program for a receiving account that
+// requires memos); anything past that is ignored.
+program_entrypoint!(process_instruction, 12);
 // Nothing in the program allocates, so there is no heap to set up.
 no_allocator!();
 nostd_panic_handler!();

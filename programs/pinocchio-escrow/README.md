@@ -1037,6 +1037,7 @@ Compute units for the delivery check, from `equivalence/tests/delivery.rs`
 | `settle_token_escrow` of a delivery-checked escrow, USDC | 17,209 |
 | `resolve_token_delivery`, USDC | 17,572 |
 | `resolve_delivery` of a rated escrow | 5,907 |
+| `settle_token_escrow` of a rated, delivery-checked PYUSD escrow whose refund account requires memos, with the memo program (12 accounts, the most any instruction takes) | 31,400 |
 
 ## Known differences
 
