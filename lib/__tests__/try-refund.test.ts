@@ -66,7 +66,9 @@ describe("try refund (Solana Pay transaction request)", () => {
     const [limit, price, refund] = tx.instructions;
     expect(limit.programId.equals(ComputeBudgetProgram.programId) && price.programId.equals(ComputeBudgetProgram.programId)).toBe(true);
     expect(refund.programId.equals(SANDBOX_ESCROW_PROGRAM_ID)).toBe(true);
-    expect(Buffer.from(refund.data)).toEqual(Buffer.from(SANDBOX_ESCROW_DISCRIMINATORS.cancelEscrow));
+    // The freeze build (on devnet since slot 525663342) names the escrow's created slot on every exit.
+    expect(Buffer.from(refund.data).subarray(0, 8)).toEqual(Buffer.from(SANDBOX_ESCROW_DISCRIMINATORS.cancelEscrow));
+    expect(Buffer.from(refund.data).subarray(8).readBigUInt64LE(0)).toBe(CREATED_SLOT);
     expect(refund.keys.map((k) => [k.pubkey.toBase58(), k.isSigner, k.isWritable])).toEqual([
       [escrow, false, true],
       [payer.toBase58(), true, true],
@@ -88,9 +90,9 @@ describe("try refund (Solana Pay transaction request)", () => {
     const built = await buildTryRefundTransaction({ escrow, account: payer.toBase58(), connection: connection(escrowData({ payer, payee }), open) });
     if (!built.ok) throw new Error(built.message);
     const refund = Transaction.from(Buffer.from(built.transaction, "base64")).instructions[2];
-    // The build of record before the freeze takes no slot on an unrated exit.
-    expect(sandboxBuildOfRecord()!.namesUnratedExits).toBe(false);
-    expect(refund.data).toHaveLength(8);
+    // The build of record is the freeze build, which names the escrow's created slot on an unrated exit too.
+    expect(sandboxBuildOfRecord()!.namesUnratedExits).toBe(true);
+    expect(refund.data).toHaveLength(16);
     const unknown = await buildTryRefundTransaction({ escrow, account: payer.toBase58(), connection: connection(escrowData({ payer, payee }), open, SANDBOX_ESCROW_PROGRAM_ID, BigInt(1)) });
     expect(unknown).toMatchObject({ ok: false, code: "refund_paused" });
   });
