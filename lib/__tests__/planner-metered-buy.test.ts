@@ -5,6 +5,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { tokenEscrowAddresses, treasuryTokenAccount, ESCROW_PROTOCOL_TREASURY } from "@redditech/x402-solana/token-escrow";
 import { RATING_DISCRIMINATORS, ratingPda } from "@redditech/x402-solana/rating";
+import { deliveryPda } from "@redditech/x402-solana/delivery";
 import { planMeteredBuy } from "@/lib/payments/metered-buy";
 import { receiptHeaderForProvider } from "@/lib/payments/wallet-direct-payment";
 import { verifyAndRecordMeteredCall } from "@/lib/jobs/metered-call";
@@ -155,7 +156,17 @@ describe("metered job record (#794)", () => {
   };
   const receipt = { settlement: "metered-escrow", network: "solana-devnet", currency: "USDC", payTo: PROVIDER, payer: PAYER.toBase58(), nonce: NONCE_HEX, escrow: escrow.toBase58(), lockSignature: LOCK_SIG };
 
-  function settleTx(opts: { provider?: number; fee?: number; vault?: number; err?: unknown; accounts?: string[]; payout?: string; payoutOwner?: string; blockTime?: number } = {}) {
+  const LOCK_SLOT = 4242;
+  const discOf = (name: string) => createHash("sha256").update(`global:${name}`).digest().subarray(0, 8);
+  const u64 = (value: number | bigint) => {
+    const out = Buffer.alloc(8);
+    out.writeBigUInt64LE(BigInt(value));
+    return out;
+  };
+  /** settle_token_escrow data: discriminator, actual, then the slot of the escrow it ends. */
+  const settleData = (actual: number, slot: number = LOCK_SLOT) => base58(Buffer.concat([discOf("settle_token_escrow"), u64(actual), u64(slot)]));
+
+  function settleTx(opts: { provider?: number; fee?: number; vault?: number; err?: unknown; accounts?: string[]; payout?: string; payoutOwner?: string; blockTime?: number; data?: string; refund?: number } = {}) {
     const payout = opts.payout ?? recipient;
     const keys = [PAYER.toBase58(), PROVIDER, escrow.toBase58(), vault.toBase58(), payout, treasury, source, USDC, PROGRAM.toBase58(), TOKEN_PROGRAM_ID.toBase58()];
     const index = (k: string) => keys.indexOf(k);
@@ -164,12 +175,13 @@ describe("metered job record (#794)", () => {
     const fee = opts.fee ?? 25;
     const inVault = opts.vault ?? 30600;
     const payoutOwner = opts.payoutOwner ?? PROVIDER;
+    const refund = opts.refund ?? inVault - provider - fee;
     return {
       ...(opts.blockTime !== undefined ? { blockTime: opts.blockTime } : {}),
       meta: {
         err: opts.err ?? null,
-        preTokenBalances: [bal(vault.toBase58(), inVault), bal(payout, 100, payoutOwner), bal(treasury, 0)],
-        postTokenBalances: [bal(payout, 100 + provider, payoutOwner), bal(treasury, fee)],
+        preTokenBalances: [bal(vault.toBase58(), inVault), bal(payout, 100, payoutOwner), bal(treasury, 0), bal(source, 7, PAYER.toBase58())],
+        postTokenBalances: [bal(payout, 100 + provider, payoutOwner), bal(treasury, fee), bal(source, 7 + refund, PAYER.toBase58())],
       },
       transaction: {
         message: {
@@ -177,7 +189,7 @@ describe("metered job record (#794)", () => {
           instructions: [{
             programId: PROGRAM.toBase58(),
             accounts: opts.accounts ?? [escrow.toBase58(), vault.toBase58(), PROVIDER, PAYER.toBase58(), USDC, payout, treasury, source, TOKEN_PROGRAM_ID.toBase58()],
-            data: "x",
+            data: opts.data ?? settleData(provider + fee),
           }],
         },
       },
@@ -200,12 +212,13 @@ describe("metered job record (#794)", () => {
   }
 
   /** The buyer's lock_metered_token_escrow transaction, which fixes the maximum. */
-  function lockTx(opts: { amount?: number; nonce?: Uint8Array; err?: unknown } = {}) {
+  function lockTx(opts: { amount?: number; nonce?: Uint8Array; err?: unknown; slot?: number } = {}) {
     const amount = Buffer.alloc(8);
     amount.writeBigUInt64LE(BigInt(opts.amount ?? 30600));
     const disc = createHash("sha256").update("global:lock_metered_token_escrow").digest().subarray(0, 8);
     const data = Buffer.concat([disc, amount, Buffer.from(opts.nonce ?? NONCE), Buffer.alloc(16)]);
     return {
+      slot: opts.slot ?? LOCK_SLOT,
       meta: { err: opts.err ?? null },
       transaction: {
         message: {
@@ -282,7 +295,7 @@ describe("metered job record (#794)", () => {
 
   it("takes the maximum from the lock, not the vault, and reports a donation apart (audit S7-Codex-05, C20)", async () => {
     const d = deps(settleTx({ vault: 30600 + 5000 }));
-    expect(await call(d.deps)).toMatchObject({ recorded: true, paid: { maxAmountBaseUnits: "30600", refundedBaseUnits: "29600", surplusBaseUnits: "5000" } });
+    expect(await call(d.deps)).toMatchObject({ recorded: true, paid: { maxAmountBaseUnits: "30600", refundedBaseUnits: "34600", surplusBaseUnits: "5000" } });
   });
 
   it.each([
@@ -292,6 +305,49 @@ describe("metered job record (#794)", () => {
   ])("refuses when the receipt's lock cannot be read back: %s", async (_label, lock) => {
     const d = deps(settleTx(), lock);
     expect(await call(d.deps)).toEqual({ recorded: false, reason: "lock_not_verified" });
+  });
+
+  it("pairs a settle only with the lock of the escrow it names: two jobs at one address are not crossed (audit S7-Codex-R2-03)", async () => {
+    // Job 1 locked 30600 in slot 4242 and job 2 locked 2000 in slot 5000, at the same address (same payer,
+    // mint and nonce). Every account of their settles is the same; only the slot each exit names differs.
+    const job1Lock = lockTx({ amount: 30600, slot: 4242 });
+    const job2Lock = lockTx({ amount: 2000, slot: 5000 });
+    const job1Settle = settleTx({ data: settleData(1000, 4242) });
+    const job2Settle = settleTx({ vault: 2000, data: settleData(1000, 5000) });
+    expect(await call(deps(job1Settle, job1Lock).deps)).toMatchObject({ recorded: true, paid: { maxAmountBaseUnits: "30600", refundedBaseUnits: "29600" } });
+    expect(await call(deps(job2Settle, job2Lock).deps)).toMatchObject({ recorded: true, paid: { maxAmountBaseUnits: "2000", refundedBaseUnits: "1000" } });
+    // Crossed pairs pass every amount and fee check, and are refused for naming another escrow.
+    for (const [settle, lock] of [[job1Settle, job2Lock], [job2Settle, job1Lock]]) {
+      const d = deps(settle, lock);
+      expect(await call(d.deps)).toEqual({ recorded: false, reason: "settle_not_for_this_lock" });
+      expect(d.stored).toHaveLength(0);
+    }
+  });
+
+  it("accepts a full release of the escrow, named by its slot", async () => {
+    const release = base58(Buffer.concat([discOf("release_token_escrow"), u64(LOCK_SLOT)]));
+    expect(await call(deps(settleTx({ provider: 29835, fee: 765, data: release })).deps)).toMatchObject({ recorded: true, paid: { amountBaseUnits: "30600", refundedBaseUnits: "0" } });
+    const elsewhere = base58(Buffer.concat([discOf("release_token_escrow"), u64(LOCK_SLOT + 1)]));
+    expect(await call(deps(settleTx({ provider: 29835, fee: 765, data: elsewhere })).deps)).toEqual({ recorded: false, reason: "settle_not_for_this_lock" });
+  });
+
+  it.each([
+    ["no slot after the data (an exit that names no escrow)", () => base58(Buffer.concat([discOf("settle_token_escrow"), u64(1000)]))],
+    ["another instruction of the program", () => base58(Buffer.concat([discOf("cancel_token_escrow"), u64(LOCK_SLOT)]))],
+    ["unreadable data", () => "x"],
+  ])("does not take %s as this job's settle", async (_label, data) => {
+    expect(await call(deps(settleTx({ data: data() })).deps)).toEqual({ recorded: false, reason: "settle_not_for_this_escrow" });
+  });
+
+  it("refuses a lock transaction without its slot", async () => {
+    const noSlot: Record<string, unknown> = { ...lockTx() };
+    delete noSlot.slot;
+    expect(await call(deps(settleTx(), noSlot).deps)).toEqual({ recorded: false, reason: "lock_not_verified" });
+  });
+
+  it("reports the refund the payer's account received, and refuses one larger than the vault held", async () => {
+    expect(await call(deps(settleTx({ refund: 29000 })).deps)).toMatchObject({ recorded: true, paid: { refundedBaseUnits: "29000" } });
+    expect(await call(deps(settleTx({ refund: 29601 })).deps)).toEqual({ recorded: false, reason: "refund_mismatch" });
   });
 
   it("refuses a receipt that names no lock transaction", async () => {
@@ -318,6 +374,17 @@ describe("metered job record (#794)", () => {
     // A tenth account that is not this escrow's rating account is not this job's settle.
     const other = deps(settleTx({ accounts: [...usual, Keypair.generate().publicKey.toBase58()] }));
     expect(await call(other.deps)).toEqual({ recorded: false, reason: "settle_not_for_this_escrow" });
+  });
+
+  it("does not record an exit of a delivery-checked escrow or a judge's resolve, and says why (audit D11)", async () => {
+    const usual = [escrow.toBase58(), vault.toBase58(), PROVIDER, PAYER.toBase58(), USDC, recipient, treasury, source, TOKEN_PROGRAM_ID.toBase58()];
+    const settle = deps(settleTx({ accounts: [...usual, deliveryPda(escrow, PROGRAM).toBase58()] }));
+    expect(await call(settle.deps)).toEqual({ recorded: false, reason: "delivery_check_not_supported" });
+    expect(settle.stored).toHaveLength(0);
+    const resolve = base58(Buffer.concat([discOf("resolve_token_delivery"), u64(1000), u64(LOCK_SLOT)]));
+    const judged = deps(settleTx({ data: resolve }));
+    expect(await call(judged.deps)).toEqual({ recorded: false, reason: "delivery_check_not_supported" });
+    expect(judged.stored).toHaveLength(0);
   });
 
   it("records a failed metered call only for the payer's own signed-in session (audit S5-claude-02, C5)", async () => {

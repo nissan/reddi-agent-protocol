@@ -9,8 +9,8 @@ use {
     crate::{
         checks::at_seeds,
         consts::{
-            discriminator, AGENT_MODEL_MAX_LEN, ATTESTATION_SEED, RATING_SEED, SCORE_MAX,
-            SYSTEM_PROGRAM_ID,
+            discriminator, AGENT_MODEL_MAX_LEN, ATTESTATION_SEED, DELIVERY_SEED, RATING_SEED,
+            SCORE_MAX, SYSTEM_PROGRAM_ID,
         },
         error::{
             fail, AccountDidNotDeserialize, AccountDiscriminatorMismatch,
@@ -30,7 +30,10 @@ const FLAG_METERED: u8 = 0x01;
 /// The payer opted the escrow into rating with `open_rating`. Every exit of
 /// such an escrow takes its rating account.
 const FLAG_RATED: u8 = 0x02;
-const FLAGS_KNOWN: u8 = FLAG_METERED | FLAG_RATED;
+/// The payer opted the escrow into the delivery check with `open_delivery`.
+/// Every exit of such an escrow takes its delivery account.
+const FLAG_DELIVERY: u8 = 0x04;
+const FLAGS_KNOWN: u8 = FLAG_METERED | FLAG_RATED | FLAG_DELIVERY;
 
 /// A record this program stores at the start of an account.
 ///
@@ -223,10 +226,24 @@ impl SolEscrow {
         self.metered & FLAG_RATED != 0
     }
 
+    /// Whether the payer opted this escrow into the delivery check.
+    pub fn delivery_checked(&self) -> bool {
+        self.metered & FLAG_DELIVERY != 0
+    }
+
     /// Set the rated flag on `account`. `self` is the record `load_checked`
     /// returned for the same account; the flag byte sits behind the session
     /// key when there is one.
     pub fn set_rated(&self, account: &mut AccountView) -> ProgramResult {
+        self.add_flag(account, FLAG_RATED)
+    }
+
+    /// Set the delivery-check flag on `account`, as `set_rated` does.
+    pub fn set_delivery_checked(&self, account: &mut AccountView) -> ProgramResult {
+        self.add_flag(account, FLAG_DELIVERY)
+    }
+
+    fn add_flag(&self, account: &mut AccountView, flag: u8) -> ProgramResult {
         let at = if self.per_session_key == 1 {
             DELEGATED_BUMP_AT + 1
         } else {
@@ -236,7 +253,7 @@ impl SolEscrow {
         let Some(flags) = data.get_mut(at) else {
             return Err(ProgramError::AccountDataTooSmall);
         };
-        *flags = self.metered | FLAG_RATED;
+        *flags = self.metered | flag;
         Ok(())
     }
 
@@ -404,13 +421,27 @@ impl TokenEscrow {
         self.metered & FLAG_RATED != 0
     }
 
+    /// Whether the payer opted this escrow into the delivery check.
+    pub fn delivery_checked(&self) -> bool {
+        self.metered & FLAG_DELIVERY != 0
+    }
+
     /// Set the rated flag on `account`, which holds this record.
     pub fn set_rated(&self, account: &mut AccountView) -> ProgramResult {
+        self.add_flag(account, FLAG_RATED)
+    }
+
+    /// Set the delivery-check flag on `account`, which holds this record.
+    pub fn set_delivery_checked(&self, account: &mut AccountView) -> ProgramResult {
+        self.add_flag(account, FLAG_DELIVERY)
+    }
+
+    fn add_flag(&self, account: &mut AccountView, flag: u8) -> ProgramResult {
         let mut data = account.try_borrow_mut()?;
         let Some(flags) = data.get_mut(TOKEN_FLAGS_AT) else {
             return Err(ProgramError::AccountDataTooSmall);
         };
-        *flags = self.metered | FLAG_RATED;
+        *flags = self.metered | flag;
         Ok(())
     }
 }
@@ -914,5 +945,147 @@ impl Attestation {
             program_id,
         )?;
         Ok(record)
+    }
+}
+
+// ── Delivery check ──────────────────────────────────────────────────────────
+
+/// Waiting for the payee to record what it delivered.
+pub const DELIVERY_AWAITING: u8 = 0;
+/// Recorded; the payer's verify window runs from `delivered_slot`.
+pub const DELIVERY_DELIVERED: u8 = 1;
+/// The payer accepted the delivery: the payee may be paid at once.
+pub const DELIVERY_ACCEPTED: u8 = 2;
+/// The payer disputed the delivery: only the judge may end the escrow, until
+/// its window ends.
+pub const DELIVERY_DISPUTED: u8 = 3;
+
+/// The delivery check of one escrow: the judge and windows the payer named in
+/// the lock slot, then what the payee says it delivered, then whether the
+/// payer accepted or disputed it. PDA seeds: `["delivery", escrow]`.
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct Delivery {
+    discriminator: [u8; 8],
+    pub escrow: Address,
+    pub judge: Address,
+    /// Slot of `open_delivery`, which is the escrow's lock slot. It names the
+    /// job: every delivery instruction carries it.
+    opened_slot: [u8; 8],
+    verify_window_slots: [u8; 8],
+    resolve_window_slots: [u8; 8],
+    delivered_slot: [u8; 8],
+    units: [u8; 8],
+    bytes: [u8; 8],
+    /// sha256 of the delivered file, as the payee states it.
+    pub sha256: [u8; 32],
+    disputed_slot: [u8; 8],
+    pub state: u8,
+    pub bump: u8,
+}
+
+// SAFETY: byte fields only, discriminator first.
+unsafe impl Record for Delivery {
+    const DISCRIMINATOR: [u8; 8] = discriminator("account:DeliveryAccount");
+    const LEN: usize = 8 + 32 * 3 + 8 * 7 + 2;
+}
+assert_layout!(Delivery, 162);
+
+impl Delivery {
+    pub fn new(
+        escrow: &Address,
+        judge: &Address,
+        opened_slot: u64,
+        verify_window_slots: u64,
+        resolve_window_slots: u64,
+        bump: u8,
+    ) -> Self {
+        Self {
+            discriminator: Self::DISCRIMINATOR,
+            escrow: *escrow,
+            judge: *judge,
+            opened_slot: opened_slot.to_le_bytes(),
+            verify_window_slots: verify_window_slots.to_le_bytes(),
+            resolve_window_slots: resolve_window_slots.to_le_bytes(),
+            delivered_slot: [0; 8],
+            units: [0; 8],
+            bytes: [0; 8],
+            sha256: [0; 32],
+            disputed_slot: [0; 8],
+            state: DELIVERY_AWAITING,
+            bump,
+        }
+    }
+
+    /// The record at `account`, which must be a delivery account of this
+    /// program at the address derived from the escrow it names.
+    pub fn load_checked(account: &AccountView, program_id: &Address) -> Result<Self, ProgramError> {
+        let record = Self::load(account, program_id)?;
+        if record.state > DELIVERY_DISPUTED {
+            return Err(fail(&AccountDidNotDeserialize));
+        }
+        at_seeds(
+            account,
+            &[DELIVERY_SEED, record.escrow.as_ref(), &[record.bump]],
+            program_id,
+        )?;
+        Ok(record)
+    }
+
+    pub fn opened_slot(&self) -> u64 {
+        u64::from_le_bytes(self.opened_slot)
+    }
+
+    pub fn verify_window_slots(&self) -> u64 {
+        u64::from_le_bytes(self.verify_window_slots)
+    }
+
+    pub fn resolve_window_slots(&self) -> u64 {
+        u64::from_le_bytes(self.resolve_window_slots)
+    }
+
+    pub fn delivered_slot(&self) -> u64 {
+        u64::from_le_bytes(self.delivered_slot)
+    }
+
+    pub fn disputed_slot(&self) -> u64 {
+        u64::from_le_bytes(self.disputed_slot)
+    }
+
+    pub fn units(&self) -> u64 {
+        u64::from_le_bytes(self.units)
+    }
+
+    pub fn bytes(&self) -> u64 {
+        u64::from_le_bytes(self.bytes)
+    }
+
+    /// The first slot at which the verify window has ended.
+    pub fn verify_ends(&self) -> u64 {
+        self.delivered_slot()
+            .saturating_add(self.verify_window_slots())
+    }
+
+    /// The first slot at which the judge's window has ended.
+    pub fn resolve_ends(&self) -> u64 {
+        self.disputed_slot()
+            .saturating_add(self.resolve_window_slots())
+    }
+
+    pub fn record(&mut self, slot: u64, units: u64, bytes: u64, sha256: [u8; 32]) {
+        self.delivered_slot = slot.to_le_bytes();
+        self.units = units.to_le_bytes();
+        self.bytes = bytes.to_le_bytes();
+        self.sha256 = sha256;
+        self.state = DELIVERY_DELIVERED;
+    }
+
+    pub fn accept(&mut self) {
+        self.state = DELIVERY_ACCEPTED;
+    }
+
+    pub fn dispute(&mut self, slot: u64) {
+        self.disputed_slot = slot.to_le_bytes();
+        self.state = DELIVERY_DISPUTED;
     }
 }

@@ -250,6 +250,12 @@ export type VerifiedLock = {
  * any work is done rather than left unpaid after it.
  * The escrow is then remembered, so one lock pays for one call.
  *
+ * An escrow with a flag bit this version does not know is always refused
+ * (`unknown_escrow_flags`), since its exits may need accounts this version
+ * never sends.
+ * An escrow the buyer opted in to the delivery check is always refused
+ * (`delivery_escrow_declined`): no provider takes one until the kit runs the
+ * delivery flow and lets a provider name the judges it accepts.
  * An escrow the buyer opted in to rating is refused (`rated_escrow_declined`)
  * before anything is served or remembered, unless `acceptRatedEscrows` is
  * true. `readAccount` must read at `confirmed` commitment or better for that
@@ -285,6 +291,13 @@ export declare function verifyMeteredLock(input: {
      */
     purpose?: 'call' | 'session-call' | 'session-settle';
     /**
+     * The lock slot the buyer's proof names, when it names one (a delegation
+     * signed in the lock's own transaction). A lock at this address made in
+     * another slot is refused before the escrow is remembered, so a stale proof
+     * cannot use up a later lock (`lock_instance_mismatch`).
+     */
+    lockSlot?: bigint;
+    /**
      * `session-settle` only: when neither the account that funded the lock nor
      * the payer's associated token account can take the unused part, let the
      * settle create the associated account at the provider's cost. Default
@@ -292,18 +305,10 @@ export declare function verifyMeteredLock(input: {
      */
     createRefundAccount?: boolean;
 }): Promise<VerifiedLock>;
-/** The replay-store key that marks an escrow as taken, by a single call or by a session's first call. */
-export declare function meteredEscrowReplayKey(escrow: PublicKey): string;
+/** The replay-store key that marks one lock as taken, by a single call or by a session's first call: the escrow and its lock slot, so a later lock at the same address is a new key. */
+export declare function meteredEscrowReplayKey(escrow: PublicKey, createdSlot: bigint): string;
 /** Token counts from an OpenAI-style usage report, or the estimate from the text when it reports none. */
 export declare function usageFrom(upstream: Record<string, unknown>, inputEstimate: number): TokenCounts;
-/**
- * The settle for the tokens used, never above the locked maximum. It pays
- * into the accounts checked with the lock (`lock.payout`), or into `payout`
- * when the caller has checked them again. Nothing is created unless that
- * check chose to create the buyer's token account. The settle names the
- * escrow by its lock slot (`lock.createdSlot`) after its data, and a rated
- * lock's settle carries the escrow's rating account after the usual accounts.
- */
 export declare function meteredSettlement(terms: MeteredTerms, lock: Extract<VerifiedLock, {
     ok: true;
 }>, usage: TokenCounts, payout?: PayoutAccounts): {

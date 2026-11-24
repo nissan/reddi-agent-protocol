@@ -58,7 +58,7 @@ export default function AgentHandoff({ heading = "Want your agent to do this nex
       <ul className="mt-5 grid gap-3 text-sm leading-6 text-gray-300 sm:grid-cols-3">
         <li className="rounded-xl border border-white/10 bg-black/25 p-3"><span className="font-semibold text-white">You set the budget.</span> The skill tells your agent to ask for a per-call and total limit, and to stop at it.</li>
         <li className="rounded-xl border border-white/10 bg-black/25 p-3"><span className="font-semibold text-white">Quote first.</span> Your agent shows you the price before its first paid call.</li>
-        <li className="rounded-xl border border-white/10 bg-black/25 p-3"><span className="font-semibold text-white">Coming soon:</span> sign a spending budget for your agent in your own wallet, with no keypair file to hand over.</li>
+        <li className="rounded-xl border border-white/10 bg-black/25 p-3"><span className="font-semibold text-white">No keypair to hand over.</span> <Link className="underline hover:text-white" href="/pass">Give your agent a pass</Link>: a budget you lock once in your own wallet, and a key it pays with.</li>
       </ul>
       <p className="mt-5 text-sm text-gray-400">
         Read the <a className="underline hover:text-white" href="/skill.md">skill file</a>

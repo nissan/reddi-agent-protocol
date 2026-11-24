@@ -22,10 +22,16 @@ pub enum Outcome {
     ClaimedByPayee = 3,
     /// Metered escrow settled at its actual cost.
     SettledActual = 4,
+    /// Split by the judge of a disputed delivery: `amount` to the payee after
+    /// the fee, `refunded` back to the payer.
+    ResolvedByJudge = 5,
 }
 
 const LOCKED: [u8; 8] = discriminator("event:EscrowLocked");
 const SETTLED: [u8; 8] = discriminator("event:EscrowSettled");
+const DELIVERY_RECORDED: [u8; 8] = discriminator("event:DeliveryRecorded");
+const DELIVERY_CHANGED: [u8; 8] = discriminator("event:DeliveryChanged");
+const DELIVERY_RESOLVED: [u8; 8] = discriminator("event:DeliveryResolved");
 
 struct Record {
     bytes: [u8; 192],
@@ -137,6 +143,68 @@ impl Settled<'_> {
         record.put(&self.slot.to_le_bytes());
         record.put(&self.fee.to_le_bytes());
         record.put(&self.refunded.to_le_bytes());
+        record.emit();
+    }
+}
+
+/// The payee recorded what it delivered.
+pub struct DeliveryRecorded<'a> {
+    pub escrow: &'a Address,
+    pub units: u64,
+    pub bytes: u64,
+    pub sha256: &'a [u8; 32],
+    pub slot: u64,
+}
+
+impl DeliveryRecorded<'_> {
+    #[inline(never)]
+    pub fn emit(&self) {
+        let mut record = Record::new(&DELIVERY_RECORDED);
+        record.put(self.escrow.as_ref());
+        record.put(&self.units.to_le_bytes());
+        record.put(&self.bytes.to_le_bytes());
+        record.put(self.sha256);
+        record.put(&self.slot.to_le_bytes());
+        record.emit();
+    }
+}
+
+/// The payer accepted (`state` 2) or disputed (`state` 3) a delivery.
+pub struct DeliveryChanged<'a> {
+    pub escrow: &'a Address,
+    pub state: u8,
+    pub slot: u64,
+}
+
+impl DeliveryChanged<'_> {
+    #[inline(never)]
+    pub fn emit(&self) {
+        let mut record = Record::new(&DELIVERY_CHANGED);
+        record.put(self.escrow.as_ref());
+        record.put(&[self.state]);
+        record.put(&self.slot.to_le_bytes());
+        record.emit();
+    }
+}
+
+/// The judge ruled on a disputed delivery. `payout` is what it awarded the
+/// payee before the fee; the escrow's `EscrowSettled` event follows with what
+/// actually moved.
+pub struct DeliveryResolved<'a> {
+    pub escrow: &'a Address,
+    pub judge: &'a Address,
+    pub payout: u64,
+    pub slot: u64,
+}
+
+impl DeliveryResolved<'_> {
+    #[inline(never)]
+    pub fn emit(&self) {
+        let mut record = Record::new(&DELIVERY_RESOLVED);
+        record.put(self.escrow.as_ref());
+        record.put(self.judge.as_ref());
+        record.put(&self.payout.to_le_bytes());
+        record.put(&self.slot.to_le_bytes());
         record.emit();
     }
 }

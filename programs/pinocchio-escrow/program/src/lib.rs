@@ -1,6 +1,6 @@
 //! Reddi Agent Protocol escrow and agent registry, built with Pinocchio.
 //!
-//! One program, twenty-three instructions in the default (V1) build:
+//! One program, twenty-nine instructions in the default (V1) build:
 //!
 //! - SOL escrow: `lock_escrow`, `lock_metered_escrow`, `release_escrow`,
 //!   `settle_escrow`, `cancel_escrow`
@@ -12,16 +12,21 @@
 //!   `commit_rating`, `reveal_rating`, `expire_rating`, `close_rating`
 //! - judge attestations: `attest_quality`, `confirm_attestation`,
 //!   `dispute_attestation`, `close_attestation`
+//! - delivery-checked escrow: `open_delivery`, `record_delivery`,
+//!   `accept_delivery`, `dispute_delivery`, `resolve_delivery`,
+//!   `resolve_token_delivery`
 //!
 //! The `per` feature adds two more that are not part of V1 and are never
 //! built for mainnet: `delegate_escrow` and `release_escrow_per`, which track
 //! a MagicBlock PER delegation (unfinished; see `instructions/per.rs`).
 //!
-//! For the first thirteen, on an escrow that is not opted into rating, it is
+//! For the first thirteen, on an escrow that is not opted into rating or the
+//! delivery check, it is
 //! interchangeable with the Anchor program in `archive/anchor-escrow` from
 //! the outside: the same instruction selectors, account order, account
 //! layouts, program-derived addresses, events and error numbers. The other
-//! ten, and the exits of a rated escrow, have no counterpart there; their
+//! sixteen, and the exits of a rated or delivery-checked escrow, have no
+//! counterpart there; their
 //! interface is written down in the README. Inside it is a different program:
 //! no framework, no heap, no serialisation layer. Instructions validate their accounts by hand, read
 //! and write account bytes in place, and build events and cross-program calls
@@ -40,7 +45,7 @@ pub mod token;
 use {
     consts::discriminator,
     error::{fail, InstructionFallbackNotFound},
-    instructions::{attestation, rating, registry, sol_escrow, token_escrow},
+    instructions::{attestation, delivery, rating, registry, sol_escrow, token_escrow},
     pinocchio::{
         no_allocator, nostd_panic_handler, program_entrypoint, AccountView, Address, ProgramResult,
     },
@@ -48,9 +53,11 @@ use {
 
 solana_address::declare_id!("DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu");
 
-// The largest instruction takes ten accounts (a token payout of a rated
-// escrow: its nine, then the rating account); anything past that is ignored.
-program_entrypoint!(process_instruction, 10);
+// The largest instruction takes twelve accounts (a token payout or judge's
+// resolve of a rated, delivery-checked escrow: its nine, then the rating and
+// delivery accounts, then the SPL Memo program for a receiving account that
+// requires memos); anything past that is ignored.
+program_entrypoint!(process_instruction, 12);
 // Nothing in the program allocates, so there is no heap to set up.
 no_allocator!();
 nostd_panic_handler!();
@@ -88,6 +95,13 @@ pub mod selector {
     pub const ATTEST_QUALITY: u64 = of("global:attest_quality");
     pub const CONFIRM_ATTESTATION: u64 = of("global:confirm_attestation");
     pub const DISPUTE_ATTESTATION: u64 = of("global:dispute_attestation");
+
+    pub const OPEN_DELIVERY: u64 = of("global:open_delivery");
+    pub const RECORD_DELIVERY: u64 = of("global:record_delivery");
+    pub const ACCEPT_DELIVERY: u64 = of("global:accept_delivery");
+    pub const DISPUTE_DELIVERY: u64 = of("global:dispute_delivery");
+    pub const RESOLVE_DELIVERY: u64 = of("global:resolve_delivery");
+    pub const RESOLVE_TOKEN_DELIVERY: u64 = of("global:resolve_token_delivery");
 
     /// Selectors of the `per` build.
     #[cfg(feature = "per")]
@@ -145,6 +159,12 @@ pub fn process_instruction(
         selector::ATTEST_QUALITY => attestation::attest(program_id, accounts, data),
         selector::CONFIRM_ATTESTATION => attestation::resolve(program_id, accounts, data, true),
         selector::DISPUTE_ATTESTATION => attestation::resolve(program_id, accounts, data, false),
+        selector::OPEN_DELIVERY => delivery::open(program_id, accounts, data),
+        selector::RECORD_DELIVERY => delivery::record(program_id, accounts, data),
+        selector::ACCEPT_DELIVERY => delivery::answer(program_id, accounts, data, true),
+        selector::DISPUTE_DELIVERY => delivery::answer(program_id, accounts, data, false),
+        selector::RESOLVE_DELIVERY => sol_escrow::resolve(program_id, accounts, data),
+        selector::RESOLVE_TOKEN_DELIVERY => token_escrow::resolve(program_id, accounts, data),
         #[cfg(feature = "per")]
         selector::per::DELEGATE_ESCROW => instructions::per::delegate(program_id, accounts, data),
         #[cfg(feature = "per")]

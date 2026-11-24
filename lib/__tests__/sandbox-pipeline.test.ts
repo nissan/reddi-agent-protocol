@@ -1,11 +1,12 @@
 import { pinLaunchRateClock } from "@/lib/test-support/launch-clock";
+import { sandboxBuildOfRecord } from "@/lib/sandbox/deployment";
 import { MemoryNonceReplayStore } from "@redditech/x402-solana";
 import { Keypair } from "@solana/web3.js";
 import { findSandboxProviderById, findSandboxScenario, SANDBOX_PROVIDERS, STUDIO_PIPELINE, studioStepPrompt } from "@/lib/sandbox/catalog";
 import { handleSandboxChatCompletion, sandboxModelsListing, type SandboxGatewayDeps } from "@/lib/sandbox/gateway";
-import { runSandboxPipeline, studioProviders, typicalVideoCostMicroUsd } from "@/lib/sandbox/pipeline-run";
-import { maxChargeLamports, requestInputTokens, formatUnits } from "@/lib/sandbox/pricing";
-import { decodeReceiptHeader, encodeReceiptHeader, SANDBOX_SIMULATED_RECEIPT_HEADER, type SandboxReceipt } from "@/lib/sandbox/receipt";
+import { runSandboxPipeline, studioProviders } from "@/lib/sandbox/pipeline-run";
+import { maxChargeLamports, mediaCostMicroUsd, mediaDelivery, microUsdToLamports, requestInputTokens, formatUnits, sandboxMediaDelivery } from "@/lib/sandbox/pricing";
+import { decodeReceiptHeader, encodeReceiptHeader, isSandboxReceipt, SANDBOX_SIMULATED_RECEIPT_HEADER, type SandboxReceipt } from "@/lib/sandbox/receipt";
 import { applySandboxRating } from "@/lib/sandbox/reputation";
 
 const ORIGIN = "https://sandbox.example";
@@ -50,7 +51,7 @@ describe("sandbox: make a video with independent studios", () => {
     expect(new Set(payees).size).toBe(payees.length);
   });
 
-  it("hires every studio in turn: a quote, a simulated payment, a receipt checked with the 2.5% fee", async () => {
+  it("hires every studio in turn: a per-second quote, a simulated payment, a receipt checked with the 2.5% fee", async () => {
     const steps: string[] = [];
     const result = await runSandboxPipeline({ fetchImpl: gatewayFetch(makeDeps()), onStep: (row) => steps.push(row.provider.id) });
     if (!result.ok) throw new Error(result.message);
@@ -119,16 +120,71 @@ describe("sandbox: make a video with independent studios", () => {
     expect(sandbox.devnetPayment).toBeUndefined();
     expect(sandbox.meteredPayment).toBeUndefined();
     expect(sandbox.simulatedOnly).toMatch(/simulated payments only/);
-    const listing = (await sandboxModelsListing({ canSettle: () => true, settle: async () => ({ ok: false, message: "" }) })) as { data: { rap: { providerId: string; simulatedPaymentsOnly?: boolean; meteredEscrow: { available: boolean } } }[] };
+    const listing = (await sandboxModelsListing({ canSettle: () => true, deployment: async () => ({ ok: true, build: sandboxBuildOfRecord()! }), settle: async () => ({ ok: false, message: "" }), lookup: async () => ({ state: "unknown" }) })) as { data: { rap: { providerId: string; simulatedPaymentsOnly?: boolean; meteredEscrow: { available: boolean } } }[] };
     const entry = listing.data.find((item) => item.rap.providerId === studio.id)!;
     expect(entry.rap.simulatedPaymentsOnly).toBe(true);
     expect(entry.rap.meteredEscrow.available).toBe(false);
   });
 
-  it("estimates a real 30-second video at a few dollars across the five listings", () => {
-    const usd = Number(typicalVideoCostMicroUsd()) / 1_000_000;
-    expect(usd).toBeGreaterThan(5);
-    expect(usd).toBeLessThan(6.5);
+  it("prices each studio per second delivered plus a week of hosting, not per token", () => {
+    const frame = findSandboxProviderById("frame-foundry")!;
+    // 30 s at $0.05, plus 37.5 MB hosted at $0.05 per GB: $1.501875.
+    expect(mediaCostMicroUsd(frame, mediaDelivery(frame, 30))).toBe(BigInt(1_501_875));
+    // The maximum is 40 s and its 50 MB file: $2.0025, whatever the brief's length.
+    expect(maxChargeLamports(frame, 10)).toBe(maxChargeLamports(frame, 500));
+    expect(maxChargeLamports(frame, 10)).toBe(microUsdToLamports(BigInt(2_002_500)));
+    // The five studios together, at 30 s each: about two dollars.
+    const usd = studioProviders().reduce((sum, studio) => sum + Number(mediaCostMicroUsd(studio, sandboxMediaDelivery(studio)!)), 0) / 1_000_000;
+    expect(usd).toBeGreaterThan(2);
+    expect(usd).toBeLessThan(2.2);
+  });
+
+  it("signs the unit, the length and the file into each receipt, hosted for the listed week", async () => {
+    const result = await runSandboxPipeline({ fetchImpl: gatewayFetch(makeDeps()) });
+    if (!result.ok) throw new Error(result.message);
+    for (const row of result.rows) {
+      const { payment, delivery, issuedAt } = row.receipt!.receipt;
+      expect(payment!.metered).toMatchObject({ unit: "second", units: "30" });
+      expect(delivery).toMatchObject({ name: row.provider.media!.delivered.name, mediaType: row.provider.media!.mediaType, bytes: String(row.delivery.bytes), sha256: row.fileHash });
+      expect(Date.parse(delivery!.expiresAt) - Date.parse(issuedAt)).toBe(7 * 24 * 3600 * 1000);
+    }
+  });
+
+  it("stops when a receipt names a different file, even before its signature is checked", async () => {
+    const result = await runSandboxPipeline({
+      fetchImpl: gatewayFetch(makeDeps(), (headers, call) => {
+        if (call !== 2) return;
+        const receipt = decodeReceiptHeader(headers[SANDBOX_SIMULATED_RECEIPT_HEADER]) as SandboxReceipt;
+        receipt.receipt.delivery!.sha256 = "0".repeat(64);
+        headers[SANDBOX_SIMULATED_RECEIPT_HEADER] = encodeReceiptHeader(receipt);
+      }),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.rows).toHaveLength(1);
+  });
+
+  it("refuses session calls to a studio, which bills one file per call", async () => {
+    const studio = findSandboxProviderById("splice-line")!;
+    const body = { model: studio.model, messages: [{ role: "user", content: "Stitch it." }] };
+    const response = await handleSandboxChatCompletion({ body, rawBody: JSON.stringify(body), paymentHeader: JSON.stringify({ simulated: true, settlement: "metered-escrow", nonce: "d".repeat(32) }), origin: ORIGIN, session: { sequence: "1" } }, makeDeps());
+    expect(String(JSON.stringify(response.body))).toMatch(/one job per call/);
+  });
+
+  it("accepts the file fields only on a simulated, metered receipt", async () => {
+    const result = await runSandboxPipeline({ fetchImpl: gatewayFetch(makeDeps()) });
+    if (!result.ok) throw new Error(result.message);
+    const good = result.rows[0].receipt!;
+    expect(isSandboxReceipt(good)).toBe(true);
+    const asV2 = structuredClone(good);
+    asV2.receipt.schemaVersion = "reddi.receipt.v2";
+    asV2.receipt.payment!.txSignature = "5".repeat(88);
+    expect(isSandboxReceipt(asV2)).toBe(false);
+    const noUnit = structuredClone(good);
+    delete noUnit.receipt.payment!.metered!.unit;
+    expect(isSandboxReceipt(noUnit)).toBe(false);
+    const expired = structuredClone(good);
+    expired.receipt.delivery!.expiresAt = expired.receipt.issuedAt;
+    expect(isSandboxReceipt(expired)).toBe(false);
   });
 
   it("folds a buyer's star rating into the running average", () => {

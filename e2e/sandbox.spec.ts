@@ -208,6 +208,33 @@ test.describe("/sandbox", () => {
     await expectCopyInsideClaimBoundary(page);
   });
 
+  test("help us write better: two paid calls build a writing skill, then hand it to your agent", async ({ page }) => {
+    await page.goto("/sandbox?scenario=write-better");
+    await expect(page.getByTestId("sandbox-console")).toHaveAttribute("data-ready", "true", { timeout: 60_000 });
+    await expect(page.locator("[data-testid^=sandbox-writing-max-]")).toHaveCount(2);
+    await expect(page.getByTestId("sandbox-writing-price-reddi-writing-style")).toContainText("per million tokens");
+    await page.getByTestId("sandbox-writing-style-academic").click();
+    await page.getByTestId("sandbox-writing-jargon-eli5").click();
+    await page.getByTestId("sandbox-writing-words-40").click();
+    await page.getByTestId("sandbox-writing-run").click();
+    await expect(page.getByTestId("sandbox-writing-done")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("[data-testid^=sandbox-writing-step-]")).toHaveCount(2);
+    await expect(page.getByTestId("sandbox-writing-step-2")).toContainText("fee check");
+    await expect(page.getByTestId("sandbox-writing-error")).toHaveCount(0);
+    await expect(page.getByTestId("sandbox-writing-skill")).toContainText("name: write-like-me-academic-eli5-40");
+    await expect(page.getByTestId("sandbox-writing-skill")).toContainText("Sound like a person");
+    await expect(page.getByTestId("sandbox-writing-rewrite")).toContainText("This weekend");
+    const words = Number((await page.getByTestId("sandbox-writing-after-count").textContent())!.match(/(\d+) words/)![1]);
+    expect(words).toBeLessThanOrEqual(40);
+    await expect(page.getByTestId("sandbox-writing-fee")).toContainText("2.5%");
+    await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("2");
+    const download = page.waitForEvent("download");
+    await page.getByTestId("sandbox-writing-download").click();
+    expect((await download).suggestedFilename()).toBe("write-like-me-academic-eli5-40.md");
+    await expect(page.getByTestId("sandbox-writing-agent-setup")).toHaveAttribute("href", "/agent-setup");
+    await expectCopyInsideClaimBoundary(page);
+  });
+
   test("provider goes dark: no challenge, no payment, no receipt", async ({ page }) => {
     await open(page, "provider-offline");
     await page.getByTestId("sandbox-send").click();

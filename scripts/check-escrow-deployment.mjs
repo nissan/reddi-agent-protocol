@@ -13,8 +13,9 @@
 //      `get-program-hash` print) equals the recorded executable hash;
 //   4. the upgrade authority is the recorded one (on mainnet, the Squads vault),
 //      and not any address listed under `forbiddenAuthorities`;
-//   5. no loader buffer is left with the deployer (--deployer <address>) as its
-//      authority; without --deployer this line fails rather than being skipped.
+//   5. no loader buffer is left with the deployer (--deployer <address>, else the
+//      record's `deployer`) as its authority; without either, this line fails
+//      rather than being skipped.
 //
 // A mainnet record must name the Squads vault as the authority and list the
 // multisig account and the deployer as forbidden. Genesis and accounts come from
@@ -112,6 +113,9 @@ export function trimmedHash(bytes) {
 }
 
 const HEX64 = /^[0-9a-f]{64}$/;
+const COMMIT = /^[0-9a-f]{40}$/;
+const IMAGE_DIGEST = /^sha256:[0-9a-f]{64}$/;
+const BUILD_RUN = /^https:\/\/github\.com\/nissan\/reddi-agent-protocol\/actions\/runs\/[0-9]+$/;
 
 // Validates a release record and returns the problems found (empty when usable).
 export function recordProblems(record) {
@@ -123,14 +127,35 @@ export function recordProblems(record) {
   if (!HEX64.test(record.sha256 ?? '')) problems.push('sha256 must be 64 lowercase hex characters (sha256 of the .so file)');
   if (!HEX64.test(record.executableHash ?? '')) problems.push('executableHash must be 64 lowercase hex characters (solana-verify get-executable-hash)');
   if (!isAddress(record.upgradeAuthority)) problems.push('upgradeAuthority is not an address');
+  // Provenance: which build this is, so a record cannot pass for a build it does not name.
+  if (record.variant !== record.network) problems.push('variant must equal network (the build matrix entry for that cluster)');
+  if (!COMMIT.test(record.commit ?? '')) problems.push('commit must be a full 40-character commit hash');
+  if (!BUILD_RUN.test(record.buildRun ?? '')) problems.push('buildRun must be an escrow-verifiable-build.yml run URL in this repository');
+  if (typeof record.image !== 'string' || !record.image.startsWith('solanafoundation/solana-verifiable-build:')) {
+    problems.push('image must be the solanafoundation/solana-verifiable-build image the run used');
+  }
   for (const address of record.forbiddenAuthorities ?? []) {
     if (!isAddress(address)) problems.push(`forbiddenAuthorities entry ${address} is not an address`);
   }
   if ((record.forbiddenAuthorities ?? []).includes(record.upgradeAuthority)) {
     problems.push('upgradeAuthority is also listed as forbidden');
   }
+  // The oldest SDK and provider kit that handle this build safely (for example, that refuse an escrow
+  // flag they cannot serve). Sellers on older versions must upgrade before the build is deployed.
+  if (record.minimumPackages !== undefined) {
+    const entries = record.minimumPackages && typeof record.minimumPackages === 'object' ? Object.entries(record.minimumPackages) : null;
+    if (!entries || entries.length === 0) problems.push('minimumPackages must map package names to versions');
+    else for (const [name, version] of entries) {
+      if (!/^@redditech\/[a-z0-9-]+$/.test(name) || !/^\d+\.\d+\.\d+$/.test(String(version))) problems.push(`minimumPackages entry ${name} must be an @redditech package and an x.y.z version`);
+    }
+  }
+  if (record.deployer !== undefined && record.deployer !== null) {
+    if (!isAddress(record.deployer)) problems.push('deployer is not an address');
+    else if (!(record.forbiddenAuthorities ?? []).includes(record.deployer)) problems.push('deployer must also be listed under forbiddenAuthorities');
+  }
   if (record.network === 'mainnet') {
     if (record.programId !== MAINNET_PROGRAM_ID) problems.push(`a mainnet record's programId must be the V1 escrow program ${MAINNET_PROGRAM_ID}`);
+    if (!IMAGE_DIGEST.test(record.imageDigest ?? '')) problems.push('a mainnet record must give imageDigest as sha256:<64 hex>');
     if (record.upgradeAuthority !== MAINNET_VAULT) problems.push(`a mainnet record's upgradeAuthority must be the Squads vault ${MAINNET_VAULT}`);
     if (!Array.isArray(record.forbiddenAuthorities) || record.forbiddenAuthorities.length < 2) {
       problems.push('a mainnet record must list the multisig account and the deployer under forbiddenAuthorities');
@@ -278,7 +303,8 @@ async function main() {
     return 2;
   }
   const problems = recordProblems(record);
-  const deployer = arg('deployer');
+  // --deployer wins; otherwise the record's own deployer, so a scheduled run checks buffers too.
+  const deployer = arg('deployer') ?? record.deployer ?? undefined;
   if (deployer !== undefined && !isAddress(deployer)) problems.push('--deployer is not an address');
   if (deployer !== undefined && record.network === 'mainnet' && !(record.forbiddenAuthorities ?? []).includes(deployer)) {
     problems.push('the --deployer address must be listed under forbiddenAuthorities');

@@ -216,11 +216,17 @@ export default function TryConsole() {
   async function poll(s: Started) {
     if (polling.current) return;
     polling.current = true;
+    // A settle the provider sent whose outcome devnet has not confirmed yet: the visitor may have been charged.
+    let unconfirmedSettle: string | undefined;
     while (polling.current) {
       if (Date.now() / 1000 > s.expiresAt) {
         polling.current = false;
         setPhase("failed");
-        setMessage("This try ran out of time before a payment arrived. Nothing was taken. Start again when you're ready.");
+        setMessage(
+          unconfirmedSettle
+            ? `Devnet did not confirm the provider's settle transaction ${unconfirmedSettle} before this try ran out of time. Look it up in your wallet's history before you take the escrow back: if it landed, this call was paid for.`
+            : "This try ran out of time before a payment arrived. Nothing was taken. Start again when you're ready.",
+        );
         return;
       }
       if (document.visibilityState === "hidden") {
@@ -256,7 +262,11 @@ export default function TryConsole() {
           }
           return;
         }
-        if (response.ok && (body as { state?: string }).state === "settled") {
+        if (response.ok && (body as { state?: string }).state === "settling") {
+          // The provider settled but devnet has not confirmed it yet; the next check collects the answer.
+          unconfirmedSettle = (body as { settleSignature?: string }).settleSignature;
+          setMessage("The provider has sent its settle transaction. Waiting for devnet to confirm it, then showing the answer.");
+        } else if (response.ok && (body as { state?: string }).state === "settled") {
           // The lock was already finished, by an earlier answer this server no longer holds or by a refund.
           polling.current = false;
           setPhase("failed");

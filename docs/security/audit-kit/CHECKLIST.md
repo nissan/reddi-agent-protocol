@@ -43,10 +43,18 @@ passes, whatever the finding counts say.
 - [ ] S1.24 Attestations are bound to a real paid job and cannot be squatted by an unrelated judge.
 - [ ] S1.25 A refused instruction never changes an agent's record.
 
+### Delivery-checked escrow
+- [ ] S1.29 Only `open_delivery` sets the delivery flag, only by the payer in the lock slot and only once; nothing clears it, and it works with `open_rating` in either order.
+- [ ] S1.30 Every exit of a flagged escrow (release, settle, claim, cancel, refund, resolve; SOL and token) refuses a missing, foreign, fake or other-job delivery account.
+- [ ] S1.31 `record_delivery` is refused at and after the refund window; accept, dispute and resolve each work only in their state and window, and exactly one of each racing pair is valid at the boundary slot.
+- [ ] S1.32 A refund is eventually reachable in every delivery state, and the worst-case lock time stays within the documented ceiling.
+- [ ] S1.33 The judge's split pays at most the locked amount, sends the payee's share only to the recorded recipient, takes the fee on the paid part, and handles Token-2022 issuer debit and transfer fees with measured amounts in the event.
+- [ ] S1.34 SDK, provider kit, sandbox and specialists refuse delivery-checked escrows by default until they support them.
+
 ### Robustness
-- [ ] S1.26 No panics, unchecked arithmetic or unbounded loops; compute use is within limits for the largest instruction.
-- [ ] S1.27 Error codes and events match the README interface; clients can tell outcomes apart.
-- [ ] S1.28 The equivalence suite and program tests pass at the commit, and cover each money path's negative cases.
+- [ ] S1.35 No panics, unchecked arithmetic or unbounded loops; compute use is within limits for the largest instruction.
+- [ ] S1.36 Error codes and events match the README interface; clients can tell outcomes apart.
+- [ ] S1.37 The equivalence suite and program tests pass at the commit, and cover each money path's negative cases.
 
 ## S2 Developer app, sandbox and API routes
 

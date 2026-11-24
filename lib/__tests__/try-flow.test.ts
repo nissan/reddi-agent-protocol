@@ -7,7 +7,8 @@ import { countTokens, requestInputTokens, sessionCallLamports } from "@/lib/sand
 import { MEMO_PROGRAM_ID, MemoryNonceReplayStore, sessionDelegationMemo, transactionFactsReader } from "@redditech/x402-solana";
 import { SANDBOX_CANCEL_WINDOW_SLOTS, SANDBOX_CLAIM_WINDOW_SLOTS, SANDBOX_ESCROW_DISCRIMINATORS, SANDBOX_ESCROW_PROGRAM_ID, escrowNonceBytes, sandboxEscrowAddress } from "@/lib/sandbox/escrow";
 import type { SandboxGatewayDeps } from "@/lib/sandbox/gateway";
-import type { SandboxSettleInput, SandboxSettler } from "@/lib/sandbox/settle-signer";
+import type { SandboxSettleInput, SandboxSettleLookup, SandboxSettleResult, SandboxSettler } from "@/lib/sandbox/settle-signer";
+import { sandboxBuildOfRecord, type SandboxDeploymentCheck } from "@/lib/sandbox/deployment";
 import { buildTryTransaction, runTry, startTry, TRY_LOCK_COMPUTE_UNITS, TRY_LOCK_MICRO_LAMPORTS_PER_UNIT, TRY_READS_PER_POLL, TryRunCache } from "@/lib/try/flow";
 import { openTicket, relayKeypair, sealTicket, trySecret, TryNotConfiguredError } from "@/lib/try/ticket";
 import { TRY_TASKS } from "@/lib/try/tasks";
@@ -43,7 +44,23 @@ function escrowBytes(payer: PublicKey, payee: PublicKey, amount: bigint, nonce: 
 function world() {
   const accounts: Accounts = new Map();
   const settles: SandboxSettleInput[] = [];
-  const settler: SandboxSettler = { canSettle: () => true, async settle(input) { settles.push(input); return { ok: true, signature: SETTLE_SIG }; } };
+  const deployment: { check: SandboxDeploymentCheck } = { check: { ok: true, build: sandboxBuildOfRecord()! } };
+  /** What the next settle reports, and what a read-back of a sent settle finds. */
+  const chain: { next: SandboxSettleResult | undefined; lookup: SandboxSettleLookup; lookups: string[] } = { next: undefined, lookup: { state: "unknown" }, lookups: [] };
+  const settler: SandboxSettler = {
+    canSettle: () => true,
+    deployment: async () => deployment.check,
+    async settle(input) {
+      settles.push(input);
+      const next = chain.next;
+      chain.next = undefined;
+      return next ?? { ok: true, signature: SETTLE_SIG, feeLamports: (input.actualLamports * BigInt(250)) / BigInt(10_000) };
+    },
+    async lookup(signature) {
+      chain.lookups.push(signature);
+      return chain.lookup;
+    },
+  };
   const landed: { signature: string; tx: Transaction; slot: number }[] = [];
   const connection = {
     getLatestBlockhash: async () => ({ blockhash: BLOCKHASH, lastValidBlockHeight: 100 }),
@@ -81,7 +98,7 @@ function world() {
     accounts.set(lockIx.keys[0].pubkey.toBase58(), { owner: SANDBOX_ESCROW_PROGRAM_ID, data: escrowBytes(payer.publicKey, lockIx.keys[2].pubkey, amount, nonce) });
     return tx;
   }
-  return { accounts, settles, connection, deps, walletSignsAndLands, landed };
+  return { accounts, settles, connection, deps, walletSignsAndLands, landed, deployment, chain };
 }
 
 async function started(w: ReturnType<typeof world>, taskId = "security-check") {
@@ -175,6 +192,47 @@ describe("try page: Solana Pay transaction request flow (#925)", () => {
     expect(await poll()).toMatchObject({ state: "answered", status: 402 });
     expect(w.settles).toHaveLength(0);
     expect(await poll()).toMatchObject({ state: "answered", status: 200 });
+    expect(w.settles).toHaveLength(1);
+  });
+
+  it("keeps polling when the settle's outcome is unknown, then shows the answer it paid for, settling once (audit S7-Codex-R2-04)", async () => {
+    const w = world();
+    const s = await started(w);
+    const payer = Keypair.generate();
+    const built = await buildTryTransaction({ token: s.token, account: payer.publicKey.toBase58(), secret: SECRET, connection: w.connection, nowMs: NOW_MS });
+    if (!built.ok) throw new Error(built.message);
+    w.walletSignsAndLands(built.transaction, payer);
+    const PENDING = "5".repeat(88);
+    w.chain.next = { ok: false, pending: true, signature: PENDING, message: "sent, not confirmed" };
+    const cache = new TryRunCache();
+    const poll = () => runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS, cache });
+    expect(await poll()).toMatchObject({ ok: true, state: "settling", settleSignature: PENDING });
+    // Still not confirmed: the next poll asks about that settle, and sends no other.
+    expect(await poll()).toMatchObject({ state: "settling", settleSignature: PENDING });
+    expect(w.chain.lookups).toEqual([PENDING]);
+    // It landed and closed the escrow.
+    w.accounts.clear();
+    w.chain.lookup = { state: "settled", feeLamports: BigInt(3) };
+    const answered = await poll();
+    expect(answered).toMatchObject({ state: "answered", status: 200 });
+    expect(w.settles).toHaveLength(1);
+    if (!answered.ok || answered.state !== "answered") return;
+    expect((answered.receipt as { receipt: { payment: { txSignature: string; fee: { amount: string } } } }).receipt.payment).toMatchObject({ txSignature: PENDING, fee: { amount: "3" } });
+  });
+
+  it("says nothing was charged once the pending settle turns out not to have landed", async () => {
+    const w = world();
+    const s = await started(w);
+    const payer = Keypair.generate();
+    const built = await buildTryTransaction({ token: s.token, account: payer.publicKey.toBase58(), secret: SECRET, connection: w.connection, nowMs: NOW_MS });
+    if (!built.ok) throw new Error(built.message);
+    w.walletSignsAndLands(built.transaction, payer);
+    w.chain.next = { ok: false, pending: true, signature: "6".repeat(88), message: "sent, not confirmed" };
+    const cache = new TryRunCache();
+    const poll = () => runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS, cache });
+    expect(await poll()).toMatchObject({ state: "settling" });
+    w.chain.lookup = { state: "failed" };
+    expect(await poll()).toMatchObject({ state: "answered", status: 502, body: { charged: false } });
     expect(w.settles).toHaveLength(1);
   });
 
@@ -302,6 +360,13 @@ describe("try page: Solana Pay transaction request flow (#925)", () => {
     const result = await runTry({ token: s.token, origin: ORIGIN, secret: SECRET, connection: w.connection, deps: w.deps, nowMs: NOW_MS });
     expect(result).toEqual({ ok: true, state: "waiting" });
     expect(w.settles).toHaveLength(0);
+  });
+
+  it("does not start a paid try while devnet runs a program build the sandbox cannot settle with (audit S7-Codex-R2-06)", async () => {
+    const w = world();
+    w.deployment.check = { ok: false, message: "paused" };
+    const s = await startTry({ taskId: "security-check", origin: ORIGIN, secret: SECRET, deps: w.deps, nowMs: NOW_MS });
+    expect(s).toMatchObject({ ok: false, status: 503, code: "paid_try_paused" });
   });
 
   it("refuses tampered, foreign and expired tickets, and unknown tasks", async () => {

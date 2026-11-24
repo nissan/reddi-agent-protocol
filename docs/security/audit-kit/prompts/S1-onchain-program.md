@@ -29,7 +29,7 @@ default program twice and compare sha256. Delete any keypair file
 
 ## What to look hardest at
 
-1. **Every instruction's account list.** For all 23 instructions, tabulate each
+1. **Every instruction's account list.** For all 29 instructions, tabulate each
    account: expected owner, signer, writable, address or seeds, and where the
    check happens. Look for any account whose identity is trusted without a check,
    and for duplicates that should be refused.
@@ -48,9 +48,18 @@ default program twice and compare sha256. Delete any keypair file
    `opened_slot`, commit-reveal fairness, final states always reachable,
    attestation squatting, and "a refused instruction never moves an agent
    record".
-6. **Lifecycle.** Account close and revival, PDA reuse by a later lock with the
+6. **Delivery-checked escrow.** Only `open_delivery` sets the flag, only in
+   the lock slot and only once; every exit of a flagged escrow requires its
+   own delivery account (owner, discriminator, seeds and bump, `opened_slot`);
+   recording a delivery is refused at and after the refund window; exact
+   boundaries of the verify, collect and resolve windows (exactly one of each
+   racing pair is valid); a refund is eventually reachable in every state; the
+   judge's split under Token-2022 issuer debit and transfer fees; the judge
+   cannot redirect the payee's share; required-memo receiving accounts on
+   every exit, including a rated and delivery-checked token exit.
+7. **Lifecycle.** Account close and revival, PDA reuse by a later lock with the
    same seeds, legacy-size records, re-initialisation.
-7. **Build integrity.** The default build excludes PER selectors; the
+8. **Build integrity.** The default build excludes PER selectors; the
    verifiable build is reproducible; the runbook compares the deployed hash and
    reads back the upgrade authority.
 

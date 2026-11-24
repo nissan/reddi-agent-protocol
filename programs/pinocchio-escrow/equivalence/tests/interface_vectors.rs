@@ -1,10 +1,11 @@
 //! Holds `interface/vectors.json` to what the program does.
 //!
 //! The fixture is for client authors: one example of every instruction the
-//! Anchor IDL does not describe (the rating and attestation instructions, and
-//! the exits of a rated escrow), with its data and ordered accounts, the
-//! bytes of a rating account in each state and of an attestation account, and
-//! one commitment hash. This test rebuilds all of it with the builders the
+//! Anchor IDL does not describe (the rating, attestation and delivery-check
+//! instructions, and the exits of a rated escrow), with its data and ordered
+//! accounts, the bytes of a rating account in each state, of a delivery
+//! account in each state and of an attestation account, and one commitment
+//! hash. This test rebuilds all of it with the builders the
 //! other tests use, runs the instructions against the built program, and
 //! fails if the file differs.
 //!
@@ -23,6 +24,7 @@ use {
 const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../interface/vectors.json");
 const SALT_CONSUMER: [u8; 32] = [0xC1; 32];
 const SALT_SPECIALIST: [u8; 32] = [0x51; 32];
+const DELIVERY_STATES: [&str; 4] = ["awaiting", "delivered", "accepted", "disputed"];
 const STATES: [&str; 5] = [
     "awaiting_settlement",
     "open",
@@ -347,6 +349,136 @@ fn build() -> Value {
             ),
         }
     }
+    // Jobs 7 and 8: delivery-checked metered SOL escrows. Job 7 is
+    // delivered and accepted, then settled; job 8 is disputed and split by
+    // the judge.
+    const ANSWER: [&str; 3] = ["delivery", "escrow", "payer"];
+    for i in 7..=8u8 {
+        let n = nonce(20 + i);
+        let escrow = sol_escrow(&c, n);
+        let delivery = delivery_address(&escrow);
+        world.warp(world.slot() + 10);
+        world.ok("lock", sol_lock(&c, &s, 1_000_000, n, true), &[&t.payer]);
+        let created = world.slot();
+        let open = open_delivery(&escrow, &c, &j);
+        if i == 7 {
+            send(
+                &mut world,
+                "open_delivery",
+                "in the lock slot only; data: judge address, verify_window_slots u64 (150 to 1512000), resolve_window_slots u64 (1500 to 3024000); judge_agent is the judge's registry record",
+                open,
+                &["delivery", "escrow", "payer", "judge_agent", "system_program"],
+                &t.payer,
+            );
+            accounts.push(account(&world, "delivery_awaiting", &delivery));
+            accounts.push(account(
+                &world,
+                "sol_escrow_delivery_checked_metered",
+                &escrow,
+            ));
+        } else {
+            world.ok("open", open, &[&t.payer]);
+        }
+        world.warp(world.slot() + 1);
+        let record = record_delivery(&escrow, &s, created, 30, 37_500_000);
+        if i == 7 {
+            send(
+                &mut world,
+                "record_delivery",
+                "by the payee, after the lock slot and before the escrow's refund window opens; data: opened_slot u64 (the escrow's lock slot), units u64, bytes u64, sha256 [32]",
+                record,
+                &["delivery", "escrow", "payee"],
+                &t.payee,
+            );
+            accounts.push(account(&world, "delivery_delivered", &delivery));
+            send(
+                &mut world,
+                "accept_delivery",
+                "by the payer, on a delivered job; data: opened_slot u64. The payee may then settle or claim at once",
+                answer("accept_delivery", &escrow, &c, created),
+                &ANSWER,
+                &t.payer,
+            );
+            accounts.push(account(&world, "delivery_accepted", &delivery));
+            world.ok(
+                "settle checked",
+                with_delivery(sol_payout(&c, &s, n, &s, Some(600_000)), &escrow),
+                &[&t.payee],
+            );
+        } else {
+            world.ok("record", record, &[&t.payee]);
+            send(
+                &mut world,
+                "dispute_delivery",
+                "by the payer, on a delivered job, before the verify window ends; data: opened_slot u64",
+                answer("dispute_delivery", &escrow, &c, created),
+                &ANSWER,
+                &t.payer,
+            );
+            accounts.push(account(&world, "delivery_disputed", &delivery));
+            send(
+                &mut world,
+                "resolve_delivery",
+                "by the judge of a disputed SOL escrow, before its window ends; the rating account (if rated) then the delivery account follow the judge; data: payout u64 (to the payee before the fee, at most the locked amount), opened_slot u64",
+                sol_resolve(&c, &s, &escrow, &j, 600_000, created, false),
+                &["escrow", "payer", "payee", "treasury", "system_program", "judge", "delivery"],
+                &judge,
+            );
+        }
+    }
+
+    // Job 9: a delivery-checked USDC escrow, disputed and split by the judge.
+    let n = nonce(29);
+    let escrow = t.escrow(n);
+    world.warp(world.slot() + 10);
+    world
+        .send(
+            &[t.lock(1_000_000, n, true), open_delivery(&escrow, &c, &j)],
+            &[&t.payer],
+        )
+        .unwrap();
+    let created = world.slot();
+    world.warp(created + 1);
+    world.ok(
+        "record",
+        record_delivery(&escrow, &s, created, 30, 1),
+        &[&t.payee],
+    );
+    world.ok(
+        "dispute",
+        answer("dispute_delivery", &escrow, &c, created),
+        &[&t.payer],
+    );
+    send(
+        &mut world,
+        "resolve_token_delivery",
+        "by the judge of a disputed token escrow; destination is the recipient recorded at lock; the rating account (if rated) then the delivery account follow the nine usual accounts; data: payout u64, opened_slot u64",
+        token_resolve(&t, n, &j, 400_000, created),
+        &[
+            "escrow",
+            "vault",
+            "judge",
+            "payer",
+            "mint",
+            "destination",
+            "treasury_token",
+            "refund",
+            "token_program",
+            "delivery",
+        ],
+        &judge,
+    );
+
+    for (state, name) in DELIVERY_STATES.iter().enumerate() {
+        let entry = accounts
+            .iter()
+            .find(|entry| entry["name"] == format!("delivery_{name}"))
+            .unwrap_or_else(|| panic!("no delivery account in state {name}"));
+        let data_hex = entry["data_hex"].as_str().unwrap();
+        assert_eq!(data_hex.len(), 2 * DELIVERY_LEN);
+        assert_eq!(&data_hex[2 * 160..2 * 161], format!("{state:02x}"));
+    }
+
     accounts.push(rated_sol_escrow);
     accounts.push(rated_token_escrow.unwrap());
 
@@ -368,11 +500,15 @@ fn build() -> Value {
         "seeds": {
             "rating": ["\"rating\"", "escrow address"],
             "attestation": ["\"attestation\"", "escrow address"],
+            "delivery": ["\"delivery\"", "escrow address"],
         },
+        "delivery_states": DELIVERY_STATES,
+        "delivery_exits": "Every exit of a delivery-checked escrow (release, settle, cancel; SOL and token) takes the delivery account after its usual accounts and after the rating account if the escrow is rated. Its data is unchanged: an unrated escrow's exit names the lock slot, a rated one names the rating's opened slot, which is the same slot.",
         "rating_states": STATES,
         "escrow_flag_byte": {
             "metered": FLAG_METERED,
             "rated": FLAG_RATED,
+            "delivery_checked": FLAG_DELIVERY,
             "sol_escrow_offset": SOL_ESCROW_FLAGS_AT,
             "token_escrow_offset": TOKEN_ESCROW_FLAGS_AT,
         },
@@ -443,6 +579,12 @@ fn the_fixture_names_every_instruction_the_idl_does_not_describe() {
         "release_token_escrow",
         "settle_token_escrow",
         "cancel_token_escrow",
+        "open_delivery",
+        "record_delivery",
+        "accept_delivery",
+        "dispute_delivery",
+        "resolve_delivery",
+        "resolve_token_delivery",
     ] {
         assert_eq!(
             names.iter().filter(|found| **found == name).count(),
@@ -450,5 +592,5 @@ fn the_fixture_names_every_instruction_the_idl_does_not_describe() {
             "{name}"
         );
     }
-    assert_eq!(names.len(), 16);
+    assert_eq!(names.len(), 22);
 }

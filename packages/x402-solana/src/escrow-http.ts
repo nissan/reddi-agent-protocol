@@ -117,6 +117,8 @@ export async function verifyEscrowLock(connection: Connection, c: EscrowChalleng
   for (const field of ['payer', 'payee', 'mint', 'source', 'recipient'] as const) {
     if (!decoded[field].equals(t[field])) throw new Error(`wrong escrow ${field}`);
   }
+  if (decoded.unknownFlagBits !== 0) throw new Error('escrow declined: it carries options this seller does not know');
+  if (decoded.deliveryChecked) throw new Error('delivery-checked escrow declined: this seller does not take escrows opted in to the delivery check');
   if (decoded.rated && options.acceptRatedEscrows !== true) throw new Error('rated escrow declined: this seller does not take escrows opted in to rating');
   if (decoded.amount !== t.amount || !decoded.nonce.equals(Buffer.from(t.nonce)) || decoded.status !== 0 || decoded.bump !== bump || decoded.createdSlot !== BigInt(tx.slot)) throw new Error('escrow terms mismatch');
   // An account the earlier program wrote stores no windows (they were fixed); otherwise they must be the challenge's.

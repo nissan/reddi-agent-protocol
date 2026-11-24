@@ -4,8 +4,8 @@
 //! default build answers the thirteen escrow and registry instructions only
 //! (`archive/anchor-escrow/tests/instruction_surface.rs` holds it to that),
 //! while this program's default build, the mainnet build, also answers the
-//! six rating and four attestation instructions. The two PER tracking
-//! instructions are not part of V1: the default build must treat them as
+//! six rating, four attestation and six delivery-check instructions. The two
+//! PER tracking instructions are not part of V1: the default build must treat them as
 //! unknown, and only a `per` build answers them.
 //!
 //! This is checked against the built program, not the source: each call is sent
@@ -49,6 +49,15 @@ const RATING_AND_ATTESTATION_INSTRUCTIONS: [&str; 10] = [
     "confirm_attestation",
     "dispute_attestation",
     "close_attestation",
+];
+
+const DELIVERY_INSTRUCTIONS: [&str; 6] = [
+    "open_delivery",
+    "record_delivery",
+    "accept_delivery",
+    "dispute_delivery",
+    "resolve_delivery",
+    "resolve_token_delivery",
 ];
 
 const PER_INSTRUCTIONS: [&str; 2] = ["delegate_escrow", "release_escrow_per"];
@@ -101,6 +110,17 @@ fn default_build_answers_the_rating_and_attestation_instructions() {
     for name in RATING_AND_ATTESTATION_INSTRUCTIONS {
         // With enough argument bytes for any of them, each one gets as far as
         // counting its accounts.
+        let err = call_with(name, &[1; 64]);
+        assert!(
+            err.contains(NOT_ENOUGH_ACCOUNTS),
+            "{name} must be part of the default build, got: {err}"
+        );
+    }
+}
+
+#[test]
+fn default_build_answers_the_delivery_check_instructions() {
+    for name in DELIVERY_INSTRUCTIONS {
         let err = call_with(name, &[1; 64]);
         assert!(
             err.contains(NOT_ENOUGH_ACCOUNTS),

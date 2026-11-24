@@ -32,6 +32,7 @@ const ACCOUNT_TYPE_ACCOUNT: u8 = 2;
 /// Extension records start after the account-type byte: u16 type, u16 length, value.
 const EXTENSIONS_OFFSET: usize = ACCOUNT_TYPE_OFFSET + 1;
 const EXTENSION_TRANSFER_FEE_AMOUNT: u16 = 2;
+const EXTENSION_MEMO_TRANSFER: u16 = 8;
 
 /// Size of a vault for an allowlisted Token-2022 mint. PYUSD and USDG carry the
 /// transfer-fee and transfer-hook mint extensions, so their token accounts need
@@ -65,6 +66,9 @@ pub struct TokenAccount {
     /// Transfer fees withheld on this account (Token-2022 only). A token
     /// account holding withheld fees cannot be closed.
     pub withheld_fees: u64,
+    /// Its owner switched on required incoming memos (Token-2022 only): it
+    /// takes a transfer only right after a memo instruction.
+    pub requires_memo: bool,
 }
 
 fn invalid() -> ProgramError {
@@ -104,7 +108,10 @@ fn split_extensions<const BASE: usize>(
     Ok((base, extensions))
 }
 
-fn withheld_fees(mut extensions: &[u8]) -> Result<u64, ProgramError> {
+/// The transfer fees withheld on a token account and whether it requires
+/// incoming memos, from its extension records.
+fn account_extensions(mut extensions: &[u8]) -> Result<(u64, bool), ProgramError> {
+    let (mut withheld, mut memo) = (0, false);
     while let Some((header, rest)) = extensions.split_first_chunk::<4>() {
         let kind = u16::from_le_bytes([header[0], header[1]]);
         let len = usize::from(u16::from_le_bytes([header[2], header[3]]));
@@ -114,11 +121,13 @@ fn withheld_fees(mut extensions: &[u8]) -> Result<u64, ProgramError> {
         }
         if kind == EXTENSION_TRANSFER_FEE_AMOUNT {
             let bytes: [u8; 8] = value.try_into().map_err(|_| invalid())?;
-            return Ok(u64::from_le_bytes(bytes));
+            withheld = u64::from_le_bytes(bytes);
+        } else if kind == EXTENSION_MEMO_TRANSFER {
+            memo = value.first().is_some_and(|flag| *flag != 0);
         }
         extensions = rest;
     }
-    Ok(0)
+    Ok((withheld, memo))
 }
 
 /// Base layout shared by both token programs' accounts.
@@ -142,6 +151,7 @@ impl TokenAccount {
         amount: 0,
         frozen: false,
         withheld_fees: 0,
+        requires_memo: false,
     };
 
     /// Read a token account of either accepted program. Called again after a
@@ -157,12 +167,14 @@ impl TokenAccount {
             1 | STATE_FROZEN => {}
             state => return Err(unusable(state)),
         }
+        let (withheld_fees, requires_memo) = account_extensions(extensions)?;
         Ok(Self {
             mint: raw.mint,
             owner: raw.owner,
             amount: u64::from_le_bytes(raw.amount),
             frozen: raw.state == STATE_FROZEN,
-            withheld_fees: withheld_fees(extensions)?,
+            withheld_fees,
+            requires_memo,
         })
     }
 }
@@ -220,6 +232,26 @@ impl Transfer<'_> {
         )
         .invoke_signed_with_unverified_program(signers, self.token_program.address())
     }
+}
+
+/// The memo the escrow writes before a transfer into a Token-2022 account
+/// that requires incoming memos.
+const ESCROW_MEMO: &[u8] = b"RAP escrow";
+
+/// An SPL Memo instruction with no signers, sent right before a transfer to
+/// an account that requires incoming memos: Token-2022 takes the memo as the
+/// transfer's previous sibling instruction. Without it the owner of the
+/// receiving account could block the transfer by switching memos on.
+#[inline(never)]
+pub fn memo(memo_program: &AccountView) -> ProgramResult {
+    invoke(
+        &InstructionView {
+            program_id: memo_program.address(),
+            data: ESCROW_MEMO,
+            accounts: &[],
+        },
+        &[memo_program],
+    )
 }
 
 pub fn close_account(

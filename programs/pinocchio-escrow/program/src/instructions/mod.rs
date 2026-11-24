@@ -1,4 +1,5 @@
 pub mod attestation;
+pub mod delivery;
 #[cfg(feature = "per")]
 pub mod per;
 pub mod rating;

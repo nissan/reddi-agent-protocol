@@ -6,11 +6,10 @@ import vectors from "@/programs/pinocchio-escrow/interface/vectors.json";
 import { validateReddiReceiptV2, verifyReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
 import { IX, ACCOUNT_DISC } from "@/lib/program";
 import devnetProfile from "@/config/networks/devnet.json";
-import { findSandboxProviderById, SANDBOX_PROVIDERS } from "@/lib/sandbox/catalog";
+import { findSandboxProviderById, SANDBOX_PROVIDERS, scriptedSandboxAnswer } from "@/lib/sandbox/catalog";
 import {
   buildSandboxMeteredLock,
   buildSandboxSettle,
-  SANDBOX_PROGRAM_NAMES_UNRATED_EXITS,
   decodeSandboxEscrow,
   escrowNonceBytes,
   SANDBOX_ESCROW_DISCRIMINATORS,
@@ -20,10 +19,11 @@ import {
   sandboxEscrowAddress,
 } from "@/lib/sandbox/escrow";
 import { handleSandboxChatCompletion, sandboxModelsListing, type SandboxGatewayDeps } from "@/lib/sandbox/gateway";
-import { countTokens, maxChargeLamports, requestInputTokens, SANDBOX_FEE_TREASURY, settleSandboxCall } from "@/lib/sandbox/pricing";
+import { countTokens, maxChargeLamports, requestInputTokens, SANDBOX_FEE_TREASURY, sandboxFeeBps, settleSandboxCall } from "@/lib/sandbox/pricing";
 import { decodeReceiptHeader, isSandboxReceipt, PROVIDER_RECEIPT_HEADER, verifySandboxReceipt } from "@/lib/sandbox/receipt";
 import { createSessionKey, paidCallAuthHeaders, sessionDelegationHeaderValue, SOLANA_GENESIS_HASHES, type MessageSigner } from "@/lib/payments/session-auth";
-import { parseSandboxPayeeKeys, type SandboxSettleInput, type SandboxSettler } from "@/lib/sandbox/settle-signer";
+import { parseSandboxPayeeKeys, type SandboxSettleExpectation, type SandboxSettleInput, type SandboxSettleLookup, type SandboxSettler } from "@/lib/sandbox/settle-signer";
+import { sandboxBuildOfRecord, type SandboxDeploymentCheck } from "@/lib/sandbox/deployment";
 
 const ORIGIN = "https://sandbox.example";
 const NOW_MS = Date.UTC(2026, 10, 21, 2, 0, 0);
@@ -49,6 +49,10 @@ function escrowBytes(fields: {
   metered?: boolean;
   /** The payer opted the job in to rating: bit 0x02 of the flag byte. */
   rated?: boolean;
+  /** The payer opted the job in to the delivery check: bit 0x04. */
+  deliveryChecked?: boolean;
+  /** Flag bits a later program might set, ORed into the flag byte. */
+  extraFlags?: number;
   session?: PublicKey;
   /** `null` writes the account as the earlier program did, with no windows (149 bytes). */
   windows?: { claim: bigint; cancel: bigint } | null;
@@ -71,7 +75,7 @@ function escrowBytes(fields: {
   parts.push(0);
   if (fields.session) parts.push(1, ...fields.session.toBytes());
   else parts.push(0);
-  parts.push(255, (fields.metered === false ? 0 : 1) | (fields.rated ? 2 : 0));
+  parts.push(255, (fields.metered === false ? 0 : 1) | (fields.rated ? 2 : 0) | (fields.deliveryChecked ? 4 : 0) | (fields.extraFlags ?? 0));
   // Anchor allocates the full LEN; a None session leaves 32 trailing zero bytes.
   const len = fields.windows === null ? 149 : 165;
   while (parts.length < len) parts.push(0);
@@ -80,16 +84,30 @@ function escrowBytes(fields: {
 
 type Accounts = Map<string, { owner: PublicKey; data: Uint8Array }>;
 
-function fakeSettler(available = true, result: { ok: true; signature: string } | { ok: false; message: string } = { ok: true, signature: SETTLE_SIG }) {
+const DEPLOYMENT_OF_RECORD: SandboxDeploymentCheck = { ok: true, build: sandboxBuildOfRecord()! };
+
+type FakeSettleResult = { ok: true; signature: string; feeLamports?: bigint } | { ok: false; message: string } | { ok: false; pending: true; signature: string; message: string };
+
+/** The fee the treasury would receive at today's rate. A fake settle reports it as read from the chain unless told otherwise. */
+const feeAtTodaysRate = (actual: bigint) => (actual * sandboxFeeBps()) / BigInt(10_000);
+
+function fakeSettler(available = true, result: FakeSettleResult = { ok: true, signature: SETTLE_SIG }, deployment: SandboxDeploymentCheck = DEPLOYMENT_OF_RECORD, lookupResult: SandboxSettleLookup = { state: "unknown" }) {
   const calls: SandboxSettleInput[] = [];
+  const lookups: { signature: string; expected: SandboxSettleExpectation }[] = [];
   const settler: SandboxSettler = {
     canSettle: () => available,
+    deployment: async () => deployment,
     async settle(input) {
       calls.push(input);
+      if (result.ok) return { ...result, feeLamports: result.feeLamports ?? feeAtTodaysRate(input.actualLamports) };
       return result;
     },
+    async lookup(signature, expected) {
+      lookups.push({ signature, expected });
+      return lookupResult;
+    },
   };
-  return { settler, calls };
+  return { settler, calls, lookups };
 }
 
 function makeDeps(accounts: Accounts, settler: SandboxSettler | undefined): SandboxGatewayDeps {
@@ -114,7 +132,7 @@ async function singleCallAuth(escrow: string, body: string, signer: MessageSigne
 }
 
 /** Sends the request; a metered payment is signed by the payer unless `auth` says otherwise. */
-async function call(deps: SandboxGatewayDeps, paymentHeader?: string, auth: "payer" | "none" | MessageSigner = "payer") {
+async function call(deps: SandboxGatewayDeps, paymentHeader?: string, auth: "payer" | "none" | MessageSigner = "payer", settleSignature?: string) {
   const body = { model: swift.model, messages };
   const rawBody = JSON.stringify(body);
   let session: { delegation: string; signature: string } | undefined;
@@ -126,7 +144,7 @@ async function call(deps: SandboxGatewayDeps, paymentHeader?: string, auth: "pay
   } catch {
     // Not JSON: nothing to sign.
   }
-  return handleSandboxChatCompletion({ body, rawBody, paymentHeader, origin: ORIGIN, ...(session ? { session } : {}) }, deps);
+  return handleSandboxChatCompletion({ body, rawBody, paymentHeader, origin: ORIGIN, ...(session ? { session } : {}), ...(settleSignature ? { settleSignature } : {}) }, deps);
 }
 
 /** The slot a rated lock's rating was opened in: the lock's own. */
@@ -191,13 +209,14 @@ describe("sandbox metered escrow: instructions and layout", () => {
       ["11111111111111111111111111111111", false, false],
     ]);
 
-    // The devnet build refuses the slot on an unrated exit (6051), so the sandbox leaves it off there.
-    expect(SANDBOX_PROGRAM_NAMES_UNRATED_EXITS).toBe(false);
-    const deployed = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), createdSlot: BigInt(4242) });
+    // A build before the freeze refuses the slot on an unrated exit (6051), so the sandbox leaves it off there.
+    const deployed = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), createdSlot: BigInt(4242), namesUnratedExits: false });
     expect(deployed.data).toHaveLength(16);
     expect(deployed.data.subarray(0, 8)).toEqual(IX.settle_escrow);
     expect(deployed.data.readBigUInt64LE(8)).toBe(BigInt(207));
-    expect(buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: false, createdSlot: BigInt(4242) }).data).toEqual(deployed.data);
+    expect(buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: false, createdSlot: BigInt(4242), namesUnratedExits: false }).data).toEqual(deployed.data);
+    // No encoding chosen, no settle: a caller must check which build is deployed first.
+    expect(() => buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), createdSlot: BigInt(4242) } as unknown as Parameters<typeof buildSandboxSettle>[0])).toThrow("namesUnratedExits");
 
     // A program that names every exit gets the slot on an unrated settle too.
     const settle = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), createdSlot: BigInt(4242), namesUnratedExits: true });
@@ -222,10 +241,10 @@ describe("sandbox metered escrow: instructions and layout", () => {
     expect(unrated.keys).toEqual(settle.keys);
     // Without the lock slot no settle is built, rated or not: the program would refuse it.
     for (const rated of [false, true]) {
-      expect(() => buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated, createdSlot: undefined as unknown as bigint })).toThrow("createdSlot");
+      expect(() => buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated, createdSlot: undefined as unknown as bigint, namesUnratedExits: true })).toThrow("createdSlot");
     }
     // Rated: the escrow's rating account follows the five usual accounts, writable; the data is the same.
-    const rated = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: true, createdSlot: BigInt(4242) });
+    const rated = buildSandboxSettle({ escrow, payer, payee, actualLamports: BigInt(207), rated: true, createdSlot: BigInt(4242), namesUnratedExits: false });
     expect(rated.data).toEqual(settle.data);
     expect(rated.keys.slice(0, 5)).toEqual(settle.keys);
     expect(rated.keys.slice(5).map((key) => [key.pubkey.toBase58(), key.isSigner, key.isWritable])).toEqual([[ratingPda(escrow, SANDBOX_ESCROW_PROGRAM_ID).toBase58(), false, true]]);
@@ -235,7 +254,7 @@ describe("sandbox metered escrow: instructions and layout", () => {
     const vector = vectors.instructions.find((entry) => entry.name === "settle_escrow")!;
     const at = (name: string) => new PublicKey(vector.accounts.find((meta) => meta.name === name)!.address);
     expect(at("treasury").toBase58()).toBe(SANDBOX_FEE_TREASURY);
-    const settle = buildSandboxSettle({ escrow: at("escrow"), payer: at("payer"), payee: at("payee"), actualLamports: BigInt(600_000), rated: true, createdSlot: BigInt(1000), programId: new PublicKey(vectors.program_id) });
+    const settle = buildSandboxSettle({ escrow: at("escrow"), payer: at("payer"), payee: at("payee"), actualLamports: BigInt(600_000), rated: true, createdSlot: BigInt(1000), programId: new PublicKey(vectors.program_id), namesUnratedExits: true });
     expect(settle.data.toString("hex")).toBe(vector.data_hex);
     expect(settle.keys.map((key) => ({ address: key.pubkey.toBase58(), signer: key.isSigner, writable: key.isWritable }))).toEqual(
       vector.accounts.map(({ address, signer, writable }) => ({ address, signer, writable })),
@@ -255,13 +274,17 @@ describe("sandbox metered escrow: instructions and layout", () => {
         const bytes = escrowBytes({ ...base, ...fields, ...layout });
         expect(decodeSandboxEscrow(bytes)).toMatchObject({ metered, rated });
         // The package's own reader agrees on every layout.
-        expect(escrowAccountFlags(bytes)).toEqual({ kind: "sol", metered, rated });
+        expect(escrowAccountFlags(bytes)).toEqual({ kind: "sol", metered, rated, deliveryChecked: false, unknownBits: 0 });
       }
       expect(escrowBytes({ ...base, ...fields })[132]).toBe(byte);
     }
     // The program's own example of a rated metered SOL escrow.
     const example = Buffer.from(vectors.accounts.find((entry) => entry.name === "sol_escrow_rated_metered")!.data_hex, "hex");
     expect(decodeSandboxEscrow(example)).toMatchObject({ metered: true, rated: true, status: "locked", amount: BigInt(1_000_000), claimWindowSlots: BigInt(1_500), cancelWindowSlots: BigInt(4_500) });
+    // And of a delivery-checked metered one (bit 0x04), which the gateway refuses.
+    const checked = Buffer.from(vectors.accounts.find((entry) => entry.name === "sol_escrow_delivery_checked_metered")!.data_hex, "hex");
+    expect(decodeSandboxEscrow(checked)).toMatchObject({ metered: true, rated: false, deliveryChecked: true, unknownFlagBits: 0 });
+    expect(escrowAccountFlags(checked)).toEqual({ kind: "sol", metered: true, rated: false, deliveryChecked: true, unknownBits: 0 });
   });
 
   it("decodes an escrow account with and without a PER session key, and refuses other bytes", () => {
@@ -347,6 +370,44 @@ describe("sandbox metered escrow: gateway", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].rated).toBe(true);
     expect(calls[0].createdSlot).toBe(OPENED_SLOT);
+  });
+
+  it("declines a delivery-checked escrow before serving, even when it accepts rated escrows, and leaves the lock unremembered", async () => {
+    const accounts: Accounts = new Map();
+    const { settler, calls } = fakeSettler();
+    const deps = { ...makeDeps(accounts, settler), acceptRatedEscrows: true };
+    const nonce = nonceOf(await call(deps));
+    for (const rated of [false, true]) {
+      const escrow = lockFor(accounts, nonce, { rated, deliveryChecked: true });
+      const response = await call(deps, meteredHeader(nonce, escrow));
+      expect(response.body.reason).toBe("unsupported_receipt");
+      expect(JSON.stringify(response.body)).toContain("delivery check");
+      expect(response.headers[PROVIDER_RECEIPT_HEADER]).toBeUndefined();
+      expect(calls).toHaveLength(0);
+    }
+    // Not remembered: the same lock without the bit is served.
+    const escrow = lockFor(accounts, nonce);
+    expect((await call(deps, meteredHeader(nonce, escrow))).status).toBe(200);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("declines an escrow with flag bits it does not know before serving, and leaves the lock unremembered", async () => {
+    const accounts: Accounts = new Map();
+    const { settler, calls } = fakeSettler();
+    const deps = { ...makeDeps(accounts, settler), acceptRatedEscrows: true };
+    const nonce = nonceOf(await call(deps));
+    for (const extraFlags of [0x08, 0x40, 0xf8]) {
+      const escrow = lockFor(accounts, nonce, { extraFlags });
+      expect(decodeSandboxEscrow(accounts.get(escrow)!.data)).toMatchObject({ unknownFlagBits: extraFlags });
+      const response = await call(deps, meteredHeader(nonce, escrow));
+      expect(response.body.reason).toBe("unsupported_receipt");
+      expect(JSON.stringify(response.body)).toContain("options this provider does not know");
+      expect(response.headers[PROVIDER_RECEIPT_HEADER]).toBeUndefined();
+      expect(calls).toHaveLength(0);
+    }
+    const escrow = lockFor(accounts, nonce);
+    expect((await call(deps, meteredHeader(nonce, escrow))).status).toBe(200);
+    expect(calls).toHaveLength(1);
   });
 
   it("when set to accept rated escrows, tells the settler to pass the rating account; an unrated one is settled as before", async () => {
@@ -472,6 +533,24 @@ describe("sandbox metered escrow: gateway", () => {
     expect(response.body.reason).toBe("unsupported_receipt");
   });
 
+  it("offers and serves a metered escrow only while devnet runs the program build of record (audit S7-Codex-R2-06)", async () => {
+    const accounts: Accounts = new Map();
+    const paused = fakeSettler(true, undefined, { ok: false, message: "The devnet escrow program is not a build the sandbox knows how to settle with, so paid calls are paused." });
+    const deps = makeDeps(accounts, paused.settler);
+    const challenge = await call(deps);
+    expect((challenge.body.sandbox as Record<string, unknown>).meteredPayment).toBeUndefined();
+    const nonce = nonceOf(challenge);
+    const escrow = lockFor(accounts, nonce);
+    const response = await call(deps, meteredHeader(nonce, escrow));
+    expect(response.status).toBe(402);
+    expect(response.body.reason).toBe("unsupported_receipt");
+    expect(String((response.body.error as { message: string }).message)).toContain("paused");
+    expect(response.body.choices).toBeUndefined();
+    expect(paused.calls).toHaveLength(0);
+    const rows = (await sandboxModelsListing(paused.settler)).data as { rap: { meteredEscrow: { available: boolean } } }[];
+    expect(rows.every((row) => row.rap.meteredEscrow.available === false)).toBe(true);
+  });
+
   it("does not answer when the settle fails, and says the lock can be cancelled", async () => {
     const accounts: Accounts = new Map();
     const deps = makeDeps(accounts, fakeSettler(true, { ok: false, message: "The settle transaction failed on devnet." }).settler);
@@ -529,5 +608,99 @@ describe("sandbox metered escrow: single calls are signed by the payer (#866)", 
     expect(stranger.status).toBe(401);
     expect((stranger.body.error as { code?: string }).code).toBe("session_auth_invalid");
     expect(reads).toHaveLength(0);
+  });
+});
+
+describe("sandbox metered escrow: a settle whose outcome is unknown (audit S7-Codex-R2-04, R2-05)", () => {
+  const PENDING_SIG = "4".repeat(88);
+
+  it("never says nothing was charged when the settle was sent but not confirmed, and names the settle", async () => {
+    const accounts: Accounts = new Map();
+    const { settler } = fakeSettler(true, { ok: false, pending: true, signature: PENDING_SIG, message: "The settle transaction was sent, but devnet did not confirm whether it landed." });
+    const deps = makeDeps(accounts, settler);
+    const nonce = nonceOf(await call(deps));
+    const escrow = lockFor(accounts, nonce);
+    const response = await call(deps, meteredHeader(nonce, escrow));
+    expect(response.status).toBe(202);
+    expect(response.body).toMatchObject({ charged: "unknown", escrow, settleSignature: PENDING_SIG, error: { code: "settle_pending" } });
+    expect(response.bodyText).not.toMatch(/nothing was charged/i);
+    expect(response.bodyText).toContain("do not cancel");
+    expect(response.body.choices).toBeUndefined();
+    expect(response.headers[PROVIDER_RECEIPT_HEADER]).toBeUndefined();
+  });
+
+  it("gives the payer the answer on a retry naming the settle, once it has landed, with the fee the chain took", async () => {
+    const accounts: Accounts = new Map();
+    const answer = scriptedSandboxAnswer(swift, messages[messages.length - 1].content);
+    const expected = settleSandboxCall(swift, { inputTokens: requestInputTokens(messages), outputTokens: countTokens(answer) }, MAX_LAMPORTS);
+    // The chain took 5% (a settle that landed after the switch), whatever today's rate is.
+    const chainFee = (expected.amount * BigInt(500)) / BigInt(10_000);
+    const { settler, calls, lookups } = fakeSettler(true, { ok: false, pending: true, signature: PENDING_SIG, message: "unknown" }, DEPLOYMENT_OF_RECORD, { state: "settled", feeLamports: chainFee });
+    const deps = makeDeps(accounts, settler);
+    const nonce = nonceOf(await call(deps));
+    const escrow = lockFor(accounts, nonce);
+    expect((await call(deps, meteredHeader(nonce, escrow))).status).toBe(202);
+    // The settle landed and closed the escrow.
+    accounts.delete(escrow);
+    const retry = await call(deps, meteredHeader(nonce, escrow), "payer", PENDING_SIG);
+    expect(retry.status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(lookups).toEqual([{ signature: PENDING_SIG, expected: { escrow: new PublicKey(escrow), payer, payee: new PublicKey(swift.payTo), actualLamports: expected.amount } }]);
+    const receipt = decodeReceiptHeader(retry.headers[PROVIDER_RECEIPT_HEADER]);
+    if (!isSandboxReceipt(receipt)) throw new Error("no receipt");
+    expect(receipt.receipt.payment).toMatchObject({ txSignature: PENDING_SIG, amount: expected.amount.toString(), fee: { amount: chainFee.toString(), treasury: SANDBOX_FEE_TREASURY }, payer: payer.toBase58() });
+    expect(verifyReddiReceiptV2(receipt)).toMatchObject({ ok: true });
+    // Another wallet cannot collect it.
+    const stranger = await call(deps, meteredHeader(nonce, escrow), signerFor(Keypair.generate()), PENDING_SIG);
+    expect(stranger.status).toBe(401);
+    expect(stranger.body.choices).toBeUndefined();
+    // One settle pays for one answer: the payer cannot collect it again (audit S7-claude2-04).
+    const again = await call(deps, meteredHeader(nonce, escrow), "payer", PENDING_SIG);
+    expect(again.status).toBe(409);
+    expect(again.body).toMatchObject({ error: { code: "payment_already_used" } });
+    expect(again.body.choices).toBeUndefined();
+    expect(again.headers[PROVIDER_RECEIPT_HEADER]).toBeUndefined();
+  });
+
+  it("does not use up the settle on a retry that finds it unconfirmed", async () => {
+    const accounts: Accounts = new Map();
+    const chain: { lookup: { state: "unknown" } | { state: "settled"; feeLamports: bigint } } = { lookup: { state: "unknown" } };
+    const { settler } = fakeSettler(true, { ok: false, pending: true, signature: PENDING_SIG, message: "unknown" }, DEPLOYMENT_OF_RECORD, { state: "unknown" });
+    settler.lookup = async () => chain.lookup;
+    const deps = makeDeps(accounts, settler);
+    const nonce = nonceOf(await call(deps));
+    const escrow = lockFor(accounts, nonce);
+    await call(deps, meteredHeader(nonce, escrow));
+    expect((await call(deps, meteredHeader(nonce, escrow), "payer", PENDING_SIG)).status).toBe(202);
+    chain.lookup = { state: "settled", feeLamports: BigInt(1) };
+    expect((await call(deps, meteredHeader(nonce, escrow), "payer", PENDING_SIG)).status).toBe(200);
+  });
+
+  it("keeps the retry pending while devnet has not confirmed, and says so when the settle did not land", async () => {
+    for (const [lookup, status, charged] of [[{ state: "unknown" }, 202, "unknown"], [{ state: "failed" }, 502, false]] as const) {
+      const accounts: Accounts = new Map();
+      const { settler } = fakeSettler(true, { ok: false, pending: true, signature: PENDING_SIG, message: "unknown" }, DEPLOYMENT_OF_RECORD, lookup);
+      const deps = makeDeps(accounts, settler);
+      const nonce = nonceOf(await call(deps));
+      const escrow = lockFor(accounts, nonce);
+      await call(deps, meteredHeader(nonce, escrow));
+      const retry = await call(deps, meteredHeader(nonce, escrow), "payer", PENDING_SIG);
+      expect(retry.status).toBe(status);
+      expect(retry.body.charged).toBe(charged);
+      expect(retry.body.choices).toBeUndefined();
+    }
+  });
+
+  it("signs the fee the settle paid the treasury, not the server clock's rate (audit S7-Codex-R2-05)", async () => {
+    const accounts: Accounts = new Map();
+    const { settler } = fakeSettler(true, { ok: true, signature: SETTLE_SIG, feeLamports: BigInt(7) });
+    const deps = makeDeps(accounts, settler);
+    const nonce = nonceOf(await call(deps));
+    const escrow = lockFor(accounts, nonce);
+    const response = await call(deps, meteredHeader(nonce, escrow));
+    expect(response.status).toBe(200);
+    const receipt = decodeReceiptHeader(response.headers[PROVIDER_RECEIPT_HEADER]);
+    if (!isSandboxReceipt(receipt)) throw new Error("no receipt");
+    expect(receipt.receipt.payment?.fee).toEqual({ amount: "7", treasury: SANDBOX_FEE_TREASURY });
   });
 });

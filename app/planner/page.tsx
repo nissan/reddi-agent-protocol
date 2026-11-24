@@ -29,6 +29,7 @@ import {
   walletDirectPaymentEnabled,
 } from "@/lib/payments/wallet-direct-payment";
 import { planMeteredBuy } from "@/lib/payments/metered-buy";
+import { fetchPaymentStop, paymentStopped } from "@/lib/payments/stop-switch";
 import { SOLANA_GENESIS_HASHES } from "@/lib/payments/session-auth";
 import {
   applySessionClose,
@@ -484,6 +485,7 @@ function PlannerInner() {
       setPaymentNote(`Payment request refused: ${plan.message} Nothing was signed.`);
       return;
     }
+    if (await stoppedFor(plan.currency)) return;
     setPaymentNote(`Your wallet will ask you to approve ${plan.amount} ${plan.currency} to ${plan.payTo.slice(0, 4)}…${plan.payTo.slice(-4)} on ${plan.network}.`);
     let signature: string;
     const latest = await connection.getLatestBlockhash("confirmed");
@@ -517,6 +519,14 @@ function PlannerInner() {
       return;
     }
     await presentReceipt(receipt);
+  }
+
+  /** The incident stop switch (`/api/payments/status`), checked before any wallet is asked to sign. Unreadable on mainnet means stop. */
+  async function stoppedFor(currency: string): Promise<boolean> {
+    const stop = await fetchPaymentStop(fetch, getNetworkProfile().name === "mainnet");
+    if (!paymentStopped(stop, currency)) return false;
+    setPaymentNote(`${stop.reason ?? "New payments are paused."} Nothing was signed.`);
+    return true;
   }
 
   /**
@@ -577,6 +587,7 @@ function PlannerInner() {
       return;
     }
     const { quote } = plan;
+    if (await stoppedFor(quote.currency)) return;
     // Providers take a metered call only with the payer's signature (#866): the wallet signs one
     // message per lock, delegating its calls to a key held in this tab. Asked before the lock.
     if (!signMessage) {

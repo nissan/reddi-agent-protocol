@@ -16,12 +16,13 @@ use {
         },
         error::{
             fail, require, AccountNotEnoughKeys, AmountAboveCap, ConstraintHasOne, ConstraintSeeds,
-            InvalidPayee, InvalidSettleAmount, InvalidTreasury, InvalidWindows, NotLocked,
-            NotMetered, PayeeNotRentExempt, UnauthorisedSigner, ZeroAmount,
+            DeliveryNotDisputed, InvalidDeliveryAccount, InvalidPayee, InvalidResolution,
+            InvalidSettleAmount, InvalidTreasury, InvalidWindows, NotLocked, NotMetered,
+            PayeeNotRentExempt, ResolveWindowClosed, UnauthorisedSigner, ZeroAmount,
         },
-        events::{Locked, Outcome, Settled},
-        instructions::rating,
-        state::{Record, SolEscrow, STATUS_LOCKED},
+        events::{DeliveryResolved, Locked, Outcome, Settled},
+        instructions::{delivery, rating},
+        state::{Record, SolEscrow, DELIVERY_DISPUTED, STATUS_LOCKED},
     },
     pinocchio::{
         cpi::{Seed, Signer},
@@ -211,16 +212,25 @@ pub fn pay_out(
         }
     };
     require(record.status == STATUS_LOCKED, &NotLocked)?;
+    let (rating_place, rest) = delivery::split_trailing(trailing, record.rated());
     let rated = if record.rated() {
         Some(rating::for_exit(
             program_id,
             escrow.address(),
-            trailing,
+            rating_place,
             slot,
             job,
         )?)
     } else {
         rating::for_unrated_exit(record.created_slot(), slot, job)?;
+        None
+    };
+    let checked = if record.delivery_checked() {
+        let (account, terms) =
+            delivery::for_exit(program_id, escrow.address(), record.created_slot(), rest)?;
+        delivery::check_payout(&terms, payee_is_authority, slot)?;
+        Some(account)
+    } else {
         None
     };
 
@@ -230,6 +240,9 @@ pub fn pay_out(
     credit(payee, to_payee)?;
     credit(treasury, fee)?;
     close(escrow, payer)?;
+    if let Some(account) = checked {
+        close(account, payer)?;
+    }
     if let Some((account, job)) = rated {
         rating::settle_exit(account, job, payee_is_authority, paid, None, slot, payer)?;
     }
@@ -285,11 +298,29 @@ pub fn cancel(
         slot,
         record.cancel_window_slots(),
     )?;
+    let (rating_place, rest) = delivery::split_trailing(trailing, record.rated());
     if record.rated() {
-        let (account, _) = rating::for_exit(program_id, escrow.address(), trailing, slot, job)?;
+        let (account, _) = rating::for_exit(program_id, escrow.address(), rating_place, slot, job)?;
         close(account, payer)?;
     } else {
         rating::for_unrated_exit(record.created_slot(), slot, job)?;
+    }
+    if record.delivery_checked() {
+        let (account, terms) =
+            delivery::for_exit(program_id, escrow.address(), record.created_slot(), rest)?;
+        delivery::check_refund(
+            &terms,
+            outcome == Outcome::RefundedAfterWindow,
+            slot,
+            if record.metered() {
+                0
+            } else {
+                record
+                    .created_slot()
+                    .saturating_add(record.claim_window_slots())
+            },
+        )?;
+        close(account, payer)?;
     }
     close(escrow, payer)?;
 
@@ -304,6 +335,95 @@ pub fn cancel(
         slot,
         fee: 0,
         refunded: 0,
+    }
+    .emit();
+    Ok(())
+}
+
+/// `resolve_delivery`: the judge of a disputed SOL escrow decides it.
+///
+/// Accounts: `[w] escrow`, `[w] payer`, `[w] payee`, `[w] treasury`,
+/// `[] system_program`, `[s] judge`, then for a rated escrow `[w] rating`,
+/// then `[w] delivery`.
+/// Data: `payout: u64` (what the payee is paid before the fee, at most the
+/// locked amount; 0 refunds everything), `opened_slot: u64` (the escrow's
+/// lock slot, which names the job).
+///
+/// Only the judge named on the delivery account, only while the delivery is
+/// disputed and the judge's window is open. The payee receives `payout` less
+/// the protocol fee, the treasury the fee, and the payer the rest with the
+/// rents. A rated escrow's rating opens as on a payer's release: only if the
+/// payee accepted the rating earlier and something was paid.
+pub fn resolve(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+    let mut args = Args(data);
+    let payout = args.u64()?;
+    let opened_slot = args.u64()?;
+    let [escrow, payer, payee, treasury, system_program, judge, trailing @ ..] = accounts else {
+        return Err(fail(&AccountNotEnoughKeys));
+    };
+    let record = SolEscrow::load_checked(escrow, program_id)?;
+    program(system_program, &SYSTEM_PROGRAM_ID)?;
+    signer(judge)?;
+    require(payer.address() == &record.payer, &ConstraintSeeds)?;
+    writable(escrow)?;
+    require(payee.address() == &record.payee, &ConstraintHasOne)?;
+    writable(payer)?;
+    writable(payee)?;
+    writable(treasury)?;
+    require(treasury.address() == &PROTOCOL_TREASURY, &InvalidTreasury)?;
+    require(record.status == STATUS_LOCKED, &NotLocked)?;
+    require(record.delivery_checked(), &InvalidDeliveryAccount)?;
+
+    let (slot, unix_timestamp) = now()?;
+    let (rating_place, rest) = delivery::split_trailing(trailing, record.rated());
+    let rated = if record.rated() {
+        Some(rating::for_exit(
+            program_id,
+            escrow.address(),
+            rating_place,
+            slot,
+            Some(opened_slot),
+        )?)
+    } else {
+        rating::for_unrated_exit(record.created_slot(), slot, Some(opened_slot))?;
+        None
+    };
+    let (account, terms) =
+        delivery::for_exit(program_id, escrow.address(), record.created_slot(), rest)?;
+    require(terms.state == DELIVERY_DISPUTED, &DeliveryNotDisputed)?;
+    require(judge.address() == &terms.judge, &UnauthorisedSigner)?;
+    require(slot < terms.resolve_ends(), &ResolveWindowClosed)?;
+    require(payout <= record.amount(), &InvalidResolution)?;
+
+    let fee = protocol_fee(payout, true, unix_timestamp);
+    let to_payee = payout - fee;
+    debit(escrow, payout)?;
+    credit(payee, to_payee)?;
+    credit(treasury, fee)?;
+    close(escrow, payer)?;
+    close(account, payer)?;
+    if let Some((account, job)) = rated {
+        rating::settle_exit(account, job, false, payout, None, slot, payer)?;
+    }
+
+    DeliveryResolved {
+        escrow: escrow.address(),
+        judge: judge.address(),
+        payout,
+        slot,
+    }
+    .emit();
+    Settled {
+        escrow: escrow.address(),
+        payer: &record.payer,
+        payee: &record.payee,
+        mint: None,
+        amount: to_payee,
+        nonce: &record.nonce,
+        outcome: Outcome::ResolvedByJudge,
+        slot,
+        fee,
+        refunded: record.amount() - payout,
     }
     .emit();
     Ok(())

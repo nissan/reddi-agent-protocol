@@ -2,6 +2,30 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
+## 0.1.3 — 2026-11-24
+
+### Changed
+
+- Escrow flag readers report bits they do not know: `decodeTokenEscrowAccount(...).unknownFlagBits` and `escrowFlags(...).unknownBits` (any bit but 0x01 metered, 0x02 rated and 0x04 delivery-checked; `KNOWN_ESCROW_FLAGS`). A later program may add a rule to an escrow's exits behind a new bit, so an escrow with one is refused before anything is served: `verifyMeteredLock` answers `unknown_escrow_flags`, `verifyEscrowLock` throws, and `buildSellerAcceptRating` refuses with `unknown_escrow_flags`.
+- Escrows opted in to the delivery check (bit 0x04) are refused by `verifyMeteredLock` (`delivery_escrow_declined`) and `verifyEscrowLock`, whatever else the provider accepts: their settle needs a recorded delivery this package does not yet run for a provider.
+- Token-2022 settles pass the SPL Memo program, so a payer cannot block a settle by turning on required memos after the lock.
+
+### Added
+
+- `@redditech/x402-solana/delivery`: builders, decoder and address for the delivery check (`open_delivery`, `record_delivery`, `accept_delivery`, `dispute_delivery`, `resolve_delivery`, `resolve_token_delivery`).
+
+## 0.1.2 — 2026-11-23
+
+### Changed
+
+- The minimum lock for a per-token call is bounded by bytes, not by an estimate: `minimumLockBaseUnits` prices the input at one token a UTF-8 byte plus `MESSAGE_TOKEN_OVERHEAD` a message, plus the full output limit, so dense text (CJK, emoji, digits) still pays the provider's full price. `inputTokenBound` gives that count; the default maximum in `meteredOffer` is never below the minimum.
+- `meteredEscrowReplayKey(escrow, createdSlot)` names one lock instance (`metered-escrow:<escrow>:<slot>`), so a later lock at the same address is a new call. Keys stored by 0.1.1 and earlier do not match the new form.
+- `verifyMeteredLock` takes the `lockSlot` the buyer signed for and refuses a lock locked in another slot (`lock_instance_mismatch`) before the replay key is reserved.
+
+### Added
+
+- A settle can return the unused part of a lock to a fresh token account the provider creates for the payer at `seedAddress(provider, freshRefundSeed(escrow, createdSlot), tokenProgram)`, when the payer's own account cannot receive it. Only the provider can create an account at that address, so the payer cannot block the settle by closing or re-owning it first. `FreshRefundAccount`, `seedAddress` and `freshRefundSeed` are exported.
+
 ## 0.1.1 — 2026-11-22
 
 ### Changed

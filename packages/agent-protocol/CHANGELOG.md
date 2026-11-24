@@ -2,6 +2,12 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
+## Unreleased
+
+### Added
+
+- Receipt v2 media fields, for providers that return a file and bill by what they make rather than by tokens (owner decision, 24 November 2026: price per second, with hosting in the quote). A metered payment may state `metered.unit` (`second`, `image`, `character` or `page`) and `metered.units`, both or neither. A receipt may carry `delivery` `{ name, mediaType, bytes, sha256, expiresAt }`: the file the provider hosts for the buyer and its SHA-256, signed with the rest, hosted past `issuedAt`, never on a session call. `verifyReddiReceiptV2` compares an expected `delivery` (for example the hash of the file the buyer downloaded) and the unit fields of an expected `metered`; new error code `delivery_mismatch`. Receipts without these fields canonicalise and verify exactly as before.
+
 ## 0.2.1 — 2026-11-22
 
 ### Changed

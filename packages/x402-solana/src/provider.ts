@@ -405,6 +405,12 @@ export type VerifiedLock =
  * any work is done rather than left unpaid after it.
  * The escrow is then remembered, so one lock pays for one call.
  *
+ * An escrow with a flag bit this version does not know is always refused
+ * (`unknown_escrow_flags`), since its exits may need accounts this version
+ * never sends.
+ * An escrow the buyer opted in to the delivery check is always refused
+ * (`delivery_escrow_declined`): no provider takes one until the kit runs the
+ * delivery flow and lets a provider name the judges it accepts.
  * An escrow the buyer opted in to rating is refused (`rated_escrow_declined`)
  * before anything is served or remembered, unless `acceptRatedEscrows` is
  * true. `readAccount` must read at `confirmed` commitment or better for that
@@ -440,6 +446,13 @@ export async function verifyMeteredLock(input: {
    */
   purpose?: 'call' | 'session-call' | 'session-settle';
   /**
+   * The lock slot the buyer's proof names, when it names one (a delegation
+   * signed in the lock's own transaction). A lock at this address made in
+   * another slot is refused before the escrow is remembered, so a stale proof
+   * cannot use up a later lock (`lock_instance_mismatch`).
+   */
+  lockSlot?: bigint;
+  /**
    * `session-settle` only: when neither the account that funded the lock nor
    * the payer's associated token account can take the unused part, let the
    * settle create the associated account at the provider's cost. Default
@@ -467,6 +480,18 @@ export async function verifyMeteredLock(input: {
   }
   if (escrow.status !== 0) return { ok: false, reason: 'duplicate_nonce', message: 'This escrow has already been settled or cancelled.' };
   if (!escrow.metered) return { ok: false, reason: 'invalid_receipt', message: 'This escrow was not locked as a metered escrow.' };
+  // A flag bit this version does not know means a later program added a rule to this escrow's exits
+  // (as 0x04 did). Its settle may need accounts this version never sends, so it is refused, not served.
+  if (escrow.unknownFlagBits !== 0) {
+    return { ok: false, reason: 'unknown_escrow_flags', message: 'This escrow carries options this provider does not know. Nothing was accepted or served. Lock a new escrow without them, and refund this one once its refund window opens.' };
+  }
+  // A delivery-checked escrow (bit 0x04) pays the provider only after it records a delivery and
+  // the buyer's verify window ends, its settle has to carry the delivery account, and a dispute is
+  // ruled on by the judge the buyer named. This kit does not run that flow yet, and serving one
+  // would leave work unpaid, so it is refused before anything is served or remembered.
+  if (escrow.deliveryChecked) {
+    return { ok: false, reason: 'delivery_escrow_declined', message: 'This escrow was opted in to the delivery check, which this provider does not take. Nothing was accepted or served. Lock a new escrow without the delivery check, and refund this one once its refund window opens.' };
+  }
   if (escrow.rated && input.acceptRatedEscrows !== true) {
     return { ok: false, reason: 'rated_escrow_declined', message: 'This escrow was opted in to rating, and this provider does not take rated jobs. Nothing was accepted or served. Lock a new escrow without rating, and refund this one once its refund window opens.' };
   }
@@ -493,6 +518,9 @@ export async function verifyMeteredLock(input: {
     }
   }
   if (!escrow.payer.equals(header.payer)) return { ok: false, reason: 'invalid_receipt', message: 'The escrow was locked by a different wallet.' };
+  if (input.lockSlot !== undefined && input.lockSlot !== escrow.createdSlot) {
+    return { ok: false, reason: 'lock_instance_mismatch', message: 'The proof was given for another lock at this address. Nothing was accepted; sign for this lock.' };
+  }
   if (!escrow.payee.equals(terms.payee)) return { ok: false, reason: 'wrong_payee', message: 'The escrow pays a different provider.' };
   if (!escrow.mint.equals(terms.mint)) return { ok: false, reason: 'wrong_currency', message: `The escrow holds a different mint than this provider's ${terms.price.currency}.` };
   // The provider's associated token account for the mint (the helper derives any owner's).
@@ -537,7 +565,7 @@ export async function verifyMeteredLock(input: {
     ...(purpose === 'session-settle' ? { allowPayerAssociatedAccount: true, createRefundAccount: input.createRefundAccount === true, instance: { escrow: header.escrow, createdSlot: escrow.createdSlot } } : {}),
   });
   if (!payout.ok) return payout;
-  if (purpose === 'call' && !(await input.replayStore.checkAndStore(meteredEscrowReplayKey(header.escrow)))) {
+  if (purpose === 'call' && !(await input.replayStore.checkAndStore(meteredEscrowReplayKey(header.escrow, escrow.createdSlot)))) {
     return { ok: false, reason: 'duplicate_nonce', message: 'This escrow has already paid for a call.' };
   }
   return {
@@ -566,9 +594,9 @@ export async function verifyMeteredLock(input: {
   };
 }
 
-/** The replay-store key that marks an escrow as taken, by a single call or by a session's first call. */
-export function meteredEscrowReplayKey(escrow: PublicKey): string {
-  return `metered-escrow:${escrow.toBase58()}`;
+/** The replay-store key that marks one lock as taken, by a single call or by a session's first call: the escrow and its lock slot, so a later lock at the same address is a new key. */
+export function meteredEscrowReplayKey(escrow: PublicKey, createdSlot: bigint): string {
+  return `metered-escrow:${escrow.toBase58()}:${createdSlot.toString()}`;
 }
 
 /** Token counts from an OpenAI-style usage report, or the estimate from the text when it reports none. */
@@ -591,6 +619,9 @@ export function usageFrom(upstream: Record<string, unknown>, inputEstimate: numb
  * escrow by its lock slot (`lock.createdSlot`) after its data, and a rated
  * lock's settle carries the escrow's rating account after the usual accounts.
  */
+/** SPL Memo (v3), passed to a Token-2022 settle so a memo-requiring refund account cannot block it. */
+const SETTLE_MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
+
 export function meteredSettlement(
   terms: MeteredTerms,
   lock: Extract<VerifiedLock, { ok: true }>,
@@ -614,6 +645,11 @@ export function meteredSettlement(
     lock.rated === true,
     lock.createdSlot,
   );
+  // Token-2022 lets an account's owner require a memo on every incoming transfer. The buyer
+  // could switch that on for the refund account after this check, which would fail the
+  // settle. With the SPL Memo program among its trailing accounts, the escrow writes a memo
+  // before each transfer into such an account, so the settle lands either way.
+  if (lock.terms.tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) instruction.keys.push({ pubkey: SETTLE_MEMO_PROGRAM_ID, isSigner: false, isWritable: false });
   return { settlement, instruction, instructions: [...prep.instructions, instruction] };
 }
 

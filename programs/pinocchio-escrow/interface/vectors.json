@@ -50,6 +50,36 @@
       "name": "rating_expired"
     },
     {
+      "address": "EDqfwzQQJHkaWSU61KLuJW1cVcE9GVboRowP8XQqrdmT",
+      "data_hex": "6a40a87e4da18de6b0eb1aa75c021f7d853dbc23c5336d6473540df90758afdd0dfc051946da6cefca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c60161700000000009600000000000000dc050000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000fe",
+      "length": 162,
+      "name": "delivery_awaiting"
+    },
+    {
+      "address": "CucgZWe1DpaNzKxNwh5t2d7VgEgH4kjB6hjQUFhfupuC",
+      "data_hex": "2445301280e17d878a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b39440420f00000000001b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b0000000000000000006016170000000000dc0500000000000094110000000000000000ff050000000000000000000000000000000000000000000000000000000000000000",
+      "length": 165,
+      "name": "sol_escrow_delivery_checked_metered"
+    },
+    {
+      "address": "EDqfwzQQJHkaWSU61KLuJW1cVcE9GVboRowP8XQqrdmT",
+      "data_hex": "6a40a87e4da18de6b0eb1aa75c021f7d853dbc23c5336d6473540df90758afdd0dfc051946da6cefca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c60161700000000009600000000000000dc0500000000000061161700000000001e0000000000000060343c02000000000707070707070707070707070707070707070707070707070707070707070707000000000000000001fe",
+      "length": 162,
+      "name": "delivery_delivered"
+    },
+    {
+      "address": "EDqfwzQQJHkaWSU61KLuJW1cVcE9GVboRowP8XQqrdmT",
+      "data_hex": "6a40a87e4da18de6b0eb1aa75c021f7d853dbc23c5336d6473540df90758afdd0dfc051946da6cefca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c60161700000000009600000000000000dc0500000000000061161700000000001e0000000000000060343c02000000000707070707070707070707070707070707070707070707070707070707070707000000000000000002fe",
+      "length": 162,
+      "name": "delivery_accepted"
+    },
+    {
+      "address": "Ed3dmcF2Crre3XoWeAUAioh58RDo8HphdYbnQUcnCmEX",
+      "data_hex": "6a40a87e4da18de6b3cc868fb463d5acc1c0290a60fa3a270d048d145cd0f41e29de90ea2e53d430ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c6b161700000000009600000000000000dc050000000000006c161700000000001e0000000000000060343c020000000007070707070707070707070707070707070707070707070707070707070707076c1617000000000003ff",
+      "length": 162,
+      "name": "delivery_disputed"
+    },
+    {
       "address": "Cb4y6Bq3n9SYmFenmVxN6uQBSC8F9boTakLr5pAcVcu",
       "data_hex": "2445301280e17d878a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b39440420f000000000007070707070707070707070707070707000000000000000000e803000000000000dc0500000000000094110000000000000000ff030000000000000000000000000000000000000000000000000000000000000000",
       "length": 165,
@@ -72,7 +102,15 @@
     "sha256_hex": "e9f41e12cc6711ad8670f7b76896b3428eabe64c2f07aa86bc4495099542adf4",
     "signer": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9"
   },
+  "delivery_exits": "Every exit of a delivery-checked escrow (release, settle, cancel; SOL and token) takes the delivery account after its usual accounts and after the rating account if the escrow is rated. Its data is unchanged: an unrated escrow's exit names the lock slot, a rated one names the rating's opened slot, which is the same slot.",
+  "delivery_states": [
+    "awaiting",
+    "delivered",
+    "accepted",
+    "disputed"
+  ],
   "escrow_flag_byte": {
+    "delivery_checked": 4,
     "metered": 1,
     "rated": 2,
     "sol_escrow_offset": 132,
@@ -662,6 +700,240 @@
       "name": "cancel_token_escrow",
       "note": "rated token escrow: the rating account follows the seven usual accounts and is closed; data: the slot the job's rating was opened in (u64 LE)",
       "selector_hex": "d0108abb1a5ea81d"
+    },
+    {
+      "accounts": [
+        {
+          "address": "EDqfwzQQJHkaWSU61KLuJW1cVcE9GVboRowP8XQqrdmT",
+          "name": "delivery",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "CucgZWe1DpaNzKxNwh5t2d7VgEgH4kjB6hjQUFhfupuC",
+          "name": "escrow",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "name": "payer",
+          "signer": true,
+          "writable": true
+        },
+        {
+          "address": "6mynvpMKWNP77rG9FkmdHyUZmLFKRvFLCmXsAzFwF4Kb",
+          "name": "judge_agent",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "name": "system_program",
+          "signer": false,
+          "writable": false
+        }
+      ],
+      "data_hex": "24147f7739f0f012ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c9600000000000000dc05000000000000",
+      "name": "open_delivery",
+      "note": "in the lock slot only; data: judge address, verify_window_slots u64 (150 to 1512000), resolve_window_slots u64 (1500 to 3024000); judge_agent is the judge's registry record",
+      "selector_hex": "24147f7739f0f012"
+    },
+    {
+      "accounts": [
+        {
+          "address": "EDqfwzQQJHkaWSU61KLuJW1cVcE9GVboRowP8XQqrdmT",
+          "name": "delivery",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "CucgZWe1DpaNzKxNwh5t2d7VgEgH4kjB6hjQUFhfupuC",
+          "name": "escrow",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "9hSR6S7WPtxmTojgo6GG3k4yDPecgJY292j7xrsUGWBu",
+          "name": "payee",
+          "signer": true,
+          "writable": false
+        }
+      ],
+      "data_hex": "48f5fbd381b15dd660161700000000001e0000000000000060343c02000000000707070707070707070707070707070707070707070707070707070707070707",
+      "name": "record_delivery",
+      "note": "by the payee, after the lock slot and before the escrow's refund window opens; data: opened_slot u64 (the escrow's lock slot), units u64, bytes u64, sha256 [32]",
+      "selector_hex": "48f5fbd381b15dd6"
+    },
+    {
+      "accounts": [
+        {
+          "address": "EDqfwzQQJHkaWSU61KLuJW1cVcE9GVboRowP8XQqrdmT",
+          "name": "delivery",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "CucgZWe1DpaNzKxNwh5t2d7VgEgH4kjB6hjQUFhfupuC",
+          "name": "escrow",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "name": "payer",
+          "signer": true,
+          "writable": false
+        }
+      ],
+      "data_hex": "992a548938570d406016170000000000",
+      "name": "accept_delivery",
+      "note": "by the payer, on a delivered job; data: opened_slot u64. The payee may then settle or claim at once",
+      "selector_hex": "992a548938570d40"
+    },
+    {
+      "accounts": [
+        {
+          "address": "Ed3dmcF2Crre3XoWeAUAioh58RDo8HphdYbnQUcnCmEX",
+          "name": "delivery",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "D6rrxmA4juiCXXGxzd2q7naDYbrWH6mwPv4QsLvS7UXy",
+          "name": "escrow",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "name": "payer",
+          "signer": true,
+          "writable": false
+        }
+      ],
+      "data_hex": "041062f0975fefc46b16170000000000",
+      "name": "dispute_delivery",
+      "note": "by the payer, on a delivered job, before the verify window ends; data: opened_slot u64",
+      "selector_hex": "041062f0975fefc4"
+    },
+    {
+      "accounts": [
+        {
+          "address": "D6rrxmA4juiCXXGxzd2q7naDYbrWH6mwPv4QsLvS7UXy",
+          "name": "escrow",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "name": "payer",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "9hSR6S7WPtxmTojgo6GG3k4yDPecgJY292j7xrsUGWBu",
+          "name": "payee",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe",
+          "name": "treasury",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "name": "system_program",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "EdmxWPmx2WH6WgFfTdu9xfkYf3k1g5wD1zccTVySEEh1",
+          "name": "judge",
+          "signer": true,
+          "writable": false
+        },
+        {
+          "address": "Ed3dmcF2Crre3XoWeAUAioh58RDo8HphdYbnQUcnCmEX",
+          "name": "delivery",
+          "signer": false,
+          "writable": true
+        }
+      ],
+      "data_hex": "a33367f83b50b007c0270900000000006b16170000000000",
+      "name": "resolve_delivery",
+      "note": "by the judge of a disputed SOL escrow, before its window ends; the rating account (if rated) then the delivery account follow the judge; data: payout u64 (to the payee before the fee, at most the locked amount), opened_slot u64",
+      "selector_hex": "a33367f83b50b007"
+    },
+    {
+      "accounts": [
+        {
+          "address": "F9cbVKrDDb2oXEFsNJ7LfersVvxKxWhDQ4zb4YfXUEL2",
+          "name": "escrow",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "GeePnALu1ucNgvYAQiXWqfMrea8cQancmnRgApMTRQ9d",
+          "name": "vault",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "EdmxWPmx2WH6WgFfTdu9xfkYf3k1g5wD1zccTVySEEh1",
+          "name": "judge",
+          "signer": true,
+          "writable": false
+        },
+        {
+          "address": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "name": "payer",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "name": "mint",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "7tj9biW3KRJ7EEWmVUGigHiouCTXhV2dzcyvwma7Cyu7",
+          "name": "destination",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "7kW4RStm1ygp5RKbwxY2yhr2PBbd9b7y95AaDYWXEid1",
+          "name": "treasury_token",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "7porTR32j7zt69GG4AwoPQx3f3FL2RLpSDKGtPXWTeaQ",
+          "name": "refund",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "name": "token_program",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "3nQLsSqhJKMNMP5TU7hRtuFxcwd2obydWpGZ52gJwj54",
+          "name": "delivery",
+          "signer": false,
+          "writable": true
+        }
+      ],
+      "data_hex": "c7236dac1309191d801a0600000000007616170000000000",
+      "name": "resolve_token_delivery",
+      "note": "by the judge of a disputed token escrow; destination is the recipient recorded at lock; the rating account (if rated) then the delivery account follow the nine usual accounts; data: payout u64, opened_slot u64",
+      "selector_hex": "c7236dac1309191d"
     }
   ],
   "program_id": "DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu",
@@ -675,6 +947,10 @@
   "seeds": {
     "attestation": [
       "\"attestation\"",
+      "escrow address"
+    ],
+    "delivery": [
+      "\"delivery\"",
       "escrow address"
     ],
     "rating": [

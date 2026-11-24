@@ -1,123 +1,76 @@
-# Weekly dependency updates. Frozen evidence (experiments/, pilots/, archive/) is left out on purpose.
+# Dependency updates, tuned for the launch window (V1 launch 5 Dec 2026).
+#
+# - One weekly run (Monday morning Sydney) across every npm lockfile, grouped so a
+#   week normally yields a handful of PRs, not dozens.
+# - Payment and signing libraries (@solana/*, @noble/*, x402, bs58, tweetnacl,
+#   MagicBlock) get their own group so they can go to security review on their own.
+# - Major versions are ignored until after launch. Remove the semver-major ignore
+#   rules after 5 Dec 2026 to resume them.
+# - Cargo is paused: the on-chain program is frozen at 45e9547 for the security
+#   go/no-go. Restore the cargo entries after launch.
+# - Frozen evidence (experiments/, pilots/, archive/) is left out on purpose.
 version: 2
 updates:
   - package-ecosystem: "npm"
-    directory: "/"
+    directories:
+      - "/"
+      - "/apps/marketing"
+      - "/packages/x402-solana"
+      - "/packages/agent-protocol"
+      - "/packages/provider-kit"
+      - "/packages/openrouter-specialists"
+      - "/packages/rap-mcp-bridge"
+      - "/packages/demo-agents"
+      - "/packages/eliza-plugin-x402"
+      - "/packages/sendai-x402"
+      - "/packages/testing-specialists"
+      - "/packages/per-client"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Australia/Sydney"
     open-pull-requests-limit: 5
+    labels: ["dependencies"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # Exact pins set on purpose. Change them by hand, not through Dependabot.
+      # undici: fetchOutbound pins outbound connections through an undici Agent
+      # lookup (SSRF / DNS-rebinding fix, #938). Re-run the outbound tests first.
+      - dependency-name: "undici"
+      # surfpool: exact pin; 1.7 fails surfpool-quasar-critical-sdk.
+      - dependency-name: "@solana/surfpool"
+      # per-client held at ~0.10.5 (round 2 finding R2-12); PER is out of V1.
+      - dependency-name: "@magicblock-labs/ephemeral-rollups-sdk"
     groups:
-      minor-and-patch:
+      payments-and-signing:
+        patterns:
+          - "@solana/*"
+          - "@noble/*"
+          - "@coral-xyz/*"
+          - "@magicblock-labs/*"
+          - "@x402/*"
+          - "x402*"
+          - "bs58"
+          - "tweetnacl"
         update-types: ["minor", "patch"]
-  - package-ecosystem: "npm"
-    directory: "/apps/marketing"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
+      dev-tooling:
+        dependency-type: "development"
         update-types: ["minor", "patch"]
-  - package-ecosystem: "npm"
-    directory: "/packages/x402-solana"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
+      runtime:
+        dependency-type: "production"
         update-types: ["minor", "patch"]
-  - package-ecosystem: "npm"
-    directory: "/packages/agent-protocol"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "npm"
-    directory: "/packages/provider-kit"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "npm"
-    directory: "/packages/openrouter-specialists"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "npm"
-    directory: "/packages/rap-mcp-bridge"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "npm"
-    directory: "/packages/demo-agents"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "npm"
-    directory: "/packages/eliza-plugin-x402"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "npm"
-    directory: "/packages/sendai-x402"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "npm"
-    directory: "/packages/testing-specialists"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "npm"
-    directory: "/packages/per-client"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "cargo"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "cargo"
-    directory: "/programs/pinocchio-escrow"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+      day: "monday"
+      time: "07:00"
+      timezone: "Australia/Sydney"
+    open-pull-requests-limit: 2
+    labels: ["dependencies"]
     groups:
-      minor-and-patch:
-        update-types: ["minor", "patch"]
+      actions:
+        patterns: ["*"]

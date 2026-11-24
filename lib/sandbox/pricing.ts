@@ -115,13 +115,47 @@ export function sessionCallLamports(provider: SandboxProvider, usage: TokenUsage
   return microUsdToLamports(usageCostMicroUsd(provider, usage));
 }
 
-/** The most this call can cost: the request plus the provider's full output limit, in lamports. */
+const BYTES_PER_GB = BigInt(1_000_000_000);
+
+/** A file a media provider delivers: how many units it bills and how big it is. */
+export type MediaDelivery = { units: number; bytes: number };
+
+/** The file a media provider delivers for this many units. */
+export function mediaDelivery(provider: SandboxProvider, units: number): MediaDelivery {
+  return { units, bytes: units * (provider.media?.bytesPerUnit ?? 0) };
+}
+
+/** Hosting a file of this size for the provider's hosting days, in micro-dollars, rounded up. */
+export function hostingCostMicroUsd(provider: SandboxProvider, bytes: number): bigint {
+  if (!provider.media) return BigInt(0);
+  return ceilDiv(BigInt(bytes) * decimalUnits(provider.media.hostingPerGbUsd, 6), BYTES_PER_GB);
+}
+
+/** A media job in micro-dollars: units at the listed price plus hosting the file. Zero for a token-priced provider. */
+export function mediaCostMicroUsd(provider: SandboxProvider, delivery: MediaDelivery): bigint {
+  if (!provider.media) return BigInt(0);
+  return BigInt(delivery.units) * decimalUnits(provider.media.perUnitUsd, 6) + hostingCostMicroUsd(provider, delivery.bytes);
+}
+
+/** What a media provider delivers in the sandbox, or undefined for a token-priced one. */
+export function sandboxMediaDelivery(provider: SandboxProvider): MediaDelivery | undefined {
+  return provider.media ? mediaDelivery(provider, provider.media.delivered.units) : undefined;
+}
+
+/**
+ * The most this call can cost, in lamports: the request plus the provider's
+ * full output limit, and for a media provider its largest file with hosting.
+ */
 export function maxChargeLamports(provider: SandboxProvider, inputTokens: number): bigint {
-  return microUsdToLamports(usageCostMicroUsd(provider, { inputTokens, outputTokens: provider.pricing.maxOutputTokens }));
+  const tokens = usageCostMicroUsd(provider, { inputTokens, outputTokens: provider.pricing.maxOutputTokens });
+  const media = provider.media ? mediaCostMicroUsd(provider, mediaDelivery(provider, provider.media.maxUnits)) : BigInt(0);
+  return microUsdToLamports(tokens + media);
 }
 
 export type MeteredSettlementLamports = {
   usage: TokenUsage;
+  /** The file a media provider delivered, billed per unit. */
+  delivery?: MediaDelivery;
   maxAmount: bigint;
   amount: bigint;
   fee: bigint;
@@ -135,8 +169,10 @@ export type MeteredSettlementLamports = {
  * the scheduled rate of the cost rounded down, and the rest of the maximum goes back.
  */
 export function settleSandboxCall(provider: SandboxProvider, usage: TokenUsage, maxAmount: bigint): MeteredSettlementLamports {
-  const cost = microUsdToLamports(usageCostMicroUsd(provider, usage));
+  // A media provider also bills the file it delivered, with hosting.
+  const delivery = sandboxMediaDelivery(provider);
+  const cost = microUsdToLamports(usageCostMicroUsd(provider, usage) + (delivery ? mediaCostMicroUsd(provider, delivery) : BigInt(0)));
   const amount = cost < maxAmount ? cost : maxAmount;
   const fee = (amount * sandboxFeeBps()) / BigInt(10_000);
-  return { usage, maxAmount, amount, fee, provider: amount - fee, refunded: maxAmount - amount };
+  return { usage, ...(delivery ? { delivery } : {}), maxAmount, amount, fee, provider: amount - fee, refunded: maxAmount - amount };
 }
