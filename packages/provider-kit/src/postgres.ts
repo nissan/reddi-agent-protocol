@@ -14,6 +14,7 @@
  * `query` and `connect` shape. Every failure throws, and the handler treats a
  * store it cannot use as "nothing accepted" (fail closed).
  */
+import { PostgresBudgetSliceStore } from "./budgets.js";
 import { randomUUID } from "node:crypto";
 import type { NonceReplayStore } from "@redditech/x402-solana";
 import type { CapacityState, CapacityStore } from "./capacity.js";
@@ -217,5 +218,6 @@ export function postgresProviderStores(pool: PgPool, provider: string) {
     heldAnswers: new PostgresHeldAnswerStore(pool, provider),
     pendingSettles: new PostgresPendingSettleStore(pool, provider),
     capacityStore: new PostgresCapacityStore(pool, provider),
+    budgetSlices: new PostgresBudgetSliceStore(pool, checkProvider(provider)),
   };
 }

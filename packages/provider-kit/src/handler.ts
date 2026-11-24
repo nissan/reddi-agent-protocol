@@ -79,6 +79,9 @@ import { ADL_PATH, providerAdlText } from "./adl.js";
 import { UpstreamError, type Upstream, type UpstreamMessage } from "./upstream.js";
 import { BUSY_MESSAGES, Capacity, type CapacityCheck } from "./capacity.js";
 import { MemoryHeldAnswerStore, MemoryLockLease, type HeldAnswerStore, type HeldCall, type LockLease } from "./state.js";
+import { BUDGET_PAYMENT_HEADER, createBudgetDesk, MemoryBudgetSliceStore, type BudgetSliceStore } from "./budgets.js";
+import { reservationAddress } from "@redditech/x402-solana/budget";
+import { readBudgetPaymentHeader } from "@redditech/x402-solana/budget-provider";
 
 export const PROVIDER_RECEIPT_HEADER = "x-reddi-provider-receipt";
 
@@ -145,6 +148,8 @@ export interface ProviderDeps {
   lease?: LockLease;
   /** Answers waiting for their settle. In memory when not given; shared by every instance when several serve one provider. */
   heldAnswers?: HeldAnswerStore;
+  /** Pooled budget slices. With `budgets.enabled` in the config, in memory when not given. */
+  budgetSlices?: BudgetSliceStore;
   /** Ed25519 signature by the provider wallet, for receipts. */
   signMessage: (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;
   now?: () => Date;
@@ -201,12 +206,15 @@ export function providerMetadata(config: ProviderConfig): Record<string, unknown
 export type ProviderHandler = ((request: Request) => Promise<Response>) & {
   /** Settles sessions that are closing, idle, or near their refund window. */
   settleDueSessions(): Promise<{ status: string }[]>;
+  /** Posts, closes and pays out budget slices that are due. Empty when budgets are off. */
+  settleDueBudgets(): Promise<{ budget: string; status: string }[]>;
 };
 
 export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps): ProviderHandler {
   const { terms } = config;
   // Same rule as parseProviderConfig, for callers that build the handler themselves.
   if (deps.sessions && config.network === "solana-mainnet-beta") throw new Error("sessions are not offered on mainnet yet: build the handler without a session ledger");
+  if (config.budgets?.enabled && config.network === "solana-mainnet-beta") throw new Error("pooled budgets are not offered on mainnet yet: build the handler with budgets off");
   // The provider's ADL, made once from the config it runs on.
   const adlText = providerAdlText(config).text;
   const log = deps.log ?? (() => undefined);
@@ -376,6 +384,10 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
 
 
   const nowMs = () => (deps.now?.() ?? new Date()).getTime();
+  // Pooled budgets: only with `budgets.enabled`, and only for the token this provider is priced in.
+  const budgetDesk = config.budgets?.enabled
+    ? createBudgetDesk(config, { chain: deps.chain, store: deps.budgetSlices ?? new MemoryBudgetSliceStore(), genesisHash: signingGenesisHash, nowMs, log })
+    : undefined;
   const limits = deps.capacity ?? new Capacity(config.capacity);
   // A capacity store that cannot be read counts as busy for a moment: fail closed, nothing is taken.
   const unknownCapacity: CapacityCheck = { ok: false, reason: "cooling_down", retryAfterSeconds: 10 };
@@ -589,6 +601,116 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       if (closing.receipt) headers[SESSION_RECEIPT_HEADER] = closing.receipt;
     }
     return new Response(responseText, { status: 200, headers });
+  }
+
+
+  /**
+   * A call paid from the provider's slice of a pooled budget (`./budgets`).
+   * The slice is checked (and reserved or raised when the call carries a
+   * reserve) before the model runs; the call is recorded with its receipt
+   * before the answer is sent. Nothing moves on chain per call.
+   */
+  async function budgetPaidCall(c: { request: Request; requestText: string; upstreamMessages: UpstreamMessage[]; temperature?: number; worstCase: TokenCounts; minimum: bigint }): Promise<Response> {
+    const desk = budgetDesk!;
+    const free = await capacity.check(nowMs());
+    if (!free.ok) return busy(free, `Nothing was charged; send the same call again in ${free.retryAfterSeconds} seconds.`);
+    // One lease per budget, whatever the call number or however the header is encoded, so two calls of one budget never run at once.
+    const named = readBudgetPaymentHeader(c.request.headers.get(BUDGET_PAYMENT_HEADER) ?? undefined);
+    if (!named || "error" in named) return refuse(400, "budget_invalid", named ? named.error : "Name a budget in x402-budget.", { charged: false });
+    const leaseKey = `budget:${named.budget.toBase58()}`;
+    let claimed: boolean;
+    try {
+      claimed = await lease.claim(leaseKey, LOCK_LEASE_MS, nowMs());
+    } catch {
+      return refuse(503, "payment_check_unavailable", "The budget could not be checked. Nothing was charged; send the call again.", { charged: false });
+    }
+    // One call of a budget at a time: the call numbers keep them in order.
+    if (!claimed) return refuse(409, "budget_call_in_progress", "Another call from this budget is being served. Send this one once it has answered.", { charged: false }, { "retry-after": "2" });
+    try {
+      const admitted = await desk.admit({ headers: c.request.headers, body: c.requestText, maxCall: c.minimum });
+      if (!admitted.ok) {
+        if (admitted.code === "payment_check_unavailable") clusterConfirmed = false;
+        return refuse(admitted.status, admitted.code, admitted.message, { charged: false, ...(admitted.offer ? { budget: admitted.offer } : {}) });
+      }
+      const { slice, budget } = admitted;
+      const reservation = reservationAddress(admitted.budgetKey, terms.payee, terms.programId).toBase58();
+      const sequence = slice.sequence + 1;
+      const requestId = randomUUID();
+      const taken = await capacity.take(nowMs());
+      if (!taken.ok) return busy(taken, `Nothing was charged; call ${sequence} can be sent again in ${taken.retryAfterSeconds} seconds.`);
+      let upstream: Record<string, unknown>;
+      try {
+        upstream = await deps.upstream.createChatCompletion({ model: config.upstream.model, messages: c.upstreamMessages, ...(c.temperature === undefined ? {} : { temperature: c.temperature }), max_tokens: c.worstCase.outputTokens });
+      } catch (error) {
+        await noteUpstreamFailure(error);
+        log({ event: "upstream_failed", requestId, budget: slice.budget, sequence, detail: error instanceof Error ? error.message : "unknown" });
+        return refuse(502, "model_unavailable", `The model did not answer. Nothing was charged; call ${sequence} can be sent again.`, { charged: false });
+      }
+      const usage = usageFrom(upstream, estimateInputTokens(c.upstreamMessages));
+      const cost = tokenCostBaseUnits(terms.price, usage);
+      const left = BigInt(slice.reserved) - BigInt(slice.spent);
+      const charged = cost > left ? left : cost;
+      const total = BigInt(slice.spent) + charged;
+      const reddi = {
+        requestId,
+        provider: config.wallet,
+        model: config.model,
+        metered: {
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          currency: terms.price.currency,
+          budget: { budget: slice.budget, reservation, sequence, cost: baseUnitsToDecimal(charged, decimals), cumulativeCost: baseUnitsToDecimal(total, decimals), reserved: baseUnitsToDecimal(BigInt(slice.reserved), decimals) },
+        },
+      };
+      const responseText = JSON.stringify({ ...upstream, reddi });
+      let encoded: string | undefined;
+      let receiptHash: string | undefined;
+      try {
+        // Until receipt v2 has its own budget block, a budget call is stated as a session of the provider's slice.
+        const signed = await signReddiReceiptV2({
+          schemaVersion: "reddi.receipt.v2",
+          providerId: config.wallet,
+          declaredModel: config.model,
+          requestHash: sha256Hex(c.requestText),
+          responseHash: sha256Hex(responseText),
+          session: {
+            escrow: reservation,
+            payer: budget.payer.toBase58(),
+            network: config.network,
+            currency: terms.price.currency as ReddiReceiptV2Session["currency"],
+            mint: terms.mint.toBase58(),
+            maxAmount: slice.reserved,
+            sequence: String(sequence),
+            inputTokens: String(usage.inputTokens),
+            outputTokens: String(usage.outputTokens),
+            cumulativeInputTokens: String(slice.inputTokens + usage.inputTokens),
+            cumulativeOutputTokens: String(slice.outputTokens + usage.outputTokens),
+            cumulativeCost: total.toString(),
+            ...(slice.lastReceiptHash ? { previousReceiptHash: slice.lastReceiptHash } : {}),
+            closed: false,
+          },
+          issuedAt: issuedAt(),
+        } as ReddiReceiptV2, deps.signMessage);
+        encoded = encodeReceipt(signed);
+        receiptHash = hashReddiReceiptV2(signed.receipt);
+      } catch {
+        encoded = undefined;
+      }
+      if (!encoded || !receiptHash) {
+        log({ event: "receipt_failed", requestId, budget: slice.budget, sequence });
+        return refuse(500, "receipt_failed", `This call's receipt could not be signed, so its answer is withheld. Nothing was charged; call ${sequence} can be sent again.`, { charged: false });
+      }
+      try {
+        await desk.record(slice, cost, usage, receiptHash);
+      } catch {
+        log({ event: "budget_record_failed", requestId, budget: slice.budget, sequence });
+        return refuse(503, "budget_record_failed", `This call could not be recorded, so its answer is withheld. Nothing was charged; call ${sequence} can be sent again.`, { charged: false });
+      }
+      log({ event: "budget_call", requestId, budget: slice.budget, sequence, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, cumulativeCost: total.toString() });
+      return new Response(responseText, { status: 200, headers: { ...JSON_HEADERS, [PROVIDER_RECEIPT_HEADER]: encoded } });
+    } finally {
+      await lease.release(leaseKey).catch(() => undefined);
+    }
   }
 
   type SessionEnd = { status: "settled" | "declined" | "refunded_unpaid" | "pending" | "none"; receipt?: string; state?: SessionState };
@@ -859,13 +981,16 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     const upstreamMessages = config.systemPrompt ? [{ role: "system", content: config.systemPrompt }, ...messages.filter((m) => m.role !== "system")] : messages;
     const offer = meteredOffer(terms, upstreamMessages, requestedMax, config.network);
     const header = readMeteredPaymentHeader(request.headers);
-    if (header === undefined) {
+    const budgetCall = budgetDesk !== undefined && request.headers.has(BUDGET_PAYMENT_HEADER);
+    if (header === undefined && !budgetCall) {
       // A busy provider says so before the buyer locks anything.
       const free = await capacity.check(nowMs());
       if (!free.ok) return busy(free, `Nothing was asked of you; try again in ${free.retryAfterSeconds} seconds.`);
-      return refuse(402, "payment_required", "Lock at least the minimum in a metered escrow payable to this provider, then repeat the request with the lock in x402-payment.", { metered: offer }, { "x402-request": JSON.stringify(offer) });
+      const budgetOffer = budgetDesk ? { budget: budgetDesk.offer(minimumLockBaseUnits(terms, upstreamMessages, requestedMax)) } : {};
+      return refuse(402, "payment_required", "Lock at least the minimum in a metered escrow payable to this provider, then repeat the request with the lock in x402-payment.", { metered: offer, ...budgetOffer }, { "x402-request": JSON.stringify(offer) });
     }
-    if ("error" in header) return refuse(402, "invalid_receipt", header.error, { metered: offer });
+    if (header !== undefined && budgetCall) return refuse(400, "invalid_request", "Pay a call with a lock or a budget, not both.", { charged: false });
+    if (header !== undefined && "error" in header) return refuse(402, "invalid_receipt", header.error, { metered: offer });
 
     if (!clusterConfirmed) {
       const cluster = await checkProviderCluster(() => deps.chain.readGenesisHash(), config.network, config.genesisHash);
@@ -880,6 +1005,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     const outputTokens = outputLimit(terms, requestedMax);
     const inputBound = inputTokenBound(upstreamMessages);
     const minimum = minimumLockBaseUnits(terms, upstreamMessages, requestedMax);
+    if (budgetCall || header === undefined) return budgetPaidCall({ request, requestText, upstreamMessages, temperature, worstCase: { inputTokens: inputBound, outputTokens }, minimum });
     const sessionHeaders = readSessionHeaders(request.headers);
     if (sessionHeaders !== undefined) {
       if ("error" in sessionHeaders) return refuse(400, "session_invalid", sessionHeaders.error, { charged: false });
@@ -1184,5 +1310,6 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
     }
     return refuse(404, "not_found", "No such route.");
   }
-  return Object.assign(handle, { settleDueSessions });
+  const settleDueBudgets = async () => (budgetDesk ? budgetDesk.settleDue() : []);
+  return Object.assign(handle, { settleDueSessions, settleDueBudgets });
 }

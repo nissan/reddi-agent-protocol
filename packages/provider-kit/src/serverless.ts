@@ -106,6 +106,7 @@ export function createServerlessProvider(options: ServerlessProviderOptions): Se
     lease: stores.lease,
     heldAnswers: stores.heldAnswers,
     capacity: new Capacity(config.capacity, stores.capacityStore),
+    budgetSlices: stores.budgetSlices,
     signMessage: key.key.signMessage,
     ...(log ? { log } : {}),
   });
@@ -133,6 +134,7 @@ export function createServerlessProvider(options: ServerlessProviderOptions): Se
       return;
     }
     await handler.settleDueSessions();
+    await handler.settleDueBudgets();
   };
 
   return { ok: true, provider: { config, handle, sweep } };

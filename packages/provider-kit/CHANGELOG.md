@@ -2,6 +2,12 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
+## Unreleased (0.4.0)
+
+### Added
+
+- Pooled budgets, devnet only and off by default (`budgets.enabled`; refused on mainnet until the budget instructions are released there). A provider takes calls paid from its slice of a budget in its own price currency: the `402` offers a slice, the kit checks and co-signs the spender's reserve transaction, verifies the spender's signature on every call, meters each call into a signed receipt, and its sweep posts the total, closes an expired budget and pays out. Slices are kept in `budgets.file`, or in Postgres on a serverless host (`provider_kit.budget_slices`, migration `20261124180000_provider_kit_budgets.sql`). Requires `@redditech/x402-solana` 0.2.0.
+
 ## 0.3.1 — 2026-11-24
 
 ### Changed
