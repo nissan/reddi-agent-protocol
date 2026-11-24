@@ -3,8 +3,10 @@
  *
  * A person locks one Budget in one token and gives their agent a key. The
  * agent reserves a slice of the Budget with each provider that takes that
- * token, pays for calls against its slices off-chain with a receipt for each,
- * and closes the Budget when the job is done. Each provider posts its final
+ * token, and pays for calls against its slices off-chain with a receipt for
+ * each. When the job is done the person closes the Budget (an early close by
+ * the agent would start the window at the end of the open period, flag 0x04).
+ * Each provider posts its final
  * amount, the dispute window runs, and the payout pays each provider what it
  * posted less the protocol fee and returns the rest to the payer.
  *
@@ -99,6 +101,11 @@ export type BudgetAccount = {
   perProviderCap: bigint;
   allowlist: readonly string[];
   closedSlot: number;
+  /**
+   * Flag 0x04: the spender closed a Budget with no allowlist, so the dispute
+   * window runs from the end of the open period, not from the close.
+   */
+  reviewFromOpenEnd: boolean;
   /** Every reservation ever made, as the program counts them (at most 8, paid ones included). */
   reservations: number;
   closed: boolean;
@@ -218,9 +225,24 @@ export function budgetCallCost(provider: SandboxProvider, units: number, token: 
   return BUDGET_TOKENS[token].fromMicroUsd(mediaCostMicroUsd(provider, mediaDelivery(provider, units)));
 }
 
+/** Where the dispute window starts: the close, or the end of the open period when the spender closed early (flag 0x04). */
+export function budgetReviewFrom(budget: Pick<BudgetAccount, "closedSlot" | "reviewFromOpenEnd" | "createdSlot" | "openSlots">): number {
+  return budget.reviewFromOpenEnd ? Math.max(budget.closedSlot, budget.createdSlot + budget.openSlots) : budget.closedSlot;
+}
+
 /** B3: the end of one reservation's dispute window. */
-export function budgetDisputeEnds(budget: Pick<BudgetAccount, "closedSlot" | "disputeSlots">, reservation: Pick<ReservationAccount, "postedSlot">): number {
-  return Math.max(budget.closedSlot + budget.disputeSlots, reservation.postedSlot + BUDGET_DEFAULTS.minReviewSlots);
+export function budgetDisputeEnds(
+  budget: Pick<BudgetAccount, "closedSlot" | "disputeSlots" | "reviewFromOpenEnd" | "createdSlot" | "openSlots">,
+  reservation: Pick<ReservationAccount, "postedSlot">,
+): number {
+  return Math.max(budgetReviewFrom(budget) + budget.disputeSlots, reservation.postedSlot + BUDGET_DEFAULTS.minReviewSlots);
+}
+
+/** The program's close: a close by anyone but the payer, on a Budget with no allowlist, sets flag 0x04. */
+export function closeSandboxBudget(budget: BudgetAccount, slot: number, byPayer: boolean): void {
+  budget.closed = true;
+  budget.closedSlot = slot;
+  budget.reviewFromOpenEnd = !byPayer && budget.allowlist.length === 0;
 }
 
 type ReserveRefusal = "budget_closed" | "budget_expired" | "too_many_reservations" | "over_provider_cap" | "over_unreserved" | "below_minimum" | "token_not_accepted";
@@ -278,6 +300,7 @@ export async function runSandboxBudget(input: {
     perProviderCap: (total * BUDGET_DEFAULTS.perProviderCapBps) / BigInt(10_000),
     allowlist: [],
     closedSlot: 0,
+    reviewFromOpenEnd: false,
     reservations: 0,
     closed: false,
   };
@@ -369,14 +392,14 @@ export async function runSandboxBudget(input: {
     }
   }
 
-  // The job is done: the agent closes the Budget and the unreserved money goes straight back.
+  // The job is done: you close the Budget and the unreserved money goes straight back.
+  // A close by the payer starts the dispute window at once (no flag 0x04).
   slot += HOUR_SLOTS / 60;
   const returnedAtClose = budget.unreserved;
   refunded += budget.unreserved;
   budget.unreserved = BigInt(0);
-  budget.closed = true;
-  budget.closedSlot = slot;
-  log("close", `The job is done, so your agent closes the Budget. The ${fmt(returnedAtClose)} nobody reserved comes straight back to you.`);
+  closeSandboxBudget(budget, slot, true);
+  log("close", `The job is done, so you close the Budget. The ${fmt(returnedAtClose)} nobody reserved comes straight back to you. If your agent had closed it early instead, the 24 hours to check its work would start when the 72 hours end, unless you approve the work sooner.`);
 
   // Each provider posts its final amount: what its receipts add up to.
   for (const [providerId, reservation] of reservations) {
@@ -388,7 +411,7 @@ export async function runSandboxBudget(input: {
     log("post", `${name} posts its final amount: ${fmt(reservation.finalAmount)}, the sum of its receipts.`);
   }
 
-  const disputeEnds = Math.max(...[...reservations.values()].map((r) => budgetDisputeEnds(budget, r)), budget.closedSlot + budget.disputeSlots);
+  const disputeEnds = Math.max(...[...reservations.values()].map((r) => budgetDisputeEnds(budget, r)), budgetReviewFrom(budget) + budget.disputeSlots);
   slot = disputeEnds;
   log("window", "24 hours pass. You could dispute any posted amount in that time and the RAP judge would rule. Nobody disputes.");
 
@@ -398,7 +421,8 @@ export async function runSandboxBudget(input: {
   const payouts: BudgetPayoutRow[] = [];
   for (const [providerId, reservation] of reservations) {
     const name = findSandboxProviderById(providerId)?.name ?? providerId;
-    const paid = reservation.state === "posted" && !reservation.waived ? reservation.finalAmount : BigInt(0);
+    // A waived slice is paid at once; a posted one once its window has ended undisputed.
+    const paid = reservation.state === "posted" ? reservation.finalAmount : BigInt(0);
     const fee = budgetProtocolFee(paid, token, feeBps);
     const back = reservation.reserved - paid;
     paidOut += paid;

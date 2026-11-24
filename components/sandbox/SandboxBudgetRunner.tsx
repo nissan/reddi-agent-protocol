@@ -90,7 +90,7 @@ export default function SandboxBudgetRunner() {
       <div>
         <h3 className="text-lg font-semibold text-white">Set a budget, give your agent a key</h3>
         <p className="mt-2 text-sm leading-6 text-gray-300">
-          Your agent is making a 30-second launch video. You lock one Budget for it in one token. The agent reserves a slice with each provider that takes that token, pays for each call from its slice with a receipt, and closes the Budget when the job is done. After a 24-hour window to dispute, each provider is paid what its receipts add up to, and the rest comes back to you.
+          Your agent is making a 30-second launch video. You lock one Budget for it in one token. The agent reserves a slice with each provider that takes that token, pays for each call from its slice with a receipt. When the job is done you close the Budget. After a 24-hour window to dispute, each provider is paid what its receipts add up to, and the rest comes back to you.
         </p>
         <p className="mt-2 text-xs leading-5 text-gray-400">This scenario is a simulation of the Budget design: nothing is locked or paid on devnet, and the receipts are unsigned stand-ins. Every figure is worked out from the calls in this run.</p>
       </div>
