@@ -122,8 +122,10 @@ test("first call: asks for a reserve, then co-signs the spender's reserve, serve
   assert.equal(served.status, 200, await served.clone().text());
   assert.equal(chain.cosigned.length, 1);
   assert.equal(upstreamCalls.n, 1);
-  const receipt = JSON.parse(Buffer.from(served.headers.get(PROVIDER_RECEIPT_HEADER)!, "base64url").toString("utf8")) as { receipt: { session: Record<string, string> } };
+  const receipt = JSON.parse(Buffer.from(served.headers.get(PROVIDER_RECEIPT_HEADER)!, "base64url").toString("utf8")) as { receipt: { session: Record<string, string>; budget: Record<string, string> } };
   assert.equal(receipt.receipt.session.escrow, reservationKey.toBase58());
+  // The budget block names the Budget, which opening of it, and the slice the session meters.
+  assert.deepEqual(receipt.receipt.budget, { address: budgetKey.toBase58(), createdSlot: CREATED.toString(), reservation: reservationKey.toBase58() });
   assert.equal(receipt.receipt.session.payer, payer.toBase58());
   assert.equal(receipt.receipt.session.sequence, "1");
   const slice = await store.get(budgetKey.toBase58());
