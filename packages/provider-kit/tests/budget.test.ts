@@ -6,7 +6,7 @@ import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { MemoryNonceReplayStore, SOLANA_GENESIS_HASHES } from "@redditech/x402-solana";
 import { reservationAddress, MIN_REVIEW_SLOTS } from "@redditech/x402-solana/budget";
 import { budgetRequestHeaders, spenderSignedReserve, BUDGET_RESERVE_HEADER, type PooledBudgetOffer } from "@redditech/x402-solana/budget-provider";
-import { createProviderHandler, PROVIDER_RECEIPT_HEADER } from "../src/handler.js";
+import { createProviderHandler, PROVIDER_RECEIPT_HEADER, type BudgetCallPricingInput, type ProviderDeps } from "../src/handler.js";
 import { MemoryBudgetSliceStore } from "../src/budgets.js";
 import type { Upstream } from "../src/upstream.js";
 import { ata, config, CURRENT_SLOT, fakeChain, PROGRAM, provider, USDC, type FakeChain } from "./helpers.js";
@@ -66,7 +66,7 @@ const setBudget = (chain: FakeChain, f: BudgetFields = {}) => chain.accounts.set
 const setReservation = (chain: FakeChain, f: ReservationFields) => chain.accounts.set(reservationKey.toBase58(), { owner: PROGRAM, data: reservationBytes(f), lamports: 1_500_000n, executable: false });
 
 type Chain = FakeChain & { cosigned: Transaction[]; failCosign?: boolean };
-function setup(options: { budgets?: Record<string, unknown>; upstream?: Upstream } = {}) {
+function setup(options: { budgets?: Record<string, unknown>; upstream?: Upstream; budgetCallPricing?: ProviderDeps["budgetCallPricing"] } = {}) {
   const chain = fakeChain(null) as Chain;
   chain.cosigned = [];
   chain.cosignAndSend = async (tx) => {
@@ -83,7 +83,7 @@ function setup(options: { budgets?: Record<string, unknown>; upstream?: Upstream
   const store = new MemoryBudgetSliceStore();
   const events: Record<string, unknown>[] = [];
   const handler = createProviderHandler(config({ budgets: { enabled: true, acceptedJudges: [judge.toBase58()], ...options.budgets } } as never), {
-    chain, upstream, replayStore: new MemoryNonceReplayStore(), budgetSlices: store,
+    chain, upstream, replayStore: new MemoryNonceReplayStore(), budgetSlices: store, ...(options.budgetCallPricing ? { budgetCallPricing: options.budgetCallPricing } : {}),
     signMessage: (m) => edSign(null, m, pkcs8(provider)), now: () => new Date("2026-12-05T00:00:00.000Z"), log: (e) => events.push(e),
   });
   const call = async (sequence: number, extra: Record<string, string> = {}, signWith: Keypair = spender, body = BODY) => {
@@ -301,4 +301,33 @@ test("a reserve in a budget opened again at the same address first closes this p
   assert.equal(chain.sent.length, 1, "the earlier slice was closed first");
   assert.equal(chain.sent[0][0].data.readBigUInt64LE(8), CREATED);
   assert.equal(chain.cosigned.length, 1);
+});
+
+test("an operator's pricing hook sets what the budget pays for a call, from the budget the kit read on chain", async () => {
+  const seen: BudgetCallPricingInput[] = [];
+  const { chain, call, store } = setup({ budgetCallPricing: async (input) => { seen.push(input); return { paid: input.cost / 2n }; } });
+  setBudget(chain);
+  setReservation(chain, { reserved: 1_000_000n });
+  const served = await call(1);
+  assert.equal(served.status, 200, await served.clone().text());
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].budget, budgetKey.toBase58());
+  assert.equal(seen[0].payer, payer.toBase58());
+  assert.equal(seen[0].mint, USDC.toBase58());
+  assert.equal(seen[0].total, 50_000_000n);
+  assert.equal(seen[0].createdSlot, CREATED);
+  assert.ok(seen[0].cost > 0n);
+  assert.equal((await store.get(budgetKey.toBase58()))?.spent, (seen[0].cost / 2n).toString());
+});
+
+test("a pricing hook that fails or answers out of range refuses the call, and nothing is recorded", async () => {
+  for (const hook of [async () => { throw new Error("store down"); }, async (input: BudgetCallPricingInput) => ({ paid: input.cost + 1n }), async () => ({ paid: -1n })]) {
+    const { chain, call, store } = setup({ budgetCallPricing: hook as ProviderDeps["budgetCallPricing"] });
+    setBudget(chain);
+    setReservation(chain, { reserved: 1_000_000n });
+    const refused = await call(1);
+    assert.equal(refused.status, 503);
+    assert.equal(((await refused.json()) as { error: { code: string } }).error.code, "budget_pricing_failed");
+    assert.equal(await store.get(budgetKey.toBase58()), undefined);
+  }
 });

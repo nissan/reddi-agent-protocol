@@ -207,6 +207,8 @@ With `budgets.enabled`, the kit:
 
 `spenderSignedReserve` and `budgetRequestHeaders` in `@redditech/x402-solana/budget-provider` build the agent's side.
 
+An operator can set what a budget pays for each call with `budgetCallPricing` (a handler dependency, or an option of `createServerlessProvider`), for example a launch bonus. It is told the budget's payer, mint, total and `createdSlot` as read from the chain and the call's cost, and returns `paid` (at most the cost), which is what the slice is charged and posted, and an optional `bonus` block for the receipt. If it throws, the call is refused and nothing is charged.
+
 ## What the kit does to protect you and your buyers
 
 - **It refuses to start half-working**: no key, a key for another wallet, a key file others can read, a payment memory file another process holds, or mock answers on mainnet.

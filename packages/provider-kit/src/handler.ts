@@ -134,6 +134,20 @@ const HELD_ANSWER_MS = 10 * 60_000;
  */
 const LOCK_LEASE_MS = 330_000;
 
+/** What `budgetCallPricing` is told about a budget-paid call. */
+export interface BudgetCallPricingInput {
+  budget: string;
+  payer: string;
+  mint: string | null;
+  total: bigint;
+  /** The budget's `created_slot`; its block time is when the budget opened. */
+  createdSlot: bigint;
+  provider: string;
+  requestId: string;
+  /** This call's cost at the provider's price, in base units. */
+  cost: bigint;
+}
+
 export interface ProviderDeps {
   chain: ProviderChain;
   upstream: Upstream;
@@ -150,6 +164,14 @@ export interface ProviderDeps {
   heldAnswers?: HeldAnswerStore;
   /** Pooled budget slices. With `budgets.enabled` in the config, in memory when not given. */
   budgetSlices?: BudgetSliceStore;
+  /**
+   * Optional, per budget-paid call, after the model answers: what the buyer's
+   * budget pays for this call (`paid`, at most `cost`) and an optional
+   * `bonus` block for the receipt. The facts come from the budget account the
+   * kit read and checked on chain. If it throws or returns something out of
+   * range, the call is refused and nothing is recorded or charged.
+   */
+  budgetCallPricing?: (input: BudgetCallPricingInput) => Promise<{ paid: bigint; bonus?: Record<string, unknown> }>;
   /** Ed25519 signature by the provider wallet, for receipts. */
   signMessage: (message: Uint8Array) => Uint8Array | Promise<Uint8Array>;
   now?: () => Date;
@@ -647,7 +669,20 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
         return refuse(502, "model_unavailable", `The model did not answer. Nothing was charged; call ${sequence} can be sent again.`, { charged: false });
       }
       const usage = usageFrom(upstream, estimateInputTokens(c.upstreamMessages));
-      const cost = tokenCostBaseUnits(terms.price, usage);
+      const fullCost = tokenCostBaseUnits(terms.price, usage);
+      let cost = fullCost;
+      let bonus: Record<string, unknown> | undefined;
+      if (deps.budgetCallPricing) {
+        try {
+          const priced = await deps.budgetCallPricing({ budget: slice.budget, payer: budget.payer.toBase58(), mint: budget.mint ? budget.mint.toBase58() : null, total: budget.total, createdSlot: budget.createdSlot, provider: config.wallet, requestId, cost: fullCost });
+          if (typeof priced.paid !== "bigint" || priced.paid < 0n || priced.paid > fullCost) throw new Error("paid out of range");
+          cost = priced.paid;
+          bonus = priced.bonus;
+        } catch (error) {
+          log({ event: "budget_pricing_failed", requestId, budget: slice.budget, sequence, detail: error instanceof Error ? error.message : "unknown" });
+          return refuse(503, "budget_pricing_failed", `This call could not be priced, so its answer is withheld. Nothing was charged; call ${sequence} can be sent again.`, { charged: false });
+        }
+      }
       const left = BigInt(slice.reserved) - BigInt(slice.spent);
       const charged = cost > left ? left : cost;
       const total = BigInt(slice.spent) + charged;
@@ -689,6 +724,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
             ...(slice.lastReceiptHash ? { previousReceiptHash: slice.lastReceiptHash } : {}),
             closed: false,
           },
+          ...(bonus ? { bonus } : {}),
           issuedAt: issuedAt(),
         } as ReddiReceiptV2, deps.signMessage);
         encoded = encodeReceipt(signed);
