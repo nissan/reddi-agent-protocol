@@ -265,6 +265,17 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
       const fits = fitsBudget(checked.amount);
       if (!fits.ok) return { ok: false, status: 402, code: fits.reason, message: fits.message };
       if (!deps.chain.cosignAndSend) return { ok: false, status: 503, code: "provider_not_ready", message: "This provider cannot sign reserves. Nothing was reserved or charged." };
+      const leftover = found.reservation;
+      if (leftover && leftover.budgetCreatedSlot !== found.budget.createdSlot) {
+        // This provider's reservation in an earlier budget at this address refuses the reserve until it is closed.
+        if (leftover.state !== "paid") return { ok: false, status: 409, code: "budget_instance_mismatch", message: "This provider still holds a slice of an earlier budget at this address. Try again once it is settled." };
+        try {
+          // Closing a paid reservation moves only its rent, to this provider; the program does not check the payer account.
+          await closePaid(header.budget, leftover, found.budget.payer);
+        } catch {
+          return { ok: false, status: 503, code: "payment_check_unavailable", message: "This provider's slice of an earlier budget at this address could not be closed. Nothing was reserved or charged; send the call again." };
+        }
+      }
       try {
         const signature = await deps.chain.cosignAndSend(checked.transaction);
         deps.log({ event: "budget_reserved", budget: key, amount: checked.amount.toString(), signature });
@@ -344,27 +355,31 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
     return out;
   }
 
+  async function readOwnReservation(budgetKey: PublicKey): Promise<ReservationAccount | null> {
+    const account = await deps.chain.readAccount(reservationAddress(budgetKey, payee, terms.programId));
+    return account && account.owner.equals(terms.programId) ? decodeReservation(account.data) : null;
+  }
+
+  /** Closes this provider's paid reservation, returning its rent; nothing else moves. `payer` is its budget's payer. */
+  async function closePaid(budgetKey: PublicKey, reservation: ReservationAccount, payer: PublicKey): Promise<string> {
+    const signature = await deps.chain.sendInstructions([payoutInstruction({ programId: terms.programId, budget: budgetKey, createdSlot: reservation.budgetCreatedSlot, payee, payer, treasury: ESCROW_PROTOCOL_TREASURY, token: { mint: terms.mint, payoutAccount, treasuryToken: treasuryTokenAccount(terms), refund: associatedTokenAccount(payer, terms.mint, terms.tokenProgram), tokenProgram: terms.tokenProgram } })]);
+    deps.log({ event: "budget_reservation_closed", budget: budgetKey.toBase58(), createdSlot: reservation.budgetCreatedSlot.toString(), signature });
+    return signature;
+  }
+
   async function settleOne(slice: BudgetSlice): Promise<string> {
     const budgetKey = new PublicKey(slice.budget);
     const createdSlot = BigInt(slice.createdSlot);
     const found = await read(budgetKey);
     const sameInstance = found.ok && found.budget.createdSlot === createdSlot;
     const r = sameInstance && found.ok ? found.reservation : null;
-    if (!found.ok && found.code === "budget_not_found") {
-      // The budget is gone. A slice paid early may still hold its rent: its payout closes it.
-      const left = await deps.chain.readAccount(reservationAddress(budgetKey, payee, terms.programId));
-      if (left && left.owner.equals(terms.programId)) {
-        const gone = decodeReservation(left.data);
-        if (gone.budgetCreatedSlot === createdSlot && gone.state === "paid") {
-          await deps.chain.sendInstructions([payoutInstruction({ programId: terms.programId, budget: budgetKey, createdSlot, payee, payer: new PublicKey(slice.payer), treasury: ESCROW_PROTOCOL_TREASURY, token: { mint: terms.mint, payoutAccount, treasuryToken: treasuryTokenAccount(terms), refund: associatedTokenAccount(new PublicKey(slice.payer), terms.mint, terms.tokenProgram), tokenProgram: terms.tokenProgram } })]);
-        }
-      }
-      await deps.store.save({ ...slice, status: "done" });
-      return "done";
-    }
-    if (!found.ok) return "unreadable";
-    if (!sameInstance || !r || r.budgetCreatedSlot !== createdSlot) {
-      // The slice is gone: a payout or a resolve closed it. Done, whatever it paid.
+    if (!found.ok && found.code !== "budget_not_found") return "unreadable";
+    if (!found.ok || !sameInstance || !r || r.budgetCreatedSlot !== createdSlot) {
+      // The budget is gone or opened again, or the slice was closed by a payout or a resolve. A slice
+      // paid early may still be open, holding its rent and refusing a reserve in a later budget at this
+      // address: its payout closes it.
+      const leftover = found.ok ? found.reservation : await readOwnReservation(budgetKey);
+      if (leftover && leftover.budgetCreatedSlot === createdSlot && leftover.state === "paid") await closePaid(budgetKey, leftover, new PublicKey(slice.payer));
       await deps.store.save({ ...slice, status: "done" });
       return "done";
     }

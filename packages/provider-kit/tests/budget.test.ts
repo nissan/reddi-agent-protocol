@@ -45,17 +45,17 @@ function budgetBytes(f: BudgetFields = {}): Uint8Array {
   return data;
 }
 
-interface ReservationFields { reserved: bigint; state?: number; waived?: boolean; lastPostSlot?: bigint; finalAmount?: bigint }
+interface ReservationFields { reserved: bigint; state?: number; waived?: boolean; postedSlot?: bigint; finalAmount?: bigint; budgetCreatedSlot?: bigint }
 function reservationBytes(f: ReservationFields): Uint8Array {
   const data = Buffer.alloc(147);
   disc("account:Reservation").copy(data, 0);
   budgetKey.toBuffer().copy(data, 8);
-  data.writeBigUInt64LE(CREATED, 40);
+  data.writeBigUInt64LE(f.budgetCreatedSlot ?? CREATED, 40);
   provider.publicKey.toBuffer().copy(data, 48);
   ata(provider.publicKey).toBuffer().copy(data, 80);
   data.writeBigUInt64LE(f.reserved, 112);
   data.writeBigUInt64LE(f.finalAmount ?? 0n, 120);
-  data.writeBigUInt64LE(f.lastPostSlot ?? 0n, 128);
+  data.writeBigUInt64LE(f.postedSlot ?? 0n, 128);
   data[144] = f.state ?? 0;
   data[145] = f.waived ? 1 : 0;
   return data;
@@ -74,7 +74,8 @@ function setup(options: { budgets?: Record<string, unknown>; upstream?: Upstream
     tx.partialSign(provider);
     assert.equal(tx.verifySignatures(), true);
     chain.cosigned.push(tx);
-    setReservation(chain, { reserved: tx.instructions[tx.instructions.length - 1].data.readBigUInt64LE(16) });
+    const reserveData = tx.instructions[tx.instructions.length - 1].data;
+    setReservation(chain, { reserved: reserveData.readBigUInt64LE(16), budgetCreatedSlot: reserveData.readBigUInt64LE(8) });
     return "reserve-sig";
   };
   const upstreamCalls = { n: 0 };
@@ -207,12 +208,12 @@ test("the sweep posts the total once the budget closes, then pays out after the 
   // A closed slice takes no more calls.
   assert.equal((await call(2)).status, 409);
 
-  setReservation(chain, { reserved: 1_000_000n, state: 1, finalAmount: spent, lastPostSlot: CURRENT_SLOT });
+  setReservation(chain, { reserved: 1_000_000n, state: 1, finalAmount: spent, postedSlot: CURRENT_SLOT });
   assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "posted" }]);
   assert.equal(chain.sent.length, 1);
 
   setBudget(chain, { closed: true, closedSlot: CURRENT_SLOT - 216_000n });
-  setReservation(chain, { reserved: 1_000_000n, state: 1, finalAmount: spent, lastPostSlot: CURRENT_SLOT - MIN_REVIEW_SLOTS });
+  setReservation(chain, { reserved: 1_000_000n, state: 1, finalAmount: spent, postedSlot: CURRENT_SLOT - MIN_REVIEW_SLOTS });
   assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "paid" }]);
   assert.equal(chain.sent.length, 2);
 
@@ -221,14 +222,14 @@ test("the sweep posts the total once the budget closes, then pays out after the 
   assert.deepEqual(await handler.settleDueBudgets(), []);
 });
 
-test("a waived slice is paid at once, before the budget closes", async () => {
+test("a waived slice is paid at once, without waiting for the dispute window", async () => {
   const { chain, call, handler } = setup();
   setBudget(chain, { openSlots: 2_000n + 648_000n });
   setReservation(chain, { reserved: 1_000_000n });
   assert.equal((await call(1)).status, 200);
   setBudget(chain, { closed: true, closedSlot: CURRENT_SLOT - 5n });
   await handler.settleDueBudgets();
-  setReservation(chain, { reserved: 1_000_000n, state: 1, waived: true, lastPostSlot: CURRENT_SLOT });
+  setReservation(chain, { reserved: 1_000_000n, state: 1, waived: true, postedSlot: CURRENT_SLOT });
   assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "paid" }]);
 });
 
@@ -260,4 +261,44 @@ test("two calls of one budget never run at once, however their headers are encod
   assert.equal((await first).status, 200);
   assert.equal(served, 1);
   assert.equal((await store.get(budgetKey.toBase58()))?.sequence, 1);
+});
+
+const PAID = 3;
+const payoutDisc = disc("global:payout_token_budget");
+
+test("a slice paid early is closed once its budget opens again at the same address, so it cannot block a new reserve", async () => {
+  const { chain, call, handler, store } = setup();
+  setBudget(chain);
+  setReservation(chain, { reserved: 1_000_000n });
+  assert.equal((await call(1)).status, 200);
+  await store.save({ ...(await store.get(budgetKey.toBase58()))!, status: "posted" });
+  // The budget is closed and opened again at the same address; this provider's earlier slice is still on record as paid.
+  const LATER = CREATED + 5_000n;
+  setBudget(chain, { createdSlot: LATER });
+  setReservation(chain, { reserved: 1_000_000n, state: PAID, budgetCreatedSlot: CREATED });
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "done" }]);
+  assert.equal(chain.sent.length, 1);
+  const close = chain.sent[0][0];
+  assert.ok(close.data.subarray(0, 8).equals(payoutDisc));
+  assert.equal(close.data.readBigUInt64LE(8), CREATED, "the payout names the earlier budget");
+});
+
+test("a reserve in a budget opened again at the same address first closes this provider's paid slice of the earlier one", async () => {
+  const { chain, handler } = setup();
+  const LATER = CREATED + 5_000n;
+  setBudget(chain, { createdSlot: LATER });
+  setReservation(chain, { reserved: 1_000_000n, state: PAID, budgetCreatedSlot: CREATED });
+  const headersFor = async (sequence: number, extra: Record<string, string> = {}) => {
+    const headers = await budgetRequestHeaders({ genesisHash: GENESIS, action: "call", budget: budgetKey, createdSlot: LATER, provider: provider.publicKey, sequence, body: BODY }, signer(spender));
+    return handlerCall(headers, extra);
+  };
+  const handlerCall = (headers: Record<string, string>, extra: Record<string, string>) => handler(new Request("http://localhost:8787/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", ...headers, ...extra }, body: BODY }));
+  const asked = (await (await headersFor(1)).json()) as { error: { code: string }; budget: PooledBudgetOffer };
+  assert.equal(asked.error.code, "budget_reservation_required");
+  const reserveHeader = { [BUDGET_RESERVE_HEADER]: await spenderSignedReserve({ offer: asked.budget, budget: budgetKey, createdSlot: LATER, spender: spender.publicKey, amount: BigInt(asked.budget.reservation), recentBlockhash: Keypair.generate().publicKey.toBase58(), signWithSpender: signer(spender) }) };
+  const served = await headersFor(1, reserveHeader);
+  assert.equal(served.status, 200, await served.clone().text());
+  assert.equal(chain.sent.length, 1, "the earlier slice was closed first");
+  assert.equal(chain.sent[0][0].data.readBigUInt64LE(8), CREATED);
+  assert.equal(chain.cosigned.length, 1);
 });
