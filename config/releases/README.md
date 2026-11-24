@@ -62,17 +62,25 @@ delivered fixed-price escrow changed (#1074); nothing was deployed from `63d4719
 The delivery-check build of record is `9c34fac` (#1074, merged 24 November 2026;
 run 45336688889, both variants, same image digest). `v1-devnet-9c34fac.json` is
 its devnet build, deployed in slot 525720300 on 24 November 2026 (the devnet
-upgrade; read back and checked with `check-escrow-deployment.mjs`, every line ok). `v1-mainnet-9c34fac.json` is the mainnet build
-of record: it lists the devnet deployer as forbidden, and is refused by the check
-until the Squads multisig account and the mainnet deployer are added at deploy;
-the check must pass against it after the upgrade authority moves to the vault.
-Sizes, `sha256` and executable hashes were read from the run's job logs (the
-same job hashes the file it uploads, and the binary-of-record job matched the
-mainnet executable hash); the countersign step in docs/MAINNET-LAUNCH-RUNBOOK.md
-§1 re-reads them from the artifacts. If a later program change lands before
-the deploy, these records are replaced by a new pair.
+upgrade; read back and checked with `check-escrow-deployment.mjs`, every line ok). Its mainnet
+record was withdrawn unused on 24 November 2026 when the pooled Budget was
+added to V1; nothing was deployed to mainnet from `9c34fac`.
 
-Both 9c34fac records carry `minimumPackages`: `@redditech/x402-solana` 0.1.3 and
+The pooled-Budget build of record is `64543ff` (#1111 and the review fixes in
+#1116, merged 24 November 2026; run 45379413394, both variants, same image
+digest; the binary-of-record job passed). `v1-devnet-64543ff.json` is its devnet
+build, not deployed yet (`deployedSlot` null; devnet still runs `9c34fac`).
+`v1-mainnet-64543ff.json` is the mainnet build of record: it lists the devnet
+deployer as forbidden, and is refused by the check until the Squads multisig
+account and the mainnet deployer are added at deploy; the check must pass
+against it after the upgrade authority moves to the vault. Sizes, `sha256` and
+executable hashes were read from the run's job logs; the countersign step in
+docs/MAINNET-LAUNCH-RUNBOOK.md §1 re-reads them from the artifacts. If a later
+program change lands before the deploy, these records are replaced by a new
+pair. Budgets stay off on mainnet until the relay spender-key custody and payer
+alert review is done (#1119).
+
+The 9c34fac and 64543ff records carry `minimumPackages`: `@redditech/x402-solana` 0.1.3 and
 `@redditech/provider-kit` 0.3.1, the first versions that refuse a
 delivery-checked escrow (flag bit `0x04`). A seller on an older version would
 serve one and not be paid, so those versions are published, and named in the
