@@ -387,6 +387,10 @@ async function verifyMeteredLock(record: Record<string, unknown>, provider: Sand
   // A delivery-checked escrow (bit 0x04) pays only after a recorded delivery and the buyer's
   // verify window, and its settle must carry the delivery account. The sandbox settles right after
   // the response, so it would leave the work unpaid: refuse it before anything is served.
+  // A flag bit this version does not know means a later program added a rule to the escrow's exits
+  // (as 0x04 did) that this settle may not meet, so it is refused before anything is served.
+  if (escrow.unknownFlagBits !== 0)
+    return rejected("unsupported_receipt", "This escrow carries options this provider does not know. Nothing was served or taken. Lock a new escrow without them, and cancel this one for a full refund once its refund window has elapsed.");
   if (escrow.deliveryChecked)
     return rejected("unsupported_receipt", "This escrow was opted in to the delivery check, which this provider does not take yet. Nothing was served or taken. Lock a new escrow without the delivery check, and cancel this one for a full refund once its refund window has elapsed.");
   if (escrow.rated && session) return sessionRejected("session_invalid", "Sessions are not offered on escrows opted in to rating. Nothing was served or taken.");
