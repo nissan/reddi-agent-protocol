@@ -145,5 +145,9 @@
     "tailwindcss": "^4",
     "ts-node": "10.9.2",
     "typescript": "^5"
+  },
+  "overrides": {
+    "protobufjs": "^7.5.5",
+    "proxy-addr": "^2.0.8"
   }
 }
