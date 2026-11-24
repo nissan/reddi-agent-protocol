@@ -51,6 +51,27 @@ const { settlement, instructions } = meteredSettlement(terms, lock, usageFrom(up
 
 `verifyMeteredLock` also checks that the payout can land (the provider's, the treasury's and the buyer's token accounts), and `confirmMeteredSettlement` reads what a confirmed settle moved, for the receipt. It reads no key and sends no transaction. `packages/provider-kit` wraps it in a runnable server. Token currencies only (USDC, AUDD, PYUSD, USDG).
 
+## Pooled budgets
+
+`@redditech/x402-solana/budget` builds and reads the pooled budget instructions and accounts. `@redditech/x402-solana/budget-provider` is what a provider and an agent need around them. One budget is locked once, in one token, and several providers each reserve a slice of it. A provider takes part only when the budget's token is its own price currency (`budget_currency_not_accepted` otherwise); there is no swap.
+
+```typescript
+import { checkPooledBudgetForProvider, checkReserveTransaction, verifyPooledBudgetRequest, spenderSignedReserve, budgetRequestHeaders } from '@redditech/x402-solana/budget-provider';
+
+// Agent: reserve the slice a provider offered in its 402, then sign each call.
+const reserve = await spenderSignedReserve({ offer, budget, createdSlot, spender, amount: BigInt(offer.reservation), recentBlockhash, signWithSpender });
+const headers = await budgetRequestHeaders({ genesisHash, action: 'call', budget, createdSlot, provider: new PublicKey(offer.payee), sequence: 1, body }, signWithSpender);
+// Send the call with `headers` and, on the first call or a raise, `x402-budget-reserve: reserve`.
+
+// Provider: check the budget, then the reserve transaction, before co-signing and sending it.
+const fits = checkPooledBudgetForProvider({ budget: decoded, createdSlot, payee, mint, acceptedJudges, slice, currentSlot, minOpenSlotsLeft });
+const checked = checkReserveTransaction({ transactionBase64: reserve, programId, budget, createdSlot, spender: decoded.spender, payee, payoutAccount, minAmount, maxAmount });
+// Every call: the spender's signature over this call.
+const auth = verifyPooledBudgetRequest({ genesisHash, action: 'call', budget, createdSlot, provider: payee, sequence, body, spender: decoded.spender, signatureHeader });
+```
+
+The provider pays the fee and the reservation's rent, so `checkReserveTransaction` accepts only a transaction with the provider as fee payer, compute budget instructions and one reserve for this budget and provider, an amount within the offer, and a valid spender signature. It reads no key and sends nothing. `packages/provider-kit` wraps all of it, with metering, receipts and the post and payout sweep.
+
 ## Ratings and attestations
 
 `@redditech/x402-solana/rating` builds the rating and judge attestation instructions of the V1 program source (`programs/pinocchio-escrow`), derives their addresses and decodes their accounts. The program README and `interface/vectors.json` are the interface; this module is tested against that file byte for byte. No deployed program answers these instructions yet.

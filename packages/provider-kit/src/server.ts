@@ -1,4 +1,5 @@
 /** Starts the provider: loads the key, opens the payment memory, and serves the handler over HTTP. */
+import { FileBudgetSliceStore } from "./budgets.js";
 import { createServer, type Server } from "node:http";
 import { Readable } from "node:stream";
 import { createProviderChain, type ProviderChain } from "./chain.js";
@@ -95,7 +96,16 @@ export async function startProvider(config: ProviderConfig, options: { log?: (ev
     }
   }
   const chain = options.chain ?? createProviderChain(config.rpcUrl, key.key.keypair);
-  const handler = createProviderHandler(config, { chain, upstream: upstreamFor(config), replayStore, pendingSettles, ...(sessions ? { sessions } : {}), signMessage: key.key.signMessage, log: options.log });
+  let budgetSlices: FileBudgetSliceStore | undefined;
+  try {
+    if (config.budgets.enabled) budgetSlices = new FileBudgetSliceStore(config.budgets.file);
+  } catch (error) {
+    sessionStore?.close();
+    pendingSettles.close();
+    replayStore.close();
+    return { ok: false, message: error instanceof Error ? `budgets: ${error.message}` : "the budget file could not be opened" };
+  }
+  const handler = createProviderHandler(config, { chain, upstream: upstreamFor(config), replayStore, pendingSettles, ...(sessions ? { sessions } : {}), ...(budgetSlices ? { budgetSlices } : {}), signMessage: key.key.signMessage, log: options.log });
   const server = serve(handler, config.publicUrl);
   // Settles idle sessions, closing ones, and any near its refund window, including those restored above,
   // and looks again at single-call settles whose outcome was not known.
@@ -103,7 +113,7 @@ export async function startProvider(config: ProviderConfig, options: { log?: (ev
   const sweep = setInterval(() => {
     if (sweeping) return;
     sweeping = true;
-    handler.settleDueSessions().catch(() => undefined).finally(() => {
+    Promise.all([handler.settleDueSessions().catch(() => undefined), handler.settleDueBudgets().catch(() => undefined)]).finally(() => {
       sweeping = false;
     });
   }, SESSION_SWEEP_MS);
@@ -114,6 +124,7 @@ export async function startProvider(config: ProviderConfig, options: { log?: (ev
   }).catch((error: unknown) => {
     clearInterval(sweep);
     sessionStore?.close();
+    budgetSlices?.close();
     pendingSettles.close();
     replayStore.close();
     throw error;
@@ -126,6 +137,7 @@ export async function startProvider(config: ProviderConfig, options: { log?: (ev
         clearInterval(sweep);
         server.close(() => {
           sessionStore?.close();
+          budgetSlices?.close();
           pendingSettles.close();
           replayStore.close();
           resolve();

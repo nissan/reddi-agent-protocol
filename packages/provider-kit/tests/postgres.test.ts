@@ -1,6 +1,7 @@
 /**
  * The Postgres stores, against a real database with the migration applied
- * (supabase/migrations/20261123120000_provider_kit_state.sql). Set
+ * (supabase/migrations/20261123120000_provider_kit_state.sql and
+ * 20261124180000_provider_kit_budgets.sql). Set
  * RAP_TEST_DATABASE_URL to run them; CI does. Each test uses its own provider
  * id, so tests never see each other's rows.
  *
@@ -17,6 +18,7 @@ import { createProviderHandler, PROVIDER_RECEIPT_HEADER } from "../src/handler.j
 import { Capacity } from "../src/capacity.js";
 import { postgresProviderStores, PostgresCapacityStore, PostgresHeldAnswerStore, PostgresLockLease, PostgresPendingSettleStore, PostgresReplayStore, type PgPool } from "../src/postgres.js";
 import type { Upstream } from "../src/upstream.js";
+import { PostgresBudgetSliceStore, type BudgetSlice } from "../src/budgets.js";
 import { config, CURRENT_SLOT, escrowAddress, escrowBytes, fakeChain, NONCE, paymentHeader, PROGRAM, provider, SETTLE_SIGNATURE, singleCallHeaders, type FakeChain } from "./helpers.js";
 
 pinLaunchRateClock();
@@ -309,4 +311,20 @@ test("the sweep gives back only the lock its settle was for, not a later lock at
   assert.equal(chain.sent.length, 0, "the later lock was not declined");
   assert.ok(!b.events.some((e) => e.event === "pending_settle_declined"));
   assert.deepEqual(await new PostgresPendingSettleStore(db(), providerId).load(), []);
+});
+
+test("a budget slice reads back on another instance, and only slices not yet done are due", { skip }, async () => {
+  const provider = id();
+  const one = new PostgresBudgetSliceStore(db(), provider);
+  const other = new PostgresBudgetSliceStore(db(), provider);
+  const slice: BudgetSlice = { budget: "B1", createdSlot: "100", payer: "P", spender: "S", reserved: "500000", spent: "1234", inputTokens: 10, outputTokens: 20, sequence: 3, lastCallMs: 1, status: "open" };
+  await one.save(slice);
+  await one.save({ ...slice, budget: "B2", status: "done" });
+  assert.deepEqual(await other.get("B1"), slice);
+  assert.deepEqual((await other.due()).map((s) => s.budget), ["B1"]);
+  await other.save({ ...slice, status: "posted", posted: "1234" });
+  assert.equal((await one.get("B1"))?.status, "posted");
+  await other.save({ ...slice, status: "done" });
+  assert.deepEqual(await one.due(), []);
+  assert.equal(await new PostgresBudgetSliceStore(db(), id()).get("B1"), undefined, "another provider's slices are not seen");
 });

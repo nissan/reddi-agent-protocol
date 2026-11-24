@@ -21,6 +21,9 @@ export const DEFAULT_DEVNET_RPC_URL = "https://api.devnet.solana.com";
 export const DEFAULT_CONFIG_FILE = "provider.json";
 export const DEFAULT_REPLAY_FILE = ".rap-provider/accepted-escrows.log";
 export const DEFAULT_SESSION_FILE = ".rap-provider/sessions.jsonl";
+export const DEFAULT_BUDGET_FILE = ".rap-provider/budgets.jsonl";
+/** Slots in a minute at 400 ms a slot. */
+const SLOTS_PER_MINUTE = 150n;
 export const DEFAULT_PORT = 8787;
 export const DEFAULT_APP_URL = "https://app.agent-protocol.reddi.tech";
 /** The largest request body the provider reads. It bounds the input tokens one call can be priced on. */
@@ -115,6 +118,18 @@ export interface ProviderConfigFile {
    * `file` keeps the sessions across restarts.
    */
   sessions?: { enabled?: boolean; idleSeconds?: number; file?: string };
+  /**
+   * Pooled budgets: a buyer's agent reserves a slice of one budget for this
+   * provider and pays many calls from it. Off unless `enabled` is true. Only a
+   * budget locked in this provider's price currency can pay it.
+   * `minReservation` is the least slice it joins for, in the price currency
+   * (decimal, default "0.10"); `reserveCalls` sizes the slice it asks for, in
+   * calls at the request's maximum (default 10); `acceptedJudges` are the
+   * judges it accepts on a budget (empty: only budgets with no judge);
+   * `minOpenMinutes` is how long a budget must still be open for it to join
+   * (default 60). `file` keeps the slices across restarts.
+   */
+  budgets?: { enabled?: boolean; minReservation?: string; reserveCalls?: number; acceptedJudges?: string[]; minOpenMinutes?: number; file?: string };
   keypairPath?: string;
   replayFile?: string;
   port?: number;
@@ -146,6 +161,7 @@ export interface ProviderConfig {
   keypairPath?: string;
   replayFile: string;
   sessions: { enabled: boolean; idleMs: number; file: string };
+  budgets: { enabled: boolean; minReservationBaseUnits: bigint; reserveCalls: number; acceptedJudges: PublicKey[]; minOpenSlots: bigint; file: string };
   port: number;
 }
 
@@ -338,7 +354,29 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
       errors.push(`price: ${error instanceof Error ? error.message : "could not be read"}`);
     }
   }
+  const budgetsRaw = file.budgets === undefined ? {} : isRecord(file.budgets) ? file.budgets : undefined;
+  if (!budgetsRaw) errors.push("budgets: must be an object");
+  if (budgetsRaw?.enabled !== undefined && typeof budgetsRaw.enabled !== "boolean") errors.push("budgets.enabled: must be true or false");
+  // The pooled budget instructions have not been through their audit or a mainnet release, so budgets stay off on mainnet.
+  if (budgetsRaw?.enabled === true && network === "solana-mainnet-beta") errors.push("budgets.enabled: pooled budgets are not offered on mainnet yet; leave this off");
+  const minReservationText = budgetsRaw?.minReservation === undefined ? "0.10" : text(budgetsRaw.minReservation);
+  if (!/^\d{1,9}(\.\d{1,9})?$/.test(minReservationText) || Number(minReservationText) <= 0) errors.push("budgets.minReservation: must be a positive decimal amount in the price currency");
+  const reserveCalls = budgetsRaw?.reserveCalls === undefined ? 10 : Number(budgetsRaw.reserveCalls);
+  if (!Number.isSafeInteger(reserveCalls) || reserveCalls < 1 || reserveCalls > 1_000) errors.push("budgets.reserveCalls: must be a whole number from 1 to 1000");
+  const minOpenMinutes = budgetsRaw?.minOpenMinutes === undefined ? 60 : Number(budgetsRaw.minOpenMinutes);
+  if (!Number.isSafeInteger(minOpenMinutes) || minOpenMinutes < 10 || minOpenMinutes > 10_080) errors.push("budgets.minOpenMinutes: must be a whole number from 10 to 10080");
+  const judgesRaw = budgetsRaw?.acceptedJudges === undefined ? [] : budgetsRaw.acceptedJudges;
+  const acceptedJudges: PublicKey[] = [];
+  if (!Array.isArray(judgesRaw) || judgesRaw.length > 16) errors.push("budgets.acceptedJudges: must be a list of up to 16 addresses");
+  else for (const judge of judgesRaw) {
+    if (typeof judge === "string" && isAddress(judge.trim())) acceptedJudges.push(new PublicKey(judge.trim()));
+    else errors.push(`budgets.acceptedJudges: ${String(judge)} is not an address`);
+  }
   if (errors.length > 0 || !terms) return { ok: false, errors };
+  const [whole, fraction = ""] = minReservationText.split(".");
+  const budgetDecimals = directPaymentCurrency(terms.price.currency)?.decimals ?? 6;
+  if (fraction.length > budgetDecimals) return { ok: false, errors: [`budgets.minReservation: ${terms.price.currency} has ${budgetDecimals} decimal places`] };
+  const minReservationBaseUnits = BigInt(whole) * 10n ** BigInt(budgetDecimals) + BigInt((fraction + "0".repeat(budgetDecimals)).slice(0, budgetDecimals) || "0");
 
   const systemPrompt = text(file.systemPrompt) || undefined;
   const apiKey = text(env[apiKeyEnv]) || undefined;
@@ -376,6 +414,7 @@ export function parseProviderConfig(file: unknown, env: Record<string, string | 
       ...(text(env.RAP_PROVIDER_KEYPAIR_PATH) || text(file.keypairPath) ? { keypairPath: text(env.RAP_PROVIDER_KEYPAIR_PATH) || text(file.keypairPath) } : {}),
       replayFile: text(file.replayFile) || DEFAULT_REPLAY_FILE,
       sessions: { enabled: sessionsEnabled, idleMs: idleSeconds * 1_000, file: text(sessionsRaw?.file) || DEFAULT_SESSION_FILE },
+      budgets: { enabled: budgetsRaw?.enabled === true, minReservationBaseUnits, reserveCalls, acceptedJudges, minOpenSlots: BigInt(minOpenMinutes) * SLOTS_PER_MINUTE, file: text(budgetsRaw?.file) || DEFAULT_BUDGET_FILE },
       port,
     },
   };

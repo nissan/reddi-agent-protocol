@@ -4,7 +4,8 @@
 //! default build answers the thirteen escrow and registry instructions only
 //! (`archive/anchor-escrow/tests/instruction_surface.rs` holds it to that),
 //! while this program's default build, the mainnet build, also answers the
-//! six rating, four attestation and six delivery-check instructions. The two
+//! six rating, four attestation, six delivery-check and thirteen pooled-budget
+//! instructions. The two
 //! PER tracking instructions are not part of V1: the default build must treat them as
 //! unknown, and only a `per` build answers them.
 //!
@@ -58,6 +59,22 @@ const DELIVERY_INSTRUCTIONS: [&str; 6] = [
     "dispute_delivery",
     "resolve_delivery",
     "resolve_token_delivery",
+];
+
+const BUDGET_INSTRUCTIONS: [&str; 13] = [
+    "open_budget",
+    "open_token_budget",
+    "reserve",
+    "set_payout_account",
+    "post_final",
+    "waive",
+    "dispute",
+    "close_budget",
+    "close_token_budget",
+    "payout_budget",
+    "payout_token_budget",
+    "resolve_budget",
+    "resolve_token_budget",
 ];
 
 const PER_INSTRUCTIONS: [&str; 2] = ["delegate_escrow", "release_escrow_per"];
@@ -122,6 +139,18 @@ fn default_build_answers_the_rating_and_attestation_instructions() {
 fn default_build_answers_the_delivery_check_instructions() {
     for name in DELIVERY_INSTRUCTIONS {
         let err = call_with(name, &[1; 64]);
+        assert!(
+            err.contains(NOT_ENOUGH_ACCOUNTS),
+            "{name} must be part of the default build, got: {err}"
+        );
+    }
+}
+
+#[test]
+fn default_build_answers_the_pooled_budget_instructions() {
+    for name in BUDGET_INSTRUCTIONS {
+        // The open carries 249 bytes of terms; every other one fewer.
+        let err = call_with(name, &[1; 256]);
         assert!(
             err.contains(NOT_ENOUGH_ACCOUNTS),
             "{name} must be part of the default build, got: {err}"

@@ -263,12 +263,13 @@ do $$ begin
       and privilege_type in ('INSERT', 'UPDATE', 'DELETE')
   ) then raise exception 'a client role can still write providers'; end if;
 end $$;
--- The provider kit's state (payment replay, settle records, held answers) is
+-- The provider kit's state (payment replay, settle records, held answers,
+-- budget slices) is
 -- for the providers' own server connection only: no client role may touch it.
 do $$ declare r text; t text; begin
   foreach r in array array['anon', 'authenticated'] loop
     execute format('set role %I', r);
-    foreach t in array array['replay', 'leases', 'held_answers', 'pending_settles', 'capacity'] loop
+    foreach t in array array['replay', 'leases', 'held_answers', 'pending_settles', 'capacity', 'budget_slices'] loop
       perform pg_temp.expect_error(r || ' reads provider_kit.' || t, format('select 1 from provider_kit.%I', t));
       perform pg_temp.expect_error(r || ' truncates provider_kit.' || t, format('truncate provider_kit.%I', t));
     end loop;
@@ -284,7 +285,7 @@ do $$ begin
   then raise exception 'a client role holds a privilege in provider_kit'; end if;
 end $$;
 
--- The providers' own role uses its five tables and nothing else.
+-- The providers' own role uses its six tables and nothing else.
 set role provider_kit_app;
 insert into provider_kit.replay (provider, key) values ('p', 'k');
 do $$ begin

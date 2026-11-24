@@ -2,7 +2,8 @@
 //!
 //! The fixture is for client authors: one example of every instruction the
 //! Anchor IDL does not describe (the rating, attestation and delivery-check
-//! instructions, and the exits of a rated escrow), with its data and ordered
+//! instructions, the pooled-budget instructions, and the exits of a rated
+//! escrow), with its data and ordered
 //! accounts, the bytes of a rating account in each state, of a delivery
 //! account in each state and of an attestation account, and one commitment
 //! hash. This test rebuilds all of it with the builders the
@@ -493,6 +494,10 @@ fn build() -> Value {
         assert_eq!(&data_hex[2 * 264..2 * 265], format!("{state:02x}"));
     }
 
+    let (budget_instructions, budget_accounts) = budget_vectors();
+    instructions.extend(budget_instructions);
+    accounts.extend(budget_accounts);
+
     let first_rating = rating_address(&sol_escrow(&c, nonce(7)));
     json!({
         "about": "Examples of the instructions and accounts of programs/pinocchio-escrow that the Anchor IDL does not describe. Generated and checked by equivalence/tests/interface_vectors.rs; see the program README for the interface.",
@@ -501,6 +506,13 @@ fn build() -> Value {
             "rating": ["\"rating\"", "escrow address"],
             "attestation": ["\"attestation\"", "escrow address"],
             "delivery": ["\"delivery\"", "escrow address"],
+            "budget": ["\"budget\"", "payer address", "nonce [u8;16]"],
+            "budget_vault": ["\"budget-vault\"", "budget address"],
+            "reservation": ["\"reservation\"", "budget address", "payee address"],
+        },
+        "budget_layout": {
+            "budget": "349 bytes: discriminator sha256(\"account:Budget\")[..8] (0), payer (8), spender (40), judge (72), mint (104, zero for SOL), nonce (136), created_slot u64 (152), open_slots (160), dispute_slots (168), judge_slots (176), total (184), unreserved (192), per_provider_cap (200), allowlist [address;4] (208), closed_slot (336), reservations u8 (344), unsettled u8 (345), flags u8 (346: 0x01 spender may waive, 0x02 closed), bump (347), vault_bump (348)",
+            "reservation": "147 bytes: discriminator sha256(\"account:Reservation\")[..8] (0), budget (8), budget_created_slot u64 (40), payee (48), payout_account (80), reserved u64 (112), final_amount u64 (120), posted_slot u64 (128), disputed_slot u64 (136), state u8 (144: 0 open, 1 posted, 2 disputed, 3 paid), waived u8 (145), bump (146)",
         },
         "delivery_states": DELIVERY_STATES,
         "delivery_exits": "Every exit of a delivery-checked escrow (release, settle, cancel; SOL and token) takes the delivery account after its usual accounts and after the rating account if the escrow is rated. Its data is unchanged: an unrated escrow's exit names the lock slot, a rated one names the rating's opened slot, which is the same slot.",
@@ -534,6 +546,313 @@ fn build() -> Value {
         "instructions": instructions,
         "accounts": accounts,
     })
+}
+
+/// One SOL and one USDC budget, taken through every pooled-budget
+/// instruction: the instruction examples and the account bytes.
+fn budget_vectors() -> (Vec<Value>, Vec<Value>) {
+    use support::budget::*;
+    let mut world = World::new();
+    let (payer, a, judge, spender, b) = (
+        world.wallet(1),
+        world.wallet(2),
+        world.wallet(4),
+        world.wallet(5),
+        world.wallet(6),
+    );
+    world.register(&a, AgentType::Primary);
+    world.register(&b, AgentType::Primary);
+    world.register(&judge, AgentType::Attestation);
+    world.warp(2_000);
+    let (p, j) = (payer.pubkey(), judge.pubkey());
+    let mut instructions = Vec::new();
+    let mut accounts = Vec::new();
+    let mut send = |world: &mut World,
+                    name: &str,
+                    note: &str,
+                    ix: Instruction,
+                    names: &[&str],
+                    signers: &[&solana_keypair::Keypair]| {
+        instructions.push(instruction(name, note, &ix, names));
+        world.ok(name, ix, signers);
+    };
+    const RESERVE: [&str; 7] = [
+        "budget",
+        "reservation",
+        "spender",
+        "payee",
+        "payee_agent",
+        "payout_account",
+        "system_program",
+    ];
+    const HOLD: [&str; 3] = ["budget", "reservation", "signer"];
+    const SOL_PAYOUT: [&str; 5] = ["budget", "reservation", "payee", "payer", "treasury"];
+    let terms = Terms {
+        nonce: nonce(9),
+        spender: spender.pubkey(),
+        judge: j,
+        open: 9_000,
+        dispute: 9_000,
+        judge_slots: 1_500,
+        total: 100_000_000,
+        cap: 50_000_000,
+        flags: 0,
+        allowlist: [ZERO; 4],
+    };
+
+    // SOL: A is paid early after a waiver; B is disputed and resolved.
+    let budget = budget_address(&p, terms.nonce);
+    send(
+        &mut world,
+        "open_budget",
+        "data: nonce [u8;16], spender, judge (all zero for none), open_slots u64, dispute_slots u64, judge_slots u64, total u64, per_provider_cap u64 (0 for the total), flags u8 (0x01 spender may waive), allowlist [address;4] (all-zero entries empty); the judge's agent record follows only when a judge is named",
+        terms.open_ix(&p),
+        &["budget", "payer", "system_program", "judge_agent"],
+        &[&payer],
+    );
+    let created = world.slot();
+    accounts.push(account(&world, "budget_open", &budget));
+    world.next_slot();
+    send(
+        &mut world,
+        "reserve",
+        "signed by the payee (pays the reservation's rent) and the spender; a SOL payout account is the payee itself; data: created_slot u64, amount u64 (the reservation's new total)",
+        reserve_ix(&budget, created, &spender.pubkey(), &a.pubkey(), &a.pubkey(), 40_000_000),
+        &RESERVE,
+        &[&a, &spender],
+    );
+    let ra = reservation_address(&budget, &a.pubkey());
+    accounts.push(account(&world, "reservation_open", &ra));
+    send(
+        &mut world,
+        "post_final",
+        "by the payee; at most the reservation, and a re-post may only lower it; data: created_slot u64, amount u64",
+        post_ix(&budget, created, &a.pubkey(), 25_000_000),
+        &["budget", "reservation", "payee"],
+        &[&a],
+    );
+    accounts.push(account(&world, "reservation_posted", &ra));
+    send(
+        &mut world,
+        "waive",
+        "by the payer, or the spender when the budget has flag 0x01; data: created_slot u64",
+        hold_ix("waive", &budget, created, &a.pubkey(), &p),
+        &HOLD,
+        &[&payer],
+    );
+    send(
+        &mut world,
+        "payout_budget",
+        "by anyone; also closes a paid reservation once its budget is closed or gone; data: created_slot u64",
+        payout_ix(&budget, created, &a.pubkey(), &p),
+        &SOL_PAYOUT,
+        &[&spender],
+    );
+    accounts.push(account(&world, "reservation_paid", &ra));
+    world.ok(
+        "reserve",
+        reserve_ix(
+            &budget,
+            created,
+            &spender.pubkey(),
+            &b.pubkey(),
+            &b.pubkey(),
+            30_000_000,
+        ),
+        &[&b, &spender],
+    );
+    world.ok(
+        "post",
+        post_ix(&budget, created, &b.pubkey(), 30_000_000),
+        &[&b],
+    );
+    send(
+        &mut world,
+        "dispute",
+        "by the payer, on a budget with a judge, before the reservation's dispute window ends; data: created_slot u64",
+        hold_ix("dispute", &budget, created, &b.pubkey(), &p),
+        &HOLD,
+        &[&payer],
+    );
+    accounts.push(account(
+        &world,
+        "reservation_disputed",
+        &reservation_address(&budget, &b.pubkey()),
+    ));
+    send(
+        &mut world,
+        "close_budget",
+        "by the payer or the spender, or anyone after the open period; refunds what is unreserved; data: created_slot u64",
+        close_ix(&budget, created, &spender.pubkey(), &p),
+        &["budget", "signer", "payer"],
+        &[&spender],
+    );
+    accounts.push(account(&world, "budget_closed", &budget));
+    let mut resolve = payout_ix(&budget, created, &b.pubkey(), &p);
+    resolve.data = selector("resolve_budget").to_vec();
+    resolve.data.extend_from_slice(&created.to_le_bytes());
+    resolve.data.extend_from_slice(&10_000_000u64.to_le_bytes());
+    resolve
+        .accounts
+        .push(anchor_lang::prelude::AccountMeta::new_readonly(j, true));
+    send(
+        &mut world,
+        "resolve_budget",
+        "by the judge, inside its window; data: created_slot u64, payout u64 (at most the posted amount)",
+        resolve,
+        &["budget", "reservation", "payee", "payer", "treasury", "judge"],
+        &[&judge],
+    );
+
+    // USDC: A re-points its payout account, posts, and is paid after the
+    // dispute window; the last payout closes the vault and the budget.
+    let tokens = Tokens::install(
+        &mut world,
+        anchor_spl::token::ID,
+        USDC_MAINNET_MINT,
+        payer.insecure_clone(),
+        a.insecure_clone(),
+    );
+    let terms = Terms {
+        nonce: nonce(10),
+        total: 10_000_000,
+        cap: 0,
+        ..terms
+    };
+    let budget = budget_address(&p, terms.nonce);
+    const TOKEN_EXIT: [&str; 10] = [
+        "budget",
+        "vault",
+        "reservation",
+        "payee",
+        "payer",
+        "mint",
+        "payout_account",
+        "treasury_token",
+        "refund",
+        "token_program",
+    ];
+    send(
+        &mut world,
+        "open_token_budget",
+        "data: as open_budget; the vault is [\"budget-vault\", budget], a token account owned by the budget",
+        terms.open_token_ix(&tokens),
+        &[
+            "budget",
+            "vault",
+            "payer",
+            "mint",
+            "source",
+            "token_program",
+            "system_program",
+            "judge_agent",
+        ],
+        &[&payer],
+    );
+    let created = world.slot();
+    world.next_slot();
+    let other = Pubkey::new_from_array([104; 32]);
+    world.set(
+        other,
+        solana_account::Account {
+            lamports: 10_000_000,
+            data: token_account_data(&tokens.program, &tokens.mint, &a.pubkey(), 0),
+            owner: tokens.program,
+            ..Default::default()
+        },
+    );
+    world.ok(
+        "reserve",
+        reserve_ix(
+            &budget,
+            created,
+            &spender.pubkey(),
+            &a.pubkey(),
+            &other,
+            6_000_000,
+        ),
+        &[&a, &spender],
+    );
+    send(
+        &mut world,
+        "set_payout_account",
+        "by the payee, before its reservation is disputed or paid; a token account of the budget's mint it owns (SOL: the payee itself); data: created_slot u64",
+        set_payout_ix(&budget, created, &a.pubkey(), &tokens.recipient),
+        &["budget", "reservation", "payee", "payout_account"],
+        &[&a],
+    );
+    world.ok(
+        "post",
+        post_ix(&budget, created, &a.pubkey(), 5_000_000),
+        &[&a],
+    );
+    send(
+        &mut world,
+        "close_token_budget",
+        "as close_budget; refund is a token account the payer owns; the SPL Memo program may follow; data: created_slot u64",
+        token_close_ix(&tokens, &budget, created, &p),
+        &["budget", "vault", "signer", "payer", "mint", "refund", "token_program"],
+        &[&payer],
+    );
+    world.warp(world.slot() + 9_000);
+    send(
+        &mut world,
+        "payout_token_budget",
+        "by anyone; pays the recorded payout account, the treasury's token account and the payer's refund account; the SPL Memo program may follow; data: created_slot u64",
+        token_payout_ix(&tokens, &budget, created, &a.pubkey(), &tokens.recipient),
+        &TOKEN_EXIT,
+        &[&spender],
+    );
+
+    // USDC, disputed and resolved.
+    let terms = Terms {
+        nonce: nonce(11),
+        ..terms
+    };
+    let budget = budget_address(&p, terms.nonce);
+    world.ok("open", terms.open_token_ix(&tokens), &[&payer]);
+    let created = world.slot();
+    world.next_slot();
+    world.ok(
+        "reserve",
+        reserve_ix(
+            &budget,
+            created,
+            &spender.pubkey(),
+            &a.pubkey(),
+            &tokens.recipient,
+            6_000_000,
+        ),
+        &[&a, &spender],
+    );
+    world.ok(
+        "post",
+        post_ix(&budget, created, &a.pubkey(), 6_000_000),
+        &[&a],
+    );
+    world.ok(
+        "dispute",
+        hold_ix("dispute", &budget, created, &a.pubkey(), &p),
+        &[&payer],
+    );
+    let mut resolve = token_payout_ix(&tokens, &budget, created, &a.pubkey(), &tokens.recipient);
+    resolve.data = selector("resolve_token_budget").to_vec();
+    resolve.data.extend_from_slice(&created.to_le_bytes());
+    resolve.data.extend_from_slice(&3_000_000u64.to_le_bytes());
+    resolve
+        .accounts
+        .push(anchor_lang::prelude::AccountMeta::new_readonly(j, true));
+    let mut names = TOKEN_EXIT.to_vec();
+    names.push("judge");
+    send(
+        &mut world,
+        "resolve_token_budget",
+        "by the judge; accounts as payout_token_budget then the judge, then optionally the SPL Memo program; data: created_slot u64, payout u64",
+        resolve,
+        &names,
+        &[&judge],
+    );
+    (instructions, accounts)
 }
 
 #[test]
@@ -585,6 +904,19 @@ fn the_fixture_names_every_instruction_the_idl_does_not_describe() {
         "dispute_delivery",
         "resolve_delivery",
         "resolve_token_delivery",
+        "open_budget",
+        "open_token_budget",
+        "reserve",
+        "set_payout_account",
+        "post_final",
+        "waive",
+        "dispute",
+        "close_budget",
+        "close_token_budget",
+        "payout_budget",
+        "payout_token_budget",
+        "resolve_budget",
+        "resolve_token_budget",
     ] {
         assert_eq!(
             names.iter().filter(|found| **found == name).count(),
@@ -592,5 +924,5 @@ fn the_fixture_names_every_instruction_the_idl_does_not_describe() {
             "{name}"
         );
     }
-    assert_eq!(names.len(), 22);
+    assert_eq!(names.len(), 35);
 }

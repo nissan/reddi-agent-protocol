@@ -1,3 +1,4 @@
+import { BUDGET_DISCRIMINATORS } from '../src/budget';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -154,8 +155,10 @@ function bs58FromHex(value: string): string {
   return new PublicKey(hex(value)).toBase58();
 }
 
-// The delivery instructions are held to the same fixture by tests/delivery.test.ts.
-const ratingVectors = vectors.instructions.filter((entry) => !entry.name.endsWith('_delivery'));
+// The delivery and pooled-budget instructions are held to the same fixture by
+// tests/delivery.test.ts and tests/budget.test.ts.
+const BUDGET_INSTRUCTIONS = new Set(Object.keys(BUDGET_DISCRIMINATORS).filter((name) => name.startsWith('global:')).map((name) => name.slice(7)));
+const ratingVectors = vectors.instructions.filter((entry) => !entry.name.endsWith('_delivery') && !BUDGET_INSTRUCTIONS.has(entry.name));
 
 describe('rating and attestation interface vectors', () => {
   it('has a builder for every instruction in the fixture, and the fixture covers all ten instructions and six exits', () => {

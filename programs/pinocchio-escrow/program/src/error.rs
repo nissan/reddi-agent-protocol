@@ -126,6 +126,35 @@ faults! {
     DeliveryEscrowNotDelegable = 6072, "A delivery-checked escrow cannot be delegated to PER";
 }
 
+// Pooled budget. New, after 6072.
+faults! {
+    InvalidBudgetTerms = 6073, "Invalid budget terms: windows out of range, a zero amount or spender, a cap above the total, or unknown flags";
+    BudgetNeedsJudgeOrAllowlist = 6074, "A budget must name a judge or a provider allowlist";
+    SpenderWaiveNeedsAllowlist = 6075, "The spender may waive disputes only on a budget with a provider allowlist";
+    BudgetInstanceMismatch = 6076, "The created slot given does not match this budget: it is a different budget at the same address";
+    BudgetJustOpened = 6077, "A budget cannot be used in the slot it was opened in";
+    BudgetNotOpen = 6078, "The budget is closed or its open period has ended: no new reservations";
+    BudgetNotClosed = 6079, "The budget is still open";
+    BudgetAlreadyClosed = 6080, "The budget is already closed";
+    BudgetBalanceTooLow = 6081, "Not enough unreserved money left in the budget";
+    AboveProviderCap = 6082, "A reservation may not exceed the budget's per-provider cap";
+    ReservationTooSmall = 6083, "A reservation must be at least 1% of the budget";
+    TooManyReservations = 6084, "This budget already holds its maximum number of reservations";
+    PayeeNotAllowed = 6085, "This provider may not take a reservation from this budget";
+    PayeeNotActive = 6086, "The provider's agent record is not active";
+    InvalidReservation = 6087, "Reservation does not belong to this budget";
+    ReservationLocked = 6088, "This reservation can no longer change";
+    ReservationNotPosted = 6089, "The provider has not posted a final amount";
+    InvalidFinalAmount = 6090, "A final amount must be at most the reservation and at most any amount posted before";
+    ReservationDisputed = 6091, "This reservation is disputed";
+    ReservationWaived = 6092, "The payer has already waived disputes on this reservation";
+    BudgetDisputeWindowClosed = 6093, "The dispute window for this reservation has closed";
+    ReservationNotDisputed = 6094, "This reservation is not disputed";
+    BudgetHasNoJudge = 6095, "This budget names no judge, so its reservations cannot be disputed";
+    PayoutNotOpen = 6096, "This reservation cannot be paid out yet";
+    BudgetJudgeWindowClosed = 6097, "The judge's window has closed: the reservation refunds to the payer";
+}
+
 // PER tracking (`per` builds only), with the archived Anchor program's numbers.
 #[cfg(feature = "per")]
 faults! {

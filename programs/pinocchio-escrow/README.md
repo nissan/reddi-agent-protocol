@@ -14,7 +14,7 @@ directory deploys, creates keys or signs anything.
 
 ## What it is
 
-One program, one mainnet build. The default build has 29 instructions:
+One program, one mainnet build. The default build has 42 instructions:
 
 | Area | Instructions |
 |---|---|
@@ -24,12 +24,13 @@ One program, one mainnet build. The default build has 29 instructions:
 | Ratings of jobs paid through escrow | `open_rating`, `accept_rating`, `commit_rating`, `reveal_rating`, `expire_rating`, `close_rating` |
 | Judge attestations | `attest_quality`, `confirm_attestation`, `dispute_attestation`, `close_attestation` |
 | Delivery check | `open_delivery`, `record_delivery`, `accept_delivery`, `dispute_delivery`, `resolve_delivery`, `resolve_token_delivery` |
+| Pooled budget | `open_budget`, `open_token_budget`, `reserve`, `set_payout_account`, `post_final`, `waive`, `dispute`, `close_budget`, `close_token_budget`, `payout_budget`, `payout_token_budget`, `resolve_budget`, `resolve_token_budget` |
 
 The first 13 are the Anchor program's, with the same interface except that
 every exit names the escrow it ends (see [Every exit names its
-escrow](#every-exit-names-its-escrow)). The other 16 are this program's own: see [Ratings and attestations](#ratings-and-attestations),
-[Interface of the rating and attestation instructions](#interface-of-the-rating-and-attestation-instructions)
-and [Delivery check](#delivery-check).
+escrow](#every-exit-names-its-escrow)). The other 29 are this program's own: see [Ratings and attestations](#ratings-and-attestations),
+[Interface of the rating and attestation instructions](#interface-of-the-rating-and-attestation-instructions),
+[Delivery check](#delivery-check) and [Pooled budget](#pooled-budget).
 
 Not part of V1: MagicBlock PER tracking (`delegate_escrow`,
 `release_escrow_per`). It sits behind the `per` Cargo feature, which is off by
@@ -869,6 +870,130 @@ New error numbers, 6054 to 6072: `DeliveryAccountRequired`,
 `DeliveryDeadlinePassed`, `InvalidDelivery`, `DeliveryAlreadyAccepted`,
 `DeliveryRefundNotOpen`, `InvalidResolution`, `DeliveryEscrowNotDelegable`.
 
+## Pooled budget
+
+A budget is one lock that pays several providers. The payer (a person)
+locks a total, for example $5, for an open period, for example 72 hours, and
+names a spender key that its agent holds instead of a wallet. While the
+budget is open the agent picks providers as it goes: for each one, the
+provider and the spender together reserve a slice of the budget, which can
+never exceed what is left. Calls are metered off chain against the slice;
+the provider then posts what it is owed, at most its slice. The trust model
+for the amount is the metered escrow's: the program enforces the slice, not
+the usage inside it.
+
+A budget holds one token (SOL, or one allowlisted mint). A provider that does
+not accept it cannot join.
+
+| Step | Who | What happens |
+|---|---|---|
+| Open | Payer | The total moves into the budget (SOL) or its vault (tokens) |
+| Reserve | Spender and provider, both signing | A slice for that provider; a raise is the same call with a higher total |
+| Post | Provider | What it is owed, at most the slice; a re-post may only go down |
+| Waive | Payer, or the spender if the budget allows it | Gives up disputing a posted slice, which can be paid at once |
+| Dispute | Payer | Holds a posted slice for the judge |
+| Close | Payer or spender any time, anyone after the open period | No new slices; what was never reserved goes back to the payer at once |
+| Payout | Anyone | Pays a slice that was waived, or whose dispute window ended undisputed, or whose judge did not rule in time (full refund) |
+| Resolve | The judge | Splits a disputed slice |
+
+Every payout takes the protocol fee from the provider's part and sends the
+unused part of the slice back to the payer. The money can only go to the
+provider's recorded account, the treasury and the payer.
+
+Rules from the threat model (`B` items in the design spec):
+
+- A budget needs a judge or a provider allowlist (up to 4 entries), so a
+  stolen spender key cannot pay a provider it registered itself (B1). Letting
+  the spender waive needs an allowlist (B2).
+- The dispute window runs from the close, and never ends earlier than
+  `MIN_REVIEW_SLOTS` (9,000, about an hour) after the provider's first post
+  (B3). A re-post may only lower the amount and keeps the first post's slot,
+  so re-posting cannot hold the payer's refund back. An unposted slice cannot
+  be disputed and pays nothing.
+- A slice paid early while the budget is open stays on record as paid, so the
+  same provider cannot reserve again in that budget (B4). Its account closes,
+  rent to the provider, by a payout call once the budget is closed or gone.
+  Until that call, it also blocks the same provider from reserving in a later
+  budget at the same address (`InvalidReservation`, 6087); anyone can send
+  the payout first, in the same transaction as the reserve.
+- Every instruction after the open names the budget by its `created_slot`
+  and is refused in the slot it was opened in (B7).
+- Token transfers are measured: an open that leaves less than the total in
+  the vault is refused, and a payout pays the provider first, then the fee,
+  then the refund, each capped at what the vault still holds, so a
+  Token-2022 transfer fee switched on later or an issuer taking vault tokens
+  never strands a budget (B8).
+- At most 8 slices per budget; a slice is at least 1% of the total (at least
+  one base unit); an optional per-provider cap.
+- The provider can re-point its token payout account while its slice is open
+  or posted (`set_payout_account`, B12).
+
+Windows: the open period and the dispute window are 9,000 to 1,512,000 slots
+(about an hour to 7 days); the judge's window is 1,500 to 3,024,000 slots
+(about 10 minutes to 14 days). The judge must be a registered, active
+attestation agent and neither the payer nor the spender. Caps as for an
+escrow: 0.5 SOL, or 100 units of a token.
+
+### Budget instructions
+
+`created_slot` is the budget's, read from the budget account.
+
+| Instruction | Data after the selector | Accounts |
+|---|---|---|
+| `open_budget` | `nonce [u8;16]`, `spender`, `judge` (zero for none), `open_slots`, `dispute_slots`, `judge_slots`, `total`, `per_provider_cap` (0 for the total), `flags u8` (0x01 spender may waive), `allowlist [address;4]` | `budget` w, `payer` w s, `system_program`, then `judge_agent` when a judge is named |
+| `open_token_budget` | as `open_budget` | `budget` w, `vault` w, `payer` w s, `mint`, `source` w, `token_program`, `system_program`, then `judge_agent` |
+| `reserve` | `created_slot`, `amount` (the slice's new total) | `budget` w, `reservation` w, `spender` s, `payee` w s (pays the reservation's rent), `payee_agent`, `payout_account` (SOL: the payee), `system_program` |
+| `set_payout_account` | `created_slot` | `budget`, `reservation` w, `payee` s, `payout_account` |
+| `post_final` | `created_slot`, `amount` | `budget`, `reservation` w, `payee` s |
+| `waive`, `dispute` | `created_slot` | `budget`, `reservation` w, `signer` s |
+| `close_budget` | `created_slot` | `budget` w, `signer` s, `payer` w |
+| `close_token_budget` | `created_slot` | `budget` w, `vault` w, `signer` s, `payer` w, `mint`, `refund` w, `token_program`, then optionally the SPL Memo program |
+| `payout_budget` | `created_slot` | `budget` w, `reservation` w, `payee` w, `payer` w, `treasury` w |
+| `resolve_budget` | `created_slot`, `payout` (at most the posted amount) | as `payout_budget`, then `judge` s |
+| `payout_token_budget` | `created_slot` | `budget` w, `vault` w, `reservation` w, `payee` w, `payer` w, `mint`, `payout_account` w (the recorded one), `treasury_token` w, `refund` w (the payer's), `token_program`, then optionally the SPL Memo program |
+| `resolve_token_budget` | `created_slot`, `payout` | as `payout_token_budget`, then `judge` s, then optionally the SPL Memo program |
+
+Seeds: budget `["budget", payer, nonce]`, vault `["budget-vault", budget]`,
+reservation `["reservation", budget, payee]`. All integers are u64
+little-endian. Events: `BudgetOpened`, `BudgetReserved`, `BudgetClosed`,
+`BudgetPaid` (with outcome 0 waived, 1 window ended, 2 resolved, 3 judge timed
+out).
+
+New error numbers, 6073 to 6097: `InvalidBudgetTerms`,
+`BudgetNeedsJudgeOrAllowlist`, `SpenderWaiveNeedsAllowlist`,
+`BudgetInstanceMismatch`, `BudgetJustOpened`, `BudgetNotOpen`,
+`BudgetNotClosed`, `BudgetAlreadyClosed`, `BudgetBalanceTooLow`,
+`AboveProviderCap`, `ReservationTooSmall`, `TooManyReservations`,
+`PayeeNotAllowed`, `PayeeNotActive`, `InvalidReservation`,
+`ReservationLocked`, `ReservationNotPosted`, `InvalidFinalAmount`,
+`ReservationDisputed`, `ReservationWaived`, `BudgetDisputeWindowClosed`,
+`ReservationNotDisputed`, `BudgetHasNoJudge`, `PayoutNotOpen`,
+`BudgetJudgeWindowClosed`. Each instruction also uses the shared checks
+(`UnauthorisedSigner` 6000, `InvalidPayee` 6007, `InvalidJudge` 6038,
+`NotAttestationAgent` 6016, `JudgeNotActive` 6049, `AmountAboveCap` 6025,
+`InvalidTokenAccount` 6023, `InvalidResolution` 6071).
+
+### Budget and reservation accounts
+
+`account:Budget`, 349 bytes: discriminator (0), `payer` (8), `spender` (40),
+`judge` (72), `mint` (104, zero for SOL), `nonce` (136), `created_slot` (152),
+`open_slots` (160), `dispute_slots` (168), `judge_slots` (176), `total`
+(184), `unreserved` (192), `per_provider_cap` (200), `allowlist` 4 × 32
+(208), `closed_slot` (336), `reservations` u8 (344), `unsettled` u8 (345),
+`flags` u8 (346: 0x01 spender may waive, 0x02 closed), `bump` (347),
+`vault_bump` (348). A SOL budget holds its lamports on top of its rent.
+
+`account:Reservation`, 147 bytes: discriminator (0), `budget` (8),
+`budget_created_slot` (40), `payee` (48), `payout_account` (80), `reserved`
+(112), `final_amount` (120), `posted_slot` (128), `disputed_slot` (136),
+`state` u8 (144: 0 open, 1 posted, 2 disputed, 3 paid), `waived` u8 (145),
+`bump` (146).
+
+Compute units (from `budget.rs`): open 7,546 (SOL) and 21,352 to 24,352
+(tokens), reserve 20,236 (SOL, creating) and up to 23,503 (tokens), post and
+waive about 4,200, SOL payout 5,063, token payout up to 27,904 (the last
+payout of a budget, closing the vault).
+
 ## Evidence
 
 Three layers, all in `equivalence/` (its own workspace, so the test harness's
@@ -911,7 +1036,10 @@ dependencies stay out of the program's lockfile):
    escrow is refused for the next one at its address, including one locked in
    the same transaction that ended the first, and no exit lands in the lock slot),
    `judge_attestation.rs`, `instruction_surface.rs` (the default
-   build answers the 29 instructions and not the two PER selectors),
+   build answers the 42 instructions and not the two PER selectors),
+   `budget.rs` (every pooled-budget instruction, SOL, USDC and PYUSD, each
+   window at its boundary slot, the judge's split and timeout, a budget
+   re-opened at the same address, and every refusal listed below),
    `delivery.rs` (every delivery instruction and exit, each window at its
    boundary slot, judge checks, the split and fee of a resolve, SOL and token,
    rated and not, and an exit refused without or with the wrong delivery
@@ -958,12 +1086,12 @@ are embedded in the Anchor binary, so its size moves by a few dozen bytes with
 the checkout path. The Anchor figure is its default build, which has the 13
 escrow and registry instructions only:
 
-| | Anchor (13 instructions) | Pinocchio (29 instructions) | Change |
+| | Anchor (13 instructions) | Pinocchio (42 instructions) | Change |
 |---|---|---|---|
-| Program size | 345,152 bytes | 125,672 bytes | 64% smaller |
-| Rent at 6,960 lamports per byte | 2.4046 SOL | 0.8770 SOL | 1.5276 SOL less |
-| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.6401 SOL | 1.1150 SOL less |
-| `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 133,096 bytes | 73% smaller |
+| Program size | 345,152 bytes | 186,048 bytes | 46% smaller |
+| Rent at 6,960 lamports per byte | 2.4046 SOL | 1.2972 SOL | 1.1074 SOL less |
+| Rent at 5,080 lamports per byte | 1.7551 SOL | 0.9468 SOL | 0.8083 SOL less |
+| `per` build size (not for mainnet) | 495,744 bytes (`extended`) | 133,096 bytes (measured before the pooled budget) | 73% smaller |
 
 Before ratings and attestations were added the Pinocchio build was 62,248
 bytes (0.4356 SOL at 6,960); they cost 33,992 bytes and 0.2366 SOL of rent.
@@ -971,6 +1099,8 @@ Making every exit name its escrow added 632 bytes (0.0044 SOL at 6,960), and
 the launch-rate fee schedule 176 bytes (0.0012 SOL). The delivery check
 added 27,464 bytes (0.1911 SOL at 6,960, 0.1395 SOL at 5,080), and the
 memo before a transfer into a memo-requiring account 912 bytes (0.0063 SOL).
+The pooled budget added 60,376 bytes (0.4202 SOL at 6,960, 0.3067 SOL at
+5,080).
 
 Rent is for the program account (36 bytes) plus the program data account (45
 bytes of header plus the binary), each with the 128-byte account overhead:
@@ -1122,8 +1252,8 @@ the Anchor reference still agrees. The IDL built from the Anchor crate stays
 the client interface for selectors, accounts and arguments; the 8 bytes every
 exit carries after its arguments are specified here, not in the IDL.
 
-The rating and attestation instructions, and the exits of a rated escrow, are
-specified by this README and tested by this program's own tests. To change
+The rating, attestation, delivery-check and pooled-budget instructions, and
+the exits of a rated escrow, are specified by this README and tested by this program's own tests. To change
 one, change the test and the interface section together, then regenerate
 `interface/vectors.json` (`UPDATE_VECTORS=1 cargo test --test
 interface_vectors` in `equivalence/`) and review its diff.

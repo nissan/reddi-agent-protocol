@@ -182,6 +182,47 @@ pub const fn delivery_windows_valid(verify_window_slots: u64, resolve_window_slo
         && resolve_window_slots <= MAX_RESOLVE_WINDOW_SLOTS
 }
 
+// ── Pooled budget ───────────────────────────────────────────────────────────
+
+pub const BUDGET_SEED: &[u8] = b"budget";
+pub const BUDGET_VAULT_SEED: &[u8] = b"budget-vault";
+pub const RESERVATION_SEED: &[u8] = b"reservation";
+/// Shortest open period or dispute window a budget may name: about 1 hour.
+pub const MIN_BUDGET_WINDOW_SLOTS: u64 = 60 * 60 * 1000 / NOMINAL_SLOT_MS;
+/// Longest open period or dispute window: about 7 days.
+pub const MAX_BUDGET_WINDOW_SLOTS: u64 = 7 * 24 * 60 * 60 * 1000 / NOMINAL_SLOT_MS;
+/// After a provider posts its final amount the payer always has at least this
+/// long to dispute it, even when the post lands at the end of the dispute
+/// window: about 1 hour.
+pub const MIN_REVIEW_SLOTS: u64 = 60 * 60 * 1000 / NOMINAL_SLOT_MS;
+/// Most reservations one budget may ever hold.
+pub const MAX_BUDGET_RESERVATIONS: u8 = 8;
+/// Entries in a budget's provider allowlist.
+pub const BUDGET_ALLOWLIST_LEN: usize = 4;
+/// Budget flag: the spender may waive disputes for the payer.
+pub const BUDGET_FLAG_SPENDER_WAIVES: u8 = 0x01;
+
+/// Whether a budget's three windows are in range.
+pub const fn budget_windows_valid(open_slots: u64, dispute_slots: u64, judge_slots: u64) -> bool {
+    open_slots >= MIN_BUDGET_WINDOW_SLOTS
+        && open_slots <= MAX_BUDGET_WINDOW_SLOTS
+        && dispute_slots >= MIN_BUDGET_WINDOW_SLOTS
+        && dispute_slots <= MAX_BUDGET_WINDOW_SLOTS
+        && judge_slots >= MIN_RESOLVE_WINDOW_SLOTS
+        && judge_slots <= MAX_RESOLVE_WINDOW_SLOTS
+}
+
+/// The smallest reservation a budget of `total` takes: 1% of it, at least one
+/// base unit, so a spender cannot fill every slot with dust.
+pub const fn min_reservation(total: u64) -> u64 {
+    let floor = total / 100;
+    if floor == 0 {
+        1
+    } else {
+        floor
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

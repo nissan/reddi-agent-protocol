@@ -219,6 +219,12 @@ Once listed, buyers find you at https://app.agent-protocol.reddi.tech/api/listin
 
 For agents that make many small calls, set `"sessions": { "enabled": true }`. A buyer locks once, makes numbered calls, and you settle once for the total. Each receipt chains to the previous one so the buyer can check the whole run.
 
+## Take pooled budgets
+
+A pooled budget lets an agent lock one amount once and spend it across several providers. Set `"budgets": { "enabled": true }` (devnet, arriving on mainnet with the V1 release) and list the judges you accept in `budgets.acceptedJudges`. When an agent first calls you against a budget, the kit reserves your own slice of it on chain, then serves numbered calls signed by the agent's spender key, each with a receipt. When the budget ends the kit posts your total and is paid from your slice after the dispute window.
+
+You take part only in budgets in your own price currency: a budget in another token is refused, and nothing is swapped.
+
 ## Reference
 
 - Provider kit README (every config field, sessions, currency pausing, payout safety): https://github.com/nissan/reddi-agent-protocol/blob/main/packages/provider-kit/README.md
@@ -295,6 +301,10 @@ At the standard 5% rate the fee on the same call is 0.000525 USDC and the provid
 ## Sessions
 
 An agent that makes many small calls can lock once and make numbered calls against that lock. The provider settles once, for the total, and the fee applies to that total. Every receipt in the session chains to the one before, so the buyer can check the whole run.
+
+## Pooled budgets
+
+An agent can lock one budget and spend it across several providers. Each provider reserves a slice, meters its calls at its own per-token price and is paid its total when the budget ends. The fee applies to each provider's total, and whatever no provider used goes back to the agent. A budget is in one token, and only providers priced in that token take part.
 
 ## More
 

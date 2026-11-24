@@ -169,6 +169,33 @@ test.describe("/sandbox", () => {
     await expect(page.getByTestId("sandbox-receipt-count")).toHaveText("2");
   });
 
+  test("set a budget: one $5 USDC Budget, three providers, receipts, close, 24 h window, the rest back", async ({ page }) => {
+    await page.goto("/sandbox?scenario=budget");
+    await expect(page.getByTestId("sandbox-console")).toHaveAttribute("data-ready", "true", { timeout: 60_000 });
+    await expect(page.getByTestId("sandbox-scenario-budget")).toHaveAttribute("aria-pressed", "true");
+    await page.getByTestId("sandbox-budget-lock").click();
+    await expect(page.getByTestId("sandbox-budget-total")).toHaveText("5 USDC");
+    await expect(page.getByTestId("sandbox-budget-key")).toContainText("rap_pass_");
+    await expect(page.getByTestId("sandbox-budget-work")).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("sandbox-budget-work").click();
+    await expect(page.getByTestId("sandbox-budget-close")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("sandbox-budget-events")).toContainText("Splice Line takes SOL only, so it can't join a USDC Budget.");
+    await expect(page.getByTestId("sandbox-budget-receipts").locator("tbody tr")).toHaveCount(5);
+    await page.getByTestId("sandbox-budget-close").click();
+    await expect(page.getByTestId("sandbox-budget-window")).toContainText("Dispute window", { timeout: 15_000 });
+    await page.getByTestId("sandbox-budget-skip").click();
+    await expect(page.getByTestId("sandbox-budget-settled")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("sandbox-budget-payouts").locator("tbody tr")).toHaveCount(4);
+    await expect(page.getByTestId("sandbox-budget-spent")).toContainText("1.862284 USDC across 5 calls to 3 providers");
+    await expect(page.getByTestId("sandbox-budget-fee")).toContainText("2.5%");
+    await expect(page.getByTestId("sandbox-budget-returned")).toContainText("3.137716 USDC of 5 USDC");
+    await expect(page.getByTestId("sandbox-budget-invariant")).toContainText("✓");
+    const download = page.waitForEvent("download");
+    await page.getByTestId("sandbox-budget-download").click();
+    expect((await download).suggestedFilename()).toBe("rap-sandbox-budget-receipts.json");
+    await expectCopyInsideClaimBoundary(page);
+  });
+
   test("run a session: ten calls on one lock, each receipt checked, one settle", async ({ page }) => {
     await page.goto("/sandbox?scenario=run-a-session");
     await expect(page.getByTestId("sandbox-console")).toHaveAttribute("data-ready", "true", { timeout: 60_000 });

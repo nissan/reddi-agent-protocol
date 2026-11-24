@@ -45,7 +45,7 @@ pub mod token;
 use {
     consts::discriminator,
     error::{fail, InstructionFallbackNotFound},
-    instructions::{attestation, delivery, rating, registry, sol_escrow, token_escrow},
+    instructions::{attestation, budget, delivery, rating, registry, sol_escrow, token_escrow},
     pinocchio::{
         no_allocator, nostd_panic_handler, program_entrypoint, AccountView, Address, ProgramResult,
     },
@@ -57,7 +57,7 @@ solana_address::declare_id!("DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu");
 // resolve of a rated, delivery-checked escrow: its nine, then the rating and
 // delivery accounts, then the SPL Memo program for a receiving account that
 // requires memos); anything past that is ignored.
-program_entrypoint!(process_instruction, 12);
+program_entrypoint!(process_instruction, 14);
 // Nothing in the program allocates, so there is no heap to set up.
 no_allocator!();
 nostd_panic_handler!();
@@ -102,6 +102,20 @@ pub mod selector {
     pub const DISPUTE_DELIVERY: u64 = of("global:dispute_delivery");
     pub const RESOLVE_DELIVERY: u64 = of("global:resolve_delivery");
     pub const RESOLVE_TOKEN_DELIVERY: u64 = of("global:resolve_token_delivery");
+
+    pub const OPEN_BUDGET: u64 = of("global:open_budget");
+    pub const OPEN_TOKEN_BUDGET: u64 = of("global:open_token_budget");
+    pub const RESERVE: u64 = of("global:reserve");
+    pub const SET_PAYOUT_ACCOUNT: u64 = of("global:set_payout_account");
+    pub const POST_FINAL: u64 = of("global:post_final");
+    pub const WAIVE: u64 = of("global:waive");
+    pub const DISPUTE: u64 = of("global:dispute");
+    pub const CLOSE_BUDGET: u64 = of("global:close_budget");
+    pub const CLOSE_TOKEN_BUDGET: u64 = of("global:close_token_budget");
+    pub const PAYOUT_BUDGET: u64 = of("global:payout_budget");
+    pub const PAYOUT_TOKEN_BUDGET: u64 = of("global:payout_token_budget");
+    pub const RESOLVE_BUDGET: u64 = of("global:resolve_budget");
+    pub const RESOLVE_TOKEN_BUDGET: u64 = of("global:resolve_token_budget");
 
     /// Selectors of the `per` build.
     #[cfg(feature = "per")]
@@ -165,6 +179,19 @@ pub fn process_instruction(
         selector::DISPUTE_DELIVERY => delivery::answer(program_id, accounts, data, false),
         selector::RESOLVE_DELIVERY => sol_escrow::resolve(program_id, accounts, data),
         selector::RESOLVE_TOKEN_DELIVERY => token_escrow::resolve(program_id, accounts, data),
+        selector::OPEN_BUDGET => budget::open(program_id, accounts, data),
+        selector::OPEN_TOKEN_BUDGET => budget::open_token(program_id, accounts, data),
+        selector::RESERVE => budget::reserve(program_id, accounts, data),
+        selector::SET_PAYOUT_ACCOUNT => budget::set_payout_account(program_id, accounts, data),
+        selector::POST_FINAL => budget::post_final(program_id, accounts, data),
+        selector::WAIVE => budget::waive(program_id, accounts, data),
+        selector::DISPUTE => budget::dispute(program_id, accounts, data),
+        selector::CLOSE_BUDGET => budget::close_budget(program_id, accounts, data),
+        selector::CLOSE_TOKEN_BUDGET => budget::close_token_budget(program_id, accounts, data),
+        selector::PAYOUT_BUDGET => budget::payout(program_id, accounts, data),
+        selector::PAYOUT_TOKEN_BUDGET => budget::payout_token(program_id, accounts, data),
+        selector::RESOLVE_BUDGET => budget::resolve(program_id, accounts, data),
+        selector::RESOLVE_TOKEN_BUDGET => budget::resolve_token(program_id, accounts, data),
         #[cfg(feature = "per")]
         selector::per::DELEGATE_ESCROW => instructions::per::delegate(program_id, accounts, data),
         #[cfg(feature = "per")]
