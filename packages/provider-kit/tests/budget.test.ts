@@ -359,3 +359,17 @@ test("the sweep reports a budget slice that is done, and keeps it until the repo
   assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "done" }]);
   assert.deepEqual(done, [{ budget: budgetKey.toBase58(), createdSlot: CREATED.toString() }]);
 });
+
+test("after an early waived payout the slice waits for the budget to close: no repeated payouts and no done report", async () => {
+  const done: unknown[] = [];
+  const { chain, call, handler } = setup({ extra: { onBudgetDone: async (d) => { done.push(d); } } });
+  setBudget(chain, { openSlots: 2_000n + 648_000n });
+  setReservation(chain, { reserved: 1_000_000n });
+  assert.equal((await call(1)).status, 200);
+  setReservation(chain, { reserved: 1_000_000n, state: PAID, waived: true, postedSlot: CURRENT_SLOT });
+  const before = chain.sent.length;
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "paid" }]);
+  assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: "paid" }]);
+  assert.equal(chain.sent.length, before, "nothing is sent while the budget is open");
+  assert.deepEqual(done, []);
+});

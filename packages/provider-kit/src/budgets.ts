@@ -402,7 +402,9 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
     if (slice.status === "open") await deps.store.save({ ...slice, status: "posted" });
 
     if (!budget.closed) {
-      if (slot < budget.openEnds) return r.waived ? await payout(slice, budget, budgetKey, createdSlot) : "posted";
+      // Paid early on a waiver: the slice stays on record as paid until the budget closes; nothing more to send.
+      if (r.state === "paid") return "paid";
+      if (slot < budget.openEnds) return r.waived && r.state === "posted" ? await payout(slice, budget, budgetKey, createdSlot) : "posted";
       // The open period is over and nobody closed it: anyone may, and the dispute window starts then.
       const refund = associatedTokenAccount(budget.payer, terms.mint, terms.tokenProgram);
       await send([closeBudgetInstruction({ programId: terms.programId, budget: budgetKey, createdSlot, signer: payee, payer: budget.payer, token: { mint: terms.mint, refund, tokenProgram: terms.tokenProgram } })]);
