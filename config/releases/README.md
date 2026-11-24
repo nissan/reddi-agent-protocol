@@ -49,8 +49,8 @@ the record or the RPC could not be used, so nothing was decided.
 
 The program was frozen at `45e9547` on 23 November 2026 (run 45124021410, both
 variants; the program tree last changed in `4c2d343`). `v1-devnet-45e9547.json`
-is the devnet build of the freeze; its `deployedSlot` is filled in at the devnet
-upgrade. `v1-mainnet-45e9547.json` is the mainnet build of record. It lists the
+is the devnet build of the freeze, deployed in slot 525663342 on 24 November 2026 (the devnet
+upgrade). `v1-mainnet-45e9547.json` is the mainnet build of record. It lists the
 devnet deployer as forbidden, and is refused by the check until the Squads
 multisig account and the mainnet deployer are added at deploy; the check must
 pass against it after the upgrade authority moves to the vault. File sizes and

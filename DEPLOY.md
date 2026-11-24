@@ -29,9 +29,10 @@ the artifact of the container build (`.github/workflows/escrow-verifiable-build.
 
 ## V1 escrow program (devnet)
 
-Upgraded in place on devnet on 21 November 2026 with owner approval, to the Pinocchio
-program with ratings and judge attestations: commit `2b7e2c1` (program source as at
-`b71a91e`), container build with `--features devnet`. Devnet only: nothing is deployed to
+Upgraded in place on devnet on 24 November 2026 with owner approval, to the frozen build at
+commit `45e9547` (`config/releases/v1-devnet-45e9547.json`), container build with
+`--features devnet` from run 45124021410. The previous devnet build (21 November, `b71a91e`)
+is recorded in `config/releases/v1-devnet-b71a91e.json`. Devnet only: nothing is deployed to
 mainnet, and this record is not an audit, production or mainnet readiness claim.
 
 | Field | Value |
@@ -39,11 +40,11 @@ mainnet, and this record is not an audit, production or mainnet readiness claim.
 | Program ID | `DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu` |
 | Upgrade authority (devnet) | `hbr2Fee3ewDbm33wTDrdEF3e7byNCzNgQ57CwJWaPtt` (managed deployer key) |
 | ProgramData address | `8cCmxnMPU8EQR7ECfff19Dr4gu1n7jyFCuEEyaYspRn2` (337,760 bytes reserved, kept from the first deploy) |
-| Upgraded in slot | 524707788 |
-| Upgrade signature | `5FMKo1K8ufkxB9SHzDCghnA4EXWm2gRaDS3esLoq3LMJPTrEAFHjeNMAsTpTSrUQZsKa5mUCaiJJu2Z1qEzZSR4t` |
+| Upgraded in slot | 525663342 |
+| Upgrade signature | `4GzFfrPQEgpS7RzQJYufVSpHnwPQr8381rWKFCb2kc4xqhAuRFrnhdNrBaPazHfJebLAtpvma9M3fhk5k7WwWQSK` |
 | Build | `solana-verify` 0.5.2, image `solanafoundation/solana-verifiable-build:4.2.2` |
-| Executable hash (`solana-verify get-executable-hash`, read back from devnet) | `10e986fe1b1e619fff02b2120fcc9c47bd373677526b8f386095360bb15b0e7b`, same as CI run 44900313151 |
-| File size and SHA-256 | 96,272 bytes, `2576a9cccb15ea09aa675e1a2d415043f8d231179772e5fa23728402b10a32ac` |
+| Executable hash (`solana-verify get-program-hash`, read back from devnet) | `1ad9f29e0457be3bb07ad263cbb71050f8607be2ecc9bc9ca6081c08a4ade047`, same as CI run 45124021410 |
+| File size and SHA-256 | 97,080 bytes, `aeda6b9156f2144e82667a7f77527ebfd392b5a071b9fb2786dc17d729a6dffb` |
 
 Escrow accounts written by the earlier Anchor build (149 and 203 bytes) cannot be read by
 this build; the four left open by e2e run v3 were abandoned (owner decision).
