@@ -1048,7 +1048,7 @@ async function runRated(conn, runId) {
   {
     let sig = await go('job1.lock-and-open-rating');
     const flags = rating.escrowAccountFlags((await conn.getAccountInfo(escrows.job1, 'finalized')).data);
-    assert.deepEqual(flags, { kind: 'sol', metered: true, rated: true }, 'job1: escrow flag byte');
+    assert.deepEqual(flags, { kind: 'sol', metered: true, rated: true, deliveryChecked: false, unknownBits: 0 }, 'job1: escrow flag byte');
     let r = await state('job1', 'awaiting_settlement');
     assert.equal(text(r.escrow), text(escrows.job1), 'job1: rating names the escrow');
     assert.equal(text(r.consumer), text(payer), 'job1: consumer');
@@ -1150,7 +1150,7 @@ async function runRated(conn, runId) {
     }
     let sig = await go('job2.lock-and-open-rating');
     const flags = rating.escrowAccountFlags((await conn.getAccountInfo(escrows.job2, 'finalized')).data);
-    assert.deepEqual(flags, { kind: 'token', metered: false, rated: true }, 'job2: escrow flag byte');
+    assert.deepEqual(flags, { kind: 'token', metered: false, rated: true, deliveryChecked: false, unknownBits: 0 }, 'job2: escrow flag byte');
     let r = await state('job2', 'awaiting_settlement');
     assert.equal(r.judge, undefined, 'job2: names no judge');
     // What the seller saw: the slot of the lock transaction. It accepts only that job.
@@ -1249,7 +1249,7 @@ async function runRated(conn, runId) {
     let sig = await go('unrated.lock');
     const unratedData = (await conn.getAccountInfo(escrows.unrated, 'finalized')).data;
     const flags = rating.escrowAccountFlags(unratedData);
-    assert.deepEqual(flags, { kind: 'sol', metered: false, rated: false }, 'unrated: escrow flag byte');
+    assert.deepEqual(flags, { kind: 'sol', metered: false, rated: false, deliveryChecked: false, unknownBits: 0 }, 'unrated: escrow flag byte');
     // Its decline names it by the lock slot, as every exit does.
     openedSlots.unrated = unratedData.readBigUInt64LE(SOL_CREATED_SLOT_OFFSET);
     assert.equal(openedSlots.unrated, await slotOf(sig), 'unrated: created_slot is the slot of the lock');
