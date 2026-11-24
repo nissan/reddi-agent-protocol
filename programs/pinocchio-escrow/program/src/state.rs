@@ -9,8 +9,9 @@ use {
     crate::{
         checks::at_seeds,
         consts::{
-            discriminator, AGENT_MODEL_MAX_LEN, ATTESTATION_SEED, DELIVERY_SEED, RATING_SEED,
-            SCORE_MAX, SYSTEM_PROGRAM_ID,
+            discriminator, AGENT_MODEL_MAX_LEN, ATTESTATION_SEED, BUDGET_ALLOWLIST_LEN,
+            BUDGET_SEED, DELIVERY_SEED, MIN_REVIEW_SLOTS, RATING_SEED, RESERVATION_SEED, SCORE_MAX,
+            SYSTEM_PROGRAM_ID,
         },
         error::{
             fail, AccountDidNotDeserialize, AccountDiscriminatorMismatch,
@@ -1087,5 +1088,314 @@ impl Delivery {
     pub fn dispute(&mut self, slot: u64) {
         self.disputed_slot = slot.to_le_bytes();
         self.state = DELIVERY_DISPUTED;
+    }
+}
+
+// ── Pooled budget ───────────────────────────────────────────────────────────
+
+/// Budget flag: closed. No new reservations; the dispute window runs from
+/// `closed_slot`.
+const BUDGET_FLAG_CLOSED: u8 = 0x02;
+
+/// One pooled budget: a single lock a payer's spender key reserves slices of
+/// for registered providers while the budget is open. PDA seeds:
+/// `["budget", payer, nonce]`. A SOL budget holds its lamports on top of its
+/// rent; a token budget owns a vault (`["budget-vault", budget]`).
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct Budget {
+    discriminator: [u8; 8],
+    pub payer: Address,
+    pub spender: Address,
+    /// All zero when the budget names no judge.
+    pub judge: Address,
+    /// All zero for a SOL budget.
+    pub mint: Address,
+    pub nonce: [u8; 16],
+    created_slot: [u8; 8],
+    open_slots: [u8; 8],
+    dispute_slots: [u8; 8],
+    judge_slots: [u8; 8],
+    total: [u8; 8],
+    unreserved: [u8; 8],
+    per_provider_cap: [u8; 8],
+    /// All-zero entries are empty; an all-zero list means any registered
+    /// provider.
+    pub allowlist: [Address; BUDGET_ALLOWLIST_LEN],
+    closed_slot: [u8; 8],
+    /// Reservations ever created on this budget.
+    pub reservations: u8,
+    /// Reservations not yet paid out or resolved.
+    pub unsettled: u8,
+    pub flags: u8,
+    pub bump: u8,
+    pub vault_bump: u8,
+}
+
+// SAFETY: byte fields only, discriminator first.
+unsafe impl Record for Budget {
+    const DISCRIMINATOR: [u8; 8] = discriminator("account:Budget");
+    const LEN: usize = 8 + 32 * 4 + 16 + 8 * 7 + 32 * BUDGET_ALLOWLIST_LEN + 8 + 5;
+}
+assert_layout!(Budget, 349);
+
+impl Budget {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        payer: &Address,
+        spender: &Address,
+        judge: &Address,
+        mint: &Address,
+        nonce: [u8; 16],
+        created_slot: u64,
+        open_slots: u64,
+        dispute_slots: u64,
+        judge_slots: u64,
+        total: u64,
+        per_provider_cap: u64,
+        allowlist: [Address; BUDGET_ALLOWLIST_LEN],
+        flags: u8,
+        bump: u8,
+        vault_bump: u8,
+    ) -> Self {
+        Self {
+            discriminator: Self::DISCRIMINATOR,
+            payer: *payer,
+            spender: *spender,
+            judge: *judge,
+            mint: *mint,
+            nonce,
+            created_slot: created_slot.to_le_bytes(),
+            open_slots: open_slots.to_le_bytes(),
+            dispute_slots: dispute_slots.to_le_bytes(),
+            judge_slots: judge_slots.to_le_bytes(),
+            total: total.to_le_bytes(),
+            unreserved: total.to_le_bytes(),
+            per_provider_cap: per_provider_cap.to_le_bytes(),
+            allowlist,
+            closed_slot: [0; 8],
+            reservations: 0,
+            unsettled: 0,
+            flags,
+            bump,
+            vault_bump,
+        }
+    }
+
+    /// The record at `account`, which must be a budget of this program at the
+    /// address derived from its payer and nonce.
+    pub fn load_checked(account: &AccountView, program_id: &Address) -> Result<Self, ProgramError> {
+        let record = Self::load(account, program_id)?;
+        at_seeds(
+            account,
+            &[
+                BUDGET_SEED,
+                record.payer.as_ref(),
+                &record.nonce,
+                &[record.bump],
+            ],
+            program_id,
+        )?;
+        Ok(record)
+    }
+
+    pub fn created_slot(&self) -> u64 {
+        u64::from_le_bytes(self.created_slot)
+    }
+
+    pub fn open_slots(&self) -> u64 {
+        u64::from_le_bytes(self.open_slots)
+    }
+
+    pub fn dispute_slots(&self) -> u64 {
+        u64::from_le_bytes(self.dispute_slots)
+    }
+
+    pub fn judge_slots(&self) -> u64 {
+        u64::from_le_bytes(self.judge_slots)
+    }
+
+    pub fn total(&self) -> u64 {
+        u64::from_le_bytes(self.total)
+    }
+
+    pub fn unreserved(&self) -> u64 {
+        u64::from_le_bytes(self.unreserved)
+    }
+
+    pub fn set_unreserved(&mut self, amount: u64) {
+        self.unreserved = amount.to_le_bytes();
+    }
+
+    pub fn per_provider_cap(&self) -> u64 {
+        u64::from_le_bytes(self.per_provider_cap)
+    }
+
+    pub fn closed_slot(&self) -> u64 {
+        u64::from_le_bytes(self.closed_slot)
+    }
+
+    pub fn closed(&self) -> bool {
+        self.flags & BUDGET_FLAG_CLOSED != 0
+    }
+
+    pub fn close_at(&mut self, slot: u64) {
+        self.flags |= BUDGET_FLAG_CLOSED;
+        self.closed_slot = slot.to_le_bytes();
+    }
+
+    pub fn sol(&self) -> bool {
+        self.mint == Address::new_from_array([0; 32])
+    }
+
+    pub fn has_judge(&self) -> bool {
+        self.judge != Address::new_from_array([0; 32])
+    }
+
+    /// The first slot at which the open period has ended.
+    pub fn open_ends(&self) -> u64 {
+        self.created_slot().saturating_add(self.open_slots())
+    }
+}
+
+pub const RESERVATION_OPEN: u8 = 0;
+pub const RESERVATION_POSTED: u8 = 1;
+pub const RESERVATION_DISPUTED: u8 = 2;
+/// Paid out early (both sides waived) while the budget was still open. Kept
+/// until the budget closes so the same provider cannot reserve again.
+pub const RESERVATION_PAID: u8 = 3;
+
+/// One provider's slice of a budget. PDA seeds:
+/// `["reservation", budget, payee]`. The payee funds its rent and gets it back
+/// when the reservation closes.
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct Reservation {
+    discriminator: [u8; 8],
+    pub budget: Address,
+    /// The budget's `created_slot` when this reservation was made.
+    budget_created_slot: [u8; 8],
+    pub payee: Address,
+    /// SOL budgets: the payee itself. Token budgets: a token account of the
+    /// budget's mint owned by the payee.
+    pub payout_account: Address,
+    reserved: [u8; 8],
+    final_amount: [u8; 8],
+    posted_slot: [u8; 8],
+    disputed_slot: [u8; 8],
+    pub state: u8,
+    pub waived: u8,
+    pub bump: u8,
+}
+
+// SAFETY: byte fields only, discriminator first.
+unsafe impl Record for Reservation {
+    const DISCRIMINATOR: [u8; 8] = discriminator("account:Reservation");
+    const LEN: usize = 8 + 32 + 8 + 32 + 32 + 8 * 4 + 3;
+}
+assert_layout!(Reservation, 147);
+
+impl Reservation {
+    pub fn new(
+        budget: &Address,
+        budget_created_slot: u64,
+        payee: &Address,
+        payout_account: &Address,
+        reserved: u64,
+        bump: u8,
+    ) -> Self {
+        Self {
+            discriminator: Self::DISCRIMINATOR,
+            budget: *budget,
+            budget_created_slot: budget_created_slot.to_le_bytes(),
+            payee: *payee,
+            payout_account: *payout_account,
+            reserved: reserved.to_le_bytes(),
+            final_amount: [0; 8],
+            posted_slot: [0; 8],
+            disputed_slot: [0; 8],
+            state: RESERVATION_OPEN,
+            waived: 0,
+            bump,
+        }
+    }
+
+    /// The record at `account`, which must be a reservation of this program
+    /// at the address derived from its budget and payee.
+    pub fn load_checked(account: &AccountView, program_id: &Address) -> Result<Self, ProgramError> {
+        let record = Self::load(account, program_id)?;
+        if record.state > RESERVATION_PAID || record.waived > 1 {
+            return Err(fail(&AccountDidNotDeserialize));
+        }
+        at_seeds(
+            account,
+            &[
+                RESERVATION_SEED,
+                record.budget.as_ref(),
+                record.payee.as_ref(),
+                &[record.bump],
+            ],
+            program_id,
+        )?;
+        Ok(record)
+    }
+
+    pub fn budget_created_slot(&self) -> u64 {
+        u64::from_le_bytes(self.budget_created_slot)
+    }
+
+    pub fn reserved(&self) -> u64 {
+        u64::from_le_bytes(self.reserved)
+    }
+
+    pub fn set_reserved(&mut self, amount: u64) {
+        self.reserved = amount.to_le_bytes();
+    }
+
+    pub fn final_amount(&self) -> u64 {
+        u64::from_le_bytes(self.final_amount)
+    }
+
+    pub fn posted_slot(&self) -> u64 {
+        u64::from_le_bytes(self.posted_slot)
+    }
+
+    pub fn disputed_slot(&self) -> u64 {
+        u64::from_le_bytes(self.disputed_slot)
+    }
+
+    pub fn post(&mut self, amount: u64, slot: u64) {
+        self.final_amount = amount.to_le_bytes();
+        self.posted_slot = slot.to_le_bytes();
+        self.state = RESERVATION_POSTED;
+    }
+
+    /// A lower amount on a posted reservation. The first post's slot stays,
+    /// so a re-post never extends the payer's review time.
+    pub fn repost(&mut self, amount: u64) {
+        self.final_amount = amount.to_le_bytes();
+    }
+
+    pub fn dispute(&mut self, slot: u64) {
+        self.disputed_slot = slot.to_le_bytes();
+        self.state = RESERVATION_DISPUTED;
+    }
+
+    /// The first slot at which the payer can no longer dispute this
+    /// reservation of a closed `budget`: the budget's dispute window, and
+    /// never less than `MIN_REVIEW_SLOTS` after the first post.
+    pub fn dispute_ends(&self, budget: &Budget) -> u64 {
+        let window = budget.closed_slot().saturating_add(budget.dispute_slots());
+        let review = self.posted_slot().saturating_add(MIN_REVIEW_SLOTS);
+        if review > window {
+            review
+        } else {
+            window
+        }
+    }
+
+    /// The first slot at which the judge's window has ended.
+    pub fn judge_ends(&self, budget: &Budget) -> u64 {
+        self.disputed_slot().saturating_add(budget.judge_slots())
     }
 }

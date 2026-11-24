@@ -16,6 +16,11 @@
       "import": "./dist/index.js",
       "require": "./dist/index.js"
     },
+    "./budget": {
+      "types": "./dist/budget.d.ts",
+      "import": "./dist/budget.js",
+      "require": "./dist/budget.js"
+    },
     "./budget-policy": {
       "types": "./dist/budget-policy.d.ts",
       "import": "./dist/budget-policy.js",

@@ -62,6 +62,11 @@ export const AGENT_SEED = Buffer.from("agent");
 export const RATING_SEED = Buffer.from("rating");
 export const ATTESTATION_SEED = Buffer.from("attestation");
 export const DELIVERY_SEED = Buffer.from("delivery");
+// Pooled budget (README "Pooled budget"): ["budget", payer, nonce], ["budget-vault", budget],
+// ["reservation", budget, payee]. Builders and decoders in @redditech/x402-solana/budget.
+export const BUDGET_SEED = Buffer.from("budget");
+export const BUDGET_VAULT_SEED = Buffer.from("budget-vault");
+export const RESERVATION_SEED = Buffer.from("reservation");
 
 // ── IDL-derived Anchor discriminators ────────────────────────────────────────
 // Formula: SHA256("global:<ix_name>")[0..8]  (instructions)
@@ -109,6 +114,20 @@ export const IX = {
   dispute_delivery: disc("global", "dispute_delivery"),
   resolve_delivery: disc("global", "resolve_delivery"),
   resolve_token_delivery: disc("global", "resolve_token_delivery"),
+  // The pooled budget (README "Pooled budget"); builders and decoders in @redditech/x402-solana/budget.
+  open_budget: disc("global", "open_budget"),
+  open_token_budget: disc("global", "open_token_budget"),
+  reserve: disc("global", "reserve"),
+  set_payout_account: disc("global", "set_payout_account"),
+  post_final: disc("global", "post_final"),
+  waive: disc("global", "waive"),
+  dispute: disc("global", "dispute"),
+  close_budget: disc("global", "close_budget"),
+  close_token_budget: disc("global", "close_token_budget"),
+  payout_budget: disc("global", "payout_budget"),
+  payout_token_budget: disc("global", "payout_token_budget"),
+  resolve_budget: disc("global", "resolve_budget"),
+  resolve_token_budget: disc("global", "resolve_token_budget"),
 } as const;
 
 export const ACCOUNT_DISC = {
@@ -118,6 +137,8 @@ export const ACCOUNT_DISC = {
   RatingAccount: disc("account", "RatingAccount"),
   AttestationAccount: disc("account", "AttestationAccount"),
   DeliveryAccount: disc("account", "DeliveryAccount"),
+  Budget: disc("account", "Budget"),
+  Reservation: disc("account", "Reservation"),
 } as const;
 
 export const QUASAR_ACCOUNT_DISC = {

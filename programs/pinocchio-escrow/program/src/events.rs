@@ -32,6 +32,10 @@ const SETTLED: [u8; 8] = discriminator("event:EscrowSettled");
 const DELIVERY_RECORDED: [u8; 8] = discriminator("event:DeliveryRecorded");
 const DELIVERY_CHANGED: [u8; 8] = discriminator("event:DeliveryChanged");
 const DELIVERY_RESOLVED: [u8; 8] = discriminator("event:DeliveryResolved");
+const BUDGET_OPENED: [u8; 8] = discriminator("event:BudgetOpened");
+const BUDGET_RESERVED: [u8; 8] = discriminator("event:BudgetReserved");
+const BUDGET_CLOSED: [u8; 8] = discriminator("event:BudgetClosed");
+const BUDGET_PAID: [u8; 8] = discriminator("event:BudgetPaid");
 
 struct Record {
     bytes: [u8; 192],
@@ -204,6 +208,115 @@ impl DeliveryResolved<'_> {
         record.put(self.escrow.as_ref());
         record.put(self.judge.as_ref());
         record.put(&self.payout.to_le_bytes());
+        record.put(&self.slot.to_le_bytes());
+        record.emit();
+    }
+}
+
+/// A budget was locked.
+pub struct BudgetOpened<'a> {
+    pub budget: &'a Address,
+    pub payer: &'a Address,
+    pub spender: &'a Address,
+    pub judge: &'a Address,
+    /// All zero for SOL.
+    pub mint: &'a Address,
+    pub total: u64,
+    pub created_slot: u64,
+}
+
+impl BudgetOpened<'_> {
+    #[inline(never)]
+    pub fn emit(&self) {
+        let mut record = Record::new(&BUDGET_OPENED);
+        record.put(self.budget.as_ref());
+        record.put(self.payer.as_ref());
+        record.put(self.spender.as_ref());
+        record.put(self.judge.as_ref());
+        record.put(self.mint.as_ref());
+        record.put(&self.total.to_le_bytes());
+        record.put(&self.created_slot.to_le_bytes());
+        record.emit();
+    }
+}
+
+/// A provider's reservation was created or raised to `reserved`.
+pub struct BudgetReserved<'a> {
+    pub budget: &'a Address,
+    pub payee: &'a Address,
+    pub reserved: u64,
+    pub unreserved: u64,
+    pub slot: u64,
+}
+
+impl BudgetReserved<'_> {
+    #[inline(never)]
+    pub fn emit(&self) {
+        let mut record = Record::new(&BUDGET_RESERVED);
+        record.put(self.budget.as_ref());
+        record.put(self.payee.as_ref());
+        record.put(&self.reserved.to_le_bytes());
+        record.put(&self.unreserved.to_le_bytes());
+        record.put(&self.slot.to_le_bytes());
+        record.emit();
+    }
+}
+
+/// A budget closed to new reservations; `refunded` went back to the payer.
+pub struct BudgetClosed<'a> {
+    pub budget: &'a Address,
+    pub refunded: u64,
+    pub slot: u64,
+}
+
+impl BudgetClosed<'_> {
+    #[inline(never)]
+    pub fn emit(&self) {
+        let mut record = Record::new(&BUDGET_CLOSED);
+        record.put(self.budget.as_ref());
+        record.put(&self.refunded.to_le_bytes());
+        record.put(&self.slot.to_le_bytes());
+        record.emit();
+    }
+}
+
+/// How a reservation was paid out. The values are the wire encoding.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum BudgetOutcome {
+    /// Both sides waived: the posted amount, possibly before close.
+    Waived = 0,
+    /// The dispute window ended undisputed: the posted amount, or nothing if
+    /// the provider never posted.
+    WindowEnded = 1,
+    /// The judge named the payout.
+    Resolved = 2,
+    /// The judge did not rule in time: everything back to the payer.
+    JudgeTimedOut = 3,
+}
+
+/// A reservation was paid out: `paid` to the provider after `fee`, and
+/// `refunded` back to the payer.
+pub struct BudgetPaid<'a> {
+    pub budget: &'a Address,
+    pub payee: &'a Address,
+    pub paid: u64,
+    pub fee: u64,
+    pub refunded: u64,
+    pub outcome: BudgetOutcome,
+    pub slot: u64,
+}
+
+impl BudgetPaid<'_> {
+    #[inline(never)]
+    pub fn emit(&self) {
+        let mut record = Record::new(&BUDGET_PAID);
+        record.put(self.budget.as_ref());
+        record.put(self.payee.as_ref());
+        record.put(&self.paid.to_le_bytes());
+        record.put(&self.fee.to_le_bytes());
+        record.put(&self.refunded.to_le_bytes());
+        record.put(&[self.outcome as u8]);
         record.put(&self.slot.to_le_bytes());
         record.emit();
     }
