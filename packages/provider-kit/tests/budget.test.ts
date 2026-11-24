@@ -334,14 +334,14 @@ test("a pricing hook that fails or answers out of range refuses the call, and no
 
 test("a priced call that is then refused is reported, so what its pricing set aside can be given back", async () => {
   class FailingStore extends MemoryBudgetSliceStore { override async save(): Promise<void> { throw new Error("disk full"); } }
-  const voided: { budget: string; requestId: string }[] = [];
+  const voided: { budget: string; createdSlot: string; requestId: string }[] = [];
   const ids: string[] = [];
   const { chain, call } = setup({ store: new FailingStore(), budgetCallPricing: async (input) => { ids.push(input.requestId); return { paid: input.cost }; }, extra: { budgetCallPricingVoided: async (v) => { voided.push(v); } } });
   setBudget(chain);
   setReservation(chain, { reserved: 1_000_000n });
   const refused = await call(1);
   assert.equal(refused.status, 503);
-  assert.deepEqual(voided, [{ budget: budgetKey.toBase58(), requestId: ids[0] }]);
+  assert.deepEqual(voided, [{ budget: budgetKey.toBase58(), createdSlot: CREATED.toString(), requestId: ids[0] }]);
 });
 
 test("the sweep reports a budget slice that is done, and keeps it until the report goes through", async () => {

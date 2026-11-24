@@ -177,7 +177,7 @@ export interface ProviderDeps {
    * refused (its receipt could not be signed or its slice not recorded), so
    * whatever the pricing set aside can be given back. Errors are logged.
    */
-  budgetCallPricingVoided?: (voided: { budget: string; requestId: string }) => Promise<void>;
+  budgetCallPricingVoided?: (voided: { budget: string; createdSlot: string; requestId: string }) => Promise<void>;
   /** Called by the sweep once a budget slice is settled and gone; see `BudgetDeskDeps.onBudgetDone`. */
   onBudgetDone?: (done: { budget: string; createdSlot: string }) => Promise<void>;
   /** Ed25519 signature by the provider wallet, for receipts. */
@@ -694,7 +694,7 @@ export function createProviderHandler(config: ProviderConfig, deps: ProviderDeps
       const priced = deps.budgetCallPricing !== undefined;
       const voidPricing = async () => {
         if (!priced || !deps.budgetCallPricingVoided) return;
-        await deps.budgetCallPricingVoided({ budget: slice.budget, requestId }).catch((error: unknown) => log({ event: "budget_pricing_void_failed", alert: true, requestId, budget: slice.budget, detail: error instanceof Error ? error.message : "unknown" }));
+        await deps.budgetCallPricingVoided({ budget: slice.budget, createdSlot: slice.createdSlot, requestId }).catch((error: unknown) => log({ event: "budget_pricing_void_failed", alert: true, requestId, budget: slice.budget, detail: error instanceof Error ? error.message : "unknown" }));
       };
       const left = BigInt(slice.reserved) - BigInt(slice.spent);
       const charged = cost > left ? left : cost;
