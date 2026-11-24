@@ -88,6 +88,12 @@ export type CustodyDeps = {
   sender: AlertSender;
   /** The relay's own RPC. Undefined: nothing is approved. */
   chain?: CustodyChain;
+  /**
+   * The one network this signer approves for (one KMS issuer per cluster,
+   * R5-M2). Set by the Budget signer project; a record on another network is
+   * refused before anything is logged or signed.
+   */
+  network?: BudgetNetwork;
   env?: Record<string, string | undefined>;
   nowMs?: number;
 };
@@ -368,10 +374,12 @@ export async function approveAsSpender(
   const nowMs = deps.nowMs ?? Date.now();
   const signer = deps.signer;
   if (!signer) return refuse("custody_not_configured", "Budget spending is not set up: BUDGET_SPENDER_KMS_ISSUER_ID or BUDGET_SPENDER_P256_PUBLIC_KEY is missing.");
+  if (signer.publicKeyOnly) return refuse("signer_elsewhere", "This deployment does not sign Budget approvals: ask the Budget signer.");
   const chain = deps.chain;
   if (!chain) return refuse("chain_unavailable", "The relay has no RPC to read the slot from.");
   const record = await deps.store.byId(input.id);
   if (!record || !record.spenderKey) return refuse("unknown_budget_key", "No usable Budget record with that id.");
+  if (deps.network && record.network !== deps.network) return refuse("wrong_cluster", `This signer approves only ${deps.network} Budgets.`);
   const request = input.request;
   const { purpose } = request;
   if ("operator" in input.auth) {

@@ -24,6 +24,8 @@ export interface SpenderSigner {
   publicKey: Uint8Array;
   /** Signs `message` with ES256 (ECDSA P-256 over SHA-256). Any of DER or 64-byte r||s. */
   sign(message: Uint8Array): Promise<Uint8Array>;
+  /** True for the main app's copy, which names the key but cannot sign (`readSpenderPublicKey`). */
+  publicKeyOnly?: boolean;
 }
 
 export type SignedApproval = { ok: true; signature: Uint8Array } | { ok: false; code: "kms_unavailable" | "kms_key_mismatch"; message: string };
@@ -88,6 +90,24 @@ export function readKmsSigner(env: Record<string, string | undefined> = process.
       const result = await signMessage({ issuerId, message });
       if (result.algorithm && result.algorithm !== "ES256") throw new Error(`issuer signs with ${result.algorithm}, not ES256`);
       return result.signature;
+    },
+  };
+}
+
+/**
+ * The key new Budgets name, for the main app, which does not sign: only the
+ * Budget signer project holds the KMS grant (audit round 5, R5-M2; owner
+ * decision, 25 November 2026). Asking it to sign throws, so a mistake here
+ * cannot quietly reach KMS.
+ */
+export function readSpenderPublicKey(env: Record<string, string | undefined> = process.env): SpenderSigner | undefined {
+  const publicKey = parseP256PublicKey(env.BUDGET_SPENDER_P256_PUBLIC_KEY);
+  if (!publicKey) return undefined;
+  return {
+    publicKey,
+    publicKeyOnly: true,
+    async sign() {
+      throw new Error("the main app does not sign Budget approvals: the Budget signer project does");
     },
   };
 }

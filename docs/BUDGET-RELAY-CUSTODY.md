@@ -3,7 +3,34 @@
 Audit round 4 (S7-claude-03, -06) asked for the pooled Budget's off-chain pieces before a Budget is offered to anyone;
 audit rounds 5 and 5b (on 3102743 and 5b062a9) tightened who may ask for an approval and what one may allow.
 This file says what they are, how to set them up and what to do in an incident. Code: `lib/budget/`,
-`lib/jobs/budget-call.ts`, `app/api/budget/v1/`, `app/api/cron/budget-watch/`.
+`lib/jobs/budget-call.ts`, `app/api/budget/v1/`, `app/api/cron/budget-watch/`, and the Budget signer project
+`apps/budget-signer/` (below).
+
+## The Budget signer project
+
+Only one small Vercel project, `rap-budget-signer` (`apps/budget-signer/`), is granted the KMS issuer (audit round 5,
+R5-M2; owner decision, 25 November 2026). The main app holds no KMS grant and cannot sign: it names the key new
+Budgets use (`BUDGET_SPENDER_P256_PUBLIC_KEY`), makes and activates records, runs the watcher, and asks the signer for
+each approval (`lib/budget/signer-client.ts`). Its own `approveAsSpender` refuses (`signer_elsewhere`) before logging
+anything.
+
+The signer runs every check of `approveAsSpender` itself (`lib/budget/signer-service.ts`), against the custody store,
+with its own RPC and program id from its own environment:
+
+- `POST /api/v1/approve` answers only the main app (`BUDGET_SIGNER_TOKEN`), and only for an agent: the body carries
+  the record id, the agent secret and the request, and there is no field that asks for the operator path. It returns
+  the secp256r1 approval and the Budget call, which the main app checks are the precompile and a call to our own
+  program for the purpose it asked before using them.
+- `POST /api/v1/incident` is the operator's incident step (`BUDGET_INCIDENT_SECRET`, below). It runs in the signer,
+  so the incident close never passes through the main app.
+- `GET /api/v1/health` says which network, program and spender key the signer serves. No secret.
+- One signer serves one network (`BUDGET_SIGNER_NETWORK`, devnet only for now) with its own issuer, and refuses a
+  record on another network (`wrong_cluster`) before logging or signing. Mainnet Budgets get a second signer
+  deployment with their own issuer when they open.
+
+A compromised main app can still misuse the agent secrets passing through it, and its database key, within the
+payer-signed limits (the payer's providers, up to the payer's maximum, within the counted limits). It cannot have KMS
+sign outside the signer's checks, the log and the limits.
 
 ## What the relay holds
 
@@ -28,8 +55,9 @@ relay holds no key material at all:
   concurrent requests cannot slip past them. It runs only at READ COMMITTED (under REPEATABLE READ its counts would
   come from a stale snapshot, so it refuses) and refuses a missing limit. The log keeps what was signed: the approval message
   in hex, its expiry, the Budget's `created_slot`, the amount and payout account, and who asked (the agent, or the
-  incident step). If the log write fails, the relay signs nothing. That holds for the relay's own path only: any code
-  deployed to the project the KMS issuer is granted to could ask KMS directly, which is why the grant matters (below).
+  incident step). If the log write fails, the relay signs nothing. That holds for the signer's path only: any code
+  deployed to the project the KMS issuer is granted to could ask KMS directly, which is why only the small signer
+  project holds the grant (above).
 - Before it signs, the relay reads the cluster's genesis hash from its own RPC and refuses (`wrong_cluster`, operator
   told) when it is not the record's network. The slot for the expiry comes from that RPC too, never from the caller.
 - Limits, each over the last ten minutes, counting every approval the agent asked for, its closes included:
@@ -42,9 +70,9 @@ relay holds no key material at all:
     It does not pause, so requests alone cannot stop every relay Budget for longer than the window; to pause, the
     operator uses the switch below. With the per-payer limit, reaching it takes at least five payers with open relay
     Budgets.
-  These bound what the relay's own approval path can sign. They do not bound a compromised deployment: code running
-  in the project the KMS issuer is granted to can ask KMS directly, without the log or the limits (see the grant
-  below).
+  These bound what the signer's approval path can sign. They do not bound a compromised signer deployment: code
+  running in the project the KMS issuer is granted to can ask KMS directly, without the log or the limits. That is
+  the signer project alone, which has no pages and few routes.
 - The incident step's close is the only approval not counted and not paused. It is logged (`by_operator`) like the
   rest.
 - `BUDGET_SPENDING_PAUSED` (any value but empty, `false`, `0`, `no` or `off`), or the switch in `budget_controls`,
@@ -75,12 +103,11 @@ relay holds no key material at all:
 - A reserve is approved only for a provider on that list and only up to the signed maximum.
 - A waive is approved only for a slice of this opening that has posted and is not waived, for exactly its posted
   amount, and expires 50 slots ahead (about 20 seconds) instead of 150.
-- The routes that will call `createSpender`, `activateSpender` and `approveAsSpender` do not exist yet. They need a
-  review before relay Budgets go to mainnet, and must:
-  - take the program id and the RPC from the server's configuration, never from the request;
-  - build `auth` on the server: the agent path passes only `{ agentSecret }` from the request, and `{ operator:
-    "incident" }` is set only by the incident route behind `BUDGET_INCIDENT_SECRET`. `approveAsSpender` picks the
-    operator path by the presence of `operator` in `auth`, so request data must never reach that object as a whole.
+- The main app's routes that will call `createSpender`, `activateSpender` and `approveViaSigner` do not exist yet.
+  They need a review before relay Budgets go to mainnet, and must take the program id and the RPC from the server's
+  configuration, never from the request. The operator path cannot be asked for through the signer's approve route
+  (it only takes an agent secret); `{ operator: "incident" }` is set only by the signer's incident route, behind
+  `BUDGET_INCIDENT_SECRET`.
 - Residual (availability only): the ceiling counts approvals when they are asked for, not when they land, so a few
   payer wallets at the per-payer limit can have other payers' approvals refused for up to ten minutes. Counting on
   landing would remove it.
@@ -130,36 +157,47 @@ when it resumes after a stall.
 
 ## Setup (owner)
 
-Values go in 1Password first, then Vercel (project `reddi-agent-protocol`) or GitHub. Never in the repository.
+Values go in 1Password first, then Vercel or GitHub. Never in the repository. Two Vercel projects are involved: the
+main app (`reddi-agent-protocol`) and the signer (`rap-budget-signer`, root directory `apps/budget-signer`; its
+`vercel.json` installs from the repository root).
 
-1. Create a KMS issuer with algorithm `ES256` (Vercel dashboard, or the Vercel connector), and grant it to this
-   project for Production only: `vercel kms add-grant <issuer> --project reddi-agent-protocol --environment production`.
-   Vercel marks KMS as beta.
+1. Create a KMS issuer with algorithm `ES256` per network (Vercel dashboard, or the Vercel connector), and grant it
+   to the signer project only, for Production only: `vercel kms add-grant <issuer> --project rap-budget-signer
+   --environment production`. Never grant it to the main app. Vercel marks KMS as beta.
 2. Set `BUDGET_SPENDER_P256_PUBLIC_KEY` to the active signing key's `publicKeyPem` as the issuer shows it (or the
-   point in hex or base64: 33-byte compressed or 65-byte uncompressed).
+   point in hex or base64: 33-byte compressed or 65-byte uncompressed), in both projects.
+3. Make a random `BUDGET_SIGNER_TOKEN` and set it in both projects; set `BUDGET_SIGNER_URL` in the main app to the
+   signer's production origin.
+
+The "Where" column says which project: **app** is `reddi-agent-protocol`, **signer** is `rap-budget-signer`.
 
 | Name | Where | What |
 | --- | --- | --- |
-| `BUDGET_SPENDER_KMS_ISSUER_ID` | Vercel, Production only | The KMS issuer whose ES256 key approves. |
-| `BUDGET_SPENDER_P256_PUBLIC_KEY` | Vercel, Production only | Its public key (above). New Budgets name it; every KMS signature is checked against the Budget's own key. |
-| `RESEND_API_KEY`, `BUDGET_ALERT_FROM` | Vercel | Alert email sender (for example `RAP Budgets <alerts@reddi.tech>`). |
-| `BUDGET_OPS_EMAIL`, `BUDGET_OPS_WEBHOOK` | Vercel | Where operator alerts go. Set at least one. |
-| `BUDGET_OPS_WEBHOOK_SECRET` | Vercel, required with `BUDGET_OPS_WEBHOOK` | Signs operator webhook alerts. |
-| `CRON_SECRET` | Vercel | Bearer secret of `/api/cron/budget-watch`. The route refuses every call while it is unset. |
+| `BUDGET_SPENDER_KMS_ISSUER_ID` | signer, Production only | The KMS issuer whose ES256 key approves. Never in the app. |
+| `BUDGET_SPENDER_P256_PUBLIC_KEY` | app and signer, Production only | Its public key (above). New Budgets name it; every KMS signature is checked against the Budget's own key. |
+| `BUDGET_SIGNER_TOKEN` | app and signer, Production only | Bearer secret the app sends to the signer's `/api/v1/approve`. |
+| `BUDGET_SIGNER_URL` | app, Production only | The signer's https origin, nothing after it. |
+| `BUDGET_SIGNER_NETWORK` | signer, optional | `solana-devnet` (default, and the only one served yet). |
+| `BUDGET_SIGNER_RPC_URL` | signer, optional | The signer's own devnet RPC, default the public one. |
+| `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | app and signer | The custody store. |
+| `RESEND_API_KEY`, `BUDGET_ALERT_FROM` | app and signer | Alert email sender (for example `RAP Budgets <alerts@reddi.tech>`). |
+| `BUDGET_OPS_EMAIL`, `BUDGET_OPS_WEBHOOK` | app and signer | Where operator alerts go. Set at least one. |
+| `BUDGET_OPS_WEBHOOK_SECRET` | app and signer, required with `BUDGET_OPS_WEBHOOK` | Signs operator webhook alerts. |
+| `CRON_SECRET` | app | Bearer secret of `/api/cron/budget-watch`. The route refuses every call while it is unset. |
 | `BUDGET_WATCH_CRON_SECRET` | GitHub repository secret | The same value as `CRON_SECRET`. The workflow skips while it is missing. |
-| `BUDGET_INCIDENT_SECRET` | Vercel | Bearer secret of `/api/budget/v1/incident`. |
-| `BUDGET_OPS_FEE_PAYER` | Vercel, Production only | JSON array of the 64 secret-key bytes of a fee key that holds only SOL for fees, never Budget money. |
-| `BUDGET_SPENDER_MAX_USES_PER_10_MIN` | Vercel, optional | Overuse limit per Budget, default 30. |
-| `BUDGET_SPENDER_MAX_PER_PAYER_PER_10_MIN` | Vercel, optional | Limit for all of one payer's Budgets, default 60. |
-| `BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN` | Vercel, optional | Ceiling across all relay Budgets on one network, default 300; past it approvals are refused until the count drops. |
-| `BUDGET_LINK_ORIGIN` | Vercel, optional | Origin of dispute links, default the production app. |
+| `BUDGET_INCIDENT_SECRET` | signer | Bearer secret of the signer's `/api/v1/incident`. Delete it from the app. |
+| `BUDGET_OPS_FEE_PAYER` | signer, Production only | JSON array of the 64 secret-key bytes of a fee key that holds only SOL for fees, never Budget money. Delete it from the app. |
+| `BUDGET_SPENDING_PAUSED` | signer | The pause switch read at approval time (above). |
+| `BUDGET_SPENDER_MAX_USES_PER_10_MIN` | signer, optional | Overuse limit per Budget, default 30. |
+| `BUDGET_SPENDER_MAX_PER_PAYER_PER_10_MIN` | signer, optional | Limit for all of one payer's Budgets, default 60. |
+| `BUDGET_SPENDER_MAX_GLOBAL_PER_10_MIN` | signer, optional | Ceiling across all relay Budgets on one network, default 300; past it approvals are refused until the count drops. |
+| `BUDGET_LINK_ORIGIN` | app, optional | Origin of dispute links, default the production app. |
 
-Grant the issuer to Production only, never Preview: any deployment it is granted to can approve for every relay
-Budget. Audit round 5 (R5-M2) asks for the issuer to be granted to a small project that does nothing but sign, with
-one issuer per cluster, so that the large app project and its dependencies cannot ask KMS at all; that move waits on
-an owner decision. Until then the app's production deployment holds the grant. The limits above bound only what the
-relay's own path approves, not what a compromised deployment could ask KMS for, and Vercel's KMS audit log is the record to compare against `budget_spender_uses` (any signature
-there without a logged use means something other than the relay path asked). `BUDGET_SPENDER_KEKS` is no longer read; delete it from Vercel and 1Password once this is deployed.
+Grant the issuer to the signer's Production only, never Preview and never the main app: any deployment it is granted
+to can approve for every relay Budget. The limits above bound only what the signer's path approves, not what a
+compromised signer deployment could ask KMS for, and Vercel's KMS audit log is the record to compare against
+`budget_spender_uses` (any signature there without a logged use means something other than the signer's path
+asked). `BUDGET_SPENDER_KEKS` is no longer read; delete it from Vercel and 1Password once this is deployed.
 
 Apply `supabase/migrations/20261125090000_budget_custody.sql`, `20261125100000_budget_custody_hardening.sql`,
 `20261125110000_budget_custody_kms.sql`, `20261125120000_budget_custody_round5.sql` and
@@ -179,7 +217,7 @@ signing key with manual activation, activate it, set `BUDGET_SPENDER_P256_PUBLIC
 1. Pause and close everything:
 
    ```bash
-   curl -X POST https://app.agent-protocol.reddi.tech/api/budget/v1/incident \
+   curl -X POST "$BUDGET_SIGNER_URL/api/v1/incident" \
      -H "Authorization: Bearer $BUDGET_INCIDENT_SECRET" -H 'Content-Type: application/json' \
      -d '{"action":"close-all","reason":"<what happened>"}'
    ```
@@ -194,8 +232,9 @@ signing key with manual activation, activate it, set `BUDGET_SPENDER_P256_PUBLIC
    (allowlist plus flag `0x01`), whoever can still get KMS to sign can waive posted slices until they settle; those
    payers are told to dispute anything they do not recognise at once.
 2. If `BUDGET_OPS_FEE_PAYER` is unset, the call only pauses and lists the Budgets still open. `{"action":"pause"}` does
-   the same on purpose. If the pause switch itself cannot be written, set `BUDGET_SPENDING_PAUSED=true` and redeploy.
-3. If the relay itself may be compromised, remove the KMS issuer's project grant (or revoke its key) once the closes
+   the same on purpose. If the pause switch itself cannot be written, set `BUDGET_SPENDING_PAUSED=true` on the signer
+   project and redeploy it.
+3. If the signer itself may be compromised, remove the KMS issuer's grant to it (or revoke its key) once the closes
    are done: from then on nothing, the relay included, can approve for any relay Budget, and open ones end with their
    payers.
 4. Read the operator summary. Close any Budget listed as `FAILED` by hand.

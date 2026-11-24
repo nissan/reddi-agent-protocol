@@ -21,7 +21,10 @@ import {
 } from "@/lib/budget/custody";
 import { buildDisputeTransaction } from "@/lib/budget/dispute";
 import { closeAllBudgets } from "@/lib/budget/incident";
-import { parseP256PublicKey, readKmsSigner, type SpenderSigner } from "@/lib/budget/kms";
+import { parseP256PublicKey, readKmsSigner, readSpenderPublicKey, type SpenderSigner } from "@/lib/budget/kms";
+import { approveViaSigner, readSignerConfig } from "@/lib/budget/signer-client";
+import { handleApprove, handleHealth, handleIncident, type SignerContext } from "@/lib/budget/signer-service";
+import { encodeApprovalRequest, encodeApproved, parseApprovalRequest } from "@/lib/budget/signer-wire";
 import { GENESIS_HASH, MemoryBudgetCustodyStore, type BudgetContact } from "@/lib/budget/store";
 import { base58, GONE_CONFIRM_MS, KEY_ROTATED_REPEAT_MS, watchBudgets, type BudgetChainReader } from "@/lib/budget/watch";
 import { BUDGET_PAID_EVENT, decodeBudgetPaid, programDataLogs, verifyAndRecordBudgetCall } from "@/lib/jobs/budget-call";
@@ -883,5 +886,138 @@ describe("Budget job recorder (audit round 4, S7-claude-06)", () => {
     expect(decodeBudgetPaid(bytes)).toMatchObject({ paid: BigInt(1), fee: BigInt(2), outcome: "resolved", budget: budget.toBase58() });
     expect(programDataLogs([`Program data: ${bytes.toString("base64")}`], PROGRAM.toBase58())).toHaveLength(0);
     expect(createHash("sha256").update("event:BudgetPaid").digest().subarray(0, 8)).toEqual(BUDGET_PAID_EVENT);
+  });
+});
+
+describe("The Budget signer project (R5-M2: only it holds the KMS grant)", () => {
+  const SIGNER_ENV = { BUDGET_SIGNER_URL: "https://signer.example", BUDGET_SIGNER_TOKEN: "tok_signer" };
+  function signer(env: Record<string, string | undefined> = {}, network: "solana-devnet" | "solana-mainnet-beta" = "solana-devnet") {
+    const parts = setup();
+    const ctx: SignerContext = { custody: { ...parts.deps, network }, chain: parts.chain, programId: PROGRAM, env: { BUDGET_SIGNER_TOKEN: "tok_signer", BUDGET_INCIDENT_SECRET: "tok_incident", ...env } };
+    const calls: { url: string; body: Record<string, unknown> }[] = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      calls.push({ url, body: JSON.parse(String(init.body)) });
+      return handleApprove(new Request(url, init), ctx);
+    }) as unknown as typeof fetch;
+    return { ...parts, ctx, fetchImpl, calls };
+  }
+
+  it("carries a request and an approval as strict JSON", () => {
+    const payee = WALLET().toBase58();
+    const token = { mint: WALLET(), refund: WALLET(), tokenProgram: WALLET() };
+    for (const request of [
+      { purpose: "reserve", payee, amount: BigInt("18446744073709551615"), payoutAccount: WALLET().toBase58() },
+      { purpose: "reserve", payee, amount: BigInt(1) },
+      { purpose: "waive", payee, amount: BigInt(7) },
+      { purpose: "close" },
+      { purpose: "close", token },
+    ] as ApprovalRequest[]) {
+      expect(parseApprovalRequest(JSON.parse(JSON.stringify(encodeApprovalRequest(request))))).toEqual(request);
+    }
+    for (const bad of [
+      { purpose: "reserve", payee, amount: "18446744073709551616" },
+      { purpose: "reserve", payee, amount: "01" },
+      { purpose: "reserve", payee, amount: 5 },
+      { purpose: "reserve", payee: "not-an-address", amount: "5" },
+      { purpose: "reserve", payee, amount: "5", payoutAccount: "x" },
+      { purpose: "waive", payee },
+      { purpose: "close", token: { mint: payee } },
+      { purpose: "drain", payee, amount: "5" },
+      null,
+    ]) {
+      expect(parseApprovalRequest(bad)).toBeUndefined();
+    }
+    expect(readSignerConfig(SIGNER_ENV)).toEqual({ origin: "https://signer.example", token: "tok_signer" });
+    expect(readSignerConfig({ ...SIGNER_ENV, BUDGET_SIGNER_URL: "http://signer.example" })).toBeUndefined();
+    expect(readSignerConfig({ ...SIGNER_ENV, BUDGET_SIGNER_URL: "https://signer.example/api" })).toBeUndefined();
+    expect(readSignerConfig({ BUDGET_SIGNER_URL: "https://signer.example" })).toBeUndefined();
+  });
+
+  it("approves through the signer: the app gets the precompile and the call, signed by the Budget's key", async () => {
+    const { deps, accounts, store, fetchImpl, calls } = signer();
+    const opened = await openBudget(deps, accounts);
+    const before = KMS.calls;
+    const approved = await approveViaSigner({ id: opened.record.id, agentSecret: opened.secret, request: reserve(opened.providers[0]), caller: "agent-1" }, { programId: PROGRAM, env: SIGNER_ENV, fetchImpl });
+    if (!approved.ok) throw new Error(approved.message);
+    expect(calls[0].url).toBe("https://signer.example/api/v1/approve");
+    expect(KMS.calls).toBe(before + 1);
+    expect(approved.purpose).toBe("reserve");
+    expect(approved.expiresSlot).toBe(SLOT + APPROVAL_SLOTS);
+    expect(approved.instructions[0].programId.equals(SECP256R1_PROGRAM_ID)).toBe(true);
+    expect(approved.instructions[1].programId.equals(PROGRAM)).toBe(true);
+    const { publicKey, signature, message } = readSecp256r1Approval(approved.instructions[0])!;
+    expect(Buffer.from(publicKey).toString("hex")).toBe(KMS.hex);
+    expect(p256Verify(publicKey, message, signature)).toBe(true);
+    expect(store.uses.at(-1)).toMatchObject({ spenderId: opened.record.id, purpose: "reserve", detail: { caller: "agent-1" } });
+  });
+
+  it("refuses a caller without the app's token, a wrong agent secret, and any operator path", async () => {
+    const { deps, accounts, store, fetchImpl, ctx } = signer();
+    const opened = await openBudget(deps, accounts);
+    const request = reserve(opened.providers[0]);
+    const uses = store.uses.length;
+    expect(await approveViaSigner({ id: opened.record.id, agentSecret: opened.secret, request }, { programId: PROGRAM, env: { ...SIGNER_ENV, BUDGET_SIGNER_TOKEN: "guess" }, fetchImpl })).toMatchObject({ ok: false, code: "unauthorized" });
+    expect(await approveViaSigner({ id: opened.record.id, agentSecret: "rap_budget_wrong", request }, { programId: PROGRAM, env: SIGNER_ENV, fetchImpl })).toMatchObject({ ok: false, code: "not_authorized" });
+    expect(await approveViaSigner({ id: opened.record.id, agentSecret: opened.secret, request }, { programId: PROGRAM, env: {}, fetchImpl })).toMatchObject({ ok: false, code: "signer_not_configured" });
+    // The operator's close is not reachable through the app's door: there is no auth field to ask for it.
+    const post = (body: unknown, token = "tok_signer") => handleApprove(new Request("https://signer.example/api/v1/approve", { method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify(body) }), ctx);
+    expect((await post({ id: opened.record.id, auth: { operator: "incident" }, request: { purpose: "close" } })).status).toBe(400);
+    expect((await post({ id: opened.record.id, agentSecret: opened.secret, request: { purpose: "close" } }, "")).status).toBe(401);
+    expect((await handleApprove(new Request("https://signer.example/api/v1/approve", { method: "POST", body: "{}" }), { ...ctx, env: {} })).status).toBe(503);
+    expect(store.uses.length).toBe(uses);
+  });
+
+  it("serves one network: a record on another is refused before anything is logged or signed", async () => {
+    const { deps, accounts, store, fetchImpl } = signer({}, "solana-mainnet-beta");
+    const opened = await openBudget(deps, accounts);
+    const uses = store.uses.length;
+    const before = KMS.calls;
+    expect(await approveViaSigner({ id: opened.record.id, agentSecret: opened.secret, request: reserve(opened.providers[0]) }, { programId: PROGRAM, env: SIGNER_ENV, fetchImpl })).toMatchObject({ ok: false, code: "wrong_cluster" });
+    expect(store.uses.length).toBe(uses);
+    expect(KMS.calls).toBe(before);
+  });
+
+  it("the app checks what comes back is the approval it asked for", async () => {
+    const { deps, accounts, fetchImpl } = signer();
+    const opened = await openBudget(deps, accounts);
+    const real = await approveViaSigner({ id: opened.record.id, agentSecret: opened.secret, request: reserve(opened.providers[0]) }, { programId: PROGRAM, env: SIGNER_ENV, fetchImpl });
+    if (!real.ok) throw new Error(real.message);
+    const answer = (body: unknown) => (async () => Response.json(body)) as unknown as typeof fetch;
+    const wire = encodeApproved(real);
+    const ask = (f: typeof fetch, purpose: ApprovalRequest = reserve(opened.providers[0])) => approveViaSigner({ id: opened.record.id, agentSecret: opened.secret, request: purpose }, { programId: PROGRAM, env: SIGNER_ENV, fetchImpl: f });
+    expect(await ask(answer(wire))).toMatchObject({ ok: true });
+    expect(await ask(answer(wire), { purpose: "close" })).toMatchObject({ ok: false, code: "signer_bad_answer" });
+    expect(await ask(answer({ ...wire, instructions: [wire.instructions[0], { ...wire.instructions[1], programId: WALLET().toBase58() }] }))).toMatchObject({ ok: false, code: "signer_bad_answer" });
+    expect(await ask(answer({ ...wire, instructions: [wire.instructions[1], wire.instructions[1]] }))).toMatchObject({ ok: false, code: "signer_bad_answer" });
+    expect(await ask((async () => new Response("<html>", { status: 502 })) as unknown as typeof fetch)).toMatchObject({ ok: false, code: "signer_unavailable" });
+    expect(await ask((async () => { throw new Error("ECONNRESET"); }) as unknown as typeof fetch)).toMatchObject({ ok: false, code: "signer_unavailable" });
+  });
+
+  it("the main app names the key but cannot sign: it refuses before logging, and never reaches KMS", async () => {
+    const appSigner = readSpenderPublicKey({ BUDGET_SPENDER_P256_PUBLIC_KEY: KMS.hex })!;
+    expect(appSigner.publicKey).toEqual(KMS.publicKey);
+    expect(readSpenderPublicKey({})).toBeUndefined();
+    const { deps, accounts, store } = setup({}, appSigner);
+    // Records are still made with the key new Budgets name.
+    const opened = await openBudget(deps, accounts);
+    expect(opened.record.spenderKey).toBe(KMS.hex);
+    const uses = store.uses.length;
+    expect(await approve(deps, opened, reserve(opened.providers[0]))).toMatchObject({ ok: false, code: "signer_elsewhere" });
+    expect(await approveAsSpender({ id: opened.record.id, auth: { operator: "incident" }, request: { purpose: "close" }, programId: PROGRAM }, deps)).toMatchObject({ ok: false, code: "signer_elsewhere" });
+    expect(store.uses.length).toBe(uses);
+    await expect(appSigner.sign(new Uint8Array(1))).rejects.toThrow(/does not sign/);
+  });
+
+  it("runs the incident step and says what it serves", async () => {
+    const { ctx, store } = signer();
+    const incident = (body: unknown, token = "tok_incident") => handleIncident(new Request("https://signer.example/api/v1/incident", { method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify(body) }), ctx);
+    expect((await incident({ action: "pause", reason: "drill" }, "tok_signer")).status).toBe(401);
+    expect((await incident({ action: "pause" })).status).toBe(400);
+    expect((await handleIncident(new Request("https://x", { method: "POST", body: "{}" }), { ...ctx, env: {} })).status).toBe(503);
+    const paused = await incident({ action: "pause", reason: "drill" });
+    expect(await paused.json()).toEqual({ ok: true });
+    expect(store.control.paused).toBe(true);
+    expect(await handleHealth(ctx).json()).toEqual({ ok: true, network: "solana-devnet", programId: PROGRAM.toBase58(), spenderKey: KMS.hex });
+    expect(await handleHealth({ ...ctx, custody: undefined }).json()).toMatchObject({ ok: false, spenderKey: null });
   });
 });
