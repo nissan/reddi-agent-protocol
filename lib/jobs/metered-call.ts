@@ -31,6 +31,8 @@ import type { VerifiedPayment } from "@/lib/jobs/paid-call";
 const NONCE_HEX = /^[0-9a-f]{32}$/;
 /** Accounts of settle_token_escrow / release_token_escrow, in order. */
 const SETTLE_ACCOUNT_COUNT = 9;
+// The SPL Memo program (v3), the one the escrow program calls before a transfer into an account that requires memos.
+const MEMO_PROGRAM_ID = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
 
 export interface MeteredCallInput {
   /** The metered receipt the buyer's browser presented: settlement, currency, payTo, payer, nonce, escrow. */
@@ -264,9 +266,14 @@ export async function verifyAndRecordMeteredCall(input: MeteredCallInput, deps: 
     if (key(instruction.programId) !== programId || !Array.isArray(instruction.accounts)) return false;
     if (exitCreatedSlot(instruction.data) === undefined) return false;
     const accounts = instruction.accounts.map(key);
+    // After the usual nine: the escrow's rating account on a job the buyer opted in to rating, then
+    // the SPL Memo program, which a Token-2022 settle carries so a refund to an account that requires
+    // memos can land (the program finds it among the trailing accounts).
+    const trailing = accounts.slice(SETTLE_ACCOUNT_COUNT);
+    if (trailing[trailing.length - 1] === MEMO_PROGRAM_ID) trailing.pop();
     return (
-      // A job the buyer opted in to rating: its settle carries the escrow's rating account after the usual nine.
-      (accounts.length === SETTLE_ACCOUNT_COUNT || (accounts.length === SETTLE_ACCOUNT_COUNT + 1 && accounts[SETTLE_ACCOUNT_COUNT] === ratingPda(escrow, deps.programId).toBase58())) &&
+      accounts.length >= SETTLE_ACCOUNT_COUNT &&
+      (trailing.length === 0 || (trailing.length === 1 && trailing[0] === ratingPda(escrow, deps.programId).toBase58())) &&
       accounts[0] === escrow.toBase58() &&
       accounts[1] === vault.toBase58() &&
       accounts[3] === payer.toBase58() &&

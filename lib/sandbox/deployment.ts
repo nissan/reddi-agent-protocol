@@ -34,7 +34,9 @@ export const SANDBOX_DEVNET_RELEASES: readonly SandboxReleaseRecord[] = [devnetP
 
 /**
  * Whether a build takes the escrow's created_slot after the data of an exit of an unrated escrow,
- * by the build's executable hash. A build missing here is never served.
+ * keyed by the build's executable hash. A build missing here is never served. The on-chain check
+ * below matches the live program to its record by the ProgramData deployed slot, not by hashing
+ * the executable: on devnet only the upgrade authority can redeploy, and every redeploy moves it.
  */
 export const NAMES_UNRATED_EXITS_BY_EXECUTABLE_HASH: Readonly<Record<string, boolean>> = {
   [devnetPreFreeze.executableHash]: false,
