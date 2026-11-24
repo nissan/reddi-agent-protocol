@@ -45,6 +45,7 @@ import {
 import { isSandboxReceipt, responseBodyWithAnswer, type SandboxReceiptPayment, verifySandboxReceipt, type SandboxReceipt, type SandboxVerification } from "@/lib/sandbox/receipt";
 import { formatUnits, requestInputTokens, SANDBOX_DEMO_RATES_NOTE, sandboxFeeBps, triPriceFromLamports, TYPICAL_REVIEW } from "@/lib/sandbox/pricing";
 import { createSessionKey, directPaymentDelegationHeaderValue, directPaymentProofHeaders, paidCallAuthHeaders, sessionDelegationHeaderValue, SOLANA_GENESIS_HASHES, type MessageSigner } from "@/lib/payments/session-auth";
+import SandboxBudgetRunner from "@/components/sandbox/SandboxBudgetRunner";
 import SandboxSessionRunner from "@/components/sandbox/SandboxSessionRunner";
 import SandboxPipelineRunner from "@/components/sandbox/SandboxPipelineRunner";
 import SandboxWritingRunner from "@/components/sandbox/SandboxWritingRunner";
@@ -228,7 +229,8 @@ const actionButton = "rounded-lg bg-ink px-4 py-2.5 text-sm font-semibold text-b
 const quietButton = "rounded-lg border border-white/20 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40";
 
 export default function SandboxConsole({ initialScenario }: { initialScenario?: string }) {
-  const startScenario = findSandboxScenario(initialScenario) ?? SANDBOX_SCENARIOS[0];
+  // A bare /sandbox opens on a single paid call; the Budget card is listed first but asks for a few clicks.
+  const startScenario = findSandboxScenario(initialScenario) ?? findSandboxScenario("buy-a-review") ?? SANDBOX_SCENARIOS[0];
   const [scenario, setScenario] = useState<SandboxScenario>(startScenario);
   const [providerId, setProviderId] = useState(startScenario.providerIds[0]);
   const [prompt, setPrompt] = useState(startScenario.prompt);
@@ -644,7 +646,12 @@ export default function SandboxConsole({ initialScenario }: { initialScenario?: 
       </section>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-        {scenario.id === "run-a-session" ? (
+        {scenario.id === "budget" ? (
+          <div className="min-w-0 space-y-5">
+            <SandboxBudgetRunner />
+            <p className="rounded-xl border border-[#9945FF]/30 bg-[#9945FF]/10 p-4 text-sm leading-6 text-gray-200" data-testid="sandbox-takeaway">{scenario.takeaway}</p>
+          </div>
+        ) : scenario.id === "run-a-session" ? (
           <div className="min-w-0 space-y-5">
             <SandboxSessionRunner provider={provider} providerReceiptId={providerKeys[provider.id]} onExchange={(list) => setExchanges((current) => [...current, ...list])} onSettled={(list) => setReceipts((current) => [...current, ...list])} />
             <p className="rounded-xl border border-[#9945FF]/30 bg-[#9945FF]/10 p-4 text-sm leading-6 text-gray-200" data-testid="sandbox-takeaway">{scenario.takeaway}</p>
