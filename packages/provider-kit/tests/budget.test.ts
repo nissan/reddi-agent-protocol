@@ -1,11 +1,11 @@
 import { pinLaunchRateClock } from "./launch-clock.js";
 import assert from "node:assert/strict";
-import { createHash, createPrivateKey, sign as edSign } from "node:crypto";
+import { createHash, createPrivateKey, createSign, generateKeyPairSync, sign as edSign } from "node:crypto";
 import test from "node:test";
-import { Keypair, PublicKey, Transaction, type TransactionInstruction } from "@solana/web3.js";
+import { ComputeBudgetProgram, Keypair, PublicKey, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import { MemoryNonceReplayStore, SOLANA_GENESIS_HASHES } from "@redditech/x402-solana";
-import { reservationAddress, MIN_REVIEW_SLOTS } from "@redditech/x402-solana/budget";
-import { budgetRequestHeaders, spenderSignedReserve, BUDGET_RESERVE_HEADER, type PooledBudgetOffer } from "@redditech/x402-solana/budget-provider";
+import { budgetApprovalMessage, compressP256PublicKey, p256SpenderAddress, reserveInstruction, reservationAddress, secp256r1ApprovalInstruction, MIN_REVIEW_SLOTS } from "@redditech/x402-solana/budget";
+import { budgetRequestHeaders, budgetRequestHeadersP256, spenderSignedReserve, BUDGET_RESERVE_HEADER, type PooledBudgetOffer } from "@redditech/x402-solana/budget-provider";
 import { createProviderHandler, PROVIDER_RECEIPT_HEADER, type BudgetCallPricingInput, type ProviderDeps } from "../src/handler.js";
 import { MemoryBudgetSliceStore } from "../src/budgets.js";
 import { verifyReddiReceiptV2, type SignedReddiReceiptV2 } from "@redditech/agent-protocol/receipt-v2";
@@ -26,12 +26,12 @@ const CREATED = CURRENT_SLOT - 1_000n;
 const GENESIS = SOLANA_GENESIS_HASHES["solana-devnet"];
 const BODY = JSON.stringify({ messages: [{ role: "user", content: "x".repeat(400) }] });
 
-interface BudgetFields { mint?: PublicKey; judge?: PublicKey | null; total?: bigint; unreserved?: bigint; closed?: boolean; closedSlot?: bigint; createdSlot?: bigint; openSlots?: bigint; disputeSlots?: bigint; reservations?: number; reviewFromOpenEnd?: boolean }
+interface BudgetFields { mint?: PublicKey; judge?: PublicKey | null; total?: bigint; unreserved?: bigint; closed?: boolean; closedSlot?: bigint; createdSlot?: bigint; openSlots?: bigint; disputeSlots?: bigint; reservations?: number; reviewFromOpenEnd?: boolean; p256Spender?: PublicKey }
 function budgetBytes(f: BudgetFields = {}): Uint8Array {
   const data = Buffer.alloc(349);
   disc("account:Budget").copy(data, 0);
   payer.toBuffer().copy(data, 8);
-  spender.publicKey.toBuffer().copy(data, 40);
+  (f.p256Spender ?? spender.publicKey).toBuffer().copy(data, 40);
   if (f.judge !== null) (f.judge ?? judge).toBuffer().copy(data, 72);
   (f.mint ?? USDC).toBuffer().copy(data, 104);
   data.writeBigUInt64LE(f.createdSlot ?? CREATED, 152);
@@ -42,7 +42,7 @@ function budgetBytes(f: BudgetFields = {}): Uint8Array {
   data.writeBigUInt64LE(f.unreserved ?? 50_000_000n, 192);
   data.writeBigUInt64LE(f.closedSlot ?? 0n, 336);
   data[344] = f.reservations ?? 0;
-  data[346] = (f.closed ? 0x02 : 0) | (f.reviewFromOpenEnd ? 0x04 : 0);
+  data[346] = (f.closed ? 0x02 : 0) | (f.reviewFromOpenEnd ? 0x04 : 0) | (f.p256Spender ? 0x08 : 0);
   return data;
 }
 
@@ -437,4 +437,48 @@ test("after an early close by the spender, the payout waits for the end of the o
     assert.deepEqual(await handler.settleDueBudgets(), [{ budget: budgetKey.toBase58(), status: expected }], `reviewFromOpenEnd=${reviewFromOpenEnd}`);
     assert.equal(chain.sent.length, reviewFromOpenEnd ? 0 : 1);
   }
+});
+
+test("a budget whose spender is a P-256 key: the kit checks its secp256r1 reserve approval and its call signatures", async () => {
+  const p256 = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const jwk = p256.publicKey.export({ format: "jwk" });
+  const raw = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x!, "base64url"), Buffer.from(jwk.y!, "base64url")]);
+  const key = compressP256PublicKey(raw);
+  const signP256 = (message: Uint8Array) => new Uint8Array(createSign("SHA256").update(Buffer.from(message)).sign(p256.privateKey));
+  const address = await p256SpenderAddress(key);
+  const { chain, handler, upstreamCalls } = setup();
+  setBudget(chain, { p256Spender: address });
+  const send = async (sequence: number, extra: Record<string, string> = {}) => {
+    const headers = await budgetRequestHeadersP256({ genesisHash: GENESIS, action: "call", budget: budgetKey, createdSlot: CREATED, provider: provider.publicKey, sequence, body: BODY }, raw, signP256);
+    return handler(new Request("http://localhost:8787/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", ...headers, ...extra }, body: BODY }));
+  };
+  const reserveFor = (offer: PooledBudgetOffer, cluster: "mainnet" | "devnet") => {
+    const amount = BigInt(offer.reservation);
+    const payoutAccount = new PublicKey(offer.payoutAccount);
+    const expiresSlot = CURRENT_SLOT + 150n;
+    const message = budgetApprovalMessage({ programId: PROGRAM, budget: budgetKey, createdSlot: CREATED, action: "reserve", payee: provider.publicKey, payoutAccount, amount, expiresSlot, cluster });
+    const tx = new Transaction({ feePayer: provider.publicKey, recentBlockhash: Keypair.generate().publicKey.toBase58() });
+    tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 40_000 }));
+    tx.add(secp256r1ApprovalInstruction({ publicKey: key, signature: signP256(message), message }));
+    tx.add(reserveInstruction({ programId: PROGRAM, budget: budgetKey, createdSlot: CREATED, spender: { p256ExpiresSlot: expiresSlot }, payee: provider.publicKey, amount, payoutAccount }));
+    return { [BUDGET_RESERVE_HEADER]: tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64") };
+  };
+
+  // An Ed25519-style signature header is not a P-256 spender's.
+  const wrongKind = await handler(new Request("http://localhost:8787/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", ...(await budgetRequestHeaders({ genesisHash: GENESIS, action: "call", budget: budgetKey, createdSlot: CREATED, provider: provider.publicKey, sequence: 1, body: BODY }, signer(spender))) }, body: BODY }));
+  assert.equal(wrongKind.status, 401);
+
+  const asked = (await (await send(1)).json()) as { error: { code: string }; budget: PooledBudgetOffer };
+  assert.equal(asked.error.code, "budget_reservation_required");
+  // This provider runs on devnet: an approval made for the mainnet build is refused.
+  const otherCluster = await send(1, reserveFor(asked.budget, "mainnet"));
+  assert.equal(otherCluster.status, 402);
+  assert.equal(chain.cosigned.length, 0);
+
+  const served = await send(1, reserveFor(asked.budget, "devnet"));
+  assert.equal(served.status, 200, await served.clone().text());
+  assert.equal(chain.cosigned.length, 1);
+  assert.deepEqual(chain.cosigned[0].signatures.map((s) => s.publicKey.toBase58()), [provider.publicKey.toBase58()], "the provider is the only signer");
+  assert.equal(upstreamCalls.n, 1);
+  assert.equal((await send(2)).status, 200);
 });
