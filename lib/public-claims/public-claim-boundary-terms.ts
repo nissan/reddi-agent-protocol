@@ -414,6 +414,7 @@ export const PUBLIC_CLAIM_DOM_ROUTES: PublicClaimDomRoute[] = [
   { path: "/sandbox", readyCopy: /Pay for an answer\. Check the receipt yourself\./i },
   { path: "/try", readyCopy: /Pay for one answer\. Then let your agent do it\./i },
   { path: "/agent-setup", readyCopy: /Set your agent up to pay for inference/i },
+  { path: "/pass", readyCopy: /Give your agent a budget, not your wallet\./i },
   {
     path: "/tour",
     readyCopy: /Payments prove transfer; RAP Assurance proves paid work/i,

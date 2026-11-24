@@ -20,7 +20,7 @@ import {
   SOLANA_GENESIS_HASHES,
   sessionCallAction,
   verifyDemoPaymentReceipt,
-  verifySessionRequest,
+  verifySessionRequestWithTransactions,
   verifyPaidCallRequestWithTransactions,
   type TransactionFactsReader,
   SESSION_DELEGATION_HEADER,
@@ -703,7 +703,9 @@ async function verifySessionLock(header: string, provider: SandboxProvider, orig
     return refuse("session_invalid", "A session lock must name the payer and the escrow address.");
   }
   const s = auth.request.session ?? {};
-  const authorised = verifySessionRequest({
+  // An agent pass (#1048) proves the delegation with a memo in the lock transaction, as the try
+  // page does for one call; a wallet in the page signs it as a message.
+  const authorised = await verifySessionRequestWithTransactions({
     headers: { get: (name: string) => (name === SESSION_DELEGATION_HEADER ? s.delegation ?? null : name === SESSION_SIGNATURE_HEADER ? s.signature ?? null : null) },
     genesisHash: SOLANA_GENESIS_HASHES[SANDBOX_NETWORK],
     // Whether the call asks to settle is signed too, so it cannot be added or removed in transit.
@@ -714,9 +716,13 @@ async function verifySessionLock(header: string, provider: SandboxProvider, orig
     sequence: auth.sequence,
     body: auth.request.rawBody,
     nowMs: (deps.now ?? Date.now)(),
+    ...(deps.readTransaction ? { readTransaction: deps.readTransaction } : {}),
   });
-  if (!authorised.ok) return refuse(authorised.reason, authorised.message);
-  const outcome = await verifyMeteredLock(record, provider, nonce, inputTokens, deps, true);
+  if (!authorised.ok) {
+    if (authorised.reason === "payment_check_unavailable") return { ok: false, response: failure(402, "payment_rejected", "The devnet RPC could not be read. Nothing was accepted; send the same call again shortly.", { reason: "unsupported_receipt", charged: false }) };
+    return refuse(authorised.reason, authorised.message);
+  }
+  const outcome = await verifyMeteredLock(record, provider, nonce, inputTokens, deps, true, "lockSlot" in authorised ? authorised.lockSlot : undefined);
   if (!outcome.ok) {
     if (outcome.sessionCode) return refuse(outcome.sessionCode, outcome.result.message);
     // A settled or cancelled escrow has no session left to serve.
