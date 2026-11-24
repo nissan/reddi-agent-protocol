@@ -55,7 +55,7 @@ test("the API key comes only from the environment, and the environment overrides
   assert.equal(parsed.config.upstream.apiKey, "from-env");
   assert.equal(parsed.config.keypairPath, "/env/path.json");
   assert.equal(parsed.config.rpcUrl, "http://127.0.0.1:8899");
-  assert.ok(!JSON.stringify(parsed.config).includes("in-file"));
+  assert.ok(!JSON.stringify(parsed.config, (_key, value) => (typeof value === "bigint" ? value.toString() : value)).includes("in-file"));
 });
 
 test("the starting config parses once a wallet is filled in", () => {
@@ -81,4 +81,33 @@ test("the pause list, the recovery account and the refund-account subsidy are ch
   assert.match(errorsOf(configFile({ payoutAccount: "nope" })).join(), /payoutAccount/);
   assert.match(errorsOf(configFile({ refundAccountSubsidy: { maxPerDay: -1 } })).join(), /refundAccountSubsidy/);
   assert.match(errorsOf(configFile({ refundAccountSubsidy: true as unknown as { maxPerDay: number } })).join(), /refundAccountSubsidy/);
+});
+
+test("pooled budgets are off by default, and their settings are read in the price token and checked", () => {
+  const off = parseProviderConfig(configFile(), {});
+  assert.ok(off.ok);
+  assert.equal(off.config.budgets.enabled, false);
+  assert.equal(off.config.budgets.minReservationBaseUnits, 100_000n, "0.10 USDC");
+  assert.equal(off.config.budgets.reserveCalls, 10);
+  assert.equal(off.config.budgets.minOpenSlots, 9_000n, "60 minutes");
+
+  const judge = provider.publicKey.toBase58();
+  const on = parseProviderConfig(configFile({ budgets: { enabled: true, minReservation: "2.5", reserveCalls: 20, acceptedJudges: [judge], minOpenMinutes: 30 } }), {});
+  assert.ok(on.ok);
+  assert.equal(on.config.budgets.enabled, true);
+  assert.equal(on.config.budgets.minReservationBaseUnits, 2_500_000n);
+  assert.equal(on.config.budgets.reserveCalls, 20);
+  assert.deepEqual(on.config.budgets.acceptedJudges.map((j) => j.toBase58()), [judge]);
+  assert.equal(on.config.budgets.minOpenSlots, 4_500n);
+
+  assert.deepEqual(errorsOf(configFile({ budgets: { minReservation: "0" } })), ["budgets.minReservation: must be a positive decimal amount in the price currency"]);
+  assert.deepEqual(errorsOf(configFile({ budgets: { minReservation: "0.1234567" } })), ["budgets.minReservation: USDC has 6 decimal places"]);
+  assert.deepEqual(errorsOf(configFile({ budgets: { reserveCalls: 0 } })), ["budgets.reserveCalls: must be a whole number from 1 to 1000"]);
+  assert.deepEqual(errorsOf(configFile({ budgets: { minOpenMinutes: 5 } })), ["budgets.minOpenMinutes: must be a whole number from 10 to 10080"]);
+  assert.deepEqual(errorsOf(configFile({ budgets: { acceptedJudges: ["not-an-address"] } })), ["budgets.acceptedJudges: not-an-address is not an address"]);
+
+  const mainnet = configFile({ network: "solana-mainnet-beta", publicUrl: "https://provider.example", upstream: { baseUrl: "https://model.example/v1" } });
+  const env = { SOLANA_RPC_URL: "https://rpc.example" };
+  assert.ok(parseProviderConfig({ ...mainnet, budgets: { enabled: false } }, env).ok);
+  assert.deepEqual(errorsOf({ ...mainnet, budgets: { enabled: true } }, env), ["budgets.enabled: pooled budgets are not offered on mainnet yet; leave this off"]);
 });

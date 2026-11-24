@@ -18,7 +18,7 @@ import { checkProviderCluster } from "@redditech/x402-solana";
 import { createProviderChain, type ProviderChain } from "./chain.js";
 import { Capacity } from "./capacity.js";
 import { parseProviderConfig, type ProviderConfig, type ProviderConfigFile } from "./config.js";
-import { createProviderHandler, type ProviderHandler } from "./handler.js";
+import { createProviderHandler, type ProviderDeps, type ProviderHandler } from "./handler.js";
 import { loadProviderKeyFromEnv } from "./keys.js";
 import { postgresProviderStores, type PgPool } from "./postgres.js";
 import { upstreamFor } from "./server.js";
@@ -38,6 +38,10 @@ export interface ServerlessProviderOptions {
   /** Keys the provider's rows in the database. Defaults to the wallet address. */
   providerId?: string;
   log?: (event: Record<string, unknown>) => void;
+  /** Prices each budget-paid call, for a bonus or a discount; see `ProviderDeps.budgetCallPricing`. */
+  budgetCallPricing?: ProviderDeps["budgetCallPricing"];
+  budgetCallPricingVoided?: ProviderDeps["budgetCallPricingVoided"];
+  onBudgetDone?: ProviderDeps["onBudgetDone"];
   /** For tests. */
   chain?: ProviderChain;
   upstream?: Upstream;
@@ -106,6 +110,10 @@ export function createServerlessProvider(options: ServerlessProviderOptions): Se
     lease: stores.lease,
     heldAnswers: stores.heldAnswers,
     capacity: new Capacity(config.capacity, stores.capacityStore),
+    budgetSlices: stores.budgetSlices,
+    ...(options.budgetCallPricing ? { budgetCallPricing: options.budgetCallPricing } : {}),
+    ...(options.budgetCallPricingVoided ? { budgetCallPricingVoided: options.budgetCallPricingVoided } : {}),
+    ...(options.onBudgetDone ? { onBudgetDone: options.onBudgetDone } : {}),
     signMessage: key.key.signMessage,
     ...(log ? { log } : {}),
   });
@@ -133,6 +141,7 @@ export function createServerlessProvider(options: ServerlessProviderOptions): Se
       return;
     }
     await handler.settleDueSessions();
+    await handler.settleDueBudgets();
   };
 
   return { ok: true, provider: { config, handle, sweep } };

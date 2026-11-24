@@ -2,6 +2,12 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
+## Unreleased (0.2.0)
+
+### Added
+
+- `@redditech/x402-solana/budget-provider`, the provider and agent side of pooled budgets: `checkPooledBudgetForProvider` (refuses a budget in another token, a judge the provider does not accept, an allowlist without it, a closed or closing budget, a slice too small, too little left, or a full budget), `checkReserveTransaction` (one exact reserve with the provider as fee payer and a valid spender signature), `spenderSignedReserve`, `budgetRequestHeaders`, `readBudgetPaymentHeader`, `verifyPooledBudgetRequest` and `providerReservation`, with the `x402-budget`, `x402-budget-signature` and `x402-budget-reserve` headers.
+
 ## 0.1.3 — 2026-11-24
 
 ### Changed

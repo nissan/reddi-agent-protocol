@@ -64,6 +64,10 @@ At the standard 5% rate the fee on the same call is 0.000525 USDC and the provid
 
 An agent that makes many small calls can lock once and make numbered calls against that lock. The provider settles once, for the total, and the fee applies to that total. Every receipt in the session chains to the one before, so the buyer can check the whole run.
 
+## Pooled budgets
+
+An agent can lock one budget and spend it across several providers. Each provider reserves a slice, meters its calls at its own per-token price and is paid its total when the budget ends. The fee applies to each provider's total, and whatever no provider used goes back to the agent. A budget is in one token, and only providers priced in that token take part.
+
 ## More
 
 - Buyer skill: https://app.agent-protocol.reddi.tech/skill.md

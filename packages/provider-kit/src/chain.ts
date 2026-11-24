@@ -28,6 +28,12 @@ export interface ProviderChain {
   signatureState(signature: string, lastValidBlockHeight: number): Promise<"landed" | "failed" | "expired" | "unknown">;
   /** What a confirmed transaction did: the programs it called, its top-level instructions, the accounts it named and each token balance before and after. Null when it cannot be found. */
   readSettlement(signature: string): Promise<SettlementRecord | null>;
+  /**
+   * Adds the provider wallet's signature to a transaction another key has
+   * already signed (a budget reserve, which the provider pays for), sends it
+   * and resolves with its signature once confirmed. Rejects when it did not land.
+   */
+  cosignAndSend?(transaction: Transaction): Promise<string>;
   /** Who signed a confirmed transaction, the accounts it named and its Memo instructions. Null when it cannot be found. Needed only with `lockBoundDelegations`. */
   readTransactionFacts?(signature: string): Promise<ConfirmedTransactionFacts | null>;
 }
@@ -141,6 +147,20 @@ export function createProviderChain(rpcUrl: string, keypair?: Keypair): Provider
       } catch {
         return "unknown";
       }
+    },
+    async cosignAndSend(transaction) {
+      if (!keypair) throw new Error("no provider key is loaded");
+      transaction.partialSign(keypair);
+      if (!transaction.verifySignatures()) throw new Error("the transaction is not fully signed");
+      const signature = await connection.sendRawTransaction(transaction.serialize(), { preflightCommitment: "confirmed" });
+      // The blockhash came from the buyer, so its last valid height is not known here: look for about a minute.
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        await pause(2_000);
+        const value = (await connection.getSignatureStatus(signature, { searchTransactionHistory: true }).catch(() => undefined))?.value;
+        if (value?.err) throw new Error("the transaction failed on chain");
+        if (value && (value.confirmationStatus === "confirmed" || value.confirmationStatus === "finalized")) return signature;
+      }
+      throw new Error("the transaction was not seen to land");
     },
     async sendInstructions(instructions) {
       if (!keypair) throw new Error("no provider key is loaded");

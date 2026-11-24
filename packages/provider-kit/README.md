@@ -153,6 +153,12 @@ The wallet sign-in works against the devnet app: a message signed by the kit is 
 | `sessions.enabled` | Devnet only for now; refused on mainnet. `false` by default: session calls are refused with `sessions_not_offered` and single calls are unchanged. Set `true` to offer sessions, and watch for log lines with `"alert": true` (`session_settle_waiting`, `session_refunded_unpaid`). |
 | `sessions.idleSeconds` | How long a session may sit without a call before the kit settles it. 30 to 3600, default 600. |
 | `sessions.file` | Where open sessions are remembered. Default `.rap-provider/sessions.jsonl`. Keep it on a disk that survives restarts. |
+| `budgets.enabled` | Devnet only for now; refused on mainnet. `false` by default. Set `true` to take calls paid from pooled budgets. See "Pooled budgets". |
+| `budgets.minReservation` | The smallest slice you will reserve, in your price currency. Default `0.10`. The program also refuses a slice below 1% of the budget. |
+| `budgets.reserveCalls` | How many worst-case calls a slice is sized for. 1 to 1000, default 10. |
+| `budgets.acceptedJudges` | Up to 16 judge addresses you accept for a budget's disputes. A budget naming any other judge is refused (`budget_judge_not_accepted`). A budget with no judge is always accepted. |
+| `budgets.minOpenMinutes` | The least time a budget must have left open before you reserve a slice of it. 10 to 10080, default 60. Calls stop at half of it, to leave time to post your total. |
+| `budgets.file` | Where your slices are remembered. Default `.rap-provider/budgets.jsonl`. Keep it on a disk that survives restarts. |
 
 ## Pausing a currency
 
@@ -183,6 +189,25 @@ A call number that is out of order or used before is refused with `session_seque
 The settle is signed and written to `sessions.file` before it is sent, and only that signature can count as the session's settle. If the kit cannot tell whether it landed (an RPC outage, a restart), the session stays pending and the same signed transaction is looked up and sent again on the next sweep; it is never marked settled on a guess. If the buyer has closed the account that funded the lock, the settle returns the unused part to the buyer's associated token account. When that account cannot receive either, the settle creates a new token account for the buyer at your cost (about 0.002 SOL), only within `refundAccountSubsidy.maxPerDay`. Its address comes from your key and this lock, so the buyer cannot reach it before the settle lands, and a later lock at the same escrow address gets another; once the day's bound is spent the session waits, logged as `refund_account_subsidy_spent` and `session_settle_waiting` with `"alert": true`, so you can raise the bound or settle it by hand. If the escrow is gone and no settle of yours landed (the buyer refunded once the refund window opened), the session is recorded as `refunded_unpaid` and logged as `session_refunded_unpaid` with `"alert": true`, because the calls served were not paid. A lock made again at the same address with the same nonce is a different lock and is never charged for an earlier session's calls. The kit settles ahead of the refund window to avoid all this.
 
 The worst case of a call counts every UTF-8 byte of input as one token, which no byte-level tokenizer exceeds, so a session's total stays under its lock.
+
+## Pooled budgets: one budget, many providers
+
+A pooled budget lets an agent lock one amount once and spend it across several providers. The payer locks the budget in one token and names a spender key, usually its agent's own key. Each provider the agent uses reserves its own slice of the budget on chain, serves calls against it, and is paid its total from the budget when the budget ends.
+
+A provider takes part only when the budget is in its own price currency. A budget in any other token is refused with `budget_currency_not_accepted` before anything is signed; there is no swap.
+
+With `budgets.enabled`, the kit:
+
+- adds a `budget` offer to every `402`: the escrow program, your wallet and payout account, your mint, the slice it wants (`reservation`) and the least it takes (`minReservation`), the judges you accept and how much open time a budget must have left;
+- takes calls that name a budget in `x402-budget` (the budget, its `createdSlot` and a call number) and carry the spender's signature over the network, the budget, your wallet, the call number and the SHA-256 of the body (`x402-budget-signature`). A call signed by anyone but the budget's spender, or out of order, is refused before anything is served;
+- reserves a slice when a call carries a spender-signed reserve transaction in `x402-budget-reserve`. It checks the transaction holds one reserve for this budget, for you, within what it offered, with you as fee payer and the spender's signature valid, and checks the budget (its token, its judge, its allowlist, its funds and the time left) before it adds its own signature and sends it. You pay the reservation account's rent, which comes back when the slice is paid. A slice that may not cover the next call is refused with `reservation_low` and a new offer, and the agent sends a raise the same way;
+- meters each call at your per-token price and answers with a signed receipt whose `session` block names your reservation as the escrow, so the buyer can check the chain of calls (`verifyReddiReceiptV2Session` in `@redditech/agent-protocol`);
+- writes your slice to `budgets.file` before it answers, so a restart goes on from the last answered call;
+- posts your total once the budget is closed or near the end of its open time, closes an expired budget if no one else has, and pays out after the dispute window, at once if the payer waived it, or after the judge's window if a dispute is not resolved. The sweep runs every minute on a server and in `sweep()` on a serverless host.
+
+`spenderSignedReserve` and `budgetRequestHeaders` in `@redditech/x402-solana/budget-provider` build the agent's side.
+
+An operator can set what a budget pays for each call with `budgetCallPricing` (a handler dependency, or an option of `createServerlessProvider`), for example a launch bonus. It is told the budget's payer, mint, total and `createdSlot` as read from the chain and the call's cost, and returns `paid` (at most the cost), which is what the slice is charged and posted, and an optional `bonus` block for the receipt. If it throws, the call is refused and nothing is charged. When a priced call is refused afterwards (its receipt or its record failed), `budgetCallPricingVoided({ budget, createdSlot, requestId })` is called so the operator can undo what it set aside, and the sweep calls `onBudgetDone({ budget, createdSlot })` once a slice is settled and gone, retrying on the next sweep if it throws.
 
 ## What the kit does to protect you and your buyers
 
@@ -236,8 +261,8 @@ if (!created.ok) throw new Error(created.message);
 export const { handle, sweep } = created.provider;
 ```
 
-- Apply the `provider_kit` migration (`supabase/migrations/20261123120000_provider_kit_state.sql` in this repository) first. It creates a `provider_kit_app` role that can use these tables and nothing else; give it a login yourself and connect as it (through your database's pooler), never as the database owner. No client role can read the tables.
-- Call `sweep()` every minute or so (a cron job behind a secret). It looks again at settles whose outcome was not known.
+- Apply the `provider_kit` migrations (`supabase/migrations/20261123120000_provider_kit_state.sql` and, for pooled budgets, `20261124180000_provider_kit_budgets.sql` in this repository) first. It creates a `provider_kit_app` role that can use these tables and nothing else; give it a login yourself and connect as it (through your database's pooler), never as the database owner. No client role can read the tables.
+- Call `sweep()` every minute or so (a cron job behind a secret). It looks again at settles whose outcome was not known, and posts and pays out budget slices that are due.
 - An answer waiting for its settle to land is kept in the database for up to ten minutes, for the buyer to collect with the same request.
 - Sessions and the refund-account subsidy are not offered on a serverless host yet; the provider refuses to start with them on.
 - `postgresProviderStores(pool, providerId)` gives you the stores on their own, for any other host.
