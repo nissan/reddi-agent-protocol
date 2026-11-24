@@ -993,7 +993,13 @@ once. On a budget without the flag the sysvar is never the spender, and on a
 budget with it an ordinary signer never is. The payer still waives, disputes
 and closes by signing, and anyone may still close once the open period ends.
 A close by approval counts as not the payer's (flag `0x04` without an
-allowlist). `interface/vectors.json` (`budget_p256_spender`) has a signed
+allowlist). There is no stored nonce: replay safety rests on the budget's
+state (a reserve must strictly raise the slice, a waive or a close happens
+once) and on the expiry. The program does not cap `expires_slot`, so the
+signer keeps it short (the Reddi Agent Protocol relay uses about 150 slots,
+roughly a minute). On a P-256 budget the checks that the payee and the judge
+are not the spender compare against the key's hash, so they never match;
+the payee's and judge's own checks still apply. `interface/vectors.json` (`budget_p256_spender`) has a signed
 example of each action.
 
 Windows: the open period and the dispute window are 9,000 to 1,512,000 slots

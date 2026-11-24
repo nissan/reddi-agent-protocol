@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.RESERVATION_STATES = exports.MAX_TOKEN_BUDGET_BASE_UNITS = exports.MAX_SOL_BUDGET_LAMPORTS = exports.RESERVATION_ACCOUNT_LEN = exports.BUDGET_ACCOUNT_LEN = exports.BUDGET_FLAG_REVIEW_FROM_OPEN_END = exports.BUDGET_FLAG_CLOSED = exports.BUDGET_FLAG_SPENDER_WAIVES = exports.BUDGET_ALLOWLIST_LEN = exports.MAX_BUDGET_RESERVATIONS = exports.MIN_REVIEW_SLOTS = exports.MAX_BUDGET_JUDGE_SLOTS = exports.MIN_BUDGET_JUDGE_SLOTS = exports.MAX_BUDGET_WINDOW_SLOTS = exports.MIN_BUDGET_WINDOW_SLOTS = exports.BUDGET_DISCRIMINATORS = void 0;
+exports.BUDGET_APPROVAL_ACTIONS = exports.BUDGET_APPROVAL_LEN = exports.BUDGET_APPROVAL_DOMAIN = exports.SECP256R1_PROGRAM_ID = exports.RESERVATION_STATES = exports.MAX_TOKEN_BUDGET_BASE_UNITS = exports.MAX_SOL_BUDGET_LAMPORTS = exports.RESERVATION_ACCOUNT_LEN = exports.BUDGET_ACCOUNT_LEN = exports.BUDGET_FLAG_P256_SPENDER = exports.BUDGET_FLAG_REVIEW_FROM_OPEN_END = exports.BUDGET_FLAG_CLOSED = exports.BUDGET_FLAG_SPENDER_WAIVES = exports.BUDGET_ALLOWLIST_LEN = exports.MAX_BUDGET_RESERVATIONS = exports.MIN_REVIEW_SLOTS = exports.MAX_BUDGET_JUDGE_SLOTS = exports.MIN_BUDGET_JUDGE_SLOTS = exports.MAX_BUDGET_WINDOW_SLOTS = exports.MIN_BUDGET_WINDOW_SLOTS = exports.BUDGET_DISCRIMINATORS = void 0;
 exports.budgetAddress = budgetAddress;
 exports.budgetVaultAddress = budgetVaultAddress;
 exports.reservationAddress = reservationAddress;
@@ -20,6 +20,11 @@ exports.decodeBudget = decodeBudget;
 exports.decodeReservation = decodeReservation;
 exports.disputeEnds = disputeEnds;
 exports.judgeEnds = judgeEnds;
+exports.compressP256PublicKey = compressP256PublicKey;
+exports.p256SpenderAddress = p256SpenderAddress;
+exports.budgetApprovalMessage = budgetApprovalMessage;
+exports.compactLowSP256Signature = compactLowSP256Signature;
+exports.secp256r1ApprovalInstruction = secp256r1ApprovalInstruction;
 /**
  * Pooled budget: client side of the thirteen budget instructions of
  * `programs/pinocchio-escrow` (README "Pooled budget").
@@ -98,6 +103,13 @@ exports.BUDGET_FLAG_SPENDER_WAIVES = 0x01;
 exports.BUDGET_FLAG_CLOSED = 0x02;
 /** Budget flag set when someone other than the payer closed a budget without an allowlist: the dispute window then runs from the end of the open period at the earliest. */
 exports.BUDGET_FLAG_REVIEW_FROM_OPEN_END = 0x04;
+/**
+ * Budget flag: the spender is a P-256 key (a KMS key, a passkey). Its `spender` field is
+ * `p256SpenderAddress(publicKey)`, and the spender approves each call with a signed
+ * `budgetApprovalMessage` carried by `secp256r1ApprovalInstruction` just before it,
+ * instead of signing the transaction (README "P-256 spender").
+ */
+exports.BUDGET_FLAG_P256_SPENDER = 0x08;
 exports.BUDGET_ACCOUNT_LEN = 349;
 exports.RESERVATION_ACCOUNT_LEN = 147;
 /** Caps the program applies to one budget, as for one escrow. */
@@ -185,7 +197,7 @@ function openBudgetInstruction(input) {
         u64(input.judgeSlots, 'judgeSlots'),
         u64(input.total, 'total'),
         u64(cap, 'perProviderCap'),
-        Buffer.from([input.spenderMayWaive ? exports.BUDGET_FLAG_SPENDER_WAIVES : 0]),
+        Buffer.from([(input.spenderMayWaive ? exports.BUDGET_FLAG_SPENDER_WAIVES : 0) | (input.p256Spender ? exports.BUDGET_FLAG_P256_SPENDER : 0)]),
         ...entries.map((entry) => entry.toBuffer()),
     ]);
     const judge = input.judge ? [meta(agentAddress(input.judge, input.programId))] : [];
@@ -216,11 +228,16 @@ function openBudgetInstruction(input) {
 function reserveInstruction(input) {
     return new web3_js_1.TransactionInstruction({
         programId: input.programId,
-        data: Buffer.concat([disc('global:reserve'), u64(input.createdSlot, 'createdSlot'), u64(input.amount, 'amount')]),
+        data: Buffer.concat([
+            disc('global:reserve'),
+            u64(input.createdSlot, 'createdSlot'),
+            u64(input.amount, 'amount'),
+            ...expiry(input.spender),
+        ]),
         keys: [
             meta(input.budget, true),
             meta(reservationAddress(input.budget, input.payee, input.programId), true),
-            meta(input.spender, false, true),
+            authority(input.spender),
             meta(input.payee, true, true),
             meta(agentAddress(input.payee, input.programId)),
             meta(input.payoutAccount ?? input.payee),
@@ -252,11 +269,14 @@ function postFinalInstruction(input) {
 function hold(name, input) {
     return new web3_js_1.TransactionInstruction({
         programId: input.programId,
-        data: Buffer.concat([disc(name), u64(input.createdSlot, 'createdSlot')]),
-        keys: [meta(input.budget), meta(reservationAddress(input.budget, input.payee, input.programId), true), meta(input.signer, false, true)],
+        data: Buffer.concat([disc(name), u64(input.createdSlot, 'createdSlot'), ...expiry(input.signer)]),
+        keys: [meta(input.budget), meta(reservationAddress(input.budget, input.payee, input.programId), true), authority(input.signer)],
     });
 }
-/** `waive`, by the payer (or the spender on a budget that allows it), on a posted slice: it can be paid at once. */
+/**
+ * `waive`, by the payer (or the spender on a budget that allows it), on a posted slice: it can be paid at once.
+ * A P-256 spender passes `{ p256ExpiresSlot }` as `signer`.
+ */
 function waiveInstruction(input) {
     return hold('global:waive', input);
 }
@@ -267,15 +287,16 @@ function disputeInstruction(input) {
 /**
  * `close_budget` or, with `token`, `close_token_budget`: by the payer or the
  * spender any time, by anyone after the open period. Pass `memoProgram` (the
- * SPL Memo program) when the refund account requires incoming memos.
+ * SPL Memo program) when the refund account requires incoming memos. A P-256
+ * spender passes `{ p256ExpiresSlot }` as `signer`.
  */
 function closeBudgetInstruction(input) {
-    const created = u64(input.createdSlot, 'createdSlot');
+    const created = Buffer.concat([u64(input.createdSlot, 'createdSlot'), ...expiry(input.signer)]);
     if (!input.token) {
         return new web3_js_1.TransactionInstruction({
             programId: input.programId,
             data: Buffer.concat([disc('global:close_budget'), created]),
-            keys: [meta(input.budget, true), meta(input.signer, false, true), meta(input.payer, true)],
+            keys: [meta(input.budget, true), authority(input.signer), meta(input.payer, true)],
         });
     }
     return new web3_js_1.TransactionInstruction({
@@ -284,7 +305,7 @@ function closeBudgetInstruction(input) {
         keys: [
             meta(input.budget, true),
             meta(budgetVaultAddress(input.budget, input.programId), true),
-            meta(input.signer, false, true),
+            authority(input.signer),
             meta(input.payer, true),
             meta(input.token.mint),
             meta(input.token.refund, true),
@@ -374,6 +395,7 @@ function decodeBudget(accountData) {
         spenderMayWaive: (data[346] & exports.BUDGET_FLAG_SPENDER_WAIVES) !== 0,
         closed: (data[346] & exports.BUDGET_FLAG_CLOSED) !== 0,
         reviewFromOpenEnd: (data[346] & exports.BUDGET_FLAG_REVIEW_FROM_OPEN_END) !== 0,
+        p256Spender: (data[346] & exports.BUDGET_FLAG_P256_SPENDER) !== 0,
         openEnds: createdSlot + openSlots,
     };
 }
@@ -418,4 +440,144 @@ function judgeEnds(budget, reservation) {
     if (reservation.state !== 'disputed')
         return null;
     return reservation.disputedSlot + budget.judgeSlots;
+}
+// ── P-256 spender approvals (flag 0x08) ─────────────────────────────────────
+/** The secp256r1 signature verification precompile. */
+exports.SECP256R1_PROGRAM_ID = new web3_js_1.PublicKey('Secp256r1SigVerify1111111111111111111111111');
+/** First bytes of every approval, with its version. */
+exports.BUDGET_APPROVAL_DOMAIN = 'RAP-BUDGET-SPENDER-V1';
+exports.BUDGET_APPROVAL_LEN = 175;
+/** What an approval allows. */
+exports.BUDGET_APPROVAL_ACTIONS = { reserve: 1, waive: 2, close: 3 };
+function isP256(authority) {
+    return !(authority instanceof web3_js_1.PublicKey);
+}
+function authority(who) {
+    return isP256(who) ? meta(web3_js_1.SYSVAR_INSTRUCTIONS_PUBKEY) : meta(who, false, true);
+}
+function expiry(who) {
+    return isP256(who) ? [u64(who.p256ExpiresSlot, 'p256ExpiresSlot')] : [];
+}
+/** The 33-byte compressed form of a P-256 public key (accepts 33-byte compressed or 65-byte uncompressed). */
+function compressP256PublicKey(publicKey) {
+    if (publicKey.length === 33 && (publicKey[0] === 2 || publicKey[0] === 3))
+        return Uint8Array.from(publicKey);
+    if (publicKey.length === 65 && publicKey[0] === 4) {
+        const out = new Uint8Array(33);
+        out[0] = (publicKey[64] & 1) === 0 ? 2 : 3;
+        out.set(publicKey.subarray(1, 33), 1);
+        return out;
+    }
+    throw new Error('a P-256 public key is 33 bytes compressed or 65 bytes uncompressed');
+}
+/** What a budget stores as a P-256 spender: sha256 of the 33-byte compressed key. Uses WebCrypto. */
+async function p256SpenderAddress(publicKey) {
+    const compressed = compressP256PublicKey(publicKey);
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', compressed);
+    return new web3_js_1.PublicKey(new Uint8Array(digest));
+}
+/** The exact 175 bytes a P-256 spender signs (ES256) for one call; the program rebuilds and compares them. */
+function budgetApprovalMessage(approval) {
+    let target = ZERO;
+    let payout = ZERO;
+    let amount = 0n;
+    if (approval.action === 'reserve') {
+        if (!approval.payee || approval.amount === undefined)
+            throw new Error('a reserve approval names the payee and amount');
+        target = approval.payee;
+        payout = approval.payoutAccount ?? approval.payee;
+        amount = approval.amount;
+    }
+    else if (approval.action === 'waive') {
+        if (!approval.payee)
+            throw new Error('a waive approval names the payee');
+        target = reservationAddress(approval.budget, approval.payee, approval.programId);
+    }
+    const message = Buffer.concat([
+        Buffer.from(exports.BUDGET_APPROVAL_DOMAIN, 'ascii'),
+        Buffer.from([approval.cluster === 'devnet' ? 1 : 0]),
+        approval.programId.toBuffer(),
+        approval.budget.toBuffer(),
+        u64(approval.createdSlot, 'createdSlot'),
+        Buffer.from([exports.BUDGET_APPROVAL_ACTIONS[approval.action]]),
+        target.toBuffer(),
+        payout.toBuffer(),
+        u64(amount, 'amount'),
+        u64(approval.expiresSlot, 'expiresSlot'),
+    ]);
+    if (message.length !== exports.BUDGET_APPROVAL_LEN)
+        throw new Error('approval message length');
+    return message;
+}
+const P256_ORDER = 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551n;
+function bigFrom(bytes) {
+    let value = 0n;
+    for (const byte of bytes)
+        value = (value << 8n) | BigInt(byte);
+    return value;
+}
+function bytes32(value) {
+    const out = new Uint8Array(32);
+    for (let i = 31; i >= 0; i--) {
+        out[i] = Number(value & 0xffn);
+        value >>= 8n;
+    }
+    return out;
+}
+/**
+ * An ECDSA P-256 signature as the precompile takes it: 64 bytes r || s with a low s.
+ * Accepts raw r || s (JWS / WebCrypto) or DER (most KMS APIs).
+ */
+function compactLowSP256Signature(signature) {
+    let r;
+    let s;
+    if (signature.length === 64) {
+        r = bigFrom(signature.subarray(0, 32));
+        s = bigFrom(signature.subarray(32));
+    }
+    else {
+        // DER: 0x30 len 0x02 rlen r 0x02 slen s
+        const der = signature;
+        if (der[0] !== 0x30 || der[1] !== der.length - 2 || der[2] !== 0x02)
+            throw new Error('not an ECDSA signature');
+        const rLen = der[3];
+        if (der[4 + rLen] !== 0x02)
+            throw new Error('not an ECDSA signature');
+        const sLen = der[5 + rLen];
+        if (6 + rLen + sLen !== der.length)
+            throw new Error('not an ECDSA signature');
+        r = bigFrom(der.subarray(4, 4 + rLen));
+        s = bigFrom(der.subarray(6 + rLen, 6 + rLen + sLen));
+    }
+    if (r <= 0n || r >= P256_ORDER || s <= 0n || s >= P256_ORDER)
+        throw new Error('signature out of range');
+    if (s > P256_ORDER / 2n)
+        s = P256_ORDER - s;
+    const out = new Uint8Array(64);
+    out.set(bytes32(r), 0);
+    out.set(bytes32(s), 32);
+    return out;
+}
+/**
+ * The secp256r1 precompile instruction carrying one approval: one signature, with the key, signature
+ * and message all in this instruction (indexes u16::MAX), as the program requires. Put it right before
+ * the call it approves.
+ */
+function secp256r1ApprovalInstruction(input) {
+    const key = compressP256PublicKey(input.publicKey);
+    const signature = compactLowSP256Signature(input.signature);
+    const keyAt = 16;
+    const signatureAt = keyAt + 33;
+    const messageAt = signatureAt + 64;
+    if (input.message.length > 0xffff - messageAt)
+        throw new Error('message too long');
+    const header = Buffer.alloc(16);
+    header[0] = 1;
+    const fields = [signatureAt, 0xffff, keyAt, 0xffff, messageAt, input.message.length, 0xffff];
+    fields.forEach((value, i) => header.writeUInt16LE(value, 2 + 2 * i));
+    return new web3_js_1.TransactionInstruction({
+        programId: exports.SECP256R1_PROGRAM_ID,
+        keys: [],
+        data: Buffer.concat([header, Buffer.from(key), Buffer.from(signature), Buffer.from(input.message)]),
+    });
 }

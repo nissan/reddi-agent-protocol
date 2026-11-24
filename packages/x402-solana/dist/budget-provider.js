@@ -3,9 +3,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.DEFAULT_MAX_RESERVE_MICRO_LAMPORTS_PER_CU = exports.MAX_RESERVE_COMPUTE_UNITS = exports.BUDGET_RESERVE_HEADER = exports.BUDGET_SIGNATURE_HEADER = exports.BUDGET_PAYMENT_HEADER = void 0;
 exports.checkPooledBudgetForProvider = checkPooledBudgetForProvider;
 exports.checkReserveTransaction = checkReserveTransaction;
+exports.readSecp256r1Approval = readSecp256r1Approval;
 exports.spenderSignedReserve = spenderSignedReserve;
 exports.budgetRequestMessage = budgetRequestMessage;
 exports.budgetRequestHeaders = budgetRequestHeaders;
+exports.budgetRequestHeadersP256 = budgetRequestHeadersP256;
 exports.readBudgetPaymentHeader = readBudgetPaymentHeader;
 exports.verifyPooledBudgetRequest = verifyPooledBudgetRequest;
 exports.providerReservation = providerReservation;
@@ -116,31 +118,13 @@ function checkReserveTransaction(input) {
     if (!tx.feePayer?.equals(input.payee))
         return refuse('The reserve must name this provider as fee payer.');
     const reserves = tx.instructions.filter((ix) => !ix.programId.equals(web3_js_1.ComputeBudgetProgram.programId));
+    if (input.p256)
+        return checkP256Reserve({ ...input, p256: input.p256 }, tx, reserves, refuse);
     if (reserves.length !== 1)
         return refuse('The reserve must hold one reserve instruction and nothing else.');
-    const maxPrice = input.maxMicroLamportsPerComputeUnit ?? exports.DEFAULT_MAX_RESERVE_MICRO_LAMPORTS_PER_CU;
-    let unitLimit = null;
-    let unitPrice = null;
-    for (const budgetIx of tx.instructions.filter((i) => i.programId.equals(web3_js_1.ComputeBudgetProgram.programId))) {
-        const data = Buffer.from(budgetIx.data);
-        if (budgetIx.keys.length !== 0)
-            return refuse('A compute-budget instruction in the reserve names accounts.');
-        if (data[0] === 2 && data.length === 5 && unitLimit === null) {
-            unitLimit = BigInt(data.readUInt32LE(1));
-            if (unitLimit > BigInt(exports.MAX_RESERVE_COMPUTE_UNITS))
-                return refuse('The reserve asks for more compute than a reserve needs.');
-        }
-        else if (data[0] === 3 && data.length === 9 && unitPrice === null) {
-            unitPrice = data.readBigUInt64LE(1);
-            if (unitPrice > maxPrice)
-                return refuse('The reserve sets a compute-unit price above what this provider pays.');
-        }
-        else {
-            return refuse('The reserve may hold at most one compute-unit limit and one compute-unit price, and no other compute-budget instruction.');
-        }
-    }
-    const units = unitLimit ?? DEFAULT_UNITS_PER_INSTRUCTION;
-    const priorityLamports = ((unitPrice ?? 0n) * units + 999999n) / 1000000n;
+    const priority = priorityLamports(tx, input.maxMicroLamportsPerComputeUnit, 1n);
+    if (typeof priority === 'string')
+        return refuse(priority);
     const ix = reserves[0];
     if (ix.data.length !== 24)
         return refuse('That instruction is not a reserve.');
@@ -157,7 +141,85 @@ function checkReserveTransaction(input) {
     const spenderSig = tx.signatures.find((s) => s.publicKey.equals(input.spender))?.signature;
     if (!spenderSig || !(0, ed25519_1.ed25519Verify)(input.spender, tx.serializeMessage(), spenderSig))
         return refuse('The spender has not signed this reserve.');
-    return { ok: true, amount, transaction: tx, maxFeeLamports: LAMPORTS_PER_SIGNATURE * 2n + priorityLamports };
+    return { ok: true, amount, transaction: tx, maxFeeLamports: LAMPORTS_PER_SIGNATURE * 2n + priority };
+}
+/** The most the compute-budget instructions can add to the fee, or why they are refused. */
+function priorityLamports(tx, maxMicroLamports, instructions) {
+    const maxPrice = maxMicroLamports ?? exports.DEFAULT_MAX_RESERVE_MICRO_LAMPORTS_PER_CU;
+    let unitLimit = null;
+    let unitPrice = null;
+    for (const budgetIx of tx.instructions.filter((i) => i.programId.equals(web3_js_1.ComputeBudgetProgram.programId))) {
+        const data = Buffer.from(budgetIx.data);
+        if (budgetIx.keys.length !== 0)
+            return 'A compute-budget instruction in the reserve names accounts.';
+        if (data[0] === 2 && data.length === 5 && unitLimit === null) {
+            unitLimit = BigInt(data.readUInt32LE(1));
+            if (unitLimit > BigInt(exports.MAX_RESERVE_COMPUTE_UNITS))
+                return 'The reserve asks for more compute than a reserve needs.';
+        }
+        else if (data[0] === 3 && data.length === 9 && unitPrice === null) {
+            unitPrice = data.readBigUInt64LE(1);
+            if (unitPrice > maxPrice)
+                return 'The reserve sets a compute-unit price above what this provider pays.';
+        }
+        else {
+            return 'The reserve may hold at most one compute-unit limit and one compute-unit price, and no other compute-budget instruction.';
+        }
+    }
+    const units = unitLimit ?? DEFAULT_UNITS_PER_INSTRUCTION * instructions;
+    return ((unitPrice ?? 0n) * units + 999999n) / 1000000n;
+}
+/** The 33-byte key, signature and message of a secp256r1 approval instruction in the one layout the program takes. */
+function readSecp256r1Approval(ix) {
+    const data = Buffer.from(ix.data);
+    if (!ix.programId.equals(budget_1.SECP256R1_PROGRAM_ID) || ix.keys.length !== 0 || data.length < 16 || data[0] !== 1)
+        return undefined;
+    const field = (i) => data.readUInt16LE(2 + 2 * i);
+    const [signatureAt, signatureIx, keyAt, keyIx, messageAt, messageLen, messageIx] = [0, 1, 2, 3, 4, 5, 6].map(field);
+    if (signatureIx !== 0xffff || keyIx !== 0xffff || messageIx !== 0xffff)
+        return undefined;
+    if (keyAt + 33 > data.length || signatureAt + 64 > data.length || messageAt + messageLen > data.length)
+        return undefined;
+    return {
+        publicKey: data.subarray(keyAt, keyAt + 33),
+        signature: data.subarray(signatureAt, signatureAt + 64),
+        message: data.subarray(messageAt, messageAt + messageLen),
+    };
+}
+function checkP256Reserve(input, tx, rest, refuse) {
+    if (rest.length !== 2)
+        return refuse('The reserve must hold the spender approval, then one reserve instruction, and nothing else.');
+    const [pre, ix] = rest;
+    const approval = readSecp256r1Approval(pre);
+    if (!approval)
+        return refuse('The reserve must come right after the spender approval.');
+    const at = tx.instructions.indexOf(ix);
+    if (at < 1 || tx.instructions[at - 1] !== pre)
+        return refuse('The reserve must come right after the spender approval.');
+    const priority = priorityLamports(tx, input.maxMicroLamportsPerComputeUnit, 2n);
+    if (typeof priority === 'string')
+        return refuse(priority);
+    if (ix.data.length !== 32)
+        return refuse('That instruction is not a reserve by approval.');
+    const amount = ix.data.readBigUInt64LE(16);
+    const expiresSlot = ix.data.readBigUInt64LE(24);
+    const expected = (0, budget_1.reserveInstruction)({ programId: input.programId, budget: input.budget, createdSlot: input.createdSlot, spender: { p256ExpiresSlot: expiresSlot }, payee: input.payee, amount, payoutAccount: input.payoutAccount });
+    if (!sameInstruction(ix, expected))
+        return refuse('That reserve is not for this budget, provider and payout account.');
+    if (amount < input.minAmount || amount > input.maxAmount)
+        return refuse('The reserve amount is outside what this provider offered.');
+    if (!(0, ed25519_1.sha256)(approval.publicKey).equals(input.spender.toBuffer()))
+        return refuse('The approval is not from this budget\'s spender.');
+    const message = (0, budget_1.budgetApprovalMessage)({ programId: input.programId, budget: input.budget, createdSlot: input.createdSlot, action: 'reserve', payee: input.payee, payoutAccount: input.payoutAccount, amount, expiresSlot, cluster: input.p256.cluster });
+    if (!approval.message.equals(message))
+        return refuse('The approval is not for this reserve.');
+    if (!(0, ed25519_1.p256Verify)(approval.publicKey, message, approval.signature))
+        return refuse('The spender has not signed this reserve.');
+    const signers = tx.signatures.map((s) => s.publicKey);
+    if (signers.length !== 1 || !signers[0].equals(input.payee))
+        return refuse('The reserve must be signed by this provider only.');
+    // The provider's signature and the approval's both count toward the fee.
+    return { ok: true, amount, transaction: tx, maxFeeLamports: LAMPORTS_PER_SIGNATURE * 2n + priority };
 }
 function sameInstruction(a, b) {
     return a.programId.equals(b.programId) && Buffer.from(a.data).equals(Buffer.from(b.data)) && a.keys.length === b.keys.length
@@ -188,6 +250,18 @@ async function budgetRequestHeaders(input, signWithSpender) {
     const signature = await signWithSpender(new TextEncoder().encode(message));
     return { [exports.BUDGET_PAYMENT_HEADER]: Buffer.from(JSON.stringify(header)).toString('base64'), [exports.BUDGET_SIGNATURE_HEADER]: Buffer.from(signature).toString('base64') };
 }
+/**
+ * The two headers for a budget-paid call whose spender is a P-256 key: `x402-budget-signature`
+ * carries the 33-byte compressed key, then the 64-byte low-S signature (ES256 over the same message).
+ * `signWithSpender` may return DER or r || s.
+ */
+async function budgetRequestHeadersP256(input, publicKey, signWithSpender) {
+    const header = { budget: input.budget.toBase58(), createdSlot: input.createdSlot.toString(), sequence: input.sequence };
+    const message = budgetRequestMessage({ genesisHash: input.genesisHash, action: input.action, budget: header.budget, createdSlot: input.createdSlot, provider: input.provider.toBase58(), sequence: input.sequence, bodyHash: (0, session_auth_1.sessionBodyHash)(input.body) });
+    const signature = (0, budget_1.compactLowSP256Signature)(await signWithSpender(new TextEncoder().encode(message)));
+    const value = Buffer.concat([Buffer.from((0, budget_1.compressP256PublicKey)(publicKey)), Buffer.from(signature)]);
+    return { [exports.BUDGET_PAYMENT_HEADER]: Buffer.from(JSON.stringify(header)).toString('base64'), [exports.BUDGET_SIGNATURE_HEADER]: value.toString('base64') };
+}
 /** Reads `x402-budget`. Undefined when it is absent; an error when it is malformed. */
 function readBudgetPaymentHeader(value) {
     if (value === undefined)
@@ -204,13 +278,21 @@ function readBudgetPaymentHeader(value) {
         return { error: 'x402-budget is not base64 JSON.' };
     }
 }
-/** Checks the spender's signature over one call. `spender` comes from the budget account read on chain, never from the request. */
+/**
+ * Checks the spender's signature over one call. `spender` and `p256Spender` come from the budget
+ * account read on chain, never from the request. A P-256 spender's header carries its key, which must
+ * hash to `spender`.
+ */
 function verifyPooledBudgetRequest(input) {
     const signature = input.signatureHeader === undefined ? undefined : (0, ed25519_1.decodeBase64)(input.signatureHeader);
-    if (!signature || signature.length !== 64)
+    const length = input.p256Spender ? 97 : 64;
+    if (!signature || signature.length !== length)
         return { ok: false, reason: 'budget_signature_invalid', message: 'A budget call needs the spender signature in x402-budget-signature.' };
-    const message = budgetRequestMessage({ genesisHash: input.genesisHash, action: input.action, budget: input.budget.toBase58(), createdSlot: input.createdSlot, provider: input.provider.toBase58(), sequence: input.sequence, bodyHash: (0, session_auth_1.sessionBodyHash)(input.body) });
-    if (!(0, ed25519_1.ed25519Verify)(input.spender, new TextEncoder().encode(message), signature))
+    const message = new TextEncoder().encode(budgetRequestMessage({ genesisHash: input.genesisHash, action: input.action, budget: input.budget.toBase58(), createdSlot: input.createdSlot, provider: input.provider.toBase58(), sequence: input.sequence, bodyHash: (0, session_auth_1.sessionBodyHash)(input.body) }));
+    const valid = input.p256Spender
+        ? (0, ed25519_1.sha256)(signature.subarray(0, 33)).equals(input.spender.toBuffer()) && (0, ed25519_1.p256Verify)(signature.subarray(0, 33), message, signature.subarray(33))
+        : (0, ed25519_1.ed25519Verify)(input.spender, message, signature);
+    if (!valid)
         return { ok: false, reason: 'budget_signature_invalid', message: 'The spender signature does not match this call.' };
     return { ok: true };
 }

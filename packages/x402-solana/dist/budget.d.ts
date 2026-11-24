@@ -54,6 +54,13 @@ export declare const BUDGET_FLAG_SPENDER_WAIVES = 1;
 export declare const BUDGET_FLAG_CLOSED = 2;
 /** Budget flag set when someone other than the payer closed a budget without an allowlist: the dispute window then runs from the end of the open period at the earliest. */
 export declare const BUDGET_FLAG_REVIEW_FROM_OPEN_END = 4;
+/**
+ * Budget flag: the spender is a P-256 key (a KMS key, a passkey). Its `spender` field is
+ * `p256SpenderAddress(publicKey)`, and the spender approves each call with a signed
+ * `budgetApprovalMessage` carried by `secp256r1ApprovalInstruction` just before it,
+ * instead of signing the transaction (README "P-256 spender").
+ */
+export declare const BUDGET_FLAG_P256_SPENDER = 8;
 export declare const BUDGET_ACCOUNT_LEN = 349;
 export declare const RESERVATION_ACCOUNT_LEN = 147;
 /** Caps the program applies to one budget, as for one escrow. */
@@ -100,6 +107,8 @@ export interface OpenBudgetInput {
     allowlist?: PublicKey[];
     /** Let the spender waive disputes (needs an allowlist). */
     spenderMayWaive?: boolean;
+    /** `spender` is `p256SpenderAddress` of a P-256 key, which approves instead of signing. */
+    p256Spender?: boolean;
     /** Omit for SOL. */
     token?: BudgetTokenOpen;
 }
@@ -128,7 +137,7 @@ interface OfBudget {
  * reserve (6087).
  */
 export declare function reserveInstruction(input: OfBudget & {
-    spender: PublicKey;
+    spender: PublicKey | P256Approved;
     payee: PublicKey;
     amount: bigint;
     payoutAccount?: PublicKey;
@@ -143,10 +152,13 @@ export declare function postFinalInstruction(input: OfBudget & {
     payee: PublicKey;
     amount: bigint;
 }): TransactionInstruction;
-/** `waive`, by the payer (or the spender on a budget that allows it), on a posted slice: it can be paid at once. */
+/**
+ * `waive`, by the payer (or the spender on a budget that allows it), on a posted slice: it can be paid at once.
+ * A P-256 spender passes `{ p256ExpiresSlot }` as `signer`.
+ */
 export declare function waiveInstruction(input: OfBudget & {
     payee: PublicKey;
-    signer: PublicKey;
+    signer: PublicKey | P256Approved;
 }): TransactionInstruction;
 /** `dispute`, by the payer, on a posted slice of a budget with a judge, before `disputeEnds`. */
 export declare function disputeInstruction(input: OfBudget & {
@@ -163,10 +175,11 @@ export interface BudgetTokenClose {
 /**
  * `close_budget` or, with `token`, `close_token_budget`: by the payer or the
  * spender any time, by anyone after the open period. Pass `memoProgram` (the
- * SPL Memo program) when the refund account requires incoming memos.
+ * SPL Memo program) when the refund account requires incoming memos. A P-256
+ * spender passes `{ p256ExpiresSlot }` as `signer`.
  */
 export declare function closeBudgetInstruction(input: OfBudget & {
-    signer: PublicKey;
+    signer: PublicKey | P256Approved;
     payer: PublicKey;
     token?: BudgetTokenClose;
     memoProgram?: PublicKey;
@@ -232,6 +245,8 @@ export interface BudgetAccount {
     closed: boolean;
     /** Closed by someone other than the payer, without an allowlist: the dispute window runs from `openEnds` at the earliest. */
     reviewFromOpenEnd: boolean;
+    /** The spender is a P-256 key that approves instead of signing (flag 0x08). */
+    p256Spender: boolean;
     /** The first slot at which reservations are refused and anyone may close. */
     openEnds: bigint;
 }
@@ -262,4 +277,58 @@ export declare function decodeReservation(accountData: Uint8Array): ReservationA
 export declare function disputeEnds(budget: BudgetAccount, reservation: ReservationAccount): bigint | null;
 /** The first slot at which a disputed reservation refunds in full without the judge. Null unless disputed. */
 export declare function judgeEnds(budget: BudgetAccount, reservation: ReservationAccount): bigint | null;
+/** The secp256r1 signature verification precompile. */
+export declare const SECP256R1_PROGRAM_ID: PublicKey;
+/** First bytes of every approval, with its version. */
+export declare const BUDGET_APPROVAL_DOMAIN = "RAP-BUDGET-SPENDER-V1";
+export declare const BUDGET_APPROVAL_LEN = 175;
+/** What an approval allows. */
+export declare const BUDGET_APPROVAL_ACTIONS: {
+    readonly reserve: 1;
+    readonly waive: 2;
+    readonly close: 3;
+};
+export type BudgetApprovalAction = keyof typeof BUDGET_APPROVAL_ACTIONS;
+/** The cluster byte: a mainnet build of the program takes 0, a devnet build 1. */
+export type BudgetApprovalCluster = 'mainnet' | 'devnet';
+/**
+ * A P-256 spender's side of a call: in place of the spender (reserve) or signer (waive, close) key,
+ * the call then takes the Instructions sysvar and carries `p256ExpiresSlot`, the last slot its
+ * approval may be used in. Send it right after `secp256r1ApprovalInstruction` for the same approval.
+ */
+export interface P256Approved {
+    p256ExpiresSlot: bigint;
+}
+/** The 33-byte compressed form of a P-256 public key (accepts 33-byte compressed or 65-byte uncompressed). */
+export declare function compressP256PublicKey(publicKey: Uint8Array): Uint8Array;
+/** What a budget stores as a P-256 spender: sha256 of the 33-byte compressed key. Uses WebCrypto. */
+export declare function p256SpenderAddress(publicKey: Uint8Array): Promise<PublicKey>;
+export interface BudgetApproval extends OfBudget {
+    action: BudgetApprovalAction;
+    /** reserve: the payee; waive: the payee whose reservation is waived; close: none. */
+    payee?: PublicKey;
+    /** reserve: the payout account (the payee itself for SOL, the default). */
+    payoutAccount?: PublicKey;
+    /** reserve: the slice's new total. */
+    amount?: bigint;
+    expiresSlot: bigint;
+    cluster: BudgetApprovalCluster;
+}
+/** The exact 175 bytes a P-256 spender signs (ES256) for one call; the program rebuilds and compares them. */
+export declare function budgetApprovalMessage(approval: BudgetApproval): Buffer;
+/**
+ * An ECDSA P-256 signature as the precompile takes it: 64 bytes r || s with a low s.
+ * Accepts raw r || s (JWS / WebCrypto) or DER (most KMS APIs).
+ */
+export declare function compactLowSP256Signature(signature: Uint8Array): Uint8Array;
+/**
+ * The secp256r1 precompile instruction carrying one approval: one signature, with the key, signature
+ * and message all in this instruction (indexes u16::MAX), as the program requires. Put it right before
+ * the call it approves.
+ */
+export declare function secp256r1ApprovalInstruction(input: {
+    publicKey: Uint8Array;
+    signature: Uint8Array;
+    message: Uint8Array;
+}): TransactionInstruction;
 export {};

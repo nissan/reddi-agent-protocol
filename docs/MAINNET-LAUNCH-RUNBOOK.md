@@ -45,10 +45,10 @@ The deployer needs the program account's rent, plus room for the temporary
 buffer during the deploy and fees. On 22 November 2026 mainnet and devnet both
 charged 5,080 lamports per byte (check with `solana rent <bytes> --url
 mainnet-beta` before funding). With rating, attestation, the delivery check and
-the pooled Budget in the V1 build, the mainnet variant is about 188 KB (rent
-about 0.95 SOL), and the deploy's temporary buffer holds about the same again
-until it is closed; take the size of record from the freeze. Fund 3 SOL: 2 SOL
-leaves only about 0.1 SOL of margin.
+the pooled Budget (with its P-256 spender) in the V1 build, the mainnet variant
+is about 196 KB (rent about 1.00 SOL), and the deploy's temporary buffer holds
+about the same again until it is closed; take the size of record from the
+freeze. Fund 3 SOL: 2 SOL leaves almost no margin.
 The owner funds it.
 
 ## 3. Deploy (owner signs)
