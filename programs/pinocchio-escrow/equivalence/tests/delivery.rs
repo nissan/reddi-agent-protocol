@@ -1294,3 +1294,55 @@ fn a_rated_checked_token_exit_takes_the_memo_program_as_its_twelfth_account() {
     assert!(!world.exists(&delivery_address(&escrow)));
     world.report("rated, delivery-checked PYUSD escrow");
 }
+
+#[test]
+fn an_accepted_fixed_price_delivery_gives_the_payee_a_day_after_its_claim_opens() {
+    // Claim window = cancel window, both longer than the verify window plus a day: the payer's
+    // refund must not open in the slot the payee's claim first does (audit S1-claude2-01).
+    const W: u64 = 300_000;
+    let mut w = World::new();
+    let (payer, payee, judge) = (w.wallet(1), w.wallet(2), w.wallet(4));
+    w.register(&judge, AgentType::Attestation);
+    let (a, b, j) = (payer.pubkey(), payee.pubkey(), judge.pubkey());
+    for (i, payee_claims) in [(1u8, true), (2u8, false)] {
+        let e = sol_escrow(&a, nonce(i));
+        let mut lock = sol_lock(&a, &b, AMOUNT, nonce(i), false);
+        lock.data[32..40].copy_from_slice(&W.to_le_bytes());
+        lock.data[40..48].copy_from_slice(&W.to_le_bytes());
+        w.send(&[lock, open_delivery(&e, &a, &j)], &[&payer])
+            .unwrap();
+        let c = sol_created(&w, &e);
+        w.next_slot();
+        w.ok("record", record_delivery(&e, &b, c, 1, 1), &[&payee]);
+        w.ok("accept", answer("accept_delivery", &e, &a, c), &[&payer]);
+        let claim = with_delivery(sol_payout(&a, &b, nonce(i), &b, None), &e);
+        let refund = with_delivery(sol_cancel(&a, nonce(i), &a), &e);
+        w.warp(c + W - 1);
+        w.refused(
+            "claim before its window",
+            claim.clone(),
+            &[&payee],
+            CLAIM_WINDOW_NOT_ELAPSED,
+        );
+        w.warp(c + W);
+        w.refused(
+            "refund as the claim opens",
+            refund.clone(),
+            &[&payer],
+            DELIVERY_REFUND_NOT_OPEN,
+        );
+        if payee_claims {
+            w.ok("payee claims", claim, &[&payee]);
+        } else {
+            w.warp(c + W + COLLECT - 1);
+            w.refused(
+                "refund inside the collect day",
+                refund.clone(),
+                &[&payer],
+                DELIVERY_REFUND_NOT_OPEN,
+            );
+            w.warp(c + W + COLLECT);
+            w.ok("refund after the collect day", refund, &[&payer]);
+        }
+    }
+}

@@ -11,8 +11,9 @@
 //!   window has ended, or that the payer accepted, and is refused while the
 //!   delivery is disputed;
 //! - the payer's release and the payee's decline are unchanged;
-//! - the payer's refund, besides the escrow's own cancel window, waits for
-//!   the verify window and a day for the payee to collect once a delivery is
+//! - the payer's refund, besides the escrow's own cancel window, waits until
+//!   the payee can first collect (the verify window's end, or a fixed-price
+//!   escrow's claim window if later) and a day more once a delivery is
 //!   recorded, and for the judge's window once it is disputed.
 //!
 //! A disputed escrow is ended by its judge (`resolve_delivery`,
@@ -328,17 +329,28 @@ pub fn check_payout(record: &Delivery, by_payee: bool, slot: u64) -> ProgramResu
 
 /// Whether a refund may go ahead, on top of the escrow's own rules. The
 /// payee's decline always may. The payer's refund, with no delivery
-/// recorded, follows the cancel window alone. With a delivery recorded it
-/// waits for the verify window and then a day for the payee to collect;
-/// with a dispute, for the judge's window.
-pub fn check_refund(record: &Delivery, by_payer: bool, slot: u64) -> ProgramResult {
+/// recorded, follows the cancel window alone. With a delivery recorded or
+/// accepted it waits until the payee can first collect (the end of the
+/// verify window, or `claim_opens` if later: the slot a fixed-price
+/// escrow's claim opens, 0 for a metered escrow, which the payee settles)
+/// and then a day for the payee to collect; with a dispute, for the judge's
+/// window.
+pub fn check_refund(
+    record: &Delivery,
+    by_payer: bool,
+    slot: u64,
+    claim_opens: u64,
+) -> ProgramResult {
     if !by_payer {
         return Ok(());
     }
     let opens = match record.state {
         DELIVERY_AWAITING => return Ok(()),
         DELIVERY_DISPUTED => record.resolve_ends(),
-        _ => record.verify_ends().saturating_add(DELIVERY_COLLECT_SLOTS),
+        _ => record
+            .verify_ends()
+            .max(claim_opens)
+            .saturating_add(DELIVERY_COLLECT_SLOTS),
     };
     require(slot >= opens, &DeliveryRefundNotOpen)
 }
