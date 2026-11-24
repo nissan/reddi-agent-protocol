@@ -34,7 +34,9 @@ const HASH = /^[0-9a-f]{64}$/;
 const TX_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
-const RECEIPT_KEYS = ['schemaVersion', 'providerId', 'declaredModel', 'requestHash', 'responseHash', 'payment', 'session', 'delivery', 'jobId', 'issuedAt'];
+const RECEIPT_KEYS = ['schemaVersion', 'providerId', 'declaredModel', 'requestHash', 'responseHash', 'payment', 'session', 'delivery', 'bonus', 'jobId', 'issuedAt'];
+const BONUS_KEYS = ['offer', 'amount'];
+const BONUS_OFFER = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DELIVERY_KEYS = ['name', 'mediaType', 'bytes', 'sha256', 'expiresAt'];
 const MEDIA_TYPE = /^[a-z]+\/[a-z0-9.+-]{1,100}$/;
 const SESSION_KEYS = ['escrow', 'payer', 'network', 'currency', 'mint', 'maxAmount', 'sequence', 'inputTokens', 'outputTokens', 'cumulativeInputTokens', 'cumulativeOutputTokens', 'cumulativeCost', 'previousReceiptHash', 'closed'];
@@ -171,6 +173,8 @@ export function validateReddiReceiptV2(input) {
         if (typeof payment.txSignature !== 'string' || !TX_SIGNATURE.test(payment.txSignature))
             errors.push(err('malformed_receipt', '$.payment.txSignature', 'txSignature must be a base58 transaction signature'));
     }
+    if (input.bonus !== undefined)
+        validateBonus(input.bonus, payment, errors);
     if (input.delivery !== undefined)
         validateDelivery(input.delivery, input.issuedAt, session !== undefined, errors);
     if (input.jobId !== undefined && (typeof input.jobId !== 'string' || !JOB_ID.test(input.jobId)))
@@ -179,6 +183,26 @@ export function validateReddiReceiptV2(input) {
         errors.push(err('malformed_receipt', '$.issuedAt', 'issuedAt must be an ISO 8601 UTC time'));
     }
     return errors.length > 0 ? { ok: false, errors } : { ok: true, receipt: input };
+}
+function validateBonus(bonus, payment, errors) {
+    if (!isRecord(bonus) || !onlyKeys(bonus, BONUS_KEYS)) {
+        errors.push(err('malformed_receipt', '$.bonus', 'bonus must be { offer, amount }'));
+        return;
+    }
+    if (typeof bonus.offer !== 'string' || !BONUS_OFFER.test(bonus.offer))
+        errors.push(err('malformed_receipt', '$.bonus.offer', 'offer must be 1 to 64 lowercase letters, digits or hyphens'));
+    if (typeof bonus.amount !== 'string' || !BASE_UNITS.test(bonus.amount) || bonus.amount === '0') {
+        errors.push(err('malformed_receipt', '$.bonus.amount', 'amount must be a positive whole number of smallest units, as a string'));
+        return;
+    }
+    // A bonus rides on a payment: a session call before its settle has none yet.
+    if (!isRecord(payment)) {
+        errors.push(err('malformed_receipt', '$.bonus', 'a bonus is stated only on a receipt that states a payment'));
+        return;
+    }
+    if (typeof payment.amount === 'string' && BASE_UNITS.test(payment.amount) && BigInt(bonus.amount) > BigInt(payment.amount)) {
+        errors.push(err('malformed_receipt', '$.bonus.amount', 'a bonus cannot be more than the payment it rides on'));
+    }
 }
 function validateDelivery(delivery, issuedAt, inSession, errors) {
     if (!isRecord(delivery) || !onlyKeys(delivery, DELIVERY_KEYS)) {
@@ -301,6 +325,7 @@ export function canonicalizeReddiReceiptV2(receipt) {
         ...(receipt.delivery !== undefined
             ? { delivery: { name: receipt.delivery.name, mediaType: receipt.delivery.mediaType, bytes: receipt.delivery.bytes, sha256: receipt.delivery.sha256, expiresAt: receipt.delivery.expiresAt } }
             : {}),
+        ...(receipt.bonus !== undefined ? { bonus: { offer: receipt.bonus.offer, amount: receipt.bonus.amount } } : {}),
         ...(receipt.jobId !== undefined ? { jobId: receipt.jobId } : {}),
         issuedAt: receipt.issuedAt,
     });
@@ -394,6 +419,11 @@ export function verifyReddiReceiptV2(input, expected = {}) {
         const got = receipt.delivery;
         if (!got || Object.entries(expected.delivery).some(([key, value]) => value !== undefined && got[key] !== value))
             errors.push(err('delivery_mismatch', '$.receipt.delivery', 'delivered file differs from the file expected'));
+    }
+    if (expected.bonus !== undefined) {
+        const got = receipt.bonus;
+        if (!got || Object.entries(expected.bonus).some(([key, value]) => value !== undefined && got[key] !== value))
+            errors.push(err('bonus_mismatch', '$.receipt.bonus', 'bonus differs from the bonus expected'));
     }
     if (expected.payment !== undefined && receipt.payment === undefined) {
         errors.push(err('payment_mismatch', '$.receipt.payment', 'this receipt states no payment yet'));

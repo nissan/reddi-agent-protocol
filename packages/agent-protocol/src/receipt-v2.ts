@@ -75,6 +75,20 @@ export type ReddiReceiptV2Delivery = {
   expiresAt: string;
 };
 
+/**
+ * A launch or promotional bonus the provider applied to this call: a discount
+ * on its own price, not a transfer. `amount` is in the payment's smallest
+ * units and currency. The call's listed cost is `payment.amount` plus
+ * `bonus.amount`; the protocol fee is worked out on `payment.amount` alone,
+ * because only that moved on chain. `offer` names the offer, such as
+ * `rap-launch-2026`. Only on a receipt that states a payment, and never more
+ * than the payment itself.
+ */
+export type ReddiReceiptV2Bonus = {
+  offer: string;
+  amount: string;
+};
+
 export type ReddiReceiptV2Payment = {
   network: ReddiReceiptV2Network;
   /** Signature of the transaction that paid for this call (base58). */
@@ -149,6 +163,8 @@ export type ReddiReceiptV2 = {
   session?: ReddiReceiptV2Session;
   /** The file delivered, for a provider that returns one. */
   delivery?: ReddiReceiptV2Delivery;
+  /** A discount the provider applied on top of the payment, such as the launch Budget bonus. */
+  bonus?: ReddiReceiptV2Bonus;
   /** The job this call was recorded as, when the provider knows it. */
   jobId?: string;
   /** ISO 8601 UTC time the provider issued this receipt. */
@@ -176,7 +192,8 @@ export type ReddiReceiptV2ErrorCode =
   | 'payment_mismatch'
   | 'session_mismatch'
   | 'session_chain_broken'
-  | 'delivery_mismatch';
+  | 'delivery_mismatch'
+  | 'bonus_mismatch';
 
 export type ReddiReceiptV2Error = { code: ReddiReceiptV2ErrorCode; path: string; message: string };
 
@@ -196,6 +213,8 @@ export type ReddiReceiptV2Expectation = {
   session?: Partial<ReddiReceiptV2Session>;
   /** Each field given must equal the signed delivery block, for example the SHA-256 of the file you downloaded. A receipt without one fails. */
   delivery?: Partial<ReddiReceiptV2Delivery>;
+  /** Each field given must equal the signed bonus block. A receipt without one fails. */
+  bonus?: Partial<ReddiReceiptV2Bonus>;
 };
 
 /** Signs the canonical bytes with the provider's key and returns the 64-byte signature. The key never enters this module. */
@@ -206,7 +225,9 @@ const HASH = /^[0-9a-f]{64}$/;
 const TX_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
-const RECEIPT_KEYS = ['schemaVersion', 'providerId', 'declaredModel', 'requestHash', 'responseHash', 'payment', 'session', 'delivery', 'jobId', 'issuedAt'];
+const RECEIPT_KEYS = ['schemaVersion', 'providerId', 'declaredModel', 'requestHash', 'responseHash', 'payment', 'session', 'delivery', 'bonus', 'jobId', 'issuedAt'];
+const BONUS_KEYS = ['offer', 'amount'];
+const BONUS_OFFER = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DELIVERY_KEYS = ['name', 'mediaType', 'bytes', 'sha256', 'expiresAt'];
 const MEDIA_TYPE = /^[a-z]+\/[a-z0-9.+-]{1,100}$/;
 const SESSION_KEYS = ['escrow', 'payer', 'network', 'currency', 'mint', 'maxAmount', 'sequence', 'inputTokens', 'outputTokens', 'cumulativeInputTokens', 'cumulativeOutputTokens', 'cumulativeCost', 'previousReceiptHash', 'closed'];
@@ -322,12 +343,33 @@ export function validateReddiReceiptV2(input: unknown): ReddiReceiptV2Verificati
     if (payment.network !== 'solana-devnet' && payment.network !== 'solana-mainnet-beta') errors.push(err('malformed_receipt', '$.payment.network', 'network must be solana-devnet or solana-mainnet-beta'));
     if (typeof payment.txSignature !== 'string' || !TX_SIGNATURE.test(payment.txSignature)) errors.push(err('malformed_receipt', '$.payment.txSignature', 'txSignature must be a base58 transaction signature'));
   }
+  if (input.bonus !== undefined) validateBonus(input.bonus, payment, errors);
   if (input.delivery !== undefined) validateDelivery(input.delivery, input.issuedAt, session !== undefined, errors);
   if (input.jobId !== undefined && (typeof input.jobId !== 'string' || !JOB_ID.test(input.jobId))) errors.push(err('malformed_receipt', '$.jobId', 'jobId must be 1 to 120 characters of letters, digits, dot, underscore, colon or hyphen'));
   if (typeof input.issuedAt !== 'string' || !ISO_UTC.test(input.issuedAt) || Number.isNaN(Date.parse(input.issuedAt))) {
     errors.push(err('malformed_receipt', '$.issuedAt', 'issuedAt must be an ISO 8601 UTC time'));
   }
   return errors.length > 0 ? { ok: false, errors } : { ok: true, receipt: input as ReddiReceiptV2 };
+}
+
+function validateBonus(bonus: unknown, payment: unknown, errors: ReddiReceiptV2Error[]): void {
+  if (!isRecord(bonus) || !onlyKeys(bonus, BONUS_KEYS)) {
+    errors.push(err('malformed_receipt', '$.bonus', 'bonus must be { offer, amount }'));
+    return;
+  }
+  if (typeof bonus.offer !== 'string' || !BONUS_OFFER.test(bonus.offer)) errors.push(err('malformed_receipt', '$.bonus.offer', 'offer must be 1 to 64 lowercase letters, digits or hyphens'));
+  if (typeof bonus.amount !== 'string' || !BASE_UNITS.test(bonus.amount) || bonus.amount === '0') {
+    errors.push(err('malformed_receipt', '$.bonus.amount', 'amount must be a positive whole number of smallest units, as a string'));
+    return;
+  }
+  // A bonus rides on a payment: a session call before its settle has none yet.
+  if (!isRecord(payment)) {
+    errors.push(err('malformed_receipt', '$.bonus', 'a bonus is stated only on a receipt that states a payment'));
+    return;
+  }
+  if (typeof payment.amount === 'string' && BASE_UNITS.test(payment.amount) && BigInt(bonus.amount) > BigInt(payment.amount)) {
+    errors.push(err('malformed_receipt', '$.bonus.amount', 'a bonus cannot be more than the payment it rides on'));
+  }
 }
 
 function validateDelivery(delivery: unknown, issuedAt: unknown, inSession: boolean, errors: ReddiReceiptV2Error[]): void {
@@ -431,6 +473,7 @@ export function canonicalizeReddiReceiptV2(receipt: ReddiReceiptV2): string {
     ...(receipt.delivery !== undefined
       ? { delivery: { name: receipt.delivery.name, mediaType: receipt.delivery.mediaType, bytes: receipt.delivery.bytes, sha256: receipt.delivery.sha256, expiresAt: receipt.delivery.expiresAt } }
       : {}),
+    ...(receipt.bonus !== undefined ? { bonus: { offer: receipt.bonus.offer, amount: receipt.bonus.amount } } : {}),
     ...(receipt.jobId !== undefined ? { jobId: receipt.jobId } : {}),
     issuedAt: receipt.issuedAt,
   });
@@ -518,6 +561,10 @@ export function verifyReddiReceiptV2(input: unknown, expected: ReddiReceiptV2Exp
   if (expected.delivery !== undefined) {
     const got = receipt.delivery as Record<string, unknown> | undefined;
     if (!got || Object.entries(expected.delivery).some(([key, value]) => value !== undefined && got[key] !== value)) errors.push(err('delivery_mismatch', '$.receipt.delivery', 'delivered file differs from the file expected'));
+  }
+  if (expected.bonus !== undefined) {
+    const got = receipt.bonus as Record<string, unknown> | undefined;
+    if (!got || Object.entries(expected.bonus).some(([key, value]) => value !== undefined && got[key] !== value)) errors.push(err('bonus_mismatch', '$.receipt.bonus', 'bonus differs from the bonus expected'));
   }
   if (expected.payment !== undefined && receipt.payment === undefined) {
     errors.push(err('payment_mismatch', '$.receipt.payment', 'this receipt states no payment yet'));
