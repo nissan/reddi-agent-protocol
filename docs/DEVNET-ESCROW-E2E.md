@@ -6,7 +6,9 @@ transactions. It complements the local-validator lane (`archive/anchor-escrow/te
 which covers the same paths with slot warps but never touches a public cluster.
 
 Before it signs anything the script checks that the RPC is devnet (genesis hash) and that the deployed
-program bytes hash to the recorded `2576a9cc…32ac` (SHA-256 of the 96,272-byte file deployed on 21 November 2026; see `DEPLOY.md`). It refuses otherwise.
+program is the build of the latest devnet release record with a `deployedSlot` in `config/releases/`
+(today `v1-devnet-9c34fac.json`): the ProgramData account must say it was last deployed in that slot, and
+its bytes must hash to the record's `sha256` with only zeros after the record's size. It refuses otherwise.
 
 The script also has a rated lane, for ratings and judge attestations: see
 [Rated lane](#rated-lane-ratings-and-judge-attestations) below.
@@ -60,12 +62,9 @@ Three more modes exercise ratings and judge attestations of a job paid through e
 ([`RATINGS-AND-ATTESTATIONS.md`](RATINGS-AND-ATTESTATIONS.md)). They are separate modes with their own
 escrow labels, so the lane above still runs alone and one run id can serve both.
 
-**Not yet run against a deployment.** Devnet still runs the earlier build, which has no rating
-instructions. Before `run-rated` can pass, the owner upgrades devnet to the V1 build and sets `PROGRAM_LEN`
-and `PROGRAM_SHA256` at the top of the script to that deployment (and `PROGRAM` and `PROGRAM_DATA` too, if
-it is deployed at a new address). The script refuses a program whose bytes do not hash to the recorded
-value. The signing modes also check first that the program answers `accept_rating`, and refuse otherwise.
-Until then only the plan and its unit test have run.
+Devnet runs a build with ratings (the deployed devnet release record in `config/releases/`). Like the lane
+above, the script refuses a program that is not that record's build, and the signing modes also check
+first that the program answers `accept_rating`, and refuse otherwise.
 
 | Mode | Signs | What it does |
 | --- | --- | --- |

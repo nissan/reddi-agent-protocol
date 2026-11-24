@@ -72,8 +72,11 @@ const rating = require(path.join(__dirname, '..', 'packages', 'x402-solana', 'di
 const DEVNET_GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
 const PROGRAM = new PublicKey('DcfW3CxtZ6GnDU9xgA3sB7X4iFSvKRneYJ2Kvgdj5Ucu');
 const PROGRAM_DATA = new PublicKey('8cCmxnMPU8EQR7ECfff19Dr4gu1n7jyFCuEEyaYspRn2');
-const PROGRAM_LEN = 96_272;
-const PROGRAM_SHA256 = '2576a9cccb15ea09aa675e1a2d415043f8d231179772e5fa23728402b10a32ac';
+// The build devnet runs: the latest devnet release record with a deployedSlot (config/releases/README.md).
+// The script refuses a program whose bytes or deploy slot differ from that record.
+const DEVNET_RECORD = latestDevnetRecord(path.join(__dirname, '..', 'config', 'releases'));
+const PROGRAM_LEN = DEVNET_RECORD.size;
+const PROGRAM_SHA256 = DEVNET_RECORD.sha256;
 const TREASURY = new PublicKey('5CsBuTBFKu12JSs4CUbmv5MR218RYtNmAoQmLf5x3Hxe');
 const USDC = new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'); // constants.rs USDC_DEVNET_MINT
 const TOKEN = token.TOKEN_PROGRAM_ID;
@@ -220,6 +223,18 @@ function usdcCancel({ payer, nonce, authority, destination }) {
 
 // ── chain helpers ─────────────────────────────────────────────────────────────────────────────
 
+function latestDevnetRecord(dir) {
+  const records = fs.readdirSync(dir).filter(name => /^v1-devnet-[0-9a-f]{7}\.json$/.test(name))
+    .map(name => ({ name, ...JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')) }))
+    .filter(r => r.network === 'devnet' && r.programId === PROGRAM.toBase58() && Number.isSafeInteger(r.deployedSlot));
+  assert(records.length > 0, 'no deployed devnet release record in config/releases');
+  records.sort((a, b) => b.deployedSlot - a.deployedSlot);
+  assert(records.length === 1 || records[0].deployedSlot !== records[1].deployedSlot, 'two devnet records name the same deploy slot');
+  const record = records[0];
+  assert(Number.isSafeInteger(record.size) && record.size > 0 && /^[0-9a-f]{64}$/.test(record.sha256), `${record.name} has no usable size and sha256`);
+  return record;
+}
+
 async function checkCluster(conn) {
   const genesis = await conn.getGenesisHash();
   assert.equal(genesis, DEVNET_GENESIS, `refusing: RPC is not Solana devnet (genesis ${genesis})`);
@@ -227,6 +242,8 @@ async function checkCluster(conn) {
   assert(program?.executable, 'escrow program is not executable on devnet');
   const data = await conn.getAccountInfo(PROGRAM_DATA);
   assert(data, 'ProgramData account missing');
+  const deployedSlot = data.data.readBigUInt64LE(4);
+  assert.equal(deployedSlot, BigInt(DEVNET_RECORD.deployedSlot), `refusing: devnet program was last deployed in slot ${deployedSlot}, not the slot ${DEVNET_RECORD.name} records`);
   const bytes = data.data.subarray(45);
   const sha = createHash('sha256').update(bytes.subarray(0, PROGRAM_LEN)).digest('hex');
   assert.equal(sha, PROGRAM_SHA256, 'refusing: deployed program bytes do not match the recorded hash');
@@ -234,7 +251,7 @@ async function checkCluster(conn) {
   const treasuryUsdc = await token.getAccount(conn, TREASURY_USDC, 'confirmed', TOKEN);
   assert(treasuryUsdc.owner.equals(TREASURY) && treasuryUsdc.mint.equals(USDC), 'treasury USDC account is wrong');
   const slot = await conn.getSlot('confirmed');
-  return { genesis, programSha256: sha, slot, treasuryLamports: await conn.getBalance(TREASURY), treasuryUsdc: treasuryUsdc.amount.toString() };
+  return { genesis, record: DEVNET_RECORD.name, commit: DEVNET_RECORD.commit, programSha256: sha, slot, treasuryLamports: await conn.getBalance(TREASURY), treasuryUsdc: treasuryUsdc.amount.toString() };
 }
 
 async function tokenAmount(conn, address) {
@@ -855,7 +872,7 @@ async function ratingBuildProbe(conn, feePayer) {
 async function assertRatingBuild(conn, feePayer) {
   const probe = await ratingBuildProbe(conn, feePayer);
   assert(probe.answersRatingInstructions, `refusing: the deployed program does not answer accept_rating (${JSON.stringify(probe.error)}). `
-    + 'The rated lane needs the devnet deployment upgraded to the build with ratings, and PROGRAM_LEN and PROGRAM_SHA256 in this script set to it.');
+    + 'The rated lane needs the devnet deployment upgraded to a build with ratings, recorded in config/releases.');
 }
 
 async function planRated(conn) {
