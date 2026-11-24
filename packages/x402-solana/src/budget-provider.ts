@@ -264,9 +264,15 @@ function checkP256Reserve(
   return { ok: true, amount, transaction: tx, maxFeeLamports: LAMPORTS_PER_SIGNATURE * 2n + priority };
 }
 
+/**
+ * `a` (read back from a transaction) is `b`: same program, data and accounts, and each account at
+ * least as signer and writable as `b` asks. A compiled message keeps one set of flags per address, so
+ * an account that appears twice (the payout account is the payee itself, for SOL) carries the
+ * stronger flags in every place. Who signs is checked on its own.
+ */
 function sameInstruction(a: TransactionInstruction, b: TransactionInstruction): boolean {
   return a.programId.equals(b.programId) && Buffer.from(a.data).equals(Buffer.from(b.data)) && a.keys.length === b.keys.length
-    && a.keys.every((k, i) => k.pubkey.equals(b.keys[i].pubkey) && k.isSigner === b.keys[i].isSigner && k.isWritable === b.keys[i].isWritable);
+    && a.keys.every((k, i) => k.pubkey.equals(b.keys[i].pubkey) && (k.isSigner || !b.keys[i].isSigner) && (k.isWritable || !b.keys[i].isWritable));
 }
 
 /** The buyer side of step 2: a reserve signed by the spender, for the provider to check, sign and send. */

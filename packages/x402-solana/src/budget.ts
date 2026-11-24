@@ -605,7 +605,7 @@ export function compressP256PublicKey(publicKey: Uint8Array): Uint8Array {
 /** What a budget stores as a P-256 spender: sha256 of the 33-byte compressed key. Uses WebCrypto. */
 export async function p256SpenderAddress(publicKey: Uint8Array): Promise<PublicKey> {
   const compressed = compressP256PublicKey(publicKey);
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', compressed);
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new Uint8Array(compressed));
   return new PublicKey(new Uint8Array(digest));
 }
 

@@ -196,6 +196,18 @@ describe('provider side with a P-256 spender', () => {
     expect(result).toMatchObject({ ok: true, amount: 2_000_000n, maxFeeLamports: 10_000n });
   });
 
+  it('accepts a reserve paid to the provider itself (the SOL default), whose payout account shares the fee payer\'s flags', async () => {
+    const message = budgetApprovalMessage({ programId: pid, budget: budgetKey, createdSlot: CREATED, action: 'reserve', payee: payee.publicKey, amount: 2_000_000n, expiresSlot: EXPIRES, cluster: 'mainnet' });
+    const tx = new Transaction({ feePayer: payee.publicKey, recentBlockhash: Keypair.generate().publicKey.toBase58() });
+    tx.add(secp256r1ApprovalInstruction({ publicKey: key, signature: sign(message), message }));
+    tx.add(reserveInstruction({ programId: pid, budget: budgetKey, createdSlot: CREATED, spender: { p256ExpiresSlot: EXPIRES }, payee: payee.publicKey, amount: 2_000_000n }));
+    const result = await checkReserveTransaction({
+      transactionBase64: tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64'), programId: pid, budget: budgetKey, createdSlot: CREATED,
+      spender: await p256SpenderAddress(key), payee: payee.publicKey, payoutAccount: payee.publicKey, minAmount: 1_000_000n, maxAmount: 5_000_000n, p256: { cluster: 'mainnet' },
+    });
+    expect(result).toMatchObject({ ok: true, amount: 2_000_000n });
+  });
+
   it('refuses a reserve its approval does not match, or that is not the spender\'s', async () => {
     const other = generateKeyPairSync('ec', { namedCurve: 'P-256' });
     const otherJwk = other.publicKey.export({ format: 'jwk' });

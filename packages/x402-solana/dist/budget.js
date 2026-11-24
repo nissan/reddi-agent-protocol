@@ -474,7 +474,7 @@ function compressP256PublicKey(publicKey) {
 /** What a budget stores as a P-256 spender: sha256 of the 33-byte compressed key. Uses WebCrypto. */
 async function p256SpenderAddress(publicKey) {
     const compressed = compressP256PublicKey(publicKey);
-    const digest = await globalThis.crypto.subtle.digest('SHA-256', compressed);
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', new Uint8Array(compressed));
     return new web3_js_1.PublicKey(new Uint8Array(digest));
 }
 /** The exact 175 bytes a P-256 spender signs (ES256) for one call; the program rebuilds and compares them. */
