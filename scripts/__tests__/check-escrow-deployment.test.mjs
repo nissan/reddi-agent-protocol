@@ -285,9 +285,10 @@ test('the pooled-Budget records at 339ac70 agree with each other and the mainnet
     assert.equal(record.commit, '339ac70a5821cd9b69d2fb8639474971b0fca5b9');
     assert.equal(record.buildRun, 'https://github.com/nissan/reddi-agent-protocol/actions/runs/45392652948');
     assert.equal(record.network, record.variant);
-    // Neither is deployed yet.
-    assert.equal(record.deployedSlot, null);
   }
+  // Devnet was upgraded to this build in slot 525941760 (24 November 2026); mainnet is not deployed.
+  assert.equal(devnet.deployedSlot, 525941760);
+  assert.equal(mainnet.deployedSlot, null);
   assert.equal(devnet.size, 195704);
   assert.equal(mainnet.size, 195672);
   // The first pooled-Budget cut (64543ff) was replaced unused by the P-256 spender change.

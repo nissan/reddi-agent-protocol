@@ -7,7 +7,7 @@ which covers the same paths with slot warps but never touches a public cluster.
 
 Before it signs anything the script checks that the RPC is devnet (genesis hash) and that the deployed
 program is the build of the latest devnet release record with a `deployedSlot` in `config/releases/`
-(today `v1-devnet-9c34fac.json`): the ProgramData account must say it was last deployed in that slot, and
+(today `v1-devnet-339ac70.json`): the ProgramData account must say it was last deployed in that slot, and
 its bytes must hash to the record's `sha256` with only zeros after the record's size. It refuses otherwise.
 
 The script also has a rated lane, for ratings and judge attestations: see
