@@ -44,7 +44,7 @@
     "@anthropic-ai/sdk": "1.7.0",
     "@redditech/agent-protocol": "file:../agent-protocol",
     "@redditech/x402-solana": "file:../x402-solana",
-    "@solana/web3.js": "^1.98.4"
+    "@solana/web3.js": "^3.2.1"
   },
   "devDependencies": {
     "@types/node": "^20",
