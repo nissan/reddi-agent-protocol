@@ -31,7 +31,7 @@ import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, 
 import { dirname } from "node:path";
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import { ESCROW_PROTOCOL_TREASURY, treasuryTokenAccount } from "@redditech/x402-solana";
-import { closeBudgetInstruction, decodeBudget, decodeReservation, disputeEnds, judgeEnds, minReservation, payoutInstruction, postFinalInstruction, reservationAddress, type BudgetAccount, type ReservationAccount } from "@redditech/x402-solana/budget";
+import { closeBudgetInstruction, decodeBudget, decodeReservation, disputeEnds, judgeEnds, minReservation, payoutInstruction, postFinalInstruction, reservationAddress, type BudgetAccount, type BudgetApprovalCluster, type ReservationAccount } from "@redditech/x402-solana/budget";
 import { BUDGET_PAYMENT_HEADER, BUDGET_RESERVE_HEADER, BUDGET_SIGNATURE_HEADER, checkPooledBudgetForProvider, checkReserveTransaction, readBudgetPaymentHeader, verifyPooledBudgetRequest, type PooledBudgetOffer } from "@redditech/x402-solana/budget-provider";
 import type { ProviderChain } from "./chain.js";
 import type { ProviderConfig } from "./config.js";
@@ -190,6 +190,9 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
   const { terms } = config;
   const payee = terms.payee;
   const payoutAccount = associatedTokenAccount(payee, terms.mint, terms.tokenProgram);
+  // A P-256 spender (flag 0x08) approves a reserve through the secp256r1 precompile, over a message that
+  // names the program build's cluster, so an approval made for one cluster cannot be used on the other.
+  const approvalCluster: BudgetApprovalCluster = config.network === "solana-mainnet-beta" ? "mainnet" : "devnet";
   // A payout or close fails if the provider's or the payer's token account is missing (the payer may
   // have closed theirs since locking), so each one first creates them if needed: the provider pays
   // the rent, and only for an account that does not exist yet.
@@ -269,7 +272,7 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
     // The spender's signature is checked before anything is signed or sent for this budget.
     const sequence = (slice?.sequence ?? 0) + 1;
     if (header.sequence !== sequence) return { ok: false, status: 409, code: "budget_sequence_mismatch", message: `This provider expects call ${sequence} of this budget next.` };
-    const auth = verifyPooledBudgetRequest({ genesisHash: deps.genesisHash, action: "call", budget: header.budget, createdSlot: header.createdSlot, provider: payee, sequence, body: input.body, spender: found.budget.spender, signatureHeader: input.headers.get(BUDGET_SIGNATURE_HEADER) ?? undefined });
+    const auth = verifyPooledBudgetRequest({ genesisHash: deps.genesisHash, action: "call", budget: header.budget, createdSlot: header.createdSlot, provider: payee, sequence, body: input.body, spender: found.budget.spender, p256Spender: found.budget.p256Spender, signatureHeader: input.headers.get(BUDGET_SIGNATURE_HEADER) ?? undefined });
     if (!auth.ok) return { ok: false, status: 401, code: auth.reason, message: auth.message };
 
     const spent = BigInt(slice?.spent ?? "0");
@@ -289,7 +292,7 @@ export function createBudgetDesk(config: ProviderConfig, deps: BudgetDeskDeps) {
       // The budget itself is checked first (its token, judge, allowlist, time and funds), so a budget this provider cannot be paid from is refused as that.
       const usable = fitsBudget(least);
       if (!usable.ok) return { ok: false, status: 402, code: usable.reason, message: usable.message };
-      const checked = checkReserveTransaction({ transactionBase64: reserveText, programId: terms.programId, budget: header.budget, createdSlot: header.createdSlot, spender: found.budget.spender, payee, payoutAccount, minAmount: least, maxAmount: BigInt(wanted.reservation) });
+      const checked = checkReserveTransaction({ transactionBase64: reserveText, programId: terms.programId, budget: header.budget, createdSlot: header.createdSlot, spender: found.budget.spender, payee, payoutAccount, minAmount: least, maxAmount: BigInt(wanted.reservation), ...(found.budget.p256Spender ? { p256: { cluster: approvalCluster } } : {}) });
       if (!checked.ok) return { ok: false, status: 402, code: checked.reason, message: checked.message, offer: wanted };
       const fits = fitsBudget(checked.amount);
       if (!fits.ok) return { ok: false, status: 402, code: fits.reason, message: fits.message };

@@ -10,6 +10,7 @@ All notable changes to this package are documented here. Dates are AEST.
 - `budgetCallPricing`: an optional per-call hook that sets what a budget pays for a call (at most its cost) and may add a `bonus` block to the receipt. A failing hook refuses the call. `budgetCallPricingVoided` reports a priced call refused afterwards, and `onBudgetDone` reports each settled slice from the sweep.
 - The sweep's payout and close transactions first create the provider's and the payer's token accounts if either is missing (associated token program `CreateIdempotent`), so a payer who closed their account after locking cannot stall a payout. The provider pays the rent, and only for an account that does not exist yet.
 - Follows the budget program's audit round 4 rules through `@redditech/x402-solana`: a reserve the provider co-signs may carry at most one compute-unit limit and one capped compute-unit price, and the `budget_reserved` log shows the most it could cost (`maxFeeLamports`). After a spender closes a budget early (no allowlist), the sweep waits until the end of the open period plus the dispute window before paying out.
+- Budgets whose spender is a P-256 key (flag `0x08`, such as a key held in a cloud KMS): the kit checks the reserve's secp256r1 approval, made for this provider's cluster, co-signs as the only signer, and verifies each call's P-256 signature (`x402-budget-signature` carries the 33-byte key and the 64-byte signature).
 
 ## 0.3.1 — 2026-11-24
 
