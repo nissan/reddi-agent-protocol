@@ -274,10 +274,27 @@ test('the delivery-check records at 63d4719 agree with each other and the mainne
     assert.equal(record.network, record.variant);
     assert.equal(record.deployedSlot, null);
   }
+  // Sellers on x402-solana 0.1.2 / provider-kit 0.3.0 do not know the delivery flag, so these builds need newer packages.
+  const minimum = { '@redditech/x402-solana': '0.1.3', '@redditech/provider-kit': '0.3.1' };
+  const atLeast = (have, want) => { const [a, b] = [have, want].map((v) => v.split('.').map(Number)); for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i]; return true; };
+  for (const record of [devnet, mainnet]) {
+    assert.deepEqual(record.minimumPackages, minimum);
+    for (const [name, version] of Object.entries(record.minimumPackages)) {
+      const pkg = JSON.parse(readFileSync(path.join(root, 'packages', name.split('/')[1], 'package.json'), 'utf8'));
+      assert.ok(atLeast(pkg.version, version), `${name} in this repository (${pkg.version}) is older than the record's minimum ${version}`);
+    }
+  }
   assert.notEqual(devnet.executableHash, mainnet.executableHash);
   assert.equal(mainnet.upgradeAuthority, VAULT);
   assert.ok(mainnet.forbiddenAuthorities.includes(DEPLOYER), 'the devnet deployer must never control mainnet');
   assert.deepEqual(recordProblems(mainnet), ['a mainnet record must list the multisig account and the deployer under forbiddenAuthorities']);
+});
+
+test('minimumPackages, when present, names @redditech packages and x.y.z versions', () => {
+  assert.deepEqual(recordProblems(record({ minimumPackages: { '@redditech/x402-solana': '0.1.3' } })), []);
+  assert.ok(recordProblems(record({ minimumPackages: {} })).some((p) => /minimumPackages/.test(p)));
+  assert.ok(recordProblems(record({ minimumPackages: { 'left-pad': '1.0.0' } })).some((p) => /minimumPackages/.test(p)));
+  assert.ok(recordProblems(record({ minimumPackages: { '@redditech/x402-solana': '^0.1.3' } })).some((p) => /minimumPackages/.test(p)));
 });
 
 test('the CLI refuses an unusable record without touching the network', () => {

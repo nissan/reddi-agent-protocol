@@ -2,6 +2,14 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
+## 0.3.1 — 2026-11-24
+
+Needed with the escrow program build `63d4719` and later.
+
+### Changed
+
+- Requires `@redditech/x402-solana` 0.1.3: a provider refuses an escrow opted in to the delivery check (`delivery_escrow_declined`) before any work, instead of serving a call it could not be paid for, and Token-2022 settles carry the SPL Memo program.
+
 ## 0.3.0 — 2026-11-23
 
 ### Added

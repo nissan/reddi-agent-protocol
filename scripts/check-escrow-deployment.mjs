@@ -140,6 +140,15 @@ export function recordProblems(record) {
   if ((record.forbiddenAuthorities ?? []).includes(record.upgradeAuthority)) {
     problems.push('upgradeAuthority is also listed as forbidden');
   }
+  // The oldest SDK and provider kit that handle this build safely (for example, that refuse an escrow
+  // flag they cannot serve). Sellers on older versions must upgrade before the build is deployed.
+  if (record.minimumPackages !== undefined) {
+    const entries = record.minimumPackages && typeof record.minimumPackages === 'object' ? Object.entries(record.minimumPackages) : null;
+    if (!entries || entries.length === 0) problems.push('minimumPackages must map package names to versions');
+    else for (const [name, version] of entries) {
+      if (!/^@redditech\/[a-z0-9-]+$/.test(name) || !/^\d+\.\d+\.\d+$/.test(String(version))) problems.push(`minimumPackages entry ${name} must be an @redditech package and an x.y.z version`);
+    }
+  }
   if (record.deployer !== undefined && record.deployer !== null) {
     if (!isAddress(record.deployer)) problems.push('deployer is not an address');
     else if (!(record.forbiddenAuthorities ?? []).includes(record.deployer)) problems.push('deployer must also be listed under forbiddenAuthorities');

@@ -67,6 +67,12 @@ mainnet executable hash); the countersign step in docs/MAINNET-LAUNCH-RUNBOOK.md
 §1 re-reads them from the artifacts. If the audit round on this build leads to a
 program change, these records are replaced by a new pair.
 
+Both 63d4719 records carry `minimumPackages`: `@redditech/x402-solana` 0.1.3 and
+`@redditech/provider-kit` 0.3.1, the first versions that refuse a
+delivery-checked escrow (flag bit `0x04`). A seller on an older version would
+serve one and not be paid, so those versions are published, and named in the
+launch notes, before this build is deployed anywhere with real value.
+
 The devnet sandbox and the try page read the devnet records too
 (`lib/sandbox/deployment.ts`): the latest record with a `deployedSlot` is the
 build they settle against, and they take a paid call only while the program's

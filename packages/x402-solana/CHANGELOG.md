@@ -2,6 +2,20 @@
 
 All notable changes to this package are documented here. Dates are AEST.
 
+## 0.1.3 — 2026-11-24
+
+Needed with the escrow program build `63d4719` and later: sellers on 0.1.2 and earlier do not know the delivery check and would serve an escrow that cannot pay them.
+
+### Added
+
+- `@redditech/x402-solana/delivery`: builders and decoders for the escrow program's delivery check (`open_delivery`, `record_delivery`, `accept_delivery`, `dispute_delivery`, `resolve_delivery`, `resolve_token_delivery`), the delivery account, and `withDeliveryAccount` for the exits of a delivery-checked escrow. Held to `programs/pinocchio-escrow/interface/vectors.json` byte for byte.
+- `ESCROW_FLAG_DELIVERY` (bit `0x04`), and `deliveryChecked` on `escrowFlags` and on `decodeTokenEscrowAccount`.
+
+### Changed
+
+- `verifyMeteredLock` refuses an escrow opted in to the delivery check (`delivery_escrow_declined`), and `verifyEscrowLock` throws for one, before anything is served or remembered.
+- A Token-2022 metered settle carries the SPL Memo program as its last account, so a refund account that requires memos cannot make the settle fail.
+
 ## 0.1.2 — 2026-11-23
 
 ### Changed
