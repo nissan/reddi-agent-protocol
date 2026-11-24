@@ -312,7 +312,7 @@ do $$ begin
 end $$;
 
 
--- Budget custody (sealed spender keys, their use log, alerts, the pause switch):
+-- Budget custody (spender records and their public keys, their use log, alerts, the pause switch):
 -- the server's service role only. No client role may read or write them, and
 -- the use log and alerts cannot be rewritten even by the server.
 reset role;
@@ -328,8 +328,17 @@ do $$ declare r text; t text; begin
   end loop;
 end $$;
 set role service_role;
-insert into public.budget_spenders (id, spender, payer, network, status, sealed, key_id, record, version)
-  values ('0123456789abcdef0123456789abcdef', 'S', 'P', 'solana-devnet', 'pending', 'v1.k.a.b.c', 'k', '{}', 1);
+insert into public.budget_spenders (id, spender, payer, network, status, spender_key, record, version)
+  values ('0123456789abcdef0123456789abcdef', 'S', 'P', 'solana-devnet', 'pending', '02' || repeat('ab', 32), '{}', 1);
+-- A record holds a 33-byte compressed P-256 public key in hex, nothing else.
+do $$ begin
+  begin
+    insert into public.budget_spenders (id, spender, payer, network, status, spender_key, record, version)
+      values ('fedcba9876543210fedcba9876543210', 'S', 'P', 'solana-devnet', 'pending', '04' || repeat('ab', 32), '{}', 1);
+  exception when check_violation then return;
+  end;
+  raise exception 'a malformed spender key was stored';
+end $$;
 insert into public.budget_spender_uses (spender_id, purpose, message_sha256)
   values ('0123456789abcdef0123456789abcdef', 'reserve', repeat('a', 64));
 select pg_temp.expect_error('server rewrites the spender use log', 'update public.budget_spender_uses set purpose = ''close''');
@@ -361,12 +370,12 @@ do $$ declare got text; id text := '0123456789abcdef0123456789abcdef'; begin
   if got <> 'ok' then raise exception 'a close was refused: %', got; end if;
   update public.budget_controls set paused = false, watched_at = now() where budget_controls.id = 1;
 end $$;
-do $$ begin
-  begin
-    update public.budget_spenders set status = 'closed' where id = '0123456789abcdef0123456789abcdef';
-  exception when check_violation then return;
-  end;
-  raise exception 'a closed budget kept its sealed key';
+do $$ declare got text; sid text := '0123456789abcdef0123456789abcdef'; begin
+  update public.budget_spenders set status = 'closed' where budget_spenders.id = sid;
+  got := public.budget_spender_use(sid, 'close', null, repeat('f', 64), 100);
+  if got <> 'closed' then raise exception 'a closed budget logged another close: %', got; end if;
+  got := public.budget_spender_use('ffffffffffffffffffffffffffffffff', 'close', null, repeat('f', 64), 100);
+  if got <> 'unknown' then raise exception 'a missing record logged a use: %', got; end if;
 end $$;
 update public.budget_controls set paused = true, reason = 'test';
 reset role;
