@@ -45,6 +45,34 @@ export type ReddiReceiptV2Metered = {
   outputTokens: string;
   maxAmount: string;
   refunded: string;
+  /**
+   * For a provider priced by what it makes rather than by tokens (video, audio,
+   * images): the unit it bills and how many it delivered. Both or neither.
+   */
+  unit?: ReddiReceiptV2Unit;
+  units?: string;
+};
+
+/** Units a provider can bill by, besides tokens. */
+export const REDDI_RECEIPT_V2_UNITS = ['second', 'image', 'character', 'page'] as const;
+export type ReddiReceiptV2Unit = (typeof REDDI_RECEIPT_V2_UNITS)[number];
+
+/**
+ * A file the provider delivered and hosts for the buyer to collect. `sha256`
+ * ties the file to the receipt as `responseHash` ties a text answer: a buyer
+ * who hashes the file it downloaded can check it is the one it paid for.
+ * `expiresAt` is when the provider stops hosting it. Not on a session call.
+ */
+export type ReddiReceiptV2Delivery = {
+  name: string;
+  /** IANA media type, for example video/mp4. */
+  mediaType: string;
+  /** File size in bytes, as a decimal string. */
+  bytes: string;
+  /** SHA-256 of the file bytes, lowercase hex. */
+  sha256: string;
+  /** ISO 8601 UTC time the provider stops hosting the file. After `issuedAt`. */
+  expiresAt: string;
 };
 
 export type ReddiReceiptV2Payment = {
@@ -119,6 +147,8 @@ export type ReddiReceiptV2 = {
   payment?: ReddiReceiptV2Payment;
   /** Present on every call of a session. */
   session?: ReddiReceiptV2Session;
+  /** The file delivered, for a provider that returns one. */
+  delivery?: ReddiReceiptV2Delivery;
   /** The job this call was recorded as, when the provider knows it. */
   jobId?: string;
   /** ISO 8601 UTC time the provider issued this receipt. */
@@ -145,7 +175,8 @@ export type ReddiReceiptV2ErrorCode =
   | 'response_hash_mismatch'
   | 'payment_mismatch'
   | 'session_mismatch'
-  | 'session_chain_broken';
+  | 'session_chain_broken'
+  | 'delivery_mismatch';
 
 export type ReddiReceiptV2Error = { code: ReddiReceiptV2ErrorCode; path: string; message: string };
 
@@ -163,6 +194,8 @@ export type ReddiReceiptV2Expectation = {
   payment?: { network: ReddiReceiptV2Network; txSignature: string } & Partial<Omit<ReddiReceiptV2Payment, 'network' | 'txSignature' | 'fee'>> & { fee?: { amount: string; treasury?: string } };
   /** Each field given must equal the signed session block. A receipt without one fails. */
   session?: Partial<ReddiReceiptV2Session>;
+  /** Each field given must equal the signed delivery block, for example the SHA-256 of the file you downloaded. A receipt without one fails. */
+  delivery?: Partial<ReddiReceiptV2Delivery>;
 };
 
 /** Signs the canonical bytes with the provider's key and returns the 64-byte signature. The key never enters this module. */
@@ -173,11 +206,14 @@ const HASH = /^[0-9a-f]{64}$/;
 const TX_SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
-const RECEIPT_KEYS = ['schemaVersion', 'providerId', 'declaredModel', 'requestHash', 'responseHash', 'payment', 'session', 'jobId', 'issuedAt'];
+const RECEIPT_KEYS = ['schemaVersion', 'providerId', 'declaredModel', 'requestHash', 'responseHash', 'payment', 'session', 'delivery', 'jobId', 'issuedAt'];
+const DELIVERY_KEYS = ['name', 'mediaType', 'bytes', 'sha256', 'expiresAt'];
+const MEDIA_TYPE = /^[a-z]+\/[a-z0-9.+-]{1,100}$/;
 const SESSION_KEYS = ['escrow', 'payer', 'network', 'currency', 'mint', 'maxAmount', 'sequence', 'inputTokens', 'outputTokens', 'cumulativeInputTokens', 'cumulativeOutputTokens', 'cumulativeCost', 'previousReceiptHash', 'closed'];
 const SESSION_COUNTS = ['maxAmount', 'sequence', 'inputTokens', 'outputTokens', 'cumulativeInputTokens', 'cumulativeOutputTokens', 'cumulativeCost'] as const;
 const PAYMENT_KEYS = ['network', 'txSignature', 'currency', 'mint', 'amount', 'fee', 'payer', 'settlement', 'metered'];
 const METERED_KEYS = ['inputTokens', 'outputTokens', 'maxAmount', 'refunded'];
+const METERED_UNIT_KEYS = ['unit', 'units'];
 /** Smallest-unit amount: digits only, no leading zero, at most 30 digits. */
 const BASE_UNITS = /^(0|[1-9]\d{0,29})$/;
 const JOB_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/;
@@ -270,8 +306,10 @@ export function validateReddiReceiptV2(input: unknown): ReddiReceiptV2Verificati
     }
     const metered = payment.metered;
     if (payment.settlement === 'metered-escrow') {
-      if (!isRecord(metered) || !onlyKeys(metered, METERED_KEYS) || !METERED_KEYS.every((key) => typeof metered[key] === 'string' && BASE_UNITS.test(metered[key] as string))) {
+      if (!isRecord(metered) || !onlyKeys(metered, [...METERED_KEYS, ...METERED_UNIT_KEYS]) || !METERED_KEYS.every((key) => typeof metered[key] === 'string' && BASE_UNITS.test(metered[key] as string))) {
         errors.push(err('malformed_receipt', '$.payment.metered', 'a metered-escrow payment must state { inputTokens, outputTokens, maxAmount, refunded } as whole numbers'));
+      } else if ((metered.unit !== undefined || metered.units !== undefined) && (!(REDDI_RECEIPT_V2_UNITS as readonly unknown[]).includes(metered.unit) || typeof metered.units !== 'string' || !BASE_UNITS.test(metered.units) || metered.units === '0')) {
+        errors.push(err('malformed_receipt', '$.payment.metered.unit', `unit and units come together: unit one of ${REDDI_RECEIPT_V2_UNITS.join(', ')}, units a positive whole number`));
       } else if (typeof payment.amount === 'string' && BASE_UNITS.test(payment.amount)) {
         const max = BigInt(metered.maxAmount as string);
         const paid = BigInt(payment.amount);
@@ -284,11 +322,26 @@ export function validateReddiReceiptV2(input: unknown): ReddiReceiptV2Verificati
     if (payment.network !== 'solana-devnet' && payment.network !== 'solana-mainnet-beta') errors.push(err('malformed_receipt', '$.payment.network', 'network must be solana-devnet or solana-mainnet-beta'));
     if (typeof payment.txSignature !== 'string' || !TX_SIGNATURE.test(payment.txSignature)) errors.push(err('malformed_receipt', '$.payment.txSignature', 'txSignature must be a base58 transaction signature'));
   }
+  if (input.delivery !== undefined) validateDelivery(input.delivery, input.issuedAt, session !== undefined, errors);
   if (input.jobId !== undefined && (typeof input.jobId !== 'string' || !JOB_ID.test(input.jobId))) errors.push(err('malformed_receipt', '$.jobId', 'jobId must be 1 to 120 characters of letters, digits, dot, underscore, colon or hyphen'));
   if (typeof input.issuedAt !== 'string' || !ISO_UTC.test(input.issuedAt) || Number.isNaN(Date.parse(input.issuedAt))) {
     errors.push(err('malformed_receipt', '$.issuedAt', 'issuedAt must be an ISO 8601 UTC time'));
   }
   return errors.length > 0 ? { ok: false, errors } : { ok: true, receipt: input as ReddiReceiptV2 };
+}
+
+function validateDelivery(delivery: unknown, issuedAt: unknown, inSession: boolean, errors: ReddiReceiptV2Error[]): void {
+  if (!isRecord(delivery) || !onlyKeys(delivery, DELIVERY_KEYS)) {
+    errors.push(err('malformed_receipt', '$.delivery', 'delivery must be { name, mediaType, bytes, sha256, expiresAt }'));
+    return;
+  }
+  if (inSession) errors.push(err('malformed_receipt', '$.delivery', 'a session call does not deliver a file'));
+  if (typeof delivery.name !== 'string' || delivery.name.length < 1 || delivery.name.length > 200 || /[\u0000-\u001f\u007f]/.test(delivery.name)) errors.push(err('malformed_receipt', '$.delivery.name', 'name must be 1 to 200 printable characters'));
+  if (typeof delivery.mediaType !== 'string' || !MEDIA_TYPE.test(delivery.mediaType)) errors.push(err('malformed_receipt', '$.delivery.mediaType', 'mediaType must be a lowercase type/subtype'));
+  if (typeof delivery.bytes !== 'string' || !BASE_UNITS.test(delivery.bytes) || delivery.bytes === '0') errors.push(err('malformed_receipt', '$.delivery.bytes', 'bytes must be a positive whole number, as a string'));
+  if (typeof delivery.sha256 !== 'string' || !HASH.test(delivery.sha256)) errors.push(err('malformed_receipt', '$.delivery.sha256', 'sha256 must be lowercase hex SHA-256 of the file'));
+  if (typeof delivery.expiresAt !== 'string' || !ISO_UTC.test(delivery.expiresAt) || Number.isNaN(Date.parse(delivery.expiresAt))) errors.push(err('malformed_receipt', '$.delivery.expiresAt', 'expiresAt must be an ISO 8601 UTC time'));
+  else if (typeof issuedAt === 'string' && Date.parse(delivery.expiresAt) <= Date.parse(issuedAt)) errors.push(err('malformed_receipt', '$.delivery.expiresAt', 'a file must be hosted past the time the receipt was issued'));
 }
 
 function validateSession(session: unknown, payment: unknown, errors: ReddiReceiptV2Error[]): void {
@@ -362,10 +415,22 @@ export function canonicalizeReddiReceiptV2(receipt: ReddiReceiptV2): string {
       ...(p.payer !== undefined ? { payer: p.payer } : {}),
       settlement: p.settlement,
       ...(p.metered !== undefined
-        ? { metered: { inputTokens: p.metered.inputTokens, outputTokens: p.metered.outputTokens, maxAmount: p.metered.maxAmount, refunded: p.metered.refunded } }
+        ? {
+            metered: {
+              inputTokens: p.metered.inputTokens,
+              outputTokens: p.metered.outputTokens,
+              maxAmount: p.metered.maxAmount,
+              refunded: p.metered.refunded,
+              ...(p.metered.unit !== undefined ? { unit: p.metered.unit } : {}),
+              ...(p.metered.units !== undefined ? { units: p.metered.units } : {}),
+            },
+          }
         : {}),
     } } : {}),
     ...(receipt.session !== undefined ? { session: canonicalSession(receipt.session) } : {}),
+    ...(receipt.delivery !== undefined
+      ? { delivery: { name: receipt.delivery.name, mediaType: receipt.delivery.mediaType, bytes: receipt.delivery.bytes, sha256: receipt.delivery.sha256, expiresAt: receipt.delivery.expiresAt } }
+      : {}),
     ...(receipt.jobId !== undefined ? { jobId: receipt.jobId } : {}),
     issuedAt: receipt.issuedAt,
   });
@@ -450,6 +515,10 @@ export function verifyReddiReceiptV2(input: unknown, expected: ReddiReceiptV2Exp
     const got = receipt.session as Record<string, unknown> | undefined;
     if (!got || Object.entries(expected.session).some(([key, value]) => value !== undefined && got[key] !== value)) errors.push(err('session_mismatch', '$.receipt.session', 'session differs from the session expected'));
   }
+  if (expected.delivery !== undefined) {
+    const got = receipt.delivery as Record<string, unknown> | undefined;
+    if (!got || Object.entries(expected.delivery).some(([key, value]) => value !== undefined && got[key] !== value)) errors.push(err('delivery_mismatch', '$.receipt.delivery', 'delivered file differs from the file expected'));
+  }
   if (expected.payment !== undefined && receipt.payment === undefined) {
     errors.push(err('payment_mismatch', '$.receipt.payment', 'this receipt states no payment yet'));
   } else if (expected.payment !== undefined && receipt.payment !== undefined) {
@@ -463,7 +532,7 @@ export function verifyReddiReceiptV2(input: unknown, expected: ReddiReceiptV2Exp
       || (want.amount !== undefined && want.amount !== got.amount)
       || (want.payer !== undefined && want.payer !== got.payer)
       || (want.settlement !== undefined && want.settlement !== got.settlement)
-      || (want.metered !== undefined && (got.metered === undefined || METERED_KEYS.some((key) => want.metered![key as keyof ReddiReceiptV2Metered] !== got.metered![key as keyof ReddiReceiptV2Metered])))
+      || (want.metered !== undefined && (got.metered === undefined || [...METERED_KEYS, ...METERED_UNIT_KEYS].some((key) => want.metered![key as keyof ReddiReceiptV2Metered] !== got.metered![key as keyof ReddiReceiptV2Metered])))
       || (want.fee !== undefined && (want.fee.amount !== got.fee.amount || (want.fee.treasury !== undefined && want.fee.treasury !== got.fee.treasury)));
     if (differs) errors.push(err('payment_mismatch', '$.receipt.payment', 'payment differs from the payment that was made'));
   }

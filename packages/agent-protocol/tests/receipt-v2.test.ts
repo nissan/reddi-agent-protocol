@@ -273,6 +273,42 @@ describe('reddi.receipt.v2', () => {
     assert.equal(bad({ ...metered, amount: '300000', metered: { ...metered.metered, refunded: '0' } }).ok, true);
   });
 
+  it('states the unit, the length and the delivered file of a media call', async () => {
+    const provider = testProvider();
+    // 30 seconds of video at $0.05 plus a week of hosting, of a 40-second maximum.
+    const payment = {
+      ...PAYMENT,
+      amount: '1501875',
+      fee: { amount: '37546', treasury: TREASURY },
+      settlement: 'metered-escrow',
+      metered: { inputTokens: '0', outputTokens: '0', maxAmount: '2002500', refunded: '500625', unit: 'second', units: '30' },
+    } as const;
+    const file = hashReddiReceiptV2Body('the video bytes');
+    const delivery = { name: 'final/launch-30s.mp4', mediaType: 'video/mp4', bytes: '37500000', sha256: file, expiresAt: '2026-11-27T09:00:00Z' };
+    const signed = await signReddiReceiptV2(receiptFor(provider.address, { payment, delivery }), provider.signer);
+    assert.match(canonicalizeReddiReceiptV2(signed.receipt), /"refunded":"500625","unit":"second","units":"30"\}\},"delivery":\{"name":"final\/launch-30s.mp4","mediaType":"video\/mp4","bytes":"37500000","sha256":"[0-9a-f]{64}","expiresAt":"2026-11-27T09:00:00Z"\},"issuedAt"/);
+    // The buyer checks the file it downloaded and the length it was billed for.
+    assert.equal(verifyReddiReceiptV2(signed, { delivery: { sha256: file, bytes: '37500000' }, payment: { network: payment.network, txSignature: TX, metered: payment.metered } }).ok, true);
+    assert.deepEqual(codes(verifyReddiReceiptV2(signed, { delivery: { sha256: hashReddiReceiptV2Body('another file') } })), ['delivery_mismatch']);
+    assert.deepEqual(codes(verifyReddiReceiptV2(signed, { payment: { network: payment.network, txSignature: TX, metered: { ...payment.metered, units: '31' } } })), ['payment_mismatch']);
+    // The file is signed.
+    assert.deepEqual(codes(verifyReddiReceiptV2({ ...signed, receipt: { ...signed.receipt, delivery: { ...delivery, sha256: hashReddiReceiptV2Body('swapped') } } })), ['signature_invalid']);
+    // A token receipt has no delivery to match.
+    const tokenOnly = await signReddiReceiptV2(receiptFor(provider.address), provider.signer);
+    assert.deepEqual(codes(verifyReddiReceiptV2(tokenOnly, { delivery: { sha256: file } })), ['delivery_mismatch']);
+
+    const bad = (overrides: Partial<ReddiReceiptV2>) => validateReddiReceiptV2(receiptFor(provider.address, { payment, delivery, ...overrides } as Partial<ReddiReceiptV2>)).ok;
+    assert.equal(bad({}), true);
+    assert.equal(bad({ payment: { ...payment, metered: { ...payment.metered, unit: undefined } } as unknown as ReddiReceiptV2['payment'] }), false);
+    assert.equal(bad({ payment: { ...payment, metered: { ...payment.metered, unit: 'furlong' } } as unknown as ReddiReceiptV2['payment'] }), false);
+    assert.equal(bad({ payment: { ...payment, metered: { ...payment.metered, units: '0' } } as unknown as ReddiReceiptV2['payment'] }), false);
+    assert.equal(bad({ delivery: { ...delivery, sha256: 'abc' } }), false);
+    assert.equal(bad({ delivery: { ...delivery, bytes: '0' } }), false);
+    assert.equal(bad({ delivery: { ...delivery, mediaType: 'Video MP4' } }), false);
+    assert.equal(bad({ delivery: { ...delivery, expiresAt: '2026-11-20T09:00:00Z' } }), false);
+    assert.equal(bad({ delivery: { ...delivery, url: 'https://example.com/x' } as unknown as ReddiReceiptV2['delivery'] }), false);
+  });
+
   it('refuses to sign an invalid receipt', async () => {
     const provider = testProvider();
     await assert.rejects(signReddiReceiptV2(receiptFor(provider.address, { declaredModel: '' }), provider.signer), /invalid_reddi_receipt_v2/);
