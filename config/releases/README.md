@@ -55,19 +55,23 @@ program was reopened for the delivery check and must not be deployed to mainnet
 from `45e9547`. File sizes and `sha256` were read from the run's artifacts; the
 executable hashes also appear in the run's job logs.
 
-The delivery-check build is `63d4719` (#1049, merged 24 November 2026; run
-45329015381, both variants, same image digest). `v1-devnet-63d4719.json` is its
-devnet build, not yet deployed. `v1-mainnet-63d4719.json` is the mainnet build of
-record: it lists the devnet deployer as forbidden, and is refused by the check
+The delivery-check build was first cut at `63d4719` (#1049, run 45329015381). Its
+records were replaced unused on 24 November 2026 when the refund timing of a
+delivered fixed-price escrow changed (#1074); nothing was deployed from `63d4719`.
+
+The delivery-check build of record is `9c34fac` (#1074, merged 24 November 2026;
+run 45336688889, both variants, same image digest). `v1-devnet-9c34fac.json` is
+its devnet build, not yet deployed. `v1-mainnet-9c34fac.json` is the mainnet build
+of record: it lists the devnet deployer as forbidden, and is refused by the check
 until the Squads multisig account and the mainnet deployer are added at deploy;
 the check must pass against it after the upgrade authority moves to the vault.
 Sizes, `sha256` and executable hashes were read from the run's job logs (the
 same job hashes the file it uploads, and the binary-of-record job matched the
 mainnet executable hash); the countersign step in docs/MAINNET-LAUNCH-RUNBOOK.md
-§1 re-reads them from the artifacts. If the audit round on this build leads to a
-program change, these records are replaced by a new pair.
+§1 re-reads them from the artifacts. If a later program change lands before
+the deploy, these records are replaced by a new pair.
 
-Both 63d4719 records carry `minimumPackages`: `@redditech/x402-solana` 0.1.3 and
+Both 9c34fac records carry `minimumPackages`: `@redditech/x402-solana` 0.1.3 and
 `@redditech/provider-kit` 0.3.1, the first versions that refuse a
 delivery-checked escrow (flag bit `0x04`). A seller on an older version would
 serve one and not be paid, so those versions are published, and named in the

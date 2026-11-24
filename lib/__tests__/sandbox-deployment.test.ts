@@ -2,7 +2,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import vectors from "@/programs/pinocchio-escrow/interface/vectors.json";
 import devnetPreFreeze from "@/config/releases/v1-devnet-b71a91e.json";
 import devnetFreeze from "@/config/releases/v1-devnet-45e9547.json";
-import devnetDeliveryCheck from "@/config/releases/v1-devnet-63d4719.json";
+import devnetDeliveryCheck from "@/config/releases/v1-devnet-9c34fac.json";
 import { IX } from "@/lib/program";
 import { buildSandboxRefund, buildSandboxSettle, SANDBOX_ESCROW_PROGRAM_ID } from "@/lib/sandbox/escrow";
 import {
@@ -48,7 +48,7 @@ describe("sandbox program build of record (audit S7-Codex-R2-06)", () => {
     expect(devnetFreeze.commit.startsWith("45e9547")).toBe(true);
     // The delivery-check build encodes an unrated exit like the freeze build.
     expect(NAMES_UNRATED_EXITS_BY_EXECUTABLE_HASH[devnetDeliveryCheck.executableHash]).toBe(true);
-    expect(devnetDeliveryCheck.commit.startsWith("63d4719")).toBe(true);
+    expect(devnetDeliveryCheck.commit.startsWith("9c34fac")).toBe(true);
   });
 
   it("takes the latest deployed devnet record of the sandbox program", () => {
